@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
-
 import re
+
+import pytest
 
 from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import ArticulatedPlan, ScenePlan
