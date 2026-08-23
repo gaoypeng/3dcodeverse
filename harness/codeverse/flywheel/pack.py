@@ -22,6 +22,7 @@ from codeverse.flywheel.export import (
     write_jsonl,
     write_parquet,
 )
+from codeverse.flywheel.quality import mark_duplicates
 
 MAX_TAR_BYTES = int(2.5 * 1024**3)
 
@@ -50,6 +51,7 @@ def pack_samples(out_dir: Path | str, *, tar_prefix: str = "", max_tar_bytes: in
     rows = collect_rows(out)
     if not rows:
         raise PackError(f"no samples under {out}")
+    mark_duplicates(rows)
     rep = PackReport()
     tar_idx = 0
     tar: tarfile.TarFile | None = None
@@ -60,7 +62,7 @@ def pack_samples(out_dir: Path | str, *, tar_prefix: str = "", max_tar_bytes: in
         if tar is not None:
             tar.close()
         tar_path = out / f"samples-{tar_idx:03d}.tar"
-        tar = tarfile.open(tar_path, mode="w", format=tarfile.PAX_FORMAT)
+        tar = tarfile.open(tar_path, mode="w", format=tarfile.PAX_FORMAT)  # noqa: SIM115 - closed in _open_new/after loop
         rep.tars.append(tar_path.name)
         tar_idx += 1
 
@@ -101,7 +103,8 @@ def verify_locators(out_dir: Path | str) -> int:
         with tpath.open("rb") as fh:
             fh.seek(row["byte_start"])
             blob = fh.read(row["byte_len"])
-        members = tarfile.open(fileobj=io.BytesIO(blob), mode="r:").getmembers()
+        with tarfile.open(fileobj=io.BytesIO(blob), mode="r:") as sub:
+            members = sub.getmembers()
         files = [m for m in members if m.isfile()]
         if len(files) != row["n_files"]:
             raise PackError(f"row {row['id']}: {len(files)} files in range, expected {row['n_files']}")

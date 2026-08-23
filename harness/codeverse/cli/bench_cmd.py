@@ -1,4 +1,4 @@
-"""``c3v bench run <battery.yaml> | report <dir>``."""
+"""``3dcv bench run <battery.yaml> | report <dir>``."""
 
 from __future__ import annotations
 

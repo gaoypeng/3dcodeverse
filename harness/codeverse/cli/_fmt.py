@@ -36,14 +36,15 @@ def fmt_usd(v: float) -> str:
 
 
 def rounds_table(record: RunRecord) -> Table:
-    t = Table(title="rounds", show_lines=False)
+    t = Table(title="rounds (* = best)", show_lines=False)
     for col in ("#", "kind", "build", "gate err", "score", "passed", "cost", "secs", "commit"):
         t.add_column(col, justify="right" if col in ("#", "gate err", "score", "cost", "secs") else "left")
     for r in record.rounds:
         build = "-" if r.build is None else ("ok" if r.build.ok else "[red]FAIL[/red]")
         j = r.judgment
         passed = "-" if j is None else ("[green]yes[/green]" if j.passed else "no")
-        t.add_row(str(r.index), r.kind, build, str(sum(len(g.errors) for g in r.gates)), fmt_score(r.score),
+        best = "*" if record.best_round is not None and r.index == record.best_round else ""
+        t.add_row(f"{r.index}{best}", r.kind, build, str(sum(len(g.errors) for g in r.gates)), fmt_score(r.score),
                   passed, fmt_usd(r.usage.cost_usd), f"{r.duration_s:.0f}", r.commit[:8])
     return t
 
@@ -96,7 +97,7 @@ def print_observation(obs: Any, *, as_json: bool) -> None:
 
 def doctor_table(rows: list[tuple[str, str, str]]) -> Table:
     """rows: (check, status OK|WARN|FAIL, detail)."""
-    t = Table(title="c3v doctor")
+    t = Table(title="3dcv doctor")
     t.add_column("check", style="bold")
     t.add_column("status")
     t.add_column("detail")

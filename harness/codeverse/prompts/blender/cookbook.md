@@ -2,12 +2,61 @@
 
 Every snippet below runs as-is in `blender -b --factory-startup` (they are executed in
 order by the harness test suite).  Z-up, −Y front, meters, PascalCase object names.
-Use `read_cookbook(section="<heading>")` to fetch one chapter.
+Files: `src/model.py` (entry) + `src/parts/<snake>.py` (one `build_<snake>()` per plan part) —
+see "File layout".  Use `read_cookbook(section="<heading>")` to fetch one chapter.
 
-## Skeleton
+## File layout (multi-file: model.py + parts/<snake>.py)
 
-A well-structured `src/model.py`: constants on top, tiny data-API helpers, one
-`build_<part>()` per plan part returning the object, `main()` at the bottom.
+The harness lays down one file per plan part so parts can be refined in parallel:
+
+```text
+src/model.py            ENTRY — imports the builders, calls them in plan order, self-checks
+src/parts/seat.py       def build_seat() -> bpy.types.Object     (one per plan part, snake_case)
+src/parts/leg.py        def build_leg()  -> Leg_0..Leg_3, each TOP-LEVEL (instances loop here; no parent Empty)
+src/parts/_common.py    optional shared helpers (underscore = not a part; never required)
+```
+
+Rules that the lint enforces: the part file `src/parts/<snake>.py` must define
+`build_<snake>()`; part files only DEFINE (no module-level `build_*()` / `main()` calls —
+model.py calls each builder once); `src/` is on `sys.path`, so model.py does
+`from parts.seat import build_seat` (or `import parts.seat`).  Build errors come back as
+`src/parts/<file>.py:<line>`.  A complete verified 3-file example is in the contract.
+
+A part file, fully self-contained (own helpers, plan numbers on top):
+
+`src/parts/mug_body.py`
+```py
+import bpy, bmesh
+
+MUG_R, MUG_H, WALL = 0.042, 0.095, 0.004          # plan numbers (metres)
+
+def _link(obj):
+    bpy.context.scene.collection.objects.link(obj); return obj
+
+def build_mug_body() -> bpy.types.Object:
+    """MugBody — cylinder on z=0, hollowed later with a boolean; returns the object at world pose."""
+    bm = bmesh.new()
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=48, radius1=MUG_R, radius2=MUG_R, depth=MUG_H)
+    me = bpy.data.meshes.new("MugBody"); bm.to_mesh(me); bm.free()
+    body = bpy.data.objects.new("MugBody", me); body.location = (0, 0, MUG_H / 2)
+    return _link(body)
+```
+`src/model.py`
+```py
+import bpy
+from parts.mug_body import build_mug_body
+
+def main() -> None:
+    build_mug_body()
+    assert all('.' not in o.name for o in bpy.data.objects), "auto-suffixed names"
+
+main()
+
+```
+
+Small objects (1–2 parts) may keep everything in one `src/model.py`; the rest of this
+cookbook is written that way.  Every snippet below assumes these helpers (define them once
+per file that uses them — part files are self-contained):
 
 ```python
 import bpy, bmesh, math, random
@@ -440,8 +489,10 @@ for o in bpy.data.objects:
     if o.name.startswith("Leg"): move_to(o, legs)
 ```
 
-Why: parenting is fine for organisation but the exporter bakes world transforms —
-**never leave a part as a child of an empty with a non-identity scale**.  `join()` inherits
+Why: use COLLECTIONS for organisation (they are not exported as nodes).  **Never parent
+parts or instances under an Empty**: the harness measures top-level GLB nodes as parts, so
+an Empty parent merges its whole subtree into ONE part (plan part reported missing) — and an
+empty with non-identity scale also skews the baked world transforms.  `join()` inherits
 the ACTIVE object's transform; make the largest/identity object active.
 
 ## Proportions and detail (how to look good cheaply)
@@ -565,7 +616,14 @@ fasteners).  Name every mass as the plan does; instances by `linked_copy`.
 19. **Huge scripts / per-vertex Python loops over 500 k verts** time out → use modifiers,
     `foreach_set`, or fewer segments.
 20. **Parenting with scaled parents** → children inherit scale; export bakes it, bevels go
-    elliptical.  Parent only to identity-scale empties, or not at all.
+    elliptical.  Do not parent parts at all — an Empty parent also merges its children into
+    ONE measured part (plan part reported missing); group with collections instead.
+21. **`ModuleNotFoundError: No module named 'parts.seat_cushion'`** → the part file must be
+    `src/parts/seat_cushion.py` (snake_case of the plan name); `src/` is on `sys.path`, do
+    not add path hacks.  **`ImportError: cannot import name 'build_x'`** → the part file must
+    define exactly `def build_<snake>()`.
+22. **A part appears twice (`Seat.001`)** → the part file calls `build_seat()` at module level
+    AND model.py calls it.  Part files only define; model.py calls each builder once.
 
 ## Self-check (before you call it done)
 

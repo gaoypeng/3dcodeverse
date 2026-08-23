@@ -17,7 +17,10 @@ Mechanism
    through each other).
 6. Tiny disconnected islands inside a single part → WARN (stray geometry).
 
-All thresholds are module constants (meters) and keyword-overridable.
+All thresholds are module constants (meters) and keyword-overridable.  Pass the
+authoring ``language`` so translation hints are written in the frame the agent
+codes in (Blender/CadQuery/URDF are Z-up; the GLB is Y-up) — a hint in the wrong
+frame moves a part forward instead of down.
 """
 
 from __future__ import annotations
@@ -31,7 +34,8 @@ import numpy as np
 import trimesh
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.conventions import CONTACT_GAP_M
+from codeverse.conventions import CONTACT_GAP_M, Frame
+from codeverse.spatial.contract import frame_label, glb_vec_to_plan, language_frame
 from codeverse.spatial.measure import GlbLoadError, load_scene, part_meshes
 
 GATE = "connectivity"
@@ -150,7 +154,7 @@ def _components(names: list[str], edges: set[tuple[str, str]]) -> list[set[str]]
 
 
 def _fmt_vec(v: tuple[float, float, float]) -> str:
-    return "(" + ", ".join(f"{x:+.4f}" for x in v) + ")"
+    return "(" + ", ".join(f"{round(x, 4) + 0.0:+.4f}" for x in v) + ")"  # + 0.0: no '-0.0000'
 
 
 def _island_findings(name: str, mesh: trimesh.Trimesh) -> list[GateFinding]:
@@ -180,9 +184,12 @@ def check_connectivity(
     min_part_size_m: float = MIN_PART_SIZE_M,
     penetration_warn_m: float = PENETRATION_WARN_M,
     penetration_error_m: float = PENETRATION_ERROR_M,
+    language: str = "",
 ) -> GateReport:
-    """Run the connectivity gate on ``glb`` (see module docstring)."""
+    """Run the connectivity gate on ``glb`` (see module docstring).  ``language`` selects
+    the frame of the translation hints (default: the GLB frame, labelled as such)."""
     t0 = time.time()
+    up = "z" if language_frame(language) is Frame.Z_UP_NEG_Y_FRONT else "y"
     findings: list[GateFinding] = []
     try:
         parts = {k: v for k, v in part_meshes(load_scene(glb)).items() if v is not None and len(v.faces)}
@@ -232,8 +239,8 @@ def check_connectivity(
             support |= c
     else:
         support = max(comps, key=lambda c: sum(len(parts[n].faces) for n in c)) if comps else set()
-        findings.append(GateFinding(gate=GATE, severity=Severity.WARN, message="no part touches the ground (y=0)",
-                                    fix_hint="move the whole object down so its lowest point sits at y=0"))
+        findings.append(GateFinding(gate=GATE, severity=Severity.WARN, message=f"no part touches the ground ({up}=0)",
+                                    fix_hint=f"move the whole object down so its lowest point sits on the ground ({up}=0, {frame_label(language)})"))
     for n in big:
         if n in support:
             continue
@@ -243,15 +250,17 @@ def check_connectivity(
                                         message=f"part '{n}' is floating: touches nothing", fix_hint=f"attach '{n}' to a neighbouring part"))
             continue
         other = near.b if near.a == n else near.a
-        vec = near.gap_vector if near.a == n else tuple(-x for x in near.gap_vector)
+        vec_glb = near.gap_vector if near.a == n else tuple(-x for x in near.gap_vector)
         p_self = near.point_a if near.a == n else near.point_b
         p_other = near.point_b if near.a == n else near.point_a
+        vec = tuple(float(x) for x in glb_vec_to_plan(vec_glb, language))
         findings.append(GateFinding(
             gate=GATE, severity=Severity.ERROR, target=n,
             message=f"part '{n}' is floating: nearest supported part is '{other}' at {near.distance * 1000:.1f} mm",
-            fix_hint=f"translate '{n}' by {_fmt_vec(vec)} m (or extend it by {near.distance * 1000:.1f} mm towards '{other}') so the surfaces touch",
-            data={"nearest": other, "gap_m": near.distance, "gap_vector_m": list(vec),
-                  "closest_point_self": list(p_self), "closest_point_other": list(p_other)},
+            fix_hint=f"translate '{n}' by {_fmt_vec(vec)} m ({frame_label(language)}) — or extend it by "
+                     f"{near.distance * 1000:.1f} mm towards '{other}' — so the surfaces touch",
+            data={"nearest": other, "gap_m": near.distance, "gap_vector_m": list(vec), "frame": language_frame(language).value,
+                  "gap_vector_glb_m": list(vec_glb), "closest_point_self": list(p_self), "closest_point_other": list(p_other)},
         ))
     # ---- stray islands inside parts
     for n in big:

@@ -56,11 +56,13 @@ def make_fake_run(
 ) -> tuple[Workspace, RunRecord]:
     ws = Workspace(runs_dir / slug).create()
     track = Track.SCENE if language is Language.SCENE_THREEJS else (
-        Track.ARTICULATED_OBJECT if language is Language.URDF_BLENDER else Track.STATIC_OBJECT)
+        Track.ARTICULATED_OBJECT if language is Language.URDF_BLENDER else (
+            Track.GRAPHICS if language in (Language.GLSL_SHADER, Language.OPENGL_PYTHON) else Track.STATIC_OBJECT))
     spec = Spec(id=slug, track=track, language=language, prompt=prompt, backends=Backends(generator=generator))
     ws.write_json(ws.spec_path, spec)
     entry = {"blender": "src/model.py", "cadquery": "src/model.py", "urdf_blender": "src/model.py",
-             "threejs": "src/object.js", "scene_threejs": "src/scene.js"}[language.value]
+             "threejs": "src/object.js", "scene_threejs": "src/scene.js",
+             "glsl_shader": "src/shader.frag", "opengl_python": "src/program.py"}[language.value]
     e = ws.root / entry
     e.parent.mkdir(parents=True, exist_ok=True)
     e.write_text("# round 0\nimport bpy  # comment\n\nbpy.ops.mesh.primitive_cube_add(size=1.0)\n")

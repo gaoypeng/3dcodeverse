@@ -6,7 +6,7 @@ import json
 
 import pytest
 from google.genai import types
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from codeverse.contracts.plan import ArticulatedPlan, ScenePlan, StaticPlan
 from codeverse.models.schema_utils import (
@@ -102,10 +102,84 @@ def test_openai_strict_schema_shape():
             assert set(n["required"]) == set(n["properties"].keys())
 
     _walk(s, check)
-    # optional field became nullable
     part = s["properties"]["parts"]["items"]["properties"]
-    assert part["material"]["type"] == ["string", "null"]
+    # optional-without-default (``str | None = None``) is nullable on the wire …
     assert {"type": "null"} in part["attach_to"]["anyOf"]
+    # … but defaulted fields stay non-null (pydantic rejects null there) with a hint
+    assert (
+        part["material"]["type"] == "string" and '[default: ""]' in part["material"]["description"]
+    )
+    assert (
+        part["instances"]["type"] == "integer"
+        and "[default: 1]" in part["instances"]["description"]
+    )
+    assert part["symmetry"]["type"] == "string" and "null" not in json.dumps(part["symmetry"])
+    assert s["properties"]["style_notes"]["type"] == "string"
+
+
+@pytest.mark.parametrize("model", [StaticPlan, ArticulatedPlan, ScenePlan])
+def test_openai_strict_schema_never_adds_null(model):
+    """Wire contract == pydantic contract: a field accepts null on the wire iff the
+    source schema does (``x: T | None``) — never because it merely has a default /
+    default_factory, else the model's nulls fail ``model_validate``."""
+    original = inline_refs(model.model_json_schema())
+    strict = to_openai_strict_schema(model.model_json_schema())
+
+    def pairs(o, st):
+        if isinstance(o, dict) and "properties" in o and isinstance(st, dict):
+            for name, sub in o["properties"].items():
+                yield sub, st["properties"][name]
+                yield from pairs(sub, st["properties"][name])
+        if isinstance(o, dict) and "items" in o and isinstance(st, dict):
+            yield from pairs(o["items"], st["items"])
+        if isinstance(o, dict) and "anyOf" in o and isinstance(st, dict):
+            for a, b in zip(o["anyOf"], st["anyOf"], strict=True):
+                yield from pairs(a, b)
+
+    n_defaulted = 0
+    for orig, strict_sub in pairs(original, strict):
+        if not isinstance(orig, dict):
+            continue
+        n_defaulted += orig.get("default") is not None
+        assert _accepts_null(strict_sub) == _accepts_null(orig), (orig, strict_sub)
+    assert n_defaulted > 0
+
+
+def _accepts_null(sub) -> bool:
+    return "null" in json.dumps(sub.get("type")) or any(
+        isinstance(v, dict) and v.get("type") == "null" for v in sub.get("anyOf", [])
+    )
+
+
+def test_openai_strict_schema_rejects_nulls_that_pydantic_rejects():
+    jsonschema = pytest.importorskip("jsonschema")
+    strict = to_openai_strict_schema(StaticPlan.model_json_schema())
+    bbox = {"center": [0, 0, 0.5], "extents": [1, 1, 1]}
+    part = {
+        "name": "Seat",
+        "role": "r",
+        "description": "d",
+        "bbox": bbox,
+        "material": "",
+        "attach_to": None,
+        "symmetry": "none",
+        "instances": 1,
+    }
+    good = {
+        "object_name": "Chair",
+        "summary": "x",
+        "overall_bbox": bbox,
+        "style_notes": "",
+        "parts": [part],
+        "acceptance": [],
+    }
+    jsonschema.validate(good, strict)
+    StaticPlan.model_validate(good)
+    bad = {**good, "style_notes": None, "parts": [{**part, "material": None, "instances": None}]}
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(bad, strict)  # the model is not allowed to answer like this
+    with pytest.raises(ValidationError):
+        StaticPlan.model_validate(bad)  # … because the contract would reject it
 
 
 def test_anthropic_schema_shape():

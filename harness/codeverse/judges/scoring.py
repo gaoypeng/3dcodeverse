@@ -3,7 +3,11 @@
 * per-criterion score = mean over samples; overall = rubric-weighted mean;
   ``score_std`` = std of the per-sample overalls;
 * floors: any criterion mean below its floor → verdict fails;
-* caps: deterministic bounds from gate findings / acceptance (``caps.py``);
+* defects: the rubric's binary checklist, majority vote over samples (ties →
+  present); each present item subtracts its ``penalty`` from the overall and
+  its ``cap`` (if any) bounds it — arithmetic the VLM never does;
+* caps: deterministic bounds from gate findings / acceptance / missing views
+  (``caps.py``) plus the defect caps;
 * acceptance: majority vote over samples (ties → False);
 * narrative (summary / issues / plan / strengths) is taken from the sample whose
   overall is closest to the mean (the *representative* sample) so it is coherent.
@@ -17,7 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codeverse.contracts.artifacts import GateReport
+from codeverse.contracts.artifacts import GateReport, RenderView
 from codeverse.contracts.common import Usage
 from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem
@@ -33,12 +37,16 @@ class ScoreBreakdown(BaseModel):
     per_criterion_mean: dict[str, float]
     per_criterion_std: dict[str, float]
     per_sample_overall: list[float]
-    overall_uncapped: float
+    overall_uncapped: float = Field(description="rubric-weighted mean of the per-criterion means, before defects/caps")
+    overall_after_defects: float = Field(default=0.0, description="overall_uncapped minus defect penalties")
     overall: float
     floors_hit: list[dict[str, Any]] = Field(default_factory=list)
     caps: CapResult
     must_missing: list[str] = Field(default_factory=list)
     acceptance_votes: dict[str, list[bool]] = Field(default_factory=dict)
+    defects: dict[str, bool] = Field(default_factory=dict, description="checklist id → present (majority vote)")
+    defect_votes: dict[str, list[bool]] = Field(default_factory=dict)
+    defect_penalty: float = 0.0
     n_requested: int
     n_used: int
     sample_errors: list[str] = Field(default_factory=list)
@@ -62,12 +70,17 @@ def aggregate_samples(
     gates: list[GateReport],
     acceptance_items: list[AcceptanceItem],
     console_errors: list[str] | None = None,
+    views: list[RenderView] | None = None,
     usage: Usage | None = None,
     judge_backend: str = "",
     n_requested: int | None = None,
     sample_errors: list[str] | None = None,
 ) -> Judgment:
-    """Combine ≥ 1 parsed samples into a Judgment (raises ValueError on zero samples)."""
+    """Combine ≥ 1 parsed samples into a Judgment (raises ValueError on zero samples).
+
+    ``views`` feeds ``missing_views`` cap rules (e.g. the articulated rubric's
+    required pose sheet).
+    """
     if not samples:
         raise ValueError("aggregate_samples needs at least one sample")
     per_crit: dict[str, list[float]] = {c.id: [] for c in rubric.criteria}
@@ -93,13 +106,22 @@ def aggregate_samples(
     acceptance = {aid: (sum(v) * 2 > len(v)) for aid, v in votes.items()}
     must_missing = missing_must_items(acceptance_items, acceptance)
 
-    caps = apply_caps(rubric, overall_uncapped, gates, acceptance, acceptance_items, console_errors=console_errors)
+    d_votes: dict[str, list[bool]] = {d.id: [] for d in rubric.defects}
+    for s in samples:
+        for did, flag in s.defects.items():
+            d_votes.setdefault(did, []).append(bool(flag))
+    defects = {did: (sum(v) * 2 >= len(v) and bool(v)) for did, v in d_votes.items()}
+    penalty = round(sum(rubric.defect(did).penalty for did, on in defects.items() if on), 4)
+    after_defects = max(0.0, overall_uncapped - penalty)
+
+    caps = apply_caps(rubric, after_defects, gates, acceptance, acceptance_items, console_errors=console_errors,
+                      views=views, defects_present=defects)
     overall = caps.overall
     passed = overall >= rubric.pass_threshold and not floors and not must_missing
 
     rep = _representative(samples, overalls)
     summary = rep.summary.strip()
-    tail = _verdict_tail(rubric, overall, passed, floors, caps, must_missing)
+    tail = _verdict_tail(rubric, overall, passed, floors, caps, must_missing, defects=defects, penalty=penalty)
     if tail:
         summary = (summary + " " if summary else "") + tail
 
@@ -108,11 +130,15 @@ def aggregate_samples(
         per_criterion_std=std_scores,
         per_sample_overall=[round(o, 4) for o in overalls],
         overall_uncapped=round(overall_uncapped, 4),
+        overall_after_defects=round(after_defects, 4),
         overall=round(overall, 4),
         floors_hit=floors,
         caps=caps,
         must_missing=must_missing,
         acceptance_votes=votes,
+        defects=defects,
+        defect_votes=d_votes,
+        defect_penalty=penalty,
         n_requested=n_requested or len(samples),
         n_used=len(samples),
         sample_errors=sample_errors or [],
@@ -138,9 +164,13 @@ def aggregate_samples(
 
 
 def _verdict_tail(
-    rubric: Rubric, overall: float, passed: bool, floors: list[dict[str, Any]], caps: CapResult, must_missing: list[str]
+    rubric: Rubric, overall: float, passed: bool, floors: list[dict[str, Any]], caps: CapResult, must_missing: list[str],
+    *, defects: dict[str, bool] | None = None, penalty: float = 0.0,
 ) -> str:
     bits = [f"[verdict: overall {overall:.2f} vs threshold {rubric.pass_threshold:.2f} → {'PASS' if passed else 'FAIL'}"]
+    present = [d for d, on in (defects or {}).items() if on]
+    if present:
+        bits.append(f"defects (-{penalty:.2f}): " + ", ".join(present))
     if caps.caps_applied:
         bits.append("caps: " + "; ".join(f"{c.rule}≤{c.cap:.2f} ({c.evidence})" for c in caps.caps_applied))
     if floors:

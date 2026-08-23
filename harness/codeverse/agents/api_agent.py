@@ -1,6 +1,6 @@
 """``api-agent:<provider>:<model>`` — in-process agentic loop on any ChatModel.
 
-Tools: sandboxed file tools (+ ``run_shell``) and every spatial registry tool
+Tools: workspace-confined file tools (+ policy-filtered ``run_shell``) and every spatial registry tool
 (``build``, ``measure``, ``render_views`` ...) as native function calls.  The
 loop runs until the model stops calling tools or ``job.max_turns``; it writes a
 per-turn transcript JSONL, accumulates ``Usage``, compacts old tool results

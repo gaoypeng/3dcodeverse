@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 
+import numpy as np
 import pytest
 
 from tests.prompts.conftest import PROMPT_FILES, blocks, read_prompt
@@ -61,15 +62,53 @@ def test_xml_blocks_are_valid_urdf(rel: str) -> None:
                 assert abs(sum(a * a for a in v) - 1.0) < 1e-6, f"{rel} block {i}: non-unit axis on {j.get('name')}"
         roots = links - children
         assert len(roots) == 1, f"{rel} block {i}: expected a single root link, got {roots}"
-        for v in root.iter("visual"):
-            o = v.find("origin")
-            assert o is not None and o.get("xyz") == "0 0 0", f"{rel} block {i}: visual origins must be 0 0 0"
-            mesh = v.find("geometry/mesh")
-            assert mesh is not None and mesh.get("filename", "").startswith("meshes/"), \
-                f"{rel} block {i}: visuals must reference meshes/<link>.glb"
-            assert mesh.get("scale") is None, f"{rel} block {i}: mesh scale is forbidden"
+        for ln in root.findall("link"):
+            vis, col = ln.findall("visual"), ln.findall("collision")
+            assert len(vis) == 1 and len(col) == 1, f"{rel} block {i}: link {ln.get('name')} needs one <visual> + one <collision>"
+            vo, co = vis[0].find("origin"), col[0].find("origin")
+            assert vo is not None and co is not None and vo.get("xyz") == co.get("xyz"), \
+                f"{rel} block {i}: link {ln.get('name')}: collision origin must equal the visual origin"
+            for tag in (vis[0], col[0]):
+                mesh = tag.find("geometry/mesh")
+                assert mesh is not None and mesh.get("filename") == f"meshes/{ln.get('name')}.glb", \
+                    f"{rel} block {i}: link {ln.get('name')} must reference meshes/<link>.glb"
+                assert mesh.get("scale") is None, f"{rel} block {i}: mesh scale is forbidden"
         found += 1
     assert found > 0, f"{rel}: expected at least one xml block"
+
+
+def _is_template(body: str) -> bool:
+    """Fill-in skeletons carry symbolic origins (``PX PY PZ``) — not FK-checkable."""
+    return any(not _NUM.match(tok) for el in ET.fromstring(body).iter("origin") for tok in el.get("xyz", "0 0 0").split())
+
+
+_NUM = re.compile(r"^-?\d+(\.\d+)?([eE]-?\d+)?$")
+
+
+@pytest.mark.parametrize("rel", XML_FILES)
+def test_xml_examples_follow_the_enforced_frame_recipe(rel: str, tmp_path) -> None:
+    """Every worked URDF in the agent-facing docs must pass the harness lint AND the FK
+    consistency rule the build enforces: meshes hold WORLD coordinates, so FK(q=0) of a
+    link composed with its visual origin is the identity (visual origin = −link frame).
+    This is the recipe the reviewer found the docs contradicting (visual origin 0 0 0)."""
+    from codeverse.languages.urdf.lint import lint_urdf_text
+    from codeverse.spatial.joints import fk, load_urdf
+
+    checked = 0
+    for i, body in enumerate(blocks(rel, "xml")):
+        if _is_template(body):
+            continue
+        findings, _ = lint_urdf_text(body)
+        assert findings == [], f"{rel} block {i}: lint findings {[f.message for f in findings]}"
+        path = tmp_path / f"block{i}.urdf"
+        path.write_text(body)
+        robot = load_urdf(path, load_meshes=False)
+        T = fk(robot, {})
+        for name, link in robot.links.items():
+            assert np.allclose(T[name] @ link.visual_origin, np.eye(4), atol=1e-6), \
+                f"{rel} block {i}: link {name}: visual origin must be -(link frame world) = {(-T[name][:3, 3]).round(4).tolist()}"
+        checked += 1
+    assert checked > 0, f"{rel}: expected at least one FK-checkable xml block"
 
 
 @pytest.mark.node

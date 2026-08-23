@@ -63,6 +63,31 @@ def test_bmesh_lookup_table_missing_is_error_even_if_mentioned_in_comment() -> N
     assert f and f[0].severity == Severity.ERROR and f[0].data["line"] == 3 and "ensure_lookup_table()" in f[0].fix_hint
 
 
+def test_bmesh_lookup_rule_ignores_non_bmesh_bases() -> None:
+    """Finding: e.verts[0] (BMEdge) / me.edges[i] (Mesh) never need ensure_lookup_table."""
+    src = ("import bpy, bmesh\n"
+           "bm = bmesh.new()\n"
+           "side = [e for e in bm.edges if abs(e.verts[0].co.z - e.verts[1].co.z) > 1e-9]\n"
+           "o = bpy.context.object\n"
+           "o.data.edges[0].use_seam = True\n"
+           "me = o.data\n"
+           "me.edges[2].use_seam = True\n"
+           "bm.free()\n")
+    r = lint_blender_source(src)
+    assert not any("ensure_lookup_table" in f.message for f in r.findings), _msgs(r)
+    assert r.passed
+
+
+def test_bmesh_lookup_rule_tracks_bmesh_bindings() -> None:
+    src = "import bpy, bmesh\nmesh_bm = bmesh.new()\nv = mesh_bm.verts[0]\n"
+    r = lint_blender_source(src)
+    f = [x for x in r.findings if "ensure_lookup_table" in x.message]
+    assert f and f[0].severity == Severity.ERROR and f[0].data["line"] == 3
+    src2 = "import bpy, bmesh\nedit_bm = bmesh.from_edit_mesh(bpy.context.object.data)\nx = edit_bm.faces[1]\n"
+    r2 = lint_blender_source(src2)
+    assert any("ensure_lookup_table" in f.message for f in r2.findings)
+
+
 def test_vector_without_import() -> None:
     r = lint_blender_source("import bpy\nv = Vector((1, 2, 3))\n")
     f = [x for x in r.findings if "Vector" in x.message]
@@ -73,6 +98,17 @@ def test_removed_bsdf_inputs() -> None:
     r = lint_blender_source("import bpy\nm = bpy.data.materials.new('x')\nm.node_tree.nodes['Principled BSDF'].inputs['Specular'].default_value = 0.5\n")
     f = [x for x in r.findings if "Specular" in x.message]
     assert f and f[0].severity == Severity.ERROR and "Specular IOR Level" in f[0].fix_hint
+
+
+def test_valid_bsdf_inputs_not_flagged() -> None:
+    """Finding: 'Anisotropic' and 'Specular Tint' exist in Blender 4.x/5.0.1 — never ERROR."""
+    src = ("import bpy\nm = bpy.data.materials.new('x')\nb = m.node_tree.nodes['Principled BSDF']\n"
+           "b.inputs['Anisotropic'].default_value = 0.6\n"
+           "b.inputs['Specular Tint'].default_value = (1, 1, 1, 1)\n")
+    r = lint_blender_source(src)
+    assert r.passed and not _msgs(r, Severity.ERROR), _msgs(r)
+    tint = [f for f in r.findings if "Specular Tint" in f.message]
+    assert tint and tint[0].severity == Severity.INFO and "4-tuple" in tint[0].fix_hint
 
 
 def test_camera_light_and_render_settings_warn() -> None:

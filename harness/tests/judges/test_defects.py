@@ -1,0 +1,130 @@
+"""Defect checklist: rubric → wire schema → parse → majority vote → penalties/caps in code."""
+
+import json
+
+import pytest
+
+from codeverse.contracts.artifacts import RenderSet, RenderView
+from codeverse.judges.caps import apply_caps
+from codeverse.judges.output_schema import JudgeParseError, parse_judge_output, wire_schema
+from codeverse.judges.rubrics import RubricError, load_rubric, rubric_from_dict
+from codeverse.judges.scoring import aggregate_samples
+from codeverse.judges.vlm_judge import VlmJudge
+from tests.judges.conftest import FakeChatModel, good_reply
+
+R = load_rubric("static_object_v1")
+A = load_rubric("articulated_v1")
+IDS = ["A1", "A2"]
+
+
+def _reply(score=0.9, defects=None):
+    rep = good_reply(R, IDS, score)
+    rep["defects"] = {d.id: {"present": d.id in (defects or ()), "evidence": "MONTAGE 1 top-left"} for d in R.defects}
+    return rep
+
+
+def test_rubrics_declare_defects_with_costs():
+    for name in ("static_object_v1", "articulated_v1", "scene_v1", "asset_v1", "reference_v1"):
+        r = load_rubric(name)
+        assert r.defects, name
+        assert all(d.penalty > 0 or d.cap is not None for d in r.defects)
+    assert R.defect("floating_part").penalty == 0.10 and R.defect("floating_part").cap == 0.60
+    assert R.defect("wrong_object").cap == 0.25 and R.defect("wrong_object").penalty == 0.0
+    assert {"no_articulation_visible", "wrong_motion_type", "pivot_misplaced", "pose_clips_body"} <= {d.id for d in A.defects}
+    with pytest.raises(KeyError):
+        R.defect("nope")
+
+
+def test_duplicate_defect_ids_rejected():
+    bad = {"name": "x", "pass_threshold": 0.7, "criteria": [
+        {"id": "a", "weight": 1.0, "description": "d", "anchors": {"1.0": "", "0.7": "", "0.4": "", "0.1": ""}}],
+        "defects": [{"id": "f", "text": "t"}, {"id": "f", "text": "t2"}]}
+    with pytest.raises(RubricError):
+        rubric_from_dict(bad)
+
+
+def test_wire_schema_has_fixed_defect_keys_and_parse_variants():
+    schema = wire_schema(R, IDS)
+    props = schema["$defs"]["Defects"]["properties"]
+    assert set(props) == {d.id for d in R.defects}
+    out = parse_judge_output(_reply(defects=["floating_part"]), R, IDS)
+    assert out.defects["floating_part"] is True and out.defects["primitive_only"] is False
+    assert out.defect_evidence["floating_part"] == "MONTAGE 1 top-left"
+    # bare booleans and list-of-records are accepted; unknown ids dropped; missing ids → absent
+    rep = good_reply(R, IDS, 0.8)
+    rep["defects"] = [{"id": "interpenetration", "present": True}, {"id": "made_up", "present": True}]
+    out2 = parse_judge_output(rep, R, IDS)
+    assert out2.defects["interpenetration"] is True and "made_up" not in out2.defects
+    assert out2.defects["floating_part"] is False and out2.defect_evidence["floating_part"] == "not answered by judge"
+    rep3 = good_reply(R, IDS, 0.8)
+    rep3["defects"] = {"floating_part": True}
+    assert parse_judge_output(rep3, R, IDS).defects["floating_part"] is True
+    rep4 = good_reply(R, IDS, 0.8)
+    rep4["defects"] = {"floating_part": {"present": "yes"}}
+    with pytest.raises(JudgeParseError):
+        parse_judge_output(rep4, R, IDS)
+
+
+def test_penalties_and_caps_computed_in_code(judge_input, cache_dir):
+    # floating_part: -0.10 and cap 0.60; primitive_only: -0.08 no cap
+    model = FakeChatModel([_reply(0.9, ["primitive_only"])])
+    j = VlmJudge("static_object_v1", chat_model=model, cache_dir=cache_dir).judge(judge_input)
+    raw = json.loads(j.raw)
+    assert raw["overall_uncapped"] == pytest.approx(0.9) and raw["defect_penalty"] == pytest.approx(0.08)
+    assert j.overall == pytest.approx(0.82) and j.passed
+    assert raw["defects"]["primitive_only"] is True and raw["caps"]["caps_applied"] == []
+    assert "defects (-0.08): primitive_only" in j.summary
+    model2 = FakeChatModel([_reply(0.9, ["floating_part", "primitive_only"])])
+    j2 = VlmJudge("static_object_v1", chat_model=model2, cache_dir=cache_dir).judge(judge_input)
+    raw2 = json.loads(j2.raw)
+    assert raw2["overall_after_defects"] == pytest.approx(0.72)
+    assert j2.overall == 0.6 and not j2.passed  # capped by defect:floating_part
+    assert raw2["caps"]["caps_applied"][0]["rule"] == "defect:floating_part"
+    # the checklist is per-sample data too
+    assert raw2["samples"][0]["defects"]["floating_part"] is True
+
+
+def test_defect_majority_vote_ties_count_as_present(judge_input, cache_dir):
+    model = FakeChatModel([_reply(0.9, ["render_artifacts"]), _reply(0.9), _reply(0.9)])
+    j = VlmJudge("static_object_v1", chat_model=model, n_samples=3, cache_dir=cache_dir).judge(judge_input)
+    raw = json.loads(j.raw)
+    assert raw["defects"]["render_artifacts"] is False and raw["defect_votes"]["render_artifacts"] == [True, False, False]
+    assert j.overall == pytest.approx(0.9)
+    model2 = FakeChatModel([_reply(0.9, ["render_artifacts"]), _reply(0.9)])
+    j2 = VlmJudge("static_object_v1", chat_model=model2, n_samples=2, cache_dir=cache_dir).judge(judge_input)
+    assert json.loads(j2.raw)["defects"]["render_artifacts"] is True and j2.overall == pytest.approx(0.85)
+    # per-criterion std is reported for n-sample runs
+    assert set(json.loads(j2.raw)["per_criterion_std"]) == set(R.weights)
+
+
+def test_missing_views_cap_for_articulated():
+    rest = [RenderView(name=n, path="x") for n in ("front_right_34", "top")]
+    res = apply_caps(A, 0.9, [], {}, [], views=rest)
+    assert res.overall == 0.5 and res.caps_applied[0].rule == "missing_pose_sheet"
+    res2 = apply_caps(A, 0.9, [], {}, [], views=rest + [RenderView(name="articulation_sheet", path="s")])
+    assert res2.overall == 0.9 and not res2.caps_applied
+    res3 = apply_caps(A, 0.9, [], {}, [], views=rest + [RenderView(name="pose_J@upper", path="s")])
+    assert res3.overall == 0.9
+    # the judge pipeline passes the views through
+    samples = [parse_judge_output(good_reply(A, [], 0.9), A, [])]
+    j = aggregate_samples(A, samples, gates=[], acceptance_items=[], views=rest)
+    assert j.overall == 0.5 and "missing_pose_sheet≤0.50" in j.summary
+    j2 = aggregate_samples(A, samples, gates=[], acceptance_items=[], views=list(RenderSet(views=rest + [RenderView(name="pose_rest", path="p")]).views))
+    assert j2.overall == pytest.approx(0.9)
+
+
+def test_interpenetrate_message_matches_penetration_cap():
+    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+    g = GateReport(gate="connectivity", passed=False, findings=[GateFinding(
+        gate="connectivity", severity=Severity.ERROR, target="Leg", message="'Leg' and 'Seat' interpenetrate by ≈15 mm")])
+    assert apply_caps(R, 0.9, [g], {}, []).overall == 0.7
+    assert apply_caps(A, 0.9, [g], {}, [], views=[RenderView(name="pose_rest", path="p")]).overall == 0.7
+
+
+def test_joint_sweep_touches_nothing_caps_articulated():
+    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+    g = GateReport(gate="joint_sweep", passed=False, findings=[GateFinding(
+        gate="joint_sweep", severity=Severity.ERROR, target="DrawerKnob",
+        message="link 'DrawerKnob' touches nothing connected to the root at pose rest (nearest 'Carcass' at 56.4 mm)")])
+    res = apply_caps(A, 0.9, [g], {}, [], views=[RenderView(name="pose_rest", path="p")])
+    assert res.overall == 0.6 and res.caps_applied[0].rule == "floating_part"

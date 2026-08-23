@@ -8,15 +8,25 @@ Output is JSONL, one object per pair.  All kinds share::
 
 * ``preference``   rounds i < j of one run with judge Δ ≥ ``min_delta``; reason =
   the judge's improvement plan of round i (what the builder was told to fix).
-* ``repair``       a failed build (round k-1) → the ``repair`` round k that builds;
-  ``error`` carries the structured build failure.
+  Degraded (judge-outage) verdicts are treated as *no score*, never as a 0.0.
+* ``repair``       a failed build (round k) → the next round that builds, matched
+  structurally (no track ever emits a ``kind='repair'`` round — lifecycle labels
+  the fixing round ``refine``); ``error`` carries the structured build failure.
+  ``source: "round"``.
+* ``repair`` (``source: "in_round"``) — a round whose build failed right after
+  generation and was fixed by ``build_with_repair`` inside the same round
+  (``notes`` say "repair attempts: N (fixed)"): the ``rNN <kind>: generated``
+  commit is the rejected state, the round's final commit the chosen one; the
+  error message comes from the round's failing ``build.done`` events.
+* ``repair`` (``source: "trajectory"``) — the same shape mined from an agent
+  session's transcript: last failing ``build`` → next successful ``build``
+  (see ``trajectories.py``); ``error`` is the build tool's message.
 * ``cross_backend`` the same (prompt, track, language) run under ≥ 2 generators;
   best vs each other candidate with Δ ≥ ``min_delta``.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -24,14 +34,15 @@ from typing import Any
 
 from codeverse.contracts.run import RoundRecord, RunRecord
 from codeverse.flywheel import _git
-from codeverse.flywheel.record import iter_runs
+from codeverse.flywheel.quality import prompt_hash
+from codeverse.flywheel.record import effective_judgment, iter_runs
+from codeverse.flywheel.trajectories import mine_run
 from codeverse.workspace import Workspace
 
+__all__ = ["build_pairs", "preference_pairs", "repair_pairs", "in_round_repair_pairs",
+           "trajectory_repair_pairs", "cross_backend_pairs", "prompt_hash"]
+
 MAX_INLINE_CODE = 200_000
-
-
-def prompt_hash(prompt: str) -> str:
-    return hashlib.sha256(prompt.strip().encode()).hexdigest()[:16]
 
 
 def _side(ws: Workspace, rnd: RoundRecord, *, cache: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -45,12 +56,13 @@ def _side(ws: Workspace, rnd: RoundRecord, *, cache: dict[str, dict[str, Any]]) 
         text, skipped = _git.decode_text_files(raw, max_total=MAX_INLINE_CODE)
         cache[key] = {"files": text, "truncated_files": skipped}
     c = cache[key]
+    j = effective_judgment(rnd)
     return {
         "round": rnd.index,
         "kind": rnd.kind,
         "commit": rnd.commit,
-        "score": rnd.score,
-        "passed": None if rnd.judgment is None else rnd.judgment.passed,
+        "score": j.overall if j else None,
+        "passed": j.passed if j else None,
         "build_ok": None if rnd.build is None else rnd.build.ok,
         "files": c["files"],
         "truncated_files": c["truncated_files"],
@@ -72,11 +84,13 @@ def _base(ws: Workspace, rec: RunRecord, kind: str) -> dict[str, Any]:
 
 def preference_pairs(ws: Workspace, rec: RunRecord, *, min_delta: float) -> list[dict[str, Any]]:
     cache: dict[str, dict[str, Any]] = {}
-    judged = [r for r in rec.rounds if r.judgment is not None and r.commit]
+    # degraded (judge-outage) verdicts are glitches, not 0.0 scores — leave those rounds out
+    judged = [r for r in rec.rounds if effective_judgment(r) is not None and r.commit]
     out = []
     for a_i, lo in enumerate(judged):
         for hi in judged[a_i + 1 :]:
-            delta = hi.judgment.overall - lo.judgment.overall  # type: ignore[union-attr]
+            lo_j, hi_j = effective_judgment(lo), effective_judgment(hi)
+            delta = hi_j.overall - lo_j.overall  # type: ignore[union-attr]
             if delta < min_delta or lo.commit == hi.commit:
                 continue
             pair = _base(ws, rec, "preference")
@@ -84,8 +98,8 @@ def preference_pairs(ws: Workspace, rec: RunRecord, *, min_delta: float) -> list
                 chosen=_side(ws, hi, cache=cache),
                 rejected=_side(ws, lo, cache=cache),
                 delta=round(delta, 4),
-                reason=[it.instruction for it in lo.judgment.improvement_plan],  # type: ignore[union-attr]
-                issues=[i.model_dump(mode="json") for i in lo.judgment.issues],  # type: ignore[union-attr]
+                reason=[it.instruction for it in lo_j.improvement_plan],  # type: ignore[union-attr]
+                issues=[i.model_dump(mode="json") for i in lo_j.issues],  # type: ignore[union-attr]
             )
             out.append(pair)
     return out
@@ -107,23 +121,108 @@ def _error_of(rnd: RoundRecord) -> dict[str, Any]:
 
 
 def repair_pairs(ws: Workspace, rec: RunRecord) -> list[dict[str, Any]]:
-    """(broken round, error) → (repair round that builds)."""
+    """(broken round, error) → (the next round that builds).
+
+    Matched structurally: the tracks never emit a ``kind='repair'`` round
+    (lifecycle labels every post-baseline round ``refine``), so any round whose
+    build succeeds directly repairs the nearest earlier failed build."""
     cache: dict[str, dict[str, Any]] = {}
     out = []
     rounds = rec.rounds
-    for k, rnd in enumerate(rounds):
-        if not rnd.kind.startswith("repair") or rnd.build is None or not rnd.build.ok:
+    for k, broken in enumerate(rounds):
+        if broken.build is None or broken.build.ok or not broken.commit:
             continue
-        broken = next((r for r in reversed(rounds[:k]) if r.build is not None and not r.build.ok), None)
-        if broken is None or not broken.commit or not rnd.commit or broken.commit == rnd.commit:
+        fixed = next((r for r in rounds[k + 1 :] if r.build is not None and r.build.ok and r.commit), None)
+        if fixed is None or broken.commit == fixed.commit:
             continue
         pair = _base(ws, rec, "repair")
         pair.update(
-            chosen=_side(ws, rnd, cache=cache),
+            source="round",
+            chosen=_side(ws, fixed, cache=cache),
             rejected=_side(ws, broken, cache=cache),
             delta=None,
             error=_error_of(broken),
-            reason=list(rnd.instructions),
+            reason=list(fixed.instructions),
+        )
+        out.append(pair)
+    return out
+
+
+def _round_build_errors(ws: Workspace, index: int) -> list[str]:
+    """Failing ``build.done`` error messages of one round, from events.jsonl."""
+    p = ws.events_path
+    if not p.is_file():
+        return []
+    out: list[str] = []
+    for line in p.read_text(errors="replace").splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get("event") == "build.done" and ev.get("round") == index and ev.get("ok") is False:
+            msg = str(ev.get("error") or "").strip()
+            if msg:
+                out.append(msg)
+    return out
+
+
+def in_round_repair_pairs(ws: Workspace, rec: RunRecord) -> list[dict[str, Any]]:
+    """Builds fixed by ``build_with_repair`` *inside* a round.
+
+    ``tracks/steps.py`` commits ``rNN <kind>: generated`` right before the
+    build+repair loop and notes "repair attempts: N (fixed)" when the loop
+    repaired a failing build; the generated tree is the rejected state."""
+    cache: dict[str, dict[str, Any]] = {}
+    out = []
+    for rnd in rec.rounds:
+        if rnd.build is None or not rnd.build.ok or not rnd.commit:
+            continue
+        if "repair attempts:" not in rnd.notes or "(fixed)" not in rnd.notes:
+            continue
+        generated = _git.commit_by_subject(ws, f"r{rnd.index:02d} {rnd.kind}: generated")
+        if not generated or generated == rnd.commit or not _git.commit_exists(ws, generated):
+            continue
+        try:
+            raw = _git.read_tree_at(ws, generated)
+        except _git.GitReadError:
+            continue
+        rej_files, rej_skipped = _git.decode_text_files(raw, max_total=MAX_INLINE_CODE)
+        chosen = _side(ws, rnd, cache=cache)
+        if rej_files == chosen["files"]:
+            continue  # the repair changed nothing under the code roots
+        errors = _round_build_errors(ws, rnd.index)
+        pair = _base(ws, rec, "repair")
+        pair.update(
+            source="in_round",
+            chosen=chosen,
+            rejected={"round": rnd.index, "kind": rnd.kind, "commit": generated, "score": None, "passed": None,
+                      "build_ok": False, "files": rej_files, "truncated_files": rej_skipped},
+            delta=None,
+            error={"type": "", "message": errors[-1] if errors else "", "file": "", "line": None,
+                   "stderr_tail": "", "stdout_tail": "", "gate_errors": [], "messages": errors},
+            reason=[f"in-round build repair ({rnd.notes})"],
+        )
+        out.append(pair)
+    return out
+
+
+def trajectory_repair_pairs(ws: Workspace, rec: RunRecord) -> list[dict[str, Any]]:
+    """In-session repairs (failing build → fixing build) mined from api-agent transcripts."""
+    out = []
+    for tr in mine_run(ws):
+        pair = _base(ws, rec, "repair")
+        pair.update(
+            source="trajectory",
+            trajectory=tr.trajectory,
+            chosen={"round": tr.round_index, "kind": tr.stage, "commit": "", "turn": tr.fixed_turn, "score": None,
+                    "passed": None, "build_ok": True, "files": tr.chosen, "truncated_files": []},
+            rejected={"round": tr.round_index, "kind": tr.stage, "commit": "", "turn": tr.broken_turn, "score": None,
+                      "passed": None, "build_ok": False, "files": tr.rejected, "truncated_files": []},
+            delta=None,
+            error={"type": "", "message": tr.error, "file": "", "line": None, "stderr_tail": "", "stdout_tail": "",
+                   "gate_errors": []},
+            reason=[f"in-session fix of a failing build ({tr.n_failures} failing build(s) folded)"],
+            changed_files=tr.changed_files,
         )
         out.append(pair)
     return out
@@ -138,17 +237,17 @@ def cross_backend_pairs(groups: dict[tuple[str, str, str], list[tuple[Workspace,
         cands = []
         for ws, rec in runs:
             best = next((r for r in rec.rounds if r.index == rec.best_round), None)
-            if best is None or best.judgment is None:
+            if best is None or effective_judgment(best) is None:  # unjudged or degraded verdict
                 continue
             cands.append((ws, rec, best))
         if len(cands) < 2:
             continue
-        cands.sort(key=lambda c: c[2].judgment.overall, reverse=True)  # type: ignore[union-attr]
+        cands.sort(key=lambda c: effective_judgment(c[2]).overall, reverse=True)  # type: ignore[union-attr]
         w_ws, w_rec, w_rnd = cands[0]
         w_side = _side(w_ws, w_rnd, cache={})
         w_side["generator"] = w_rec.spec.backends.generator
         for ws, rec, rnd in cands[1:]:
-            delta = w_rnd.judgment.overall - rnd.judgment.overall  # type: ignore[union-attr]
+            delta = effective_judgment(w_rnd).overall - effective_judgment(rnd).overall  # type: ignore[union-attr]
             if rec.spec.backends.generator == w_rec.spec.backends.generator or delta < min_delta:
                 continue
             pair = _base(w_ws, w_rec, "cross_backend")
@@ -159,14 +258,18 @@ def cross_backend_pairs(groups: dict[tuple[str, str, str], list[tuple[Workspace,
                 chosen=w_side, rejected=l_side, delta=round(delta, 4),
                 reason=f"best-of across generators: {w_rec.spec.backends.generator} > {rec.spec.backends.generator}",
                 candidates=[{"run": c[0].root.name, "generator": c[1].spec.backends.generator,
-                             "score": c[2].judgment.overall} for c in cands],  # type: ignore[union-attr]
+                             "score": effective_judgment(c[2]).overall} for c in cands],  # type: ignore[union-attr]
             )
             out.append(pair)
     return out
 
 
-def build_pairs(runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float = 0.05) -> int:
-    """Write all pair kinds for the runs under ``runs_dir``; returns the number written."""
+def build_pairs(
+    runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float = 0.05, trajectories: bool = True
+) -> int:
+    """Write all pair kinds for the runs under ``runs_dir``; returns the number written.
+
+    ``trajectories`` adds in-session repair pairs mined from agent transcripts."""
     out = Path(out_jsonl)
     out.parent.mkdir(parents=True, exist_ok=True)
     groups: dict[tuple[str, str, str], list[tuple[Workspace, RunRecord]]] = defaultdict(list)
@@ -175,7 +278,10 @@ def build_pairs(runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float
     with tmp.open("w") as fh:
         for ws, rec in iter_runs(runs_dir):
             groups[(prompt_hash(rec.spec.prompt), rec.spec.track.value, rec.spec.language.value)].append((ws, rec))
-            for pair in preference_pairs(ws, rec, min_delta=min_delta) + repair_pairs(ws, rec):
+            pairs = preference_pairs(ws, rec, min_delta=min_delta) + repair_pairs(ws, rec) + in_round_repair_pairs(ws, rec)
+            if trajectories:
+                pairs += trajectory_repair_pairs(ws, rec)
+            for pair in pairs:
                 fh.write(json.dumps(pair, ensure_ascii=False) + "\n")
                 n += 1
         for pair in cross_backend_pairs(groups, min_delta=min_delta):

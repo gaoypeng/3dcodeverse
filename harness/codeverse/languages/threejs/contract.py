@@ -31,5 +31,8 @@ triangles well under 600k.  Parts must physically touch (no floating pieces) and
 interpenetrate visibly.
 
 Build: the harness runs `build(THREE)` in node, validates the group (≥1 mesh, finite
-bbox, no NaN), and exports `artifacts/object.glb` with one named node per part.
+bbox, no NaN), calls an optional exported `selfcheck(THREE, root)` (a throw fails the
+build with your message), bakes `InstancedMesh` copies into named meshes, and exports
+`artifacts/object.glb` with one named node per part — exactly where you placed it (no
+automatic drop-to-ground / re-centring; off-placement is warned and gated instead).
 """

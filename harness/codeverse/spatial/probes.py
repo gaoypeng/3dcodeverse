@@ -42,11 +42,16 @@ _BOOT_HINTS = {
 
 class SceneProbeResult(BaseModel):
     """``probe_scene`` result: unpacks as ``gate, census = probe_scene(ws)`` and also
-    dumps to a dict with ``errors`` so generic tool adapters can read it."""
+    dumps to a dict generic tool adapters can read.  Tool semantics: ``ok`` /
+    ``errors`` describe whether the PROBE TOOL ran (``is_error`` in MCP terms) —
+    a gate that fails on agent-fixable findings keeps ``ok=True`` with the
+    finding lines under ``findings``; ``errors`` holds only harness/driver
+    failures.  Gate truth stays on ``gate.passed``."""
 
     gate: GateReport
     census: dict[str, Any] = Field(default_factory=dict)
-    errors: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list, description="harness/driver failures only (tool could not run)")
+    findings: list[str] = Field(default_factory=list, description="agent-fixable gate findings, one line each")
     ok: bool = False
 
     def __iter__(self):  # type: ignore[override]
@@ -54,9 +59,11 @@ class SceneProbeResult(BaseModel):
         yield self.census
 
 
-def _result(gate: GateReport, census: dict[str, Any]) -> SceneProbeResult:
-    return SceneProbeResult(gate=gate, census=census, ok=gate.passed,
-                            errors=[f"{f.target or ''}: {f.message}" for f in gate.errors])
+def _result(gate: GateReport, census: dict[str, Any], *, driver_failure: str = "") -> SceneProbeResult:
+    lines = [f"[{f.severity.value}] {f.target or ''}: {f.message}" for f in gate.findings
+             if f.severity != Severity.INFO and not f.data.get("harness_failure")]
+    return SceneProbeResult(gate=gate, census=census, ok=not driver_failure,
+                            errors=[driver_failure] if driver_failure else [], findings=lines)
 
 
 def _f(gate: str, sev: Severity, msg: str, *, target: str | None = None, hint: str = "", **data: Any) -> GateFinding:
@@ -77,8 +84,9 @@ def probe_scene(ws: Workspace, *, timeout_s: float = 60.0, write_census: bool = 
         )
     except SceneRenderError as e:
         findings.append(_f(gate, Severity.ERROR, f"scene probe could not run: {e}", target="src/scene.js",
-                           hint="this is a harness/driver failure, not your code; retry or report"))
-        return _result(GateReport(gate=gate, passed=False, findings=findings, duration_ms=int((time.time() - t0) * 1000)), census)
+                           hint="this is a harness/driver failure, not your code; retry or report", harness_failure=True))
+        return _result(GateReport(gate=gate, passed=False, findings=findings, duration_ms=int((time.time() - t0) * 1000)), census,
+                       driver_failure=f"scene probe could not run: {e}"[:800])
     s = res.summary
     boot = s.get("boot") or {}
     if not boot.get("ok"):
@@ -100,6 +108,8 @@ def probe_scene(ws: Workspace, *, timeout_s: float = 60.0, write_census: bool = 
     for e in s.get("console_errors", []):
         if e.startswith("boot["):
             continue
+        if e.startswith("update(t=") and s.get("update_ok") is False:
+            continue   # already reported as the update(t, dt) finding above
         findings.append(_f(gate, Severity.ERROR, f"console: {e}"[:1000], target="src/scene.js",
                            hint="the browser console must stay clean: fix the quoted error"))
     for w in s.get("console_warnings", []):
@@ -167,7 +177,7 @@ def check_shaders(ws: Workspace, *, module: str | None = None, timeout_s: float 
         res = run_scene_script("check_shaders.mjs", args, timeout_s=timeout_s + 20)
     except SceneRenderError as e:
         findings.append(_f(gate, Severity.ERROR, f"shader preflight could not run: {e}", target="src/scene.js",
-                           hint="harness/driver failure; retry or report"))
+                           hint="harness/driver failure; retry or report", harness_failure=True))
         return GateReport(gate=gate, passed=False, findings=findings, duration_ms=int((time.time() - t0) * 1000))
     rep = res.summary
     for e in rep.get("errors", []):

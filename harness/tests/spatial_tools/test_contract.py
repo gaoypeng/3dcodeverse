@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from codeverse.contracts.artifacts import Measurement, PartMeasure, Severity
 from codeverse.contracts.plan import BBox, CameraPlan, PartPlan, ScenePlan, StaticPlan, ZonePlan
 from codeverse.spatial.contract import check_contract, match_parts, plan_bbox_to_glb
@@ -94,3 +96,31 @@ def test_scene_plan_bounds() -> None:
     assert r.passed  # scene findings are warnings
     assert any("exceeds the planned bounds" in f.message for f in r.findings)
     assert not any("zone group" in f.message for f in r.findings)
+
+
+def test_hints_are_written_in_the_authoring_frame() -> None:
+    """Blender plan (Z-up): Leg 5×5 cm footprint, 40 cm tall.  The build made the leg 25 cm
+    DEEP (Blender y) — sizes, deltas and centres in the hint must be Z-up so the agent
+    changes the right dimension (in the GLB frame the same error reads as 'z+20cm')."""
+    plan = StaticPlan(object_name="Stool", summary="s", overall_bbox=BBox(center=(0, 0, 0.225), extents=(0.5, 0.5, 0.45)),
+                      parts=[PartPlan(name="Seat", role="seat", description="d", bbox=BBox(center=(0, 0, 0.425), extents=(0.5, 0.5, 0.05))),
+                             PartPlan(name="Leg", role="leg", description="d", bbox=BBox(center=(0.2, -0.2, 0.2), extents=(0.05, 0.05, 0.40)))])
+    m = Measurement(bbox_min=(-0.25, 0, -0.25), bbox_max=(0.25, 0.45, 0.25), extents=(0.5, 0.45, 0.5), center=(0.1, 0.225, -0.05),
+                    tri_count=24, n_meshes=2, n_islands=2, footprint_offset_m=0.3,
+                    parts=[PartMeasure(name="Seat", bbox_min=(-0.25, 0.40, -0.25), bbox_max=(0.25, 0.45, 0.25)),
+                           PartMeasure(name="Leg", bbox_min=(0.175, 0.0, 0.075), bbox_max=(0.225, 0.40, 0.325))])
+    r = check_contract(m, plan, language="blender")
+    leg = [f for f in r.findings if f.target == "Leg"][0]
+    assert "size 5.0×25.0×40.0 vs planned 5.0×5.0×40.0 cm (Δ x+0.0cm, y+20.0cm, z+0.0cm)" in leg.fix_hint
+    assert "centre off by (x+0.0cm, y+0.0cm, z+0.0cm)" not in leg.fix_hint
+    assert "planned centre (0.200, -0.200, 0.200) m (blender frame: Z-up, -Y front)" in leg.fix_hint
+    assert leg.data["delta_extents_m"] == pytest.approx([0.0, 0.2, 0.0], abs=1e-9) and leg.data["frame"] == "z_up_neg_y_front"
+    foot = [f for f in r.findings if "footprint" in f.message][0]
+    # GLB offset (+0.1, ·, -0.05) → move by (-0.1, 0, +0.05) GLB = (-0.1, -0.05, 0) in Blender's Z-up frame
+    assert "translate everything by (-0.100, -0.050, +0.000) m (blender frame: Z-up, -Y front)" in foot.fix_hint
+    # Y-up languages keep the GLB numbers verbatim
+    plan_tjs = plan.model_copy(deep=True)
+    plan_tjs.parts[1].bbox = BBox(center=(0.2, 0.2, 0.2), extents=(0.05, 0.40, 0.05))
+    leg = [f for f in check_contract(m, plan_tjs, language="threejs").findings if f.target == "Leg"][0]
+    assert "size 5.0×40.0×25.0 vs planned 5.0×40.0×5.0 cm (Δ x+0.0cm, y+0.0cm, z+20.0cm)" in leg.fix_hint
+    assert "(threejs frame: Y-up, +Z front)" in leg.fix_hint

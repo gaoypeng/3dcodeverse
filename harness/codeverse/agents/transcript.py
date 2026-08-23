@@ -1,7 +1,7 @@
 """Trajectory folder helper: prompt.md, transcript.jsonl, stdout/stderr, result.json.
 
 Every CodingAgent backend writes its session here
-(``ws.trajectory_dir(label, round)``) so the flywheel and ``c3v status`` can
+(``ws.trajectory_dir(label, round)``) so the flywheel and ``3dcv status`` can
 read one uniform layout regardless of backend.
 """
 

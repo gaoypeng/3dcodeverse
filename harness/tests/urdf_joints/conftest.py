@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 import trimesh
 
@@ -84,3 +85,50 @@ def drawer_plan() -> ArticulatedPlan:
         joints=[JointPlan(name="slide", type="prismatic", parent="Carcass", child="Drawer", axis=(0, -1, 0),
                           pivot=(0, -0.21, 0.45), lower=0.0, upper=0.3, motion="slides out the front")],
     )
+
+
+def _panel(lo, hi) -> trimesh.Trimesh:
+    lo, hi = np.asarray(lo, dtype=float), np.asarray(hi, dtype=float)
+    m = trimesh.creation.box(hi - lo)
+    m.apply_translation((lo + hi) / 2)
+    return m
+
+
+def agent_style_mesh(panels: list[tuple[tuple[float, float, float], tuple[float, float, float]]]) -> trimesh.Trimesh:
+    """What agent-built links look like after the wrapper join: touching panels that
+    share vertices (→ the merged mesh is NOT watertight) with inverted winding."""
+    m = trimesh.util.concatenate([_panel(lo, hi) for lo, hi in panels])
+    m.invert()
+    m.merge_vertices()
+    return m
+
+
+def write_carcass_drawer_robot(root: Path, *, drawer_shift_x: float = 0.0) -> tuple[Path, Path]:
+    """Cabinet carcass (5 panels, 30 mm sides) + open-top drawer, both agent-style meshes
+    (world coordinates, like the wrapper writes).  ``drawer_shift_x`` slides the drawer
+    sideways: +0.032 drives it 30 mm through the right side panel."""
+    meshes = root / "meshes"
+    meshes.mkdir(parents=True, exist_ok=True)
+    carcass = agent_style_mesh([
+        ((-0.23, -0.18, 0.08), (-0.2, 0.21, 0.58)), ((0.2, -0.18, 0.08), (0.23, 0.21, 0.58)),
+        ((-0.23, -0.21, 0.58), (0.23, 0.21, 0.6)), ((-0.2, -0.18, 0.08), (0.2, 0.2, 0.092)),
+        ((-0.2, 0.2, 0.08), (0.2, 0.21, 0.58)),
+    ])
+    drawer = agent_style_mesh([
+        ((-0.198, -0.19, 0.445), (0.198, -0.172, 0.565)), ((-0.18, -0.17, 0.445), (0.18, 0.15, 0.455)),
+        ((-0.18, -0.17, 0.455), (-0.17, 0.15, 0.555)), ((0.17, -0.17, 0.455), (0.18, 0.15, 0.555)),
+        ((-0.17, 0.14, 0.455), (0.17, 0.15, 0.555)),
+    ])
+    assert not carcass.is_watertight and carcass.volume < 0 and not drawer.is_watertight and drawer.volume < 0
+    (meshes / "Carcass.glb").write_bytes(carcass.export(file_type="glb"))
+    (meshes / "Drawer.glb").write_bytes(drawer.export(file_type="glb"))
+    # drawer link frame at its front-bottom centre (world 0 -0.19 0.445); visual origin = -frame (+ shift)
+    urdf = root / "robot.urdf"
+    urdf.write_text(f"""<robot name="cabinet">
+<link name="Carcass"><visual><origin xyz="0 0 0"/><geometry><mesh filename="meshes/Carcass.glb"/></geometry></visual></link>
+<link name="Drawer"><visual><origin xyz="{drawer_shift_x} 0.19 -0.445"/><geometry><mesh filename="meshes/Drawer.glb"/></geometry></visual></link>
+<joint name="slide" type="prismatic"><parent link="Carcass"/><child link="Drawer"/>
+  <origin xyz="0 -0.19 0.445"/><axis xyz="0 -1 0"/><limit lower="0" upper="0.3" effort="10" velocity="1"/></joint>
+</robot>
+""")
+    return urdf, meshes

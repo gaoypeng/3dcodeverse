@@ -8,35 +8,44 @@ What it does (in order):
   1. caps the address space (RLIMIT_AS) so geometry bombs die in-process;
   2. empties the factory scene (Cube/Camera/Light + orphan data), sets metric units;
   3. seeds ``random`` / numpy / mathutils.noise;
-  4. runs the agent script with ``runpy`` and maps any exception to a line of model.py;
-  5. collects a census (evaluated tri counts, world bboxes, materials, parents);
+  4. puts ``<ws>/src`` on ``sys.path`` (so ``from parts.seat import build_seat`` and
+     ``import parts.seat`` work), runs the agent's ``model.py`` with ``runpy`` and maps
+     any exception to ``<file under src/>:<line>`` (model.py or a part file);
+  5. collects a census (``_census.py`` next to this file: evaluated tri counts, world
+     bboxes, materials, parents);
   6. warns on leftovers (cameras, lights, touched render settings, visible cutters);
   7. exports ``object.glb`` (Y-up, +Z front) and optionally ``object.stl`` (Z-up);
   8. writes ``build.json`` + ``census.json`` atomically and exits 0.
 
 Exit codes: 0 = reported (even if the script failed); 2 = wrapper bug (no report).
-This file must stay standalone: Blender's python cannot import ``codeverse``.
+This file must stay standalone: Blender's python cannot import ``codeverse``
+(the only sibling import is ``_census``, resolved via this file's own directory).
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib
 import json
 import os
 import random
-import re
 import runpy
 import sys
 import time
 import traceback
 from typing import Any
 
+_WRAPPER_DIR = os.path.dirname(os.path.abspath(__file__))
+if _WRAPPER_DIR not in sys.path:
+    sys.path.insert(0, _WRAPPER_DIR)
+from _census import collect_census, is_hidden  # noqa: E402  (sibling module, Blender-executed)
+
 GLB_NAME = "object.glb"
 STL_NAME = "object.stl"
 BLEND_NAME = "object.blend"
 EXPORT_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META", "EMPTY"}
-DEFAULT_NAME_RE = re.compile(r"^(Cube|Cylinder|Sphere|Plane|Cone|Torus|Icosphere|Circle|Grid|Monkey|Mesh|Text|Curve)(\.\d+)?$")
+PARTS_PKG = "parts"  # src/parts/<snake>.py → ``from parts.<snake> import build_<snake>``
 
 
 # ----------------------------------------------------------------------------- args / io
@@ -123,22 +132,51 @@ def render_fingerprint(bpy: Any) -> dict[str, Any]:
 
 
 # ----------------------------------------------------------------------------- exec + error mapping
+def src_relative(path: str, src_dir: str) -> str | None:
+    """``/ws/src/parts/leg.py`` → ``src/parts/leg.py`` when ``path`` lives under ``src_dir``; else None."""
+    real_src = os.path.realpath(src_dir)
+    real = os.path.realpath(path)
+    if real == real_src or not real.startswith(real_src + os.sep):
+        return None
+    return os.path.join(os.path.basename(real_src), os.path.relpath(real, real_src)).replace(os.sep, "/")
+
+
+def import_hint(exc: BaseException, src_dir: str) -> str:
+    """Extra guidance for the two import mistakes a multi-file model makes."""
+    msg = str(exc)
+    if isinstance(exc, ModuleNotFoundError) and (f"'{PARTS_PKG}." in msg or f"'{PARTS_PKG}'" in msg):
+        mod = msg.split("'")[1].split(".")[-1]
+        return f" — create {os.path.basename(src_dir)}/{PARTS_PKG}/{mod}.py (snake_case file name) or fix the import"
+    if isinstance(exc, ImportError) and "cannot import name" in msg:
+        name = msg.split("'")[1]
+        where = msg.split("'")[3] if msg.count("'") >= 4 else PARTS_PKG
+        return f" — define `def {name}():` in {where.replace('.', '/')}.py (every part file exports build_<snake>)"
+    return ""
+
+
 def map_exception(exc: BaseException, script_path: str) -> dict[str, Any]:
-    """Traceback → {error_type, error_message, error_file, error_line, error_source, traceback}."""
-    real = os.path.realpath(script_path)
+    """Traceback → {error_type, error_message, error_file, error_line, error_source, traceback}.
+
+    ``error_file`` is workspace-relative (``src/model.py``, ``src/parts/leg.py``): the
+    innermost traceback frame inside ``src/`` wins, so a failure in a part file is
+    reported against that file, not against the ``from parts.x import …`` line.
+    """
+    src_dir = os.path.dirname(os.path.abspath(script_path))
     info: dict[str, Any] = {
         "error_type": type(exc).__name__,
-        "error_message": str(exc) or type(exc).__name__,
+        "error_message": (str(exc) or type(exc).__name__) + import_hint(exc, src_dir),
         "error_file": "",
         "error_line": None,
         "error_source": "",
     }
-    if isinstance(exc, SyntaxError) and exc.filename and os.path.realpath(exc.filename) == real:
-        info.update(error_file=os.path.basename(script_path), error_line=exc.lineno, error_source=(exc.text or "").strip())
+    syntax_rel = src_relative(exc.filename, src_dir) if isinstance(exc, SyntaxError) and exc.filename else None
+    if syntax_rel:
+        info.update(error_file=syntax_rel, error_line=exc.lineno, error_source=(exc.text or "").strip())
     else:
         for frame in reversed(traceback.extract_tb(exc.__traceback__)):
-            if os.path.realpath(frame.filename) == real:
-                info.update(error_file=os.path.basename(script_path), error_line=frame.lineno, error_source=(frame.line or "").strip())
+            rel = src_relative(frame.filename, src_dir)
+            if rel:
+                info.update(error_file=rel, error_line=frame.lineno, error_source=(frame.line or "").strip())
                 break
     if isinstance(exc, MemoryError):
         info["error_message"] = (
@@ -151,10 +189,21 @@ def map_exception(exc: BaseException, script_path: str) -> dict[str, Any]:
 
 
 def run_script(script_path: str) -> dict[str, Any] | None:
-    """Execute the agent script as ``__main__``; return error info or None."""
-    script_dir = os.path.dirname(os.path.abspath(script_path))
-    if script_dir not in sys.path:
-        sys.path.insert(0, script_dir)
+    """Execute the agent's entry script as ``__main__``; return error info or None.
+
+    ``<ws>/src`` goes first on ``sys.path`` so the entry can import its part modules
+    (``src/parts/<snake>.py``) either way: ``from parts.leg import build_leg`` or
+    ``import parts.leg``.  A single-file ``model.py`` keeps working unchanged.
+    """
+    src_dir = os.path.dirname(os.path.abspath(script_path))
+    if _WRAPPER_DIR in sys.path:  # the agent's code must not see the wrapper's helpers
+        sys.path.remove(_WRAPPER_DIR)
+    sys.path[:] = [p for p in sys.path if os.path.realpath(p) != os.path.realpath(src_dir)]
+    sys.path.insert(0, src_dir)
+    sys.dont_write_bytecode = True  # no __pycache__ inside the agent's git-tracked src/
+    for name in [m for m in sys.modules if m == PARTS_PKG or m.startswith(PARTS_PKG + ".")]:
+        del sys.modules[name]  # never reuse a stale module from somewhere else on the path
+    importlib.invalidate_caches()
     saved_argv = sys.argv
     sys.argv = [script_path]
     try:
@@ -169,122 +218,13 @@ def run_script(script_path: str) -> dict[str, Any] | None:
     return None
 
 
-# ----------------------------------------------------------------------------- census
-def world_bbox(obj_eval: Any, Vector: Any) -> tuple[list[float], list[float]] | None:
-    corners = [obj_eval.matrix_world @ Vector(c) for c in obj_eval.bound_box]
-    if not corners:
-        return None
-    mn = [min(c[i] for c in corners) for i in range(3)]
-    mx = [max(c[i] for c in corners) for i in range(3)]
-    return [round(v, 5) for v in mn], [round(v, 5) for v in mx]
-
-
-def is_hidden(obj: Any) -> bool:
-    try:
-        return bool(obj.hide_render or obj.hide_viewport or obj.hide_get())
-    except RuntimeError:  # object not in the view layer
-        return True
-
-
-def collect_census(bpy: Any, tri_limit: int) -> dict[str, Any]:
-    from mathutils import Vector
-
-    bpy.context.view_layer.update()
-    dg = bpy.context.evaluated_depsgraph_get()
-    scene_objects = set(bpy.context.scene.objects.keys())
-    boolean_operands: dict[str, list[str]] = {}
-    objects: list[dict[str, Any]] = []
-    total_tris = 0
-    mins: list[list[float]] = []
-    maxs: list[list[float]] = []
-    for obj in bpy.data.objects:
-        rec: dict[str, Any] = {
-            "name": obj.name,
-            "type": obj.type,
-            "parent": obj.parent.name if obj.parent else None,
-            "in_scene": obj.name in scene_objects,
-            "hidden": is_hidden(obj),
-            "materials": [s.material.name for s in obj.material_slots if s.material],
-            "modifiers": [m.type for m in obj.modifiers],
-            "location": [round(v, 5) for v in obj.matrix_world.translation],
-        }
-        for m in obj.modifiers:
-            if m.type == "BOOLEAN" and getattr(m, "object", None) is not None:
-                boolean_operands.setdefault(m.object.name, []).append(obj.name)
-        if obj.type in ("MESH", "CURVE", "SURFACE", "FONT", "META"):
-            try:
-                ob_eval = obj.evaluated_get(dg)
-                me = ob_eval.to_mesh()
-                me.calc_loop_triangles()
-                rec["tri_count"] = len(me.loop_triangles)
-                rec["vert_count"] = len(me.vertices)
-                rec["has_uv"] = bool(me.uv_layers)
-                rec["has_vertex_colors"] = bool(me.color_attributes)
-                bb = world_bbox(ob_eval, Vector)
-                ob_eval.to_mesh_clear()
-            except RuntimeError as e:
-                rec["tri_count"] = 0
-                rec["census_error"] = str(e)
-                bb = None
-            if bb:
-                rec["bbox_min"], rec["bbox_max"] = bb
-                if rec["in_scene"] and not rec["hidden"]:
-                    mins.append(bb[0])
-                    maxs.append(bb[1])
-            if rec["in_scene"] and not rec["hidden"]:
-                total_tris += rec["tri_count"]
-        objects.append(rec)
-    warnings: list[str] = []
-    cams = [o.name for o in bpy.data.objects if o.type == "CAMERA"]
-    lights = [o.name for o in bpy.data.objects if o.type == "LIGHT"]
-    if cams:
-        warnings.append(f"script created camera(s) {cams}: not exported; remove camera code (the harness owns cameras)")
-    if lights:
-        warnings.append(f"script created light(s) {lights}: not exported; remove light code (the harness owns lighting)")
-    for cutter, users in boolean_operands.items():
-        o = bpy.data.objects.get(cutter)
-        if o is not None and not is_hidden(o) and o.name in scene_objects:
-            warnings.append(
-                f"object '{cutter}' is a boolean operand of {users} but is still visible and WILL be exported as "
-                f"geometry; hide it: obj.hide_set(True); obj.hide_render = True  (or bpy.data.objects.remove(obj))"
-            )
-    visible = [o for o in objects if o["in_scene"] and not o["hidden"] and o["type"] == "MESH"]
-    if not visible:
-        warnings.append("no visible mesh objects in the scene — nothing to export")
-    for o in visible:
-        if not o["materials"]:
-            warnings.append(f"mesh '{o['name']}' has no material (will export grey)")
-        if DEFAULT_NAME_RE.match(o["name"]):
-            warnings.append(f"mesh '{o['name']}' keeps a default primitive name; set obj.name = '<PartName>'")
-    unlinked = [o["name"] for o in objects if o["type"] == "MESH" and not o["in_scene"]]
-    if unlinked:
-        warnings.append(f"mesh object(s) {unlinked} were created but never linked to the scene → not exported; "
-                        "call bpy.context.collection.objects.link(obj)")
-    if total_tris > tri_limit:
-        warnings.append(f"triangle budget exceeded: {total_tris} > {tri_limit}")
-    census = {
-        "objects": objects,
-        "n_mesh_objects": len(visible),
-        "tri_count": total_tris,
-        "tri_limit": tri_limit,
-        "materials": [m.name for m in bpy.data.materials],
-        "cameras": cams,
-        "lights": lights,
-        "warnings": warnings,
-        "frame": "z_up_neg_y_front",
-    }
-    if mins:
-        census["scene_bbox_min"] = [round(min(m[i] for m in mins), 5) for i in range(3)]
-        census["scene_bbox_max"] = [round(max(m[i] for m in maxs), 5) for i in range(3)]
-    return census
-
-
 # ----------------------------------------------------------------------------- export
 def select_exportables(bpy: Any) -> list[Any]:
     bpy.ops.object.select_all(action="DESELECT")
     chosen = []
+    vl_names = set(bpy.context.view_layer.objects.keys())  # same predicate as the census
     for obj in bpy.context.scene.objects:
-        if obj.type in EXPORT_TYPES and not is_hidden(obj):
+        if obj.type in EXPORT_TYPES and not is_hidden(obj, vl_names):
             with contextlib.suppress(RuntimeError):  # not in the view layer (excluded collection)
                 obj.select_set(True)
                 chosen.append(obj)

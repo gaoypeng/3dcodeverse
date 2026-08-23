@@ -16,14 +16,16 @@ from pathlib import Path
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.conventions import to_snake
-from codeverse.spatial.joints_model import JOINT_TYPES, MOVABLE_TYPES
+from codeverse.spatial.joints_model import JOINT_TYPES, MOVABLE_TYPES, RESERVED_LINK_NAMES
 from codeverse.workspace import Workspace
 
 GATE = "lint:urdf"
 URDF_REL = "src/robot.urdf"
 MODEL_REL = "src/model.py"
 _STATE_WORDS = ("open", "closed", "opened", "extended", "retracted", "raised", "lowered", "folded", "unfolded")
-_SNAKE = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
+#: link names double as Blender object names and ``meshes/<link>.glb`` stems: plain
+#: identifiers only (``door``, ``handle_left``, ``DoorHandle``) — never ``Door.001`` / spaces.
+_IDENT = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 #: attribute chains that must not appear in model.py (harness owns these)
 FORBIDDEN_BPY_PREFIXES: tuple[tuple[str, str], ...] = (
@@ -123,9 +125,13 @@ def lint_urdf_text(text: str, *, label: str = URDF_REL) -> tuple[list[GateFindin
 
 
 def _lint_link(el: ET.Element, name: str, out: list[GateFinding]) -> None:
-    if not _SNAKE.match(name):
-        out.append(_f(Severity.WARN, f"link name '{name}' is not snake_case", target=name,
-                      fix=f"Rename to '{to_snake(name)}' in BOTH robot.urdf and model.py (object names are case-sensitive)."))
+    if name in RESERVED_LINK_NAMES:
+        out.append(_f(Severity.ERROR, f"link name '{name}' is reserved by the GLB scene graph (glTF readers use it as the base frame)",
+                      target=name, fix="Rename the link (e.g. 'base' or the part's name) in BOTH robot.urdf and model.py."))
+    if not _IDENT.match(name):
+        out.append(_f(Severity.WARN, f"link name '{name}' is not a plain identifier (letters/digits/underscore)", target=name,
+                      fix=f"Rename to '{to_snake(name)}' in BOTH robot.urdf and model.py (object names are case-sensitive; "
+                          "Blender's auto-suffix '.001' means two objects shared a name)."))
     if any(w in to_snake(name).split("_") for w in _STATE_WORDS):
         out.append(_f(Severity.WARN, f"link name '{name}' contains a state word — links are parts, states come from joints", target=name,
                       fix="Name the part (door, drawer, lid), not its state."))

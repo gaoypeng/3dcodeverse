@@ -1,4 +1,4 @@
-# Using the c3v spatial tools (look before you leap)
+# Using the 3dcv spatial tools (look before you leap)
 
 The tools are the harness's instruments.  They are cheap, deterministic and honest —
 trust their numbers over your mental model.  Observations come back as

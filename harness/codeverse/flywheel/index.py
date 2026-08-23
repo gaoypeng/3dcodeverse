@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from codeverse.contracts.run import RoundRecord, RunRecord
-from codeverse.flywheel.pairs import prompt_hash
-from codeverse.flywheel.record import iter_runs
+from codeverse.flywheel.quality import prompt_hash, quality_tier
+from codeverse.flywheel.record import effective_judgment, iter_runs
 from codeverse.workspace import Workspace
 
 _SCHEMA = """
@@ -21,7 +21,8 @@ CREATE TABLE runs (
   generator TEXT, planner TEXT, judge TEXT, status TEXT,
   baseline_score REAL, final_score REAL, best_round INTEGER, n_rounds INTEGER, passed INTEGER,
   cost_usd REAL, input_tokens INTEGER, output_tokens INTEGER,
-  started_at TEXT, finished_at TEXT, duration_s REAL, error TEXT, has_captions INTEGER
+  started_at TEXT, finished_at TEXT, duration_s REAL, error TEXT, has_captions INTEGER,
+  gate_errors INTEGER, quality_tier TEXT, best_commit TEXT
 );
 CREATE TABLE rounds (
   slug TEXT, round_index INTEGER, kind TEXT, commit_sha TEXT, agent_backend TEXT,
@@ -30,7 +31,7 @@ CREATE TABLE rounds (
   PRIMARY KEY (slug, round_index)
 );
 CREATE TABLE usage (
-  slug TEXT, round_index INTEGER, role TEXT, backend TEXT, model TEXT,
+  slug TEXT, round_index INTEGER, role TEXT, backend TEXT, model TEXT,  -- role: round (agent+judge) | judge
   input_tokens INTEGER, output_tokens INTEGER, cached_tokens INTEGER, thoughts_tokens INTEGER,
   tool_calls INTEGER, cost_usd REAL, latency_ms INTEGER
 );
@@ -42,8 +43,12 @@ CREATE INDEX idx_rounds_slug ON rounds(slug);
 
 def _run_row(ws: Workspace, rec: RunRecord) -> tuple:
     best = next((r for r in rec.rounds if r.index == rec.best_round), None)
-    passed = None if best is None or best.judgment is None else int(best.judgment.passed)
+    best_j = effective_judgment(best) if best is not None else None  # degraded → unjudged
+    passed = None if best_j is None else int(best_j.passed)
     dur = (rec.finished_at - rec.started_at).total_seconds() if rec.finished_at else None
+    n_err = sum(len(g.errors) for g in best.gates) if best is not None else 0
+    score = best_j.overall if best_j is not None else None
+    tier = quality_tier(passed=None if passed is None else bool(passed), gate_errors=n_err, score=score)
     return (
         ws.root.name, str(ws.root), rec.spec.track.value, rec.spec.language.value, rec.spec.prompt,
         prompt_hash(rec.spec.prompt), rec.spec.backends.generator, rec.spec.backends.planner,
@@ -52,20 +57,24 @@ def _run_row(ws: Workspace, rec: RunRecord) -> tuple:
         rec.total_usage.output_tokens, rec.started_at.isoformat(),
         rec.finished_at.isoformat() if rec.finished_at else None, dur, rec.error,
         int(bool((rec.extra.get("captions") or {}).get("detailed"))),
+        n_err, tier, best.commit if best is not None else "",
     )
 
 
 def _round_row(slug: str, r: RoundRecord) -> tuple:
+    j = effective_judgment(r)  # degraded → unscored
     return (
         slug, r.index, r.kind, r.commit, r.agent_backend,
-        None if r.build is None else int(r.build.ok), sum(len(g.errors) for g in r.gates), r.score,
-        None if r.judgment is None else int(r.judgment.passed), 0 if r.judgment is None else len(r.judgment.issues),
+        None if r.build is None else int(r.build.ok), sum(len(g.errors) for g in r.gates),
+        j.overall if j is not None else None,
+        None if j is None else int(j.passed), 0 if j is None else len(j.issues),
         r.usage.cost_usd, r.duration_s, r.started_at.isoformat(),
     )
 
 
 def _usage_rows(slug: str, r: RoundRecord) -> list[tuple]:
-    rows = [(slug, r.index, "agent", r.usage.backend, r.usage.model, r.usage.input_tokens, r.usage.output_tokens,
+    """``round`` = the round's total (agent session + its judge call); ``judge`` = the judge part of it."""
+    rows = [(slug, r.index, "round", r.usage.backend, r.usage.model, r.usage.input_tokens, r.usage.output_tokens,
              r.usage.cached_tokens, r.usage.thoughts_tokens, r.usage.tool_calls, r.usage.cost_usd, r.usage.latency_ms)]
     if r.judgment is not None:
         u = r.judgment.usage
@@ -87,7 +96,7 @@ def build_index(runs_dir: Path | str, out_sqlite: Path | str) -> int:
         con.executescript(_SCHEMA)
         for ws, rec in iter_runs(runs_dir):
             slug = ws.root.name
-            con.execute(f"INSERT INTO runs VALUES ({','.join('?' * 23)})", _run_row(ws, rec))
+            con.execute(f"INSERT INTO runs VALUES ({','.join('?' * 26)})", _run_row(ws, rec))
             con.executemany(f"INSERT INTO rounds VALUES ({','.join('?' * 13)})", [_round_row(slug, r) for r in rec.rounds])
             con.executemany(f"INSERT INTO usage VALUES ({','.join('?' * 12)})",
                             [row for r in rec.rounds for row in _usage_rows(slug, r)])
@@ -121,14 +130,15 @@ def summary(db: Path | str) -> list[dict[str, Any]]:
         "SELECT track, language, generator, COUNT(*) AS n, AVG(passed) AS pass_rate, "
         "AVG(baseline_score) AS baseline_mean, AVG(final_score) AS final_mean, "
         "AVG(final_score - baseline_score) AS delta_mean, SUM(cost_usd) AS cost_usd, "
-        "AVG(n_rounds) AS rounds_mean FROM runs GROUP BY track, language, generator ORDER BY track, language",
+        "AVG(n_rounds) AS rounds_mean, SUM(quality_tier = 'A') AS n_tier_a, SUM(quality_tier = 'B') AS n_tier_b "
+        "FROM runs GROUP BY track, language, generator ORDER BY track, language",
     )
 
 
 def top_runs(db: Path | str, n: int = 20, *, track: str | None = None) -> list[dict[str, Any]]:
     where = "WHERE track = ?" if track else ""
     params: tuple = (track, n) if track else (n,)
-    return query(db, f"SELECT slug, track, language, generator, final_score, passed, cost_usd, n_rounds "
+    return query(db, f"SELECT slug, track, language, generator, final_score, passed, quality_tier, cost_usd, n_rounds "
                      f"FROM runs {where} ORDER BY final_score DESC LIMIT ?", params)
 
 

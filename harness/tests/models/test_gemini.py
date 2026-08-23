@@ -20,7 +20,7 @@ from codeverse.contracts.chat import (
 )
 from codeverse.contracts.plan import StaticPlan
 from codeverse.models.base import ModelError
-from codeverse.models.gemini import GeminiModel, classify_exception
+from codeverse.models.gemini import GeminiModel, classify_exception, failure_outcome
 from codeverse.models.gemini_convert import SIGNATURES, build_config, to_contents
 from codeverse.models.keypool import KeyPool
 
@@ -81,10 +81,10 @@ class FakeClient:
         self.models = FakeModels(script, key, log)
 
 
-def make_model(script: list[Any], keys=("k1", "k2", "k3"), **kw):
+def make_model(script: list[Any], keys=("k1", "k2", "k3"), pool: KeyPool | None = None, **kw):
     """Shared script across keys (each call pops the next item); log records which key was used."""
     log: list[dict] = []
-    pool = KeyPool(list(keys), cooldown_s=30)
+    pool = pool or KeyPool(list(keys), cooldown_s=30)
     m = GeminiModel(
         "gemini-3.7-flash",
         pool=pool,
@@ -175,6 +175,116 @@ def test_429_rotates_keys_and_cools_down():
     assert st["429"] == 2 and st["ok"] == 1 and st["n_cooling"] == 2
     cooling = {k["key"]: k["cooldown_s"] for k in st["keys"]}
     assert 0 < cooling["…k1"] <= 7.0  # retryDelay honoured
+
+
+def _api_error(code: int, message: str, status: str) -> genai_errors.APIError:
+    return genai_errors.APIError(code, {"error": {"message": message, "status": status}})
+
+
+class _KeyedClient:
+    """Client whose behaviour depends on the key: ``fail[key]`` raises, others answer."""
+
+    def __init__(self, key: str, fail: dict[str, BaseException], log: list[dict]):
+        self.key, self.fail, self.log = key, fail, log
+        self.models = self
+
+    def generate_content(self, *, model: str, contents, config):
+        self.log.append({"key": self.key})
+        if self.key in self.fail:
+            raise self.fail[self.key]
+        return text_response(f"ok from {self.key}")
+
+
+def _keyed_model(
+    keys: list[str], fail: dict[str, BaseException], pool: KeyPool | None = None, **kw
+):
+    log: list[dict] = []
+    pool = pool or KeyPool(keys, cooldown_s=30)
+    m = GeminiModel(
+        "gemini-3.7-flash",
+        pool=pool,
+        sleep=lambda s: None,
+        client_factory=lambda key: _KeyedClient(key, fail, log),
+        **kw,
+    )
+    return m, log, pool
+
+
+SUSPENDED = _api_error(
+    403, "PERMISSION_DENIED: Consumer 'api_key:xxx' has been suspended.", "PERMISSION_DENIED"
+)
+THROTTLED = genai_errors.APIError(
+    429,
+    {
+        "error": {
+            "message": "quota",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [{"retryDelay": "7s"}],
+        }
+    },
+)
+
+
+def test_429_rotation_does_not_consume_the_retry_budget():
+    # 8 throttled keys > max_attempts=6, yet fresh keys remain → must still succeed
+    keys = [f"k{i}" for i in range(1, 23)]
+    m, log, pool = _keyed_model(keys, {k: THROTTLED for k in keys[:8]}, max_attempts=6)
+    r = m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert r.text == "ok from k9" and [e["key"] for e in log] == keys[:9]
+    assert pool.stats()["n_cooling"] == 8
+
+
+def test_429_on_every_key_waits_for_cooldown_then_counts_against_budget():
+    clock = {"t": 1000.0}
+    pool = KeyPool(
+        ["k1", "k2", "k3"],
+        cooldown_s=30,
+        clock=lambda: clock["t"],
+        sleep=lambda s: clock.__setitem__("t", clock["t"] + s),
+    )
+    keys = ["k1", "k2", "k3"]
+    m, log, _ = _keyed_model(keys, {k: THROTTLED for k in keys}, pool=pool, max_attempts=3)
+    with pytest.raises(ModelError) as ei:
+        m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert ei.value.retryable and ei.value.status == 429
+    # 2 free rotations + 3 budgeted attempts; the pool waited out the cooldowns in between
+    assert len(log) == 5 and clock["t"] >= 1000.0 + 7.0
+
+
+def test_dead_key_is_rotated_past_and_benched():
+    m, log, pool = _keyed_model(["k1", "k2", "k3"], {"k1": SUSPENDED})
+    r = m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert r.text == "ok from k2" and [e["key"] for e in log] == ["k1", "k2"]
+    st = {k["key"]: k for k in pool.stats()["keys"]}
+    assert st["…k1"]["dead"] == 1 and st["…k1"]["cooldown_s"] > 600 and pool.stats()["n_dead"] == 1
+    # the dead key never comes back round-robin while benched
+    log.clear()
+    for _ in range(10):
+        m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert {e["key"] for e in log} == {"k2", "k3"}
+
+
+def test_api_key_invalid_400_is_treated_as_dead_key():
+    bad = _api_error(400, "API key not valid. Please pass a valid API key.", "INVALID_ARGUMENT")
+    m, log, pool = _keyed_model(["k1", "k2"], {"k1": bad})
+    assert m.generate(ChatRequest(messages=[ChatMessage.user("x")])).text == "ok from k2"
+    assert pool.stats()["dead"] == 1
+    assert failure_outcome(classify_exception(bad)) == "dead"
+    assert failure_outcome(classify_exception(SUSPENDED)) == "dead"
+    assert failure_outcome(classify_exception(THROTTLED)) == "429"
+    assert failure_outcome(ModelError("bad json", retryable=True)) == "ok"
+
+
+def test_every_key_dead_raises_without_benching():
+    keys = ["k1", "k2", "k3"]
+    m, log, pool = _keyed_model(keys, {k: SUSPENDED for k in keys})
+    with pytest.raises(ModelError) as ei:
+        m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert not ei.value.retryable and ei.value.status == 403
+    assert [e["key"] for e in log] == keys  # each tried once, no sleeps, no budget burnt
+    # the request (not the keys) is suspect: nothing benched, next call is not blocked
+    assert pool.stats()["dead"] == 0 and pool.stats()["n_cooling"] == 0
+    assert pool.acquire(timeout_s=0.0) in keys
 
 
 def test_5xx_retries_then_gives_up_with_retryable_error():
@@ -364,7 +474,9 @@ def test_truncated_json_is_not_retried():
 
 
 def test_empty_max_tokens_is_not_retried():
-    m, log, _ = make_model([text_response("", finish="MAX_TOKENS", thoughts=49), text_response("never")])
+    m, log, _ = make_model(
+        [text_response("", finish="MAX_TOKENS", thoughts=49), text_response("never")]
+    )
     with pytest.raises(ModelError) as ei:
         m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_output_tokens=50))
     assert not ei.value.retryable and len(log) == 1 and "thinking" in str(ei.value)

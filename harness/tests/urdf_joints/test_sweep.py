@@ -14,7 +14,11 @@ from codeverse.spatial.joints import (
     sweep_collisions,
     sweep_findings,
 )
-from tests.urdf_joints.conftest import write_mesh_robot, write_prims_robot
+from tests.urdf_joints.conftest import (
+    write_carcass_drawer_robot,
+    write_mesh_robot,
+    write_prims_robot,
+)
 
 
 def test_good_design_has_no_overlaps(tmp_path):
@@ -89,11 +93,57 @@ def test_motion_direction(tmp_path):
 
 
 def test_trimesh_fallback_backend(tmp_path, monkeypatch):
+    import codeverse.spatial.joints_collide as jc
     import codeverse.spatial.joints_sweep as js
 
-    monkeypatch.setattr(js, "_fcl", None)
+    monkeypatch.setattr(jc, "_fcl", None)
     r = load_urdf(write_prims_robot(tmp_path / "cab.urdf", axis_z=+1))
     rep = js.sweep_collisions(r, pose_samples(r), volumes=False)
     assert rep.summary.backend == "trimesh"
     assert rep.summary.max_penetration_m > 0.1 and rep.summary.rest_max_penetration_m == 0.0
     assert rep.summary.floating_links == []
+
+
+@pytest.mark.parametrize("fcl", [True, False], ids=["fcl", "trimesh-fallback"])
+def test_agent_style_meshes_penetration_is_real_and_deterministic(tmp_path, monkeypatch, fcl):
+    """Non-watertight, inverted-winding links (the wrapper's usual output): a clean design
+    must report no overlap and a drawer driven 30 mm through the side panel must be caught —
+    identically on every call (no random ray re-casts) and on both backends."""
+    import codeverse.spatial.joints_collide as jc
+
+    if not fcl:
+        monkeypatch.setattr(jc, "_fcl", None)
+    clean = load_urdf(*write_carcass_drawer_robot(tmp_path / "clean"))
+    assert not clean.links["Carcass"].mesh.is_watertight and clean.links["Carcass"].mesh.volume < 0
+    reps = [sweep_collisions(clean, pose_samples(clean, n_random=4, seed=0), volumes=False) for _ in range(3)]
+    assert all(r.summary.max_penetration_m == 0.0 and r.summary.overlapping_poses == [] for r in reps)
+    assert reps[0].summary.floating_links == [] and reps[0].summary.link_islands == {"Carcass": 5, "Drawer": 5}
+    assert reps[0].summary.backend == ("fcl" if fcl else "trimesh")
+
+    bad = load_urdf(*write_carcass_drawer_robot(tmp_path / "bad", drawer_shift_x=0.032))
+    rests = [sweep_collisions(bad, [{}]).summary.rest_max_penetration_m for _ in range(3)]
+    assert len(set(rests)) == 1 and 0.008 < rests[0] < 0.02  # 30 mm through a 30 mm panel → ≥ 10 mm to its surface
+    rep = sweep_collisions(bad, [{}])
+    ov = rep.per_pose[0].overlaps
+    assert [(o.a, o.b, o.approx) for o in ov] == [("Carcass", "Drawer", False)]  # islands are watertight → exact
+    assert ov[0].volume_m3 is not None and ov[0].volume_m3 > 1e-6
+    sev = {x.target: x.severity for x in sweep_findings(rep, rest_max_m=0.005)}
+    assert sev["Carcass|Drawer"] == Severity.ERROR
+
+
+def test_welded_child_overlap_is_structural_not_motion(tmp_path):
+    """A handle sunk 3 mm into its door (fixed joint) never moves relative to the door:
+    one WARN under the rest policy, not an ERROR repeated for every swung pose."""
+    urdf, meshes = write_mesh_robot(tmp_path, handle=True)
+    urdf.write_text(urdf.read_text().replace('<origin xyz="-0.2 0.24 -0.4" rpy="0 0 0"/>', '<origin xyz="-0.2 0.243 -0.4" rpy="0 0 0"/>'))
+    r = load_urdf(urdf, meshes)
+    rep = sweep_collisions(r, pose_samples(r))
+    ovs = [(pr.label, o) for pr in rep.per_pose for o in pr.overlaps]
+    assert [(lbl, o.a, o.b, o.rigid) for lbl, o in ovs] == [("rest", "door", "handle", True)]
+    assert 0.0025 < rep.summary.rest_max_penetration_m < 0.0035 and rep.summary.overlapping_poses == ["rest"]
+    finds = sweep_findings(rep)
+    assert [(f.target, f.severity) for f in finds] == [("door|handle", Severity.WARN)]
+    # without a rest pose in the sweep the weld is still measured (once, first pose) and counts as rest penetration
+    rep2 = sweep_collisions(r, [{"hinge": 1.0}, {"hinge": 1.5}])
+    assert [len(pr.overlaps) for pr in rep2.per_pose] == [1, 0] and rep2.summary.rest_max_penetration_m > 0.0025
+    assert sweep_findings(rep2)[0].severity == Severity.WARN and "rigidly joined" in sweep_findings(rep2)[0].fix_hint

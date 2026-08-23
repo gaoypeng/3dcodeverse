@@ -1,8 +1,18 @@
 # Blender (bpy) authoring contract
 
-You write ONE file, `src/model.py`, in **raw bpy** (Blender 5.x Python API). The harness runs it with
-`blender -b --factory-startup --python run_bpy.py -- --script src/model.py` in an **EMPTY scene**
-(no Cube/Camera/Light) and then exports `artifacts/object.glb` (+ `object.stl`) itself.
+You write **raw bpy** (Blender 5.x Python API) in a multi-file layout:
+
+* `src/model.py` — the ENTRY: imports the part builders, calls them in plan order, self-checks.
+  No geometry of its own beyond small glue.
+* `src/parts/<snake>.py` — ONE per plan part (`SeatCushion` → `src/parts/seat_cushion.py`), exporting
+  `def build_seat_cushion() -> bpy.types.Object` that builds the part at its WORLD pose with the exact
+  object name(s) and returns it (instances `Leg_0..Leg_3` looped inside that one file).  Self-contained;
+  it only DEFINES — never builds at import time.  `src/` is on `sys.path`:
+  `from parts.seat_cushion import build_seat_cushion`.  Small objects (1–2 parts) may use one `src/model.py`.
+
+The harness runs `blender -b --factory-startup --python run_bpy.py -- --script src/model.py` in an
+**EMPTY scene** (no Cube/Camera/Light), reports errors as `src/parts/<file>.py:<line>`, and exports
+`artifacts/object.glb` (+ `object.stl`) itself.
 
 ## Frame, units, placement
 * **Z is up, -Y is the front** of the object, +X is its right. **Units are meters.**
@@ -11,7 +21,9 @@ You write ONE file, `src/model.py`, in **raw bpy** (Blender 5.x Python API). The
 
 ## Objects and names
 * One mesh object per part, **named exactly as the plan's PascalCase part name** (`SeatCushion`).
-  Instances: `Leg_0 … Leg_3`, optionally parented to an Empty named `Legs`.
+  Instances: `Leg_0 … Leg_3`, each a TOP-LEVEL object. **Never parent instances under an
+  Empty** — the harness measures top-level GLB nodes as parts, so an Empty parent merges all
+  instances into one part and the plan part is reported missing.
 * Helper objects (boolean cutters) must be removed or hidden
   (`cutter.hide_set(True); cutter.hide_render = True`) — visible objects are exported as-is.
 * Modifiers (bevel, subdivision, boolean, array, solidify, mirror) may stay unapplied:
@@ -43,7 +55,7 @@ You write ONE file, `src/model.py`, in **raw bpy** (Blender 5.x Python API). The
 * Context dict overrides `bpy.ops.x({...})` are gone: `with bpy.context.temp_override(object=obj): ...`.
 * World AABB: `[obj.matrix_world @ Vector(c) for c in obj.bound_box]` after `bpy.context.view_layer.update()`.
 
-## Minimal example (copy the pattern)
+## Minimal example (copy the pattern; as a part file: wrap the body in `def build_table_top():` and return `top`)
 ```python
 import bpy
 import math

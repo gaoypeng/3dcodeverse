@@ -20,7 +20,29 @@ def test_floating_leg_found_with_exact_gap(stool_glb: Path) -> None:
     assert d["nearest"] == "Seat"
     assert d["gap_m"] == pytest.approx(FLOAT_GAP_M, abs=1e-4)
     assert np.allclose(d["gap_vector_m"], (0.0, FLOAT_GAP_M, 0.0), atol=1e-4)
-    assert "translate 'Leg_3' by (+0.0000, +0.0050, +0.0000)" in errs[0].fix_hint
+    assert "translate 'Leg_3' by (+0.0000, +0.0050, +0.0000) m (GLB frame: Y-up, +Z front)" in errs[0].fix_hint
+
+
+def test_hints_use_the_authoring_frame(stool_glb: Path) -> None:
+    """The 5 mm gap is along GLB +y (up).  A Blender/CadQuery/URDF agent codes in Z-up, so
+    the pasted hint must say +z (a literal '+y' would move the leg towards the back)."""
+    err = check_connectivity(stool_glb, language="blender").errors[0]
+    assert "translate 'Leg_3' by (+0.0000, +0.0000, +0.0050) m (blender frame: Z-up, -Y front)" in err.fix_hint
+    assert np.allclose(err.data["gap_vector_m"], (0.0, 0.0, FLOAT_GAP_M), atol=1e-4)
+    assert np.allclose(err.data["gap_vector_glb_m"], (0.0, FLOAT_GAP_M, 0.0), atol=1e-4)
+    assert err.data["frame"] == "z_up_neg_y_front"
+    err = check_connectivity(stool_glb, language="threejs").errors[0]
+    assert "(+0.0000, +0.0050, +0.0000) m (threejs frame: Y-up, +Z front)" in err.fix_hint
+    # nothing grounded: the ground hint names the language's up axis
+    s = trimesh.Scene()
+    for i, x in enumerate((0.0, 0.3)):
+        m = trimesh.creation.box((0.1, 0.1, 0.1))
+        m.apply_translation((x, 0.5, 0))
+        s.add_geometry(m, node_name=f"P{i}", geom_name=f"P{i}")
+    p = stool_glb.parent / "floating_pair.glb"
+    p.write_bytes(s.export(file_type="glb"))
+    ground = [f for f in check_connectivity(p, language="cadquery").findings if "touches the ground" in f.message]
+    assert ground and "(z=0)" in ground[0].message and "z=0, cadquery frame" in ground[0].fix_hint
 
 
 def test_solid_stool_passes(solid_stool_glb: Path) -> None:

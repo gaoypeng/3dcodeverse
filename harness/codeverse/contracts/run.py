@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
 from codeverse.contracts.common import Usage
 from codeverse.contracts.judgment import Judgment
-from codeverse.contracts.plan import ArticulatedPlan, ScenePlan, StaticPlan
+from codeverse.contracts.plan import ArticulatedPlan, GraphicsPlan, ScenePlan, StaticPlan
 from codeverse.contracts.spec import Spec
 
 
@@ -48,7 +48,7 @@ class RoundRecord(BaseModel):
 
 class RunRecord(BaseModel):
     spec: Spec
-    plan: StaticPlan | ArticulatedPlan | ScenePlan | None = None
+    plan: StaticPlan | ArticulatedPlan | ScenePlan | GraphicsPlan | None = None
     workspace: str
     status: RunStatus = RunStatus.PLANNING
     rounds: list[RoundRecord] = Field(default_factory=list)

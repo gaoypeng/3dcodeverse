@@ -43,7 +43,8 @@ def _fake_blender(tmp_path: Path) -> str:
 def test_protocol_and_registry() -> None:
     rt = get_runtime("blender")
     assert isinstance(rt, BlenderRuntime) and isinstance(rt, LanguageRuntime)
-    assert rt.entry_globs == ("src/model.py",) and rt.language.value == "blender"
+    assert rt.entry_globs == ("src/model.py", "src/parts/*.py") and rt.language.value == "blender"
+    assert rt.file_for_part("Seat Cushion") == "src/parts/seat_cushion.py"  # tracks call this via getattr
     assert "bpy" in rt.contract_doc() and "Z is up" in rt.contract_doc()
     assert rt.cookbook_path().name == "cookbook.md"
 
@@ -96,8 +97,9 @@ def test_live_skeleton_builds_and_exports_canonical_glb(tmp_ws, table_plan, blen
     assert Path(r.extra_paths["stl"]).stat().st_size > 0
     scene = trimesh.load(r.glb_path)
     names = set(scene.graph.nodes_geometry)
+    assert (tmp_ws.src / "parts" / "leg.py").is_file()  # multi-file skeleton
     assert names == {"TableTop", "Shelf", "Leg_0", "Leg_1", "Leg_2", "Leg_3"}
-    assert "Legs" in scene.graph.nodes  # parent empty exported as a node
+    assert "Legs" not in scene.graph.nodes  # instances are TOP-LEVEL: no parent Empty node
     lo, hi = scene.bounds
     assert abs(lo[1]) < 1e-4 and abs(hi[1] - 0.6) < 1e-3  # Y-up, ground contact, height 0.6
     assert abs(lo[0] + 0.25) < 1e-3 and abs(hi[2] - 0.25) < 1e-3
@@ -131,7 +133,7 @@ def test_live_error_maps_to_line_and_lint_catches_it(tmp_ws, blender_bin) -> Non
     lint = lint_blender_file(tmp_ws.src / "model.py")
     assert not lint.passed and any("ensure_lookup_table" in f.message and f.data.get("line") == 10 for f in lint.errors)
     r = rt.build(tmp_ws, timeout_s=120)
-    assert not r.ok and r.error_type == "IndexError" and r.error_file == "model.py" and r.error_line == 10
+    assert not r.ok and r.error_type == "IndexError" and r.error_file == "src/model.py" and r.error_line == 10
     assert "ensure_lookup_table" in r.error_message
     assert r.census["build_report"]["error_source"] == "v = bm.verts[0]"
     assert any("light" in w for w in r.census["warnings"])

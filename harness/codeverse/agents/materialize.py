@@ -2,13 +2,18 @@
 
 One shared body is written to ``AGENTS.md`` (codex / generic), ``GEMINI.md``
 (gemini-cli) and ``CLAUDE.md`` (claude-code): task-agnostic rules, how to call
-the ``c3v`` spatial tools, where the cookbook is, and the language contract.
+the ``3dcv`` spatial tools, where the cookbook is, and the language contract.
 MCP wiring:
 
-* gemini-cli → ``ws/.gemini/settings.json`` (merged) ``mcpServers.c3v``
+* gemini-cli → ``ws/.gemini/settings.json`` (merged) ``mcpServers.3dcv``
 * claude-code → ``ws/.mcp.json``
 * codex → ``-c`` overrides returned in :class:`Materialized.codex_overrides`
 * agy (Antigravity) → no per-workspace MCP; the body documents the CLI fallback.
+
+Ignore files: ``.geminiignore`` / ``.aiexclude`` hide only noise (:data:`IGNORE_LINES`);
+``.gemini/settings.json`` gets ``context.fileFiltering.respectGitIgnore=false`` because the
+workspace ``.gitignore`` hides ``artifacts/`` + ``trajectories/`` from git and gemini-cli
+would otherwise refuse to read the build census / the long-prompt file there.
 """
 
 from __future__ import annotations
@@ -22,10 +27,23 @@ from pydantic import BaseModel, Field
 from codeverse.prompts import PROMPTS_DIR
 from codeverse.workspace import Workspace
 
-C3V_DIR = ".c3v"  # harness-owned read-only docs inside the workspace
-MCP_SERVER_NAME = "c3v"
+CV3D_DIR = ".3dcv"  # harness-owned read-only docs inside the workspace
+MCP_SERVER_NAME = "3dcv"
 MCP_TOOL_TIMEOUT_MS = 600_000
-IGNORE_LINES = ("artifacts/", "trajectories/", ".git/", "node_modules/", "__pycache__/", ".gemini/tmp/")
+#: ``.geminiignore`` / ``.aiexclude`` — gemini-cli's read_file/glob REFUSE ignored paths, so the
+#: agent-facing artefacts must stay readable: ``artifacts/*.json`` (the build tool advertises
+#: ``census.json`` etc.), ``artifacts/tool_renders/`` and ``trajectories/<label>_rNN/task_prompt.md``
+#: (the long-prompt fallback).  Only noise / harness-private output is hidden.
+IGNORE_LINES = (
+    "artifacts/renders/", "artifacts/judge/",
+    "trajectories/*/stdout*", "trajectories/*/stderr*", "trajectories/*/transcript.jsonl",
+    "stages/", "rounds/", "_cand/", "_assets/",
+    ".git/", "node_modules/", "__pycache__/", ".gemini/tmp/",
+)
+#: gemini-cli also honours the workspace ``.gitignore`` (``artifacts/``, ``trajectories/``, ``.3dcv/``
+#: are git-ignored run state) unless told otherwise — the per-workspace settings turn that off so
+#: ``IGNORE_LINES`` is the single source of truth for what the agent may read.
+GEMINI_CONTEXT_SETTINGS = {"fileFiltering": {"respectGitIgnore": False, "respectGeminiIgnore": True}}
 
 
 class Materialized(BaseModel):
@@ -54,7 +72,7 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str]) 
 
     cards = tool_cards() or "(the tool registry is empty in this environment)"
     if agent_kind == "claude-code":
-        how = "Tools are exposed by the MCP server `c3v`; their names appear as `mcp__c3v__<name>` (e.g. `mcp__c3v__build`)."
+        how = "Tools are exposed by the MCP server `3dcv`; their names appear as `mcp__c3v__<name>` (e.g. `mcp__c3v__build`)."
     elif agent_kind == "agy":
         how = (
             "This session has no MCP server. Call a tool from the shell instead:\n"
@@ -71,7 +89,7 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str]) 
     else:
         how = f"Tools are exposed by the MCP server `{MCP_SERVER_NAME}` (command: `{' '.join(mcp_command)}`); call them by name."
     return (
-        "## Spatial tools (c3v)\n\n"
+        "## Spatial tools (3dcv)\n\n"
         f"{how}\n\n"
         "Workflow: edit → `build` → read the errors/numbers → fix → `build` again. Use `render_views` / "
         "`render_sheet` to LOOK at what you made before declaring it finished; use `measure` / "
@@ -82,11 +100,11 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str]) 
 
 def _body(agent_kind: str, contract_md: str, cookbook_note: str, spatial_tools: bool, mcp_command: list[str]) -> str:
     return (
-        "# c3v workspace — rules for the coding agent\n\n"
+        "# 3dcv workspace — rules for the coding agent\n\n"
         "You are working inside a harness-managed workspace. Read this whole file before acting.\n\n"
         "## Hard rules\n\n"
         "1. You may create or edit files ONLY under `src/` and `public/`. Never modify `artifacts/`, "
-        "`trajectories/`, `.git/`, `.gemini/`, `.c3v/`, or this file — they are harness-owned.\n"
+        "`trajectories/`, `.git/`, `.gemini/`, `.3dcv/`, or this file — they are harness-owned.\n"
         "2. Write RAW code in the language named by the contract below. Never import from `codeverse` or "
         "any helper SDK; do not install packages; do not use the network; do not write "
         "camera / render / export / file-output code unless the contract explicitly asks for it — "
@@ -135,13 +153,19 @@ def _toml_str_list(items: list[str]) -> str:
     return "[" + ", ".join(json.dumps(x) for x in items) + "]"
 
 
+#: codex ≥ 0.14x asks for per-tool approval before running an MCP tool; ``codex exec`` has
+#: nobody to answer, so without this every 3dcv call is auto-cancelled ("requires approval").
+CODEX_MCP_APPROVAL_MODE = "approve"
+
+
 def codex_mcp_overrides(mcp_command: list[str]) -> list[str]:
-    """``-c`` pairs that register the c3v MCP server for one ``codex exec`` call."""
+    """``-c`` pairs that register the 3dcv MCP server for one ``codex exec`` call."""
     return [
         "-c", f"mcp_servers.{MCP_SERVER_NAME}.command={json.dumps(mcp_command[0])}",
         "-c", f"mcp_servers.{MCP_SERVER_NAME}.args={_toml_str_list(mcp_command[1:])}",
         "-c", f"mcp_servers.{MCP_SERVER_NAME}.tool_timeout_sec={MCP_TOOL_TIMEOUT_MS // 1000}",
         "-c", f"mcp_servers.{MCP_SERVER_NAME}.startup_timeout_sec=60",
+        "-c", f"mcp_servers.{MCP_SERVER_NAME}.default_tools_approval_mode={json.dumps(CODEX_MCP_APPROVAL_MODE)}",
     ]
 
 
@@ -169,16 +193,16 @@ def materialize_workspace(
     if spatial_tools and not mcp_command:
         raise ValueError("spatial_tools=True requires a non-empty mcp_command")
 
-    # cookbook: copy into the harness-owned .c3v/ dir so every CLI can read it in-workspace
+    # cookbook: copy into the harness-owned .3dcv/ dir so every CLI can read it in-workspace
     src = _resolve_cookbook(ws, cookbook_rel)
     if src is not None:
-        dest = ws.root / C3V_DIR / "cookbook.md"
+        dest = ws.root / CV3D_DIR / "cookbook.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, dest)
         out.cookbook_path = str(dest)
         cookbook_note = (
             f"The cookbook for this language — copyable, verified snippets and skeletons — is at "
-            f"`{C3V_DIR}/cookbook.md` (relative to the workspace root). Read the relevant sections "
+            f"`{CV3D_DIR}/cookbook.md` (relative to the workspace root). Read the relevant sections "
             "before writing code and copy its patterns exactly."
             + (" You may also call the `read_cookbook` tool." if spatial_tools else "")
         )
@@ -193,6 +217,7 @@ def materialize_workspace(
 
     gemini_settings = ws.root / ".gemini" / "settings.json"
     claude_mcp = ws.root / ".mcp.json"
+    _merge_json(gemini_settings, {"context": dict(GEMINI_CONTEXT_SETTINGS)})
     if spatial_tools:
         server = {"command": mcp_command[0], "args": list(mcp_command[1:]), "timeout": MCP_TOOL_TIMEOUT_MS}
         _merge_json(gemini_settings, {"mcpServers": {MCP_SERVER_NAME: server}})

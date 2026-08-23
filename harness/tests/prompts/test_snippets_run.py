@@ -87,50 +87,49 @@ def test_urdf_cookbook_runs(tmp_path) -> None:
     assert "[selfcheck] links" in out
 
 
+def _build_urdf_example(tmp_path, tag: str, model_py: str, urdf: str):
+    """Run a doc example through the REAL urdf_blender pipeline (lint → Blender export →
+    FK consistency → collision sweep) — the build the agent's own files go through."""
+    from codeverse.config import get_settings
+    from codeverse.languages.urdf.runtime import UrdfBlenderRuntime
+    from codeverse.workspace import Workspace
+
+    if not get_settings().resolve_blender():
+        pytest.skip("no Blender binary configured")
+    ws = Workspace(tmp_path / tag).create()
+    ws.src.mkdir(parents=True, exist_ok=True)
+    (ws.src / "model.py").write_text(model_py)
+    (ws.src / "robot.urdf").write_text(urdf)
+    res = UrdfBlenderRuntime().build(ws)
+    assert res.ok, f"{tag}: {res.error_type}: {res.error_message}"
+    warns = [f["message"] for f in res.census["lint"] if f["severity"] != "info"]
+    assert warns == [], f"{tag}: lint warnings {warns}"
+    summary = res.census["articulation"]["summary"]
+    assert summary["max_penetration_m"] == 0.0 and summary["floating_links"] == [], f"{tag}: {summary}"
+    return ws, res
+
+
 @pytest.mark.blender
-def test_urdf_contract_example_fk_and_clearance(tmp_path) -> None:
-    """Full pipeline: build in Blender, export per-link meshes in link frames,
-    load the URDF with yourdfpy, sweep the lid — it must open upward, no penetration."""
-    yourdfpy = pytest.importorskip("yourdfpy")
-    trimesh = pytest.importorskip("trimesh")
-    pytest.importorskip("fcl")
-    code = "\n".join(blocks("urdf/contract.md", "python"))
-    meshes = tmp_path / "meshes"
-    meshes.mkdir()
-    code += (
-        "\nimport mathutils, bpy\n"
-        "for _o in [o for o in bpy.data.objects if o.type == 'MESH']:\n"
-        "    bpy.ops.object.select_all(action='DESELECT'); _o.select_set(True)\n"
-        "    bpy.context.view_layer.objects.active = _o\n"
-        "    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)\n"
-        "    _o.data.transform(mathutils.Matrix.Translation(-PIVOT[_o.name]))\n"
-        f"    bpy.ops.export_scene.gltf(filepath={str(meshes)!r} + '/' + _o.name + '.glb',\n"
-        "        export_format='GLB', use_selection=True, export_yup=False, export_apply=True)\n"
-    )
-    run_blender_script(tmp_path, code)
-    urdf_text = blocks("urdf/contract.md", "xml")[0]
-    (tmp_path / "robot.urdf").write_text(urdf_text)
-    u = yourdfpy.URDF.load(
-        str(tmp_path / "robot.urdf"), build_scene_graph=True, load_meshes=True, mesh_dir=str(tmp_path)
-    )
-    tops = {}
-    for q in (0.0, 0.75, 1.5):
-        u.update_cfg({"BodyToLid": q})
-        s = u.scene
-        cm = trimesh.collision.CollisionManager()
-        world = {}
-        for name, geom in s.geometry.items():
-            node = next(n for n in s.graph.nodes_geometry if s.graph[n][1] == name)
-            m = geom.copy()
-            m.apply_transform(s.graph[node][0])
-            world[node] = m
-            cm.add_object(node, m)
-        _, pairs = cm.in_collision_internal(return_names=True)
-        # only the intended weld (Knob into Lid, fixed joint) may touch
-        unexpected = {p for p in pairs if set(x.split(".glb")[0] for x in p) != {"Knob", "Lid"}}
-        assert not unexpected, f"unexpected penetration at q={q}: {unexpected}"
-        tops[q] = world[next(k for k in world if k.startswith("Lid"))].bounds[1][2]
+def test_urdf_contract_example_builds_and_lid_opens_upward(tmp_path) -> None:
+    """The contract's COMPLETE example must pass the harness build exactly as written
+    (FK consistency, no lint warnings, clean sweep) and the lid must open upward."""
+    from codeverse.spatial.joints import link_world_meshes, load_urdf
+
+    ws, _ = _build_urdf_example(tmp_path, "pedalbin", "\n".join(blocks("urdf/contract.md", "python")),
+                                blocks("urdf/contract.md", "xml")[0])
+    r = load_urdf(ws.artifacts / "robot.urdf", ws.artifacts / "meshes")
+    tops = {q: link_world_meshes(r, {"body_to_lid": q})["lid"].bounds[1][2] for q in (0.0, 0.75, 1.5)}
     assert tops[1.5] > tops[0.75] > tops[0.0] + 0.05, f"lid does not open upward: {tops}"
+
+
+@pytest.mark.blender
+@pytest.mark.parametrize("index,tag", [(0, "cabinet"), (1, "laptop"), (2, "cart")])
+def test_urdf_cookbook_worked_examples_build(tmp_path, index: int, tag: str) -> None:
+    """Each worked example (prelude + helpers + example block, paired with its URDF) must
+    pass the harness build: world meshes + visual/collision origin = −pivot."""
+    py = blocks("urdf/cookbook.md", "python")
+    xml = blocks("urdf/cookbook.md", "xml")
+    _build_urdf_example(tmp_path, tag, "\n".join(py[:2]) + "\n" + py[2 + index], xml[index])
 
 
 # ------------------------------------------------------------------------ node

@@ -87,18 +87,35 @@ def environment_versions() -> dict[str, str]:
 
 
 # --------------------------------------------------------------------------- derived fields
+def effective_judgment(r: RoundRecord):
+    """The round's judgment, or ``None`` when it is a degraded (judge-outage)
+    verdict — the flywheel must treat those as 'no score', never as a 0.0."""
+    j = r.judgment
+    if j is None:
+        return None
+    from codeverse.judges.scoring import is_degraded
+
+    return None if is_degraded(j) else j
+
+
+def effective_score(r: RoundRecord) -> float | None:
+    """``r.score`` with degraded judgments filtered out (None = unscored)."""
+    j = effective_judgment(r)
+    return j.overall if j is not None else None
+
+
 def best_round_index(record: RunRecord) -> int | None:
     """The round to export: ``record.best_round`` when valid, else the highest
     judged score (ties → fewer gate errors), else the last round with a
-    successful build, else the last round."""
+    successful build, else the last round.  Degraded judgments count as unjudged."""
     by_index = {r.index: r for r in record.rounds}
     if record.best_round is not None and record.best_round in by_index:
         return record.best_round
     if not record.rounds:
         return None
-    judged = [r for r in record.rounds if r.judgment is not None]
+    judged = [r for r in record.rounds if effective_judgment(r) is not None]
     if judged:
-        best = max(judged, key=lambda r: (r.judgment.overall, -_n_gate_errors(r), r.index))  # type: ignore[union-attr]
+        best = max(judged, key=lambda r: (effective_score(r), -_n_gate_errors(r), r.index))  # type: ignore[arg-type]
         return best.index
     built = [r for r in record.rounds if r.build is not None and r.build.ok]
     if built:
@@ -111,7 +128,10 @@ def _n_gate_errors(r: RoundRecord) -> int:
 
 
 def round_summary(r: RoundRecord) -> dict[str, Any]:
-    """Compact per-round digest (for record.extra, dashboards and the CLI)."""
+    """Compact per-round digest (for record.extra, dashboards and the CLI).
+
+    A degraded judgment shows up as score/passed None + ``judge_degraded``."""
+    j = effective_judgment(r)
     return {
         "index": r.index,
         "kind": r.kind,
@@ -119,20 +139,20 @@ def round_summary(r: RoundRecord) -> dict[str, Any]:
         "agent_backend": r.agent_backend,
         "build_ok": None if r.build is None else r.build.ok,
         "gate_errors": _n_gate_errors(r),
-        "score": r.score,
-        "passed": None if r.judgment is None else r.judgment.passed,
-        "issues": 0 if r.judgment is None else len(r.judgment.issues),
+        "score": j.overall if j else None,
+        "passed": j.passed if j else None,
+        "issues": len(j.issues) if j else 0,
+        "judge_degraded": r.judgment is not None and j is None,
         "cost_usd": round(r.usage.cost_usd, 6),
         "duration_s": round(r.duration_s, 1),
     }
 
 
 def _sum_usage(rounds: list[RoundRecord]) -> Usage:
+    """Round usage already includes the round's judge call (tracks/steps.py) — do not add it twice."""
     total = Usage()
     for r in rounds:
         total = total + r.usage
-        if r.judgment is not None:
-            total = total + r.judgment.usage
     return total
 
 
@@ -140,12 +160,12 @@ def fill_derived(record: RunRecord) -> RunRecord:
     """Fill best/baseline/final/total_usage/finished_at/environment when absent."""
     if record.best_round is None:
         record.best_round = best_round_index(record)
-    scored = [r for r in record.rounds if r.score is not None]
+    scored = [r for r in record.rounds if effective_score(r) is not None]
     if record.baseline_score is None and scored:
-        record.baseline_score = scored[0].score
+        record.baseline_score = effective_score(scored[0])
     if record.final_score is None and record.best_round is not None:
         best = next((r for r in record.rounds if r.index == record.best_round), None)
-        record.final_score = best.score if best else None
+        record.final_score = effective_score(best) if best else None
     if record.total_usage.cost_usd == 0 and record.total_usage.input_tokens == 0 and record.rounds:
         record.total_usage = _sum_usage(record.rounds)
     if record.finished_at is None:

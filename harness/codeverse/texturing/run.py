@@ -1,0 +1,229 @@
+"""``texture_pass``: the orchestrating entry for object texturing.
+
+    renders (latest sheet or a quick render) → material_plan (1 vision call)
+    → generate_textures (image model, cached, parallel) → seam_gate
+    → apply_textures → artifacts/object_textured.glb
+    → judge_gate (before/after, n=1) → TextureReport (+ artifacts/texturing.json,
+      record.json extra["texturing"] when a record exists)
+
+Code stays the truth: ``artifacts/object.glb`` is never overwritten; the textured
+GLB and ``artifacts/textures/`` are a derived asset pack recorded with the run.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from codeverse.contracts.artifacts import Measurement, RenderSet
+from codeverse.contracts.common import Track, Usage
+from codeverse.contracts.plan import StaticPlan
+from codeverse.contracts.spec import Spec
+from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
+from codeverse.events import EventLog
+from codeverse.texturing.apply import ApplyReport, apply_textures
+from codeverse.texturing.gate import GateResult, SeamGateResult, judge_gate, seam_gate
+from codeverse.texturing.generate import TextureSet, generate_textures
+from codeverse.texturing.plan import TexturePlan, material_plan
+from codeverse.workspace import Workspace
+
+log = logging.getLogger(__name__)
+
+TEXTURED_GLB = "object_textured.glb"
+TEXTURES_DIR = "textures"
+REPORT_NAME = "texturing.json"
+RUBRIC_BY_TRACK: dict[Track, str] = {
+    Track.STATIC_OBJECT: "static_object_v1",
+    Track.ARTICULATED_OBJECT: "articulated_v1",
+}
+
+
+class TextureReport(BaseModel):
+    plan: TexturePlan
+    textures: TextureSet
+    seam: SeamGateResult
+    apply: ApplyReport | None = None
+    gate: GateResult | None = None
+    glb_in: str
+    glb_out: str = ""
+    shipped: bool = False
+    delta: float | None = None
+    usage: Usage = Field(default_factory=Usage)
+    duration_s: float = 0.0
+    notes: list[str] = Field(default_factory=list)
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "shipped": self.shipped, "delta": self.delta, "glb_out": self.glb_out,
+            "n_textures": len(self.textures.paths()), "seam_failed": sorted(self.seam.failed),
+            "parts_textured": len(self.apply.parts_textured) if self.apply else 0,
+            "materials_delta": self.gate.materials_delta if self.gate else None,
+            "cost_usd": round(self.usage.cost_usd, 4), "duration_s": self.duration_s,
+            "plan_source": self.plan.source, "reason": self.gate.reason if self.gate else "; ".join(self.notes),
+        }
+
+
+def latest_sheet(ws: Workspace) -> Path | None:
+    """The most recent round's contact sheet (``artifacts/renders/rNN/sheet.png``)."""
+    rdir = ws.artifacts / "renders"
+    if not rdir.is_dir():
+        return None
+    rounds = sorted((p for p in rdir.glob("r[0-9][0-9]") if (p / "sheet.png").is_file()), key=lambda p: p.name)
+    return rounds[-1] / "sheet.png" if rounds else None
+
+
+def _render_quick(glb: Path, out_dir: Path, views: Sequence[ViewPreset], render: Any | None) -> RenderSet:
+    if render is None:
+        from codeverse.spatial.render import render_glb
+
+        render = render_glb
+    return render(glb, out_dir, views=list(views), width=512, height=512)
+
+
+def _measure(glb: Path) -> Measurement | None:
+    try:
+        from codeverse.spatial.measure import measure_glb
+
+        return measure_glb(glb)
+    except Exception as e:  # noqa: BLE001 — measurement is judge context only
+        log.warning("measure_glb failed for texture gate: %s", e)
+        return None
+
+
+def texture_pass(
+    ws: Workspace,
+    spec: Spec,
+    plan: StaticPlan,
+    *,
+    model_id: str,
+    image_model: Any | None = None,
+    judge: bool | Any = True,
+    judge_model_id: str | None = None,
+    rubric: str | None = None,
+    glb_in: Path | None = None,
+    views: Sequence[ViewPreset] = OBJECT_VIEWS_QUICK,
+    size: int = 1024,
+    plan_model: Any | None = None,
+    render: Any | None = None,
+    cache_dir: Path | None = None,
+    events: EventLog | None = None,
+    update_record: bool = True,
+) -> TextureReport:
+    """Run the whole pass on ``ws``.  ``judge`` may be ``True`` (build a VlmJudge on
+    ``judge_model_id or spec.backends.judge``), ``False`` (skip the gate → ship iff
+    something was textured and no seam failed) or a judge object (tests)."""
+    t0 = time.time()
+    events = events or EventLog(ws.events_path)
+    glb_in = Path(glb_in) if glb_in else ws.artifacts / "object.glb"
+    if not glb_in.is_file():
+        raise FileNotFoundError(f"no GLB to texture: {glb_in}")
+    tex_dir = ws.artifacts / TEXTURES_DIR
+    glb_out = ws.artifacts / TEXTURED_GLB
+    notes: list[str] = []
+    events.emit("texture.start", model=model_id, glb=glb_in.name)
+
+    # 1. renders for the planner (reuse the latest sheet; else a quick render)
+    sheet = latest_sheet(ws)
+    if sheet is None:
+        rs = _render_quick(glb_in, tex_dir / "planner_views", views, render)
+        sheet = Path(rs.contact_sheet) if rs.contact_sheet else (Path(rs.views[0].path) if rs.views else None)
+
+    # 2. material plan
+    tplan = material_plan(spec, plan, sheet, model_id, model=plan_model, cache_dir=cache_dir)
+    usage = tplan.usage
+    events.emit("texture.plan", source=tplan.source, n_parts=len(tplan.parts), n_textured=len(tplan.textured()),
+                n_textures=len(tplan.texture_ids()), cost_usd=round(tplan.usage.cost_usd, 4))
+    ws.write_json(tex_dir / "texture_plan.json", tplan)
+
+    # 3. images
+    if image_model is None:
+        from codeverse.models.gemini_image import GeminiImageModel
+
+        image_model = GeminiImageModel()
+    tset = generate_textures(tplan, tex_dir, image_model, size=size, cache_dir=cache_dir)
+    usage = usage + tset.usage
+    seam = seam_gate(tset.textures)
+    events.emit("texture.generated", n=len(tset.textures), failed=sorted(tset.failed()), seam_failed=sorted(seam.failed),
+                cost_usd=round(tset.usage.cost_usd, 4), duration_s=tset.duration_s)
+    for tid, err in tset.failed().items():
+        notes.append(f"texture {tid} failed: {err}")
+    keep = {tid: Path(tset.textures[tid].path) for tid in seam.passed}
+    report = TextureReport(plan=tplan, textures=tset, seam=seam, glb_in=str(glb_in), usage=usage, notes=notes)
+    notes = report.notes  # pydantic copied the list; keep appending to the report's own
+    if not keep:
+        notes.append("no usable textures (all failed or seams too strong) — nothing applied")
+        return _finish(ws, report, t0, events, update_record)
+
+    # 4. apply
+    report.apply = apply_textures(glb_in, tplan, keep, glb_out)
+    report.glb_out = str(glb_out)
+    notes.extend(report.apply.warnings)
+    events.emit("texture.applied", parts=len(report.apply.parts_textured), skipped=len(report.apply.parts_skipped),
+                materials=report.apply.n_materials, warnings=len(report.apply.warnings))
+    if not report.apply.parts_textured:
+        notes.append("no part was textured")
+        return _finish(ws, report, t0, events, update_record)
+
+    # 5. gate
+    if judge is False:
+        report.shipped = True
+        notes.append("judge gate skipped (--no-judge): shipped on seam gate only")
+        return _finish(ws, report, t0, events, update_record)
+    judge_obj = judge if judge is not True else _make_judge(spec, rubric, judge_model_id)
+    gate = judge_gate(spec, plan, glb_in, glb_out, tex_dir / "gate", judge=judge_obj, measurement=_measure(glb_in),
+                      views=views, render=render)
+    report.gate, report.shipped, report.delta = gate, gate.shipped, gate.delta
+    report.usage = report.usage + gate.usage
+    events.emit("texture.gate", shipped=gate.shipped, delta=gate.delta, materials_delta=gate.materials_delta,
+                before=gate.overall_before, after=gate.overall_after, reason=gate.reason,
+                cost_usd=round(gate.usage.cost_usd, 4))
+    return _finish(ws, report, t0, events, update_record)
+
+
+def _make_judge(spec: Spec, rubric: str | None, judge_model_id: str | None) -> Any:
+    from codeverse.judges.vlm_judge import VlmJudge
+
+    name = rubric or RUBRIC_BY_TRACK.get(spec.track, "static_object_v1")
+    return VlmJudge(rubric=name, model_id=judge_model_id or spec.backends.judge, n_samples=1, label="texture_gate")
+
+
+def _finish(ws: Workspace, report: TextureReport, t0: float, events: EventLog, update_record: bool) -> TextureReport:
+    report.duration_s = round(time.time() - t0, 2)
+    ws.write_json(ws.artifacts / TEXTURES_DIR / REPORT_NAME, report)
+    if update_record:
+        record_texturing(ws, report)
+    events.emit("texture.done", **report.summary())
+    return report
+
+
+def record_texturing(ws: Workspace, report: TextureReport) -> bool:
+    """``record.json`` extra["texturing"] = summary (+ asset paths) when a record exists."""
+    if not ws.record_path.is_file():
+        return False
+    try:
+        data = json.loads(ws.record_path.read_text())
+    except json.JSONDecodeError:
+        return False
+    extra = data.setdefault("extra", {})
+    extra["texturing"] = {
+        **report.summary(),
+        "glb_textured": str(Path(report.glb_out).relative_to(ws.root)) if report.glb_out else "",
+        "textures_dir": f"artifacts/{TEXTURES_DIR}",
+        "textures": {tid: Path(a.path).name for tid, a in report.textures.textures.items() if a.ok},
+        "texture_plan": {p.part: p.texture_id for p in report.plan.textured()},
+    }
+    ws.write_json(ws.record_path, data)
+    return True
+
+
+def load_report(ws: Workspace) -> TextureReport:
+    p = ws.artifacts / TEXTURES_DIR / REPORT_NAME
+    if not p.is_file():
+        raise FileNotFoundError(f"no texturing report at {p}")
+    return TextureReport.model_validate_json(p.read_text())

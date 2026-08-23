@@ -87,6 +87,47 @@ Numbers: sun 2.2–3.2, hemisphere 0.4–0.7 (never both high — washed out); s
 frustum just past the bounds; fog near ≈ half the bounds, far ≈ 1.5–2 × the diagonal;
 128 × 128 ground segments for 100 m (≈ 0.8 m resolution).
 
+## Dusk / night lighting recipe (dark scenes are the #1 gate failure)
+
+"Dusk", "night", "moonlit", "lantern-lit" means COLOURED darkness, never black.  The harness
+measures every camera's frame (mean luminance, % near-black pixels) and a frame with mean
+luminance < 0.12 or > 35 % near-black pixels is a gate ERROR (`scene_frames: dark_frame`),
+capping the score at 0.55.  Numbers that pass (ACES tone mapping, exposure 1.0):
+
+```js
+function buildDuskEnv(THREE, scene) {
+  const SKY = 0x3a2a55, HORIZON = 0xd9703a;              // purple zenith, orange horizon — NOT black
+  scene.background = new THREE.Color(0x52355a);
+  scene.fog = new THREE.Fog(0x52355a, 30, 140);           // fog colour == sky colour at the horizon
+  // fill: the sky itself lights the shade.  Keep ≥ 0.5 at dusk, ≥ 0.35 at night.
+  scene.add(new THREE.HemisphereLight(0x7a5aa0, 0x3a2e22, 0.7));
+  // key: low warm sun (dusk) 2.0–3.0, or a cool moon 0.8–1.5 (night); still casts shadows
+  const key = new THREE.DirectionalLight(0xffa060, 2.4);
+  key.position.set(-60, 18, 30); key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0005;
+  Object.assign(key.shadow.camera, { left: -55, right: 55, top: 55, bottom: -55, near: 5, far: 200 });
+  scene.add(key, key.target);
+  // practicals: every lantern / window / fire = emissive surface + a small PointLight
+  const glow = new THREE.MeshStandardMaterial({ color: 0xffc070, emissive: 0xffa040, emissiveIntensity: 3.0 });
+  const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 8), glow); lantern.position.set(4, 1.8, 2);
+  const light = new THREE.PointLight(0xffa040, 1.5, 9, 2); light.position.copy(lantern.position);
+  scene.add(lantern, light);                               // ≤ 12 PointLights, none cast shadows
+  return { update(t, dt) {} };
+}
+```
+
+Rules of thumb: sun/moon + hemisphere together ≥ 2.5 at dusk (≥ 1.5 at night with ≥ 6
+practicals); hemisphere sky/ground colours carry the mood (purple, indigo, amber) — turning
+the key down is NOT how you make dusk, tinting it is; ground albedo ≥ 0.25 (a 0x0b0f08 lawn
+is black under any light); no black `scene.background` — the sky gradient's horizon band
+should be the brightest thing in the frame.
+
+**Exposure self-check (after each build):** run `scene_views` and read the frame table
+(`camera_checks` in the render's metrics.json) for every authored camera: `mean_lum` ≥ 0.15, `dark_frac` ≤ 0.25,
+`blown_frac` ≤ 0.10, `content_frac` ≥ 0.25 on the establishing shot.  If the establishing
+frame is below 0.15, raise HemisphereLight by +0.3 and the key by +0.8 and re-render — do not
+ship a frame you cannot read.
+
 ## Water plane (use makeWaterMaterial from the GLSL cookbook)
 
 ```js
@@ -359,6 +400,8 @@ demoScene.add(orchardDemo, campfireDemo, ff);
 sceneSelfcheck(THREE, demoScene, planCameras(THREE, demoScene));
 ```
 
-Then: `build` → `scene_probe` (draws/tris/fps/console) → `render_sheet` per camera →
-`shader_probe` if you wrote GLSL → fix the worst → repeat.  Look at every camera's frame:
-no black, no white-out, nothing floating, the subject actually in frame.
+Then: `build` → `scene_probe` (draws/tris/fps/console) → `scene_views` (authored cameras +
+overview rig, with `camera_checks`) → `shader_probe` if you wrote GLSL → fix the worst →
+repeat.  Look at every camera's frame AND its numbers: `mean_lum` ≥ 0.15 (no black frames),
+`blown_frac` ≤ 0.10 (no white-out), `content_frac` ≥ 0.25 on the establishing shot (the
+subject, not sky/ground, fills the frame), `camera_in_geometry` false, nothing floating.

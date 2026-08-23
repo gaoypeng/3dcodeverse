@@ -5,6 +5,7 @@
  *
  *   node render_scene.mjs --ws <ws> --out <dir> [--cameras authored|<json>]
  *        [--orbit-views '<json list of {name,azimuth,elevation}>'|none]
+ *        [--bounds '{"min":[x,y,z],"max":[x,y,z]}'|none]   (plan bounds: orbit framing guard)
  *        [--times 0,1.5] [--width 1024] [--height 576] [--gpu auto|on|off]
  *        [--fps-seconds 2] [--timeout-ms 240000]
  *
@@ -15,14 +16,14 @@
 
 import path from 'node:path';
 import { armWatchdog, dataUrlToPng, ensureDir, fail, finish, parseCli, readJsonArg, writeJson } from './lib/cli.mjs';
-import { errorSummary, openHost } from './lib/host_page.mjs';
-import { fitOrbitCameras } from './lib/orbit.mjs';
+import { createTimeoutMs, errorSummary, openHost } from './lib/host_page.mjs';
+import { fitOrbitCameras, framingBox } from './lib/orbit.mjs';
 
 const args = parseCli({
-  ws: {}, out: {}, cameras: { default: 'authored' }, 'orbit-views': { default: 'none' },
+  ws: {}, out: {}, cameras: { default: 'authored' }, 'orbit-views': { default: 'none' }, bounds: { default: 'none' },
   times: { default: '0,1.5' }, width: { default: '1024' }, height: { default: '576' },
-  gpu: { default: process.env.C3V_RENDER_GPU || 'auto' }, 'fps-seconds': { default: '2' },
-  'timeout-ms': { default: '240000' }, 'log-depth': { type: 'boolean', default: false },
+  gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' }, 'fps-seconds': { default: '2' },
+  'timeout-ms': { default: '240000' }, 'create-timeout-ms': { default: '' }, 'log-depth': { type: 'boolean', default: false },
   'orbit-fog': { type: 'boolean', default: false }, counterfactual: { type: 'boolean', default: false },
 });
 
@@ -36,12 +37,16 @@ async function main() {
   const times = String(args.times).split(',').map((s) => parseFloat(s)).filter((x) => Number.isFinite(x) && x >= 0).sort((a, b) => a - b);
   if (!times.length) throw new Error('--times must list non-negative numbers');
   const outDir = ensureDir(path.resolve(args.out));
-  const watchdog = armWatchdog(parseInt(args['timeout-ms'], 10));
+  const timeoutMs = parseInt(args['timeout-ms'], 10);
+  const watchdog = armWatchdog(timeoutMs);
   const t0 = Date.now();
 
   let host;
   try {
-    host = await openHost(args.ws, { width, height, gpu: args.gpu, logDepth: args['log-depth'] });
+    host = await openHost(args.ws, {
+      width, height, gpu: args.gpu, logDepth: args['log-depth'],
+      createSceneTimeoutMs: createTimeoutMs(args['create-timeout-ms'], timeoutMs),
+    });
   } catch (e) {
     return fail(`host failed: ${e.message}`);
   }
@@ -62,37 +67,53 @@ async function main() {
     else if (args.cameras !== 'none') cams = (readJsonArg(args.cameras, 'cameras') || []).map((c) => ({ ...c, kind: c.kind || 'authored' }));
     if (args['orbit-views'] !== 'none') {
       const views = readJsonArg(args['orbit-views'], 'orbit-views') || [];
-      const bbox = metrics.census.content_bbox || metrics.census.bbox;
+      const bounds = args.bounds && args.bounds !== 'none' ? readJsonArg(args.bounds, 'bounds') : null;
+      const bbox = framingBox(metrics.census, bounds);   // content only: never the ground plane / sky dome
+      metrics.framing_bbox = bbox;
       cams.push(...fitOrbitCameras(bbox, views, { aspect: width / height, groundY: metrics.census.ground_y, noFog: !args['orbit-fog'] }));
     }
     const seen = new Set();
     cams = cams.filter((c) => { const k = c.name; if (seen.has(k)) return false; seen.add(k); return true; });
     if (!cams.length) throw new Error('no cameras to render (authored list empty and no orbit views)');
 
+    // agent exceptions inside a single view (update() is already guarded page-side;
+    // this catches e.g. an onBeforeRender that throws) must not abort the other
+    // views: record them as scene errors → console_errors → gate finding, exit 1.
+    const sceneErrors = [];
+    const sceneErr = (what, e) => sceneErrors.push(`${what}: ${String(e.message || e).slice(0, 600)}`);
     // instruments per camera (at t=0, before any stepping)
     for (const c of cams) {
-      const chk = await page.evaluate((spec) => window.__c3v.cameraChecks(spec), c);
-      metrics.camera_checks.push({ kind: c.kind, ...chk });
+      try {
+        const chk = await page.evaluate((spec) => window.__c3v.cameraChecks(spec), c);
+        metrics.camera_checks.push({ kind: c.kind, ...chk });
+      } catch (e) { sceneErr(`camera checks failed for '${c.name}'`, e); }
     }
     // renders: times ascending (sim time cannot rewind)
     for (const t of times) {
       for (const c of cams) {
-        const r = await page.evaluate((spec, tt) => window.__c3v.renderAt(spec, tt), c, t);
-        const file = `${c.name}_${tag(t)}.png`;
-        dataUrlToPng(r.dataUrl, path.join(outDir, file));
-        metrics.views.push({ name: c.name, kind: c.kind, path: file, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: r.ms });
-        if (args.counterfactual) {
-          const cf = await page.evaluate((spec, tt) => window.__c3v.renderAt(spec, tt, { stripCustom: true }), c, t);
-          const cfFile = `${c.name}_${tag(t)}_nocustom.png`;
-          dataUrlToPng(cf.dataUrl, path.join(outDir, cfFile));
-          metrics.views.push({ name: `${c.name}_nocustom`, kind: 'counterfactual', path: cfFile, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: cf.ms, counterfactual_of: file });
-        }
+        try {
+          const r = await page.evaluate((spec, tt) => window.__c3v.renderAt(spec, tt), c, t);
+          const file = `${c.name}_${tag(t)}.png`;
+          dataUrlToPng(r.dataUrl, path.join(outDir, file));
+          metrics.views.push({ name: c.name, kind: c.kind, path: file, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: r.ms });
+          if (args.counterfactual) {
+            const cf = await page.evaluate((spec, tt) => window.__c3v.renderAt(spec, tt, { stripCustom: true }), c, t);
+            const cfFile = `${c.name}_${tag(t)}_nocustom.png`;
+            dataUrlToPng(cf.dataUrl, path.join(outDir, cfFile));
+            metrics.views.push({ name: `${c.name}_nocustom`, kind: 'counterfactual', path: cfFile, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: cf.ms, counterfactual_of: file });
+          }
+        } catch (e) { sceneErr(`render failed for '${c.name}' at t=${t}`, e); }
       }
     }
     const fpsSec = parseFloat(args['fps-seconds']);
-    if (fpsSec > 0) metrics.fps = await page.evaluate((s) => window.__c3v.fps(s), fpsSec);
+    if (fpsSec > 0) {
+      try { metrics.fps = await page.evaluate((s) => window.__c3v.fps(s), fpsSec); }
+      catch (e) { sceneErr('fps measurement failed', e); }
+    }
     metrics.shader_errors = (await page.evaluate(() => window.__c3v.shaderErrors())).map(({ _key, ...e }) => e);
+    metrics.update_errors = await page.evaluate(() => window.__c3v.updateErrors());
     Object.assign(metrics, errorSummary(host.errors, boot));
+    for (const e of sceneErrors) if (!metrics.console_errors.includes(e)) metrics.console_errors.push(e);
     metrics.ok = metrics.console_errors.length === 0 && metrics.shader_errors.length === 0;
     metrics.duration_ms = Date.now() - t0;
     writeJson(path.join(outDir, 'metrics.json'), metrics);

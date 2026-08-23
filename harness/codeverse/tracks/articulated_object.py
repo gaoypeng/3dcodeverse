@@ -42,7 +42,21 @@ class ArticulatedPipeline(ObjectPipeline):
         ctx.extra["pose_views"] = views
         ctx.extra["sweep_report"] = report
         out.append(report)
+        motion = self._motion_gate(ctx)
+        if motion is not None:
+            ctx.extra["motion_report"] = motion
+            out.append(motion)
         return out
+
+    @staticmethod
+    def _motion_gate(ctx: RunContext) -> GateReport | None:
+        """Planned motion text ("pulls out to the front") vs the URDF's real direction."""
+        try:
+            return ctx.services.motion_checks(ctx.ws, ctx.plan)
+        except Exception as e:  # noqa: BLE001 — advisory gate; the sweep gate is the hard one
+            log.warning("motion direction checks failed: %s", e)
+            ctx.events.emit("gate.motion_failed", error=f"{type(e).__name__}: {e}")
+            return None
 
     def render(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> RenderSet:
         rs = super().render(ctx, round_index, build, measurement)
@@ -61,11 +75,16 @@ class ArticulatedPipeline(ObjectPipeline):
 
     def judge_context(self, ctx: RunContext, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
         report: GateReport | None = ctx.extra.pop("sweep_report", None)
+        motion: GateReport | None = ctx.extra.pop("motion_report", None)
         lines = ["Articulation sheet: the pose_* views show the object at rest, each joint at its lower and upper limit."]
         if report is not None:
             errs = [f"- {f.target or 'joint'}: {f.message}" for f in report.errors]
             lines.append(f"Joint sweep: {'no penetrations' if not errs else str(len(errs)) + ' problems'}")
             lines.extend(errs[:10])
+        if motion is not None:
+            wrong = [f"- {f.target}: {f.message}" for f in motion.errors]
+            lines.append("Motion direction (harness FK check): " + ("all planned directions realised" if not wrong else f"{len(wrong)} WRONG"))
+            lines.extend(wrong[:6])
         return "\n".join(lines)
 
 

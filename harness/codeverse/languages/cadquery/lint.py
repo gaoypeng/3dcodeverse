@@ -48,6 +48,46 @@ def dotted(node: ast.AST) -> str:
     return ""
 
 
+RADIAN_CONSTS = {"pi", "tau"}
+TO_RADIANS_FUNCS = {"radians", "deg2rad"}
+TO_DEGREES_FUNCS = {"degrees", "rad2deg"}
+
+
+def looks_like_radians(expr: ast.expr) -> bool:
+    """True when ``expr`` is a radians expression (``math.pi``, ``math.pi / 2``, ``i * 2 * math.pi / n``,
+    ``math.radians(a)``) — never a plain name/number, never a conversion TO degrees
+    (``a * 180 / math.pi``, ``math.degrees(a)``).  Only the ``pi``/``tau`` constants and the
+    radians/degrees helpers are inspected, so identifiers such as ``n_pins`` or ``pitch`` cannot match.
+    """
+    hit = False
+
+    def walk(node: ast.AST, inverted: bool) -> bool:
+        """Return True to stop: the expression is a conversion to degrees."""
+        nonlocal hit
+        if isinstance(node, ast.Call):
+            fn = dotted(node.func).rsplit(".", 1)[-1]
+            if fn in TO_DEGREES_FUNCS:
+                return True
+            if fn in TO_RADIANS_FUNCS:
+                hit = True
+            return any(walk(a, inverted) for a in node.args)
+        if isinstance(node, ast.BinOp):
+            if walk(node.left, inverted):
+                return True
+            return walk(node.right, inverted != isinstance(node.op, ast.Div))
+        is_const = (isinstance(node, ast.Attribute) and node.attr in RADIAN_CONSTS) or (isinstance(node, ast.Name) and node.id in RADIAN_CONSTS)
+        if is_const:
+            if inverted:  # ``x * 180 / math.pi`` → degrees
+                return True
+            hit = True
+            return False
+        return any(walk(ch, inverted) for ch in ast.iter_child_nodes(node))
+
+    if walk(expr, False):
+        return False
+    return hit
+
+
 def _f(sev: Severity, msg: str, line: int | None = None, hint: str = "", target: str = "src/model.py") -> GateFinding:
     return GateFinding(gate=GATE, severity=sev, target=target, message=msg, fix_hint=hint, data={"line": line} if line else {})
 
@@ -130,7 +170,7 @@ def _rules(c: _Collector, tree: ast.Module, source: str) -> list[GateFinding]:
         if name.endswith("Solid.makeSphere") and not any(k.arg and k.arg.startswith("angle") for k in call.keywords):
             out.append(_f(W, "cq.Solid.makeSphere(r) without angle args builds a partial sphere in some versions", call.lineno,
                           "use `cq.Workplane('XY').sphere(r)` or pass angleDegrees1=-90, angleDegrees2=90, angleDegrees3=360"))
-        if name.endswith(".rotate") and len(call.args) == 3 and isinstance(call.args[2], ast.BinOp) and "pi" in ast.dump(call.args[2]).lower():
+        if name.endswith(".rotate") and len(call.args) == 3 and looks_like_radians(call.args[2]):
             out.append(_f(E, ".rotate(...) takes DEGREES; this argument looks like radians (math.pi expression)", call.lineno,
                           "pass degrees: `.rotate((0,0,0), (0,0,1), 90)` or `math.degrees(angle_rad)`"))
         if name.endswith(".fillet") or name.endswith(".chamfer"):

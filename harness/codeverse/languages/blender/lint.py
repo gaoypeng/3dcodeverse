@@ -1,4 +1,4 @@
-"""Static lint for agent-authored bpy scripts (``src/model.py``).
+"""Static lint for agent-authored bpy scripts (``src/model.py`` and ``src/parts/*.py``).
 
 AST based, offline, milliseconds.  Catches what the build would only reveal
 after a 2-10 s Blender round-trip — and the contract violations the build
@@ -23,6 +23,7 @@ ALLOWED_IMPORTS = {
     "bpy", "bmesh", "mathutils", "math", "random", "numpy", "np", "itertools", "functools",
     "collections", "typing", "dataclasses", "colorsys", "statistics", "operator", "enum", "copy",
     "sys", "os", "__future__", "bpy_extras",
+    "parts",  # the workspace's own src/parts/<snake>.py modules (multi-file layout)
 }
 FORBIDDEN_IMPORTS = {
     "subprocess", "urllib", "requests", "socket", "http", "shutil", "ctypes", "pickle",
@@ -53,11 +54,13 @@ WARN_CALL_PREFIXES: tuple[tuple[str, str], ...] = (
     ("bpy.ops.screen.", "screen operators fail in background mode"),
     ("sys.exit", "do not exit; let the script fall off the end"),
 )
+# Principled BSDF inputs that raise KeyError in Blender 4.x/5.x → their replacement.
+# Verified against Blender 5.0.1: 'Anisotropic' and 'Specular Tint' STILL EXIST (do not list them).
 REMOVED_BSDF_INPUTS = {
     "Specular": "Specular IOR Level", "Subsurface": "Subsurface Weight", "Transmission": "Transmission Weight",
     "Emission": "Emission Color (+ 'Emission Strength')", "Subsurface Color": "Base Color (subsurface tint removed)",
     "Clearcoat": "Coat Weight", "Clearcoat Roughness": "Coat Roughness", "Sheen": "Sheen Weight",
-    "Transmission Roughness": "(removed) use Roughness", "Anisotropic": "Anisotropic", "Specular Tint": "Specular Tint (now a color)",
+    "Transmission Roughness": "(removed) use Roughness",
 }
 KNOWN_BINDINGS = ("Vector", "Matrix", "Euler", "Quaternion", "bmesh", "math", "random", "np", "numpy", "bpy")
 PASCAL_RE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)*(?:_\d+)?$")
@@ -86,7 +89,8 @@ class _Collector(ast.NodeVisitor):
         self.calls: list[tuple[str, ast.Call]] = []
         self.attr_stores: list[tuple[str, int]] = []  # dotted target of assignments
         self.name_loads: list[tuple[str, int]] = []
-        self.bm_subscripts: list[int] = []
+        self.bm_names: set[str] = set()  # names bound from bmesh.new() / bmesh.from_edit_mesh()
+        self.bm_subscripts: list[tuple[str, int]] = []  # (base name, line) of <name>.verts/edges/faces[i]
         self.bsdf_inputs: list[tuple[str, int]] = []
         self.names_assigned: list[str] = []  # string constants assigned to .name / name=
         self.constants: list[tuple[str, int]] = []
@@ -153,6 +157,8 @@ class _Collector(ast.NodeVisitor):
             if d:
                 self.attr_stores.append((d, node.lineno))
         v = node.value
+        if isinstance(v, ast.Call) and dotted(v.func) in ("bmesh.new", "bmesh.from_edit_mesh"):
+            self.bm_names.update(t.id for t in node.targets if isinstance(t, ast.Name))
         if isinstance(v, ast.Constant) and isinstance(v.value, str):
             self.names_assigned.append(v.value)
         elif isinstance(v, ast.JoinedStr) and v.values and isinstance(v.values[0], ast.Constant):
@@ -161,8 +167,11 @@ class _Collector(ast.NodeVisitor):
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
         if isinstance(node.value, ast.Attribute):
-            if node.value.attr in ("verts", "edges", "faces") and not isinstance(node.slice, ast.Slice):
-                self.bm_subscripts.append(node.lineno)
+            # only <Name>.verts/edges/faces[i] — e.verts[0] (BMEdge) / me.edges[i] (Mesh) are
+            # filtered later against the names actually bound to a bmesh (BMElemSeq).
+            if (node.value.attr in ("verts", "edges", "faces") and not isinstance(node.slice, ast.Slice)
+                    and isinstance(node.value.value, ast.Name)):
+                self.bm_subscripts.append((node.value.value.id, node.lineno))
             if node.value.attr == "inputs" and isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
                 self.bsdf_inputs.append((node.slice.value, node.lineno))
         self.generic_visit(node)
@@ -177,11 +186,11 @@ def _f(sev: Severity, msg: str, line: int | None = None, hint: str = "", target:
     return GateFinding(gate=GATE, severity=sev, target=target, message=msg, fix_hint=hint, data=data)
 
 
-def _rules(c: _Collector, source: str) -> list[GateFinding]:
+def _rules(c: _Collector, source: str, *, target: str, expect_names: bool, expect_bpy: bool) -> list[GateFinding]:
     out: list[GateFinding] = []
     E, W, I = Severity.ERROR, Severity.WARN, Severity.INFO  # noqa: E741
-    if "bpy" not in c.imports:
-        out.append(_f(E, "model.py never imports bpy", 1, "start the file with `import bpy`"))
+    if expect_bpy and "bpy" not in c.imports:
+        out.append(_f(E, f"{target} never imports bpy", 1, "start the file with `import bpy`"))
     for mod, line in c.imports.items():
         if mod in FORBIDDEN_IMPORTS:
             out.append(_f(E, f"forbidden import `{mod}`", line, "only bpy/bmesh/mathutils/math/random/numpy (+stdlib data helpers) are allowed"))
@@ -234,9 +243,15 @@ def _rules(c: _Collector, source: str) -> list[GateFinding]:
         if key in REMOVED_BSDF_INPUTS:
             out.append(_f(E, f"Principled BSDF input '{key}' does not exist in Blender 4.x/5.x (KeyError at runtime)", line,
                           f"use inputs['{REMOVED_BSDF_INPUTS[key]}']"))
+        elif key == "Specular Tint":
+            out.append(_f(I, "'Specular Tint' is an RGBA colour in Blender 4.x/5.x (a float raises TypeError)", line,
+                          'assign a 4-tuple: inputs["Specular Tint"].default_value = (r, g, b, 1.0)'))
     has_lookup = any(n.endswith("ensure_lookup_table") for n, _ in c.calls)
-    if "bmesh" in c.imports and c.bm_subscripts and not has_lookup:
-        out.append(_f(E, "bmesh verts/edges/faces indexed with [] but ensure_lookup_table() is never called → IndexError", c.bm_subscripts[0],
+    # only subscripts on a BMESH object need ensure_lookup_table (BMElemSeq); e.verts[0]
+    # (BMEdge/BMFace tuples) and me.edges[i] (Mesh collections) are always fine.
+    bm_subs = [line for base, line in c.bm_subscripts if base in c.bm_names or base == "bm"]
+    if "bmesh" in c.imports and bm_subs and not has_lookup:
+        out.append(_f(E, "bmesh verts/edges/faces indexed with [] but ensure_lookup_table() is never called → IndexError", bm_subs[0],
                       "after bm.from_mesh()/any topology change call `bm.verts.ensure_lookup_table(); bm.edges.ensure_lookup_table(); bm.faces.ensure_lookup_table()` before indexing"))
     for name, line in c.name_loads:
         if name in KNOWN_BINDINGS and name not in c.bound:
@@ -251,16 +266,24 @@ def _rules(c: _Collector, source: str) -> list[GateFinding]:
         if const == "BLENDER_EEVEE_NEXT":
             out.append(_f(W, "'BLENDER_EEVEE_NEXT' is not a valid engine id in Blender 5.0", line, "render settings are owned by the harness; delete the line"))
     pascal = [n for n in c.names_assigned if PASCAL_RE.match(n) and n not in ("Cube", "Cylinder", "Sphere", "Plane")]
-    if not pascal:
+    if pascal:
+        out.append(_f(I, f"named objects: {sorted(set(pascal))[:12]}", None, ""))
+    elif expect_names:
         out.append(_f(W, "no PascalCase object names found (e.g. obj.name = 'SeatCushion')", None,
                       "name every visible mesh after its part: `obj.name = 'SeatCushion'`; instances `Leg_0..Leg_3`"))
-    else:
-        out.append(_f(I, f"named objects: {sorted(set(pascal))[:12]}", None, ""))
     return out
 
 
-def lint_blender_source(source: str, *, target: str = "src/model.py") -> GateReport:
-    """Lint one bpy script; returns ``GateReport(gate='lint:blender')``."""
+def lint_blender_source(
+    source: str, *, target: str = "src/model.py", expect_names: bool = True, expect_bpy: bool = True,
+) -> GateReport:
+    """Lint one bpy script; returns ``GateReport(gate='lint:blender')``.
+
+    ``expect_names=False`` silences the PascalCase-name warning (multi-file entry files
+    only import and call builders); ``expect_bpy=False`` allows helper modules that do
+    not touch bpy.  :func:`codeverse.languages.blender.layout.lint_workspace` lints a
+    whole ``src/`` tree with these set per file.
+    """
     t0 = time.monotonic()
     findings: list[GateFinding] = []
     try:
@@ -270,7 +293,7 @@ def lint_blender_source(source: str, *, target: str = "src/model.py") -> GateRep
         return GateReport(gate=GATE, passed=False, findings=findings, duration_ms=int((time.monotonic() - t0) * 1000))
     c = _Collector()
     c.visit(tree)
-    findings = _rules(c, source)
+    findings = _rules(c, source, target=target, expect_names=expect_names, expect_bpy=expect_bpy)
     for f in findings:
         f.target = target
     passed = not any(f.severity == Severity.ERROR for f in findings)

@@ -1,81 +1,127 @@
 # Blender (bpy) authoring contract — track `static_object`, language `blender`
 
-## Files
-* `src/model.py` — ONE pure-bpy script.  The harness runs it with
-  `blender -b --factory-startup --python wrappers/run_bpy.py -- --script src/model.py`
-  inside an **emptied scene**, then applies transforms, takes a census, exports
-  `artifacts/object.glb` (Y-up) and `object.stl`.  You never export or render.
+## Files (multi-file: one file per plan part, so parts can be refined in parallel)
+* `src/model.py` — the ENTRY: imports the part builders, calls them in plan order, runs the
+  self-check.  No geometry of its own beyond small glue.
+* `src/parts/<snake>.py` — ONE per plan part (`SeatCushion` → `src/parts/seat_cushion.py`),
+  exporting `def build_seat_cushion() -> bpy.types.Object` that builds the part at its WORLD
+  pose with the exact object name and returns it.  Instances (`Leg_0 … Leg_3`) are looped
+  INSIDE that one file, each TOP-LEVEL — NEVER under a parent Empty (parts are measured as
+  top-level objects; an Empty merges them into one → part missing).  Self-contained (own small
+  helpers); it only DEFINES — never builds at import time (model.py calls each builder once).
+* `src/` is on `sys.path`: `from parts.seat import build_seat` or `import parts.seat`.  Optional
+  shared helpers: `src/parts/_common.py` (underscore = not a part).  Small objects (1–2 parts)
+  may use a single `src/model.py` (example B).
+* The harness runs `src/model.py` with `blender -b --factory-startup` in an **emptied scene**,
+  takes a census and exports `artifacts/object.glb` (Y-up) + `object.stl`; build errors come
+  back as `src/parts/<file>.py:<line>`.  You never export or render.
 
 ## Frame, units, placement
 * **Z is up, -Y is the front, +X is the right.  Meters.**  (glTF export maps this to
-  Y-up / +Z-front automatically — do not pre-rotate.)
-* The object stands on z = 0 (lowest vertex at z = 0 ± 1 mm), footprint centred on the
-  Z axis.  Real-world dimensions (a chair seat at z ≈ 0.45, a table top at z ≈ 0.75).
+  Y-up / +Z-front automatically — do not pre-rotate.)  The object stands on z = 0 (lowest
+  vertex at z = 0 ± 1 mm), footprint centred on the Z axis; real-world dimensions.
 
 ## Naming and structure
-* One Blender **object per plan part**, `obj.name = "<PartName>"` in PascalCase exactly
-  as the plan says (`SeatCushion`, `LeftFrontLeg`).  Blender auto-suffixes duplicates
-  (`Leg.001`) — that is a contract violation: give every instance its own unique plan name
-  (`LegFrontLeft`, `LegFrontRight`, …) or the plan's `<Name>1..N`.
-* Meshes only (no empties as parts, no curves left un-converted, no cameras/lights).
-  Link every object to `bpy.context.scene.collection` (or a child collection).
-* Put part-local helpers in functions: `build_<snake>() -> bpy.types.Object`; call them
-  from a `main()` at the bottom; `main()` is executed at import time (module level call).
+* One Blender **object per plan part**, `obj.name = "<PartName>"` in PascalCase exactly as the
+  plan says.  Auto-suffixed duplicates (`Leg.001`) violate it: name instances `<Name>_0 … <Name>_N-1`.
+* Meshes only (no empties as parts, no un-converted curves, no cameras/lights); link every
+  object to `bpy.context.scene.collection`.  Plan numbers = constants at the top of each part
+  file; keep each part inside its plan bbox; attached parts touch (2–4 mm overlap is fine).
 
-## Allowed imports
-`bpy`, `bmesh`, `mathutils`, `math`, `random`, `itertools`, `functools`, `typing`,
-`dataclasses`.  Nothing else (no numpy loops over vertices, no os/sys/subprocess/
-urllib/socket/pathlib, no `import codeverse`).
+## Allowed imports · forbidden calls · limits
+* Imports: `bpy`, `bmesh`, `mathutils`, `math`, `random`, `itertools`, `functools`, `typing`,
+  `dataclasses`, and your own `parts.*` modules.  Nothing else (no numpy loops over vertices,
+  no os/sys/subprocess/urllib/socket/pathlib, no `import codeverse`).
+* Forbidden: `bpy.ops.render.*`, `bpy.ops.export_*`, `bpy.ops.import_*`, `bpy.ops.wm.*`,
+  `bpy.ops.image.*`, `bpy.ops.screen.*`, `bpy.ops.view3d.*`, `bpy.data.libraries`,
+  `bpy.app.timers`, `open(`, `exec(`, `eval(`, `__import__`, camera / light creation, `input()`,
+  network, file writes; never touch `bpy.context.scene.render` / `scene.world` (harness-owned).
+* Limits: ≤ 600 k triangles total (aim 20–150 k); subdivision levels ≤ 2; ≤ 12 boolean cutters
+  per object; < 120 s headless.  Self-check at the end of `main()` (see the examples).
 
-## Forbidden calls
-`bpy.ops.render.*`, `bpy.ops.export_*`, `bpy.ops.import_*`, `bpy.ops.wm.*`,
-`bpy.ops.image.*`, `bpy.ops.screen.*`, `bpy.ops.view3d.*`, `bpy.data.libraries`,
-`bpy.app.timers`, `open(`, `exec(`, `eval(`, `__import__`, any camera / light creation,
-any `input()` / network / file write.  Do not touch `bpy.context.scene.render` or
-`scene.world` — the harness owns render settings.
+## COMPLETE minimal example A — multi-file (verified with Blender 5.0 headless)
+`src/parts/seat.py`
+```py
+import bpy, bmesh
 
-## Limits
-≤ 600 k triangles total (aim 20–150 k); subdivision levels ≤ 2; no boolean chains > 12
-cutters per object; script finishes in < 120 s headless.
+SEAT_D, SEAT_T, SEAT_Z = 0.34, 0.04, 0.45          # metres, from the plan (bbox top at 0.45)
 
-## Self-check (do this at the end of `main()`)
-```python
+def build_seat() -> bpy.types.Object:
+    """Seat — round wooden disc; top face at z = SEAT_Z.  Returns the object at world pose."""
+    bm = bmesh.new()
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=48, radius1=SEAT_D / 2, radius2=SEAT_D / 2, depth=SEAT_T)
+    me = bpy.data.meshes.new("Seat"); bm.to_mesh(me); bm.free()
+    seat = bpy.data.objects.new("Seat", me); seat.location = (0, 0, SEAT_Z - SEAT_T / 2)
+    bpy.context.scene.collection.objects.link(seat)
+    bev = seat.modifiers.new("Bevel", 'BEVEL'); bev.width = 0.006; bev.segments = 3
+    wood = bpy.data.materials.new("Wood")
+    bsdf = wood.node_tree.nodes["Principled BSDF"]          # nodes exist by default (4.x/5.x)
+    bsdf.inputs["Base Color"].default_value, bsdf.inputs["Roughness"].default_value = (0.55, 0.33, 0.16, 1.0), 0.6
+    seat.data.materials.append(wood)
+    return seat
+```
+`src/parts/leg.py`
+```py
+import bpy, bmesh, math
+
+LEG_R, LEG_N, LEG_RING = 0.02, 3, 0.12             # metres, from the plan
+LEG_H = 0.45 - 0.04 + 0.004                        # reaches 4 mm into the seat (weld)
+
+def build_leg() -> list[bpy.types.Object]:
+    """Leg x3 — steel rods Leg_0..Leg_2 on a ring, each TOP-LEVEL (no parent Empty!)."""
+    steel = bpy.data.materials.new("Steel"); bsdf = steel.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Base Color"].default_value = (0.6, 0.6, 0.62, 1.0)
+    bsdf.inputs["Roughness"].default_value, bsdf.inputs["Metallic"].default_value = 0.35, 1.0
+    legs = []
+    for i in range(LEG_N):
+        a = 2 * math.pi * i / LEG_N
+        bm = bmesh.new()
+        bmesh.ops.create_cone(bm, cap_ends=True, segments=24, radius1=LEG_R, radius2=LEG_R, depth=LEG_H)
+        me = bpy.data.meshes.new(f"Leg_{i}"); bm.to_mesh(me); bm.free()
+        leg = bpy.data.objects.new(f"Leg_{i}", me)
+        leg.location = (LEG_RING * math.cos(a), LEG_RING * math.sin(a), LEG_H / 2)
+        bpy.context.scene.collection.objects.link(leg)
+        leg.data.materials.append(steel); legs.append(leg)
+    return legs
+```
+`src/model.py`
+```py
+"""Stool — entry: imports the part builders, calls them in plan order, self-checks."""
 import bpy
+from parts.seat import build_seat
+from parts.leg import build_leg
+
 def _selfcheck() -> None:
-    meshes = [o for o in bpy.data.objects if o.type == 'MESH']
-    assert meshes, "no mesh objects built"
-    for o in meshes:
-        assert '.' not in o.name, f"auto-suffixed name {o.name!r}: rename the instance"
+    names = [o.name for o in bpy.data.objects if o.type == 'MESH']
+    assert names and all('.' not in n for n in names), f"missing or auto-suffixed meshes: {names}"
+
+def main() -> None:
+    build_seat()
+    build_leg()
+    _selfcheck()
+
+main()
 ```
 
-## COMPLETE minimal example (verified with Blender 5.0 headless)
+## COMPLETE minimal example B — single file (small objects; verified with Blender 5.0)
 ```python
 import bpy, bmesh, math
 
 SEAT_D, SEAT_T, SEAT_Z = 0.34, 0.04, 0.45      # metres, from the plan
 LEG_R, LEG_N, LEG_RING = 0.02, 3, 0.12
 
-def _link(obj: bpy.types.Object) -> bpy.types.Object:
-    bpy.context.scene.collection.objects.link(obj)
-    return obj
-
-def make_cylinder(name: str, radius: float, depth: float, location, segments: int = 32):
+def make_cylinder(name, radius, depth, location, segments=32):
     """Cylinder along Z centred at `location` via bmesh (no operator/context needed)."""
     bm = bmesh.new()
-    bmesh.ops.create_cone(bm, cap_ends=True, segments=segments,
-                          radius1=radius, radius2=radius, depth=depth)
-    me = bpy.data.meshes.new(name)
-    bm.to_mesh(me); bm.free()
-    obj = bpy.data.objects.new(name, me)
-    obj.location = location
-    return _link(obj)
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=segments, radius1=radius, radius2=radius, depth=depth)
+    me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
+    obj = bpy.data.objects.new(name, me); obj.location = location
+    bpy.context.scene.collection.objects.link(obj); return obj
 
-def make_material(name: str, rgb, roughness=0.5, metallic=0.0) -> bpy.types.Material:
-    mat = bpy.data.materials.new(name)
-    bsdf = mat.node_tree.nodes["Principled BSDF"]          # nodes exist by default (4.x/5.x)
+def make_material(name, rgb, roughness=0.5, metallic=0.0):
+    mat = bpy.data.materials.new(name); bsdf = mat.node_tree.nodes["Principled BSDF"]
     bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
-    bsdf.inputs["Roughness"].default_value = roughness
-    bsdf.inputs["Metallic"].default_value = metallic
+    bsdf.inputs["Roughness"].default_value, bsdf.inputs["Metallic"].default_value = roughness, metallic
     return mat
 
 def build_seat() -> bpy.types.Object:
@@ -85,17 +131,20 @@ def build_seat() -> bpy.types.Object:
     return seat
 
 def build_leg(i: int) -> bpy.types.Object:
-    a = 2 * math.pi * i / LEG_N
-    x, y = LEG_RING * math.cos(a), LEG_RING * math.sin(a)
-    h = SEAT_Z - SEAT_T + 0.004                       # overlaps the seat by 4 mm (weld)
-    leg = make_cylinder(f"Leg{i + 1}", LEG_R, h, (x, y, h / 2), 24)
+    a, h = 2 * math.pi * i / LEG_N, SEAT_Z - SEAT_T + 0.004          # 4 mm into the seat (weld)
+    leg = make_cylinder(f"Leg{i + 1}", LEG_R, h, (LEG_RING * math.cos(a), LEG_RING * math.sin(a), h / 2), 24)
     leg.data.materials.append(make_material(f"Steel{i + 1}", (0.6, 0.6, 0.62), 0.35, 1.0))
     return leg
+
+def _selfcheck() -> None:
+    names = [o.name for o in bpy.data.objects if o.type == 'MESH']
+    assert names and all('.' not in n for n in names), f"missing or auto-suffixed meshes: {names}"
 
 def main() -> None:
     build_seat()
     for i in range(LEG_N):
         build_leg(i)
+    _selfcheck()
 
 main()
 ```

@@ -17,6 +17,9 @@ The harness loads `src/object.js` in node, calls `build(THREE)`, and exports
 * Each part Group is returned **at its world pose** (position set on the Group or the
   meshes — geometry in meters, root scale (1,1,1), never `root.scale.set(...)` to resize).
 * Lowest point at y = 0, footprint centred on the Y axis.  Real-world dimensions.
+  The harness exports the object **exactly where you put it** (no automatic drop to
+  the ground or re-centring): an off-ground / off-centre build only gets a build
+  warning plus a contract-gate finding, so place every part at its plan centre.
 
 ## Naming
 * Part Group: `g.name = "<PartName>"` — PascalCase exactly as the plan (`SeatCushion`);
@@ -41,9 +44,15 @@ packages other than `three`, no `import ... from 'codeverse'` / `../runtime_js`.
   `MeshPhysicalMaterial` only.  Colours via `new THREE.Color(0xRRGGBB)`; vertex colours
   allowed (`geometry.setAttribute('color', …)` + `vertexColors: true`).
 * ≤ 600 k triangles (aim 20–150 k); ≤ 300 meshes (use `InstancedMesh` or merged
-  geometries for repeats); module evaluates + builds in < 20 s.
+  geometries for repeats); module evaluates + builds in < 20 s.  `InstancedMesh`
+  named `Posts` is exported as a group `Posts` of meshes `Posts_0 … Posts_{n-1}`
+  (instance matrices and colours baked), so gates and the census see every copy.
 
 ## Self-check (optional, keep it tiny, at the end of object.js)
+If `object.js` exports `selfcheck(THREE, root)`, the harness calls it on the group
+returned by `build(THREE)` right after validation, before export.  A throw fails the
+build as `SelfCheckError` with your message and file:line, so assert only what you
+are sure about (the contract gate measures the GLB anyway).
 ```js
 export function selfcheck(THREE, root) {
   const box = new THREE.Box3().setFromObject(root);

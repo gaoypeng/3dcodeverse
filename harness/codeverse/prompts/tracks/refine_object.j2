@@ -19,6 +19,11 @@ Files in scope: {% for f in files %}`{{ f }}`{% if not loop.last %}, {% endif %}
 
 ## What the judge saw
 {{ judge_summary }}
+{% if reference_note %}
+
+## Reference images
+{{ reference_note }}
+{% endif %}
 
 ## Measured vs planned (exact numbers; the contract gate checks these)
 {{ measurement_notes }}

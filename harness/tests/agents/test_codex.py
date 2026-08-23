@@ -56,7 +56,9 @@ def test_argv_with_mcp_overrides(tmp_ws: Workspace):
     assert argv[:3] == ["codex", "exec", "--json"] and argv[argv.index("-C") + 1] == str(tmp_ws.root)
     assert argv[argv.index("--sandbox") + 1] == "workspace-write" and "--skip-git-repo-check" in argv
     joined = " ".join(argv)
-    assert 'mcp_servers.c3v.command="' in joined and "mcp_servers.c3v.args=[" in joined and argv[-1] == "p"
+    assert 'mcp_servers.3dcv.command="' in joined and "mcp_servers.3dcv.args=[" in joined and argv[-1] == "p"
+    # codex exec has nobody to answer the per-tool approval elicitation → every MCP call would be cancelled
+    assert 'mcp_servers.3dcv.default_tools_approval_mode="approve"' in argv
     assert argv[argv.index("--model") + 1] == "gpt-5.6-sol"
     s2 = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "codex")
     assert "mcp_servers" not in " ".join(a.build_argv(s2, None)) and a.build_argv(s2, None)[-1] == "-"
@@ -79,6 +81,27 @@ def test_long_prompt_goes_via_stdin(tmp_ws: Workspace, fake_bin, monkeypatch):
     a = CodexAgent("gpt-5.6-sol", binary=fake_bin("codex", FAKE_CODEX))
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello world this is long", label="z", timeout_s=30))
     assert res.ok and (tmp_ws.src / "hello.txt").read_text() == "hello"
+
+
+@pytest.mark.live
+def test_live_codex_mcp_tool_call_is_not_cancelled(tmp_ws: Workspace):
+    """Regression: without default_tools_approval_mode=approve codex auto-cancels every 3dcv MCP call."""
+    if not shutil.which("codex"):
+        pytest.skip("codex not installed")
+    from codeverse.agents.cli_common import default_mcp_command
+    from codeverse.agents.materialize import materialize_workspace
+
+    materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="threejs/cookbook.md", spatial_tools=True,
+                         mcp_command=default_mcp_command(tmp_ws, language="threejs"))
+    a = CodexAgent("")
+    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="Call the 3dcv MCP tool `read_cookbook` once and reply with its first "
+                         "five words, then DONE. Do not edit files.", timeout_s=300, label="mcpt", spatial_tools=True,
+                         extra={"language": "threejs"}))
+    assert res.ok, res.errors
+    events = [json.loads(ln) for ln in (Path(res.transcript_path).parent / "stdout.jsonl").read_text().splitlines()
+              if ln.startswith("{")]
+    calls = [e["item"] for e in events if e.get("type") == "item.completed" and (e.get("item") or {}).get("type") == "mcp_tool_call"]
+    assert calls and all(c.get("status") != "failed" for c in calls), calls
 
 
 @pytest.mark.live

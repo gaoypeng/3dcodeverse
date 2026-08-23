@@ -6,7 +6,8 @@
  * map, calls `createScene({THREE, renderer, loaders})`, validates the returned
  * shape and exposes `window.__c3v` with deterministic instruments:
  *   boot(opts) · renderAt(cameraSpec, t) · census() · fps(seconds)
- *   cameraChecks(cameraSpec) · compileAll(cameraSpec) · shaderErrors()
+ *   cameraChecks(cameraSpec) (near geometry + luminance + content coverage)
+ *   compileAll(cameraSpec) · shaderErrors()
  * Node drivers (render_scene / probe_scene / check_shaders) call these via
  * page.evaluate.  Agent code never imports this file.
  */
@@ -15,11 +16,13 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { sceneCensus } from './host_census.mjs';
 import { frameStats, nearGeometry } from './host_metrics.mjs';
+import { frameCoverage } from './host_coverage.mjs';
 import { installShaderErrorHook } from './host_shader_errors.mjs';
 import { attributeErrors, captured, captureMaterialSources, materialAudit, stripCustomShaders } from './host_compile.mjs';
 
 const FIXED_DT = 1 / 30;
 const LOAD_IDLE_TIMEOUT_MS = 30000;
+const CREATE_SCENE_TIMEOUT_MS = 20000;
 
 const state = {
   booted: false,
@@ -28,23 +31,44 @@ const state = {
   scene: null,
   cameras: [],
   update: null,
+  updateBroken: false,
+  updateErrors: [],
   simTime: 0,
   width: 1024,
   height: 576,
   rafCalls: 0,
   shaderErrors: [],
   loadErrors: [],
+  pendingLoads: new Set(),
   hostWarnings: [],
   bootInfo: null,
   contentBox: null,
   fullBox: null,
 };
 
+/**
+ * Call the agent's update(t, dt), catching exceptions: the first throw is
+ * recorded (state.updateErrors + console.error so the node driver collects it
+ * as a console error → gate finding) and update() is disabled so the remaining
+ * views still render — an agent bug must never abort the whole render run.
+ */
+function runUpdate(t, dt) {
+  if (!state.update || state.updateBroken) return;
+  try {
+    state.update(t, dt);
+  } catch (e) {
+    state.updateBroken = true;
+    const msg = `update(t=${t.toFixed(2)}) threw: ${formatError(e)} — update() disabled, rendering continues without animation`;
+    state.updateErrors.push(msg);
+    console.error(msg);
+  }
+}
+
 function makeRenderer(width, height, opts) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
-  canvas.id = 'c3v-canvas';
+  canvas.id = '3dcv-canvas';
   document.body.appendChild(canvas);
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -147,9 +171,10 @@ async function boot(opts) {
     manager.onStart = () => { manager.__c3vPending = true; };
     manager.onLoad = () => { manager.__c3vPending = false; };
     manager.onError = (url) => { const m = `failed to load ${url}`; if (!state.loadErrors.includes(m)) state.loadErrors.push(m); };
+    trackPendingLoads(manager);
     const loaders = makeLoaders(manager);
     const tCs = performance.now();
-    const result = await mod.createScene({ THREE, renderer, loaders });
+    const result = await raceCreateScene(mod, { THREE, renderer, loaders }, opts.createSceneTimeoutMs || CREATE_SCENE_TIMEOUT_MS);
     info.timings_ms.create_scene = Math.round(performance.now() - tCs);
     if (!result || typeof result !== 'object') throw new Error('createScene() must return {scene, cameras, update}');
     info.shape = {
@@ -173,7 +198,7 @@ async function boot(opts) {
     if (info.load_wait === 'timeout') state.hostWarnings.push('asset loads still pending after timeout');
 
     info.stage = 'first_update';
-    if (state.update) state.update(0, 0);
+    runUpdate(0, 0);
     state.simTime = 0;
     state.scene.updateMatrixWorld(true);
     state.booted = true;
@@ -194,6 +219,39 @@ function formatError(e) {
   const msg = String(e.message || e);
   const stack = String(e.stack || '').split('\n').slice(0, 6).join('\n');
   return stack && stack.includes(msg) ? stack : `${msg}\n${stack}`;
+}
+
+/** Track which loader URLs are in flight so a boot timeout can name them. */
+function trackPendingLoads(manager) {
+  const start = manager.itemStart.bind(manager);
+  const end = manager.itemEnd.bind(manager);
+  manager.itemStart = (url) => { state.pendingLoads.add(url); start(url); };
+  manager.itemEnd = (url) => { state.pendingLoads.delete(url); end(url); };
+}
+
+/**
+ * Await the agent's createScene() with a hard timeout: a classic
+ * `await new Promise(r => loaders.texture.load(url, r))` on a missing asset
+ * never settles (three's loaders skip onLoad on 404) and would otherwise hang
+ * the whole driver into its watchdog (exit 3, blamed on the harness).  On
+ * expiry the boot fails at stage 'createScene' with an error naming the
+ * pending loader URLs — an agent-fixable scene failure, not a driver one.
+ */
+function raceCreateScene(mod, ctx, timeoutMs) {
+  const createScenePromise = Promise.resolve().then(() => mod.createScene(ctx));
+  createScenePromise.catch(() => {});   // no unhandled rejection if the timeout wins
+  let timer = null;
+  const timeout = new Promise((resolve, reject) => {
+    timer = setTimeout(() => {
+      const pending = [...state.pendingLoads].slice(0, 5);
+      let msg = `createScene() did not resolve within ${Math.round(timeoutMs / 1000)} s — an awaited promise never settled `
+        + '(loader.load(...) without an onError handler on a missing/broken asset? prefer await loaders.gltf.loadAsync(url) in try/catch)';
+      if (pending.length) msg += `; pending loads: ${pending.join(', ')}`;
+      if (state.loadErrors.length) msg += `; load errors: ${state.loadErrors.slice(0, 5).join('; ')}`;
+      reject(new Error(msg));
+    }, timeoutMs);
+  });
+  return Promise.race([createScenePromise, timeout]).finally(() => clearTimeout(timer));
 }
 
 function buildCamera(spec) {
@@ -217,21 +275,22 @@ function buildCamera(spec) {
   return cam;
 }
 
-/** Advance the simulation deterministically to time t (fixed steps). */
+/** Advance the simulation deterministically to time t (fixed steps).
+ * Agent update() exceptions are recorded (runUpdate) and never propagate. */
 function advanceTo(t) {
   if (!state.update) return;
   if (t < state.simTime - 1e-9) throw new Error(`cannot rewind time: at ${state.simTime}, asked ${t}`);
   let steps = 0;
   while (state.simTime + FIXED_DT <= t + 1e-9) {
     state.simTime += FIXED_DT;
-    state.update(state.simTime, FIXED_DT);
+    runUpdate(state.simTime, FIXED_DT);
     steps += 1;
     if (steps > 100000) throw new Error('too many update steps');
   }
   const rem = t - state.simTime;
   if (rem > 1e-6) {
     state.simTime = t;
-    state.update(t, rem);
+    runUpdate(t, rem);
   }
 }
 
@@ -260,14 +319,23 @@ function renderAt(spec, t, opts = {}) {
   return { dataUrl: state.canvas.toDataURL('image/png'), ms, sim_time: state.simTime };
 }
 
-/** Camera instruments: near geometry + frame luminance stats (renders). */
+/**
+ * Camera instruments (renders): near geometry, frame luminance stats and
+ * coverage (content / ground / sky fractions of the frame, via mask passes).
+ */
 function cameraChecks(spec) {
   const cam = buildCamera(spec);
   state.scene.updateMatrixWorld(true);
   const near = nearGeometry(state.scene, cam, THREE);
   renderOnce(cam);
   const stats = frameStats(state.canvas);
-  return { name: spec.name, ...near, ...stats };
+  let coverage = {};
+  try {
+    coverage = frameCoverage(state.renderer, state.scene, cam, state.canvas, THREE, state.contentBox);
+  } catch (e) {
+    state.hostWarnings.push(`coverage failed for ${spec.name}: ${e.message}`);
+  }
+  return { name: spec.name, ...near, ...stats, ...coverage };
 }
 
 /** Force-compile every material as seen from spec (or the first camera). */
@@ -293,7 +361,7 @@ function fps(seconds, spec) {
   const t0 = performance.now();
   while (performance.now() < deadline) {
     state.simTime += FIXED_DT;
-    if (state.update) state.update(state.simTime, FIXED_DT);
+    runUpdate(state.simTime, FIXED_DT);
     state.renderer.render(state.scene, cam);
     frames += 1;
   }
@@ -322,6 +390,7 @@ window.__c3v = {
   setViewport(w, h) { state.width = w; state.height = h; state.renderer.setSize(w, h, false); },
   shaderErrors: () => state.shaderErrors.slice(),
   loadErrors: () => state.loadErrors.slice(),
+  updateErrors: () => state.updateErrors.slice(),
   cameras: () => state.cameras.slice(),
   simTime: () => state.simTime,
   THREE,

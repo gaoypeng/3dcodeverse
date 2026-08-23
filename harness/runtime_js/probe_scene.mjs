@@ -11,20 +11,24 @@
 
 import path from 'node:path';
 import { armWatchdog, fail, finish, parseCli, writeJson } from './lib/cli.mjs';
-import { errorSummary, openHost } from './lib/host_page.mjs';
+import { createTimeoutMs, errorSummary, openHost } from './lib/host_page.mjs';
 
 const args = parseCli({
-  ws: {}, out: {}, gpu: { default: process.env.C3V_RENDER_GPU || 'auto' }, 'timeout-ms': { default: '60000' },
-  'update-steps': { default: '10' }, scene: { default: 'src/scene.js' },
+  ws: {}, out: {}, gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' }, 'timeout-ms': { default: '60000' },
+  'create-timeout-ms': { default: '' }, 'update-steps': { default: '10' }, scene: { default: 'src/scene.js' },
 });
 
 async function main() {
   if (!args.ws) throw new Error('--ws is required');
-  const watchdog = armWatchdog(parseInt(args['timeout-ms'], 10));
+  const timeoutMs = parseInt(args['timeout-ms'], 10);
+  const watchdog = armWatchdog(timeoutMs);
   const t0 = Date.now();
   let host;
   try {
-    host = await openHost(args.ws, { width: 320, height: 180, gpu: args.gpu, sceneRel: args.scene.replace(/^\.?\//, '') });
+    host = await openHost(args.ws, {
+      width: 320, height: 180, gpu: args.gpu, sceneRel: args.scene.replace(/^\.?\//, ''),
+      createSceneTimeoutMs: createTimeoutMs(args['create-timeout-ms'], timeoutMs),
+    });
   } catch (e) {
     return fail(`host failed: ${e.message}`);
   }
@@ -47,6 +51,12 @@ async function main() {
       result.update_ok = upd.ok;
       result.update_error = upd.error || '';
       result.first_render_ms = upd.ms;
+      // update() exceptions are caught page-side (rendering continues); still a probe failure
+      const updateErrors = await page.evaluate(() => window.__c3v.updateErrors());
+      if (upd.ok && updateErrors.length) {
+        result.update_ok = false;
+        result.update_error = updateErrors[0].slice(0, 800);
+      }
       const frame = await page.evaluate(() => { const c = window.__c3v.cameras()[0]; return window.__c3v.cameraChecks(c); });
       result.first_camera = frame;
     }

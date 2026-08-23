@@ -52,11 +52,15 @@ def load_scene(glb: Path | str) -> trimesh.Scene:
 
 
 def _subtree_nodes(scene: trimesh.Scene, root: str) -> list[str]:
-    """All nodes under ``root`` (inclusive), depth first."""
+    """All nodes under ``root`` (inclusive), depth first; cycle-safe (a malformed
+    graph, e.g. a node named like the base frame, must not hang the gate)."""
     children = scene.graph.transforms.children
-    out, stack = [], [root]
+    out, stack, seen = [], [root], set()
     while stack:
         n = stack.pop()
+        if n in seen:
+            continue
+        seen.add(n)
         out.append(n)
         stack.extend(children.get(n, ()))
     return out

@@ -22,6 +22,9 @@ class JudgeInput(BaseModel):
     round_index: int = 0
     previous: Judgment | None = Field(default=None, description="last verdict (for delta framing)")
     extra_context: str = ""
+    geometry_views: RenderSet | None = Field(
+        default=None, description="clay/normals renders for the geometry-only montage (holes, intersections)"
+    )
 
 
 class Judge(Protocol):

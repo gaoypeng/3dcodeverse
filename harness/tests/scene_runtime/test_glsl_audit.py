@@ -94,7 +94,7 @@ void main() { gl_FragColor = vec4(1.0); }`;
 export const m = new THREE.ShaderMaterial({ fragmentShader: frag });"""
     assert "no_fog" not in kinds(audit(src, sceneUsesFog=False))
     assert "no_fog" in kinds(audit(src, sceneUsesFog=True))
-    assert "no_fog" not in kinds(audit(src + "\n// c3v: no-fog", sceneUsesFog=True))
+    assert "no_fog" not in kinds(audit(src + "\n// 3dcv: no-fog", sceneUsesFog=True))
 
 
 def test_locate_source_line_maps_to_file_and_line():

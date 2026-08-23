@@ -129,6 +129,37 @@ criteria:
       "0.4": Visible z-fighting / missing faces / hard world edge, or a console error.
       "0.1": Broken renders, shader failures, or the scene does not run.
 
+# Binary checklist (judge answers, code scores: penalty subtracted, cap applied).
+defects:
+  - id: wrong_place
+    text: The scene is a different kind of place than the brief describes (or an unreadable world).
+    cap: 0.30
+  - id: camera_unusable
+    text: An authored camera (cam_*) shows only sky / ground / the inside of a wall, or is clipped by the near plane.
+    penalty: 0.08
+    cap: 0.60
+  - id: unlit_or_blown
+    text: A view is near-black, blown to white, or the light direction contradicts the sky.
+    penalty: 0.08
+    cap: 0.60
+  - id: floating_or_sunken_asset
+    text: An asset clearly hovers above or sinks into the ground / terrain in an overview view.
+    penalty: 0.06
+    cap: 0.70
+  - id: empty_zone
+    text: A zone named in the plan is empty or contains only a ground plane.
+    penalty: 0.06
+  - id: placeholder_material
+    text: Magenta / default-grey / untextured flat surfaces dominate a view.
+    penalty: 0.05
+    cap: 0.75
+  - id: nothing_moves
+    text: Frames at different times (t=) are identical although motion was planned.
+    penalty: 0.05
+  - id: world_edge_visible
+    text: A hard world edge / terrain cliff / missing horizon is visible from an authored camera.
+    penalty: 0.04
+
 caps:
   - id: build_error
     when: gate
@@ -149,8 +180,39 @@ caps:
     when: gate
     gate: "*"
     severity: error
-    kinds: [camera_in_geometry, camera_clipped, camera_inside, point_blank, blank_view, dead_render]
+    kinds: [camera_in_geometry, camera_clipped, camera_inside, camera_underground, point_blank, blank_view, dead_render]
     cap: 0.5
+  # scene_frames gate (codeverse.spatial.frame_metrics): deterministic frame quality of the
+  # authored cameras — a crushed dusk, a blown sky, a one-colour frame or an establishing shot
+  # that shows a tiny island of content can never score as a finished picture.
+  - id: dark_frame
+    when: gate
+    gate: "scene_frames"
+    severity: error
+    kinds: [dark_frame]
+    cap: 0.55
+    note: mean luminance < 0.12 or > 35 % near-black pixels on an authored camera
+  - id: blown_frame
+    when: gate
+    gate: "scene_frames"
+    severity: error
+    kinds: [blown_frame]
+    cap: 0.6
+    note: "> 20 % pure-white pixels on an authored camera"
+  - id: flat_frame
+    when: gate
+    gate: "scene_frames"
+    severity: error
+    kinds: [flat_frame]
+    cap: 0.65
+    note: one luminance band holds > 92 % of an authored frame
+  - id: content_small
+    when: gate
+    gate: "scene_frames"
+    severity: error
+    kinds: [content_small]
+    cap: 0.6
+    note: establishing shot covers < 20 % content (rest is sky/ground)
   - id: floating_part
     when: gate
     gate: "*"

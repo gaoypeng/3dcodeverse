@@ -16,7 +16,11 @@ The harness serves the workspace root over http (`public/assets/` is mounted at
 or off — write shaders that work either way) and `loaders = { gltf, texture, cube,
 manager }` (GLTFLoader etc.).  It awaits `createScene`, validates the return value, then
 for each camera renders at t ∈ {0, 1.5} s (calling `update`) and takes probes (tris, draw
-calls, console/shader errors, camera-inside-geometry, black/blown frames, fps).
+calls, console/shader errors, camera-inside-geometry, black/blown frames, content coverage,
+fps).  Frame gate (`scene_frames`, ERROR on authored cameras): mean luminance < 0.12 or
+> 35 % near-black pixels = too dark; > 20 % pure white = blown; establishing shot with < 20 %
+content pixels (rest sky/ground) = content too small.  Dusk/night = coloured, never black
+(cookbook: "Dusk / night lighting recipe").
 
 ## createScene return value
 * `scene`: `THREE.Scene` with `scene.fog` set and a background colour or sky dome.

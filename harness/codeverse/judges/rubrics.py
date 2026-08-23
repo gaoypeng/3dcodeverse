@@ -8,6 +8,12 @@ the weighted mean) and a ``kind`` (``visual`` = scored by the VLM,
 
 ``caps`` are rules that bound the overall score from deterministic gate
 findings (build error → 0.0, floating part → ≤ 0.6 ...) — see ``caps.py``.
+
+``defects`` is a fixed **binary checklist** the VLM answers (present / absent)
+— "a part floats", "lying on its back", "flat untextured" … — and the code
+turns into arithmetic: ``penalty`` is subtracted from the weighted overall and
+``cap`` bounds it.  Binary items survive the compressed dynamic range of
+flash-class judges far better than 0..1 scores do.
 """
 
 from __future__ import annotations
@@ -63,6 +69,28 @@ class Criterion(BaseModel):
         return self.title or self.id.replace("_", " ")
 
 
+class DefectItem(BaseModel):
+    """One binary checklist item the judge answers; scored in code.
+
+    ``penalty`` is subtracted from the weighted overall when the defect is
+    present (majority vote over samples); ``cap`` bounds the overall.  Either may
+    be absent (a purely informational item has penalty 0 and no cap).
+    """
+
+    id: str
+    text: str = Field(description="concrete, visually checkable statement of the defect")
+    penalty: float = Field(default=0.0, ge=0.0, le=1.0)
+    cap: float | None = Field(default=None, ge=0.0, le=1.0)
+    note: str = ""
+
+    @field_validator("id")
+    @classmethod
+    def _ident(cls, v: str) -> str:
+        if not _IDENT.match(v):
+            raise ValueError(f"defect id must be snake_case identifier, got {v!r}")
+        return v
+
+
 class CapRule(BaseModel):
     """Bounds the overall score when a deterministic signal fires.
 
@@ -72,11 +100,14 @@ class CapRule(BaseModel):
     / ``finding.data.code`` or, as a fallback, in the lower-cased message.
     ``when="acceptance"`` fires when any ``must`` acceptance item is not verified.
     ``when="console"`` fires when the render set reports console errors (scenes).
+    ``when="missing_views"`` fires when NO render view has a name/mode containing
+    any of ``kinds`` (e.g. ``kinds: [pose_, articulation_sheet]`` = the articulated
+    rubric requires posed views).
     """
 
     id: str
     cap: float = Field(ge=0.0, le=1.0)
-    when: Literal["gate", "acceptance", "console"] = "gate"
+    when: Literal["gate", "acceptance", "console", "missing_views"] = "gate"
     gate: str = Field(default="*", description="fnmatch pattern on GateFinding.gate")
     severity: Severity = Severity.ERROR
     kinds: list[str] = Field(default_factory=list)
@@ -90,6 +121,7 @@ class Rubric(BaseModel):
     pass_threshold: float = Field(ge=0.0, le=1.0)
     criteria: list[Criterion] = Field(min_length=1)
     caps: list[CapRule] = Field(default_factory=list)
+    defects: list[DefectItem] = Field(default_factory=list, description="binary checklist scored in code")
     extra_instructions: str = ""
     description: str = ""
 
@@ -104,6 +136,9 @@ class Rubric(BaseModel):
         cap_ids = [c.id for c in self.caps]
         if len(cap_ids) != len(set(cap_ids)):
             raise ValueError(f"duplicate cap ids in rubric {self.name}")
+        d_ids = [d.id for d in self.defects]
+        if len(d_ids) != len(set(d_ids)):
+            raise ValueError(f"duplicate defect ids in rubric {self.name}")
         return self
 
     # ------------------------------------------------------------------ helpers
@@ -116,6 +151,12 @@ class Rubric(BaseModel):
             if c.id == cid:
                 return c
         raise KeyError(f"rubric {self.name} has no criterion {cid!r}")
+
+    def defect(self, did: str) -> DefectItem:
+        for d in self.defects:
+            if d.id == did:
+                return d
+        raise KeyError(f"rubric {self.name} has no defect {did!r}")
 
     def visual_criteria(self) -> list[Criterion]:
         return [c for c in self.criteria if c.kind == "visual"]

@@ -82,3 +82,53 @@ def contact_sheet(
     out.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(out, format="PNG", optimize=False)
     return out
+
+
+# --------------------------------------------------------------------------- montage helpers (judge inputs)
+MONTAGE_MAX_TILES = 4
+
+
+def montage_2x2(
+    images: Sequence[tuple[str, str | Path]],
+    out: Path | str,
+    tile: int = 512,
+) -> Path:
+    """A labelled ≤ 2×2 grid (1–4 tiles) — the judge-facing montage format.
+
+    VLM judges get position-biased and saturate with many tiles, so judge
+    images carry at most four views each.  Raises ``ValueError`` above 4.
+    """
+    if not 1 <= len(images) <= MONTAGE_MAX_TILES:
+        raise ValueError(f"montage_2x2: need 1..{MONTAGE_MAX_TILES} tiles, got {len(images)}")
+    cols = 1 if len(images) == 1 else 2
+    return contact_sheet(images, out, cols=cols, tile=tile, label=True)
+
+
+def crop_region(
+    src: Path | str,
+    out: Path | str,
+    box_frac: tuple[float, float, float, float],
+    *,
+    min_px: int = 512,
+) -> Path:
+    """Crop ``src`` to the fractional box ``(left, top, right, bottom)`` (0..1) and
+    upscale so the long side is ≥ ``min_px`` (a "detail crop" for judges).
+
+    Returns ``out``.  Raises ``ValueError`` for an empty box, ``OSError`` for an
+    unreadable image.
+    """
+    x0, y0, x1, y1 = (max(0.0, min(1.0, float(v))) for v in box_frac)
+    if x1 <= x0 or y1 <= y0:
+        raise ValueError(f"crop_region: empty box {box_frac}")
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with Image.open(src) as im:
+        im = im.convert("RGB")
+        w, h = im.size
+        region = im.crop((round(x0 * w), round(y0 * h), max(round(x0 * w) + 1, round(x1 * w)), max(round(y0 * h) + 1, round(y1 * h))))
+        rw, rh = region.size
+        scale = max(1.0, min_px / max(rw, rh))
+        if scale > 1.0:
+            region = region.resize((max(1, round(rw * scale)), max(1, round(rh * scale))), Image.LANCZOS)
+        region.save(out, format="PNG", optimize=False)
+    return out

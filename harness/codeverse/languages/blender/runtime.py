@@ -1,8 +1,11 @@
 """BlenderRuntime: lint → build (headless Blender subprocess) → BuildResult.
 
-The agent's ``src/model.py`` is never imported here; ``wrappers/run_bpy.py`` runs
-it inside Blender, writes ``artifacts/build.json`` + ``census.json`` and exports
-``artifacts/object.glb`` (Y-up, +Z front) and ``object.stl`` (Z-up).
+Layout (see ``layout.py``): ``src/model.py`` is the entry; ``src/parts/<snake>.py`` hold
+one ``build_<snake>()`` per plan part (``file_for_part`` maps a part to its file so the
+tracks can refine parts in parallel); a single-file ``model.py`` stays valid.  The
+agent's code is never imported here; ``wrappers/run_bpy.py`` runs it inside Blender
+(with ``src/`` on ``sys.path``), writes ``artifacts/build.json`` + ``census.json`` and
+exports ``artifacts/object.glb`` (Y-up, +Z front) and ``object.stl`` (Z-up).
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from codeverse.languages._common import (
     run_subprocess,
     strip_blender_noise,
 )
-from codeverse.languages.blender.lint import lint_blender_file
+from codeverse.languages.blender.layout import ENTRY_REL, lint_workspace, part_file_rel
 from codeverse.languages.blender.skeleton import write_blender_skeleton
 from codeverse.prompts import PROMPTS_DIR
 from codeverse.workspace import Workspace
@@ -32,7 +35,7 @@ RENDER_WRAPPER = _PKG_DIR / "wrappers" / "render_bpy.py"
 
 
 class BlenderNotFoundError(RuntimeError):
-    """No usable Blender binary (configure ``C3V_BINARIES__BLENDER`` or put blender on PATH)."""
+    """No usable Blender binary (configure ``CV3D_BINARIES__BLENDER`` or put blender on PATH)."""
 
 
 def blender_env() -> dict[str, str]:
@@ -49,7 +52,7 @@ class BlenderRuntime:
     """LanguageRuntime for ``Language.BLENDER``."""
 
     language = Language.BLENDER
-    entry_globs: tuple[str, ...] = ("src/model.py",)
+    entry_globs: tuple[str, ...] = (ENTRY_REL, "src/parts/*.py")
 
     def __init__(self, *, blender: str | None = None, settings: Settings | None = None):
         self._settings = settings or get_settings()
@@ -59,11 +62,28 @@ class BlenderRuntime:
     def blender_binary(self) -> str:
         b = self._blender or self._settings.resolve_blender()
         if not b or not Path(b).exists():
-            raise BlenderNotFoundError("Blender binary not found; set C3V_BINARIES__BLENDER=/path/to/blender")
+            raise BlenderNotFoundError("Blender binary not found; set CV3D_BINARIES__BLENDER=/path/to/blender")
         return b
 
     def entry_file(self, ws: Workspace) -> Path:
-        return ws.src / "model.py"
+        return ws.root / ENTRY_REL
+
+    @staticmethod
+    def file_for_part(part_name: str) -> str:
+        """Workspace-relative file that owns a plan part: ``src/parts/<snake>.py``
+        (the tracks call this via ``getattr`` to fan out per-part refinement)."""
+        return part_file_rel(part_name)
+
+    def part_file(self, ws: Workspace, part_name: str) -> Path:
+        return ws.root / self.file_for_part(part_name)
+
+    @staticmethod
+    def file_for_target(target: str) -> list[str]:
+        """Refine target → files: whole-object targets (``overall``/``assembly``/``object``/'')
+        map to the entry ``src/model.py``; anything else is treated as a part name."""
+        if target.strip().lower() in ("", "overall", "assembly", "object", "model"):
+            return [ENTRY_REL]
+        return [part_file_rel(target)]
 
     def build_command(
         self, ws: Workspace, *, stl: bool = True, blend: bool = False, seed: int = 0,
@@ -88,7 +108,8 @@ class BlenderRuntime:
         return write_blender_skeleton(ws, plan)
 
     def lint(self, ws: Workspace) -> GateReport:
-        return lint_blender_file(self.entry_file(ws))
+        """Lint every python file under ``src/`` + the multi-file layout rules."""
+        return lint_workspace(ws)
 
     def build(
         self, ws: Workspace, *, timeout_s: int | None = None, stl: bool = True, blend: bool = False,
@@ -98,7 +119,7 @@ class BlenderRuntime:
         entry = self.entry_file(ws)
         if not entry.is_file():
             return BuildResult(ok=False, language=self.language.value, error_type="MissingEntryFile",
-                               error_message="src/model.py does not exist", error_file="src/model.py")
+                               error_message=f"{ENTRY_REL} does not exist", error_file=ENTRY_REL)
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         build_json = ws.artifacts / "build.json"
         census_json = ws.artifacts / "census.json"

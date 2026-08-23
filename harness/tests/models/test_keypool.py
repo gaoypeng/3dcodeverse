@@ -131,3 +131,28 @@ def test_token_bucket_math():
     assert b.try_take(10, 0.0) and not b.try_take(1, 0.0)
     assert b.wait_for(5, 0.0) == 5.0
     assert b.try_take(5, 5.0)
+
+
+def test_dead_key_is_benched_for_a_long_time_then_reprobed():
+    pool, clock = make(keys=("dead", "ok"), cooldown_s=30, dead_cooldown_s=3600)
+    pool.report("dead", "dead")
+    # passive health recovery must not bring it back: it stays benched for an hour
+    clock.t += 1800
+    assert [pool.acquire() for _ in range(6)] == ["ok"] * 6
+    st = pool.stats()
+    assert st["n_dead"] == 1 and st["dead"] == 1
+    by = {k["key"]: k for k in st["keys"]}
+    assert by["…dead"]["dead"] == 1 and by["…dead"]["cooldown_s"] > 0
+    clock.t += 1801
+    assert "dead" in [pool.acquire() for _ in range(3)]  # re-probed once the bench ends
+    assert pool.stats()["n_dead"] == 0
+
+
+def test_all_keys_dead_raises_immediately_instead_of_waiting_out_the_timeout():
+    pool, clock = make(keys=("a", "b"), dead_cooldown_s=3600)
+    pool.report("a", "dead")
+    pool.report("b", "dead")
+    t0 = clock.t
+    with pytest.raises(KeyPoolExhausted):
+        pool.acquire(timeout_s=120)
+    assert clock.t == t0  # no pointless 120 s wait: availability only moves later

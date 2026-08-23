@@ -1,5 +1,5 @@
 // Census of a THREE.Object3D tree: per-part triangle counts, world bboxes,
-// materials, NaN checks.  Pure three.js math — usable in node and browser.
+// materials, NaN checks (with the offending mesh/part named).  Pure three.js math — usable in node and browser.
 //
 //   import { objectCensus, triangleCount, worldBox } from './census.mjs';
 
@@ -35,20 +35,45 @@ export function worldBox(THREE, root) {
   return [box.min.toArray().map(r), box.max.toArray().map(r)];
 }
 
+function geometryHasNonFinite(geometry) {
+  if (!geometry || !geometry.attributes || !geometry.attributes.position) return false;
+  const a = geometry.attributes.position.array;
+  for (let i = 0; i < a.length; i++) {
+    if (!Number.isFinite(a[i])) return true;
+  }
+  return false;
+}
+
+/**
+ * First mesh under `root` whose position attribute holds NaN/Infinity, or null.
+ * `part` is the root's direct child on the path to the mesh (the plan part it
+ * belongs to — the mesh itself when it is a direct child, '' when it is the
+ * root); `ancestor` is the nearest named ancestor below the root.
+ * @returns {{name: string, type: string, part: string, ancestor: string} | null}
+ */
+export function findNonFinitePositions(root) {
+  const visit = (o, path) => {
+    if (isMeshLike(o) && geometryHasNonFinite(o.geometry)) {
+      const below = path.slice(1); // ancestors strictly below root, nearest last
+      const named = below.filter((a) => a.name);
+      return {
+        name: o.name || '', type: o.type,
+        part: path.length === 0 ? '' : (below.length ? below[0] : o).name || '',
+        ancestor: named.length ? named[named.length - 1].name : '',
+      };
+    }
+    for (const c of o.children) {
+      const hit = visit(c, [...path, o]);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  return visit(root, []);
+}
+
 /** True when any position attribute contains a non-finite value. */
 export function hasNonFinitePositions(root) {
-  let bad = false;
-  root.traverse((o) => {
-    if (bad || !isMeshLike(o) || !o.geometry || !o.geometry.attributes.position) return;
-    const a = o.geometry.attributes.position.array;
-    for (let i = 0; i < a.length; i++) {
-      if (!Number.isFinite(a[i])) {
-        bad = true;
-        return;
-      }
-    }
-  });
-  return bad;
+  return findNonFinitePositions(root) !== null;
 }
 
 function materialSummary(m) {

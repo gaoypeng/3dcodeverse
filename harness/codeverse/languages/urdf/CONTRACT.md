@@ -16,7 +16,8 @@ its range looking for collisions / floating parts, and renders an articulation s
 
 * Z is UP, **-Y is the FRONT** of the object, +X its right. Meters. Radians.
 * The object stands on the ground: lowest point at z = 0, footprint centred on the Z axis.
-* Link names are `snake_case` part names: `base`, `door`, `drawer`, `lid`, `handle_left`.
+* Link names are `snake_case` part names: `base`, `door`, `drawer`, `lid`, `handle_left`
+  (the plan's PascalCase spelling is accepted too — identical in both files, never `Door.001`).
   Never state words (`door_open`): states come from joints.
 * The bpy object for a link is named **exactly** like the link (case-sensitive).
 
@@ -56,8 +57,10 @@ door = box("door", (0, -0.21, 0.40), (0.58, 0.02, 0.78))     # front panel (fron
 
 URDF semantics (standard): a joint's `<origin>` places the joint frame in the PARENT link
 frame; `<axis>` is in the joint frame; the CHILD link frame coincides with the joint frame at
-`q = 0`; `q = 0` is YOUR authored rest pose. Positive revolute `q` rotates by the right-hand
-rule about `<axis>`; positive prismatic `q` slides along `<axis>`.
+`q = 0`; `q = 0` is YOUR authored rest pose (the pose the plan's bboxes/pivots describe, so URDF
+limits are the plan's `lower − rest .. upper − rest` — the plan's numbers when `rest` is 0).
+Positive revolute `q` rotates by the right-hand rule about `<axis>`; positive prismatic `q`
+slides along `<axis>`.
 
 ### The recipe we enforce (link frames at pivots, meshes authored in world)
 

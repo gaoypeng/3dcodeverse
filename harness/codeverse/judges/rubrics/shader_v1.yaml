@@ -1,0 +1,188 @@
+name: shader_v1
+version: 1
+track_hint: graphics
+pass_threshold: 0.70
+description: >
+  Rubric for the GRAPHICS track: a real-time effect (Shadertoy-style fragment shader or a
+  raw OpenGL program) judged on a contact sheet of frames sampled at t = 0, 1, 2.5, 4, 6 s
+  plus the harness frame metrics (luminance, colourfulness, edge density, frame-to-frame
+  motion, NaN detection).  Grade the picture AND the motion; the metrics are facts.
+
+extra_instructions: >
+  Every view is the SAME program rendered at a different time (label t=...s); there are no
+  camera angles.  Compare the frames to judge motion: identical frames mean the effect is
+  static; wildly unrelated frames mean flicker.  The frame-metrics digest (mean luminance,
+  colourfulness, edge density, mean |Δ| between frames, NaN count) is measured by the
+  harness — treat it as truth over your impression.  Grade what the brief asked for:
+  subject, mood, palette, named elements (rain, city lights, bokeh, sun, clouds ...) and
+  whether the frames read as a designed effect a person would screenshot (0.8+), a
+  recognisable but crude attempt (≈0.5), or a flat gradient / noise blob / black frames
+  (0.1-0.3).  Use the pass / key-visual names from the plan digest as targets.
+
+criteria:
+  - id: brief_fidelity
+    weight: 0.24
+    floor: 0.30
+    title: Brief fidelity
+    description: >
+      Does the effect depict what the brief describes — subject, named elements, setting,
+      mood — so that a stranger would describe the frames the way the brief does?  Every
+      key visual in the plan should be recognisable.
+    anchors:
+      "1.0": Subject and every named element are unmistakable; mood and setting match.
+      "0.7": Subject reads right; one named element is weak or hard to find.
+      "0.4": Subject is recognisable only with goodwill, or a named element is missing / contradicted.
+      "0.1": Unrelated abstract pattern, noise, or nothing recognisable.
+
+  - id: visual_richness
+    weight: 0.18
+    title: Visual richness and detail
+    description: >
+      Is there structure at several scales — layered shapes, noise/fbm detail, particles,
+      highlights, depth cues (parallax, fog, size falloff) — rather than a single flat
+      gradient or one repeated primitive?  Credit only what is visible.
+    anchors:
+      "1.0": Multiple layers and scales of detail; the image rewards a closer look.
+      "0.7": Two or three distinct layers; some areas plain.
+      "0.4": One dominant element on a flat background; little detail.
+      "0.1": A flat gradient, a blob, or uniform noise.
+
+  - id: composition
+    weight: 0.12
+    title: Composition and framing
+    description: >
+      Is the frame composed — focal area, horizon / vanishing point placed deliberately,
+      balance between empty and busy regions, no important element cut off or crammed
+      into a corner, aspect ratio respected (no stretched circles)?
+    anchors:
+      "1.0": Deliberate composition with a clear focal area and depth layering.
+      "0.7": Readable composition; slightly flat or off-balance.
+      "0.4": Elements stretched / off-screen / centred by accident; no focal area.
+      "0.1": Unreadable arrangement.
+
+  - id: motion_quality
+    weight: 0.14
+    floor: 0.20
+    title: Motion quality
+    description: >
+      Across the time samples, does the effect move the way the brief / plan says
+      (rain falls, clouds drift, lights pulse, camera glides) — continuous, paced,
+      and plausible — neither frozen nor strobing?
+    anchors:
+      "1.0": Planned motion is visible, continuous and natural across all samples.
+      "0.7": Motion visible but subtle, uniform or partly missing.
+      "0.4": Frames nearly identical although motion was planned, or jumps/strobes between samples.
+      "0.1": Static effect (all frames identical) or incoherent flicker.
+
+  - id: colour_light
+    weight: 0.12
+    title: Colour and light
+    description: >
+      Is the palette intentional (harmonious, fitting the mood) with readable contrast
+      and lighting — exposure neither crushed to black nor blown to white, highlights and
+      shadows, glow / bloom where appropriate, no raw saturated RGB primaries unless asked?
+    anchors:
+      "1.0": Cohesive palette and lighting that sells the mood; good tonal range.
+      "0.7": Pleasant colours; slightly flat lighting or tonal range.
+      "0.4": Garish or muddy colours, heavy under/over-exposure, or banding.
+      "0.1": Near-black, blown white, or random colours.
+
+  - id: technical_cleanliness
+    weight: 0.12
+    floor: 0.30
+    title: Technical cleanliness
+    description: >
+      No NaN / garbage pixels, no hard aliasing staircase on edges, no visible banding in
+      gradients, no tiling seams, no obvious z-fighting / depth errors, no flicker, no
+      frame that is solid black or white.  The harness digest lists NaN counts and gate
+      findings — treat those as facts.
+    anchors:
+      "1.0": Clean frames; no artefacts in any sample; no gate findings.
+      "0.7": One minor artefact (slight aliasing / banding) in one area.
+      "0.4": A clearly visible artefact (seam, banding, aliasing, a black frame) or a gate warning.
+      "0.1": NaN / garbage pixels, or frames are broken.
+
+  - id: originality
+    weight: 0.08
+    title: Originality and craft
+    description: >
+      Does the effect go beyond the textbook demo (plain plasma, rainbow spiral, raw
+      noise) with a distinctive idea, a specific look, or an unexpected detail that fits
+      the brief?
+    anchors:
+      "1.0": Distinctive, crafted look with a memorable idea.
+      "0.7": Competent and tasteful; some familiar ingredients.
+      "0.4": A stock demo with the brief's colours swapped in.
+      "0.1": Generic noise / gradient with no idea.
+
+caps:
+  - id: build_error
+    when: gate
+    gate: "build*"
+    severity: error
+    cap: 0.0
+    note: the shader/program did not compile or render; nothing to score
+  - id: lint_error
+    when: gate
+    gate: "lint*"
+    severity: error
+    cap: 0.6
+  - id: nan_pixels
+    when: gate
+    gate: "gl_frames"
+    severity: error
+    kinds: [nan]
+    cap: 0.0
+    note: NaN/Inf pixels detected in the float readback
+  - id: black_or_blown
+    when: gate
+    gate: "gl_frames"
+    severity: error
+    kinds: [black, blown]
+    cap: 0.5
+  - id: static_frames
+    when: gate
+    gate: "gl_frames"
+    severity: warn
+    kinds: [static]
+    cap: 0.5
+    note: motion was planned but frames do not change over time
+  - id: flicker
+    when: gate
+    gate: "gl_frames"
+    severity: warn
+    kinds: [flicker]
+    cap: 0.7
+  - id: missing_must_acceptance
+    when: acceptance
+    cap: 0.6
+
+defects:
+  - id: wrong_subject
+    text: The frames do not depict the subject of the brief (an unrelated abstract pattern, or nothing recognisable).
+    cap: 0.40
+  - id: black_or_blown_frame
+    text: At least one sampled frame is essentially solid black or blown-out white.
+    penalty: 0.10
+    cap: 0.50
+  - id: static_effect
+    text: The sampled frames are visually identical although the brief implies motion.
+    penalty: 0.10
+    cap: 0.50
+  - id: flicker_or_strobe
+    text: Consecutive samples are unrelated (hard cuts, strobing, random per-frame colours) rather than continuous motion.
+    penalty: 0.08
+    cap: 0.70
+  - id: garbage_pixels
+    text: Visible garbage — NaN speckles, blocky corruption, uninitialised regions, magenta/error colour.
+    penalty: 0.10
+    cap: 0.30
+  - id: banding_or_aliasing
+    text: Clearly visible banding in gradients or staircase aliasing on edges / thin lines.
+    penalty: 0.05
+  - id: stretched_aspect
+    text: Circles are ellipses / the image is stretched — aspect ratio not corrected.
+    penalty: 0.06
+  - id: placeholder_look
+    text: The effect is a textbook demo (plain plasma, uv gradient, rainbow rings) with no connection to the brief beyond colour.
+    penalty: 0.10

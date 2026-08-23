@@ -3,18 +3,22 @@ version: 1
 track_hint: articulated_object
 pass_threshold: 0.7
 description: 'Rubric for an ARTICULATED object (cabinet with doors/drawers, laptop, folding chair, robot arm, scissors...)
-  judged on the rest-pose render rig PLUS a pose sheet: views of the object with joints swept to sampled values
-  (labelled with joint names and values).  Static criteria are inherited from static_object_v1 at reduced weight;
-  articulation criteria score whether the joints are real, placed right and move plausibly.
-
-  '
-extra_instructions: 'Views whose label says POSE or names a joint value show the SAME object with joints moved by
-  the harness (forward kinematics from the authored URDF).  Judge articulation ONLY from those views and the joint
-  table: a door that swings through its frame, a drawer that slides sideways, a lid that rotates about the wrong
-  edge, or a hinge placed in mid-air are articulation defects even when the rest pose looks perfect. Judge static
-  criteria from the rest-pose views.  Links are named in the plan digest; use link and joint names as targets.
-
-  '
+  judged on the rest-pose render rig PLUS the POSE SHEET: a harness-made grid whose rows are poses (rest, then each
+  joint at a swept value, labelled ''<joint>@<value>'') and whose columns are views (3/4, back 3/4, front), with
+  optional 2x2 montages of pose_* tiles.  The pose sheet is REQUIRED: without it the overall is capped (see caps)
+  because articulation cannot be judged.  Static criteria are inherited from static_object_v1 at reduced weight;
+  articulation criteria score whether the joints are real, placed right and move plausibly.'
+extra_instructions: 'POSE tiles (the POSE SHEET image and any tile whose label starts with ''pose_'' or names a
+  joint@value) show the SAME object with joints moved by the harness (forward kinematics from the authored URDF);
+  ''rest'' is the rest pose, ''<joint>@upper'' / ''@lower'' / ''@mid'' the joint at that limit or midpoint.  Compare
+  each posed tile with the rest tile of the SAME column: what moved, which way, by how much.  A door that swings
+  through its frame, a drawer that slides sideways or up, a lid that rotates about the wrong edge, a hinge placed
+  in mid-air, or a pose identical to rest are articulation defects even when the rest pose looks perfect.  Judge
+  static criteria from the rest-pose montage; use the joint table (axis, pivot, limits) in the plan digest / context.  Links
+  are named in the plan digest; use link and joint names as targets.  CALIBRATION: 0.9+ = photographs of the object
+  in use (door open on its hinge edge, drawer out on its rails, clearances visible, crisp parts); 0.5 = joints move
+  but one moves wrongly or the object is a primitive stack; 0.2 = nothing moves / parts explode when posed / wrong
+  object.  The DEFECT CHECKLIST is binary and literal.'
 criteria:
 - id: intent_fidelity
   weight: 0.16
@@ -52,9 +56,12 @@ criteria:
 
     '
   anchors:
-    '1.0': Every joint moves like the real mechanism; posed views look like photographs of the object in use.
-    '0.7': All joints move the right way; one moves a little too far / too little or looks slightly stiff.
-    '0.4': One joint moves the wrong way (slides instead of swings, opens into the body) or in the wrong direction.
+    '1.0': Every joint moves like the real mechanism in the posed tiles (door swings open about its hinge edge,
+      drawer slides straight out of its opening, lid lifts up); posed tiles look like photographs of the object
+      in use.
+    '0.7': All joints move the right way; one moves a little too far / too little, or a clearance looks tight.
+    '0.4': One joint moves the wrong way (slides instead of swings, opens into the body, drawer moves sideways or
+      up) or a posed tile is identical to rest although the joint has range.
     '0.1': Joints do nothing visible, move the wrong links, or the object falls apart when posed.
 - id: joint_placement_and_range
   weight: 0.12
@@ -65,10 +72,12 @@ criteria:
 
     '
   anchors:
-    '1.0': Every pivot sits on the real hinge/rail line; extremes are collision-free and natural.
-    '0.7': A pivot is slightly off its edge or a limit is a bit generous, without visible clipping.
-    '0.4': A pivot is clearly off (door rotates about its centre, drawer pivots), or an extreme pose clips through
-      the body.
+    '1.0': Every pivot sits on the real hinge/rail line (the door's edge stays against the carcass while open; the
+      drawer box stays inside its opening); extremes are collision-free and natural.
+    '0.7': A pivot is slightly off its edge (a few mm gap appears when open) or a limit is a bit generous, without
+      visible clipping.
+    '0.4': A pivot is clearly off (door rotates about its centre or detaches from the frame, drawer pivots), or
+      an extreme pose clips through the body.
     '0.1': Pivots in mid-air, joints on the wrong links, or poses that explode the object.
 - id: geometry_detail
   weight: 0.12
@@ -159,13 +168,14 @@ caps:
   - disconnected
   - unsupported
   - island
+  - touches nothing
   cap: 0.6
 - id: penetration_error
   when: gate
   gate: '*'
   severity: error
   kinds:
-  - penetration
+  - penetrat
   - intersect
   - overlap
   cap: 0.7
@@ -180,3 +190,66 @@ caps:
   - unattached
   cap: 0.6
   note: a link is not physically attached to its parent as its joint type requires
+- id: missing_pose_sheet
+  when: missing_views
+  kinds:
+  - articulation_sheet
+  - pose_sheet
+  - pose_
+  cap: 0.5
+  note: the articulated rubric requires posed views; without them articulation is unjudged
+defects:
+- id: wrong_object
+  text: The renders show a different object category than the brief (or nothing recognisable).
+  cap: 0.25
+- id: missing_named_part
+  text: A link or part the brief/plan names is absent (no handle, no second drawer, no lid).
+  penalty: 0.1
+  cap: 0.6
+- id: floating_part
+  text: In the REST pose a link visibly hovers or is detached from its parent (daylight between them; check the
+    low view and the geometry montage).
+  penalty: 0.1
+  cap: 0.6
+- id: interpenetration
+  text: In the REST pose a link visibly passes through another in a render, or a gate ERROR reports it; few-mm weld overlaps reported as warnings are NOT this defect.
+  penalty: 0.08
+  cap: 0.7
+- id: wrong_proportions
+  text: Part ratios or overall size clearly wrong (> 20%) against the brief / measurement table.
+  penalty: 0.08
+  cap: 0.7
+- id: wrong_orientation
+  text: The object lies on its back or side, is upside down, or faces away from the front view.
+  penalty: 0.1
+  cap: 0.5
+- id: no_articulation_visible
+  text: Posed tiles look identical to the rest tile for a joint that has range (nothing moves).
+  penalty: 0.15
+  cap: 0.4
+- id: wrong_motion_type
+  text: 'A joint moves the wrong way: a door slides, a drawer swings or moves sideways/up, a lid drops into the
+    body, a link rotates about the wrong axis.'
+  penalty: 0.12
+  cap: 0.5
+- id: pivot_misplaced
+  text: A part rotates about its centre or a point in mid-air instead of its hinge edge / rail (a gap opens between
+    door and carcass at the hinge side when open).
+  penalty: 0.1
+  cap: 0.6
+- id: pose_clips_body
+  text: In a posed tile a moving part passes through the carcass / frame / another link.
+  penalty: 0.08
+  cap: 0.6
+- id: primitive_only
+  text: Every part is an unmodified box / cylinder with sharp 90° edges — no handles, bevels, insets, rails or thickness
+    anywhere.
+  penalty: 0.08
+- id: untextured_flat
+  text: Default grey / magenta placeholder materials are visible, or surfaces are unlit flat fills with no shading response. A uniform but sensible colour (an all-walnut chair, an all-oak cabinet) is NOT this defect.
+  penalty: 0.05
+  cap: 0.75
+- id: holes_or_inverted_faces
+  text: Missing faces, see-through walls or black inverted faces are visible.
+  penalty: 0.08
+  cap: 0.6

@@ -1,8 +1,10 @@
 """Shared plumbing for subprocess-based CodingAgent backends.
 
 * :func:`hardened_env` — child environment without unrelated secrets.
-* :func:`begin_session` / :func:`finish_session` — trajectory dir, git
-  snapshot before/after, ``files_changed`` from git, ``result.json``.
+* :func:`begin_session` / :func:`finish_session` — trajectory dir (a retry of
+  the same label+round gets ``<label>.a2_rNN`` instead of overwriting attempt 1),
+  git snapshot before/after, ``files_changed`` from git *attributed to this
+  session* (see :func:`attribute_changes`), ``result.json``.
 * :func:`deliver_prompt` — argv prompt or "read the prompt file" stub.
 * :func:`estimate_cost_safe` — lazy bridge to ``codeverse.models.pricing``.
 * :func:`is_transient_failure` — 429 / 503 / empty-response detection.
@@ -15,13 +17,14 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from codeverse.agents.transcript import Trajectory
-from codeverse.contracts.agent import AgentJob, AgentResult
+from codeverse.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse.contracts.common import Usage
 from codeverse.workspace import Workspace
 
@@ -50,7 +53,7 @@ def hardened_env(ws: Workspace, job: AgentJob, *, keep: set[str] | None = None) 
     """
     keep = keep or set()
     env = {k: v for k, v in os.environ.items() if k in keep or not is_secret_env(k)}
-    env["C3V_AGENT_CONTEXT"] = "1"
+    env["CV3D_AGENT_CONTEXT"] = "1"
     env["GIT_CEILING_DIRECTORIES"] = str(ws.root.parent)
     env["PYTHONUNBUFFERED"] = "1"
     env.update(job.env)
@@ -70,11 +73,11 @@ def default_mcp_command(ws: Workspace, *, language: str = "", track: str = "", r
 
 
 def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
-    """The c3v MCP command for this job: ``.mcp.json`` (materialised) > ``job.extra['mcp_command']`` > default."""
+    """The 3dcv MCP command for this job: ``.mcp.json`` (materialised) > ``job.extra['mcp_command']`` > default."""
     mcp = ws.root / ".mcp.json"
     if mcp.is_file():
         try:
-            srv = (json.loads(mcp.read_text()).get("mcpServers") or {}).get("c3v")
+            srv = (json.loads(mcp.read_text()).get("mcpServers") or {}).get("3dcv")
         except json.JSONDecodeError:
             srv = None
         if srv and srv.get("command"):
@@ -86,6 +89,78 @@ def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
 
 
 # --------------------------------------------------------------------------- session
+#: paths the harness owns; never attributed to an agent session even when git sees them change
+HARNESS_OWNED_DIRS = ("artifacts", "trajectories", "stages", "rounds", "_cand", "_assets", ".3dcv", ".gemini", ".claude", ".git")
+HARNESS_OWNED_FILES = frozenset({"events.jsonl", "run_state.json", "record.json", "AGENTS.md", "GEMINI.md", "CLAUDE.md",
+                                 ".mcp.json", ".geminiignore", ".aiexclude", ".gitignore"})
+
+
+@dataclass
+class _LiveSession:
+    """Registry entry: lets concurrent sessions in ONE workspace (scene fan-out) attribute files."""
+
+    label: str
+    hints: frozenset[str]
+    t_start: float
+    t_end: float | None = None
+
+
+_LIVE: dict[str, list[_LiveSession]] = {}
+_LIVE_LOCK = threading.Lock()
+
+
+def _register(ws: Workspace, label: str, hints: frozenset[str]) -> _LiveSession:
+    entry = _LiveSession(label=label, hints=hints, t_start=time.monotonic())
+    with _LIVE_LOCK:
+        _LIVE.setdefault(str(ws.root), []).append(entry)
+    return entry
+
+
+def _sibling_hints(ws: Workspace, me: _LiveSession) -> frozenset[str]:
+    """Files claimed (``extra['files_hint']``) by OTHER sessions that overlapped ``me`` in time."""
+    me.t_end = time.monotonic()
+    with _LIVE_LOCK:
+        entries = _LIVE.get(str(ws.root), [])
+        claimed: set[str] = set()
+        for e in entries:
+            if e is me:
+                continue
+            overlaps = e.t_start <= me.t_end and (e.t_end is None or e.t_end >= me.t_start)
+            if overlaps:
+                claimed |= e.hints
+        oldest_active = min((e.t_start for e in entries if e.t_end is None), default=me.t_end)
+        entries[:] = [e for e in entries if e.t_end is None or e.t_end >= oldest_active]
+    return frozenset(claimed - me.hints)
+
+
+def _hinted(path: str, hints: frozenset[str]) -> bool:
+    return any(path == h or path.startswith(h.rstrip("/") + "/") for h in hints)
+
+
+def attribute_changes(
+    files: list[FileChange],
+    *,
+    write_roots: list[str],
+    own_hints: frozenset[str] = frozenset(),
+    sibling_hints: frozenset[str] = frozenset(),
+) -> list[FileChange]:
+    """The subset of a whole-worktree git diff that belongs to ONE session: inside its
+    ``write_roots``, not harness-owned, and not a file another concurrent session
+    declared as its target (``job.extra['files_hint']``) unless this session declared it too."""
+    roots = tuple(r.strip("/") for r in write_roots if r.strip("/"))
+    out: list[FileChange] = []
+    for f in files:
+        parts = Path(f.path).parts
+        if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in HARNESS_OWNED_FILES:
+            continue
+        if roots and not any(f.path == r or f.path.startswith(r + "/") for r in roots):
+            continue
+        if sibling_hints and _hinted(f.path, sibling_hints) and not _hinted(f.path, own_hints):
+            continue
+        out.append(f)
+    return out
+
+
 @dataclass
 class Session:
     """State for one CLI agent run (created by :func:`begin_session`)."""
@@ -99,6 +174,19 @@ class Session:
     head_before: str
     t0: float = field(default_factory=time.monotonic)
     notes: list[str] = field(default_factory=list)
+    attempt: int = 1
+    files_hint: frozenset[str] = frozenset()
+    live: _LiveSession | None = None
+
+
+def _session_label(ws: Workspace, label: str, round_index: int) -> tuple[str, int]:
+    """``label`` for attempt 1; ``<label>.a<n>`` when ``trajectories/<label>_rNN`` already
+    holds a finished attempt (result.json) — a silent-bail retry must not overwrite it."""
+    n, cand = 1, label
+    while (ws.trajectory_dir(cand, round_index) / "result.json").exists():
+        n += 1
+        cand = f"{label}.a{n}"
+    return cand, n
 
 
 def begin_session(job: AgentJob, kind: str) -> Session:
@@ -108,13 +196,15 @@ def begin_session(job: AgentJob, kind: str) -> Session:
         raise FileNotFoundError(f"workspace does not exist: {ws.root}")
     if not (ws.root / ".git").exists():
         ws.create()
-    label = job.label or kind
     round_index = int(job.extra.get("round", 0) or 0)
+    label, attempt = _session_label(ws, job.label or kind, round_index)
     traj = Trajectory(ws.trajectory_dir(label, round_index))
     traj.write_prompt(job.prompt, job.system_append)
+    hints = frozenset(str(h) for h in (job.extra.get("files_hint") or []) if str(h).strip())
+    live = _register(ws, label, hints)
     head_before = ws.commit(f"pre:{label}")
     return Session(ws=ws, job=job, kind=kind, label=label, round_index=round_index,
-                   traj=traj, head_before=head_before)
+                   traj=traj, head_before=head_before, attempt=attempt, files_hint=hints, live=live)
 
 
 def finish_session(
@@ -128,16 +218,19 @@ def finish_session(
     errors: list[str] | None = None,
     **extra: Any,
 ) -> AgentResult:
-    """Commit the agent's work, compute ``files_changed`` via git, write result.json."""
+    """Commit the agent's work, compute ``files_changed`` via git (attributed to this
+    session — see :func:`attribute_changes`), write result.json."""
     s.ws.commit(f"agent:{s.label}")
-    files = s.ws.changed_files(s.head_before)
+    siblings = _sibling_hints(s.ws, s.live) if s.live is not None else frozenset()
+    files = attribute_changes(s.ws.changed_files(s.head_before), write_roots=s.job.write_roots,
+                              own_hints=s.files_hint, sibling_hints=siblings)
     res = AgentResult(
         ok=ok, exit_reason=exit_reason, text=text, files_changed=files,
         transcript_path=str(s.traj.transcript_path if s.traj.transcript_path.exists() else s.traj.dir),
         usage=usage, duration_s=round(time.monotonic() - s.t0, 3), tool_calls=tool_calls,
         errors=list(errors or []),
     )
-    s.traj.write_result(res, kind=s.kind, label=s.label, round=s.round_index,
+    s.traj.write_result(res, kind=s.kind, label=s.label, round=s.round_index, attempt=s.attempt, job_label=s.job.label,
                         head_before=s.head_before, head_after=s.ws.head(), notes=s.notes, **extra)
     return res
 

@@ -208,6 +208,23 @@ class FakeJudge:
                         improvement_plan=plan, acceptance_results=acc, usage=Usage(backend="fake", cost_usd=self.cost))
 
 
+class FakePairwise:
+    """Scripted pairwise verdicts: ``verdicts`` is consumed in order (last one repeats)."""
+
+    def __init__(self, verdicts: Sequence[tuple[str, float]] = (("tie", 0.3),), cost: float = 0.004):
+        self.verdicts = list(verdicts)
+        self.cost = cost
+        self.calls: list[tuple[Any, Any, Any, str]] = []
+
+    def compare(self, spec: Any, renders_a: Any, renders_b: Any, *, rubric: str = "static_object_v1") -> Any:
+        from codeverse.judges.pairwise import PairwiseResult
+
+        i = min(len(self.calls), len(self.verdicts) - 1)
+        self.calls.append((spec, renders_a, renders_b, rubric))
+        winner, conf = self.verdicts[i]
+        return PairwiseResult(winner=winner, confidence=conf, reasons=[f"scripted verdict {i}"], usage=Usage(backend="fake", cost_usd=self.cost))
+
+
 # ----------------------------------------------------------------------------- services
 def _png(path: Path, size: int = 32) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -216,14 +233,22 @@ def _png(path: Path, size: int = 32) -> None:
 
 class FakeServices(Services):
     def __init__(self, *, runtime_factory: Callable[[Language], Any] | None = None, judge: Any | None = None,
-                 contract_errors: int = 0, assemble: bool = False, sweep_errors: int = 0):
+                 contract_errors: int = 0, assemble: bool = False, sweep_errors: int = 0, pairwise: Any | None = None,
+                 silhouette_iou: float | None = None, motion_errors: int = 0):
         self.runtime_factory = runtime_factory or (lambda lang: FakeRuntime(lang))
         self._judge = judge
         self.contract_errors = contract_errors
         self.assemble = assemble
         self.sweep_errors = sweep_errors
+        self._pairwise = pairwise
+        self.silhouette_iou = silhouette_iou
+        self.motion_errors = motion_errors
         self.materialized: list[str] = []
         self.records: list[RunRecord] = []
+        self.reference_judges: list[tuple[str, int, str]] = []
+        self.silhouette_calls: list[tuple[str, str]] = []
+        self.connectivity_languages: list[str] = []
+        self.geometry_renders: list[str] = []
 
     def chat_model(self, model_id: str) -> Any:
         raise ServiceUnavailable("no chat model in tests")
@@ -233,6 +258,31 @@ class FakeServices(Services):
 
     def judge(self, rubric: str, model_id: str, n_samples: int = 1) -> Any:
         return self._judge if self._judge is not None else FakeJudge()
+
+    def reference_judge(self, model_id: str, n_samples: int = 1, rubric: str = "reference_v1") -> Any:
+        self.reference_judges.append((model_id, n_samples, rubric))
+        return self._judge if self._judge is not None else FakeJudge()
+
+    def pairwise(self, model_id: str) -> Any:
+        if self._pairwise is None:
+            raise ServiceUnavailable("no pairwise judge in tests")
+        return self._pairwise
+
+    def silhouette(self, render_png, reference_png) -> dict[str, Any]:
+        self.silhouette_calls.append((str(render_png), str(reference_png)))
+        if self.silhouette_iou is None:
+            raise ServiceUnavailable("no silhouette tool in tests")
+        return {"iou": self.silhouette_iou, "reliable": True, "ref_aspect": 1.2, "render_aspect": 0.8, "aspect_ratio_err": 0.4}
+
+    def motion_checks(self, ws: Workspace, plan: Plan) -> GateReport | None:
+        joints = list(getattr(plan, "joints", []) or [])
+        if not joints:
+            return None
+        findings = [GateFinding(gate="motion_direction", severity=Severity.ERROR, target=j.name,
+                                message=f"{j.name}: child '{j.child}' moves (0, 1, 0); expected front (WRONG)",
+                                fix_hint=f"negate the axis of joint '{j.name}' in src/robot.urdf")
+                    for j in joints[: self.motion_errors]]
+        return GateReport(gate="motion_direction", passed=not findings, findings=findings)
 
     def runtime(self, language: Language) -> Any:
         return self.runtime_factory(language)
@@ -254,7 +304,8 @@ class FakeServices(Services):
                            center=tuple(cen), tri_count=sum(p.tri_count for p in parts), n_meshes=len(parts), n_islands=len(parts),
                            parts=parts, ground_gap_m=float(bounds[0][1]), footprint_offset_m=float(np.hypot(cen[0], cen[2])))
 
-    def connectivity(self, glb: Path) -> GateReport:
+    def connectivity(self, glb: Path, language: str = "") -> GateReport:
+        self.connectivity_languages.append(language)
         return GateReport(gate="connectivity", passed=True)
 
     def contract(self, measurement: Measurement, plan: Plan, tol_m: float, language: str = "") -> GateReport:
@@ -271,6 +322,15 @@ class FakeServices(Services):
         sheet = out_dir / "sheet.png"
         _png(sheet)
         return RenderSet(views=vs, contact_sheet=str(sheet), renderer="fake")
+
+    def render_geometry(self, glb: Path, out_dir: Path, *, views) -> RenderSet:
+        self.geometry_renders.append(str(glb))
+        vs = []
+        for v in views:
+            p = out_dir / f"clay_{v.name}.png"
+            _png(p)
+            vs.append(RenderView(name=v.name, path=str(p), mode="clay", width=32, height=32))
+        return RenderSet(views=vs, renderer="fake")
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras, times, width: int, height: int) -> RenderSet:
         vs = []

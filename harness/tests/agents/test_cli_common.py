@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 
 from codeverse.agents.cli_common import (
+    attribute_changes,
     begin_session,
     deliver_prompt,
     finish_session,
@@ -15,7 +17,7 @@ from codeverse.agents.cli_common import (
     is_transient_failure,
 )
 from codeverse.agents.transcript import Trajectory
-from codeverse.contracts.agent import AgentJob
+from codeverse.contracts.agent import AgentJob, FileChange
 from codeverse.contracts.common import Usage
 from codeverse.workspace import Workspace
 
@@ -33,7 +35,7 @@ def test_hardened_env_strips_secrets_and_adds_guards(tmp_ws: Workspace, monkeypa
     env = hardened_env(tmp_ws, job, keep={"ANTHROPIC_API_KEY"})
     assert "OPENAI_API_KEY" not in env and "FAKE_SERVICE_API_KEY" not in env
     assert env["ANTHROPIC_API_KEY"] == "sk-y" and env["KEEPME"] == "1" and env["EXTRA"] == "2"
-    assert env["C3V_AGENT_CONTEXT"] == "1" and env["GIT_CEILING_DIRECTORIES"] == str(tmp_ws.root.parent)
+    assert env["CV3D_AGENT_CONTEXT"] == "1" and env["GIT_CEILING_DIRECTORIES"] == str(tmp_ws.root.parent)
 
 
 def test_session_roundtrip_tracks_files_and_writes_result(tmp_ws: Workspace):
@@ -47,6 +49,69 @@ def test_session_roundtrip_tracks_files_and_writes_result(tmp_ws: Workspace):
     data = json.loads(s.traj.result_path.read_text())
     assert data["exit_reason"] == "completed" and data["head_before"] != data["head_after"]
     assert tmp_ws.head() == data["head_after"]
+
+
+def test_retry_same_label_round_keeps_first_attempt_trajectory(tmp_ws: Workspace):
+    """run_agent_task re-runs a silently-bailing job with the same label+round: attempt 1's files must survive."""
+    job = AgentJob(workspace=str(tmp_ws.root), prompt="first", label="baseline", extra={"round": 0})
+    s1 = begin_session(job, "fake")
+    s1.traj.write_text("stdout.json", "attempt 1 stdout")
+    r1 = finish_session(s1, ok=False, exit_reason="error", text="", usage=Usage(cost_usd=0.5), errors=["bailed"])
+    s2 = begin_session(job.model_copy(update={"prompt": "second"}), "fake")
+    assert s2.traj.dir != s1.traj.dir and s2.traj.dir.name == "baseline.a2_r00" and s2.attempt == 2
+    (tmp_ws.src / "a.py").write_text("x = 1\n")
+    r2 = finish_session(s2, ok=True, exit_reason="completed", text="done", usage=Usage(cost_usd=0.01))
+    d1 = json.loads(s1.traj.result_path.read_text())
+    assert d1["exit_reason"] == "error" and d1["errors"] == ["bailed"] and d1["usage"]["cost_usd"] == 0.5 and d1["attempt"] == 1
+    assert (s1.traj.dir / "stdout.json").read_text() == "attempt 1 stdout" and s1.traj.prompt_path.read_text() == "first"
+    d2 = json.loads(s2.traj.result_path.read_text())
+    assert d2["attempt"] == 2 and d2["job_label"] == "baseline" and d2["label"] == "baseline.a2" and d2["ok"]
+    assert [f.path for f in r2.files_changed] == ["src/a.py"] and r1.files_changed == []
+    log = tmp_ws._git("log", "--oneline").stdout
+    assert "agent:baseline.a2" in log and "pre:baseline" in log
+
+
+def test_attribute_changes_pure():
+    files = [FileChange(path=p, status="modified") for p in (
+        "src/zones/a.js", "src/zones/b.js", "src/assets/x.js", "events.jsonl", "artifacts/census.json",
+        "trajectories/zone_a_r00/result.json", "public/assets/y.glb", "README.md", "AGENTS.md")]
+    got = attribute_changes(files, write_roots=["src", "public"])
+    assert [f.path for f in got] == ["src/zones/a.js", "src/zones/b.js", "src/assets/x.js", "public/assets/y.glb"]
+    got = attribute_changes(files, write_roots=["src", "public"], own_hints=frozenset({"src/zones/a.js"}),
+                            sibling_hints=frozenset({"src/zones/b.js", "src/assets/"}))
+    assert [f.path for f in got] == ["src/zones/a.js", "public/assets/y.glb"]
+    # a file both sessions declared stays attributed to both
+    got = attribute_changes(files, write_roots=["src"], own_hints=frozenset({"src/zones/b.js"}), sibling_hints=frozenset({"src/zones/b.js"}))
+    assert "src/zones/b.js" in [f.path for f in got]
+
+
+def test_concurrent_sessions_in_one_workspace_attribute_their_own_files(tmp_ws: Workspace):
+    """Scene fan-out: zone sessions run in parallel in ONE workspace; each result must list only its own work
+    and a session that wrote nothing must report no changes even though siblings wrote files."""
+    (tmp_ws.src / "zones").mkdir(parents=True)
+    barrier = threading.Barrier(3)
+    results = {}
+
+    def session(name: str, write: bool):
+        job = AgentJob(workspace=str(tmp_ws.root), prompt="p", label=f"zone_{name}",
+                       extra={"round": 0, "files_hint": [f"src/zones/{name}.js"]})
+        s = begin_session(job, "fake")
+        barrier.wait(timeout=30)  # every session has started before anyone writes
+        if write:
+            (tmp_ws.src / "zones" / f"{name}.js").write_text(f"// {name}\n")
+        (tmp_ws.root / "events.jsonl").open("a").write(f"{name}\n")
+        barrier.wait(timeout=30)  # every write landed before anyone finishes
+        results[name] = finish_session(s, ok=True, exit_reason="completed", text="", usage=Usage())
+
+    threads = [threading.Thread(target=session, args=("koi", True)), threading.Thread(target=session, args=("gravel", True)),
+               threading.Thread(target=session, args=("lantern", False))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    assert [f.path for f in results["koi"].files_changed] == ["src/zones/koi.js"]
+    assert [f.path for f in results["gravel"].files_changed] == ["src/zones/gravel.js"]
+    assert results["lantern"].files_changed == []  # bailed agent: siblings' files are not its work
 
 
 def test_deliver_prompt_uses_file_when_long(tmp_ws: Workspace):

@@ -64,3 +64,17 @@ def test_unnamed_single_mesh(tmp_path: Path) -> None:
     trimesh.creation.box(extents=(1, 1, 1)).export(str(p))
     m = measure_glb(p)
     assert len(m.parts) == 1 and m.tri_count == 12
+
+
+def test_cyclic_scene_graph_does_not_hang(tmp_path: Path) -> None:
+    """A GLB node named like the loader's base frame ('world') closes a cycle in the
+    scene graph; measuring must terminate (with the geometry still counted once)."""
+    from codeverse.spatial.measure import _subtree_nodes, part_meshes
+
+    box = trimesh.creation.box((0.2, 0.2, 0.2))
+    scene = trimesh.Scene(base_frame="root")
+    scene.graph.update(frame_to="wrapper", frame_from="root")
+    scene.add_geometry(box, node_name="world", geom_name="world", parent_node_name="wrapper")
+    scene.graph.update(frame_to="root", frame_from="world")  # cycle: root → wrapper → world → root
+    assert "world" in _subtree_nodes(scene, "root") and len(_subtree_nodes(scene, "root")) == 3
+    assert [k for k, v in part_meshes(scene).items() if v is not None]

@@ -32,6 +32,8 @@ ARTICULATION_SHEET_NAME = "articulation_sheet.png"
 #: URDF (Z-up, -Y front) → glTF (Y-up, +Z front):  (x, y, z) → (x, z, -y)
 ZUP_TO_YUP = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float)
 YUP_TO_ZUP = ZUP_TO_YUP.T.copy()
+#: scene-graph base frame of the exported GLB (not a glTF node; must not collide with a link name)
+SCENE_BASE_FRAME = "__scene__"
 
 Renderer = Callable[..., RenderSet]
 
@@ -45,12 +47,23 @@ def joint_extras(j: Joint) -> dict[str, Any]:
     }
 
 
+def robot_node_name(robot: Robot) -> str:
+    """Name of the ``<robot>`` root node (carries the Z-up → Y-up rotation).  Scene-graph
+    node names must be unique, so a robot named like one of its links (``<robot
+    name="body">`` with a link ``body``) gets a ``__root`` suffix instead of silently
+    aliasing the link node — which would drop the rotation and the link's placement."""
+    name = robot.name or "robot"
+    while name in robot.links or name == SCENE_BASE_FRAME:
+        name += "__root"
+    return name
+
+
 def robot_scene(robot: Robot, pose: dict[str, float] | None = None, *, joint_extras_on: bool = True) -> trimesh.Scene:
     """Build the trimesh.Scene (hierarchical, Y-up) for ``robot`` at ``pose``."""
     pose = pose or {}
     T = fk(robot, pose)  # validates joint names
-    scene = trimesh.Scene()
-    robot_node = robot.name or "robot"
+    scene = trimesh.Scene(base_frame=SCENE_BASE_FRAME)  # never a link name (a link 'world' would close a cycle)
+    robot_node = robot_node_name(robot)
     meta = {"links": robot.link_order(), "frame": "y_up_pos_z_front", "pose": dict(pose), "units": "meters"}
     if joint_extras_on:
         meta["joints"] = [joint_extras(j) for j in robot.joints.values()]

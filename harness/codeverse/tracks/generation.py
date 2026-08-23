@@ -16,12 +16,10 @@ tasks finished.  Neither path builds; see ``tracks/repair.py``.
 from __future__ import annotations
 
 import logging
-import re
 import subprocess
 import threading
 import time
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -29,31 +27,20 @@ from pydantic import BaseModel, Field
 from codeverse.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse.contracts.common import Usage
+from codeverse.tracks.envelope import (  # noqa: F401 — re-exported: this was their import path
+    ALLOWED_ROOTS,
+    SINGLE_SHOT_FORMAT,
+    GenerationError,
+    MultiFileParseError,
+    parse_multifile,
+    safe_relpath,
+    write_files,
+)
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
 SINGLE_SHOT_PREFIX = "single-shot:"
-ALLOWED_ROOTS: tuple[str, ...] = ("src/", "public/")
-
-SINGLE_SHOT_FORMAT = """OUTPUT FORMAT (exactly this, nothing else around it):
-For EVERY file you create or fully rewrite, emit one block:
-
-=== FILE: <relative path, e.g. src/parts/seat.js> ===
-<complete file contents — the whole file, not a diff>
-=== END FILE ===
-
-Rules: paths are relative to the workspace root and must start with src/ (or public/);
-emit the COMPLETE contents of each file (no "...rest unchanged"); no prose outside the blocks;
-no markdown fences inside a block (plain code).  Files you do not emit are left untouched."""
-
-
-class GenerationError(RuntimeError):
-    """Raised when the generator cannot produce usable files (bad envelope, agent crash)."""
-
-
-class MultiFileParseError(GenerationError):
-    """The single-shot answer did not contain a parseable file envelope."""
 
 
 class GenerationTask(BaseModel):
@@ -82,94 +69,6 @@ class GenerationResult(BaseModel):
     text: str = Field(default="", description="model/agent final text (truncated)")
     transcript_path: str = ""
     label: str = ""
-
-
-# ----------------------------------------------------------------------------- envelope parsing
-_BLOCK = re.compile(
-    r"^[ \t]*===\s*FILE:\s*(?P<path>[^\n=]+?)\s*===[ \t]*\r?\n(?P<body>.*?)(?:\r?\n)?^[ \t]*===\s*END FILE\s*===[ \t]*$",
-    re.S | re.M,
-)
-_FENCE = re.compile(r"```[a-zA-Z0-9_+\-]*[ \t]*(?:\r?\n)(?P<body>.*?)```", re.S)
-_FENCE_PATH_HINT = re.compile(
-    r"(?:^|\n)[^\n]*?(?P<path>(?:src|public)/[A-Za-z0-9_./\-]+\.[a-z]{1,5})[^\n]*\n[ \t]*```", re.S
-)
-
-
-def parse_multifile(text: str, *, expected_files: list[str] | None = None) -> dict[str, str]:
-    """Parse ``SINGLE_SHOT_FORMAT`` → ``{path: content}``.
-
-    Tolerant to: a fenced block wrapping a file body; an answer that is ONE fenced
-    block when exactly one entry file is expected; fenced blocks preceded by a line
-    naming the path.  Raises ``MultiFileParseError`` otherwise.
-    """
-    files: dict[str, str] = {}
-    for m in _BLOCK.finditer(text):
-        path = _clean_path(m.group("path"))
-        files[path] = _strip_fence(m.group("body"))
-    if files:
-        return files
-    fences = list(_FENCE.finditer(text))
-    expected = [_clean_path(p) for p in (expected_files or [])]
-    if fences:
-        # fenced blocks preceded by a path mention
-        for m in fences:
-            probe = text[: m.start()][-400:].rstrip(" \t")
-            probe += ("" if probe.endswith("\n") else "\n") + "```"
-            hint = _FENCE_PATH_HINT.findall(probe)
-            if hint:
-                files[_clean_path(hint[-1])] = m.group("body").rstrip("\n")
-        if files and (not expected or set(files) <= set(expected) or len(files) == len(fences)):
-            return files
-        if len(expected) == 1:
-            largest = max(fences, key=lambda m: len(m.group("body")))
-            return {expected[0]: largest.group("body").rstrip("\n")}
-    if len(expected) == 1 and _looks_like_code(text):
-        return {expected[0]: text.strip("\n")}
-    raise MultiFileParseError(
-        "no '=== FILE: <path> ===' blocks found" + (f"; expected {expected}" if expected else "")
-    )
-
-
-def _clean_path(p: str) -> str:
-    p = p.strip().strip("`'\"").replace("\\", "/")
-    while p.startswith("./"):
-        p = p[2:]
-    return p.lstrip("/")
-
-
-def _strip_fence(body: str) -> str:
-    s = body.strip("\n")
-    m = re.fullmatch(r"```[a-zA-Z0-9_+\-]*[ \t]*\n(.*?)\n?```", s, re.S)
-    return (m.group(1) if m else body).rstrip("\n")
-
-
-def _looks_like_code(text: str) -> bool:
-    t = text.strip()
-    return bool(t) and ("\n" in t) and not t.lower().startswith(("i ", "here", "sure", "sorry"))
-
-
-def safe_relpath(path: str, allowed_roots: tuple[str, ...] = ALLOWED_ROOTS) -> str:
-    """Validate a model-provided relative path: inside the workspace + allowed roots."""
-    p = _clean_path(path)
-    if not p or p.startswith("/") or ".." in Path(p).parts or re.match(r"^[A-Za-z]:", p):
-        raise GenerationError(f"refusing to write outside the workspace: {path!r}")
-    if not any(p.startswith(root) for root in allowed_roots):
-        raise GenerationError(f"path {p!r} is outside the allowed roots {allowed_roots}")
-    return p
-
-
-def write_files(ws: Workspace, files: dict[str, str], *, allowed_roots: tuple[str, ...] = ALLOWED_ROOTS) -> list[FileChange]:
-    """Write parsed files under the workspace; returns git-style FileChange rows."""
-    changes: list[FileChange] = []
-    for raw, content in files.items():
-        rel = safe_relpath(raw, allowed_roots)
-        dest = ws.root / rel
-        existed = dest.exists()
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content if content.endswith("\n") else content + "\n")
-        changes.append(FileChange(path=rel, status="modified" if existed else "added",
-                                  lines_added=content.count("\n") + 1))
-    return changes
 
 
 # ----------------------------------------------------------------------------- git helpers
@@ -245,9 +144,24 @@ def generate_files(
     usage = resp.usage
     if budget is not None:
         budget.charge(usage)
+    if _is_truncated(resp):
+        # cut off by max_output_tokens: the envelope is unterminated — one retry with
+        # a doubled budget beats writing a half-file and burning repair attempts on it
+        if events is not None:
+            events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason), retry=True)
+        req = req.model_copy(update={"max_output_tokens": min(task.max_output_tokens * 2, 65536)})
+        resp = model.generate(req)
+        usage = usage + resp.usage
+        if budget is not None:
+            budget.charge(resp.usage)
     traj = ws.trajectory_dir(task.label.replace("/", "_"), task.round)
     (traj / "prompt.md").write_text(f"# system\n{system}\n\n# user\n{task.prompt}\n")
     (traj / "response.md").write_text(resp.text or "")
+    if _is_truncated(resp):
+        if events is not None:
+            events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason), retry=False)
+        return GenerationResult(ok=False, usage=usage, notes=f"truncated: finish_reason={resp.finish_reason}",
+                                text=(resp.text or "")[:2000], transcript_path=str(traj / "response.md"), label=task.label)
     try:
         files = parse_multifile(resp.text or "", expected_files=task.files_hint or None)
     except MultiFileParseError as e:
@@ -255,12 +169,27 @@ def generate_files(
             events.emit("generate.parse_failed", label=task.label, error=str(e))
         return GenerationResult(ok=False, usage=usage, notes=f"parse failed: {e}", text=(resp.text or "")[:2000],
                                 transcript_path=str(traj / "response.md"), label=task.label)
-    changes = write_files(ws, files, allowed_roots=allowed_roots)
+    skipped: list[str] = []
+
+    def _skip(path: str, reason: str) -> None:
+        skipped.append(path)
+        if events is not None:
+            events.emit("generate.skipped_path", label=task.label, path=path, reason=reason[:200])
+
+    changes = write_files(ws, files, allowed_roots=allowed_roots, on_skip=_skip)
     if events is not None:
         events.emit("generate.done", label=task.label, strategy="single-shot", files=[c.path for c in changes],
                     cost_usd=round(usage.cost_usd, 4))
-    return GenerationResult(ok=bool(changes), usage=usage, files_changed=changes, text=(resp.text or "")[:2000],
-                            transcript_path=str(traj / "response.md"), label=task.label)
+    notes = f"skipped out-of-root paths: {', '.join(skipped)}" if skipped else ""
+    return GenerationResult(ok=bool(changes), usage=usage, files_changed=changes, notes=notes,
+                            text=(resp.text or "")[:2000], transcript_path=str(traj / "response.md"), label=task.label)
+
+
+_TRUNCATED_FINISH = {"max_tokens", "max_output_tokens", "length"}
+
+
+def _is_truncated(resp: Any) -> bool:
+    return str(getattr(resp, "finish_reason", "") or "").lower() in _TRUNCATED_FINISH
 
 
 def run_agent_task(
@@ -277,8 +206,9 @@ def run_agent_task(
     before = ws.head()
     timeout = task.timeout_s or (settings.limits.agent_timeout_s if settings is not None else 1800)
     # job.extra is honoured by every CodingAgent: round → trajectory dir + ToolContext,
-    # language/track → spatial tool filtering (see agents/*).
-    extra = {"round": task.round, "kind": task.kind}
+    # language/track → spatial tool filtering, files_hint → per-session attribution of
+    # files_changed when tasks run concurrently in ONE workspace (see agents/cli_common).
+    extra: dict[str, Any] = {"round": task.round, "kind": task.kind, "files_hint": list(task.files_hint)}
     spec_path = ws.spec_path
     if spec_path.is_file():
         try:
@@ -294,7 +224,7 @@ def run_agent_task(
     usage = res.usage
     if budget is not None:
         budget.charge(res.usage)
-    changes = res.files_changed or changed_files_safe(ws, before)
+    changes = res.files_changed or _attributed_fallback(ws, task, before)
     if retry_silent_bail and not changes and res.exit_reason not in ("timeout", "budget"):
         if events is not None:
             events.emit("generate.silent_bail", label=task.label, exit_reason=res.exit_reason)
@@ -305,7 +235,7 @@ def run_agent_task(
         usage = usage + res.usage
         if budget is not None:
             budget.charge(res.usage)
-        changes = res.files_changed or changed_files_safe(ws, before)
+        changes = res.files_changed or _attributed_fallback(ws, task, before)
     notes = f"exit={res.exit_reason}" + (f"; errors={res.errors[:3]}" if res.errors else "")
     if events is not None:
         events.emit("generate.done", label=task.label, strategy=getattr(agent, "kind", "agent"),
@@ -313,6 +243,20 @@ def run_agent_task(
                     cost_usd=round(usage.cost_usd, 4))
     return GenerationResult(ok=bool(changes), usage=usage, files_changed=changes, notes=notes,
                             text=(res.text or "")[:2000], transcript_path=res.transcript_path, label=task.label)
+
+
+def _attributed_fallback(ws: Workspace, task: GenerationTask, before: str) -> list[FileChange]:
+    """Change detection when the agent did not report its own ``files_changed``.
+
+    A whole-worktree diff claims sibling tasks' files under fan_out (a task that
+    wrote nothing looked ok because its neighbours wrote files); attribute the diff
+    to this task instead: inside its write roots, never harness-owned paths."""
+    raw = changed_files_safe(ws, before)
+    try:
+        from codeverse.agents.cli_common import attribute_changes
+    except ImportError:  # pragma: no cover — agents package always ships with tracks
+        return raw
+    return attribute_changes(raw, write_roots=list(task.write_roots), own_hints=frozenset(task.files_hint))
 
 
 def generate(

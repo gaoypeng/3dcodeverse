@@ -30,7 +30,7 @@ def test_reference_judge_measures_silhouette_and_adds_reference_images(judge_inp
     assert j.overall == pytest.approx(round(expected, 4))
     req = model.requests[0]
     labels = [p.label for p in image_parts(req)]
-    assert labels[0].startswith("REFERENCE 1/1 (target) — target chair") and labels[1].startswith("CONTACT SHEET")
+    assert labels[0].startswith("REFERENCE 1/1 (target) — target chair") and labels[1].startswith("MONTAGE 1/1 — SHADED views")
     assert "IoU 0.700" in req.messages[0].parts[0].text
     assert "silhouette_match" not in req.response_schema["$defs"]["Criteria"]["properties"]
 

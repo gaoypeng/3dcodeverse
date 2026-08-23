@@ -14,7 +14,7 @@ const CONTROL_RE = new RegExp('[\\u0000-\\u001f]+', 'g');
 
 function hostHtml() {
   return [
-    '<!doctype html><html><head><meta charset="utf-8"><title>c3v scene host</title>',
+    '<!doctype html><html><head><meta charset="utf-8"><title>3dcv scene host</title>',
     importMapHtml(),
     '<style>html,body{margin:0;background:#000;overflow:hidden}</style></head><body>',
     `<script type="module" src="${runtimeMount()}lib/scene_host.mjs"></script></body></html>`,
@@ -26,10 +26,36 @@ function clean(s) {
 }
 
 /**
+ * createScene() boot timeout for a driver: an explicit --create-timeout-ms
+ * wins, else 60% of the driver budget capped at 20 s — always below the
+ * watchdog so a hung boot is an agent-attributed scene failure (exit 1 with
+ * boot.stage = 'createScene'), never a watchdog kill (exit 3).
+ */
+export function createTimeoutMs(flagValue, driverTimeoutMs) {
+  const flag = parseInt(flagValue || '', 10);
+  if (Number.isFinite(flag) && flag > 0) return flag;
+  return Math.min(20000, Math.max(1000, Math.round(0.6 * driverTimeoutMs)));
+}
+
+/**
+ * Error line for a puppeteer 'requestfailed' event, or null when it must be
+ * ignored.  Chrome intermittently fires requestfailed with net::ERR_ABORTED
+ * for a same-origin fetch that already received a 200 and was fully consumed
+ * (three's FileLoader stream wrapper) — a phantom failure that used to fail
+ * the render_console / scene_probe gates ~10% of rounds.  Real load failures
+ * are still reported by the 404 'response' handler and LoadingManager.onError.
+ */
+export function requestFailureLine(url, base, hasResponse, errorText) {
+  if (!url.startsWith(base)) return null;
+  if (hasResponse || errorText === 'net::ERR_ABORTED') return null;
+  return `request failed: ${url.slice(base.length)} (${errorText || '?'})`;
+}
+
+/**
  * Open the host for workspace `wsRoot`.
  * @returns {Promise<{page, browser, base, gpu, renderer, errors, boot, close}>}
  */
-export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto', logDepth = false, sceneRel = 'src/scene.js' } = {}) {
+export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto', logDepth = false, sceneRel = 'src/scene.js', createSceneTimeoutMs = 0 } = {}) {
   wsRoot = path.resolve(wsRoot);
   if (!fs.existsSync(path.join(wsRoot, sceneRel))) {
     throw new Error(`missing ${sceneRel} in workspace ${wsRoot}`);
@@ -58,8 +84,8 @@ export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto
       if (errors.page.length < MAX_CONSOLE) errors.page.push(text.slice(0, 800));
     });
     page.on('requestfailed', (req) => {
-      const url = req.url();
-      if (url.startsWith(srv.base)) errors.console.push(`request failed: ${url.slice(srv.base.length)} (${req.failure()?.errorText || '?'})`);
+      const line = requestFailureLine(req.url(), srv.base, !!req.response(), req.failure()?.errorText || '?');
+      if (line) errors.console.push(line);
     });
     page.on('response', (res) => {
       if (res.status() === 404 && res.url().startsWith(srv.base)) {
@@ -74,7 +100,7 @@ export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto
     await page.waitForFunction('window.__c3v_ready === true', { timeout: 60000 });
     const boot = await page.evaluate(
       (o) => window.__c3v.boot(o),
-      { sceneUrl: `/${sceneRel}`, width, height, logDepth },
+      { sceneUrl: `/${sceneRel}`, width, height, logDepth, createSceneTimeoutMs },
     );
     const close = async () => {
       try { await launched.browser.close(); } catch (e) { /* ignore */ }

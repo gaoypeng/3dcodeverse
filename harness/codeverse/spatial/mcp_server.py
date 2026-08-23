@@ -29,7 +29,7 @@ from codeverse.workspace import Workspace
 MAX_IMAGES = 4
 MAX_IMAGE_SIDE = 1024
 MAX_NUMBERS_CHARS = 1200
-SERVER_NAME = "c3v"
+SERVER_NAME = "3dcv"
 
 
 def build_context(workspace: Path, *, track: str = "", language: str = "", round_index: int = 0) -> ToolContext:

@@ -21,11 +21,14 @@ assert os.environ.get("GEMINI_API_KEY"), "no key in env"
 assert "GEMINI_API_KEYS" not in os.environ
 assert "FAKE_SERVICE_API_KEY" not in os.environ, "secret leaked"
 assert os.path.isfile(os.environ["GEMINI_CLI_SYSTEM_SETTINGS_PATH"])
-if mode == "fail_once":
+if mode in ("fail_once", "fail_once_503", "fail_always"):
     marker = "attempts.txt"
     n = int(open(marker).read()) if os.path.exists(marker) else 0
     open(marker, "w").write(str(n + 1))
-    if n == 0:
+    if n == 0 or mode == "fail_always":
+        if mode == "fail_once_503":
+            print("Error when talking to Gemini API: got status: UNAVAILABLE 503", file=sys.stderr)
+            sys.exit(247)
         print("Error: 429 RESOURCE_EXHAUSTED quota", file=sys.stderr)
         sys.exit(1)
 if mode == "hang":
@@ -34,7 +37,7 @@ served = "gemini-9-pro" if mode == "substitute" else model
 os.makedirs("src", exist_ok=True)
 open("src/hello.txt", "w").write(prompt[:20])
 out = {"session_id": "s1", "response": "DONE: " + prompt[:10],
-       "stats": {"models": {served: {"tokens": {"input": 100, "candidates": 20, "cached": 5, "thoughts": 7}}},
+       "stats": {"models": {served: {"tokens": {"input": 95, "prompt": 100, "candidates": 20, "cached": 5, "thoughts": 7}}},
                  "tools": {"totalCalls": 1}}}
 print(json.dumps(out, indent=2))
 '''
@@ -90,6 +93,51 @@ def test_transient_failure_retries_once_with_other_key(tmp_ws: Workspace, agent:
     assert keys == ["k1", "k2"]
 
 
+def test_single_key_transient_failure_retries_same_key_and_never_raises(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
+    """Settings with ONE key: the retry must reuse it (no KeyPoolExhausted out of run())."""
+    from codeverse.agents import gemini_cli as gc
+
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", ["only"])
+    gc._POOLS.pop(("only",), None)
+    monkeypatch.setenv("FAKE_MODE", "fail_once_503")
+    res = agent.run(_job(tmp_ws))
+    assert res.ok, res.errors
+    assert (tmp_ws.root / "attempts.txt").read_text() == "2"
+    lines = [json.loads(ln) for ln in Path(res.transcript_path).read_text().splitlines()]
+    assert [ln["key_tail"] for ln in lines if ln["kind"] == "invoke"] == ["only", "only"]
+
+
+def test_single_key_quota_failure_returns_budget_without_retry(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
+    """429 puts the only key into cooldown: no alternative → return the failed outcome (ok=False), do not raise."""
+    from codeverse.agents import gemini_cli as gc
+
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", ["solo"])
+    monkeypatch.setattr(gc, "RETRY_KEY_WAIT_S", 0.2)
+    gc._POOLS.pop(("solo",), None)
+    monkeypatch.setenv("FAKE_MODE", "fail_always")
+    res = agent.run(_job(tmp_ws))
+    assert not res.ok and res.exit_reason == "budget"
+    assert (tmp_ws.root / "attempts.txt").read_text() == "1"
+    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
+    assert rec["attempts"] == 1 and any("no usable key" in n for n in rec["notes"])
+
+
+def test_pool_exhausted_before_first_attempt_is_a_budget_result(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
+    from codeverse.agents import gemini_cli as gc
+    from codeverse.models.keypool import KeyPoolExhausted
+
+    class Dead:
+        def acquire(self, **kw):
+            raise KeyPoolExhausted("all 2 keys throttled; waited 120s")
+
+        def report(self, *a, **k):
+            return None
+
+    monkeypatch.setattr(gc, "_key_pool", lambda keys: Dead())
+    res = agent.run(_job(tmp_ws))
+    assert not res.ok and res.exit_reason == "budget" and "exhausted" in res.errors[0]
+
+
 def test_timeout_is_reported(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     monkeypatch.setenv("FAKE_MODE", "hang")
     monkeypatch.setattr("codeverse.agents.gemini_cli.IDLE_GRACE_S", 1.0)
@@ -108,9 +156,42 @@ def test_unavailable_when_no_keys(tmp_ws: Workspace, agent: GeminiCliAgent, monk
 def test_parse_helpers():
     assert parse_gemini_json("noise\n{\"response\": \"x\"}") == {"response": "x"}
     assert parse_gemini_json("") is None
+    # no `prompt` key: total prompt = uncached input + cached
     u = usage_from_stats({"models": {"m": {"tokens": {"input": 1, "candidates": 2, "cached": 3, "thoughts": 4}}},
                           "tools": {"totalCalls": 9}}, "m")
-    assert (u.input_tokens, u.output_tokens, u.cached_tokens, u.thoughts_tokens, u.tool_calls) == (1, 2, 3, 4, 9)
+    assert (u.input_tokens, u.output_tokens, u.cached_tokens, u.thoughts_tokens, u.tool_calls) == (4, 2, 3, 4, 9)
+
+
+def test_usage_input_is_total_prompt_and_cost_reprices_cache():
+    """gemini-cli reports tokens.input = prompt - cached; pricing wants the TOTAL prompt (regression: ~4x under-billing)."""
+    from codeverse.models.pricing import estimate_cost, lookup_price
+
+    tok = {"input": 720_753, "prompt": 14_190_170, "cached": 13_469_417, "candidates": 62_012, "thoughts": 66_809}
+    u = usage_from_stats({"models": {"gemini-3.7-flash": {"tokens": tok}}}, "gemini-3.7-flash")
+    assert u.input_tokens == tok["prompt"] and u.cached_tokens == tok["cached"]
+    price = lookup_price("gemini", "gemini-3.7-flash")
+    assert price is not None
+    m = 1_000_000
+    want = ((tok["prompt"] - tok["cached"]) * price.input + tok["cached"] * price.cached
+            + (tok["candidates"] + tok["thoughts"]) * price.output) / m
+    assert u.cost_usd == pytest.approx(want, rel=1e-9)
+    assert u.cost_usd == pytest.approx(estimate_cost("gemini", "gemini-3.7-flash", u), rel=1e-9)
+    assert u.cost_usd > 3 * estimate_cost("gemini", "gemini-3.7-flash", u.model_copy(update={"input_tokens": tok["input"]}))
+
+
+def test_usage_prices_each_served_model_at_its_own_rate():
+    from codeverse.contracts.common import Usage
+    from codeverse.models.pricing import estimate_cost
+
+    stats = {"models": {"gemini-3.7-flash": {"tokens": {"prompt": 1_000_000, "cached": 0, "candidates": 1000}},
+                        "gemini-3-flash-preview": {"tokens": {"prompt": 1_000_000, "cached": 0, "candidates": 1000}},
+                        "unknown-utility-model-x": {"tokens": {"prompt": 1_000_000, "cached": 0, "candidates": 1000}}}}
+    u = usage_from_stats(stats, "gemini-3.7-flash")
+    assert u.input_tokens == 3_000_000 and u.output_tokens == 3000
+    one = Usage(input_tokens=1_000_000, output_tokens=1000)
+    want = (estimate_cost("gemini", "gemini-3.7-flash", one) + estimate_cost("gemini", "gemini-3-flash-preview", one)
+            + estimate_cost("gemini", "gemini-3.7-flash", one))  # unknown model falls back to the requested rate
+    assert u.cost_usd == pytest.approx(want, rel=1e-9)
 
 
 def test_system_append_is_prepended(tmp_ws: Workspace, agent: GeminiCliAgent):

@@ -40,11 +40,20 @@ class BudgetGuard:
     # ----------------------------------------------------------------- accounting
     def charge(self, usage: Usage | None) -> None:
         """Add ``usage`` to the running total, then enforce the ceilings."""
+        self.add(usage)
+        self.check()
+
+    def add(self, usage: Usage | None) -> None:
+        """Accumulate ``usage`` WITHOUT enforcing the ceilings.
+
+        For work that is already done and persisted (a completed judge verdict,
+        a pairwise tie-break, the texture pass): the money is spent either way,
+        and raising here would throw away a finished, paid-for result.  The
+        round loop stops at its next ``ok()`` check instead."""
         if usage is not None:
             with self._lock:
                 self.spent = self.spent + usage
                 self.calls += 1
-        self.check()
 
     def elapsed_minutes(self) -> float:
         return (time.time() - self.start_time) / 60.0

@@ -75,6 +75,26 @@ def test_live_vlm_judge_two_samples(tmp_path):
     assert j.n_samples == 2 and raw["sample_errors"] == []  # parsed first try
     assert 0.0 < j.overall < 1.0
     assert set(j.scores) == {c.id for c in judge.rubric.criteria}
+    assert set(raw["defects"]) == {d.id for d in judge.rubric.defects}  # checklist answered
+    print(f"defects={[d for d, on in raw['defects'].items() if on]} penalty={raw['defect_penalty']}")
+
+
+def test_live_judge_separates_crafted_from_crude(tmp_path):
+    """Dynamic range: a real stool render set vs a crude PIL chair drawing, same brief (stool)."""
+    renders, meas, source = _renders_for_test(tmp_path / "stool")
+    if "stool" not in source:
+        pytest.skip("needs real stool renders")
+    spec = make_spec(prompt="A simple three-legged wooden stool, 45 cm tall, round seat 36 cm across.")
+    judge = VlmJudge("static_object_v1", model_id=MODEL, n_samples=1, cache_dir=tmp_path / "cache")
+    good = judge.judge(JudgeInput(spec=spec, renders=renders, measurement=meas, plan_summary="parts: Seat, Leg1, Leg2, Leg3"))
+    crude = judge.judge(JudgeInput(spec=spec, renders=make_renders(tmp_path / "crude"), measurement=make_measurement(),
+                                   plan_summary="parts: Seat, Leg1, Leg2, Leg3"))
+    gd, cd = json.loads(good.raw), json.loads(crude.raw)
+    print(f"\nLIVE stool overall={good.overall} uncapped={gd['overall_uncapped']} defects={[d for d, o in gd['defects'].items() if o]}"
+          f"\nLIVE crude overall={crude.overall} uncapped={cd['overall_uncapped']} defects={[d for d, o in cd['defects'].items() if o]}")
+    assert not is_degraded(good) and not is_degraded(crude)
+    assert good.overall - crude.overall >= 0.25
+    assert any(cd["defects"].values())  # the crude drawing trips the checklist
 
 
 def test_live_pairwise_stool_vs_chair(tmp_path):
@@ -88,6 +108,24 @@ def test_live_pairwise_stool_vs_chair(tmp_path):
     res = PairwiseJudge(MODEL, cache_dir=tmp_path / "cache").compare(spec, renders, chair)
     print(f"\nLIVE pairwise winner={res.winner} conf={res.confidence} err={res.error!r}\nreasons={res.reasons}\nusage={res.usage}")
     assert res.winner == "a"
+
+
+def test_live_compare_many_ranks_stool_over_crude(tmp_path):
+    from codeverse.judges.pairwise import PairwiseJudge
+
+    renders, _, source = _renders_for_test(tmp_path / "stool")
+    if "stool" not in source:
+        pytest.skip("needs real stool renders")
+    from codeverse.conventions import OBJECT_VIEWS_QUICK
+    from codeverse.spatial.render import render_glb
+
+    clay = render_glb(tmp_path / "stool" / "stool.glb", tmp_path / "clay", views=OBJECT_VIEWS_QUICK, mode="clay", sheet=False)
+    crude = make_renders(tmp_path / "crude")
+    spec = make_spec(prompt="A simple three-legged wooden stool, 45 cm tall, round seat.")
+    rank = PairwiseJudge(MODEL, cache_dir=tmp_path / "cache").compare_many(spec, [crude, renders, clay])
+    print(f"\nLIVE ranking order={rank.order} points={rank.points} errors={rank.errors}\nusage={rank.usage}")
+    assert rank.order[-1] == 0  # the crude drawing ranks last
+    assert len(rank.pairs) == 3
 
 
 def test_live_reference_judge(tmp_path):

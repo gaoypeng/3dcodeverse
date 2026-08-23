@@ -1,9 +1,11 @@
 """``VlmJudge``: rubric YAML + labelled renders + measurements → ``Judgment``.
 
 Per sample: one ``ChatRequest`` with a per-rubric JSON schema (criteria scored
-0..1 with evidence, issues, improvement plan, acceptance verdicts); samples
-differ by view order (shuffle seed) so n-sample mean/std measures judge noise.
-Score/floors/caps/pass are computed in code (``scoring.py``).  Retries: up to
+0..1 with evidence, the rubric's binary defect checklist, issues, improvement
+plan, acceptance verdicts); samples differ by montage/tile order (shuffle seed)
+so n-sample mean/std measures judge noise.  Score/defect penalties/floors/caps
+/pass are computed in code (``scoring.py``).  Images are ≤2×2 montages
+(``montage.py``); tracks may pass a clay/normals ``geometry_views`` RenderSet.  Retries: up to
 ``max_attempts`` per sample on ``ModelError`` / parse failure; if no sample
 succeeds, a *degraded* Judgment (``passed=False, overall=0, summary
 'judge_error: …'``, ``raw.status='degraded'``) is returned for the orchestrator
@@ -19,6 +21,7 @@ from pathlib import Path
 from typing import Literal
 
 from codeverse.config import get_settings
+from codeverse.contracts.artifacts import RenderSet
 from codeverse.contracts.chat import ChatRequest, ChatResponse
 from codeverse.contracts.common import Usage
 from codeverse.contracts.judgment import Judgment
@@ -60,8 +63,9 @@ class VlmJudge:
         *,
         thinking: Literal["off", "low", "medium", "high"] = "low",
         max_attempts: int = 3,
-        max_images: int = 10,
-        max_px: int = 768,
+        max_montages: int = 3,
+        detail_crops: int = 2,
+        max_px: int = 1024,
         chat_model: ChatModel | None = None,
         cache_dir: Path | None = None,
         label: str = "judge",
@@ -72,7 +76,8 @@ class VlmJudge:
         self.temperature = temperature
         self.thinking = thinking
         self.max_attempts = max(1, int(max_attempts))
-        self.max_images = max_images
+        self.max_montages = max(1, int(max_montages))
+        self.detail_crops = max(0, int(detail_crops))
         self.max_px = max_px
         self._model = chat_model
         self.cache_dir = cache_dir
@@ -88,7 +93,15 @@ class VlmJudge:
         return self._model
 
     # ------------------------------------------------------------------ API
-    def judge(self, inp: JudgeInput) -> Judgment:
+    def judge(self, inp: JudgeInput, *, geometry_views: RenderSet | None = None) -> Judgment:
+        """Judge one round.
+
+        ``geometry_views``: optional clay/normals RenderSet for the geometry montage
+        (falls back to ``inp.geometry_views`` if the input model carries that field;
+        clay/normals views embedded in ``inp.renders`` by ``RenderView.mode`` are
+        always routed to the geometry montage).
+        """
+        geometry_views = geometry_views or getattr(inp, "geometry_views", None)
         acceptance_ids = [a.id for a in inp.acceptance]
         schema = wire_schema(self.rubric, acceptance_ids)
         ctx = self.context(inp)
@@ -100,8 +113,9 @@ class VlmJudge:
             seed = None if (self.n_samples == 1 and k == 0) else (inp.round_index * 1000 + k)
             # a missing render is a pipeline bug, not a judge glitch → JudgeImageError propagates
             system, messages = build_judge_messages(
-                inp, self.rubric, shuffle_seed=seed, max_images=self.max_images, max_px=self.max_px,
-                cache_dir=self.cache_dir, extra_images=extra_images, extra_text=extra_text,
+                inp, self.rubric, shuffle_seed=seed, geometry_views=geometry_views, max_montages=self.max_montages,
+                detail_crops=self.detail_crops, max_px=self.max_px, cache_dir=self.cache_dir,
+                extra_images=extra_images, extra_text=extra_text,
             )
             req = ChatRequest(
                 messages=messages, system=system, response_schema=schema, temperature=self.temperature,
@@ -119,8 +133,8 @@ class VlmJudge:
             )
         return aggregate_samples(
             self.rubric, samples, gates=inp.gates, acceptance_items=inp.acceptance,
-            console_errors=inp.renders.console_errors, usage=usage, judge_backend=self.model_id,
-            n_requested=self.n_samples, sample_errors=errors,
+            console_errors=inp.renders.console_errors, views=list(inp.renders.views), usage=usage,
+            judge_backend=self.model_id, n_requested=self.n_samples, sample_errors=errors,
         )
 
     # ------------------------------------------------------------------ hook (ReferenceJudge overrides)

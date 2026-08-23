@@ -307,6 +307,9 @@ export function selfcheck(THREE, root, expectedNames = [], extentsHint = null) {
 }
 selfcheck(THREE, build(THREE), ['Seat', 'Legs', 'Leg1', 'Leg4'], [0.44, 0.45, 0.44]);
 ```
+The harness also calls an exported `selfcheck(THREE, root)` on the built group (defaults
+above make that call permissive); a throw fails the build as `SelfCheckError` with your
+message, so keep the assertions truthful.
 
 Then use the tools: `build` → `render_sheet` → `check_connectivity` → `isolate` → `check_contract`.
 

@@ -103,7 +103,7 @@ class UrdfBlenderRuntime:
         # 2. Blender wrapper
         blender = settings.resolve_blender()
         if not blender:
-            return fail("BlenderNotFound", "no Blender binary (set C3V_BINARIES__BLENDER)", file="", census=census)
+            return fail("BlenderNotFound", "no Blender binary (set CV3D_BINARIES__BLENDER)", file="", census=census)
         for stale in ("build.json", "census.json"):
             (art / stale).unlink(missing_ok=True)
         shutil.rmtree(art / "meshes", ignore_errors=True)

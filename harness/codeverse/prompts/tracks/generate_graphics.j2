@@ -1,0 +1,83 @@
+# Build `{{ title }}` in raw {{ language }}
+
+You write the COMPLETE code for one animated real-time effect from the plan below. A headless harness
+compiles/runs it with moderngl, renders frames at t = {{ judge_times }} at {{ resolution }}, measures them
+(luminance, colourfulness, detail, motion between frames, NaN pixels) and shows a labelled contact sheet
+to a judge. You never see the harness: make the code correct by construction and MAKE IT MOVE.
+
+## Request
+{{ spec_prompt }}
+Constraints:
+{{ constraints }}
+{% if reference_note %}
+{{ reference_note }}
+{% endif %}
+
+## The contract (hard rules — the build fails or the gate rejects when broken)
+{{ contract }}
+
+Files you must produce: {% for f in expected_files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}.
+{% if cookbook_rel %}Copyable snippets live in `{{ cookbook_rel }}` (read it before writing if you can).{% endif %}
+{% if cookbook_excerpt %}
+Cookbook excerpt:
+{{ cookbook_excerpt }}
+{% endif %}
+
+## Plan
+{{ plan_summary }}
+Style: {{ style }}
+Resolution {{ resolution }}, loop {{ duration }} s.  Harness uniforms in use: {{ uniforms }}.
+
+Passes / layers (implement EVERY row, in this order):
+{{ passes_table }}
+
+Key visuals a viewer must recognise:
+{% for v in key_visuals %}- {{ v }}
+{% endfor %}
+Motion: {{ motion }}
+
+## Acceptance checklist (the judge verifies each item; build so every item is visibly true)
+{{ acceptance }}
+
+## DO
+- Animate with time: every sampled frame (t = {{ judge_times }}) must differ visibly; continuous motion,
+  no hard cuts, no per-frame random seeds.
+- Aspect-correct coordinates: `p = (fragCoord - 0.5*u_resolution) / u_resolution.y` (circles stay round).
+- Layer the passes from the table: background → midground → foreground → grade (vignette, tonemap, gamma).
+- Use the style's palette literally (write the colour constants at the top); keep mean brightness in a
+  readable range (neither near-black nor blown-out); tonemap `c/(1+c)` then gamma.
+- Detail at several scales (fbm octaves, hash-placed elements, highlights) — the judge scores richness.
+- Guard the maths: `x / max(d, 1e-4)`, `sqrt(max(x, 0.0))`, `normalize` only non-zero vectors,
+  `clamp` acos/asin inputs — one NaN pixel caps the score at 0.
+- Constant loop bounds; keep per-pixel cost sane (≤ ~100 raymarch steps, ≤ 8 fbm octaves).
+
+## DON'T
+- No `#version` line, no `uniform`/`out` declarations of the harness names (shader); no window,
+  context creation, clock, file IO outside src/ (program).
+- No placeholders ("TODO", "simplified"); no static image when the plan says motion.
+- No textures other than the harness ones; no network; no imports outside the contract's allow-list.
+
+{% if skeleton_files %}
+## Current files (skeleton already in src/ — keep the structure, replace the placeholder look)
+{% for path, body in skeleton_files.items() %}
+--- {{ path }} ---
+```
+{{ body }}
+```
+{% endfor %}
+{% endif %}
+{% if previous_error %}
+## The previous attempt failed to build — fix the cause while rebuilding
+{{ previous_error }}
+{% endif %}
+
+{% if tool_cards and not single_shot %}
+## Tools available to you
+{{ tool_cards }}
+Workflow: edit → `gl_probe` (compile + first frame + stats; fix every error) → `gl_frames` (contact sheet
+of the judged times — LOOK at it and compare against the key visuals) → iterate until the frames match
+the plan.  Ignore the mesh tools (measure, render_views, check_*): this track has no GLB.
+{% endif %}
+
+## Output
+{{ output_format }}

@@ -18,7 +18,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from codeverse.contracts.artifacts import RenderSet
-from codeverse.contracts.plan import ArticulatedPlan, Plan, ScenePlan, StaticPlan
+from codeverse.contracts.plan import ArticulatedPlan, GraphicsPlan, Plan, ScenePlan, StaticPlan
 from codeverse.conventions import OBJECT_VIEWS, ViewPreset
 from codeverse.spatial.registry import Observation, ToolContext, ToolUsageError
 
@@ -99,11 +99,13 @@ def load_plan(path: Path) -> Plan:
     if not path.is_file():
         raise ToolUsageError("plan.json not found in the workspace")
     data = json.loads(path.read_text())
-    model: type[StaticPlan] | type[ArticulatedPlan] | type[ScenePlan]
+    model: type[StaticPlan] | type[ArticulatedPlan] | type[ScenePlan] | type[GraphicsPlan]
     if "zones" in data:
         model = ScenePlan
     elif "joints" in data:
         model = ArticulatedPlan
+    elif "passes" in data:
+        model = GraphicsPlan
     else:
         model = StaticPlan
     try:

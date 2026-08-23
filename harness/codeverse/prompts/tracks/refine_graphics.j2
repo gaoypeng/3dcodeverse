@@ -1,0 +1,58 @@
+# Refine `{{ title }}` — round {{ round_index }}
+
+The effect already compiles and renders. The frames were measured and judged; below are the targeted
+changes for THIS round. Make exactly these changes, keep everything else as it is, and keep it building.
+
+## Changes to make (in priority order; `[gate/...]` items are hard failures — fix them first)
+{% for t in tasks %}
+{{ loop.index }}. {{ t }}
+{% endfor %}
+
+Targets: {{ targets | join(', ') }}
+Files in scope: {% for f in files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}
+
+## What the judge saw
+{{ judge_summary }}
+
+## Frame metrics measured by the harness (t = {{ judge_times }})
+{{ frame_notes }}
+
+## Plan (the truth to converge to)
+{{ plan_summary }}
+Style: {{ style }}
+{{ passes_table }}
+Motion: {{ motion }}
+Key visuals:
+{% for v in key_visuals %}- {{ v }}
+{% endfor %}
+
+## Acceptance checklist (unchanged)
+{{ acceptance }}
+
+## Contract reminders
+- Harness uniforms only ({{ uniforms }}); no #version / uniform / out redeclarations in a shader; no window,
+  context or clock in a program.
+- Motion is judged by comparing frames at t = {{ judge_times }}: a "static" gate warning caps the score at 0.5.
+- NaN/Inf pixels cap the score at 0: guard divisions, sqrt/pow/log, normalize, acos/asin.
+- Keep brightness readable (mean luminance ~0.2-0.6), aspect-correct coordinates, tonemap + gamma last.
+- A "colour/light" change = palette constants / exposure / grade only; a "motion" change = the time terms only;
+  do not rewrite unrelated layers.
+{% if current_files %}
+
+## Current file contents (edit these; return each edited file COMPLETE)
+{% for path, body in current_files.items() %}
+--- {{ path }} ---
+```
+{{ body }}
+```
+{% endfor %}
+{% endif %}
+{% if tool_cards and not single_shot %}
+
+## Tools
+{{ tool_cards }}
+Run `gl_probe` after editing (fix any error) and `gl_frames` once to LOOK at the result before finishing.
+{% endif %}
+
+## Output
+{{ output_format }}

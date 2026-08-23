@@ -5,9 +5,12 @@ Used by ``GeminiModel`` (22 keys on the owner's box) but provider-neutral.
 * ``acquire()`` picks the next healthy key round-robin, honouring per-key
   RPM / TPM token buckets and 429 cool-downs; it blocks (bounded) when every
   key is throttled and raises ``KeyPoolExhausted`` after ``timeout_s``.
-* ``report(key, outcome)`` feeds back ``ok | 429 | 5xx | error`` so the pool
-  can cool a key down and adjust its health score.
-* ``stats()`` exposes counters for logs / ``c3v doctor``.
+* ``report(key, outcome)`` feeds back ``ok | 429 | 5xx | error | dead`` so the
+  pool can cool a key down and adjust its health score.  ``dead`` is for
+  key-scoped auth/permission failures (revoked / suspended / invalid key): the
+  key is benched for ``dead_cooldown_s`` (default one hour) and re-probed once
+  that elapses — a dead key must never keep failing its share of calls.
+* ``stats()`` exposes counters for logs / ``3dcv doctor``.
 
 Thread-safe; ``clock`` / ``sleep`` are injectable for deterministic tests.
 """
@@ -20,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-Outcome = Literal["ok", "429", "5xx", "error"]
+Outcome = Literal["ok", "429", "5xx", "error", "dead"]
 
 
 class KeyPoolExhausted(RuntimeError):
@@ -66,10 +69,12 @@ class _KeyState:
     tpm: TokenBucket | None
     health: float = 1.0
     cooldown_until: float = 0.0
+    dead_until: float = 0.0
     n_ok: int = 0
     n_429: int = 0
     n_5xx: int = 0
     n_error: int = 0
+    n_dead: int = 0
     n_acquired: int = 0
     last_used: float = 0.0
     health_ts: float = 0.0
@@ -99,6 +104,7 @@ class KeyPool:
         rpm_per_key: int = 900,
         tpm_per_key: int | None = None,
         cooldown_s: float = 30.0,
+        dead_cooldown_s: float = 3600.0,
         min_health: float = 0.3,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
@@ -109,6 +115,7 @@ class KeyPool:
         self._clock = clock
         self._sleep = sleep
         self._cooldown_s = float(cooldown_s)
+        self._dead_cooldown_s = float(dead_cooldown_s)
         self._min_health = min_health
         self._lock = threading.Lock()
         self._rr = 0
@@ -138,7 +145,9 @@ class KeyPool:
         timeout_s: float | None = 120.0,
     ) -> str:
         """Return the next usable key, blocking (bounded by ``timeout_s``) while all
-        keys are throttled.  ``exclude`` skips keys that already failed this call."""
+        keys are throttled.  ``exclude`` skips keys that already failed this call.
+        Raises ``KeyPoolExhausted`` at once when no key can become available before
+        the deadline (e.g. every key is dead) — availability only moves later."""
         deadline = None if timeout_s is None else self._clock() + timeout_s
         while True:
             with self._lock:
@@ -161,6 +170,11 @@ class KeyPool:
                 )
             if soonest == float("inf"):
                 raise KeyPoolExhausted("all keys excluded")
+            if deadline is not None and soonest > deadline:
+                raise KeyPoolExhausted(
+                    f"all {len(self._states)} keys throttled or dead; the earliest becomes "
+                    f"available in {soonest - now:.0f}s (> {timeout_s}s wait budget)"
+                )
             wait = max(0.01, min(soonest - now, 5.0))
             if deadline is not None and self._clock() + wait > deadline:
                 raise KeyPoolExhausted(
@@ -194,6 +208,12 @@ class KeyPool:
             elif outcome == "5xx":
                 st.n_5xx += 1
                 st.health *= 0.8
+            elif outcome == "dead":
+                # key-scoped failure: bench it; re-probed once the long cooldown passes
+                st.n_dead += 1
+                st.health = 0.0
+                st.dead_until = max(st.dead_until, now + self._dead_cooldown_s)
+                st.cooldown_until = max(st.cooldown_until, st.dead_until)
             else:
                 st.n_error += 1
                 st.health *= 0.9
@@ -217,17 +237,20 @@ class KeyPool:
                     "429": s.n_429,
                     "5xx": s.n_5xx,
                     "error": s.n_error,
+                    "dead": s.n_dead,
                 }
                 for s in self._states
             ]
             return {
                 "n_keys": len(self._states),
                 "n_cooling": sum(1 for s in self._states if s.cooldown_until > now),
+                "n_dead": sum(1 for s in self._states if s.dead_until > now),
                 "acquired": sum(s.n_acquired for s in self._states),
                 "ok": sum(s.n_ok for s in self._states),
                 "429": sum(s.n_429 for s in self._states),
                 "5xx": sum(s.n_5xx for s in self._states),
                 "error": sum(s.n_error for s in self._states),
+                "dead": sum(s.n_dead for s in self._states),
                 "keys": per_key,
             }
 

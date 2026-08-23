@@ -25,7 +25,7 @@ class AgentJob(BaseModel):
     timeout_s: int = 1800
     max_turns: int = 60
     allow_network: bool = False
-    spatial_tools: bool = Field(default=True, description="expose the c3v MCP spatial tools to the agent")
+    spatial_tools: bool = Field(default=True, description="expose the 3dcv MCP spatial tools to the agent")
     write_roots: list[str] = Field(default_factory=lambda: ["src", "public"], description="dirs the agent may edit")
     env: dict[str, str] = Field(default_factory=dict)
     extra: dict[str, Any] = Field(default_factory=dict)

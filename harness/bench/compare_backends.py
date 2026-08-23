@@ -1,0 +1,399 @@
+"""Harness vs raw one-shot generation under ONE fixed judge (methodology bench).
+
+    python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \\
+        --arms harness:api-agent:gemini:gemini-3.7-flash,harness:gemini-cli:gemini-3.7-flash,\\
+oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash \\
+        --judge gemini:gemini-3.1-pro-preview --out <dir> [--parallel 3] [--limit N]
+
+Arms
+* ``harness:<generator-id>`` — the full static_object track (plan → generate →
+  build/repair → gates → render → judge → refine, rounds ≤ 3, ≤ $2.5).  Its
+  in-loop judge is ``--loop-judge`` (default: the settings default, flash); the
+  loop's own score is NOT the reported score.
+* ``oneshot:<x>`` — ONE raw generation (prompt + minimal contract, no tools, no
+  cookbook, no plan, no repair).  ``x`` ∈ ``claude-code[:m]`` · ``codex[:m]`` ·
+  ``gemini|anthropic|openai:<m>``.
+* ``oneshot+repair:<x>`` — same, plus ≤ ``--repair-attempts`` error-feedback
+  retries on build failure (clearly labelled; never judge feedback).
+
+Every arm ends with a ``src/model.py`` that is copied into a fresh eval workspace
+and scored by the SAME fixed evaluator: BlenderRuntime lint+build → measure →
+connectivity gate → 8-view ``render_glb`` → ``VlmJudge(static_object_v1, judge,
+n_samples=2)`` whose acceptance checklist is the battery's ``must_have`` list.
+A failed build (or unparseable answer) scores 0 with the error recorded.  Then a
+pairwise arena (``PairwiseJudge``, same judge model, both orders) runs every
+harness arm against every one-shot arm per prompt.
+
+Layout of ``--out``: ``matrix.json`` · ``results.jsonl`` (cells; resume source) ·
+``pairwise.jsonl`` · ``cells/<prompt>/<arm>/{run,gen,eval}`` · ``report.md`` ·
+``report.html`` (+ ``report_assets/``).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import sys
+import time
+import traceback
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+REPO = Path(__file__).resolve().parents[1]
+if str(REPO) not in sys.path:  # `python bench/compare_backends.py` from anywhere
+    sys.path.insert(0, str(REPO))
+
+from bench._compare_report import (  # noqa: E402
+    CellResult,
+    PairRow,
+    build_compare_report,
+    load_jsonl,
+)
+from bench._fixed_eval import RUBRIC, EvalOutcome, FixedEvaluator  # noqa: E402
+from bench._oneshot import (  # noqa: E402
+    MODEL_FILE,
+    OneShotBackend,
+    OneShotResult,
+    get_oneshot_backend,
+    oneshot_prompt,
+    repair_prompt,
+    write_model_file,
+)
+from bench.run_bench import Battery, BenchPrompt  # noqa: E402
+from codeverse.config import get_settings  # noqa: E402
+from codeverse.contracts.artifacts import RenderSet  # noqa: E402
+from codeverse.contracts.common import Backends, Budget  # noqa: E402
+from codeverse.contracts.run import RunRecord  # noqa: E402
+from codeverse.contracts.spec import Constraints, Spec  # noqa: E402
+from codeverse.tracks.generation import MultiFileParseError  # noqa: E402
+from codeverse.workspace import Workspace  # noqa: E402
+
+ArmKind = Literal["harness", "oneshot", "oneshot+repair"]
+
+
+# ----------------------------------------------------------------------------- arms / options
+class Arm(BaseModel):
+    raw: str
+    kind: ArmKind
+    target: str = Field(description="generator id (harness) or one-shot target")
+
+    @property
+    def slug(self) -> str:
+        return self.raw.replace("+", "_plus_").replace(":", "_").replace("/", "_")
+
+
+def parse_arm(text: str) -> Arm:
+    kind, sep, target = text.strip().partition(":")
+    if not sep or not target or kind not in ("harness", "oneshot", "oneshot+repair"):
+        raise ValueError(f"bad arm {text!r}: expected harness:<generator-id> | oneshot:<target> | oneshot+repair:<target>")
+    if kind != "harness":
+        get_oneshot_backend(target)  # validates the target early
+    return Arm(raw=text.strip(), kind=kind, target=target)  # type: ignore[arg-type]
+
+
+def parse_arms(text: str) -> list[Arm]:
+    arms = [parse_arm(t) for t in text.split(",") if t.strip()]
+    if not arms:
+        raise ValueError("no arms given")
+    if len({a.raw for a in arms}) != len(arms):
+        raise ValueError("duplicate arms")
+    return arms
+
+
+class CompareOptions(BaseModel):
+    judge: str = "gemini:gemini-3.1-pro-preview"
+    loop_judge: str | None = Field(default=None, description="harness in-loop judge (None → settings default)")
+    planner: str | None = None
+    rounds: int = 3
+    max_usd: float = 2.5
+    max_minutes: float = 45.0
+    parallel: int = 3
+    limit: int | None = None
+    ids: list[str] = Field(default_factory=list)
+    resume: bool = True
+    gen_timeout_s: float = 900.0
+    repair_attempts: int = 2
+    n_samples: int = 2
+    pairwise: bool = True
+    redo_status: list[str] = Field(default_factory=list, description="re-run cells whose status is one of these")
+
+
+def spec_for(battery: Battery, item: BenchPrompt, arm: Arm, opts: CompareOptions) -> Spec:
+    generator = arm.target if arm.kind == "harness" else f"single-shot:{arm.target}"
+    backends = Backends(generator=generator, judge=opts.loop_judge or get_settings().default_judge,
+                        planner=opts.planner or get_settings().default_planner)
+    return Spec(id=f"{battery.name}/{item.id}", track=battery.track, language=battery.language, prompt=item.prompt,
+                constraints=Constraints(must_have=list(item.must_have), dimensions_m=item.dimensions_m),
+                budget=Budget(max_rounds=opts.rounds, max_usd=opts.max_usd, max_minutes=opts.max_minutes),
+                backends=backends, tags=["compare", battery.name, item.tier, item.category, arm.kind, *item.tags])
+
+
+# ----------------------------------------------------------------------------- deps (fakeable seams)
+RunTrackFn = Callable[[Spec, Workspace, bool], RunRecord]
+
+
+class CompareDeps:
+    """Everything that touches a model / Blender / Chrome; tests swap these for fakes."""
+
+    def __init__(self, evaluator: FixedEvaluator | Any, *, run_track: RunTrackFn | None = None,
+                 oneshot_backend: Callable[[str], OneShotBackend] | None = None,
+                 pairwise_judge: Callable[[str], Any] | None = None):
+        self.evaluator = evaluator
+        self.run_track = run_track or _default_run_track
+        self.oneshot_backend = oneshot_backend or get_oneshot_backend
+        self.pairwise_judge = pairwise_judge or _default_pairwise
+
+
+def _default_run_track(spec: Spec, ws: Workspace, resume: bool) -> RunRecord:
+    from codeverse.tracks import get_track
+
+    return get_track(spec.track).run(spec, ws, resume=resume)
+
+
+def _default_pairwise(model_id: str) -> Any:
+    from codeverse.judges.pairwise import PairwiseJudge
+
+    return PairwiseJudge(model_id)
+
+
+# ----------------------------------------------------------------------------- one cell
+def _fresh_ws(path: Path) -> Workspace:
+    if path.exists():
+        shutil.rmtree(path)
+    return Workspace(path).create()
+
+
+def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOptions,
+                      deps: CompareDeps, res: CellResult) -> None:
+    backend = deps.oneshot_backend(arm.target)
+    prompt = oneshot_prompt(spec)
+    max_attempts = 1 + (opts.repair_attempts if arm.kind == "oneshot+repair" else 0)
+    for attempt in range(max_attempts):
+        gen_dir = cell / "gen" / f"attempt{attempt}"
+        cached = gen_dir / "result.json"
+        if opts.resume and cached.is_file():  # a redo re-uses the recorded answer: no second subscription call
+            gen = OneShotResult.model_validate_json(cached.read_text())
+        else:
+            gen = backend.generate(prompt, out_dir=gen_dir, timeout_s=opts.gen_timeout_s, label=f"oneshot_{spec.id.split('/')[-1]}")
+            if gen.ok:  # failures (timeouts, 5xx) are not cached so a redo regenerates
+                gen_dir.mkdir(parents=True, exist_ok=True)
+                cached.write_text(gen.model_dump_json(indent=1))
+        res.attempts = attempt + 1
+        res.gen_cost_usd += gen.usage.cost_usd
+        res.tool_calls += gen.tool_calls
+        res.gen_seconds += gen.duration_s
+        if not gen.ok:
+            res.error = gen.notes or "empty answer"
+            return
+        try:
+            write_model_file(eval_ws, gen.text)
+        except MultiFileParseError as e:
+            res.error = f"unparseable answer: {e}"
+            return
+        res.error = ""
+        if attempt + 1 >= max_attempts:
+            return
+        build, lint = deps.evaluator.build(eval_ws)  # repair arm: error feedback only
+        if build.ok and not lint.errors:
+            return
+        prompt = repair_prompt(spec, (eval_ws.root / MODEL_FILE).read_text(), build, lint, attempt + 1)
+
+
+def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, res: CellResult) -> None:
+    run_ws = Workspace(cell / "run")
+    resume = run_ws.exists()
+    if not resume:
+        run_ws.create()
+        run_ws.write_json(run_ws.spec_path, spec)
+    rec = deps.run_track(spec, run_ws, resume)
+    res.gen_cost_usd = rec.total_usage.cost_usd
+    res.tool_calls = rec.total_usage.tool_calls
+    res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), rec.final_score
+    if not (run_ws.root / MODEL_FILE).is_file():
+        res.error = f"harness run produced no {MODEL_FILE} (status {rec.status.value}: {rec.error})"
+        return
+    # the whole src/ tree: agents may split helpers into src/parts/*.py (the build wrapper puts src/ on sys.path)
+    shutil.copytree(run_ws.src, eval_ws.src, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+
+
+def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: CompareOptions, deps: CompareDeps) -> CellResult:
+    cell = out / "cells" / item.id / arm.slug
+    cell.mkdir(parents=True, exist_ok=True)
+    spec = spec_for(battery, item, arm, opts)
+    res = CellResult(prompt_id=item.id, tier=item.tier, arm=arm.raw, kind=arm.kind, target=arm.target,
+                     judge=opts.judge, workspace=str(cell))
+    t0 = time.time()
+    eval_ws = _fresh_ws(cell / "eval")
+    eval_ws.write_json(eval_ws.spec_path, spec)
+    try:
+        if arm.kind == "harness":
+            _run_harness(spec, cell, eval_ws, deps, res)
+        else:
+            _generate_oneshot(arm, spec, cell, eval_ws, opts, deps, res)
+        if (eval_ws.root / MODEL_FILE).is_file():
+            outcome = deps.evaluator.evaluate(eval_ws, spec)
+            eval_ws.write_json(eval_ws.root / "eval.json", outcome)
+            _fill_from_outcome(res, outcome)
+        else:
+            res.status, res.score, res.passed, res.build_ok = "no_code", 0.0, False, False
+    except Exception as e:  # noqa: BLE001 — one cell must never kill the matrix
+        res.status = "error"
+        res.error = (res.error + "; " if res.error else "") + f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1200:]}"
+    res.wall_s = round(time.time() - t0, 1)
+    eval_ws.write_json(cell / "cell.json", res)
+    return res
+
+
+def _fill_from_outcome(res: CellResult, o: EvalOutcome) -> None:
+    res.build_ok = o.build.ok
+    res.gate_errors = o.gate_errors
+    res.tris = o.measurement.tri_count if o.measurement else None
+    res.sheet = (o.renders.contact_sheet or "") if o.renders else ""
+    res.glb = o.build.glb_path or ""
+    if not o.build.ok:
+        res.status, res.score, res.passed = "build_failed", 0.0, False
+        res.error = (res.error + "; " if res.error else "") + f"{o.build.error_type}: {o.build.error_message[:400]}"
+        return
+    j = o.judgment
+    if j is None or j.n_samples == 0:
+        res.status, res.score, res.passed = "judge_error", None, None
+        res.error = (res.error + "; " if res.error else "") + (o.error or (j.summary if j else "no judgment"))[:400]
+        return
+    res.judge_cost_usd = j.usage.cost_usd
+    res.score, res.passed, res.score_std, res.status = j.overall, j.passed, j.score_std, "scored"
+    res.criteria = {k: round(v, 3) for k, v in j.scores.items()}
+
+
+# ----------------------------------------------------------------------------- pairwise arena
+def _renders_of(out: Path, r: CellResult) -> RenderSet | None:
+    p = Path(r.workspace) / "eval" / "eval.json"
+    if not p.is_file():
+        return None
+    o = EvalOutcome.model_validate(json.loads(p.read_text()))
+    return o.renders if o.renders and o.renders.views else None
+
+
+def run_pairwise(battery: Battery, cells: dict[tuple[str, str], CellResult], arms: Sequence[Arm], out: Path,
+                 opts: CompareOptions, deps: CompareDeps) -> list[PairRow]:
+    path = out / "pairwise.jsonl"
+    done = {(p.prompt_id, p.arm_a, p.arm_b): p for p in load_jsonl(path, PairRow)} if opts.resume else {}
+    harness = [a for a in arms if a.kind == "harness"]
+    oneshot = [a for a in arms if a.kind != "harness"]
+    judge = None
+    with path.open("a") as fh:
+        for item in battery.prompts:
+            for ha in harness:
+                for oa in oneshot:
+                    key = (item.id, ha.raw, oa.raw)
+                    ca, cb = cells.get((item.id, ha.raw)), cells.get((item.id, oa.raw))
+                    if key in done or ca is None or cb is None:
+                        continue
+                    spec = spec_for(battery, item, ha, opts)
+                    ra, rb = _renders_of(out, ca), _renders_of(out, cb)
+                    if ra is None or rb is None:
+                        winner = "tie" if ra is None and rb is None else ("a" if rb is None else "b")
+                        row = PairRow(prompt_id=item.id, arm_a=ha.raw, arm_b=oa.raw, winner=winner, confidence=1.0,
+                                      reasons=["decided without the judge: a side has no renders (build failed)"], judged=False)
+                    else:
+                        judge = judge or deps.pairwise_judge(opts.judge)
+                        pr = judge.compare(spec, ra, rb, rubric=RUBRIC)
+                        row = PairRow(prompt_id=item.id, arm_a=ha.raw, arm_b=oa.raw, winner=pr.winner, confidence=pr.confidence,
+                                      reasons=list(pr.reasons), orderings=list(pr.orderings), cost_usd=pr.usage.cost_usd,
+                                      error=pr.error, judged=True)
+                    done[key] = row
+                    fh.write(row.model_dump_json() + "\n")
+                    fh.flush()
+    return list(done.values())
+
+
+# ----------------------------------------------------------------------------- matrix
+def _drop_pairs(path: Path, key: tuple[str, str]) -> None:
+    """Forget pairwise rows touching a cell that is about to be re-run."""
+    rows = [p for p in load_jsonl(path, PairRow) if not (p.prompt_id == key[0] and key[1] in (p.arm_a, p.arm_b))]
+    if path.is_file():
+        path.write_text("".join(p.model_dump_json() + "\n" for p in rows))
+
+
+def _select(battery: Battery, opts: CompareOptions) -> list[BenchPrompt]:
+    items = [p for p in battery.prompts if not opts.ids or p.id in set(opts.ids)]
+    return items[: opts.limit] if opts.limit is not None else items
+
+
+def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm], opts: CompareOptions,
+               deps: CompareDeps, *, on_result: Callable[[CellResult], None] | None = None) -> list[CellResult]:
+    battery = Battery.load(battery_path)
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "matrix.json").write_text(json.dumps({"battery": battery.model_dump(mode="json"), "arms": [a.raw for a in arms],
+                                                 "options": opts.model_dump(mode="json"),
+                                                 "started_at": datetime.now(UTC).isoformat()}, indent=2))
+    results = out / "results.jsonl"
+    done = {(r.prompt_id, r.arm): r for r in load_jsonl(results, CellResult)} if opts.resume else {}
+    for key in [k for k, r in done.items() if r.status in set(opts.redo_status)]:
+        _drop_pairs(out / "pairwise.jsonl", key)
+        del done[key]
+    todo = [(p, a) for a in sorted(arms, key=lambda a: a.kind == "harness")  # cheap one-shots first
+            for p in _select(battery, opts) if (p.id, a.raw) not in done]
+    with ThreadPoolExecutor(max_workers=max(1, opts.parallel)) as pool, results.open("a") as fh:
+        futs = {pool.submit(run_cell, battery, p, a, out, opts, deps): (p, a) for p, a in todo}
+        for fut in as_completed(futs):
+            r = fut.result()
+            done[(r.prompt_id, r.arm)] = r
+            fh.write(r.model_dump_json() + "\n")
+            fh.flush()
+            if on_result:
+                on_result(r)
+    if opts.pairwise:
+        run_pairwise(battery, done, arms, out, opts, deps)
+    build_compare_report(out)
+    return list(done.values())
+
+
+# ----------------------------------------------------------------------------- CLI
+def main(argv: Sequence[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--prompts", required=True)
+    ap.add_argument("--arms", required=True, help="comma-separated arm ids")
+    ap.add_argument("--judge", default="gemini:gemini-3.1-pro-preview", help="FIXED judge model id")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--parallel", type=int, default=3)
+    ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--ids", default="", help="comma-separated prompt ids")
+    ap.add_argument("--rounds", type=int, default=3)
+    ap.add_argument("--max-usd", type=float, default=2.5)
+    ap.add_argument("--loop-judge", default=None, help="harness in-loop judge (default: settings default)")
+    ap.add_argument("--repair-attempts", type=int, default=2)
+    ap.add_argument("--gen-timeout", type=float, default=900.0)
+    ap.add_argument("--no-pairwise", action="store_true")
+    ap.add_argument("--redo-status", default="", help="comma list of statuses to re-run (error,no_code,build_failed,judge_error); "
+                    "recorded one-shot answers are re-used, not re-generated")
+    ap.add_argument("--no-resume", action="store_true")
+    ap.add_argument("--report-only", action="store_true", help="only rebuild report.md/html from results")
+    ns = ap.parse_args(argv)
+    if ns.report_only:
+        build_compare_report(Path(ns.out))
+        return 0
+    opts = CompareOptions(judge=ns.judge, loop_judge=ns.loop_judge, rounds=ns.rounds, max_usd=ns.max_usd, parallel=ns.parallel,
+                          limit=ns.limit, ids=[i for i in ns.ids.split(",") if i], resume=not ns.no_resume,
+                          gen_timeout_s=ns.gen_timeout, repair_attempts=ns.repair_attempts, pairwise=not ns.no_pairwise,
+                          redo_status=[x for x in ns.redo_status.split(",") if x])
+    arms = parse_arms(ns.arms)
+    deps = CompareDeps(FixedEvaluator(opts.judge, n_samples=opts.n_samples))
+
+    def _log(r: CellResult) -> None:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] {r.prompt_id:28s} {r.arm:44s} score={r.score} build_ok={r.build_ok} "
+              f"${r.gen_cost_usd:.2f} {r.wall_s / 60:.1f}min {r.status} {r.error[:80]!r}", flush=True)
+
+    run_matrix(ns.prompts, ns.out, arms, opts, deps, on_result=_log)
+    print(f"report: {Path(ns.out) / 'report.md'}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -127,3 +127,109 @@ def test_camera_in_geometry_is_detected(starter_ws):
     m = read_metrics(out)
     chk = m["camera_checks"][0]
     assert chk["camera_in_geometry"] is True
+
+
+@needs_node
+def test_driver_crash_after_metrics_degrades_to_renderset(fake_runtime, ws, tmp_path):
+    """A driver death AFTER instruments were written must yield a degraded
+    RenderSet (console_errors say why) — never a SceneRenderError that fails the run."""
+    (fake_runtime / "render_scene.mjs").write_text(
+        FAKE_DRIVER.replace(
+            "console.log(JSON.stringify({ ok: true, n_views: views.length, renderer: 'FakeGL' }));",
+            "console.error('error: render failed: Cannot set properties of undefined');\nprocess.exit(2);",
+        )
+    )
+    out = tmp_path / "out"
+    rs = render_scene(ws, out, cameras=[CameraPlan(name="cam_a", position=(1, 2, 3), look_at=(0, 0, 0), fov=45)],
+                      orbit=False, times=(0.0,), sheet=False)
+    assert len(rs.views) == 1
+    assert any("render_scene.mjs failed (exit 2)" in e for e in rs.console_errors)
+
+
+@needs_node
+def test_render_scene_clears_stale_metrics(fake_runtime, ws, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "metrics.json").write_text('{"views": [{"name": "stale", "path": "x.png", "position": [0,0,0], "lookAt": [0,0,0]}]}')
+    rs = render_scene(ws, out, cameras=[CameraPlan(name="cam_a", position=(1, 2, 3), look_at=(0, 0, 0), fov=45)],
+                      orbit=False, times=(0.0,), sheet=False)
+    assert all(v.name != "stale" for v in rs.views)
+
+
+@pytest.mark.node
+@needs_browser
+def test_update_throw_mid_render_yields_frames_and_console_error(starter_ws):
+    """Finding: an update(t, dt) exception past the probed window must NOT abort the
+    render (SceneRenderError → run FAILED); the remaining views render and the error
+    becomes a console error (→ render_console gate finding)."""
+    scene = starter_ws.src / "scene.js"
+    src = scene.read_text()
+    assert "function update(t, dt) {" in src
+    scene.write_text(src.replace(
+        "function update(t, dt) {",
+        "function update(t, dt) {\n    if (t > 1.0) { const lanterns = []; lanterns[0].intensity = Math.sin(t); }",
+        1,
+    ))
+    out = starter_ws.renders_dir(3)
+    rs = render_scene(starter_ws, out, times=(0.0, 1.5), width=320, height=180, fps_seconds=0.3,
+                      orbit_views=SCENE_VIEWS[:1])
+    # every requested view rendered (3 authored + 1 orbit, at 2 times)
+    assert len(rs.views) == 2 * 4, [v.name for v in rs.views]
+    assert all(Path(v.path).is_file() for v in rs.views)
+    assert any(e.startswith("update(t=") and "intensity" in e for e in rs.console_errors), rs.console_errors
+    m = read_metrics(out)
+    assert m["update_errors"] and "update() disabled" in m["update_errors"][0]
+
+
+@needs_browser
+def test_request_failure_line_filters_phantom_aborts():
+    """Finding: Chrome's phantom `requestfailed net::ERR_ABORTED` after a consumed
+    200 response must never reach console_errors (spurious gate failures)."""
+    from tests.scene_runtime.conftest import run_node_json
+
+    res = run_node_json(
+        "import { requestFailureLine, createTimeoutMs } from './lib/host_page.mjs';\n"
+        "console.log(JSON.stringify({\n"
+        "  phantom: requestFailureLine('http://x/assets/a.glb', 'http://x', true, 'net::ERR_ABORTED'),\n"
+        "  aborted: requestFailureLine('http://x/assets/a.glb', 'http://x', false, 'net::ERR_ABORTED'),\n"
+        "  responded: requestFailureLine('http://x/assets/a.glb', 'http://x', true, 'net::ERR_FAILED'),\n"
+        "  real: requestFailureLine('http://x/assets/a.glb', 'http://x', false, 'net::ERR_CONNECTION_REFUSED'),\n"
+        "  offsite: requestFailureLine('http://cdn/other.js', 'http://x', false, 'net::ERR_FAILED'),\n"
+        "  cs_default: createTimeoutMs('', 240000),\n"
+        "  cs_flag: createTimeoutMs('3000', 240000),\n"
+        "  cs_small_budget: createTimeoutMs('', 10000),\n"
+        "}));\n"
+    )
+    assert res["phantom"] is None and res["aborted"] is None and res["responded"] is None
+    assert res["real"] == "request failed: /assets/a.glb (net::ERR_CONNECTION_REFUSED)"
+    assert res["offsite"] is None
+    assert res["cs_default"] == 20000 and res["cs_flag"] == 3000 and res["cs_small_budget"] == 6000
+
+
+def test_frame_table_from_metrics_dict():
+    from codeverse.spatial.render_scene import frame_table
+
+    metrics = {"camera_checks": [
+        {"name": "overview", "kind": "authored", "mean_lum": 0.34, "dark_frac": 0.05, "blown_frac": 0.0,
+         "content_frac": 0.48, "camera_in_geometry": False},
+        {"name": "buried", "kind": "orbit", "mean_lum": 0.02, "dark_frac": 0.91, "blown_frac": 0.0,
+         "content_frac": 0.01, "camera_in_geometry": True},
+    ]}
+    table = frame_table(metrics)
+    lines = table.splitlines()
+    assert lines[0].split() == ["view", "mean_lum", "dark%", "blown%", "content%", "cam_in_geom"]
+    assert "overview [authored]" in lines[1] and "0.34" in lines[1] and "48%" in lines[1] and lines[1].endswith("no")
+    assert "buried [orbit]" in lines[2] and "91%" in lines[2] and lines[2].endswith("YES")
+    assert "no camera_checks" in frame_table({})
+
+
+@pytest.mark.node
+@needs_browser
+def test_frame_table_from_renderset(starter_ws):
+    from codeverse.spatial.render_scene import frame_table
+
+    out = starter_ws.renders_dir(4)
+    rs = render_scene(starter_ws, out, times=(0.0,), width=320, height=180, fps_seconds=0, orbit_views=SCENE_VIEWS[:1], sheet=False)
+    table = frame_table(rs)
+    assert "overview [authored]" in table and "mean_lum" in table
+    assert table == frame_table(out)

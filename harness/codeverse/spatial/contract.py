@@ -3,7 +3,10 @@
 Plans are authored in the language's *native* frame (see ``conventions``):
 blender / cadquery / urdf are Z-up with -Y front, three.js is Y-up.  The GLB is
 always Y-up, so plan boxes are converted with the glTF mapping
-``(x, y, z) → (x, z, -y)`` before comparison.
+``(x, y, z) → (x, z, -y)`` before comparison — and every number in a fix hint
+(sizes, deltas, centres, translation vectors) is converted *back* into the
+authoring frame and labelled, because hints are pasted verbatim into refine
+prompts that speak the language's frame.
 
 Severity policy (``tol = max(tol_m, REL_TOL × plan extent)`` per axis):
 * plan part missing in the GLB → ERROR
@@ -42,14 +45,35 @@ _AXES = ("x", "y", "z")
 
 
 # --------------------------------------------------------------------------- frames
+def language_frame(language: str) -> Frame:
+    """Authoring frame of ``language`` (unknown / empty → the GLB frame itself)."""
+    return LANGUAGE_FRAME.get(str(language), Frame.Y_UP_POS_Z_FRONT)
+
+
+def frame_label(language: str) -> str:
+    """Short frame tag for fix hints, e.g. ``"blender frame: Z-up, -Y front"``."""
+    if language_frame(language) is Frame.Z_UP_NEG_Y_FRONT:
+        return f"{language} frame: Z-up, -Y front"
+    return f"{language} frame: Y-up, +Z front" if language else "GLB frame: Y-up, +Z front"
+
+
 def plan_bbox_to_glb(bbox: BBox, language: str) -> BBox:
     """Convert a plan-frame box to the canonical GLB frame (Y-up, +Z front)."""
-    frame = LANGUAGE_FRAME.get(str(language), Frame.Y_UP_POS_Z_FRONT)
-    if frame is Frame.Y_UP_POS_Z_FRONT:
+    if language_frame(language) is Frame.Y_UP_POS_Z_FRONT:
         return bbox
     cx, cy, cz = bbox.center
     ex, ey, ez = bbox.extents
     return BBox(center=(cx, cz, -cy), extents=(ex, ez, ey))
+
+
+def glb_vec_to_plan(v, language: str, *, extents: bool = False) -> np.ndarray:
+    """Inverse of the glTF mapping for a GLB-frame vector: Z-up languages get
+    ``(x, y, z) → (x, -z, y)``; ``extents`` (per-axis sizes / size deltas) are only
+    permuted, never sign-flipped.  Hints must be written in the frame the agent codes in."""
+    v = np.asarray(v, dtype=float)
+    if language_frame(language) is Frame.Y_UP_POS_Z_FRONT:
+        return v
+    return np.array([v[0], v[2] if extents else -v[2], v[1]])
 
 
 # --------------------------------------------------------------------------- matching
@@ -98,8 +122,15 @@ def _fmt_ext(v) -> str:
     return "×".join(f"{float(x) * 100:.1f}" for x in v)
 
 
-def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, check_center: bool = True) -> list[GateFinding]:
-    """WARN/ERROR findings for one box comparison (empty when within tolerance)."""
+def _fmt_vec(v) -> str:
+    return "(" + ", ".join(f"{round(float(x), 3) + 0.0:+.3f}" for x in v) + ")"  # + 0.0: no '-0.000'
+
+
+def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, language: str,
+                  check_center: bool = True) -> list[GateFinding]:
+    """WARN/ERROR findings for one box comparison (empty when within tolerance).
+    ``d``/``plan`` are in the GLB frame; every number in the hint (and ``data``) is
+    written back in ``language``'s authoring frame so the agent can paste it."""
     out: list[GateFinding] = []
     ext_bad = np.abs(d.extents) > d.tol
     ctr_bad = check_center and np.any(np.abs(d.center) > d.tol)
@@ -107,17 +138,22 @@ def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, check_cen
         return out
     ratio = d.worst_ratio if check_center else float(np.max(np.abs(d.extents) / d.tol))
     sev = Severity.ERROR if ratio > ERROR_FACTOR else Severity.WARN
+    p_ext = glb_vec_to_plan(plan.extents, language, extents=True)
+    d_ext = glb_vec_to_plan(d.extents, language, extents=True)
+    d_ctr = glb_vec_to_plan(d.center, language)
+    p_ctr = glb_vec_to_plan(plan.center, language)
     bits = []
     if ext_bad.any():
-        bits.append(f"size {_fmt_ext(np.asarray(plan.extents) + d.extents)} vs planned {_fmt_ext(plan.extents)} cm (Δ {_fmt_delta(d.extents)})")
+        bits.append(f"size {_fmt_ext(p_ext + d_ext)} vs planned {_fmt_ext(p_ext)} cm (Δ {_fmt_delta(d_ext)})")
     if ctr_bad:
-        bits.append(f"centre off by ({_fmt_delta(d.center)})")
+        bits.append(f"centre off by ({_fmt_delta(d_ctr)})")
     hint = f"{what}: " + ("; ".join(bits))
     out.append(GateFinding(
         gate=GATE, severity=sev, target=target,
         message=f"{what} bbox deviates from the plan (worst {ratio:.1f}× tolerance)",
-        fix_hint=hint + f"; planned centre ({', '.join(f'{c:.3f}' for c in plan.center)}) m in the GLB frame (Y-up)",
-        data={"delta_center_m": d.center.tolist(), "delta_extents_m": d.extents.tolist(), "tol_m": d.tol.tolist()},
+        fix_hint=hint + f"; planned centre ({', '.join(f'{c:.3f}' for c in p_ctr)}) m ({frame_label(language)})",
+        data={"delta_center_m": d_ctr.tolist(), "delta_extents_m": d_ext.tolist(),
+              "tol_m": glb_vec_to_plan(d.tol, language, extents=True).tolist(), "frame": language_frame(language).value},
     ))
     return out
 
@@ -148,7 +184,7 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
             ))
         if len(rows) == 1 and pp.instances == 1:
             d = _box_delta(np.asarray(rows[0].bbox_min), np.asarray(rows[0].bbox_max), box, tol_m)
-            findings.extend(_box_findings(target, d, box, what=f"part '{pp.name}'"))
+            findings.extend(_box_findings(target, d, box, what=f"part '{pp.name}'", language=language))
         else:
             # instances: each copy should have the planned extents; the centre is unknowable
             per = [_box_delta(np.asarray(r.bbox_min), np.asarray(r.bbox_max), box, tol_m) for r in rows]
@@ -156,13 +192,13 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
             worst_each = max(per, key=lambda d: float(np.max(np.abs(d.extents) / d.tol)))
             # accept whichever reading (per-instance or union) fits the plan better
             if float(np.max(np.abs(union.extents) / union.tol)) < float(np.max(np.abs(worst_each.extents) / worst_each.tol)):
-                findings.extend(_box_findings(target, union, box, what=f"'{pp.name}' (all instances)", check_center=False))
+                findings.extend(_box_findings(target, union, box, what=f"'{pp.name}' (all instances)", language=language, check_center=False))
             else:
-                findings.extend(_box_findings(target, worst_each, box, what=f"'{pp.name}' (each instance)", check_center=False))
+                findings.extend(_box_findings(target, worst_each, box, what=f"'{pp.name}' (each instance)", language=language, check_center=False))
     # overall bbox
     ob = plan_bbox_to_glb(plan.overall_bbox, language)
     d = _box_delta(np.asarray(m.bbox_min), np.asarray(m.bbox_max), ob, tol_m)
-    findings.extend(_box_findings("overall", d, ob, what="overall"))
+    findings.extend(_box_findings("overall", d, ob, what="overall", language=language))
     # ground + footprint
     if abs(m.ground_gap_m) > tol_m:
         where = "above" if m.ground_gap_m > 0 else "below"
@@ -176,8 +212,9 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
         findings.append(GateFinding(
             gate=GATE, severity=Severity.WARN, target="overall",
             message=f"footprint centre is {m.footprint_offset_m * 100:.1f} cm off the up axis",
-            fix_hint=f"translate everything by ({-m.center[0]:+.3f}, 0, {-m.center[2]:+.3f}) m (GLB frame) to centre the footprint",
-            data={"footprint_offset_m": m.footprint_offset_m},
+            fix_hint=f"translate everything by {_fmt_vec(glb_vec_to_plan((-m.center[0], 0.0, -m.center[2]), language))} m "
+                     f"({frame_label(language)}) to centre the footprint",
+            data={"footprint_offset_m": m.footprint_offset_m, "frame": language_frame(language).value},
         ))
     for r in extra:
         findings.append(GateFinding(gate=GATE, severity=Severity.INFO, target=r.name,
@@ -197,10 +234,12 @@ def _check_scene_plan(m: Measurement, plan: ScenePlan, language: str, tol_m: flo
     lo, hi = np.asarray(b.min), np.asarray(b.max)
     over = np.maximum(lo - np.asarray(m.bbox_min), 0) + np.maximum(np.asarray(m.bbox_max) - hi, 0)
     if float(np.max(over)) > max(tol_m, REL_TOL * float(np.max(b.extents))):
+        over_plan = glb_vec_to_plan(over, language, extents=True)
         findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target="bounds",
-                                    message=f"scene geometry exceeds the planned bounds by {_fmt_delta(over)}",
-                                    fix_hint=f"keep everything inside centre {b.center}, extents {b.extents} m (GLB frame)",
-                                    data={"overshoot_m": over.tolist()}))
+                                    message=f"scene geometry exceeds the planned bounds by {_fmt_delta(over_plan)}",
+                                    fix_hint=f"keep everything inside centre {plan.bounds.center}, extents {plan.bounds.extents} m "
+                                             f"({frame_label(language)})",
+                                    data={"overshoot_m": over_plan.tolist(), "frame": language_frame(language).value}))
     return findings
 
 

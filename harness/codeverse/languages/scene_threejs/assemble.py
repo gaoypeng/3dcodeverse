@@ -27,7 +27,7 @@ from codeverse.conventions import to_pascal, to_snake
 from codeverse.workspace import Workspace
 
 PROBE_REL = "src/_c3v_assemble_probe.js"
-_PREFIX = "[c3v-assemble]"
+_PREFIX = "[3dcv-assemble]"
 _SUN_RE = re.compile(r"export\s+const\s+SUN_AZIMUTH_DEG\s*=\s*(-?\d+(?:\.\d+)?)")
 
 
@@ -240,9 +240,10 @@ def _cam_literal(c: CameraPlan) -> str:
 def render_scene_js(zones: list[str], cameras: list[CameraPlan], glbs: list[str], *, env_ok: bool = True) -> str:
     """Deterministic src/scene.js source for the given healthy zone snake names."""
     imports = "\n".join(f"import {{ build as build{to_pascal(z)} }} from './zones/{z}.js';" for z in zones)
-    calls = "\n".join(f"  addZone(build{to_pascal(z)}, '{to_pascal(z)}');" for z in zones)
+    calls = "\n".join(f"  await addZone(build{to_pascal(z)}, '{to_pascal(z)}');" for z in zones)
     env_import = "import { buildEnv, heightAt } from './env.js';" if env_ok else ""
-    env_build = "  const env = buildEnv(ctx) || {};\n  ctx.env = env;" if env_ok else "  const env = {};"
+    # buildEnv/build may be async (lint + the assembler probe both accept it): await consistently
+    env_build = "  const env = (await buildEnv(ctx)) || {};\n  ctx.env = env;" if env_ok else "  const env = {};"
     height = "heightAt" if env_ok else "() => 0"
     glb_lines = ", ".join(f"{g}: '/assets/{g}.glb'" for g in glbs)
     cams = "\n".join(_cam_literal(c) for c in cameras)
@@ -262,8 +263,8 @@ export async function createScene({{ renderer, loaders }}) {{
 {env_build}
 
   const zones = [];
-  const addZone = (build, name) => {{
-    const g = build(ctx);
+  const addZone = async (build, name) => {{
+    const g = await build(ctx);
     if (!g || !g.isObject3D) throw new Error(`zone ${{name}}: build(ctx) must return a THREE.Group`);
     if (!g.name) g.name = name;
     scene.add(g);

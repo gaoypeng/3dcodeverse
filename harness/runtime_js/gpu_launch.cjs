@@ -16,7 +16,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const CACHE_DIR = process.env.C3V_CACHE_DIR || path.join(os.homedir(), '.cache', 'codeverse');
+const CACHE_DIR = process.env.CV3D_CACHE_DIR || path.join(os.homedir(), '.cache', 'codeverse');
 const CACHE_PATH = path.join(CACHE_DIR, 'gpu_probe.json');
 const NEGATIVE_TTL_MS = 20 * 60 * 1000; // how long a "no GPU" verdict is trusted
 const PROTOCOL_TIMEOUT_MS = 15 * 60 * 1000; // big frame batches exceed puppeteer's 180 s default
@@ -117,7 +117,7 @@ async function tryGpu(puppeteer) {
  * @returns {Promise<{browser: object, gpu: boolean, renderer: string}>}
  */
 async function launchBrowser(opts = {}) {
-  const mode = String(opts.gpu || process.env.C3V_RENDER_GPU || 'auto').toLowerCase();
+  const mode = String(opts.gpu || process.env.CV3D_RENDER_GPU || 'auto').toLowerCase();
   const puppeteer = loadPuppeteer(opts.puppeteer);
   if (!['auto', 'on', 'off'].includes(mode)) throw new Error(`gpu must be auto|on|off, got ${mode}`);
 

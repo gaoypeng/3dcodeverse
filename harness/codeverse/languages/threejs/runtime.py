@@ -11,6 +11,7 @@ from codeverse.config import get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport
 from codeverse.contracts.common import Language
 from codeverse.contracts.plan import Plan
+from codeverse.conventions import to_snake
 from codeverse.languages.threejs.contract import CONTRACT_FALLBACK
 from codeverse.languages.threejs.lint import lint_workspace
 from codeverse.languages.threejs.skeleton import write_skeleton
@@ -82,7 +83,7 @@ class ThreeJsRuntime:
             return result
 
         if res.rc != 0 or not (res.last_json or {}).get("ok") or not glb.is_file():
-            result = self._from_error_record(res)
+            result = self._from_error_record(res, ws)
         else:
             census_data: dict[str, Any] = {}
             if census.is_file():
@@ -111,17 +112,30 @@ class ThreeJsRuntime:
             error_type=etype, error_message=message[:2000], duration_ms=res.duration_ms,
         )
 
-    def _from_error_record(self, res: NodeResult) -> BuildResult:
+    def _from_error_record(self, res: NodeResult, ws: Workspace | None = None) -> BuildResult:
         rec = res.last_json or {}
         err = rec.get("error") if isinstance(rec.get("error"), dict) else None
         if err is None:
             tail = res.stderr_tail.strip().splitlines()
             return self._failure(res, "ExportError", tail[-1] if tail else f"export_glb exited {res.rc} without an error record")
         result = self._failure(res, str(err.get("type", "Error")), str(err.get("message", "")))
-        result.error_file = str(err.get("file", "") or ("" if err.get("frames") else ENTRY))
+        result.error_file = str(err.get("file", "") or self._part_file(ws, err.get("part")) or ("" if err.get("frames") else ENTRY))
         result.error_line = err.get("line") if isinstance(err.get("line"), int) else None
-        result.census = {"frames": err.get("frames", []), "stack": err.get("stack", "")}
+        result.census = {"frames": err.get("frames", []), "stack": err.get("stack", ""), "part": str(err.get("part", "") or "")}
         return result
+
+    @staticmethod
+    def _part_file(ws: Workspace | None, part: object) -> str:
+        """``src/parts/<snake>.js`` for the plan part named in a validation error (when that file exists).
+
+        Contract errors raised by the exporter (NaN geometry, empty bbox) carry no src
+        frame — the throw site is export_glb.mjs — but name the offending part; the
+        naming convention (``conventions.to_snake``) turns that into the file to repair.
+        """
+        if ws is None or not isinstance(part, str) or not part.strip():
+            return ""
+        rel = Path("src") / "parts" / f"{to_snake(part)}.js"
+        return rel.as_posix() if (ws.root / rel).is_file() else ""
 
     @staticmethod
     def _write_build_json(ws: Workspace, result: BuildResult) -> None:

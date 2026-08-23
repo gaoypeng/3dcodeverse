@@ -9,6 +9,9 @@ between its limits and checks for penetrations, then renders rest + limit poses 
 {{ spec_prompt }}
 Constraints:
 {{ constraints }}
+{% if reference_note %}
+{{ reference_note }}
+{% endif %}
 
 ## The contract (hard rules)
 {{ frame_doc }}
@@ -39,9 +42,11 @@ Joints (the URDF must realise EXACTLY these; pivots are WORLD points at rest):
 ## DO
 - Build every link at its WORLD rest pose with the plan's bbox centre/extents (±0.01 m); each link is
   ONE object (join sub-shapes into it) named exactly as the link.
-- Joint origins: for a joint with world pivot P and the parent's world origin O_parent, the URDF
-  `<origin xyz>` is P − O_parent expressed in the parent frame; the child's visual `<origin>` is the
-  child mesh offset relative to P. Keep the numbers consistent with the bbox centres in the table —
+- Joint origins: every link frame sits at its joint's world pivot (root at the world origin), so the
+  URDF `<joint><origin xyz>` = pivot_child − pivot_parent (plain subtraction of world points; root
+  parent pivot = 0 0 0). The harness exports meshes/<link>.glb in WORLD coordinates, therefore the
+  child's visual AND collision `<origin xyz>` = −P (the NEGATED world pivot; root link: `0 0 0`) —
+  never the mesh-centre offset. Keep the numbers consistent with the bbox centres in the table —
   write them out explicitly as comments in the URDF before the joint.
 - Use the axis vectors from the table verbatim; limits = lower/upper from the table; `effort`/
   `velocity` any positive numbers.

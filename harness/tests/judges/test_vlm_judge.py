@@ -32,8 +32,10 @@ def test_full_path_single_sample(judge_input, cache_dir):
     req = model.requests[0]
     assert req.response_schema is not None and "Criteria" in req.response_schema["$defs"]
     assert req.label == "judge:static_object_v1:s0" and req.temperature == 0.2
-    assert len(image_parts(req)) == 5
-    assert "BLIND JUDGE" in req.system
+    assert len(image_parts(req)) == 3  # 2×2 montage + 2 detail crops
+    assert "BLIND JUDGE" in req.system and "DEFECT CHECKLIST" in req.system
+    assert "Defects" in req.response_schema["$defs"]
+    assert raw["defects"] == {d.id: False for d in R.defects} and raw["defect_penalty"] == 0.0
 
 
 def test_overall_is_code_computed_weighted_mean(judge_input, cache_dir):
@@ -49,8 +51,8 @@ def test_n_samples_mean_std_and_shuffle(judge_input, cache_dir):
     j = _judge(model, n_samples=3, cache_dir=cache_dir).judge(judge_input)
     assert j.n_samples == 3 and j.overall == pytest.approx(0.8) and j.score_std == pytest.approx(0.0816, abs=1e-3)
     assert j.usage.cost_usd == pytest.approx(0.003) and j.usage.input_tokens == 3000
-    orders = [[p.label for p in image_parts(r)][1:] for r in model.requests]
-    assert len({tuple(o) for o in orders}) >= 2  # view order differs between samples
+    orders = [[p.label for p in image_parts(r)] for r in model.requests]
+    assert len({tuple(o) for o in orders}) >= 2  # montage tile order differs between samples
     raw = json.loads(j.raw)
     assert raw["per_sample_overall"] == [0.7, 0.9, 0.8]
     # representative sample (closest to mean) supplies the narrative

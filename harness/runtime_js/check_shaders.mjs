@@ -22,7 +22,7 @@ import { auditFile, fixHintFor, hasGlsl, locateSourceLine } from './lib/glsl_aud
 import { errorSummary, openHost } from './lib/host_page.mjs';
 
 const args = parseCli({
-  ws: {}, module: {}, out: {}, gpu: { default: process.env.C3V_RENDER_GPU || 'auto' },
+  ws: {}, module: {}, out: {}, gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' },
   'timeout-ms': { default: '90000' }, 'no-compile': { type: 'boolean', default: false },
 });
 

@@ -2,8 +2,10 @@
 
 Position bias is real, so the comparison runs TWICE with A/B swapped; the
 winner is declared only when both orderings agree, otherwise ``tie``.  Each
-call sees the brief, the rubric's criteria (titles + descriptions) and each
-candidate's contact sheet (or up to 4 views when there is no sheet).
+call sees the brief, the rubric's criteria (titles + descriptions) and ONE
+2×2 montage per candidate (the 4 most informative views — never a big sheet:
+VLM judges flip with many tiles).  ``compare_many`` ranks N candidates by a
+round-robin of such comparisons (best-of-N).
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from __future__ import annotations
 import logging
 import re
 import statistics
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -21,9 +24,10 @@ from codeverse.contracts.artifacts import RenderSet
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart, TextPart
 from codeverse.contracts.common import Usage
 from codeverse.contracts.spec import Spec
-from codeverse.judges.images import image_part, prepare_image, view_label
+from codeverse.judges.images import image_part, prepare_image
+from codeverse.judges.montage import montage_label, plan_montages, render_montage
 from codeverse.judges.output_schema import JudgeParseError, extract_json
-from codeverse.judges.prompt_builder import brief_section
+from codeverse.judges.prompt_builder import MONTAGE_TILE_PX, brief_section
 from codeverse.judges.rubrics import Rubric, load_rubric
 from codeverse.models.base import ChatModel, ModelError
 
@@ -55,6 +59,21 @@ class PairwiseResult(BaseModel):
     error: str = ""
 
 
+class RankingResult(BaseModel):
+    """Round-robin ranking of N candidates (``compare_many``)."""
+
+    order: list[int] = Field(description="candidate indices, best first")
+    points: dict[int, float] = Field(description="win = 1, tie = 0.5 per pair")
+    confidence: dict[int, float] = Field(default_factory=dict, description="mean confidence of the pairs a candidate won")
+    pairs: list[dict] = Field(default_factory=list, description="{a, b, winner, confidence, error} per pair")
+    usage: Usage = Field(default_factory=Usage)
+    errors: list[str] = Field(default_factory=list)
+
+    @property
+    def best(self) -> int:
+        return self.order[0]
+
+
 _SYSTEM = """You are a BLIND comparative judge for a 3D-code harness. You see a brief, a rubric and renders of TWO candidates, labelled A and B. Decide which candidate better satisfies the brief, judging ONLY what is visible. Position carries no information: A is not better for being first.
 Compare criterion by criterion (intent, structure, detail, proportions, fit, materials, cleanliness as listed), then decide overall. Prefer the candidate with no major defect over the one with more detail but a floating or broken part. Say 'tie' only when the two are genuinely equivalent. Reply with one JSON object: winner ('A'|'B'|'tie'), confidence 0..1, reasons[], criteria_won[{criterion, winner}]."""
 
@@ -74,8 +93,8 @@ class PairwiseJudge:
     ):
         self.model_id = model_id or get_settings().default_judge
         self.temperature = temperature
-        self.max_px = max_px
-        self.views_per_side = views_per_side
+        self.max_px = max(max_px, 1024)  # a 2×2 montage needs the resolution
+        self.views_per_side = min(4, views_per_side)
         self._model = chat_model
         self.cache_dir = cache_dir
 
@@ -121,6 +140,43 @@ class PairwiseJudge:
             return PairwiseResult(winner="tie", confidence=0.0, usage=usage, error=" || ".join(errors))
         return _combine(verdicts, orderings, usage, errors)
 
+    def compare_many(
+        self, spec: Spec, candidates: list[RenderSet], *, rubric: str | Rubric = "static_object_v1"
+    ) -> RankingResult:
+        """Rank ``candidates`` by round-robin pairwise comparison (each pair in both orders).
+
+        Points: win = 1, tie = 0.5.  Ties in points are broken by the mean confidence
+        of won pairs, then by the lower index (earlier candidate).  One candidate →
+        trivial ranking without any call.
+        """
+        n = len(candidates)
+        if n == 0:
+            raise ValueError("compare_many needs at least one candidate")
+        points = {i: 0.0 for i in range(n)}
+        conf_won: dict[int, list[float]] = {i: [] for i in range(n)}
+        pairs: list[dict] = []
+        usage = Usage()
+        errors: list[str] = []
+        for i in range(n):
+            for j in range(i + 1, n):
+                res = self.compare(spec, candidates[i], candidates[j], rubric=rubric)
+                usage = usage + res.usage
+                if res.error:
+                    errors.append(f"{i}v{j}: {res.error}")
+                if res.winner == "a":
+                    points[i] += 1.0
+                    conf_won[i].append(res.confidence)
+                elif res.winner == "b":
+                    points[j] += 1.0
+                    conf_won[j].append(res.confidence)
+                else:
+                    points[i] += 0.5
+                    points[j] += 0.5
+                pairs.append({"a": i, "b": j, "winner": res.winner, "confidence": res.confidence, "error": res.error})
+        confidence = {i: (round(statistics.fmean(v), 3) if v else 0.0) for i, v in conf_won.items()}
+        order = sorted(range(n), key=lambda i: (-points[i], -confidence[i], i))
+        return RankingResult(order=order, points=points, confidence=confidence, pairs=pairs, usage=usage, errors=errors)
+
     # ------------------------------------------------------------------ prompt
     def _request(self, spec: Spec, rub: Rubric, first: RenderSet, second: RenderSet) -> ChatRequest:
         crit = "\n".join(f"- {c.id}: {c.description.strip()}" for c in rub.visual_criteria())
@@ -141,15 +197,16 @@ class PairwiseJudge:
         )
 
     def _side_images(self, tag: str, rs: RenderSet) -> list[tuple[str, ImagePart]]:
+        """One 2×2 montage of the candidate's most informative views (plus its pose sheet / geometry montage if any)."""
+        montages = plan_montages(rs, scene=False, max_montages=2, detail_crops=0)
         out: list[tuple[str, ImagePart]] = []
-        if rs.contact_sheet:
-            lbl = f"CANDIDATE {tag} — contact sheet ({len(rs.views)} views)"
-            out.append((lbl, image_part(prepare_image(rs.contact_sheet, label=lbl, max_px=max(self.max_px, 1024), cache_dir=self.cache_dir), lbl)))
-            return out
-        views = rs.views[: self.views_per_side]
-        for i, v in enumerate(views, 1):
-            lbl = f"CANDIDATE {tag} — " + view_label(v, i, len(views))
-            out.append((lbl, image_part(prepare_image(v.path, label=lbl, max_px=self.max_px, cache_dir=self.cache_dir), lbl)))
+        for i, m in enumerate(montages, 1):
+            if len(m.tiles) > self.views_per_side:
+                m = replace(m, tiles=m.tiles[: self.views_per_side])
+            lbl = f"CANDIDATE {tag} — " + montage_label(m, i, len(montages))
+            strip = f"CANDIDATE {tag} — {m.title.split(' (')[0]}"
+            png = render_montage(m, cache_dir=self.cache_dir, tile_px=MONTAGE_TILE_PX)
+            out.append((lbl, image_part(prepare_image(png, label=strip, max_px=self.max_px, cache_dir=self.cache_dir), lbl)))
         return out
 
 

@@ -8,7 +8,9 @@
 
 Rules enforced in code: strict JSON schema, no API/class names, no brand names,
 each field non-empty.  Captions are stored in ``record.extra["captions"]`` (with
-provenance) and ``<ws>/captions.json``; ``record.json`` is rewritten.
+provenance) and ``<ws>/captions.json``; ``record.json`` is rewritten — or, with
+``out_dir`` (read-only runs), written as a side-car ``<out_dir>/<slug>.json`` that
+``export_samples(captions_dir=...)`` picks up.
 """
 
 from __future__ import annotations
@@ -30,6 +32,8 @@ from codeverse.workspace import Workspace
 
 MAX_CODE_CHARS = 12_000
 N_VIEWS = 2
+#: view-name fragments that show motion (articulated track) — shown to the captioner first
+MOTION_VIEW_HINTS = ("articulation", "pose_")
 
 #: how the instruction must name the target (generic, no API names)
 LANGUAGE_PHRASE: dict[Language, str] = {
@@ -38,13 +42,19 @@ LANGUAGE_PHRASE: dict[Language, str] = {
     Language.THREEJS: "a Three.js module",
     Language.URDF_BLENDER: "a URDF model with Blender-Python-built link meshes",
     Language.SCENE_THREEJS: "a Three.js scene",
+    Language.GLSL_SHADER: "a GLSL fragment shader",
+    Language.OPENGL_PYTHON: "an OpenGL Python program",
 }
-#: leaked API / platform tokens that must not appear in any caption
+#: leaked API / platform tokens that must not appear in any caption.  NOTE:
+#: ``THREE.`` (the API namespace) is checked case-sensitively below — the
+#: platform name "Three.js" is REQUIRED in threejs instructions and must not trip it.
 _FORBIDDEN = re.compile(
-    r"\b(bpy|bmesh|mathutils|cq\.|cadquery\.|THREE\.|GLTFLoader|ShaderMaterial|MeshStandardMaterial|"
-    r"Workplane|Shadertoy|Sketchfab|Gemini|Claude|OpenAI|GPT|Antigravity)\b",
+    r"\b(bpy|bmesh|mathutils|cq\.|cadquery\.|GLTFLoader|ShaderMaterial|MeshStandardMaterial|"
+    r"Workplane|moderngl|Shadertoy|Sketchfab|Gemini|Claude|OpenAI|GPT|Antigravity)\b",
     re.IGNORECASE,
 )
+#: all-caps ``THREE.<Symbol>`` namespace usage (case-sensitive; "Three.js" / "THREE.js" stay legal)
+_FORBIDDEN_THREE_NS = re.compile(r"\bTHREE\.(?!js\b)")
 
 
 class Captions(BaseModel):
@@ -103,7 +113,9 @@ def _round_images(ws: Workspace, record: RunRecord) -> tuple[list[ImagePart], li
             used.append(str(p))
 
     _add(rnd.renders.contact_sheet, "contact sheet (all views, labelled)")
-    for v in rnd.renders.views[:N_VIEWS]:
+    views = list(rnd.renders.views)
+    motion = [v for v in views if any(h in v.name for h in MOTION_VIEW_HINTS)]
+    for v in (motion + [v for v in views if v not in motion])[:N_VIEWS]:
         _add(v.path, f"view: {v.name}")
     return images, used
 
@@ -118,7 +130,8 @@ def _code_excerpt(ws: Workspace, record: RunRecord) -> str:
 
 
 def _user_prompt(record: RunRecord, code: str) -> str:
-    kind = {Track.STATIC_OBJECT: "static object", Track.ARTICULATED_OBJECT: "articulated object", Track.SCENE: "scene"}[record.spec.track]
+    kind = {Track.STATIC_OBJECT: "static object", Track.ARTICULATED_OBJECT: "articulated object",
+            Track.SCENE: "scene", Track.GRAPHICS: "animated procedural graphics (judged from sampled frames)"}[record.spec.track]
     return (
         f"Asset kind: {kind}.\nOriginal user request: {record.spec.prompt}\n\n"
         f"Source code (raw, may be truncated):\n{code}\n\nReturn the JSON now."
@@ -129,18 +142,25 @@ def validate_captions(caps: Captions, language: Language) -> list[str]:
     """Rule violations (empty list = ok)."""
     problems = []
     for field in ("detailed", "instruction", "factory"):
-        m = _FORBIDDEN.search(getattr(caps, field))
+        m = _FORBIDDEN.search(getattr(caps, field)) or _FORBIDDEN_THREE_NS.search(getattr(caps, field))
         if m:
             problems.append(f"{field}: must not mention '{m.group(0)}' (API/platform name)")
     phrase_words = {Language.BLENDER: "blender", Language.CADQUERY: "cadquery", Language.THREEJS: "three.js",
-                    Language.URDF_BLENDER: "urdf", Language.SCENE_THREEJS: "three.js"}[language]
+                    Language.URDF_BLENDER: "urdf", Language.SCENE_THREEJS: "three.js",
+                    Language.GLSL_SHADER: "glsl", Language.OPENGL_PYTHON: "opengl"}[language]
     if phrase_words not in caps.instruction.lower():
         problems.append(f"instruction: must name the target language ({LANGUAGE_PHRASE[language]})")
     return problems
 
 
-def caption_sample(ws: Workspace, record: RunRecord, model_id: str, *, model: object | None = None) -> Captions:
-    """Caption the best round of ``record``; stores into record.extra + captions.json."""
+def caption_sample(
+    ws: Workspace, record: RunRecord, model_id: str, *, model: object | None = None, out_dir: Path | str | None = None
+) -> Captions:
+    """Caption the best round of ``record``.
+
+    Default: store into ``record.extra["captions"]`` + ``<ws>/captions.json`` and
+    rewrite ``record.json``.  With ``out_dir`` the workspace is left untouched and
+    ``<out_dir>/<slug>.json`` (captions + provenance) is written instead."""
     if model is None:
         from codeverse.models import get_chat_model
 
@@ -174,12 +194,26 @@ def caption_sample(ws: Workspace, record: RunRecord, model_id: str, *, model: ob
     if caps is None or problems:
         raise CaptionError(f"{ws.root}: captions rejected after retry: {problems}")
     rnd = best_round_record(record)
-    prov = CaptionProvenance(captioner=model_id, round_index=rnd.index if rnd else None, images_used=used,
-                             code_chars=len(code), prompt_hash=prompt_hash(system), cost_usd=cost)
-    record.extra["captions"] = {**caps.model_dump(), "provenance": prov.model_dump(mode="json")}
-    ws.write_json(ws.root / "captions.json", caps.model_dump())
+    prov = CaptionProvenance(captioner=model_id, round_index=rnd.index if rnd else None,
+                             images_used=[_rel(ws, u) for u in used], code_chars=len(code),
+                             prompt_hash=prompt_hash(system), cost_usd=cost)
+    payload = {**caps.model_dump(), "provenance": prov.model_dump(mode="json")}
+    record.extra["captions"] = payload
+    if out_dir is not None:
+        out = Path(out_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / f"{ws.root.name}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+        return caps
+    ws.write_json(ws.root / "captions.json", payload)
     ws.write_json(ws.record_path, record)
     return caps
+
+
+def _rel(ws: Workspace, path: str) -> str:
+    try:
+        return Path(path).relative_to(ws.root).as_posix()
+    except ValueError:
+        return path
 
 
 def _parse_json(text: str) -> dict:

@@ -64,16 +64,41 @@ def apply_rlimit(gb: float) -> str:
 
 
 # ----------------------------------------------------------------------------- exec + errors
+def src_relative(path: str, src_dir: str) -> str | None:
+    """``/ws/src/helpers.py`` → ``src/helpers.py`` when ``path`` lives under ``src_dir``; else None.
+
+    Every runtime reports ``error_file`` workspace-relative (``src/...``) so the repair
+    loop can open the file; the bare basename would resolve to ``<ws>/model.py``.
+    """
+    real_src = os.path.realpath(src_dir)
+    real = os.path.realpath(path)
+    if real == real_src or not real.startswith(real_src + os.sep):
+        return None
+    return os.path.join(os.path.basename(real_src), os.path.relpath(real, real_src)).replace(os.sep, "/")
+
+
+def entry_relative(script_path: str) -> str:
+    """``src/model.py`` for the entry script itself."""
+    return src_relative(script_path, os.path.dirname(os.path.abspath(script_path))) or os.path.basename(script_path)
+
+
 def map_exception(exc: BaseException, script_path: str) -> dict[str, Any]:
-    real = os.path.realpath(script_path)
+    """Traceback → {error_type, error_message, error_file, error_line, error_source, traceback}.
+
+    The innermost frame under ``src/`` wins, so an exception raised in a helper module
+    (``src/helpers.py``) is reported against that file, not the ``model.py`` call site.
+    """
+    src_dir = os.path.dirname(os.path.abspath(script_path))
     info: dict[str, Any] = {"error_type": type(exc).__name__, "error_message": str(exc) or type(exc).__name__,
                             "error_file": "", "error_line": None, "error_source": ""}
-    if isinstance(exc, SyntaxError) and exc.filename and os.path.realpath(exc.filename) == real:
-        info.update(error_file=os.path.basename(script_path), error_line=exc.lineno, error_source=(exc.text or "").strip())
+    syntax_rel = src_relative(exc.filename, src_dir) if isinstance(exc, SyntaxError) and exc.filename else None
+    if syntax_rel:
+        info.update(error_file=syntax_rel, error_line=exc.lineno, error_source=(exc.text or "").strip())
     else:
         for fr in reversed(traceback.extract_tb(exc.__traceback__)):
-            if os.path.realpath(fr.filename) == real:
-                info.update(error_file=os.path.basename(script_path), error_line=fr.lineno, error_source=(fr.line or "").strip())
+            rel = src_relative(fr.filename, src_dir)
+            if rel:
+                info.update(error_file=rel, error_line=fr.lineno, error_source=(fr.line or "").strip())
                 break
     msg = info["error_message"]
     if "BRep_API: command not done" in msg or "StdFail_NotDone" in info["error_type"]:
@@ -98,7 +123,7 @@ def run_script(script_path: str) -> tuple[dict[str, Any] | None, dict[str, Any]]
     except SystemExit as e:
         if e.code in (None, 0):
             return {"error_type": "SystemExit", "error_message": "script called sys.exit() before `result` could be read; remove it",
-                    "error_file": os.path.basename(script_path), "error_line": None, "error_source": "", "traceback": ""}, {}
+                    "error_file": entry_relative(script_path), "error_line": None, "error_source": "", "traceback": ""}, {}
         return map_exception(e, script_path), {}
     except BaseException as e:  # noqa: BLE001
         return map_exception(e, script_path), {}
@@ -107,19 +132,35 @@ def run_script(script_path: str) -> tuple[dict[str, Any] | None, dict[str, Any]]
 
 
 # ----------------------------------------------------------------------------- parts
-def _as_shape(cq: Any, obj: Any) -> Any:
-    """Workplane / Shape → one Shape (compound when several solids)."""
+def _as_shape(cq: Any, obj: Any, warnings: list[str] | None = None, label: str = "result") -> Any:
+    """Workplane / Shape → one Shape (compound when several solids).
+
+    A Workplane whose stack holds only Faces/Edges/Wires/Vertices (a trailing selector such
+    as ``.faces(">Z")``) is NOT exported as a sheet: the solid it was selected from is used
+    (``findSolid``) with a warning, or an error names the stack types when there is none.
+    """
     if isinstance(obj, cq.Workplane):
         vals = [v for v in obj.vals() if isinstance(v, cq.Shape)]
         if not vals:
-            raise ValueError("Workplane holds no shapes (did you forget .extrude()/.box()?)")
+            raise ValueError(f"{label}: Workplane holds no shapes (did you forget .extrude()/.box()?)")
+        if not any(isinstance(v, (cq.Solid, cq.Compound, cq.Shell)) for v in vals):
+            kinds = sorted({type(v).__name__ for v in vals})
+            try:
+                solid = obj.findSolid(searchStack=True, searchParents=True)
+            except Exception as e:  # noqa: BLE001 — ValueError from cadquery; anything else is equally "no solid"
+                raise ValueError(f"{label}: Workplane stack holds only {'/'.join(kinds)} objects, not a Solid — "
+                                 f"end the chain with a solid (.extrude()/.box()/.revolve(); drop the trailing selector) [{e}]") from e
+            if warnings is not None:
+                warnings.append(f"{label}: Workplane stack held {'/'.join(kinds)} objects (trailing selector) — exported the parent "
+                                "solid instead; end the chain with the solid (drop the selector or call .end())")
+            return solid
         return vals[0] if len(vals) == 1 else cq.Compound.makeCompound(vals)
     if isinstance(obj, cq.Shape):
         return obj
-    raise TypeError(f"unsupported object of type {type(obj).__name__}; expected cq.Workplane or cq.Shape")
+    raise TypeError(f"{label}: unsupported object of type {type(obj).__name__}; expected cq.Workplane or cq.Shape")
 
 
-def flatten_assembly(cq: Any, assy: Any) -> list[dict[str, Any]]:
+def flatten_assembly(cq: Any, assy: Any, warnings: list[str] | None = None) -> list[dict[str, Any]]:
     """Depth-first leaves: {name, shape (world-located), rgba, path}."""
     out: list[dict[str, Any]] = []
 
@@ -127,7 +168,7 @@ def flatten_assembly(cq: Any, assy: Any) -> list[dict[str, Any]]:
         loc = parent_loc * node.loc
         rgba = node.color.toTuple() if node.color is not None else parent_rgba
         if node.obj is not None:
-            shape = _as_shape(cq, node.obj).moved(loc)
+            shape = _as_shape(cq, node.obj, warnings, f"part {node.name!r}").moved(loc)
             out.append({"name": node.name, "shape": shape, "rgba": rgba, "path": "/".join(path + [node.name])})
         for child in node.children:
             walk(child, loc, rgba, path + [node.name])
@@ -136,10 +177,10 @@ def flatten_assembly(cq: Any, assy: Any) -> list[dict[str, Any]]:
     return out
 
 
-def collect_parts(cq: Any, result: Any) -> tuple[list[dict[str, Any]], str]:
+def collect_parts(cq: Any, result: Any, warnings: list[str] | None = None) -> tuple[list[dict[str, Any]], str]:
     if isinstance(result, cq.Assembly):
-        return flatten_assembly(cq, result), "assembly"
-    shape = _as_shape(cq, result)
+        return flatten_assembly(cq, result, warnings), "assembly"
+    shape = _as_shape(cq, result, warnings, "result")
     return [{"name": "Object", "shape": shape, "rgba": None, "path": "Object"}], "single"
 
 
@@ -201,7 +242,7 @@ def export_step_stl(cq: Any, result: Any, parts: list[dict[str, Any]], out_dir: 
         if isinstance(result, cq.Assembly):
             result.export(step) if hasattr(result, "export") else result.save(step)
         else:
-            cq.exporters.export(_as_shape(cq, result), step)
+            cq.exporters.export(_as_shape(cq, result, None, "result"), step)
         report["exported"]["step"] = step
     except Exception as e:  # noqa: BLE001
         report["warnings"].append(f"STEP export failed: {e}")
@@ -238,12 +279,12 @@ def main() -> int:
         report["exec_ms"] = int((time.monotonic() - t_exec) * 1000)
     census: dict[str, Any] = {"parts": [], "tri_count": 0, "warnings": report["warnings"], "frame": "z_up_neg_y_front"}
     if err is None and "result" not in ns:
-        err = {"error_type": "MissingResult", "error_file": os.path.basename(script),
+        err = {"error_type": "MissingResult", "error_file": entry_relative(script),
                "error_message": "model.py must assign a module-level `result` (cq.Assembly or cq.Workplane); "
                                 "it must exist at import time, not only under `if __name__ == '__main__':`"}
     if err is None:
         try:
-            parts, kind = collect_parts(cq, ns["result"])
+            parts, kind = collect_parts(cq, ns["result"], report["warnings"])
             census["result_kind"] = kind
             if kind == "single":
                 report["warnings"].append("result is a bare Workplane/Shape: exported as ONE node 'Object' — prefer cq.Assembly with named, coloured parts")
@@ -251,11 +292,15 @@ def main() -> int:
             for p in parts:
                 verts, tris = tessellate(p, args.tolerance, args.angular_tolerance)
                 meshes.append((p, verts, tris))
-                census["parts"].append(part_census(p, len(tris)))
+                rec = part_census(p, len(tris))
+                census["parts"].append(rec)
                 if not PASCAL_RE.match(p["name"]):
                     report["warnings"].append(f"part name {p['name']!r} is not PascalCase (give every .add(...) a name='PartName')")
                 if not tris:
                     report["warnings"].append(f"part {p['name']!r} tessellated to 0 triangles (empty/degenerate shape)")
+                elif rec.get("n_solids") == 0:
+                    report["warnings"].append(f"part {p['name']!r} contains no solid (a face/shell/wire set, volume 0) — "
+                                              "build it as a solid (.extrude()/.box()/.shell()) so it has thickness")
             census["tri_count"] = sum(len(m[2]) for m in meshes)
             if census["parts"]:
                 census["scene_bbox_min"] = [min(p["bbox_min"][i] for p in census["parts"]) for i in range(3)]
@@ -273,6 +318,8 @@ def main() -> int:
                 err["error_type"], err["error_message"] = "ExportError", f"{type(e).__name__}: {e}"
     if err:
         report.update({k: v for k, v in err.items() if k in report or k == "traceback"})
+        if err.get("traceback"):
+            print(err["traceback"], file=sys.stderr, end="")
     census["n_parts"] = len(census["parts"])
     write_json_atomic(census_path, census)
     report["ok"] = not report["error_type"] and "glb" in report["exported"]

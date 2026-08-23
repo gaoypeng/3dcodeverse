@@ -10,7 +10,7 @@ from fnmatch import fnmatch
 
 from pydantic import BaseModel, Field
 
-from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse.contracts.artifacts import GateFinding, GateReport, RenderView, Severity
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.judges.rubrics import CapRule, Rubric
 
@@ -64,17 +64,30 @@ def apply_caps(
     acceptance_items: list[AcceptanceItem] | None = None,
     *,
     console_errors: list[str] | None = None,
+    views: list[RenderView] | None = None,
+    defects_present: dict[str, bool] | None = None,
 ) -> CapResult:
     """Apply every rubric cap rule; the overall becomes ``min(overall, caps...)``.
 
     Only the first matching finding per rule is recorded as evidence (one ledger
-    line per rule), but all rules are evaluated.
+    line per rule), but all rules are evaluated.  ``defects_present`` (checklist
+    id → True) adds one ``defect:<id>`` ledger line per present defect that
+    carries a ``cap``.
     """
     applied: list[CapApplied] = []
     for rule in rubric.caps:
-        evidence = _rule_evidence(rule, gates, acceptance_results, acceptance_items or [], console_errors or [])
+        evidence = _rule_evidence(rule, gates, acceptance_results, acceptance_items or [], console_errors or [], views or [])
         if evidence is not None:
             applied.append(CapApplied(rule=rule.id, cap=rule.cap, evidence=evidence))
+    for did, present in (defects_present or {}).items():
+        if not present:
+            continue
+        try:
+            item = rubric.defect(did)
+        except KeyError:
+            continue
+        if item.cap is not None:
+            applied.append(CapApplied(rule=f"defect:{did}", cap=item.cap, evidence=f"judge checklist: {item.text[:120]}"))
     capped = overall
     for a in applied:
         capped = min(capped, a.cap)
@@ -87,7 +100,13 @@ def _rule_evidence(
     acceptance_results: dict[str, bool],
     acceptance_items: list[AcceptanceItem],
     console_errors: list[str],
+    views: list[RenderView],
 ) -> str | None:
+    if rule.when == "missing_views":
+        tokens = [k.lower() for k in rule.kinds]
+        if any(any(t in f"{v.name} {v.mode}".lower() for t in tokens) for v in views):
+            return None
+        return f"no render view matching {rule.kinds} among {len(views)} view(s)"
     if rule.when == "acceptance":
         missing = missing_must_items(acceptance_items, acceptance_results)
         if missing:

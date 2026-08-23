@@ -6,10 +6,15 @@ argv: ``gemini -p <prompt> -m <model> --approval-mode yolo --skip-trust --output
   ``GEMINI_CLI_SYSTEM_SETTINGS_PATH`` forcing api-key auth + dynamic model
   configuration (otherwise an unknown model is *silently* substituted), Node
   heap cap, no self-relaunch.
-* JSON envelope ``{session_id, response, stats:{models:{<m>:{tokens:{input,
-  candidates, cached, thoughts}}}, tools:{totalCalls}}}`` → Usage (+ cost via
-  pricing).  Requested model absent from ``stats.models`` → ``model_substituted``.
-* one retry (rotated key) on transient failures (429 / 503 / empty response).
+* JSON envelope ``{session_id, response, stats:{models:{<m>:{tokens:{prompt,
+  input, candidates, cached, thoughts}}}, tools:{totalCalls}}}`` → Usage (+ cost
+  via pricing).  ``tokens.prompt`` is the TOTAL prompt size and ``tokens.input``
+  the UNCACHED part (``prompt - cached``); ``Usage.input_tokens`` follows the
+  pricing convention (total prompt, cached re-priced).  Each served model is
+  priced at its own rate.  Requested model absent from ``stats.models`` →
+  ``model_substituted``.
+* one retry (rotated key when the pool has one, else the same key) on transient
+  failures (429 / 503 / empty response); a throttled/empty pool never raises.
 """
 
 from __future__ import annotations
@@ -37,16 +42,26 @@ from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Usage
 
+try:
+    from codeverse.models.keypool import KeyPoolExhausted
+except ImportError:  # pragma: no cover - models package is always present in a full install
+
+    class KeyPoolExhausted(RuntimeError):  # type: ignore[no-redef]
+        """Stand-in so the retry path can catch the pool's exhaustion uniformly."""
+
+
 log = logging.getLogger(__name__)
 
 SYSTEM_SETTINGS = {
     # folderTrust must be OFF: with it on, gemini-cli silently disables the workspace
-    # .gemini/settings.json mcpServers (even with --skip-trust) → no c3v tools.
+    # .gemini/settings.json mcpServers (even with --skip-trust) → no 3dcv tools.
     "security": {"auth": {"selectedType": "gemini-api-key"}, "folderTrust": {"enabled": False}},
     "experimental": {"dynamicModelConfiguration": True},
     "general": {"topicUpdateNarration": False},
 }
 IDLE_GRACE_S = 300.0
+#: how long a retry waits for a *different* healthy key before reusing the same one
+RETRY_KEY_WAIT_S = 10.0
 
 
 class _LocalKeyRotor:
@@ -55,7 +70,7 @@ class _LocalKeyRotor:
     def __init__(self, keys: list[str]):
         self._keys, self._i = list(keys), 0
 
-    def acquire(self, *, exclude: set[str] | None = None) -> str:
+    def acquire(self, *, exclude: set[str] | None = None, timeout_s: float | None = None) -> str:
         for _ in range(len(self._keys)):
             k = self._keys[self._i % len(self._keys)]
             self._i += 1
@@ -115,18 +130,46 @@ def parse_gemini_json(stdout: str) -> dict[str, Any] | None:
     return None
 
 
+def _model_usage(tok: dict[str, Any], name: str) -> Usage:
+    """One served model's counters in pricing semantics (``input_tokens`` = total prompt)."""
+    cached = int(tok.get("cached") or 0)
+    prompt = tok.get("prompt")
+    # gemini-cli: tokens.prompt = promptTokenCount (total), tokens.input = prompt - cached
+    total = int(prompt) if prompt is not None else int(tok.get("input") or 0) + cached
+    return Usage(backend="gemini-cli", model=name, input_tokens=total, cached_tokens=cached,
+                 output_tokens=int(tok.get("candidates") or 0), thoughts_tokens=int(tok.get("thoughts") or 0))
+
+
 def usage_from_stats(stats: dict[str, Any], model: str) -> Usage:
-    """Sum tokens across every served model (normally just ``model``)."""
+    """Sum tokens across every served model (normally just ``model``); cost is the
+    sum of each served model priced at its own rate (unknown → requested model's)."""
     u = Usage(backend="gemini-cli", model=model)
-    for _name, m in (stats.get("models") or {}).items():
-        tok = (m or {}).get("tokens") or {}
-        u.input_tokens += int(tok.get("input") or tok.get("prompt") or 0)
-        u.output_tokens += int(tok.get("candidates") or 0)
-        u.cached_tokens += int(tok.get("cached") or 0)
-        u.thoughts_tokens += int(tok.get("thoughts") or 0)
+    cost = 0.0
+    for name, m in (stats.get("models") or {}).items():
+        part = _model_usage((m or {}).get("tokens") or {}, str(name))
+        c = estimate_cost_safe("gemini", str(name), part)
+        if c == 0.0 and name != model and (part.input_tokens or part.output_tokens):
+            c = estimate_cost_safe("gemini", model, part)  # utility model missing from the price table
+        cost += c
+        u.input_tokens += part.input_tokens
+        u.output_tokens += part.output_tokens
+        u.cached_tokens += part.cached_tokens
+        u.thoughts_tokens += part.thoughts_tokens
     u.tool_calls = int(((stats.get("tools") or {}).get("totalCalls")) or 0)
-    u.cost_usd = estimate_cost_safe("gemini", model, u)
+    u.cost_usd = cost
     return u
+
+
+def _retry_key(pool: Any, used: set[str]) -> str | None:
+    """Key for a retry: a different healthy key if one frees up within
+    ``RETRY_KEY_WAIT_S``, else the same key again (single-key pools, 5xx), else
+    ``None`` when every key is throttled (429 cooldown) — the caller then stops."""
+    for exclude in (used, None):
+        try:
+            return pool.acquire(exclude=exclude or None, timeout_s=RETRY_KEY_WAIT_S)
+        except KeyPoolExhausted:
+            continue
+    return None
 
 
 class GeminiCliAgent:
@@ -170,12 +213,15 @@ class GeminiCliAgent:
             return failed(s, "error", why)
         prompt = deliver_prompt(s, _compose_prompt(job))
         pool = _key_pool(get_settings().gemini_api_keys)
+        try:
+            key = pool.acquire()
+        except KeyPoolExhausted as e:  # every key throttled for the whole wait budget
+            return failed(s, "budget", f"Gemini key pool exhausted before the first attempt: {e}")
         attempts = 0
         used: set[str] = set()
         usage_total = Usage(backend=self.kind, model=self.model)
         while True:
             attempts += 1
-            key = pool.acquire(exclude=used or None)
             used.add(key)
             proc = self._invoke(s, prompt, key, attempt=attempts)
             outcome = self._interpret(s, proc)
@@ -183,7 +229,13 @@ class GeminiCliAgent:
             pool.report(key, "429" if outcome["quota"] else ("ok" if outcome["ok"] else "5xx"))
             if outcome["ok"] or outcome["exit_reason"] in ("timeout", "model_substituted") or not outcome["transient"] or attempts >= 2:
                 break
-            s.notes.append(f"attempt {attempts} transient failure ({outcome['exit_reason']}); retrying with rotated key")
+            next_key = _retry_key(pool, used)
+            if next_key is None:
+                s.notes.append(f"attempt {attempts} transient failure ({outcome['exit_reason']}); no usable key for a retry")
+                break
+            key = next_key
+            how = "rotated key" if key not in used else "same key (no alternative available)"
+            s.notes.append(f"attempt {attempts} transient failure ({outcome['exit_reason']}); retrying with {how}")
             s.traj.append("retry", attempt=attempts, reason=outcome["errors"][:1])
         usage_total.cost_usd = round(usage_total.cost_usd, 6)
         return finish_session(

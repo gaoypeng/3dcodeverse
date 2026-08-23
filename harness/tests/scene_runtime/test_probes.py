@@ -132,3 +132,57 @@ def test_shader_presence_on_example_and_when_hidden(starter_ws):
     e.write_text(e.read_text().replace("  sky.name = 'Sky';", "  sky.name = 'Sky';\n  sky.visible = false;"))
     obs2 = shader_presence(starter_ws)
     assert obs2.numbers["max_diff_frac"] == 0.0 and "NOT VISIBLE" in obs2.text
+
+
+def test_probe_scene_hanging_create_scene_times_out_as_agent_finding(starter_ws):
+    """Finding: a createScene that never resolves (loader.load without onError on a
+    missing asset) must time out INSIDE boot with an agent-attributed finding, not
+    hang into the driver watchdog (exit 3 → 'harness failure, not your code')."""
+    (starter_ws.src / "scene.js").write_text(
+        "import * as THREE from 'three';\n"
+        "export async function createScene({ THREE: T, renderer, loaders }) {\n"
+        "  const tex = await new Promise((resolve) => loaders.texture.load('/assets/missing.png', resolve));\n"
+        "  return { scene: new THREE.Scene(), cameras: [], update() {} };\n"
+        "}\n"
+    )
+    res = probe_scene(starter_ws, timeout_s=10)   # createScene timeout = 6 s < watchdog
+    gate = res.gate
+    assert not gate.passed
+    err = next(f for f in gate.errors if f.data.get("stage") == "createScene")
+    assert "did not resolve within" in err.message and "never settled" in err.message
+    assert "failed to load /assets/missing.png" in err.message
+    assert "createScene({THREE, renderer, loaders})" in err.fix_hint
+    assert res.ok and res.errors == []          # the probe TOOL ran fine (agent-fixable failure)
+    assert not any("harness/driver failure" in f.fix_hint for f in gate.findings)
+
+
+def test_probe_result_tool_semantics(starter_ws, monkeypatch):
+    """SceneProbeResult.ok/errors = 'did the tool run' (MCP is_error); agent-fixable
+    gate findings live in .findings and never mark the tool call as failed."""
+    import codeverse.spatial.probes as probes_mod
+    from codeverse.spatial.render_scene import NodeResult, SceneRenderError
+
+    def fake_run_ok(script, args, **kw):
+        return NodeResult(0, "", "", {
+            "ok": False,
+            "boot": {"ok": True, "stage": "ready", "cameras": [{"name": "a"}], "camera_problems": []},
+            "update_ok": True, "census": {"totals": {"meshes": 3, "lights": 1}},
+            "console_errors": ["custom failure 42"], "console_warnings": [], "shader_errors": [],
+        }, 5)
+
+    monkeypatch.setattr(probes_mod, "run_scene_script", fake_run_ok)
+    res = probes_mod.probe_scene(starter_ws)
+    assert not res.gate.passed                       # gate truth: the scene has an error
+    assert res.ok and res.errors == []               # tool truth: the probe ran
+    assert any("custom failure 42" in line for line in res.findings)
+
+    def fake_run_crash(script, args, **kw):
+        raise SceneRenderError("probe_scene.mjs failed (exit 3): timeout")
+
+    monkeypatch.setattr(probes_mod, "run_scene_script", fake_run_crash)
+    res2 = probes_mod.probe_scene(starter_ws)
+    assert not res2.gate.passed and not res2.ok
+    assert res2.errors and "could not run" in res2.errors[0]
+    assert res2.gate.errors[0].data.get("harness_failure") is True
+    rep = probes_mod.check_shaders(starter_ws)
+    assert not rep.passed and rep.errors[0].data.get("harness_failure") is True

@@ -1,0 +1,187 @@
+# Runbook — operating the harness
+
+Everything here was exercised on this machine (WSL2, RTX 5090, Blender 5.0.1,
+node 24, gemini-cli 0.53, claude 2.1, codex 0.147+, agy 1.1) on 2026-08-23.  Paths
+are relative to `/home/yipeng/3dcodeverse/harness` unless absolute.  The CLI is
+`3dcodeverse` with short alias `3dcv` (used below).
+
+## 1. Install and check
+
+```bash
+pip install -e /home/yipeng/3dcodeverse/harness      # once; entry points 3dcodeverse and 3dcv
+cd /home/yipeng/3dcodeverse/harness/runtime_js && npm install   # three@0.182, puppeteer (chrome cached)
+3dcv doctor            # python deps (incl. python-fcl, moderngl), blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, ffmpeg, mcp
+3dcv doctor --live     # + one tiny Gemini call ("pong", ~$0.00001)
+python -m pytest tests -q -m "not live"                 # ~860 offline tests (blender/node/GL tests run when the binaries exist)
+python -m pytest tests -q -m "not live and not blender and not node"   # pure-python subset
+```
+
+### Keys and settings
+* Gemini keys, in precedence order: `GEMINI_API_KEYS` (comma-separated) → `GEMINI_API_KEY`
+  / `GOOGLE_API_KEY` → legacy `~/.config/astra3d/gemini_keys.env` (22 keys here).
+  All `gemini:*` models share one `KeyPool` (900 rpm/key, 30 s cooldown on 429; dead
+  keys benched 1 h and re-probed; 429s rotate to fresh keys for free).
+  `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CV3D_OPENAI_BASE_URL` for the other
+  providers (not set on this box → `anthropic:*` / `openai:*` unavailable).
+* Settings: `~/.config/codeverse/config.yaml` or `./codeverse.yaml`, overridden by env
+  with prefix `CV3D_` and `__` nesting — e.g. `CV3D_RUNS_DIR=/data/runs`,
+  `CV3D_RENDER__GPU=off`, `CV3D_BINARIES__BLENDER=/opt/blender/blender`,
+  `CV3D_LIMITS__AGENT_TIMEOUT_S=900`, `CV3D_DEFAULT_CANDIDATES=2`.
+  Defaults: runs_dir `runs/`, cache_dir `~/.cache/codeverse`, build/render timeout 300 s,
+  agent timeout 1800 s, bpy RLIMIT 12 GB, 6 parallel agents, 3 parallel builds,
+  `default_judge gemini:gemini-3.1-pro-preview`, `default_candidates 1`.
+* Blender: `settings.binaries.blender` else first `blender-5.0`/`blender`/… on PATH.
+  Always `-b --factory-startup`; the child env strips `PYTHONPATH`/`PYTHONHOME`.
+* GPU rendering: `runtime_js/gpu_launch.cjs` tries Chrome with `--use-angle=gl-egl` +
+  Mesa d3d12 env and falls back to SwiftShader; probe cached in
+  `~/.cache/codeverse/gpu_probe.json`.  Force with `CV3D_RENDER_GPU=on|off|auto` or
+  `settings.render.gpu`.  The graphics track uses moderngl the same way (d3d12 GPU
+  context first, llvmpipe fallback; no probe needed — `GlHost` decides per process).
+
+## 2. Running each track
+
+```bash
+# static object — Blender (default language, multi-file src/model.py + src/parts/*.py)
+3dcv make "a mid-century wooden dining chair" --track static_object --language blender
+3dcv make "a brass desk lamp" --track static_object --language cadquery
+3dcv make "a classic park bench" --track static_object --language threejs --generator gemini-cli:gemini-3.7-flash
+# articulated object — bpy links + URDF
+3dcv make "a bedside cabinet with one hinged door and one drawer" --track articulated_object --language urdf_blender
+# scene — multi-file three.js + GLSL (+ optional bpy GLB assets chosen by the planner)
+3dcv make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs --rounds 2 --max-usd 3 --max-minutes 60
+# graphics — animated shader / raw OpenGL program
+3dcv make "neon cyberpunk rain on a window with bokeh city lights" --track graphics --language glsl_shader
+3dcv make "instanced pastel cubes with bloom" --track graphics --language opengl_python
+```
+Useful flags (`3dcv make --help`): `--generator`, `--planner`, `--judge`, `--captioner`
+(backend ids, §3), `--image <png>` (repeatable; reference images → `ReferenceJudge` +
+silhouette gate + IoU refine tasks), `--rounds N` (refine rounds after the baseline),
+`--candidates N` (best-of-N baseline: N parallel candidates in `<ws>/_cand/`,
+quick-judged, pairwise tie-break, winner kept; multiplies baseline cost ≈ N;
+default from `settings.default_candidates`), `--texture` (run the texture pass after
+finalise; see §6), `--max-usd`, `--max-minutes`, `--dim height=0.45`, `--must`,
+`--must-not`, `--style`, `--tag`, `--seed`, `--slug`, `--runs-dir`, `--force`,
+`--no-run`.
+
+Expected cost/time with gemini-3.7-flash: object tracks ≈ $0.7–0.9 and 12–36 min for
+baseline + 1 refine; best-of-2 single-shot ≈ $0.25 / 8 min; graphics single-shot
+≈ $0.05 / 2 min per judged round; scenes ≈ $2.3 and 30 min before the first judged
+round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60 --max-usd 4`).
+
+## 3. Backends
+
+| id | what runs | notes |
+|---|---|---|
+| `api-agent:gemini:gemini-3.7-flash` (default) | in-process tool loop with file tools + every spatial tool | cheapest agentic path; the only backend whose transcripts feed repair-pair mining |
+| `single-shot:gemini:gemini-3.7-flash` | one structured-output call → multi-file envelope, no tools | fastest/cheapest; baseline for "raw model" deltas |
+| `gemini-cli:gemini-3.7-flash` | `gemini -p … --approval-mode yolo --skip-trust --output-format json` | see gotchas below |
+| `claude-code:<model>` | `claude -p … --dangerously-skip-permissions --mcp-config ws/.mcp.json …` | local subscription — test lightly |
+| `codex:<model>` | `codex exec --json -C ws --sandbox workspace-write … -c mcp_servers.3dcv.…` | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it) |
+| `agy:<model>` | `agy --print … --add-dir ws` | no per-workspace MCP: tools via `3dcv tools <name> --json … --workspace .`; no served-model or cost reporting |
+| `gemini:* / anthropic:* / openai:*` | ChatModel for planner / judge / captioner / single-shot | Anthropic/OpenAI untested live here |
+
+### gemini-cli gotchas (handled by `agents/gemini_cli.py`; do not undo)
+* System settings file via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`: api-key auth,
+  `experimental.dynamicModelConfiguration=true` (else unknown models are silently
+  substituted → checked, `exit_reason=model_substituted`), `security.folderTrust.enabled=false`
+  (else workspace MCP servers are silently ignored even with `--skip-trust`).
+* Workspace `.gemini/settings.json` sets `context.fileFiltering.respectGitIgnore=false`
+  so the fine-grained `.geminiignore` (not the git ignore) decides what the agent can
+  read: build/census/measurement JSON and its own `task_prompt.md` stay readable,
+  renders/judge output/transcripts stay hidden.
+* One pool key injected as `GEMINI_API_KEY`; other credential env stripped; retries
+  prefer a different key (never raise KeyPoolExhausted out of a session).
+* Cost accounting: `tokens.prompt` (total, incl. cached) is the input count; each
+  served model priced at its own rate.
+* Cookbook copied to `ws/.3dcv/cookbook.md` (gemini-cli cannot read outside the ws).
+* MCP server argv is `[sys.executable, -m, codeverse.spatial.mcp_server, --workspace, ws]`;
+  server name `3dcv` → tools appear as `mcp_3dcv_<name>` (gemini) / `mcp__3dcv__<name>`
+  (claude).  `3dcv mcp --workspace runs/<slug>` execs the same server;
+  `python -m codeverse.spatial.mcp_server --workspace ws --list` prints the tools.
+
+## 4. Where outputs land
+
+`runs/<slug>/` (ARCHITECTURE §3).  Code in `src/` (git; one commit per round), built
+artifacts in `artifacts/` (`object.glb`, `robot.urdf` + `meshes/`, scene
+`public/assets/*.glb`, graphics `frames/` + `frames_sheet.png` + `preview.gif` +
+`metrics.json`, texturing `object_textured.glb` + `textures/`), per-round renders in
+`artifacts/renders/rNN/`, gate JSON in `artifacts/gates/rNN/`, verdicts in
+`artifacts/judge/rNN.json`, transcripts in `trajectories/<label>_rNN/` (retries in
+`<label>.a2_rNN`), events in `events.jsonl`, the flywheel record in `record.json`.
+`3dcv status <slug>` prints the rounds table (best round starred), cost and the last
+events.
+
+## 5. Resume, re-render, re-judge, texture, export
+
+```bash
+3dcv resume <slug> [--candidates N]     # continues from run_state + stages/*.json (input-hash cached; budget restored)
+3dcv render <slug> [--round N] [--mode shaded|wire|normals|clay|silhouette] [--out dir]
+3dcv judge <slug> [--round N] [--rubric static_object_v1] [--model gemini:gemini-3.1-pro-preview] [--n 3]
+                                        # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json
+3dcv texture pass <slug> [--no-judge] [--model …] [--judge-model …] [--image-model …] [--size 1024]
+3dcv texture scene-pack <slug> [--n 10] · 3dcv texture show <slug>
+3dcv tools list [--cards] · 3dcv tools measure --workspace runs/<slug> · 3dcv tools gl_frames --workspace … --json '{"times":[0,1,2.5]}'
+3dcv flywheel export runs/ dataset/ [--min-score 0.7] [--only-passed] [--pack] [--include-unbuilt]
+                                     [--captions-dir caps/] [--drop-duplicates]
+3dcv flywheel pairs runs/ pairs.jsonl [--min-delta 0.05] [--no-trajectories]
+3dcv flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
+3dcv flywheel gallery runs/ gallery.html [--title …]        # self-contained HTML gallery (tiers, thumbs)
+3dcv flywheel index runs/ runs_index.sqlite · 3dcv flywheel dedupe dataset/
+python -m codeverse.judges.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
+                                        # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
+```
+A run that crashed outside its own handling leaves `record.json` with `status=failed`;
+`3dcv resume` retries from the last completed stage/round (cached plan/skeleton/scene
+stages are reused — this also recovers from Gemini 503 storms).  Ctrl-C is safe.
+
+## 6. Texture pass
+
+`3dcv texture pass <slug>` (or `--texture` on `make`): one VLM material plan →
+tileable texture images (gemini-3.1-flash-image, ~$0.07/tile, cached by prompt) →
+world-metre UVs → `artifacts/object_textured.glb` → seam gate + before/after judge
+gate (ships only when the score does not drop and the materials criterion improves).
+`record.extra["texturing"]` holds shipped/delta/cost; `3dcv texture show <slug>`
+prints it.  Scenes: `3dcv texture scene-pack <slug>` writes 6–12 named tiles +
+manifest under `public/textures/` for zone prompts.  Object tracks' agents can also
+call the `texture_pass` / `texture_preview` tools mid-session.
+
+## 7. Benchmarks
+
+```bash
+3dcv bench run bench/prompts/static_objects_v1.yaml --generator single-shot:gemini:gemini-3.7-flash \
+    --judge gemini:gemini-3.1-pro-preview --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out bench/out/x]
+3dcv bench report bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
+python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
+    --arms harness:api-agent:gemini:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
+```
+Results stream to `results.jsonl` (resumable).  Batteries: `static_objects_v1` (24),
+`articulated_v1` (12), `scenes_v1` (12), `compare_v1` (8, harness-vs-one-shot).
+Protocol and judge calibration: `docs/EVAL.md`.
+
+## 8. Extending (plugin paths)
+
+* **New language**: enum in `contracts/common.py::Language` (+ `TRACK_LANGUAGES`),
+  frame in `conventions.LANGUAGE_FRAME`; `languages/<lang>/{runtime.py, lint.py,
+  skeleton.py, CONTRACT.md, wrappers/}` implementing `LanguageRuntime`; branch in
+  `languages/base.py::get_runtime`; `prompts/<lang>/contract.md` + `cookbook.md`
+  (every snippet must run — `tests/prompts` executes them); entry-file mappings in
+  `flywheel/sample.py`; part→file mapping via `runtime.file_for_part` (blender and
+  threejs have it; `tracks/prompting.file_for_target_factory` picks it up).
+* **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…),
+  languages=(…), cost_hint=…)` in `spatial/tools*.py` (imported from
+  `spatial/tools.py`); available to tracks, MCP, api-agent and prompt cards at once.
+  Update `tests/spatial_tools` EXPECTED_TOOLS.
+* **New rubric**: `judges/rubrics/<name>.yaml` with `pass_threshold`,
+  `criteria[{id, weight, floor, title, description, anchors, kind}]`,
+  `caps[{id, cap, when: gate|acceptance|console|missing_views, gate, severity, kinds}]`,
+  `defects[{id, text, penalty, cap}]`.  Tracks pick rubrics in `tracks/*.py`;
+  `3dcv judge` maps track → rubric in `cli/main.py`.
+* **New backend**: ChatModel → `models/<provider>.py` + registry + prices;
+  CodingAgent → `agents/<kind>.py` using `cli_common` + registry + `materialize.py`.
+* **New track**: subclass `tracks/lifecycle.py::BaseTrack` (hooks: `make_pipeline`,
+  `prepare`, `baseline_tasks`, `refine_tasks`, `round_files_hint`), a `RoundPipeline`,
+  plan model in `contracts/plan.py`, `.j2` prompts, branch in `tracks/base.py`
+  (`get_track` forwards `**options` to constructors).  `tracks/graphics.py` is the
+  template for a track with its own planner and no GLB.
+* **New bench battery**: `bench/prompts/<name>.yaml` with `name, track, language,
+  prompts[{id, tier, category, prompt, must_have, dimensions_m}]`.

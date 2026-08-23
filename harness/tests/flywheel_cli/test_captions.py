@@ -85,3 +85,80 @@ def test_caption_live_gemini(fake_run):
     ws, rec = fake_run
     caps = caption_sample(ws, rec, "gemini:gemini-3.7-flash")
     assert len(caps.detailed) > 20 and "blender" in caps.instruction.lower()
+
+
+# --------------------------------------------------------------------------- finding: Three.js phrase vs forbidden THREE.
+GOOD_JS = {
+    "detailed": "A desk lamp with a round base, an arched arm and a conical shade.",
+    "instruction": "Write a Three.js module that builds a desk lamp with a round base and conical shade.",
+    "factory": "Build the base cylinder, sweep the arm along an arc, add the cone shade, then merge the groups.",
+}
+
+
+def test_threejs_instruction_naming_threejs_is_valid():
+    """The required 'Three.js' phrase must NOT trip the forbidden-API check (both js languages)."""
+    from codeverse.contracts.common import Language
+    from codeverse.flywheel.captions import Captions, validate_captions
+
+    c = Captions(**GOOD_JS)
+    assert validate_captions(c, Language.THREEJS) == []
+    assert validate_captions(c, Language.SCENE_THREEJS) == []
+    # the API namespace itself stays forbidden (case-sensitive THREE.<Symbol>)
+    bad = Captions(**dict(GOOD_JS, factory="Build a THREE.Group holding THREE.Mesh boxes for every part."))
+    probs = validate_captions(bad, Language.THREEJS)
+    assert probs and "THREE." in probs[0]
+    # and omitting the platform name still fails the phrase check
+    off = Captions(**dict(GOOD_JS, instruction="Write a module that builds a desk lamp with a round base."))
+    assert any("target language" in p for p in validate_captions(off, Language.THREEJS))
+
+
+def test_caption_sample_threejs_run(tmp_path):
+    """End to end: a threejs run captions successfully with a 'Three.js' instruction."""
+    from codeverse.contracts.common import Language
+    from tests.flywheel_cli.conftest import make_fake_run
+
+    ws, rec = make_fake_run(tmp_path / "runs", "lamp_js", prompt="a desk lamp", language=Language.THREEJS)
+    m = FakeModel([GOOD_JS])
+    caps = caption_sample(ws, rec, "fake:fake", model=m)
+    assert "Three.js" in caps.instruction and len(m.requests) == 1  # no retry needed
+
+
+def test_caption_graphics_and_scene_phrases():
+    """Graphics languages have phrases + phrase words (no KeyError, sane rules)."""
+    from codeverse.contracts.common import Language
+    from codeverse.flywheel.captions import Captions, validate_captions
+
+    shader = Captions(
+        detailed="Neon rain streaks down a dark window while blurred city lights pulse behind the glass.",
+        instruction="Write a GLSL fragment shader showing neon rain running down a window at night.",
+        factory="Layer a bokeh background pass, a grid-cell rain pass with per-cell offsets, then grade with a vignette.",
+    )
+    assert validate_captions(shader, Language.GLSL_SHADER) == []
+    assert any("target language" in p
+               for p in validate_captions(shader.model_copy(update={"instruction": "Write a shader with rain."}),
+                                          Language.GLSL_SHADER))
+    gl = shader.model_copy(update={"instruction": "Write an OpenGL Python program showing neon rain on a window."})
+    assert validate_captions(gl, Language.OPENGL_PYTHON) == []
+    leaked = shader.model_copy(update={"factory": "Uses moderngl FBOs for the feedback pass."})
+    assert any("moderngl" in p for p in validate_captions(leaked, Language.OPENGL_PYTHON))
+
+
+def test_caption_graphics_run_from_frames(tmp_path):
+    """(f) graphics runs (no GLB) caption from the sheet/frames renders."""
+    from codeverse.contracts.common import Language
+    from tests.flywheel_cli.conftest import make_fake_run
+
+    ws, rec = make_fake_run(tmp_path / "runs", "rain_glsl", prompt="neon rain", language=Language.GLSL_SHADER)
+    reply = {
+        "detailed": "Bright neon streaks slide down a dark pane while soft coloured discs drift behind it.",
+        "instruction": "Write a GLSL fragment shader with neon rain streaking down a dark window.",
+        "factory": "Hash-place bokeh discs in three depth layers, add per-cell rain trails, then tonemap and vignette.",
+    }
+    m = FakeModel([reply])
+    caps = caption_sample(ws, rec, "fake:fake", model=m)
+    assert caps.instruction.lower().count("glsl")
+    req = m.requests[0]
+    from codeverse.contracts.chat import ImagePart as IP
+
+    imgs = [p for p in req.messages[0].parts if isinstance(p, IP)]
+    assert len(imgs) == 3  # sheet + 2 frame views

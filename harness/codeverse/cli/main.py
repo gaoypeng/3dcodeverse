@@ -1,4 +1,4 @@
-"""``c3v`` — the 3dcodeverse command line.
+"""``3dcv`` — the 3dcodeverse command line.
 
 Thin by design: every command builds typed inputs and calls into the harness
 packages lazily (``cli/_common.lazy``), so the CLI imports and prints help
@@ -21,16 +21,18 @@ from codeverse.cli._fmt import console, err_console, kv_table, ok, print_record_
 from codeverse.cli.bench_cmd import bench_app
 from codeverse.cli.doctor import doctor_app
 from codeverse.cli.flywheel_cmd import flywheel_app
+from codeverse.cli.texture_cmd import texture_app
 from codeverse.cli.tools_cmd import tools
 from codeverse.contracts.common import Backends, Budget, Language, Track
 from codeverse.contracts.spec import Constraints, ReferenceImage, Spec
 
-app = typer.Typer(name="c3v", help="3dcodeverse: LLMs write raw 3D code; the harness builds, judges, refines, records.",
+app = typer.Typer(name="3dcv", help="3dcodeverse: LLMs write raw 3D code; the harness builds, judges, refines, records.",
                   pretty_exceptions_enable=False)
 app.add_typer(flywheel_app, name="flywheel", help="Dataset export / pairs / captions / index.")
 app.add_typer(bench_app, name="bench", help="Prompt batteries: run + report.")
 app.add_typer(doctor_app, name="doctor", help="Environment checks.")
-app.command("tools", help="List spatial tools or run one: `c3v tools list` | `c3v tools <name> --json '{...}' --workspace ws`.")(tools)
+app.add_typer(texture_app, name="texture", help="Text-to-image texturing: object pass / scene pack.")
+app.command("tools", help="List spatial tools or run one: `3dcv tools list` | `3dcv tools <name> --json '{...}' --workspace ws`.")(tools)
 
 RunsDirOpt = Annotated[Path | None, typer.Option("--runs-dir", help="runs root (default: settings.runs_dir)")]
 
@@ -38,7 +40,7 @@ RunsDirOpt = Annotated[Path | None, typer.Option("--runs-dir", help="runs root (
 @app.callback(invoke_without_command=True)
 def _root(ctx: typer.Context, version: Annotated[bool, typer.Option("--version", is_eager=True)] = False) -> None:
     if version:
-        console.print(f"c3v {__version__}")
+        console.print(f"3dcv {__version__}")
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
@@ -59,6 +61,7 @@ def make(
     rounds: Annotated[int, typer.Option("--rounds", min=0)] = 4,
     max_usd: Annotated[float, typer.Option("--max-usd")] = 5.0,
     max_minutes: Annotated[float, typer.Option("--max-minutes")] = 60.0,
+    candidates: Annotated[int | None, typer.Option("--candidates", min=1, help="best-of-N baseline: N parallel candidates, keep the best (default: settings.default_candidates or 1)")] = None,
     slug: Annotated[str | None, typer.Option("--slug")] = None,
     runs_dir: RunsDirOpt = None,
     dim: Annotated[list[str] | None, typer.Option("--dim", help="width=1.2 (meters); repeatable")] = None,
@@ -66,12 +69,15 @@ def make(
     must_not: Annotated[list[str] | None, typer.Option("--must-not")] = None,
     style: Annotated[str, typer.Option("--style")] = "",
     tag: Annotated[list[str] | None, typer.Option("--tag")] = None,
+    texture: Annotated[bool, typer.Option("--texture", help="run the text-to-image texture pass after the rounds (adds the 'texture' tag the track hook reads)")] = False,
     seed: Annotated[int, typer.Option("--seed")] = 0,
     force: Annotated[bool, typer.Option("--force", help="overwrite an existing run dir")] = False,
     no_run: Annotated[bool, typer.Option("--no-run", help="only create the workspace + spec.json")] = False,
 ) -> None:
     """Create a run (workspace + spec.json) and execute the track pipeline."""
     image, dim, must, must_not, tag = image or [], dim or [], must or [], must_not or [], tag or []
+    if texture and "texture" not in tag:
+        tag = [*tag, "texture"]
     for p in image:
         if not p.is_file():
             raise C.CliError(f"reference image not found: {p}")
@@ -93,19 +99,21 @@ def make(
     ws.write_json(ws.spec_path, spec)
     ws.commit("spec")
     console.print(kv_table("run", {"slug": run_slug, "workspace": ws.root, "track": track.value,
-                                   "language": language.value, "generator": backends.generator}))
+                                   "language": language.value, "generator": backends.generator,
+                                   "candidates": candidates or "default"}))
     if no_run:
-        ok(f"spec written: {ws.spec_path} (not run; `c3v resume {run_slug}` to start)")
+        ok(f"spec written: {ws.spec_path} (not run; `3dcv resume {run_slug}` to start)")
         return
-    _run_track(spec, ws, resume=False)
+    _run_track(spec, ws, resume=False, candidates=candidates)
 
 
-def _run_track(spec: Spec, ws, *, resume: bool) -> None:
+def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None) -> None:
     get_track = C.lazy("codeverse.tracks", "get_track")
+    options = {"n_candidates": candidates} if candidates else {}
     try:
-        record = get_track(spec.track).run(spec, ws, resume=resume)
+        record = get_track(spec.track, **options).run(spec, ws, resume=resume)
     except KeyboardInterrupt:
-        raise C.CliError(f"interrupted; resume with `c3v resume {ws.root.name}`", code=130) from None
+        raise C.CliError(f"interrupted; resume with `3dcv resume {ws.root.name}`", code=130) from None
     except Exception as e:  # the track failed outside its own error handling
         err_console.print_exception(max_frames=8)
         raise C.CliError(f"run failed: {type(e).__name__}: {e} (workspace {ws.root}; see events.jsonl)") from e
@@ -115,10 +123,14 @@ def _run_track(spec: Spec, ws, *, resume: bool) -> None:
 
 
 @app.command()
-def resume(slug: str, runs_dir: RunsDirOpt = None) -> None:
+def resume(
+    slug: str,
+    runs_dir: RunsDirOpt = None,
+    candidates: Annotated[int | None, typer.Option("--candidates", min=1, help="best-of-N baseline width (only matters before round 0 ran)")] = None,
+) -> None:
     """Resume an interrupted / partial run (or start a `--no-run` one)."""
     ws = C.open_workspace(slug, runs_dir)
-    _run_track(C.load_spec(ws), ws, resume=True)
+    _run_track(C.load_spec(ws), ws, resume=True, candidates=candidates)
 
 
 # --------------------------------------------------------------------------- status
@@ -139,16 +151,56 @@ def status(slug: str, runs_dir: RunsDirOpt = None, events: Annotated[int, typer.
         except ValueError:
             rows["run_state"] = "(unreadable)"
     console.print(kv_table("status", rows))
+    record = None
     try:
-        print_record_summary(load_record(ws), ws.root)
+        record = load_record(ws)
+        print_record_summary(record, ws.root)
     except RecordError as e:
         warn(f"no record yet ({e})")
+    _print_candidates(ws)
+    if record is not None and record.extra.get("texturing"):
+        t = record.extra["texturing"]
+        console.print(kv_table("texturing", {
+            "shipped": t.get("shipped"), "delta": t.get("delta"), "reason": t.get("reason", ""),
+            "textures": t.get("n_textures", len(t.get("textures", {}) or {})),
+            "glb": t.get("glb_textured", "") or "-"}))
     evs = EventLog(ws.events_path).read()
     if evs:
         console.print(f"[dim]last {min(events, len(evs))} of {len(evs)} events:[/dim]")
         for ev in evs[-events:]:
-            extra = {k: v for k, v in ev.items() if k not in ("t", "kind")}
-            console.print(f"  {ev.get('kind')}  {json.dumps(extra, default=str)[:160]}")
+            extra = {k: v for k, v in ev.items() if k not in ("t", "event")}
+            console.print(f"  {_event_time(ev)}  {ev.get('event', '?'):<14} {json.dumps(extra, default=str)[:160]}")
+
+
+def _print_candidates(ws) -> None:
+    """Best-of-N candidate table + pairwise verdict (rounds/candidates.json), when present."""
+    p = ws.root / "rounds" / "candidates.json"
+    if not p.is_file():
+        return
+    try:
+        data = json.loads(p.read_text())
+    except ValueError:
+        return
+    cands = data.get("candidates") or []
+    rows: dict[str, str] = {"n": str(data.get("n", len(cands)))}
+    for c in cands:
+        mark = " *" if c.get("index") == data.get("selected") else ""
+        score = c.get("score")
+        rows[f"{c.get('label', c.get('index'))}{mark}"] = (
+            f"score {score if score is None else round(score, 3)}  build_ok={c.get('build_ok')}")
+    pw = data.get("pairwise")
+    if pw:
+        rows["pairwise"] = f"{pw.get('a')} vs {pw.get('b')} → {pw.get('winner')} (confidence {pw.get('confidence')})"
+    console.print(kv_table("candidates (best-of-N, * = selected)", rows))
+
+
+def _event_time(ev: dict) -> str:
+    from datetime import UTC, datetime
+
+    try:
+        return datetime.fromtimestamp(float(ev["t"]), UTC).strftime("%H:%M:%S")
+    except (KeyError, TypeError, ValueError, OSError):
+        return "--:--:--"
 
 
 # --------------------------------------------------------------------------- render / judge
@@ -165,6 +217,9 @@ def render(
     spec = C.load_spec(ws)
     idx = round_index if round_index is not None else _latest_round(ws)
     out_dir = out or ws.renders_dir(idx) / ("cli" if mode == "shaded" else f"cli_{mode}")
+    if spec.track is Track.GRAPHICS:
+        _render_graphics(ws, spec, out_dir)
+        return
     if spec.track is Track.SCENE:
         render_scene = C.lazy("codeverse.spatial.render", "render_scene")
         rs = render_scene(ws, out_dir, cameras=None)
@@ -182,34 +237,68 @@ def render(
 def judge(
     slug: str,
     round_index: Annotated[int | None, typer.Option("--round")] = None,
-    rubric: Annotated[str | None, typer.Option("--rubric")] = None,
+    rubric: Annotated[str | None, typer.Option("--rubric", help="default: the rubric the round was judged with")] = None,
     model: Annotated[str | None, typer.Option("--model", help="judge chat model id")] = None,
     n: Annotated[int, typer.Option("--n", min=1)] = 1,
     runs_dir: RunsDirOpt = None,
 ) -> None:
-    """Re-judge a round's renders (writes artifacts/judge/rNN_cli.json)."""
+    """Re-judge a round with the SAME inputs as the in-run judge (renders + measurement +
+    gates + acceptance + plan digest + previous verdict + stored clay views); writes
+    artifacts/judge/rNN_cli.json."""
+    from codeverse.cli import _judge as J
     from codeverse.flywheel.record import load_record
 
     ws = C.open_workspace(slug, runs_dir)
     rec = load_record(ws)
     idx = round_index if round_index is not None else (rec.best_round if rec.best_round is not None else _latest_round(ws))
-    rnd = next((r for r in rec.rounds if r.index == idx), None)
-    if rnd is None or rnd.renders is None:
-        raise C.CliError(f"round {idx} has no renders in record.json")
-    JudgeInput = C.lazy("codeverse.judges.base", "JudgeInput")
-    VlmJudge = C.lazy("codeverse.judges.vlm_judge", "VlmJudge")
-    rubric_name = rubric or {Track.STATIC_OBJECT: "static_object_v1", Track.ARTICULATED_OBJECT: "articulated_v1",
-                             Track.SCENE: "scene_v1"}[rec.spec.track]
-    acceptance = list(getattr(rec.plan, "acceptance", []) or [])
-    inp = JudgeInput(spec=rec.spec, renders=rnd.renders, measurement=rnd.measurement, gates=rnd.gates,
-                     acceptance=acceptance, round_index=idx)
-    verdict = VlmJudge(rubric=rubric_name, model_id=model or rec.spec.backends.judge, n_samples=n).judge(inp)
+    rnd = J.load_round(ws, rec, idx)
+    if rnd is None or rnd.renders is None or not rnd.renders.views:
+        raise C.CliError(f"round {idx} has no renders (rounds/r{idx:02d}.json / record.json)")
+    rubric_name = J.rubric_for(rec, rnd, rubric)
+    inp = J.build_judge_input(ws, rec, rnd)
+    judge_obj = J.make_judge(rec, rubric_name, model or rec.spec.backends.judge, n)
+    n_images = J.count_prompt_images(inp, rubric_name)
+    try:
+        verdict = judge_obj.judge(inp)
+    except ValueError as e:  # e.g. a measured rubric fed to a judge that computes nothing
+        raise C.CliError(f"judge failed: {e}") from e
+    except Exception as e:
+        ReferenceJudgeError = C.lazy("codeverse.judges.reference", "ReferenceJudgeError")
+        if isinstance(e, ReferenceJudgeError):
+            raise C.CliError(f"judge failed: {e}") from e
+        raise
     ws.write_json(ws.judge_path(idx, "_cli"), verdict)
-    console.print(kv_table("judgment", {"rubric": verdict.rubric, "overall": f"{verdict.overall:.3f}",
-                                        "passed": verdict.passed, "std": verdict.score_std, "summary": verdict.summary,
+    console.print(kv_table("judgment", {"rubric": verdict.rubric, "round": idx, "overall": f"{verdict.overall:.3f}",
+                                        "passed": verdict.passed, "std": verdict.score_std,
+                                        "prompt images": n_images if n_images is not None else "?",
+                                        "stored score": f"{rnd.judgment.overall:.3f}" if rnd.judgment else "-",
+                                        "summary": verdict.summary,
                                         "cost": f"${verdict.usage.cost_usd:.4f}"}))
     for it in verdict.improvement_plan:
         console.print(f"  [{it.priority}] {it.target}: {it.instruction}")
+
+
+def _render_graphics(ws, spec: Spec, out_dir: Path) -> None:
+    """Graphics runs have no GLB: regenerate the judged frames + sheet via the runtime."""
+    import shutil
+
+    get_runtime = C.lazy("codeverse.languages", "get_runtime")
+    br = get_runtime(spec.language).build(ws)
+    if not br.ok:
+        raise C.CliError(f"graphics build failed: {br.error_type}: {br.error_message}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    frames_dir = Path(br.extra_paths.get("frames") or (ws.artifacts / "frames"))
+    n = 0
+    for p in sorted(frames_dir.glob("*.png")) if frames_dir.is_dir() else []:
+        shutil.copy2(p, out_dir / p.name)
+        n += 1
+    sheet = br.extra_paths.get("sheet") or ""
+    if sheet and Path(sheet).is_file():
+        shutil.copy2(sheet, out_dir / "sheet.png")
+        sheet = str(out_dir / "sheet.png")
+    renderer = br.census.get("renderer", "moderngl") if isinstance(br.census, dict) else "moderngl"
+    console.print(kv_table("renders", {"views": n, "sheet": sheet or "-", "dir": out_dir,
+                                       "renderer": renderer, "ms": br.duration_ms}))
 
 
 def _latest_round(ws) -> int:

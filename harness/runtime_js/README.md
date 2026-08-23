@@ -13,9 +13,14 @@ serve.cjs             serveDirs({root, mounts, routes}) loopback static server (
                       'three/addons/' onto it — nothing is ever fetched from the internet
 export_glb.mjs        node --import lib/resolve_three.mjs export_glb.mjs --ws <ws> [--entry src/object.js]
                       [--out artifacts/object.glb] [--census artifacts/census.json]
-                      imports the agent module, build(THREE) (awaits promises), validates, normalises
-                      (stands on y=0, xz-centred; offset recorded), strips textures (warning), writes GLB
-                      + census.json; on failure export_error.json + {ok:false,error:{type,message,file,line,frames}}
+                      [--normalise 0|1] imports the agent module, build(THREE) (awaits promises), validates
+                      (NaN/empty-bbox errors name the mesh + part), runs an exported selfcheck(THREE, root)
+                      if any (throw → SelfCheckError), bakes InstancedMesh copies into named meshes
+                      (lib/instances.mjs — trimesh ignores EXT_mesh_gpu_instancing), keeps the source
+                      placement (off-ground/off-centre → warning + census.placement_offset; --normalise 1
+                      translates instead, for dataset canonicalisation only), strips textures (warning),
+                      writes GLB + census.json; on failure export_error.json +
+                      {ok:false,error:{type,message,file,line,frames,part?}}
 render_glb.mjs        --glb --out --views '[{name,azimuth,elevation}]' [--mode shaded|wire|normals|silhouette|clay]
                       [--width --height] [--isolate A,B] [--explode 0.3] [--background studio|white|transparent]
                       [--anim-time t] [--gpu auto|on|off] [--shadow 0|1] [--fill 0.85]
@@ -23,7 +28,8 @@ render_glb.mjs        --glb --out --views '[{name,azimuth,elevation}]' [--mode s
 lib/resolve_three.mjs node --import hook: bare 'three' / 'three/addons/*' (and three-mesh-bvh) resolve
                       from runtime_js/node_modules for modules anywhere on disk (NODE_PATH is CJS-only)
 lib/node_polyfills.mjs FileReader/Blob/self shims so GLTFExporter writes binary GLB without a DOM
-lib/census.mjs        per-part tri counts, world bboxes, materials, NaN check (node + browser)
+lib/census.mjs        per-part tri counts, world bboxes, materials, NaN check naming mesh + part (node + browser)
+lib/instances.mjs     bakeInstancedMeshes(THREE, root): InstancedMesh → Group of named plain meshes
 lib/stack.mjs         Error → {type,message,file,line,frames} with workspace-relative src/ paths
 lib/syntax_check.mjs  `node --input-type=module --check` per file to locate ESM SyntaxErrors
 lib/browser/*.js      page-side ESM (served through /__runtime/): camera_fit.js (azimuth/elevation →

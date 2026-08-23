@@ -1,4 +1,4 @@
-"""``c3v doctor`` — environment checks (deps, Blender, node/three/chrome, keys, CLIs, MCP)."""
+"""``3dcv doctor`` — environment checks (deps, Blender, node/three/chrome, keys, CLIs, MCP)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from codeverse.config import get_settings
 doctor_app = typer.Typer(invoke_without_command=True)
 
 Row = tuple[str, str, str]
-_PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", "numpy", "trimesh", "PIL", "pyarrow",
+_PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", "numpy", "trimesh", "fcl", "PIL", "pyarrow",
             "scipy", "shapely", "networkx", "manifold3d", "playwright", "google.genai", "anthropic", "openai",
             "yourdfpy", "mcp")
 _CLI_TIMEOUT = 25
@@ -57,7 +57,7 @@ def check_blender() -> list[Row]:
     s = get_settings()
     b = s.resolve_blender()
     if not b:
-        return [("blender", "FAIL", "no binary (set C3V_BINARIES__BLENDER or put blender-5.0 on PATH)")]
+        return [("blender", "FAIL", "no binary (set CV3D_BINARIES__BLENDER or put blender-5.0 on PATH)")]
     okk, v = _ver([b, "--version"], timeout=60)
     return [("blender", "OK" if okk else "FAIL", f"{v} @ {b}")]
 

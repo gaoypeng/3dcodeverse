@@ -23,7 +23,8 @@ from codeverse.contracts.plan import AcceptanceItem, ArticulatedPlan, ScenePlan,
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import LANGUAGE_FRAME, frame_doc, to_pascal
 from codeverse.prompts import prompt_hash, render
-from codeverse.tracks.common import constraints_text, language_contract, load_prompt_or
+from codeverse.tracks.common import language_contract, load_prompt_or
+from codeverse.tracks.prompting import constraints_text
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)

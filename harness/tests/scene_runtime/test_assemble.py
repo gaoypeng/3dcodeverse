@@ -100,3 +100,36 @@ def test_assemble_end_to_end_excludes_broken_zone(starter_ws):
     src = (starter_ws.src / "scene.js").read_text()
     assert "broken" not in src
     assert lint(starter_ws).passed
+
+
+def test_render_scene_js_awaits_async_builds():
+    """Finding: lint + the assembler probe accept `export async function build(ctx)`,
+    so the generated scene.js must await build/buildEnv instead of throwing on the Promise."""
+    cams = [CameraPlan(name="overview", position=(1, 2, 3), look_at=(0, 0, 0), fov=50)]
+    src = render_scene_js(["orchard"], cams, [], env_ok=True)
+    assert "const addZone = async (build, name) => {" in src
+    assert "const g = await build(ctx);" in src
+    assert "await addZone(buildOrchard, 'Orchard');" in src
+    assert "const env = (await buildEnv(ctx)) || {};" in src
+
+
+@pytest.mark.node
+@needs_browser
+def test_assemble_with_async_zone_boots(starter_ws):
+    (starter_ws.src / "zones" / "orchard.js").write_text(
+        "import * as THREE from 'three';\n"
+        "export async function build(ctx) {\n"
+        "  await new Promise((r) => setTimeout(r, 10));\n"
+        "  const g = new THREE.Group(); g.name = 'Orchard';\n"
+        "  const m = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshStandardMaterial({ color: 0x884400 }));\n"
+        "  m.position.y = 1; g.add(m);\n"
+        "  return g;\n"
+        "}\n"
+    )
+    res = assemble(starter_ws)
+    assert "orchard" in res.zones_included and res.zones_failed == {}
+    from codeverse.spatial.probes import probe_scene
+
+    probe = probe_scene(starter_ws)
+    assert probe.gate.passed, [(f.target, f.message) for f in probe.gate.findings]
+    assert "Orchard" in {g["name"] for g in probe.census.get("groups", [])}

@@ -264,7 +264,7 @@ def test_empty_and_classify():
 def test_base_url_from_settings(monkeypatch):
     from codeverse.config import get_settings
 
-    monkeypatch.setenv("C3V_OPENAI_BASE_URL", "http://localhost:8000/v1")
+    monkeypatch.setenv("CV3D_OPENAI_BASE_URL", "http://localhost:8000/v1")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     get_settings.cache_clear()
     try:

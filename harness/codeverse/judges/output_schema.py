@@ -33,8 +33,13 @@ class AcceptanceVerdict(BaseModel):
     evidence: str = Field(default="", description="which view / number proves or disproves it")
 
 
+class DefectVerdict(BaseModel):
+    present: bool = Field(description="true only if the defect is VISIBLE in the images or stated by a gate/measurement")
+    evidence: str = Field(default="", description="which image / tile / number shows it (or why it is absent)")
+
+
 class JudgeOutput(BaseModel):
-    """Provider-neutral parsed judge reply (criteria + acceptance as dicts)."""
+    """Provider-neutral parsed judge reply (criteria + acceptance + defect checklist as dicts)."""
 
     criteria: dict[str, CriterionScore]
     summary: str = ""
@@ -42,6 +47,8 @@ class JudgeOutput(BaseModel):
     issues: list[JudgeIssue] = Field(default_factory=list)
     improvement_plan: list[ImprovementItem] = Field(default_factory=list)
     acceptance: dict[str, AcceptanceVerdict] = Field(default_factory=dict)
+    defects: dict[str, bool] = Field(default_factory=dict, description="checklist id → defect present")
+    defect_evidence: dict[str, str] = Field(default_factory=dict)
 
     @property
     def scores(self) -> dict[str, float]:
@@ -63,16 +70,19 @@ def build_wire_model(rubric: Rubric, acceptance_ids: list[str]) -> type[BaseMode
         for c in rubric.visual_criteria()
     }
     Criteria = create_model("Criteria", **crit_fields)
+    # Field order = generation order for JSON-mode models: observe (summary, strengths, issues, defect
+    # checklist, acceptance) BEFORE scoring, so the scores follow the evidence rather than the reverse.
     fields: dict[str, Any] = {
-        "criteria": (Criteria, Field(description="one entry per criterion id")),
         "summary": (str, Field(description="2-4 sentences: what it is, what is right, what is most wrong")),
         "strengths": (list[str], Field(default_factory=list, description="≤ 5 short bullets")),
         "issues": (list[JudgeIssue], Field(default_factory=list, description="observable defects, most severe first")),
-        "improvement_plan": (
-            list[ImprovementItem],
-            Field(default_factory=list, description="≤ 6 concrete instructions for the builder, priority 1 first"),
-        ),
     }
+    if rubric.defects:
+        def_fields: dict[str, Any] = {
+            d.id: (DefectVerdict, Field(description=d.text.strip()[:200])) for d in rubric.defects
+        }
+        Defects = create_model("Defects", **def_fields)
+        fields["defects"] = (Defects, Field(description="binary checklist: one entry per defect id, present=true ONLY when seen"))
     if acceptance_ids:
         acc_fields: dict[str, Any] = {
             f"acc_{i}": (AcceptanceVerdict, Field(alias=aid, description=f"acceptance item {aid}"))
@@ -80,6 +90,11 @@ def build_wire_model(rubric: Rubric, acceptance_ids: list[str]) -> type[BaseMode
         }
         Acceptance = create_model("Acceptance", **acc_fields)
         fields["acceptance"] = (Acceptance, Field(description="one entry per acceptance item id"))
+    fields["criteria"] = (Criteria, Field(description="one entry per criterion id, scored AFTER the observations above"))
+    fields["improvement_plan"] = (
+        list[ImprovementItem],
+        Field(default_factory=list, description="≤ 6 concrete instructions for the builder, priority 1 first"),
+    )
     return create_model("JudgeReply", **fields)
 
 
@@ -148,6 +163,27 @@ def _coerce_acceptance(value: Any) -> dict[str, Any]:
     return out
 
 
+def _coerce_defects(value: Any) -> tuple[dict[str, bool], dict[str, str]]:
+    """``{id: bool}`` or ``{id: {present, evidence}}`` or a list of records → (present, evidence)."""
+    if value is None:
+        return {}, {}
+    recs = _records_to_dict(value, ("id", "defect", "item"))
+    present: dict[str, bool] = {}
+    evidence: dict[str, str] = {}
+    for k, v in recs.items():
+        if isinstance(v, bool):
+            present[k] = v
+        elif isinstance(v, dict):
+            flag = v.get("present", v.get("value", v.get("verified")))
+            if not isinstance(flag, bool):
+                raise JudgeParseError(f"defect {k!r}: 'present' must be a boolean, got {flag!r}")
+            present[k] = flag
+            evidence[k] = str(v.get("evidence", "") or "")
+        else:
+            raise JudgeParseError(f"defect item {k!r}: unexpected value {v!r}")
+    return present, evidence
+
+
 def parse_judge_output(
     payload: Any, rubric: Rubric, acceptance_ids: list[str], *, measured_scores: dict[str, float] | None = None
 ) -> JudgeOutput:
@@ -169,6 +205,7 @@ def parse_judge_output(
             k: ({"score": v, "evidence": ""} if isinstance(v, (int, float)) else v) for k, v in criteria.items()
         }
         acceptance = _coerce_acceptance(data.get("acceptance", {}))
+        defects, defect_evidence = _coerce_defects(data.get("defects", {}))
         out = JudgeOutput(
             criteria=criteria,
             summary=str(data.get("summary", "") or ""),
@@ -176,6 +213,8 @@ def parse_judge_output(
             issues=data.get("issues", []) or [],
             improvement_plan=data.get("improvement_plan", []) or [],
             acceptance=acceptance,
+            defects=defects,
+            defect_evidence=defect_evidence,
         )
     except ValidationError as e:
         raise JudgeParseError(f"judge reply failed validation: {e}") from e
@@ -191,4 +230,12 @@ def parse_judge_output(
     missing_acc = [a for a in acceptance_ids if a not in out.acceptance]
     for a in missing_acc:  # unanswered acceptance items count as NOT verified
         out.acceptance[a] = AcceptanceVerdict(verified=False, evidence="not answered by judge")
+    known = {d.id for d in rubric.defects}
+    for k in [k for k in out.defects if k not in known]:  # unknown checklist ids are ignored
+        out.defects.pop(k)
+        out.defect_evidence.pop(k, None)
+    for d in rubric.defects:
+        if d.id not in out.defects:  # unanswered defect → absent (the conservative direction for a penalty)
+            out.defects[d.id] = False
+            out.defect_evidence[d.id] = "not answered by judge"
     return out

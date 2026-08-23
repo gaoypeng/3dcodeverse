@@ -19,8 +19,9 @@ from pydantic import BaseModel, Field
 from codeverse.contracts.artifacts import BuildResult, GateReport
 from codeverse.contracts.common import Usage
 from codeverse.prompts import render
-from codeverse.tracks.common import RunContext, base_prompt_context
+from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
+from codeverse.tracks.prompting import base_prompt_context
 
 log = logging.getLogger(__name__)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import stat
 import sys
@@ -119,3 +120,91 @@ result.add(pegs, name="Pegs", color=cq.Color(0, 1, 0))
     assert any("bare Workplane" in w for w in r.census["build_report"]["warnings"])
     build_json = json.loads((tmp_ws.artifacts / "build.json").read_text())
     assert build_json["ok"] is True
+
+
+def _wrapper_module():
+    spec = importlib.util.spec_from_file_location("run_cq_under_test", WRAPPER)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_wrapper_error_file_is_workspace_relative(tmp_path) -> None:
+    """error_file must be ``src/<file>`` (like every other runtime) and point at the innermost src/ frame."""
+    mod = _wrapper_module()
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "helpers.py").write_text("def make_part():\n    raise RuntimeError('boom')  # line 2\n")
+    (src / "model.py").write_text("from helpers import make_part\nresult = make_part()\n")
+    assert mod.src_relative(str(src / "model.py"), str(src)) == "src/model.py"
+    assert mod.src_relative(str(src / "parts" / "leg.py"), str(src)) == "src/parts/leg.py"
+    assert mod.src_relative(str(tmp_path / "other.py"), str(src)) is None
+    assert mod.entry_relative(str(src / "model.py")) == "src/model.py"
+    err, ns = mod.run_script(str(src / "model.py"))
+    assert err is not None and ns == {}
+    assert err["error_type"] == "RuntimeError" and err["error_file"] == "src/helpers.py" and err["error_line"] == 2
+    assert "raise RuntimeError" in err["error_source"] and "helpers.py" in err["traceback"]
+    # an error raised by model.py itself still maps to src/model.py (and so does a SyntaxError)
+    (src / "model.py").write_text("import math\nx = 1 / 0\n")
+    err, _ = mod.run_script(str(src / "model.py"))
+    assert err["error_file"] == "src/model.py" and err["error_line"] == 2
+    (src / "model.py").write_text("result = (\n")
+    err, _ = mod.run_script(str(src / "model.py"))
+    assert err["error_type"] == "SyntaxError" and err["error_file"] == "src/model.py"
+    (src / "model.py").write_text("import sys\nsys.exit(0)\n")
+    err, _ = mod.run_script(str(src / "model.py"))
+    assert err["error_type"] == "SystemExit" and err["error_file"] == "src/model.py"
+
+
+@needs_cq
+def test_helper_module_error_and_missing_result_report_src_paths(tmp_ws) -> None:
+    rt = CadQueryRuntime()
+    (tmp_ws.src / "helpers.py").write_text("import cadquery as cq\n\n\ndef make_part():\n    wp = cq.Workplane('XY').box(1, 1, 1)\n"
+                                           "    return wp.edges('|Z').fillet(5.0)  # line 6: OCC fail\n")
+    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nfrom helpers import make_part\n\nassy = cq.Assembly()\n"
+                                         "assy.add(make_part(), name='Part')\nresult = assy\n")
+    r = rt.build(tmp_ws, timeout_s=120)
+    assert not r.ok and r.error_type == "StdFail_NotDone"
+    assert r.error_file == "src/helpers.py" and r.error_line == 6 and (tmp_ws.root / r.error_file).is_file()
+    assert "helpers.py" in r.stderr_tail and "StdFail_NotDone" in r.stderr_tail  # traceback reaches the repair report
+    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nx = cq.Workplane('XY').box(1, 1, 1)\n")
+    r = rt.build(tmp_ws, timeout_s=120)
+    assert not r.ok and r.error_type == "MissingResult" and r.error_file == "src/model.py"
+
+
+@needs_cq
+def test_trailing_selector_exports_parent_solid_with_warning(tmp_ws) -> None:
+    """``body.faces('>Z')`` / ``.edges('|Z')`` on the stack must not become a 2-triangle sheet / nothing."""
+    trimesh = pytest.importorskip("trimesh")
+    rt = CadQueryRuntime()
+    src = '''import cadquery as cq
+body = cq.Workplane("XY").box(0.1, 0.1, 0.01).edges("|Z").fillet(0.002)
+result = cq.Assembly()
+result.add(body.faces(">Z"), name="Plate", color=cq.Color("gray"))
+result.add(cq.Workplane("XY").box(0.02, 0.02, 0.02).edges("|Z"), name="Leg")
+'''
+    (tmp_ws.src / "model.py").write_text(src)
+    r = rt.build(tmp_ws, timeout_s=120)
+    assert r.ok, (r.error_type, r.error_message)
+    parts = {p["name"]: p for p in r.census["parts"]}
+    assert parts["Plate"]["n_solids"] == 1 and abs(parts["Plate"]["volume_m3"] - 0.1 * 0.1 * 0.01) < 2e-6
+    assert parts["Leg"]["n_solids"] == 1 and parts["Leg"]["tri_count"] == 12
+    assert set(trimesh.load(r.glb_path).graph.nodes_geometry) == {"Plate", "Leg"}
+    warns = r.census["build_report"]["warnings"]
+    assert any("'Plate'" in w and "Face" in w and "trailing selector" in w for w in warns), warns
+    assert any("'Leg'" in w and "Edge" in w for w in warns), warns
+    # bare-Workplane result with a trailing selector: same fallback
+    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nresult = cq.Workplane('XY').box(0.1, 0.1, 0.01).faces('>Z')\n")
+    r = rt.build(tmp_ws, timeout_s=120)
+    assert r.ok and r.census["parts"][0]["n_solids"] == 1 and r.census["parts"][0]["tri_count"] == 12
+    # no solid anywhere in the chain (2D wires only) → a typed error naming the stack, not a silent sheet
+    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nresult = cq.Workplane('XY').rect(0.1, 0.1)\n")
+    r = rt.build(tmp_ws, timeout_s=120)
+    assert not r.ok and r.error_type == "ExportError" and "Wire" in r.error_message and "not a Solid" in r.error_message
+    # a bare cq.Face added to an assembly stays a face but is flagged (n_solids == 0 surfaced)
+    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nf = cq.Workplane('XY').box(0.1, 0.1, 0.01).faces('>Z').val()\n"
+                                         "result = cq.Assembly()\nresult.add(f, name='Sheet')\n")
+    r = rt.build(tmp_ws, timeout_s=120)
+    assert r.ok and r.census["parts"][0]["n_solids"] == 0
+    assert any("'Sheet'" in w and "contains no solid" in w for w in r.census["build_report"]["warnings"])

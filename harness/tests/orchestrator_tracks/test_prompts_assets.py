@@ -9,9 +9,10 @@ from codeverse.orchestrator.budget import BudgetGuard
 from codeverse.orchestrator.rounds import RoundPolicy
 from codeverse.orchestrator.state import RunState
 from codeverse.prompts import list_prompts, render
-from codeverse.tracks.common import RunContext, base_prompt_context
+from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
 from codeverse.tracks.planner import plan_example
+from codeverse.tracks.prompting import base_prompt_context
 from codeverse.tracks.scene_assets import asset_api_summary, asset_plan, run_asset_stage
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import FakeAgent, FakeJudge, FakeRuntime, FakeServices

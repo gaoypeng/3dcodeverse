@@ -1,8 +1,7 @@
 """Pose sweep QC on a :class:`Robot`: overlaps, contacts, floating links, motion
-direction.  FCL (``python-fcl``) does the boolean collide / distance queries on
-BVH models; penetration depth is measured with trimesh signed distances of
-surface samples (FCL's mesh-mesh contact depths are per-triangle artefacts).
-Falls back to trimesh proximity when FCL is unavailable.
+direction.  Collision bodies live in :mod:`joints_collide` (FCL for the boolean
+collide / distance queries; deterministic per-island containment for the
+penetration depth — FCL's mesh-mesh contact depths are per-triangle artefacts).
 """
 
 from __future__ import annotations
@@ -16,15 +15,9 @@ from pydantic import BaseModel, Field
 
 from codeverse.contracts.artifacts import GateFinding, Severity
 from codeverse.conventions import CONTACT_GAP_M
+from codeverse.spatial import joints_collide as collide
 from codeverse.spatial.joints_model import Robot, UrdfError, fk
 from codeverse.spatial.joints_poses import pose_label
-
-try:  # optional accelerator
-    import fcl as _fcl
-except Exception:  # pragma: no cover - depends on the environment
-    _fcl = None
-
-_MAX_SAMPLE_POINTS = 1500
 
 
 # ------------------------------------------------------------------ report types
@@ -34,6 +27,8 @@ class Overlap(BaseModel):
     depth_m: float = Field(description="max distance of a penetrating surface point from the other surface")
     volume_m3: float | None = None
     approx: bool = Field(default=False, description="depth estimated on non-watertight meshes")
+    rigid: bool = Field(default=False, description="only fixed joints between the links: the overlap is structural "
+                                                   "(a weld), identical in every pose — judged with the rest policy")
 
 
 class FloatingLink(BaseModel):
@@ -84,128 +79,6 @@ class MotionCheck(BaseModel):
     message: str
 
 
-# ------------------------------------------------------------------ collision backends
-def _sample_points(mesh: trimesh.Trimesh) -> np.ndarray:
-    pts = np.asarray(mesh.vertices)
-    if len(pts) > _MAX_SAMPLE_POINTS:
-        idx = np.linspace(0, len(pts) - 1, _MAX_SAMPLE_POINTS).astype(int)
-        pts = pts[idx]
-    n_surf = max(64, _MAX_SAMPLE_POINTS - len(pts))
-    surf, _ = trimesh.sample.sample_surface(mesh, n_surf, seed=0)
-    return np.vstack([pts, surf])
-
-
-class _LinkBody:
-    """Per-link collision state reused across poses."""
-
-    def __init__(self, name: str, mesh: trimesh.Trimesh):
-        self.name = name
-        self.mesh = mesh
-        self.local_points = _sample_points(mesh)
-        self.watertight = bool(mesh.is_watertight)
-        self.obj = None
-        if _fcl is not None:
-            model = _fcl.BVHModel()
-            model.beginModel(len(mesh.vertices), len(mesh.faces))
-            model.addSubModel(np.asarray(mesh.vertices, dtype=float), np.asarray(mesh.faces, dtype=np.int64))
-            model.endModel()
-            self.obj = _fcl.CollisionObject(model, _fcl.Transform())
-        self.T = np.eye(4)
-        self.T_inv = np.eye(4)
-        self._pq = trimesh.proximity.ProximityQuery(mesh)  # built once, queried in the LOCAL frame
-
-    def set_pose(self, T: np.ndarray) -> None:
-        self.T = T
-        self.T_inv = np.linalg.inv(T)
-        if self.obj is not None:
-            self.obj.setTransform(_fcl.Transform(np.ascontiguousarray(T[:3, :3]), np.ascontiguousarray(T[:3, 3])))
-
-    @property
-    def posed(self) -> trimesh.Trimesh:
-        m = self.mesh.copy()
-        m.apply_transform(self.T)
-        return m
-
-    def signed_distance(self, points_world: np.ndarray) -> np.ndarray:
-        """trimesh convention: > 0 inside this body."""
-        return self._pq.signed_distance(trimesh.transform_points(points_world, self.T_inv))
-
-    def contains(self, points_world: np.ndarray) -> np.ndarray:
-        return self.mesh.contains(trimesh.transform_points(points_world, self.T_inv))
-
-    @property
-    def points(self) -> np.ndarray:
-        return trimesh.transform_points(self.local_points, self.T)
-
-    @property
-    def aabb(self) -> np.ndarray:
-        corners = trimesh.bounds.corners(self.mesh.bounds)
-        pts = trimesh.transform_points(corners, self.T)
-        return np.vstack([pts.min(axis=0), pts.max(axis=0)])
-
-
-def _aabb_gap(a: np.ndarray, b: np.ndarray) -> float:
-    """Largest per-axis separation of two AABBs (≤ 0 when they intersect)."""
-    gaps = np.maximum(a[0] - b[1], b[0] - a[1])
-    return float(gaps.max())
-
-
-def _collide(a: _LinkBody, b: _LinkBody) -> bool:
-    if a.obj is not None and b.obj is not None:
-        req = _fcl.CollisionRequest(num_max_contacts=1, enable_contact=False)
-        res = _fcl.CollisionResult()
-        return int(_fcl.collide(a.obj, b.obj, req, res)) > 0
-    # trimesh fallback: any surface sample of one inside the other, or AABB overlap + near-zero distance
-    return _penetration(a, b)[0] > 0.0
-
-
-def _contained(a: _LinkBody, b: _LinkBody, n: int = 24) -> bool:
-    """True when a few surface samples of one body lie inside the other (FCL's
-    surface-only collide misses a part fully swallowed by another)."""
-    pa = a.points[:: max(1, len(a.points) // n)][:n]
-    pb = b.points[:: max(1, len(b.points) // n)][:n]
-    return bool(b.contains(pa).any() or a.contains(pb).any())
-
-
-def _distance(a: _LinkBody, b: _LinkBody) -> float:
-    if a.obj is not None and b.obj is not None:
-        req = _fcl.DistanceRequest()
-        res = _fcl.DistanceResult()
-        return max(0.0, float(_fcl.distance(a.obj, b.obj, req, res)))
-    d_ab = b.signed_distance(a.points)
-    d_ba = a.signed_distance(b.points)
-    return max(0.0, float(min(-d_ab.max(), -d_ba.max())))
-
-
-def _depth_into(points_world: np.ndarray, other: _LinkBody, cap: int = 400) -> float:
-    """Max distance-to-surface of the ``points_world`` that lie INSIDE ``other``.
-    contains() first (cheap) so exact distances run only on the contained few."""
-    inside = other.contains(points_world)
-    if not inside.any():
-        return 0.0
-    pts = points_world[inside]
-    if len(pts) > cap:
-        pts = pts[np.linspace(0, len(pts) - 1, cap).astype(int)]
-    return max(0.0, float(other.signed_distance(pts).max()))
-
-
-def _penetration(a: _LinkBody, b: _LinkBody) -> tuple[float, bool]:
-    """Max penetration depth (m) of A's surface into B or B's into A; ``approx``
-    when a mesh is not watertight (inside test is then heuristic)."""
-    depth = max(_depth_into(a.points, b), _depth_into(b.points, a))
-    return depth, not (a.watertight and b.watertight)
-
-
-def _intersection_volume(a: _LinkBody, b: _LinkBody) -> float | None:
-    if not (a.watertight and b.watertight):
-        return None
-    try:
-        inter = trimesh.boolean.intersection([a.posed, b.posed], engine="manifold")
-        return float(abs(inter.volume)) if isinstance(inter, trimesh.Trimesh) and not inter.is_empty else 0.0
-    except Exception:
-        return None
-
-
 # ------------------------------------------------------------------ sweep
 def _components(links: list[str], edges: set[tuple[str, str]]) -> dict[str, int]:
     parent = {n: n for n in links}
@@ -244,12 +117,17 @@ def sweep_collisions(
     names = robot.meshed_links()
     if not names:
         raise UrdfError("sweep_collisions: robot has no link meshes")
-    bodies = {n: _LinkBody(n, robot.links[n].mesh) for n in names}  # type: ignore[arg-type]
+    bodies = {n: collide.LinkBody(n, robot.links[n].mesh) for n in names}  # type: ignore[arg-type]
     allowed = {tuple(sorted(p)) for p in allow_pairs}
     per_pose: list[PoseReport] = []
-    islands = {n: max(1, len(robot.links[n].mesh.split(only_watertight=False))) for n in names}  # type: ignore[union-attr]
+    islands = {n: len(bodies[n].islands) for n in names}
+    # links joined only by fixed joints never move relative to each other: their overlap is
+    # structural and is measured once (at rest when the sweep has a rest pose, else first pose)
+    rigid_group = _components(list(robot.links), {(j.parent, j.child) for j in robot.joints.values() if j.type == "fixed"})
+    labels = [pose_label(robot, q) for q in poses]
+    rigid_pose = labels.index("rest") if "rest" in labels else 0
 
-    for q in poses:
+    for idx, q in enumerate(poses):
         T = fk(robot, q)
         for n, body in bodies.items():
             body.set_pose(T[n])
@@ -259,20 +137,24 @@ def sweep_collisions(
         for i, a in enumerate(names):
             for b in names[i + 1 :]:
                 ba, bb = bodies[a], bodies[b]
-                gap_aabb = _aabb_gap(ba.aabb, bb.aabb)
+                gap_aabb = collide.aabb_gap(ba.aabb, bb.aabb)
                 if gap_aabb > max(contact_gap_m, hinge_clearance_m * 3):
                     nearest[a][b] = nearest[b][a] = gap_aabb  # lower bound is enough this far apart
                     continue
-                if _collide(ba, bb) or (gap_aabb <= 0.0 and _contained(ba, bb)):
-                    depth, approx = _penetration(ba, bb)
+                rigid = rigid_group[a] == rigid_group[b]
+                if collide.collide(ba, bb) or (gap_aabb <= 0.0 and collide.contained(ba, bb)):
                     dist = 0.0
-                    if depth > tol_m and tuple(sorted((a, b))) not in allowed:
-                        overlaps.append(
-                            Overlap(a=a, b=b, depth_m=round(depth, 6), approx=approx,
-                                    volume_m3=_intersection_volume(ba, bb) if volumes else None)
-                        )
+                    if rigid and idx != rigid_pose:
+                        pass  # structural overlap, already measured in pose ``rigid_pose``
+                    elif tuple(sorted((a, b))) not in allowed:
+                        depth, approx = collide.penetration(ba, bb)
+                        if round(depth, 4) > tol_m:  # 0.1 mm: float32 mesh coordinates carry no finer meaning
+                            overlaps.append(
+                                Overlap(a=a, b=b, depth_m=round(depth, 6), approx=approx, rigid=rigid,
+                                        volume_m3=collide.intersection_volume(ba, bb) if volumes else None)
+                            )
                 else:
-                    dist = _distance(ba, bb)
+                    dist = collide.distance(ba, bb)
                 nearest[a][b] = nearest[b][a] = dist
                 if dist <= contact_gap_m:
                     touching.add((a, b))
@@ -286,7 +168,7 @@ def sweep_collisions(
                 if j.type == "fixed":
                     thr = contact_gap_m
                 elif j.type == "prismatic":
-                    if _aabb_gap(bodies[n].aabb, bodies[j.parent].aabb) <= 0.0:
+                    if collide.aabb_gap(bodies[n].aabb, bodies[j.parent].aabb) <= 0.0:
                         continue  # inserted into the parent's envelope (drawer in cavity)
                     thr = hinge_clearance_m
                 else:  # revolute / continuous / planar / floating
@@ -294,7 +176,7 @@ def sweep_collisions(
                 if d > thr:
                     floating.append(FloatingLink(link=n, nearest=j.parent, joint_type=j.type,
                                                  gap_m=round(d, 6) if math.isfinite(d) else math.inf))
-        per_pose.append(PoseReport(label=pose_label(robot, q), q=dict(q), overlaps=overlaps, floating=floating,
+        per_pose.append(PoseReport(label=labels[idx], q=dict(q), overlaps=overlaps, floating=floating,
                                    n_contacts=len(touching)))
 
     summary = _summarise(per_pose, len(names), islands)
@@ -302,14 +184,13 @@ def sweep_collisions(
 
 
 def _summarise(per_pose: list[PoseReport], n_links: int, islands: dict[str, int]) -> SweepSummary:
-    s = SweepSummary(n_poses=len(per_pose), n_links=n_links, link_islands=islands,
-                     backend="fcl" if _fcl is not None else "trimesh")
+    s = SweepSummary(n_poses=len(per_pose), n_links=n_links, link_islands=islands, backend=collide.backend_name())
     floating_any: set[str] = set()
     for pr in per_pose:
         for o in pr.overlaps:
             if o.depth_m > s.max_penetration_m:
                 s.max_penetration_m, s.worst_pose, s.worst_pair = o.depth_m, pr.label, (o.a, o.b)
-            if pr.label == "rest":
+            if pr.label == "rest" or o.rigid:  # structural overlaps count as rest penetration
                 s.rest_max_penetration_m = max(s.rest_max_penetration_m, o.depth_m)
         if pr.overlaps:
             s.overlapping_poses.append(pr.label)
@@ -328,13 +209,14 @@ def sweep_findings(report: SweepReport, *, rest_max_m: float = 0.005, hinge_clea
     out: list[GateFinding] = []
     for pr in report.per_pose:
         for o in pr.overlaps:
-            at_rest = pr.label == "rest"
+            at_rest = pr.label == "rest" or o.rigid  # a weld between rigidly joined links is a rest-pose property
             sev = Severity.ERROR if (not at_rest or o.depth_m > rest_max_m) else Severity.WARN
             out.append(GateFinding(
                 gate=gate, severity=sev, target=f"{o.a}|{o.b}",
                 message=f"links '{o.a}' and '{o.b}' overlap by {o.depth_m*1000:.1f} mm at pose {pr.label}"
                         + (f" (pose q={pr.q})" if pr.q else "") + (" [approx: non-watertight mesh]" if o.approx else ""),
-                fix_hint=(f"At q=0 the meshes in model.py interpenetrate: shrink/move one of '{o.a}', '{o.b}' so they touch (≤ {report.tol_m*1000:.0f} mm) instead of overlapping."
+                fix_hint=(f"The meshes in model.py interpenetrate{'' if pr.label == 'rest' else ' (rigidly joined links: same in every pose)'}: "
+                          f"shrink/move one of '{o.a}', '{o.b}' so they touch (≤ {report.tol_m*1000:.0f} mm) instead of overlapping."
                           if at_rest else
                           f"Moving joint(s) {sorted(pr.q)} drives '{o.a}' into '{o.b}'. Either move the pivot/axis in robot.urdf so the part swings/slides clear, shrink the limits, or carve the clearance in model.py."),
                 data={"kind": "penetration", "pose": pr.q, "depth_m": o.depth_m, "volume_m3": o.volume_m3},

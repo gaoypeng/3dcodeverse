@@ -5,11 +5,18 @@ from __future__ import annotations
 import json
 import struct
 
+import pytest
 import trimesh
 from PIL import Image
 
 from codeverse.contracts.artifacts import RenderSet, RenderView
-from codeverse.spatial.joints import ARTICULATION_SHEET_NAME, load_urdf, render_poses, urdf_to_glb
+from codeverse.spatial.joints import (
+    ARTICULATION_SHEET_NAME,
+    UrdfError,
+    load_urdf,
+    render_poses,
+    urdf_to_glb,
+)
 from codeverse.spatial.joints_export import make_sheet
 from tests.urdf_joints.conftest import write_mesh_robot
 
@@ -111,3 +118,32 @@ def test_joint_sweep_observation_offline(tmp_path):
     write_mesh_robot(ws.artifacts)
     obs = joint_sweep_observation(ws, render=False, joint="hinge", expected_direction="front")
     assert obs.ok and obs.numbers["max_penetration_m"] == 0.0 and obs.numbers["motion_check"]["ok"]
+
+
+def test_robot_named_like_a_link_keeps_frame_and_placement(tmp_path):
+    """``<robot name="body">`` with a root link ``body``: scene-graph node names must be
+    unique, so the root node gets a ``__root`` suffix instead of aliasing the link node
+    (which silently dropped the Z-up→Y-up rotation and the door's joint placement)."""
+    from codeverse.spatial.measure import measure_glb
+
+    urdf, meshes = write_mesh_robot(tmp_path)
+    urdf.write_text(urdf.read_text().replace('<robot name="cab">', '<robot name="body">'))
+    r = load_urdf(urdf, meshes)
+    glb = urdf_to_glb(r, tmp_path / "object.glb")
+    js = _gltf_json(glb)
+    names = [n["name"] for n in js["nodes"]]
+    assert names.count("body") == 1 and "body__root" in names
+    m = measure_glb(glb)
+    rows = {p.name: p for p in m.parts}
+    assert set(rows) == {"body", "door"} and m.ground_gap_m == pytest.approx(0.0, abs=1e-6)
+    assert rows["body"].bbox_max[1] == pytest.approx(0.8, abs=1e-6)  # Y-up: height along y
+    assert rows["door"].bbox_min[0] == pytest.approx(-0.29, abs=1e-6) and rows["door"].bbox_max[0] == pytest.approx(0.29, abs=1e-6)
+    assert rows["door"].bbox_min[2] > 0.19  # door in front (+z) of the body, hinge placement applied
+
+
+def test_link_named_world_is_rejected(tmp_path):
+    urdf, meshes = write_mesh_robot(tmp_path)
+    (meshes / "world.glb").write_bytes((meshes / "body.glb").read_bytes())
+    urdf.write_text(urdf.read_text().replace('name="body"', 'name="world"').replace('link="body"', 'link="world"').replace("meshes/body.glb", "meshes/world.glb"))
+    with pytest.raises(UrdfError, match="reserved"):
+        load_urdf(urdf, meshes)

@@ -2,14 +2,14 @@
 
 ``build_report(out_dir)`` reads ``results.jsonl`` (or results.json), aggregates
 mean/median/pass-rate/cost per tier and category, writes ``report.md`` and
-``report.html`` (contact sheets copied into ``report_assets/``).
+``report.html`` — the same self-contained gallery as ``3dcv flywheel gallery``
+(``codeverse.flywheel.gallery``) with the stats tables above the cards.
 """
 
 from __future__ import annotations
 
 import html
 import json
-import shutil
 import statistics
 from pathlib import Path
 from typing import Any
@@ -17,6 +17,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from bench.run_bench import BenchItemResult
+from codeverse.flywheel.gallery import GalleryItem, item_from_run, render_gallery
+from codeverse.flywheel.record import RecordError, load_record
+from codeverse.workspace import Workspace
 
 TIER_ORDER = {"easy": 0, "medium": 1, "hard": 2}
 
@@ -101,21 +104,27 @@ def _md_table(title: str, stats: list[GroupStats]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _sheet_for(r: BenchItemResult) -> Path | None:
-    ws = Path(r.workspace) if r.workspace else None
-    if ws is None or not (ws / "record.json").is_file():
-        return None
-    try:
-        rec = json.loads((ws / "record.json").read_text())
-    except ValueError:
-        return None
-    best = rec.get("best_round")
-    for rnd in rec.get("rounds", []):
-        if rnd.get("index") == best and rnd.get("renders") and rnd["renders"].get("contact_sheet"):
-            p = Path(rnd["renders"]["contact_sheet"])
-            p = p if p.is_absolute() else ws / p
-            return p if p.is_file() else None
-    return None
+def _item_for(r: BenchItemResult) -> GalleryItem:
+    """Gallery card for one bench result: the run record when the workspace has one,
+    else a card built from the result row alone (errors, never-started runs)."""
+    ws_path = Path(r.workspace) if r.workspace else None
+    if ws_path is not None and (ws_path / "record.json").is_file():
+        try:
+            item = item_from_run(Workspace(ws_path), load_record(ws_path))
+        except RecordError:
+            item = None
+        if item is not None:
+            item.key = r.id
+            item.group = f"{r.tier} · {r.category}" if r.category else r.tier
+            item.minutes = r.minutes or item.minutes
+            item.error = item.error or r.errors
+            return item
+    return GalleryItem(
+        key=r.id, title=r.id, group=f"{r.tier} · {r.category}" if r.category else r.tier,
+        generator=r.generator, judge=r.judge, score=r.score_final, baseline_score=r.score_baseline,
+        passed=r.passed, rounds=r.rounds, cost_usd=r.cost_usd, minutes=r.minutes, status=r.status,
+        error=r.errors, links={"workspace": r.workspace} if r.workspace else {},
+    )
 
 
 def build_report(out_dir: Path | str, *, title: str | None = None) -> BenchReport:
@@ -144,41 +153,23 @@ def build_report(out_dir: Path | str, *, title: str | None = None) -> BenchRepor
     return rep
 
 
+def _html_table(stats: list[GroupStats]) -> str:
+    rows = "".join(
+        f"<tr><td>{html.escape(s.group)}</td><td>{s.n}</td><td>{_fmt(s.baseline_mean)}</td><td>{_fmt(s.final_mean)}</td>"
+        f"<td>{_fmt(s.delta_mean, '+.3f')}</td><td>{_fmt(s.pass_rate, '.0%')}</td><td>{s.cost_mean:.2f}</td>"
+        f"<td>{s.minutes_mean:.1f}</td><td>{s.errors}</td></tr>"
+        for s in stats
+    )
+    return ("<table><tr><th>group</th><th>n</th><th>baseline</th><th>final</th><th>Δ</th><th>pass</th><th>$/run</th>"
+            f"<th>min/run</th><th>errors</th></tr>{rows}</table>")
+
+
 def _html_gallery(out: Path, name: str, results: list[BenchItemResult], rep: BenchReport) -> str:
-    assets = out / "report_assets"
-    assets.mkdir(exist_ok=True)
-    cards = []
-    for r in results:
-        sheet = _sheet_for(r)
-        img = ""
-        if sheet is not None:
-            dst = assets / f"{r.id}{sheet.suffix}"
-            shutil.copy2(sheet, dst)
-            img = f'<img src="report_assets/{dst.name}" loading="lazy">'
-        badge = "pass" if r.passed else ("fail" if r.passed is False else "na")
-        cards.append(
-            f'<div class="card {badge}">{img}<div class="meta"><b>{html.escape(r.id)}</b> · {html.escape(r.tier)} · '
-            f'{html.escape(r.category)}<br>baseline {_fmt(r.score_baseline)} → final {_fmt(r.score_final)} · '
-            f'rounds {r.rounds} · ${r.cost_usd:.2f} · {r.minutes:.1f} min · {html.escape(r.status)}'
-            f'{"<br><span class=err>" + html.escape(r.errors[:200]) + "</span>" if r.errors else ""}</div></div>'
-        )
-
-    def _rows(stats: list[GroupStats]) -> str:
-        return "".join(
-            f"<tr><td>{html.escape(s.group)}</td><td>{s.n}</td><td>{_fmt(s.baseline_mean)}</td><td>{_fmt(s.final_mean)}</td>"
-            f"<td>{_fmt(s.delta_mean, '+.3f')}</td><td>{_fmt(s.pass_rate, '.0%')}</td><td>{s.cost_mean:.2f}</td></tr>"
-            for s in stats
-        )
-
-    table = ("<table><tr><th>group</th><th>n</th><th>baseline</th><th>final</th><th>Δ</th><th>pass</th><th>$/run</th></tr>"
-             + _rows([rep.overall] if rep.overall else []) + _rows(rep.by_tier) + "</table>")
-    style = ("body{font-family:system-ui,sans-serif;margin:24px;background:#111;color:#eee}"
-             ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:14px}"
-             ".card{background:#1c1c1c;border-radius:8px;overflow:hidden;border:2px solid #333}.card.pass{border-color:#2e7d32}"
-             ".card.fail{border-color:#8a1c1c}.card img{width:100%;display:block}.meta{padding:8px;font-size:13px}"
-             ".err{color:#f88}table{border-collapse:collapse;margin:12px 0}td,th{border:1px solid #444;padding:4px 10px}")
-    return (f"<!doctype html><meta charset='utf-8'><title>bench {html.escape(name)}</title><style>{style}</style>"
-            f"<h1>bench — {html.escape(name)}</h1>{table}<div class='grid'>{''.join(cards)}</div>")
+    style = "<style>table{border-collapse:collapse;margin:8px 0 12px}td,th{border:1px solid #444;padding:3px 10px;font-size:13px}</style>"
+    tables = (style + "<h3>overall + by tier</h3>" + _html_table(([rep.overall] if rep.overall else []) + rep.by_tier)
+              + "<h3>by category</h3>" + _html_table(rep.by_category))
+    items = [_item_for(r) for r in results]
+    return render_gallery(items, f"bench — {name}", extra_html=tables)
 
 
 def report_dict(rep: BenchReport) -> dict[str, Any]:

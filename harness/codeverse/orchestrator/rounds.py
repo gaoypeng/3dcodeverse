@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -25,7 +25,7 @@ from codeverse.conventions import to_snake
 
 log = logging.getLogger(__name__)
 
-StopReason = Literal["pass", "plateau", "budget", "continue", "max_rounds"]
+StopReason = Literal["pass", "plateau", "budget", "continue", "max_rounds", "judge_unavailable"]
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,18 @@ class RoundPolicy:
     target: float = 0.8  # rubric pass threshold (overridden from the rubric when known)
     judge_on_gate_errors: bool = True  # still judge when gates (not build) fail
     max_refine_tasks: int = 6
-    parallel_min_tasks: int = 3  # fan out only when >= this many file-disjoint groups
+    max_instructions_per_task: int = 6  # lines handed to ONE generation task (grouped by target)
+    parallel_min_tasks: int = 2  # fan out only when >= this many file-disjoint groups
+    n_candidates: int = 1  # best-of-N baseline (candidates generated in parallel, best kept)
+    pairwise_margin: float = 0.03  # |Δscore| below this = judge noise → pairwise tie-break
+    pairwise_min_confidence: float = 0.6  # new round replaces best only when pairwise is this sure
+    judge_samples: int = 1  # VLM judge samples per round (flash: std ≈ 0.001 between samples → 1 is enough)
+
+    def with_candidates(self, n: int | None) -> RoundPolicy:
+        """Copy with ``n_candidates`` set (``None`` → unchanged)."""
+        if n is None or n == self.n_candidates:
+            return self
+        return replace(self, n_candidates=max(1, int(n)))
 
 
 class StopPolicy:
@@ -157,10 +168,12 @@ def build_refine_instructions(
     *,
     file_for_target: FileForTarget | None = None,
     max_tasks: int = 6,
+    extra: Sequence[RefineTask] = (),
 ) -> list[RefineTask]:
-    """Gate ERRORS first (with fix hints), then failed *must* acceptance items,
+    """Gate ERRORS first (with fix hints), then ``extra`` harness-derived tasks
+    (e.g. reference-silhouette mismatch), then failed *must* acceptance items,
     then the judge's improvement plan; de-duplicated by (target, kind), capped.
-    Gate/acceptance tasks are never dropped by the cap unless they alone exceed it."""
+    Gate/acceptance/extra tasks are never dropped by the cap unless they alone exceed it."""
     known = _known_targets(plan)
     tasks: list[RefineTask] = []
     seen: set[tuple[str, str]] = set()
@@ -180,6 +193,8 @@ def build_refine_instructions(
             text = f.message if not f.fix_hint else f"{f.message} FIX: {f.fix_hint}"
             _add(RefineTask(target=f.target or "overall", kind=f"gate:{g.gate}", instruction=text,
                             priority=0, source="gate"))
+    for t in extra:
+        _add(t.model_copy())
     for a in acceptance_failures:
         if a.priority != "must":
             continue
@@ -234,7 +249,49 @@ def plan_parallel_groups(tasks: Sequence[RefineTask]) -> list[TaskGroup]:
     return out
 
 
+def compact_instructions(tasks: Sequence[RefineTask], max_lines: int = 6) -> list[str]:
+    """The instruction lines handed to ONE generation task: grouped by target
+    (instances ``Leg_0``/``Leg_1`` fold into ``Leg``), ordered by priority, capped
+    at ``max_lines``.  A flash-class agent given 12 near-identical connectivity
+    errors fixes none; given "FrontLeg: (a) … (b) …" it fixes the part."""
+    if not tasks:
+        return []
+    groups: dict[str, list[RefineTask]] = {}
+    for t in sorted(tasks, key=lambda t: t.priority):
+        groups.setdefault(_instance_base(t.target), []).append(t)
+    lines: list[str] = []
+    for target, members in groups.items():
+        if len(members) == 1:
+            lines.append(members[0].line())
+            continue
+        bits = []
+        for i, t in enumerate(members):
+            who = f" [{t.target}]" if t.target != target else ""
+            bits.append(f"({chr(97 + i % 26)}){who} [{t.source}/{t.kind}] {t.instruction}")
+        files = sorted({f for t in members for f in t.files})
+        tail = f" (files: {', '.join(files)})" if files else ""
+        lines.append(f"{target}: " + "; ".join(bits) + tail)
+    if len(lines) > max_lines:
+        dropped = len(lines) - max_lines
+        lines = lines[:max_lines]
+        log.info("compact_instructions: %d target group(s) deferred to a later round", dropped)
+    return lines
+
+
 # ----------------------------------------------------------------------------- helpers
+def _split_instance(target: str) -> tuple[str, str]:
+    """``BackLeg_1`` → (``BackLeg``, ``1``) per the ``Name_0..N-1`` instance naming
+    convention; anything else → (target, "")."""
+    base, sep, suffix = (target or "").rpartition("_")
+    if sep and base and suffix.isdigit():
+        return base, suffix
+    return target or "overall", ""
+
+
+def _instance_base(target: str) -> str:
+    return _split_instance(target)[0]
+
+
 def _known_targets(plan: Plan | None) -> dict[str, str]:
     """snake → canonical name for every part/zone/asset/joint/camera in the plan."""
     names: dict[str, str] = {}
@@ -247,7 +304,18 @@ def _known_targets(plan: Plan | None) -> dict[str, str]:
 
 
 def _canon_target(target: str, known: dict[str, str]) -> str:
-    return known.get(to_snake(target), target)
+    """Plan name for ``target``; instance suffixes (``Leg_1``, ``leg.2``) keep the
+    suffix but take the plan's spelling of the base name."""
+    hit = known.get(to_snake(target))
+    if hit is not None:
+        return hit
+    base, suffix = _split_instance(target)
+    if suffix and to_snake(base) in known:
+        return f"{known[to_snake(base)]}_{suffix}"
+    snake = to_snake(target)
+    if snake.endswith("s") and snake[:-1] in known:  # judges say "Legs" for the plan's "Leg"
+        return known[snake[:-1]]
+    return target
 
 
 def _acceptance_target(item: AcceptanceItem, known: dict[str, str]) -> str:

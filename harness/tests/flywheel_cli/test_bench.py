@@ -30,7 +30,8 @@ def test_batteries_are_valid(path: Path):
     assert tiers <= {"easy", "medium", "hard"} and len(tiers) == 3
     assert all(p.must_have for p in b.prompts)
     expected = {"static_objects_v1": 24, "articulated_v1": 12, "scenes_v1": 12}
-    assert len(b.prompts) == expected[b.name]
+    if b.name in expected:  # other batteries (e.g. compare_v1) are owned elsewhere; only the schema is checked
+        assert len(b.prompts) == expected[b.name]
 
 
 def _fake_run_fn(scores_by_id: dict[str, tuple[float, float]], fail_ids: set[str] = frozenset()):
@@ -78,4 +79,6 @@ def test_run_battery_resume_and_report(tmp_path: Path):
     assert tiers["easy"].n == 2 and tiers["easy"].final_mean == pytest.approx(0.85)  # toy car errored → unscored
     assert rep.overall is not None and rep.overall.errors == 1
     assert "| furn_easy_stool | easy |" in rep.markdown
-    assert (out / "report_assets").is_dir() and any((out / "report_assets").iterdir())
+    page = (out / "report.html").read_text()
+    assert "data:image/jpeg;base64," in page and "furn_easy_stool" in page  # self-contained gallery
+    assert "veh_easy_toy_car" in page and "boom" in page  # errored prompt still gets a card

@@ -1,1 +1,1 @@
-"""``c3v`` command line."""
+"""``3dcv`` command line."""

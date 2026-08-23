@@ -16,6 +16,7 @@ class Track(StrEnum):
     STATIC_OBJECT = "static_object"
     ARTICULATED_OBJECT = "articulated_object"
     SCENE = "scene"
+    GRAPHICS = "graphics"  # shader / OpenGL effects (2D/2.5D/3D procedural graphics)
 
 
 class Language(StrEnum):
@@ -26,6 +27,8 @@ class Language(StrEnum):
     THREEJS = "threejs"  # procedural three.js (ESM) → GLB via GLTFExporter
     URDF_BLENDER = "urdf_blender"  # bpy link meshes + hand-written URDF
     SCENE_THREEJS = "scene_threejs"  # multi-file three.js scene (+GLSL, +GLB assets)
+    GLSL_SHADER = "glsl_shader"  # Shadertoy-style fragment shader (GLSL 330/ES 3.0), rendered by moderngl
+    OPENGL_PYTHON = "opengl_python"  # raw OpenGL via moderngl + GLSL (multi-pass, geometry, FBOs)
 
 
 #: languages allowed per track
@@ -33,6 +36,7 @@ TRACK_LANGUAGES: dict[Track, tuple[Language, ...]] = {
     Track.STATIC_OBJECT: (Language.BLENDER, Language.CADQUERY, Language.THREEJS),
     Track.ARTICULATED_OBJECT: (Language.URDF_BLENDER,),
     Track.SCENE: (Language.SCENE_THREEJS,),
+    Track.GRAPHICS: (Language.GLSL_SHADER, Language.OPENGL_PYTHON),
 }
 
 
@@ -84,5 +88,5 @@ class Backends(BaseModel):
 
     planner: str = "gemini:gemini-3.7-flash"
     generator: str = "api-agent:gemini:gemini-3.7-flash"
-    judge: str = "gemini:gemini-3.7-flash"
+    judge: str = "gemini:gemini-3.1-pro-preview"
     captioner: str = "gemini:gemini-3.7-flash"

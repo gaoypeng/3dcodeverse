@@ -8,6 +8,9 @@ see the harness: make the code correct by construction, with the plan's exact nu
 {{ spec_prompt }}
 Constraints:
 {{ constraints }}
+{% if reference_note %}
+{{ reference_note }}
+{% endif %}
 
 ## The contract (hard rules — the build fails or the gate rejects when broken)
 {{ frame_doc }}

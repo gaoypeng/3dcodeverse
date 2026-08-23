@@ -75,6 +75,51 @@ def _measure_after_build(ctx: ToolContext, br: BuildResult) -> tuple[Measurement
     return m, measure_summary_table(m)
 
 
+#: languages whose build has no GLB deliverable — build ok is reported through
+#: the language's own artifacts instead of 'no GLB path'
+_SCENE_LANGS = ("scene_threejs",)
+_GL_LANGS = ("glsl_shader", "opengl_python")
+
+
+def _no_glb_summary(ctx: ToolContext, br: BuildResult, language: str) -> tuple[bool, list[str], dict[str, Any]]:
+    """(ok, lines, numbers) for a successful build without a GLB (scene / graphics)."""
+    ws = ctx.workspace
+    census = dict(br.census) if isinstance(br.census, dict) else {}
+    if language in _GL_LANGS:
+        lines, numbers = [], {}
+        try:
+            read_metrics = lazy("codeverse.languages.glsl_shader.gl_build", "read_metrics")
+            m = read_metrics(ws)
+        except ToolUnavailable:
+            m = None
+        if m is not None:
+            stats, gate = m
+            lines.extend(stats.summary_lines())
+            for f in gate.findings:
+                if f.severity == Severity.INFO:
+                    continue
+                lines.append(f"- {f.severity.value.upper()} [{f.data.get('kind', '')}] {sanitize_text(f.message, ws.root)}")
+            numbers.update({"n_frames": len(stats.frames), "static": stats.static, "any_nan": stats.any_nan,
+                            "gate_errors": len(gate.errors)})
+            ok = not gate.errors
+        else:
+            lines.append("(no frame metrics)")
+            ok = True
+        for key in ("frames", "sheet", "gif"):
+            p = br.extra_paths.get(key)
+            if p:
+                lines.append(f"{key}: {rel_path(p, ws.root)}")
+        return ok, lines, numbers
+    # scene_threejs: probe census (+ shader preflight) is the deliverable
+    keep = {k: v for k, v in census.items() if isinstance(v, (int, float, str, bool)) and k != "build_report"}
+    lines = ["scene probe census: " + (", ".join(f"{k}={v}" for k, v in sorted(keep.items())[:20]) or "(empty)")]
+    for key in ("scene_probe", "shader_preflight"):
+        p = br.extra_paths.get(key)
+        if p:
+            lines.append(f"{key}: {rel_path(p, ws.root)}")
+    return True, lines, {"census": keep}
+
+
 @tool("build", NoArgs, "Lint + build the code in src/ with the language runtime, export artifacts/object.glb and measure it. Call after every edit.", cost_hint="slow")
 def build(ctx: ToolContext, args: NoArgs) -> Observation:
     ws = ctx.workspace
@@ -108,11 +153,19 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
         numbers.update({"error_type": br.error_type, "error_file": rel_path(br.error_file, ws.root), "error_line": br.error_line})
         return Observation(ok=False, text=truncate("\n".join(lines), 3000), numbers=numbers,
                            duration_ms=int((time.time() - t0) * 1000))
-    m, table = _measure_after_build(ctx, br)
-    lines = [f"BUILD OK ({br.duration_ms} ms) → {rel_path(br.glb_path, ws.root)}"]
-    if br.extra_paths:
-        lines.append("extras: " + ", ".join(f"{k}={rel_path(v, ws.root)}" for k, v in br.extra_paths.items()))
-    lines.append(table)
+    if not br.glb_path and language in _SCENE_LANGS + _GL_LANGS:
+        # languages without a GLB deliverable: report the language's own artifacts
+        ok, extra_lines, extra_numbers = _no_glb_summary(ctx, br, language)
+        lines = [f"BUILD OK ({br.duration_ms} ms)"] + extra_lines
+        numbers.update(extra_numbers)
+        m = None
+    else:
+        m, table = _measure_after_build(ctx, br)
+        ok = m is not None
+        lines = [f"BUILD OK ({br.duration_ms} ms) → {rel_path(br.glb_path, ws.root)}"]
+        if br.extra_paths:
+            lines.append("extras: " + ", ".join(f"{k}={rel_path(v, ws.root)}" for k, v in br.extra_paths.items()))
+        lines.append(table)
     if m is not None:
         numbers.update({"extents_m": list(m.extents), "tri_count": m.tri_count, "n_parts": len(m.parts),
                         "n_islands": m.n_islands, "ground_gap_m": m.ground_gap_m,
@@ -124,7 +177,7 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     census_warn = br.census.get("warnings") if isinstance(br.census, dict) else None
     if census_warn:
         lines.append("build warnings:\n" + "\n".join(f"- {sanitize_text(str(w), ws.root)}" for w in list(census_warn)[:10]))
-    return Observation(ok=m is not None, text=truncate("\n".join(lines), 3000), numbers=numbers,
+    return Observation(ok=ok, text=truncate("\n".join(lines), 3000), numbers=numbers,
                        duration_ms=int((time.time() - t0) * 1000))
 
 
@@ -158,7 +211,7 @@ def measure(ctx: ToolContext, args: MeasureArgs) -> Observation:
 @tool("check_connectivity", NoArgs, "Contact graph of all parts: floating parts (with the exact gap vector to close), interpenetration, stray islands.")
 def check_connectivity(ctx: ToolContext, args: NoArgs) -> Observation:
     glb = glb_path(ctx)
-    report = _check_connectivity(glb)
+    report = _check_connectivity(glb, language=language_of(ctx))
     ctx.workspace.write_json(ctx.workspace.gates_dir(ctx.round_index) / "connectivity_tool.json", report)
     return gate_observation(report)
 
@@ -201,6 +254,7 @@ def cross_section(ctx: ToolContext, args: CrossSectionArgs) -> Observation:
 
 # register the remaining tool modules (order matters only for the prompt card listing)
 import codeverse.spatial.cookbook_tool  # noqa: E402,F401
+import codeverse.spatial.tools_graphics  # noqa: E402,F401
 import codeverse.spatial.tools_render  # noqa: E402,F401
 import codeverse.spatial.tools_scene  # noqa: E402,F401
-
+import codeverse.spatial.tools_texture  # noqa: E402,F401

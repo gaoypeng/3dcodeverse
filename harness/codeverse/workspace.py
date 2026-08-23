@@ -119,8 +119,8 @@ class Workspace:
             for attempt in range(4):
                 proc = subprocess.run(
                     ["git", *args], cwd=self.root, text=True, capture_output=True, check=False,
-                    env={"GIT_AUTHOR_NAME": "c3v", "GIT_AUTHOR_EMAIL": "c3v@local",
-                         "GIT_COMMITTER_NAME": "c3v", "GIT_COMMITTER_EMAIL": "c3v@local",
+                    env={"GIT_AUTHOR_NAME": "3dcv", "GIT_AUTHOR_EMAIL": "3dcv@local",
+                         "GIT_COMMITTER_NAME": "3dcv", "GIT_COMMITTER_EMAIL": "3dcv@local",
                          "PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": str(self.root)},
                 )
                 if proc.returncode == 0 or "index.lock" not in (proc.stderr or ""):
@@ -136,7 +136,7 @@ class Workspace:
         self._git("init", "-q")
         (self.root / ".gitignore").write_text(
             "# harness-owned run state is never part of the code snapshot\n"
-            "artifacts/\ntrajectories/\nstages/\nrounds/\n_assets/\n.c3v/\n.gemini/\n.claude/\n"
+            "artifacts/\ntrajectories/\nstages/\nrounds/\n_assets/\n.3dcv/\n.gemini/\n.claude/\n"
             "events.jsonl\nrun_state.json\nrecord.json\n*.log\nnode_modules/\n*.tmp\n__pycache__/\n"
         )
         self._git("add", "-A")

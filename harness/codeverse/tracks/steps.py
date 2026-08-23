@@ -69,11 +69,10 @@ def run_generation_tasks(ctx: RunContext, tasks: Sequence[GenerationTask]) -> li
         return generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model,
                         settings=ctx.settings, budget=ctx.budget, events=ctx.events)
 
-    if len(tasks) == 1:
-        results: list[GenerationResult | Exception] = [_one(tasks[0])]
-    else:
-        results = fan_out(list(tasks), _one, max_workers=ctx.settings.limits.max_parallel_agents,
-                          label="generate", item_name=lambda t: t.label)
+    # fan_out also for ONE task: a crashing generator (503 storm, parse error) becomes a failed
+    # result → RoundFailed (refine rounds treat that as a plateau) instead of killing the run.
+    results = fan_out(list(tasks), _one, max_workers=ctx.settings.limits.max_parallel_agents,
+                      label="generate", item_name=lambda t: t.label)
     out: list[GenerationResult] = []
     for task, r in zip(tasks, results, strict=True):
         if isinstance(r, Exception):
@@ -100,14 +99,21 @@ def run_round(
     instructions: Sequence[str] = (),
     previous: Judgment | None = None,
     files_hint: Sequence[str] = (),
+    extra_usage: Usage | None = None,
+    extra_notes: Sequence[str] = (),
 ) -> RoundRecord:
-    """Execute one round and persist its record.  Budget is charged as it goes."""
+    """Execute one round and persist its record.  Budget is charged as it goes.
+
+    ``tasks`` may be empty when the code is already in place (scene stages,
+    best-of-N winner copied in): the round is then build → gates → render →
+    judge only.  ``extra_usage`` / ``extra_notes`` fold pre-round work
+    (candidate generation) into the record."""
     t0 = time.time()
     ctx.events.emit("round.start", round=index, kind=kind, n_tasks=len(tasks))
     rec = RoundRecord(index=index, kind=kind, agent_backend=ctx.agent_id, instructions=list(instructions),
                       started_at=datetime.now(UTC))
-    usage = Usage()
-    notes: list[str] = []
+    usage = extra_usage or Usage()
+    notes: list[str] = list(extra_notes)
 
     gens = run_generation_tasks(ctx, tasks)
     for g in gens:
@@ -138,7 +144,10 @@ def run_round(
             rec.judgment = _judge(ctx, pipeline, index, outcome.build, gates, rec, previous)
             if rec.judgment is not None:
                 usage = usage + rec.judgment.usage
-                ctx.budget.charge(rec.judgment.usage)
+                # add, never charge: the verdict exists and is paid for — raising here
+                # would drop a fully judged round before it is committed/recorded
+                # (the loop stops at its next budget_ok check instead, AFTER best promotion).
+                ctx.budget.add(rec.judgment.usage)
         elif ctx.judge is None:
             notes.append("no judge configured")
         else:
@@ -162,10 +171,27 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
            rec: RoundRecord, previous: Judgment | None) -> Judgment | None:
     from codeverse.judges.base import JudgeInput
 
+    renders = rec.renders
+    jv = getattr(pipeline, "judge_views", None)
+    if callable(jv) and renders is not None:
+        try:
+            renders = jv(ctx, renders) or renders
+        except Exception as e:  # noqa: BLE001 — view selection is an optimisation, never a blocker
+            log.warning("judge_views selection failed: %s", e)
+            renders = rec.renders
+    geometry = None
+    gv = getattr(pipeline, "geometry_views", None)
+    if callable(gv):
+        try:
+            geometry = gv(ctx, index, build)
+        except Exception as e:  # noqa: BLE001 — clay views are optional judge context
+            log.warning("geometry views failed in round %d: %s", index, e)
+            ctx.events.emit("judge.geometry_views_failed", round=index, error=f"{type(e).__name__}: {e}")
     inp = JudgeInput(
-        spec=ctx.spec, renders=rec.renders, measurement=rec.measurement, gates=gates,
+        spec=ctx.spec, renders=renders, measurement=rec.measurement, gates=gates,
         acceptance=list(getattr(ctx.plan, "acceptance", []) or []), plan_summary=pipeline.plan_summary(ctx),
         round_index=index, previous=previous, extra_context=pipeline.judge_context(ctx, index, build, gates),
+        geometry_views=geometry,
     )
     t0 = time.time()
     try:
@@ -176,10 +202,45 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
         rec.notes = (rec.notes + "; " if rec.notes else "") + f"judge failed: {type(e).__name__}: {e}"
         return None
     ctx.ws.write_json(ctx.ws.judge_path(index), judgment)
+    if _is_degraded(judgment):
+        # a glitch, never a score: keep the raw verdict on disk, pay for it, but do not
+        # let 0.0 poison plateau/best/refine (judges/scoring.degraded_judgment contract)
+        ctx.budget.add(judgment.usage)
+        ctx.events.emit("judge.degraded", round=index, error=judgment.summary[:300],
+                        cost_usd=round(judgment.usage.cost_usd, 4))
+        rec.notes = (rec.notes + "; " if rec.notes else "") + f"judge degraded: {judgment.summary[:200]}"
+        return None
     ctx.events.emit("judge.done", round=index, overall=round(judgment.overall, 3), passed=judgment.passed,
                     n_issues=len(judgment.issues), n_plan=len(judgment.improvement_plan),
                     duration_s=round(time.time() - t0, 1), cost_usd=round(judgment.usage.cost_usd, 4))
     return judgment
+
+
+def _is_degraded(judgment: Judgment) -> bool:
+    try:
+        from codeverse.judges.scoring import is_degraded
+    except ImportError:  # pragma: no cover — judges package always ships with tracks
+        return False
+    return is_degraded(judgment)
+
+
+def rejudge_round(ctx: RunContext, pipeline: RoundPipeline, rec: RoundRecord, previous: Judgment | None = None) -> bool:
+    """Re-judge an already built+rendered round whose judgment failed or was degraded.
+
+    No regeneration, no rebuild: the same commit is judged again.  On success the
+    round record is updated in place and re-persisted.  Returns True when the
+    round now has a usable judgment."""
+    if rec.build is None or not rec.build.ok or rec.renders is None or not rec.renders.views:
+        return False
+    ctx.events.emit("judge.retry", round=rec.index)
+    judgment = _judge(ctx, pipeline, rec.index, rec.build, list(rec.gates), rec, previous)
+    if judgment is None:
+        return False
+    rec.judgment = judgment
+    rec.usage = rec.usage + judgment.usage
+    ctx.budget.add(judgment.usage)
+    ctx.ws.write_json(round_record_path(ctx, rec.index), rec)
+    return True
 
 
 def _write_gate_reports(ctx: RunContext, index: int, gates: list[GateReport]) -> None:

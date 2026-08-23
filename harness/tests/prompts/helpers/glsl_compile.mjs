@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import url from 'node:url';
 
-const RUNTIME = process.env.C3V_RUNTIME_JS
+const RUNTIME = process.env.CV3D_RUNTIME_JS
   || path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '../../../runtime_js');
 const require_ = createRequire(path.join(RUNTIME, 'package.json'));
 const puppeteer = require_('puppeteer');

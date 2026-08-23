@@ -60,6 +60,14 @@ def get_runtime(language: Language | str) -> LanguageRuntime:
         from codeverse.languages.urdf.runtime import UrdfBlenderRuntime
 
         return UrdfBlenderRuntime()
+    if lang is Language.GLSL_SHADER:
+        from codeverse.languages.glsl_shader.runtime import GlslShaderRuntime
+
+        return GlslShaderRuntime()
+    if lang is Language.OPENGL_PYTHON:
+        from codeverse.languages.opengl_python.runtime import OpenGLPythonRuntime
+
+        return OpenGLPythonRuntime()
     from codeverse.languages.scene_threejs.runtime import SceneThreeJsRuntime
 
     return SceneThreeJsRuntime()

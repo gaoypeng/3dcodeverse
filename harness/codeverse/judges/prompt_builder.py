@@ -1,39 +1,56 @@
-"""Build the judge conversation: system (role + rubric + output rules) and ONE
-user message (brief, plan digest, acceptance checklist, measurement table, gate
-digest, previous-verdict framing, view-rig paragraph, then labelled images).
+"""Build the judge conversation: system (role + rubric + defect checklist +
+output rules) and ONE user message (brief, plan digest, acceptance checklist,
+measurement table, gate digest, previous-verdict framing, view-rig paragraph,
+then the labelled images).
 
-Text is budgeted to ≈6k tokens; images to ≤ ``max_images`` at ≤ ``max_px``.
-The builder's code and reasoning are never included (blind judge).
+Images are ≤ 2×2 **montages** (see ``montage.py``): at most ``max_montages``
+grids (shaded primary, pose sheet, geometry-only, shaded secondary) plus 0–2
+detail crops, every tile labelled, whole-image label strips burnt in.  Text is
+budgeted to ≈6k tokens.  The builder's code and reasoning are never included
+(blind judge).
 """
 
 from __future__ import annotations
 
-import random
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from codeverse.contracts.artifacts import GateReport, Measurement, RenderSet, RenderView, Severity
+from codeverse.contracts.artifacts import GateReport, Measurement, RenderSet, Severity
 from codeverse.contracts.chat import ChatMessage, ImagePart, TextPart
 from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.spec import Spec
-from codeverse.judges.images import image_part, prepare_image, view_label
+from codeverse.judges.images import image_part, prepare_image
+from codeverse.judges.montage import (
+    Montage,
+    describe_montages,
+    montage_label,
+    montage_strip,
+    plan_montages,
+    render_montage,
+    shuffle_montages,
+)
 from codeverse.judges.rubrics import Rubric
 
 if TYPE_CHECKING:  # pragma: no cover
     from codeverse.judges.base import JudgeInput
 
 TEXT_BUDGET_CHARS = 24_000  # ≈ 6k tokens
-MAX_IMAGES = 10
-MAX_PX = 768
+MAX_MONTAGES = 3
+MAX_DETAIL_CROPS = 2
+MAX_PX = 1024  # montages are 2×2 grids: keep them legible
+MONTAGE_TILE_PX = 512
 
 _ROLE = """You are the BLIND JUDGE of a 3D-code harness: exacting but fair.
 You see only the brief, a plan digest, measured numbers, deterministic gate findings and labelled renders of the result — never the builder's code or reasoning. Judge what is visible and measured; do not invent faults and do not credit what you cannot see.
+Gate findings describe the exported FILE (names, node hierarchy, contacts); the renders show the actual geometry. When they seem to disagree about something VISIBLE (a part moves in a posed tile, a part is present), trust the images for the visual criteria and report the file-level fact as an issue — never infer "nothing moves" or "part missing" from text alone when the tiles show otherwise.
+Work in this order: observe (summary, strengths, issues), answer the defect checklist and the acceptance items, and only THEN score the criteria against their anchors.
 
 SCORING RULES
-- Score each criterion 0..1 against its anchors (interpolate between anchors). Use the whole range: competent work sits at 0.8+, one clearly visible major defect pulls the affected criterion to ~0.4, broken work sits at 0.1-0.3. Do not compress everything into 0.5-0.7.
-- Every score needs evidence that cites the VIEW label(s) and/or the measurement that shows it (e.g. "VIEW 4 (right): rear leg ends 3 cm above ground; measurement ground_gap 0.03").
-- Do NOT compute an overall or decide pass/fail; the harness computes the weighted overall, applies floors and caps.
+- Score each criterion 0..1 against its anchors (interpolate between anchors). Use the WHOLE range: competent work sits at 0.8+, one clearly visible major defect pulls the affected criterion to ~0.4, broken work sits at 0.1-0.3. Do not compress everything into 0.5-0.7 — a primitive box-stack and a crafted product must be 0.4 apart, not 0.1.
+- Every score needs evidence that cites the image and tile (e.g. "MONTAGE 1 top-left (front_right_34): rear leg ends 3 cm above ground; measurement ground_gap 0.03").
+- DEFECT CHECKLIST: answer EVERY item with present=true/false. true ONLY when the defect is visible in an image, or a gate finding of severity ERROR / a measurement states it; gate WARNINGS (e.g. a few-mm weld overlap) are informational and never make a defect present. Cite where. These answers drive penalties and caps computed by the harness, so be literal: do not mark a defect to "be safe", and do not hide one to be kind.
+- Do NOT compute an overall or decide pass/fail; the harness computes the weighted overall, subtracts defect penalties, applies floors and caps.
 - Issues: observable defects, most severe first, with target = the part / zone / joint / asset name from the plan digest (or "overall"), a kind, a severity and evidence.
 - Improvement plan: at most 6 concrete, imperative instructions for the builder ("taper the four legs from 45 mm at the seat to 30 mm at the foot and extend them to touch y=0"), priority 1 first, each with a target name from the plan digest and an expected_gain estimate. Give items even for passing work if a named change would raise the score; leave empty only when nothing would.
 - Acceptance items: answer verified=true ONLY when the renders or measurements prove the item; otherwise false with what is missing.
@@ -50,6 +67,16 @@ def _rubric_block(rubric: Rubric) -> str:
         lines.append(f"{i}. {c.id} (weight {c.weight:.2f}{floor}) — {c.label}: {c.description.strip()}")
         for lvl in ("1.0", "0.7", "0.4", "0.1"):
             lines.append(f"     {lvl}: {c.anchors[lvl]}")
+    if rubric.defects:
+        lines.append("")
+        lines.append("DEFECT CHECKLIST (binary; answer every id):")
+        for d in rubric.defects:
+            cost = []
+            if d.penalty:
+                cost.append(f"-{d.penalty:.2f}")
+            if d.cap is not None:
+                cost.append(f"cap {d.cap:.2f}")
+            lines.append(f"- {d.id}: {d.text.strip()}" + (f"  [{', '.join(cost)}]" if cost else ""))
     if rubric.extra_instructions.strip():
         lines.append("")
         lines.append("RUBRIC NOTES: " + rubric.extra_instructions.strip())
@@ -175,58 +202,61 @@ def previous_section(prev: Judgment | None, round_index: int) -> str:
     return "\n".join(lines)
 
 
-def view_rig_section(renders: RenderSet, n_views: int, *, scene: bool) -> str:
+def view_rig_section(renders: RenderSet, montages: list[Montage], *, scene: bool) -> str:
+    n_grids = sum(1 for m in montages if not m.is_detail)
+    n_detail = len(montages) - n_grids
     bits = [
-        "VIEW RIG: the first image is a CONTACT SHEET of all views (tiles are labelled); it is followed by the individual views, each with a burnt-in label 'VIEW k/N — name · az/el'." if renders.contact_sheet else
-        "VIEW RIG: each image carries a burnt-in label 'VIEW k/N — name · az/el'.",
+        f"VIEW RIG: {n_grids} MONTAGE image(s) follow" + (f" plus {n_detail} DETAIL CROP(s)" if n_detail else "") + ". "
+        "Each montage is a ≤2×2 grid; every tile carries a label under it ('name · az/el[· mode][· t=]') and the "
+        "montage's own label strip lists which view sits top-left / top-right / bottom-left / bottom-right. "
+        "Cite evidence as 'MONTAGE k <position> (<view name>)'. Detail crops are zoomed regions of a view, labelled with what to look for.",
         "Azimuth 0° = looking at the FRONT of the object, increasing counter-clockwise seen from above (90° = the object's right side, 180° = back); elevation is degrees above the horizon (negative = looking up from below the ground plane, which reveals undersides and ground contact).",
     ]
+    if any(m.kind == "geometry" for m in montages):
+        bits.append("The GEOMETRY-ONLY montage shows the same object without materials/lighting: use it for holes, inverted (black) faces, intersections and floating parts; use the SHADED montage for materials and detail.")
+    if any(m.kind in ("poses", "pose_sheet") for m in montages):
+        bits.append("POSE tiles show the SAME object with joints moved by the harness (tile label = joint@value or rest). Judge articulation only from them and the joint table.")
     if scene:
         bits.append("Views named overview_* are harness cameras fitted to the scene bounds (layout X-ray); views named cam_* are the scene's own authored cameras (grade composition/lighting on those); 't=' is the animation time.")
     else:
-        bits.append("All views show the same object; cite the view label when you report a defect. Use top + low views for symmetry, footprint and ground contact.")
+        bits.append("All views show the same object. Use top + low views for symmetry, footprint and ground contact.")
     if renders.console_errors:
         bits.append(f"PROBE: {len(renders.console_errors)} console error(s) during rendering, first: {_clip(renders.console_errors[0], 200)}")
     if renders.fps is not None:
         bits.append(f"PROBE: measured {renders.fps:.0f} fps.")
-    bits.append(f"{n_views} view(s) follow.")
+    bits.append("Images in send order:\n" + describe_montages(montages))
     return "\n".join(bits)
 
 
 # --------------------------------------------------------------------------- images
-def select_views(views: list[RenderView], max_views: int, *, shuffle_seed: int | None) -> list[RenderView]:
-    """Evenly sub-sample to ``max_views`` (keeps rig diversity) then optionally shuffle the order."""
-    chosen = list(views)
-    if len(chosen) > max_views:
-        step = len(chosen) / max_views
-        chosen = [chosen[int(i * step)] for i in range(max_views)]
-    if shuffle_seed is not None:
-        random.Random(shuffle_seed).shuffle(chosen)
-    return chosen
-
-
-def image_parts_for_renders(
+def montage_image_parts(
     renders: RenderSet,
     *,
-    max_images: int = MAX_IMAGES,
-    max_px: int = MAX_PX,
+    geometry_views: RenderSet | None = None,
+    scene: bool = False,
     shuffle_seed: int | None = None,
+    max_montages: int = MAX_MONTAGES,
+    detail_crops: int = MAX_DETAIL_CROPS,
+    max_px: int = MAX_PX,
     cache_dir: Path | None = None,
-    reserved: int = 0,
-) -> tuple[list[tuple[str, ImagePart]], list[RenderView]]:
-    """(label, ImagePart) pairs: contact sheet first, then labelled views; plus the chosen views."""
-    budget = max_images - reserved
+) -> tuple[list[tuple[str, ImagePart]], list[Montage]]:
+    """(label, ImagePart) pairs for the montages of a render set, plus the montage plan (in send order)."""
+    montages = shuffle_montages(
+        plan_montages(renders, geometry_views=geometry_views, scene=scene, max_montages=max_montages, detail_crops=detail_crops),
+        shuffle_seed,
+    )
+    grids = [m for m in montages if not m.is_detail]
+    details = [m for m in montages if m.is_detail]
     out: list[tuple[str, ImagePart]] = []
-    if renders.contact_sheet and budget > 0:
-        lbl = f"CONTACT SHEET — all {len(renders.views)} views"
-        out.append((lbl, image_part(prepare_image(renders.contact_sheet, label=lbl, max_px=max(max_px, 1024), cache_dir=cache_dir), lbl)))
-        budget -= 1
-    chosen = select_views(renders.views, max(budget, 0), shuffle_seed=shuffle_seed)
-    n = len(chosen)
-    for i, v in enumerate(chosen, 1):
-        lbl = view_label(v, i, n)
-        out.append((lbl, image_part(prepare_image(v.path, label=lbl, max_px=max_px, cache_dir=cache_dir), lbl)))
-    return out, chosen
+    for i, m in enumerate(grids, 1):
+        lbl, strip = montage_label(m, i, len(grids)), montage_strip(m, i, len(grids))
+        png = render_montage(m, cache_dir=cache_dir, tile_px=MONTAGE_TILE_PX)
+        out.append((lbl, image_part(prepare_image(png, label=strip, max_px=max_px, cache_dir=cache_dir), lbl)))
+    for i, m in enumerate(details, 1):
+        lbl, strip = montage_label(m, i, len(details)), montage_strip(m, i, len(details))
+        png = render_montage(m, cache_dir=cache_dir, tile_px=MONTAGE_TILE_PX)
+        out.append((lbl, image_part(prepare_image(png, label=strip, max_px=min(max_px, 768), cache_dir=cache_dir), lbl)))
+    return out, montages
 
 
 # --------------------------------------------------------------------------- assembly
@@ -235,7 +265,9 @@ def build_judge_messages(
     rubric: Rubric,
     *,
     shuffle_seed: int | None = None,
-    max_images: int = MAX_IMAGES,
+    geometry_views: RenderSet | None = None,
+    max_montages: int = MAX_MONTAGES,
+    detail_crops: int = MAX_DETAIL_CROPS,
     max_px: int = MAX_PX,
     cache_dir: Path | None = None,
     extra_images: list[tuple[str, str | Path]] | None = None,
@@ -243,8 +275,13 @@ def build_judge_messages(
 ) -> tuple[str, list[ChatMessage]]:
     """Return ``(system, [user_message])`` for a rubric judge call.
 
-    ``extra_images`` (label, path) are placed BEFORE the renders (e.g. reference
-    images); ``extra_text`` is appended to the text block (e.g. measured silhouette).
+    ``geometry_views`` is an optional second RenderSet rendered with
+    ``mode='clay'`` / ``'normals'`` (tracks may pass it); when absent, geometry
+    views embedded in ``inp.renders`` (by ``RenderView.mode``) are used, else the
+    geometry montage is skipped.  ``shuffle_seed`` permutes montage and tile
+    order (n-sample noise control).  ``extra_images`` (label, path) are placed
+    BEFORE the montages (e.g. reference images); ``extra_text`` is appended to
+    the text block (e.g. measured silhouette).
     """
     system = build_system_prompt(rubric)
     is_scene = inp.spec.track.value == "scene"
@@ -259,20 +296,20 @@ def build_judge_messages(
         _clip(extra_text, 2500) if extra_text.strip() else "",
     ]
     extras = extra_images or []
-    images, chosen = image_parts_for_renders(
-        inp.renders, max_images=max_images, max_px=max_px, shuffle_seed=shuffle_seed, cache_dir=cache_dir,
-        reserved=len(extras),
+    images, montages = montage_image_parts(
+        inp.renders, geometry_views=geometry_views, scene=is_scene, shuffle_seed=shuffle_seed,
+        max_montages=max_montages, detail_crops=detail_crops, max_px=max_px, cache_dir=cache_dir,
     )
-    sections.append(view_rig_section(inp.renders, len(chosen), scene=is_scene))
+    sections.append(view_rig_section(inp.renders, montages, scene=is_scene))
     text = "\n\n".join(s for s in sections if s)
     if len(text) > TEXT_BUDGET_CHARS:
         text = _clip(text, TEXT_BUDGET_CHARS)
     parts: list[TextPart | ImagePart] = [TextPart(text=text)]
     for lbl, p in extras:
         parts.append(TextPart(text=lbl))
-        parts.append(image_part(prepare_image(p, label=lbl, max_px=max_px, cache_dir=cache_dir), lbl))
+        parts.append(image_part(prepare_image(p, label=lbl, max_px=min(max_px, 768), cache_dir=cache_dir), lbl))
     for lbl, ip in images:
         parts.append(TextPart(text=lbl))
         parts.append(ip)
-    parts.append(TextPart(text="Now score every criterion with evidence, answer every acceptance item, and return the JSON object."))
+    parts.append(TextPart(text="Now score every criterion with evidence, answer every defect-checklist item and every acceptance item, and return the JSON object."))
     return system, [ChatMessage(role="user", parts=parts)]

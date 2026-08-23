@@ -130,7 +130,7 @@ def run_node(
 
     env = dict(os.environ)
     env["NODE_PATH"] = str(node_modules_dir())
-    env.setdefault("C3V_CACHE_DIR", str(settings.cache_dir))
+    env.setdefault("CV3D_CACHE_DIR", str(settings.cache_dir))
     env.setdefault("NODE_OPTIONS", "")
     env["NODE_NO_WARNINGS"] = "1"
     if env_extra:

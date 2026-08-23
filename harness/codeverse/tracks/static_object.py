@@ -20,23 +20,30 @@ from codeverse.orchestrator.rounds import (
     RefineTask,
     TaskGroup,
     build_refine_instructions,
+    compact_instructions,
     plan_parallel_groups,
 )
 from codeverse.prompts import render
-from codeverse.tracks.common import (
-    RunContext,
+from codeverse.tracks.common import RunContext
+from codeverse.tracks.generation import GenerationTask
+from codeverse.tracks.lifecycle import BaseTrack
+from codeverse.tracks.prompting import (
     base_prompt_context,
     file_for_target_factory,
     glb_to_plan_frame,
+    reference_images,
 )
-from codeverse.tracks.generation import GenerationTask
-from codeverse.tracks.lifecycle import BaseTrack
+from codeverse.tracks.reference import reference_refine_tasks, silhouette_gate
 from codeverse.tracks.repair import format_error_report
 from codeverse.tracks.steps import failed_acceptance
 
 log = logging.getLogger(__name__)
 
 MAX_SKELETON_CHARS = 14_000
+
+#: the 4 clay views judged for holes/intersections (subset of OBJECT_VIEWS by name)
+GEOMETRY_VIEW_NAMES: tuple[str, ...] = ("front_right_34", "back_left_34", "top", "low_front_left")
+GEOMETRY_VIEWS = tuple(v for v in OBJECT_VIEWS if v.name in GEOMETRY_VIEW_NAMES)
 
 
 class ObjectPipeline:
@@ -51,7 +58,7 @@ class ObjectPipeline:
         out: list[GateReport] = []
         glb = Path(build.glb_path) if build.glb_path else None
         if glb is not None:
-            out.append(ctx.services.connectivity(glb))
+            out.append(ctx.services.connectivity(glb, ctx.language.value))  # fix hints in the author's frame
         if measurement is not None and ctx.plan is not None:
             out.append(ctx.services.contract(measurement, ctx.plan, BBOX_TOLERANCE_M, ctx.language.value))
         extra = getattr(ctx.runtime, "extra_gates", None)
@@ -64,13 +71,36 @@ class ObjectPipeline:
         return ctx.services.render_object(Path(build.glb_path), ctx.ws.renders_dir(round_index), views=self.views,
                                           width=r.width, height=r.height)
 
+    def post_render_gates(self, ctx: RunContext, round_index: int, renders: RenderSet) -> list[GateReport]:
+        """Reference-image runs: front-view outline IoU vs the target image (WARN finding with the number)."""
+        gate = silhouette_gate(ctx, renders)
+        return [gate] if gate is not None else []
+
+    def geometry_views(self, ctx: RunContext, round_index: int, build: BuildResult) -> RenderSet | None:
+        """4 clay views for the judge's geometry montage (holes, intersections).
+
+        The plain-geometry render exposes defects that materials hide; cached, so
+        near-free.  Object tracks only — scenes/graphics have no single GLB."""
+        if not build.glb_path:
+            return None
+        out_dir = ctx.ws.renders_dir(round_index) / "clay"
+        try:
+            return ctx.services.render_geometry(Path(build.glb_path), out_dir, views=GEOMETRY_VIEWS)
+        except Exception as e:  # noqa: BLE001 — optional judge context, never round-fatal
+            log.warning("clay geometry render failed: %s", e)
+            ctx.events.emit("render.geometry_failed", round=round_index, error=f"{type(e).__name__}: {e}")
+            return None
+
     def plan_summary(self, ctx: RunContext) -> str:
         plan = ctx.plan
         if plan is None:
             return ""
         parts = ", ".join(f"{p.name}×{p.instances}" if p.instances > 1 else p.name for p in plan.parts)
-        e = plan.overall_bbox.extents
-        return f"{plan.object_name}: {plan.summary} Overall {e[0]:.2f}×{e[1]:.2f}×{e[2]:.2f} m. Parts: {parts}."
+        # reorder into the measurement table's frame (W×H×D, Y-up): the (x,|z|,y) swap is
+        # self-inverse for extents, so Z-up plans (W,D,H) → (W,H,D), threejs is identity —
+        # otherwise the judge compares the digest position-wise against swapped numbers.
+        e = glb_to_plan_frame(plan.overall_bbox.extents, ctx.language, extents=True)
+        return f"{plan.object_name}: {plan.summary} Overall {e[0]:.2f}×{e[1]:.2f}×{e[2]:.2f} m (W×H×D). Parts: {parts}."
 
     def judge_context(self, ctx: RunContext, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
         return ""
@@ -93,7 +123,7 @@ class StaticObjectTrack(BaseTrack):
             ctx, expected_files=files, skeleton_files=skeleton_files(ctx) if ctx.single_shot else {}, previous_error=""))
         ctx.record_prompt("generate", prompt)
         return [GenerationTask(label="baseline", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=0,
-                               kind="baseline", temperature=0.5, thinking="medium")]
+                               kind="baseline", temperature=0.5, thinking="medium", images=reference_images(ctx))]
 
     def system_prompt(self, ctx: RunContext) -> str:
         return (f"You are an expert {ctx.language.value} 3D modeller writing RAW code (no SDKs, no helper libraries). "
@@ -109,7 +139,8 @@ class StaticObjectTrack(BaseTrack):
             return [self._rebuild_task(ctx, last, index)], ["rebuild: previous round did not build"]
         fft = file_for_target_factory(ctx)
         tasks = build_refine_instructions(last.judgment, last.gates, failed_acceptance(ctx, last.judgment), ctx.plan,
-                                          file_for_target=fft, max_tasks=ctx.policy.max_refine_tasks)
+                                          file_for_target=fft, max_tasks=ctx.policy.max_refine_tasks,
+                                          extra=reference_refine_tasks(ctx, last))
         if not tasks:
             return [], []
         groups = plan_parallel_groups(tasks)
@@ -123,13 +154,15 @@ class StaticObjectTrack(BaseTrack):
 
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
         files = group.files if parallel else (group.files or expected_files(ctx))
+        lines = compact_instructions(group.tasks, max_lines=ctx.policy.max_instructions_per_task)
         prompt = render(self.refine_template, **base_prompt_context(
-            ctx, round_index=index, tasks=[t.line() for t in group.tasks], targets=group.targets, files=files,
+            ctx, round_index=index, tasks=lines, targets=group.targets, files=files,
             edit_only_these=parallel, judge_summary=judge_digest(last), measurement_notes=measurement_vs_plan(last, ctx.plan, ctx.language),
             current_files=current_files(ctx, files) if ctx.single_shot else {}))
         ctx.record_prompt("refine", prompt)
         return GenerationTask(label=f"refine_{group.label}" if parallel else "refine", prompt=prompt, system=self.system_prompt(ctx),
-                              files_hint=files, round=index, kind="refine", temperature=0.4, thinking="medium")
+                              files_hint=files, round=index, kind="refine", temperature=0.4, thinking="medium",
+                              images=reference_images(ctx))
 
     def _rebuild_task(self, ctx: RunContext, last: RoundRecord, index: int) -> GenerationTask:
         files = expected_files(ctx)
@@ -153,7 +186,18 @@ def expected_files(ctx: RunContext) -> list[str]:
         return ["src/model.py", "src/robot.urdf"]
     if lang is Language.SCENE_THREEJS:
         return ["src/scene.js", "src/env.js"]
-    return ["src/model.py"]
+    files = ["src/model.py"]
+    custom = getattr(ctx.runtime, "file_for_part", None)  # blender: src/parts/<snake>.py per part
+    if callable(custom):
+        for p in parts:
+            try:
+                rel = custom(p.name)
+            except Exception as e:  # noqa: BLE001
+                log.warning("runtime.file_for_part failed for %s: %s", p.name, e)
+                continue
+            if rel and str(rel) not in files:
+                files.append(str(rel))
+    return files
 
 
 def skeleton_files(ctx: RunContext, max_chars: int = MAX_SKELETON_CHARS) -> dict[str, str]:

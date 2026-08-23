@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from codeverse.contracts.artifacts import GateFinding, GateReport, RenderView, Severity
+from codeverse.contracts.artifacts import GateFinding, GateReport, RenderSet, RenderView, Severity
 from codeverse.contracts.chat import ImagePart, TextPart
 from codeverse.contracts.judgment import ImprovementItem, Judgment
 from codeverse.judges.images import prepare_image, view_az_el
@@ -10,7 +10,7 @@ from codeverse.judges.prompt_builder import (
     TEXT_BUDGET_CHARS,
     build_judge_messages,
     build_system_prompt,
-    select_views,
+    montage_image_parts,
 )
 from codeverse.judges.rubrics import load_rubric
 from tests.judges.conftest import draw_chair, make_renders
@@ -22,12 +22,20 @@ def _parts(msgs):
     return msgs[0].parts
 
 
-def test_system_has_role_rubric_and_anchors():
+def _images(msgs):
+    return [p for p in _parts(msgs) if isinstance(p, ImagePart)]
+
+
+def test_system_has_role_rubric_anchors_and_defects():
     system = build_system_prompt(R)
     assert "BLIND JUDGE" in system
     for c in R.criteria:
         assert c.id in system and c.anchors["0.4"][:30] in system
     assert "Do NOT compute an overall" in system
+    assert "DEFECT CHECKLIST" in system
+    for d in R.defects:
+        assert f"- {d.id}:" in system
+    assert "[-0.10, cap 0.60]" in system  # floating_part penalty + cap shown
 
 
 def test_user_message_layout(judge_input, cache_dir):
@@ -39,50 +47,71 @@ def test_user_message_layout(judge_input, cache_dir):
         assert section in text, section
     assert "A1 [must, via measure]" in text
     assert "Seat" in text and "Backrest" in text  # measurement table (spatial or local fallback)
-    imgs = [p for p in parts if isinstance(p, ImagePart)]
-    assert len(imgs) == 5  # sheet + 4 views
-    assert imgs[0].label.startswith("CONTACT SHEET")
-    assert imgs[1].label.startswith("VIEW 1/4 — ")
-    assert "az 35° el 22°" in imgs[1].label
-    # labelled text precedes each image
-    idx = parts.index(imgs[1])
-    assert isinstance(parts[idx - 1], TextPart) and parts[idx - 1].text == imgs[1].label
-    # prepared images are cached + downscaled + strip added
+    imgs = _images(msgs)
+    # 4 shaded views → ONE 2×2 montage + centre crop + ground-contact crop
+    assert len(imgs) == 3
+    assert imgs[0].label.startswith("MONTAGE 1/1 — SHADED views: top-left = front_right_34 · az 35° el 22°")
+    assert "bottom-left = top · az 0° el 88°, bottom-right = front · az 0° el 8°" in imgs[0].label
+    assert imgs[1].label.startswith("DETAIL CROP — centre of front_right_34")
+    assert imgs[2].label.startswith("DETAIL CROP — ground-contact band of front")  # lowest elevation (8°)
+    # labelled text precedes each image; the rig paragraph lists images in send order
+    idx = parts.index(imgs[0])
+    assert isinstance(parts[idx - 1], TextPart) and parts[idx - 1].text == imgs[0].label
+    assert "- image 1: SHADED views" in text and "- detail crop 2: ground-contact band" in text
+    assert "MONTAGE k <position> (<view name>)" in text
     for ip in imgs:
         assert Path(ip.path).is_file() and Path(ip.path).parent == cache_dir
     with Image.open(imgs[0].path) as im:
-        assert max(im.size) <= 1024 + 80
+        assert 900 <= im.size[0] <= 1024 and im.size[1] > im.size[0]  # 2×2 grid + strip
 
 
-def test_shuffle_is_deterministic_and_changes_order(judge_input, cache_dir):
+def test_shuffle_is_deterministic_and_changes_order(tmp_path, judge_input, cache_dir):
+    rs = make_renders(tmp_path / "eight", n=4)
+    extra = []
+    for name in ("right", "back", "left", "low_front_left"):
+        p = draw_chair(tmp_path / f"v_{name}.png", az_hint=1)
+        extra.append(RenderView(name=name, path=str(p)))
+    judge_input.renders = RenderSet(views=rs.views + extra)
     _, a = build_judge_messages(judge_input, R, shuffle_seed=1, cache_dir=cache_dir)
     _, b = build_judge_messages(judge_input, R, shuffle_seed=1, cache_dir=cache_dir)
     _, c = build_judge_messages(judge_input, R, shuffle_seed=None, cache_dir=cache_dir)
-    la = [p.label for p in _parts(a) if isinstance(p, ImagePart)]
-    lb = [p.label for p in _parts(b) if isinstance(p, ImagePart)]
-    lc = [p.label for p in _parts(c) if isinstance(p, ImagePart)]
+    la, lb, lc = ([p.label for p in _images(m)] for m in (a, b, c))
     assert la == lb
-    def names(ls):
-        return [x.split("— ")[1].split(" ·")[0] for x in ls[1:]]
+    assert len(lc) == 4  # 2 montages + 2 crops
+    assert lc[0].startswith("MONTAGE 1/2 — SHADED views:") and lc[1].startswith("MONTAGE 2/2 — SHADED views (remaining)")
+    # canonical order puts the 3/4 views first; the seeded order differs somewhere (montage or tile order)
+    assert la != lc
+    assert la[-2:] == lc[-2:]  # detail crops are never shuffled
 
-    assert sorted(names(la)) == sorted(names(lc))
-    assert names(la) != names(lc) or True  # shuffle of 4 may coincide; order set equality is what matters
+
+def test_geometry_views_add_a_montage(tmp_path, judge_input, cache_dir):
+    clay = []
+    for v in judge_input.renders.views:
+        p = draw_chair(tmp_path / f"clay_{v.name}.png", color=(180, 180, 180))
+        clay.append(RenderView(name=v.name, path=str(p), mode="clay"))
+    _, msgs = build_judge_messages(judge_input, R, cache_dir=cache_dir, geometry_views=RenderSet(views=clay))
+    labels = [p.label for p in _images(msgs)]
+    assert labels[0].startswith("MONTAGE 1/2 — SHADED views") and labels[1].startswith("MONTAGE 2/2 — GEOMETRY-ONLY views (clay")
+    assert "front_right_34 · az 35° el 22° · clay" in labels[1]
+    text = _parts(msgs)[0].text
+    assert "GEOMETRY-ONLY montage shows the same object without materials" in text
+    # embedded clay views (by RenderView.mode) are routed the same way
+    judge_input.renders = RenderSet(views=judge_input.renders.views + clay)
+    _, msgs2 = build_judge_messages(judge_input, R, cache_dir=cache_dir)
+    assert any(p.label.startswith("MONTAGE 2/2 — GEOMETRY-ONLY") for p in _images(msgs2))
 
 
-def test_image_budget_subsamples(tmp_path, judge_input, cache_dir):
-    rs = make_renders(tmp_path / "many", n=4)
+def test_montage_cap_and_crop_knobs(tmp_path, judge_input, cache_dir):
     views = []
     for i in range(14):
         p = draw_chair(tmp_path / f"v{i}.png", az_hint=i)
         views.append(RenderView(name=f"v{i}", path=str(p), camera_position=(1.0, 0.5, 1.0), look_at=(0, 0.3, 0)))
-    rs.views = views
-    judge_input.renders = rs
-    _, msgs = build_judge_messages(judge_input, R, cache_dir=cache_dir, max_images=10)
-    imgs = [p for p in _parts(msgs) if isinstance(p, ImagePart)]
-    assert len(imgs) == 10
-    assert imgs[1].label.startswith("VIEW 1/9")
-    assert select_views(views, 9, shuffle_seed=None)[0].name == "v0"
-    assert "az 45° el" in imgs[1].label  # computed from camera geometry
+    judge_input.renders = RenderSet(views=views)
+    pairs, montages = montage_image_parts(judge_input.renders, cache_dir=cache_dir, max_montages=3, detail_crops=0)
+    assert len(pairs) == 3 and all(m.kind == "shaded" for m in montages)
+    assert "top-left = v0 · az 45° el" in pairs[0][0]  # az/el computed from camera geometry
+    pairs2, _ = montage_image_parts(judge_input.renders, cache_dir=cache_dir, max_montages=1, detail_crops=1)
+    assert len(pairs2) == 2 and pairs2[1][0].startswith("DETAIL CROP — centre of v0")
 
 
 def test_gates_previous_and_budget(judge_input, cache_dir):
@@ -109,6 +138,7 @@ def test_scene_rig_paragraph(judge_input, cache_dir):
     _, msgs = build_judge_messages(judge_input, load_rubric("scene_v1"), cache_dir=cache_dir)
     text = _parts(msgs)[0].text
     assert "overview_*" in text and "console error" in text and "48 fps" in text
+    assert len(_images(msgs)) == 2  # montage + centre crop only (no ground band for scenes)
 
 
 def test_view_az_el_geometry():

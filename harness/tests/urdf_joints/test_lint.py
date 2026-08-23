@@ -97,7 +97,13 @@ def test_link_rules():
     assert any("differs from <visual>" in m for m in _msgs(f, Severity.WARN))
     f, _ = lint_urdf_text(GOOD.replace('name="door"', 'name="DoorOpen"').replace('link="door"', 'link="DoorOpen"').replace("meshes/door.glb", "meshes/DoorOpen.glb"))
     msgs = _msgs(f, Severity.WARN)
-    assert any("snake_case" in m for m in msgs) and any("state word" in m for m in msgs)
+    assert any("state word" in m for m in msgs)
+    # the plan's PascalCase part names are accepted silently (check_contract normalises names) …
+    f, _ = lint_urdf_text(GOOD.replace('name="door"', 'name="FrontDoor"').replace('link="door"', 'link="FrontDoor"').replace("meshes/door.glb", "meshes/FrontDoor.glb"))
+    assert f == []
+    # … but Blender auto-suffixes / spaces are not plain identifiers
+    f, _ = lint_urdf_text(GOOD.replace('name="door"', 'name="door.001"').replace('link="door"', 'link="door.001"').replace("meshes/door.glb", "meshes/door.001.glb"))
+    assert any("plain identifier" in m for m in _msgs(f, Severity.WARN))
     f, _ = lint_urdf_text(GOOD.replace('<link name="door">', '<link name="door"><visual><geometry><mesh filename="meshes/door.glb"/></geometry></visual>'))
     assert any("2 <visual>" in m for m in _msgs(f, Severity.ERROR))
 
@@ -126,3 +132,9 @@ def test_lint_workspace(tmp_path):
     (ws.src / "model.py").write_text(MODEL)
     rep = lint_workspace(ws)
     assert rep.passed and rep.findings == []
+
+
+def test_reserved_link_name_world():
+    # glTF readers use 'world' as the scene-graph base frame: a link of that name cannot become a GLB node
+    f, _ = lint_urdf_text(GOOD.replace('name="body"', 'name="world"').replace('link="body"', 'link="world"').replace("meshes/body.glb", "meshes/world.glb"))
+    assert any("reserved" in m for m in _msgs(f, Severity.ERROR))

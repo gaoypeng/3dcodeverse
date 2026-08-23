@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
+import threading
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -100,9 +102,9 @@ def prepare_image(
             im = im.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
         if label:
             im = _with_label_strip(im, label)
-        tmp = out.with_suffix(".tmp.png")
+        tmp = out.with_name(f"{out.stem}.{os.getpid()}-{threading.get_ident()}.tmp.png")  # unique per writer: concurrent judges share the cache
         im.save(tmp, format="PNG", optimize=True)
-        tmp.replace(out)
+        tmp.replace(out)  # atomic; a concurrent identical write simply wins last
     return out
 
 

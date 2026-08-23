@@ -38,6 +38,19 @@ def _run(ws: Workspace, *args: str) -> subprocess.CompletedProcess[bytes]:
     return proc
 
 
+def commit_by_subject(ws: Workspace, subject: str) -> str | None:
+    """SHA of the newest commit whose subject line equals ``subject`` (None = no match)."""
+    try:
+        out = _run(ws, "log", "--format=%H%x00%s").stdout
+    except GitReadError:
+        return None
+    for line in out.decode("utf-8", errors="replace").splitlines():
+        sha, _, subj = line.partition("\0")
+        if subj.strip() == subject:
+            return sha
+    return None
+
+
 def commit_exists(ws: Workspace, commit: str) -> bool:
     if not commit:
         return False

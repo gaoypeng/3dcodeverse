@@ -1,4 +1,4 @@
-"""``c3v flywheel export | pairs | caption | index | dedupe``."""
+"""``3dcv flywheel export | pairs | caption | index | dedupe | gallery``."""
 
 from __future__ import annotations
 
@@ -22,15 +22,22 @@ def export_cmd(
     pack: Annotated[bool, typer.Option("--pack", help="also pack samples-NNN.tar + byte-range locators")] = False,
     tar_prefix: Annotated[str, typer.Option("--tar-prefix", help="repo-root-relative prefix for the tar column")] = "",
     include_unbuilt: Annotated[bool, typer.Option("--include-unbuilt", help="also export runs whose best round never built")] = False,
+    captions_dir: Annotated[Path | None, typer.Option("--captions-dir", help="side-car captions written by `caption --out`")] = None,
+    drop_duplicates: Annotated[bool, typer.Option("--drop-duplicates", help="leave exact duplicates (code fingerprint + prompt) out of the index")] = False,
 ) -> None:
     """Export runs → sample folders + metadata.parquet (+ optional plain tars)."""
     from codeverse.flywheel.export import export_samples
 
-    rep = export_samples(runs_dir, out_dir, min_score=min_score, only_passed=only_passed, include_unbuilt=include_unbuilt)
+    rep = export_samples(runs_dir, out_dir, min_score=min_score, only_passed=only_passed, include_unbuilt=include_unbuilt,
+                         captions_dir=captions_dir, drop_duplicates=drop_duplicates)
+    tiers = " ".join(f"{t}:{rep.tiers.get(t, 0)}" for t in "ABCD")
     console.print(kv_table("export", {"runs": rep.n_runs, "exported": rep.n_exported, "indexed": rep.n_indexed,
+                                      "duplicates": rep.n_duplicates, "tiers": tiers,
                                       "skipped": len(rep.skipped), "parquet": rep.parquet}))
     for d, why in list(rep.skipped.items())[:20]:
         warn(f"skip {Path(d).name}: {why}")
+    for g in rep.duplicates[:20]:
+        warn(f"duplicate of {g.canonical}: {', '.join(g.duplicates)}")
     if pack:
         from codeverse.flywheel.pack import pack_samples, verify_locators
 
@@ -44,11 +51,12 @@ def pairs_cmd(
     runs_dir: Annotated[Path, typer.Argument()],
     out_jsonl: Annotated[Path, typer.Argument()],
     min_delta: Annotated[float, typer.Option("--min-delta")] = 0.05,
+    trajectories: Annotated[bool, typer.Option("--trajectories/--no-trajectories", help="also mine in-session repair pairs from agent transcripts")] = True,
 ) -> None:
-    """Preference / repair / cross-backend pairs → JSONL."""
+    """Preference / repair (round + in-session) / cross-backend pairs → JSONL."""
     from codeverse.flywheel.pairs import build_pairs
 
-    n = build_pairs(runs_dir, out_jsonl, min_delta=min_delta)
+    n = build_pairs(runs_dir, out_jsonl, min_delta=min_delta, trajectories=trajectories)
     ok(f"{n} pairs → {out_jsonl}")
 
 
@@ -59,9 +67,11 @@ def caption_cmd(
     all_runs: Annotated[bool, typer.Option("--all", help="caption every un-captioned run under target")] = False,
     force: Annotated[bool, typer.Option("--force", help="re-caption even if captions exist")] = False,
     runs_dir: Annotated[Path | None, typer.Option("--runs-dir")] = None,
+    out: Annotated[Path | None, typer.Option("--out", help="write side-car <out>/<slug>.json instead of touching the run (read-only runs)")] = None,
 ) -> None:
     """Caption run(s): {detailed, instruction, factory} via a chat model."""
     from codeverse.flywheel.captions import CaptionError, caption_sample
+    from codeverse.flywheel.export import load_captions
     from codeverse.flywheel.record import iter_runs, load_record
 
     if all_runs:
@@ -71,11 +81,11 @@ def caption_cmd(
         targets = [(ws, load_record(ws))]
     done = skipped = failed = 0
     for ws, rec in targets:
-        if not force and (rec.extra.get("captions") or {}).get("detailed"):
+        if not force and load_captions(ws, rec, out).get("detailed"):
             skipped += 1
             continue
         try:
-            caps = caption_sample(ws, rec, model)
+            caps = caption_sample(ws, rec, model, out_dir=out)
         except CaptionError as e:
             failed += 1
             warn(str(e))
@@ -144,3 +154,17 @@ def dedupe_cmd(
     console.print(f"{len(items)} samples, {len(groups)} duplicate groups")
     for g in groups:
         console.print("  " + "  ==  ".join(g))
+
+
+@flywheel_app.command("gallery")
+def gallery_cmd(
+    runs_dir: Annotated[Path, typer.Argument(help="runs root")],
+    out_html: Annotated[Path, typer.Argument(help="output .html (self-contained)")],
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    thumb_px: Annotated[int, typer.Option("--thumb-px", min=128, help="thumbnail long edge")] = 640,
+) -> None:
+    """One self-contained HTML page: best sheet, score, cost, prompt, links per run."""
+    from codeverse.flywheel.gallery import write_gallery
+
+    path, n = write_gallery(runs_dir, out_html, title=title, thumb_px=thumb_px)
+    ok(f"gallery of {n} runs → {path} ({path.stat().st_size // 1024} KB)")

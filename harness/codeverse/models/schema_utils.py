@@ -8,7 +8,11 @@ provider accepts a different subset:
   no ``$ref``, no ``additionalProperties``, no ``const``, no ``prefixItems``;
   ``nullable`` instead of null unions; ``propertyOrdering`` controls key order.
 * OpenAI strict ``json_schema``: every object needs ``additionalProperties:
-  false`` and ``required`` listing every property; ``$defs`` are fine.
+  false`` and ``required`` listing every property; ``$defs`` are fine.  Optional
+  fields keep their own type — null is allowed only where the source schema
+  already allows it (``anyOf [T, null]``); a non-null ``default`` is hinted in
+  the description.  So the wire contract equals the pydantic one and the model
+  never returns ``null`` where the contract wants ``""`` / ``1`` / ``[]``.
 * Anthropic tool ``input_schema`` / ``output_config.format``: standard JSON
   schema; we inline refs to be safe and set ``additionalProperties: false``.
 
@@ -185,9 +189,11 @@ def _json_type(value: Any) -> str:
 # --------------------------------------------------------------------- openai
 def to_openai_strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """OpenAI *strict* structured outputs: every object gets
-    ``additionalProperties: false`` and ``required`` = all properties; optional
-    fields become nullable (``anyOf [T, null]``) so the contract still holds.
-    ``$defs`` are kept (supported) but inlined when a sibling ``$ref`` exists."""
+    ``additionalProperties: false`` and ``required`` = all properties.  Optional
+    fields keep their type: null is accepted only where the source already says
+    so (``x: T | None``), never added — the consumer validates with the original
+    pydantic model, which rejects ``null`` for ``x: str = ""`` / ``list = []``.
+    A non-null ``default`` becomes a ``[default: …]`` hint.  ``$defs`` are inlined."""
     root = inline_refs(schema)
 
     def walk(node: Any) -> Any:
@@ -204,8 +210,11 @@ def to_openai_strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
             props = {k: walk(v) for k, v in node["properties"].items()}
             required = set(node.get("required", []))
             for name, sub in props.items():
-                if name not in required:
-                    props[name] = _nullable_union(sub)
+                original = node["properties"][name]
+                if name in required or not isinstance(original, dict):
+                    continue
+                if original.get("default") is not None:
+                    props[name] = _with_default_hint(sub, original["default"])
             node["properties"] = props
             node["required"] = list(props.keys())
             node["additionalProperties"] = False
@@ -220,16 +229,11 @@ def to_openai_strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
     return walk(root)
 
 
-def _nullable_union(sub: dict[str, Any]) -> dict[str, Any]:
-    if "anyOf" in sub:
-        if any(_is_null(v) for v in sub["anyOf"]):
-            return sub
-        return {**sub, "anyOf": sub["anyOf"] + [{"type": "null"}]}
-    if isinstance(sub.get("type"), list):
-        return sub if "null" in sub["type"] else {**sub, "type": sub["type"] + ["null"]}
-    if "type" in sub:
-        return {**sub, "type": [sub["type"], "null"]}
-    return {"anyOf": [sub, {"type": "null"}]}
+def _with_default_hint(sub: dict[str, Any], default: Any) -> dict[str, Any]:
+    """Keep the field non-null; tell the model what to emit when it has nothing."""
+    hint = f"[default: {json.dumps(default)}]"
+    desc = str(sub.get("description") or "").strip()
+    return {**sub, "description": f"{desc} {hint}".strip()}
 
 
 # ------------------------------------------------------------------ anthropic

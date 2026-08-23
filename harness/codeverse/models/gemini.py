@@ -2,8 +2,12 @@
 
 * one ``genai.Client`` per API key (cached, thread-safe),
 * ``KeyPool`` shared by every GeminiModel built on the same key list,
-* up to ``max_attempts`` tries: 429 → rotate key (short pause), 5xx / timeouts
-  / empty candidates → exponential backoff with jitter,
+* 429 → rotate to a fresh key (short pause; free while an untried key remains),
+  then up to ``max_attempts`` tries with exponential backoff + jitter for 5xx /
+  timeouts / empty candidates / 429s once every key has been tried,
+* key-scoped auth failures (401/403, ``API_KEY_INVALID`` …) → rotate for free and
+  bench the key in the pool (``dead``) once a sibling key proves the request is
+  fine; only when every key fails the same way is the error raised,
 * ``thinking`` → ``ThinkingConfig(thinking_budget=…)``; models that reject the
   field get one retry without it and a warning in ``response.raw["warnings"]``.
 """
@@ -32,7 +36,7 @@ from codeverse.models.gemini_convert import (
     parse_usage,
     to_contents,
 )
-from codeverse.models.keypool import KeyPool, KeyPoolExhausted
+from codeverse.models.keypool import KeyPool, KeyPoolExhausted, Outcome
 from codeverse.models.parts import Stopwatch
 from codeverse.models.pricing import estimate_cost
 from codeverse.models.retry import backoff_delay
@@ -81,6 +85,42 @@ def classify_exception(exc: BaseException) -> ModelError:
     if isinstance(exc, KeyPoolExhausted):
         return ModelError(f"Gemini key pool exhausted: {exc}", retryable=False, status=429)
     return ModelError(f"Gemini unexpected error: {type(exc).__name__}: {exc}", retryable=False)
+
+
+# message fragments of key-scoped failures (revoked / suspended / expired / disabled
+# project); HTTP 401 / 403 are key-scoped regardless of wording
+_DEAD_KEY_MARKERS = (
+    "api_key_invalid",
+    "api key not valid",
+    "api key expired",
+    "permission_denied",
+    "unauthenticated",
+    "suspended",
+    "leaked",
+    "service_disabled",
+    "has not been used in project",
+)
+
+
+def is_dead_key_error(err: ModelError) -> bool:
+    """True when ``err`` indicts the API key rather than the request, so the call
+    should move to another key instead of failing."""
+    if err.status in (401, 403):
+        return True
+    text = str(err).lower()
+    return err.status == 400 and any(m in text for m in _DEAD_KEY_MARKERS)
+
+
+def failure_outcome(err: ModelError) -> Outcome:
+    """``KeyPool.report`` outcome for a failed call (content-level failures such as
+    bad JSON / empty candidates carry no status and are not the key's fault)."""
+    if err.status == 429:
+        return "429"
+    if (err.status or 0) >= 500:
+        return "5xx"
+    if is_dead_key_error(err):
+        return "dead"
+    return "error" if err.status else "ok"
 
 
 def _retry_after_s(exc: BaseException) -> float | None:
@@ -148,16 +188,18 @@ class GeminiModel:
     def generate(self, request: ChatRequest) -> ChatResponse:
         contents = to_contents(request.messages)
         warnings: list[str] = []
-        failed_keys: set[str] = set()
+        failed_keys: set[str] = set()  # keys that 429'd or looked dead during this call
+        dead_keys: set[str] = set()
         last_err: ModelError | None = None
         attempt = 0
         config = self._config(request, warnings)
         while attempt < self.max_attempts:
             attempt += 1
+            # never go back to a key that looked dead this call; throttled keys are
+            # excluded while an untried one remains, else acquire() waits for a cooldown
+            exclude = dead_keys | (failed_keys if len(failed_keys) < len(self.pool) else set())
             try:
-                key = self.pool.acquire(
-                    exclude=failed_keys if len(failed_keys) < len(self.pool) else None
-                )
+                key = self.pool.acquire(exclude=exclude)
             except KeyPoolExhausted as exc:
                 raise classify_exception(exc) from exc
             try:
@@ -165,6 +207,7 @@ class GeminiModel:
                 self.pool.report(
                     key, "ok", tokens=resp.usage.input_tokens + resp.usage.output_tokens
                 )
+                self._bench(dead_keys)
                 return resp
             except Exception as exc:  # noqa: BLE001 - classified below
                 err = classify_exception(exc)
@@ -179,34 +222,40 @@ class GeminiModel:
                     config = self._config(request, warnings)
                     attempt -= 1
                     continue
-                # content-level failures (bad JSON, empty candidates) are not the key's fault
-                outcome = (
-                    "429"
-                    if err.status == 429
-                    else "5xx"
-                    if (err.status or 0) >= 500
-                    else "error"
-                    if err.status
-                    else "ok"
-                )
+                outcome = failure_outcome(err)
+                if outcome == "dead":
+                    # key-scoped: move on at once (no budget, no sleep); the key is only
+                    # benched once another key proves the request itself is fine
+                    dead_keys.add(key)
+                    failed_keys.add(key)
+                    self.pool.report(key, "error")
+                    if len(dead_keys) < len(self.pool):
+                        log.warning(
+                            "gemini %s key …%s looks dead (%s); rotating", self.model, key[-4:], err
+                        )
+                        attempt -= 1
+                        continue
+                    raise err from exc  # every key failed the same way: not the keys' fault
                 self.pool.report(
                     key, outcome, retry_after_s=_retry_after_s(exc) if outcome == "429" else None
                 )
-                if not err.retryable or attempt >= self.max_attempts:
-                    raise err from exc
                 if outcome == "429":
                     failed_keys.add(key)
-                    delay = (
-                        0.5
-                        if len(self.pool) > 1
-                        else backoff_delay(
-                            attempt, base_delay=self.base_delay, max_delay=self.max_delay
+                    if len(failed_keys) < len(self.pool):
+                        # an untried key remains: rotation is free, only a courtesy pause
+                        attempt -= 1
+                        log.warning(
+                            "gemini %s key …%s throttled (%s); rotating to a fresh key",
+                            self.model,
+                            key[-4:],
+                            err,
                         )
-                    )
-                else:
-                    delay = backoff_delay(
-                        attempt, base_delay=self.base_delay, max_delay=self.max_delay
-                    )
+                        self._sleep(0.5)
+                        continue
+                if not err.retryable or attempt >= self.max_attempts:
+                    self._bench(dead_keys)
+                    raise err from exc
+                delay = backoff_delay(attempt, base_delay=self.base_delay, max_delay=self.max_delay)
                 log.warning(
                     "gemini %s attempt %d/%d failed (%s); retrying in %.1fs",
                     self.model,
@@ -217,7 +266,15 @@ class GeminiModel:
                 )
                 self._sleep(delay)
         assert last_err is not None
+        self._bench(dead_keys)
         raise last_err
+
+    def _bench(self, dead_keys: set[str]) -> None:
+        """Mark keys that failed with key-scoped errors dead — called once the call
+        got past the auth layer on some other key (success, 429, 5xx, bad JSON …)."""
+        for key in dead_keys:
+            self.pool.report(key, "dead")
+        dead_keys.clear()
 
     def _config(self, request: ChatRequest, warnings: list[str]) -> types.GenerateContentConfig:
         return build_config(

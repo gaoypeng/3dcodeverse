@@ -26,18 +26,19 @@ from codeverse.contracts.plan import ScenePlan, ZonePlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import to_snake
 from codeverse.orchestrator.fanout import fan_out
-from codeverse.orchestrator.rounds import TaskGroup, build_refine_instructions, plan_parallel_groups
+from codeverse.orchestrator.rounds import (
+    TaskGroup,
+    build_refine_instructions,
+    compact_instructions,
+    plan_parallel_groups,
+)
 from codeverse.orchestrator.runner import StageRunner
 from codeverse.prompts import render
-from codeverse.tracks.common import (
-    RunContext,
-    ServiceUnavailable,
-    base_prompt_context,
-    bbox_line,
-    file_for_target_factory,
-)
+from codeverse.tracks.common import RunContext, ServiceUnavailable
 from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
 from codeverse.tracks.lifecycle import BaseTrack
+from codeverse.tracks.prompting import base_prompt_context, bbox_line, file_for_target_factory
+from codeverse.tracks.repair import format_error_report
 from codeverse.tracks.scene_assets import AssetResult, asset_api_summary, run_asset_stage
 from codeverse.tracks.static_object import current_files, judge_digest
 from codeverse.tracks.steps import failed_acceptance
@@ -46,6 +47,7 @@ log = logging.getLogger(__name__)
 
 SCENE_TIMES: tuple[float, float] = (0.0, 1.5)
 MAX_CONSOLE_ERRORS = 8
+JUDGE_MAX_VIEWS = 10
 
 
 class ScenePipeline:
@@ -78,7 +80,20 @@ class ScenePipeline:
         if renders.fps is not None and renders.fps < 20:
             findings.append(GateFinding(gate="render_console", severity=Severity.WARN, target="overall",
                                         message=f"low frame rate {renders.fps:.0f} fps", fix_hint="reduce triangle/draw counts: merge geometries, use InstancedMesh"))
-        return [GateReport(gate="render_console", passed=not errs, findings=findings)]
+        out = [GateReport(gate="render_console", passed=not errs, findings=findings)]
+        try:
+            # scene_frames: exposure / camera-in-geometry / coverage checks from metrics.json
+            # (missing metrics → a passing empty report); its ERROR findings carry fix hints
+            # that build_refine_instructions routes into the next round's tasks.
+            out.append(ctx.services.frame_gate(renders))
+        except Exception as e:  # noqa: BLE001 — the frame gate is advisory instrumentation
+            log.warning("scene frame gate failed: %s", e)
+            ctx.events.emit("gate.frames_failed", round=round_index, error=f"{type(e).__name__}: {e}")
+        return out
+
+    def judge_views(self, ctx: RunContext, renders: RenderSet) -> RenderSet:
+        """The ≤ 10 views the judge sees (authored@t0 first); the full set stays on disk."""
+        return ctx.services.select_judge_views(renders, max_n=JUDGE_MAX_VIEWS)
 
     def plan_summary(self, ctx: RunContext) -> str:
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
@@ -185,11 +200,13 @@ class SceneTrack(BaseTrack):
 
     def refine_tasks(self, ctx: RunContext, last: RoundRecord, history: Sequence[RoundRecord]) -> tuple[list[GenerationTask], list[str]]:
         index = len(history)
+        if last.build is None or not last.build.ok:
+            # no rebuild path meant a probe/console failure that lint does not flag
+            # yielded zero tasks and the run ended as 'plateau' with budget left
+            return [self._rebuild_task(ctx, last, index)], ["rebuild: previous round did not build"]
         fft = file_for_target_factory(ctx)
         tasks = build_refine_instructions(last.judgment, last.gates, failed_acceptance(ctx, last.judgment), ctx.plan,
                                           file_for_target=fft, max_tasks=ctx.policy.max_refine_tasks)
-        if not tasks and last.build is not None and not last.build.ok:
-            tasks = build_refine_instructions(None, last.gates, [], ctx.plan, file_for_target=fft)
         if not tasks:
             return [], []
         groups = plan_parallel_groups(tasks)
@@ -199,7 +216,8 @@ class SceneTrack(BaseTrack):
         gen = []
         for g in groups:
             files = g.files or ["src/scene.js", "src/env.js"]
-            prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, round_index=index, tasks=[t.line() for t in g.tasks],
+            lines = compact_instructions(g.tasks, max_lines=ctx.policy.max_instructions_per_task)
+            prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, round_index=index, tasks=lines,
                                                                  targets=g.targets, files=files, edit_only_these=parallel,
                                                                  judge_summary=judge_digest(last),
                                                                  current_files=current_files(ctx, files) if ctx.single_shot else {}))
@@ -208,6 +226,28 @@ class SceneTrack(BaseTrack):
                                       files_hint=files, round=index, kind="refine", temperature=0.4))
         ctx.events.emit("refine.planned", round=index, n_tasks=len(tasks), n_groups=len(groups), parallel=parallel)
         return gen, [t.line() for t in tasks]
+
+    def _rebuild_task(self, ctx: RunContext, last: RoundRecord, index: int) -> GenerationTask:
+        """One repair task carrying the structured error report (build + lint + census
+        errors), targeted at the failing module when the build names one."""
+        lint = next((g for g in last.gates if g.gate.startswith("lint")), GateReport(gate="lint", passed=True))
+        report = format_error_report(last.build, lint, ctx.cookbook_text) if last.build else "build did not run"
+        census = census_gate_report(last.build) if last.build else None
+        lines = [report] + [f"- {f.message}" + (f" FIX: {f.fix_hint}" if f.fix_hint else "")
+                            for f in (census.errors if census else [])][:8]
+        files: list[str] = []
+        if last.build is not None and last.build.error_file:
+            rel = last.build.error_file.removeprefix(str(ctx.ws.root)).lstrip("/")
+            if (ctx.ws.root / rel).is_file():
+                files = [rel]
+        files = files or self.round_files_hint(ctx)
+        prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, round_index=index, tasks=lines, targets=["build"],
+                                                             files=files, edit_only_these=False,
+                                                             judge_summary="(no judgment: the scene did not build — fix the errors above first)",
+                                                             current_files=current_files(ctx, files) if ctx.single_shot else {}))
+        ctx.record_prompt("scene_refine", prompt)
+        return GenerationTask(label="rebuild", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
+                              kind="rebuild", temperature=0.7, thinking="high")
 
     # ------------------------------------------------------------------ helpers
     def system_prompt(self, ctx: RunContext) -> str:

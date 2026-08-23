@@ -41,7 +41,22 @@ def test_rest_shift():
     )
     fr = compute_urdf_frames(plan)
     j = fr.joints[0]
-    assert (j.lower, j.upper) == (-0.5, 1.0)  # q=0 is the authored rest
+    assert (j.lower, j.upper) == (-0.5, 1.0) and j.rest == 0.5  # q=0 is the authored rest
+    # the rendered files SAY so, next to the shifted limit and the pivot, so the agent who
+    # reads the plan table (unshifted lower/upper/rest) and the skeleton sees one rule
+    urdf_text = render_urdf(fr)
+    assert '<limit lower="-0.5" upper="1" effort="10" velocity="1"/>  <!-- plan lower=0 upper=1.5 rest=0.5' in urdf_text
+    assert "shifted by -rest" in urdf_text and "q=0 is the authored pose" in urdf_text
+    assert "(plan rest=0.5 → this pose is URDF q=0)" in render_model_py(plan, fr)
+    assert lint_urdf_text(urdf_text)[0] == []
+
+
+def test_no_rest_note_when_rest_is_zero(cabinet_plan):
+    fr = compute_urdf_frames(cabinet_plan)
+    urdf_text = render_urdf(fr)
+    assert all(j.rest == 0.0 for j in fr.joints)
+    assert "shifted by -rest" not in urdf_text and "plan rest=" not in render_model_py(cabinet_plan, fr)
+    assert '<limit lower="0" upper="1.57" effort="10" velocity="1"/>' in urdf_text
 
 
 def test_rendered_files_lint_clean_and_load(tmp_path, cabinet_plan):

@@ -1,7 +1,7 @@
 """Harness settings: keys, binaries, directories, defaults.
 
 Resolution order (later wins): built-in defaults < ``~/.config/codeverse/config.yaml``
-< ``./codeverse.yaml`` < environment variables (``C3V_*``).  Secrets are never
+< ``./codeverse.yaml`` < environment variables (``CV3D_*``).  Secrets are never
 written to run records.
 
 Gemini keys: ``GEMINI_API_KEYS`` (csv) or ``GEMINI_API_KEY`` or the owner's
@@ -54,7 +54,7 @@ class Limits(BaseModel):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="C3V_", env_nested_delimiter="__", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="CV3D_", env_nested_delimiter="__", extra="ignore")
 
     runs_dir: Path = Field(default=Path("runs"))
     cache_dir: Path = Field(default=Path.home() / ".cache" / "codeverse")
@@ -69,7 +69,10 @@ class Settings(BaseSettings):
 
     default_planner: str = "gemini:gemini-3.7-flash"
     default_generator: str = "api-agent:gemini:gemini-3.7-flash"
-    default_judge: str = "gemini:gemini-3.7-flash"
+    # The judge drives the refine loop: the pro tier has ~3x lower sample noise than flash
+    # (calibration 2026-08-23: std 0.03 vs 0.08-0.12) for ~$0.07 per verdict.
+    default_judge: str = "gemini:gemini-3.1-pro-preview"
+    default_candidates: int = Field(default=1, description="best-of-N baseline candidates (tracks read it)")
 
     # ------------------------------------------------------------------ helpers
     def resolve_blender(self) -> str:

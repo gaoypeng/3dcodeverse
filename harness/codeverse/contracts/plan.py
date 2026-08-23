@@ -201,4 +201,25 @@ class ScenePlan(BaseModel):
         return self
 
 
-Plan = StaticPlan | ArticulatedPlan | ScenePlan
+class PassPlan(BaseModel):
+    name: str = Field(description="PascalCase pass name, e.g. Clouds, Bloom")
+    kind: Literal["fullscreen", "geometry", "postprocess", "feedback"] = "fullscreen"
+    description: str = Field(description="what this pass draws / computes, concrete")
+
+
+class GraphicsPlan(BaseModel):
+    """Plan for the graphics track (GLSL shader / raw OpenGL program)."""
+
+    title: str
+    summary: str
+    style: str = Field(description="visual style: palette, mood, references in words")
+    resolution: tuple[int, int] = (1280, 720)
+    duration_s: float = Field(default=8.0, description="loop length for judging / video")
+    passes: list[PassPlan] = Field(min_length=1)
+    uniforms: list[str] = Field(default_factory=list, description="uniform names the program exposes (u_time, u_resolution, ...)")
+    motion: str = Field(default="", description="what animates over time and how")
+    key_visuals: list[str] = Field(default_factory=list, description="3-8 visible elements a viewer must recognise")
+    acceptance: list[AcceptanceItem] = Field(default_factory=list)
+
+
+Plan = StaticPlan | ArticulatedPlan | ScenePlan | GraphicsPlan

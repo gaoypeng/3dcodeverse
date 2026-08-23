@@ -1,7 +1,7 @@
-"""``c3v tools`` — list registry tools or run one (prints an Observation).
+"""``3dcv tools`` — list registry tools or run one (prints an Observation).
 
 This is also the fallback path for agentic CLIs without MCP support: the
-prompt tells them to shell out to ``c3v tools <name> --json '{...}' --workspace .``.
+prompt tells them to shell out to ``3dcv tools <name> --json '{...}' --workspace .``.
 """
 
 from __future__ import annotations

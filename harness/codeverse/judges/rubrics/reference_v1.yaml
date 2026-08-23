@@ -108,8 +108,37 @@ caps:
     when: gate
     gate: "*"
     severity: error
-    kinds: [penetration, intersect, overlap, collision]
+    kinds: [penetrat, intersect, overlap, collision]
     cap: 0.7
   - id: missing_must_acceptance
     when: acceptance
     cap: 0.6
+
+# Binary checklist (judge answers, code scores: penalty subtracted, cap applied).
+defects:
+  - id: wrong_object
+    text: The renders show a different object than the plan entry / reference (or nothing recognisable).
+    cap: 0.25
+  - id: floating_part
+    text: A part visibly hovers or is detached from the rest (daylight between it and its support).
+    penalty: 0.10
+    cap: 0.60
+  - id: interpenetration
+    text: A part visibly passes through another in a render (a rail poking out of the far side of a leg, a leg through the seat) or a gate ERROR reports it; weld overlaps of a few mm reported as gate warnings are NOT this defect.
+    penalty: 0.08
+    cap: 0.70
+  - id: unfinished_side
+    text: The back / underside / a side is missing, open or untextured where the front is finished.
+    penalty: 0.08
+    cap: 0.65
+  - id: primitive_only
+    text: Every part is an unmodified box / cylinder / sphere with sharp edges — no bevel, taper, profile or cut-out.
+    penalty: 0.08
+  - id: untextured_flat
+    text: Default grey / magenta placeholder materials are visible, or surfaces are unlit flat fills with no shading response. A uniform but sensible colour (an all-walnut chair, an all-oak cabinet) is NOT this defect.
+    penalty: 0.05
+    cap: 0.75
+  - id: holes_or_inverted_faces
+    text: Missing faces, see-through walls or black inverted faces are visible.
+    penalty: 0.08
+    cap: 0.60

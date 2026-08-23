@@ -21,14 +21,30 @@ from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse.spatial.registry import ToolContext, get_tool, list_tools
 from codeverse.workspace import Workspace
 
-EXPECTED_TOOLS = {"build", "measure", "render_views", "render_sheet", "isolate", "cross_section", "check_connectivity",
-                  "check_contract", "compare_silhouette", "joint_sweep", "shader_probe", "scene_probe", "scene_views", "read_cookbook"}
+#: tools every workspace gets (no track/language restriction)
+CORE_TOOLS = {"build", "measure", "render_views", "render_sheet", "isolate", "cross_section", "check_connectivity",
+              "check_contract", "compare_silhouette", "read_cookbook"}
+#: track- / language-scoped tools (documented; keep in sync when registering a new one)
+SCOPED_TOOLS = {
+    "joint_sweep",  # articulated_object
+    "shader_probe", "scene_probe", "scene_views",  # scene_threejs
+    "gl_probe", "gl_frames",  # graphics (glsl_shader / opengl_python)
+    "texture_pass", "texture_preview",  # object tracks (texturing)
+}
+EXPECTED_TOOLS = CORE_TOOLS | SCOPED_TOOLS
 
 
 def test_registry_has_every_tool() -> None:
-    assert {t.name for t in list_tools()} == EXPECTED_TOOLS
-    assert "joint_sweep" not in {t.name for t in list_tools(track="static_object", language="blender")}
+    registered = {t.name for t in list_tools()}
+    assert registered == EXPECTED_TOOLS, (
+        f"registry drifted: unexpected {sorted(registered - EXPECTED_TOOLS)}, "
+        f"missing {sorted(EXPECTED_TOOLS - registered)} — update CORE_TOOLS/SCOPED_TOOLS above")
+    static_blender = {t.name for t in list_tools(track="static_object", language="blender")}
+    assert "joint_sweep" not in static_blender and "gl_probe" not in static_blender
+    assert "texture_pass" in static_blender
     assert "shader_probe" in {t.name for t in list_tools(track="scene", language="scene_threejs")}
+    graphics = {t.name for t in list_tools(track="graphics", language="glsl_shader")}
+    assert {"gl_probe", "gl_frames"} <= graphics and "texture_pass" not in graphics and "scene_probe" not in graphics
     for t in list_tools():
         assert t.schema()["type"] == "object" and t.description
 
@@ -51,7 +67,9 @@ def test_tools_without_glb(tmp_ws: Workspace) -> None:
 
 def test_connectivity_and_section_tools(stool_ctx: ToolContext) -> None:
     obs = get_tool("check_connectivity").call(stool_ctx, {})
-    assert not obs.ok and "Leg_3" in obs.text and "translate 'Leg_3' by (+0.0000, +0.0050, +0.0000)" in obs.text
+    # the 5 mm gap is along GLB +y (up) → written in the Blender frame as +z, labelled
+    assert not obs.ok and "Leg_3" in obs.text
+    assert "translate 'Leg_3' by (+0.0000, +0.0000, +0.0050) m (blender frame: Z-up, -Y front)" in obs.text
     assert (stool_ctx.workspace.gates_dir(0) / "connectivity_tool.json").is_file()
     obs = get_tool("cross_section").call(stool_ctx, {"axis": "y", "at": 0.5})
     assert obs.ok and len(obs.images) == 1 and Path(obs.images[0]).is_file() and obs.numbers["n_loops"] == 4
@@ -286,3 +304,68 @@ def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pyt
     assert obs.ok and "meshes=12" in obs.text and obs.numbers["fps"] == 58.0
     obs = get_tool("joint_sweep").call(stool_ctx, {"joints": ["hinge"], "n_samples": 5})
     assert obs.ok and calls == {"n_random": 5, "joint": "hinge"}
+
+
+# --------------------------------------------------------------------------- build without a GLB (scene / graphics)
+class _NoGlbRuntime(_FakeRuntime):
+    """Build succeeds with glb_path=None (scene_threejs / graphics runtimes)."""
+
+    def __init__(self, language: str, census: dict, extra_paths: dict | None = None):
+        super().__init__()
+        self.language, self.census, self.extra_paths = language, census, extra_paths or {}
+
+    def build(self, ws, *, timeout_s=None):
+        return BuildResult(ok=True, language=self.language, glb_path=None, duration_ms=9,
+                           census=self.census, extra_paths=self.extra_paths)
+
+
+def test_build_tool_scene_reports_probe_census(tmp_ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx = ToolContext(workspace=tmp_ws, language="scene_threejs", track="scene")
+    rt = _NoGlbRuntime("scene_threejs", {"meshes": 12, "lights": 2, "fps": 58.0},
+                       {"scene_probe": str(tmp_ws.artifacts / "scene_probe.json")})
+    _patch_runtime(monkeypatch, rt)
+    obs = get_tool("build").call(ctx, {})
+    assert obs.ok, obs.text
+    assert "no GLB path" not in obs.text
+    assert "scene probe census" in obs.text and "meshes=12" in obs.text
+    assert obs.numbers["census"]["fps"] == 58.0
+
+
+def test_build_tool_graphics_reports_frames(tmp_ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
+    import codeverse.languages.glsl_shader.gl_build as gl_build
+    from codeverse.spatial.frame_stats import FrameStat, SequenceStats
+
+    ctx = ToolContext(workspace=tmp_ws, language="glsl_shader", track="graphics")
+    rt = _NoGlbRuntime("glsl_shader", {"renderer": "moderngl"},
+                       {"frames": str(tmp_ws.artifacts / "frames"), "sheet": str(tmp_ws.artifacts / "frames_sheet.png")})
+    _patch_runtime(monkeypatch, rt)
+    def _frame(t: float, path: str) -> FrameStat:
+        return FrameStat(time=t, path=path, mean_lum=0.4, std_lum=0.2, pct_black=0.01, pct_blown=0.01,
+                         colourfulness=0.3, edge_density=0.05)
+
+    stats = SequenceStats(frames=[_frame(0.0, "f0.png"), _frame(1.0, "f1.png")], mean_diff=0.1)
+    gate = GateReport(gate="gl_frames", passed=True)
+    monkeypatch.setattr(gl_build, "read_metrics", lambda ws: (stats, gate))
+    obs = get_tool("build").call(ctx, {})
+    assert obs.ok, obs.text
+    assert "no GLB path" not in obs.text
+    assert "frames=2" in obs.text and "sheet:" in obs.text
+    assert obs.numbers["n_frames"] == 2 and obs.numbers["gate_errors"] == 0
+    # a failing gl_frames gate flips ok
+    bad = GateReport(gate="gl_frames", passed=False,
+                     findings=[GateFinding(gate="gl_frames", severity=Severity.ERROR, message="static image",
+                                           data={"kind": "static"})])
+    monkeypatch.setattr(gl_build, "read_metrics", lambda ws: (stats, bad))
+    obs = get_tool("build").call(ctx, {})
+    assert not obs.ok and "static image" in obs.text
+
+
+def test_load_plan_recognises_graphics_plan(tmp_ws: Workspace) -> None:
+    from codeverse.contracts.plan import GraphicsPlan, PassPlan
+    from codeverse.spatial.tool_common import load_plan
+
+    plan = GraphicsPlan(title="Neon rain", summary="s", style="cyberpunk",
+                        passes=[PassPlan(name="Rain", description="drops")])
+    tmp_ws.write_json(tmp_ws.plan_path, plan)
+    loaded = load_plan(tmp_ws.plan_path)
+    assert isinstance(loaded, GraphicsPlan) and loaded.title == "Neon rain"

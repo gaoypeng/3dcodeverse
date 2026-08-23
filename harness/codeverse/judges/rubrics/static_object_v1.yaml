@@ -8,14 +8,20 @@ description: >
   measurement table.  Scores are per criterion; the overall is computed in code.
 
 extra_instructions: >
-  Judge what is VISIBLE in the renders and what the measurement table states; do not
+  Judge what is VISIBLE in the montages and what the measurement table states; do not
   credit detail you cannot see and do not invent faults.  Use the underside / low
-  views for ground contact and hidden gaps, the top view for symmetry and footprint,
-  and the 3/4 views for overall read.  Hidden connectors (a bracket inside a shade, a
-  dowel inside a joint) are NOT defects when the parts visibly meet.  Spread scores
-  across the range: a competent, correct object belongs at 0.8+, one clearly visible
-  major defect pulls the affected criterion to ~0.4, several major defects or a wrong
-  object sit at 0.1-0.3.
+  views and the ground-contact crop for ground contact and hidden gaps, the top view
+  for symmetry and footprint, the 3/4 views and the centre crop for overall read and
+  detail, and the GEOMETRY-ONLY montage (when present) for holes, inverted faces and
+  intersections.  Hidden connectors (a bracket inside a shade, a dowel inside a joint)
+  are NOT defects when the parts visibly meet.  CALIBRATION — use these fixed points:
+  0.9+ = every part crisp with bevels/chamfers/tapers/profiles, correct proportions,
+  clean joins, sensible materials (a product photo); 0.7 = correct and complete but
+  plain; 0.5 = recognisable but a stack of primitives, or one major defect (a gap, a
+  floating part, a wrong proportion); 0.2 = wrong object, flat blobs, parts exploded
+  or lying on its back.  A primitive box-stack and a crafted product must be ≥ 0.4
+  apart.  The DEFECT CHECKLIST is binary and literal: mark an item present only when
+  an image or a gate finding shows it, and cite it.
 
 criteria:
   - id: intent_fidelity
@@ -27,10 +33,10 @@ criteria:
       attribute (counts, style, features, materials named in the brief)?  A stranger
       shown only these renders should describe the object the way the brief does.
     anchors:
-      "1.0": Right category and every named attribute is present and unmistakable; nothing the brief asked for is missing or contradicted.
-      "0.7": Right category; one named attribute is weak, generic or hard to confirm, none is contradicted.
-      "0.4": Right category but a named attribute is missing or clearly wrong (wrong count of legs, no armrests when asked, wrong style).
-      "0.1": Wrong category or unrecognisable; the renders would not be described as the brief.
+      "1.0": Right category and every named attribute is present and unmistakable from the 3/4 views alone; nothing the brief asked for is missing or contradicted.
+      "0.7": Right category; one named attribute is weak, generic or hard to confirm (a "slatted" back with only two slats, "mid-century" that reads merely plain), none is contradicted.
+      "0.4": Right category but a named attribute is missing or clearly wrong (three legs when four were asked, no armrests when asked, wrong style or colour family).
+      "0.1": Wrong category (a table for a chair), unrecognisable blobs, or the object lies on its back/side so it cannot be read as the brief.
 
   - id: structure_plausibility
     weight: 0.18
@@ -42,10 +48,10 @@ criteria:
       reach (legs reach the ground, a shade sits on its harp, wheels sit at the hubs),
       and nothing floats, hovers, or points the wrong way.
     anchors:
-      "1.0": Every part is where a real example has it, correctly oriented, visibly supported; the object would stand and function.
-      "0.7": One part is slightly misplaced or ambiguous in support, but nothing floats and the object clearly stands.
-      "0.4": One part visibly floats, hovers off its mount, or is clearly in the wrong place or orientation.
-      "0.1": Several parts float, are exploded apart, or the assembly is not a plausible object.
+      "1.0": Every part is where a real example has it, correctly oriented, visibly supported (all feet touch the ground in the low view and the ground-contact crop); the object would stand and function.
+      "0.7": One part is slightly misplaced or ambiguous in support (a stretcher that ends a few mm short of a leg), but nothing floats and the object clearly stands.
+      "0.4": One part visibly floats (daylight between it and its support), hovers off its mount, or is clearly in the wrong place or orientation (a backrest attached to the front edge).
+      "0.1": Several parts float, the assembly is exploded apart, the object rests on its back or side, or it is not a plausible object.
 
   - id: geometry_detail
     weight: 0.16
@@ -55,9 +61,9 @@ criteria:
       Look for bevels/chamfers, tapers, curves, wall thickness, cut-outs, profiles,
       mouldings, hardware.  Credit only what is visible in the renders.
     anchors:
-      "1.0": Multiple refinements at once — profiles, bevels, tapers, thickness, hardware — the object reads as a designed product or natural form.
-      "0.7": At least two visible refinements (e.g. bevelled edges and a tapered leg), the rest is plain but acceptable.
-      "0.4": A stack of plain boxes/cylinders with sharp 90° corners; at most one token detail.
+      "1.0": Multiple refinements visible at once in the centre crop — rounded/bevelled edges, tapered legs, curved rails or seats, visible wall thickness, mouldings, hardware, cut-outs — the object reads as a designed product or natural form.
+      "0.7": At least two visible refinements (e.g. bevelled seat edge AND tapered legs), the rest plain but acceptable.
+      "0.4": A stack of plain boxes/cylinders with sharp 90° corners; at most one token detail (one chamfer, one rounded top).
       "0.1": Primitive blobs or a single lump; parts are not individually shaped.
 
   - id: proportions_scale
@@ -68,10 +74,10 @@ criteria:
       (use the measurement table and any stated dimensions)?  Seat height, leg
       thickness, wheel diameter, handle size must read as real-world correct.
     anchors:
-      "1.0": Overall size and every part ratio are believable; stated dimensions are met within tolerance.
-      "0.7": One part is somewhat thick/thin/short/long but the object still reads correctly at the stated size.
-      "0.4": A clearly wrong proportion (legs twice as thick as they should be, a tiny seat on a huge frame) or the size is off by more than ~20%.
-      "0.1": Proportions are absurd or the object is the wrong order of magnitude.
+      "1.0": Overall size and every part ratio are believable against the measurement table; stated dimensions are met within tolerance (±5%).
+      "0.7": One part is somewhat thick/thin/short/long (legs 30% heavier than typical) but the object still reads correctly at the stated size.
+      "0.4": A clearly wrong proportion (legs twice as thick as they should be, a tiny seat on a huge frame, a 1.2 m tall dining chair) or the size is off by more than ~20%.
+      "0.1": Proportions are absurd (seat thicker than it is wide) or the object is the wrong order of magnitude.
 
   - id: assembly_fit
     weight: 0.12
@@ -82,9 +88,9 @@ criteria:
       a finger-wide gap, a part jammed through another, or a sunken/protruding join
       is not.
     anchors:
-      "1.0": All joins are clean and tight; no visible gaps, no visible penetration, no z-fighting at contacts.
-      "0.7": One small gap or shallow overlap at a join; the rest is clean.
-      "0.4": A visible gap a part should not have, or an obvious penetration of one part through another.
+      "1.0": All joins are clean and tight in the centre crop and the geometry montage; no visible gaps, no visible penetration, no z-fighting at contacts.
+      "0.7": One small gap (≈ a few mm at object scale) or one shallow overlap at a join; the rest is clean.
+      "0.4": A finger-wide gap a part should not have, or an obvious penetration of one part through another (a rail poking out of the far side of a leg).
       "0.1": Multiple gaps/penetrations; parts clearly not fitted to each other.
 
   - id: materials
@@ -96,9 +102,9 @@ criteria:
       A clean flat-colour look with correct assignments is acceptable; wrong or
       placeholder surfaces are not.
     anchors:
-      "1.0": Every part has a convincing material; visible character (grain, brushed metal, fabric) where the real object has it.
-      "0.7": Sensible flat or lightly-shaded materials on every part, correctly assigned; little character.
-      "0.4": One part has a wrong or contradictory material (metal legs that look like plastic foam, one default grey part).
+      "1.0": Every part has a convincing material with correct roughness/metalness; visible character (wood grain, brushed metal, fabric weave) where the real object has it.
+      "0.7": Sensible flat or lightly-shaded colours on every part, correctly assigned (wood-brown legs, fabric-coloured seat); little character.
+      "0.4": One part has a wrong or contradictory material (metal legs that look like plastic foam, one default grey part), or everything is one uniform colour.
       "0.1": Placeholder magenta/default grey everywhere, garbage noise, or materials that contradict the object.
 
   - id: craftsmanship_no_artifacts
@@ -110,9 +116,9 @@ criteria:
       missing faces / see-through walls, stretched or torn geometry, stray
       slivers, duplicated shells, or degenerate triangles?
     anchors:
-      "1.0": No visible artefacts in any view; shading is smooth and consistent.
-      "0.7": One small artefact (a sliver, a minor shading seam) visible only in one view.
-      "0.4": A clearly visible artefact — black faces, a hole in a surface, obvious z-fighting.
+      "1.0": No visible artefacts in any view or crop; shading is smooth and consistent; the geometry montage shows closed, clean surfaces.
+      "0.7": One small artefact (a sliver, a minor shading seam, faint z-fighting on one face) visible only in one view.
+      "0.4": A clearly visible artefact — black/inverted faces, a hole in a surface, a see-through wall, obvious z-fighting stripes.
       "0.1": Artefacts dominate; the object is torn, inside-out, or visibly broken.
 
 caps:
@@ -132,7 +138,7 @@ caps:
     when: gate
     gate: "*"
     severity: error
-    kinds: [penetration, intersect, overlap, collision]
+    kinds: [penetrat, intersect, overlap, collision]
     cap: 0.7
   - id: contract_violation
     when: gate
@@ -143,3 +149,43 @@ caps:
   - id: missing_must_acceptance
     when: acceptance
     cap: 0.6
+
+# Binary checklist: answered by the judge, scored in code (penalty subtracted, cap applied).
+defects:
+  - id: wrong_object
+    text: The renders show a different object category than the brief (or nothing recognisable).
+    cap: 0.25
+  - id: missing_named_part
+    text: A part the brief or plan names is absent (no armrests when asked, three legs instead of four, no backrest).
+    penalty: 0.10
+    cap: 0.60
+  - id: floating_part
+    text: A part visibly hovers or is detached — daylight between it and what should support it (check the low view, the ground-contact crop and the geometry montage).
+    penalty: 0.10
+    cap: 0.60
+  - id: interpenetration
+    text: A part visibly passes through another in a render (a rail poking out of the far side of a leg, a leg through the seat) or a gate ERROR reports it; weld overlaps of a few mm reported as gate warnings are NOT this defect.
+    penalty: 0.08
+    cap: 0.70
+  - id: wrong_proportions
+    text: Part ratios or overall size clearly wrong (> 20%) — legs twice too thick, a tiny seat on a huge frame, the measured height far from the brief.
+    penalty: 0.08
+    cap: 0.70
+  - id: wrong_orientation
+    text: The object lies on its back or side, is upside down, or faces away from the front view (az 0°).
+    penalty: 0.10
+    cap: 0.50
+  - id: primitive_only
+    text: Every part is an unmodified box / cylinder / sphere with sharp 90° edges — no bevel, taper, profile, curve or cut-out anywhere.
+    penalty: 0.08
+  - id: untextured_flat
+    text: Default grey / magenta placeholder materials are visible, or surfaces are unlit flat fills with no shading response. A uniform but sensible colour (an all-walnut chair, an all-oak cabinet) is NOT this defect.
+    penalty: 0.05
+    cap: 0.75
+  - id: holes_or_inverted_faces
+    text: Missing faces, see-through walls or black inverted faces are visible (especially in the geometry montage).
+    penalty: 0.08
+    cap: 0.60
+  - id: render_artifacts
+    text: Z-fighting stripes, torn or stretched geometry, or stray slivers are visible.
+    penalty: 0.05

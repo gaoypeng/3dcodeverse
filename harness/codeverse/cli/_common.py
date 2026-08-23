@@ -37,7 +37,7 @@ def lazy(module: str, attr: str | None = None) -> Any:
     except ImportError as e:
         raise CliError(
             f"{module} is not available ({e}). This command needs that sub-package; "
-            f"run `c3v doctor` to see what is installed.", code=2
+            f"run `3dcv doctor` to see what is installed.", code=2
         ) from e
     if attr is None:
         return mod

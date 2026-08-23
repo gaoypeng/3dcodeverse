@@ -1,7 +1,7 @@
 """``codex:<model>`` — headless OpenAI Codex CLI session on a workspace.
 
 argv: ``codex exec --json -C <ws> --sandbox workspace-write --skip-git-repo-check
-[--model <model>] [-c mcp_servers.c3v.command=... -c mcp_servers.c3v.args=[...]] <prompt>``
+[--model <model>] [-c mcp_servers.3dcv.command=... -c mcp_servers.3dcv.args=[...]] <prompt>``
 (prompt on stdin when long).  stdout is JSONL:
 
 * ``{"type":"thread.started","thread_id":...}`` / ``turn.started``

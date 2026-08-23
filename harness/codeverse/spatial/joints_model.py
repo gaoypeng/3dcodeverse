@@ -26,6 +26,10 @@ import trimesh
 
 MOVABLE_TYPES = ("revolute", "prismatic", "continuous")
 JOINT_TYPES = MOVABLE_TYPES + ("fixed",)
+#: link names that cannot become GLB nodes: glTF readers (trimesh) use ``world`` as the
+#: scene-graph base frame and stomp on a node of that name (the export then loses its
+#: frame / cycles).  ``load_urdf`` rejects them; ``lint`` reports them first.
+RESERVED_LINK_NAMES = frozenset({"world"})
 
 
 class UrdfError(ValueError):
@@ -325,6 +329,8 @@ def load_urdf(urdf_path: Path | str, meshes_dir: Path | str | None = None, *, lo
         link = _link_from_xml(el, urdf_path.parent, meshes, load_meshes=load_meshes)
         if link.name in links:
             raise UrdfError(f"duplicate link name {link.name!r}")
+        if link.name in RESERVED_LINK_NAMES:
+            raise UrdfError(f"link name {link.name!r} is reserved by the GLB scene graph; rename it (e.g. 'base')")
         links[link.name] = link
     joints = {}
     for el in root_el.findall("joint"):

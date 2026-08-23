@@ -47,6 +47,27 @@ def test_cabinet_door_end_to_end(tmp_path, cabinet_plan):
 
 
 @needs_blender
+def test_rest_shifted_skeleton_builds_clean(tmp_path, drawer_plan):
+    """Plan with rest ≠ 0 and the bbox authored AT that rest (drawer 0.1 m out): the
+    skeleton's shifted limits (-0.1 .. 0.2) put q=0 at the authored pose and @lower at the
+    closed position — no penetration anywhere in the sweep."""
+    plan = drawer_plan.model_copy(deep=True)
+    plan.parts[1].bbox.center = (0, -0.31, 0.45)       # front panel 0.1 m out of the carcass
+    plan.joints[0].pivot = (0, -0.31, 0.45)
+    plan.joints[0].rest = 0.1
+    ws = Workspace(tmp_path / "drawer_rest").create()
+    rt = UrdfBlenderRuntime()
+    rt.skeleton(ws, plan)
+    assert 'lower="-0.1" upper="0.2"' in (ws.src / "robot.urdf").read_text()
+    res = rt.build(ws)
+    assert res.ok, res.error_message
+    r = load_urdf(ws.artifacts / "robot.urdf", ws.artifacts / "meshes")
+    closed = link_world_meshes(r, {"slide": -0.1})["drawer"].bounds
+    assert np.isclose(closed[1][1], -0.20, atol=1e-6)  # back face of the panel flush with the carcass front
+    assert res.census["articulation"]["summary"]["max_penetration_m"] == 0.0
+
+
+@needs_blender
 def test_drawer_prismatic(tmp_path, drawer_plan):
     ws = Workspace(tmp_path / "drawer").create()
     rt = UrdfBlenderRuntime()
