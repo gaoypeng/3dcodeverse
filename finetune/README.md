@@ -21,6 +21,11 @@ API models; this folder trains and evaluates open models on that data.
 | `env.sh` | shell env (caches, secrets file) used by all scripts |
 | `docs/REPORT.md` | full experiment report (setup, data audit, ablations, DPO, multi-dialect, scale-up, training-amount curves, qualitative checks); `docs/PROJECT_README.md` is the original working README; `docs/assets/` renders |
 
+## Install & background
+* **`docs/SETUP.md`** — step-by-step environment install (three conda envs with exact pins, LLaMA-Factory commit, flash-attn / fla / triton, vLLM, Blender / OpenSCAD / glslang / Playwright, caches on a network FS, smoke tests).
+* **`docs/LLAMA_FACTORY.md`** — how this project uses LLaMA-Factory (unpatched): dataset registry, template, stages (SFT / DPO), LoRA vs full + ZeRO-3, packing, launch/merge scripts, an annotated minimal YAML, and the pitfalls.
+* **`docs/REPORT.md`** — the experiment report (results + conclusions).
+
 ## Reproducing (short version)
 
 1. Envs (see `docs/REPORT.md` §1 for the pitfalls): `lf` = LLaMA-Factory (editable, upstream, unpatched) + torch 2.8.0+cu128 + flash-attn 2.8.3 + flash-linear-attention 0.5.2 + **triton 3.7.1** (Qwen3.5 GDN kernels on Hopper) + deepspeed; `vllm` = vLLM 0.27; `llmft` = data/eval (trimesh, cadquery, playwright, …). Blender 5.0.1 headless and an OpenSCAD AppImage are called by path.
