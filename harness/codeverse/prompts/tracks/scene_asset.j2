@@ -1,0 +1,61 @@
+# Scene asset `{{ asset_name }}` ({{ asset_kind }}) — write `{{ asset_file }}`
+
+Scene: {{ spec_prompt }}
+{% if fix_instructions %}
+## FIX PASS — the asset was judged; apply exactly these changes and keep the rest
+{% for i in fix_instructions %}
+{{ i }}
+{% endfor %}
+{% endif %}
+
+## The asset
+- Name: `{{ asset_name }}`
+- Size (width × height × depth, meters): {{ '%.2f' % asset_size[0] }} × {{ '%.2f' % asset_size[1] }} × {{ '%.2f' % asset_size[2] }}
+- Description: {{ asset_description }}
+- Style of the whole scene: {{ style_notes or constraints }}
+
+{% if asset_language == 'blender' %}
+## Contract (raw bpy; the harness exports a GLB that the scene loads)
+{{ frame_doc }}
+{{ contract }}
+- Build the asset standing on the ground (lowest point at z=0), footprint centred on the origin,
+  total size as stated (±5%). Several named objects are fine; join sub-shapes that touch.
+- Materials with colours (Principled BSDF base colour), roughness 0.4-0.8 for wood/stone.
+- Keep it light: ≤ 40k triangles. No camera/light/render/export calls.
+{% else %}
+## Contract (raw three.js ESM module)
+{{ frame_doc }}
+{{ contract }}
+- `{{ asset_file }}` must `export function build{{ asset_name }}(THREE, opts = {}) { ... return group; }`
+  where `group` is a `THREE.Group` whose lowest point is at y=0 and whose footprint is centred on
+  the origin, sized as stated (±5%). `opts.seed` (number) and `opts.variant` (0..n) may vary
+  details deterministically (use a tiny mulberry32 PRNG inside the file — never Math.random).
+- Build from primitives (Box/Cylinder/Cone/Sphere/Lathe/Extrude/Tube) with MeshStandardMaterial
+  colours in hex; merge repeated pieces with InstancedMesh when > 20 copies.
+- Set `group.userData.size = [w, h, d]` to the measured size. Optional
+  `group.userData.tick = (t, dt) => {...}` for subtle motion.
+- No DOM, no texture/image loading, no fetch, no imports except `import * as THREE from 'three'`.
+- ≤ 15k triangles per instance; segments 12-24.
+{% endif %}
+
+## DO / DON'T
+- DO use the exact size numbers above; the zone builders rely on them.
+- DO give it the 3-4 recognisable features a person would name (a stone lantern: base, post, light
+  box with 4 windows, curved roof, finial).
+- DON'T leave floating pieces: every sub-shape overlaps a neighbour by ≥ 2 mm.
+- DON'T write anything but the asset file.
+{% if current_code %}
+
+## Current file (edit and return COMPLETE)
+```
+{{ current_code }}
+```
+{% endif %}
+{% if tool_cards and not single_shot %}
+
+## Tools
+{{ tool_cards }}
+{% endif %}
+
+## Output
+{{ output_format }}

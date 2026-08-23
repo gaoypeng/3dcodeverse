@@ -1,0 +1,182 @@
+name: articulated_v1
+version: 1
+track_hint: articulated_object
+pass_threshold: 0.7
+description: 'Rubric for an ARTICULATED object (cabinet with doors/drawers, laptop, folding chair, robot arm, scissors...)
+  judged on the rest-pose render rig PLUS a pose sheet: views of the object with joints swept to sampled values
+  (labelled with joint names and values).  Static criteria are inherited from static_object_v1 at reduced weight;
+  articulation criteria score whether the joints are real, placed right and move plausibly.
+
+  '
+extra_instructions: 'Views whose label says POSE or names a joint value show the SAME object with joints moved by
+  the harness (forward kinematics from the authored URDF).  Judge articulation ONLY from those views and the joint
+  table: a door that swings through its frame, a drawer that slides sideways, a lid that rotates about the wrong
+  edge, or a hinge placed in mid-air are articulation defects even when the rest pose looks perfect. Judge static
+  criteria from the rest-pose views.  Links are named in the plan digest; use link and joint names as targets.
+
+  '
+criteria:
+- id: intent_fidelity
+  weight: 0.16
+  floor: 0.3
+  title: Intent fidelity
+  description: 'Is this the object the brief asked for — category, named attributes, and the named moving parts
+    (doors, drawers, lid, arm links)?
+
+    '
+  anchors:
+    '1.0': Right category; every named attribute and every named moving part is present.
+    '0.7': Right category; one attribute or moving part is weak or generic.
+    '0.4': A named attribute or moving part is missing or clearly wrong.
+    '0.1': Wrong category or unrecognisable.
+- id: structure_plausibility
+  weight: 0.14
+  floor: 0.25
+  title: Structural plausibility
+  description: 'In the rest pose, is the assembly coherent — links attached where they should be, nothing floating,
+    the object stands and would function?
+
+    '
+  anchors:
+    '1.0': Every link is where a real example has it and visibly supported.
+    '0.7': One link slightly misplaced; nothing floats.
+    '0.4': One link visibly floats or is clearly misplaced.
+    '0.1': Several links float or the assembly is implausible.
+- id: articulation_plausibility
+  weight: 0.18
+  floor: 0.3
+  title: Articulation plausibility
+  description: 'In the pose sheet, does each joint move the way the real mechanism moves — the right TYPE of motion
+    (swing vs slide), the right direction, and a believable amount?  A drawer must slide out along its depth; a
+    door must swing about its hinge edge; a lid must open upward; an arm link must rotate about its pivot.
+
+    '
+  anchors:
+    '1.0': Every joint moves like the real mechanism; posed views look like photographs of the object in use.
+    '0.7': All joints move the right way; one moves a little too far / too little or looks slightly stiff.
+    '0.4': One joint moves the wrong way (slides instead of swings, opens into the body) or in the wrong direction.
+    '0.1': Joints do nothing visible, move the wrong links, or the object falls apart when posed.
+- id: joint_placement_and_range
+  weight: 0.12
+  title: Joint placement and range
+  description: 'Are the pivots/axes placed where the physical hinge or rail is (the hinge edge of a door, the rail
+    of a drawer, the knuckle of an arm), and are the limits sane (no self-penetration at the extremes, no over-rotation
+    through the frame)?  Use the joint table (axis, pivot, limits) together with the posed views.
+
+    '
+  anchors:
+    '1.0': Every pivot sits on the real hinge/rail line; extremes are collision-free and natural.
+    '0.7': A pivot is slightly off its edge or a limit is a bit generous, without visible clipping.
+    '0.4': A pivot is clearly off (door rotates about its centre, drawer pivots), or an extreme pose clips through
+      the body.
+    '0.1': Pivots in mid-air, joints on the wrong links, or poses that explode the object.
+- id: geometry_detail
+  weight: 0.12
+  title: Geometry detail
+  description: 'Are part shapes refined beyond primitives — handles, hinges, bevels, panel insets, thickness — visible
+    in the renders?
+
+    '
+  anchors:
+    '1.0': Multiple refinements including visible mechanism details (handles, hinge leaves, rails).
+    '0.7': At least two refinements; the rest plain.
+    '0.4': Primitive stack, at most one token detail.
+    '0.1': Blobs or a single lump.
+- id: proportions_scale
+  weight: 0.1
+  title: Proportions and scale
+  description: 'Overall dimensions and part ratios are right for the object (measurement table, stated dimensions),
+    including moving-part thickness and clearances.
+
+    '
+  anchors:
+    '1.0': Size and ratios believable; stated dimensions met.
+    '0.7': One ratio somewhat off; size within ~20%.
+    '0.4': A clearly wrong ratio or size off by >20%.
+    '0.1': Absurd proportions or wrong order of magnitude.
+- id: assembly_fit
+  weight: 0.1
+  title: Assembly fit
+  description: 'Do joined links meet cleanly in the rest pose (tight joins, no penetration) while leaving the clearance
+    a moving part needs?
+
+    '
+  anchors:
+    '1.0': Clean tight joins; sensible clearances around moving parts.
+    '0.7': One small gap or shallow overlap.
+    '0.4': A visible gap or penetration, or a moving part fused into its frame.
+    '0.1': Multiple gaps/penetrations.
+- id: craftsmanship_no_artifacts
+  weight: 0.08
+  floor: 0.3
+  title: Craftsmanship and artefacts
+  description: 'No z-fighting, black faces, holes, stretched geometry, stray slivers, or duplicated shells in rest
+    or posed views.
+
+    '
+  anchors:
+    '1.0': No artefacts in any view.
+    '0.7': One minor artefact in one view.
+    '0.4': A clearly visible artefact.
+    '0.1': Artefacts dominate.
+caps:
+- id: build_error
+  when: gate
+  gate: build*
+  severity: error
+  cap: 0.0
+- id: urdf_error
+  when: gate
+  gate: '*urdf*'
+  severity: error
+  cap: 0.3
+  note: URDF does not parse / links unresolved / joint tree invalid
+- id: contract_violation
+  when: gate
+  gate: contract*
+  severity: error
+  cap: 0.75
+  note: plan part missing or measured bbox broken beyond tolerance
+- id: joint_collision
+  when: gate
+  gate: '*'
+  severity: error
+  kinds:
+  - collision
+  - penetration
+  - intersect
+  - self_collision
+  cap: 0.6
+  note: a swept pose collides link-vs-link
+- id: floating_part
+  when: gate
+  gate: '*'
+  severity: error
+  kinds:
+  - floating
+  - unattached
+  - no_contact
+  - disconnected
+  - unsupported
+  - island
+  cap: 0.6
+- id: penetration_error
+  when: gate
+  gate: '*'
+  severity: error
+  kinds:
+  - penetration
+  - intersect
+  - overlap
+  cap: 0.7
+- id: missing_must_acceptance
+  when: acceptance
+  cap: 0.6
+- id: unattached_link
+  when: gate
+  gate: '*'
+  severity: error
+  kinds:
+  - unattached
+  cap: 0.6
+  note: a link is not physically attached to its parent as its joint type requires

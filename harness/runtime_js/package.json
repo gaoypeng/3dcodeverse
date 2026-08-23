@@ -1,0 +1,12 @@
+{
+  "name": "codeverse-runtime-js",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Harness-owned node runtime for 3dcodeverse: GLB export, headless GPU rendering, scene probes, shader preflight. Agent code never imports from here; it only imports 'three'.",
+  "type": "module",
+  "dependencies": {
+    "three": "^0.182.0",
+    "puppeteer": "^24.43.1",
+    "three-mesh-bvh": "^0.9.0"
+  }
+}

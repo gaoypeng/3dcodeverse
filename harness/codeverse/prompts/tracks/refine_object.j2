@@ -1,0 +1,57 @@
+# Refine `{{ object_name }}` — round {{ round_index }}
+
+The object already builds. Renders + measurements were judged; below are the targeted changes for
+THIS round. Make exactly these changes, keep everything else as it is, and keep the code building.
+
+## Changes to make (in priority order; `[gate/...]` items are hard failures — fix them first)
+{% for t in tasks %}
+{{ loop.index }}. {{ t }}
+{% endfor %}
+
+Targets: {{ targets | join(', ') }}
+{% if edit_only_these %}
+EDIT ONLY THESE FILES (other tasks edit other files in parallel — touching anything else causes conflicts):
+{% for f in files %}- `{{ f }}`
+{% endfor %}
+{% else %}
+Files in scope: {% for f in files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+
+## What the judge saw
+{{ judge_summary }}
+
+## Measured vs planned (exact numbers; the contract gate checks these)
+{{ measurement_notes }}
+
+## Plan rows for the targets (bbox centre/extents in meters — the truth to converge to)
+{{ parts_table }}
+
+## Acceptance checklist (unchanged)
+{{ acceptance }}
+
+## Contract reminders
+{{ frame_doc }}
+- Parts keep their exact names; instances/symmetry as planned.
+- Touching parts overlap ≥ 0.002 m; nothing floats; no connector rods.
+- Move a part by changing its placement numbers to the plan's centre; do not rebuild unrelated parts.
+- A "material" change = colour/roughness/metalness of that part only.
+- One code path: no environment sniffing, no DOM/texture loading/network.
+{% if current_files %}
+
+## Current file contents (edit these; return each edited file COMPLETE)
+{% for path, body in current_files.items() %}
+--- {{ path }} ---
+```
+{{ body }}
+```
+{% endfor %}
+{% endif %}
+{% if tool_cards and not single_shot %}
+
+## Tools
+{{ tool_cards }}
+Run `build` after editing and fix any error before finishing.
+{% endif %}
+
+## Output
+{{ output_format }}

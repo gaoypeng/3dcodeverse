@@ -1,0 +1,44 @@
+# Zone `{{ zone_name }}` of `{{ title }}` — write `{{ zone_file }}`
+
+Scene: {{ spec_prompt }} · Setting: {{ setting }} · Mood: {{ mood }}
+
+## This zone
+- Description: {{ zone_description }}
+- Bbox: {{ zone_bbox }} — place EVERYTHING inside it (x/z), on the ground via `heightAt`.
+- Contents (asset names to place): {{ zone_contents | join(', ') if zone_contents else '(none — build local detail from primitives)' }}
+
+Neighbouring zones (do not build into them):
+{% for n in neighbours %}- {{ n }}
+{% endfor %}
+
+## Assets available (import exactly as shown; sizes are measured, meters w×h×d)
+{{ asset_api }}
+
+## Contract
+{{ frame_doc }}
+{{ contract }}
+`{{ zone_file }}` must `export function build{{ zone_name }}(ctx) → THREE.Group` where
+`ctx = { THREE, env, heightAt, MATS, rand }` (`rand()` is a seeded PRNG in [0,1)). Name the returned
+group `"{{ zone_name }}"`. Add instances of the listed assets at sensible real-world spacings
+(paths 1.2-2 m wide, trees ≥ 3 m apart, benches facing the view), rotate them for variety, and add
+zone-local detail from primitives (kerbs, gravel patches, planters, ropes, steps). Everything rests
+on `heightAt(x, z)` (lowest point touching the ground, never sunk > 2 cm, never floating).
+Optional `group.userData.tick = (t, dt) => {...}` to animate local things (lantern flicker, sway).
+
+## DO
+- Use the asset sizes above to avoid overlaps: keep ≥ 0.3 m between footprints unless stacking is intended.
+- Prefer `InstancedMesh` or reuse of one built asset group (`.clone()`) for ≥ 5 copies.
+- Keep the zone ≤ 250 lines and ≤ 400k triangles.
+
+## DON'T
+- No lights except small point lights for lanterns (≤ 4 per zone); no cameras; no sky/ground here.
+- No DOM, no textures, no fetch, no Math.random (use `ctx.rand`).
+- Do not import assets marked NOT AVAILABLE; do not edit other files.
+{% if tool_cards and not single_shot %}
+
+## Tools
+{{ tool_cards }}
+{% endif %}
+
+## Output
+{{ output_format }}

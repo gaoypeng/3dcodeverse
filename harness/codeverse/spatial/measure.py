@@ -1,0 +1,303 @@
+"""Measure the canonical GLB (Y-up, meters, one named top-level node per part).
+
+``measure_glb`` turns a GLB into a :class:`Measurement` (bbox, extents, per-part
+rows, islands, ground gap, footprint offset, materials).  Degenerate input
+(empty meshes, parts without geometry) becomes findings in ``Measurement.extra``
+— never an exception — so agents see *what* is wrong instead of a traceback.
+
+``part_meshes`` is the shared loader other spatial modules use: it returns one
+world-space ``trimesh.Trimesh`` per top-level node (all child meshes merged).
+"""
+
+from __future__ import annotations
+
+import re
+from collections import OrderedDict
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import trimesh
+
+from codeverse.contracts.artifacts import Measurement, PartMeasure
+
+__all__ = [
+    "load_scene",
+    "part_meshes",
+    "measure_glb",
+    "measure_summary_table",
+    "instance_groups",
+    "merged_mesh",
+]
+
+_INSTANCE_RE = re.compile(r"^(?P<base>.+?)[_.-](?P<idx>\d{1,3})$")
+
+
+class GlbLoadError(RuntimeError):
+    """The GLB could not be loaded or contains no mesh geometry."""
+
+
+def load_scene(glb: Path | str) -> trimesh.Scene:
+    """Load ``glb`` as a ``trimesh.Scene`` (always a scene, even for one mesh)."""
+    p = Path(glb)
+    if not p.is_file():
+        raise GlbLoadError(f"GLB not found: {p.name}")
+    try:
+        scene = trimesh.load(str(p), force="scene", process=False)
+    except Exception as e:  # trimesh raises many types
+        raise GlbLoadError(f"cannot load {p.name}: {type(e).__name__}: {e}") from e
+    if not isinstance(scene, trimesh.Scene):
+        raise GlbLoadError(f"{p.name}: unexpected load result {type(scene).__name__}")
+    return scene
+
+
+def _subtree_nodes(scene: trimesh.Scene, root: str) -> list[str]:
+    """All nodes under ``root`` (inclusive), depth first."""
+    children = scene.graph.transforms.children
+    out, stack = [], [root]
+    while stack:
+        n = stack.pop()
+        out.append(n)
+        stack.extend(children.get(n, ()))
+    return out
+
+
+def _world_mesh(scene: trimesh.Scene, node: str) -> trimesh.Trimesh | None:
+    """Geometry at ``node`` transformed to world space (None if not a mesh)."""
+    try:
+        transform, geom_name = scene.graph.get(node)
+    except Exception:
+        return None
+    if geom_name is None:
+        return None
+    geom = scene.geometry.get(geom_name)
+    if not isinstance(geom, trimesh.Trimesh) or geom.faces is None or len(geom.faces) == 0:
+        return None
+    m = geom.copy()
+    m.apply_transform(transform)
+    # exporters split vertices along hard edges / UV seams; topology queries
+    # (islands, watertightness) need positions merged back together
+    try:
+        m.merge_vertices(merge_tex=True, merge_norm=True)
+    except Exception:
+        pass
+    return m
+
+
+def _children(scene: trimesh.Scene, node: str) -> list[str]:
+    return list(scene.graph.transforms.children.get(node, []))
+
+
+def _node_has_geometry(scene: trimesh.Scene, node: str) -> bool:
+    try:
+        return scene.graph[node][1] is not None
+    except Exception:
+        return False
+
+
+def effective_top_nodes(scene: trimesh.Scene) -> list[str]:
+    """Direct children of the scene root, descending through single wrapper
+    nodes that carry no geometry themselves (a three.js root Group, a URDF
+    ``<robot>`` node) so that parts are found at the first meaningful level."""
+    tops = _children(scene, scene.graph.base_frame)
+    seen = 0
+    while len(tops) == 1 and not _node_has_geometry(scene, tops[0]) and _children(scene, tops[0]) and seen < 4:
+        tops = _children(scene, tops[0])
+        seen += 1
+    return tops
+
+
+def part_meshes(scene: trimesh.Scene) -> OrderedDict[str, trimesh.Trimesh | None]:
+    """One world-space mesh per part, in scene order.
+
+    Flat scenes: a part is an effective top-level node (see
+    :func:`effective_top_nodes`) and its whole subtree is merged.
+    Hierarchical link exports (scene ``metadata['links']`` present, as written
+    by ``spatial.joints_export``): every link node is its own part; only its
+    own geometry (the node itself or ``<link>__<i>`` pieces) is merged, child
+    links stay separate.  A part with no geometry maps to ``None``.
+    """
+    out: OrderedDict[str, trimesh.Trimesh | None] = OrderedDict()
+    links = scene.metadata.get("links") if isinstance(scene.metadata, dict) else None
+    nodes = set(scene.graph.nodes)
+    if isinstance(links, list) and links and all(str(l) in nodes for l in links):
+        for link in links:
+            link = str(link)
+            own = [n for n in _subtree_nodes(scene, link) if n == link or str(n).startswith(link + "__")]
+            meshes = [m for n in own if (m := _world_mesh(scene, n)) is not None]
+            out[link] = trimesh.util.concatenate(meshes) if meshes else None
+        return out
+    tops = effective_top_nodes(scene)
+    for top in tops:
+        meshes = [m for n in _subtree_nodes(scene, top) if (m := _world_mesh(scene, n)) is not None]
+        name = str(top)
+        if name in out:  # duplicate node names: suffix so nothing is silently merged
+            k = 2
+            while f"{name}~{k}" in out:
+                k += 1
+            name = f"{name}~{k}"
+        out[name] = trimesh.util.concatenate(meshes) if meshes else None
+    # geometry that hangs directly on the root (no named node) — keep it visible
+    if not tops and scene.geometry:
+        for gname, geom in scene.geometry.items():
+            if isinstance(geom, trimesh.Trimesh) and len(geom.faces):
+                out[str(gname)] = geom.copy()
+    return out
+
+
+def merged_mesh(parts: dict[str, trimesh.Trimesh | None]) -> trimesh.Trimesh | None:
+    """All part meshes concatenated (None if nothing has faces)."""
+    meshes = [m for m in parts.values() if m is not None]
+    return trimesh.util.concatenate(meshes) if meshes else None
+
+
+def _count_islands(mesh: trimesh.Trimesh) -> int:
+    try:
+        return max(1, len(mesh.split(only_watertight=False)))
+    except Exception:
+        try:
+            return max(1, len(trimesh.graph.connected_components(mesh.face_adjacency, nodes=np.arange(len(mesh.faces)))))
+        except Exception:
+            return 1
+
+
+def _vec3(a: Any) -> tuple[float, float, float]:
+    return (float(a[0]), float(a[1]), float(a[2]))
+
+
+def _measure_part(name: str, mesh: trimesh.Trimesh) -> PartMeasure:
+    bmin, bmax = mesh.bounds
+    watertight = bool(mesh.is_watertight)
+    volume: float | None = None
+    if watertight:
+        try:
+            volume = abs(float(mesh.volume))
+        except Exception:
+            volume = None
+    return PartMeasure(
+        name=name,
+        bbox_min=_vec3(bmin),
+        bbox_max=_vec3(bmax),
+        tri_count=int(len(mesh.faces)),
+        islands=_count_islands(mesh),
+        volume_m3=volume,
+        watertight=watertight,
+    )
+
+
+def measure_glb(glb: Path | str) -> Measurement:
+    """Compute the language-agnostic census of the canonical GLB.
+
+    Raises :class:`GlbLoadError` only when the file is unreadable; an empty or
+    degenerate model yields a zero-extent ``Measurement`` with findings in
+    ``extra["findings"]``.
+    """
+    scene = load_scene(glb)
+    parts = part_meshes(scene)
+    findings: list[str] = []
+    rows: list[PartMeasure] = []
+    for name, mesh in parts.items():
+        if mesh is None:
+            findings.append(f"part '{name}' has no mesh geometry (empty node)")
+            continue
+        if len(mesh.vertices) == 0 or len(mesh.faces) == 0:
+            findings.append(f"part '{name}' has no triangles")
+            continue
+        ext = mesh.bounds[1] - mesh.bounds[0]
+        if float(np.max(ext)) < 1e-6:
+            findings.append(f"part '{name}' is degenerate (zero extent)")
+        rows.append(_measure_part(name, mesh))
+
+    whole = merged_mesh(parts)
+    materials = len({id(g.visual.material) for g in scene.geometry.values()
+                     if hasattr(g, "visual") and hasattr(g.visual, "material")})
+    if whole is None or len(whole.faces) == 0:
+        findings.append("model has no triangles at all")
+        return Measurement(
+            bbox_min=(0.0, 0.0, 0.0), bbox_max=(0.0, 0.0, 0.0), extents=(0.0, 0.0, 0.0),
+            center=(0.0, 0.0, 0.0), tri_count=0, n_meshes=len(parts), n_islands=0, parts=rows,
+            ground_gap_m=0.0, footprint_offset_m=0.0, materials=materials,
+            extra={"findings": findings, "n_parts": len(parts)},
+        )
+    bmin, bmax = whole.bounds
+    ext = bmax - bmin
+    center = (bmin + bmax) / 2.0
+    return Measurement(
+        bbox_min=_vec3(bmin),
+        bbox_max=_vec3(bmax),
+        extents=_vec3(ext),
+        center=_vec3(center),
+        tri_count=int(len(whole.faces)),
+        n_meshes=sum(1 for m in parts.values() if m is not None),
+        n_islands=int(sum(r.islands for r in rows)),
+        parts=rows,
+        ground_gap_m=float(bmin[1]),
+        footprint_offset_m=float(np.hypot(center[0], center[2])),
+        materials=materials,
+        extra={"findings": findings, "n_parts": len(parts),
+               "part_names": [r.name for r in rows]},
+    )
+
+
+# --------------------------------------------------------------------------- table
+def instance_groups(names: list[str]) -> OrderedDict[str, list[str]]:
+    """Group ``Leg_0, Leg_1, Leg_2`` → ``{"Leg": [...]}``; singletons keep their name."""
+    groups: OrderedDict[str, list[str]] = OrderedDict()
+    for n in names:
+        m = _INSTANCE_RE.match(n)
+        key = m.group("base") if m else n
+        groups.setdefault(key, []).append(n)
+    # a "group" with a single member is just the part itself
+    out: OrderedDict[str, list[str]] = OrderedDict()
+    for key, members in groups.items():
+        if len(members) > 1:
+            members = sorted(members, key=lambda n: int(_INSTANCE_RE.match(n).group("idx")))  # type: ignore[union-attr]
+        out[key if len(members) > 1 else members[0]] = members
+    return out
+
+
+def _fmt_ext(ext: tuple[float, float, float] | np.ndarray) -> str:
+    return "×".join(f"{v * 100:.1f}" for v in ext)
+
+
+def measure_summary_table(m: Measurement, max_rows: int = 30) -> str:
+    """Compact markdown table for prompts (judge/agent): totals + per-part rows.
+
+    Instances (``Leg_0..3``) collapse to one row with their union bbox; rows are
+    capped at ``max_rows`` (largest parts first, then an "… n more" line).
+    """
+    lines = [
+        f"overall: {_fmt_ext(m.extents)} cm (W×H×D, Y-up) · centre ({m.center[0]:.3f}, {m.center[1]:.3f}, {m.center[2]:.3f}) m"
+        f" · {m.tri_count} tris · {len(m.parts)} parts · {m.n_islands} islands"
+        f" · ground gap {m.ground_gap_m * 1000:.1f} mm · footprint offset {m.footprint_offset_m * 1000:.1f} mm",
+        "",
+        "| part | size W×H×D (cm) | y range (m) | tris | islands | watertight |",
+        "|---|---|---|---|---|---|",
+    ]
+    by_name = {p.name: p for p in m.parts}
+    rows: list[tuple[float, str]] = []
+    for key, members in instance_groups([p.name for p in m.parts]).items():
+        ps = [by_name[n] for n in members]
+        mins = np.min([p.bbox_min for p in ps], axis=0)
+        maxs = np.max([p.bbox_max for p in ps], axis=0)
+        ext = maxs - mins
+        if len(ps) == 1:
+            label, size_txt = key, _fmt_ext(ext)
+        else:
+            label = f"{key} ×{len(ps)} ({members[0]}..{members[-1].rsplit('_', 1)[-1]})"
+            each = np.max([np.subtract(p.bbox_max, p.bbox_min) for p in ps], axis=0)
+            size_txt = f"{_fmt_ext(each)} each, span {_fmt_ext(ext)}"
+        tris = sum(p.tri_count for p in ps)
+        islands = sum(p.islands for p in ps)
+        wt = "yes" if all(p.watertight for p in ps) else ("no" if not any(p.watertight for p in ps) else "some")
+        size = float(np.prod(np.maximum(ext, 1e-9)))
+        rows.append((size, f"| {label} | {size_txt} | {mins[1]:.3f}..{maxs[1]:.3f} | {tris} | {islands} | {wt} |"))
+    rows.sort(key=lambda r: -r[0])
+    lines.extend(r[1] for r in rows[:max_rows])
+    if len(rows) > max_rows:
+        lines.append(f"| … {len(rows) - max_rows} more parts | | | | | |")
+    finds = m.extra.get("findings") or []
+    if finds:
+        lines.append("")
+        lines.extend(f"- finding: {f}" for f in finds[:10])
+    return "\n".join(lines)

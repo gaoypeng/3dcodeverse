@@ -1,0 +1,133 @@
+"""GeminiCliAgent with a fake `gemini` binary + one live smoke test."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from codeverse.agents.gemini_cli import GeminiCliAgent, parse_gemini_json, usage_from_stats
+from codeverse.config import get_settings
+from codeverse.contracts.agent import AgentJob
+from codeverse.workspace import Workspace
+
+FAKE_GEMINI = r'''
+args = sys.argv[1:]
+model = args[args.index("-m") + 1]
+prompt = args[args.index("-p") + 1]
+mode = os.environ.get("FAKE_MODE", "ok")
+assert os.environ.get("GEMINI_API_KEY"), "no key in env"
+assert "GEMINI_API_KEYS" not in os.environ
+assert "FAKE_SERVICE_API_KEY" not in os.environ, "secret leaked"
+assert os.path.isfile(os.environ["GEMINI_CLI_SYSTEM_SETTINGS_PATH"])
+if mode == "fail_once":
+    marker = "attempts.txt"
+    n = int(open(marker).read()) if os.path.exists(marker) else 0
+    open(marker, "w").write(str(n + 1))
+    if n == 0:
+        print("Error: 429 RESOURCE_EXHAUSTED quota", file=sys.stderr)
+        sys.exit(1)
+if mode == "hang":
+    time.sleep(60)
+served = "gemini-9-pro" if mode == "substitute" else model
+os.makedirs("src", exist_ok=True)
+open("src/hello.txt", "w").write(prompt[:20])
+out = {"session_id": "s1", "response": "DONE: " + prompt[:10],
+       "stats": {"models": {served: {"tokens": {"input": 100, "candidates": 20, "cached": 5, "thoughts": 7}}},
+                 "tools": {"totalCalls": 1}}}
+print(json.dumps(out, indent=2))
+'''
+
+
+@pytest.fixture
+def agent(fake_bin, monkeypatch):
+    binary = fake_bin("gemini", FAKE_GEMINI)
+    s = get_settings()
+    monkeypatch.setattr(s, "gemini_api_keys", ["k1", "k2"])
+    monkeypatch.setattr(s, "cache_dir", Path(binary).parent / "cache")
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
+    return GeminiCliAgent("gemini-3.7-flash", binary=binary)
+
+
+def _job(ws: Workspace, **kw) -> AgentJob:
+    base = dict(workspace=str(ws.root), prompt="write hello", model="gemini-3.7-flash", timeout_s=20, label="t")
+    base.update(kw)
+    return AgentJob(**base)
+
+
+def test_success_path(tmp_ws: Workspace, agent: GeminiCliAgent):
+    res = agent.run(_job(tmp_ws))
+    assert res.ok and res.exit_reason == "completed", res.errors
+    assert res.text.startswith("DONE")
+    assert [f.path for f in res.files_changed] == ["src/hello.txt"]
+    assert res.usage.input_tokens == 100 and res.usage.output_tokens == 20 and res.usage.thoughts_tokens == 7
+    assert res.usage.tool_calls == 1 and res.tool_calls == 1
+    traj = Path(res.transcript_path).parent
+    assert (traj / "stdout.json").exists() and (traj / "prompt.md").exists() and (traj / "result.json").exists()
+    rec = json.loads((traj / "result.json").read_text())
+    assert rec["attempts"] == 1 and rec["session_id"] == "s1"
+    # commits: pre + agent
+    assert "agent:t" in tmp_ws._git("log", "--oneline").stdout
+
+
+def test_model_substitution_detected(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "substitute")
+    res = agent.run(_job(tmp_ws))
+    assert not res.ok and res.exit_reason == "model_substituted"
+    assert "gemini-9-pro" in res.errors[0]
+
+
+def test_transient_failure_retries_once_with_other_key(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "fail_once")
+    res = agent.run(_job(tmp_ws))
+    assert res.ok, res.errors
+    assert (tmp_ws.root / "attempts.txt").read_text() == "2"
+    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
+    assert rec["attempts"] == 2 and (Path(res.transcript_path).parent / "stdout.2.json").exists()
+    lines = [json.loads(l) for l in Path(res.transcript_path).read_text().splitlines()]
+    keys = [l["key_tail"] for l in lines if l["kind"] == "invoke"]
+    assert keys == ["k1", "k2"]
+
+
+def test_timeout_is_reported(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "hang")
+    monkeypatch.setattr("codeverse.agents.gemini_cli.IDLE_GRACE_S", 1.0)
+    res = agent.run(_job(tmp_ws, timeout_s=1))
+    assert not res.ok and res.exit_reason == "timeout" and res.duration_s < 30
+
+
+def test_unavailable_when_no_keys(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", [])
+    ok, why = agent.available()
+    assert not ok and "key" in why
+    res = agent.run(_job(tmp_ws))
+    assert not res.ok and res.exit_reason == "error"
+
+
+def test_parse_helpers():
+    assert parse_gemini_json("noise\n{\"response\": \"x\"}") == {"response": "x"}
+    assert parse_gemini_json("") is None
+    u = usage_from_stats({"models": {"m": {"tokens": {"input": 1, "candidates": 2, "cached": 3, "thoughts": 4}}},
+                          "tools": {"totalCalls": 9}}, "m")
+    assert (u.input_tokens, u.output_tokens, u.cached_tokens, u.thoughts_tokens, u.tool_calls) == (1, 2, 3, 4, 9)
+
+
+def test_system_append_is_prepended(tmp_ws: Workspace, agent: GeminiCliAgent):
+    res = agent.run(_job(tmp_ws, system_append="BE BRIEF"))
+    assert res.ok
+    assert (tmp_ws.src / "hello.txt").read_text().startswith("<harness_instr")
+
+
+@pytest.mark.live
+def test_live_gemini_cli_creates_file(tmp_ws: Workspace):
+    if not get_settings().gemini_api_keys:
+        pytest.skip("no gemini keys")
+    agent = GeminiCliAgent("gemini-3.7-flash")
+    job = AgentJob(workspace=str(tmp_ws.root), prompt="Create the file src/hello.txt containing exactly the word 'hi'. "
+                   "Then reply with the single word DONE.", timeout_s=240, label="live", spatial_tools=False)
+    res = agent.run(job)
+    assert res.ok, res.errors
+    assert (tmp_ws.src / "hello.txt").read_text().strip() == "hi"
+    assert res.usage.input_tokens > 0 and res.usage.model == "gemini-3.7-flash"
+    assert any(f.path == "src/hello.txt" for f in res.files_changed)

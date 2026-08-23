@@ -1,0 +1,68 @@
+name: scenes_v1
+track: scene
+language: scene_threejs
+description: >
+  12 scene prompts (multi-file Three.js + GLSL), 4 per tier.  Each must_have
+  names the environment, a signature effect and an animated element so the
+  scene judge and probes have concrete targets.
+prompts:
+  - id: scn_easy_japanese_garden
+    tier: easy
+    category: nature
+    prompt: a small japanese garden with a koi pond, a wooden bridge, stone lanterns, raked gravel and a maple tree, soft afternoon light
+    must_have: [pond with reflective water, arched bridge, at least two stone lanterns, maple tree with red foliage, raked gravel pattern, gentle water ripple animation]
+  - id: scn_easy_desert_canyon
+    tier: easy
+    category: nature
+    prompt: a desert canyon with layered red rock walls, a dry river bed, scattered boulders and distant haze fog
+    must_have: [tall layered canyon walls on both sides, sandy floor, boulders, distance fog, warm sun with long shadows, drifting dust or heat shimmer]
+  - id: scn_easy_rooftop_garden
+    tier: easy
+    category: urban
+    prompt: a rooftop garden with planters, a pergola, string lights and a city skyline view at golden hour
+    must_have: [rooftop platform with parapet, planters with plants, pergola, string lights that glow, skyline of distant buildings, swaying plant animation]
+  - id: scn_easy_greenhouse
+    tier: easy
+    category: interior
+    prompt: a glass greenhouse interior with rows of potted plants, a central water feature and sunlight through the panes
+    must_have: [glass walls and roof with frames, rows of plant benches, water feature with animated water, visible light shafts or bright panes, hanging baskets]
+  - id: scn_med_coastal_village
+    tier: medium
+    category: landscape
+    prompt: a coastal fishing village at dusk with a harbour, moored boats, cottages with lit windows, a lighthouse and gentle animated waves
+    must_have: [harbour wall and water, at least three boats bobbing, cottages with emissive windows, lighthouse with rotating beam, dusk sky gradient, wave animation]
+  - id: scn_med_cozy_cabin
+    tier: medium
+    category: interior
+    prompt: a cozy log cabin interior at night with a flickering fireplace glow, an armchair, a rug, bookshelves and snow visible through the window
+    must_have: [log walls, fireplace with animated flicker light, armchair and rug, bookshelf with books, window with snowy exterior, warm colour grading]
+  - id: scn_med_snowy_hut
+    tier: medium
+    category: landscape
+    prompt: a snowy mountain hut at night with falling snow particles, a glowing window, pine trees and a distant mountain ridge
+    must_have: [hut with snow-covered roof, emissive window, falling snow particle system, pine trees, mountain ridge silhouette, moonlit lighting]
+  - id: scn_med_medieval_market
+    tier: medium
+    category: urban
+    prompt: a medieval market square with market stalls under striped awnings, a central well, timber-framed houses and fluttering banners
+    must_have: [at least four stalls with awnings, stone well, timber-framed houses around the square, banners or flags waving, cobblestone ground, daylight with shadows]
+  - id: scn_hard_cyberpunk_alley
+    tier: hard
+    category: urban
+    prompt: a rain-soaked cyberpunk alley at night with neon signs, wet reflective ground shader, steam vents, holographic billboards and falling rain
+    must_have: [narrow alley between tall buildings, several neon signs with emissive glow, wet ground with reflections via a custom shader, rain particles, animated steam, flickering hologram]
+  - id: scn_hard_floating_islands
+    tier: hard
+    category: fantasy
+    prompt: floating sky islands connected by rope bridges, with waterfalls pouring off the edges into clouds, a windmill on the largest island and drifting cloud layers
+    must_have: [at least three floating islands at different heights, rope bridges, animated waterfalls, cloud layer below, windmill with rotating sails, islands gently bobbing]
+  - id: scn_hard_underwater_reef
+    tier: hard
+    category: nature
+    prompt: an underwater coral reef with animated caustic light patterns, schools of fish, swaying kelp, rising bubbles and blue volumetric fog
+    must_have: [reef with varied coral shapes, caustics shader on the sea floor, fish school animation, swaying kelp, bubble particles, blue depth fog]
+  - id: scn_hard_autumn_forest
+    tier: hard
+    category: nature
+    prompt: an autumn forest path with god rays through the canopy, falling leaves, a stream with a small wooden footbridge and morning mist
+    must_have: [many trees with autumn foliage, visible light shafts, falling leaf particles, stream with moving water, footbridge, ground mist]

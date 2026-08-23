@@ -1,0 +1,127 @@
+name: asset_v1
+version: 1
+track_hint: asset
+pass_threshold: 0.70
+description: >
+  Per-asset rubric used inside scenes: ONE asset (a building, a tree, a boat, a lamp
+  post...) isolated and rendered on the object rig.  Stricter on silhouette / all-sides
+  completeness than the static-object rubric, lighter on the brief because the asset
+  is only described by a one-line plan entry.
+
+extra_instructions: >
+  The asset is judged as a scene ingredient: it must read correctly at a distance
+  (silhouette) AND be finished on every side because cameras will see it from
+  anywhere.  Credit only visible detail.  A plain-but-correct asset scores ~0.7;
+  an asset that is a single box or that is unfinished on its back/underside scores low.
+
+criteria:
+  - id: identity_silhouette
+    weight: 0.22
+    floor: 0.30
+    title: Identity and silhouette
+    description: >
+      Does the asset read as the thing its plan entry names, from its silhouette alone
+      (the contact sheet at a glance) as well as up close?
+    anchors:
+      "1.0": Instantly recognisable from every view; the silhouette alone names it.
+      "0.7": Recognisable from the 3/4 views; one view is ambiguous.
+      "0.4": Only recognisable with the plan entry in hand; silhouette is generic.
+      "0.1": Not recognisable; a box or blob.
+
+  - id: all_sides_finished
+    weight: 0.16
+    title: All sides finished
+    description: >
+      Is the asset complete on the back, sides, top and underside — not a façade?
+      Windows/doors/details continue around; the underside is closed; the top has a roof
+      or cap where it should.
+    anchors:
+      "1.0": Every side is finished to the same standard as the front.
+      "0.7": The back or top is plainer than the front but not empty or open.
+      "0.4": One side is blank, open, or missing detail the front has.
+      "0.1": A façade — open back, missing faces, or unfinished underside.
+
+  - id: sub_part_structure
+    weight: 0.16
+    floor: 0.25
+    title: Sub-part structure
+    description: >
+      Are the asset's constituent parts present and assembled correctly (trunk + canopy,
+      hull + mast + sail, base + pole + lamp head), attached where they should be, with
+      nothing floating?
+    anchors:
+      "1.0": All expected sub-parts are present, placed and attached correctly.
+      "0.7": One sub-part is simplified or slightly misplaced; none floating.
+      "0.4": A sub-part is missing or visibly floating / misplaced.
+      "0.1": No meaningful sub-structure or parts are scattered.
+
+  - id: proportions
+    weight: 0.14
+    title: Proportions
+    description: >
+      Are the asset's overall dimensions (see measurement table and plan size) and part
+      ratios right for its kind?
+    anchors:
+      "1.0": Size matches the plan and every ratio is believable.
+      "0.7": One ratio is a bit off; size is within ~15% of plan.
+      "0.4": A clearly wrong ratio, or size off by more than ~30%.
+      "0.1": Absurd proportions or wrong order of magnitude.
+
+  - id: detail_level
+    weight: 0.12
+    title: Detail level
+    description: >
+      Is there enough shape refinement for the asset's role — edges, insets, thickness,
+      trim, hardware — beyond primitives?  Do not credit detail you cannot see.
+    anchors:
+      "1.0": Several visible refinements; reads as a crafted asset.
+      "0.7": Two visible refinements; otherwise plain.
+      "0.4": Primitive stack with one token detail.
+      "0.1": A single primitive or a blob.
+
+  - id: material_truth
+    weight: 0.10
+    title: Material truth
+    description: >
+      Do the surfaces read as the right materials (stone, wood, glass, foliage, metal)
+      with sensible colour and roughness and no placeholder or contradictory surfaces?
+    anchors:
+      "1.0": Every surface reads as its real material with some character.
+      "0.7": Sensible flat materials, correctly assigned.
+      "0.4": One wrong or placeholder material.
+      "0.1": Placeholder/default materials throughout.
+
+  - id: cleanliness
+    weight: 0.10
+    floor: 0.30
+    title: Cleanliness
+    description: >
+      No z-fighting, black (inverted) faces, holes, stretched geometry, stray slivers
+      or duplicate shells.
+    anchors:
+      "1.0": No artefacts in any view.
+      "0.7": One minor artefact in one view.
+      "0.4": A clearly visible artefact.
+      "0.1": Artefacts dominate.
+
+caps:
+  - id: build_error
+    when: gate
+    gate: "build*"
+    severity: error
+    cap: 0.0
+  - id: floating_part
+    when: gate
+    gate: "*"
+    severity: error
+    kinds: [floating, no_contact, disconnected, unsupported, island]
+    cap: 0.6
+  - id: penetration_error
+    when: gate
+    gate: "*"
+    severity: error
+    kinds: [penetration, intersect, overlap, collision]
+    cap: 0.7
+  - id: missing_must_acceptance
+    when: acceptance
+    cap: 0.6

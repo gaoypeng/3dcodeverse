@@ -1,0 +1,79 @@
+# Build the articulated `{{ object_name }}`: bpy links + hand-written URDF
+
+You write TWO files: `src/model.py` (raw bpy — one mesh object per LINK, authored in WORLD
+coordinates at the rest pose) and `src/robot.urdf` (native URDF describing the joints). The harness
+exports each link to `meshes/<link>.glb`, lints the URDF, runs forward kinematics, sweeps every joint
+between its limits and checks for penetrations, then renders rest + limit poses for a judge.
+
+## Request
+{{ spec_prompt }}
+Constraints:
+{{ constraints }}
+
+## The contract (hard rules)
+{{ frame_doc }}
+{{ contract }}
+{% if cookbook_rel %}Copyable snippets live in `{{ cookbook_rel }}`.{% endif %}
+{% if cookbook_excerpt %}
+Cookbook excerpt:
+{{ cookbook_excerpt }}
+{% endif %}
+
+## Plan
+{{ plan_summary }}
+Overall bbox (rest pose): {{ overall_bbox }}
+Style: {{ style_notes }}
+
+Links (one bpy object each, named EXACTLY like the `part` column):
+{{ parts_table }}
+
+Link construction notes:
+{{ part_details }}
+
+Joints (the URDF must realise EXACTLY these; pivots are WORLD points at rest):
+{{ joints_table }}
+
+## Acceptance checklist
+{{ acceptance }}
+
+## DO
+- Build every link at its WORLD rest pose with the plan's bbox centre/extents (±0.01 m); each link is
+  ONE object (join sub-shapes into it) named exactly as the link.
+- Joint origins: for a joint with world pivot P and the parent's world origin O_parent, the URDF
+  `<origin xyz>` is P − O_parent expressed in the parent frame; the child's visual `<origin>` is the
+  child mesh offset relative to P. Keep the numbers consistent with the bbox centres in the table —
+  write them out explicitly as comments in the URDF before the joint.
+- Use the axis vectors from the table verbatim; limits = lower/upper from the table; `effort`/
+  `velocity` any positive numbers.
+- Keep ≥ 0.003 m clearance along each joint's motion direction between the child link and the
+  links it moves past (drawer vs cabinet walls, door vs frame); fixed neighbours overlap ≥ 0.002 m.
+- Hinged lids/doors pivot at their EDGE (the hinge line), drawers slide along the cabinet depth.
+
+## DON'T
+- No camera/light/render/export calls in bpy; no imports beyond bpy/bmesh/math/mathutils/random.
+- No links that float (every non-root link touches its parent at rest, or is attached by its joint
+  at a pivot that lies ON the child link's geometry ± 0.01 m).
+- No joint whose child passes through another link anywhere in [lower, upper].
+- No renaming of links/joints; no extra root links; one tree rooted at `{{ root_link }}` as planned.
+
+{% if skeleton_files %}
+## Current files (skeleton in src/ — keep the structure, fill every stub)
+{% for path, body in skeleton_files.items() %}
+--- {{ path }} ---
+```
+{{ body }}
+```
+{% endfor %}
+{% endif %}
+{% if previous_error %}
+## The previous attempt failed to build — fix the cause while rebuilding
+{{ previous_error }}
+{% endif %}
+
+{% if tool_cards and not single_shot %}
+## Tools available to you
+{{ tool_cards }}
+{% endif %}
+
+## Output
+{{ output_format }}

@@ -1,0 +1,216 @@
+"""Materialise per-workspace agent instructions + MCP configs.
+
+One shared body is written to ``AGENTS.md`` (codex / generic), ``GEMINI.md``
+(gemini-cli) and ``CLAUDE.md`` (claude-code): task-agnostic rules, how to call
+the ``c3v`` spatial tools, where the cookbook is, and the language contract.
+MCP wiring:
+
+* gemini-cli → ``ws/.gemini/settings.json`` (merged) ``mcpServers.c3v``
+* claude-code → ``ws/.mcp.json``
+* codex → ``-c`` overrides returned in :class:`Materialized.codex_overrides`
+* agy (Antigravity) → no per-workspace MCP; the body documents the CLI fallback.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+from pathlib import Path
+
+from pydantic import BaseModel, Field
+
+from codeverse.prompts import PROMPTS_DIR
+from codeverse.workspace import Workspace
+
+C3V_DIR = ".c3v"  # harness-owned read-only docs inside the workspace
+MCP_SERVER_NAME = "c3v"
+MCP_TOOL_TIMEOUT_MS = 600_000
+IGNORE_LINES = ("artifacts/", "trajectories/", ".git/", "node_modules/", "__pycache__/", ".gemini/tmp/")
+
+
+class Materialized(BaseModel):
+    """What :func:`materialize_workspace` wrote and how each CLI reaches the tools."""
+
+    body_files: list[str] = Field(default_factory=list)
+    mcp_files: list[str] = Field(default_factory=list)
+    ignore_files: list[str] = Field(default_factory=list)
+    cookbook_path: str = ""
+    mcp_command: list[str] = Field(default_factory=list)
+    codex_overrides: list[str] = Field(default_factory=list, description="extra argv for `codex exec` (-c k=v pairs)")
+    agy_mcp: str = Field(default="", description="how Antigravity reaches the tools")
+    warnings: list[str] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- body
+def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str]) -> str:
+    if not spatial_tools:
+        return (
+            "## Spatial tools\n\n"
+            "No spatial tools are available in this session. Verify your work by reading the "
+            "code carefully and keeping every dimension explicit; the harness builds, measures "
+            "and renders after you finish.\n"
+        )
+    from codeverse.spatial.registry import tool_cards
+
+    cards = tool_cards() or "(the tool registry is empty in this environment)"
+    if agent_kind == "claude-code":
+        how = "Tools are exposed by the MCP server `c3v`; their names appear as `mcp__c3v__<name>` (e.g. `mcp__c3v__build`)."
+    elif agent_kind == "agy":
+        how = (
+            "This session has no MCP server. Call a tool from the shell instead:\n"
+            "`python -m codeverse.cli.main tools <name> --json '{\"arg\": \"value\"}'` "
+            "(run from the workspace root; prints the observation as text + JSON)."
+        )
+    elif agent_kind == "api-agent":
+        how = "Tools are native function calls with exactly the names below."
+    elif agent_kind == "gemini-cli":
+        how = (
+            f"Tools are exposed by the MCP server `{MCP_SERVER_NAME}`; they appear in your tool list as "
+            f"`mcp_{MCP_SERVER_NAME}_<name>` (or plain `<name>`). Prefer them over shell commands."
+        )
+    else:
+        how = f"Tools are exposed by the MCP server `{MCP_SERVER_NAME}` (command: `{' '.join(mcp_command)}`); call them by name."
+    return (
+        "## Spatial tools (c3v)\n\n"
+        f"{how}\n\n"
+        "Workflow: edit → `build` → read the errors/numbers → fix → `build` again. Use `render_views` / "
+        "`render_sheet` to LOOK at what you made before declaring it finished; use `measure` / "
+        "`check_contract` to prove dimensions. Never finish on a failing build.\n\n"
+        f"{cards}\n"
+    )
+
+
+def _body(agent_kind: str, contract_md: str, cookbook_note: str, spatial_tools: bool, mcp_command: list[str]) -> str:
+    return (
+        "# c3v workspace — rules for the coding agent\n\n"
+        "You are working inside a harness-managed workspace. Read this whole file before acting.\n\n"
+        "## Hard rules\n\n"
+        "1. You may create or edit files ONLY under `src/` and `public/`. Never modify `artifacts/`, "
+        "`trajectories/`, `.git/`, `.gemini/`, `.c3v/`, or this file — they are harness-owned.\n"
+        "2. Write RAW code in the language named by the contract below. Never import from `codeverse` or "
+        "any helper SDK; do not install packages; do not use the network; do not write "
+        "camera / render / export / file-output code unless the contract explicitly asks for it — "
+        "the harness owns export and rendering.\n"
+        "3. Do not run `git`; the harness snapshots your work before and after the session.\n"
+        "4. Keep dimensions explicit and in meters; follow the coordinate frame stated in the contract.\n"
+        "5. When you are done, reply with a SHORT summary of what you changed and what you verified. "
+        "Do not ask questions — there is no human in the loop; make a reasonable decision and proceed.\n\n"
+        f"{_tool_section(agent_kind, spatial_tools, mcp_command)}\n"
+        f"## Cookbook\n\n{cookbook_note}\n\n"
+        f"## Language contract\n\n{contract_md.strip()}\n"
+    )
+
+
+# --------------------------------------------------------------------------- configs
+def _merge_json(path: Path, patch: dict) -> None:
+    data: dict = {}
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text() or "{}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"{path} is not valid JSON; refusing to merge: {e}") from e
+    for k, v in patch.items():
+        if isinstance(v, dict) and isinstance(data.get(k), dict):
+            data[k].update(v)
+        else:
+            data[k] = v
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def _drop_server(path: Path) -> None:
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text() or "{}")
+    except json.JSONDecodeError:
+        return
+    servers = data.get("mcpServers")
+    if isinstance(servers, dict) and MCP_SERVER_NAME in servers:
+        servers.pop(MCP_SERVER_NAME)
+        path.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def _toml_str_list(items: list[str]) -> str:
+    return "[" + ", ".join(json.dumps(x) for x in items) + "]"
+
+
+def codex_mcp_overrides(mcp_command: list[str]) -> list[str]:
+    """``-c`` pairs that register the c3v MCP server for one ``codex exec`` call."""
+    return [
+        "-c", f"mcp_servers.{MCP_SERVER_NAME}.command={json.dumps(mcp_command[0])}",
+        "-c", f"mcp_servers.{MCP_SERVER_NAME}.args={_toml_str_list(mcp_command[1:])}",
+        "-c", f"mcp_servers.{MCP_SERVER_NAME}.tool_timeout_sec={MCP_TOOL_TIMEOUT_MS // 1000}",
+        "-c", f"mcp_servers.{MCP_SERVER_NAME}.startup_timeout_sec=60",
+    ]
+
+
+def _resolve_cookbook(ws: Workspace, cookbook_rel: str) -> Path | None:
+    if not cookbook_rel:
+        return None
+    for cand in (ws.root / cookbook_rel, PROMPTS_DIR / cookbook_rel, Path(cookbook_rel)):
+        if cand.is_file():
+            return cand
+    return None
+
+
+# --------------------------------------------------------------------------- entry
+def materialize_workspace(
+    ws: Workspace,
+    *,
+    agent_kind: str,
+    contract_md: str,
+    cookbook_rel: str,
+    spatial_tools: bool,
+    mcp_command: list[str],
+) -> Materialized:
+    """Write AGENTS.md / GEMINI.md / CLAUDE.md + MCP configs + ignore files into ``ws``."""
+    out = Materialized(mcp_command=list(mcp_command))
+    if spatial_tools and not mcp_command:
+        raise ValueError("spatial_tools=True requires a non-empty mcp_command")
+
+    # cookbook: copy into the harness-owned .c3v/ dir so every CLI can read it in-workspace
+    src = _resolve_cookbook(ws, cookbook_rel)
+    if src is not None:
+        dest = ws.root / C3V_DIR / "cookbook.md"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
+        out.cookbook_path = str(dest)
+        cookbook_note = (
+            f"The cookbook for this language — copyable, verified snippets and skeletons — is at "
+            f"`{C3V_DIR}/cookbook.md` (relative to the workspace root). Read the relevant sections "
+            "before writing code and copy its patterns exactly."
+            + (" You may also call the `read_cookbook` tool." if spatial_tools else "")
+        )
+    else:
+        out.warnings.append(f"cookbook not found: {cookbook_rel!r}")
+        cookbook_note = "No cookbook is available in this session; rely on the contract below."
+
+    body = _body(agent_kind, contract_md, cookbook_note, spatial_tools, list(mcp_command))
+    for name in ("AGENTS.md", "GEMINI.md", "CLAUDE.md"):
+        (ws.root / name).write_text(body)
+        out.body_files.append(str(ws.root / name))
+
+    gemini_settings = ws.root / ".gemini" / "settings.json"
+    claude_mcp = ws.root / ".mcp.json"
+    if spatial_tools:
+        server = {"command": mcp_command[0], "args": list(mcp_command[1:]), "timeout": MCP_TOOL_TIMEOUT_MS}
+        _merge_json(gemini_settings, {"mcpServers": {MCP_SERVER_NAME: server}})
+        _merge_json(claude_mcp, {"mcpServers": {MCP_SERVER_NAME: {"type": "stdio", **server}}})
+        out.mcp_files = [str(gemini_settings), str(claude_mcp)]
+        out.codex_overrides = codex_mcp_overrides(list(mcp_command))
+        out.agy_mcp = (
+            "Antigravity CLI only supports GLOBAL MCP registration (`agy mcp add ...`), which would "
+            "leak across parallel runs; no per-workspace MCP is written. The body documents the "
+            "`python -m codeverse.cli.main tools <name> --json ...` shell fallback instead."
+        )
+    else:
+        _drop_server(gemini_settings)
+        _drop_server(claude_mcp)
+        out.agy_mcp = "spatial tools disabled"
+
+    ignore_text = "\n".join(IGNORE_LINES) + "\n"
+    for name in (".geminiignore", ".aiexclude"):
+        (ws.root / name).write_text(ignore_text)
+        out.ignore_files.append(str(ws.root / name))
+    return out

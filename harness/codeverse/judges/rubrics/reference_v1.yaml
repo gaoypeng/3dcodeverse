@@ -1,0 +1,115 @@
+name: reference_v1
+version: 1
+track_hint: reference
+pass_threshold: 0.70
+description: >
+  Image-conditioned rubric: the object must match one or more REFERENCE images.  The
+  silhouette criterion is MEASURED in code (IoU of the front render vs the target
+  reference) and shown to the judge; the judge scores the perceptual criteria by
+  comparing reference images to renders side by side.
+
+extra_instructions: >
+  Images labelled REFERENCE are the target the object must reproduce; images labelled
+  VIEW are renders of the generated object.  Compare like with like (the front render
+  against the reference's viewpoint).  The silhouette IoU in the measurement block is a
+  fact computed by the harness — do not re-estimate it; use it to calibrate your
+  proportion judgement.  Ignore background, lighting style and camera framing
+  differences unless the brief asks for them.
+
+criteria:
+  - id: silhouette_match
+    weight: 0.25
+    kind: measured
+    title: Silhouette match (measured)
+    description: >
+      Outline IoU between the front render and the target reference image, computed
+      by the harness; mapped to 0..1 in code.  Shown for calibration only.
+    anchors:
+      "1.0": IoU ≥ 0.85.
+      "0.7": IoU ≈ 0.65.
+      "0.4": IoU ≈ 0.45.
+      "0.1": IoU ≤ 0.27.
+
+  - id: proportions
+    weight: 0.20
+    floor: 0.25
+    title: Proportions vs reference
+    description: >
+      Do the part ratios and overall aspect match the reference — heights, widths,
+      thicknesses, spacing of repeated elements?
+    anchors:
+      "1.0": Ratios match the reference within a few percent everywhere.
+      "0.7": One ratio is visibly off but the object still reads like the reference.
+      "0.4": A clearly wrong ratio changes the character of the object.
+      "0.1": Proportions have little to do with the reference.
+
+  - id: parts_coverage
+    weight: 0.20
+    floor: 0.25
+    title: Parts coverage
+    description: >
+      Is every visible part of the reference present in the render (and no invented
+      extra parts), placed and attached as in the reference?
+    anchors:
+      "1.0": Every reference part is present and correctly placed; nothing invented.
+      "0.7": One minor part is missing or simplified.
+      "0.4": A major part is missing, or an invented part changes the object.
+      "0.1": Most reference parts are missing.
+
+  - id: material_color
+    weight: 0.15
+    title: Material and colour
+    description: >
+      Do the colours and material types match the reference per part (wood vs metal,
+      matte vs glossy, the actual hues)?
+    anchors:
+      "1.0": Per-part colours and material types match the reference.
+      "0.7": Colours close; one part's material type differs.
+      "0.4": A prominent part has a clearly wrong colour or material.
+      "0.1": Colours/materials unrelated to the reference.
+
+  - id: detail
+    weight: 0.10
+    title: Detail fidelity
+    description: >
+      Are the reference's visible details (mouldings, hardware, patterns, edges)
+      reproduced rather than smoothed away?
+    anchors:
+      "1.0": Reference details reproduced convincingly.
+      "0.7": Major details present, fine ones smoothed.
+      "0.4": Only the gross form; details absent.
+      "0.1": A primitive approximation.
+
+  - id: cleanliness
+    weight: 0.10
+    floor: 0.30
+    title: Cleanliness
+    description: >
+      No artefacts — z-fighting, black faces, holes, slivers, floating parts.
+    anchors:
+      "1.0": No artefacts in any view.
+      "0.7": One minor artefact.
+      "0.4": A clearly visible artefact.
+      "0.1": Artefacts dominate.
+
+caps:
+  - id: build_error
+    when: gate
+    gate: "build*"
+    severity: error
+    cap: 0.0
+  - id: floating_part
+    when: gate
+    gate: "*"
+    severity: error
+    kinds: [floating, no_contact, disconnected, unsupported, island]
+    cap: 0.6
+  - id: penetration_error
+    when: gate
+    gate: "*"
+    severity: error
+    kinds: [penetration, intersect, overlap, collision]
+    cap: 0.7
+  - id: missing_must_acceptance
+    when: acceptance
+    cap: 0.6

@@ -1,0 +1,178 @@
+"""budget / fanout / state / runner / rounds unit tests."""
+
+from __future__ import annotations
+
+import time
+
+import pytest
+
+from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
+from codeverse.contracts.common import Budget, Usage
+from codeverse.contracts.judgment import ImprovementItem, Judgment
+from codeverse.contracts.plan import AcceptanceItem
+from codeverse.contracts.run import RoundRecord
+from codeverse.events import EventLog
+from codeverse.orchestrator.budget import BudgetExceeded, BudgetGuard
+from codeverse.orchestrator.fanout import fan_out, split_results
+from codeverse.orchestrator.rounds import (
+    BestSelector,
+    RefineTask,
+    RoundPolicy,
+    StopPolicy,
+    build_refine_instructions,
+    plan_parallel_groups,
+)
+from codeverse.orchestrator.runner import StageRunner, hash_inputs
+from codeverse.orchestrator.state import RunState
+
+
+# ----------------------------------------------------------------------------- budget
+def test_budget_guard_charges_and_raises():
+    g = BudgetGuard(Budget(max_usd=0.05, max_minutes=60))
+    g.charge(Usage(cost_usd=0.02))
+    g.charge(Usage(cost_usd=0.02))
+    assert g.ok() and g.remaining()["usd"] == pytest.approx(0.01)
+    with pytest.raises(BudgetExceeded) as ei:
+        g.charge(Usage(cost_usd=0.02))
+    assert "max_usd" in ei.value.reason and g.spent.cost_usd == pytest.approx(0.06)
+
+
+def test_budget_guard_time_ceiling():
+    g = BudgetGuard(Budget(max_usd=10, max_minutes=0.0001), start_time=time.time() - 10)
+    with pytest.raises(BudgetExceeded):
+        g.check()
+    assert g.remaining()["minutes"] == 0.0
+
+
+# ----------------------------------------------------------------------------- fanout
+def test_fan_out_preserves_order_and_captures_exceptions():
+    def fn(x: int) -> int:
+        if x == 2:
+            raise ValueError("two")
+        time.sleep(0.01 * (4 - x))
+        return x * 10
+
+    res = fan_out([0, 1, 2, 3], fn, max_workers=4, label="t")
+    assert res[0] == 0 and res[1] == 10 and res[3] == 30 and isinstance(res[2], ValueError)
+    ok, bad = split_results(res)
+    assert ok == [0, 10, 30] and len(bad) == 1
+    assert fan_out([], fn, 2) == []
+
+
+# ----------------------------------------------------------------------------- state + runner
+def test_run_state_roundtrip(tmp_ws):
+    st = RunState()
+    st.mark_round_done(0, "abc", tmp_ws)
+    st.update_best(0, "abc", 0.5)
+    st.extra["spent_usage"] = Usage(cost_usd=0.1).model_dump()
+    st.save(tmp_ws)
+    again = RunState.load(tmp_ws)
+    assert again is not None and again.best_round == 0 and again.current_round == 1 and again.round_commits[0] == "abc"
+    assert RunState.load_or_new(tmp_ws, resume=False).best_round is None
+
+
+def test_stage_runner_caches_by_input_hash(tmp_ws):
+    events = EventLog(tmp_ws.events_path)
+    runner = StageRunner(tmp_ws, events)
+    calls = []
+
+    def fn():
+        calls.append(1)
+        return {"x": 1}
+
+    assert runner.stage("s1", fn, inputs={"a": 1}) == {"x": 1}
+    assert runner.stage("s1", fn, inputs={"a": 1}) == {"x": 1}
+    assert len(calls) == 1
+    assert runner.stage("s1", fn, inputs={"a": 2}) == {"x": 1}
+    assert len(calls) == 2
+    runner.stage("s1", fn, inputs={"a": 2}, force=True)
+    assert len(calls) == 3
+    kinds = [e["event"] for e in events.read()]
+    assert kinds.count("stage.cached") == 1 and kinds.count("stage.done") == 3
+    # resume from disk with a fresh runner + state
+    st = RunState.load(tmp_ws)
+    r2 = StageRunner(tmp_ws, events, st)
+    assert r2.stage("s1", fn, inputs={"a": 2}) == {"x": 1} and len(calls) == 3
+    assert runner.result_path("a:b/c").name == "a_b_c.json"
+
+
+def test_stage_runner_revives_models_and_raises(tmp_ws):
+    runner = StageRunner(tmp_ws, EventLog(tmp_ws.events_path))
+    r = runner.stage("rounds", lambda: [RoundRecord(index=0, kind="baseline")], inputs="x", list_of=RoundRecord)
+    r2 = runner.stage("rounds", lambda: None, inputs="x", list_of=RoundRecord)
+    assert isinstance(r2[0], RoundRecord) and r2[0].kind == r[0].kind
+
+    def boom():
+        raise RuntimeError("nope")
+
+    with pytest.raises(RuntimeError):
+        runner.stage("bad", boom, inputs="y")
+    assert "bad" not in runner.state.stages
+    assert hash_inputs({"a": [1, 2]}) == hash_inputs({"a": (1, 2)})
+
+
+# ----------------------------------------------------------------------------- stop policy
+def _round(i: int, score: float | None, errors: int = 0, build_ok: bool = True) -> RoundRecord:
+    j = Judgment(rubric="r", scores={"a": score}, overall=score, passed=score >= 0.8) if score is not None else None
+    gates = [GateReport(gate="g", passed=errors == 0, findings=[GateFinding(gate="g", severity=Severity.ERROR, message="e")] * errors)]
+    return RoundRecord(index=i, kind="x", judgment=j, gates=gates, build=BuildResult(ok=build_ok, language="l"), commit=f"c{i}")
+
+
+def test_stop_policy_decisions():
+    sp = StopPolicy(RoundPolicy(max_rounds=3, plateau_window=2, min_delta=0.02, target=0.8))
+    assert sp.decide([]) == "continue"
+    assert sp.decide([_round(0, 0.5)]) == "continue"
+    assert sp.decide([_round(0, 0.5)], budget_ok=False) == "budget"
+    assert sp.decide([_round(0, 0.5), _round(1, 0.85)]) == "pass"
+    assert sp.decide([_round(0, 0.5), _round(1, 0.51), _round(2, 0.515)]) == "plateau"
+    assert sp.decide([_round(0, 0.5), _round(1, 0.6), _round(2, 0.7)]) == "continue"
+    assert sp.decide([_round(0, 0.5), _round(1, 0.6), _round(2, 0.7), _round(3, 0.75)]) == "max_rounds"
+    # unscored rounds (build failed) do not count as plateau evidence
+    assert sp.decide([_round(0, 0.5), _round(1, None, build_ok=False), _round(2, None, build_ok=False)]) == "continue"
+
+
+def test_best_selector_prefers_score_then_fewer_errors():
+    rounds = [_round(0, 0.5), _round(1, 0.7, errors=2), _round(2, 0.7, errors=0), _round(3, 0.6)]
+    assert BestSelector().pick(rounds) == 2
+    assert BestSelector().pick([]) is None
+    assert BestSelector().pick([_round(0, None, build_ok=False), _round(1, None, build_ok=True)]) == 1
+
+
+# ----------------------------------------------------------------------------- refine instructions
+def test_build_refine_instructions_merges_and_groups(chair_plan):
+    judgment = Judgment(rubric="r", scores={}, overall=0.6, passed=False, improvement_plan=[
+        ImprovementItem(target="seat", kind="geometry", instruction="thicker seat", priority=2),
+        ImprovementItem(target="Backrest", kind="material", instruction="warmer oak", priority=1),
+        ImprovementItem(target="Seat", kind="geometry", instruction="duplicate kind", priority=3),
+        ImprovementItem(target="overall", kind="assembly", instruction="tighten joints", priority=4),
+    ])
+    gates = [GateReport(gate="contract", passed=False, findings=[
+        GateFinding(gate="contract", severity=Severity.ERROR, target="FrontLeg", message="FrontLeg 30 mm too short", fix_hint="scale y by 1.07"),
+        GateFinding(gate="contract", severity=Severity.WARN, target="Seat", message="ignored warn"),
+    ])]
+    failed = [AcceptanceItem(id="a2", text="Four legs touch the ground", how="visual", priority="must"),
+              AcceptanceItem(id="a3", text="should item", how="visual", priority="should")]
+    fft = lambda t: [f"src/parts/{t.lower()}.js"] if t not in ("overall",) else ["src/object.js"]  # noqa: E731
+    tasks = build_refine_instructions(judgment, gates, failed, chair_plan, file_for_target=fft, max_tasks=6)
+    assert [t.source for t in tasks][:2] == ["gate", "acceptance"]
+    assert tasks[0].target == "FrontLeg" and "FIX: scale y" in tasks[0].instruction and tasks[0].files == ["src/parts/frontleg.js"]
+    assert tasks[1].target == "overall"  # acceptance item not naming a part
+    kinds = [(t.target, t.kind) for t in tasks]
+    assert ("Seat", "geometry") in kinds and kinds.count(("Seat", "geometry")) == 1  # dedupe + canonical name
+    assert len(tasks) <= 6
+    groups = plan_parallel_groups(tasks)
+    assert len(groups) >= 3 and all(g.files for g in groups)
+    files = [f for g in groups for f in g.files]
+    assert len(files) == len(set(files))  # file-disjoint
+    # unknown files collapse to one group
+    one = plan_parallel_groups(tasks + [RefineTask(target="x", kind="geometry", instruction="i", priority=3)])
+    assert len(one) == 1
+    assert build_refine_instructions(None, [], [], chair_plan) == []
+
+
+def test_refine_cap_protects_gate_tasks(chair_plan):
+    gates = [GateReport(gate="g", passed=False, findings=[GateFinding(gate="g", severity=Severity.ERROR, target=f"P{i}", message=f"e{i}") for i in range(8)])]
+    judgment = Judgment(rubric="r", scores={}, overall=0.5, passed=False, improvement_plan=[
+        ImprovementItem(target=f"J{i}", kind="geometry", instruction="x", priority=1) for i in range(5)])
+    tasks = build_refine_instructions(judgment, gates, [], chair_plan, max_tasks=6)
+    assert len(tasks) == 8 and all(t.source == "gate" for t in tasks)

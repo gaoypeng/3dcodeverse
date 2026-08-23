@@ -1,0 +1,11 @@
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+node_modules/
+runs/
+harness/runs/
+bench/out/
+*.pyc
+harness/logs/
+*.log

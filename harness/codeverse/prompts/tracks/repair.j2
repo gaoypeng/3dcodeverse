@@ -1,0 +1,45 @@
+# Repair: the {{ language }} build failed (attempt {{ attempt }})
+
+Fix ONLY the error below with the smallest correct change. Keep every part, name, dimension and
+material exactly as they are. Do not refactor, do not "simplify" the model, do not remove parts.
+
+## Error report
+{{ error_report }}
+{% if repeats > 0 %}
+
+THIS IS THE SAME ERROR AS THE PREVIOUS ATTEMPT ({{ repeats }}× repeated). Your last edit did not
+touch the cause. Re-read the failing line, check the exact API name/signature against the contract
+and cookbook, and change a DIFFERENT thing this time (e.g. replace the failing call with the
+cookbook's copyable snippet instead of patching arguments).
+{% endif %}
+
+## Response rules
+- Locate the exact file:line named above; read the surrounding 20 lines mentally before editing.
+- Runtime error (exception / TypeError / missing export): fix the call or the import; the contract's
+  allow-list is the only set of modules you may use.
+- Lint error (forbidden API, missing entry point, wrong frame/units): replace the construct with the
+  one the fix hint names; do not argue with the linter.
+- Syntax error: fix the syntax at the line; check brackets/indentation in that function only.
+- Geometry bombs (out of memory / timeout): reduce segment counts or loop counts; never exceed 300k tris.
+- Keep one code path: no environment sniffing (`typeof window`, `isHeadless`, user agent checks).
+
+Failing file(s): {% for f in failing_files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}
+{% if files %}
+
+## Current contents of the failing file(s) — return each one COMPLETE and corrected
+{% for path, body in files.items() %}
+--- {{ path }} ---
+```
+{{ body }}
+```
+{% endfor %}
+{% endif %}
+{% if tool_cards and not single_shot %}
+
+## Tools
+{{ tool_cards }}
+Run `build` after your edit; finish only when it succeeds.
+{% endif %}
+
+## Output
+{{ output_format }}

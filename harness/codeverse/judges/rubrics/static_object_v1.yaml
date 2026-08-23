@@ -1,0 +1,145 @@
+name: static_object_v1
+version: 1
+track_hint: static_object
+pass_threshold: 0.72
+description: >
+  Assembly-level rubric for ONE static object (furniture, tool, vehicle, appliance,
+  plant, creature, building...) judged on a labelled multi-view render rig plus a
+  measurement table.  Scores are per criterion; the overall is computed in code.
+
+extra_instructions: >
+  Judge what is VISIBLE in the renders and what the measurement table states; do not
+  credit detail you cannot see and do not invent faults.  Use the underside / low
+  views for ground contact and hidden gaps, the top view for symmetry and footprint,
+  and the 3/4 views for overall read.  Hidden connectors (a bracket inside a shade, a
+  dowel inside a joint) are NOT defects when the parts visibly meet.  Spread scores
+  across the range: a competent, correct object belongs at 0.8+, one clearly visible
+  major defect pulls the affected criterion to ~0.4, several major defects or a wrong
+  object sit at 0.1-0.3.
+
+criteria:
+  - id: intent_fidelity
+    weight: 0.22
+    floor: 0.30
+    title: Intent fidelity
+    description: >
+      Is this the object the brief asked for — category first, then every named
+      attribute (counts, style, features, materials named in the brief)?  A stranger
+      shown only these renders should describe the object the way the brief does.
+    anchors:
+      "1.0": Right category and every named attribute is present and unmistakable; nothing the brief asked for is missing or contradicted.
+      "0.7": Right category; one named attribute is weak, generic or hard to confirm, none is contradicted.
+      "0.4": Right category but a named attribute is missing or clearly wrong (wrong count of legs, no armrests when asked, wrong style).
+      "0.1": Wrong category or unrecognisable; the renders would not be described as the brief.
+
+  - id: structure_plausibility
+    weight: 0.18
+    floor: 0.25
+    title: Structural plausibility
+    description: >
+      Does the assembly hold together the way a real example of this object does?
+      Every part attaches where it should, is oriented correctly, reaches what it must
+      reach (legs reach the ground, a shade sits on its harp, wheels sit at the hubs),
+      and nothing floats, hovers, or points the wrong way.
+    anchors:
+      "1.0": Every part is where a real example has it, correctly oriented, visibly supported; the object would stand and function.
+      "0.7": One part is slightly misplaced or ambiguous in support, but nothing floats and the object clearly stands.
+      "0.4": One part visibly floats, hovers off its mount, or is clearly in the wrong place or orientation.
+      "0.1": Several parts float, are exploded apart, or the assembly is not a plausible object.
+
+  - id: geometry_detail
+    weight: 0.16
+    title: Geometry detail
+    description: >
+      Are part shapes refined beyond naive primitives where the real object is refined?
+      Look for bevels/chamfers, tapers, curves, wall thickness, cut-outs, profiles,
+      mouldings, hardware.  Credit only what is visible in the renders.
+    anchors:
+      "1.0": Multiple refinements at once — profiles, bevels, tapers, thickness, hardware — the object reads as a designed product or natural form.
+      "0.7": At least two visible refinements (e.g. bevelled edges and a tapered leg), the rest is plain but acceptable.
+      "0.4": A stack of plain boxes/cylinders with sharp 90° corners; at most one token detail.
+      "0.1": Primitive blobs or a single lump; parts are not individually shaped.
+
+  - id: proportions_scale
+    weight: 0.12
+    title: Proportions and scale
+    description: >
+      Are the relative sizes of parts and the overall dimensions right for the object
+      (use the measurement table and any stated dimensions)?  Seat height, leg
+      thickness, wheel diameter, handle size must read as real-world correct.
+    anchors:
+      "1.0": Overall size and every part ratio are believable; stated dimensions are met within tolerance.
+      "0.7": One part is somewhat thick/thin/short/long but the object still reads correctly at the stated size.
+      "0.4": A clearly wrong proportion (legs twice as thick as they should be, a tiny seat on a huge frame) or the size is off by more than ~20%.
+      "0.1": Proportions are absurd or the object is the wrong order of magnitude.
+
+  - id: assembly_fit
+    weight: 0.12
+    title: Assembly fit
+    description: >
+      Do parts that are meant to meet actually meet — tightly and without visible
+      interpenetration?  Judge at object scale: a few millimetres of tolerance is fine;
+      a finger-wide gap, a part jammed through another, or a sunken/protruding join
+      is not.
+    anchors:
+      "1.0": All joins are clean and tight; no visible gaps, no visible penetration, no z-fighting at contacts.
+      "0.7": One small gap or shallow overlap at a join; the rest is clean.
+      "0.4": A visible gap a part should not have, or an obvious penetration of one part through another.
+      "0.1": Multiple gaps/penetrations; parts clearly not fitted to each other.
+
+  - id: materials
+    weight: 0.10
+    title: Materials
+    description: >
+      Do surfaces read as sensible materials for each part (colour, roughness,
+      metal/dielectric, and character such as wood grain or fabric where it matters)?
+      A clean flat-colour look with correct assignments is acceptable; wrong or
+      placeholder surfaces are not.
+    anchors:
+      "1.0": Every part has a convincing material; visible character (grain, brushed metal, fabric) where the real object has it.
+      "0.7": Sensible flat or lightly-shaded materials on every part, correctly assigned; little character.
+      "0.4": One part has a wrong or contradictory material (metal legs that look like plastic foam, one default grey part).
+      "0.1": Placeholder magenta/default grey everywhere, garbage noise, or materials that contradict the object.
+
+  - id: craftsmanship_no_artifacts
+    weight: 0.10
+    floor: 0.30
+    title: Craftsmanship and artefacts
+    description: >
+      Is the model clean — no z-fighting stripes, inverted normals (black faces),
+      missing faces / see-through walls, stretched or torn geometry, stray
+      slivers, duplicated shells, or degenerate triangles?
+    anchors:
+      "1.0": No visible artefacts in any view; shading is smooth and consistent.
+      "0.7": One small artefact (a sliver, a minor shading seam) visible only in one view.
+      "0.4": A clearly visible artefact — black faces, a hole in a surface, obvious z-fighting.
+      "0.1": Artefacts dominate; the object is torn, inside-out, or visibly broken.
+
+caps:
+  - id: build_error
+    when: gate
+    gate: "build*"
+    severity: error
+    cap: 0.0
+    note: the code did not build or export; nothing to score
+  - id: floating_part
+    when: gate
+    gate: "*"
+    severity: error
+    kinds: [floating, unattached, no_contact, disconnected, unsupported, island]
+    cap: 0.6
+  - id: penetration_error
+    when: gate
+    gate: "*"
+    severity: error
+    kinds: [penetration, intersect, overlap, collision]
+    cap: 0.7
+  - id: contract_violation
+    when: gate
+    gate: "contract*"
+    severity: error
+    cap: 0.75
+    note: measured bbox/part contract broken beyond tolerance
+  - id: missing_must_acceptance
+    when: acceptance
+    cap: 0.6

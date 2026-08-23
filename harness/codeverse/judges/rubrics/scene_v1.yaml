@@ -1,0 +1,162 @@
+name: scene_v1
+version: 1
+track_hint: scene
+pass_threshold: 0.70
+description: >
+  Rubric for a procedural 3D SCENE (a place) judged on its authored cameras plus a
+  fitted overview rig, at one or more animation times, with a probe digest (fps,
+  console/shader errors, census).  The scene owns its lighting, sky and fog: grade
+  the picture it makes, and the place it depicts.
+
+extra_instructions: >
+  Views labelled OVERVIEW are harness cameras fitted to the scene bounds — use them for
+  layout, coverage, floating/sunken objects and scale.  Views labelled CAM are the
+  scene's own authored cameras — grade composition, lighting, atmosphere and effects
+  on those.  Views at different times (t=...) show animation: compare them for what
+  moves.  The probe digest lists console/shader errors and fps measured by the harness;
+  treat those as facts.  Use zone and asset names from the plan digest as targets.
+  A scene a person would screenshot belongs at 0.8+; a recognisable place with one
+  dead zone / flat lighting / floating asset sits near 0.5; an unlit, empty or
+  unreadable scene sits at 0.1-0.3.
+
+criteria:
+  - id: brief_fidelity
+    weight: 0.18
+    floor: 0.30
+    title: Brief fidelity
+    description: >
+      Does the scene depict the place the brief describes, with every named element
+      (landmarks, zones, weather, time of day, activity) present and recognisable,
+      arranged as the brief implies?
+    anchors:
+      "1.0": Every named element is present and recognisable; setting, era, weather and time of day are unmistakable.
+      "0.7": The place reads right; one named element is token or hard to find.
+      "0.4": The place reads right but named elements are missing, or the time of day / weather contradicts the brief.
+      "0.1": Wrong kind of place, or an unreadable world.
+
+  - id: composition_and_camera
+    weight: 0.14
+    floor: 0.25
+    title: Composition and camera
+    description: >
+      Do the authored cameras make readable, well-framed pictures — a focal subject,
+      foreground/midground/background, horizon placed deliberately, nothing clipped by
+      the near plane, no camera inside geometry, no shot that shows only sky or ground?
+    anchors:
+      "1.0": Every authored camera is a composed shot with depth layering and a clear subject.
+      "0.7": Shots are readable; one is a bit flat or off-centre.
+      "0.4": One authored camera shows nothing useful (sky, ground, the inside of a wall) or is badly clipped.
+      "0.1": Most shots are unusable or the camera is inside geometry.
+
+  - id: lighting_atmosphere
+    weight: 0.14
+    floor: 0.25
+    title: Lighting and atmosphere
+    description: >
+      Is the lighting readable and atmospheric — a consistent sun/moon direction,
+      present soft shadows, sky that matches the mood, aerial perspective / fog giving
+      depth, exposure neither blown nor crushed, coloured (sky-lit) shade rather than
+      black?
+    anchors:
+      "1.0": Clear mood executed consistently; shadows, sky, fog and exposure all agree; shade carries sky colour.
+      "0.7": Good lighting with one weakness (slightly flat shadows or slightly heavy fog).
+      "0.4": Flat shadowless light, or noticeably under/over-exposed, or sky contradicting the light.
+      "0.1": Near-black, blown white, or unlit.
+
+  - id: asset_quality_detail
+    weight: 0.14
+    title: Asset quality and detail
+    description: >
+      Are the individual assets refined beyond primitives and varied — buildings with
+      roofs/windows/setbacks, trees with trunk and canopy, vehicles and street
+      furniture where the place calls for them — without copy-paste monotony?
+    anchors:
+      "1.0": Assets are crafted and varied; closeups hold up.
+      "0.7": Assets are decent with some repetition or a few plain ones.
+      "0.4": Mostly plain boxes / cones, or one shape stamped everywhere.
+      "0.1": Primitive blobs or an empty world.
+
+  - id: spatial_coherence_scale
+    weight: 0.12
+    floor: 0.25
+    title: Spatial coherence and scale
+    description: >
+      Is the layout believable as a place (streets connect, shoreline continuous,
+      buildings face roads, spacing realistic), everything sits ON the ground/terrain
+      (nothing floating or sunken), and relative sizes agree on what a metre is?
+    anchors:
+      "1.0": Layout reads as a real place; everything grounded; sizes agree.
+      "0.7": Minor oddities (a slightly floating prop, a slightly large car) that do not break the read.
+      "0.4": A clearly floating/sunken asset, an intersection of objects, or one glaring scale error.
+      "0.1": Uniform scatter, many floating objects, or scale chaos.
+
+  - id: materials_shaders_effects
+    weight: 0.12
+    title: Materials, shaders and effects
+    description: >
+      Do surfaces read as materials (water with specular life, glass, foliage,
+      concrete) and do the planned effects (custom shaders, particles, post-processing)
+      visibly exist and look intentional — not magenta, not noise, not a flat tint?
+    anchors:
+      "1.0": Materials convincing; every planned effect is visible and adds to the picture.
+      "0.7": Materials sensible; effects present but subtle or slightly crude.
+      "0.4": A planned effect is missing or broken (flat water, no particles, a black shader), or a placeholder material is visible.
+      "0.1": Placeholder surfaces throughout or broken shaders dominate.
+
+  - id: animation_life
+    weight: 0.08
+    title: Animation and life
+    description: >
+      Comparing frames at different times, does something move as the plan says
+      (water, foliage, vehicles, lights, characters) in a plausible way, and is the
+      scene alive rather than frozen?
+    anchors:
+      "1.0": Planned motion is visible and natural across the time samples.
+      "0.7": Some planned motion visible; subtle or partial.
+      "0.4": Frames are identical although motion was planned, or motion is implausible (rigid glide, clipping).
+      "0.1": Nothing moves and/or motion breaks the scene.
+
+  - id: technical_cleanliness
+    weight: 0.08
+    floor: 0.30
+    title: Technical cleanliness
+    description: >
+      No z-fighting, no magenta/default materials, no missing faces, no visible world
+      edge cliff, no console or shader errors in the probe digest, acceptable fps.
+    anchors:
+      "1.0": Clean renders, zero console/shader errors, healthy fps.
+      "0.7": A minor artefact or a single non-fatal warning.
+      "0.4": Visible z-fighting / missing faces / hard world edge, or a console error.
+      "0.1": Broken renders, shader failures, or the scene does not run.
+
+caps:
+  - id: build_error
+    when: gate
+    gate: "build*"
+    severity: error
+    cap: 0.0
+  - id: shader_error
+    when: gate
+    gate: "*"
+    severity: error
+    kinds: [shader, glsl, webgl, compile]
+    cap: 0.5
+  - id: console_error
+    when: console
+    cap: 0.6
+    note: runtime JS errors seen while rendering
+  - id: camera_in_geometry
+    when: gate
+    gate: "*"
+    severity: error
+    kinds: [camera_in_geometry, camera_clipped, camera_inside, point_blank, blank_view, dead_render]
+    cap: 0.5
+  - id: floating_part
+    when: gate
+    gate: "*"
+    severity: error
+    kinds: [floating, sunken, unsupported]
+    cap: 0.6
+  - id: missing_must_acceptance
+    when: acceptance
+    cap: 0.6

@@ -1,0 +1,167 @@
+"""``claude-code:<model>`` — headless Claude Code session on a workspace.
+
+argv: ``claude -p <prompt> --output-format json --dangerously-skip-permissions
+--model <model> --max-turns N --allowedTools ... [--mcp-config ws/.mcp.json
+--strict-mcp-config] [--append-system-prompt ...]``
+
+JSON envelope (claude 2.1.x, observed): ``{type:"result", subtype:"success",
+is_error, result, session_id, num_turns, duration_ms, total_cost_usd,
+stop_reason, terminal_reason, usage:{input_tokens, output_tokens,
+cache_read_input_tokens, cache_creation_input_tokens,
+output_tokens_details:{thinking_tokens}}, modelUsage:{<model>:{costUSD,...}}}``.
+Auth: whatever the user's ``claude`` login is (subscription or
+``ANTHROPIC_API_KEY``); we pass that variable through untouched if present.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from codeverse.agents.cli_common import (
+    Session,
+    begin_session,
+    deliver_prompt,
+    exists_on_path,
+    failed,
+    finish_session,
+    hardened_env,
+    is_transient_failure,
+    tail,
+)
+from codeverse.agents.watchdog import run_with_watchdog
+from codeverse.config import get_settings
+from codeverse.contracts.agent import AgentJob, AgentResult
+from codeverse.contracts.common import Usage
+
+ALLOWED_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
+                 "Bash(node:*)", "Bash(python:*)", "Bash(python3:*)", "Bash(ls:*)", "mcp__c3v__*")
+IDLE_GRACE_S = 300.0
+
+
+def parse_claude_json(stdout: str) -> dict[str, Any] | None:
+    """Envelope is one JSON object; tolerate leading log noise and stream-json arrays."""
+    s = stdout.strip()
+    if not s:
+        return None
+    try:
+        obj = json.loads(s)
+    except json.JSONDecodeError:
+        obj = None
+        for line in reversed(s.splitlines()):
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    cand = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(cand, dict) and cand.get("type") == "result":
+                    return cand
+                obj = obj or cand
+        return obj if isinstance(obj, dict) else None
+    if isinstance(obj, list):  # stream-json array: last result event wins
+        results = [e for e in obj if isinstance(e, dict) and e.get("type") == "result"]
+        return results[-1] if results else None
+    return obj if isinstance(obj, dict) else None
+
+
+def usage_from_envelope(env: dict[str, Any], model: str) -> Usage:
+    u = env.get("usage") or {}
+    usage = Usage(
+        backend="claude-code", model=model,
+        input_tokens=int(u.get("input_tokens") or 0),
+        output_tokens=int(u.get("output_tokens") or 0),
+        cached_tokens=int(u.get("cache_read_input_tokens") or 0),
+        thoughts_tokens=int(((u.get("output_tokens_details") or {}).get("thinking_tokens")) or 0),
+        tool_calls=max(int(env.get("num_turns") or 0) - 1, 0),
+        cost_usd=float(env.get("total_cost_usd") or 0.0),
+        latency_ms=int(env.get("duration_ms") or 0),
+    )
+    # modelUsage carries the real served model name(s); keep the first when ours is an alias
+    served = list((env.get("modelUsage") or {}).keys())
+    if served and model not in served:
+        usage.model = served[0]
+    return usage
+
+
+class ClaudeCodeAgent:
+    kind = "claude-code"
+
+    def __init__(self, model: str, binary: str | None = None):
+        self.model = model
+        self.binary = binary or get_settings().binaries.claude_cli
+
+    @property
+    def id(self) -> str:
+        return f"{self.kind}:{self.model}"
+
+    def available(self) -> tuple[bool, str]:
+        if not exists_on_path(self.binary):
+            return False, f"claude CLI not found: {self.binary!r}"
+        return True, "ok"
+
+    def build_argv(self, s: Session, prompt: str) -> list[str]:
+        job = s.job
+        argv = [self.binary, "-p", prompt, "--output-format", "json", "--dangerously-skip-permissions",
+                "--max-turns", str(job.max_turns), "--no-session-persistence",
+                "--allowedTools", ",".join(ALLOWED_TOOLS)]
+        if self.model:
+            argv += ["--model", self.model]
+        mcp = s.ws.root / ".mcp.json"
+        if job.spatial_tools and mcp.is_file():
+            argv += ["--mcp-config", str(mcp), "--strict-mcp-config"]
+        else:
+            argv += ["--strict-mcp-config"]  # never inherit the user's ambient MCP servers
+        if job.system_append:
+            argv += ["--append-system-prompt", job.system_append]
+        return argv
+
+    def build_env(self, s: Session) -> dict[str, str]:
+        # keep ANTHROPIC_API_KEY if the user relies on it; subscription auth needs nothing
+        return hardened_env(s.ws, s.job, keep={"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"})
+
+    def run(self, job: AgentJob) -> AgentResult:
+        ok, why = self.available()
+        s = begin_session(job, self.kind)
+        if not ok:
+            return failed(s, "error", why)
+        prompt = deliver_prompt(s, job.prompt)
+        argv = self.build_argv(s, prompt)
+        s.traj.append("invoke", argv=[a if a != prompt else f"<prompt {len(prompt)} chars>" for a in argv])
+        proc = run_with_watchdog(
+            argv, cwd=s.ws.root, env=self.build_env(s), soft_timeout_s=job.timeout_s, idle_grace_s=IDLE_GRACE_S,
+            on_line=lambda stream, line: s.traj.append("line", stream=stream, text=line[:4000]),
+            activity_dirs=[s.ws.src, s.ws.public],
+        )
+        s.traj.write_text("stdout.json", proc.stdout)
+        s.traj.write_text("stderr.log", proc.stderr)
+        env = parse_claude_json(proc.stdout)
+        usage = usage_from_envelope(env, self.model) if env else Usage(backend=self.kind, model=self.model)
+        usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
+        text = str((env or {}).get("result") or "")
+        turns = int((env or {}).get("num_turns") or 0)
+        errors: list[str] = []
+        if proc.timed_out:
+            reason, ok = "timeout", False
+            errors.append(f"killed by watchdog ({proc.killed_reason}) after {proc.duration_s:.0f}s")
+        elif env is None or proc.rc != 0:
+            reason, ok = "error", False
+            errors.append(f"rc={proc.rc}; no result envelope; stderr tail: {tail(proc.stderr, 1500)}")
+            if is_transient_failure(proc.stderr, proc.stdout):
+                reason = "budget" if "rate" in proc.stderr.lower() else "error"
+        elif env.get("is_error") or str(env.get("subtype", "")).startswith("error"):
+            ok = False
+            sub = str(env.get("subtype", ""))
+            reason = "budget" if "max_turns" in sub else "error"
+            errors.append(f"claude reported {sub or 'is_error'}: {tail(text, 800)}")
+        else:
+            reason, ok = "completed", True
+        return finish_session(
+            s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=max(turns - 1, 0),
+            errors=errors, rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns,
+            session_id=(env or {}).get("session_id", ""), subtype=(env or {}).get("subtype", ""),
+            model_usage=(env or {}).get("modelUsage", {}),
+        )
+
+
+__all__ = ["ClaudeCodeAgent", "parse_claude_json", "usage_from_envelope", "ALLOWED_TOOLS"]

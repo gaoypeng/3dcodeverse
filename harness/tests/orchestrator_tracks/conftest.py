@@ -1,0 +1,47 @@
+"""Fixtures shared by orchestrator/tracks tests."""
+
+from __future__ import annotations
+
+import pytest
+
+from codeverse.config import Settings
+from codeverse.contracts.common import Backends, Budget, Language, Track
+from codeverse.contracts.plan import AcceptanceItem, BBox, PartPlan, StaticPlan
+from codeverse.contracts.spec import Constraints, Spec
+
+
+@pytest.fixture
+def settings(tmp_path) -> Settings:
+    return Settings(runs_dir=tmp_path / "runs", cache_dir=tmp_path / "cache")
+
+
+@pytest.fixture
+def chair_plan() -> StaticPlan:
+    return StaticPlan(
+        object_name="DiningChair", summary="Mid-century oak dining chair, 0.45 x 0.50 x 0.82 m.",
+        overall_bbox=BBox(center=(0, 0.41, 0), extents=(0.45, 0.82, 0.50)), style_notes="Danish, tapered legs",
+        parts=[
+            PartPlan(name="Seat", role="seat", description="40 mm oak board", bbox=BBox(center=(0, 0.43, 0), extents=(0.42, 0.04, 0.40))),
+            PartPlan(name="FrontLeg", role="front leg", description="tapered", bbox=BBox(center=(0.17, 0.205, 0.16), extents=(0.035, 0.41, 0.035)),
+                     attach_to="Seat", symmetry="mirror_x", instances=2),
+            PartPlan(name="BackLeg", role="back leg", description="tapered, continues into backrest", bbox=BBox(center=(0.17, 0.41, -0.16), extents=(0.035, 0.82, 0.035)),
+                     attach_to="Seat", symmetry="mirror_x", instances=2),
+            PartPlan(name="Backrest", role="backrest", description="curved slat", bbox=BBox(center=(0, 0.72, -0.17), extents=(0.40, 0.12, 0.03)), attach_to="BackLeg"),
+            PartPlan(name="Armrest", role="armrest", description="flat", bbox=BBox(center=(0.2, 0.65, 0), extents=(0.04, 0.03, 0.35)), attach_to="BackLeg",
+                     symmetry="mirror_x", instances=2),
+        ],
+        acceptance=[AcceptanceItem(id="a1", text="Seat top at 0.45 m", how="measure"), AcceptanceItem(id="a2", text="Four legs touch the ground", how="visual")],
+    )
+
+
+def make_spec(track: Track = Track.STATIC_OBJECT, language: Language = Language.THREEJS, *, generator: str = "fake:fake-model",
+              max_rounds: int = 3, max_usd: float = 5.0, prompt: str = "a mid-century wooden dining chair", **kw) -> Spec:
+    return Spec(id="t1", track=track, language=language, prompt=prompt,
+                constraints=Constraints(dimensions_m={"height": 0.82}, must_have=["armrests"]),
+                budget=Budget(max_rounds=max_rounds, max_usd=max_usd, max_minutes=10, max_repair_attempts=2),
+                backends=Backends(planner="fake:planner", generator=generator, judge="fake:judge"), **kw)
+
+
+@pytest.fixture
+def spec() -> Spec:
+    return make_spec()

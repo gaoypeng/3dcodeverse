@@ -1,0 +1,245 @@
+"""End-to-end track runs with fakes (no network, no Blender, no node)."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from codeverse.contracts.common import Language, Track
+from codeverse.contracts.plan import ArticulatedPlan, ScenePlan
+from codeverse.contracts.run import RunRecord, RunStatus
+from codeverse.events import EventLog
+from codeverse.orchestrator.rounds import RoundPolicy
+from codeverse.orchestrator.state import RunState
+from codeverse.tracks import get_track
+from codeverse.tracks.articulated_object import ArticulatedObjectTrack
+from codeverse.tracks.planner import plan_example
+from codeverse.tracks.scene import SceneTrack
+from codeverse.tracks.static_object import StaticObjectTrack
+from codeverse.workspace import Workspace
+from tests.orchestrator_tracks.conftest import make_spec
+from tests.orchestrator_tracks.fakes import (
+    FAIL_MARK,
+    FakeAgent,
+    FakeChatModel,
+    FakeJudge,
+    FakeRuntime,
+    FakeServices,
+)
+
+
+def _planner(plan_dict):
+    return FakeChatModel(lambda req: plan_dict)
+
+
+def _agent_writer(job, ws):
+    """Writes every file named in files_hint-ish prompt: we just write object.js + parts from the prompt table."""
+    files = {}
+    for line in job.prompt.splitlines():
+        if "| " in line and line.startswith("| ") and not line.startswith("| part") and not line.startswith("|---"):
+            name = line.split("|")[1].strip()
+            if name:
+                from codeverse.conventions import to_snake
+
+                files[f"src/parts/{to_snake(name)}.js"] = f"export function build{name}(THREE) {{ /* {job.label} r{job.extra.get('round', 0)} */ return new THREE.Group(); }}\n"
+    # every round edits something (a real refine agent changes code; identical output = plateau)
+    files["src/object.js"] = f"// {job.label} r{job.extra.get('round', 0)}\nexport function build(THREE) {{ return new THREE.Group(); }}\n"
+    return files
+
+
+def test_static_track_end_to_end_agent_path(tmp_path, chair_plan, settings):
+    spec = make_spec(max_rounds=3)
+    ws = Workspace(tmp_path / "runs" / "chair")
+    judge = FakeJudge(scores=(0.55, 0.7, 0.85))
+    services = FakeServices(contract_errors=1)
+    agent = FakeAgent(_agent_writer)
+    track = StaticObjectTrack(services=services, judge=judge, agent=agent, planner_model=_planner(chair_plan.model_dump(mode="json")),
+                              settings=settings, runtime=FakeRuntime(Language.THREEJS))
+    rec = track.run(spec, ws)
+    assert isinstance(rec, RunRecord) and rec.status is RunStatus.PASSED
+    assert [r.kind for r in rec.rounds] == ["baseline", "refine", "refine"]
+    assert rec.baseline_score == pytest.approx(0.55) and rec.final_score == pytest.approx(0.85) and rec.best_round == 2
+    assert rec.total_usage.cost_usd > 0 and rec.extra["stop_reason"] == "pass"
+    assert ws.record_path.is_file() and ws.plan_path.is_file() and ws.state_path.is_file()
+    state = RunState.load(ws)
+    assert state.status is RunStatus.PASSED and state.best_round == 2 and state.completed_rounds == [0, 1, 2]
+    assert services.materialized == ["fake"] and (ws.root / "AGENTS.md").is_file()
+    kinds = [e["event"] for e in EventLog(ws.events_path).read()]
+    for k in ("run.start", "stage.done", "plan.done", "round.start", "build.done", "gates.done", "judge.done", "round.done", "best.updated", "stop", "run.done"):
+        assert k in kinds, k
+    # per-round artifacts
+    assert (ws.root / "rounds" / "r00.json").is_file() and ws.judge_path(2).is_file() and (ws.gates_dir(1) / "contract.json").is_file()
+    assert (ws.renders_dir(0) / "sheet.png").is_file()
+    # refine rounds carried gate + judge instructions; the contract error was the first instruction
+    assert rec.rounds[1].instructions and rec.rounds[1].instructions[0].startswith("[gate/gate:contract] Seat")
+    # baseline prompt is concrete: parts table + acceptance + contract + skeleton reminder
+    p0 = agent.jobs[0].prompt
+    assert "| Seat |" in p0 and "Acceptance checklist" in p0 and "Y is UP" in p0 and "overlap" in p0
+    # the refine round fanned out per part (≥3 file-disjoint groups, threejs)
+    labels = [j.label for j in agent.jobs]
+    assert sum(1 for lb in labels if lb.startswith("refine_")) >= 3
+    assert all("EDIT ONLY THESE FILES" in j.prompt for j in agent.jobs if j.label.startswith("refine_"))
+    # git history: one commit per round
+    assert len({r.commit for r in rec.rounds}) == 3 and ws.head() == rec.rounds[2].commit
+
+
+def test_static_track_single_shot_with_repair_and_budget_stop(tmp_path, chair_plan, settings):
+    spec = make_spec(generator="single-shot:gemini:fake", max_rounds=4, max_usd=0.03)
+    ws = Workspace(tmp_path / "runs" / "chair2")
+    n = {"gen": 0}
+
+    def responder(req):
+        n["gen"] += 1
+        if req.label == "baseline":  # first build fails, the repair fixes it
+            return f"=== FILE: src/object.js ===\n// {FAIL_MARK}\nexport function build(){{}}\n=== END FILE ==="
+        return "=== FILE: src/object.js ===\nexport function build(THREE) { return new THREE.Group(); }\n=== END FILE ==="
+
+    model = FakeChatModel(responder, cost=0.004)
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5, 0.55, 0.6, 0.62)), model=model,
+                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.THREEJS))
+    rec = track.run(spec, ws)
+    assert rec.status is RunStatus.BUDGET and rec.rounds[0].build.ok and "repair attempts: 1 (fixed)" in rec.rounds[0].notes
+    assert rec.rounds[0].score == pytest.approx(0.5)
+    assert any(r.label.startswith("r00_baseline_repair") for r in model.requests) or any("Repair" in r.messages[0].text for r in model.requests)
+    assert rec.total_usage.cost_usd > 0.03 and ws.record_path.is_file()
+
+
+def test_static_track_resume_continues_from_saved_rounds(tmp_path, chair_plan, settings):
+    spec = make_spec(max_rounds=2)
+    ws = Workspace(tmp_path / "runs" / "chair3")
+    judge = FakeJudge(scores=(0.5, 0.6, 0.9))
+    services = FakeServices()
+    planner = _planner(chair_plan.model_dump(mode="json"))
+    rt = FakeRuntime(Language.THREEJS)
+    # first run: policy with max_rounds=0 → stops after the baseline (max_rounds)
+    t1 = StaticObjectTrack(services=services, judge=judge, agent=FakeAgent(_agent_writer), planner_model=planner, settings=settings,
+                           runtime=rt, policy=RoundPolicy(max_rounds=0, target=0.8))
+    rec1 = t1.run(spec, ws)
+    assert len(rec1.rounds) == 1 and rec1.status is RunStatus.PLATEAU and rec1.extra["stop_reason"] == "max_rounds"
+    # resume with the full policy: planner must NOT be called again, baseline not re-run
+    planner.requests.clear()
+    t2 = StaticObjectTrack(services=services, judge=judge, agent=FakeAgent(_agent_writer), planner_model=planner, settings=settings,
+                           runtime=rt, policy=RoundPolicy(max_rounds=2, target=0.8))
+    rec2 = t2.run(spec, ws, resume=True)
+    assert planner.requests == [] and [r.kind for r in rec2.rounds] == ["baseline", "refine", "refine"]
+    assert rec2.rounds[0].commit == rec1.rounds[0].commit and rec2.status is RunStatus.PASSED
+    kinds = [e["event"] for e in EventLog(ws.events_path).read()]
+    assert kinds.count("stage.cached") >= 2  # plan + skeleton cached on resume
+
+
+def test_static_track_failure_writes_failed_record_and_raises(tmp_path, chair_plan, settings):
+    spec = make_spec()
+    ws = Workspace(tmp_path / "runs" / "chair4")
+
+    class BoomRuntime(FakeRuntime):
+        def skeleton(self, ws, plan):
+            raise RuntimeError("skeleton exploded")
+
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(), agent=FakeAgent(_agent_writer),
+                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=BoomRuntime(Language.THREEJS))
+    with pytest.raises(RuntimeError, match="skeleton exploded"):
+        track.run(spec, ws)
+    rec = RunRecord.model_validate(json.loads(ws.record_path.read_text()))
+    assert rec.status is RunStatus.FAILED and "skeleton exploded" in rec.error
+    assert RunState.load(ws).status is RunStatus.FAILED
+
+
+def test_static_track_blender_whole_object_refine(tmp_path, chair_plan, settings):
+    """blender = whole-object language: refine is ONE task; prompt carries measured-vs-plan numbers in Z-up."""
+    spec = make_spec(language=Language.BLENDER, max_rounds=1)
+    ws = Workspace(tmp_path / "runs" / "chair5")
+    agent = FakeAgent(lambda job, ws: {"src/model.py": f"import bpy  # {job.label}\n"})
+    track = StaticObjectTrack(services=FakeServices(contract_errors=2), judge=FakeJudge(scores=(0.5, 0.6)), agent=agent,
+                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.BLENDER))
+    rec = track.run(spec, ws)
+    assert [j.label for j in agent.jobs] == ["baseline", "refine"]
+    p = agent.jobs[1].prompt
+    assert "Measured overall extents" in p and "EDIT ONLY" not in p and "Files in scope: `src/model.py`" in p
+    assert rec.status is RunStatus.PLATEAU
+
+
+# ----------------------------------------------------------------------------- articulated
+def test_articulated_track_adds_pose_views_and_sweep_gate(tmp_path, settings):
+    spec = make_spec(Track.ARTICULATED_OBJECT, Language.URDF_BLENDER, max_rounds=1)
+    ws = Workspace(tmp_path / "runs" / "drawer")
+    plan = ArticulatedPlan.model_validate(plan_example(Track.ARTICULATED_OBJECT))
+    agent = FakeAgent(lambda job, ws: {"src/model.py": f"import bpy  # {job.label}\n", "src/robot.urdf": "<robot name='x'/>\n"})
+    services = FakeServices(sweep_errors=1)
+    track = ArticulatedObjectTrack(services=services, judge=FakeJudge(scores=(0.6, 0.9), targets=("Drawer",)), agent=agent,
+                                   planner_model=_planner(plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.URDF_BLENDER))
+    rec = track.run(spec, ws)
+    assert rec.status is RunStatus.PASSED
+    r0 = rec.rounds[0]
+    assert any(v.name.startswith("pose_") for v in r0.renders.views)
+    sweep = next(g for g in r0.gates if g.gate == "joint_sweep")
+    assert not sweep.passed and rec.rounds[1].instructions[0].startswith("[gate/gate:joint_sweep] DrawerSlide")
+    assert "Joints (the URDF must realise EXACTLY these" in agent.jobs[0].prompt and "| DrawerSlide |" in agent.jobs[0].prompt
+    assert "Articulation sheet" in services._judge.calls[0].extra_context if services._judge else True
+
+
+# ----------------------------------------------------------------------------- scene
+def _scene_writer(job, ws):
+    label = job.label
+    if label.startswith("asset_"):
+        return {f"src/assets/{label[6:]}.js": f"export function build(){{}} // {label}\n"}
+    if label == "env":
+        return {"src/env.js": "export function buildEnv(){}\n"}
+    if label.startswith("zone_"):
+        return {f"src/zones/{label[5:]}.js": f"export function build(){{}} // {label}\n"}
+    if label == "compose":
+        return {"src/scene.js": "export function createScene(){}\n"}
+    if label.startswith("refine"):
+        return {f: f"// refined by {label}\n" for f in job.prompt.split("EDIT ONLY THESE FILES")[-1].splitlines() if False} or {"src/scene.js": f"// {label}\n"}
+    return {"src/scene.js": "// x\n"}
+
+
+def test_scene_track_stages_and_rounds(tmp_path, settings):
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
+    plan.assets = [a for a in plan.assets if a.kind == "threejs"]  # blender assets need a Blender runtime → covered separately
+    for z in plan.zones:
+        z.contents = [c for c in z.contents if c in {a.name for a in plan.assets}]
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=1, prompt="a small harbour at dusk")
+    ws = Workspace(tmp_path / "runs" / "harbour")
+    agent = FakeAgent(_scene_writer)
+    services = FakeServices(assemble=False)
+    track = SceneTrack(services=services, judge=FakeJudge(scores=(0.6, 0.7), targets=("Quay", "Water")), agent=agent,
+                       planner_model=_planner(plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.SCENE_THREEJS))
+    rec = track.run(spec, ws)
+    labels = [j.label for j in agent.jobs]
+    assert set(labels[:2]) == {"asset_fishing_boat", "asset_bollard"} and "env" in labels and "zone_quay" in labels and "zone_water" in labels
+    assert "compose" in labels  # assembler unavailable → composer agent fallback
+    assert labels.index("env") < labels.index("zone_quay") < labels.index("compose")
+    assert (ws.src / "assets" / "fishing_boat.js").is_file() and (ws.src / "zones" / "quay.js").is_file() and (ws.src / "scene.js").is_file()
+    zone_prompt = next(j.prompt for j in agent.jobs if j.label == "zone_quay")
+    assert "buildFishingBoat" in zone_prompt and "8.00×3.50×3.00" in zone_prompt and "Neighbouring zones" in zone_prompt
+    assert [r.kind for r in rec.rounds] == ["baseline", "refine"] and rec.rounds[0].renders is not None
+    assert rec.rounds[0].renders.views and rec.status in (RunStatus.PLATEAU, RunStatus.PASSED)
+    st = RunState.load(ws)
+    assert {"plan", "skeleton", "assets", "env", "zones", "assemble"} <= set(st.stages)
+    # scene refine tasks route by file ownership: zone → src/zones/<zone>.js
+    assert any("src/zones/quay.js" in i for i in rec.rounds[1].instructions)
+
+
+def test_scene_track_deterministic_assembler_and_resume(tmp_path, settings):
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
+    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
+    for z in plan.zones:
+        z.contents = [c for c in z.contents if c in {a.name for a in plan.assets}]
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
+    ws = Workspace(tmp_path / "runs" / "harbour2")
+    agent = FakeAgent(_scene_writer)
+    services = FakeServices(assemble=True)
+    mk = lambda: SceneTrack(services=services, judge=FakeJudge(scores=(0.6,)), agent=agent, planner_model=_planner(plan.model_dump(mode="json")),  # noqa: E731
+                            settings=settings, runtime=FakeRuntime(Language.SCENE_THREEJS))
+    rec = mk().run(spec, ws)
+    assert "compose" not in [j.label for j in agent.jobs] and "assembled by fake" in (ws.src / "scene.js").read_text()
+    n_jobs = len(agent.jobs)
+    rec2 = mk().run(spec, ws, resume=True)
+    assert len(agent.jobs) == n_jobs  # all stages + baseline cached / loaded
+    assert len(rec2.rounds) == 1 and rec2.rounds[0].commit == rec.rounds[0].commit
+
+
+def test_get_track_dispatch():
+    assert isinstance(get_track("static_object"), StaticObjectTrack)
+    assert isinstance(get_track(Track.SCENE), SceneTrack)

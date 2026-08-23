@@ -1,0 +1,78 @@
+# Build `{{ object_name }}` in raw {{ language }}
+
+You write the COMPLETE code for one static 3D object from the plan below. A harness will execute
+your code, export a GLB, measure every part against the plan and render it for a judge. You never
+see the harness: make the code correct by construction, with the plan's exact numbers.
+
+## Request
+{{ spec_prompt }}
+Constraints:
+{{ constraints }}
+
+## The contract (hard rules — the build fails or the gate rejects when broken)
+{{ frame_doc }}
+{{ contract }}
+
+Files you must produce: {% for f in expected_files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}.
+{% if cookbook_rel %}Copyable snippets live in `{{ cookbook_rel }}` (read it before writing if you can).{% endif %}
+{% if cookbook_excerpt %}
+Cookbook excerpt:
+{{ cookbook_excerpt }}
+{% endif %}
+
+## Plan
+{{ plan_summary }}
+Overall bbox: {{ overall_bbox }}
+Style: {{ style_notes }}
+
+Parts (build EVERY row; names must match exactly — they become node names in the export):
+{{ parts_table }}
+
+Construction notes per part:
+{{ part_details }}
+
+## Acceptance checklist (the judge verifies each item; build so every item is visibly true)
+{{ acceptance }}
+
+## DO
+- Place each part so its bounding box CENTRE and EXTENTS equal the plan row (±0.01 m). Compute
+  positions from the numbers in the table; do not re-invent the layout.
+- Weld touching parts: overlap neighbours by ≥ 0.002 m (push a leg 2-5 mm into the seat). Never
+  bridge gaps with thin rods; no part may float.
+- Use `instances` + `symmetry` from the table: mirror pairs at ±x, radial sets around the up axis.
+- Put real detail where the plan says: chamfers/bevels 2-6 mm, tapers, grooves, slats, bolts —
+  with the stated radii and counts. Primitives alone are not enough; combine and shape them.
+- Materials per part with the stated colour (sRGB hex or 0-1 floats); roughness/metalness sensible.
+- Keep triangle counts sane (object ≤ 300k tris); segments 24-48 for round things.
+- Name parts EXACTLY as in the table (PascalCase). One named node/object per part (instances may
+  be `Name`, `Name_2`, … or a single parent named `Name`).
+
+## DON'T
+- No environment sniffing, no `typeof window`, no headless branches — one code path.
+- No DOM, canvas textures, image/texture loading, network, file IO, camera/light/render/export calls.
+- No helper SDKs or imports beyond the contract's allow-list.
+- No placeholders ("TODO", "simplified"); no part smaller than 50% of its planned extents; no
+  unit-cube stand-ins; no parts outside the overall bbox.
+- Do not change part names, counts or the overall size to "simplify".
+
+{% if skeleton_files %}
+## Current files (skeleton already in src/ — keep its structure, fill in every stub)
+{% for path, body in skeleton_files.items() %}
+--- {{ path }} ---
+```
+{{ body }}
+```
+{% endfor %}
+{% endif %}
+{% if previous_error %}
+## The previous attempt failed to build — fix the cause while rebuilding
+{{ previous_error }}
+{% endif %}
+
+{% if tool_cards and not single_shot %}
+## Tools available to you
+{{ tool_cards }}
+{% endif %}
+
+## Output
+{{ output_format }}

@@ -1,0 +1,134 @@
+"""Browser-backed probes: scene probe, shader preflight, shader presence."""
+
+from __future__ import annotations
+
+import pytest
+
+from codeverse.contracts.artifacts import Severity
+from codeverse.spatial.probes import check_shaders, probe_scene, shader_presence
+from tests.scene_runtime.conftest import needs_browser
+
+pytestmark = [pytest.mark.node, needs_browser]
+
+
+def test_probe_scene_passes_on_example(starter_ws):
+    res = probe_scene(starter_ws)
+    gate, census = res
+    assert gate.gate == "scene_probe" and gate.passed, [(f.target, f.message) for f in gate.findings]
+    assert res.ok and res.errors == []
+    assert census["totals"]["meshes"] > 10 and census["totals"]["lights"] == 3
+    assert {g["name"] for g in census["groups"]} == {"Environment", "Meadow", "Pondside"}
+    assert census["content_bbox"]["size"][0] > 50
+    assert (starter_ws.artifacts / "census.json").is_file()
+    assert gate.duration_ms < 15000
+
+
+def test_probe_scene_reports_import_error_with_stage(starter_ws):
+    (starter_ws.src / "scene.js").write_text("import * as THREE from 'three';\nimport { nope } from './does_not_exist.js';\nexport function createScene() {}\n")
+    gate, census = probe_scene(starter_ws)
+    assert not gate.passed
+    err = gate.errors[0]
+    assert err.data.get("stage") == "import" and err.target == "src/scene.js"
+    assert "fix the syntax/import error" in err.fix_hint
+
+
+def test_probe_scene_flags_bad_shape_and_cameras(starter_ws):
+    (starter_ws.src / "scene.js").write_text(
+        "import * as THREE from 'three';\n"
+        "export function createScene() { const scene = new THREE.Scene(); scene.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial()));\n"
+        "  return { scene, cameras: [{ name: 'x', position: [1, 1], lookAt: [0, 0, 0] }], update(t) { if (t > 0.1) throw new Error('update boom'); } }; }\n"
+    )
+    gate, census = probe_scene(starter_ws)
+    msgs = " | ".join(f.message for f in gate.findings)
+    assert not gate.passed
+    assert "position must be [x,y,z]" in msgs and "no valid cameras" in msgs
+    assert census == {} or census.get("totals", {}).get("meshes") == 1  # census only when booted; boot fails on cameras here
+
+
+def test_probe_scene_catches_update_throw_and_console_errors(starter_ws):
+    (starter_ws.src / "scene.js").write_text(
+        "import * as THREE from 'three';\n"
+        "export function createScene() { const scene = new THREE.Scene(); scene.add(new THREE.AmbientLight()); scene.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial()));\n"
+        "  console.error('custom failure 42');\n"
+        "  return { scene, cameras: [{ name: 'x', position: [3, 3, 3], lookAt: [0, 0, 0], fov: 50 }], update(t) { if (t > 0.1) throw new Error('update boom'); } }; }\n"
+    )
+    gate, _ = probe_scene(starter_ws)
+    msgs = " | ".join(f.message for f in gate.errors)
+    assert "update boom" in msgs and "custom failure 42" in msgs
+
+
+def test_check_shaders_clean_on_example(starter_ws):
+    rep = check_shaders(starter_ws)
+    assert rep.gate == "shader_preflight" and rep.passed, [(f.target, f.message) for f in rep.findings]
+    info = [f for f in rep.findings if f.severity == Severity.INFO]
+    assert info and info[0].data.get("programs", 0) >= 3
+
+
+def test_check_shaders_maps_compile_error_to_file_line(starter_ws):
+    p = starter_ws.src / "shaders" / "water.js"
+    text = p.read_text()
+    needle = "float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);"
+    assert needle in text
+    text = text.replace(needle, "float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0) * undefinedThing;")
+    p.write_text(text)
+    line = next(i for i, ln in enumerate(text.splitlines(), 1) if "undefinedThing" in ln)
+    rep = check_shaders(starter_ws)
+    assert not rep.passed
+    err = rep.errors[0]
+    assert err.target == f"src/shaders/water.js:{line}", err
+    assert "undeclared identifier" in err.message and "undefinedThing" in err.message
+    assert err.data.get("material") and "PondWater" in err.data["material"]
+    assert err.fix_hint
+
+
+def test_check_shaders_on_before_compile_patch_error(starter_ws):
+    (starter_ws.src / "shaders" / "glow.js").write_text(
+        "import * as THREE from 'three';\n"
+        "export function makeGlow(T = THREE) {\n"
+        "  const m = new T.MeshStandardMaterial({ color: 0xff8800 });\n"
+        "  m.onBeforeCompile = (shader) => {\n"
+        "    shader.fragmentShader = shader.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>\n"
+        "  gl_FragColor.rgb += vec3(0.2) * missingUniform;`);\n"
+        "  };\n"
+        "  return m;\n"
+        "}\n"
+    )
+    p = starter_ws.src / "zones" / "meadow.js"
+    text = p.read_text().replace(
+        "import { buildWindmill } from '../assets/windmill.js';",
+        "import { buildWindmill } from '../assets/windmill.js';\nimport { makeGlow } from '../shaders/glow.js';",
+    ).replace(
+        "const rock = new THREE.MeshStandardMaterial({ color: 0x7b7b78, roughness: 0.95 });",
+        "const rock = makeGlow(THREE);",
+    )
+    assert "makeGlow(THREE)" in text
+    p.write_text(text)
+    rep = check_shaders(starter_ws)
+    assert not rep.passed
+    err = rep.errors[0]
+    assert err.target == "src/shaders/glow.js:6", err
+    assert "missingUniform" in err.message
+
+
+def test_check_shaders_static_audit_without_compile(starter_ws):
+    (starter_ws.src / "shaders" / "bad.js").write_text(
+        "export const frag = `\n#version 300 es\nvoid main() { gl_FragColor = vec4(uTime); }`;\n"
+    )
+    rep = check_shaders(starter_ws)
+    kinds = {f.data.get("kind") for f in rep.errors}
+    assert {"version_directive", "undeclared_uniform", "unbound_uniform"} <= kinds
+    assert any(f.target == "src/shaders/bad.js:2" for f in rep.errors)
+
+
+def test_shader_presence_on_example_and_when_hidden(starter_ws):
+    obs = shader_presence(starter_ws)
+    assert obs.ok and obs.numbers["custom_materials"] == 2
+    assert obs.numbers["max_diff_frac"] > 0.05 and "PRESENT" in obs.text
+    assert len(obs.images) >= 2
+    # hide the custom-shader meshes → stripping changes nothing
+    p = starter_ws.src / "zones" / "pondside.js"
+    p.write_text(p.read_text().replace("  water.name = 'PondWater';", "  water.name = 'PondWater';\n  water.visible = false;"))
+    e = starter_ws.src / "env.js"
+    e.write_text(e.read_text().replace("  sky.name = 'Sky';", "  sky.name = 'Sky';\n  sky.visible = false;"))
+    obs2 = shader_presence(starter_ws)
+    assert obs2.numbers["max_diff_frac"] == 0.0 and "NOT VISIBLE" in obs2.text

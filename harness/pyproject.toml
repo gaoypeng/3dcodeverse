@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "3dcodeverse"
+version = "0.1.0"
+description = "3dcodeverse: a data-flywheel harness for LLM-written 3D code (Blender / CadQuery / Three.js / URDF / GLSL) across static objects, articulated objects and scenes."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "typer>=0.12",
+  "rich>=13",
+  "jinja2>=3.1",
+  "pyyaml>=6",
+  "numpy>=1.26",
+  "trimesh>=4.4",
+  "pillow>=10",
+  "google-genai>=1.0",
+  "anthropic>=0.40",
+  "openai>=1.40",
+  "playwright>=1.45",
+]
+
+[project.optional-dependencies]
+cad = ["cadquery>=2.4"]
+urdf = ["yourdfpy>=0.0.56", "scipy>=1.11"]
+dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.5"]
+
+[project.scripts]
+c3v = "codeverse.cli.main:app"
+3dcodeverse = "codeverse.cli.main:app"
+
+[tool.setuptools.packages.find]
+include = ["codeverse*"]
+
+[tool.setuptools.package-data]
+codeverse = ["prompts/**/*", "judges/rubrics/*.yaml", "languages/**/wrappers/*", "spatial/js/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 600
+markers = [
+  "live: needs network + API keys (deselect with -m 'not live')",
+  "blender: needs a Blender binary",
+  "node: needs node + runtime_js deps",
+]
