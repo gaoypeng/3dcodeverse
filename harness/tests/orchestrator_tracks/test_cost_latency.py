@@ -447,6 +447,7 @@ def test_a_scene_round_judged_at_the_ceiling_is_still_promoted(tmp_path, setting
     assert len(judge.calls) == 1
 
 
+@pytest.mark.node
 def test_a_model_outage_escalates_the_asset_instead_of_losing_it(tmp_path, settings):
     """A 503 storm that outlives the model layer's retries must fall through to the
     agent session, not mark the asset NOT AVAILABLE for every zone."""

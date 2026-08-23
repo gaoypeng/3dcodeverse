@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import re
 
 from codeverse.contracts.common import Language, Track
@@ -72,6 +74,7 @@ def test_all_track_templates_exist_and_render(tmp_ws, settings, chair_plan):
     assert "=== FILE:" not in a
 
 
+@pytest.mark.blender
 def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS)
