@@ -1,0 +1,30 @@
+# Graphics track battery v1 — GLSL fragment shaders + raw OpenGL programs.
+name: graphics_v1
+track: graphics
+language: glsl_shader
+prompts:
+  - id: glsl_easy_lava_lamp
+    tier: easy
+    prompt: "A relaxing lava-lamp shader: slowly rising and merging warm blobs over a dark gradient background, soft glow"
+    must_have: ["blobs that move and merge over time", "warm orange/pink palette on a dark background"]
+  - id: glsl_easy_ocean_sunset
+    tier: easy
+    prompt: "A stylised ocean sunset: layered animated waves, sun disk with shimmering reflection path, gradient sky with a few clouds"
+    must_have: ["animated waves", "sun reflection path on the water"]
+  - id: glsl_med_neon_rain
+    tier: medium
+    prompt: "Cyberpunk rain on a window at night: streaking raindrops refracting neon city bokeh lights, occasional lightning flash"
+    must_have: ["raindrop streaks that run downward", "colourful bokeh lights", "brightness varies over time"]
+  - id: glsl_med_nebula
+    tier: medium
+    prompt: "A deep-space nebula flythrough: layered volumetric clouds with domain warping, twinkling star field, slow forward drift"
+    must_have: ["parallax star field", "warped nebula clouds", "continuous forward motion"]
+  - id: glsl_hard_raymarch_temple
+    tier: hard
+    prompt: "A raymarched ancient temple interior: columns, god rays through an opening, drifting dust, soft shadows, slow camera orbit"
+    must_have: ["recognisable columns", "visible light shafts", "camera motion"]
+  - id: ogl_med_particle_galaxy
+    tier: medium
+    language: opengl_python
+    prompt: "An instanced particle galaxy: 20k points orbiting in spiral arms with additive glow, slowly rotating camera"
+    must_have: ["spiral arm structure", "rotation over time"]

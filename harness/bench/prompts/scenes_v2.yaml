@@ -1,0 +1,227 @@
+# scenes_v2 — composition-contract battery.
+#
+# Every scene states an explicit COMPOSITION CONTRACT in must_have:
+#   * 4-6 named zones (spatial layout the judge can point at in wide shots)
+#   * 8-14 distinct asset types WITH COUNTS ("at least 12 market stalls of 3 designs")
+#   * a lighting mood the VLM can verify in renders, annotated with an approximate
+#     luminance band (normalised 0-1); the frame-metrics gate enforces the floor —
+#     it errors on authored frames with mean luminance < 0.12 or > 20% blown pixels,
+#     and those gate errors reach the judge (the VLM itself cannot measure a band)
+#   * one water / weather / particle effect
+#   * one animation
+#   * a camera brief (path + height + no-clip requirement; camera-in-geometry and
+#     exposure were the top audited defect classes in the reference scene corpus)
+# Difficulty axes: dense scene composition (asset count x variety), lighting-mood
+# control under a luminance band, effect + animation integration, camera authoring.
+# Expected discrimination: scenes_v1 EASY already failed 0/4 with 3.7-flash (missing
+# animation, exposure, world-edge defects), so flash-class pass rates here may be 0
+# across tiers; the battery discriminates on score spread (zone coverage, lighting
+# compliance, camera hygiene) — medium is expected to score 0.5-0.7, hard 0.3-0.6.
+name: scenes_v2
+track: scene
+language: scene_threejs
+description: >
+  10 scene prompts (multi-file Three.js + GLSL), 3 medium / 7 hard.  Each carries a
+  composition contract: named zones, asset types with counts, a measurable lighting
+  band, one water/weather/particle effect, one animation and a camera brief.
+prompts:
+  - id: scn_hard_night_market
+    tier: hard
+    category: urban
+    prompt: >
+      a bustling night market street: an entrance gate, lantern-lit food lane,
+      games row, a small ferris wheel plaza at the far end, steam rising from
+      the food stalls and a slow walk-through camera
+    must_have:
+      - "4 zones along the street: entrance gate, food lane, games row, ferris wheel plaza"
+      - "at least 12 market stalls using at least 3 distinct stall designs"
+      - "at least 30 glowing lanterns strung above the lane"
+      - "ferris wheel with at least 8 gondolas at the far plaza"
+      - "at least 8 simplified pedestrian figures in the lane"
+      - "string lights connecting stall roofs"
+      - "food props on at least 4 stall counters"
+      - "night mood: dark sky with lantern glow as the dominant light, no black or blown-out frames (mean luminance roughly 0.15-0.45)"
+      - "steam particles rising from at least 2 food stalls"
+      - "ferris wheel rotates continuously"
+      - "camera dollies forward down the lane at 1.6 m height, visibly advancing between the sampled times"
+      - "camera never intersects stalls, figures or lanterns"
+  - id: scn_hard_canal_town
+    tier: hard
+    category: urban
+    prompt: >
+      a canal town at golden hour: gabled rowhouses along both quays, an arched
+      stone bridge, moored and drifting boats, a cafe terrace, warm low sun with
+      long reflections on the water
+    must_have:
+      - "5 zones: canal, left quay, right quay, arched bridge, cafe terrace"
+      - "at least 10 gabled rowhouses using at least 3 facade variants"
+      - "at least 5 boats, at least 3 moored at bollards"
+      - "arched stone bridge spanning the canal"
+      - "cafe terrace with at least 6 tables and umbrellas"
+      - "at least 8 lamp posts along the quays"
+      - "at least 6 bicycles leaning at the quay railings"
+      - "water surface with ripples and sun reflections"
+      - "golden hour mood: low warm sun with long shadows, mid-bright frames, none black or blown out (mean luminance roughly 0.30-0.60)"
+      - "one boat drifts along the canal and passes under the bridge"
+      - "camera cranes upward from quay level toward the bridge crest between the sampled times"
+      - "camera never clips the bridge or house facades"
+  - id: scn_hard_cliff_monastery
+    tier: hard
+    category: landscape
+    prompt: >
+      a monastery clinging to a cliff face in fog: switchback stair path, a
+      gatehouse, main hall on a terrace, a bell tower, fog banks drifting below
+      the buildings
+    must_have:
+      - "5 zones: cliff face, switchback stair path, gatehouse, main hall terrace, bell tower"
+      - "at least 4 buildings with tiled roofs stepped down the cliff"
+      - "at least 6 stair flights zigzagging up the cliff"
+      - "railing or rope line along the stair path"
+      - "at least 8 pine trees growing from cliff ledges"
+      - "strings of flags or banners between buildings"
+      - "hanging bell visible in the tower"
+      - "layered fog banks below the terrace, partially hiding the cliff base"
+      - "muted mood: soft diffuse fog light without hard shadows, mid-bright frames (mean luminance roughly 0.35-0.65)"
+      - "fog banks drift slowly and the flags flutter"
+      - "camera flies in through the fog toward the gatehouse, visibly closer to the terrace at the later sampled time"
+      - "camera never enters the cliff or building geometry"
+  - id: scn_med_conservatory
+    tier: medium
+    category: interior
+    prompt: >
+      a botanical conservatory interior: glass and iron rotunda, palm court,
+      koi pond with a fountain, fern aisle and a succulent bench, bright light
+      shafts through the glazing
+    must_have:
+      - "5 zones: entry rotunda, palm court, koi pond, fern aisle, succulent bench"
+      - "glazed roof and walls with a visible iron frame grid"
+      - "at least 6 palms in the court"
+      - "at least 20 potted ferns along the aisle"
+      - "at least 8 hanging baskets under the roof"
+      - "koi pond with a central fountain"
+      - "at least 4 benches along the paths"
+      - "gravel or tile path linking all zones"
+      - "bright mood: sunlit glasshouse with visible light shafts, bright but not blown-out frames (mean luminance roughly 0.45-0.75)"
+      - "fountain water animates with ripples spreading in the pond"
+      - "visible dust motes in the light shafts"
+      - "camera walks the aisle from the rotunda toward the pond at 1.6 m height, advancing between the sampled times"
+  - id: scn_hard_shipyard_dawn
+    tier: hard
+    category: industrial
+    prompt: >
+      a wooden shipyard at dawn: a partially planked hull on a slipway cradle,
+      a gantry crane, scaffolding, timber stacks, a workshop shed with a smoking
+      chimney, calm water at the slipway foot
+    must_have:
+      - "5 zones: slipway with hull, crane pad, timber yard, workshop shed, waterline"
+      - "ship hull with exposed ribs and partial planking on a cradle"
+      - "gantry or jib crane beside the hull"
+      - "scaffolding with at least 6 bays along the hull"
+      - "at least 5 timber stacks in the yard"
+      - "at least 12 barrels grouped near the shed"
+      - "workshop shed with a chimney"
+      - "2 rowboats at the waterline"
+      - "dawn mood: low warm sun raking the hull, dim-to-mid frames, none black or blown out (mean luminance roughly 0.25-0.55)"
+      - "calm water with reflections at the slipway foot"
+      - "smoke rises from the shed chimney while the crane jib slews slowly"
+      - "camera orbits the hull at half its height without clipping the scaffolding"
+  - id: scn_hard_alpine_station
+    tier: hard
+    category: landscape
+    prompt: >
+      an alpine railway station in snowfall: a lamp-lit platform, timber station
+      house, track line with a signal mast, a snow shed, snow-loaded pines on the
+      slope behind
+    must_have:
+      - "5 zones: platform, station house, track line, snow shed, pine slope"
+      - "timber station house with snow-covered roof and lit windows"
+      - "at least 6 platform lamps with warm glow"
+      - "at least 4 benches on the platform"
+      - "2 luggage carts near the door"
+      - "track with visible sleepers running past the platform into a snow shed"
+      - "signal mast beside the track"
+      - "at least 15 snow-loaded pines on the slope"
+      - "overcast mood: flat grey daylight contrasting with warm lamp glow, mid-bright frames (mean luminance roughly 0.35-0.65)"
+      - "continuous falling snow particles"
+      - "signal arm position differs between the sampled times and the platform lamps glow warmly"
+      - "camera tracks along the platform edge at 1.6 m without clipping lamps or benches"
+  - id: scn_med_bazaar_noon
+    tier: medium
+    category: urban
+    prompt: >
+      a bazaar courtyard at noon: arcaded perimeter, carpet display, spice stalls
+      under awnings, a central fountain and a tea corner, hard sun with crisp
+      shadows
+    must_have:
+      - "5 zones: arcade perimeter, carpet display, spice stalls, central fountain, tea corner"
+      - "arcade with at least 8 arches around the courtyard"
+      - "at least 10 hanging or draped carpets in at least 4 patterns"
+      - "at least 12 spice sacks or bowls at the stalls"
+      - "at least 6 awnings shading the stalls"
+      - "central fountain with a basin"
+      - "at least 8 pottery stacks around the arcade"
+      - "tea corner with a low table and cushions"
+      - "noon mood: hard sun with short crisp shadows, bright but not blown-out frames (mean luminance roughly 0.45-0.75)"
+      - "fountain water animates"
+      - "awnings ripple in a light breeze"
+      - "camera circles the fountain at 2 m height without clipping the awnings"
+  - id: scn_hard_neon_arcade_street
+    tier: hard
+    category: urban
+    prompt: >
+      a neon arcade street in rain at night: glowing signs stacked up the
+      facades, an arcade entrance with cabinets visible inside, a side alley,
+      wet reflective asphalt and falling rain
+    must_have:
+      - "4 zones: main street, arcade entrance, side alley, elevated walkway"
+      - "at least 10 emissive neon signs in at least 4 distinct shapes"
+      - "arcade entrance with at least 4 cabinets visible through the front"
+      - "3 vending machines along the street"
+      - "at least 6 puddles on the asphalt"
+      - "at least 5 simplified figures with umbrellas"
+      - "power lines or cables crossing overhead"
+      - "wet ground shader reflecting the neon signs"
+      - "night mood: neon glow dominant over a dark wet street, no fully black frames (mean luminance roughly 0.15-0.40)"
+      - "falling rain streaks"
+      - "at least 2 neon signs differ in on/off state between the sampled times"
+      - "camera pushes slowly down the street at 1.6 m, never clipping figures or machines"
+  - id: scn_med_rice_terraces
+    tier: medium
+    category: landscape
+    prompt: >
+      terraced rice fields at sunset: stacked water-filled terraces mirroring the
+      sky, a farmhouse, a footbridge over an irrigation channel, palm cluster and
+      a path down the terraces
+    must_have:
+      - "5 zones: upper terraces, irrigation channel, farmhouse, palm cluster, path"
+      - "at least 7 terrace levels with water surfaces"
+      - "terrace water reflects the sunset sky"
+      - "rows of rice tufts on at least 4 terraces"
+      - "farmhouse with a pitched roof at mid-slope"
+      - "footbridge over the channel"
+      - "2 sluice gates in the channel"
+      - "scarecrow on an upper terrace"
+      - "at least 5 palms in the cluster"
+      - "sunset mood: sun near the horizon mirrored in the terrace water, dim-to-mid frames, none black (mean luminance roughly 0.25-0.55)"
+      - "water shimmer animates and 3 birds fly across the sky"
+      - "camera descends along the terraces from above the farmhouse to the path"
+  - id: scn_hard_lighthouse_storm
+    tier: hard
+    category: landscape
+    prompt: >
+      a lighthouse island in a storm: banded lighthouse with a gallery and lamp
+      room, keeper's cottage, boathouse, wooden jetty on piles, heavy seas with
+      whitecaps, rain and spray
+    must_have:
+      - "5 zones: rock island, lighthouse, keeper's cottage, boathouse, jetty"
+      - "lighthouse with color bands, gallery railing and glazed lamp room"
+      - "keeper's cottage with at least 3 lit windows"
+      - "boathouse with a ramp to the water"
+      - "jetty on at least 8 piles"
+      - "at least 15 rocks around the island shore"
+      - "sea surface with large animated waves and whitecaps"
+      - "spray bursts where waves hit the rocks"
+      - "storm mood: dark sky and sea with the rotating beam as the brightest element, no fully black frames (mean luminance roughly 0.15-0.40)"
+      - "falling rain driven at an angle"
+      - "lamp room beam rotates and sweeps the sea"
+      - "camera holds offshore at wave-top height with a slow heave, never entering the water volume"

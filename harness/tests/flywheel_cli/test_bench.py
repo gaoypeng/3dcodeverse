@@ -27,10 +27,11 @@ def test_batteries_are_valid(path: Path):
     ids = [p.id for p in b.prompts]
     assert len(ids) == len(set(ids))
     tiers = {p.tier for p in b.prompts}
-    assert tiers <= {"easy", "medium", "hard"} and len(tiers) == 3
+    assert tiers <= {"easy", "medium", "hard"}
     assert all(p.must_have for p in b.prompts)
     expected = {"static_objects_v1": 24, "articulated_v1": 12, "scenes_v1": 12}
-    if b.name in expected:  # other batteries (e.g. compare_v1) are owned elsewhere; only the schema is checked
+    if b.name in expected:  # other batteries (compare_*, *_v2) are owned elsewhere; only the schema is checked
+        assert len(tiers) == 3  # v1 batteries span all three tiers; v2 drops easy (it saturated)
         assert len(b.prompts) == expected[b.name]
 
 
