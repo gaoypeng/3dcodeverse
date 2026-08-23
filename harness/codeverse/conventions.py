@@ -9,6 +9,8 @@ Frames
 * ``blender`` / ``cadquery`` / ``urdf``:  **Z-up, -Y is the object's front**,
   meters.  (Blender's "Front" view looks along +Y, so a front face points -Y.)
 * ``threejs`` / ``scene_threejs``:        **Y-up, +Z is the front**, meters.
+* ``glsl_shader`` / ``opengl_python``:    **Y-up, +Z front** (GL clip space is
+  Y-up; harness cameras/gates treat graphics output like the three.js frame).
 * Canonical exchange format is **GLB (glTF 2.0): Y-up, +Z front, meters**.
   Blender's glTF exporter maps (x, y, z) → (x, z, -y), so a Blender -Y front
   becomes glTF +Z front — the two native frames agree once exported.
@@ -45,6 +47,9 @@ LANGUAGE_FRAME: dict[str, Frame] = {
     "urdf_blender": Frame.Z_UP_NEG_Y_FRONT,
     "threejs": Frame.Y_UP_POS_Z_FRONT,
     "scene_threejs": Frame.Y_UP_POS_Z_FRONT,
+    # GL clip space is Y-up: graphics output is framed like the three.js/glTF frame.
+    "glsl_shader": Frame.Y_UP_POS_Z_FRONT,
+    "opengl_python": Frame.Y_UP_POS_Z_FRONT,
 }
 
 GLB_FRAME = Frame.Y_UP_POS_Z_FRONT

@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from codeverse.contracts.agent import FileChange
+from codeverse.proc import write_json_atomic
 
 _DIRS = ("src", "public", "artifacts", "artifacts/renders", "artifacts/gates", "artifacts/judge", "trajectories")
 
@@ -92,12 +93,9 @@ class Workspace:
 
     # ----------------------------------------------------------------- json io
     def write_json(self, path: Path, model: BaseModel | dict[str, Any]) -> None:
-        """Atomic JSON write (tmp + rename)."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
+        """Atomic JSON write (tmp + rename, via :func:`codeverse.proc.write_json_atomic`)."""
         data = model.model_dump(mode="json") if isinstance(model, BaseModel) else model
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-        tmp.replace(path)
+        write_json_atomic(path, data)
 
     def read_json(self, path: Path) -> dict[str, Any]:
         return json.loads(path.read_text())

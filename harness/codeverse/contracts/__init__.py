@@ -11,7 +11,7 @@ Modules:
 - ``agent``     CodingAgent job/result shapes.
 """
 
-from codeverse.contracts.agent import AgentJob, AgentResult, FileChange
+from codeverse.contracts.agent import AgentJob, AgentResult, ApiAgentOptions, FileChange
 from codeverse.contracts.artifacts import (
     BuildResult,
     GateFinding,
@@ -32,7 +32,20 @@ from codeverse.contracts.chat import (
     ToolResultPart,
     ToolSpec,
 )
-from codeverse.contracts.common import Backends, Budget, Language, Track, Usage, Vec3
+from codeverse.contracts.common import (
+    ENTRY_FILE,
+    LANGUAGE_LABEL,
+    TRACK_INFO,
+    TRACK_LANGUAGES,
+    Backends,
+    Budget,
+    Language,
+    Track,
+    TrackInfo,
+    Usage,
+    Vec3,
+    code_file,
+)
 from codeverse.contracts.judgment import ImprovementItem, JudgeIssue, Judgment
 from codeverse.contracts.plan import (
     AcceptanceItem,
@@ -51,6 +64,6 @@ from codeverse.contracts.plan import (
     ZonePlan,
 )
 from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
-from codeverse.contracts.spec import Constraints, ReferenceImage, Spec
+from codeverse.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec
 
 __all__ = [name for name in dir() if not name.startswith("_")]

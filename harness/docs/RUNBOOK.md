@@ -160,13 +160,14 @@ Protocol and judge calibration: `docs/EVAL.md`.
 
 ## 8. Extending (plugin paths)
 
-* **New language**: enum in `contracts/common.py::Language` (+ `TRACK_LANGUAGES`),
-  frame in `conventions.LANGUAGE_FRAME`; `languages/<lang>/{runtime.py, lint.py,
-  skeleton.py, CONTRACT.md, wrappers/}` implementing `LanguageRuntime`; branch in
-  `languages/base.py::get_runtime`; `prompts/<lang>/contract.md` + `cookbook.md`
-  (every snippet must run — `tests/prompts` executes them); entry-file mappings in
-  `flywheel/sample.py`; part→file mapping via `runtime.file_for_part` (blender and
-  threejs have it; `tracks/prompting.file_for_target_factory` picks it up).
+* **New language**: enum in `contracts/common.py::Language` (+ `TRACK_LANGUAGES`,
+  `ENTRY_FILE`, `LANGUAGE_LABEL`), frame in `conventions.LANGUAGE_FRAME`;
+  `languages/<lang>/{runtime.py, lint.py, skeleton.py, CONTRACT.md, wrappers/}`
+  implementing `LanguageRuntime`; branch in `languages/base.py::get_runtime`;
+  `prompts/<lang>/contract.md` + `cookbook.md` (every snippet must run —
+  `tests/prompts` executes them); part→file mapping via `runtime.file_for_part`
+  (blender and threejs have it; `tracks/prompting.file_for_target_factory` picks
+  it up).
 * **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…),
   languages=(…), cost_hint=…)` in `spatial/tools*.py` (imported from
   `spatial/tools.py`); available to tracks, MCP, api-agent and prompt cards at once.

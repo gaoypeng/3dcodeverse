@@ -28,6 +28,17 @@ class Constraints(BaseModel):
     must_not: list[str] = Field(default_factory=list)
 
 
+class RunOptions(BaseModel):
+    """Run-shape options frozen on the spec (distinct from Budget and Backends).
+
+    ``None`` / ``False`` means "not stated": resolution falls through to
+    ``run_state.extra`` (legacy runs) and then ``Settings`` defaults.
+    """
+
+    candidates: int | None = Field(default=None, ge=1, description="best-of-N baseline candidates")
+    texture: bool = Field(default=False, description="run the derived texture pass after the loop")
+
+
 class Spec(BaseModel):
     id: str
     track: Track
@@ -37,6 +48,7 @@ class Spec(BaseModel):
     constraints: Constraints = Field(default_factory=Constraints)
     budget: Budget = Field(default_factory=Budget)
     backends: Backends = Field(default_factory=Backends)
+    options: RunOptions = Field(default_factory=RunOptions)
     seed: int = 0
     tags: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

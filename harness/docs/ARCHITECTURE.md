@@ -68,11 +68,16 @@ the flywheel unit.
 codeverse/
   conventions.py      frames (LANGUAGE_FRAME, GLB_FRAME), units, OBJECT_VIEWS/_QUICK, SCENE_VIEWS,
                       to_snake/to_pascal/slugify, MAX_TRIS_*, BBOX_TOLERANCE_M, CONTACT_GAP_M  (THE source)
-  config.py           Settings (CV3D_* env, ~/.config/codeverse/config.yaml; default_judge=gemini-3.1-pro-preview,
+  config.py           Settings (CV3D_* env, ~/.config/codeverse/config.yaml; role defaults come from
+                      contracts Backends; Settings.backends(**overrides) builds a Spec's Backends;
                       default_candidates=1)
-  contracts/          pydantic: common (Track, Language, Usage, Budget, Backends), spec, plan, artifacts,
-                      judgment, run, chat, agent
+  contracts/          pydantic: common (Track, Language, Usage, Budget, Backends, TRACK_INFO registry,
+                      ENTRY_FILE/code_file/LANGUAGE_LABEL tables), spec (+ RunOptions), plan, artifacts
+                      (GateFinding.as_line, RenderView.judge, RenderSet.out_dir), judgment, run, chat,
+                      agent (typed AgentJob + ApiAgentOptions)
   workspace.py        run-dir layout + git snapshots ;  events.py  JSONL event log
+  proc.py             stdlib-only subprocess + atomic-JSON primitives (run_subprocess w/ group kill +
+                      preexec_fn, kill_group, tail, write_json_atomic) — shared by languages/spatial/cli
   models/             ChatModel; gemini.py (dead-key + free 429 rotation), gemini_image.py (ImageModel),
                       anthropic.py openai.py, keypool.py ('dead' outcome), pricing.py (version-suffix-only
                       fallback), retry.py, schema_utils.py (strict schema: no null-for-default), registry.py
@@ -283,10 +288,7 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
   `n_samples ≥ 3` for decisions.  Detail crops are position-heuristic (no 2D part
   boxes yet).
 * `scene_frames` gate + judge-view subset are built (renders side) but not yet
-  wired into the scene track; `conventions.LANGUAGE_FRAME` lacks
-  glsl_shader/opengl_python entries (stopgap `setdefault` in `tracks/graphics.py`);
-  `3dcv judge` lacks a GRAPHICS → shader_v1 mapping; `flywheel export` lacks
-  graphics entry-file mappings.
+  wired into the scene track.
 * Articulated: candidate selection uses the quick 4-view sheet (not pose views);
   mimic joints ignored; sweep is O(links² × poses).
 * Scenes: fps is a relative cost; camera-in-geometry can miss open-back enclosures.

@@ -20,6 +20,27 @@ file was reconciled against it on 2026-08-23 (waves 2–3 + fix batch 1).
   `gemini-3.1-flash-image`, fallback `gemini-2.5-flash-image`) behind the
   `ImageModel` protocol (`generate`, `generate_with_usage` → `(images, Usage)`).
 
+## core (contracts · config · proc)
+
+```python
+from codeverse.contracts import TRACK_INFO, TrackInfo          # {Track: TrackInfo(rubric, label)} — THE track registry
+from codeverse.contracts import ENTRY_FILE, code_file, LANGUAGE_LABEL   # {Language: "src/<entry>"}; code_file(lang) -> "code.<ext>"
+from codeverse.contracts import RunOptions                     # Spec.options: candidates (int|None, ≥1), texture (bool)
+GateFinding.as_line(with_gate=False, with_severity=False, with_target=False, with_hint=True) -> str
+    # "GATE <gate>: [<sev>] <message> [<target>] FIX: <hint>" — flags opt in; no leading "- "
+RenderView.judge: bool | None      # stamped True/False at render time; None = legacy round (fall back to select_judge_views)
+RenderSet.out_dir: str             # directory the views (+ views.json/metrics.json) were written to ("" on old rounds)
+from codeverse.config import get_settings
+get_settings().backends(planner=..., generator=..., judge=..., captioner=...) -> Backends
+    # settings defaults (default_planner/... mirror contracts Backends literals; + default_captioner);
+    # truthy keyword overrides win, None/"" falls through, unknown role -> TypeError
+from codeverse.proc import ProcResult, run_subprocess, kill_group, tail, write_json_atomic
+run_subprocess(cmd, *, cwd, timeout_s, env=None, stdin_text=None, preexec_fn=None) -> ProcResult
+    # own session/process group, group-kill on timeout, never raises on rc != 0; stdlib-only module
+```
+`Spec.options` is plan-hash safe (`plan_stage_inputs` whitelists spec fields).
+`Workspace.write_json` delegates to `proc.write_json_atomic`.
+
 ## models/
 ```python
 from codeverse.models import get_chat_model            # (model_id) -> ChatModel, lru-cached, thread-safe
@@ -73,11 +94,14 @@ res = agent.run(AgentJob(workspace=..., prompt=..., label="baseline", timeout_s=
 res.ok, res.exit_reason  # completed | timeout | error | budget | model_substituted
 res.files_changed (git-derived, attributed per session), res.usage, res.transcript_path, res.tool_calls, res.errors
 ```
-`AgentJob.extra` keys honoured by every agent: `round`, `kind`, `language`, `track`,
-`mcp_command` (override), `max_usd` / `temperature` / `thinking` / `allow_shell`
-(api-agent only), **Δ `files_hint`** (list of workspace-relative files/dirs the task
-is expected to touch — used to attribute `files_changed` between concurrent sessions
-in one workspace; harness-owned paths and sibling sessions' hinted files are dropped).
+`AgentJob` carries typed job context: `round`, `kind`, `language`, `track`,
+`mcp_command` (override), `files_hint` (workspace-relative files/dirs the task is
+expected to touch — used to attribute `files_changed` between concurrent sessions in
+one workspace; harness-owned paths and sibling sessions' hinted files are dropped)
+and `job.api: ApiAgentOptions(max_usd, temperature, thinking, allow_shell)` (api-agent
+only).  **Δ legacy lift**: the same keys passed inside `extra={...}` are lifted into
+the typed fields at validation (extra itself is left untouched), so old constructors
+and serialized jobs keep working; `extra` stays for one-off backend hints.
 Trajectories: `ws/trajectories/<label>_rNN/{prompt.md, transcript.jsonl, stdout.json,
 stderr.log, result.json}`; **Δ** a re-run of the same label+round lands in
 `<label>.a2_rNN` (then `.a3` …) — the first attempt is never overwritten; `result.json`

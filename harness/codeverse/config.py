@@ -20,6 +20,8 @@ import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from codeverse.contracts.common import Backends
+
 _LEGACY_KEYS_FILE = Path.home() / ".config" / "astra3d" / "gemini_keys.env"
 _USER_CONFIG = Path.home() / ".config" / "codeverse" / "config.yaml"
 
@@ -67,14 +69,33 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str = ""
 
-    default_planner: str = "gemini:gemini-3.7-flash"
-    default_generator: str = "api-agent:gemini:gemini-3.7-flash"
-    # The judge drives the refine loop: the pro tier has ~3x lower sample noise than flash
-    # (calibration 2026-08-23: std 0.03 vs 0.08-0.12) for ~$0.07 per verdict.
-    default_judge: str = "gemini:gemini-3.1-pro-preview"
+    # Backend-role defaults: the literals live in ONE place — contracts/common.py::Backends
+    # (which also documents why the judge default is the pro tier).
+    default_planner: str = Field(default_factory=lambda: Backends().planner)
+    default_generator: str = Field(default_factory=lambda: Backends().generator)
+    default_judge: str = Field(default_factory=lambda: Backends().judge)
+    default_captioner: str = Field(default_factory=lambda: Backends().captioner)
     default_candidates: int = Field(default=1, description="best-of-N baseline candidates (tracks read it)")
 
     # ------------------------------------------------------------------ helpers
+    def backends(self, **overrides: str | None) -> Backends:
+        """The ``Backends`` for a new Spec from the settings defaults.  Keyword
+        overrides (``planner`` / ``generator`` / ``judge`` / ``captioner``) win
+        when truthy; ``None`` / ``""`` falls through to the default."""
+        base: dict[str, str] = {
+            "planner": self.default_planner,
+            "generator": self.default_generator,
+            "judge": self.default_judge,
+            "captioner": self.default_captioner,
+        }
+        unknown = set(overrides) - set(base)
+        if unknown:
+            raise TypeError(f"unknown backend role(s): {sorted(unknown)} (roles: {sorted(base)})")
+        for role, value in overrides.items():
+            if value:
+                base[role] = value
+        return Backends(**base)
+
     def resolve_blender(self) -> str:
         if self.binaries.blender and Path(self.binaries.blender).exists():
             return self.binaries.blender
