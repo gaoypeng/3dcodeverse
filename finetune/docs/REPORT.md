@@ -1,7 +1,7 @@
 # 3D-code LLM finetune 调研报告（dgx03 / 4×H100，2026-08-21 → 08-22）
 
 > 目标：在前 4 张 H100 上跑通「文本 → Blender Python 3D 代码」的 LLM 微调流程，评估 3DCodeVerse 数据是否适合训练，为后续 large-scale finetune 给出配置与结论。
-> 工程目录：`/wekafs/ict/hx_624/llm-ft`（README 有命令）。**所有数字见第 5 / 7 / 8 节；最近更新 2026-08-23 09:40（§9 md_xl 完整；§10 几何反馈 DPO / 配比 md_bal 已出，md_bal 全参微调仍在跑）。**
+> 工程目录：`/wekafs/ict/hx_624/llm-ft`（README 有命令）。**所有数字见第 5 / 7 / 8 节；最终版 2026-08-23 13:45（§9 md_xl scale-up、§10 8 小时探索：几何反馈 DPO / 配比 / 全参，全部完成；所有实验已结束，GPU 已释放）。**
 
 ## 1. 环境（已 setup，可直接复用）
 | 项 | 内容 |
@@ -389,5 +389,25 @@ md_blender（4.9k）/ md_cadquery（9.8k）/ md_openscad（1.1k）/ md_glsl（9.
 
 **读法**："3DCodeBench 受限于 Blender 份额"被否了：把 Blender 样本重复 4 倍训练，3DCodeBench 没涨（82.5% vs 84.9%，噪声内偏低），CadQuery/GLSL 因为数据被削而掉；唯一涨的是 bioinspired 自己的留出 F（0.816，同分布过拟合）和 OpenSCAD greedy（×4 上采样再次证明有效）。**md_xl 的收益来自更多"不同的"代码（哪怕是别的语言），重复已有样本换不来**——要再涨只能靠新数据（合成 + 筛选）或新信号（§10.1）。
 
-### 10.3 全参微调 md_bal（C）
-同样的 md_bal 数据、同样 1 epoch，4 卡 ZeRO-3 全参（lr 1e-5）——检验 LoRA r64 在十万级样本上是否容量吃紧。**正在跑**（~2.2 h），结果补在这里。
+### 10.3 全参微调 md_bal（C）：十万级样本上全参仍不比 LoRA 好
+同样的 md_bal 数据（116k 样本 / 110M tok）、同样 1 epoch，4 卡 ZeRO-3 全参（lr 1e-5，1694 步，2 h 31 min，≈12.2k tok/s；LoRA 同数据 3 卡 2 h 27 min）。train loss 0.334 vs LoRA 0.364——loss 更低，但：
+
+| 指标 | md_bal LoRA r64 | **md_bal 全参** |
+|---|---|---|
+| 3DCodeBench greedy / F | 82.5% / 0.332 | 82.1% / 0.320 |
+| CadQuery greedy / F | 91.5% / 0.279 | 91.5% / 0.302 |
+| OpenSCAD greedy | 56% | **76%** |
+| GLSL greedy | 24% | 33% |
+| Blender 留出 exec / F | 89.3% / 0.816 | 93.2% / **0.919** |
+
+**读法**：主指标（3DCodeBench、CadQuery）全参 = LoRA（±0.5 pt），**在 11.6 万样本 / 1 epoch 的量级上 LoRA r64 依然没有容量瓶颈**——加上 §5 在 5k 样本上的同样结论，这个项目里全参从头到尾都没有赢过 LoRA，而它要多占 ~3 倍显存、快照大 30 倍。全参更低的 loss 变成了**更狠的同分布拟合**：bioinspired 留出 F 0.919（LoRA 0.816）、OpenSCAD/GLSL 的 greedy 复读也压得更低（76% / 33%）——对"贴着训练分布"的目标有用，对分布外（3DCodeBench 的 factory 风格）没用。（评测事故记录：全参模型第一次 CadQuery 评测 vLLM 引擎初始化失败给了 0/200，重跑后 91.5%——**遇到"归零"的分数先查评测日志再下结论**。）
+
+### 10.4 这 8 小时的总结
+| 杠杆 | 结果 | 建议 |
+|---|---|---|
+| 几何反馈 DPO | **有效**（scored F 首次移动：0.387→0.403 / 0.602→0.627；Blender 留出 Chamfer −12%），单任务有涨有跌 | **值得加码**：更多对（K=8、加 OpenSCAD）、迭代 2–3 轮、零件级/渲染 VLM reward，或 F-as-reward 的 GRPO |
+| 执行反馈 DPO（在 md_xl 上再来一轮） | 3DCodeBench 不再涨（底座 90% 后自采样错误太少、只凑出 909 对） | 在弱底座上很赚（v1: +19 pt），底座 ≥90% 后停用或只按语言定向凑对 |
+| 数据配比/上采样（md_bal） | **无效**（82.5%），重复样本 ≠ 新数据；只有小语种（OpenSCAD）×4 治 greedy 复读有效 | 上采样只用于 <2k 样本的语言；别指望配比解决主 benchmark |
+| 全参 vs LoRA（116k 样本） | 全参 = LoRA（主指标），只赢在同分布拟合 | 这个数据量级继续用 LoRA r64；全参等到有 >1M 样本再试 |
+| 数据 scale（§9 的延长线） | 27 万样本后曲线已缓（0.5 epoch 就 91%） | 再涨执行率靠合成+执行过滤的新数据；再涨几何靠反馈信号，不靠 SFT |
+
