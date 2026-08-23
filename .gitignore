@@ -6,6 +6,8 @@ node_modules/
 runs/
 harness/runs/
 bench/out/
+harness/bench/out/
+harness/logs/
 *.pyc
 harness/logs/
 *.log
