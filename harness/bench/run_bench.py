@@ -17,7 +17,7 @@ import csv
 import json
 import time
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +26,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from codeverse.config import get_settings
 from codeverse.contracts.common import Backends, Budget, Language, Track
 from codeverse.contracts.run import RunRecord
 from codeverse.contracts.spec import Constraints, Spec
@@ -89,15 +90,24 @@ class BenchOptions(BaseModel):
     resume: bool = True
 
 
-def spec_for(battery: Battery, item: BenchPrompt, opts: BenchOptions) -> Spec:
-    backends = Backends(**{k: v for k, v in {"generator": opts.generator, "planner": opts.planner,
-                                             "judge": opts.judge}.items() if v})
+def build_spec(
+    battery: Battery, item: BenchPrompt, *, backends: Backends, rounds: int, max_usd: float,
+    max_minutes: float, tag0: str, extra_tags: Sequence[str] = (),
+) -> Spec:
+    """Shared Spec core for bench drivers (``run_bench`` / ``compare_backends``).
+    Drivers resolve their own ``Backends`` and pass their leading tag."""
     return Spec(
         id=f"{battery.name}/{item.id}", track=battery.track, language=battery.language, prompt=item.prompt,
         constraints=Constraints(must_have=list(item.must_have), dimensions_m=item.dimensions_m),
-        budget=Budget(max_rounds=opts.rounds, max_usd=opts.max_usd, max_minutes=opts.max_minutes),
-        backends=backends, tags=["bench", battery.name, item.tier, item.category, *item.tags],
+        budget=Budget(max_rounds=rounds, max_usd=max_usd, max_minutes=max_minutes),
+        backends=backends, tags=[tag0, battery.name, item.tier, item.category, *extra_tags, *item.tags],
     )
+
+
+def spec_for(battery: Battery, item: BenchPrompt, opts: BenchOptions) -> Spec:
+    backends = get_settings().backends(generator=opts.generator, planner=opts.planner, judge=opts.judge)
+    return build_spec(battery, item, backends=backends, rounds=opts.rounds, max_usd=opts.max_usd,
+                      max_minutes=opts.max_minutes, tag0="bench")
 
 
 def result_from_record(item: BenchPrompt, rec: RunRecord, minutes: float, ws: Workspace) -> BenchItemResult:
@@ -121,24 +131,36 @@ def _load_done(results_jsonl: Path) -> dict[str, BenchItemResult]:
     return done
 
 
+def select_prompts(
+    battery: Battery, *, ids: Sequence[str] = (), tiers: Sequence[str] = (), limit: int | None = None
+) -> list[BenchPrompt]:
+    """Filter a battery's prompts by id list, tier list, then head-``limit``
+    (single owner for the selection semantics of every bench driver)."""
+    items = list(battery.prompts)
+    if ids:
+        items = [p for p in items if p.id in set(ids)]
+    if tiers:
+        items = [p for p in items if p.tier in set(tiers)]
+    return items[:limit] if limit is not None else items
+
+
 def _select(battery: Battery, opts: BenchOptions) -> list[BenchPrompt]:
-    items = battery.prompts
-    if opts.ids:
-        items = [p for p in items if p.id in set(opts.ids)]
-    if opts.tiers:
-        items = [p for p in items if p.tier in set(opts.tiers)]
-    if opts.limit is not None:
-        items = items[: opts.limit]
-    return items
+    """Deprecated: use :func:`select_prompts`."""
+    return select_prompts(battery, ids=opts.ids, tiers=opts.tiers, limit=opts.limit)
 
 
 RunFn = Callable[[Spec, Workspace, bool], RunRecord]
 
 
-def _default_run(spec: Spec, ws: Workspace, resume: bool) -> RunRecord:
+def default_run_track(spec: Spec, ws: Workspace, resume: bool) -> RunRecord:
+    """Run the spec's track (the real thing; tests inject a fake ``run_fn``)."""
     from codeverse.tracks import get_track
 
     return get_track(spec.track).run(spec, ws, resume=resume)
+
+
+#: deprecated alias — use :func:`default_run_track`
+_default_run = default_run_track
 
 
 def run_battery(
@@ -147,7 +169,7 @@ def run_battery(
 ) -> list[BenchItemResult]:
     """Run (or resume) a battery; returns every result (previous + new)."""
     opts = opts or BenchOptions()
-    run_fn = run_fn or _default_run
+    run_fn = run_fn or default_run_track
     battery = Battery.load(battery_path)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -156,7 +178,7 @@ def run_battery(
                                                   "started_at": datetime.now(UTC).isoformat()}, indent=2))
     results_jsonl = out / "results.jsonl"
     done = _load_done(results_jsonl) if opts.resume else {}
-    todo = [p for p in _select(battery, opts) if p.id not in done]
+    todo = [p for p in select_prompts(battery, ids=opts.ids, tiers=opts.tiers, limit=opts.limit) if p.id not in done]
 
     def _one(item: BenchPrompt) -> BenchItemResult:
         ws = Workspace(out / "runs" / item.id)

@@ -95,18 +95,18 @@ async function main() {
 
   const srv = await serveDirs({ root: path.dirname(cfg.glb), routes: { '/__render.html': { body: pageHtml(cfg) } } });
   const consoleErrors = [];
-  let browser = null;
+  let launched = null;
+  let page = null;
   let gpu = false;
   let launchRenderer = '';
   const timing = {};
   try {
-    const launched = await launchBrowser({ gpu: cfg.gpu });
-    browser = launched.browser;
+    launched = await launchBrowser({ gpu: cfg.gpu });
     gpu = launched.gpu;
     launchRenderer = launched.renderer;
     timing.launch_ms = Date.now() - t0;
 
-    const page = await browser.newPage();
+    page = await launched.browser.newPage();
     await page.setViewport({ width: cfg.width, height: cfg.height, deviceScaleFactor: 1 });
     page.on('console', (msg) => {
       if (msg.type() === 'error' || msg.type() === 'warning') consoleErrors.push(`${msg.type()}: ${msg.text()}`);
@@ -141,7 +141,12 @@ async function main() {
     fs.writeFileSync(path.join(cfg.out, 'views.json'), JSON.stringify(record, null, 2));
     emit(record);
   } finally {
-    if (browser) await browser.close().catch(() => {});
+    // page first, then release: a shared browser is disconnected, never closed
+    if (page) await page.close().catch(() => {});
+    if (launched && launched.browser) {
+      if (typeof launched.release === 'function') await Promise.resolve(launched.release()).catch(() => {});
+      else await launched.browser.close().catch(() => {});
+    }
     await srv.close();
   }
 }

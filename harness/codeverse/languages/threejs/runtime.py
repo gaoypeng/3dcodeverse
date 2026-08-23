@@ -9,7 +9,7 @@ from typing import Any
 
 from codeverse.config import get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport
-from codeverse.contracts.common import Language
+from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import Plan
 from codeverse.conventions import to_snake
 from codeverse.languages.threejs.contract import CONTRACT_FALLBACK
@@ -31,7 +31,7 @@ class ThreeJsRuntime:
     """LanguageRuntime for ``Language.THREEJS`` (raw ESM three.js, exported via node)."""
 
     language = Language.THREEJS
-    entry_globs: tuple[str, ...] = ("src/object.js", "src/parts/*.js")
+    entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.THREEJS], "src/parts/*.js")
 
     # ------------------------------------------------------------------ contract
     def contract_doc(self) -> str:

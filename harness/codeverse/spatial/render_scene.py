@@ -7,18 +7,15 @@ times, deterministic instruments (console/shader errors, fps, census, camera
 checks incl. luminance + content coverage) and a labelled contact sheet built
 from the JUDGE subset of views.  Returns a ``RenderSet`` with every view; the
 full instrument payload is left at ``out_dir/metrics.json`` (``metrics_path_for``
-finds it again from a RenderSet) and ``views.json`` marks ``judge: true`` on the
-views ``select_judge_views`` keeps.
+finds it again from a RenderSet).  Each ``RenderView`` (and each entry of the
+driver's ``views.json``) carries ``judge: true|false`` — stamped once from
+``select_judge_views`` at render time.
 """
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
-import signal
-import subprocess
-import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +25,8 @@ from codeverse.config import get_settings
 from codeverse.contracts.artifacts import RenderSet, RenderView
 from codeverse.contracts.plan import BBox, CameraPlan
 from codeverse.conventions import SCENE_VIEWS, ViewPreset
+from codeverse.spatial.node import NodeError, run_node
+from codeverse.spatial.sheet import contact_sheet
 from codeverse.workspace import Workspace
 
 #: views the judge sees (contact sheet + individual images are built from these)
@@ -54,12 +53,10 @@ def runtime_js_dir() -> Path:
 
 
 def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd: Path | None = None) -> NodeResult:
-    """Run ``runtime_js/<script>`` with node; kill the whole process group on timeout.
-
-    Goes through ``codeverse.spatial.node.run_node`` (package C1) when it is
-    importable, else a local equivalent.  The driver prints a JSON summary as
-    its LAST stdout line; exit code 2/3 means the driver itself failed →
-    ``SceneRenderError``.
+    """Run ``runtime_js/<script>`` via ``codeverse.spatial.node.run_node`` (which
+    delegates to ``codeverse.proc.run_subprocess``: own process group, group kill
+    on timeout).  The driver prints a JSON summary as its LAST stdout line; a
+    timeout or exit code 2/3 means the driver itself failed → ``SceneRenderError``.
     """
     rt = runtime_js_dir()
     path = rt / script
@@ -70,55 +67,18 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
     if gpu and "CV3D_RENDER_GPU" not in os.environ:
         env_extra["CV3D_RENDER_GPU"] = gpu
     try:
-        from codeverse.spatial.node import NodeError, run_node
-    except ImportError:  # pragma: no cover - C1 not present
-        rc, out, err, dur = _run_node_local(path, args, timeout_s=timeout_s, cwd=cwd or rt, env_extra=env_extra)
-    else:
-        try:
-            r = run_node(path, list(map(str, args)), cwd=cwd or rt, timeout_s=timeout_s, env_extra=env_extra, check=False)
-        except NodeError as e:
-            raise SceneRenderError(f"{script} could not run: {e}") from e
-        if r.timed_out:
-            raise SceneRenderError(f"{script} timed out after {timeout_s:.0f}s\n{r.stderr_tail}")
-        rc, out, err, dur = r.rc, r.stdout, r.stderr, r.duration_ms
-    summary = _last_json_line(out)
-    if rc in (2, 3) or (rc != 0 and not summary):
+        r = run_node(path, list(map(str, args)), cwd=cwd or rt, timeout_s=timeout_s, env_extra=env_extra, check=False)
+    except NodeError as e:
+        if e.result is not None and e.result.timed_out:
+            raise SceneRenderError(f"{script} timed out after {timeout_s:.0f}s\n{e.result.stderr_tail}") from e
+        raise SceneRenderError(f"{script} could not run: {e}") from e
+    summary = r.last_json or {}
+    if r.rc in (2, 3) or (r.rc != 0 and not summary):
         raise SceneRenderError(
-            f"{script} failed (exit {rc}): {summary.get('error') if summary else ''}\n"
-            f"stderr tail: {(err or '')[-2000:]}\nstdout tail: {(out or '')[-1000:]}"
+            f"{script} failed (exit {r.rc}): {summary.get('error') if summary else ''}\n"
+            f"stderr tail: {r.stderr_tail}\nstdout tail: {r.stdout[-1000:]}"
         )
-    return NodeResult(rc, out, err, summary, dur)
-
-
-def _run_node_local(path: Path, args: Sequence[str], *, timeout_s: float, cwd: Path, env_extra: dict[str, str]) -> tuple[int, str, str, int]:
-    node = get_settings().binaries.node or "node"
-    env = dict(os.environ)
-    env.setdefault("NODE_PATH", str(path.parent / "node_modules"))
-    env.update(env_extra)
-    t0 = time.time()
-    proc = subprocess.Popen(
-        [node, str(path), *map(str, args)], cwd=str(cwd), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, start_new_session=True,
-    )
-    try:
-        out, err = proc.communicate(timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(proc.pid, signal.SIGKILL)
-        out, err = proc.communicate()
-        raise SceneRenderError(f"{path.name} timed out after {timeout_s:.0f}s\n{(err or '')[-2000:]}") from None
-    return proc.returncode, out, err, int((time.time() - t0) * 1000)
-
-
-def _last_json_line(stdout: str) -> dict[str, Any]:
-    for line in reversed((stdout or "").splitlines()):
-        line = line.strip()
-        if line.startswith("{") and line.endswith("}"):
-            try:
-                return json.loads(line)
-            except json.JSONDecodeError:
-                continue
-    return {}
+    return NodeResult(r.rc, r.stdout, r.stderr, summary, r.duration_ms)
 
 
 def _camera_json(cams: Sequence[CameraPlan]) -> str:
@@ -148,38 +108,10 @@ def plan_bounds(ws: Workspace) -> BBox | None:
 
 
 def _contact_sheet(images: list[tuple[str, Path]], out: Path, cols: int, tile: int) -> Path | None:
-    """Use ``codeverse.spatial.sheet.contact_sheet`` when present, else a local PIL grid."""
+    """``sheet.contact_sheet`` with an empty-list guard (it raises on no images)."""
     if not images:
         return None
-    try:
-        from codeverse.spatial.sheet import contact_sheet  # package C1
-
-        return Path(contact_sheet(images, out, cols=cols, tile=tile))
-    except ImportError:
-        return _local_contact_sheet(images, out, cols=cols, tile=tile)
-
-
-def _local_contact_sheet(images: list[tuple[str, Path]], out: Path, *, cols: int = 4, tile: int = 384) -> Path:
-    from PIL import Image, ImageDraw
-
-    cols = max(1, min(cols, len(images)))
-    rows = (len(images) + cols - 1) // cols
-    th = int(tile * 9 / 16) + 18
-    sheet = Image.new("RGB", (cols * tile, rows * th), (24, 24, 24))
-    draw = ImageDraw.Draw(sheet)
-    for i, (label, p) in enumerate(images):
-        x, y = (i % cols) * tile, (i // cols) * th
-        try:
-            im = Image.open(p).convert("RGB")
-            im.thumbnail((tile, th - 18))
-            sheet.paste(im, (x + (tile - im.width) // 2, y + 18))
-        except OSError:
-            draw.rectangle([x, y + 18, x + tile, y + th], fill=(60, 0, 0))
-        draw.rectangle([x, y, x + tile, y + 18], fill=(0, 0, 0))
-        draw.text((x + 4, y + 3), label[: tile // 7], fill=(255, 255, 255))
-    out.parent.mkdir(parents=True, exist_ok=True)
-    sheet.save(out)
-    return out
+    return Path(contact_sheet(images, out, cols=cols, tile=tile))
 
 
 def render_scene(
@@ -259,11 +191,16 @@ def render_scene(
     rs = RenderSet(
         views=views, renderer=str(metrics.get("renderer") or res.summary.get("renderer") or ""),
         duration_ms=res.duration_ms, console_errors=errors, fps=float(fps) if fps is not None else None,
+        out_dir=str(out_dir),
     )
-    judge_names = {(v.name, v.time_s) for v in select_judge_views(rs, max_n=sheet_max_views or len(views), orbit_names=[v.name for v in orbit_views]).views}
-    _mark_judge_views(out_dir / "views.json", judge_names)
+    # stamp the judge subset ONCE (select_judge_views stays a pure function)
+    chosen = select_judge_views(rs, max_n=sheet_max_views or len(views), orbit_names=[v.name for v in orbit_views])
+    keep = {id(v) for v in chosen.views}  # same objects, so identity is exact
+    for v in rs.views:
+        v.judge = id(v) in keep
+    _mark_judge_views(out_dir / "views.json", rs.views)
     if sheet and views:
-        labelled = [(f"{v.name} t={v.time_s:g}", Path(v.path)) for v in views if (v.name, v.time_s) in judge_names]
+        labelled = [(f"{v.name} t={v.time_s:g}", Path(v.path)) for v in rs.views if v.judge]
         sheet_path = _contact_sheet(labelled, out_dir / "sheet.png", settings.render.sheet_cols, settings.render.sheet_tile)
         rs.contact_sheet = str(sheet_path) if sheet_path else None
     return rs
@@ -294,16 +231,17 @@ def select_judge_views(rs: RenderSet, max_n: int = JUDGE_MAX_VIEWS, *, orbit_nam
     return rs.model_copy(update={"views": [v for v in views if id(v) in keep]})  # disk order, judge subset
 
 
-def _mark_judge_views(views_json: Path, judge: set[tuple[str, float | None]]) -> None:
-    """Stamp ``judge: true|false`` on each entry of the driver's views.json."""
+def _mark_judge_views(views_json: Path, views: Sequence[RenderView]) -> None:
+    """Serialise each view's stamped ``judge`` flag into the driver's views.json."""
     if not views_json.is_file():
         return
     try:
         entries = json.loads(views_json.read_text())
     except (OSError, ValueError):
         return
+    flags = {(v.name, v.time_s): bool(v.judge) for v in views}
     for e in entries:
-        e["judge"] = (e.get("name"), e.get("time_s")) in judge
+        e["judge"] = flags.get((e.get("name"), e.get("time_s")), False)
     views_json.write_text(json.dumps(entries, indent=1))
 
 
@@ -357,7 +295,12 @@ def frame_table(source: RenderSet | dict[str, Any] | Path | str) -> str:
 
 
 def metrics_path_for(rs: RenderSet) -> Path | None:
-    """``metrics.json`` next to a RenderSet's sheet / views (None when not a scene render)."""
+    """``metrics.json`` of a RenderSet: the stamped ``out_dir`` when present, else
+    guessed as a sibling of the sheet / views (rounds recorded before stamping)."""
+    if rs.out_dir:
+        p = Path(rs.out_dir) / "metrics.json"
+        if p.is_file():
+            return p
     for cand in (rs.contact_sheet, *(v.path for v in rs.views)):
         if cand:
             p = Path(cand).parent / "metrics.json"

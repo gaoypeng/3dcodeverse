@@ -14,14 +14,12 @@ import contextlib
 import json
 import os
 import resource
-import signal
-import subprocess
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from codeverse.config import get_settings
+from codeverse.proc import run_subprocess
 
 TAIL_CHARS = 4000
 
@@ -136,39 +134,22 @@ def run_node(
     if env_extra:
         env.update(env_extra)
 
-    t0 = time.time()
     try:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(cwd) if cwd else None,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-            preexec_fn=_limit_memory(mem_limit_gb),
-        )
+        proc = run_subprocess(cmd, cwd=cwd or Path.cwd(), timeout_s=timeout_s, env=env,
+                              preexec_fn=_limit_memory(mem_limit_gb))
     except FileNotFoundError as e:
         raise NodeError(f"node binary not found ({node_bin}): {e}") from e
 
-    timed_out = False
-    try:
-        out, err = proc.communicate(timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        _kill_group(proc)
-        out, err = proc.communicate()
-    duration_ms = int((time.time() - t0) * 1000)
     result = NodeResult(
-        rc=proc.returncode if not timed_out else -9,
-        stdout=out or "",
-        stderr=err or "",
-        last_json=parse_last_json(out or ""),
-        duration_ms=duration_ms,
-        timed_out=timed_out,
+        rc=proc.returncode if not proc.timed_out else -9,
+        stdout=proc.stdout,
+        stderr=proc.stderr,
+        last_json=parse_last_json(proc.stdout),
+        duration_ms=proc.duration_ms,
+        timed_out=proc.timed_out,
         cmd=cmd,
     )
-    if timed_out:
+    if result.timed_out:
         raise NodeError(f"node script {script.name} timed out after {timeout_s:.0f}s\n{result.stderr_tail}", result)
     if check and result.rc != 0:
         msg = f"node script {script.name} exited {result.rc}"
@@ -177,12 +158,3 @@ def run_node(
             msg += ": " + (e.get("message", "") if isinstance(e, dict) else str(e))
         raise NodeError(msg + "\n" + result.stderr_tail, result)
     return result
-
-
-def _kill_group(proc: subprocess.Popen) -> None:
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    except PermissionError:
-        proc.kill()

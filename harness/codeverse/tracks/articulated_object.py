@@ -21,9 +21,10 @@ from codeverse.contracts.artifacts import (
     RenderView,
     Severity,
 )
-from codeverse.contracts.common import Track
+from codeverse.contracts.common import TRACK_INFO, Track
 from codeverse.contracts.plan import ArticulatedPlan, Plan
 from codeverse.tracks.common import RunContext
+from codeverse.tracks.motion import MOTION_GATE
 from codeverse.tracks.static_object import ObjectPipeline, StaticObjectTrack
 from codeverse.workspace import Workspace
 
@@ -40,11 +41,9 @@ class ArticulatedPipeline(ObjectPipeline):
         out_dir = ctx.ws.renders_dir(round_index) / "poses"
         report, views = ctx.services.joint_sweep(ctx.ws, ctx.plan, out_dir)
         ctx.extra["pose_views"] = views
-        ctx.extra["sweep_report"] = report
         out.append(report)
         motion = self._motion_gate(ctx)
         if motion is not None:
-            ctx.extra["motion_report"] = motion
             out.append(motion)
         return out
 
@@ -73,9 +72,9 @@ class ArticulatedPipeline(ObjectPipeline):
         joints = "; ".join(f"{j.name} ({j.type} {j.parent}→{j.child}, [{j.lower:.2f},{j.upper:.2f}])" for j in plan.joints)
         return f"{base} Root link {plan.root_link}. Joints: {joints}."
 
-    def judge_context(self, ctx: RunContext, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
-        report: GateReport | None = ctx.extra.pop("sweep_report", None)
-        motion: GateReport | None = ctx.extra.pop("motion_report", None)
+    def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
+        report = next((g for g in gates if g.gate == SWEEP_GATE), None)
+        motion = next((g for g in gates if g.gate == MOTION_GATE), None)
         lines = ["Articulation sheet: the pose_* views show the object at rest, each joint at its lower and upper limit."]
         if report is not None:
             errs = [f"- {f.target or 'joint'}: {f.message}" for f in report.errors]
@@ -90,11 +89,11 @@ class ArticulatedPipeline(ObjectPipeline):
 
 class ArticulatedObjectTrack(StaticObjectTrack):
     track = Track.ARTICULATED_OBJECT
-    rubric = "articulated_v1"
+    rubric = TRACK_INFO[Track.ARTICULATED_OBJECT].rubric
     plan_model = ArticulatedPlan
     generate_template = "tracks/generate_articulated.j2"
 
-    def make_pipeline(self, ctx: RunContext) -> ArticulatedPipeline:
+    def make_pipeline(self) -> ArticulatedPipeline:
         return ArticulatedPipeline()
 
     def system_prompt(self, ctx: RunContext) -> str:

@@ -31,6 +31,7 @@ from codeverse.judges.montage import (
     shuffle_montages,
 )
 from codeverse.judges.rubrics import Rubric
+from codeverse.spatial.measure import measure_summary_table
 
 if TYPE_CHECKING:  # pragma: no cover
     from codeverse.judges.base import JudgeInput
@@ -126,36 +127,7 @@ def acceptance_section(items: list[AcceptanceItem]) -> str:
 def measurement_section(m: Measurement | None) -> str:
     if m is None:
         return "MEASUREMENTS: (none available)"
-    try:
-        from codeverse.spatial.measure import measure_summary_table  # type: ignore[attr-defined]
-    except (ImportError, AttributeError):
-        measure_summary_table = None
-    if measure_summary_table is not None:
-        return "MEASUREMENTS (harness, Y-up meters):\n" + _clip(str(measure_summary_table(m)), 6000)
-    return "MEASUREMENTS (harness, Y-up meters):\n" + _local_measure_table(m)
-
-
-def _fmt3(v: tuple[float, float, float]) -> str:
-    return f"({v[0]:.3f}, {v[1]:.3f}, {v[2]:.3f})"
-
-
-def _local_measure_table(m: Measurement) -> str:
-    ex = m.extents
-    lines = [
-        f"overall extents x/y/z = {ex[0]:.3f} × {ex[1]:.3f} × {ex[2]:.3f} m; bbox min {_fmt3(m.bbox_min)} max {_fmt3(m.bbox_max)}; centre {_fmt3(m.center)}",
-        f"triangles {m.tri_count}; meshes {m.n_meshes}; islands {m.n_islands}; materials {m.materials}; ground_gap {m.ground_gap_m:+.4f} m; footprint_offset {m.footprint_offset_m:.4f} m",
-    ]
-    if m.parts:
-        lines.append("part | size x×y×z (m) | min y | tris | islands | watertight")
-        for p in m.parts[:40]:
-            sx, sy, sz = (p.bbox_max[i] - p.bbox_min[i] for i in range(3))
-            wt = "-" if p.watertight is None else ("yes" if p.watertight else "no")
-            lines.append(f"{p.name} | {sx:.3f}×{sy:.3f}×{sz:.3f} | {p.bbox_min[1]:.3f} | {p.tri_count} | {p.islands} | {wt}")
-        if len(m.parts) > 40:
-            lines.append(f"… {len(m.parts) - 40} more parts")
-    for k, v in list(m.extra.items())[:8]:
-        lines.append(f"{k}: {_clip(str(v), 200)}")
-    return "\n".join(lines)
+    return "MEASUREMENTS (harness, Y-up meters):\n" + _clip(str(measure_summary_table(m)), 6000)
 
 
 def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: int = 8) -> str:

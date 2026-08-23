@@ -93,8 +93,7 @@ _PROBE_JS = (
 
 def check_gpu_probe(timeout_s: int = 120) -> list[Row]:
     """Launch headless Chrome through runtime_js/gpu_launch.cjs and report the WebGL renderer."""
-    import os
-    import signal
+    from codeverse.proc import run_subprocess
 
     s = get_settings()
     rj = s.runtime_js_dir()
@@ -103,21 +102,18 @@ def check_gpu_probe(timeout_s: int = 120) -> list[Row]:
         return [("chrome webgl", "SKIP", f"{launcher} missing (spatial render package not installed yet)")]
     cmd = [s.binaries.node, "-e", _PROBE_JS, str(launcher)]
     try:
-        proc = subprocess.Popen(cmd, cwd=rj, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                start_new_session=True)
-        out, errs = proc.communicate(timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
-        return [("chrome webgl", "FAIL", f"probe timed out after {timeout_s}s")]
+        proc = run_subprocess(cmd, cwd=rj, timeout_s=timeout_s)
     except OSError as e:
         return [("chrome webgl", "FAIL", str(e))]
-    line = next((ln for ln in reversed(out.strip().splitlines()) if ln.startswith("{")), "")
+    if proc.timed_out:
+        return [("chrome webgl", "FAIL", f"probe timed out after {timeout_s}s")]
+    line = next((ln for ln in reversed(proc.stdout.strip().splitlines()) if ln.startswith("{")), "")
     try:
         res = json.loads(line) if line else {}
     except ValueError:
         res = {}
     if "error" in res or proc.returncode != 0:
-        detail = str(res.get("error") or (errs.strip().splitlines() or ["unknown error"])[-1])
+        detail = str(res.get("error") or (proc.stderr.strip().splitlines() or ["unknown error"])[-1])
         return [("chrome webgl", "FAIL", detail[:160])]
     renderer = str(res.get("renderer", "?"))
     return [("chrome webgl", "OK" if res.get("gpu") else "WARN",

@@ -16,11 +16,17 @@ from typing import Any
 from codeverse.contracts.chat import ImagePart
 from codeverse.contracts.common import Language
 from codeverse.contracts.plan import Plan, StaticPlan
+from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import LANGUAGE_FRAME, Frame, frame_doc, to_snake
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
 
 log = logging.getLogger(__name__)
+
+MAX_SKELETON_CHARS = 14_000
+
+#: the files a scene refine task falls back to when the group has no file ownership
+SCENE_FILES: tuple[str, ...] = ("src/scene.js", "src/env.js")
 
 
 def parts_table(plan: Plan) -> str:
@@ -152,6 +158,88 @@ def reference_note(ctx: RunContext) -> str:
         lines.append(f"Use the `compare_silhouette` tool (render_png=<your front render>, reference_png=`{tgt}`) "
                      "after building to check the outline, and `render_views` to look at your model.")
     return "\n".join(lines)
+
+
+# ----------------------------------------------------------------------------- files + round digests
+def expected_files(ctx: RunContext) -> list[str]:
+    """Files the generator is expected to produce for this language + plan."""
+    lang = ctx.language
+    parts = getattr(ctx.plan, "parts", None) or []
+    if lang is Language.THREEJS:
+        return ["src/object.js"] + [f"src/parts/{to_snake(p.name)}.js" for p in parts]
+    if lang is Language.URDF_BLENDER:
+        return ["src/model.py", "src/robot.urdf"]
+    files = ["src/model.py"]
+    custom = getattr(ctx.runtime, "file_for_part", None)  # blender: src/parts/<snake>.py per part
+    if callable(custom):
+        for p in parts:
+            try:
+                rel = custom(p.name)
+            except Exception as e:  # noqa: BLE001
+                log.warning("runtime.file_for_part failed for %s: %s", p.name, e)
+                continue
+            if rel and str(rel) not in files:
+                files.append(str(rel))
+    return files
+
+
+def skeleton_files(ctx: RunContext, max_chars: int = MAX_SKELETON_CHARS) -> dict[str, str]:
+    """Current src/ files (the skeleton), trimmed, for single-shot prompts."""
+    return current_files(ctx, [str(p.relative_to(ctx.ws.root)) for p in sorted(ctx.ws.src.rglob("*")) if p.is_file()], max_chars)
+
+
+def current_files(ctx: RunContext, rels: Sequence[str], max_chars: int = MAX_SKELETON_CHARS) -> dict[str, str]:
+    out: dict[str, str] = {}
+    total = 0
+    for rel in rels:
+        p = ctx.ws.root / rel
+        if not p.is_file():
+            continue
+        text = p.read_text(errors="replace")
+        room = max_chars - total
+        if room <= 0:
+            break
+        if len(text) > room:
+            text = text[:room] + "\n# ... truncated ...\n"
+        out[rel] = text
+        total += len(text)
+    return out
+
+
+def judge_digest(last: RoundRecord, max_issues: int = 8) -> str:
+    j = last.judgment
+    if j is None:
+        return "(no judgment for the previous round)"
+    lines = [f"Previous score {j.overall:.2f} ({'passed' if j.passed else 'not passed'}). {j.summary}".strip()]
+    for k, v in sorted(j.scores.items(), key=lambda kv: kv[1])[:6]:
+        lines.append(f"- {k}: {v:.2f}")
+    for i in j.issues[:max_issues]:
+        lines.append(f"- [{i.severity}/{i.kind}] {i.target}: {i.detail}" + (f" (seen in {i.evidence})" if i.evidence else ""))
+    return "\n".join(lines)
+
+
+def measurement_vs_plan(last: RoundRecord, plan: Plan | None, language: Language = Language.THREEJS) -> str:
+    """Exact numbers (in the plan's frame): measured overall/part bboxes vs planned ones."""
+    m = last.measurement
+    if m is None or plan is None or not hasattr(plan, "overall_bbox"):
+        return ""
+    pe = plan.overall_bbox.extents
+    me = glb_to_plan_frame(m.extents, language, extents=True)
+    lines = [f"Measured overall extents {me[0]:.3f}×{me[1]:.3f}×{me[2]:.3f} m vs plan "
+             f"{pe[0]:.3f}×{pe[1]:.3f}×{pe[2]:.3f} m; ground gap {m.ground_gap_m:+.3f} m; footprint offset {m.footprint_offset_m:.3f} m; "
+             f"{m.tri_count} tris, {m.n_meshes} meshes, {m.n_islands} islands."]
+    planned = {to_snake(p.name): p for p in getattr(plan, "parts", [])}
+    for pm in m.parts[:24]:
+        p = planned.get(to_snake(pm.name))
+        if p is None:
+            continue
+        ext = glb_to_plan_frame([b - a for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language, extents=True)
+        cen = glb_to_plan_frame([(a + b) / 2 for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language)
+        lines.append(f"- {p.name}: measured centre ({cen[0]:.3f}, {cen[1]:.3f}, {cen[2]:.3f}) extents ({ext[0]:.3f}, {ext[1]:.3f}, {ext[2]:.3f})"
+                     f" | plan centre ({p.bbox.center[0]:.3f}, {p.bbox.center[1]:.3f}, {p.bbox.center[2]:.3f}) extents "
+                     f"({p.bbox.extents[0]:.3f}, {p.bbox.extents[1]:.3f}, {p.bbox.extents[2]:.3f})")
+    gate_lines = [f"- {f.as_line(with_gate=True)}" for g in last.gates for f in g.errors][:12]
+    return "\n".join(lines + gate_lines)
 
 
 AGENT_OUTPUT_RULES = """HOW TO FINISH (agent mode): edit files under src/ only (and public/ for compiled assets).

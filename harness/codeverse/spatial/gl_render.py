@@ -29,7 +29,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codeverse.languages._common import run_subprocess
+from codeverse.proc import run_subprocess
 
 RUNNER = Path(__file__).resolve().parent.parent / "languages" / "opengl_python" / "wrappers" / "run_gl.py"
 
@@ -193,7 +193,7 @@ def write_contact_sheet(frames: Sequence[GlFrame], out: Path, *, cols: int = 3, 
 
     from PIL import Image, ImageDraw
 
-    from codeverse.spatial.sheet import LABEL_BG, LABEL_FG, LABEL_H, PAD, _font
+    from codeverse.spatial.sheet import BG, LABEL_BG, LABEL_FG, LABEL_H, PAD, load_font
 
     frames = list(frames)
     if not frames:
@@ -203,9 +203,9 @@ def write_contact_sheet(frames: Sequence[GlFrame], out: Path, *, cols: int = 3, 
     cols = max(1, min(cols, len(frames)))
     rows = math.ceil(len(frames) / cols)
     cell_h = tile_h + LABEL_H
-    sheet = Image.new("RGB", (cols * (tile_w + PAD) + PAD, rows * (cell_h + PAD) + PAD), (250, 250, 250))
+    sheet = Image.new("RGB", (cols * (tile_w + PAD) + PAD, rows * (cell_h + PAD) + PAD), BG)
     draw = ImageDraw.Draw(sheet)
-    font = _font(15)
+    font = load_font(15)
     for i, f in enumerate(frames):
         x = PAD + (i % cols) * (tile_w + PAD)
         y = PAD + (i // cols) * (cell_h + PAD)

@@ -11,7 +11,14 @@ to ``src/shader.frag`` / ``src/common.glsl`` line numbers.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
+from codeverse.languages._gl_common import (  # noqa: F401 — re-exported
+    GlslMessage,
+    LineMap,
+    Segment,
+    parse_glsl_log,
+)
 
 UNIFORM_NAMES: tuple[str, ...] = ("u_time", "u_resolution", "u_mouse", "u_frame", "u_prev", "u_noise", "u_buffer_a")
 
@@ -44,29 +51,6 @@ _LINE_COMMENT = re.compile(r"//[^\n]*")
 _MAIN_IMAGE = re.compile(r"\bvoid\s+mainImage\s*\(")
 _PLAIN_MAIN = re.compile(r"\bvoid\s+main\s*\(\s*(void)?\s*\)")
 _OUT_DECL = re.compile(r"\bout\s+vec4\s+\w+\s*;")
-
-
-@dataclass(frozen=True)
-class Segment:
-    file: str  # "src/shader.frag" | "src/common.glsl" | "harness"
-    start: int  # 1-based first line in the composed source
-    n_lines: int
-
-    @property
-    def end(self) -> int:
-        return self.start + self.n_lines - 1
-
-
-@dataclass
-class LineMap:
-    segments: list[Segment] = field(default_factory=list)
-
-    def locate(self, line: int) -> tuple[str, int]:
-        """Composed line → (file, line-in-file); harness lines map to ("harness", line)."""
-        for s in self.segments:
-            if s.start <= line <= s.end:
-                return s.file, line - s.start + 1
-        return "harness", line
 
 
 @dataclass
@@ -125,44 +109,8 @@ def compose(shader_src: str, common_src: str | None = None, *, shader_file: str 
 
 
 # --------------------------------------------------------------------------- compiler messages
-# Mesa: "0:12(5): error: `foo' undeclared" · NVIDIA: "0(12) : error C1008: ..." · ANGLE/ES: "ERROR: 0:12: 'foo' : undeclared"
-_MSG_PATTERNS = (
-    re.compile(r"^\s*(?P<src>\d+):(?P<line>\d+)\((?P<col>\d+)\):\s*(?P<kind>error|warning):\s*(?P<msg>.*)$"),
-    re.compile(r"^\s*(?P<src>\d+)\((?P<line>\d+)\)\s*:\s*(?P<kind>error|warning)\s*(?P<msg>.*)$"),
-    re.compile(r"^\s*(?P<kind>ERROR|WARNING):\s*(?P<src>\d+):(?P<line>\d+):\s*(?P<msg>.*)$"),
-)
-
-
-@dataclass(frozen=True)
-class GlslMessage:
-    kind: str  # error | warning
-    line: int  # composed line
-    message: str
-    file: str = ""
-    file_line: int = 0
-
-    def text(self) -> str:
-        loc = f"{self.file}:{self.file_line}" if self.file else f"line {self.line}"
-        return f"{loc}: {self.kind}: {self.message}"
-
-
-def parse_glsl_log(log: str, line_map: LineMap | None = None) -> list[GlslMessage]:
-    """Parse a GLSL info log (any driver dialect) into messages mapped to agent files."""
-    out: list[GlslMessage] = []
-    for raw in (log or "").splitlines():
-        for pat in _MSG_PATTERNS:
-            m = pat.match(raw)
-            if not m:
-                continue
-            line = int(m.group("line"))
-            kind = m.group("kind").lower()
-            msg = m.group("msg").strip()
-            f, fl = line_map.locate(line) if line_map else ("", 0)
-            out.append(GlslMessage(kind=kind, line=line, message=msg, file=f, file_line=fl))
-            break
-    return out
-
-
+# GlslMessage / LineMap / parse_glsl_log live in ``_gl_common`` (shared with opengl_python)
+# and are re-exported above; only source composition + first_error remain here.
 def first_error(messages: list[GlslMessage]) -> GlslMessage | None:
     for m in messages:
         if m.kind == "error":

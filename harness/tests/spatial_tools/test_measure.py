@@ -78,3 +78,37 @@ def test_cyclic_scene_graph_does_not_hang(tmp_path: Path) -> None:
     scene.graph.update(frame_to="root", frame_from="world")  # cycle: root → wrapper → world → root
     assert "world" in _subtree_nodes(scene, "root") and len(_subtree_nodes(scene, "root")) == 3
     assert [k for k, v in part_meshes(scene).items() if v is not None]
+
+
+# --------------------------------------------------------------------- parse memo (F24)
+def test_cached_parts_identity_and_invalidation(stool_glb: Path) -> None:
+    from codeverse.spatial.measure import cached_parts
+
+    p1 = cached_parts(stool_glb)
+    p2 = cached_parts(stool_glb)
+    assert p1 is not p2                               # fresh dict per call
+    assert all(p1[k] is p2[k] for k in p1)            # same stat → shared meshes
+    # rewriting the file (new mtime_ns/size) invalidates the entry
+    import os
+    os.utime(stool_glb, ns=(1, 1))
+    p3 = cached_parts(stool_glb)
+    assert set(p3) == set(p1) and all(p3[k] is not p1[k] for k in p3)
+
+
+def test_measure_glb_memoized_and_isolated(stool_glb: Path) -> None:
+    m1 = measure_glb(stool_glb)
+    m2 = measure_glb(stool_glb)
+    assert m1 is not m2 and m1 == m2
+    m1.extra["findings"].append("mutated")            # a caller's edit never leaks back
+    assert measure_glb(stool_glb).extra["findings"] == []
+
+
+def test_load_scene_is_never_cached(stool_glb: Path) -> None:
+    """Texturing mutates scenes in place — load_scene must hand out fresh objects."""
+    from codeverse.spatial.measure import load_scene
+
+    s1 = load_scene(stool_glb)
+    s2 = load_scene(stool_glb)
+    assert s1 is not s2
+    g1 = s1.geometry[next(iter(s1.geometry))]
+    assert g1 is not s2.geometry[next(iter(s2.geometry))]

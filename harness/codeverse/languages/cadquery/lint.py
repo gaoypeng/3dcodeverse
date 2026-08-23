@@ -13,12 +13,19 @@ import time
 from pathlib import Path
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse.languages._ast_lint import (  # noqa: F401 — dotted re-exported
+    BASE_FORBIDDEN_IMPORTS,
+    check_imports,
+    dotted,
+)
 
 GATE = "lint:cadquery"
 ALLOWED_IMPORTS = {"cadquery", "cq", "math", "random", "numpy", "np", "itertools", "functools", "collections",
                    "typing", "dataclasses", "enum", "copy", "statistics", "operator", "__future__"}
-FORBIDDEN_IMPORTS = {"os", "sys", "subprocess", "shutil", "pathlib", "urllib", "requests", "socket", "http", "pickle",
-                     "ctypes", "multiprocessing", "threading", "importlib", "OCP", "OCC", "ocp_vscode", "cq_editor", "cq_warehouse", "build123d"}
+FORBIDDEN_IMPORTS = frozenset(BASE_FORBIDDEN_IMPORTS | {
+    "os", "sys", "pathlib",  # no file-system / interpreter access (unlike blender, nothing legitimate needs them)
+    "OCP", "OCC", "ocp_vscode", "cq_editor", "cq_warehouse", "build123d",  # raw cadquery only — no OCC/tooling layers
+})
 FORBIDDEN_CALLS: tuple[tuple[str, str], ...] = (
     ("show_object", "show_object() exists only in CQ-editor; delete it — the harness renders for you"),
     ("show", "show() is for notebooks/CQ-editor; delete it"),
@@ -33,19 +40,6 @@ FORBIDDEN_CALLS: tuple[tuple[str, str], ...] = (
 FORBIDDEN_METHODS = {"save": "no .save()/.export() on the assembly — the harness exports", "export": "no .export() — the harness exports",
                      "exportStep": "no export calls", "exportStl": "no export calls", "exportSvg": "no export calls"}
 PASCAL_RE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)*(?:_\d+)?$")
-
-
-def dotted(node: ast.AST) -> str:
-    parts: list[str] = []
-    while isinstance(node, ast.Attribute):
-        parts.append(node.attr)
-        node = node.value
-    if isinstance(node, ast.Name):
-        parts.append(node.id)
-        return ".".join(reversed(parts))
-    if parts:  # method on an expression result, e.g. ``wp.box(1).rotate`` → ``<expr>.rotate``
-        return "<expr>." + ".".join(reversed(parts))
-    return ""
 
 
 RADIAN_CONSTS = {"pi", "tau"}
@@ -150,11 +144,13 @@ def _rules(c: _Collector, tree: ast.Module, source: str) -> list[GateFinding]:
     out: list[GateFinding] = []
     if "cadquery" not in c.imports:
         out.append(_f(E, "model.py never imports cadquery", 1, "start with `import cadquery as cq`"))
-    for mod, line in c.imports.items():
-        if mod in FORBIDDEN_IMPORTS:
-            out.append(_f(E, f"forbidden import `{mod}`", line, "only `cadquery`, `math`, `random`, `numpy` (+ stdlib data helpers) are allowed"))
-        elif mod not in ALLOWED_IMPORTS:
-            out.append(_f(W, f"unexpected import `{mod}` (may not exist in the build sandbox)", line, "stick to cadquery / math / random / numpy"))
+
+    def _import_finding(kind: str, mod: str, line: int) -> GateFinding:
+        if kind == "forbidden":
+            return _f(E, f"forbidden import `{mod}`", line, "only `cadquery`, `math`, `random`, `numpy` (+ stdlib data helpers) are allowed")
+        return _f(W, f"unexpected import `{mod}` (may not exist in the build sandbox)", line, "stick to cadquery / math / random / numpy")
+
+    out.extend(check_imports(c.imports, forbidden=FORBIDDEN_IMPORTS, allowed=ALLOWED_IMPORTS, make_finding=_import_finding))
     top, guarded = _top_level_assigned(tree)
     if "result" not in top:
         hint = "assign `result = cq.Assembly(...)` (or a Workplane) at module level, NOT under `if __name__ == '__main__':`" if "result" in guarded \

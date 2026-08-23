@@ -1,15 +1,30 @@
-"""Generic retry helper with exponential backoff + full jitter.
+"""Generic retry helpers: exponential backoff + full jitter, and the shared
+key-rotation state machine used by the Gemini backends.
 
-Provider modules use it for 429/5xx/timeouts; it is deliberately tiny and has
-no provider knowledge.  ``sleep`` is injectable so unit tests run instantly.
+* :func:`with_retries` — plain bounded retry; no provider knowledge.
+* :func:`rotate_with_retries` — the dead-key / 429-rotation / backoff machine
+  over a :class:`~codeverse.models.keypool.KeyPool`.  Provider specifics
+  (exception classification, outcome mapping, retry-after extraction) are
+  injected as hooks, so this module stays provider-neutral.
+
+``sleep`` is injectable everywhere so unit tests run instantly.
 """
 
 from __future__ import annotations
 
+import logging
 import random
 import time
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
+
+from codeverse.models.keypool import KeyPoolExhausted
+
+if TYPE_CHECKING:  # pragma: no cover
+    from codeverse.models.base import ModelError
+    from codeverse.models.keypool import KeyPool, Outcome
+
+log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -63,3 +78,128 @@ def with_retries(
     # unreachable, but keeps type-checkers happy
     assert last is not None
     raise last
+
+
+def rotate_with_retries(
+    pool: KeyPool,
+    call: Callable[[str], T],
+    *,
+    classify: Callable[[BaseException], ModelError],
+    outcome_of: Callable[[ModelError], Outcome],
+    max_attempts: int = 6,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    storm_attempts: int = 10,
+    storm_max_delay: float = 120.0,
+    sleep: Callable[[float], None] = time.sleep,
+    on_free_retry: Callable[[ModelError], bool] | None = None,
+    retry_after: Callable[[BaseException], float | None] | None = None,
+    tokens_of: Callable[[T], int] | None = None,
+    label: str = "model",
+) -> T:
+    """Run ``call(key)`` against a rotating :class:`KeyPool` until it succeeds.
+
+    The state machine (shared by ``GeminiModel`` / ``GeminiImageModel``):
+
+    * success → ``pool.report(key, "ok", tokens=tokens_of(result))``; keys that
+      looked dead during this call are benched (another key proved the request
+      itself is fine) and the result is returned.
+    * ``on_free_retry(err)`` returning ``True`` → retry at once, for free
+      (no report, no sleep) — e.g. a thinking-config downgrade.
+    * ``outcome_of(err) == "dead"`` (key-scoped auth failure) → rotate at once
+      for free; the key is only benched once a sibling key proves the request
+      is fine.  Every key failing the same way raises without benching.
+    * ``"429"`` → cool the key down (honouring ``retry_after``); rotation is
+      FREE while an untried key remains (0.5 s courtesy pause), otherwise the
+      429 counts against ``max_attempts`` with exponential backoff.
+    * a **capacity storm** (HTTP 503/529 — model-wide, key rotation cannot
+      help) gets its own patience budget: up to ``storm_attempts`` waits with
+      exponential backoff capped at ``storm_max_delay`` (~8 min total by
+      default) that do NOT consume ``max_attempts``.  Observed 2026-08-23: a
+      multi-minute gemini-3.7-flash "high demand" outage killed 8 bench runs
+      under the plain 6-attempt budget.
+    * other retryable errors → exponential backoff + jitter until
+      ``max_attempts``; non-retryable errors raise immediately.
+    """
+    failed_keys: set[str] = set()  # keys that 429'd or looked dead during this call
+    dead_keys: set[str] = set()
+
+    def bench() -> None:
+        # mark keys that failed with key-scoped errors dead — called once the call
+        # got past the auth layer on some other key (success, 429, 5xx, bad JSON …)
+        for k in dead_keys:
+            pool.report(k, "dead")
+        dead_keys.clear()
+
+    last_err: ModelError | None = None
+    attempt = 0
+    storm = 0
+    while attempt < max_attempts:
+        attempt += 1
+        # never go back to a key that looked dead this call; throttled keys are
+        # excluded while an untried one remains, else acquire() waits for a cooldown
+        exclude = dead_keys | (failed_keys if len(failed_keys) < len(pool) else set())
+        try:
+            key = pool.acquire(exclude=exclude)
+        except KeyPoolExhausted as exc:
+            raise classify(exc) from exc
+        try:
+            result = call(key)
+            pool.report(key, "ok", tokens=tokens_of(result) if tokens_of is not None else 0)
+            bench()
+            return result
+        except Exception as exc:  # noqa: BLE001 - classification is delegated
+            err = classify(exc)
+            last_err = err
+            if on_free_retry is not None and on_free_retry(err):
+                attempt -= 1
+                continue
+            outcome = outcome_of(err)
+            if outcome == "dead":
+                # key-scoped: move on at once (no budget, no sleep); the key is only
+                # benched once another key proves the request itself is fine
+                dead_keys.add(key)
+                failed_keys.add(key)
+                pool.report(key, "error")
+                if len(dead_keys) < len(pool):
+                    log.warning("%s key …%s looks dead (%s); rotating", label, key[-4:], err)
+                    attempt -= 1
+                    continue
+                raise err from exc  # every key failed the same way: not the keys' fault
+            pool.report(
+                key,
+                outcome,
+                retry_after_s=retry_after(exc) if (outcome == "429" and retry_after) else None,
+            )
+            if err.retryable and err.status in (503, 529) and storm < storm_attempts:
+                # capacity storm: model-wide, so waiting (on a rotated key) is the
+                # only cure — paid from its own budget, not max_attempts
+                storm += 1
+                delay = min(storm_max_delay, base_delay * (2 ** min(storm, 8)))
+                delay *= 0.75 + 0.5 * random.random()
+                log.warning("%s capacity storm %d/%d (%s); waiting %.0fs", label, storm, storm_attempts, err, delay)
+                sleep(delay)
+                attempt -= 1
+                continue
+            if outcome == "429":
+                failed_keys.add(key)
+                if len(failed_keys) < len(pool):
+                    # an untried key remains: rotation is free, only a courtesy pause
+                    attempt -= 1
+                    log.warning(
+                        "%s key …%s throttled (%s); rotating to a fresh key", label, key[-4:], err
+                    )
+                    sleep(0.5)
+                    continue
+            if not err.retryable or attempt >= max_attempts:
+                bench()
+                raise err from exc
+            delay = backoff_delay(attempt, base_delay=base_delay, max_delay=max_delay)
+            log.warning(
+                "%s attempt %d/%d failed (%s); retrying in %.1fs",
+                label, attempt, max_attempts, err, delay,
+            )
+            sleep(delay)
+    assert last_err is not None
+    bench()
+    raise last_err

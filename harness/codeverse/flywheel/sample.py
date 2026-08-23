@@ -22,7 +22,14 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse import __version__
-from codeverse.contracts.common import Language, Track
+from codeverse.contracts.common import (
+    ENTRY_FILE,
+    LANGUAGE_LABEL,
+    TRACK_INFO,
+    Language,
+    Track,
+    code_file,
+)
 from codeverse.contracts.run import RoundRecord, RunRecord
 from codeverse.flywheel import _git
 from codeverse.flywheel.dedupe import code_fingerprint
@@ -30,41 +37,11 @@ from codeverse.flywheel.quality import QualityTier, prompt_hash, quality_tier
 from codeverse.flywheel.record import best_round_index, effective_judgment, round_summary
 from codeverse.workspace import Workspace
 
-#: entry file inside src/ per language
-ENTRY_BY_LANGUAGE: dict[Language, str] = {
-    Language.BLENDER: "src/model.py",
-    Language.CADQUERY: "src/model.py",
-    Language.URDF_BLENDER: "src/model.py",
-    Language.THREEJS: "src/object.js",
-    Language.SCENE_THREEJS: "src/scene.js",
-    Language.GLSL_SHADER: "src/shader.frag",
-    Language.OPENGL_PYTHON: "src/program.py",
-}
-#: top-level copy of the entry (``code.<ext>``)
-CODE_FILE_BY_LANGUAGE: dict[Language, str] = {
-    Language.BLENDER: "code.py",
-    Language.CADQUERY: "code.py",
-    Language.URDF_BLENDER: "code.py",
-    Language.THREEJS: "code.js",
-    Language.SCENE_THREEJS: "code.js",
-    Language.GLSL_SHADER: "code.frag",
-    Language.OPENGL_PYTHON: "code.py",
-}
-LANGUAGE_LABEL: dict[Language, str] = {
-    Language.BLENDER: "Blender Python",
-    Language.CADQUERY: "CadQuery (Python)",
-    Language.URDF_BLENDER: "URDF + Blender Python",
-    Language.THREEJS: "Three.js (ESM)",
-    Language.SCENE_THREEJS: "Three.js scene (multi-file ESM + GLSL)",
-    Language.GLSL_SHADER: "GLSL fragment shader",
-    Language.OPENGL_PYTHON: "OpenGL (moderngl Python + GLSL)",
-}
-TYPE_LABEL: dict[Track, str] = {
-    Track.STATIC_OBJECT: "3D Objects",
-    Track.ARTICULATED_OBJECT: "Articulated Objects",
-    Track.SCENE: "3D Scenes",
-    Track.GRAPHICS: "Procedural Graphics",
-}
+#: deprecated aliases — the registries in ``codeverse.contracts.common`` are the
+#: single source now; import ``ENTRY_FILE`` / ``code_file`` / ``TRACK_INFO`` instead
+ENTRY_BY_LANGUAGE: dict[Language, str] = ENTRY_FILE
+CODE_FILE_BY_LANGUAGE: dict[Language, str] = {lang: code_file(lang) for lang in Language}
+TYPE_LABEL: dict[Track, str] = {t: TRACK_INFO[t].label for t in Track}
 MAX_GLB_BYTES = 20 * 1024 * 1024
 SOURCE_NAME = "3dcodeverse"
 SAMPLE_LICENSE = "CC-BY-4.0"
@@ -173,8 +150,8 @@ def write_code_tree(dest: Path, files: dict[str, bytes], language: Language) -> 
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(data)
         written.append(rel)
-    entry_src = ENTRY_BY_LANGUAGE[language]
-    code_name = CODE_FILE_BY_LANGUAGE[language]
+    entry_src = ENTRY_FILE[language]
+    code_name = code_file(language)
     if entry_src in files:
         (dest / code_name).write_bytes(files[entry_src])
         written.append(code_name)
@@ -296,7 +273,7 @@ def build_meta(
         id=sample_id(record, key),
         key=key,
         name=name,
-        type=TYPE_LABEL[spec.track],
+        type=TRACK_INFO[spec.track].label,
         track=spec.track.value,
         language=spec.language.value,
         language_label=LANGUAGE_LABEL[spec.language],

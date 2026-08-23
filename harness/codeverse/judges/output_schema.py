@@ -9,14 +9,13 @@ JSON in plain text) but strict about content: a missing criterion is a
 
 from __future__ import annotations
 
-import json
-import re
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, create_model
 
 from codeverse.contracts.judgment import ImprovementItem, JudgeIssue
 from codeverse.judges.rubrics import Rubric
+from codeverse.models.schema_utils import JsonParseError, parse_json_lenient
 
 
 class JudgeParseError(ValueError):
@@ -103,33 +102,6 @@ def wire_schema(rubric: Rubric, acceptance_ids: list[str]) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- parsing
-_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
-
-
-def extract_json(text: str) -> Any:
-    """Parse JSON from a reply: raw, fenced, or the first balanced ``{...}`` block."""
-    text = text.strip()
-    for cand in (text, *(m.strip() for m in _FENCE.findall(text))):
-        try:
-            return json.loads(cand)
-        except json.JSONDecodeError:
-            continue
-    start = text.find("{")
-    if start >= 0:
-        depth = 0
-        for i, ch in enumerate(text[start:], start):
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        return json.loads(text[start : i + 1])
-                    except json.JSONDecodeError:
-                        break
-    raise JudgeParseError(f"no JSON object in reply (first 200 chars): {text[:200]!r}")
-
-
 def _records_to_dict(value: Any, key_names: tuple[str, ...]) -> dict[str, Any]:
     """Accept ``{id: {...}}`` or ``[{id: ..., ...}, ...]`` and return ``{id: {...}}``."""
     if isinstance(value, dict):
@@ -193,7 +165,10 @@ def parse_judge_output(
     criteria so the output always covers the full rubric.
     """
     if isinstance(payload, str):
-        payload = extract_json(payload)
+        try:
+            payload = parse_json_lenient(payload)
+        except JsonParseError as e:
+            raise JudgeParseError(f"no JSON object in reply: {e}") from e
     if not isinstance(payload, dict):
         raise JudgeParseError(f"reply is not a JSON object: {type(payload).__name__}")
     data = dict(payload)

@@ -1,0 +1,1 @@
+["codex", "exec", "--json", "-C", "/tmp/cv3d_oneshot_codex_ytcvb97r", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--color", "never", "-o", "bench/out/compare_v1_live2/cells/cmp_easy_stool/oneshot_codex/gen/attempt0/last_message.md", "-"]

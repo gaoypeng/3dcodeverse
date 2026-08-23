@@ -95,12 +95,10 @@ class _Loop:
     def __init__(self, agent: ApiAgent, s: Session, chat: Any):
         self.agent, self.s, self.chat = agent, s, chat
         job = s.job
-        extra = job.extra
-        self.files = FileTools(s.ws, job.write_roots, allow_shell=bool(extra.get("allow_shell", True)))
+        self.files = FileTools(s.ws, job.write_roots, allow_shell=job.api.allow_shell)
         self.spatial: SpatialTools | None = None
         if job.spatial_tools:
-            self.spatial = SpatialTools(s.ws, track=str(extra.get("track", "")), language=str(extra.get("language", "")),
-                                        round_index=int(extra.get("round", 0) or 0))
+            self.spatial = SpatialTools(s.ws, track=job.track, language=job.language, round_index=job.round)
             if not self.spatial.tools:
                 s.notes.append("spatial registry is empty; running with file tools only")
                 self.spatial = None
@@ -113,7 +111,7 @@ class _Loop:
         self.errors: list[str] = []
         self.messages: list[ChatMessage] = [ChatMessage.user(job.prompt)]
         self.system = self._system_prompt()
-        self.max_usd = float(extra.get("max_usd", 0) or 0)
+        self.max_usd = job.api.max_usd
         self.t_deadline = time.monotonic() + job.timeout_s
 
     def _system_prompt(self) -> str:
@@ -165,8 +163,8 @@ class _Loop:
 
     def _generate(self, turn: int) -> ChatResponse | None:
         req = ChatRequest(messages=self.messages, system=self.system, tools=self.specs,
-                          temperature=float(self.s.job.extra.get("temperature", 0.3)),
-                          thinking=self.s.job.extra.get("thinking", "low"), label=f"api-agent:{self.s.label}:t{turn}")
+                          temperature=self.s.job.api.temperature,
+                          thinking=self.s.job.api.thinking, label=f"api-agent:{self.s.label}:t{turn}")
         delay = 2.0
         for attempt in range(MODEL_RETRIES):
             try:

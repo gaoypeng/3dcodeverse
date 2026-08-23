@@ -204,7 +204,7 @@ def quick_judge(track: Any, ctx: RunContext, pipeline: RoundPipeline, build: Any
         judge = track.make_judge(ctx, n_samples=1)
         inp = JudgeInput(spec=ctx.spec, renders=renders, measurement=measurement, gates=gates,
                          acceptance=list(getattr(ctx.plan, "acceptance", []) or []), plan_summary=pipeline.plan_summary(ctx),
-                         round_index=0, extra_context=pipeline.judge_context(ctx, 0, build, gates))
+                         round_index=0, extra_context=pipeline.judge_context(ctx.ws, ctx.plan, 0, build, gates))
         judgment = judge.judge(inp)
     except Exception as e:  # noqa: BLE001 — judge outage: candidate ranked by gates only
         log.warning("quick judge failed for %s: %s", ctx.ws.root, e)

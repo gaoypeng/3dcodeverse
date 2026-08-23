@@ -11,20 +11,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.config import get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport
-from codeverse.contracts.common import Language
+from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import Plan
-from codeverse.languages.glsl_shader.gl_build import (
+from codeverse.languages._gl_common import (
     finish_build,
     judge_times,
     load_plan,
+    make_host,
+    parse_glsl_log,
     preview_times,
     resolution_for,
 )
 from codeverse.languages.glsl_shader.lint import BUFFER_A, COMMON, SHADER, lint_workspace
 from codeverse.languages.glsl_shader.skeleton import write_skeleton
-from codeverse.languages.glsl_shader.wrap import Composed, compose, first_error, parse_glsl_log
+from codeverse.languages.glsl_shader.wrap import Composed, compose, first_error
 from codeverse.prompts import PROMPTS_DIR, load_text
 from codeverse.spatial.gl_render import GlHost, GlResult
 from codeverse.workspace import Workspace
@@ -37,7 +38,7 @@ Optional src/common.glsl (helpers, pasted in first) and src/buffer_a.frag (one f
 
 class GlslShaderRuntime:
     language = Language.GLSL_SHADER
-    entry_globs: tuple[str, ...] = ("src/shader.frag", "src/common.glsl", "src/buffer_a.frag")
+    entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.GLSL_SHADER], COMMON, BUFFER_A)
 
     def __init__(self, *, host: GlHost | None = None):
         self._host = host
@@ -61,10 +62,7 @@ class GlslShaderRuntime:
 
     # ------------------------------------------------------------------ build
     def host(self, timeout_s: float | None = None) -> GlHost:
-        if self._host is not None:
-            return self._host
-        settings = get_settings()
-        return GlHost(gpu=settings.render.gpu, timeout_s=float(timeout_s or settings.limits.render_timeout_s))
+        return make_host(self._host, timeout_s)
 
     def compose_sources(self, ws: Workspace) -> tuple[Composed, Composed | None]:
         shader = (ws.root / SHADER).read_text(errors="replace")

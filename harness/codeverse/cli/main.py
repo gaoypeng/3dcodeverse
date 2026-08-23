@@ -23,8 +23,9 @@ from codeverse.cli.doctor import doctor_app
 from codeverse.cli.flywheel_cmd import flywheel_app
 from codeverse.cli.texture_cmd import texture_app
 from codeverse.cli.tools_cmd import tools
-from codeverse.contracts.common import Backends, Budget, Language, Track
-from codeverse.contracts.spec import Constraints, ReferenceImage, Spec
+from codeverse.config import get_settings
+from codeverse.contracts.common import TRACK_LANGUAGES, Budget, Language, Track
+from codeverse.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec
 
 app = typer.Typer(name="3dcv", help="3dcodeverse: LLMs write raw 3D code; the harness builds, judges, refines, records.",
                   pretty_exceptions_enable=False)
@@ -52,7 +53,8 @@ def _root(ctx: typer.Context, version: Annotated[bool, typer.Option("--version",
 def make(
     prompt: Annotated[str, typer.Argument(help="what to build")],
     track: Annotated[Track, typer.Option("--track")] = Track.STATIC_OBJECT,
-    language: Annotated[Language, typer.Option("--language")] = Language.BLENDER,
+    language: Annotated[Language | None, typer.Option("--language", help="default: the track's first language "
+                                                      "(blender / urdf_blender / scene_threejs / glsl_shader)")] = None,
     generator: Annotated[str | None, typer.Option(help="api-agent:gemini:gemini-3.7-flash | gemini-cli:... | claude-code:... | codex:... | agy:...")] = None,
     planner: Annotated[str | None, typer.Option()] = None,
     judge: Annotated[str | None, typer.Option()] = None,
@@ -69,22 +71,22 @@ def make(
     must_not: Annotated[list[str] | None, typer.Option("--must-not")] = None,
     style: Annotated[str, typer.Option("--style")] = "",
     tag: Annotated[list[str] | None, typer.Option("--tag")] = None,
-    texture: Annotated[bool, typer.Option("--texture", help="run the text-to-image texture pass after the rounds (adds the 'texture' tag the track hook reads)")] = False,
+    texture: Annotated[bool, typer.Option("--texture", help="run the text-to-image texture pass after the rounds (frozen on spec.options)")] = False,
     seed: Annotated[int, typer.Option("--seed")] = 0,
     force: Annotated[bool, typer.Option("--force", help="overwrite an existing run dir")] = False,
     no_run: Annotated[bool, typer.Option("--no-run", help="only create the workspace + spec.json")] = False,
 ) -> None:
     """Create a run (workspace + spec.json) and execute the track pipeline."""
     image, dim, must, must_not, tag = image or [], dim or [], must or [], must_not or [], tag or []
-    if texture and "texture" not in tag:
-        tag = [*tag, "texture"]
     for p in image:
         if not p.is_file():
             raise C.CliError(f"reference image not found: {p}")
+    if language is None:
+        language = TRACK_LANGUAGES[track][0]
     run_slug = C.make_slug(prompt, track.value, language.value, slug)
-    ws = C.create_workspace(C.runs_root(runs_dir) / run_slug, force=force)
-    backends = Backends(**{k: v for k, v in {"generator": generator, "planner": planner, "judge": judge,
-                                             "captioner": captioner}.items() if v})
+    backends = get_settings().backends(generator=generator, planner=planner, judge=judge, captioner=captioner)
+    # validate the whole Spec BEFORE touching the filesystem: an invalid
+    # track/language combination must not leave an orphan run directory behind.
     try:
         spec = Spec(
             id=run_slug, track=track, language=language, prompt=prompt,
@@ -92,10 +94,12 @@ def make(
             constraints=Constraints(dimensions_m=C.parse_kv_floats(dim, "--dim") or None, must_have=must,
                                     must_not=must_not, style=style),
             budget=Budget(max_rounds=rounds, max_usd=max_usd, max_minutes=max_minutes),
-            backends=backends, seed=seed, tags=tag,
+            backends=backends, options=RunOptions(candidates=candidates, texture=texture),
+            seed=seed, tags=tag,
         )
     except ValueError as e:
-        raise C.CliError(str(e)) from e
+        raise C.CliError(f"invalid run spec: {e}") from e
+    ws = C.create_workspace(C.runs_root(runs_dir) / run_slug, force=force)
     ws.write_json(ws.spec_path, spec)
     ws.commit("spec")
     console.print(kv_table("run", {"slug": run_slug, "workspace": ws.root, "track": track.value,
@@ -127,10 +131,24 @@ def resume(
     slug: str,
     runs_dir: RunsDirOpt = None,
     candidates: Annotated[int | None, typer.Option("--candidates", min=1, help="best-of-N baseline width (only matters before round 0 ran)")] = None,
+    max_usd: Annotated[float | None, typer.Option("--max-usd", help="raise the budget cap before resuming (rewrites spec.json)")] = None,
+    max_minutes: Annotated[float | None, typer.Option("--max-minutes", help="raise the time cap before resuming")] = None,
+    rounds: Annotated[int | None, typer.Option("--rounds", min=0, help="new max refine rounds (rewrites spec.json)")] = None,
 ) -> None:
-    """Resume an interrupted / partial run (or start a `--no-run` one)."""
+    """Resume an interrupted / partial run (or start a `--no-run` one).
+
+    ``--max-usd`` / ``--max-minutes`` / ``--rounds`` rewrite the spec's budget
+    first — the only way to continue a BUDGET-stopped run."""
     ws = C.open_workspace(slug, runs_dir)
-    _run_track(C.load_spec(ws), ws, resume=True, candidates=candidates)
+    spec = C.load_spec(ws)
+    raised = {k: v for k, v in {"max_usd": max_usd, "max_minutes": max_minutes, "max_rounds": rounds}.items() if v is not None}
+    if raised:
+        from codeverse.events import EventLog
+
+        spec = spec.model_copy(update={"budget": spec.budget.model_copy(update=raised)})
+        ws.write_json(ws.spec_path, spec)
+        EventLog(ws.events_path).emit("budget.raised", **raised)
+    _run_track(spec, ws, resume=True, candidates=candidates)
 
 
 # --------------------------------------------------------------------------- status

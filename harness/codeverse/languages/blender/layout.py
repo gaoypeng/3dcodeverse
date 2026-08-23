@@ -18,11 +18,12 @@ import time
 from pathlib import Path
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.conventions import to_snake
 from codeverse.languages.blender.lint import GATE, lint_blender_source
 from codeverse.workspace import Workspace
 
-ENTRY_REL = "src/model.py"
+ENTRY_REL = ENTRY_FILE[Language.BLENDER]  # "src/model.py"
 PARTS_DIR = "parts"
 PARTS_PKG = "parts"
 

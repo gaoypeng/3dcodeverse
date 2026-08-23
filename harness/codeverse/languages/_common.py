@@ -4,11 +4,13 @@ Runtimes execute a *wrapper script* in a subprocess (Blender's python or the
 harness python).  The wrapper writes ``artifacts/build.json`` (+ ``census.json``)
 and the runtime turns those into a :class:`BuildResult`.  This module owns:
 
-* :func:`run_subprocess` — timeout, process-group kill, captured output;
-* :func:`tail` — bounded log tails for BuildResult;
-* :func:`read_json_file` / :func:`write_json_atomic`;
 * :func:`compose_build_result` — wrapper json + process outcome → BuildResult,
-  failing loud when the wrapper did not report.
+  failing loud when the wrapper did not report;
+* :func:`read_json_file` / :func:`remove_stale` / :func:`strip_blender_noise`.
+
+The subprocess + atomic-JSON primitives (:class:`ProcResult`,
+:func:`run_subprocess`, :func:`tail`, :func:`write_json_atomic`) live in
+:mod:`codeverse.proc` and are re-exported here for the runtime callers.
 
 Wrappers themselves are standalone scripts (they never import ``codeverse``;
 Blender's bundled python cannot see this package).
@@ -17,16 +19,17 @@ Blender's bundled python cannot see this package).
 from __future__ import annotations
 
 import json
-import os
-import signal
-import subprocess
-import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from codeverse.contracts.artifacts import BuildResult
+from codeverse.proc import (  # noqa: F401 — re-exported
+    ProcResult,
+    run_subprocess,
+    tail,
+    write_json_atomic,
+)
 
 # lines Blender prints on every headless run that carry no signal for the agent
 _BLENDER_NOISE_PREFIXES = (
@@ -53,70 +56,6 @@ class WrapperError(RuntimeError):
     """The wrapper process did not produce a readable ``build.json`` (harness bug or crash)."""
 
 
-@dataclass(frozen=True)
-class ProcResult:
-    """Outcome of one subprocess run."""
-
-    returncode: int
-    stdout: str
-    stderr: str
-    timed_out: bool
-    duration_ms: int
-
-
-def run_subprocess(
-    cmd: list[str],
-    *,
-    cwd: Path | str,
-    timeout_s: float,
-    env: Mapping[str, str] | None = None,
-    stdin_text: str | None = None,
-) -> ProcResult:
-    """Run ``cmd`` in its own process group; kill the whole group on timeout.
-
-    Never raises on non-zero exit — callers inspect :attr:`ProcResult.returncode`.
-    """
-    t0 = time.monotonic()
-    proc = subprocess.Popen(
-        cmd,
-        cwd=str(cwd),
-        env=dict(env) if env is not None else None,
-        stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-    )
-    timed_out = False
-    try:
-        out, err = proc.communicate(input=stdin_text, timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        _kill_group(proc)
-        out, err = proc.communicate()
-    return ProcResult(
-        returncode=proc.returncode if proc.returncode is not None else -1,
-        stdout=out or "",
-        stderr=err or "",
-        timed_out=timed_out,
-        duration_ms=int((time.monotonic() - t0) * 1000),
-    )
-
-
-def _kill_group(proc: subprocess.Popen[str]) -> None:
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        proc.kill()
-
-
-def tail(text: str, *, max_lines: int = 40, max_chars: int = 4000) -> str:
-    """Last ``max_lines`` lines of ``text``, capped at ``max_chars`` characters."""
-    lines = text.splitlines()[-max_lines:]
-    s = "\n".join(lines)
-    return s[-max_chars:] if len(s) > max_chars else s
-
-
 def strip_blender_noise(text: str) -> str:
     """Drop Blender's boilerplate stderr/stdout lines so the agent sees signal only."""
     keep = [
@@ -124,14 +63,6 @@ def strip_blender_noise(text: str) -> str:
         if ln.strip() and not ln.startswith(_BLENDER_NOISE_PREFIXES) and not any(s in ln for s in _BLENDER_NOISE_SUBSTR)
     ]
     return "\n".join(keep)
-
-
-def write_json_atomic(path: Path, data: Any) -> None:
-    """tmp + rename so readers never see a partial file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str))
-    tmp.replace(path)
 
 
 def read_json_file(path: Path) -> dict[str, Any]:

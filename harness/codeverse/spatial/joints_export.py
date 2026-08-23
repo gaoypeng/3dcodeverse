@@ -12,8 +12,6 @@ Non-root link nodes carry ``extras.joint`` and the scene carries
 from __future__ import annotations
 
 import json
-import math
-import subprocess
 import sys
 import time
 from collections.abc import Callable, Sequence
@@ -25,8 +23,11 @@ import trimesh
 
 from codeverse.contracts.artifacts import RenderSet, RenderView
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
+from codeverse.proc import run_subprocess
 from codeverse.spatial.joints_model import Joint, Robot, UrdfError, fk
 from codeverse.spatial.joints_poses import limit_poses
+from codeverse.spatial.render import render_glb
+from codeverse.spatial.sheet import contact_sheet
 
 ARTICULATION_SHEET_NAME = "articulation_sheet.png"
 #: URDF (Z-up, -Y front) → glTF (Y-up, +Z front):  (x, y, z) → (x, z, -y)
@@ -101,20 +102,12 @@ def urdf_to_glb(robot: Robot, out_glb: Path | str, pose: dict[str, float] | None
 
 
 # ------------------------------------------------------------------ rendering
-def _default_renderer() -> Renderer:
-    """``codeverse.spatial.render.render_glb`` when available, else the Blender fallback."""
-    try:
-        from codeverse.spatial.render import render_glb  # package C1
-
-        return render_glb
-    except Exception:
-        return blender_render_glb
-
-
 def blender_render_glb(glb: Path, out_dir: Path, *, views: Sequence[ViewPreset] | None = None, width: int = 512,
                        height: int = 512, sheet: bool = False, timeout_s: int = 180, **_: Any) -> RenderSet:
-    """Minimal headless-Blender (Workbench) renderer used when the GPU renderer
-    (package C1) is not importable.  Same signature subset as ``render_glb``."""
+    """Minimal headless-Blender (Workbench) renderer with the same signature
+    subset as ``render_glb``.  Only used when a caller *explicitly* passes
+    ``renderer=blender_render_glb`` (e.g. to render without node/Chrome) — it is
+    never auto-selected."""
     from codeverse.config import get_settings
 
     blender = get_settings().resolve_blender()
@@ -130,7 +123,9 @@ def blender_render_glb(glb: Path, out_dir: Path, *, views: Sequence[ViewPreset] 
     spec_path.write_text(json.dumps(spec))
     t0 = time.time()
     cmd = [blender, "-b", "--factory-startup", "--python", str(script), "--", str(spec_path)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s, start_new_session=True)
+    proc = run_subprocess(cmd, cwd=out_dir, timeout_s=timeout_s)
+    if proc.timed_out:
+        raise RuntimeError(f"blender fallback render timed out after {timeout_s}s: {proc.stderr[-2000:]}")
     if proc.returncode != 0:
         raise RuntimeError(f"blender fallback render failed: {proc.stderr[-2000:] or proc.stdout[-2000:]}")
     rs = RenderSet(renderer="blender-workbench", duration_ms=int((time.time() - t0) * 1000))
@@ -140,31 +135,8 @@ def blender_render_glb(glb: Path, out_dir: Path, *, views: Sequence[ViewPreset] 
             raise RuntimeError(f"blender fallback render produced no {p.name}; stdout tail: {proc.stdout[-800:]}")
         rs.views.append(RenderView(name=v.name, path=str(p), width=width, height=height))
     if sheet:
-        rs.contact_sheet = str(make_sheet([(v.name, Path(v.path)) for v in rs.views], out_dir / "sheet.png"))
+        rs.contact_sheet = str(contact_sheet([(v.name, Path(v.path)) for v in rs.views], out_dir / "sheet.png"))
     return rs
-
-
-def make_sheet(images: list[tuple[str, Path]], out: Path, *, cols: int = 4, tile: int = 384) -> Path:
-    """Labelled grid of PNGs (PIL only; stand-in for ``codeverse.spatial.sheet.contact_sheet``)."""
-    from PIL import Image, ImageDraw
-
-    if not images:
-        raise ValueError("make_sheet: no images")
-    cols = max(1, min(cols, len(images)))
-    rows = math.ceil(len(images) / cols)
-    label_h = 22
-    sheet = Image.new("RGB", (cols * tile, rows * (tile + label_h)), "white")
-    draw = ImageDraw.Draw(sheet)
-    for i, (label, path) in enumerate(images):
-        im = Image.open(path).convert("RGB")
-        im.thumbnail((tile, tile))
-        x, y = (i % cols) * tile, (i // cols) * (tile + label_h)
-        sheet.paste(im, (x + (tile - im.width) // 2, y + label_h + (tile - im.height) // 2))
-        draw.rectangle([x, y, x + tile - 1, y + label_h - 1], fill=(30, 30, 30))
-        draw.text((x + 6, y + 4), label[:60], fill="white")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    sheet.save(out)
-    return out
 
 
 def render_poses(
@@ -185,7 +157,7 @@ def render_poses(
     out_dir.mkdir(parents=True, exist_ok=True)
     poses = poses if poses is not None else limit_poses(robot)
     views = tuple(views or OBJECT_VIEWS_QUICK[:3])
-    render = renderer or _default_renderer()
+    render = renderer or render_glb
     results: list[tuple[str, RenderSet]] = []
     tiles: list[tuple[str, Path]] = []
     for label, q in poses:
@@ -196,7 +168,7 @@ def render_poses(
         for v in rs.views:
             if sheet_view is None or v.name == sheet_view:
                 tiles.append((f"{label} · {v.name}", Path(v.path)))
-    make_sheet(tiles, out_dir / ARTICULATION_SHEET_NAME, cols=len(views) if sheet_view is None else 4)
+    contact_sheet(tiles, out_dir / ARTICULATION_SHEET_NAME, cols=len(views) if sheet_view is None else 4)
     return results
 
 

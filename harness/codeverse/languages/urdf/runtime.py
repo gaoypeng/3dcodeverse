@@ -14,23 +14,21 @@ the gate layer (``sweep_findings``).
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import shutil
-import signal
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
 
 from codeverse.config import get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport
-from codeverse.contracts.common import Language
+from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import ArticulatedPlan, Plan
 from codeverse.languages.urdf.consistency import check_fk_consistency
 from codeverse.languages.urdf.lint import lint_workspace
 from codeverse.languages.urdf.skeleton import write_skeleton
+from codeverse.proc import run_subprocess
 from codeverse.spatial.joints import (
     UrdfError,
     load_urdf,
@@ -53,7 +51,7 @@ def _tail(s: str, n: int = 3000) -> str:
 
 class UrdfBlenderRuntime:
     language = Language.URDF_BLENDER
-    entry_globs = ("src/model.py", "src/robot.urdf")
+    entry_globs = (ENTRY_FILE[Language.URDF_BLENDER], "src/robot.urdf")
 
     # ------------------------------------------------------------ protocol
     def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:
@@ -138,7 +136,7 @@ class UrdfBlenderRuntime:
         fk_findings = check_fk_consistency(robot, census.get("links") or {}, tol_m=FK_TOL_M)
         census["fk_check"] = [f.model_dump(mode="json") for f in fk_findings]
         if fk_findings:
-            msg = "\n".join(f"- {f.message}\n  FIX: {f.fix_hint}" for f in fk_findings)
+            msg = "\n".join(f"- {f.as_line()}" for f in fk_findings)
             return fail("FkInconsistent", f"URDF frames do not reproduce the authored geometry:\n{msg}", census=census,
                         extra_paths=extra)
 
@@ -167,7 +165,7 @@ class UrdfBlenderRuntime:
             res.error_file = "src/model.py"
             res.error_message = (f"links interpenetrate by {report.summary.rest_max_penetration_m*1000:.1f} mm at the rest pose "
                                  f"(max {REST_PENETRATION_MAX_M*1000:.0f} mm):\n" +
-                                 "\n".join(f"- {f.message}\n  FIX: {f.fix_hint}" for f in worst[:8]))
+                                 "\n".join(f"- {f.as_line()}" for f in worst[:8]))
         return res
 
 
@@ -177,14 +175,5 @@ def _run_blender(blender: str, ws: Workspace, art: Path, timeout_s: int, rlimit_
            "--out", str(art), "--rlimit-gb", str(rlimit_gb)]
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", str(ws.root)),
            "PYTHONDONTWRITEBYTECODE": "1", "BLENDER_USER_CONFIG": str(art / ".blender_config")}
-    p = subprocess.Popen(cmd, cwd=ws.root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                         start_new_session=True)
-    timed_out = False
-    try:
-        out, err = p.communicate(timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(p.pid, signal.SIGKILL)
-        out, err = p.communicate()
-    return {"returncode": p.returncode, "stdout": out or "", "stderr": err or "", "timed_out": timed_out}
+    r = run_subprocess(cmd, cwd=ws.root, env=env, timeout_s=timeout_s)
+    return {"returncode": r.returncode, "stdout": r.stdout, "stderr": r.stderr, "timed_out": r.timed_out}

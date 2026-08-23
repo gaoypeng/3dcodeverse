@@ -39,7 +39,7 @@ from codeverse.models.gemini_convert import (
 from codeverse.models.keypool import KeyPool, KeyPoolExhausted, Outcome
 from codeverse.models.parts import Stopwatch
 from codeverse.models.pricing import estimate_cost
-from codeverse.models.retry import backoff_delay
+from codeverse.models.retry import rotate_with_retries
 from codeverse.models.schema_utils import JsonParseError, parse_json_lenient
 
 log = logging.getLogger(__name__)
@@ -188,93 +188,32 @@ class GeminiModel:
     def generate(self, request: ChatRequest) -> ChatResponse:
         contents = to_contents(request.messages)
         warnings: list[str] = []
-        failed_keys: set[str] = set()  # keys that 429'd or looked dead during this call
-        dead_keys: set[str] = set()
-        last_err: ModelError | None = None
-        attempt = 0
-        config = self._config(request, warnings)
-        while attempt < self.max_attempts:
-            attempt += 1
-            # never go back to a key that looked dead this call; throttled keys are
-            # excluded while an untried one remains, else acquire() waits for a cooldown
-            exclude = dead_keys | (failed_keys if len(failed_keys) < len(self.pool) else set())
-            try:
-                key = self.pool.acquire(exclude=exclude)
-            except KeyPoolExhausted as exc:
-                raise classify_exception(exc) from exc
-            try:
-                resp = self._once(key, contents, config, request, warnings)
-                self.pool.report(
-                    key, "ok", tokens=resp.usage.input_tokens + resp.usage.output_tokens
-                )
-                self._bench(dead_keys)
-                return resp
-            except Exception as exc:  # noqa: BLE001 - classified below
-                err = classify_exception(exc)
-                last_err = err
-                if self._thinking_ok and err.status == 400 and "thinking" in str(err).lower():
-                    # model rejects ThinkingConfig: retry without it, once, for free
-                    with self._lock:
-                        self._thinking_ok = False
-                    warnings.append(
-                        f"{self.model} rejected thinking config; retrying without it: {err}"
-                    )
-                    config = self._config(request, warnings)
-                    attempt -= 1
-                    continue
-                outcome = failure_outcome(err)
-                if outcome == "dead":
-                    # key-scoped: move on at once (no budget, no sleep); the key is only
-                    # benched once another key proves the request itself is fine
-                    dead_keys.add(key)
-                    failed_keys.add(key)
-                    self.pool.report(key, "error")
-                    if len(dead_keys) < len(self.pool):
-                        log.warning(
-                            "gemini %s key …%s looks dead (%s); rotating", self.model, key[-4:], err
-                        )
-                        attempt -= 1
-                        continue
-                    raise err from exc  # every key failed the same way: not the keys' fault
-                self.pool.report(
-                    key, outcome, retry_after_s=_retry_after_s(exc) if outcome == "429" else None
-                )
-                if outcome == "429":
-                    failed_keys.add(key)
-                    if len(failed_keys) < len(self.pool):
-                        # an untried key remains: rotation is free, only a courtesy pause
-                        attempt -= 1
-                        log.warning(
-                            "gemini %s key …%s throttled (%s); rotating to a fresh key",
-                            self.model,
-                            key[-4:],
-                            err,
-                        )
-                        self._sleep(0.5)
-                        continue
-                if not err.retryable or attempt >= self.max_attempts:
-                    self._bench(dead_keys)
-                    raise err from exc
-                delay = backoff_delay(attempt, base_delay=self.base_delay, max_delay=self.max_delay)
-                log.warning(
-                    "gemini %s attempt %d/%d failed (%s); retrying in %.1fs",
-                    self.model,
-                    attempt,
-                    self.max_attempts,
-                    err,
-                    delay,
-                )
-                self._sleep(delay)
-        assert last_err is not None
-        self._bench(dead_keys)
-        raise last_err
+        state = {"config": self._config(request, warnings)}
 
-    def _bench(self, dead_keys: set[str]) -> None:
-        """Mark keys that failed with key-scoped errors dead — called once the call
-        got past the auth layer on some other key (success, 429, 5xx, bad JSON …)."""
-        for key in dead_keys:
-            self.pool.report(key, "dead")
-        dead_keys.clear()
+        def downgrade_thinking(err: ModelError) -> bool:
+            """Free-retry hook: model rejects ThinkingConfig → retry without it, once."""
+            if not (self._thinking_ok and err.status == 400 and "thinking" in str(err).lower()):
+                return False
+            with self._lock:
+                self._thinking_ok = False
+            warnings.append(f"{self.model} rejected thinking config; retrying without it: {err}")
+            state["config"] = self._config(request, warnings)
+            return True
+
+        return rotate_with_retries(
+            self.pool,
+            lambda key: self._once(key, contents, state["config"], request, warnings),
+            classify=classify_exception,
+            outcome_of=failure_outcome,
+            max_attempts=self.max_attempts,
+            base_delay=self.base_delay,
+            max_delay=self.max_delay,
+            sleep=self._sleep,
+            on_free_retry=downgrade_thinking,
+            retry_after=_retry_after_s,
+            tokens_of=lambda r: r.usage.input_tokens + r.usage.output_tokens,
+            label=f"gemini {self.model}",
+        )
 
     def _config(self, request: ChatRequest, warnings: list[str]) -> types.GenerateContentConfig:
         return build_config(

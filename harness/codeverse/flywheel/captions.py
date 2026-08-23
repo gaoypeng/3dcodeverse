@@ -23,10 +23,10 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
-from codeverse.contracts.common import Language, Track
+from codeverse.contracts.common import ENTRY_FILE, Language, Track
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel import _git
-from codeverse.flywheel.sample import ENTRY_BY_LANGUAGE, best_round_record, code_files_for_round
+from codeverse.flywheel.sample import best_round_record, code_files_for_round
 from codeverse.prompts import prompt_hash
 from codeverse.workspace import Workspace
 
@@ -123,7 +123,7 @@ def _round_images(ws: Workspace, record: RunRecord) -> tuple[list[ImagePart], li
 def _code_excerpt(ws: Workspace, record: RunRecord) -> str:
     rnd = best_round_record(record)
     files, _src = code_files_for_round(ws, rnd)
-    entry = ENTRY_BY_LANGUAGE[record.spec.language]
+    entry = ENTRY_FILE[record.spec.language]
     ordered = {k: files[k] for k in sorted(files, key=lambda k: (k != entry, k))}
     text, _skipped = _git.decode_text_files(ordered, max_total=MAX_CODE_CHARS)
     return "\n\n".join(f"### {p}\n{t}" for p, t in text.items())

@@ -3,7 +3,8 @@
 Per sample: one ``ChatRequest`` with a per-rubric JSON schema (criteria scored
 0..1 with evidence, the rubric's binary defect checklist, issues, improvement
 plan, acceptance verdicts); samples differ by montage/tile order (shuffle seed)
-so n-sample mean/std measures judge noise.  Score/defect penalties/floors/caps
+so n-sample mean/std measures judge noise.  With ``n_samples > 1`` the model
+calls run in parallel (``codeverse.fanout``); results accumulate in sample order.  Score/defect penalties/floors/caps
 /pass are computed in code (``scoring.py``).  Images are ≤2×2 montages
 (``montage.py``); tracks may pass a clay/normals ``geometry_views`` RenderSet.  Retries: up to
 ``max_attempts`` per sample on ``ModelError`` / parse failure; if no sample
@@ -25,6 +26,7 @@ from codeverse.contracts.artifacts import RenderSet
 from codeverse.contracts.chat import ChatRequest, ChatResponse
 from codeverse.contracts.common import Usage
 from codeverse.contracts.judgment import Judgment
+from codeverse.fanout import fan_out
 from codeverse.judges.base import JudgeInput
 from codeverse.judges.output_schema import (
     JudgeOutput,
@@ -109,6 +111,7 @@ class VlmJudge:
         usage = Usage()
         samples: list[JudgeOutput] = []
         errors: list[str] = []
+        reqs: list[ChatRequest] = []
         for k in range(self.n_samples):
             seed = None if (self.n_samples == 1 and k == 0) else (inp.round_index * 1000 + k)
             # a missing render is a pipeline bug, not a judge glitch → JudgeImageError propagates
@@ -117,11 +120,24 @@ class VlmJudge:
                 detail_crops=self.detail_crops, max_px=self.max_px, cache_dir=self.cache_dir,
                 extra_images=extra_images, extra_text=extra_text,
             )
-            req = ChatRequest(
+            reqs.append(ChatRequest(
                 messages=messages, system=system, response_schema=schema, temperature=self.temperature,
                 thinking=self.thinking, label=f"{self.label}:{self.rubric.name}:s{k}",
+            ))
+        if len(reqs) == 1:  # serial path: no pool, no thread hop
+            outcomes = [self._sample(reqs[0], acceptance_ids, measured)]
+        else:
+            self.model  # noqa: B018 — materialise the lazy chat model once, before the threads race
+            results = fan_out(
+                reqs, lambda r: self._sample(r, acceptance_ids, measured),
+                max_workers=len(reqs), label=f"{self.label}:samples", item_name=lambda r: r.label,
             )
-            out, u, err = self._sample(req, acceptance_ids, measured)
+            # ordered accumulation; _sample never raises, but a crashed worker still counts as an error
+            outcomes = [
+                r if not isinstance(r, Exception) else (None, Usage(), f"{type(r).__name__}: {r}")
+                for r in results
+            ]
+        for out, u, err in outcomes:
             usage = usage + u
             if out is not None:
                 samples.append(out)

@@ -47,7 +47,9 @@ def test_overall_is_code_computed_weighted_mean(judge_input, cache_dir):
 
 
 def test_n_samples_mean_std_and_shuffle(judge_input, cache_dir):
-    model = FakeChatModel([good_reply(R, IDS, 0.7), good_reply(R, IDS, 0.9), good_reply(R, IDS, 0.8)])
+    # samples fan out in parallel: route replies by the request's :s<k> label
+    model = FakeChatModel(by_label={":s0": [good_reply(R, IDS, 0.7)], ":s1": [good_reply(R, IDS, 0.9)],
+                                    ":s2": [good_reply(R, IDS, 0.8)]})
     j = _judge(model, n_samples=3, cache_dir=cache_dir).judge(judge_input)
     assert j.n_samples == 3 and j.overall == pytest.approx(0.8) and j.score_std == pytest.approx(0.0816, abs=1e-3)
     assert j.usage.cost_usd == pytest.approx(0.003) and j.usage.input_tokens == 3000

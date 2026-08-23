@@ -85,12 +85,13 @@ def test_penalties_and_caps_computed_in_code(judge_input, cache_dir):
 
 
 def test_defect_majority_vote_ties_count_as_present(judge_input, cache_dir):
-    model = FakeChatModel([_reply(0.9, ["render_artifacts"]), _reply(0.9), _reply(0.9)])
+    model = FakeChatModel(by_label={":s0": [_reply(0.9, ["render_artifacts"])], ":s1": [_reply(0.9)],
+                                    ":s2": [_reply(0.9)]})
     j = VlmJudge("static_object_v1", chat_model=model, n_samples=3, cache_dir=cache_dir).judge(judge_input)
     raw = json.loads(j.raw)
     assert raw["defects"]["render_artifacts"] is False and raw["defect_votes"]["render_artifacts"] == [True, False, False]
     assert j.overall == pytest.approx(0.9)
-    model2 = FakeChatModel([_reply(0.9, ["render_artifacts"]), _reply(0.9)])
+    model2 = FakeChatModel(by_label={":s0": [_reply(0.9, ["render_artifacts"])], ":s1": [_reply(0.9)]})
     j2 = VlmJudge("static_object_v1", chat_model=model2, n_samples=2, cache_dir=cache_dir).judge(judge_input)
     assert json.loads(j2.raw)["defects"]["render_artifacts"] is True and j2.overall == pytest.approx(0.85)
     # per-criterion std is reported for n-sample runs

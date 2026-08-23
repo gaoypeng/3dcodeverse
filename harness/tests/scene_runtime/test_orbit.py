@@ -59,3 +59,38 @@ def test_orbit_cameras_are_above_ground_and_fitted():
 
 def test_empty_bbox_returns_no_cameras():
     assert fit(None) == []
+
+
+def test_fit_zone_camera_respects_floor_and_sun_side():
+    """Single owner of the zone fit (assemble.py consumes it via probe_scene.mjs)."""
+    body = """
+import { fitZoneCamera } from './lib/orbit.mjs';
+const box = { min: [20, 0, -5], max: [30, 3, 5], size: [10, 3, 10] };
+console.log(JSON.stringify({
+  floored: fitZoneCamera(box, { azimuth: 0, floor: 2.0 }),
+  sun_x: fitZoneCamera(box, { azimuth: 90 }),
+}));
+"""
+    out = run_node_json(body)
+    assert out["floored"]["position"][1] >= 3.5   # floor 2.0 + eye height
+    assert out["floored"]["lookAt"][1] <= out["floored"]["position"][1]
+    # azimuth 90 → eye on the +X side, outside the footprint (x > 30)
+    assert out["sun_x"]["position"][0] > 30
+    assert out["sun_x"]["lookAt"] == [25, 1.5, 0]
+
+
+def test_fit_overview_camera_corner_fit_and_ground_aware():
+    body = """
+import { fitOverviewCamera, fitDistance, orbitDirection } from './lib/orbit.mjs';
+const box = { min: [-40, -1, -40], max: [40, 9, 40], size: [80, 10, 80] };
+const cam = fitOverviewCamera(box, { azimuth: 90, elevation: 30, groundY: 0.0 });
+const d = orbitDirection(90, 30);
+console.log(JSON.stringify({ cam, d }));
+"""
+    out = run_node_json(body)
+    cam = out["cam"]
+    # eye on the +X sun side, above ground, looking at the box centre
+    assert cam["position"][0] > 40 and cam["position"][1] > 0.5
+    assert cam["lookAt"] == [0, 4, 0]
+    dist = math.dist(cam["position"], cam["lookAt"])
+    assert 80 < dist < 200   # corner-frustum fit, not a loose sphere fit

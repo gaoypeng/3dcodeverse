@@ -1,9 +1,10 @@
 """BaseTrack: the resumable plan → prepare → rounds → finalise lifecycle.
 
-Concrete tracks (static / articulated / scene) override the hooks
-(``plan_model``, ``make_pipeline``, ``prepare``, ``baseline_tasks``,
-``refine_tasks``).  All bookkeeping — workspace, events, budget, run state,
-stage cache, best tracking, stop policy, record — lives here once.
+Concrete tracks (static / articulated / scene / graphics) override the hooks
+(``plan_model``, ``make_pipeline``, ``prepare``, ``baseline_tasks``, the planner
+knobs ``plan_template``/``plan_example``/``finalise_plan`` and the refine
+scaffold's ``_refine_task``).  All bookkeeping — workspace, events, budget, run
+state, stage cache, best tracking, stop policy, record — lives here once.
 """
 
 from __future__ import annotations
@@ -18,15 +19,25 @@ from pathlib import Path
 from typing import Any
 
 from codeverse.config import Settings, get_settings
+from codeverse.contracts.artifacts import GateReport
 from codeverse.contracts.common import Track, Usage
 from codeverse.contracts.plan import Plan
 from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse.contracts.spec import Spec
 from codeverse.events import EventLog
 from codeverse.orchestrator.budget import BudgetExceeded, BudgetGuard
-from codeverse.orchestrator.rounds import BestSelector, RoundPolicy, StopPolicy, StopReason
+from codeverse.orchestrator.rounds import (
+    BestSelector,
+    RoundPolicy,
+    StopPolicy,
+    StopReason,
+    TaskGroup,
+    build_refine_instructions,
+    plan_refine_groups,
+)
 from codeverse.orchestrator.runner import StageRunner
 from codeverse.orchestrator.state import RunState
+from codeverse.prompts import render
 from codeverse.tracks.candidates import choose_best_round, run_best_of_n
 from codeverse.tracks.common import (
     RunContext,
@@ -36,10 +47,15 @@ from codeverse.tracks.common import (
     load_prompt_or,
 )
 from codeverse.tracks.generation import GenerationTask, is_single_shot, single_shot_model_id
+from codeverse.tracks.planner import default_event_stats, ensure_acceptance, normalise_names
 from codeverse.tracks.planner import plan as run_planner
+from codeverse.tracks.planner import plan_example as default_plan_example
+from codeverse.tracks.prompting import base_prompt_context, current_files, expected_files
+from codeverse.tracks.repair import format_error_report
 from codeverse.tracks.steps import (
     RoundFailed,
     RoundPipeline,
+    failed_acceptance,
     load_round_records,
     rejudge_round,
     run_round,
@@ -76,11 +92,21 @@ def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
 
 
 class BaseTrack:
-    """Shared lifecycle.  Subclasses set ``track``, ``rubric``, ``plan_model``."""
+    """Shared lifecycle.  Subclasses set ``track``, ``rubric``, ``plan_model``
+    and parameterise the ONE planner loop / refine scaffold via the hook
+    attributes below (``plan_template``, ``plan_example``, ``_refine_task`` …)."""
 
     track: Track
     rubric: str
     plan_model: type[Plan]
+    generate_template: str = ""
+    refine_template: str = ""
+    #: planner knobs (GraphicsTrack: own template/example, T=0.5, 16k tokens)
+    plan_template: str | None = None  # None → tracks/plan_<track>.j2
+    plan_temperature: float = 0.4
+    plan_max_output_tokens: int = 24000
+    #: refine fan-out (graphics is always ONE whole-program task)
+    allow_refine_fanout: bool = True
 
     def __init__(
         self,
@@ -106,7 +132,7 @@ class BaseTrack:
         self._n_candidates = n_candidates
 
     # ------------------------------------------------------------------ hooks
-    def make_pipeline(self, ctx: RunContext) -> RoundPipeline:
+    def make_pipeline(self) -> RoundPipeline:
         raise NotImplementedError
 
     def prepare(self, ctx: RunContext, runner: StageRunner) -> None:
@@ -116,11 +142,70 @@ class BaseTrack:
     def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
         raise NotImplementedError
 
-    def refine_tasks(self, ctx: RunContext, last: RoundRecord, history: Sequence[RoundRecord]) -> tuple[list[GenerationTask], list[str]]:
+    def system_prompt(self, ctx: RunContext) -> str:
         raise NotImplementedError
 
     def round_files_hint(self, ctx: RunContext) -> list[str]:
         return []
+
+    # ---- planner hooks (tracks/planner.py runs the one loop)
+    def plan_example(self, spec: Spec) -> dict[str, Any]:
+        """Worked example JSON for the plan system prompt."""
+        return default_plan_example(spec.track)
+
+    def finalise_plan(self, plan_obj: Any, spec: Spec) -> Any:
+        """Post-validation fixup (names + deterministic acceptance items)."""
+        return ensure_acceptance(normalise_names(plan_obj), spec)
+
+    def plan_event_stats(self, plan_obj: Any) -> dict[str, Any]:
+        """Extra ``plan.done`` payload (n_parts/n_zones… per track)."""
+        return default_event_stats(plan_obj)
+
+    # ---- refine hooks (the scaffold below is shared; tracks fill in the task)
+    def refine_file_for_target(self, ctx: RunContext) -> Any:
+        """``target → [files]`` mapper for refine tasks (None = whole-object)."""
+        return None
+
+    def extra_refine_tasks(self, ctx: RunContext, last: RoundRecord) -> Sequence[Any]:
+        """Harness-derived tasks prepended to the judge's (e.g. reference IoU)."""
+        return ()
+
+    def generate_context(self, ctx: RunContext, **extra: Any) -> dict[str, Any]:
+        """Template context for ``generate_template`` (baseline / rebuild prompts)."""
+        extra.setdefault("expected_files", expected_files(ctx))
+        return base_prompt_context(ctx, **extra)
+
+    def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
+        raise NotImplementedError
+
+    # ------------------------------------------------------------------ refine scaffold
+    def refine_tasks(self, ctx: RunContext, last: RoundRecord, history: Sequence[RoundRecord]) -> tuple[list[GenerationTask], list[str]]:
+        """index → rebuild guard → instructions → groups → per-track ``_refine_task``."""
+        index = len(history)
+        if last.build is None or not last.build.ok:
+            return [self._rebuild_task(ctx, last, index)], ["rebuild: previous round did not build"]
+        tasks = build_refine_instructions(last.judgment, last.gates, failed_acceptance(ctx, last.judgment), ctx.plan,
+                                          file_for_target=self.refine_file_for_target(ctx),
+                                          max_tasks=ctx.policy.max_refine_tasks,
+                                          extra=self.extra_refine_tasks(ctx, last))
+        if not tasks:
+            return [], []
+        groups, parallel = plan_refine_groups(tasks, allow_fanout=self.allow_refine_fanout,
+                                              parallel_min_tasks=ctx.policy.parallel_min_tasks)
+        gen_tasks = [self._refine_task(ctx, g, last, index, parallel=parallel) for g in groups]
+        ctx.events.emit("refine.planned", round=index, n_tasks=len(tasks), n_groups=len(groups), parallel=parallel,
+                        targets=[g.targets for g in groups])
+        return gen_tasks, [t.line() for t in tasks]
+
+    def _rebuild_task(self, ctx: RunContext, last: RoundRecord, index: int) -> GenerationTask:
+        """Regenerate after a failed build: the generate prompt + the error report."""
+        files = self.round_files_hint(ctx)
+        lint = next((g for g in last.gates if g.gate.startswith("lint")), GateReport(gate="lint", passed=True))
+        report = format_error_report(last.build, lint, ctx.cookbook_text) if last.build else "build did not run"
+        prompt = render(self.generate_template, **self.generate_context(
+            ctx, skeleton_files=current_files(ctx, files) if ctx.single_shot else {}, previous_error=report))
+        return GenerationTask(label="rebuild", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
+                              kind="rebuild", temperature=0.7, thinking="high")
 
     # ------------------------------------------------------------------ public API
     def plan(self, spec: Spec, ws: Workspace) -> Plan:
@@ -128,7 +213,7 @@ class BaseTrack:
         events = EventLog(ws.events_path)
         runtime = self._runtime or self.services.runtime(spec.language)
         return run_planner(spec, spec.backends.planner, self.plan_model, ws, model=self._planner_model,
-                           events=events, runtime=runtime)
+                           events=events, runtime=runtime, **self._plan_kwargs(spec))
 
     def run(self, spec: Spec, ws: Workspace, *, resume: bool = False) -> RunRecord:
         ws.create()
@@ -174,7 +259,7 @@ class BaseTrack:
         spent = state.extra.get("spent_usage")
         if spent:
             budget.spent = Usage.model_validate(spent)
-        n_cand = self._resolve_candidates(state, settings)
+        n_cand = self._resolve_candidates(spec, state, settings)
         policy = (self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds)).with_candidates(n_cand)
         # reference images: static objects are scored with reference_v1 (adds the measured silhouette
         # criterion); other tracks keep their rubric but the judge still sees the references.
@@ -190,9 +275,12 @@ class BaseTrack:
             ctx.record_prompt(name, text)
         return ctx
 
-    def _resolve_candidates(self, state: RunState, settings: Settings) -> int:
-        """Best-of-N width: constructor (CLI --candidates) > persisted run state (resume) > settings default."""
+    def _resolve_candidates(self, spec: Spec, state: RunState, settings: Settings) -> int:
+        """Best-of-N width: constructor (CLI --candidates) > ``spec.options.candidates``
+        > persisted run state (legacy resume) > settings default."""
         n = self._n_candidates
+        if n is None:
+            n = spec.options.candidates
         if n is None:
             n = state.extra.get("n_candidates")
         if n is None:
@@ -227,10 +315,17 @@ class BaseTrack:
     def _plan_stage(self, ctx: RunContext) -> Plan:
         ctx.state.status = RunStatus.PLANNING
         ctx.state.save(ctx.ws)
-        plan = run_planner(ctx.spec, ctx.spec.backends.planner, self.plan_model, ctx.ws, model=self._planner_model,
-                           events=ctx.events, budget=ctx.budget, runtime=ctx.runtime)
-        self._save_spent(ctx)
+        try:
+            plan = run_planner(ctx.spec, ctx.spec.backends.planner, self.plan_model, ctx.ws, model=self._planner_model,
+                               events=ctx.events, budget=ctx.budget, runtime=ctx.runtime, **self._plan_kwargs(ctx.spec))
+        finally:
+            self._save_spent(ctx)  # charged on success AND PlanningError
         return plan
+
+    def _plan_kwargs(self, spec: Spec) -> dict[str, Any]:
+        return {"template": self.plan_template, "example": self.plan_example(spec),
+                "temperature": self.plan_temperature, "max_output_tokens": self.plan_max_output_tokens,
+                "finalise": lambda p: self.finalise_plan(p, spec), "event_stats": self.plan_event_stats}
 
     # ------------------------------------------------------------------ stages
     def stage_skeleton(self, ctx: RunContext, runner: StageRunner) -> list[str]:
@@ -268,7 +363,7 @@ class BaseTrack:
     # ------------------------------------------------------------------ round loop
     def _round_loop(self, ctx: RunContext, rounds: list[RoundRecord]) -> StopReason:
         self.ensure_materialized(ctx)
-        pipeline = self.make_pipeline(ctx)
+        pipeline = self.make_pipeline()
         stop_policy = StopPolicy(ctx.policy)
         selector = BestSelector()
         rejudged: set[int] = set()
@@ -346,7 +441,7 @@ class BaseTrack:
                 ctx.events.emit("finalise.rebuild", round=best, ok=build.ok)
             except Exception as e:  # noqa: BLE001 — the best round already built once; report, don't fail
                 ctx.events.emit("finalise.rebuild_failed", error=f"{type(e).__name__}: {e}")
-        if rounds and ("texture" in ctx.spec.tags or ctx.extra.get("texture")):
+        if rounds and (ctx.spec.options.texture or "texture" in ctx.spec.tags or ctx.extra.get("texture")):
             self._texture_pass(ctx)
         ctx.state.status, ctx.state.stop_reason, ctx.state.error = status, stop_reason, error
         ctx.state.save(ctx.ws)

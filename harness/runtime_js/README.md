@@ -5,9 +5,14 @@ never imports from this directory**; it only imports `three` (and
 `three/addons/...`), which the harness resolves for it.
 
 ```
-gpu_launch.cjs        launchBrowser({gpu:'auto'|'on'|'off'}) → {browser, gpu, renderer}; rendererInfo(browser)
+gpu_launch.cjs        launchBrowser({gpu:'auto'|'on'|'off'}) → {browser, gpu, renderer, shared, release()};
+                      rendererInfo(browser).  Callers must release(), never browser.close(): connect-first
+                      reuse shares one browser per backend via browser_daemon.cjs (endpoint file under
+                      CV3D_CACHE_DIR, connect ~5 ms vs ~0.55 s launch; CV3D_BROWSER_REUSE=off disables).
                       WSL2 hardware WebGL (ANGLE gl-egl + Mesa d3d12 env), UNMASKED_RENDERER probe,
                       negative verdict cached 20 min in ~/.cache/codeverse/gpu_probe.json, SwiftShader fallback
+browser_daemon.cjs    detached keeper of the shared browser (one per gpu|cpu backend): advertises its
+                      ws endpoint, reaps after ~90 s idle (endpoint-file mtime heartbeat + open-page count)
 serve.cjs             serveDirs({root, mounts, routes}) loopback static server (MIME table, CORS);
                       runtime_js is always mounted at /__runtime/; importMapHtml() maps 'three' +
                       'three/addons/' onto it — nothing is ever fetched from the internet
@@ -35,6 +40,19 @@ lib/syntax_check.mjs  `node --input-type=module --check` per file to locate ESM 
 lib/browser/*.js      page-side ESM (served through /__runtime/): camera_fit.js (azimuth/elevation →
                       tight bbox fit), studio.js (RoomEnvironment PMREM + key/fill/rim, ACES, sRGB,
                       shadow catcher, render modes), render_rig.js (load GLB, isolate/explode/anim, views)
+
+probe_scene.mjs       scene build gate: boot src/scene.js, census, update(t,dt), first-camera checks;
+                      --compile folds the full shader preflight into the SAME boot (shader_report);
+                      --sun-azimuth returns harness-fitted overview + per-group camera specs (lib/orbit.mjs)
+check_shaders.mjs     standalone shader preflight (static GLSL audits + GPU compile, file:line mapped)
+render_scene.mjs      authored cameras + orbit rig renders at times, metrics.json/views.json
+lib/host_env.mjs      ESM adapters over gpu_launch.cjs + serve.cjs (launchBrowser, serveWorkspace)
+lib/host_page.mjs     node-side page driver: serve ws, launch, boot scene, collect errors, releaseBrowser
+lib/scene_host.mjs    page-side host (window.__c3v): boot/renderAt/census/compileAll/fps/cameraChecks
+lib/orbit.mjs         THE camera-fit owner: fitOverviewCamera (corner-frustum), fitZoneCamera (eye level),
+                      fitOrbitCameras, framingBox
+lib/shader_report.mjs shared shader-preflight report builder (static + compile stages)
+lib/glsl_audit.mjs    static GLSL audits + compiler-line → file:line mapping
 ```
 
 Conventions (from `codeverse/conventions.py`): Y up, +Z front, meters; azimuth 0 = front,

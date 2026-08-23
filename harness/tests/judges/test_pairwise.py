@@ -1,3 +1,5 @@
+import pytest
+
 from codeverse.judges.pairwise import PairwiseJudge
 from codeverse.models.base import ModelError
 from tests.judges.conftest import FakeChatModel, image_parts, make_renders, make_spec
@@ -10,15 +12,16 @@ def _reply(w, conf=0.8):
 def test_agreement_across_swap(tmp_path, cache_dir):
     ra, rb = make_renders(tmp_path / "a"), make_renders(tmp_path / "b")
     # ordering 1: A=ra,B=rb → "A" wins; ordering 2 (swapped): A=rb,B=ra → "B" wins → both say ra
-    model = FakeChatModel([_reply("A", 0.9), _reply("B", 0.7)])
+    model = FakeChatModel(by_label={":fwd": [_reply("A", 0.9)], ":swap": [_reply("B", 0.7)]})
     res = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare(make_spec(), ra, rb)
     assert res.winner == "a" and res.confidence == 0.8 and len(res.orderings) == 2
     assert res.usage.cost_usd > 0
-    labels = [p.label for p in image_parts(model.requests[0])]
+    reqs = {r.label: r for r in model.requests}  # orderings run in parallel: look up by label
+    labels = [p.label for p in image_parts(reqs["pairwise:fwd"])]
     assert len(labels) == 2  # one 2×2 montage per side
     assert labels[0].startswith("CANDIDATE A — MONTAGE 1/1 — SHADED views: top-left = front_right_34") and labels[1].startswith("CANDIDATE B — MONTAGE")
     # swapped ordering puts rb first as "A"
-    labels2 = [p.label for p in image_parts(model.requests[1])]
+    labels2 = [p.label for p in image_parts(reqs["pairwise:swap"])]
     assert labels2[0].startswith("CANDIDATE A — MONTAGE")
 
 
@@ -42,7 +45,8 @@ def test_tie_and_errors(tmp_path, cache_dir):
 
 def test_single_ordering_success_halves_confidence(tmp_path, cache_dir):
     ra, rb = make_renders(tmp_path / "a"), make_renders(tmp_path / "b")
-    model = FakeChatModel([ModelError("x", retryable=True), _reply("A", 0.8)])  # swapped ordering: A=rb → b wins
+    model = FakeChatModel(by_label={":fwd": [ModelError("x", retryable=True)],
+                                    ":swap": [_reply("A", 0.8)]})  # swapped ordering: A=rb → b wins
     res = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare(make_spec(), ra, rb)
     assert res.winner == "b" and res.confidence == 0.4
 
@@ -57,10 +61,10 @@ def test_compare_many_round_robin(tmp_path, cache_dir):
     from codeverse.judges.pairwise import RankingResult
     cands = [make_renders(tmp_path / f"c{i}") for i in range(3)]
     # pairs (0,1), (0,2), (1,2); each compare = 2 orderings. Make 2 beat everyone, 0 beat 1.
-    replies = [_reply("A", 0.9), _reply("B", 0.8),   # 0 v 1 → a (0 wins)
-               _reply("B", 0.9), _reply("A", 0.9),   # 0 v 2 → b (2 wins)
-               _reply("B", 0.7), _reply("A", 0.7)]   # 1 v 2 → b (2 wins)
-    model = FakeChatModel(replies)
+    replies = {"0v1:fwd": [_reply("A", 0.9)], "0v1:swap": [_reply("B", 0.8)],   # 0 v 1 → a (0 wins)
+               "0v2:fwd": [_reply("B", 0.9)], "0v2:swap": [_reply("A", 0.9)],   # 0 v 2 → b (2 wins)
+               "1v2:fwd": [_reply("B", 0.7)], "1v2:swap": [_reply("A", 0.7)]}   # 1 v 2 → b (2 wins)
+    model = FakeChatModel(by_label=replies)
     rank: RankingResult = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare_many(make_spec(), cands)
     assert rank.order == [2, 0, 1] and rank.best == 2
     assert rank.points == {0: 1.0, 1: 0.0, 2: 2.0}
@@ -77,3 +81,30 @@ def test_compare_many_ties_and_errors(tmp_path, cache_dir):
     rank = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare_many(make_spec(), cands)
     assert rank.points == {0: 0.5, 1: 0.5} and rank.order == [0, 1]
     assert rank.errors and "orderings disagree" in rank.errors[0]
+
+
+def test_parallel_orderings_accumulate_in_order(tmp_path, cache_dir):
+    """The two orderings run concurrently but land in (fwd, swap) order."""
+    ra, rb = make_renders(tmp_path / "a"), make_renders(tmp_path / "b")
+    model = FakeChatModel(by_label={":fwd": [_reply("A", 0.9)], ":swap": [_reply("B", 0.7)]})
+    res = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare(make_spec(), ra, rb)
+    assert [o["swapped"] for o in res.orderings] == [False, True]
+    assert [o["confidence"] for o in res.orderings] == [0.9, 0.7]
+    # usage sums across both parallel orderings
+    assert res.usage.cost_usd == pytest.approx(0.002) and res.usage.input_tokens == 2000
+
+
+def test_compare_many_parallel_is_deterministic(tmp_path, cache_dir):
+    """Fanned round-robin gives the same ranking / pair order on every run."""
+    cands = [make_renders(tmp_path / f"c{i}") for i in range(3)]
+    script = {"0v1:fwd": [_reply("A", 0.9)], "0v1:swap": [_reply("B", 0.8)],
+              "0v2:fwd": [_reply("B", 0.9)], "0v2:swap": [_reply("A", 0.9)],
+              "1v2:fwd": [_reply("B", 0.7)], "1v2:swap": [_reply("A", 0.7)]}
+    outcomes = []
+    for _ in range(3):
+        model = FakeChatModel(by_label={k: list(v) for k, v in script.items()})
+        rank = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare_many(make_spec(), cands)
+        outcomes.append((tuple(rank.order), tuple((p["a"], p["b"], p["winner"]) for p in rank.pairs)))
+    assert len(set(outcomes)) == 1
+    assert outcomes[0][0] == (2, 0, 1)
+    assert outcomes[0][1] == ((0, 1, "a"), (0, 2, "b"), (1, 2, "b"))  # pairs in input order

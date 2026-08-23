@@ -87,7 +87,20 @@ def probe_scene(ws: Workspace, *, timeout_s: float = 60.0, write_census: bool = 
                            hint="this is a harness/driver failure, not your code; retry or report", harness_failure=True))
         return _result(GateReport(gate=gate, passed=False, findings=findings, duration_ms=int((time.time() - t0) * 1000)), census,
                        driver_failure=f"scene probe could not run: {e}"[:800])
-    s = res.summary
+    report, census = probe_report(res.summary, duration_ms=int((time.time() - t0) * 1000))
+    if write_census and census:
+        ws.artifacts.mkdir(parents=True, exist_ok=True)
+        (ws.artifacts / "census.json").write_text(json.dumps(census, indent=1))
+    return _result(report, census)
+
+
+def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[GateReport, dict[str, Any]]:
+    """Interpret a ``probe_scene.mjs`` summary into the ``scene_probe`` GateReport
+    (+ census).  Pure over the driver JSON, so the combined single-boot build
+    (``probe_scene.mjs --compile``, scene_threejs runtime) reuses it."""
+    gate = PROBE_GATE
+    findings: list[GateFinding] = []
+    s = summary
     boot = s.get("boot") or {}
     if not boot.get("ok"):
         stage = boot.get("stage", "?")
@@ -132,11 +145,8 @@ def probe_scene(ws: Workspace, *, timeout_s: float = 60.0, write_census: bool = 
     if cam0 and cam0.get("dark_frac", 0) > 0.85:
         findings.append(_f(gate, Severity.WARN, f"camera '{cam0.get('name')}' frame is {cam0['dark_frac']:.0%} black — no lights or nothing in view?",
                            target=str(cam0.get("name")), hint="add a DirectionalLight + HemisphereLight in env, aim the camera at the content"))
-    if write_census and census:
-        ws.artifacts.mkdir(parents=True, exist_ok=True)
-        (ws.artifacts / "census.json").write_text(json.dumps(census, indent=1))
     passed = not any(f.severity == Severity.ERROR for f in findings)
-    return _result(GateReport(gate=gate, passed=passed, findings=findings, duration_ms=int((time.time() - t0) * 1000)), census)
+    return GateReport(gate=gate, passed=passed, findings=findings, duration_ms=duration_ms), census
 
 
 def _census_findings(c: dict[str, Any]) -> list[GateFinding]:
@@ -179,7 +189,16 @@ def check_shaders(ws: Workspace, *, module: str | None = None, timeout_s: float 
         findings.append(_f(gate, Severity.ERROR, f"shader preflight could not run: {e}", target="src/scene.js",
                            hint="harness/driver failure; retry or report", harness_failure=True))
         return GateReport(gate=gate, passed=False, findings=findings, duration_ms=int((time.time() - t0) * 1000))
-    rep = res.summary
+    return shader_report(res.summary, duration_ms=int((time.time() - t0) * 1000))
+
+
+def shader_report(report: dict[str, Any], *, duration_ms: int = 0) -> GateReport:
+    """Interpret a shader-preflight report (``check_shaders.mjs`` summary, or the
+    ``shader_report`` block of ``probe_scene.mjs --compile``) into the
+    ``shader_preflight`` GateReport.  Pure over the driver JSON."""
+    gate = SHADER_GATE
+    findings: list[GateFinding] = []
+    rep = report
     for e in rep.get("errors", []):
         target = f"{e.get('file', '?')}:{e['line']}" if e.get("line") else str(e.get("file", "?"))
         findings.append(_f(gate, Severity.ERROR, e.get("message", "shader error"), target=target,
@@ -193,7 +212,7 @@ def check_shaders(ws: Workspace, *, module: str | None = None, timeout_s: float 
         findings.append(_f(gate, Severity.INFO, f"compiled {comp.get('programs')} programs ({comp.get('custom_materials')} custom) in {comp.get('ms')} ms",
                            target="scene", **comp))
     passed = bool(rep.get("ok")) and not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=gate, passed=passed, findings=findings, duration_ms=int((time.time() - t0) * 1000))
+    return GateReport(gate=gate, passed=passed, findings=findings, duration_ms=duration_ms)
 
 
 def shader_presence(

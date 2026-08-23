@@ -12,7 +12,7 @@ from pathlib import Path
 
 from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport
-from codeverse.contracts.common import Language
+from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.conventions import MAX_TRIS_OBJECT
 from codeverse.languages._common import compose_build_result, remove_stale, run_subprocess
@@ -37,7 +37,7 @@ class CadQueryRuntime:
     """LanguageRuntime for ``Language.CADQUERY``."""
 
     language = Language.CADQUERY
-    entry_globs: tuple[str, ...] = ("src/model.py",)
+    entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.CADQUERY],)
 
     def __init__(self, *, python: str | None = None, settings: Settings | None = None, rlimit_gb: float = 8.0):
         self._settings = settings or get_settings()

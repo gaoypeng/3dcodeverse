@@ -2,49 +2,45 @@
 
 Languages: glsl_shader (Shadertoy-style fragment shader) · opengl_python (raw
 moderngl program).  Reuses ``BaseTrack`` (lifecycle) and ``run_round`` (steps)
-unchanged; the track-specific pieces are the planner template, the prompt
-context (no 3D frame), the ``gl_frames`` gate (frame statistics from the build)
-and the render step (the sampled frames + contact sheet as the RenderSet the
-``shader_v1`` judge sees).  Refinement is always one whole-program task.
-
-The shared prompt helpers look the language up in ``conventions.LANGUAGE_FRAME``
-(repair prompts); graphics languages have no 3D frame, so they are registered
-here as Y-up/+Z-front (GL clip space) until conventions.py carries them.
+unchanged; the track-specific pieces are the planner hooks (template / example /
+acceptance in ``graphics_steps``), the prompt context (no 3D frame), the
+``gl_frames`` gate (frame statistics from the build) and the render step (the
+sampled frames + contact sheet as the RenderSet the ``shader_v1`` judge sees).
+Refinement is always one whole-program task.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from typing import Any
 
 from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
-from codeverse.contracts.common import Language, Track
+from codeverse.contracts.common import TRACK_INFO, Language, Track
 from codeverse.contracts.plan import GraphicsPlan, Plan
 from codeverse.contracts.run import RoundRecord
-from codeverse.conventions import LANGUAGE_FRAME, Frame
-from codeverse.events import EventLog
+from codeverse.contracts.spec import Spec
 from codeverse.languages.glsl_shader.gl_build import read_metrics
-from codeverse.orchestrator.rounds import TaskGroup, build_refine_instructions
+from codeverse.orchestrator.rounds import TaskGroup
 from codeverse.prompts import render
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationTask
 from codeverse.tracks.graphics_steps import (
-    expected_files,
+    PLAN_MAX_OUTPUT_TOKENS,
+    PLAN_TEMPERATURE,
+    PLAN_TEMPLATE,
+    ensure_graphics_acceptance,
     frame_stats_text,
     frames_render_set,
+    graphics_event_stats,
+    graphics_expected_files,
     graphics_prompt_context,
-    plan_graphics,
 )
+from codeverse.tracks.graphics_steps import plan_example as graphics_plan_example
 from codeverse.tracks.lifecycle import BaseTrack
-from codeverse.tracks.repair import format_error_report
-from codeverse.tracks.static_object import current_files, judge_digest, skeleton_files
-from codeverse.tracks.steps import failed_acceptance
+from codeverse.tracks.prompting import current_files, judge_digest, skeleton_files
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
-
-for _lang in (Language.GLSL_SHADER, Language.OPENGL_PYTHON):
-    LANGUAGE_FRAME.setdefault(_lang.value, Frame.Y_UP_POS_Z_FRONT)
 
 
 class GraphicsPipeline:
@@ -71,37 +67,36 @@ class GraphicsPipeline:
         return (f"{plan.title}: {plan.summary} Style: {plan.style}. Passes: {passes}. Key visuals: {visuals}. "
                 f"Motion: {plan.motion or '(none planned)'}. {plan.resolution[0]}x{plan.resolution[1]}, loop {plan.duration_s:g}s.")
 
-    def judge_context(self, ctx: RunContext, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
+    def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
         renderer = build.census.get("renderer", "") if isinstance(build.census, dict) else ""
-        return f"FRAME METRICS (harness-measured, renderer {renderer or 'moderngl'}):\n{frame_stats_text(ctx.ws)}"
+        return f"FRAME METRICS (harness-measured, renderer {renderer or 'moderngl'}):\n{frame_stats_text(ws)}"
 
 
 class GraphicsTrack(BaseTrack):
     track = Track.GRAPHICS
-    rubric = "shader_v1"
+    rubric = TRACK_INFO[Track.GRAPHICS].rubric
     plan_model = GraphicsPlan
     generate_template = "tracks/generate_graphics.j2"
     refine_template = "tracks/refine_graphics.j2"
+    # planner hooks: own template/example/acceptance, T=0.5, 16k tokens (no 3D frame)
+    plan_template = PLAN_TEMPLATE
+    plan_temperature = PLAN_TEMPERATURE
+    plan_max_output_tokens = PLAN_MAX_OUTPUT_TOKENS
+    # refinement is always ONE whole-program task
+    allow_refine_fanout = False
 
-    def make_pipeline(self, ctx: RunContext) -> GraphicsPipeline:
+    def make_pipeline(self) -> GraphicsPipeline:
         return GraphicsPipeline()
 
-    # ------------------------------------------------------------------ planning (own template / acceptance)
-    def plan(self, spec, ws: Workspace) -> Plan:
-        ws.create()
-        events = EventLog(ws.events_path)
-        runtime = self._runtime or self.services.runtime(spec.language)
-        return plan_graphics(spec, spec.backends.planner, ws, model=self._planner_model, events=events, runtime=runtime)
+    # ------------------------------------------------------------------ planner hooks
+    def plan_example(self, spec: Spec) -> dict[str, Any]:
+        return graphics_plan_example()
 
-    def _plan_stage(self, ctx: RunContext) -> Plan:
-        from codeverse.contracts.run import RunStatus
+    def finalise_plan(self, plan_obj: Any, spec: Spec) -> Any:
+        return ensure_graphics_acceptance(plan_obj, spec)
 
-        ctx.state.status = RunStatus.PLANNING
-        ctx.state.save(ctx.ws)
-        plan = plan_graphics(ctx.spec, ctx.spec.backends.planner, ctx.ws, model=self._planner_model, events=ctx.events,
-                             budget=ctx.budget, runtime=ctx.runtime)
-        self._save_spent(ctx)
-        return plan
+    def plan_event_stats(self, plan_obj: Any) -> dict[str, Any]:
+        return graphics_event_stats(plan_obj)
 
     # ------------------------------------------------------------------ baseline
     def system_prompt(self, ctx: RunContext) -> str:
@@ -111,7 +106,7 @@ class GraphicsTrack(BaseTrack):
                 f"Render and LOOK at your frames before finishing.")
 
     def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
-        files = expected_files(ctx)
+        files = graphics_expected_files(ctx)
         prompt = render(self.generate_template, **graphics_prompt_context(
             ctx, skeleton_files=skeleton_files(ctx) if ctx.single_shot else {}, previous_error=""))
         ctx.record_prompt("generate", prompt)
@@ -119,33 +114,18 @@ class GraphicsTrack(BaseTrack):
                                kind="baseline", temperature=0.6, thinking="medium")]
 
     def round_files_hint(self, ctx: RunContext) -> list[str]:
-        return expected_files(ctx)
+        return graphics_expected_files(ctx)
 
-    # ------------------------------------------------------------------ refine
-    def refine_tasks(self, ctx: RunContext, last: RoundRecord, history: Sequence[RoundRecord]) -> tuple[list[GenerationTask], list[str]]:
-        index = len(history)
-        if last.build is None or not last.build.ok:
-            return [self._rebuild_task(ctx, last, index)], ["rebuild: previous round did not build"]
-        tasks = build_refine_instructions(last.judgment, last.gates, failed_acceptance(ctx, last.judgment), ctx.plan,
-                                          file_for_target=None, max_tasks=ctx.policy.max_refine_tasks)
-        if not tasks:
-            return [], []
-        group = TaskGroup(tasks=tasks, files=expected_files(ctx))
+    def generate_context(self, ctx: RunContext, **extra: Any) -> dict[str, Any]:
+        return graphics_prompt_context(ctx, **extra)
+
+    # ------------------------------------------------------------------ refine (scaffold hook; never fans out)
+    def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
+        files = graphics_expected_files(ctx)
         prompt = render(self.refine_template, **graphics_prompt_context(
-            ctx, round_index=index, tasks=[t.line() for t in tasks], targets=group.targets, files=group.files,
+            ctx, round_index=index, tasks=[t.line() for t in group.tasks], targets=group.targets, files=files,
             judge_summary=judge_digest(last), frame_notes=frame_stats_text(ctx.ws),
-            current_files=current_files(ctx, group.files) if ctx.single_shot else {}))
+            current_files=current_files(ctx, files) if ctx.single_shot else {}))
         ctx.record_prompt("refine", prompt)
-        ctx.events.emit("refine.planned", round=index, n_tasks=len(tasks), n_groups=1, parallel=False, targets=[group.targets])
-        task = GenerationTask(label="refine", prompt=prompt, system=self.system_prompt(ctx), files_hint=group.files, round=index,
+        return GenerationTask(label="refine", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
                               kind="refine", temperature=0.5, thinking="medium")
-        return [task], [t.line() for t in tasks]
-
-    def _rebuild_task(self, ctx: RunContext, last: RoundRecord, index: int) -> GenerationTask:
-        files = expected_files(ctx)
-        lint = next((g for g in last.gates if g.gate.startswith("lint")), GateReport(gate="lint", passed=True))
-        report = format_error_report(last.build, lint, ctx.cookbook_text) if last.build else "build did not run"
-        prompt = render(self.generate_template, **graphics_prompt_context(
-            ctx, skeleton_files=current_files(ctx, files) if ctx.single_shot else {}, previous_error=report))
-        return GenerationTask(label="rebuild", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
-                              kind="rebuild", temperature=0.7, thinking="high")

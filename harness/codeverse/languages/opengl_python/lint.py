@@ -18,6 +18,7 @@ import ast
 import re
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse.languages._ast_lint import BASE_FORBIDDEN_IMPORTS, check_imports
 from codeverse.workspace import Workspace
 
 GATE = "lint:opengl_python"
@@ -27,8 +28,10 @@ ALLOWED_MODULES: frozenset[str] = frozenset({
     "functools", "collections", "colorsys", "__future__", "enum",
 })
 WINDOW_LIBS = {"glfw", "pygame", "pyglet", "PyQt5", "PyQt6", "PySide2", "PySide6", "tkinter", "moderngl_window", "sdl2", "wx", "OpenGL"}
-DANGEROUS_MODULES = {"os", "sys", "subprocess", "socket", "requests", "urllib", "http", "shutil", "ctypes", "importlib",
-                     "multiprocessing", "threading", "signal", "pickle", "tempfile", "io", "time", "datetime"}
+DANGEROUS_MODULES = frozenset(BASE_FORBIDDEN_IMPORTS | {
+    "os", "sys",  # no interpreter / file-system access
+    "signal", "tempfile", "io", "time", "datetime",  # frames must be a pure, deterministic function of t
+})
 FORBIDDEN_CALLS = {"open", "exec", "eval", "compile", "__import__", "input", "exit", "quit", "breakpoint"}
 MAX_CHARS = 120_000
 _VERSION_RE = re.compile(r"#\s*version\s+(\d+)(?:\s+(\w+))?")
@@ -56,13 +59,18 @@ class _Visitor(ast.NodeVisitor):
         if root in WINDOW_LIBS:
             self.findings.append(_finding(Severity.ERROR, "window_lib", f"imports `{name}` (window / input library)",
                                           "the harness creates the context and framebuffer; draw into the fbo it passes — no window", line))
-        elif root in DANGEROUS_MODULES:
-            self.findings.append(_finding(Severity.ERROR, "forbidden_import", f"imports `{name}` (not allowed in a rendering program)",
-                                          "allowed: moderngl, numpy, math, random, struct, array, pathlib, typing, dataclasses, itertools, "
-                                          "functools, collections, colorsys", line))
-        elif root not in ALLOWED_MODULES:
-            self.findings.append(_finding(Severity.ERROR, "forbidden_import", f"imports `{name}` which is outside the allow-list",
-                                          "use only moderngl + numpy + stdlib math/random/struct/array/pathlib", line))
+            return
+
+        def _import_finding(kind: str, _mod: str, ln: int) -> GateFinding:
+            if kind == "forbidden":
+                return _finding(Severity.ERROR, "forbidden_import", f"imports `{name}` (not allowed in a rendering program)",
+                                "allowed: moderngl, numpy, math, random, struct, array, pathlib, typing, dataclasses, itertools, "
+                                "functools, collections, colorsys", ln)
+            return _finding(Severity.ERROR, "forbidden_import", f"imports `{name}` which is outside the allow-list",
+                            "use only moderngl + numpy + stdlib math/random/struct/array/pathlib", ln)
+
+        self.findings.extend(check_imports({root: line}, forbidden=DANGEROUS_MODULES, allowed=ALLOWED_MODULES,
+                                           make_finding=_import_finding))
 
     def visit_Import(self, node: ast.Import) -> None:
         for a in node.names:

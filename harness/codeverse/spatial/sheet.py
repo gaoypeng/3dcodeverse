@@ -2,6 +2,11 @@
 
 Used for judge inputs and agent observations: one image, every view labelled
 under its tile, fixed tile size so the VLM sees consistent scale.
+
+This module is also the one home for shared PIL drawing bits: ``load_font``
+and the sheet geometry/palette constants (``LABEL_H``, ``PAD``, ``BG``,
+``LABEL_BG``, ``LABEL_FG``) are public and reused by ``spatial.gl_render``,
+``spatial.sections`` and ``judges.images``.
 """
 
 from __future__ import annotations
@@ -12,15 +17,25 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+#: shared sheet geometry / palette (public — imported by other drawing modules)
 LABEL_H = 28
 PAD = 6
 BG = (250, 250, 250)
 LABEL_BG = (34, 34, 38)
 LABEL_FG = (240, 240, 240)
 
+_FONTS = ("DejaVuSans.ttf", "DejaVuSansMono.ttf", "LiberationSans-Regular.ttf", "Arial.ttf")
+_FONTS_BOLD = ("DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf", "Arialbd.ttf")
 
-def _font(size: int = 15) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
-    for name in ("DejaVuSans.ttf", "DejaVuSansMono.ttf", "LiberationSans-Regular.ttf", "Arial.ttf"):
+
+def load_font(size: int = 15, bold: bool = False) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
+    """First available truetype font at ``size`` (PIL default as last resort).
+
+    The candidate list covers the fonts present on typical Linux/CI hosts;
+    ``bold=True`` prefers the bold faces and falls back to the regular ones.
+    """
+    names = (*_FONTS_BOLD, *_FONTS) if bold else _FONTS
+    for name in names:
         try:
             return ImageFont.truetype(name, size)
         except OSError:
@@ -58,7 +73,7 @@ def contact_sheet(
     cell_h = tile + (LABEL_H if label else 0)
     sheet = Image.new("RGB", (cols * (tile + PAD) + PAD, rows * (cell_h + PAD) + PAD), BG)
     draw = ImageDraw.Draw(sheet)
-    font = _font()
+    font = load_font()
     for i, (text, path) in enumerate(images):
         x = PAD + (i % cols) * (tile + PAD)
         y = PAD + (i // cols) * (cell_h + PAD)

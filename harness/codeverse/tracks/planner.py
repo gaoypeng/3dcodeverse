@@ -13,13 +13,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse.contracts.common import Language, Track, Usage
-from codeverse.contracts.plan import AcceptanceItem, ArticulatedPlan, ScenePlan, StaticPlan
+from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import LANGUAGE_FRAME, frame_doc, to_pascal
 from codeverse.prompts import prompt_hash, render
@@ -39,25 +40,62 @@ PLAN_TEMPLATES: dict[Track, str] = {
 
 
 class PlanningError(RuntimeError):
-    """The planner could not produce a valid plan after one re-ask."""
+    """The planner could not produce a valid plan after one re-ask.
+
+    Carries the ``usage`` already spent so callers can charge the budget even
+    when planning fails (a failed re-ask is still paid for)."""
+
+    def __init__(self, message: str, usage: Usage | None = None):
+        super().__init__(message)
+        self.usage = usage or Usage()
+
+
+#: hook types (BaseTrack subclasses parameterise the ONE planner loop with these)
+FinalisePlan = Callable[[Any], Any]
+EventStats = Callable[[Any], dict[str, Any]]
+
+
+def default_event_stats(plan_obj: Any) -> dict[str, Any]:
+    return {"n_parts": len(getattr(plan_obj, "parts", []) or []),
+            "n_zones": len(getattr(plan_obj, "zones", []) or []),
+            "n_acceptance": len(plan_obj.acceptance)}
 
 
 def plan(spec: Spec, model_id: str, plan_model: type[P], ws: Workspace, *, model: Any | None = None,
-         events: Any | None = None, budget: Any | None = None, runtime: Any | None = None) -> P:
-    """Plan and write ``ws.plan_path``.  ``model`` may be injected (tests)."""
-    result, usage = plan_with_usage(spec, model_id, plan_model, ws, model=model, events=events, runtime=runtime)
+         events: Any | None = None, budget: Any | None = None, runtime: Any | None = None,
+         template: str | None = None, example: dict[str, Any] | None = None, temperature: float = 0.4,
+         max_output_tokens: int = 24000, finalise: FinalisePlan | None = None,
+         event_stats: EventStats | None = None) -> P:
+    """Plan and write ``ws.plan_path``.  ``model`` may be injected (tests).
+
+    The budget is charged on success AND on ``PlanningError`` — a failed
+    re-ask is still paid for."""
+    try:
+        result, usage = plan_with_usage(spec, model_id, plan_model, ws, model=model, events=events, runtime=runtime,
+                                        template=template, example=example, temperature=temperature,
+                                        max_output_tokens=max_output_tokens, finalise=finalise, event_stats=event_stats)
+    except PlanningError as e:
+        if budget is not None:
+            budget.charge(e.usage)
+        raise
     if budget is not None:
         budget.charge(usage)
     return result
 
 
 def plan_with_usage(spec: Spec, model_id: str, plan_model: type[P], ws: Workspace, *, model: Any | None = None,
-                    events: Any | None = None, runtime: Any | None = None) -> tuple[P, Usage]:
+                    events: Any | None = None, runtime: Any | None = None, template: str | None = None,
+                    example: dict[str, Any] | None = None, temperature: float = 0.4, max_output_tokens: int = 24000,
+                    finalise: FinalisePlan | None = None, event_stats: EventStats | None = None) -> tuple[P, Usage]:
+    """One structured planner call + one re-ask, parameterised by the track hooks:
+    ``template``/``example`` (system prompt), ``finalise`` (post-validation fixup,
+    default = ``ensure_acceptance(normalise_names(...))``) and ``event_stats``
+    (extra ``plan.done`` payload)."""
     if model is None:
         from codeverse.models import get_chat_model
 
         model = get_chat_model(model_id)
-    system = build_system_prompt(spec, plan_model, runtime=runtime)
+    system = build_system_prompt(spec, plan_model, runtime=runtime, template=template, example=example)
     user = build_user_prompt(spec)
     images = [ImagePart(path=r.path, label=f"{r.role}: {r.note}".strip(": ")) for r in spec.references]
     messages = [ChatMessage.user(user, images=images or None)]
@@ -65,8 +103,8 @@ def plan_with_usage(spec: Spec, model_id: str, plan_model: type[P], ws: Workspac
     usage = Usage()
     last_error = ""
     for attempt in range(2):
-        req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=0.4,
-                          thinking="medium", max_output_tokens=24000, label=f"planner{'-retry' if attempt else ''}")
+        req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=temperature,
+                          thinking="medium", max_output_tokens=max_output_tokens, label=f"planner{'-retry' if attempt else ''}")
         resp = model.generate(req)
         usage = usage + resp.usage
         raw = resp.parsed if resp.parsed is not None else _parse_json(resp.text)
@@ -84,19 +122,20 @@ def plan_with_usage(spec: Spec, model_id: str, plan_model: type[P], ws: Workspac
                                  f"plan JSON again (same schema):\n{last_error}"),
             ]
             continue
-        result = ensure_acceptance(normalise_names(result), spec)
+        result = finalise(result) if finalise is not None else ensure_acceptance(normalise_names(result), spec)
         ws.write_json(ws.plan_path, result)
         if events is not None:
-            events.emit("plan.done", model=model_id, attempt=attempt, n_parts=len(getattr(result, "parts", []) or []),
-                        n_zones=len(getattr(result, "zones", []) or []), n_acceptance=len(result.acceptance),
-                        cost_usd=round(usage.cost_usd, 4), prompt_hash=prompt_hash(system))
+            stats = (event_stats or default_event_stats)(result)
+            events.emit("plan.done", model=model_id, **stats,
+                        cost_usd=round(usage.cost_usd, 4), prompt_hash=prompt_hash(system), attempt=attempt)
         return result, usage
-    raise PlanningError(f"plan did not validate after re-ask: {last_error}")
+    raise PlanningError(f"plan did not validate after re-ask: {last_error}", usage)
 
 
 # ----------------------------------------------------------------------------- prompts
-def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, runtime: Any | None = None) -> str:
-    template = PLAN_TEMPLATES[spec.track]
+def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, runtime: Any | None = None,
+                        template: str | None = None, example: dict[str, Any] | None = None) -> str:
+    template = template or PLAN_TEMPLATES[spec.track]
     lang: Language = spec.language
     return render(
         template,
@@ -104,7 +143,7 @@ def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, runtime: Any
         language=lang.value,
         frame_doc=frame_doc(LANGUAGE_FRAME[lang.value]),
         contract=language_contract(lang, runtime)[:6000],
-        example_json=json.dumps(plan_example(spec.track), indent=1),
+        example_json=json.dumps(example if example is not None else plan_example(spec.track), indent=1),
         schema_fields=", ".join(plan_model.model_json_schema().get("properties", {}).keys()),
     )
 
@@ -136,33 +175,33 @@ def _parse_json(text: str) -> Any:
 
 
 # ----------------------------------------------------------------------------- deterministic acceptance
+def add_acceptance_item(items: list[AcceptanceItem], prefix: str, text: str, how: str) -> None:
+    """Append a framework-derived *must* acceptance item unless an item with the
+    same text exists; the id is ``<prefix><N>`` with N chosen to be unique."""
+    if text.strip().lower() in {a.text.strip().lower() for a in items}:
+        return
+    ids = {a.id for a in items}
+    n = 1
+    while f"{prefix}{n}" in ids:
+        n += 1
+    items.append(AcceptanceItem(id=f"{prefix}{n}", text=text, how=how, priority="must"))  # type: ignore[arg-type]
+
+
 def ensure_acceptance(plan_obj: P, spec: Spec) -> P:
     """Append acceptance items derived from the spec constraints when missing."""
     items: list[AcceptanceItem] = list(plan_obj.acceptance)
-    have = {a.text.strip().lower() for a in items}
-    ids = {a.id for a in items}
-
-    def _add(prefix: str, text: str, how: str) -> None:
-        if text.strip().lower() in have:
-            return
-        n = 1
-        while f"{prefix}{n}" in ids:
-            n += 1
-        ids.add(f"{prefix}{n}")
-        items.append(AcceptanceItem(id=f"{prefix}{n}", text=text, how=how, priority="must"))  # type: ignore[arg-type]
-
     c = spec.constraints
     if c.dimensions_m:
         dims = ", ".join(f"{k} = {v:.3f} m" for k, v in c.dimensions_m.items())
-        _add("dim", f"Overall dimensions match the request within 5%: {dims}", "measure")
+        add_acceptance_item(items, "dim", f"Overall dimensions match the request within 5%: {dims}", "measure")
     if c.max_triangles:
-        _add("tri", f"Triangle count ≤ {c.max_triangles}", "measure")
+        add_acceptance_item(items, "tri", f"Triangle count ≤ {c.max_triangles}", "measure")
     for m in c.must_have:
-        _add("must", f"Includes: {m}", "visual")
+        add_acceptance_item(items, "must", f"Includes: {m}", "visual")
     for m in c.must_not:
-        _add("not", f"Does NOT include: {m}", "visual")
+        add_acceptance_item(items, "not", f"Does NOT include: {m}", "visual")
     if spec.track is not Track.SCENE and not any(a.how == "measure" for a in items):
-        _add("ground", "Object stands on the ground plane (lowest point at up=0) with its footprint centred", "measure")
+        add_acceptance_item(items, "ground", "Object stands on the ground plane (lowest point at up=0) with its footprint centred", "measure")
     plan_obj.acceptance = items
     return plan_obj
 
@@ -221,10 +260,6 @@ def plan_example(track: Track) -> dict[str, Any]:
     return base
 
 
-def plan_model_for(track: Track) -> type[StaticPlan] | type[ArticulatedPlan] | type[ScenePlan]:
-    return {Track.STATIC_OBJECT: StaticPlan, Track.ARTICULATED_OBJECT: ArticulatedPlan, Track.SCENE: ScenePlan}[track]
-
-
 def normalise_names(plan_obj: P) -> P:
     """PascalCase part/link/zone/asset names in place — prompts ask for it; code guarantees it.
     Normalisation keeps the snake key, so validated uniqueness/tree properties are preserved."""
@@ -242,5 +277,5 @@ def normalise_names(plan_obj: P) -> P:
     return plan_obj
 
 
-__all__ = ["PlanningError", "plan", "plan_with_usage", "plan_model_for", "plan_example", "ensure_acceptance",
-           "normalise_names", "build_system_prompt", "build_user_prompt", "load_prompt_or"]
+__all__ = ["PlanningError", "plan", "plan_with_usage", "plan_example", "ensure_acceptance", "add_acceptance_item",
+           "default_event_stats", "normalise_names", "build_system_prompt", "build_user_prompt", "load_prompt_or"]

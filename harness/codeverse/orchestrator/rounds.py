@@ -22,6 +22,7 @@ from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import to_snake
+from codeverse.judges.metrics import best_index
 
 log = logging.getLogger(__name__)
 
@@ -89,31 +90,14 @@ class StopPolicy:
 class BestSelector:
     """Best round = highest score, then fewer gate errors, then earlier.
 
-    Delegates to ``codeverse.judges.metrics.best_index`` when that exists so the
-    judge package owns the ranking rule; falls back to the local rule.
-    """
+    ``codeverse.judges.metrics.best_index`` owns the ranking rule; rounds
+    without any score fall back to the last successfully built one."""
 
     def pick(self, rounds: Sequence[RoundRecord]) -> int | None:
-        if not rounds:
-            return None
-        try:
-            from codeverse.judges.metrics import best_index  # type: ignore[import-not-found]
-        except Exception:  # noqa: BLE001 — optional dependency during bootstrap
-            best_index = None
-        scored = [(i, r) for i, r in enumerate(rounds) if r.score is not None]
-        if best_index is not None and scored:
-            try:
-                k = best_index([(float(r.score), gate_error_count(r)) for _, r in scored])  # type: ignore[arg-type]
-                return scored[int(k)][0]
-            except Exception:  # noqa: BLE001 — never let a ranking helper kill a run
-                log.warning("judges.metrics.best_index failed; using local rule", exc_info=True)
-        return self._local_pick(rounds)
-
-    @staticmethod
-    def _local_pick(rounds: Sequence[RoundRecord]) -> int | None:
         scored = [(i, r) for i, r in enumerate(rounds) if r.score is not None]
         if scored:
-            return max(scored, key=lambda ir: (ir[1].score, -gate_error_count(ir[1]), -ir[0]))[0]
+            k = best_index([(float(r.score), gate_error_count(r)) for _, r in scored])  # type: ignore[arg-type]
+            return scored[int(k)][0]
         built = [i for i, r in enumerate(rounds) if r.build is not None and r.build.ok]
         return built[-1] if built else None
 
@@ -190,8 +174,7 @@ def build_refine_instructions(
 
     for g in gates:
         for f in g.errors:
-            text = f.message if not f.fix_hint else f"{f.message} FIX: {f.fix_hint}"
-            _add(RefineTask(target=f.target or "overall", kind=f"gate:{g.gate}", instruction=text,
+            _add(RefineTask(target=f.target or "overall", kind=f"gate:{g.gate}", instruction=f.as_line(),
                             priority=0, source="gate"))
     for t in extra:
         _add(t.model_copy())
@@ -247,6 +230,25 @@ def plan_parallel_groups(tasks: Sequence[RefineTask]) -> list[TaskGroup]:
         out.append(TaskGroup(tasks=members, files=files))
     out.sort(key=lambda g: min(t.priority for t in g.tasks))
     return out
+
+
+def plan_refine_groups(
+    tasks: Sequence[RefineTask],
+    *,
+    allow_fanout: bool = True,
+    parallel_min_tasks: int = 2,
+) -> tuple[list[TaskGroup], bool]:
+    """The ONE grouping rule of the refine scaffold (``BaseTrack.refine_tasks``).
+
+    Groups by file ownership via :func:`plan_parallel_groups`; the groups run in
+    parallel only when fan-out is allowed for the track, at least
+    ``parallel_min_tasks`` file-disjoint groups exist and every group owns
+    files.  Otherwise everything collapses into ONE whole-artifact group."""
+    groups = plan_parallel_groups(tasks)
+    parallel = allow_fanout and len(groups) >= parallel_min_tasks and all(g.files for g in groups)
+    if not parallel:
+        groups = [TaskGroup(tasks=list(tasks), files=sorted({f for t in tasks for f in t.files}))]
+    return groups, parallel
 
 
 def compact_instructions(tasks: Sequence[RefineTask], max_lines: int = 6) -> list[str]:

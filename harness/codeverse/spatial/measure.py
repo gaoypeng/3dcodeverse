@@ -7,12 +7,17 @@ rows, islands, ground gap, footprint offset, materials).  Degenerate input
 
 ``part_meshes`` is the shared loader other spatial modules use: it returns one
 world-space ``trimesh.Trimesh`` per top-level node (all child meshes merged).
+``cached_parts`` is the memoized front door for gates that re-read the same
+GLB (keyed on path + size + mtime_ns; ``load_scene`` itself is never cached —
+texturing mutates scenes).
 """
 
 from __future__ import annotations
 
 import re
+import threading
 from collections import OrderedDict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +29,7 @@ from codeverse.contracts.artifacts import Measurement, PartMeasure
 __all__ = [
     "load_scene",
     "part_meshes",
+    "cached_parts",
     "measure_glb",
     "measure_summary_table",
     "instance_groups",
@@ -149,6 +155,59 @@ def part_meshes(scene: trimesh.Scene) -> OrderedDict[str, trimesh.Trimesh | None
     return out
 
 
+# --------------------------------------------------------------------- parse memo
+#: LRU entries: parsed parts + finished Measurement for one (path, size, mtime_ns)
+_LRU_MAX = 4
+_lru_lock = threading.Lock()
+
+
+@dataclass
+class _CacheEntry:
+    parts: OrderedDict[str, trimesh.Trimesh | None] | None = None
+    measurement: Measurement | None = None
+
+
+_lru: OrderedDict[tuple[str, int, int], _CacheEntry] = OrderedDict()
+
+
+def _stat_key(p: Path) -> tuple[str, int, int] | None:
+    """(resolved path, size, mtime_ns) — None when the file cannot be stat'ed."""
+    try:
+        st = p.stat()
+    except OSError:
+        return None
+    return (str(p.resolve()), st.st_size, st.st_mtime_ns)
+
+
+def _cache_entry(key: tuple[str, int, int]) -> _CacheEntry:
+    """The (possibly fresh) LRU entry for ``key``; evicts the oldest past ``_LRU_MAX``."""
+    with _lru_lock:
+        e = _lru.get(key)
+        if e is None:
+            e = _lru[key] = _CacheEntry()
+        _lru.move_to_end(key)
+        while len(_lru) > _LRU_MAX:
+            _lru.popitem(last=False)
+        return e
+
+
+def cached_parts(glb: Path | str) -> OrderedDict[str, trimesh.Trimesh | None]:
+    """``part_meshes(load_scene(glb))`` memoized on the file's stat (LRU of 4).
+
+    Rewriting the file (new size or mtime_ns) invalidates the entry.  The
+    returned dict is a fresh copy per call, but the meshes are SHARED between
+    callers — treat them as read-only (copy before transforming).
+    """
+    p = Path(glb)
+    key = _stat_key(p)
+    if key is None:
+        return part_meshes(load_scene(p))  # raises GlbLoadError for a missing file
+    entry = _cache_entry(key)
+    if entry.parts is None:
+        entry.parts = part_meshes(load_scene(p))
+    return OrderedDict(entry.parts)
+
+
 def merged_mesh(parts: dict[str, trimesh.Trimesh | None]) -> trimesh.Trimesh | None:
     """All part meshes concatenated (None if nothing has faces)."""
     meshes = [m for m in parts.values() if m is not None]
@@ -194,10 +253,25 @@ def measure_glb(glb: Path | str) -> Measurement:
 
     Raises :class:`GlbLoadError` only when the file is unreadable; an empty or
     degenerate model yields a zero-extent ``Measurement`` with findings in
-    ``extra["findings"]``.
+    ``extra["findings"]``.  Memoized on the file's stat (same LRU as
+    :func:`cached_parts`); every call returns its own deep copy.
     """
-    scene = load_scene(glb)
-    parts = part_meshes(scene)
+    p = Path(glb)
+    key = _stat_key(p)
+    entry = _cache_entry(key) if key is not None else None
+    if entry is not None and entry.measurement is not None:
+        return entry.measurement.model_copy(deep=True)
+    scene = load_scene(p)
+    parts = entry.parts if entry is not None and entry.parts is not None else part_meshes(scene)
+    m = _measure(scene, parts)
+    if entry is not None:
+        if entry.parts is None:
+            entry.parts = parts
+        entry.measurement = m
+    return m.model_copy(deep=True)
+
+
+def _measure(scene: trimesh.Scene, parts: OrderedDict[str, trimesh.Trimesh | None]) -> Measurement:
     findings: list[str] = []
     rows: list[PartMeasure] = []
     for name, mesh in parts.items():

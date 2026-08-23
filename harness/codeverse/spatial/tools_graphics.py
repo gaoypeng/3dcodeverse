@@ -90,7 +90,7 @@ def _run_build(ctx: ToolContext, *, times: list[float], preview: bool, width: in
 
 
 def _stats_text(ctx: ToolContext) -> tuple[str, dict]:
-    read_metrics = lazy("codeverse.languages.glsl_shader.gl_build", "read_metrics")
+    read_metrics = lazy("codeverse.languages._gl_common", "read_metrics")
     m = read_metrics(ctx.workspace)
     if m is None:
         return "(no frame metrics)", {}

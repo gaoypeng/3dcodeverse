@@ -10,8 +10,7 @@ from codeverse.contracts.plan import CameraPlan
 from codeverse.languages.scene_threejs.assemble import (
     ZoneProbe,
     assemble,
-    derive_cameras,
-    fit_zone_camera,
+    cameras_from_specs,
     probe_zone_modules,
     render_scene_js,
     sun_azimuth,
@@ -22,32 +21,41 @@ from tests.scene_runtime.conftest import needs_browser, needs_node
 BOX_A = {"min": [-10, 0, -10], "max": [10, 6, 10], "size": [20, 6, 20]}
 BOX_B = {"min": [20, 0, -5], "max": [30, 3, 5], "size": [10, 3, 10]}
 
+# what probe_scene.mjs --sun-azimuth 90 emits for the two-zone layout above
+# (camera-fit math is owned by runtime_js/lib/orbit.mjs; tested in test_orbit.py)
+SPECS = {
+    "azimuth": 90,
+    "overview": {"position": [55.0, 22.0, 0.0], "lookAt": [10.0, 3.0, 0.0], "fov": 50},
+    "zones": [
+        {"group": "__zone__harbour", "position": [14.4, 2.2, 0.0], "lookAt": [0.0, 2.6, 0.0], "fov": 50},
+        {"group": "__zone__market", "position": [32.2, 1.9, 0.0], "lookAt": [25.0, 1.55, 0.0], "fov": 50},
+    ],
+}
 
-def test_derive_cameras_sun_side_and_order():
+
+def test_cameras_from_specs_sun_side_and_order():
     probes = {
         "harbour": ZoneProbe(name="harbour", file="src/zones/harbour.js", ok=True, bbox=BOX_A),
         "market": ZoneProbe(name="market", file="src/zones/market.js", ok=True, bbox=BOX_B),
         "broken": ZoneProbe(name="broken", file="src/zones/broken.js", ok=False, error="boom"),
     }
-    cams = derive_cameras(probes, sun_azimuth_deg=90, ground_y=0.0)
+    cams = cameras_from_specs(SPECS, probes)
     assert [c.name for c in cams] == ["overview", "harbour_view", "market_view"]
     ov = cams[0]
-    # sun at azimuth 90 → eye on +X side of the union centre, above ground, looking at the centre
-    assert ov.position[0] > ov.look_at[0] and ov.position[1] > 0.5
+    assert ov.position == (55.0, 22.0, 0.0) and ov.look_at == (10.0, 3.0, 0.0)
+    assert "sun side" in ov.purpose
     hv = cams[1]
-    assert hv.position[0] > 10 and 1.5 < hv.position[1] < 4.5 and abs(hv.position[2]) < 1e-6
-    assert math.dist(hv.position, hv.look_at) > 10
+    assert hv.position[0] > 10 and math.dist(hv.position, hv.look_at) > 10
+    assert cams[2].purpose == "zone Market from the sun side"
 
 
-def test_derive_cameras_fallback_without_zones():
-    cams = derive_cameras({}, sun_azimuth_deg=45)
-    assert len(cams) == 1 and cams[0].name == "overview"
-
-
-def test_fit_zone_camera_respects_floor():
-    c = fit_zone_camera("pier", BOX_B, azimuth=0, floor=2.0)
-    assert c.position[1] >= 3.7
-    assert c.name == "pier_view"
+def test_cameras_from_specs_fallback_without_zones_or_specs():
+    cams = cameras_from_specs({}, {})
+    assert len(cams) == 1 and cams[0].name == "overview" and "fallback" in cams[0].purpose
+    # measurable zones but no driver specs (e.g. probe ran without --sun-azimuth)
+    probes = {"harbour": ZoneProbe(name="harbour", file="src/zones/harbour.js", ok=True, bbox=BOX_A)}
+    cams2 = cameras_from_specs({}, probes)
+    assert len(cams2) == 1 and "fallback" in cams2[0].purpose
 
 
 def test_render_scene_js_contents():
@@ -80,13 +88,19 @@ def test_assemble_without_probe_writes_all_zones(starter_ws):
 def test_probe_zone_modules_reports_failures_and_bboxes(starter_ws):
     (starter_ws.src / "zones" / "broken.js").write_text("export function build(ctx) { throw new Error('kaboom'); }\n")
     (starter_ws.src / "zones" / "nobuild.js").write_text("export const x = 1;\n")
-    probes, census, other = probe_zone_modules(starter_ws)
+    report = probe_zone_modules(starter_ws, sun_azimuth_deg=60.0)
+    probes, census, other = report   # historical 3-tuple unpacking still works
     assert probes["meadow"].ok and probes["meadow"].bbox and probes["meadow"].meshes > 5
     assert probes["pondside"].ok
     assert not probes["broken"].ok and "kaboom" in probes["broken"].error
     assert not probes["nobuild"].ok and "no export build" in probes["nobuild"].error
     assert census.get("ground_y") is not None
     assert not (starter_ws.root / "src" / "_c3v_assemble_probe.js").exists()
+    # driver-fitted cameras: an overview plus one eye-level spec per measured zone group
+    specs = report.camera_specs
+    assert specs["azimuth"] == 60.0 and specs["overview"]["position"][1] > 0.5
+    zone_groups = {z["group"] for z in specs["zones"]}
+    assert {"__zone__meadow", "__zone__pondside"} <= zone_groups
 
 
 @pytest.mark.node

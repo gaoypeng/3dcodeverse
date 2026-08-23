@@ -41,14 +41,7 @@ from codeverse.agents.watchdog import CompletedProc, run_with_watchdog
 from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Usage
-
-try:
-    from codeverse.models.keypool import KeyPoolExhausted
-except ImportError:  # pragma: no cover - models package is always present in a full install
-
-    class KeyPoolExhausted(RuntimeError):  # type: ignore[no-redef]
-        """Stand-in so the retry path can catch the pool's exhaustion uniformly."""
-
+from codeverse.models.keypool import KeyPool, KeyPoolExhausted
 
 log = logging.getLogger(__name__)
 
@@ -64,40 +57,15 @@ IDLE_GRACE_S = 300.0
 RETRY_KEY_WAIT_S = 10.0
 
 
-class _LocalKeyRotor:
-    """Fallback key rotation used only when ``codeverse.models.keypool`` is absent."""
-
-    def __init__(self, keys: list[str]):
-        self._keys, self._i = list(keys), 0
-
-    def acquire(self, *, exclude: set[str] | None = None, timeout_s: float | None = None) -> str:
-        for _ in range(len(self._keys)):
-            k = self._keys[self._i % len(self._keys)]
-            self._i += 1
-            if not exclude or k not in exclude or len(self._keys) == 1:
-                return k
-        return self._keys[0]
-
-    def report(self, key: str, status: str) -> None:  # parity with KeyPool.report
-        return None
+_POOLS: dict[tuple[str, ...], KeyPool] = {}
 
 
-_POOLS: dict[tuple[str, ...], Any] = {}
-
-
-def _key_pool(keys: list[str]):
+def _key_pool(keys: list[str]) -> KeyPool:
     """Process-wide pool per key set so cooldowns persist across agent runs."""
     tkey = tuple(keys)
-    if tkey in _POOLS:
-        return _POOLS[tkey]
-    try:
-        from codeverse.models.keypool import KeyPool
-
-        pool = KeyPool(keys)
-    except ImportError:
-        log.warning("codeverse.models.keypool unavailable; using local round-robin")
-        pool = _LocalKeyRotor(keys)
-    _POOLS[tkey] = pool
+    pool = _POOLS.get(tkey)
+    if pool is None:
+        pool = _POOLS[tkey] = KeyPool(keys)
     return pool
 
 
@@ -160,7 +128,7 @@ def usage_from_stats(stats: dict[str, Any], model: str) -> Usage:
     return u
 
 
-def _retry_key(pool: Any, used: set[str]) -> str | None:
+def _retry_key(pool: KeyPool, used: set[str]) -> str | None:
     """Key for a retry: a different healthy key if one frees up within
     ``RETRY_KEY_WAIT_S``, else the same key again (single-key pools, 5xx), else
     ``None`` when every key is throttled (429 cooldown) — the caller then stops."""

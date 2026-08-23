@@ -16,19 +16,23 @@ import time
 from pathlib import Path
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse.languages._ast_lint import (  # noqa: F401 — dotted re-exported
+    BASE_FORBIDDEN_IMPORTS,
+    check_imports,
+    dotted,
+)
 
 GATE = "lint:blender"
 
 ALLOWED_IMPORTS = {
     "bpy", "bmesh", "mathutils", "math", "random", "numpy", "np", "itertools", "functools",
     "collections", "typing", "dataclasses", "colorsys", "statistics", "operator", "enum", "copy",
+    # os/sys are deliberately ALLOWED here (unlike cadquery/opengl): headless bpy scripts
+    # touch them legitimately and the forbidden-call rules below catch the harmful uses.
     "sys", "os", "__future__", "bpy_extras",
     "parts",  # the workspace's own src/parts/<snake>.py modules (multi-file layout)
 }
-FORBIDDEN_IMPORTS = {
-    "subprocess", "urllib", "requests", "socket", "http", "shutil", "ctypes", "pickle",
-    "multiprocessing", "threading", "webbrowser", "ftplib", "smtplib", "importlib", "pathlib",
-}
+FORBIDDEN_IMPORTS = frozenset(BASE_FORBIDDEN_IMPORTS | {"pathlib"})
 # dotted-name prefixes of calls that violate the contract (harness owns them)
 FORBIDDEN_CALL_PREFIXES: tuple[tuple[str, str], ...] = (
     ("bpy.ops.render.", "rendering is done by the harness; delete all bpy.ops.render.* calls"),
@@ -64,20 +68,6 @@ REMOVED_BSDF_INPUTS = {
 }
 KNOWN_BINDINGS = ("Vector", "Matrix", "Euler", "Quaternion", "bmesh", "math", "random", "np", "numpy", "bpy")
 PASCAL_RE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)*(?:_\d+)?$")
-
-
-def dotted(node: ast.AST) -> str:
-    """``bpy.ops.render.render`` for an Attribute/Name chain; '' otherwise."""
-    parts: list[str] = []
-    while isinstance(node, ast.Attribute):
-        parts.append(node.attr)
-        node = node.value
-    if isinstance(node, ast.Name):
-        parts.append(node.id)
-        return ".".join(reversed(parts))
-    if parts:  # method on an expression result, e.g. ``wp.box(1).rotate`` → ``<expr>.rotate``
-        return "<expr>." + ".".join(reversed(parts))
-    return ""
 
 
 class _Collector(ast.NodeVisitor):
@@ -191,11 +181,13 @@ def _rules(c: _Collector, source: str, *, target: str, expect_names: bool, expec
     E, W, I = Severity.ERROR, Severity.WARN, Severity.INFO  # noqa: E741
     if expect_bpy and "bpy" not in c.imports:
         out.append(_f(E, f"{target} never imports bpy", 1, "start the file with `import bpy`"))
-    for mod, line in c.imports.items():
-        if mod in FORBIDDEN_IMPORTS:
-            out.append(_f(E, f"forbidden import `{mod}`", line, "only bpy/bmesh/mathutils/math/random/numpy (+stdlib data helpers) are allowed"))
-        elif mod not in ALLOWED_IMPORTS:
-            out.append(_f(W, f"unexpected import `{mod}` (not available / not allowed in the build sandbox)", line, "use only bpy, bmesh, mathutils, math, random, numpy"))
+
+    def _import_finding(kind: str, mod: str, line: int) -> GateFinding:
+        if kind == "forbidden":
+            return _f(E, f"forbidden import `{mod}`", line, "only bpy/bmesh/mathutils/math/random/numpy (+stdlib data helpers) are allowed")
+        return _f(W, f"unexpected import `{mod}` (not available / not allowed in the build sandbox)", line, "use only bpy, bmesh, mathutils, math, random, numpy")
+
+    out.extend(check_imports(c.imports, forbidden=FORBIDDEN_IMPORTS, allowed=ALLOWED_IMPORTS, make_finding=_import_finding))
     for name, call in c.calls:
         for prefix, hint in FORBIDDEN_CALL_PREFIXES:
             if name.startswith(prefix):

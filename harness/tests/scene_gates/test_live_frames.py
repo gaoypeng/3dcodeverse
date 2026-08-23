@@ -53,11 +53,15 @@ def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace)
     assert m["framing_bbox"]["size"][0] < m["census"]["bbox"]["size"][0]  # content, not the sky dome / ground
     gate = frame_gate_from_renders(rs)
     assert gate.gate == "scene_frames" and gate.passed, [f.message for f in gate.findings]
-    # judge subset: ≤ 10 views, marked in views.json, sheet built from them only
-    judge = select_judge_views(rs)
-    assert len(judge.views) == JUDGE_MAX_VIEWS
-    flags = {(v["name"], v["time_s"]) for v in json.loads((out / "views.json").read_text()) if v.get("judge")}
-    assert flags == {(v.name, v.time_s) for v in judge.views}
+    # judge subset: stamped ONCE at render time (RenderView.judge + views.json), sheet built from it only
+    assert rs.out_dir == str(out)
+    assert all(v.judge is not None for v in rs.views)
+    stamped = {(v.name, v.time_s) for v in rs.views if v.judge}
+    assert len(stamped) == JUDGE_MAX_VIEWS
+    assert stamped == {(v.name, v.time_s) for v in select_judge_views(rs).views}
+    entries = json.loads((out / "views.json").read_text())
+    assert all("judge" in e for e in entries)
+    assert {(v["name"], v["time_s"]) for v in entries if v["judge"]} == stamped
     sheet = Image.open(rs.contact_sheet)
     tile_h = Image.open(rs.views[0].path).size[1]
     assert sheet.size[1] < 5 * tile_h                             # 10 tiles in 4 columns → 3 rows, not 5

@@ -2,10 +2,12 @@
 
 Mechanism
 ---------
-1. Load one world-space mesh per top-level node (``measure.part_meshes``).
+1. Load one world-space mesh per top-level node (``measure.cached_parts``,
+   memoized on the file's stat so repeat gates on one GLB parse it once).
 2. For every part pair whose AABBs come within ``gap_m`` of each other compute
-   the exact minimum surface distance (python-fcl via ``trimesh.collision``;
-   sampled closest-point fallback when fcl is missing) and the closest points.
+   the exact minimum surface distance (``fcl.distance`` on per-part BVHs that
+   are built once and shared across all pairs; sampled closest-point fallback
+   when fcl is missing) and the closest points.
 3. Contact graph: edge when distance ≤ ``gap_m``.  The *support component* is
    the connected component holding the ground-touching parts (lowest point at
    y ≤ gap) — or the largest component when nothing touches the ground.
@@ -29,6 +31,7 @@ import itertools
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import trimesh
@@ -36,7 +39,8 @@ import trimesh
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.conventions import CONTACT_GAP_M, Frame
 from codeverse.spatial.contract import frame_label, glb_vec_to_plan, language_frame
-from codeverse.spatial.measure import GlbLoadError, load_scene, part_meshes
+from codeverse.spatial.joints_collide import fcl_collision_object
+from codeverse.spatial.measure import GlbLoadError, cached_parts
 
 GATE = "connectivity"
 #: parts smaller than this (max extent) are ignored for floating checks (INFO only)
@@ -67,6 +71,19 @@ class PairDistance:
         return tuple(float(pb - pa) for pa, pb in zip(self.point_a, self.point_b, strict=True))  # type: ignore[return-value]
 
 
+class _FclObjects:
+    """Lazily-memoized ``fcl.CollisionObject`` per part (None entries when fcl is missing)."""
+
+    def __init__(self, parts: dict[str, trimesh.Trimesh]):
+        self._parts = parts
+        self._objs: dict[str, Any] = {}
+
+    def get(self, name: str) -> Any:
+        if name not in self._objs:
+            self._objs[name] = fcl_collision_object(self._parts[name])
+        return self._objs[name]
+
+
 def _aabb_gap(a: trimesh.Trimesh, b: trimesh.Trimesh) -> float:
     """Axis-aligned lower bound of the distance between two meshes."""
     lo = np.maximum(a.bounds[0] - b.bounds[1], b.bounds[0] - a.bounds[1])
@@ -82,16 +99,31 @@ def _fcl_available() -> bool:
         return False
 
 
-def pair_distance(name_a: str, a: trimesh.Trimesh, name_b: str, b: trimesh.Trimesh) -> PairDistance:
-    """Exact (fcl) or sampled minimum distance between two meshes with closest points."""
+def pair_distance(
+    name_a: str,
+    a: trimesh.Trimesh,
+    name_b: str,
+    b: trimesh.Trimesh,
+    *,
+    obj_a: Any = None,
+    obj_b: Any = None,
+) -> PairDistance:
+    """Exact (fcl) or sampled minimum distance between two meshes with closest points.
+
+    ``obj_a``/``obj_b`` accept prebuilt ``fcl.CollisionObject``\\ s (see
+    :func:`codeverse.spatial.joints_collide.fcl_collision_object`) so a caller
+    testing many pairs builds each part's BVH once instead of once per pair.
+    """
     if _fcl_available():
         try:
-            from trimesh.collision import CollisionManager
+            import fcl
 
-            cm = CollisionManager()
-            cm.add_object("a", a)
-            d, _name, data = cm.min_distance_single(b, return_name=True, return_data=True)
-            pa, pb = data.point("a"), data.point("__external")
+            oa = obj_a if obj_a is not None else fcl_collision_object(a)
+            ob = obj_b if obj_b is not None else fcl_collision_object(b)
+            req = fcl.DistanceRequest(enable_nearest_points=True)
+            res = fcl.DistanceResult()
+            d = fcl.distance(oa, ob, req, res)
+            pa, pb = res.nearest_points
             return PairDistance(name_a, name_b, float(max(d, 0.0)), tuple(map(float, pa)), tuple(map(float, pb)))
         except Exception:
             pass  # fall through to the sampled estimate
@@ -192,7 +224,7 @@ def check_connectivity(
     up = "z" if language_frame(language) is Frame.Z_UP_NEG_Y_FRONT else "y"
     findings: list[GateFinding] = []
     try:
-        parts = {k: v for k, v in part_meshes(load_scene(glb)).items() if v is not None and len(v.faces)}
+        parts = {k: v for k, v in cached_parts(glb).items() if v is not None and len(v.faces)}
     except GlbLoadError as e:
         findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, message=str(e), fix_hint="run `build` first"))
         return GateReport(gate=GATE, passed=False, findings=findings, duration_ms=int((time.time() - t0) * 1000))
@@ -211,11 +243,12 @@ def check_connectivity(
     # ---- pairwise distances (AABB prefilter) + penetration
     edges: set[tuple[str, str]] = set()
     exact: dict[tuple[str, str], PairDistance] = {}
+    objs = _FclObjects(parts)  # one BVH per part, built lazily, shared across pairs
     for a, b in itertools.combinations(big, 2):
         lower = _aabb_gap(parts[a], parts[b])
         if lower > gap_m:
             continue
-        pd = pair_distance(a, parts[a], b, parts[b])
+        pd = pair_distance(a, parts[a], b, parts[b], obj_a=objs.get(a), obj_b=objs.get(b))
         exact[(a, b)] = pd
         if pd.distance <= gap_m:
             edges.add((a, b))
@@ -244,7 +277,7 @@ def check_connectivity(
     for n in big:
         if n in support:
             continue
-        near = _nearest_supported(n, parts, support, exact)
+        near = _nearest_supported(n, parts, support, exact, objs)
         if near is None:
             findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=n,
                                         message=f"part '{n}' is floating: touches nothing", fix_hint=f"attach '{n}' to a neighbouring part"))
@@ -277,11 +310,13 @@ def _nearest_supported(
     parts: dict[str, trimesh.Trimesh],
     support: set[str],
     exact: dict[tuple[str, str], PairDistance],
+    objs: _FclObjects,
     n_candidates: int = 3,
 ) -> PairDistance | None:
     """Exact distance from floating part ``n`` to its nearest supported part.
 
-    Candidates are ranked by AABB lower bound; the closest few get an exact test.
+    Candidates are ranked by AABB lower bound; the closest few get an exact test
+    (reusing the per-part BVHs in ``objs``).
     """
     if not support:
         return None
@@ -290,7 +325,7 @@ def _nearest_supported(
     for o in ranked:
         pd = exact.get((n, o)) or exact.get((o, n))
         if pd is None:
-            pd = pair_distance(n, parts[n], o, parts[o])
+            pd = pair_distance(n, parts[n], o, parts[o], obj_a=objs.get(n), obj_b=objs.get(o))
             exact[(n, o)] = pd
         if best is None or pd.distance < best.distance:
             best = pd

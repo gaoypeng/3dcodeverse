@@ -274,10 +274,28 @@ class JsonParseError(ValueError):
     """The model's text does not contain a parseable JSON value."""
 
 
+def _first_balanced(text: str, opener: str = "{", closer: str = "}") -> str | None:
+    """The first depth-balanced ``{...}`` span (naive counting; braces inside JSON
+    strings can fool it, which is why it is only one candidate among several)."""
+    start = text.find(opener)
+    if start < 0:
+        return None
+    depth = 0
+    for i, ch in enumerate(text[start:], start):
+        if ch == opener:
+            depth += 1
+        elif ch == closer:
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
 def parse_json_lenient(text: str) -> Any:
     """Parse JSON from model text tolerating code fences, leading prose and
-    trailing chatter.  Tries: whole text → fenced block → outermost {...} / [...]
-    span.  Raises ``JsonParseError`` when nothing parses."""
+    trailing chatter.  Tries: whole text → fenced block → first balanced {...}
+    → outermost {...} / [...] span.  Raises ``JsonParseError`` when nothing
+    parses."""
     if text is None:
         raise JsonParseError("empty response")
     s = text.strip()
@@ -286,6 +304,9 @@ def parse_json_lenient(text: str) -> Any:
     candidates: list[str] = [s]
     for m in _FENCE_RE.finditer(s):
         candidates.append(m.group(1).strip())
+    balanced = _first_balanced(s)
+    if balanced is not None:
+        candidates.append(balanced)
     for opener, closer in (("{", "}"), ("[", "]")):
         i, j = s.find(opener), s.rfind(closer)
         if i != -1 and j > i:

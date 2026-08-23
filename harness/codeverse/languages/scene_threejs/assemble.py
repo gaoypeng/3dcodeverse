@@ -3,10 +3,14 @@
 Zone agents write ``src/zones/<snake>.js`` (``build(ctx) → Group``) and an env
 agent writes ``src/env.js``; this module (code, not an LLM) then:
 
-1. probes every zone module in the browser host (``probe_zone_modules``):
-   does it import, does ``build(ctx)`` return an Object3D, what is its bbox;
-2. derives cameras from the measured zone bboxes (``derive_cameras``):
-   eye on the sun side (``SUN_AZIMUTH_DEG`` from env.js), overview + per-zone;
+1. probes every zone module in the browser host (``probe_zone_modules``),
+   passing the sun azimuth (``SUN_AZIMUTH_DEG`` from env.js): does it import,
+   does ``build(ctx)`` return an Object3D, what is its bbox — and the driver
+   (``probe_scene.mjs --sun-azimuth``, camera math owned by
+   ``runtime_js/lib/orbit.mjs``) fits overview + per-zone cameras, eye on the
+   sun side, from the measured bboxes;
+2. converts those fitted specs into ``CameraPlan``s (``cameras_from_specs``;
+   the only camera math left in python is the no-measurable-zones fallback);
 3. writes ``src/scene.js`` importing only the healthy zones, naming groups,
    preloading ``public/assets/*.glb`` into ``ctx.assets`` and fanning
    ``update(t, dt)`` out to env + zones (``assemble``).
@@ -15,7 +19,6 @@ agent writes ``src/env.js``; this module (code, not an LLM) then:
 from __future__ import annotations
 
 import json
-import math
 import re
 from pathlib import Path
 from typing import Any
@@ -39,6 +42,22 @@ class ZoneProbe(BaseModel):
     bbox: dict[str, Any] | None = None
     meshes: int = 0
     triangles: int = 0
+
+
+class ZoneProbeReport(BaseModel):
+    """``probe_zone_modules`` outcome.  Unpacks as ``probes, census, other = ...``
+    (historical 3-tuple); ``camera_specs`` carries the driver-fitted cameras
+    (``{azimuth, overview, zones:[{group, position, lookAt, fov}]}``)."""
+
+    probes: dict[str, ZoneProbe] = Field(default_factory=dict)
+    census: dict[str, Any] = Field(default_factory=dict)
+    other_errors: list[str] = Field(default_factory=list)
+    camera_specs: dict[str, Any] = Field(default_factory=dict)
+
+    def __iter__(self):  # type: ignore[override]
+        yield self.probes
+        yield self.census
+        yield self.other_errors
 
 
 class AssembleResult(BaseModel):
@@ -123,21 +142,24 @@ export async function createScene({{ renderer, loaders }}) {{
 """
 
 
-def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0) -> tuple[dict[str, ZoneProbe], dict[str, Any], list[str]]:
+def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0, sun_azimuth_deg: float | None = None) -> ZoneProbeReport:
     """Probe env + every zone module independently in the browser host.
 
-    Returns (zone probes by snake name, census of the probe scene, other console errors).
+    Returns a :class:`ZoneProbeReport` (unpacks as the historical 3-tuple of
+    zone probes by snake name, census, other console errors).  When
+    ``sun_azimuth_deg`` is given the driver also fits overview + per-group
+    cameras from the measured bboxes (``camera_specs``).
     """
     from codeverse.spatial.render_scene import run_scene_script
 
     zones = zone_files(ws)
     probe_path = ws.root / PROBE_REL
     probe_path.write_text(_probe_module(zones, glb_assets(ws)))
+    args = ["--ws", str(ws.root), "--scene", PROBE_REL, "--timeout-ms", str(int(timeout_s * 1000))]
+    if sun_azimuth_deg is not None:
+        args += ["--sun-azimuth", str(sun_azimuth_deg)]
     try:
-        res = run_scene_script(
-            "probe_scene.mjs", ["--ws", str(ws.root), "--scene", PROBE_REL, "--timeout-ms", str(int(timeout_s * 1000))],
-            timeout_s=timeout_s + 20,
-        )
+        res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
     finally:
         probe_path.unlink(missing_ok=True)
     s = res.summary
@@ -165,68 +187,35 @@ def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0) -> tuple[dict[
         else:
             probes[name] = ZoneProbe(name=name, file=f"src/zones/{p.name}", ok=True, bbox=g.get("bbox"),
                                      meshes=g.get("meshes", 0), triangles=g.get("triangles", 0))
-    return probes, census, other
+    return ZoneProbeReport(probes=probes, census=census, other_errors=other, camera_specs=s.get("fitted_cameras") or {})
 
 
 # --------------------------------------------------------------------------- cameras
-def _dir(az_deg: float, el_deg: float) -> tuple[float, float, float]:
-    az, el = math.radians(az_deg), math.radians(el_deg)
-    return (math.sin(az) * math.cos(el), math.sin(el), math.cos(az) * math.cos(el))
+_FALLBACK_CAMERA = CameraPlan(name="overview", position=(30.0, 18.0, 30.0), look_at=(0.0, 1.0, 0.0), fov=50.0,
+                              purpose="fallback: no measurable zones")
 
 
-def _union(boxes: list[dict[str, Any]]) -> dict[str, Any] | None:
-    boxes = [b for b in boxes if b and b.get("min") and b.get("max")]
-    if not boxes:
-        return None
-    mn = [min(b["min"][i] for b in boxes) for i in range(3)]
-    mx = [max(b["max"][i] for b in boxes) for i in range(3)]
-    return {"min": mn, "max": mx, "size": [mx[i] - mn[i] for i in range(3)]}
+def _plan_from_spec(spec: dict[str, Any], *, name: str, purpose: str) -> CameraPlan:
+    return CameraPlan(name=name, position=tuple(spec["position"]), look_at=tuple(spec["lookAt"]),
+                      fov=float(spec.get("fov", 50.0)), purpose=purpose)
 
 
-def fit_overview(bbox: dict[str, Any], *, azimuth: float, elevation: float = 30.0, fov: float = 50.0, aspect: float = 16 / 9,
-                 floor: float | None = None, name: str = "overview") -> CameraPlan:
-    """Eye on the sun side, fitted to the bbox bounding sphere (ground-aware)."""
-    size = bbox["size"]
-    center = [bbox["min"][i] + size[i] / 2 for i in range(3)]
-    radius = max(0.5, math.hypot(*size) / 2)
-    fov_v = math.radians(fov)
-    fov_h = 2 * math.atan(math.tan(fov_v / 2) * aspect)
-    dist = radius / math.sin(min(fov_v, fov_h) / 2) * 0.95
-    d = _dir(azimuth, elevation)
-    eye = [center[i] + d[i] * dist for i in range(3)]
-    fl = bbox["min"][1] if floor is None else floor
-    eye[1] = max(eye[1], fl + 0.5)
-    return CameraPlan(name=name, position=tuple(round(v, 3) for v in eye), look_at=tuple(round(v, 3) for v in center), fov=fov,
-                      purpose="overview fitted to measured content bounds, sun side")
-
-
-def fit_zone_camera(name: str, bbox: dict[str, Any], *, azimuth: float, floor: float | None = None, fov: float = 50.0) -> CameraPlan:
-    """Eye-level shot standing just outside the zone footprint on the sun side."""
-    size = bbox["size"]
-    center = [bbox["min"][i] + size[i] / 2 for i in range(3)]
-    dx, _, dz = _dir(azimuth, 0.0)
-    hx, hz = size[0] / 2, size[2] / 2
-    tx = hx / abs(dx) if abs(dx) > 1e-6 else math.inf
-    tz = hz / abs(dz) if abs(dz) > 1e-6 else math.inf
-    back = min(tx, tz) + max(2.0, 0.25 * max(size[0], size[2]))
-    fl = bbox["min"][1] if floor is None else floor
-    eye_h = fl + 1.7 + min(4.0, 0.15 * size[1])
-    eye = (center[0] + dx * back, eye_h, center[2] + dz * back)
-    look = (center[0], min(center[1], fl + 0.4 * size[1] + 0.5), center[2])
-    return CameraPlan(name=f"{to_snake(name)}_view", position=tuple(round(v, 3) for v in eye), look_at=tuple(round(v, 3) for v in look),
-                      fov=fov, purpose=f"zone {to_pascal(name)} from the sun side")
-
-
-def derive_cameras(probes: dict[str, ZoneProbe], *, sun_azimuth_deg: float, ground_y: float | None = None, max_cameras: int = 6) -> list[CameraPlan]:
-    """Overview + per-zone cameras (largest footprints first), eye on the sun side."""
+def cameras_from_specs(specs: dict[str, Any], probes: dict[str, ZoneProbe], *, max_cameras: int = 6) -> list[CameraPlan]:
+    """Convert driver-fitted camera specs (``probe_scene.mjs --sun-azimuth``;
+    math owned by ``runtime_js/lib/orbit.mjs``) into CameraPlans: overview
+    first, then per-zone cameras, largest footprints first.  Falls back to a
+    fixed overview when nothing was measurable."""
     healthy = [p for p in probes.values() if p.ok and p.bbox]
-    if not healthy:
-        return [CameraPlan(name="overview", position=(30.0, 18.0, 30.0), look_at=(0.0, 1.0, 0.0), fov=50.0, purpose="fallback: no measurable zones")]
-    union = _union([p.bbox for p in healthy])
-    cams = [fit_overview(union, azimuth=sun_azimuth_deg, floor=ground_y)]
+    overview = (specs or {}).get("overview")
+    if not healthy or not overview:
+        return [_FALLBACK_CAMERA.model_copy()]
+    cams = [_plan_from_spec(overview, name="overview", purpose="overview fitted to measured content bounds, sun side")]
+    by_zone = {str(z.get("group", "")).removeprefix("__zone__"): z for z in (specs or {}).get("zones", [])}
     by_area = sorted(healthy, key=lambda p: -(p.bbox["size"][0] * p.bbox["size"][2]))
     for p in by_area[: max_cameras - 1]:
-        cams.append(fit_zone_camera(p.name, p.bbox, azimuth=sun_azimuth_deg, floor=ground_y))
+        spec = by_zone.get(p.name)
+        if spec:
+            cams.append(_plan_from_spec(spec, name=f"{to_snake(p.name)}_view", purpose=f"zone {to_pascal(p.name)} from the sun side"))
     return cams
 
 
@@ -297,9 +286,11 @@ def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "de
         warnings.append("src/env.js missing: scene assembled without env (flat ground at y=0, no lights unless zones add them)")
     probes: dict[str, ZoneProbe] = {}
     census: dict[str, Any] = {}
+    camera_specs: dict[str, Any] = {}
     if probe:
-        probes, census, other = probe_zone_modules(ws, timeout_s=timeout_s)
-        for o in other:
+        report = probe_zone_modules(ws, timeout_s=timeout_s, sun_azimuth_deg=sun_azimuth(ws))
+        probes, census, camera_specs = report.probes, report.census, report.camera_specs
+        for o in report.other_errors:
             if _PREFIX in o and "env failed" in o:
                 env_ok = False
                 warnings.append(f"env.js failed in probe; assembled without it: {o[:300]}")
@@ -311,11 +302,10 @@ def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "de
     failed = {n: p.error for n, p in probes.items() if not p.ok}
     if not healthy:
         warnings.append("no zone module survived probing; scene.js assembled with zero zones")
-    ground_y = census.get("ground_y") if census else None
     if cameras == "plan" and plan is not None and plan.cameras:
         cams = list(plan.cameras[:6])
     else:
-        cams = derive_cameras(probes, sun_azimuth_deg=sun_azimuth(ws), ground_y=ground_y)
+        cams = cameras_from_specs(camera_specs, probes)
     text = render_scene_js(healthy, cams, glb_assets(ws), env_ok=env_ok)
     out = ws.src / "scene.js"
     out.parent.mkdir(parents=True, exist_ok=True)

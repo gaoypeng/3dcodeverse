@@ -66,10 +66,7 @@ def format_error_report(build: BuildResult, lint: GateReport, cookbook: str = ""
             lines.append("```")
     if lint.errors:
         lines.append(f"LINT ERRORS ({lint.gate}):")
-        for f in lint.errors:
-            tgt = f" [{f.target}]" if f.target else ""
-            hint = f"  → FIX: {f.fix_hint}" if f.fix_hint else ""
-            lines.append(f"- {f.message}{tgt}{hint}")
+        lines.extend(f"- {f.as_line(with_target=True)}" for f in lint.errors)
     section = relevant_cookbook_section(cookbook, " ".join([build.error_type, build.error_message, build.stderr_tail[-2000:]]))
     if section:
         lines.append("\nRelevant cookbook section:\n" + section)

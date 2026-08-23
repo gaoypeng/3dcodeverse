@@ -1,0 +1,1 @@
+["claude", "-p", "<prompt 1956 chars>", "--output-format", "json", "--tools", "", "--max-turns", "1", "--no-session-persistence", "--strict-mcp-config"]

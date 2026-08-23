@@ -73,7 +73,7 @@ def default_mcp_command(ws: Workspace, *, language: str = "", track: str = "", r
 
 
 def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
-    """The 3dcv MCP command for this job: ``.mcp.json`` (materialised) > ``job.extra['mcp_command']`` > default."""
+    """The 3dcv MCP command for this job: ``.mcp.json`` (materialised) > ``job.mcp_command`` > default."""
     mcp = ws.root / ".mcp.json"
     if mcp.is_file():
         try:
@@ -82,10 +82,9 @@ def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
             srv = None
         if srv and srv.get("command"):
             return [srv["command"], *srv.get("args", [])]
-    if job.extra.get("mcp_command"):
-        return list(job.extra["mcp_command"])
-    return default_mcp_command(ws, language=str(job.extra.get("language", "")), track=str(job.extra.get("track", "")),
-                               round_index=int(job.extra.get("round", 0) or 0))
+    if job.mcp_command:
+        return list(job.mcp_command)
+    return default_mcp_command(ws, language=job.language, track=job.track, round_index=job.round)
 
 
 # --------------------------------------------------------------------------- session
@@ -117,7 +116,7 @@ def _register(ws: Workspace, label: str, hints: frozenset[str]) -> _LiveSession:
 
 
 def _sibling_hints(ws: Workspace, me: _LiveSession) -> frozenset[str]:
-    """Files claimed (``extra['files_hint']``) by OTHER sessions that overlapped ``me`` in time."""
+    """Files claimed (``job.files_hint``) by OTHER sessions that overlapped ``me`` in time."""
     me.t_end = time.monotonic()
     with _LIVE_LOCK:
         entries = _LIVE.get(str(ws.root), [])
@@ -146,7 +145,7 @@ def attribute_changes(
 ) -> list[FileChange]:
     """The subset of a whole-worktree git diff that belongs to ONE session: inside its
     ``write_roots``, not harness-owned, and not a file another concurrent session
-    declared as its target (``job.extra['files_hint']``) unless this session declared it too."""
+    declared as its target (``job.files_hint``) unless this session declared it too."""
     roots = tuple(r.strip("/") for r in write_roots if r.strip("/"))
     out: list[FileChange] = []
     for f in files:
@@ -196,11 +195,11 @@ def begin_session(job: AgentJob, kind: str) -> Session:
         raise FileNotFoundError(f"workspace does not exist: {ws.root}")
     if not (ws.root / ".git").exists():
         ws.create()
-    round_index = int(job.extra.get("round", 0) or 0)
+    round_index = job.round
     label, attempt = _session_label(ws, job.label or kind, round_index)
     traj = Trajectory(ws.trajectory_dir(label, round_index))
     traj.write_prompt(job.prompt, job.system_append)
-    hints = frozenset(str(h) for h in (job.extra.get("files_hint") or []) if str(h).strip())
+    hints = frozenset(h for h in (str(x).strip() for x in job.files_hint) if h)
     live = _register(ws, label, hints)
     head_before = ws.commit(f"pre:{label}")
     return Session(ws=ws, job=job, kind=kind, label=label, round_index=round_index,

@@ -65,3 +65,53 @@ def test_build_fails_on_import_error(starter_ws):
     (starter_ws.src / "scene.js").write_text("import { x } from './nope.js';\nexport function createScene() {}\n")
     res = SceneThreeJsRuntime().build(starter_ws)
     assert not res.ok and res.error_file == "src/scene.js" and "nope.js" in res.error_message
+
+
+def test_build_interprets_combined_summary_offline(ws, monkeypatch):
+    """The single-boot build (probe_scene.mjs --compile) still yields the SAME two
+    GateReports: scene_probe from the probe summary, shader_preflight from the
+    embedded shader_report; a non-booting scene keeps the failed-empty shader gate."""
+    import codeverse.languages.scene_threejs.runtime as rt_mod
+    from codeverse.spatial.render_scene import NodeResult
+
+    calls: list[list[str]] = []
+
+    def fake_run(script, args, **kw):
+        calls.append([script, *args])
+        return NodeResult(0, "", "", {
+            "ok": True,
+            "boot": {"ok": True, "stage": "ready", "cameras": [{"name": "a"}], "camera_problems": []},
+            "update_ok": True, "census": {"totals": {"meshes": 3, "lights": 1}},
+            "console_errors": [], "console_warnings": [], "shader_errors": [],
+            "shader_report": {"ok": False, "errors": [
+                {"file": "src/shaders/x.js", "line": 7, "kind": "compile", "message": "fragment shader: bad", "fix_hint": "fix it"},
+            ], "warnings": [], "compile": {"ms": 3, "programs": 4, "custom_materials": 1}, "duration_ms": 9},
+        }, 5)
+
+    import codeverse.spatial.render_scene as rs_mod
+    monkeypatch.setattr(rs_mod, "run_scene_script", fake_run)
+    res = rt_mod.SceneThreeJsRuntime().build(ws)
+    assert len(calls) == 1 and calls[0][0] == "probe_scene.mjs" and "--compile" in calls[0]
+    assert not res.ok  # shader gate failed
+    assert res.error_file == "src/shaders/x.js" and res.error_line == 7
+    import json as _json
+    probe = _json.loads((ws.artifacts / "gates" / "scene_probe.json").read_text())
+    shaders = _json.loads((ws.artifacts / "gates" / "shader_preflight.json").read_text())
+    assert probe["gate"] == "scene_probe" and probe["passed"]
+    assert shaders["gate"] == "shader_preflight" and not shaders["passed"]
+    assert shaders["findings"][0]["target"] == "src/shaders/x.js:7"
+    assert (ws.artifacts / "census.json").is_file()
+
+    # boot failure → shader gate failed-empty (old two-call behaviour preserved)
+    def fake_run_noboot(script, args, **kw):
+        return NodeResult(1, "", "", {
+            "ok": False, "boot": {"ok": False, "stage": "import", "error": "SyntaxError: x"},
+            "console_errors": [], "console_warnings": [], "shader_errors": [],
+            "shader_report": {"ok": False, "skipped": "scene did not boot", "errors": [], "warnings": []},
+        }, 5)
+
+    monkeypatch.setattr(rs_mod, "run_scene_script", fake_run_noboot)
+    res2 = rt_mod.SceneThreeJsRuntime().build(ws)
+    assert not res2.ok
+    shaders2 = _json.loads((ws.artifacts / "gates" / "shader_preflight.json").read_text())
+    assert not shaders2["passed"] and shaders2["findings"] == []

@@ -1,11 +1,13 @@
 """``PairwiseJudge``: which of two candidates better satisfies the spec?
 
-Position bias is real, so the comparison runs TWICE with A/B swapped; the
-winner is declared only when both orderings agree, otherwise ``tie``.  Each
-call sees the brief, the rubric's criteria (titles + descriptions) and ONE
-2×2 montage per candidate (the 4 most informative views — never a big sheet:
-VLM judges flip with many tiles).  ``compare_many`` ranks N candidates by a
-round-robin of such comparisons (best-of-N).
+Position bias is real, so the comparison runs TWICE with A/B swapped (the two
+orderings run in parallel via ``codeverse.fanout``); the winner is declared
+only when both orderings agree, otherwise ``tie``.  Each call sees the brief,
+the rubric's criteria (titles + descriptions) and ONE 2×2 montage per candidate
+(the 4 most informative views — never a big sheet: VLM judges flip with many
+tiles).  ``compare_many`` ranks N candidates by a round-robin of such
+comparisons (best-of-N), fanning the pairs at 4 workers; results accumulate in
+input order either way.
 """
 
 from __future__ import annotations
@@ -24,12 +26,14 @@ from codeverse.contracts.artifacts import RenderSet
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart, TextPart
 from codeverse.contracts.common import Usage
 from codeverse.contracts.spec import Spec
+from codeverse.fanout import fan_out
 from codeverse.judges.images import image_part, prepare_image
 from codeverse.judges.montage import montage_label, plan_montages, render_montage
-from codeverse.judges.output_schema import JudgeParseError, extract_json
+from codeverse.judges.output_schema import JudgeParseError
 from codeverse.judges.prompt_builder import MONTAGE_TILE_PX, brief_section
 from codeverse.judges.rubrics import Rubric, load_rubric
 from codeverse.models.base import ChatModel, ModelError
+from codeverse.models.schema_utils import JsonParseError, parse_json_lenient
 
 log = logging.getLogger(__name__)
 
@@ -108,37 +112,61 @@ class PairwiseJudge:
 
     # ------------------------------------------------------------------ API
     def compare(
-        self, spec: Spec, renders_a: RenderSet, renders_b: RenderSet, *, rubric: str | Rubric = "static_object_v1"
+        self, spec: Spec, renders_a: RenderSet, renders_b: RenderSet, *,
+        rubric: str | Rubric = "static_object_v1", label: str = ""
     ) -> PairwiseResult:
+        """``label`` (optional) tags the two orderings' requests (``pairwise[:label]:fwd/swap``)
+        so logs — and deterministic fakes — can tell concurrent orderings apart."""
         rub = rubric if isinstance(rubric, Rubric) else load_rubric(rubric)
         usage = Usage()
         verdicts: list[tuple[Winner, float, list[str]]] = []
         orderings: list[dict] = []
         errors: list[str] = []
-        for swapped in (False, True):
-            first, second = (renders_b, renders_a) if swapped else (renders_a, renders_b)
-            req = self._request(spec, rub, first, second)
-            try:
-                resp = self.model.generate(req)
-            except ModelError as e:
-                errors.append(f"ModelError: {e}")
+        self.model  # noqa: B018 — materialise the lazy chat model once, before the threads race
+        results = fan_out(
+            (False, True), lambda swapped: self._ordering(spec, rub, renders_a, renders_b, swapped, label),
+            max_workers=2, label="pairwise:orderings", item_name=lambda s: f"swapped={s}",
+        )
+        for res in results:  # ordered accumulation: (fwd, swap)
+            if isinstance(res, Exception):
+                raise res  # ModelError / parse failures are captured; anything else is a bug
+            u, verdict, ordering, error = res
+            usage = usage + u
+            if error:
+                errors.append(error)
                 continue
-            usage = usage + resp.usage
-            try:
-                payload = resp.parsed if resp.parsed is not None else extract_json(resp.text)
-                reply = PairwiseReply.model_validate(payload)
-            except (JudgeParseError, ValueError) as e:
-                errors.append(f"parse: {e}")
-                continue
-            winner = _map_winner(reply.winner, swapped)
-            reasons = [_unswap_text(r, swapped) for r in reply.reasons]
-            verdicts.append((winner, reply.confidence, reasons))
-            orderings.append({"swapped": swapped, "winner": winner, "confidence": reply.confidence,
-                              "reasons": reasons,
-                              "criteria_won": {c.criterion: _map_winner(c.winner, swapped) for c in reply.criteria_won}})
+            assert verdict is not None and ordering is not None
+            verdicts.append(verdict)
+            orderings.append(ordering)
         if not verdicts:
             return PairwiseResult(winner="tie", confidence=0.0, usage=usage, error=" || ".join(errors))
         return _combine(verdicts, orderings, usage, errors)
+
+    def _ordering(
+        self, spec: Spec, rub: Rubric, renders_a: RenderSet, renders_b: RenderSet, swapped: bool, label: str = ""
+    ) -> tuple[Usage, tuple[Winner, float, list[str]] | None, dict | None, str]:
+        """One A/B ordering → ``(usage, verdict, ordering, error)`` (never raises for
+        model/parse failures — the caller aggregates them as errors)."""
+        first, second = (renders_b, renders_a) if swapped else (renders_a, renders_b)
+        tag = ":".join(x for x in ("pairwise", label, "swap" if swapped else "fwd") if x)
+        req = self._request(spec, rub, first, second, label=tag)
+        try:
+            resp = self.model.generate(req)
+        except ModelError as e:
+            return Usage(), None, None, f"ModelError: {e}"
+        try:
+            payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
+            reply = PairwiseReply.model_validate(payload)
+        except JsonParseError as e:
+            return resp.usage, None, None, f"parse: no JSON object in reply: {e}"
+        except (JudgeParseError, ValueError) as e:
+            return resp.usage, None, None, f"parse: {e}"
+        winner = _map_winner(reply.winner, swapped)
+        reasons = [_unswap_text(r, swapped) for r in reply.reasons]
+        ordering = {"swapped": swapped, "winner": winner, "confidence": reply.confidence,
+                    "reasons": reasons,
+                    "criteria_won": {c.criterion: _map_winner(c.winner, swapped) for c in reply.criteria_won}}
+        return resp.usage, (winner, reply.confidence, reasons), ordering, ""
 
     def compare_many(
         self, spec: Spec, candidates: list[RenderSet], *, rubric: str | Rubric = "static_object_v1"
@@ -157,28 +185,38 @@ class PairwiseJudge:
         pairs: list[dict] = []
         usage = Usage()
         errors: list[str] = []
-        for i in range(n):
-            for j in range(i + 1, n):
-                res = self.compare(spec, candidates[i], candidates[j], rubric=rubric)
-                usage = usage + res.usage
-                if res.error:
-                    errors.append(f"{i}v{j}: {res.error}")
-                if res.winner == "a":
-                    points[i] += 1.0
-                    conf_won[i].append(res.confidence)
-                elif res.winner == "b":
-                    points[j] += 1.0
-                    conf_won[j].append(res.confidence)
-                else:
-                    points[i] += 0.5
-                    points[j] += 0.5
-                pairs.append({"a": i, "b": j, "winner": res.winner, "confidence": res.confidence, "error": res.error})
+        idx_pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
+        if idx_pairs:
+            self.model  # noqa: B018 — materialise the lazy chat model once, before the threads race
+        results = fan_out(
+            idx_pairs, lambda ij: self.compare(spec, candidates[ij[0]], candidates[ij[1]], rubric=rubric,
+                                               label=f"{ij[0]}v{ij[1]}"),
+            max_workers=4, label="pairwise:pairs", item_name=lambda ij: f"{ij[0]}v{ij[1]}",
+        )
+        for (i, j), res in zip(idx_pairs, results, strict=True):  # ordered accumulation
+            if isinstance(res, Exception):
+                raise res  # compare() reports model/parse failures in-band; anything else is a bug
+            usage = usage + res.usage
+            if res.error:
+                errors.append(f"{i}v{j}: {res.error}")
+            if res.winner == "a":
+                points[i] += 1.0
+                conf_won[i].append(res.confidence)
+            elif res.winner == "b":
+                points[j] += 1.0
+                conf_won[j].append(res.confidence)
+            else:
+                points[i] += 0.5
+                points[j] += 0.5
+            pairs.append({"a": i, "b": j, "winner": res.winner, "confidence": res.confidence, "error": res.error})
         confidence = {i: (round(statistics.fmean(v), 3) if v else 0.0) for i, v in conf_won.items()}
         order = sorted(range(n), key=lambda i: (-points[i], -confidence[i], i))
         return RankingResult(order=order, points=points, confidence=confidence, pairs=pairs, usage=usage, errors=errors)
 
     # ------------------------------------------------------------------ prompt
-    def _request(self, spec: Spec, rub: Rubric, first: RenderSet, second: RenderSet) -> ChatRequest:
+    def _request(
+        self, spec: Spec, rub: Rubric, first: RenderSet, second: RenderSet, *, label: str = "pairwise"
+    ) -> ChatRequest:
         crit = "\n".join(f"- {c.id}: {c.description.strip()}" for c in rub.visual_criteria())
         text = (
             brief_section(spec)
@@ -193,7 +231,7 @@ class PairwiseJudge:
         parts.append(TextPart(text="Compare A and B and return the JSON object."))
         return ChatRequest(
             messages=[ChatMessage(role="user", parts=parts)], system=_SYSTEM,
-            response_schema=PairwiseReply.model_json_schema(), temperature=self.temperature, label="pairwise",
+            response_schema=PairwiseReply.model_json_schema(), temperature=self.temperature, label=label,
         )
 
     def _side_images(self, tag: str, rs: RenderSet) -> list[tuple[str, ImagePart]]:

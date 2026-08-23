@@ -169,11 +169,11 @@ def test_judge_wraps_value_error_as_cli_error(runs_dir: Path, monkeypatch):
 
 
 def test_judge_rubric_map_includes_graphics():
-    from codeverse.cli._judge import TRACK_RUBRIC, rubric_for
-    from codeverse.contracts.common import Track
+    from codeverse.cli._judge import rubric_for
+    from codeverse.contracts.common import TRACK_INFO, Track
     from codeverse.contracts.run import RoundRecord
 
-    assert TRACK_RUBRIC[Track.GRAPHICS] == "shader_v1"
+    assert TRACK_INFO[Track.GRAPHICS].rubric == "shader_v1"
 
     class _R:  # minimal record stub
         class spec:
@@ -185,13 +185,61 @@ def test_judge_rubric_map_includes_graphics():
 
 
 # --------------------------------------------------------------------------- make --texture / status extras / render graphics
-def test_make_texture_flag_adds_tag(tmp_path: Path):
+def test_make_texture_flag_sets_spec_options(tmp_path: Path):
     runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--texture"])
+    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--texture", "--candidates", "3"])
     assert r.exit_code == 0, r.output
     ws = next(d for d in runs.iterdir() if d.is_dir())
     spec = Spec.model_validate_json((ws / "spec.json").read_text())
-    assert "texture" in spec.tags
+    # run-shape options are frozen on the spec (no more magic 'texture' tag)
+    assert spec.options.texture is True and spec.options.candidates == 3
+    assert "texture" not in spec.tags
+
+
+def test_make_language_defaults_to_the_tracks_first(tmp_path: Path):
+    runs = tmp_path / "runs"
+    r = runner.invoke(app, ["make", "a harbour at night", "--track", "scene", "--runs-dir", str(runs), "--no-run"])
+    assert r.exit_code == 0, r.output
+    ws = next(d for d in runs.iterdir() if d.is_dir())
+    spec = Spec.model_validate_json((ws / "spec.json").read_text())
+    assert spec.language.value == "scene_threejs"
+
+
+def test_make_invalid_combo_leaves_no_orphan_workspace(tmp_path: Path):
+    runs = tmp_path / "runs"
+    r = runner.invoke(app, ["make", "x", "--track", "scene", "--language", "blender",
+                            "--runs-dir", str(runs), "--no-run", "--slug", "bad"])
+    assert r.exit_code == 1
+    assert not (runs / "bad").exists(), "invalid spec must not leave an orphan run dir"
+
+
+def test_resume_budget_flags_rewrite_spec_and_emit_event(tmp_path: Path, monkeypatch):
+    runs = tmp_path / "runs"
+    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--max-usd", "1.0", "--rounds", "1"])
+    assert r.exit_code == 0, r.output
+    ws = next(d for d in runs.iterdir() if d.is_dir())
+
+    seen = {}
+
+    def fake_get_track(track, **options):
+        class _T:
+            def run(self, spec, ws_, *, resume=False):
+                seen["spec"] = spec
+                raise KeyboardInterrupt  # stop before any real work
+
+        return _T()
+
+    import codeverse.tracks as tracks_pkg
+
+    monkeypatch.setattr(tracks_pkg, "get_track", fake_get_track)
+    r2 = runner.invoke(app, ["resume", ws.name, "--runs-dir", str(runs), "--max-usd", "4.5", "--rounds", "3"])
+    assert r2.exit_code == 130
+    spec = Spec.model_validate_json((ws / "spec.json").read_text())
+    assert spec.budget.max_usd == 4.5 and spec.budget.max_rounds == 3 and spec.budget.max_minutes == 60.0
+    assert seen["spec"].budget.max_usd == 4.5, "the resumed run must see the raised budget"
+    events = [json.loads(line) for line in (ws / "events.jsonl").read_text().splitlines()]
+    raised = [e for e in events if e.get("event") == "budget.raised"]
+    assert raised and raised[0]["max_usd"] == 4.5 and raised[0]["max_rounds"] == 3
 
 
 def test_status_shows_candidates_and_texturing(runs_dir: Path):

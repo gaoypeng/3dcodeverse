@@ -205,21 +205,26 @@ def run_agent_task(
     """CodingAgent path.  ``ok`` = the agent changed files (envelope-vs-disk truth)."""
     before = ws.head()
     timeout = task.timeout_s or (settings.limits.agent_timeout_s if settings is not None else 1800)
-    # job.extra is honoured by every CodingAgent: round → trajectory dir + ToolContext,
+    # typed job context honoured by every CodingAgent: round → trajectory dir + ToolContext,
     # language/track → spatial tool filtering, files_hint → per-session attribution of
     # files_changed when tasks run concurrently in ONE workspace (see agents/cli_common).
-    extra: dict[str, Any] = {"round": task.round, "kind": task.kind, "files_hint": list(task.files_hint)}
+    language = track = ""
     spec_path = ws.spec_path
     if spec_path.is_file():
         try:
             spec_d = ws.read_json(spec_path)
-            extra["language"] = spec_d.get("language", "")
-            extra["track"] = spec_d.get("track", "")
+            language = str(spec_d.get("language", ""))
+            track = str(spec_d.get("track", ""))
         except Exception:  # noqa: BLE001 — best effort context only
             pass
+    # extra mirrors the typed fields until every agent backend reads job.round/… directly
+    extra: dict[str, Any] = {"round": task.round, "kind": task.kind, "files_hint": list(task.files_hint),
+                             "language": language, "track": track}
     job = AgentJob(workspace=str(ws.root), prompt=task.prompt, system_append=task.system,
                    model=getattr(agent, "model", ""), label=task.label, timeout_s=timeout,
-                   spatial_tools=True, write_roots=task.write_roots, extra=extra)
+                   spatial_tools=True, write_roots=task.write_roots,
+                   round=task.round, kind=task.kind, language=language, track=track,
+                   files_hint=list(task.files_hint), extra=extra)
     res: AgentResult = agent.run(job)
     usage = res.usage
     if budget is not None:

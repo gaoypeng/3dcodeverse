@@ -18,12 +18,13 @@ from typing import Any, Protocol
 from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
 from codeverse.contracts.common import Usage
 from codeverse.contracts.judgment import Judgment
-from codeverse.contracts.plan import AcceptanceItem
+from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord
 from codeverse.orchestrator.fanout import fan_out
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
 from codeverse.tracks.repair import RepairOutcome, build_with_repair
+from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +36,10 @@ class RoundPipeline(Protocol):
     def gates(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> list[GateReport]: ...
     def render(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> RenderSet: ...
     def plan_summary(self, ctx: RunContext) -> str: ...
-    def judge_context(self, ctx: RunContext, round_index: int, build: BuildResult, gates: list[GateReport]) -> str: ...
+    def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
+        """Track-specific judge context.  Deliberately ``RunContext``-free so
+        ``3dcv judge`` can rebuild the in-run context from stored artifacts."""
+        ...
 
 
 class RoundFailed(RuntimeError):
@@ -190,7 +194,7 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
     inp = JudgeInput(
         spec=ctx.spec, renders=renders, measurement=rec.measurement, gates=gates,
         acceptance=list(getattr(ctx.plan, "acceptance", []) or []), plan_summary=pipeline.plan_summary(ctx),
-        round_index=index, previous=previous, extra_context=pipeline.judge_context(ctx, index, build, gates),
+        round_index=index, previous=previous, extra_context=pipeline.judge_context(ctx.ws, ctx.plan, index, build, gates),
         geometry_views=geometry,
     )
     t0 = time.time()

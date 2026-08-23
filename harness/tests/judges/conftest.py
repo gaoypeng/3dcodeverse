@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -110,16 +111,24 @@ def good_reply(rubric: Rubric, acceptance_ids: list[str], score: float = 0.8, *,
 
 
 class FakeChatModel:
-    """ChatModel stand-in: pops replies from a queue (dict → parsed; str → text; Exception → raised)."""
+    """ChatModel stand-in: pops replies from a queue (dict → parsed; str → text;
+    Exception → raised).  Thread-safe: judges fan samples/orderings across threads.
+
+    ``by_label`` routes deterministically under concurrency: each key is a substring
+    of ``request.label`` with its own reply queue (longest matching key wins);
+    unmatched requests fall back to the shared queue / ``default``."""
 
     provider = "fake"
     model = "fake-1"
 
-    def __init__(self, replies: list[Any] | None = None, *, default: Any = None, cost: float = 0.001):
+    def __init__(self, replies: list[Any] | None = None, *, default: Any = None, cost: float = 0.001,
+                 by_label: dict[str, list[Any]] | None = None):
         self.replies = list(replies or [])
         self.default = default
         self.cost = cost
+        self.by_label = {k: list(v) for k, v in (by_label or {}).items()}
         self.requests: list[ChatRequest] = []
+        self._lock = threading.Lock()
 
     @property
     def id(self) -> str:
@@ -128,9 +137,16 @@ class FakeChatModel:
     def supports_vision(self) -> bool:
         return True
 
+    def _next_reply(self, request: ChatRequest) -> Any:
+        for key in sorted(self.by_label, key=len, reverse=True):
+            if key in (request.label or "") and self.by_label[key]:
+                return self.by_label[key].pop(0)
+        return self.replies.pop(0) if self.replies else self.default
+
     def generate(self, request: ChatRequest) -> ChatResponse:
-        self.requests.append(request)
-        reply = self.replies.pop(0) if self.replies else self.default
+        with self._lock:
+            self.requests.append(request)
+            reply = self._next_reply(request)
         if callable(reply) and not isinstance(reply, type):
             reply = reply(request)
         if isinstance(reply, Exception):

@@ -6,7 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { importMapHtml, launchBrowser, runtimeMount, serveWorkspace } from './_compat.mjs';
+import { importMapHtml, launchBrowser, runtimeMount, serveWorkspace } from './host_env.mjs';
 
 const SHADER_NOISE_RE = /shader|program not valid|glsl|WebGL|compile|THREE\.WebGLProgram/i;
 const MAX_CONSOLE = 60;
@@ -63,9 +63,10 @@ export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto
   const srv = await serveWorkspace(wsRoot, { hostHtml: hostHtml() });
   const errors = { console: [], page: [], shader_console: [], warnings: [] };
   let launched = null;
+  let page = null;
   try {
     launched = await launchBrowser({ gpu });
-    const page = await launched.browser.newPage();
+    page = await launched.browser.newPage();
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
     page.on('console', (m) => {
       const type = m.type();
@@ -103,15 +104,26 @@ export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto
       { sceneUrl: `/${sceneRel}`, width, height, logDepth, createSceneTimeoutMs },
     );
     const close = async () => {
-      try { await launched.browser.close(); } catch (e) { /* ignore */ }
+      // page first, then release: a SHARED browser (connect-first reuse) must get
+      // its pages closed by us and be disconnected, never closed.
+      try { await page.close(); } catch (e) { /* ignore */ }
+      try { await releaseBrowser(launched); } catch (e) { /* ignore */ }
       await srv.close();
     };
     return { page, browser: launched.browser, base: srv.base, gpu: launched.gpu, renderer: launched.renderer, errors, boot, close };
   } catch (e) {
-    if (launched && launched.browser) await launched.browser.close().catch(() => {});
+    if (page) await page.close().catch(() => {});
+    if (launched && launched.browser) await releaseBrowser(launched).catch(() => {});
     await srv.close();
     throw e;
   }
+}
+
+/** Release a launchBrowser handle: release() when present (shared-aware), else close(). */
+export async function releaseBrowser(launched) {
+  if (!launched || !launched.browser) return;
+  if (typeof launched.release === 'function') await launched.release();
+  else await launched.browser.close().catch(() => {});
 }
 
 /** Flatten the collected errors into the summary shape used by all drivers. */

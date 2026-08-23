@@ -4,7 +4,6 @@ import pytest
 
 from codeverse.judges.output_schema import (
     JudgeParseError,
-    extract_json,
     parse_judge_output,
     wire_schema,
 )
@@ -87,8 +86,8 @@ def test_measured_injection():
         parse_judge_output(rep, ref, [])  # measured criterion missing
 
 
-def test_extract_json_variants():
-    assert extract_json('{"a": 1}') == {"a": 1}
-    assert extract_json('blah {"a": {"b": 2}} trailing') == {"a": {"b": 2}}
-    with pytest.raises(JudgeParseError):
-        extract_json("no json here")
+def test_text_reply_without_json_raises_judge_parse_error():
+    """String payloads go through the shared lenient parser; its JsonParseError is
+    re-raised as JudgeParseError so callers keep one exception surface."""
+    with pytest.raises(JudgeParseError, match="no JSON object"):
+        parse_judge_output("no json here", R, IDS)

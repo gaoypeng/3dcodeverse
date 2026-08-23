@@ -12,19 +12,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.config import get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport
-from codeverse.contracts.common import Language
+from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import Plan
-from codeverse.languages.glsl_shader.gl_build import (
+from codeverse.languages._gl_common import (
     finish_build,
     judge_times,
     load_plan,
+    make_host,
+    parse_glsl_log,
     preview_times,
     resolution_for,
     traceback_location,
 )
-from codeverse.languages.glsl_shader.wrap import parse_glsl_log
 from codeverse.languages.opengl_python.lint import PROGRAM, lint_workspace
 from codeverse.languages.opengl_python.skeleton import write_skeleton
 from codeverse.prompts import PROMPTS_DIR, load_text
@@ -39,7 +39,7 @@ no file IO (except src/*.glsl next to program.py).  Imports: moderngl, numpy, ma
 
 class OpenGLPythonRuntime:
     language = Language.OPENGL_PYTHON
-    entry_globs: tuple[str, ...] = ("src/program.py", "src/*.glsl")
+    entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.OPENGL_PYTHON], "src/*.glsl")
 
     def __init__(self, *, host: GlHost | None = None):
         self._host = host
@@ -63,10 +63,7 @@ class OpenGLPythonRuntime:
 
     # ------------------------------------------------------------------ build
     def host(self, timeout_s: float | None = None) -> GlHost:
-        if self._host is not None:
-            return self._host
-        settings = get_settings()
-        return GlHost(gpu=settings.render.gpu, timeout_s=float(timeout_s or settings.limits.render_timeout_s))
+        return make_host(self._host, timeout_s)
 
     def build(self, ws: Workspace, *, timeout_s: int | None = None, times: list[float] | None = None,
               preview: bool = True, width: int | None = None, height: int | None = None) -> BuildResult:

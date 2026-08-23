@@ -15,12 +15,13 @@ import os
 import threading
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from codeverse.config import get_settings
 from codeverse.contracts.artifacts import RenderView
 from codeverse.contracts.chat import ImagePart
 from codeverse.conventions import OBJECT_VIEWS, SCENE_VIEWS, ViewPreset
+from codeverse.spatial.sheet import load_font
 
 _PRESETS: dict[str, ViewPreset] = {v.name: v for v in (*OBJECT_VIEWS, *SCENE_VIEWS)}
 
@@ -64,15 +65,6 @@ def view_label(view: RenderView, index: int, total: int) -> str:
     return " · ".join(bits)
 
 
-def _font(size: int) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
-    for cand in ("DejaVuSans-Bold.ttf", "DejaVuSans.ttf", "Arial.ttf"):
-        try:
-            return ImageFont.truetype(cand, size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
-
-
 def _cache_key(src: Path, max_px: int, label: str) -> str:
     st = src.stat()
     h = hashlib.sha1(f"{src.resolve()}|{st.st_mtime_ns}|{st.st_size}|{max_px}|{label}".encode())
@@ -111,7 +103,7 @@ def prepare_image(
 def _with_label_strip(im: Image.Image, label: str) -> Image.Image:
     w, h = im.size
     strip_h = max(22, int(h * 0.055))
-    font = _font(max(12, int(strip_h * 0.62)))
+    font = load_font(max(12, int(strip_h * 0.62)), bold=True)
     canvas = Image.new("RGB", (w, h + strip_h), (18, 18, 22))
     canvas.paste(im, (0, strip_h))
     draw = ImageDraw.Draw(canvas)

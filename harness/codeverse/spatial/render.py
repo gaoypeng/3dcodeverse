@@ -24,6 +24,7 @@ from codeverse.contracts.artifacts import RenderSet, RenderView
 from codeverse.contracts.plan import CameraPlan
 from codeverse.conventions import OBJECT_VIEWS, ViewPreset
 from codeverse.spatial.node import NodeError, run_node, runtime_js_dir
+from codeverse.spatial.render_scene import render_scene as _render_scene_impl
 from codeverse.spatial.sheet import contact_sheet
 from codeverse.workspace import Workspace
 
@@ -244,15 +245,8 @@ def render_scene(
     height: int = 576,
     sheet: bool = True,
 ) -> RenderSet:
-    """Scene renders: delegates to ``codeverse.spatial.render_scene`` (package C2)."""
-    try:
-        from codeverse.spatial.render_scene import render_scene as _impl
-    except ImportError as e:  # pragma: no cover - until C2 lands
-        raise NotImplementedError(
-            "render_scene is implemented by codeverse.spatial.render_scene (runtime_js/render_scene.mjs); "
-            f"module not importable: {e}"
-        ) from e
-    return _impl(ws, Path(out_dir), cameras=cameras, orbit=orbit, times=times, width=width, height=height, sheet=sheet)
+    """Scene renders: delegates to ``codeverse.spatial.render_scene`` (narrower kwarg surface)."""
+    return _render_scene_impl(ws, Path(out_dir), cameras=cameras, orbit=orbit, times=times, width=width, height=height, sheet=sheet)
 
 
 __all__ = ["render_glb", "render_turntable", "render_scene", "RenderError", "MODES", "BACKGROUNDS"]

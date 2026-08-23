@@ -29,7 +29,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codeverse.contracts.common import Language
+from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel import sample as S
 from codeverse.flywheel.quality import DuplicateGroup, mark_duplicates
@@ -98,7 +98,7 @@ def export_one(
     dest.mkdir(parents=True)
     entry, written = S.write_code_tree(dest, files, record.spec.language)
     if entry not in written:
-        raise S.SampleError(f"entry file {S.ENTRY_BY_LANGUAGE[record.spec.language]} missing at {code_source}")
+        raise S.SampleError(f"entry file {ENTRY_FILE[record.spec.language]} missing at {code_source}")
     renders = S.copy_renders(ws, rnd, dest)
     meshes = S.copy_link_meshes(ws, dest) if record.spec.language is Language.URDF_BLENDER else []
     textured = S.copy_textured(ws, record, dest)

@@ -16,13 +16,14 @@ import json
 import logging
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from codeverse.contracts.artifacts import Measurement, RenderSet
-from codeverse.contracts.common import Track, Usage
+from codeverse.contracts.common import TRACK_INFO, Usage
 from codeverse.contracts.plan import StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
@@ -38,10 +39,19 @@ log = logging.getLogger(__name__)
 TEXTURED_GLB = "object_textured.glb"
 TEXTURES_DIR = "textures"
 REPORT_NAME = "texturing.json"
-RUBRIC_BY_TRACK: dict[Track, str] = {
-    Track.STATIC_OBJECT: "static_object_v1",
-    Track.ARTICULATED_OBJECT: "articulated_v1",
-}
+
+
+@dataclass
+class TextureServices:
+    """The injectable dependencies of :func:`texture_pass` in one bundle (tests and
+    the spatial tool pass fakes through a single ``ctx.extra['texture_services']``
+    key).  Every field defaults to None = "build/use the real thing"."""
+
+    image_model: Any | None = None
+    plan_model: Any | None = None
+    render: Any | None = None
+    cache_dir: Path | None = None
+    judge_obj: Any | None = None
 
 
 class TextureReport(BaseModel):
@@ -103,7 +113,8 @@ def texture_pass(
     *,
     model_id: str,
     image_model: Any | None = None,
-    judge: bool | Any = True,
+    judge: bool = True,
+    judge_obj: Any | None = None,
     judge_model_id: str | None = None,
     rubric: str | None = None,
     glb_in: Path | None = None,
@@ -112,12 +123,27 @@ def texture_pass(
     plan_model: Any | None = None,
     render: Any | None = None,
     cache_dir: Path | None = None,
+    services: TextureServices | None = None,
     events: EventLog | None = None,
     update_record: bool = True,
 ) -> TextureReport:
-    """Run the whole pass on ``ws``.  ``judge`` may be ``True`` (build a VlmJudge on
-    ``judge_model_id or spec.backends.judge``), ``False`` (skip the gate → ship iff
-    something was textured and no seam failed) or a judge object (tests)."""
+    """Run the whole pass on ``ws``.
+
+    ``judge=False`` skips the before/after VLM gate (ship iff something was
+    textured and no seam failed); ``judge_obj`` replaces the constructed
+    ``VlmJudge`` (tests).  ``services`` bundles the five injectable dependencies
+    (image_model / plan_model / render / cache_dir / judge_obj); explicit
+    keyword arguments win over the bundle."""
+    if not isinstance(judge, bool):  # tolerate the retired bool|judge union for one wave
+        log.warning("texture_pass(judge=<object>) is deprecated; pass judge_obj=... instead")
+        judge_obj = judge_obj if judge_obj is not None else judge
+        judge = True
+    if services is not None:
+        image_model = image_model if image_model is not None else services.image_model
+        plan_model = plan_model if plan_model is not None else services.plan_model
+        render = render if render is not None else services.render
+        cache_dir = cache_dir if cache_dir is not None else services.cache_dir
+        judge_obj = judge_obj if judge_obj is not None else services.judge_obj
     t0 = time.time()
     events = events or EventLog(ws.events_path)
     glb_in = Path(glb_in) if glb_in else ws.artifacts / "object.glb"
@@ -171,12 +197,12 @@ def texture_pass(
         return _finish(ws, report, t0, events, update_record)
 
     # 5. gate
-    if judge is False:
+    if not judge:
         report.shipped = True
         notes.append("judge gate skipped (--no-judge): shipped on seam gate only")
         return _finish(ws, report, t0, events, update_record)
-    judge_obj = judge if judge is not True else _make_judge(spec, rubric, judge_model_id)
-    gate = judge_gate(spec, plan, glb_in, glb_out, tex_dir / "gate", judge=judge_obj, measurement=_measure(glb_in),
+    gate_judge = judge_obj if judge_obj is not None else _make_judge(spec, rubric, judge_model_id)
+    gate = judge_gate(spec, plan, glb_in, glb_out, tex_dir / "gate", judge=gate_judge, measurement=_measure(glb_in),
                       views=views, render=render)
     report.gate, report.shipped, report.delta = gate, gate.shipped, gate.delta
     report.usage = report.usage + gate.usage
@@ -189,7 +215,14 @@ def texture_pass(
 def _make_judge(spec: Spec, rubric: str | None, judge_model_id: str | None) -> Any:
     from codeverse.judges.vlm_judge import VlmJudge
 
-    name = rubric or RUBRIC_BY_TRACK.get(spec.track, "static_object_v1")
+    info = TRACK_INFO.get(spec.track)
+    if rubric:
+        name = rubric
+    elif info is not None:
+        name = info.rubric
+    else:
+        name = "static_object_v1"
+        log.warning("no TRACK_INFO row for track %s; texture gate falls back to %s", spec.track, name)
     return VlmJudge(rubric=name, model_id=judge_model_id or spec.backends.judge, n_samples=1, label="texture_gate")
 
 

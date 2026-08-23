@@ -63,3 +63,38 @@ def test_metrics_path_for_locates_sibling_file(tmp_path: Path):
     assert metrics_path_for(rs) == out / "metrics.json"
     assert metrics_path_for(RenderSet(contact_sheet=str(out / "sheet.png"))) == out / "metrics.json"
     assert metrics_path_for(RenderSet()) is None
+
+
+def test_metrics_path_for_prefers_stamped_out_dir(tmp_path: Path):
+    out = tmp_path / "r02"
+    out.mkdir()
+    (out / "metrics.json").write_text("{}")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    rs = RenderSet(out_dir=str(out), views=[RenderView(name="a", path=str(elsewhere / "a.png"))])
+    assert metrics_path_for(rs) == out / "metrics.json"
+    # stale out_dir (no metrics.json) → sibling-guessing fallback still works
+    (elsewhere / "metrics.json").write_text("{}")
+    rs2 = RenderSet(out_dir=str(tmp_path / "gone"), views=[RenderView(name="a", path=str(elsewhere / "a.png"))])
+    assert metrics_path_for(rs2) == elsewhere / "metrics.json"
+
+
+def test_mark_judge_views_serialises_stamped_flags(tmp_path: Path):
+    import json
+
+    from codeverse.spatial.render_scene import _mark_judge_views
+
+    views_json = tmp_path / "views.json"
+    views_json.write_text(json.dumps([
+        {"name": "a", "time_s": 0.0, "path": "a.png"},
+        {"name": "b", "time_s": 0.0, "path": "b.png"},
+        {"name": "a", "time_s": 1.5, "path": "a2.png"},
+    ]))
+    views = [
+        RenderView(name="a", path="a.png", time_s=0.0, judge=True),
+        RenderView(name="b", path="b.png", time_s=0.0, judge=False),
+        RenderView(name="a", path="a2.png", time_s=1.5, judge=True),
+    ]
+    _mark_judge_views(views_json, views)
+    flags = {(e["name"], e["time_s"]): e["judge"] for e in json.loads(views_json.read_text())}
+    assert flags == {("a", 0.0): True, ("b", 0.0): False, ("a", 1.5): True}

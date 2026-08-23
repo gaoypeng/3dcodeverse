@@ -18,19 +18,11 @@ from pathlib import Path
 from typing import Any
 
 from codeverse.cli import _common as C
-from codeverse.contracts.artifacts import GateReport, RenderSet, RenderView
-from codeverse.contracts.common import Track
+from codeverse.contracts.artifacts import BuildResult, RenderSet, RenderView
+from codeverse.contracts.common import TRACK_INFO
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.run import RoundRecord, RunRecord
 from codeverse.workspace import Workspace
-
-#: rubric per track when the round has no stored judgment (mirrors the tracks)
-TRACK_RUBRIC: dict[Track, str] = {
-    Track.STATIC_OBJECT: "static_object_v1",
-    Track.ARTICULATED_OBJECT: "articulated_v1",
-    Track.SCENE: "scene_v1",
-    Track.GRAPHICS: "shader_v1",
-}
 
 
 def load_round(ws: Workspace, rec: RunRecord, index: int) -> RoundRecord | None:
@@ -45,12 +37,13 @@ def load_round(ws: Workspace, rec: RunRecord, index: int) -> RoundRecord | None:
 
 
 def rubric_for(rec: RunRecord, rnd: RoundRecord, override: str | None) -> str:
-    """--rubric > the rubric the round was judged with > the track default."""
+    """--rubric > the rubric the round was judged with > the track default (TRACK_INFO)."""
     if override:
         return override
     if rnd.judgment is not None and rnd.judgment.rubric:
         return rnd.judgment.rubric
-    return TRACK_RUBRIC.get(rec.spec.track, "static_object_v1")
+    info = TRACK_INFO.get(rec.spec.track)
+    return info.rubric if info is not None else "static_object_v1"
 
 
 def plan_summary_for(ws: Workspace) -> str:
@@ -79,42 +72,16 @@ def previous_judgment(ws: Workspace, rec: RunRecord, index: int) -> Any:
     return None
 
 
-def _gate(rnd: RoundRecord, name: str) -> GateReport | None:
-    return next((g for g in rnd.gates if g.gate == name), None)
-
-
 def extra_context_for(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> str:
-    """Rebuild the track pipeline's ``judge_context`` from the stored artifacts."""
-    track = rec.spec.track
-    if track is Track.GRAPHICS:
-        frame_stats_text = C.lazy("codeverse.tracks.graphics_steps", "frame_stats_text")
-        renderer = ""
-        if rnd.build is not None and isinstance(rnd.build.census, dict):
-            renderer = str(rnd.build.census.get("renderer", ""))
-        return f"FRAME METRICS (harness-measured, renderer {renderer or 'moderngl'}):\n{frame_stats_text(ws)}"
-    if track is Track.ARTICULATED_OBJECT:
-        lines = ["Articulation sheet: the pose_* views show the object at rest, each joint at its lower and upper limit."]
-        sweep = _gate(rnd, "joint_sweep")
-        if sweep is not None:
-            errs = [f"- {f.target or 'joint'}: {f.message}" for f in sweep.errors]
-            lines.append(f"Joint sweep: {'no penetrations' if not errs else str(len(errs)) + ' problems'}")
-            lines.extend(errs[:10])
-        motion = _gate(rnd, "motion_direction")
-        if motion is not None:
-            wrong = [f"- {f.target}: {f.message}" for f in motion.errors]
-            lines.append("Motion direction (harness FK check): "
-                         + ("all planned directions realised" if not wrong else f"{len(wrong)} WRONG"))
-            lines.extend(wrong[:6])
-        return "\n".join(lines)
-    if track is Track.SCENE and rec.plan is not None:
-        plan = rec.plan
-        lines = [f"Environment plan: {getattr(plan, 'environment', '')}",
-                 "Animation plan: " + "; ".join(getattr(plan, "animation", []) or [])]
-        cameras = getattr(plan, "cameras", []) or []
-        if cameras:
-            lines.append("Cameras: " + "; ".join(f"{c.name} ({c.purpose})" for c in cameras))
-        return "\n".join(lines)
-    return ""
+    """The track pipeline's OWN ``judge_context`` over the stored artifacts —
+    ``judge_context(ws, plan, round_index, build, gates)`` needs no run context,
+    so the CLI never restates the per-track formatting."""
+    get_track = C.lazy("codeverse.tracks", "get_track")
+    build = rnd.build if rnd.build is not None else BuildResult(ok=False, language=rec.spec.language.value)
+    try:
+        return get_track(rec.spec.track).make_pipeline().judge_context(ws, rec.plan, rnd.index, build, list(rnd.gates))
+    except Exception as e:  # noqa: BLE001 — extra context is optional judge input
+        return f"(judge context unavailable: {type(e).__name__}: {e})"
 
 
 def clay_geometry_views(ws: Workspace, index: int) -> RenderSet | None:
@@ -138,7 +105,18 @@ def resolve_paths(ws: Workspace, rs: RenderSet | None) -> RenderSet | None:
     sheet = rs.contact_sheet
     if sheet and not Path(sheet).is_absolute():
         sheet = str(ws.root / sheet)
-    return rs.model_copy(update={"views": fixed, "contact_sheet": sheet})
+    out_dir = rs.out_dir
+    if out_dir and not Path(out_dir).is_absolute():
+        out_dir = str(ws.root / out_dir)
+    return rs.model_copy(update={"views": fixed, "contact_sheet": sheet, "out_dir": out_dir})
+
+
+def judged_subset(rs: RenderSet | None) -> RenderSet | None:
+    """The views the in-run judge actually saw: the per-view ``judge`` flags
+    stamped at render time; legacy rounds (no flags) keep every stored view."""
+    if rs is None or not any(v.judge is not None for v in rs.views):
+        return rs
+    return rs.model_copy(update={"views": [v for v in rs.views if v.judge]})
 
 
 def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> Any:
@@ -151,7 +129,7 @@ def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> Any:
         except (ValueError, TypeError):
             acceptance = []
     return JudgeInput(
-        spec=rec.spec, renders=resolve_paths(ws, rnd.renders), measurement=rnd.measurement, gates=rnd.gates,
+        spec=rec.spec, renders=judged_subset(resolve_paths(ws, rnd.renders)), measurement=rnd.measurement, gates=rnd.gates,
         acceptance=acceptance, plan_summary=plan_summary_for(ws), round_index=rnd.index,
         previous=previous_judgment(ws, rec, rnd.index), extra_context=extra_context_for(ws, rec, rnd),
         geometry_views=clay_geometry_views(ws, rnd.index),

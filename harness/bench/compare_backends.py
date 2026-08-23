@@ -65,12 +65,17 @@ from bench._oneshot import (  # noqa: E402
     repair_prompt,
     write_model_file,
 )
-from bench.run_bench import Battery, BenchPrompt  # noqa: E402
+from bench.run_bench import (  # noqa: E402
+    Battery,
+    BenchPrompt,
+    build_spec,
+    default_run_track,
+    select_prompts,
+)
 from codeverse.config import get_settings  # noqa: E402
 from codeverse.contracts.artifacts import RenderSet  # noqa: E402
-from codeverse.contracts.common import Backends, Budget  # noqa: E402
 from codeverse.contracts.run import RunRecord  # noqa: E402
-from codeverse.contracts.spec import Constraints, Spec  # noqa: E402
+from codeverse.contracts.spec import Spec  # noqa: E402
 from codeverse.tracks.generation import MultiFileParseError  # noqa: E402
 from codeverse.workspace import Workspace  # noqa: E402
 
@@ -116,6 +121,7 @@ class CompareOptions(BaseModel):
     parallel: int = 3
     limit: int | None = None
     ids: list[str] = Field(default_factory=list)
+    tiers: list[str] = Field(default_factory=list)
     resume: bool = True
     gen_timeout_s: float = 900.0
     repair_attempts: int = 2
@@ -126,12 +132,9 @@ class CompareOptions(BaseModel):
 
 def spec_for(battery: Battery, item: BenchPrompt, arm: Arm, opts: CompareOptions) -> Spec:
     generator = arm.target if arm.kind == "harness" else f"single-shot:{arm.target}"
-    backends = Backends(generator=generator, judge=opts.loop_judge or get_settings().default_judge,
-                        planner=opts.planner or get_settings().default_planner)
-    return Spec(id=f"{battery.name}/{item.id}", track=battery.track, language=battery.language, prompt=item.prompt,
-                constraints=Constraints(must_have=list(item.must_have), dimensions_m=item.dimensions_m),
-                budget=Budget(max_rounds=opts.rounds, max_usd=opts.max_usd, max_minutes=opts.max_minutes),
-                backends=backends, tags=["compare", battery.name, item.tier, item.category, arm.kind, *item.tags])
+    backends = get_settings().backends(generator=generator, judge=opts.loop_judge, planner=opts.planner)
+    return build_spec(battery, item, backends=backends, rounds=opts.rounds, max_usd=opts.max_usd,
+                      max_minutes=opts.max_minutes, tag0="compare", extra_tags=(arm.kind,))
 
 
 # ----------------------------------------------------------------------------- deps (fakeable seams)
@@ -145,15 +148,9 @@ class CompareDeps:
                  oneshot_backend: Callable[[str], OneShotBackend] | None = None,
                  pairwise_judge: Callable[[str], Any] | None = None):
         self.evaluator = evaluator
-        self.run_track = run_track or _default_run_track
+        self.run_track = run_track or default_run_track
         self.oneshot_backend = oneshot_backend or get_oneshot_backend
         self.pairwise_judge = pairwise_judge or _default_pairwise
-
-
-def _default_run_track(spec: Spec, ws: Workspace, resume: bool) -> RunRecord:
-    from codeverse.tracks import get_track
-
-    return get_track(spec.track).run(spec, ws, resume=resume)
 
 
 def _default_pairwise(model_id: str) -> Any:
@@ -320,11 +317,6 @@ def _drop_pairs(path: Path, key: tuple[str, str]) -> None:
         path.write_text("".join(p.model_dump_json() + "\n" for p in rows))
 
 
-def _select(battery: Battery, opts: CompareOptions) -> list[BenchPrompt]:
-    items = [p for p in battery.prompts if not opts.ids or p.id in set(opts.ids)]
-    return items[: opts.limit] if opts.limit is not None else items
-
-
 def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm], opts: CompareOptions,
                deps: CompareDeps, *, on_result: Callable[[CellResult], None] | None = None) -> list[CellResult]:
     battery = Battery.load(battery_path)
@@ -338,8 +330,9 @@ def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm
     for key in [k for k, r in done.items() if r.status in set(opts.redo_status)]:
         _drop_pairs(out / "pairwise.jsonl", key)
         del done[key]
+    selected = select_prompts(battery, ids=opts.ids, tiers=opts.tiers, limit=opts.limit)
     todo = [(p, a) for a in sorted(arms, key=lambda a: a.kind == "harness")  # cheap one-shots first
-            for p in _select(battery, opts) if (p.id, a.raw) not in done]
+            for p in selected if (p.id, a.raw) not in done]
     with ThreadPoolExecutor(max_workers=max(1, opts.parallel)) as pool, results.open("a") as fh:
         futs = {pool.submit(run_cell, battery, p, a, out, opts, deps): (p, a) for p, a in todo}
         for fut in as_completed(futs):
@@ -365,6 +358,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--parallel", type=int, default=3)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--ids", default="", help="comma-separated prompt ids")
+    ap.add_argument("--tiers", default="", help="comma-separated tiers (easy,medium,hard)")
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--max-usd", type=float, default=2.5)
     ap.add_argument("--loop-judge", default=None, help="harness in-loop judge (default: settings default)")
@@ -380,7 +374,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         build_compare_report(Path(ns.out))
         return 0
     opts = CompareOptions(judge=ns.judge, loop_judge=ns.loop_judge, rounds=ns.rounds, max_usd=ns.max_usd, parallel=ns.parallel,
-                          limit=ns.limit, ids=[i for i in ns.ids.split(",") if i], resume=not ns.no_resume,
+                          limit=ns.limit, ids=[i for i in ns.ids.split(",") if i],
+                          tiers=[t for t in ns.tiers.split(",") if t], resume=not ns.no_resume,
                           gen_timeout_s=ns.gen_timeout, repair_attempts=ns.repair_attempts, pairwise=not ns.no_pairwise,
                           redo_status=[x for x in ns.redo_status.split(",") if x])
     arms = parse_arms(ns.arms)

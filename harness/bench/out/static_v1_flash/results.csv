@@ -1,0 +1,136 @@
+id,tier,category,score_baseline,score_final,passed,rounds,cost_usd,minutes,status,errors,workspace,generator,judge
+furn_easy_stool,easy,furniture,0.75,0.75,True,1,0.30198767499999996,4.46,passed,,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/furn_easy_stool,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+furn_med_dining_chair,medium,furniture,,,,0,0.0,0.92,error,"ModelError: Gemini API error 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+l=self.plan_model)
+                            ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/orchestrator/runner.py"", line 91, in stage
+    result = fn()
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 147, in <lambda>
+    ctx.plan = runner.stage(""plan"", lambda: self._plan_stage(ctx), inputs={""spec"": plan_stage_inputs(spec), ""track"": self.track.value},
+                                            ~~~~~~~~~~~~~~~~^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 230, in _plan_stage
+    plan = run_planner(ctx.spec, ctx.spec.backends.planner, self.plan_model, ctx.ws, model=self._planner_model,
+                       events=ctx.events, budget=ctx.budget, runtime=ctx.runtime)
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/planner.py"", line 48, in plan
+    result, usage = plan_with_usage(spec, model_id, plan_model, ws, model=model, events=events, runtime=runtime)
+                    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/planner.py"", line 70, in plan_with_usage
+    resp = model.generate(req)
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/models/gemini.py"", line 257, in generate
+    raise err from exc
+codeverse.models.base.ModelError: Gemini API error 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+",/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/furn_med_dining_chair,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+furn_hard_rolltop_desk,hard,furniture,0.7,0.75,True,3,1.2165176,22.52,passed,,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/furn_hard_rolltop_desk,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+veh_easy_toy_car,easy,vehicles,0.282,0.85,True,3,1.6814668499999998,20.78,passed,,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/veh_easy_toy_car,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+veh_med_pickup,medium,vehicles,0.426,0.471,False,2,2.144166425,46.46,budget,cost $2.144 exceeds max_usd $2.00,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/veh_med_pickup,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+veh_hard_tractor,hard,vehicles,0.526,0.526,False,2,2.75278335,37.78,budget,cost $2.753 exceeds max_usd $2.00,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/veh_hard_tractor,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+tool_easy_hammer,easy,tools,0.944,0.944,True,1,0.40064702500000005,5.59,passed,,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/tool_easy_hammer,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+tool_med_hand_drill,medium,tools,0.576,0.576,False,1,2.0616418,22.34,budget,cost $2.062 exceeds max_usd $2.00,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/tool_med_hand_drill,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+tool_hard_bench_vise,hard,tools,0.466,0.536,False,2,3.019153075,35.43,budget,cost $2.478 exceeds max_usd $2.00,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/tool_hard_bench_vise,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+appl_easy_kettle,easy,appliances,0.6,0.801,True,2,0.9444692499999997,22.57,passed,,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/appl_easy_kettle,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+appl_med_toaster,medium,appliances,0.881,0.881,True,1,0.31813375,5.49,passed,,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/appl_med_toaster,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+appl_hard_espresso,hard,appliances,,,,0,0.0,2.71,error,"ModelError: Gemini API error 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+g/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 147, in run
+    def round_files_hint(self, ctx: RunContext) -> list[str]:
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        return []
+        ^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/orchestrator/runner.py"", line 91, in stage
+    result = fn()
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 147, in <lambda>
+    def round_files_hint(self, ctx: RunContext) -> list[str]:
+                                                    ^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 230, in _plan_stage
+    try:
+    
+        ctx.plan = runner.stage(""plan"", lambda: self._plan_stage(ctx), inputs={""spec"": plan_stage_inputs(spec), ""track"": self.track.value},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/planner.py"", line 48, in plan
+    def __init__(self, message: str, usage: Usage | None = None):
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/planner.py"", line 70, in plan_with_usage
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/models/gemini.py"", line 257, in generate
+    raise err from exc
+codeverse.models.base.ModelError: Gemini API error 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+",/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/appl_hard_espresso,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+plant_easy_cactus,easy,plants,0.883,0.883,True,1,0.4371587499999999,9.99,passed,,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/plant_easy_cactus,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+plant_med_palm,medium,plants,,,,0,0.0,1.36,error,"ModelError: Gemini API error 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+g/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 147, in run
+    def round_files_hint(self, ctx: RunContext) -> list[str]:
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        return []
+        ^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/orchestrator/runner.py"", line 91, in stage
+    result = fn()
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 147, in <lambda>
+    def round_files_hint(self, ctx: RunContext) -> list[str]:
+                                                    ^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 230, in _plan_stage
+    try:
+    
+        ctx.plan = runner.stage(""plan"", lambda: self._plan_stage(ctx), inputs={""spec"": plan_stage_inputs(spec), ""track"": self.track.value},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/planner.py"", line 48, in plan
+    def __init__(self, message: str, usage: Usage | None = None):
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/planner.py"", line 70, in plan_with_usage
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/models/gemini.py"", line 257, in generate
+    raise err from exc
+codeverse.models.base.ModelError: Gemini API error 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+",/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/plant_med_palm,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+plant_hard_bonsai,hard,plants,0.384,0.384,False,1,2.182076575,26.07,budget,cost $2.182 exceeds max_usd $2.00,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/plant_hard_bonsai,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+bld_easy_shed,easy,buildings,0.833,0.833,True,1,0.41163482500000015,6.23,passed,,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/bld_easy_shed,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+bld_med_lighthouse,medium,buildings,0.467,0.6,False,2,2.275502575,21.92,budget,cost $2.276 exceeds max_usd $2.00,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/bld_med_lighthouse,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+bld_hard_windmill,hard,buildings,0.7,0.746,True,2,0.7304633250000001,10.7,passed,,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/bld_hard_windmill,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+toy_easy_blocks,easy,toys,0.964,0.964,True,1,0.28989425,4.12,passed,,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/toy_easy_blocks,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+toy_med_rocking_horse,medium,toys,0.374,0.685,False,2,2.6155671000000003,28.83,budget,cost $2.616 exceeds max_usd $2.00,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/toy_med_rocking_horse,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+toy_hard_train,hard,toys,0.867,0.867,True,1,0.6989257500000001,11.04,passed,,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/toy_hard_train,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+mus_easy_drum,easy,musical_instruments,,,,0,0.0,1.05,error,"ModelError: Gemini API error 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+g/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 147, in run
+    def round_files_hint(self, ctx: RunContext) -> list[str]:
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        return []
+        ^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/orchestrator/runner.py"", line 91, in stage
+    result = fn()
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 147, in <lambda>
+    def round_files_hint(self, ctx: RunContext) -> list[str]:
+                                                    ^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 230, in _plan_stage
+    try:
+    
+        ctx.plan = runner.stage(""plan"", lambda: self._plan_stage(ctx), inputs={""spec"": plan_stage_inputs(spec), ""track"": self.track.value},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/planner.py"", line 48, in plan
+    def __init__(self, message: str, usage: Usage | None = None):
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/planner.py"", line 70, in plan_with_usage
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/models/gemini.py"", line 257, in generate
+    raise err from exc
+codeverse.models.base.ModelError: Gemini API error 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+",/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/mus_easy_drum,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+mus_med_acoustic_guitar,medium,musical_instruments,,,,0,0.0,1.53,error,"ModelError: Gemini API error 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+g/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 147, in run
+    def round_files_hint(self, ctx: RunContext) -> list[str]:
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        return []
+        ^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/orchestrator/runner.py"", line 91, in stage
+    result = fn()
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 147, in <lambda>
+    def round_files_hint(self, ctx: RunContext) -> list[str]:
+                                                    ^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/lifecycle.py"", line 230, in _plan_stage
+    try:
+    
+        ctx.plan = runner.stage(""plan"", lambda: self._plan_stage(ctx), inputs={""spec"": plan_stage_inputs(spec), ""track"": self.track.value},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/planner.py"", line 48, in plan
+    def __init__(self, message: str, usage: Usage | None = None):
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/tracks/planner.py"", line 70, in plan_with_usage
+  File ""/home/yipeng/3dcodeverse/harness/codeverse/models/gemini.py"", line 257, in generate
+    raise err from exc
+codeverse.models.base.ModelError: Gemini API error 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+",/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/mus_med_acoustic_guitar,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview
+mus_hard_drum_kit,hard,musical_instruments,0.6,0.6,False,3,1.8923563749999999,24.67,plateau,,/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/mus_hard_drum_kit,api-agent:gemini:gemini-3.7-flash,gemini:gemini-3.1-pro-preview

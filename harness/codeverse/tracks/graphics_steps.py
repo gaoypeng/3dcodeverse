@@ -1,32 +1,29 @@
-"""Graphics-track helpers: planner (GraphicsPlan), prompt context, frame RenderSet.
+"""Graphics-track helpers: planner hooks (GraphicsPlan), prompt context, frame RenderSet.
 
-The shared planner / prompt helpers assume a 3D frame (``LANGUAGE_FRAME``,
-``ensure_acceptance`` adds a ground-contact item); shaders have neither, so the
-graphics track owns these three pieces and reuses everything else from
+The shared planner assumes a 3D frame in its acceptance fixups
+(``ensure_acceptance`` adds a ground-contact item); shaders have none, so the
+graphics track supplies its own template / example / acceptance hooks to the
+ONE planner loop in ``tracks/planner.py`` and reuses everything else from
 ``tracks/lifecycle.py`` + ``tracks/steps.py`` unchanged.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
-
-from codeverse.contracts.artifacts import BuildResult, RenderSet, RenderView
-from codeverse.contracts.chat import ChatMessage, ChatRequest
-from codeverse.contracts.common import Language, Usage
+from codeverse.contracts.artifacts import BuildResult, RenderSet, RenderView, Severity
+from codeverse.contracts.common import Language
 from codeverse.contracts.plan import AcceptanceItem, GraphicsPlan
 from codeverse.contracts.spec import Spec
 from codeverse.languages.glsl_shader.gl_build import SHEET_NAME, read_metrics
-from codeverse.prompts import prompt_hash, render
-from codeverse.tracks.common import RunContext, language_contract
+from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
-from codeverse.tracks.planner import PlanningError, _parse_json
+from codeverse.tracks.planner import add_acceptance_item, build_system_prompt
+from codeverse.tracks.planner import plan as run_planner
 from codeverse.tracks.prompting import (
     AGENT_OUTPUT_RULES,
     acceptance_lines,
@@ -38,6 +35,8 @@ from codeverse.workspace import Workspace
 log = logging.getLogger(__name__)
 
 PLAN_TEMPLATE = "tracks/plan_graphics.j2"
+PLAN_TEMPERATURE = 0.5
+PLAN_MAX_OUTPUT_TOKENS = 16000
 EXPECTED_FILES: dict[Language, list[str]] = {
     Language.GLSL_SHADER: ["src/shader.frag", "src/common.glsl"],
     Language.OPENGL_PYTHON: ["src/program.py"],
@@ -68,87 +67,41 @@ def plan_example() -> dict[str, Any]:
 
 
 def build_plan_system_prompt(spec: Spec, *, runtime: Any | None = None) -> str:
-    return render(PLAN_TEMPLATE, track=spec.track.value, language=spec.language.value,
-                  contract=language_contract(spec.language, runtime)[:6000],
-                  example_json=json.dumps(plan_example(), indent=1),
-                  schema_fields=", ".join(GraphicsPlan.model_json_schema().get("properties", {}).keys()))
-
-
-def build_plan_user_prompt(spec: Spec) -> str:
-    return "\n".join([f"REQUEST: {spec.prompt}", "", "CONSTRAINTS:", constraints_text(spec), "",
-                      "Return the plan as JSON matching the schema."])
+    """The graphics plan system prompt = the shared builder with the graphics
+    template + worked example (``plan_graphics.j2`` references no 3D frame)."""
+    return build_system_prompt(spec, GraphicsPlan, runtime=runtime, template=PLAN_TEMPLATE, example=plan_example())
 
 
 def ensure_graphics_acceptance(plan: GraphicsPlan, spec: Spec) -> GraphicsPlan:
     """Spec must_have / must_not → visual items; planned motion → a probe item (never 'ground contact')."""
     items: list[AcceptanceItem] = list(plan.acceptance)
-    have = {a.text.strip().lower() for a in items}
-    ids = {a.id for a in items}
-
-    def _add(prefix: str, text: str, how: str) -> None:
-        if text.strip().lower() in have:
-            return
-        n = 1
-        while f"{prefix}{n}" in ids:
-            n += 1
-        ids.add(f"{prefix}{n}")
-        items.append(AcceptanceItem(id=f"{prefix}{n}", text=text, how=how, priority="must"))  # type: ignore[arg-type]
-
     for m in spec.constraints.must_have:
-        _add("must", f"Includes: {m}", "visual")
+        add_acceptance_item(items, "must", f"Includes: {m}", "visual")
     for m in spec.constraints.must_not:
-        _add("not", f"Does NOT include: {m}", "visual")
+        add_acceptance_item(items, "not", f"Does NOT include: {m}", "visual")
     if plan.motion.strip() and not any("static" in a.text.lower() or "motion" in a.text.lower() or "change over time" in a.text.lower() for a in items):
-        _add("motion", "Frames change over time as planned (not a static image)", "probe")
+        add_acceptance_item(items, "motion", "Frames change over time as planned (not a static image)", "probe")
     plan.acceptance = items
     return plan
 
 
+def graphics_event_stats(plan: GraphicsPlan) -> dict[str, Any]:
+    """``plan.done`` payload for graphics (passes, not parts/zones)."""
+    return {"n_passes": len(plan.passes), "n_acceptance": len(plan.acceptance)}
+
+
 def plan_graphics(spec: Spec, model_id: str, ws: Workspace, *, model: Any | None = None, events: Any | None = None,
                   budget: Any | None = None, runtime: Any | None = None) -> GraphicsPlan:
-    """Structured planner call → validated GraphicsPlan (one re-ask with the validation errors)."""
-    if model is None:
-        from codeverse.models import get_chat_model
-
-        model = get_chat_model(model_id)
-    system = build_plan_system_prompt(spec, runtime=runtime)
-    messages = [ChatMessage.user(build_plan_user_prompt(spec))]
-    schema = GraphicsPlan.model_json_schema()
-    usage = Usage()
-    last_error = ""
-    for attempt in range(2):
-        req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=0.5, thinking="medium",
-                          max_output_tokens=16000, label=f"planner{'-retry' if attempt else ''}")
-        resp = model.generate(req)
-        usage = usage + resp.usage
-        raw = resp.parsed if resp.parsed is not None else _parse_json(resp.text)
-        try:
-            if not isinstance(raw, dict):
-                raise ValueError(f"planner returned {type(raw).__name__}, expected a JSON object")
-            plan = GraphicsPlan.model_validate(raw)
-        except (ValidationError, ValueError) as e:
-            last_error = str(e)[:4000]
-            if events is not None:
-                events.emit("plan.invalid", attempt=attempt, error=last_error[:500])
-            messages = messages + [ChatMessage.assistant(json.dumps(raw)[:20000] if raw is not None else (resp.text or "")[:20000]),
-                                   ChatMessage.user("Your plan failed validation. Fix EXACTLY these problems and return the full corrected "
-                                                    f"plan JSON again (same schema):\n{last_error}")]
-            continue
-        plan = ensure_graphics_acceptance(plan, spec)
-        ws.write_json(ws.plan_path, plan)
-        if budget is not None:
-            budget.charge(usage)
-        if events is not None:
-            events.emit("plan.done", model=model_id, attempt=attempt, n_passes=len(plan.passes), n_acceptance=len(plan.acceptance),
-                        cost_usd=round(usage.cost_usd, 4), prompt_hash=prompt_hash(system))
-        return plan
-    if budget is not None:
-        budget.charge(usage)
-    raise PlanningError(f"graphics plan did not validate after re-ask: {last_error}")
+    """Structured planner call → validated GraphicsPlan: the ONE planner loop
+    (``tracks/planner.plan``) parameterised with the graphics hooks."""
+    return run_planner(spec, model_id, GraphicsPlan, ws, model=model, events=events, budget=budget, runtime=runtime,
+                       template=PLAN_TEMPLATE, example=plan_example(), temperature=PLAN_TEMPERATURE,
+                       max_output_tokens=PLAN_MAX_OUTPUT_TOKENS,
+                       finalise=lambda p: ensure_graphics_acceptance(p, spec), event_stats=graphics_event_stats)
 
 
 # ----------------------------------------------------------------------------- prompt context
-def expected_files(ctx: RunContext) -> list[str]:
+def graphics_expected_files(ctx: RunContext) -> list[str]:
     return list(EXPECTED_FILES.get(ctx.language, ["src/shader.frag"]))
 
 
@@ -174,7 +127,7 @@ def graphics_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "passes_table": passes_table(plan), "motion": plan.motion if plan else "", "key_visuals": list(plan.key_visuals) if plan else [],
         "uniforms": ", ".join(plan.uniforms) if plan and plan.uniforms else "u_time, u_resolution",
         "acceptance": acceptance_lines(plan), "entry_files": ", ".join(getattr(ctx.runtime, "entry_globs", ()) or ()),
-        "expected_files": expected_files(ctx), "reference_note": reference_note(ctx),
+        "expected_files": graphics_expected_files(ctx), "reference_note": reference_note(ctx),
         "judge_times": "0, 1, 2.5, 4, 6 s",
     }
     d.update(extra)
@@ -220,7 +173,7 @@ def frame_stats_text(ws: Workspace) -> str:
     stats, gate = m
     lines = stats.summary_lines()
     for f in gate.findings:
-        lines.append(f"- GATE gl_frames [{f.severity.value}] {f.message}" + (f" FIX: {f.fix_hint}" if f.fix_hint and f.severity.value != "info" else ""))
+        lines.append(f"- GATE gl_frames {f.as_line(with_severity=True, with_hint=f.severity is not Severity.INFO)}")
     return "\n".join(lines)
 
 

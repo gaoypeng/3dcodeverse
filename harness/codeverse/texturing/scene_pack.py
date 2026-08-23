@@ -10,7 +10,7 @@ generated BEFORE zone generation so scene code can load them.
 * ``texture_pack_prompt(manifest)``: the snippet the scene track injects into zone /
   env prompts (URL, tile size, exact three.js loading lines).
 
-Served URL: the workspace root is served at ``/`` (``runtime_js/lib/_compat.mjs``),
+Served URL: the workspace root is served at ``/`` (``runtime_js/lib/host_coverage.mjs``),
 so ``public/textures/<name>.png`` is reachable as ``/public/textures/<name>.png``.
 """
 

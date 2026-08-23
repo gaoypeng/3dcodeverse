@@ -288,14 +288,24 @@ def test_every_key_dead_raises_without_benching():
 
 
 def test_5xx_retries_then_gives_up_with_retryable_error():
-    err = genai_errors.APIError(503, {"error": {"message": "high demand", "status": "UNAVAILABLE"}})
+    # 500 = plain 5xx (no storm budget): the classic 6-attempt backoff applies
+    err = genai_errors.APIError(500, {"error": {"message": "internal", "status": "INTERNAL"}})
     slept: list[float] = []
     m, log, _ = make_model([err] * 6)
     m._sleep = slept.append
     with pytest.raises(ModelError) as ei:
         m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert ei.value.retryable and ei.value.status == 503
+    assert ei.value.retryable and ei.value.status == 500
     assert len(log) == 6 and len(slept) == 5 and slept[1] > slept[0] / 2
+
+
+def test_503_storm_survives_beyond_the_attempt_budget():
+    # 503 = capacity storm: its own patience budget on top of max_attempts
+    err = genai_errors.APIError(503, {"error": {"message": "high demand", "status": "UNAVAILABLE"}})
+    m, log, _ = make_model([err] * 8 + [text_response("recovered")])
+    m._sleep = lambda d: None
+    resp = m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert resp.text == "recovered" and len(log) == 9
 
 
 def test_400_is_not_retried():

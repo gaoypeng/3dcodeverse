@@ -34,6 +34,26 @@ def backend_name() -> str:
     return "fcl" if _fcl is not None else "trimesh"
 
 
+def fcl_collision_object(mesh: trimesh.Trimesh):
+    """``fcl.CollisionObject`` for ``mesh`` (identity transform; None when
+    python-fcl is unavailable).  Convex meshes get the cheap ``fcl.Convex``
+    (same choice trimesh's CollisionManager makes — building a BVH for a
+    300k-tri convex part costs ~0.7 s); everything else gets a BVH.  Shared by
+    :class:`LinkBody` and the connectivity gate so each mesh's collision
+    geometry is built exactly once."""
+    if _fcl is None:
+        return None
+    if mesh.is_convex:
+        fs = np.concatenate((3 * np.ones((len(mesh.faces), 1), dtype=np.int64), mesh.faces), axis=1)
+        return _fcl.CollisionObject(_fcl.Convex(np.asarray(mesh.vertices, dtype=float), len(fs), fs.flatten()),
+                                    _fcl.Transform())
+    model = _fcl.BVHModel()
+    model.beginModel(len(mesh.vertices), len(mesh.faces))
+    model.addSubModel(np.asarray(mesh.vertices, dtype=float), np.asarray(mesh.faces, dtype=np.int64))
+    model.endModel()
+    return _fcl.CollisionObject(model, _fcl.Transform())
+
+
 def _sample_points(mesh: trimesh.Trimesh) -> np.ndarray:
     pts = np.asarray(mesh.vertices)
     if len(pts) > _MAX_SAMPLE_POINTS:
@@ -77,13 +97,7 @@ class LinkBody:
         self.watertight = all(bool(i.is_watertight) for i in self.islands)
         self._island_pq = [trimesh.proximity.ProximityQuery(i) for i in self.islands]
         self._pq = trimesh.proximity.ProximityQuery(mesh)  # unsigned distances, LOCAL frame
-        self.obj = None
-        if _fcl is not None:
-            model = _fcl.BVHModel()
-            model.beginModel(len(mesh.vertices), len(mesh.faces))
-            model.addSubModel(np.asarray(mesh.vertices, dtype=float), np.asarray(mesh.faces, dtype=np.int64))
-            model.endModel()
-            self.obj = _fcl.CollisionObject(model, _fcl.Transform())
+        self.obj = fcl_collision_object(mesh)
         self.T = np.eye(4)
         self.T_inv = np.eye(4)
 

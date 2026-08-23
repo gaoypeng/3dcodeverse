@@ -87,45 +87,74 @@ export function fitDistance(bbox, center, dir, tanH, tanV, margin) {
   return dist;
 }
 
+function boxGeom(bbox, groundY) {
+  const size = bbox.max.map((v, i) => v - bbox.min[i]);
+  const center = bbox.min.map((v, i) => v + size[i] / 2);
+  const floor = groundY === null || groundY === undefined ? bbox.min[1] : groundY;
+  return { size, center, floor };
+}
+
+function round3(spec) {
+  spec.position = spec.position.map((x) => +x.toFixed(3));
+  spec.lookAt = spec.lookAt.map((x) => +x.toFixed(3));
+  return spec;
+}
+
 /**
- * Build camera specs for `views` around `bbox` ({min:[..], max:[..]}).
+ * Eye-level camera standing just outside the bbox footprint on the given
+ * azimuth side, ~1.6 m above ground, looking into the content.  THE owner of
+ * the zone-camera fit (assemble.py consumes it through probe_scene.mjs).
+ * @returns {{position:number[], lookAt:number[], fov:number}}
+ */
+export function fitZoneCamera(bbox, { azimuth = 45, floor = null, fov = 50 } = {}) {
+  const g = boxGeom(bbox, floor);
+  const [dx, , dz] = orbitDirection(azimuth, 0);
+  // distance from the centre to the bbox's xz boundary along (dx, dz)
+  const hx = g.size[0] / 2, hz = g.size[2] / 2;
+  const tx = Math.abs(dx) > 1e-6 ? hx / Math.abs(dx) : Infinity;
+  const tz = Math.abs(dz) > 1e-6 ? hz / Math.abs(dz) : Infinity;
+  const back = Math.min(tx, tz) + Math.max(2, 0.12 * Math.max(g.size[0], g.size[2]));
+  const eyeH = Math.max(g.floor + 0.5, g.floor + 1.6 + Math.min(4, 0.1 * g.size[1]));
+  return round3({
+    position: [g.center[0] + dx * back, eyeH, g.center[2] + dz * back],
+    lookAt: [g.center[0], Math.min(g.center[1], g.floor + 0.35 * g.size[1] + 0.5), g.center[2]],
+    fov,
+  });
+}
+
+/**
+ * Overview camera on the given azimuth side, fitted so the bbox's eight
+ * corners fill the frame (exact per-corner frustum fit, ground-aware — never
+ * a bounding-sphere fit).  THE owner of the overview fit.
+ * @returns {{position:number[], lookAt:number[], fov:number}}
+ */
+export function fitOverviewCamera(bbox, { azimuth = 45, elevation = 30, fov = 50, aspect = 16 / 9, groundY = null, margin = 1.05 } = {}) {
+  const g = boxGeom(bbox, groundY);
+  const el = Math.max(3, Math.min(89, elevation));
+  const d = orbitDirection(azimuth, el);
+  const tanV = Math.tan((fov * DEG) / 2);
+  const tanH = tanV * aspect;
+  const minDist = Math.max(1.5, 0.35 * Math.hypot(g.size[0], g.size[1], g.size[2]));
+  const dist = Math.max(minDist, fitDistance(bbox, g.center, d, tanH, tanV, margin));
+  const eye = g.center.map((c, i) => c + d[i] * dist);
+  if (eye[1] < g.floor + 0.5) eye[1] = g.floor + 0.5;
+  return round3({ position: eye, lookAt: g.center.slice(), fov });
+}
+
+/**
+ * Build camera specs for `views` around `bbox` ({min:[..], max:[..]}):
+ * fitOverviewCamera above 20°, fitZoneCamera at eye level.
  * @returns {Array<{name, position, lookAt, fov, kind:'orbit'}>}
  */
 export function fitOrbitCameras(bbox, views, { fov = 50, aspect = 16 / 9, groundY = null, margin = 1.05, noFog = true } = {}) {
   if (!bbox || !bbox.min || !bbox.max) return [];
-  const size = bbox.max.map((v, i) => v - bbox.min[i]);
-  const center = bbox.min.map((v, i) => v + size[i] / 2);
-  const tanV = Math.tan((fov * DEG) / 2);
-  const tanH = tanV * aspect;
-  const minDist = Math.max(1.5, 0.35 * Math.hypot(size[0], size[1], size[2]));
-  const floor = groundY === null || groundY === undefined ? bbox.min[1] : groundY;
   const out = [];
-  const horizDist = (dx, dz) => {
-    // distance from the centre to the bbox's xz boundary along (dx, dz)
-    const hx = size[0] / 2, hz = size[2] / 2;
-    const tx = Math.abs(dx) > 1e-6 ? hx / Math.abs(dx) : Infinity;
-    const tz = Math.abs(dz) > 1e-6 ? hz / Math.abs(dz) : Infinity;
-    return Math.min(tx, tz);
-  };
   for (const v of views) {
     const el = Math.max(3, Math.min(89, v.elevation));
-    const d = orbitDirection(v.azimuth, el);
-    let eye, lookAt;
-    if (el <= 20) {
-      // eye-level: a person standing just outside the content footprint, looking in
-      const dh = orbitDirection(v.azimuth, 0);
-      const edge = horizDist(dh[0], dh[2]);
-      const back = edge + Math.max(2, 0.12 * Math.max(size[0], size[2]));
-      const eyeH = floor + 1.6 + Math.min(4, 0.1 * size[1]);
-      eye = [center[0] + dh[0] * back, eyeH, center[2] + dh[2] * back];
-      lookAt = [center[0], Math.min(center[1], floor + 0.35 * size[1] + 0.5), center[2]];
-    } else {
-      const dist = Math.max(minDist, fitDistance(bbox, center, d, tanH, tanV, margin));
-      eye = center.map((c, i) => c + d[i] * dist);
-      lookAt = center.slice();
-    }
-    if (eye[1] < floor + 0.5) eye[1] = floor + 0.5;
-    out.push({ name: v.name, position: eye.map((x) => +x.toFixed(3)), lookAt: lookAt.map((x) => +x.toFixed(3)), fov, kind: 'orbit', noFog: !!noFog && el > 20 });
+    const fit = el <= 20
+      ? fitZoneCamera(bbox, { azimuth: v.azimuth, floor: groundY, fov })
+      : fitOverviewCamera(bbox, { azimuth: v.azimuth, elevation: el, fov, aspect, groundY, margin });
+    out.push({ name: v.name, ...fit, kind: 'orbit', noFog: !!noFog && el > 20 });
   }
   return out;
 }

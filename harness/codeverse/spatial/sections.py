@@ -18,10 +18,11 @@ from pathlib import Path
 
 import numpy as np
 import trimesh
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
-from codeverse.spatial.measure import GlbLoadError, load_scene, merged_mesh, part_meshes
+from codeverse.spatial.measure import GlbLoadError, cached_parts, merged_mesh
 from codeverse.spatial.registry import Observation
+from codeverse.spatial.sheet import load_font
 
 _AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
 #: which two axes are drawn (horizontal, vertical) for a slicing axis
@@ -42,13 +43,6 @@ class SectionData:
     hollow_ratio: float = 0.0
     bbox_min: np.ndarray | None = None
     bbox_max: np.ndarray | None = None
-
-
-def _font(size: int = 13) -> ImageFont.ImageFont:
-    try:
-        return ImageFont.truetype("DejaVuSans.ttf", size)
-    except Exception:
-        return ImageFont.load_default()
 
 
 def _section_loops(mesh: trimesh.Trimesh, axis: str, at: float) -> list[np.ndarray]:
@@ -120,7 +114,7 @@ def draw_section(data: SectionData, out_png: Path, *, size: int = 512, title: st
     hi, vi = _AXIS_INDEX[h_ax], _AXIS_INDEX[v_ax]
     img = Image.new("RGB", (size, size), (250, 250, 250))
     d = ImageDraw.Draw(img, "RGBA")
-    font, small = _font(13), _font(11)
+    font, small = load_font(13), load_font(11)
     margin = 36
     if data.bbox_min is None:
         d.text((margin, margin), "empty model", fill=(0, 0, 0), font=font)
@@ -186,7 +180,7 @@ def _resolve_at(parts: dict[str, trimesh.Trimesh], axis: str, at: float, absolut
 
 
 def _load_parts(glb: Path | str, parts: Sequence[str] | None) -> dict[str, trimesh.Trimesh]:
-    all_parts = {k: v for k, v in part_meshes(load_scene(glb)).items() if v is not None and len(v.faces)}
+    all_parts = {k: v for k, v in cached_parts(glb).items() if v is not None and len(v.faces)}
     if parts:
         sel = {k: v for k, v in all_parts.items() if k in set(parts)}
         missing = [p for p in parts if p not in all_parts]

@@ -1,0 +1,157 @@
+{
+  "battery": {
+    "name": "compare_v1",
+    "track": "static_object",
+    "language": "blender",
+    "description": "8 static-object prompts (blender / bpy) used to compare the harness loop against raw one-shot generation by strong models under ONE fixed judge.  Tiers: 2 easy, 3 medium, 3 hard.  must_have items become the fixed judge's acceptance checklist for EVERY arm (no plan-derived items, so harness and one-shot are judged alike).\n",
+    "prompts": [
+      {
+        "id": "cmp_easy_stool",
+        "prompt": "a simple three-legged round wooden stool, 45 cm tall",
+        "tier": "easy",
+        "category": "furniture",
+        "must_have": [
+          "round seat",
+          "three splayed legs of equal length",
+          "legs touch the ground"
+        ],
+        "dimensions_m": {
+          "height": 0.45
+        },
+        "tags": []
+      },
+      {
+        "id": "cmp_easy_desk_lamp",
+        "prompt": "a desk lamp with a heavy round base, a single angled arm and a conical metal shade",
+        "tier": "easy",
+        "category": "lighting",
+        "must_have": [
+          "round base on the ground",
+          "one straight arm leaning forward",
+          "conical shade at the top of the arm",
+          "shade opens downward"
+        ],
+        "dimensions_m": null,
+        "tags": []
+      },
+      {
+        "id": "cmp_med_dining_chair",
+        "prompt": "a wooden dining chair with a gently curved backrest, a flat seat and four tapered legs",
+        "tier": "medium",
+        "category": "furniture",
+        "must_have": [
+          "four tapered legs touching the ground",
+          "flat seat slab",
+          "backrest visibly curved in plan view",
+          "back legs continue up into the backrest posts"
+        ],
+        "dimensions_m": null,
+        "tags": []
+      },
+      {
+        "id": "cmp_med_wheelbarrow",
+        "prompt": "a garden wheelbarrow with a sheet-metal tray, one front wheel, two straight handles and two rear legs",
+        "tier": "medium",
+        "category": "garden",
+        "must_have": [
+          "open tray with sloped front",
+          "single front wheel with a hub",
+          "two parallel handles at the back",
+          "two rear legs reaching the ground"
+        ],
+        "dimensions_m": null,
+        "tags": []
+      },
+      {
+        "id": "cmp_med_espresso_machine",
+        "prompt": "a home espresso machine with a boxy body, a portafilter group head at the front, a steam wand on the right side and a drip tray",
+        "tier": "medium",
+        "category": "appliances",
+        "must_have": [
+          "boxy body",
+          "group head with a portafilter handle at the front",
+          "steam wand on the right side",
+          "drip tray at the bottom front",
+          "cup warmer top surface"
+        ],
+        "dimensions_m": null,
+        "tags": []
+      },
+      {
+        "id": "cmp_hard_bicycle",
+        "prompt": "a vintage bicycle with a diamond frame, two spoked wheels, handlebars, saddle, pedals with a chainring and a rear rack",
+        "tier": "hard",
+        "category": "vehicles",
+        "must_have": [
+          "two equal wheels with spokes",
+          "diamond frame tubes connecting the wheels",
+          "saddle above the rear wheel",
+          "handlebars above the front wheel",
+          "chainring and pedals between the wheels",
+          "rear luggage rack"
+        ],
+        "dimensions_m": null,
+        "tags": []
+      },
+      {
+        "id": "cmp_hard_acoustic_guitar",
+        "prompt": "an acoustic guitar standing upright on a small floor stand, with a waisted body, a round sound hole, a fretted neck with a headstock and six tuning pegs",
+        "tier": "hard",
+        "category": "instruments",
+        "must_have": [
+          "waisted hourglass body",
+          "round sound hole",
+          "neck with frets",
+          "headstock with six tuning pegs",
+          "bridge on the body",
+          "stand holding the guitar upright on the ground"
+        ],
+        "dimensions_m": null,
+        "tags": []
+      },
+      {
+        "id": "cmp_hard_sailboat",
+        "prompt": "a small wooden sailboat on a display cradle, with a hull, a keel, one mast with a boom and a triangular mainsail, a rudder and a tiller",
+        "tier": "hard",
+        "category": "vehicles",
+        "must_have": [
+          "hull with a pointed bow",
+          "keel under the hull",
+          "single mast with a boom",
+          "triangular mainsail",
+          "rudder and tiller at the stern",
+          "cradle keeping the boat upright on the ground"
+        ],
+        "dimensions_m": null,
+        "tags": []
+      }
+    ]
+  },
+  "arms": [
+    "harness:api-agent:gemini:gemini-3.7-flash",
+    "harness:gemini-cli:gemini-3.7-flash",
+    "oneshot:claude-code",
+    "oneshot:codex",
+    "oneshot:gemini:gemini-3.7-flash"
+  ],
+  "options": {
+    "judge": "gemini:gemini-3.1-pro-preview",
+    "loop_judge": null,
+    "planner": null,
+    "rounds": 3,
+    "max_usd": 2.5,
+    "max_minutes": 45.0,
+    "parallel": 3,
+    "limit": 2,
+    "ids": [],
+    "resume": true,
+    "gen_timeout_s": 900.0,
+    "repair_attempts": 2,
+    "n_samples": 2,
+    "pairwise": true,
+    "redo_status": [
+      "no_code"
+    ]
+  },
+  "started_at": "2026-08-23T15:01:59.131769+00:00"
+}

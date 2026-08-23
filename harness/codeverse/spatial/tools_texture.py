@@ -4,7 +4,8 @@ generated textures).  Registered for the object tracks, every language.
 
 The tools read ``spec.json`` / ``plan.json`` from the workspace; the image model
 and judge come from the spec's backends (planner for the material plan, judge for
-the ship gate) unless ``ctx.extra`` injects ``image_model`` / ``judge`` (tests).
+the ship gate) unless ``ctx.extra['texture_services']`` injects a
+``codeverse.texturing.run.TextureServices`` bundle of fakes (tests).
 """
 
 from __future__ import annotations
@@ -58,11 +59,9 @@ def texture_pass_tool(ctx: ToolContext, args: TexturePassArgs) -> Observation:
         texture_pass = lazy("codeverse.texturing.run", "texture_pass")
     except ToolUnavailable as e:
         return unavailable_obs("texture_pass", e)
-    judge = ctx.extra.get("judge", args.judge)
+    services = ctx.extra.get("texture_services")  # the ONE injection point (TextureServices)
     rep = texture_pass(ctx.workspace, spec, plan, model_id=args.model or spec.backends.planner,
-                       image_model=ctx.extra.get("image_model"), judge=judge, glb_in=glb, size=args.size,
-                       plan_model=ctx.extra.get("plan_model"), render=ctx.extra.get("render"),
-                       cache_dir=ctx.extra.get("cache_dir"))
+                       judge=args.judge, glb_in=glb, size=args.size, services=services)
     s = rep.summary()
     root = ctx.workspace.root
     lines = [
