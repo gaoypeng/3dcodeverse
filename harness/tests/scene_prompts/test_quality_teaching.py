@@ -59,6 +59,20 @@ def test_planner_asks_for_density_layering_and_subject_framing() -> None:
         assert token in text, token
 
 
+def test_planner_is_told_that_must_acceptance_caps_the_run() -> None:
+    """One unmet `must` caps the run at 0.60 (judges.caps.missing_must_acceptance).  A scene
+    whose pictures score 0.81 must not lose 0.13 because the planner over-specified a detail
+    and then marked it `must` — measured on cq_japanese_garden_v2 r00 (0.809 → 0.729 → 0.60)."""
+    from codeverse.judges.rubrics import load_rubric
+
+    caps = {c.id: c for c in load_rubric("scene_v1").caps}
+    assert caps["missing_must_acceptance"].cap == 0.60
+    text = load_text("tracks/plan_scene.j2")
+    assert "priority: should" in text
+    assert "caps the whole run" in text or "caps the\n   whole run" in text
+    assert "at most 4-6 items `must`" in text
+
+
 def test_zone_prompt_demands_variation_dressing_and_visible_motion() -> None:
     text = load_text("tracks/scene_zone.j2")
     for token in ("3 distinct silhouettes", "hue jitter", "density counts",

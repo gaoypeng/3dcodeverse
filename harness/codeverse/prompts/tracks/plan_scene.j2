@@ -29,12 +29,16 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
        out monochrome;
    (c) fog hex (= the sky HORIZON colour, never white or grey unless overcast) + near/far in
        meters, scaled to this scene: near ~ 0.4 x the bounds diagonal, far ~ 2 x the diagonal;
-   (d) ground: the 3-4 material colours that blend across it (e.g. moss 0x4a602e, dry grass
+   (d) ground: the terrain stays within about +/-1.5 m of y = 0 inside the bounds (camera
+       heights below are absolute, and a lifted floor puts them underground); ponds, terraces
+       and gravel beds are carved INTO the terrain, never laid on it as flat discs;
+       the 3-4 material colours that blend across it (e.g. moss 0x4a602e, dry grass
        0x8a8148, packed dirt 0x6b5334, gravel 0xa89a7c), which drives the blend (height, slope,
        noise), and where the PATH runs as a polyline of 3-5 (x, z) points, 1.2-2.0 m wide;
    (e) the BACKDROP that hides the world edge: a silhouette ring (hills / treeline / rooftops /
-       mesas) at radius ~ 0.6 x fog far, 24-40 pieces, tinted 70 % toward the fog colour — or,
-       for an interior, what is seen through the glass;
+       mesas) at radius ~ 0.6 x fog far, 24-40 SOLID pieces (never flat cut-out planes) in
+       their own colour darkened 0.6-0.8x — the scene fog supplies the haze, so never tint
+       them toward the fog colour — or, for an interior, what is seen through the glass;
    (f) water plane height + colour, if any.
 4. `zones` — 3 to 6 spatial regions with PascalCase names, a `bbox`, and `contents` = asset names
    placed there. Zone bboxes tile the bounds without overlapping by more than 1 m.
@@ -77,10 +81,21 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
      for that shot ("establishing: the arched bridge at 14 m, framed by the maple on the right at
      3 m, cedar ridge on the horizon").
    - No camera may be inside or within 0.5 m of geometry; fov 35-60.
-9. `acceptance` — 6 to 12 items: each must-have from the brief, the hero assets visible from the
-   establishing camera, time-of-day lighting reads correctly, the hero motion is visible between
-   t=0 and t=1.5 s, no floating or sunken assets (`how: probe`), no hard world edge visible from
+9. `acceptance` — 6 to 12 items covering: each must-have from the brief, the hero assets visible
+   from the establishing camera, time-of-day lighting reads correctly, the hero motion is visible
+   between t=0 and t=1.5 s, no floating or sunken assets (`how: probe`), no hard world edge from
    any authored camera, fps >= 30 at 1024x576.
+   **`priority` matters more than anything else in this list.**  ANY unmet `must` item caps the
+   whole run's score at 0.60, however good the pictures are — one over-specified detail throws
+   away a passing scene.  So:
+   - mark at most 4-6 items `must`, and only ones that restate a hard requirement of the brief
+     itself, that a person can confirm from ONE rendered frame, and that name no incidental
+     detail: "a raked gravel area is visible in the zen garden" is a `must`; "raked gravel with
+     concentric rings around each rock" is a `should`;
+   - mark everything else `priority: should` — craft goals, counts, specific patterns, exact
+     heights, fps and anything needing evidence the judge may not have;
+   - never write a `must` whose wording contains a number, a named style, or the word "and"
+     joining two independent claims — split it or demote it.
 
 RULES
 - Every name in `zones[].contents` must be an asset name; asset names unique; zone names unique.

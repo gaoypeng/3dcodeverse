@@ -8,7 +8,12 @@ from pathlib import Path
 import pytest
 
 from codeverse.cost import audit_runs
-from codeverse.cost.audit import cached_input_share, price_confidence, stage_latency, uncached_if_no_cache
+from codeverse.cost.audit import (
+    cached_input_share,
+    price_confidence,
+    stage_latency,
+    uncached_if_no_cache,
+)
 from codeverse.cost.report import console, markdown
 
 

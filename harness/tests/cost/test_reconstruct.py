@@ -88,7 +88,6 @@ def test_gemini_cli_recheck_finds_the_stale_parse():
 def test_best_of_n_losers_are_attributed_and_counted_as_waste(fake_run: Path, tmp_path: Path):
     """A ``_cand/c<k>`` sub-workspace is the run's, not a run of its own; the
     candidates that lost are money spent on artifacts nobody kept."""
-    import json
     import shutil
 
     ws = tmp_path / "cands"

@@ -41,17 +41,33 @@ Read these cookbook chapters and copy their recipes (`read_cookbook(section="...
    `distToPath` in both height and colour.  A single-colour `MeshStandardMaterial` plane is a
    scored defect (`flat_ground`).
 2. **No world edge.**  Ground size >= 2.4 x fog far; `scene.fog` colour == the sky's HORIZON
-   colour == `scene.background`; a silhouette ring (24-40 instanced hills / rooftops / mesas) at
-   radius ~ 0.6 x fog far, height 0.06-0.12 x that radius, tinted 70 % toward the fog colour.
-   Scale fog to THIS scene, not to a 100 m default.
-3. **Coloured atmosphere, not monochrome.**  Warm key + cool fill (or the reverse) with >= 60
-   degrees of hue between them; shade must carry sky colour, never black.  Add 3-4 haze bands
+   colour == `scene.background`; a silhouette ring (24-40 instanced hills / rooftops / mesas /
+   treeline) at radius ~ 0.6 x fog far, height 0.06-0.12 x that radius.  Scale fog to THIS
+   scene, not to a 100 m default.
+   Two rules decide whether that ring reads as a hazy horizon or as cardboard:
+   - Build it from SOLID geometry (cones, boxes, mesas).  Flat `PlaneGeometry` cut-outs are
+     instantly readable as cardboard from every oblique and overview camera.
+   - Do NOT lerp its colour toward the fog colour.  `scene.fog` already hazes it by distance;
+     tinting as well double-applies and, against a light golden/overcast horizon, makes the
+     backdrop BRIGHTER than the ground — measured, and scored as `placeholder_material`.
+     Use its natural colour darkened (`base.multiplyScalar(0.6-0.8)`) and let fog do the rest.
+3. **The floor stays near y = 0.**  The plan's camera heights are absolute metres above y = 0
+   and were written before your terrain existed: keep `heightAt` within about +/-1.5 m of 0
+   inside the bounds (a knoll or a pond basin is fine, a 7 m plateau is not), or the harness
+   reports "camera N m below ground level" and caps the score at 0.50.
+   Ponds, terraces, lawns and gravel beds are CARVED INTO `heightAt` (a radial depression, a
+   shallow shelf) — never a hard-edged disc or square laid on top of the ground, which always
+   shows its outline from the overview cameras.
+4. **Coloured atmosphere, not monochrome.**  Warm key + cool fill (or the reverse) with >= 60
+   degrees of hue between them; shade must carry sky colour, never black — with the sun below
+   25 degrees elevation keep the hemisphere intensity >= 1.0 or the shadows render pitch black
+   and trip the `unlit_or_blown` defect (cap 0.60).  Add 3-4 haze bands
    (`depthWrite:false`, opacity 0.04-0.10, fog colour) for aerial perspective, and light shafts
    if the brief mentions sun through something.
-4. **Shadows must not be jagged.**  Shadow texel = `2 x shadowSpan / mapSize` <= 0.05 m: fit the
+5. **Shadows must not be jagged.**  Shadow texel = `2 x shadowSpan / mapSize` <= 0.05 m: fit the
    shadow camera to the BOUNDS (not the whole ground), then pick mapSize 2048 (span <= 30 m) /
    3072 (<= 60 m) / 4096 (larger).  `bias = -0.0004`, `normalBias = 0.02`.
-5. Keep the whole module <= 300 lines; no textures, no DOM, no fetch, no Math.random.
+6. Keep the whole module <= 300 lines; no textures, no DOM, no fetch, no Math.random.
 
 ## DON'T
 - No assets/zones here (they come from other modules). No cameras. No `scene.background` image loads.

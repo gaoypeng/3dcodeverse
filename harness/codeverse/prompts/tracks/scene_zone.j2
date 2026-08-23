@@ -56,8 +56,11 @@ Copy the recipes from the cookbook (`read_cookbook(section="...")`):
    seeds + members around them), never uniform scatter and never a ring of identical cones.
 3. **Blend into the ground.**  Anything that meets the terrain sinks 3-5 cm into it and gets
    6-15 dressing pieces along the seam (tufts, pebbles, leaves).  A raised bed gets a chamfered
-   kerb, not a naked box on grass.  Add the zone's share of ground cover (300-800 instanced
-   tufts for a planted zone) unless the description says bare.
+   kerb, not a naked box on grass.  NEVER lay a hard-edged disc or square (a pond, a gravel
+   bed, a terrace, a lawn patch) flat on top of the ground: use the depression `heightAt`
+   already carves for it and ring the seam with a kerb + dressing, or its outline shows from
+   every overview camera (`flat_ground` / `floating_or_sunken_asset`).  Add the zone's share of
+   ground cover (300-800 instanced tufts for a planted zone) unless the description says bare.
 4. **Serve the cameras.**  Skip any SCATTER instance inside a ~4 m disc around an authored camera
    (write a zero-scale matrix, keep the index; `cameraMask` in the cookbook) — a tree 1 m in front
    of the establishing camera ruins the shot.  Then, by hand (not scatter, so the mask does not

@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    paths: ["harness/**", ".github/workflows/ci.yml"]
+  pull_request:
+    paths: ["harness/**", ".github/workflows/ci.yml"]
+
+jobs:
+  lint:
+    name: ruff (harness)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install ruff==0.15.20
+      - run: ruff check --output-format=github .
+        working-directory: harness
+
+  tests:
+    name: offline tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install the harness (no Blender / node / GPU on the runner)
+        run: pip install -e ./harness[dev]
+      # The suite is marked: `live` needs API keys, `blender` needs a Blender
+      # binary, `node` needs runtime_js/node_modules — none exist on a runner,
+      # so CI runs the pure-python subset (locally: 1159 tests, here ~900).
+      - name: pytest (pure python subset)
+        run: python -m pytest tests/core tests/models tests/judges tests/orchestrator_tracks tests/flywheel_cli tests/bench_prompts tests/cost -q -m "not live and not blender and not node"
+        working-directory: harness

@@ -15,6 +15,7 @@ empty parts — what connectivity / sections want.
 
 from __future__ import annotations
 
+import contextlib
 import re
 import threading
 from collections import OrderedDict
@@ -91,10 +92,8 @@ def _world_mesh(scene: trimesh.Scene, node: str) -> trimesh.Trimesh | None:
     m.apply_transform(transform)
     # exporters split vertices along hard edges / UV seams; topology queries
     # (islands, watertightness) need positions merged back together
-    try:
+    with contextlib.suppress(Exception):
         m.merge_vertices(merge_tex=True, merge_norm=True)
-    except Exception:
-        pass
     return m
 
 
@@ -134,7 +133,7 @@ def part_meshes(scene: trimesh.Scene) -> OrderedDict[str, trimesh.Trimesh | None
     out: OrderedDict[str, trimesh.Trimesh | None] = OrderedDict()
     links = scene.metadata.get("links") if isinstance(scene.metadata, dict) else None
     nodes = set(scene.graph.nodes)
-    if isinstance(links, list) and links and all(str(l) in nodes for l in links):
+    if isinstance(links, list) and links and all(str(link) in nodes for link in links):
         for link in links:
             link = str(link)
             own = [n for n in _subtree_nodes(scene, link) if n == link or str(n).startswith(link + "__")]

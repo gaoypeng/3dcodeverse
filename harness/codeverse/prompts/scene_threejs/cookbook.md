@@ -131,9 +131,9 @@ objects, animation fanned out through `env.update` and `zone.userData.update`.
 
 ## Ground that reads real (blend, paths, edges — never one flat colour)
 
-A single-colour plane is the #1 reason a scene reads as a toy.  Real ground is
-**three or four materials blended by height, slope and noise**, with paths carved into
-the height function itself and dressed edges where anything meets it.
+A single-colour plane is the #1 reason a scene reads as a toy.  Real ground is **three or
+four materials blended by height, slope and noise**, with paths carved into the height
+function itself and dressed edges where anything meets it.
 
 ```js
 // --- deterministic value noise (no textures, no Math.random) -----------------
@@ -240,7 +240,8 @@ colour, or a raised bed that is a sharp box on top of grass, are both graded as 
 ## Horizon: the world must not end (fixing `world_edge_visible`)
 
 The single most repeated judge complaint on this track is *"a hard world edge is visible
-against the sky"*.  Three cheap rules kill it for good:
+against the sky"*.  Five rules kill it for good — and rules 4 and 5 are what separate a
+hazy horizon from *"plain untextured beige cut-outs"*, which scores worse than no backdrop:
 
 1. **Ground reaches past the fog.**  Ground size ≥ `2.4 × fogFar`.  Detail only needs to
    exist inside the bounds; beyond that, one big low-resolution disc is enough.
@@ -248,23 +249,33 @@ against the sky"*.  Three cheap rules kill it for good:
    instead of ending at it — and `fogFar` must be scaled to the scene (see the
    time-of-day chapter: the table is for a 100 m scene, multiply by `diag / 100`).
 3. **A silhouette ring** at `radius ≈ 0.6 × fogFar` (and ≥ 2 × the bounds half-diagonal):
-   24–40 low-poly hills / treeline / rooftops / mesa blocks, height 0.06–0.12 × radius,
-   tinted **65–80 %** of the way toward the fog colour.  At 0.6 × fogFar the fog itself
-   desaturates them into aerial perspective — measured on a 45 m garden with fog 16/77 m:
-   a ring at 46 m reads as distant hills, the same ring at 95 m reads as a spiky crater
-   wall and the same ring at 20 m reads as a stone circle.
+   24–40 low-poly hills / treeline / rooftops / mesa blocks, height 0.06–0.12 × radius.
+   Measured on a 45 m garden with fog 16/77 m: a ring at 46 m reads as distant hills, the
+   same ring at 95 m reads as a spiky crater wall, at 20 m as a stone circle.
+4. **Never hand-tint the backdrop toward the fog colour.**  `scene.fog` already blends
+   every fogged material toward the fog colour by distance; lerping the material as well
+   double-applies it, and against a *light* fog (a golden or overcast horizon) it makes the
+   backdrop BRIGHTER than the terrain — which renders as pale cardboard and is graded
+   `placeholder_material`.  Give it its natural colour **darkened**
+   (`base.multiplyScalar(0.6–0.8)`) and let fog do the haze.  Verified A/B on one frame
+   with fog 0xf7cf9e: hand-lerped = beige cut-outs, darkened = receding hazy hills.
+5. **Solid geometry, never flat cut-outs.**  A distant treeline is cones/boxes with volume;
+   a `PlaneGeometry` billboard reads as cardboard from every oblique and overview camera,
+   and its base floats.
 
 ```js
 function buildHorizonRing(THREE, opts = {}) {
   const r = opts.radius ?? (opts.fogFar ? opts.fogFar * 0.6 : 60);    // 0.6 x fog far
   const n = opts.count ?? 30, h0 = opts.minHeight ?? r * 0.06, h1 = opts.maxHeight ?? r * 0.12;
   const base = new THREE.Color(opts.color ?? 0x3d5236), fog = new THREE.Color(opts.fogColor ?? 0xa8c4dd);
+  const dark = opts.darken ?? 0.72;      // scene.fog supplies the haze; we only darken
   const shape = opts.shape ?? 'hill';        // 'hill' (cone) | 'block' (city) | 'mesa'
   const geo = shape === 'hill' ? new THREE.ConeGeometry(1, 1, 7)
             : shape === 'mesa' ? new THREE.CylinderGeometry(0.75, 1, 1, 6)
             : new THREE.BoxGeometry(1, 1, 1);
   geo.translate(0, 0.5, 0);                  // origin at the base
-  const mat = new THREE.MeshStandardMaterial({ color: base.clone().lerp(fog, opts.hazeMix ?? 0.7), roughness: 1, flatShading: true });
+  // hazeMix stays 0 unless the ring sits past fog.far, where fog can no longer reach it
+  const mat = new THREE.MeshStandardMaterial({ color: base.clone().multiplyScalar(dark).lerp(fog, opts.hazeMix ?? 0), roughness: 1, flatShading: true });
   const mesh = new THREE.InstancedMesh(geo, mat, n);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), s = new THREE.Vector3();
   for (let i = 0; i < n; i++) {
@@ -280,7 +291,8 @@ function buildHorizonRing(THREE, opts = {}) {
   mesh.name = 'HorizonRing'; mesh.castShadow = false; mesh.receiveShadow = false;
   return mesh;                                // add to the SCENE (env), never to a zone
 }
-console.log('horizon ring', buildHorizonRing(THREE, { shape: 'block', color: 0x2b3140 }).count);
+const ringDemo = buildHorizonRing(THREE, { shape: 'block', color: 0x2b3140, fogFar: 77 });
+console.log('horizon ring', ringDemo.count, 'r', (77 * 0.6).toFixed(1), '#' + ringDemo.material.color.getHexString());
 ```
 
 Indoor scenes (greenhouse, cabin) need no ring — but the *outside* seen through the glass
@@ -295,17 +307,14 @@ row of the time-of-day table below for sky, sun, fill and fog, then add **practi
 every lantern, window and fire is an emissive surface plus a small PointLight:
 
 ```js
-function addPracticals(THREE, scene, spots) {
+function addPracticals(THREE, scene, spots) {          // ≤ 12; none cast shadows
   const glowMat = new THREE.MeshStandardMaterial({ color: 0xffc070, emissive: 0xffa040, emissiveIntensity: 3.0 });
-  const out = [];
-  for (const [i, [x, y, z]] of spots.entries()) {
+  return spots.map(([x, y, z], i) => {
     const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 8), glowMat);
     bulb.position.set(x, y, z); bulb.name = `Practical${i}`;
-    const light = new THREE.PointLight(0xffa040, 1.5, 9, 2);     // ≤ 12 of these, none cast shadows
-    light.position.set(x, y, z);
-    scene.add(bulb, light); out.push(light);
-  }
-  return out;                                    // flicker them from update(): intensity ×0.75…×1.3
+    const light = new THREE.PointLight(0xffa040, 1.5, 9, 2); light.position.set(x, y, z);
+    scene.add(bulb, light); return light;              // flicker from update(): ×0.75…×1.3
+  });
 }
 console.log('practicals', addPracticals(THREE, new THREE.Scene(), [[4, 1.8, 2], [-3, 2.1, 5]]).length);
 ```
@@ -315,11 +324,11 @@ practicals); hemisphere sky/ground colours carry the mood — turning the key do
 you make dusk, tinting it is; ground albedo ≥ 0.25; no black `scene.background` (the sky
 gradient's horizon band is the brightest thing in the frame).
 
-**Exposure self-check (after each build):** run `scene_views` and read the frame table
-(`camera_checks` in the render's metrics.json) for every authored camera: `mean_lum` ≥ 0.15,
-`dark_frac` ≤ 0.25, `blown_frac` ≤ 0.10, `content_frac` ≥ 0.25 on the establishing shot.  If
-the establishing frame is below 0.15, raise HemisphereLight by +0.3 and the key by +0.8 and
-re-render — do not ship a frame you cannot read.
+**Exposure self-check (after each build):** `scene_views` → the frame table
+(`camera_checks` in metrics.json) for every authored camera: `mean_lum` ≥ 0.15, `dark_frac`
+≤ 0.25, `blown_frac` ≤ 0.10, `content_frac` ≥ 0.25 on the establishing shot.  Below that,
+raise HemisphereLight by +0.3 and the key by +0.8 and re-render.  Black shade is the most
+common cause: at sun elevation < 25° keep the hemisphere ≥ 1.0.
 
 ## Atmosphere: time-of-day triads with numbers
 
@@ -431,10 +440,9 @@ the shoreline (a radial depression term) or the shore z-fights.
 
 ## Vegetation that reads real (species, jitter, clusters, ground cover)
 
-A ring of identical cones is the second most common complaint.  Fix it with **three to
-five species**, per-instance **scale / hue / rotation jitter**, **clustered** placement and
-a **ground-cover** layer.  Every one of these is instanced, so the whole forest is 6–10
-draw calls.
+A ring of identical cones is the second most common complaint.  Fix it with **three to five
+species**, per-instance **scale / hue / rotation jitter**, **clustered** placement and a
+**ground-cover** layer — all instanced, so a whole forest is 6–10 draw calls.
 
 ```js
 // One species = one geometry pair (trunk + crown) with its own silhouette + hue band.
@@ -532,14 +540,14 @@ const coverDemo = buildGroundCover(THREE, { count: 400, area: { x: 0, z: 0, w: 2
 console.log('ground cover', coverDemo.count, 'tris', coverDemo.count * 3);
 ```
 
-Density per 100 m² of planted zone: 2–5 trees, 8–20 shrubs, 250–600 ground-cover tufts,
-30–80 litter pieces.  Less than that and the judge writes *"monotonous / undressed"*.
+Density per 100 m² of planted zone: 2–5 trees, 8–20 shrubs, 250–600 tufts, 30–80 litter
+pieces.  Less and the judge writes *"monotonous / undressed"*.
 
 ## Rocks, cliffs and boulders that read organic (never a row of boxes)
 
-Stacked cuboids read as buildings — the desert-canyon run lost 0.2 to exactly that.  A
-rock is a **noise-displaced polyhedron**; a cliff is a **ridge polyline of rotated,
-non-uniformly scaled rock chunks with jittered strata**, never an axis-aligned wall.
+Stacked cuboids read as buildings — the desert-canyon run lost 0.2 to exactly that.  A rock
+is a **noise-displaced polyhedron**; a cliff is a **ridge polyline of rotated, non-uniformly
+scaled chunks with jittered strata**, never an axis-aligned wall.
 
 ```js
 function rockGeometry(THREE, { radius = 1, detail = 1, rough = 0.34, seed = 1 } = {}) {
@@ -603,9 +611,8 @@ Counts that read as *lived in*, per zone (a zone is typically 10 × 10 m to 30 �
 | interior | 3–6 (bench rows, water feature) | 15–30 (pots, tools, watering cans, crates) | 40–100 (labels, trowels, gloves, jars) | n/a |
 
 Cheap rules: 3 size bands per prop family, one InstancedMesh per band; place props
-**against something** (a wall base, a path edge, under a bench) — props alone in open
-ground read as scatter, not dressing; never a perfect grid or ring (≥ 20 % positional
-jitter, full yaw jitter).
+**against something** (wall base, path edge, under a bench) — props alone in open ground
+read as scatter; never a grid or ring (≥ 20 % positional jitter, full yaw jitter).
 
 ## Zones (`src/zones/*.js`): Groups with a bbox discipline
 
@@ -733,13 +740,13 @@ swayDemo.userData.update(1.5); const a1 = swayDemo.rotation.z;
 console.log('sway delta (rad) over 1.5s', Math.abs(a1 - a0).toFixed(3), (Math.abs(a1 - a0) > 0.05 ? 'VISIBLE' : 'TOO SMALL'));
 ```
 
-Self-check: after `scene_views(times=[0, 1.5])`, look at the two sheets side by side.  If
-you cannot point at what changed, the amplitude is too small — double it.
+Self-check: after `scene_views(times=[0, 1.5])` compare the two sheets.  If you cannot
+point at what changed, double the amplitude.
 
 ## Scene layering: foreground, midground, background
 
-A "diorama on an empty plane" scores ~0.5 whatever else you do.  Every authored camera
-must have **three depth layers**, and you build them on purpose:
+A "diorama on an empty plane" scores ~0.5 whatever else you do.  Every authored camera needs
+**three depth layers**, built on purpose:
 
 | layer | distance from camera | what lives there | how much of the frame |
 |---|---|---|---|
@@ -793,9 +800,8 @@ Skipped instances are not deleted — write a zero-scale matrix (`m.makeScale(0,
 the instance count and every index stay stable.
 
 **Atmospheric perspective** does the rest: with fog matching the sky, a background object
-loses contrast and saturation with distance for free.  Push it further by tinting distant
-materials 40–70 % toward the fog colour (`base.clone().lerp(fogColor, 0.5)`), as the
-horizon ring does.
+loses contrast and saturation with distance for free — do not hand-tint on top of it (see
+the horizon chapter); darken the distant material instead.
 
 ## Cameras: measured, never guessed
 
@@ -824,23 +830,11 @@ establishing → mid → detail.  Compute positions from measured bounds/heightA
 
 ## Post-processing (optional; the default pipeline renders WITHOUT it)
 
-Imports: `EffectComposer`, `RenderPass`, `UnrealBloomPass`, `OutputPass` from
-`three/addons/postprocessing/*.js`.
-
-```js
-// Export from scene.js ONLY if the plan asks for bloom; harness support is optional, so
-// the scene must also look right without it (emissiveIntensity ≤ 3, no white-out).
-function makeComposer(THREE, renderer, scene, camera, width, height) {
-  const composer = new EffectComposer(renderer);
-  composer.setSize(width, height);
-  composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.35, 0.6, 0.85);
-  composer.addPass(bloom);                        // strength ≤ 0.5, threshold ≥ 0.8: glow, not soup
-  composer.addPass(new OutputPass());             // ALWAYS last: tone mapping + sRGB live here
-  return composer;
-}
-console.log('composer factory ready', typeof makeComposer);
-```
+Only if the plan asks for bloom, and the scene must still read without it
+(`emissiveIntensity` ≤ 3, no white-out).  Build an `EffectComposer` from
+`three/addons/postprocessing/*`: `RenderPass` → `UnrealBloomPass(new THREE.Vector2(w, h),
+0.35, 0.6, 0.85)` (strength ≤ 0.5, threshold ≥ 0.8 — glow, not soup) → `OutputPass` **last**
+(tone mapping + sRGB live there), and export it from `scene.js` alongside the scene.
 
 ## Performance budget
 
@@ -888,9 +882,9 @@ console.log('composer factory ready', typeof makeComposer);
     "Motion you can SEE".
 16. **A tree 1 m in front of the establishing camera** → the scatter loop had no camera
     mask; see `cameraMask` in "Scene layering".
-17. **Distant hills look like bright orange spikes, not haze** → the silhouette ring sits
-    far inside `fog.far` (so fog never touches it) or its `hazeMix` is < 0.6.  Ring radius
-    ≈ 0.6 × fog far; fog far itself must be scaled to the bounds diagonal.
+17. **The backdrop reads as pale cardboard** → hand-lerped toward a light fog colour
+    (double haze → brighter than the ground) and/or built from flat planes.  Darken the
+    base colour, let `scene.fog` haze it, use solid geometry.
 18. **Jagged / stair-stepped shadows** → shadow texel = `2 × shadowSpan / mapSize`; keep it
     ≤ 0.05 m.  A 60 m span needs 3072², a 100 m span needs 4096² — or shrink the span to
     the bounds instead of the whole terrain.
@@ -898,6 +892,12 @@ console.log('composer factory ready', typeof makeComposer);
     (HemisphereLight sky colour) must be ≥ 60° of hue away from the sun colour.
 20. **The scene is a diorama on a plane** → no foreground layer and no background layer.
     Three depth layers per authored camera, always ("Scene layering").
+21. **A pond / terrace / lawn is a hard-edged disc or square lying ON the ground** → carve
+    it into `heightAt` (a radial depression for water, a shallow shelf for a terrace) and
+    ring the seam with a kerb + dressing; a plane laid on top always shows its outline.
+22. **`camera is N m below ground level`** → the plan's camera heights are absolute
+    (metres above y = 0) but the terrain lifted the floor.  Keep `heightAt` within about
+    ±1.5 m of 0 inside the bounds, or add `heightAt(x, z)` to the camera's y in scene.js.
 
 ## Self-check (before you call it done)
 

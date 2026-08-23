@@ -56,6 +56,9 @@ timid: double the amplitude / the count / the contrast this time.
 |---|---|
 | flat / one-colour ground, no paths, hard raised-bed edges | `"Ground that reads real"` — vertex-colour blend, carve the path into `heightAt`, dress the seams |
 | a hard world edge against the sky, missing horizon | `"Horizon: the world must not end"` — ground ≥ 2.4 × fog far, fog = sky horizon colour, silhouette ring at 0.6 × fog far |
+| the backdrop looks like flat / beige / untextured cut-outs | same chapter, rules 4-5 — solid geometry, darken the base colour, never lerp it toward the fog colour |
+| a pond / terrace is a hard-edged plane sitting on the ground | carve it into `heightAt` in `src/env.js` and dress the seam (`"Ground that reads real"`) |
+| "camera is N m below ground level" | the terrain lifted the floor: flatten `heightAt` toward y = 0 inside the bounds, or add `heightAt(x, z)` to that camera's y in `src/scene.js` |
 | identical cones / stacked blocks / primitive repetition | `"Vegetation that reads real"`, `"Rocks, cliffs and boulders that read organic"` — 3+ silhouettes, clustered, scale/hue jitter, no axis-aligned stacks |
 | sparse, token, "a diorama on a plane", empty midground | `"Set dressing"` + `"Scene layering"` — hit the per-zone prop counts, add a foreground element 2-4 m from each camera |
 | flat / dark / monochrome light, black shade, jagged shadows | `"Atmosphere: time-of-day triads with numbers"` — warm key vs cool fill ≥ 60° apart, shadow texel ≤ 0.05 m |

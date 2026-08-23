@@ -38,10 +38,10 @@ def _send(model, text: str):
 def test_cache_friendly_ordering_is_measurably_cheaper(arm: str):
     """A ≥12k-token stable prefix must cache when it comes FIRST and must not
     when the volatile block precedes it (measured 2026-08-23: 69% vs 0%)."""
+    import uuid
+
     from codeverse.config import get_settings
     from codeverse.models.gemini import GeminiModel
-
-    import uuid
 
     keys = list(get_settings().gemini_api_keys)
     if not keys:

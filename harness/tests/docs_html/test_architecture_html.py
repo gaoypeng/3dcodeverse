@@ -27,7 +27,7 @@ PAGE = DOCS / "architecture.html"
 MAX_BYTES = 8 * 1024 * 1024
 
 #: HTML void elements — never on the open-tag stack.
-VOID = frozenset("area base br col embed hr img input link meta param source track wbr".split())
+VOID = frozenset(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"])
 #: elements whose content is not markup (html.parser already treats these as CDATA)
 RAW_TEXT = frozenset({"script", "style"})
 #: mime types we allow inside a data: URI on this page

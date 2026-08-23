@@ -35,7 +35,7 @@ mesh = ["shapely>=2.0", "networkx>=3.2", "manifold3d>=2.3"]  # cross_section are
 mcp = ["mcp>=1.0"]                                        # `3dcv mcp` spatial-tool server for the agentic CLIs
 flywheel = ["pyarrow>=15"]                                # `3dcv flywheel export --pack` (parquet)
 all = ["3dcodeverse[cad,urdf,graphics,mesh,mcp,flywheel]"]
-dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.5"]
+dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.5", "pyarrow>=15"]
 
 [project.scripts]
 3dcv = "codeverse.cli.main:app"
