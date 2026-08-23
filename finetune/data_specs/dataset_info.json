@@ -346,5 +346,27 @@
       "messages": "conversations",
       "system": "system"
     }
+  },
+  "dpo_md_xl_pairs": {
+    "file_name": "dpo_md_xl_pairs.json",
+    "ranking": true,
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system",
+      "chosen": "chosen",
+      "rejected": "rejected"
+    }
+  },
+  "dpo_geo_pairs": {
+    "file_name": "dpo_geo_pairs.json",
+    "ranking": true,
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system",
+      "chosen": "chosen",
+      "rejected": "rejected"
+    }
   }
 }
