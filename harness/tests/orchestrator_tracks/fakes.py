@@ -67,6 +67,17 @@ class FakeRuntime:
                 out.append(f)
             (ws.src / "zones").mkdir(exist_ok=True)
             (ws.src / "assets").mkdir(exist_ok=True)
+            # like the real skeleton: a stub per planned zone/asset, so a stage that dies
+            # halfway still leaves a buildable workspace
+            for z in getattr(plan, "zones", []) or []:
+                f = ws.src / "zones" / f"{to_snake(z.name)}.js"
+                f.write_text(f"// skeleton zone {z.name}\nexport function build{z.name}(ctx) {{ return null; }}\n")
+                out.append(f)
+            for a in getattr(plan, "assets", []) or []:
+                if a.kind == "threejs":
+                    f = ws.src / "assets" / f"{to_snake(a.name)}.js"
+                    f.write_text(f"// skeleton asset {a.name}\nexport function build{a.name}(THREE) {{ return null; }}\n")
+                    out.append(f)
         else:
             f = ws.src / "model.py"
             f.write_text("# skeleton model.py\nimport bpy\n")

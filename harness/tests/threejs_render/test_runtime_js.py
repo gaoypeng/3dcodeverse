@@ -35,6 +35,41 @@ def test_export_cli_writes_census_and_error_json(stool_ws: Workspace, tmp_path: 
     assert (stool_ws.artifacts / "export_error.json").is_file()
 
 
+def test_render_glb_driver_protocol_and_shared_plumbing(tmp_path: Path):
+    """render_glb.mjs is a thin entry: shared arg parsing / JSON-last-line
+    protocol (lib/cli.mjs), shared browser + static server (lib/host_env.mjs),
+    shared release dance (lib/host_page.mjs) — and it still reports a failure as
+    exit 1 with `{ok: false, error}` as the LAST stdout line."""
+    rt = runtime_js_dir()
+    src = (rt / "render_glb.mjs").read_text()
+    assert "from './lib/cli.mjs'" in src and "from './lib/host_env.mjs'" in src
+    assert "releaseBrowser" in src
+    assert "createRequire" not in src and "parseArgs" not in src   # no second copy of either
+    with pytest.raises(NodeError) as ei:
+        run_node(rt / "render_glb.mjs",
+                 ["--glb", str(tmp_path / "missing.glb"), "--out", str(tmp_path / "out"),
+                  "--views", json.dumps([{"name": "front", "azimuth": 0.0, "elevation": 8.0}])],
+                 timeout_s=60)
+    rec = ei.value.result.last_json
+    assert ei.value.result.rc == 1 and rec["ok"] is False and "GLB not found" in rec["error"]
+    with pytest.raises(NodeError) as ei:
+        run_node(rt / "render_glb.mjs", ["--glb", "x.glb", "--out", "o", "--views", "[]"], timeout_s=60)
+    assert "non-empty JSON list" in ei.value.result.last_json["error"]
+
+
+def test_one_webgl_renderer_factory():
+    """Object rig and scene host share `lib/browser/renderer.js`: one place sets
+    the colour pipeline (sRGB + ACES + PCF shadows, pixel ratio 1), so an object
+    render and a scene render cannot drift apart."""
+    rt = runtime_js_dir()
+    sources = sorted(rt.glob("*.mjs")) + sorted(rt.glob("*.cjs")) + sorted((rt / "lib").rglob("*.mjs")) \
+        + sorted((rt / "lib").rglob("*.js"))
+    owners = [p for p in sources if "new THREE.WebGLRenderer(" in p.read_text()]
+    assert [p.name for p in owners] == ["renderer.js"], owners
+    assert "from './renderer.js'" in (rt / "lib/browser/studio.js").read_text()
+    assert "from './browser/renderer.js'" in (rt / "lib/scene_host.mjs").read_text()
+
+
 def test_serve_and_importmap(tmp_path: Path):
     script = tmp_path / "s.cjs"
     root = tmp_path / "root"

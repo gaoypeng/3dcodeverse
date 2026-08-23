@@ -25,8 +25,9 @@ from codeverse.config import get_settings
 from codeverse.contracts.artifacts import RenderSet, RenderView
 from codeverse.contracts.plan import BBox, CameraPlan
 from codeverse.conventions import SCENE_VIEWS, ViewPreset
-from codeverse.spatial.node import NodeError, run_node
-from codeverse.spatial.sheet import contact_sheet
+from codeverse.spatial._render_common import build_sheet, out_directory, view_specs
+from codeverse.spatial._render_common import read_json as _read_json
+from codeverse.spatial.node import NodeError, run_node, runtime_js_dir
 from codeverse.workspace import Workspace
 
 #: views the judge sees (contact sheet + individual images are built from these)
@@ -46,10 +47,6 @@ class NodeResult:
     stderr: str
     summary: dict[str, Any]
     duration_ms: int
-
-
-def runtime_js_dir() -> Path:
-    return get_settings().runtime_js_dir()
 
 
 def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd: Path | None = None) -> NodeResult:
@@ -88,7 +85,7 @@ def _camera_json(cams: Sequence[CameraPlan]) -> str:
 
 
 def _views_json(views: Sequence[ViewPreset]) -> str:
-    return json.dumps([{"name": v.name, "azimuth": v.azimuth_deg, "elevation": v.elevation_deg} for v in views])
+    return json.dumps(view_specs(views))
 
 
 def _bounds_json(bounds: BBox) -> str:
@@ -105,13 +102,6 @@ def plan_bounds(ws: Workspace) -> BBox | None:
         return BBox.model_validate(raw) if raw else None
     except (OSError, ValueError):
         return None
-
-
-def _contact_sheet(images: list[tuple[str, Path]], out: Path, cols: int, tile: int) -> Path | None:
-    """``sheet.contact_sheet`` with an empty-list guard (it raises on no images)."""
-    if not images:
-        return None
-    return Path(contact_sheet(images, out, cols=cols, tile=tile))
 
 
 def render_scene(
@@ -141,10 +131,8 @@ def render_scene(
     say why (the build gate normally catches that earlier); a driver failure
     raises ``SceneRenderError``.
     """
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for stale in ("metrics.json", "views.json"):
-        (out_dir / stale).unlink(missing_ok=True)   # never read a previous run's instruments
+    # never read a previous run's instruments
+    out_dir = out_directory(out_dir, clean=("metrics.json", "views.json"))
     settings = get_settings()
     args: list[str] = [
         "--ws", str(ws.root), "--out", str(out_dir),
@@ -201,8 +189,7 @@ def render_scene(
     _mark_judge_views(out_dir / "views.json", rs.views)
     if sheet and views:
         labelled = [(f"{v.name} t={v.time_s:g}", Path(v.path)) for v in rs.views if v.judge]
-        sheet_path = _contact_sheet(labelled, out_dir / "sheet.png", settings.render.sheet_cols, settings.render.sheet_tile)
-        rs.contact_sheet = str(sheet_path) if sheet_path else None
+        rs.contact_sheet = build_sheet(labelled, out_dir / "sheet.png")
     return rs
 
 
@@ -243,12 +230,6 @@ def _mark_judge_views(views_json: Path, views: Sequence[RenderView]) -> None:
     for e in entries:
         e["judge"] = flags.get((e.get("name"), e.get("time_s")), False)
     views_json.write_text(json.dumps(entries, indent=1))
-
-
-def _read_json(p: Path) -> dict[str, Any]:
-    if not p.is_file():
-        return {}
-    return json.loads(p.read_text())
 
 
 def read_metrics(out_dir: Path) -> dict[str, Any]:

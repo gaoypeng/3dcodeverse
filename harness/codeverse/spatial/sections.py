@@ -20,7 +20,7 @@ import numpy as np
 import trimesh
 from PIL import Image, ImageDraw
 
-from codeverse.spatial.measure import GlbLoadError, cached_parts, merged_mesh
+from codeverse.spatial.measure import GlbLoadError, merged_mesh, solid_parts
 from codeverse.spatial.registry import Observation
 from codeverse.spatial.sheet import load_font
 
@@ -180,7 +180,7 @@ def _resolve_at(parts: dict[str, trimesh.Trimesh], axis: str, at: float, absolut
 
 
 def _load_parts(glb: Path | str, parts: Sequence[str] | None) -> dict[str, trimesh.Trimesh]:
-    all_parts = {k: v for k, v in cached_parts(glb).items() if v is not None and len(v.faces)}
+    all_parts = solid_parts(glb)
     if parts:
         sel = {k: v for k, v in all_parts.items() if k in set(parts)}
         missing = [p for p in parts if p not in all_parts]

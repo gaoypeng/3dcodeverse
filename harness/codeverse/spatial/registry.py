@@ -9,6 +9,9 @@ Usage::
     def measure(ctx: ToolContext, args: MeasureArgs) -> Observation: ...
 
 ``ToolContext`` carries the workspace and settings; tools never touch globals.
+``ToolDef.call`` is the one error boundary: ``ToolUsageError`` becomes a usage
+Observation, ``ToolUnavailable`` (a missing sibling package) an "unavailable"
+one, anything else a failed Observation — a tool body never needs try/except.
 Observations: ``text`` (what the agent reads), ``numbers`` (machine-readable),
 ``images`` (paths, small PNGs the agent may view), ``ok``.
 """
@@ -36,6 +39,15 @@ class Observation(BaseModel):
     @classmethod
     def error(cls, text: str, **numbers: Any) -> Observation:
         return cls(ok=False, text=text, numbers=numbers)
+
+
+class ToolUnavailable(RuntimeError):
+    """A sibling package a tool depends on is not importable / not built yet.
+
+    Raised by ``tool_common.lazy`` (and anything built on it) and turned into a
+    ``tool <name> unavailable: ...`` Observation by :meth:`ToolDef.call` — tools
+    never have to catch it themselves.
+    """
 
 
 class ToolUsageError(ValueError):
@@ -102,6 +114,8 @@ class ToolDef:
             obs = self.fn(ctx, args)
         except ToolUsageError as e:
             obs = Observation.error(f"{self.name}: {e}" + (f"\nExample: {e.fix_example}" if e.fix_example else ""))
+        except ToolUnavailable as e:  # a sibling package is missing → degrade, never crash
+            obs = Observation.error(f"tool {self.name} unavailable: {type(e).__name__}: {e}")
         except Exception as e:  # never crash the agent loop
             obs = Observation.error(f"{self.name} failed: {type(e).__name__}: {e}")
         obs.duration_ms = int((time.time() - t0) * 1000)

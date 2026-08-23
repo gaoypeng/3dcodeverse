@@ -18,6 +18,17 @@ extra_instructions: >
   A scene a person would screenshot belongs at 0.8+; a recognisable place with one
   dead zone / flat lighting / floating asset sits near 0.5; an unlit, empty or
   unreadable scene sits at 0.1-0.3.
+  Craft on this track is mostly about five things, so look for each of them explicitly
+  before scoring: (1) the GROUND — is it several blended materials with paths, wear and
+  dressed edges, or one flat colour with a hard bbox line; (2) VEGETATION / repeated
+  natural elements — several silhouettes with size and hue variation in clusters, or one
+  shape stamped in a ring; (3) DEPTH — is there something in the near foreground framing
+  the shot, a subject in the midground and a horizon above, or is it a small diorama alone
+  on a big empty plane; (4) DRESSING — the small props (pebbles, leaves, tools, cups,
+  cables, litter) that make a place look used; (5) ATMOSPHERE — fog/haze giving aerial
+  perspective, coloured (sky-lit) shade, and a key light whose hue differs from the fill.
+  A scene can be entirely correct against the brief and still sit at 0.5 because it fails
+  all five; say so in the issues rather than inventing a fidelity complaint.
 
 criteria:
   - id: brief_fidelity
@@ -43,9 +54,10 @@ criteria:
       foreground/midground/background, horizon placed deliberately, nothing clipped by
       the near plane, no camera inside geometry, no shot that shows only sky or ground?
     anchors:
-      "1.0": Every authored camera is a composed shot with depth layering and a clear subject.
-      "0.7": Shots are readable; one is a bit flat or off-centre.
-      "0.4": One authored camera shows nothing useful (sky, ground, the inside of a wall) or is badly clipped.
+      "1.0": Every authored camera is a composed shot — a foreground element within a few metres frames the edge, the subject fills the middle distance, a horizon band sits above, and the subject is what the camera is aimed at.
+      "0.7": Shots are readable and aimed at the subject, but one layer is missing (no foreground, or a bare horizon) or one shot is flat / off-centre.
+      "0.5": The scene reads as a diorama photographed from outside — subject centred on a large empty plane, no foreground, nothing on the horizon.
+      "0.4": One authored camera shows nothing useful (sky, ground, the inside of a wall), or the establishing shot is aimed at the bounds centre rather than the subject, or a shot is badly clipped.
       "0.1": Most shots are unusable or the camera is inside geometry.
 
   - id: lighting_atmosphere
@@ -58,9 +70,10 @@ criteria:
       depth, exposure neither blown nor crushed, coloured (sky-lit) shade rather than
       black?
     anchors:
-      "1.0": Clear mood executed consistently; shadows, sky, fog and exposure all agree; shade carries sky colour.
-      "0.7": Good lighting with one weakness (slightly flat shadows or slightly heavy fog).
-      "0.4": Flat shadowless light, or noticeably under/over-exposed, or sky contradicting the light.
+      "1.0": Clear mood executed consistently; warm key against a cooler fill (or the reverse); soft accurate shadows with smooth edges; fog/haze gives visible aerial perspective with distance; shade carries sky colour.
+      "0.7": Good lighting with one weakness (slightly flat shadows, slightly heavy fog, or a horizon with no atmospheric falloff).
+      "0.5": Lit but airless — no haze or depth cue, key and fill share one hue so the frame is monochrome, or shadow edges are visibly stair-stepped.
+      "0.4": Flat shadowless light, or noticeably under/over-exposed, or sky contradicting the light, or black (unfilled) shadows.
       "0.1": Near-black, blown white, or unlit.
 
   - id: asset_quality_detail
@@ -71,9 +84,10 @@ criteria:
       roofs/windows/setbacks, trees with trunk and canopy, vehicles and street
       furniture where the place calls for them — without copy-paste monotony?
     anchors:
-      "1.0": Assets are crafted and varied; closeups hold up.
-      "0.7": Assets are decent with some repetition or a few plain ones.
-      "0.4": Mostly plain boxes / cones, or one shape stamped everywhere.
+      "1.0": Assets are crafted and varied — several silhouettes per family, per-instance size and hue variation, wear and small props everywhere; closeups hold up.
+      "0.7": Assets are decent with some repetition, a few plain ones, or thin set dressing.
+      "0.5": Hero assets are fine but everything around them is one repeated primitive and the place is undressed — no small props, no litter, no ground cover.
+      "0.4": Mostly plain boxes / cones, or one shape stamped everywhere, or a solid object faked as a flat coloured plane.
       "0.1": Primitive blobs or an empty world.
 
   - id: spatial_coherence_scale
@@ -159,6 +173,21 @@ defects:
   - id: world_edge_visible
     text: A hard world edge / terrain cliff / missing horizon is visible from an authored camera.
     penalty: 0.04
+  - id: flat_ground
+    text: The ground is one flat untextured colour — no material blending, no paths or worn areas, and where objects meet it the seam is a hard undressed line.
+    penalty: 0.04
+  - id: monotonous_vegetation
+    text: A repeated natural element (trees, rocks, plants, crowd) is one shape stamped many times — no variation in silhouette, size or hue, and placed in a ring or a grid rather than clusters.
+    penalty: 0.04
+  - id: empty_midground
+    text: An authored camera has no depth layering — nothing in the near foreground and/or nothing on the horizon, so the subject sits alone on a large empty plane.
+    penalty: 0.04
+  - id: undressed_scene
+    text: The place has no small props or clutter (pebbles, leaves, tools, cups, cables, litter, ground cover) — it looks like a showroom of a few large objects.
+    penalty: 0.03
+  - id: thin_atmosphere
+    text: No visible aerial perspective — distant things are as saturated and contrasty as near things, there is no haze/fog falloff, and the key and fill light share one hue.
+    penalty: 0.03
 
 caps:
   - id: build_error

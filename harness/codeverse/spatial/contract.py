@@ -35,6 +35,7 @@ from codeverse.contracts.artifacts import (
 )
 from codeverse.contracts.plan import BBox, PartPlan, Plan, ScenePlan, StaticPlan
 from codeverse.conventions import BBOX_TOLERANCE_M, LANGUAGE_FRAME, Frame, to_snake
+from codeverse.spatial.measure import fmt_extent_cm, fmt_vec
 
 GATE = "contract"
 #: relative tolerance on extents (fraction of the plan's extent)
@@ -118,12 +119,9 @@ def _fmt_delta(v: np.ndarray) -> str:
     return ", ".join(f"{a}{d * 100:+.1f}cm" for a, d in zip(_AXES, v, strict=True))
 
 
-def _fmt_ext(v) -> str:
-    return "×".join(f"{float(x) * 100:.1f}" for x in v)
-
-
-def _fmt_vec(v) -> str:
-    return "(" + ", ".join(f"{round(float(x), 3) + 0.0:+.3f}" for x in v) + ")"  # + 0.0: no '-0.000'
+#: shared formatters (``spatial.measure``): sizes in cm, translation vectors in m
+_fmt_ext = fmt_extent_cm
+_fmt_vec = fmt_vec
 
 
 def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, language: str,

@@ -19,6 +19,7 @@ from codeverse import __version__
 from codeverse.cli import _common as C
 from codeverse.cli._fmt import console, err_console, kv_table, ok, print_record_summary, warn
 from codeverse.cli.bench_cmd import bench_app
+from codeverse.cli.cost_cmd import cost_app
 from codeverse.cli.doctor import doctor_app
 from codeverse.cli.flywheel_cmd import flywheel_app
 from codeverse.cli.texture_cmd import texture_app
@@ -31,6 +32,7 @@ app = typer.Typer(name="3dcv", help="3dcodeverse: LLMs write raw 3D code; the ha
                   pretty_exceptions_enable=False)
 app.add_typer(flywheel_app, name="flywheel", help="Dataset export / pairs / captions / index.")
 app.add_typer(bench_app, name="bench", help="Prompt batteries: run + report.")
+app.add_typer(cost_app, name="cost", help="Cost audit: per stage/role/model, waste, $ per passing artifact.")
 app.add_typer(doctor_app, name="doctor", help="Environment checks.")
 app.add_typer(texture_app, name="texture", help="Text-to-image texturing: object pass / scene pack.")
 app.command("tools", help="List spatial tools or run one: `3dcv tools list` | `3dcv tools <name> --json '{...}' --workspace ws`.")(tools)
@@ -182,6 +184,7 @@ def status(slug: str, runs_dir: RunsDirOpt = None, events: Annotated[int, typer.
             "shipped": t.get("shipped"), "delta": t.get("delta"), "reason": t.get("reason", ""),
             "textures": t.get("n_textures", len(t.get("textures", {}) or {})),
             "glb": t.get("glb_textured", "") or "-"}))
+    console.print(f"[dim]`3dcv show {ws.root.name}` for the DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS view[/dim]")
     evs = EventLog(ws.events_path).read()
     if evs:
         console.print(f"[dim]last {min(events, len(evs))} of {len(evs)} events:[/dim]")
@@ -332,6 +335,15 @@ def mcp(workspace: Annotated[Path, typer.Option("--workspace")]) -> None:
     if not workspace.is_dir():
         raise C.CliError(f"workspace not found: {workspace}")
     os.execvp(sys.executable, [sys.executable, "-m", "codeverse.spatial.mcp_server", "--workspace", str(workspace)])
+
+
+# --------------------------------------------------------------------------- run layout (show / migrate)
+# appended registration — see codeverse/cli/layout_cmd.py
+from codeverse.cli.layout_cmd import migrate_runs_cmd as _migrate_runs_cmd  # noqa: E402
+from codeverse.cli.layout_cmd import show as _show  # noqa: E402
+
+app.command("show", help="One run in three sections: DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS.")(_show)
+app.command("migrate-runs", help="Reorganise existing runs onto deliverable/ + evidence/ + telemetry/ (idempotent).")(_migrate_runs_cmd)
 
 
 if __name__ == "__main__":  # pragma: no cover

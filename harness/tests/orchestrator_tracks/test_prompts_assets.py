@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import ArticulatedPlan, ScenePlan
 from codeverse.events import EventLog
@@ -19,6 +21,24 @@ from tests.orchestrator_tracks.fakes import FakeAgent, FakeJudge, FakeRuntime, F
 
 TEMPLATES = {"plan_static", "plan_articulated", "plan_scene", "generate_static", "generate_articulated", "refine_object", "repair",
              "scene_asset", "scene_env", "scene_zone", "scene_compose", "scene_refine"}
+
+
+def _asset_module(job) -> str:
+    """A three.js asset module that passes the deterministic asset check (js), else a stub."""
+    rel = job.prompt.split("write `")[1].split("`")[0] if "write `" in job.prompt else ""
+    if not rel.endswith(".js"):
+        return f"# {job.label}\n"
+    pascal = "".join(w.capitalize() for w in rel.rsplit("/", 1)[-1][:-3].split("_"))
+    m = re.search(r"meters\): ([\d.]+) × ([\d.]+) × ([\d.]+)", job.prompt)
+    w, h, d = (float(x) for x in m.groups()) if m else (1.0, 1.0, 1.0)
+    return (f"// {job.label}\nimport * as THREE from 'three';\n"
+            f"export function build{pascal}(T = THREE, opts = {{}}) {{\n"
+            "  const g = new T.Group();\n"
+            f"  const body = new T.Mesh(new T.BoxGeometry({w}, {h * 0.8}, {d}), new T.MeshStandardMaterial({{ color: 0x886644 }}));\n"
+            f"  body.position.y = {h * 0.4};\n  g.add(body);\n"
+            f"  const top = new T.Mesh(new T.SphereGeometry({min(w, d) * 0.2}, 12, 8), new T.MeshStandardMaterial({{ color: 0x224466 }}));\n"
+            f"  top.position.y = {h * 0.8};\n  g.add(top);\n"
+            "  return g;\n}\n")
 
 
 def _ctx(tmp_ws, settings, spec, plan, *, agent_id="single-shot:gemini:x", services=None, agent=None) -> RunContext:
@@ -57,7 +77,7 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS)
     judge = FakeJudge(scores=(0.5, 0.9))
     services = FakeServices(judge=judge)
-    agent = FakeAgent(lambda job, ws: {job.prompt.split("write `")[1].split("`")[0] if "write `" in job.prompt else "src/x.js": f"// {job.label}\n"})
+    agent = FakeAgent(lambda job, ws: {job.prompt.split("write `")[1].split("`")[0] if "write `" in job.prompt else "src/x.js": _asset_module(job)})
     ctx = _ctx(tmp_ws, settings, spec, plan, agent_id="fake:x", services=services, agent=agent)
     ctx.runtime.skeleton(tmp_ws, plan)
     tmp_ws.commit("skeleton")

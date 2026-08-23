@@ -11,7 +11,6 @@ and every tool is cheap to call repeatedly.
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -26,18 +25,18 @@ from codeverse.spatial.observe import (
     rel_path,
     sanitize_text,
     tail_lines,
-    truncate,
+    text_observation,
 )
 from codeverse.spatial.registry import Observation, ToolContext, ToolUsageError, tool
 from codeverse.spatial.sections import cross_section as _cross_section
 from codeverse.spatial.tool_common import (
-    ToolUnavailable,
     call_adaptive,
+    gl_metrics_summary,
     glb_path,
     language_of,
     lazy,
     load_plan,
-    unavailable_obs,
+    tool_out_dir,
 )
 
 _STDERR_TAIL_LINES = 30
@@ -86,25 +85,8 @@ def _no_glb_summary(ctx: ToolContext, br: BuildResult, language: str) -> tuple[b
     ws = ctx.workspace
     census = dict(br.census) if isinstance(br.census, dict) else {}
     if language in _GL_LANGS:
-        lines, numbers = [], {}
-        try:
-            read_metrics = lazy("codeverse.languages.glsl_shader.gl_build", "read_metrics")
-            m = read_metrics(ws)
-        except ToolUnavailable:
-            m = None
-        if m is not None:
-            stats, gate = m
-            lines.extend(stats.summary_lines())
-            for f in gate.findings:
-                if f.severity == Severity.INFO:
-                    continue
-                lines.append(f"- {f.severity.value.upper()} [{f.data.get('kind', '')}] {sanitize_text(f.message, ws.root)}")
-            numbers.update({"n_frames": len(stats.frames), "static": stats.static, "any_nan": stats.any_nan,
-                            "gate_errors": len(gate.errors)})
-            ok = not gate.errors
-        else:
-            lines.append("(no frame metrics)")
-            ok = True
+        # same frame-stats formatter the gl_probe / gl_frames tools use
+        lines, numbers, ok = gl_metrics_summary(ws, hints=False, root=ws.root)
         for key in ("frames", "sheet", "gif"):
             p = br.extra_paths.get(key)
             if p:
@@ -122,14 +104,10 @@ def _no_glb_summary(ctx: ToolContext, br: BuildResult, language: str) -> tuple[b
 
 @tool("build", NoArgs, "Lint + build the code in src/ with the language runtime, export artifacts/object.glb and measure it. Call after every edit.", cost_hint="slow")
 def build(ctx: ToolContext, args: NoArgs) -> Observation:
+    # ToolDef.call stamps Observation.duration_ms for every tool — no timing here
     ws = ctx.workspace
-    t0 = time.time()
-    try:
-        language = language_of(ctx)
-        get_runtime = lazy("codeverse.languages", "get_runtime")
-        rt = get_runtime(language)
-    except ToolUnavailable as e:
-        return unavailable_obs("build", e)
+    language = language_of(ctx)
+    rt = lazy("codeverse.languages", "get_runtime")(language)
     lint: GateReport = rt.lint(ws)
     lint_errors = _lint_lines(lint, ws.root, errors_only=True)
     lint_warns = _lint_lines(lint, ws.root, errors_only=False)
@@ -137,8 +115,7 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
         text = "LINT FAILED — fix these before building:\n" + "\n".join(lint_errors)
         if lint_warns:
             text += "\nwarnings:\n" + "\n".join(lint_warns[:10])
-        return Observation(ok=False, text=truncate(text), numbers={"stage": "lint", "lint_errors": len(lint_errors)},
-                           duration_ms=int((time.time() - t0) * 1000))
+        return text_observation(text, ok=False, numbers={"stage": "lint", "lint_errors": len(lint_errors)})
     br: BuildResult = call_adaptive(rt.build, ws, timeout_s=get_settings().limits.build_timeout_s)
     ws.write_json(ws.artifacts / "build_last.json", br)
     numbers: dict[str, Any] = {"stage": "build", "ok": br.ok, "duration_ms": br.duration_ms}
@@ -151,8 +128,7 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
         if lint_warns:
             lines.append("lint hints:\n" + "\n".join(lint_warns[:10]))
         numbers.update({"error_type": br.error_type, "error_file": rel_path(br.error_file, ws.root), "error_line": br.error_line})
-        return Observation(ok=False, text=truncate("\n".join(lines), 3000), numbers=numbers,
-                           duration_ms=int((time.time() - t0) * 1000))
+        return text_observation(lines, ok=False, numbers=numbers, limit=3000)
     if not br.glb_path and language in _SCENE_LANGS + _GL_LANGS:
         # languages without a GLB deliverable: report the language's own artifacts
         ok, extra_lines, extra_numbers = _no_glb_summary(ctx, br, language)
@@ -177,8 +153,7 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     census_warn = br.census.get("warnings") if isinstance(br.census, dict) else None
     if census_warn:
         lines.append("build warnings:\n" + "\n".join(f"- {sanitize_text(str(w), ws.root)}" for w in list(census_warn)[:10]))
-    return Observation(ok=ok, text=truncate("\n".join(lines), 3000), numbers=numbers,
-                       duration_ms=int((time.time() - t0) * 1000))
+    return text_observation(lines, ok=ok, numbers=numbers, limit=3000)
 
 
 # --------------------------------------------------------------------------- measure
@@ -204,7 +179,7 @@ def measure(ctx: ToolContext, args: MeasureArgs) -> Observation:
                "n_islands": m.n_islands, "ground_gap_m": m.ground_gap_m, "footprint_offset_m": m.footprint_offset_m,
                "parts": {p.name: {"min": list(p.bbox_min), "max": list(p.bbox_max), "tris": p.tri_count,
                                   "islands": p.islands, "watertight": p.watertight} for p in m.parts[:40]}}
-    return Observation(ok=True, text=truncate(measure_summary_table(m)), numbers=numbers)
+    return text_observation(measure_summary_table(m), numbers=numbers)
 
 
 # --------------------------------------------------------------------------- gates
@@ -245,8 +220,7 @@ def cross_section(ctx: ToolContext, args: CrossSectionArgs) -> Observation:
         raise ToolUsageError(f"axis must be x|y|z, got {args.axis!r}", "cross_section(axis='y', at=0.5)")
     if not 0.0 <= args.at <= 1.0:
         raise ToolUsageError("at must be a bbox fraction in 0..1", "cross_section(axis='y', at=0.25)")
-    out_dir = ctx.workspace.artifacts / "tool_renders" / f"r{ctx.round_index:02d}_sections"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = tool_out_dir(ctx, "sections")
     tag = f"{axis}_{int(round(args.at * 100)):03d}" + (f"_{len(args.parts)}p" if args.parts else "")
     obs = _cross_section(glb, axis, args.at, out_dir / f"section_{tag}.png", parts=args.parts or None)
     return obs

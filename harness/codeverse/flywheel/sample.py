@@ -33,6 +33,7 @@ from codeverse.contracts.common import (
 from codeverse.contracts.run import RoundRecord, RunRecord
 from codeverse.flywheel import _git
 from codeverse.flywheel.dedupe import code_fingerprint
+from codeverse.flywheel.deliverable import deliverable_path
 from codeverse.flywheel.quality import QualityTier, prompt_hash, quality_tier
 from codeverse.flywheel.record import best_round_index, effective_judgment, round_summary
 from codeverse.workspace import Workspace
@@ -100,7 +101,7 @@ class SampleMeta(BaseModel):
     rounds_summary: list[dict[str, Any]] = Field(default_factory=list, description="compact per-round digest")
     stop_reason: str = ""
     code_commit: str = ""
-    code_source: str = Field(default="commit", description="commit | working_tree")
+    code_source: str = Field(default="commit", description="commit | deliverable | working_tree")
     code_fingerprint: str = Field(default="", description="sha256 of the normalised src/** tree")
     prompt_hash: str = ""
     status: str = ""
@@ -111,6 +112,9 @@ class SampleMeta(BaseModel):
     has_captions: bool = False
     captioner: str = ""
     prompt_hashes: dict[str, str] = Field(default_factory=dict)
+    telemetry: dict[str, Any] = Field(
+        default_factory=dict,
+        description="compact accounting digest from record.telemetry / telemetry/cost.json ({} when absent)")
 
 
 def sample_key(ws: Workspace) -> str:
@@ -135,11 +139,28 @@ def _resolve(ws: Workspace, p: str | None) -> Path | None:
 
 
 def code_files_for_round(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
-    """Raw code tree for a round → ``(files, source)`` where source is
-    ``commit`` or ``working_tree`` (fallback when the round has no usable commit)."""
+    """Raw code tree for a round → ``(files, source)`` where source is ``commit``,
+    ``deliverable`` (the packaged snapshot of the best round) or ``working_tree``."""
     if rnd is not None and rnd.commit and _git.commit_exists(ws, rnd.commit):
         return _git.read_tree_at(ws, rnd.commit), "commit"
+    packaged = _deliverable_code(ws)
+    if packaged:
+        return packaged, "deliverable"
     return _git.read_working_tree(ws), "working_tree"
+
+
+def _deliverable_code(ws: Workspace) -> dict[str, bytes]:
+    """``deliverable/src|public/**`` — the snapshot kept when git is unreadable
+    (a run copied without its .git, an archived deliverable)."""
+    files: dict[str, bytes] = {}
+    for root in _git.CODE_ROOTS:
+        base = ws.deliverable / root
+        if not base.is_dir():
+            continue
+        for p in sorted(base.rglob("*")):
+            if p.is_file():
+                files[p.relative_to(ws.deliverable).as_posix()] = p.read_bytes()
+    return files
 
 
 def write_code_tree(dest: Path, files: dict[str, bytes], language: Language) -> tuple[str, list[str]]:
@@ -192,11 +213,14 @@ def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str
         tt = _resolve(ws, rnd.renders.turntable)
         if tt is not None:
             _cp(tt, f"turntable{tt.suffix or '.mp4'}")
-    glb = ws.artifacts / "object.glb"
-    if glb.is_file() and glb.stat().st_size < MAX_GLB_BYTES:
+    if not any(o.startswith("renders/sheet") for o in out):
+        packaged = ws.deliverable / "sheet.png"  # new layout keeps the best sheet here
+        _cp(packaged if packaged.is_file() else None, "sheet.png")
+    glb = deliverable_path(ws, "object.glb")
+    if glb is not None and glb.stat().st_size < MAX_GLB_BYTES:
         _cp(glb, "object.glb")
-    gif = ws.artifacts / "preview.gif"  # graphics runs: animated loop preview
-    if gif.is_file() and gif.stat().st_size < MAX_GLB_BYTES:
+    gif = deliverable_path(ws, "preview.gif")  # graphics runs: animated loop preview
+    if gif is not None and gif.stat().st_size < MAX_GLB_BYTES:
         _cp(gif, "preview.gif")
     return out
 
@@ -209,13 +233,14 @@ def copy_textured(ws: Workspace, record: RunRecord, dest: Path) -> list[str]:
         return []
     out: list[str] = []
     tex_dir = ws.root / str(tex.get("textures_dir") or "artifacts/textures")
+    if not tex_dir.is_dir() and (ws.deliverable / "textures").is_dir():
+        tex_dir = ws.deliverable / "textures"  # packaged copy (new layout)
     if tex_dir.is_dir():
         for p in sorted(tex_dir.glob("*.png")):
             (dest / "textures").mkdir(parents=True, exist_ok=True)
             shutil.copy2(p, dest / "textures" / p.name)
             out.append(f"textures/{p.name}")
-    glb = _resolve(ws, str(tex.get("glb_textured") or "")) or (
-        ws.artifacts / "object_textured.glb" if (ws.artifacts / "object_textured.glb").is_file() else None)
+    glb = _resolve(ws, str(tex.get("glb_textured") or "")) or deliverable_path(ws, "object_textured.glb")
     if glb is not None and glb.stat().st_size < MAX_GLB_BYTES:
         (dest / "renders").mkdir(parents=True, exist_ok=True)
         shutil.copy2(glb, dest / "renders" / "object_textured.glb")
@@ -224,9 +249,10 @@ def copy_textured(ws: Workspace, record: RunRecord, dest: Path) -> list[str]:
 
 
 def copy_link_meshes(ws: Workspace, dest: Path) -> list[str]:
-    """(urdf_blender) copy ``artifacts/meshes/*.glb`` so the sample's robot.urdf resolves."""
-    src = ws.artifacts / "meshes"
-    if not src.is_dir():
+    """(urdf_blender) copy the per-link meshes so the sample's robot.urdf resolves
+    (``deliverable/meshes/`` on the new layout, ``artifacts/meshes/`` on the old)."""
+    src = next((d for d in (ws.deliverable / "meshes", ws.artifacts / "meshes") if d.is_dir()), None)
+    if src is None:
         return []
     out: list[str] = []
     total = 0
@@ -314,7 +340,36 @@ def build_meta(
         has_captions=bool(caps.get("detailed")),
         captioner=str((caps.get("provenance") or {}).get("captioner", "")),
         prompt_hashes=dict(record.prompt_hashes),
+        telemetry=telemetry_digest(ws, record),
     )
+
+
+def telemetry_digest(ws: Workspace, record: RunRecord) -> dict[str, Any]:
+    """The few accounting numbers a dataset consumer wants inline: total, per stage,
+    model + thinking level per role, rubric/price hashes.  ``{}`` when a run has no
+    telemetry (old layout and nothing computable)."""
+    from codeverse.flywheel.telemetry import load_telemetry
+
+    tele = load_telemetry(ws, record)
+    if tele is None:
+        return {}
+    out: dict[str, Any] = {}
+    if tele.cost is not None:
+        out.update({
+            "total_usd": tele.cost.total_usd,
+            "wall_clock_s": tele.cost.wall_clock_s,
+            "n_calls": tele.cost.n_calls,
+            "by_stage": {s.stage: s.cost_usd for s in tele.cost.by_stage},
+            "by_model": dict(tele.cost.by_model),
+        })
+    if tele.settings is not None:
+        out.update({
+            "models": {r.role: r.model for r in tele.settings.roles},
+            "thinking": {r.role: r.thinking for r in tele.settings.roles if r.thinking},
+            "rubric_hash": tele.settings.rubric_hash,
+            "price_table_version": tele.settings.price_table_version,
+        })
+    return out
 
 
 def best_round_record(record: RunRecord) -> RoundRecord | None:

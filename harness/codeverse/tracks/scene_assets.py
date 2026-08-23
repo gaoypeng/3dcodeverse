@@ -1,12 +1,18 @@
-"""Scene asset stage: one generation task per asset, fanned out.
+"""Scene asset stage: cheap-first generation of one module per asset, fanned out.
 
-* ``threejs`` assets → ``src/assets/<snake>.js`` exporting ``build<Pascal>``.
-* ``blender_glb`` assets → a sub-workspace under ``<ws>/_assets/<snake>`` runs
-  the Blender runtime (skeleton → generate → build+repair) and the GLB is
-  copied to ``public/assets/<snake>.glb``.
+* ``threejs`` assets → ``src/assets/<snake>.js`` exporting ``build<Pascal>`` —
+  generated **single-shot** (one chat call) + a deterministic node check + ONE
+  error-feedback repair; a full agent session is the escalation, not the default
+  (see ``scene_asset_gen``: agent sessions cost 10× and 10 minutes per file).
+* ``blender_glb`` assets are **heroes**: a sub-workspace under ``<ws>/_assets/<snake>``
+  runs the Blender runtime (skeleton → generate → build+repair) with a real agent
+  session and the GLB is copied to ``public/assets/<snake>.glb``.
 
-Each asset is optionally judged with ``asset_v1`` on a quick 4-view sheet and
-gets at most ONE fix pass (cost target ≤ $2 / scene).
+Near-identical props are merged into one factory with an ``opts.variant``; the
+list is capped at ``MAX_ASSETS`` in plan (= priority) order, and harder when the
+soft budget is spent.  Assets are judged only when the judge can tell us
+something the deterministic check cannot (heroes, or anything big enough to
+matter in frame).
 """
 
 from __future__ import annotations
@@ -30,11 +36,26 @@ from codeverse.tracks.common import RunContext, language_contract, load_prompt_o
 from codeverse.tracks.generation import GenerationTask, generate
 from codeverse.tracks.prompting import base_prompt_context
 from codeverse.tracks.repair import build_with_repair
+from codeverse.tracks.scene_asset_gen import (
+    AssetCheck,
+    check_threejs_asset,
+    repair_feedback,
+    select_assets,
+    single_shot_ctx,
+    variant_index,
+    write_dedupe_note,
+    write_variant_shims,
+)
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
 MAX_ASSETS = 8
+#: cap once the baseline has spent its soft sub-budget
+DEGRADED_MAX_ASSETS = 4
+#: an asset smaller than this share of the scene bbox volume is not worth a judge call
+JUDGE_VOLUME_FRACTION = 0.05
+ASSET_AGENT_TIMEOUT_S = 420
 ASSET_RUBRIC = "asset_v1"
 
 
@@ -47,6 +68,8 @@ class AssetResult(BaseModel):
     score: float | None = None
     fixed: bool = False
     notes: str = ""
+    strategy: str = Field(default="", description="single-shot | single-shot+repair | agent | escalated")
+    judged: bool = False
 
 
 def asset_file(asset: AssetPlan) -> str:
@@ -54,15 +77,23 @@ def asset_file(asset: AssetPlan) -> str:
     return f"src/assets/{snake}.js" if asset.kind == "threejs" else f"public/assets/{snake}.glb"
 
 
-def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult]) -> str:
-    """What zone/composer tasks need to know about each asset (names + sizes + how to get it)."""
+def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: dict[str, str] | None = None) -> str:
+    """What zone/composer tasks need to know about each asset (names + sizes + how to get it).
+
+    Merged assets (``alias``) point at the surviving factory and the ``opts.variant``
+    the zone must pass."""
+    alias = alias or {}
     lines = []
     for a in plan.assets:
-        r = results.get(a.name)
-        size = (r.size_m if r and r.size_m else a.approx_size_m)
+        kept = alias.get(a.name)
+        r = results.get(kept or a.name)
+        size = (r.size_m if r and r.size_m and not kept else a.approx_size_m)
         s = f"{size[0]:.2f}×{size[1]:.2f}×{size[2]:.2f} m (w×h×d)"
         status = "" if (r and r.ok) else "  [NOT AVAILABLE — do not reference]"
-        if a.kind == "threejs":
+        if kept:
+            lines.append(f"- {a.name}: use `build{to_pascal(kept)}(THREE, {{ variant: {variant_index(alias, a.name)} }})` "
+                         f"from './assets/{to_snake(kept)}.js' (merged variant), base at y=0, {s}{status}")
+        elif a.kind == "threejs":
             lines.append(f"- {a.name}: `import {{ build{to_pascal(a.name)} }} from './assets/{to_snake(a.name)}.js'` → Group, base at y=0, {s}{status}")
         else:
             lines.append(f"- {a.name}: GLB at `public/assets/{to_snake(a.name)}.glb` (load via loaders.gltf), base at y=0, {s}{status}")
@@ -72,10 +103,16 @@ def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult]) -> str:
 def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, AssetResult]:
     """Generate every asset (parallel) and return results keyed by asset name."""
     plan: ScenePlan = ctx.plan  # type: ignore[assignment]
-    assets = list(plan.assets)
-    if len(assets) > MAX_ASSETS:
-        ctx.events.emit("assets.capped", n=len(assets), cap=MAX_ASSETS)
-        assets = assets[:MAX_ASSETS]
+    cap = MAX_ASSETS if ctx.budget.soft_ok() else DEGRADED_MAX_ASSETS
+    planned = list(plan.assets)
+    assets, alias = select_assets(planned, cap)
+    if alias:
+        ctx.events.emit("assets.deduped", merged=alias, kept=[a.name for a in assets])
+        write_dedupe_note(ctx.ws, alias)
+    built = {a.name for a in assets} | set(alias)
+    if len(planned) > len(built):
+        ctx.events.emit("assets.capped", n=len(planned), cap=cap, dropped=[a.name for a in planned if a.name not in built])
+    ctx.extra["asset_alias"] = alias
     if not assets:
         return {}
     _ignore_sub_workspaces(ctx.ws)
@@ -100,29 +137,78 @@ def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, 
             ctx.events.emit("asset.failed", asset=asset.name, error=f"{type(r).__name__}: {r}")
         else:
             out[asset.name] = r
+    shims = write_variant_shims(ctx.ws, alias, {n for n, r in out.items() if r.ok})
     ctx.ws.commit("assets")
-    ctx.events.emit("assets.done", ok=[n for n, r in out.items() if r.ok], failed=[n for n, r in out.items() if not r.ok])
+    ctx.events.emit("assets.done", ok=[n for n, r in out.items() if r.ok], failed=[n for n, r in out.items() if not r.ok],
+                    strategies={n: r.strategy for n, r in out.items() if r.strategy}, variant_shims=shims)
     return out
 
 
 # ----------------------------------------------------------------------------- threejs asset
 def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
-    rel = asset_file(asset)
-    task = GenerationTask(label=f"asset_{to_snake(asset.name)}", prompt=_asset_prompt(ctx, asset, rel, language=Language.SCENE_THREEJS),
-                          system="You write ONE self-contained three.js ESM asset module. Raw three.js only; no DOM; no texture loading.",
-                          files_hint=[rel], round=0, kind="asset", temperature=0.5)
-    res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
-                   budget=ctx.budget, events=ctx.events)
-    ok = res.ok and (ctx.ws.root / rel).is_file()
-    result = AssetResult(name=asset.name, kind=asset.kind, ok=ok, path=rel if ok else "", notes=res.notes)
+    """Single-shot → deterministic check → ONE repair → (only then) an agent session."""
+    rel, pascal = asset_file(asset), to_pascal(asset.name)
+    sub = single_shot_ctx(ctx)
+    chk: AssetCheck | None = None
+    strategy, notes = "", ""
+    if sub is not None:
+        for attempt in range(2):  # first shot + ONE error-feedback repair
+            try:
+                res = _generate_asset(sub, asset, rel, language=Language.SCENE_THREEJS, attempt=attempt,
+                                      feedback=repair_feedback(chk, rel) if chk is not None else "")
+            except Exception as e:  # noqa: BLE001 — a model outage escalates, it does not lose the asset
+                from codeverse.orchestrator.budget import BudgetExceeded
+
+                if isinstance(e, BudgetExceeded):
+                    raise
+                log.warning("single-shot asset %s failed: %s", asset.name, e)
+                ctx.events.emit("asset.generate_failed", asset=asset.name, attempt=attempt, error=f"{type(e).__name__}: {e}"[:300])
+                chk = AssetCheck(ok=False, ran=True, fatal=True, errors=[f"the generator failed: {type(e).__name__}: {e}"[:300]])
+                break
+            notes = res.notes
+            chk = (check_threejs_asset(ctx, rel, pascal, expected_size_m=asset.approx_size_m) if res.ok
+                   else AssetCheck(ok=False, ran=True, fatal=True, errors=[f"no file was written ({res.notes or 'empty answer'})"]))
+            if chk.ok:
+                strategy = "single-shot" if attempt == 0 else "single-shot+repair"
+                break
+        if not strategy:
+            ctx.events.emit("asset.escalated", asset=asset.name, errors=(chk.errors[:3] if chk else []))
+    if not strategy:  # no chat model, or single-shot failed twice → the full agent session
+        res = _generate_asset(ctx, asset, rel, language=Language.SCENE_THREEJS, attempt=0,
+                              timeout_s=ctx.budget.timeout_s(ASSET_AGENT_TIMEOUT_S, floor_s=120))
+        notes = res.notes
+        strategy = "escalated" if chk is not None else "agent"
+        chk = check_threejs_asset(ctx, rel, pascal, expected_size_m=asset.approx_size_m) if res.ok else chk
+    # a module that will not import is NOT AVAILABLE to zones; a merely imperfect one
+    # (size off, still a bit plain) stays usable — we already spent a repair on it
+    ok = (ctx.ws.root / rel).is_file() and not (chk is not None and chk.ran and chk.fatal)
+    result = AssetResult(name=asset.name, kind=asset.kind, ok=ok, path=rel if ok else "", notes=notes, strategy=strategy,
+                         size_m=chk.size_m if chk and chk.size_m else None)
+    ctx.events.emit("asset.generated", asset=asset.name, strategy=strategy, ok=ok, tris=(chk.tris if chk else 0),
+                    errors=(chk.errors[:2] if chk and not chk.ok else []))
     render_asset = getattr(ctx.runtime, "render_asset", None)
-    if ok and judge and callable(render_asset):
+    if ok and callable(render_asset) and _judge_wanted(ctx, asset, chk, judge=judge):
         result = _judge_and_fix(ctx, asset, result, lambda out_dir: render_asset(ctx.ws, asset.name, out_dir), files=[rel],
                                 language=Language.SCENE_THREEJS)
     return result
 
 
-# ----------------------------------------------------------------------------- blender asset
+def _generate_asset(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language, attempt: int,
+                    feedback: str = "", timeout_s: int | None = None) -> Any:
+    label = f"asset_{to_snake(asset.name)}" + ("_retry" if attempt else "")
+    prompt = _asset_prompt(ctx, asset, rel, language=language)
+    if feedback:
+        prompt = prompt + "\n\n" + feedback + "\n## Current file (rewrite it COMPLETELY)\n```\n" + _read(ctx.ws, rel, 24_000) + "\n```\n"
+    task = GenerationTask(label=label, prompt=prompt,
+                          system=("You write ONE self-contained three.js ESM asset module. Raw three.js only; no DOM; no texture loading."
+                                  if language is Language.SCENE_THREEJS else
+                                  "You write ONE raw bpy script (src/model.py) that builds a single scene asset. No SDKs, no render/export calls."),
+                          files_hint=[rel], round=attempt, kind="asset", temperature=0.5, timeout_s=timeout_s)
+    return generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
+                    budget=ctx.budget, events=ctx.events)
+
+
+# ----------------------------------------------------------------------------- blender asset (hero)
 def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
     """Sub-workspace → Blender runtime → GLB → public/assets/<snake>.glb."""
     snake = to_snake(asset.name)
@@ -143,23 +229,20 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
         ctx.services.materialize(sub_ws, agent_kind=kind, contract_md=sub.contract_text, cookbook_rel=sub.cookbook_rel,
                                  spatial_tools=True,
                                  mcp_command=["python", "-m", "codeverse.spatial.mcp_server", "--workspace", str(sub_ws.root)])
-    task = GenerationTask(label=f"asset_{snake}", prompt=_asset_prompt(sub, asset, "src/model.py", language=Language.BLENDER),
-                          system="You write ONE raw bpy script (src/model.py) that builds a single scene asset. No SDKs, no render/export calls.",
-                          files_hint=["src/model.py"], round=0, kind="asset", temperature=0.5)
-    res = generate(sub_ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
-                   budget=ctx.budget, events=ctx.events)
+    res = _generate_asset(sub, asset, "src/model.py", language=Language.BLENDER, attempt=0,
+                          timeout_s=ctx.budget.timeout_s(ASSET_AGENT_TIMEOUT_S, floor_s=180))
     if not res.ok:
-        return AssetResult(name=asset.name, kind=asset.kind, ok=False, notes=f"generation failed: {res.notes}")
+        return AssetResult(name=asset.name, kind=asset.kind, ok=False, strategy="agent", notes=f"generation failed: {res.notes}")
     sub_ws.commit("asset generated")
     outcome = build_with_repair(sub, round_index=0, label=f"asset_{snake}", files_hint=["src/model.py"])
     if not outcome.build.ok or not outcome.build.glb_path:
-        return AssetResult(name=asset.name, kind=asset.kind, ok=False,
+        return AssetResult(name=asset.name, kind=asset.kind, ok=False, strategy="agent",
                            notes=f"build failed: {outcome.build.error_type}: {outcome.build.error_message[:200]}")
     rel = asset_file(asset)
     dest = _copy_glb(ctx.ws, Path(outcome.build.glb_path), rel)
     size = _measure_size(ctx, dest)
-    result = AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=size)
-    if judge:
+    result = AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=size, strategy="agent")
+    if _judge_wanted(ctx, asset, None, judge=judge):
         def _render(out_dir: Path):
             return ctx.services.render_object(dest, out_dir, views=OBJECT_VIEWS_QUICK, width=512, height=512)
 
@@ -186,9 +269,44 @@ def asset_plan(asset: AssetPlan) -> StaticPlan:
 
 
 # ----------------------------------------------------------------------------- judge + fix
+def _judge_wanted(ctx: RunContext, asset: AssetPlan, chk: AssetCheck | None, *, judge: bool) -> bool:
+    """Stop paying for what is already good.
+
+    A VLM verdict on a 0.3 m pebble that already passed the deterministic check
+    tells us nothing the scene judge will not see anyway.  Heroes (blender_glb)
+    and anything big enough to dominate a frame keep their verdict."""
+    if not judge:
+        return False
+    if not ctx.budget.soft_ok():
+        ctx.events.emit("asset.judge_skipped", asset=asset.name, reason="soft_budget")
+        return False
+    if asset.kind == "blender_glb":
+        return True
+    frac = _volume_fraction(ctx, asset)
+    if chk is not None and chk.ok and chk.ran and frac < JUDGE_VOLUME_FRACTION:
+        ctx.events.emit("asset.judge_skipped", asset=asset.name, reason="gates_ok_and_small",
+                        volume_fraction=round(frac, 5), tris=chk.tris, meshes=chk.meshes)
+        return False
+    return True
+
+
+def _volume_fraction(ctx: RunContext, asset: AssetPlan) -> float:
+    """Asset bbox volume / scene bounds volume (1.0 when the scene bounds are unknown)."""
+    bounds = getattr(ctx.plan, "bounds", None)
+    if bounds is None:
+        return 1.0
+    scene_v = 1.0
+    for e in bounds.extents:
+        scene_v *= max(float(e), 1e-3)
+    asset_v = 1.0
+    for e in asset.approx_size_m:
+        asset_v *= max(float(e), 1e-3)
+    return asset_v / scene_v if scene_v > 0 else 1.0
+
+
 def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, render_fn: Any, *, files: list[str],
                    language: Language, after_fix: Any | None = None, parent_events: Any | None = None) -> AssetResult:
-    """Quick-sheet judge with asset_v1; ONE fix pass when below threshold."""
+    """Quick-sheet judge with asset_v1 (n_samples=1, cached renders); ONE fix pass when below threshold."""
     from codeverse.judges.base import JudgeInput
 
     events = parent_events or ctx.events
@@ -209,6 +327,7 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
         return result
     ctx.budget.charge(verdict.usage)
     result.score = verdict.overall
+    result.judged = True
     events.emit("asset.judged", asset=asset.name, score=round(verdict.overall, 3), passed=verdict.passed)
     if verdict.passed or not verdict.improvement_plan:
         return result
@@ -218,7 +337,7 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
         asset_size=asset.approx_size_m, asset_file=files[0], asset_language=language.value, fix_instructions=instructions,
         current_code=_read(ctx.ws, files[0]) if ctx.single_shot else ""))
     task = GenerationTask(label=f"asset_{to_snake(asset.name)}_fix", prompt=prompt, files_hint=files, round=1, kind="asset_fix",
-                          temperature=0.4)
+                          temperature=0.4, timeout_s=ctx.budget.timeout_s(ASSET_AGENT_TIMEOUT_S, floor_s=120))
     res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
                    budget=ctx.budget, events=ctx.events)
     if res.ok:

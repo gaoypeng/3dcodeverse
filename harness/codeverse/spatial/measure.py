@@ -9,7 +9,8 @@ rows, islands, ground gap, footprint offset, materials).  Degenerate input
 world-space ``trimesh.Trimesh`` per top-level node (all child meshes merged).
 ``cached_parts`` is the memoized front door for gates that re-read the same
 GLB (keyed on path + size + mtime_ns; ``load_scene`` itself is never cached —
-texturing mutates scenes).
+texturing mutates scenes), and ``solid_parts`` is that front door minus the
+empty parts — what connectivity / sections want.
 """
 
 from __future__ import annotations
@@ -30,8 +31,11 @@ __all__ = [
     "load_scene",
     "part_meshes",
     "cached_parts",
+    "solid_parts",
     "measure_glb",
     "measure_summary_table",
+    "fmt_extent_cm",
+    "fmt_vec",
     "instance_groups",
     "merged_mesh",
 ]
@@ -208,6 +212,13 @@ def cached_parts(glb: Path | str) -> OrderedDict[str, trimesh.Trimesh | None]:
     return OrderedDict(entry.parts)
 
 
+def solid_parts(glb: Path | str) -> OrderedDict[str, trimesh.Trimesh]:
+    """:func:`cached_parts` without the empty ones — the loader every geometry
+    gate (connectivity, sections) starts from: one world-space mesh per part,
+    only parts that actually have faces.  Meshes are SHARED (read-only)."""
+    return OrderedDict((k, v) for k, v in cached_parts(glb).items() if v is not None and len(v.faces))
+
+
 def merged_mesh(parts: dict[str, trimesh.Trimesh | None]) -> trimesh.Trimesh | None:
     """All part meshes concatenated (None if nothing has faces)."""
     meshes = [m for m in parts.values() if m is not None]
@@ -334,8 +345,19 @@ def instance_groups(names: list[str]) -> OrderedDict[str, list[str]]:
     return out
 
 
-def _fmt_ext(ext: tuple[float, float, float] | np.ndarray) -> str:
-    return "×".join(f"{v * 100:.1f}" for v in ext)
+def fmt_extent_cm(ext: Any) -> str:
+    """``34.0×47.0×34.0`` — a size in centimetres.  THE extent formatter (measure
+    table, contract gate) so every prompt/finding states sizes the same way."""
+    return "×".join(f"{float(v) * 100:.1f}" for v in ext)
+
+
+def fmt_vec(v: Any, digits: int = 3) -> str:
+    """``(+0.010, -0.000, +0.250)`` — a signed metre vector.  THE vector formatter
+    for gate hints (``+ 0.0`` keeps a rounded zero from printing as ``-0.000``)."""
+    return "(" + ", ".join(f"{round(float(x), digits) + 0.0:+.{digits}f}" for x in v) + ")"
+
+
+_fmt_ext = fmt_extent_cm   # legacy private alias
 
 
 def measure_summary_table(m: Measurement, max_rows: int = 30) -> str:

@@ -24,6 +24,7 @@ import trimesh
 from codeverse.contracts.artifacts import RenderSet, RenderView
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
 from codeverse.proc import run_subprocess
+from codeverse.spatial._render_common import build_sheet, out_directory, view_specs
 from codeverse.spatial.joints_model import Joint, Robot, UrdfError, fk
 from codeverse.spatial.joints_poses import limit_poses
 from codeverse.spatial.render import render_glb
@@ -114,11 +115,10 @@ def blender_render_glb(glb: Path, out_dir: Path, *, views: Sequence[ViewPreset] 
     if not blender:
         raise RuntimeError("no Blender binary found for the fallback renderer")
     views = tuple(views or OBJECT_VIEWS_QUICK)
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = out_directory(out_dir)
     script = Path(__file__).resolve().parent.parent / "languages" / "urdf" / "wrappers" / "render_glb_bpy.py"
     spec = {"glb": str(glb), "out_dir": str(out_dir), "width": width, "height": height,
-            "views": [{"name": v.name, "az": v.azimuth_deg, "el": v.elevation_deg} for v in views]}
+            "views": [{"name": v["name"], "az": v["azimuth"], "el": v["elevation"]} for v in view_specs(views)]}
     spec_path = out_dir / "_render_spec.json"
     spec_path.write_text(json.dumps(spec))
     t0 = time.time()
@@ -135,7 +135,7 @@ def blender_render_glb(glb: Path, out_dir: Path, *, views: Sequence[ViewPreset] 
             raise RuntimeError(f"blender fallback render produced no {p.name}; stdout tail: {proc.stdout[-800:]}")
         rs.views.append(RenderView(name=v.name, path=str(p), width=width, height=height))
     if sheet:
-        rs.contact_sheet = str(contact_sheet([(v.name, Path(v.path)) for v in rs.views], out_dir / "sheet.png"))
+        rs.contact_sheet = build_sheet([(v.name, v.path) for v in rs.views], out_dir / "sheet.png")
     return rs
 
 
@@ -153,8 +153,7 @@ def render_poses(
     """Export one GLB per pose, render ``views`` for each (default: 3 quick views)
     and write ``out_dir/articulation_sheet.png`` (rest / each joint at lower & upper
     by default — the image the judge sees).  Returns ``[(pose_name, RenderSet)]``."""
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = out_directory(out_dir)
     poses = poses if poses is not None else limit_poses(robot)
     views = tuple(views or OBJECT_VIEWS_QUICK[:3])
     render = renderer or render_glb

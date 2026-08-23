@@ -1,0 +1,117 @@
+"""What the scene prompts, cookbook and rubric must TEACH about picture quality.
+
+Every item here maps to a defect the v1 bench judges actually wrote up (flat ground,
+identical cones, hard world edge, diorama-on-a-plane, undressed, monochrome light,
+invisible motion).  The tests are cheap guards that the teaching does not silently
+disappear from a prompt during a refactor.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from codeverse.judges.rubrics import load_rubric
+from codeverse.prompts import load_text
+
+#: chapters the prompts point the agent at by name (read_cookbook matches on the title)
+QUALITY_CHAPTERS = [
+    "Ground that reads real",
+    "Horizon: the world must not end",
+    "Vegetation that reads real",
+    "Rocks, cliffs and boulders that read organic",
+    "Set dressing",
+    "Scene layering",
+    "Atmosphere: time-of-day triads",
+    "Motion you can SEE",
+    "The exact contract the harness assembler enforces",
+]
+
+
+@pytest.fixture(scope="module")
+def cookbook() -> str:
+    return load_text("scene_threejs/cookbook.md")
+
+
+@pytest.mark.parametrize("title", QUALITY_CHAPTERS)
+def test_cookbook_has_the_quality_chapter(cookbook: str, title: str) -> None:
+    headings = [ln[3:].strip() for ln in cookbook.splitlines() if ln.startswith("## ")]
+    assert any(h.startswith(title) for h in headings), f"missing chapter {title!r}; have {headings}"
+
+
+@pytest.mark.parametrize("title", QUALITY_CHAPTERS)
+def test_cookbook_chapter_is_findable_by_read_cookbook(cookbook: str, title: str) -> None:
+    from codeverse.spatial.cookbook_tool import find_section, split_sections
+
+    s = find_section(split_sections(cookbook), title)
+    assert s is not None and s.title.startswith(title)
+
+
+def test_cookbook_carries_the_numbers_the_recipes_depend_on(cookbook: str) -> None:
+    for token in ("vertexColors", "setColorAt", "InstancedMesh", "shadow.mapSize",
+                  "cameraMask", "buildHorizonRing", "TIME_OF_DAY", "hazeMix"):
+        assert token in cookbook, token
+
+
+def test_planner_asks_for_density_layering_and_subject_framing() -> None:
+    text = load_text("tracks/plan_scene.j2")
+    for token in ("DENSITY COUNTS", "DEPTH ROLE", "foreground frame", "silhouette ring",
+                  "HERO motion", "fill hue", "SUBJECT"):
+        assert token in text, token
+
+
+def test_zone_prompt_demands_variation_dressing_and_visible_motion() -> None:
+    text = load_text("tracks/scene_zone.j2")
+    for token in ("3 distinct silhouettes", "hue jitter", "density counts",
+                  "foreground frame", "nothing_moves", "cameraMask"):
+        assert token in text, token
+
+
+def test_env_prompt_demands_blended_ground_horizon_and_colour_contrast() -> None:
+    text = load_text("tracks/scene_env.j2")
+    for token in ("flat_ground", "silhouette ring", "fog far", "60", "Shadow texel"):
+        assert token in text, token
+
+
+def test_refine_prompt_maps_judge_complaints_to_chapters() -> None:
+    text = load_text("tracks/scene_refine.j2")
+    for title in ("Ground that reads real", "Horizon: the world must not end",
+                  "Vegetation that reads real", "Set dressing", "Scene layering",
+                  "Atmosphere: time-of-day triads", "Motion you can SEE"):
+        assert title in text, title
+
+
+# --------------------------------------------------------------------------- rubric
+COMPOSITION_DEFECTS = ("flat_ground", "monotonous_vegetation", "empty_midground",
+                       "undressed_scene", "thin_atmosphere")
+
+
+def test_scene_rubric_scores_the_composition_defects() -> None:
+    r = load_rubric("scene_v1")
+    ids = {d.id for d in r.defects}
+    assert set(COMPOSITION_DEFECTS) <= ids
+    for did in COMPOSITION_DEFECTS:
+        d = r.defect(did)
+        assert 0.0 < d.penalty <= 0.05, f"{did}: keep the new craft penalties small"
+        assert d.cap is None, f"{did}: craft defects inform, they do not cap"
+
+
+def test_scene_rubric_penalties_cannot_zero_a_good_scene() -> None:
+    r = load_rubric("scene_v1")
+    assert sum(d.penalty for d in r.defects) <= 0.62
+
+
+def test_scene_rubric_has_the_diorama_anchor() -> None:
+    r = load_rubric("scene_v1")
+    comp = r.criterion("composition_and_camera")
+    assert "0.5" in comp.anchors and "diorama" in comp.anchors["0.5"].lower()
+    assert "foreground" in comp.anchors["1.0"].lower()
+
+
+def test_extra_anchor_levels_reach_the_judge_prompt() -> None:
+    from codeverse.judges.prompt_builder import _rubric_block
+
+    block = _rubric_block(load_rubric("scene_v1"))
+    assert "0.5: The scene reads as a diorama" in block
+    # the four required levels are still rendered, richest first
+    idx = [block.index(f"     {lvl}: ") for lvl in ("1.0", "0.7", "0.4", "0.1")]
+    assert idx == sorted(idx)

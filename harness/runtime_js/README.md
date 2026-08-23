@@ -54,7 +54,9 @@ export_glb.mjs        node --import lib/resolve_three.mjs export_glb.mjs --ws <w
 render_glb.mjs        --glb --out --views '[{name,azimuth,elevation}]' [--mode shaded|wire|normals|silhouette|clay]
                       [--width --height] [--isolate A,B] [--explode 0.3] [--background studio|white|transparent]
                       [--anim-time t] [--gpu auto|on|off] [--shadow 0|1] [--fill 0.85]
-                      writes view_<name>.png + views.json; last stdout line = JSON record
+                      writes view_<name>.png + views.json; last stdout line = JSON record.  Thin entry:
+                      args/JSON protocol from lib/cli.mjs, browser + server from lib/host_env.mjs,
+                      browser release from lib/host_page.mjs, everything visual from lib/browser/
 lib/resolve_three.mjs node --import hook: bare 'three' / 'three/addons/*' (and three-mesh-bvh) resolve
                       from runtime_js/node_modules for modules anywhere on disk (NODE_PATH is CJS-only)
 lib/node_polyfills.mjs FileReader/Blob/self shims so GLTFExporter writes binary GLB without a DOM
@@ -62,9 +64,12 @@ lib/census.mjs        per-part tri counts, world bboxes, materials, NaN check na
 lib/instances.mjs     bakeInstancedMeshes(THREE, root): InstancedMesh → Group of named plain meshes
 lib/stack.mjs         Error → {type,message,file,line,frames} with workspace-relative src/ paths
 lib/syntax_check.mjs  `node --input-type=module --check` per file to locate ESM SyntaxErrors
-lib/browser/*.js      page-side ESM (served through /__runtime/): camera_fit.js (azimuth/elevation →
-                      tight bbox fit), studio.js (RoomEnvironment PMREM + key/fill/rim, ACES, sRGB,
-                      shadow catcher, render modes), render_rig.js (load GLB, isolate/explode/anim, views)
+lib/browser/*.js      page-side ESM (served through /__runtime/): renderer.js (THE WebGLRenderer factory —
+                      sRGB + ACES + PCF shadows + pixel ratio 1, used by the object rig AND the scene host),
+                      camera_fit.js (azimuth/elevation → tight bbox fit; the distance math itself is
+                      lib/orbit.mjs::fitDistance, shared with the scene orbit rig), studio.js
+                      (RoomEnvironment PMREM + key/fill/rim, shadow catcher, render modes; re-exports
+                      renderer.js), render_rig.js (load GLB, isolate/explode/anim, views)
 
 probe_scene.mjs       scene build gate: boot src/scene.js, census, update(t,dt), first-camera checks;
                       --compile folds the full shader preflight into the SAME boot (shader_report);
@@ -74,8 +79,13 @@ render_scene.mjs      authored cameras + orbit rig renders at times, metrics.jso
 lib/host_env.mjs      ESM adapters over gpu_launch.cjs + serve.cjs (launchBrowser, serveWorkspace)
 lib/host_page.mjs     node-side page driver: serve ws, launch, boot scene, collect errors, releaseBrowser
 lib/scene_host.mjs    page-side host (window.__c3v): boot/renderAt/census/compileAll/fps/cameraChecks
-lib/orbit.mjs         THE camera-fit owner: fitOverviewCamera (corner-frustum), fitZoneCamera (eye level),
-                      fitOrbitCameras, framingBox
+lib/orbit.mjs         THE camera-fit owner: fitDistance (exact per-corner frustum fit — also used by the
+                      object rig through lib/browser/camera_fit.js), fitOverviewCamera, fitZoneCamera
+                      (eye level), fitOrbitCameras, framingBox
+lib/backdrop.mjs      THE sky/ground/content classifier (name + world-box rules), shared by the census
+                      (host_census.mjs) and the frame-coverage instrument (host_coverage.mjs)
+lib/host_metrics.mjs  page-side frame instruments: sampleFrame (the shared 96x54 readback grid),
+                      frameStats (luminance), nearGeometry (camera-in-geometry rays)
 lib/shader_report.mjs shared shader-preflight report builder (static + compile stages)
 lib/glsl_audit.mjs    static GLSL audits + compiler-line → file:line mapping
 ```

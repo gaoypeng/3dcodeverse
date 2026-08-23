@@ -188,54 +188,28 @@ class GlHost:
 
 # --------------------------------------------------------------------------- derived artifacts
 def write_contact_sheet(frames: Sequence[GlFrame], out: Path, *, cols: int = 3, tile_w: int = 480) -> Path:
-    """Labelled grid of frames keeping their aspect ratio (``t=<s>`` under each tile)."""
-    import math
+    """Labelled grid of frames keeping their aspect ratio (``t=<s>`` under each tile).
 
-    from PIL import Image, ImageDraw
-
-    from codeverse.spatial.sheet import BG, LABEL_BG, LABEL_FG, LABEL_H, PAD, load_font
+    Thin wrapper over :func:`codeverse.spatial.sheet.contact_sheet` (the one
+    sheet builder) with a 16:9-style cell derived from the first frame.
+    """
+    from codeverse.spatial.sheet import contact_sheet, tile_size
 
     frames = list(frames)
     if not frames:
         raise ValueError("write_contact_sheet: no frames")
-    first = Image.open(frames[0].path)
-    tile_h = max(1, round(tile_w * first.height / first.width))
-    cols = max(1, min(cols, len(frames)))
-    rows = math.ceil(len(frames) / cols)
-    cell_h = tile_h + LABEL_H
-    sheet = Image.new("RGB", (cols * (tile_w + PAD) + PAD, rows * (cell_h + PAD) + PAD), BG)
-    draw = ImageDraw.Draw(sheet)
-    font = load_font(15)
-    for i, f in enumerate(frames):
-        x = PAD + (i % cols) * (tile_w + PAD)
-        y = PAD + (i // cols) * (cell_h + PAD)
-        im = Image.open(f.path).convert("RGB").resize((tile_w, tile_h), Image.LANCZOS)
-        sheet.paste(im, (x, y))
-        draw.rectangle([x, y + tile_h, x + tile_w, y + tile_h + LABEL_H], fill=LABEL_BG)
-        label = f"t={f.time:g}s"
-        tw = draw.textlength(label, font=font)
-        draw.text((x + (tile_w - tw) / 2, y + tile_h + 6), label, fill=LABEL_FG, font=font)
-    out = Path(out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    sheet.save(out)
-    return out
+    return contact_sheet([(f"t={f.time:g}s", f.path) for f in frames], Path(out), cols=cols,
+                         tile=tile_size(tile_w, sample=frames[0].path))
 
 
 def write_gif(frames: Sequence[GlFrame], out: Path, *, width: int = 480, fps: int = 6) -> Path | None:
     """Animated GIF preview from ALL frames (judge + extra), resized to ``width``."""
-    from PIL import Image
+    from codeverse.spatial.sheet import write_gif as _write_gif
 
     ordered = sorted(frames, key=lambda f: f.time)
     if len(ordered) < 2:
         return None
-    ims = []
-    for f in ordered:
-        im = Image.open(f.path).convert("RGB")
-        h = max(1, round(im.height * width / im.width))
-        ims.append(im.resize((width, h), Image.BILINEAR).convert("P", palette=Image.ADAPTIVE, colors=128))
-    out.parent.mkdir(parents=True, exist_ok=True)
-    ims[0].save(out, save_all=True, append_images=ims[1:], duration=int(1000 / fps), loop=0, optimize=False)
-    return out
+    return _write_gif([f.path for f in ordered], out, fps=fps, width=width)
 
 
 def gif_times(duration_s: float, n: int = 12) -> list[float]:

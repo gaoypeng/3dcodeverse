@@ -17,20 +17,33 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from codeverse.contracts.artifacts import RenderSet
+from codeverse.contracts.artifacts import RenderSet, Severity
 from codeverse.contracts.plan import ArticulatedPlan, GraphicsPlan, Plan, ScenePlan, StaticPlan
 from codeverse.conventions import OBJECT_VIEWS, ViewPreset
-from codeverse.spatial.registry import Observation, ToolContext, ToolUsageError
+from codeverse.spatial.registry import Observation, ToolContext, ToolUnavailable, ToolUsageError
+from codeverse.workspace import Workspace
+
+__all__ = [
+    "ToolUnavailable", "unavailable_obs", "lazy", "call_adaptive", "spec_dict", "language_of", "track_of",
+    "glb_path", "load_plan", "resolve_views", "check_mode", "tool_out_dir", "render_cache_dir",
+    "cached_render_glb", "gl_metrics_summary", "VIEW_BY_NAME", "RENDER_MODES",
+]
 
 VIEW_BY_NAME: dict[str, ViewPreset] = {v.name: v for v in OBJECT_VIEWS}
 RENDER_MODES = ("shaded", "wire", "normals", "silhouette", "depth", "clay")
 
 
-class ToolUnavailable(RuntimeError):
-    """A sibling package this tool depends on is not importable / not built yet."""
+#: ``ToolUnavailable`` now lives in ``registry`` (``ToolDef.call`` catches it for
+#: every tool); re-exported here because that is where tools import it from.
 
 
 def unavailable_obs(tool: str, e: BaseException) -> Observation:
+    """The Observation ``ToolDef.call`` builds for a :class:`ToolUnavailable`.
+
+    Tools no longer need it — raise/propagate ``ToolUnavailable`` instead; it
+    stays for callers that catch the exception themselves (e.g. an optional
+    reader whose absence must not fail the whole tool).
+    """
     return Observation.error(f"tool {tool} unavailable: {type(e).__name__}: {e}")
 
 
@@ -140,11 +153,19 @@ def _file_stamp(p: Path) -> str:
     return f"{st.st_size}:{st.st_mtime_ns}"
 
 
+def tool_out_dir(ctx: ToolContext, name: str) -> Path:
+    """``artifacts/tool_renders/r<NN>_<name>`` (created) — THE output location for
+    anything a tool renders/writes for the agent, so every tool artifact is
+    round-stamped and lands in one place."""
+    d = ctx.workspace.artifacts / "tool_renders" / f"r{ctx.round_index:02d}_{name}"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def render_cache_dir(ctx: ToolContext, glb: Path, **key_parts: Any) -> Path:
     """Deterministic output dir under artifacts/tool_renders keyed by glb stamp + args."""
     raw = json.dumps({"glb": _file_stamp(glb), **key_parts}, sort_keys=True, default=str)
-    key = hashlib.sha1(raw.encode()).hexdigest()[:8]
-    return ctx.workspace.artifacts / "tool_renders" / f"r{ctx.round_index:02d}_{key}"
+    return tool_out_dir(ctx, hashlib.sha1(raw.encode()).hexdigest()[:8])
 
 
 def cached_render_glb(
@@ -170,10 +191,47 @@ def cached_render_glb(
         except ValidationError:
             pass
     render_glb = lazy("codeverse.spatial.render", "render_glb")
-    out_dir.mkdir(parents=True, exist_ok=True)
     rs = call_adaptive(render_glb, glb, out_dir, views=list(views), mode=mode, width=size, height=size,
                        isolate=list(isolate) if isolate else None, explode=explode, sheet=sheet)
     if not isinstance(rs, RenderSet):
         raise ToolUnavailable(f"render_glb returned {type(rs).__name__}, expected RenderSet")
     marker.write_text(rs.model_dump_json())
     return rs
+
+
+# --------------------------------------------------------------------------- graphics metrics
+def gl_metrics_summary(ws: Workspace, *, hints: bool = True, root: Path | None = None) -> tuple[list[str], dict[str, Any], bool]:
+    """Frame stats + ``gl_frames`` findings of a graphics build as (lines, numbers, ok).
+
+    Reads ``artifacts/metrics.json`` through ``languages._gl_common.read_metrics``
+    — the one reader — and formats it the same way for every caller (the ``build``
+    tool, ``gl_probe`` and ``gl_frames``).  ``hints`` appends each finding's fix
+    hint; ``root`` sanitises workspace paths out of the messages.  Returns
+    ``(["(no frame metrics)"], {}, True)`` when the build wrote none.
+    """
+    from codeverse.spatial.observe import sanitize_text
+
+    try:
+        read_metrics = lazy("codeverse.languages._gl_common", "read_metrics")
+        m = read_metrics(ws)
+    except ToolUnavailable:
+        m = None
+    if m is None:
+        return ["(no frame metrics)"], {}, True
+    stats, gate = m
+    clean = (lambda t: sanitize_text(t, root)) if root else (lambda t: t)
+    lines = list(stats.summary_lines())
+    for f in gate.findings:
+        if f.severity is Severity.INFO:
+            continue
+        line = f"- {f.severity.value.upper()} [{f.data.get('kind', '')}] {clean(f.message)}"
+        if hints and f.fix_hint:
+            line += f"\n    fix: {clean(f.fix_hint)}"
+        lines.append(line)
+    numbers: dict[str, Any] = {
+        "mean_lum": stats.mean_lum, "colourfulness": stats.mean_colourfulness,
+        "edge_density": stats.mean_edge_density, "mean_diff": stats.mean_diff, "static": stats.static,
+        "any_nan": stats.any_nan, "gate_passed": gate.passed, "gate_errors": len(gate.errors),
+        "n_frames": len(stats.frames),
+    }
+    return lines, numbers, not gate.errors

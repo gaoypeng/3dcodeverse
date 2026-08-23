@@ -11,28 +11,51 @@ Bounds: {{ bounds }}
 {{ frame_doc }}
 {{ contract }}
 
-`src/env.js` must export:
-- `export function buildEnv(THREE, scene) → env` where `env = { sun, ambient, sky, ground, water, fog, heightAt }`
-  (fields may be null when absent). It adds sky (a large inverted sphere or a gradient ShaderMaterial
-  dome), the key light (`THREE.DirectionalLight` placed along the planned azimuth/elevation at ≥ 0.6 ×
-  the bounds' extent, `castShadow` with a shadow camera covering the bounds), an ambient/hemisphere
-  light, scene fog (`THREE.Fog` or `FogExp2` with the planned colour/density), the ground (plane or
-  subdivided terrain covering the bounds), and water if planned.
-- `export function heightAt(x, z) → y` (terrain height; 0 for flat ground). Zones call it to place
-  assets on the ground — it must be deterministic and cheap.
-- `export const MATS = { ... }` a small registry of shared `MeshStandardMaterial`s (stone, wood, leaf,
-  water, metal …) with hex colours so zones look coherent.
-- `export function tickEnv(t, dt) {}` for animated sky/water/fog (may be empty).
+### The harness assembles `src/scene.js` and calls YOUR module like this — nothing else runs
+```js
+const ctx = { THREE, scene, renderer, loaders, heightAt, assets };
+const env = (await buildEnv(ctx)) || {};          // ONE argument, and it is ctx (not THREE, not scene)
+function update(t, dt) { if (env.update) env.update(t, dt); /* then every zone */ }
+```
+So `src/env.js` must export exactly:
+- `export function buildEnv(ctx)` — reads `ctx.scene` / `ctx.THREE`, adds sky, lights, ground,
+  backdrop and water to `ctx.scene`, and **returns an object carrying `update(t, dt)`**:
+  `{ sun, hemi, sky, ground, water, heightAt, update(t, dt) {} }`.  A separate `tickEnv` export is
+  NEVER called — animated sky/water/fog uniforms must be driven from the returned `update`.
+- `export function heightAt(x, z)` — terrain height (0 for flat ground), deterministic and cheap;
+  every zone places things with it.  The PATH is part of this function (flatten it there) so props
+  on the path sit on the path.
+- `export const BOUNDS = { min: [x, y, z], max: [x, y, z] }` from the plan bounds.
+- `export const SUN_AZIMUTH_DEG = <number>` — read by the harness (regex) to put the overview
+  cameras on the sun side.  Omit it and the overview rig shoots into the sun.
+- `export const MATS = { ... }` — shared `MeshStandardMaterial`s (stone, wood, leaf, water, metal)
+  with hex colours so zones look coherent.
 
-## DO
-- Use the planned numbers literally: sun azimuth/elevation → `sun.position.set(cos(el)*sin(az), sin(el), cos(el)*cos(az)) * R`.
-- Colour-manage: `renderer.outputColorSpace` is set by the harness; author colours as sRGB hex.
-- Make it read at the planned time of day in ONE frame: exposure via light intensities (sun 1.5-3.0
-  at noon, 0.3-0.8 at dusk with warm colour; ambient 0.2-0.6).
-- Keep the whole module ≤ 250 lines; no textures, no DOM, no fetch.
+## What this module is graded on
+Read these cookbook chapters and copy their recipes (`read_cookbook(section="...")`):
+`"Ground that reads real"`, `"Horizon: the world must not end"`,
+`"Atmosphere: time-of-day triads with numbers"`.
+
+1. **Ground must not be one flat colour.**  One displaced plane, ~1 segment per metre, vertex
+   colours blending 3-4 palette colours by height, slope and noise, plus the path carved by
+   `distToPath` in both height and colour.  A single-colour `MeshStandardMaterial` plane is a
+   scored defect (`flat_ground`).
+2. **No world edge.**  Ground size >= 2.4 x fog far; `scene.fog` colour == the sky's HORIZON
+   colour == `scene.background`; a silhouette ring (24-40 instanced hills / rooftops / mesas) at
+   radius ~ 0.6 x fog far, height 0.06-0.12 x that radius, tinted 70 % toward the fog colour.
+   Scale fog to THIS scene, not to a 100 m default.
+3. **Coloured atmosphere, not monochrome.**  Warm key + cool fill (or the reverse) with >= 60
+   degrees of hue between them; shade must carry sky colour, never black.  Add 3-4 haze bands
+   (`depthWrite:false`, opacity 0.04-0.10, fog colour) for aerial perspective, and light shafts
+   if the brief mentions sun through something.
+4. **Shadows must not be jagged.**  Shadow texel = `2 x shadowSpan / mapSize` <= 0.05 m: fit the
+   shadow camera to the BOUNDS (not the whole ground), then pick mapSize 2048 (span <= 30 m) /
+   3072 (<= 60 m) / 4096 (larger).  `bias = -0.0004`, `normalBias = 0.02`.
+5. Keep the whole module <= 300 lines; no textures, no DOM, no fetch, no Math.random.
 
 ## DON'T
 - No assets/zones here (they come from other modules). No cameras. No `scene.background` image loads.
+- Do not re-declare the path polyline in a zone: export it (or `distToPath`) from here.
 
 ## Effects planned (only the ones targeting the environment)
 {{ effects }}
@@ -40,6 +63,8 @@ Bounds: {{ bounds }}
 
 ## Tools
 {{ tool_cards }}
+After editing run `build`, then `scene_views` and LOOK: is the horizon hazy, is the ground
+multi-coloured, is the shade coloured rather than black?
 {% endif %}
 
 ## Output

@@ -19,14 +19,12 @@ from codeverse.spatial.registry import Observation, ToolContext, ToolUsageError,
 from codeverse.spatial.silhouette import compare_silhouette as _compare_silhouette
 from codeverse.spatial.tool_common import (
     VIEW_BY_NAME,
-    ToolUnavailable,
     cached_render_glb,
     check_mode,
     glb_path,
     render_cache_dir,
     resolve_views,
     spec_dict,
-    unavailable_obs,
 )
 
 _DEFAULT_VIEWS = [v.name for v in OBJECT_VIEWS_QUICK]
@@ -43,13 +41,12 @@ class RenderViewsArgs(BaseModel):
 
 
 def _render(ctx: ToolContext, tool_name: str, *, views: list[str], mode: str, isolate: list[str], explode: float, size: int, sheet: bool = True, note: str = "") -> Observation:
+    # a missing renderer raises ToolUnavailable → ToolDef.call turns it into the
+    # "tool <name> unavailable" Observation (one error boundary for every tool)
     glb = glb_path(ctx)
     presets = resolve_views(views)
     check_mode(mode)
-    try:
-        rs = cached_render_glb(ctx, glb, views=presets, mode=mode, size=size, isolate=isolate or None, explode=explode, sheet=sheet)
-    except ToolUnavailable as e:
-        return unavailable_obs(tool_name, e)
+    rs = cached_render_glb(ctx, glb, views=presets, mode=mode, size=size, isolate=isolate or None, explode=explode, sheet=sheet)
     return render_observation(rs, ctx.workspace.root, note=note)
 
 
@@ -121,10 +118,7 @@ def compare_silhouette(ctx: ToolContext, args: CompareSilhouetteArgs) -> Observa
     if args.view not in VIEW_BY_NAME:
         raise ToolUsageError(f"unknown view {args.view!r}; choose from {list(VIEW_BY_NAME)}", "compare_silhouette(view='front')")
     preset = VIEW_BY_NAME[args.view]
-    try:
-        rs = cached_render_glb(ctx, glb, views=[preset], mode="silhouette", size=512, sheet=False)
-    except ToolUnavailable as e:
-        return unavailable_obs("compare_silhouette", e)
+    rs = cached_render_glb(ctx, glb, views=[preset], mode="silhouette", size=512, sheet=False)
     if not rs.views:
         return Observation.error("compare_silhouette: renderer produced no view")
     out_dir = render_cache_dir(ctx, glb, silhouette=args.view, ref=args.reference_index)

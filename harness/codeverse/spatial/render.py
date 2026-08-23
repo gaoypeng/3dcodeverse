@@ -23,9 +23,9 @@ from codeverse.config import get_settings
 from codeverse.contracts.artifacts import RenderSet, RenderView
 from codeverse.contracts.plan import CameraPlan
 from codeverse.conventions import OBJECT_VIEWS, ViewPreset
+from codeverse.spatial._render_common import build_sheet, out_directory, view_specs
 from codeverse.spatial.node import NodeError, run_node, runtime_js_dir
 from codeverse.spatial.render_scene import render_scene as _render_scene_impl
-from codeverse.spatial.sheet import contact_sheet
 from codeverse.workspace import Workspace
 
 MODES = ("shaded", "wire", "normals", "silhouette", "clay")
@@ -43,10 +43,6 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
-
-
-def _views_payload(views: Sequence[ViewPreset]) -> list[dict[str, Any]]:
-    return [{"name": v.name, "azimuth": float(v.azimuth_deg), "elevation": float(v.elevation_deg)} for v in views]
 
 
 def _cache_key(glb: Path, params: dict[str, Any]) -> str:
@@ -104,7 +100,7 @@ def render_glb(
     gpu = gpu or settings.render.gpu
     timeout_s = timeout_s or settings.limits.render_timeout_s
     params: dict[str, Any] = {
-        "views": _views_payload(view_list),
+        "views": view_specs(view_list),
         "mode": mode,
         "width": int(width),
         "height": int(height),
@@ -117,7 +113,7 @@ def render_glb(
     }
     t0 = time.time()
     cache_dir = settings.cache_dir / "renders" / _cache_key(glb, params)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_directory(out_dir)
     record: dict[str, Any] | None = None
     if use_cache and (cache_dir / "views.json").is_file():
         record = _restore_from_cache(cache_dir, out_dir)
@@ -140,16 +136,7 @@ def render_glb(
         )
         for v in record["views"]
     ]
-    sheet_path = None
-    if sheet:
-        sheet_path = str(
-            contact_sheet(
-                [(v.name, v.path) for v in rviews],
-                out_dir / "sheet.png",
-                cols=settings.render.sheet_cols,
-                tile=settings.render.sheet_tile,
-            )
-        )
+    sheet_path = build_sheet([(v.name, v.path) for v in rviews], out_dir / "sheet.png") if sheet else None
     return RenderSet(
         views=rviews,
         contact_sheet=sheet_path,

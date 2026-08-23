@@ -9,6 +9,7 @@ flywheel can replay any round.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import threading
@@ -21,7 +22,36 @@ from pydantic import BaseModel
 from codeverse.contracts.agent import FileChange
 from codeverse.proc import write_json_atomic
 
-_DIRS = ("src", "public", "artifacts", "artifacts/renders", "artifacts/gates", "artifacts/judge", "trajectories")
+#: the three top-level buckets of a run directory (docs/RUN_LAYOUT.md)
+DELIVERABLE_DIR = "deliverable"   # (a) what the user asked for
+EVIDENCE_DIR = "evidence"         # (b) why we believe it is good  (alias of artifacts/)
+TELEMETRY_DIR = "telemetry"       # (c) what it cost and how it was configured
+
+#: physical directories every run owns.  ``artifacts/`` is the physical home of the
+#: evidence (six packages and ~50 recorded runs write paths into it); ``evidence/``
+#: is an alias for it — see docs/RUN_LAYOUT.md for why the alias points that way.
+LAYOUT_DIRS = ("src", "public", "artifacts", "artifacts/renders", "artifacts/gates", "artifacts/judge",
+               "trajectories", DELIVERABLE_DIR, TELEMETRY_DIR)
+
+#: navigation aliases: ``alias path`` → ``symlink target`` (relative to the alias's parent).
+#: The alias is always the symlink, never the physical file: writers (events.jsonl append,
+#: atomic run_state.json rewrite) keep using the paths they already use, and a tmp+rename
+#: on the physical path can never replace a symlink out from under a reader.
+LAYOUT_ALIASES: tuple[tuple[str, str], ...] = (
+    (EVIDENCE_DIR, "artifacts"),
+    (f"{TELEMETRY_DIR}/events.jsonl", "../events.jsonl"),
+    (f"{TELEMETRY_DIR}/run_state.json", "../run_state.json"),
+    (f"{TELEMETRY_DIR}/stages", "../stages"),
+    (f"{TELEMETRY_DIR}/trajectories", "../trajectories"),
+)
+
+#: harness-owned paths that never belong in the code snapshot
+_GITIGNORE_LINES = (
+    "# harness-owned run state is never part of the code snapshot",
+    "artifacts/", "trajectories/", "stages/", "rounds/", "_assets/", ".3dcv/", ".gemini/", ".claude/",
+    "deliverable/", "telemetry/", "evidence", "captions.json",
+    "events.jsonl", "run_state.json", "record.json", "*.log", "node_modules/", "*.tmp", "__pycache__/",
+)
 
 
 class Workspace:
@@ -46,6 +76,41 @@ class Workspace:
     @property
     def trajectories(self) -> Path:
         return self.root / "trajectories"
+
+    @property
+    def deliverable(self) -> Path:
+        """(a) the hand-over folder: best-round code + canonical artifact + sheet + captions."""
+        return self.root / DELIVERABLE_DIR
+
+    @property
+    def evidence(self) -> Path:
+        """(b) renders / gates / judge / measurements — the alias name for ``artifacts/``."""
+        return self.root / EVIDENCE_DIR
+
+    @property
+    def telemetry(self) -> Path:
+        """(c) cost ledger, per-call usage rows, resolved settings, stages, trajectories."""
+        return self.root / TELEMETRY_DIR
+
+    @property
+    def cost_path(self) -> Path:
+        return self.telemetry / "cost.json"
+
+    @property
+    def usage_path(self) -> Path:
+        return self.telemetry / "usage.jsonl"
+
+    @property
+    def settings_path(self) -> Path:
+        return self.telemetry / "settings.json"
+
+    @property
+    def deliverable_manifest_path(self) -> Path:
+        return self.deliverable / "manifest.json"
+
+    @property
+    def stages(self) -> Path:
+        return self.root / "stages"
 
     def renders_dir(self, round_index: int) -> Path:
         return self.artifacts / "renders" / f"r{round_index:02d}"
@@ -83,10 +148,47 @@ class Workspace:
 
     # ----------------------------------------------------------------- lifecycle
     def create(self) -> Workspace:
-        for d in _DIRS:
-            (self.root / d).mkdir(parents=True, exist_ok=True)
+        self.ensure_layout()
         self._git_init()
         return self
+
+    def ensure_layout(self, *, dry_run: bool = False) -> dict[str, str]:
+        """Create the directory buckets + navigation aliases.  Idempotent, never
+        destructive: an alias path that already holds real data is left alone.
+
+        Returns ``{path: action}`` with action in ``created`` / ``relinked`` /
+        ``kept`` / ``skipped:<reason>`` — the migration helper prints it.
+        ``dry_run`` reports the same actions without touching the filesystem."""
+        actions: dict[str, str] = {}
+        for d in LAYOUT_DIRS:
+            p = self.root / d
+            if not p.exists():
+                if not dry_run:
+                    p.mkdir(parents=True, exist_ok=True)
+                actions[d] = "created"
+        for name, target in LAYOUT_ALIASES:
+            actions.update(self._ensure_alias(name, target, dry_run=dry_run))
+        return actions
+
+    def _ensure_alias(self, name: str, target: str, *, dry_run: bool = False) -> dict[str, str]:
+        link = self.root / name
+        if link.is_symlink():
+            if os.readlink(link) == target:
+                return {}
+            if not dry_run:
+                link.unlink()
+                os.symlink(target, link)
+            return {name: "relinked"}
+        if link.exists():  # a real file/dir sits there — never clobber run data
+            return {name: "kept"}
+        if dry_run:
+            return {name: "created"}
+        link.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.symlink(target, link)
+        except OSError as e:  # filesystem without symlinks (some Windows shares)
+            return {name: f"skipped:{type(e).__name__}"}
+        return {name: "created"}
 
     def exists(self) -> bool:
         return self.spec_path.is_file()
@@ -132,13 +234,23 @@ class Workspace:
         if (self.root / ".git").exists():
             return
         self._git("init", "-q")
-        (self.root / ".gitignore").write_text(
-            "# harness-owned run state is never part of the code snapshot\n"
-            "artifacts/\ntrajectories/\nstages/\nrounds/\n_assets/\n.3dcv/\n.gemini/\n.claude/\n"
-            "events.jsonl\nrun_state.json\nrecord.json\n*.log\nnode_modules/\n*.tmp\n__pycache__/\n"
-        )
+        self.ensure_gitignore()
         self._git("add", "-A")
         self._git("commit", "-q", "-m", "init", "--allow-empty")
+
+    def ensure_gitignore(self, *, dry_run: bool = False) -> bool:
+        """Make sure every harness-owned path is ignored by the run's git repo.
+        Idempotent: missing lines are appended, existing ones are left in place.
+        Returns True when the file changed."""
+        path = self.root / ".gitignore"
+        existing = path.read_text().splitlines() if path.is_file() else []
+        have = {line.strip() for line in existing}
+        missing = [line for line in _GITIGNORE_LINES if line not in have]
+        if not missing or dry_run:
+            return bool(missing)
+        lines = existing + ([""] if existing and existing[-1].strip() else []) + missing
+        path.write_text("\n".join(lines).rstrip("\n") + "\n")
+        return True
 
     def commit(self, message: str) -> str:
         """Commit everything tracked (src/, public/, plan, ...) and return the sha."""

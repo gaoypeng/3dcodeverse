@@ -66,7 +66,9 @@ def _rubric_block(rubric: Rubric) -> str:
             continue
         floor = f", hard floor {c.floor:.2f}" if c.floor is not None else ""
         lines.append(f"{i}. {c.id} (weight {c.weight:.2f}{floor}) — {c.label}: {c.description.strip()}")
-        for lvl in ("1.0", "0.7", "0.4", "0.1"):
+        # every anchor the rubric declares, richest scale first (rubrics may add levels
+        # between the four required ones — e.g. scene_v1's 0.5 "diorama on a flat plane")
+        for lvl in sorted(c.anchors, key=lambda k: -float(k)):
             lines.append(f"     {lvl}: {c.anchors[lvl]}")
     if rubric.defects:
         lines.append("")
@@ -190,6 +192,7 @@ def view_rig_section(renders: RenderSet, montages: list[Montage], *, scene: bool
         bits.append("POSE tiles show the SAME object with joints moved by the harness (tile label = joint@value or rest). Judge articulation only from them and the joint table.")
     if scene:
         bits.append("Views named overview_* are harness cameras fitted to the scene bounds (layout X-ray); views named cam_* are the scene's own authored cameras (grade composition/lighting on those); 't=' is the animation time.")
+        bits.append("On the authored cameras also read the CRAFT of the picture, not only its contents: depth layering (is there anything within a few metres framing the shot, and anything on the horizon), ground variation (blended materials, paths, dressed edges vs one flat colour), variety among repeated natural elements, small-prop dressing, and aerial perspective (distant things hazier than near ones). The same camera at two times appears as separate tiles — compare them pixel-for-pixel before answering nothing_moves.")
     else:
         bits.append("All views show the same object. Use top + low views for symmetry, footprint and ground contact.")
     if renders.console_errors:

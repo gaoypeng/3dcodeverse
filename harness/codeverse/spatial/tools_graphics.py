@@ -13,9 +13,14 @@ from pydantic import BaseModel, Field
 
 from codeverse.contracts.artifacts import BuildResult, GateReport, Severity
 from codeverse.contracts.common import Language
-from codeverse.spatial.observe import rel_path, sanitize_text, tail_lines, truncate
+from codeverse.spatial.observe import (
+    rel_path,
+    sanitize_text,
+    tail_lines,
+    text_observation,
+)
 from codeverse.spatial.registry import Observation, ToolContext, ToolUsageError, tool
-from codeverse.spatial.tool_common import ToolUnavailable, language_of, lazy, unavailable_obs
+from codeverse.spatial.tool_common import gl_metrics_summary, language_of, lazy, tool_out_dir
 
 GRAPHICS_LANGS = (Language.GLSL_SHADER.value, Language.OPENGL_PYTHON.value)
 MAX_FRAMES = 8
@@ -64,55 +69,42 @@ def _failure_text(br: BuildResult, root: Path, lint_warns: list[str]) -> str:
 
 
 def _run_build(ctx: ToolContext, *, times: list[float], preview: bool, width: int = 0, height: int = 0) -> tuple[Observation | None, BuildResult | None, list[str]]:
-    """Lint → build; returns (error observation | None, build, lint warnings)."""
+    """Lint → build; returns (error observation | None, build, lint warnings).
+
+    A missing runtime raises ToolUnavailable — ``ToolDef.call`` reports it.
+    """
     ws = ctx.workspace
-    try:
-        rt = _runtime(ctx)
-    except ToolUnavailable as e:
-        return unavailable_obs("gl_frames", e), None, []
+    rt = _runtime(ctx)
     lint: GateReport = rt.lint(ws)
     errs, warns = _lint_block(lint, ws.root)
     if errs:
         text = "LINT FAILED — fix these before rendering:\n" + "\n".join(errs)
         if warns:
             text += "\nwarnings:\n" + "\n".join(warns[:8])
-        return Observation(ok=False, text=truncate(text), numbers={"stage": "lint", "lint_errors": len(errs)}), None, warns
+        return text_observation(text, ok=False, numbers={"stage": "lint", "lint_errors": len(errs)}), None, warns
     kw = {"times": times, "preview": preview}
     if width and height:
         kw.update(width=width, height=height)
     br: BuildResult = rt.build(ws, **kw)
     ws.write_json(ws.artifacts / "build_last.json", br)
     if not br.ok:
-        return Observation(ok=False, text=truncate(_failure_text(br, ws.root, warns), 3000),
-                           numbers={"stage": "build", "error_type": br.error_type, "error_file": br.error_file,
-                                    "error_line": br.error_line}), br, warns
+        return text_observation(_failure_text(br, ws.root, warns), ok=False, limit=3000,
+                                numbers={"stage": "build", "error_type": br.error_type, "error_file": br.error_file,
+                                         "error_line": br.error_line}), br, warns
     return None, br, warns
 
 
 def _stats_text(ctx: ToolContext) -> tuple[str, dict]:
-    read_metrics = lazy("codeverse.languages._gl_common", "read_metrics")
-    m = read_metrics(ctx.workspace)
-    if m is None:
-        return "(no frame metrics)", {}
-    stats, gate = m
-    lines = stats.summary_lines()
-    for f in gate.findings:
-        if f.severity == Severity.INFO:
-            continue
-        lines.append(f"- {f.severity.value.upper()} [{f.data.get('kind', '')}] {f.message}" + (f"\n    fix: {f.fix_hint}" if f.fix_hint else ""))
-    numbers = {"mean_lum": stats.mean_lum, "colourfulness": stats.mean_colourfulness, "edge_density": stats.mean_edge_density,
-               "mean_diff": stats.mean_diff, "static": stats.static, "any_nan": stats.any_nan, "gate_passed": gate.passed,
-               "gate_errors": len(gate.errors), "n_frames": len(stats.frames)}
+    """Frame stats + gate findings as (text, numbers) — shared formatter."""
+    lines, numbers, _ok = gl_metrics_summary(ctx.workspace)
     return "\n".join(lines), numbers
 
 
 @tool("gl_probe", GlProbeArgs, "Compile the shader / import the program and render ONE frame (default t=1 s): errors with src line numbers, or the frame + its stats. Call after every edit.",
       languages=GRAPHICS_LANGS, cost_hint="slow")
 def gl_probe(ctx: ToolContext, args: GlProbeArgs) -> Observation:
-    t0 = time.time()
     err, br, warns = _run_build(ctx, times=[args.t], preview=False)
     if err is not None:
-        err.duration_ms = int((time.time() - t0) * 1000)
         return err
     assert br is not None
     text, numbers = _stats_text(ctx)
@@ -121,8 +113,8 @@ def gl_probe(ctx: ToolContext, args: GlProbeArgs) -> Observation:
     if warns:
         lines.append("lint warnings:\n" + "\n".join(warns[:8]))
     numbers.update({"stage": "probe", "t": args.t, "duration_ms": br.duration_ms})
-    return Observation(ok=numbers.get("gate_errors", 0) == 0, text=truncate("\n".join(lines), 3000), numbers=numbers,
-                       images=[str(p) for p in frames[:1]], duration_ms=int((time.time() - t0) * 1000))
+    return text_observation(lines, ok=numbers.get("gate_errors", 0) == 0, numbers=numbers,
+                            images=[str(p) for p in frames[:1]], limit=3000)
 
 
 @tool("gl_frames", GlFramesArgs, "Render frames at the judged times (0,1,2.5,4,6 s by default) → labelled contact sheet + per-frame metrics (luminance, colour, detail, motion, NaN) + the gl_frames gate. LOOK at the sheet.",
@@ -130,15 +122,12 @@ def gl_probe(ctx: ToolContext, args: GlProbeArgs) -> Observation:
 def gl_frames(ctx: ToolContext, args: GlFramesArgs) -> Observation:
     if not args.times or len(args.times) > MAX_FRAMES:
         raise ToolUsageError(f"times must hold 1..{MAX_FRAMES} values", "gl_frames(times=[0, 1, 2.5, 4, 6])")
-    t0 = time.time()
     err, br, warns = _run_build(ctx, times=sorted(set(float(t) for t in args.times)), preview=False, width=args.width, height=args.height)
     if err is not None:
-        err.duration_ms = int((time.time() - t0) * 1000)
         return err
     assert br is not None
     text, numbers = _stats_text(ctx)
-    out_dir = ctx.workspace.artifacts / "tool_renders" / f"r{ctx.round_index:02d}_gl_{int(time.time()) % 100000}"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = tool_out_dir(ctx, f"gl_{int(time.time()) % 100000}")
     images: list[str] = []
     sheet = br.extra_paths.get("sheet")
     if sheet and Path(sheet).is_file():
@@ -151,5 +140,4 @@ def gl_frames(ctx: ToolContext, args: GlFramesArgs) -> Observation:
     if warns:
         lines.append("lint warnings:\n" + "\n".join(warns[:8]))
     numbers.update({"stage": "frames", "times": args.times, "duration_ms": br.duration_ms, "sheet": rel_path(images[0], ctx.workspace.root) if images else ""})
-    return Observation(ok=numbers.get("gate_errors", 0) == 0, text=truncate("\n".join(lines), 3000), numbers=numbers, images=images,
-                       duration_ms=int((time.time() - t0) * 1000))
+    return text_observation(lines, ok=numbers.get("gate_errors", 0) == 0, numbers=numbers, images=images, limit=3000)

@@ -6,9 +6,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from PIL import Image
-
 from codeverse.config import get_settings
+from codeverse.spatial.sheet import write_gif
 
 
 def assemble_turntable(frames: list[Path], out: Path, *, fps: int = 12) -> Path:
@@ -40,6 +39,5 @@ def _mp4(frames: list[Path], out: Path, fps: int, ffmpeg: str) -> Path:
 
 
 def _gif(frames: list[Path], out: Path, fps: int) -> Path:
-    images = [Image.open(f).convert("RGB").convert("P", palette=Image.ADAPTIVE, colors=128) for f in frames]
-    images[0].save(out, save_all=True, append_images=images[1:], duration=int(1000 / fps), loop=0, optimize=False)
-    return out
+    """Animated GIF via the shared writer (``spatial.sheet.write_gif``)."""
+    return write_gif(frames, out, fps=fps)

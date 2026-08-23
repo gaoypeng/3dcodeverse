@@ -2,7 +2,7 @@
 
 Mechanism
 ---------
-1. Load one world-space mesh per top-level node (``measure.cached_parts``,
+1. Load one world-space mesh per top-level node (``measure.solid_parts``,
    memoized on the file's stat so repeat gates on one GLB parse it once).
 2. For every part pair whose AABBs come within ``gap_m`` of each other compute
    the exact minimum surface distance (``fcl.distance`` on per-part BVHs that
@@ -40,7 +40,7 @@ from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.conventions import CONTACT_GAP_M, Frame
 from codeverse.spatial.contract import frame_label, glb_vec_to_plan, language_frame
 from codeverse.spatial.joints_collide import fcl_collision_object
-from codeverse.spatial.measure import GlbLoadError, cached_parts
+from codeverse.spatial.measure import GlbLoadError, fmt_vec, solid_parts
 
 GATE = "connectivity"
 #: parts smaller than this (max extent) are ignored for floating checks (INFO only)
@@ -186,7 +186,8 @@ def _components(names: list[str], edges: set[tuple[str, str]]) -> list[set[str]]
 
 
 def _fmt_vec(v: tuple[float, float, float]) -> str:
-    return "(" + ", ".join(f"{round(x, 4) + 0.0:+.4f}" for x in v) + ")"  # + 0.0: no '-0.0000'
+    """Millimetre-precision translation vector (shared formatter, 4 decimals)."""
+    return fmt_vec(v, 4)
 
 
 def _island_findings(name: str, mesh: trimesh.Trimesh) -> list[GateFinding]:
@@ -224,7 +225,7 @@ def check_connectivity(
     up = "z" if language_frame(language) is Frame.Z_UP_NEG_Y_FRONT else "y"
     findings: list[GateFinding] = []
     try:
-        parts = {k: v for k, v in cached_parts(glb).items() if v is not None and len(v.faces)}
+        parts = solid_parts(glb)
     except GlbLoadError as e:
         findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, message=str(e), fix_hint="run `build` first"))
         return GateReport(gate=GATE, passed=False, findings=findings, duration_ms=int((time.time() - t0) * 1000))

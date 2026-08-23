@@ -185,6 +185,8 @@ def _scene_writer(job, ws):
         return {f"src/assets/{label[6:]}.js": f"export function build(){{}} // {label}\n"}
     if label == "env":
         return {"src/env.js": "export function buildEnv(){}\n"}
+    if label.startswith("zones_"):  # batched small zones: ONE session owns several files
+        return {rel: f"export function build(){{}} // {label}\n" for rel in job.files_hint}
     if label.startswith("zone_"):
         return {f"src/zones/{label[5:]}.js": f"export function build(){{}} // {label}\n"}
     if label == "compose":
@@ -207,12 +209,14 @@ def test_scene_track_stages_and_rounds(tmp_path, settings):
                        planner_model=_planner(plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.SCENE_THREEJS))
     rec = track.run(spec, ws)
     labels = [j.label for j in agent.jobs]
-    assert set(labels[:2]) == {"asset_fishing_boat", "asset_bollard"} and "env" in labels and "zone_quay" in labels and "zone_water" in labels
+    # Quay and Water are both small zones (≤ 3 placements) → ONE batched session owning both files
+    assert set(labels[:2]) == {"asset_fishing_boat", "asset_bollard"} and "env" in labels and "zones_quay_water" in labels
     assert "compose" in labels  # assembler unavailable → composer agent fallback
-    assert labels.index("env") < labels.index("zone_quay") < labels.index("compose")
+    assert labels.index("env") < labels.index("zones_quay_water") < labels.index("compose")
     assert (ws.src / "assets" / "fishing_boat.js").is_file() and (ws.src / "zones" / "quay.js").is_file() and (ws.src / "scene.js").is_file()
-    zone_prompt = next(j.prompt for j in agent.jobs if j.label == "zone_quay")
+    zone_prompt = next(j.prompt for j in agent.jobs if j.label == "zones_quay_water")
     assert "buildFishingBoat" in zone_prompt and "8.00×3.50×3.00" in zone_prompt and "Neighbouring zones" in zone_prompt
+    assert "2 zone modules in ONE session" in zone_prompt and zone_prompt.count("## This zone") == 2
     assert [r.kind for r in rec.rounds] == ["baseline", "refine"] and rec.rounds[0].renders is not None
     assert rec.rounds[0].renders.views and rec.status in (RunStatus.PLATEAU, RunStatus.PASSED)
     st = RunState.load(ws)

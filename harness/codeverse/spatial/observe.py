@@ -5,7 +5,8 @@
 * ``tail_lines``    – last ``n`` lines of a log.
 * ``image_budget``  – cap image lists (contact sheet kept first).
 * ``rel_path``      – workspace-relative display path (never leak host paths in text).
-* ``gate_observation`` / ``render_observation`` – standard Observation builders.
+* ``text_observation`` / ``gate_observation`` / ``render_observation`` – the
+  standard Observation builders (truncation + image budget applied once).
 """
 
 from __future__ import annotations
@@ -98,6 +99,27 @@ def sanitize_text(text: str, root: Path) -> str:
 
 
 # --------------------------------------------------------------------------- builders
+def text_observation(
+    lines: Sequence[str] | str,
+    *,
+    ok: bool = True,
+    numbers: dict[str, Any] | None = None,
+    images: Sequence[str | Path] = (),
+    limit: int = MAX_TEXT,
+) -> Observation:
+    """Observation from text lines: joined, truncated to ``limit``, images capped.
+
+    The plain-text counterpart of :func:`gate_observation` / :func:`render_observation`
+    — every tool that assembles its own report (build, gl_probe, gl_frames,
+    texture_pass, …) goes through here so truncation and the image budget are
+    applied exactly once, in one place.
+    """
+    body = lines if isinstance(lines, str) else "\n".join(str(x) for x in lines)
+    return Observation(ok=ok, text=truncate(body, limit), numbers=dict(numbers or {}),
+                       images=image_budget([str(i) for i in images]))
+
+
+
 _SEV_ORDER = {Severity.ERROR: 0, Severity.WARN: 1, Severity.INFO: 2}
 _SEV_TAG = {Severity.ERROR: "ERROR", Severity.WARN: "WARN", Severity.INFO: "info"}
 

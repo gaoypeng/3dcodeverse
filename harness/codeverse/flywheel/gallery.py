@@ -20,9 +20,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse.contracts.run import RunRecord
+from codeverse.flywheel.deliverable import load_deliverable
 from codeverse.flywheel.quality import quality_tier
 from codeverse.flywheel.record import effective_judgment, iter_runs
-from codeverse.flywheel.sample import best_round_record, gate_error_summary
+from codeverse.flywheel.sample import best_round_record, gate_error_summary, telemetry_digest
 from codeverse.workspace import Workspace
 
 THUMB_PX = 640
@@ -50,6 +51,8 @@ class GalleryItem(BaseModel):
     error: str = ""
     group: str = Field(default="", description="bench tier / category label shown on the card")
     caption: str = Field(default="", description="instruction caption when available")
+    cost_by_stage: dict[str, float] = Field(default_factory=dict, description="stage → USD (telemetry, when present)")
+    models: dict[str, str] = Field(default_factory=dict, description="role → model id (telemetry, when present)")
     sheet: str | None = Field(default=None, description="contact sheet path (best round)")
     links: dict[str, str] = Field(default_factory=dict, description="label → absolute path")
 
@@ -64,14 +67,23 @@ def item_from_run(ws: Workspace, rec: RunRecord) -> GalleryItem:
         p = Path(rnd.renders.contact_sheet)
         p = p if p.is_absolute() else ws.root / p
         sheet = str(p) if p.is_file() else None
+    if sheet is None and (ws.deliverable / "sheet.png").is_file():
+        sheet = str(ws.deliverable / "sheet.png")  # new layout: the packaged best sheet
     links = {"workspace": str(ws.root), "record.json": str(ws.record_path)}
     if sheet:
         links["sheet"] = sheet
+    deliverable = load_deliverable(ws, rec)
+    if deliverable is not None and ws.deliverable.is_dir():
+        links["deliverable/"] = str(ws.deliverable)
     for name in ("object.glb", "robot.urdf", "object.stl"):
-        if (ws.artifacts / name).is_file():
-            links[name] = str(ws.artifacts / name)
+        path = next((d / name for d in (ws.deliverable, ws.artifacts) if (d / name).is_file()), None)
+        if path is not None:
+            links[name] = str(path)
     if (ws.root / "src").is_dir():
         links["src/"] = str(ws.root / "src")
+    if ws.cost_path.is_file():
+        links["cost.json"] = str(ws.cost_path)
+    digest = telemetry_digest(ws, rec)
     minutes = ((rec.finished_at - rec.started_at).total_seconds() / 60.0) if rec.finished_at else None
     caps = rec.extra.get("captions") or {}
     return GalleryItem(
@@ -84,7 +96,10 @@ def item_from_run(ws: Workspace, rec: RunRecord) -> GalleryItem:
         quality_tier=quality_tier(passed=j.passed if j else None, gate_errors=n_err, score=j.overall if j else None),
         gate_errors=n_err, cost_usd=rec.total_usage.cost_usd, rounds=len(rec.rounds), best_round=rec.best_round,
         minutes=round(minutes, 1) if minutes is not None else None, status=rec.status.value, error=rec.error,
-        caption=str(caps.get("instruction", "") or ""), sheet=sheet, links=links,
+        caption=str(caps.get("instruction", "") or ""),
+        cost_by_stage={k: round(v, 4) for k, v in (digest.get("by_stage") or {}).items()},
+        models=dict(digest.get("models") or {}),
+        sheet=sheet, links=links,
     )
 
 
@@ -132,6 +147,9 @@ def _card(it: GalleryItem, *, thumb_px: int) -> str:
     err = f'<div class="err">{html.escape(it.error[:300])}</div>' if it.error else ""
     cap = f'<div class="cap">{html.escape(it.caption)}</div>' if it.caption else ""
     mins = f" · {it.minutes:.1f} min" if it.minutes is not None else ""
+    stage_costs = " · ".join(f"{html.escape(k)} ${v:.3f}"
+                             for k, v in sorted(it.cost_by_stage.items(), key=lambda kv: -kv[1]))
+    stages = f'<div class="kv">cost: {stage_costs}</div>' if stage_costs else ""
     return (
         f'<div class="card {badge}" data-track="{html.escape(it.track)}" data-tier="{it.quality_tier}" '
         f'data-score="{it.score if it.score is not None else -1}" data-cost="{it.cost_usd}" data-key="{html.escape(it.key)}">'
@@ -142,7 +160,7 @@ def _card(it: GalleryItem, *, thumb_px: int) -> str:
         f'<div class="kv">{html.escape(it.track)} · {html.escape(it.language)} · {html.escape(it.generator)}{grp}</div>'
         f'<div class="kv">baseline {_fmt(it.baseline_score)} → best {_fmt(it.score)} (r{it.best_round if it.best_round is not None else "-"}) · '
         f'rounds {it.rounds} · gate err {it.gate_errors} · ${it.cost_usd:.2f}{mins} · {html.escape(it.status)}</div>'
-        f'{err}<div class="links">{links}</div></div></div>'
+        f'{stages}{err}<div class="links">{links}</div></div></div>'
     )
 
 

@@ -38,12 +38,29 @@ Animation: {{ animation }}
 
 ## Reminders
 {{ frame_doc }}
-- A lighting/mood change lives in `src/env.js` (sun colour/intensity/azimuth, fog density, sky hex).
-- A composition/camera change lives in `src/scene.js` (camera position/look_at numbers only).
-- A zone change lives in its `src/zones/<zone>.js`; an asset change in `src/assets/<asset>.js`.
+- A lighting/mood/ground/horizon change lives in `src/env.js` (sun colour/intensity/azimuth, fog
+  colour + near/far, sky hex, ground vertex colours, backdrop ring).
+- A composition/camera change lives in `src/scene.js` (camera position/lookAt/fov numbers only).
+- A zone change lives in its `src/zones/<zone>.js` (`export function build(ctx)`, animation on
+  `group.userData.update`); an asset change in `src/assets/<asset>.js`.
 - Console/shader errors: fix the named module; never wrap in try/catch to hide them.
 - Everything rests on `heightAt(x, z)`; nothing floats or sinks > 2 cm; keep fps ≥ 30 (InstancedMesh for repeats).
 - No DOM, no textures, no fetch, no Math.random, no CDN imports.
+
+## The recurring defects on this track and the cookbook chapter that fixes each
+Do not re-explain the problem back — apply the recipe (`read_cookbook(section="...")`) and change
+the numbers.  If the judge repeated an issue from the previous round, the earlier fix was too
+timid: double the amplitude / the count / the contrast this time.
+
+| what the judge wrote | fix it with |
+|---|---|
+| flat / one-colour ground, no paths, hard raised-bed edges | `"Ground that reads real"` — vertex-colour blend, carve the path into `heightAt`, dress the seams |
+| a hard world edge against the sky, missing horizon | `"Horizon: the world must not end"` — ground ≥ 2.4 × fog far, fog = sky horizon colour, silhouette ring at 0.6 × fog far |
+| identical cones / stacked blocks / primitive repetition | `"Vegetation that reads real"`, `"Rocks, cliffs and boulders that read organic"` — 3+ silhouettes, clustered, scale/hue jitter, no axis-aligned stacks |
+| sparse, token, "a diorama on a plane", empty midground | `"Set dressing"` + `"Scene layering"` — hit the per-zone prop counts, add a foreground element 2-4 m from each camera |
+| flat / dark / monochrome light, black shade, jagged shadows | `"Atmosphere: time-of-day triads with numbers"` — warm key vs cool fill ≥ 60° apart, shadow texel ≤ 0.05 m |
+| frames at t=0 and t=1.5 identical, "nothing moves" | `"Motion you can SEE between t = 0 and t = 1.5 s"` — the hook is `userData.update` (never `tick`), amplitudes from the table |
+| camera inside geometry / shows only sky or a wall | move the camera in `src/scene.js` and mask scatter within 6 m of it (`cameraMask`) |
 {% if current_files %}
 
 ## Current file contents (edit and return each COMPLETE)

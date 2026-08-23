@@ -8,36 +8,103 @@ The scene uses the same frame: Y up, meters; the ground is around y=0 unless you
 LANGUAGE CONTRACT THE BUILDERS WILL FOLLOW:
 {{ contract }}
 
+## What this track is graded on (write the plan that wins these points)
+A scene scores 0.8+ only when every authored camera makes a PICTURE: three depth layers
+(something within 5 m framing the shot, the subject at 8-30 m, a hazy horizon above), ground
+that is several blended materials with paths and worn edges, vegetation/rock in 3+ species with
+size and hue variation in clusters, a lived-in amount of small props, coloured atmosphere with
+warm key vs cool fill, and motion you can see between t=0 s and t=1.5 s.  A correct-but-bare
+scene — a diorama of a few objects on one flat coloured plane, ringed by identical cones, under
+flat light — scores ~0.5 no matter how well it is coded.  Your plan must make the bare version
+impossible: put the counts, the layers, the colours and the amplitudes in the text.
+
 WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
 1. `title`, `summary` (two sentences), `setting` (place, era, weather, time of day), `mood`.
-2. `bounds` — centre + extents in meters of the whole playable area (a garden 30 × 10 × 30 m; a
-   harbour 120 × 30 × 120 m). Keep it as small as the brief allows: detail beats acreage.
-3. `environment` — ONE paragraph with numbers: sky colours (hex), sun/moon direction as azimuth +
-   elevation in degrees, light colour/intensity, fog colour + density, ground material and height,
-   water plane height if any.
-4. `zones` — 3 to 8 spatial regions with PascalCase names, a description of what is there and how it
-   is laid out (paths, clusters, spacing in meters), a `bbox`, and `contents` = asset names placed
-   there. Zone bboxes tile the bounds without overlapping by more than 1 m.
-5. `assets` — 4 to 12 reusable things placed in zones. PascalCase `name`; `kind` = `threejs` for
-   procedural shapes (fences, lanterns, rocks, benches, trees, boats) or `blender_glb` ONLY for 1-3
-   hero objects that need sculpted/bevelled detail; `description` with construction numbers and
-   colours; `approx_size_m` = width × height × depth in meters (a stone lantern 0.5 × 1.6 × 0.5;
-   a bench 1.6 × 0.9 × 0.6; a pine 3 × 7 × 3); `instances_hint` = how many appear in total.
-   Ground cover, terrain, water and sky are NOT assets — they belong to the environment / zones.
+2. `bounds` — centre + extents in meters of the whole playable area (a garden 30 x 10 x 30 m; a
+   harbour 120 x 30 x 120 m). Keep it as small as the brief allows: detail beats acreage.
+3. `environment` — ONE paragraph, all numbers, covering IN THIS ORDER:
+   (a) sky zenith + horizon hex and the sun/moon azimuth + elevation in degrees;
+   (b) key light hex + intensity AND fill (hemisphere) sky/ground hex + intensity — the fill hue
+       must be at least 60 degrees away from the key hue (warm sun, cool sky) or the frame comes
+       out monochrome;
+   (c) fog hex (= the sky HORIZON colour, never white or grey unless overcast) + near/far in
+       meters, scaled to this scene: near ~ 0.4 x the bounds diagonal, far ~ 2 x the diagonal;
+   (d) ground: the 3-4 material colours that blend across it (e.g. moss 0x4a602e, dry grass
+       0x8a8148, packed dirt 0x6b5334, gravel 0xa89a7c), which drives the blend (height, slope,
+       noise), and where the PATH runs as a polyline of 3-5 (x, z) points, 1.2-2.0 m wide;
+   (e) the BACKDROP that hides the world edge: a silhouette ring (hills / treeline / rooftops /
+       mesas) at radius ~ 0.6 x fog far, 24-40 pieces, tinted 70 % toward the fog colour — or,
+       for an interior, what is seen through the glass;
+   (f) water plane height + colour, if any.
+4. `zones` — 3 to 6 spatial regions with PascalCase names, a `bbox`, and `contents` = asset names
+   placed there. Zone bboxes tile the bounds without overlapping by more than 1 m.
+   Each zone `description` MUST state, as numbers:
+   - its DEPTH ROLE for the cameras: `foreground frame`, `midground subject` or `background`;
+   - the layout (paths, clusters, spacing in meters, what faces what);
+   - DENSITY COUNTS: how many trees / shrubs / rocks / mid props (0.3-1.5 m) / small props
+     (< 0.3 m) / ground-cover tufts it contains.  Target per zone: 12-25 mid props, 25-60 small
+     props, 300-800 ground-cover tufts for a planted zone (desert: 15-30 boulders in 3 size
+     bands, 60-200 scrub clumps; interior: 15-30 mid, 40-100 small);
+   - the VARIATION rule: at least 3 distinct silhouettes for any repeated natural element, with
+     +/-30 % scale jitter and +/-0.03 hue jitter — never one shape stamped in a ring or grid.
+5. `assets` — 4 to 8 reusable things placed in zones. PascalCase `name`; `kind` = `threejs` for
+   procedural shapes (fences, lanterns, rocks, benches, trees, boats) or `blender_glb` ONLY for
+   1-2 hero objects that need sculpted/bevelled detail; `description` with construction numbers
+   and colours; `approx_size_m` = width x height x depth in meters (a stone lantern
+   0.5 x 1.6 x 0.5; a bench 1.6 x 0.9 x 0.6; a pine 3 x 7 x 3); `instances_hint` = how many
+   appear in total.  Prefer FEWER asset modules with a `variant` range (say "5 variants via
+   opts.variant: three trunk shapes, two crown shapes") over many near-duplicate modules —
+   variation belongs inside an asset, not in the asset list.  Ground cover, terrain, water,
+   backdrop and sky are NOT assets — they belong to the environment / zones.
 6. `effects` — 1 to 4: `glsl_material` (water ripple, lantern glow, wind-swayed foliage),
    `particles` (petals, sparks, snow), `animated_geometry`, or `postprocess`; say which zone/asset.
-7. `animation` — 2 to 6 lines of what moves: amplitude + frequency in numbers.
-8. `cameras` — 2 to 4 authored cameras: `position`, `look_at` (meters), `fov` 35-70, `purpose`
-   (establishing shot from outside the bounds looking in; eye level at 1.6-1.8 m inside a zone; a
-   detail shot of the hero asset). Every camera must see at least two zones or a hero asset.
+7. `animation` — 2 to 6 lines of what moves, each with an amplitude that is VISIBLE in a
+   1024x576 frame after 1.5 s: foliage sway +/-0.10-0.20 rad over 1.6-3 s; grass +/-0.15 rad;
+   water waves >= 0.04 m plus a scroll >= 0.15 m/s; particles travelling >= 0.6 m per 1.5 s;
+   vehicles/boats/beams >= 1.5 m or a full revolution per 1.5 s; light flicker x0.75-x1.3.
+   Exactly one of them is the HERO motion: the single thing a viewer cannot miss.
+8. `cameras` — 3 to 4 authored cameras.  The harness uses your numbers LITERALLY, so compute them:
+   - `cameras[0]` is the establishing shot.  Pick the SUBJECT (the hero asset or the zone the
+     brief is about) and its centre point S.  Put the camera at distance
+     D = 1.5 x (subject radius) / tan(fov/2) from S, at height
+     y = (tallest thing between camera and subject) + 0.30 x D, looking AT S (not at the bounds
+     centre, not at the horizon).  It must see 2+ zones and >= 20 % of the frame must be content
+     rather than empty sky/ground.
+   - one eye-level camera INSIDE the scene at y = ground + 1.6-1.8 m, aimed along a path or
+     across the subject so that something within 5 m frames one edge of the shot;
+   - one detail camera 2-4 m from the hero asset, slightly above its mid height.
+   - `purpose` must name the subject, the foreground framing element and what is on the horizon
+     for that shot ("establishing: the arched bridge at 14 m, framed by the maple on the right at
+     3 m, cedar ridge on the horizon").
+   - No camera may be inside or within 0.5 m of geometry; fov 35-60.
 9. `acceptance` — 6 to 12 items: each must-have from the brief, the hero assets visible from the
-   establishing camera, time-of-day lighting reads correctly, animation visible between t=0 and
-   t=1.5 s, no floating or sunken assets (`how: probe`), fps ≥ 30 at 1024×576.
+   establishing camera, time-of-day lighting reads correctly, the hero motion is visible between
+   t=0 and t=1.5 s, no floating or sunken assets (`how: probe`), no hard world edge visible from
+   any authored camera, fps >= 30 at 1024x576.
 
 RULES
 - Every name in `zones[].contents` must be an asset name; asset names unique; zone names unique.
 - Realistic scale: people 1.7 m, doors 2.1 m, steps 0.17 m, benches 0.45 m seat height.
-- Prefer ≤ 8 assets and 3-5 zones for modest briefs. No prose outside the JSON.
+- Prefer <= 8 assets and 3-5 zones for modest briefs. No prose outside the JSON.
 
-WORKED EXAMPLE (shape only — do not copy its values):
+WORKED EXAMPLE (field SHAPE only — its prose is deliberately terse and does NOT meet the
+`environment` / zone-description / camera-purpose requirements above):
 {{ example_json }}
+
+HOW THE THREE PROSE FIELDS MUST ACTUALLY READ (style, not values):
+- environment: "Sky zenith 0x3b5f96 to horizon 0xf0a860, sun azimuth 250 deg elevation 12 deg,
+  key 0xffc27a at 2.8, hemisphere sky 0x86a8d8 / ground 0x5c4630 at 0.85 (cool fill against the
+  warm key); fog 0xf0a860 near 16 m far 77 m (bounds diagonal 45 m); ground blends moss 0x4a602e,
+  dry grass 0x8a8148, packed dirt 0x6b5334 and gravel 0xa89a7c by slope and noise, with a 1.6 m
+  gravel path through (-14,-11), (-5,-4), (2,1), (9,8) flattened into heightAt; backdrop = 30
+  cedar-ridge silhouettes at radius 46 m, 3-6 m tall, tinted 70 % to the fog colour; pond plane
+  at y=-0.35, 0x2c4a52."
+- zone description: "MIDGROUND SUBJECT. The koi pond and arched bridge on the path's east bend.
+  1 bridge, 2 stone lanterns 4 m apart facing the path, 3 pond rocks in 3 sizes, 18 mid props
+  (potted shrubs, a water basin, a stacked-stone kerb, a bucket, a bamboo scoop), 34 small props
+  (pebbles along the pond rim, fallen maple leaves, a rope coil, moss patches), 500 ground-cover
+  tufts outside the gravel.  Vegetation uses 3 silhouettes (upright pine, low maple, round shrub)
+  with +/-30 % scale and +/-0.03 hue jitter, in 4 clusters, never a ring."
+- camera purpose: "establishing: the arched bridge (subject centre 1.5, 0.9, -0.8, radius 4.5 m)
+  from the south-east above the maples, framed by the lantern at 3 m on the left edge, cedar ridge
+  on the horizon; sees PondBasin and ZenGarden."

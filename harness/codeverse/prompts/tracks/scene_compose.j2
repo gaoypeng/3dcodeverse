@@ -2,23 +2,28 @@
 
 The environment (`src/env.js`), zones (`src/zones/*.js`) and assets (`src/assets/*.js`,
 `public/assets/*.glb`) exist. Write the entry module that wires them together.
+(The harness normally generates this file itself; you are writing the fallback, so match the
+generated shape exactly.)
 
 ## Contract
 {{ frame_doc }}
 {{ contract }}
-`src/scene.js` must `export function createScene({ THREE, renderer, loaders }) → { scene, cameras, update }`:
-- `scene`: a `THREE.Scene`; call `buildEnv(THREE, scene)` from `./env.js`, then add every zone group
-  (`build<Zone>(ctx)` from `./zones/<zone>.js` with `ctx = { THREE, env, heightAt, MATS, rand }`),
-  each zone group named after the zone.
-- `cameras`: an array of `THREE.PerspectiveCamera` named after the planned cameras, positioned at the
-  planned `position` and `lookAt` numbers, `fov` as planned, aspect 16:9, near 0.1, far ≥ 2 × bounds.
-  `cameras[0]` is the establishing shot.
-- `update(t, dt)`: calls `tickEnv(t, dt)` and every `userData.tick(t, dt)` found on zone/asset groups
-  (traverse once at creation and cache the list; never traverse per frame).
+`src/scene.js` must `export async function createScene({ THREE, renderer, loaders }) → { scene, cameras, update }`:
+- `scene`: a `THREE.Scene`; build `ctx = { THREE, scene, renderer, loaders, heightAt, assets: {} }`,
+  call `const env = (await buildEnv(ctx)) || {}` from `./env.js` (ONE argument: ctx), set
+  `ctx.env = env`, then add every zone group — `build(ctx)` imported from `./zones/<snake>.js`
+  (the export is named `build`, one argument) — naming each group after its zone.
+- `cameras`: an array of PLAIN OBJECTS `{ name, position: [x,y,z], lookAt: [x,y,z], fov }` (the
+  harness builds the PerspectiveCameras). Use the planned numbers literally. `cameras[0]` is the
+  establishing shot: it looks at the SUBJECT point, not at the bounds centre, and its height is
+  above anything standing between it and the subject.
+- `update(t, dt)`: calls `env.update(t, dt)` and every zone group's `userData.update(t, dt)`
+  (collect the list once at creation; never traverse per frame). `tickEnv` and `userData.tick`
+  are not part of the contract — do not call them.
 - Wrap each zone build in try/catch: a failing zone logs `console.error('[zone <name>] ' + err)` and is skipped.
 - Use a seeded mulberry32 `rand` (seed 1) so frames are reproducible.
-- GLB assets load via `loaders.gltf.loadAsync('public/assets/<snake>.glb')` — if you load any, keep the
-  scene buildable before they resolve (add to the group on resolve).
+- GLB assets load via `loaders.gltf.loadAsync('/assets/<snake>.glb')` into `ctx.assets` before the
+  zones build.
 
 ## Plan
 Bounds: {{ bounds }}

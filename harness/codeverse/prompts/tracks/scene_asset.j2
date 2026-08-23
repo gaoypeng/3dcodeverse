@@ -32,8 +32,10 @@ Scene: {{ spec_prompt }}
   details deterministically (use a tiny mulberry32 PRNG inside the file — never Math.random).
 - Build from primitives (Box/Cylinder/Cone/Sphere/Lathe/Extrude/Tube) with MeshStandardMaterial
   colours in hex; merge repeated pieces with InstancedMesh when > 20 copies.
-- Set `group.userData.size = [w, h, d]` to the measured size. Optional
-  `group.userData.tick = (t, dt) => {...}` for subtle motion.
+- Set `group.userData.size = [w, h, d]` to the measured size.  Optional animation hook:
+  `group.userData.update = (t, dt) => {...}` (the zone that places you caches it and calls it;
+  `userData.tick` is never called by anything).  Amplitudes must be visible after 1.5 s:
+  >= 0.10 rad of rotation or >= 0.05 m of travel — not sub-centimetre jitter.
 - No DOM, no texture/image loading, no fetch, no imports except `import * as THREE from 'three'`.
 - ≤ 15k triangles per instance; segments 12-24.
 {% endif %}
@@ -41,7 +43,15 @@ Scene: {{ spec_prompt }}
 ## DO / DON'T
 - DO use the exact size numbers above; the zone builders rely on them.
 - DO give it the 3-4 recognisable features a person would name (a stone lantern: base, post, light
-  box with 4 windows, curved roof, finial).
+  box with 4 windows, curved roof, finial) — plus 2-3 pieces of wear or incident that make it look
+  used: a chipped corner, a leaning post, moss at the base, a rope, a hanging tool.
+- DO make `opts.variant` (0..n) change the SILHOUETTE, not just the scale: at least 3 visibly
+  different versions (a different crown shape, a different roof pitch, a broken vs whole rail).
+  Zones rely on this for variety, so a plain `variant` that only scales is a wasted asset.
+- DO give any repeated natural asset per-instance hue room: expose `opts.hue`/`opts.tint` (or
+  accept `opts.seed` and vary the colour from it) so 20 copies are not one colour.
+- DON'T model a flat plane with a colour where the thing has real thickness (a fence is stalks and
+  rails, not a textured quad) — closeups are judged.
 - DON'T leave floating pieces: every sub-shape overlaps a neighbour by ≥ 2 mm.
 - DON'T write anything but the asset file.
 {% if current_code %}

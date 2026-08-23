@@ -102,8 +102,8 @@ def test_text_reasoning_effort_usage_cost():
         20,
         10,
     )
-    # 80*5 + 20*0.5 + 30*30 per 1M
-    assert abs(u.cost_usd - (400 + 10 + 900) / 1e6) < 1e-12
+    # gpt-5.6-sol: 80*4.00 + 20*0.40 + 30*20.00 per 1M (pricing checked 2026-08-23)
+    assert abs(u.cost_usd - (320 + 8 + 600) / 1e6) < 1e-12
 
 
 def test_reasoning_effort_mapping_and_temperature_for_non_reasoning():

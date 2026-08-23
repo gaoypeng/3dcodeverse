@@ -10,23 +10,14 @@ the ship gate) unless ``ctx.extra['texture_services']`` injects a
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from pydantic import BaseModel, Field
 
 from codeverse.contracts.common import Track
 from codeverse.contracts.plan import StaticPlan
 from codeverse.contracts.spec import Spec
-from codeverse.spatial.observe import rel_path
+from codeverse.spatial.observe import rel_path, text_observation
 from codeverse.spatial.registry import Observation, ToolContext, ToolUsageError, tool
-from codeverse.spatial.tool_common import (
-    ToolUnavailable,
-    glb_path,
-    lazy,
-    load_plan,
-    spec_dict,
-    unavailable_obs,
-)
+from codeverse.spatial.tool_common import glb_path, lazy, load_plan, spec_dict
 
 _OBJECT_TRACKS = (Track.STATIC_OBJECT.value, Track.ARTICULATED_OBJECT.value)
 
@@ -55,10 +46,7 @@ def _spec_plan(ctx: ToolContext) -> tuple[Spec, StaticPlan]:
 def texture_pass_tool(ctx: ToolContext, args: TexturePassArgs) -> Observation:
     glb = glb_path(ctx)
     spec, plan = _spec_plan(ctx)
-    try:
-        texture_pass = lazy("codeverse.texturing.run", "texture_pass")
-    except ToolUnavailable as e:
-        return unavailable_obs("texture_pass", e)
+    texture_pass = lazy("codeverse.texturing.run", "texture_pass")
     services = ctx.extra.get("texture_services")  # the ONE injection point (TextureServices)
     rep = texture_pass(ctx.workspace, spec, plan, model_id=args.model or spec.backends.planner,
                        judge=args.judge, glb_in=glb, size=args.size, services=services)
@@ -78,7 +66,7 @@ def texture_pass_tool(ctx: ToolContext, args: TexturePassArgs) -> Observation:
     images = []
     if rep.gate is not None and rep.gate.renders_after and rep.gate.renders_after.contact_sheet:
         images.append(rep.gate.renders_after.contact_sheet)
-    return Observation(ok=True, text="\n".join(lines), numbers=s, images=images)
+    return text_observation(lines, numbers=s, images=images)
 
 
 class TexturePreviewArgs(BaseModel):
@@ -96,12 +84,9 @@ def texture_preview(ctx: ToolContext, args: TexturePreviewArgs) -> Observation:
     if not glb.is_file():
         raise ToolUsageError("artifacts/object_textured.glb does not exist — run texture_pass first", "texture_pass()")
     presets = resolve_views(args.views)
-    try:
-        rs = cached_render_glb(ctx, glb, views=presets, mode="shaded", size=512, sheet=True)
-    except ToolUnavailable as e:
-        return unavailable_obs("texture_preview", e)
+    rs = cached_render_glb(ctx, glb, views=presets, mode="shaded", size=512, sheet=True)
     tex_dir = ws.artifacts / "textures"
     pngs = sorted(p.name for p in tex_dir.glob("*.png")) if tex_dir.is_dir() else []
     text = f"textured GLB rendered ({len(rs.views)} views). textures: {', '.join(pngs) or 'none'}"
     images = [rs.contact_sheet] if rs.contact_sheet else [v.path for v in rs.views]
-    return Observation(ok=True, text=text, numbers={"n_textures": len(pngs)}, images=[str(Path(i)) for i in images])
+    return text_observation(text, numbers={"n_textures": len(pngs)}, images=images)

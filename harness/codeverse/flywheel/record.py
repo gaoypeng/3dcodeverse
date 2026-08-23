@@ -3,8 +3,10 @@
 ``finalize_record`` is the last step of every track run: it fills the
 environment (tool versions + harness git sha), derives best/baseline/final
 scores and totals when the track left them empty, adds a compact per-round
-summary under ``record.extra["rounds_summary"]`` and writes ``record.json``
-atomically.
+summary under ``record.extra["rounds_summary"]``, packages the run
+(``deliverable/`` + ``telemetry/``, see docs/RUN_LAYOUT.md) and writes
+``record.json`` atomically.  Packaging is best-effort: a run is never failed
+by it.
 """
 
 from __future__ import annotations
@@ -57,8 +59,17 @@ def _harness_git_sha() -> str:
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
-def _three_version() -> str:
-    pkg = get_settings().runtime_js_dir() / "node_modules" / "three" / "package.json"
+def _chrome_version() -> str:
+    """Chrome build from the puppeteer cache directory name (offline, no launch)."""
+    cache = Path.home() / ".cache" / "puppeteer" / "chrome"
+    if not cache.is_dir():
+        return ""
+    builds = sorted(p.name for p in cache.iterdir() if p.is_dir())
+    return builds[-1] if builds else ""
+
+
+def _node_pkg_version(name: str) -> str:
+    pkg = get_settings().runtime_js_dir() / "node_modules" / name / "package.json"
     if not pkg.is_file():
         return ""
     try:
@@ -82,7 +93,9 @@ def environment_versions() -> dict[str, str]:
     env["blender"] = _cmd_first_line([blender, "--version"]) if blender else ""
     env["blender_path"] = blender
     env["node"] = _cmd_first_line([s.binaries.node, "--version"])
-    env["three"] = _three_version()
+    env["three"] = _node_pkg_version("three")
+    env["puppeteer"] = _node_pkg_version("puppeteer")
+    env["chrome"] = _chrome_version()
     return env
 
 
@@ -178,10 +191,35 @@ def fill_derived(record: RunRecord) -> RunRecord:
 
 
 # --------------------------------------------------------------------------- io
-def finalize_record(ws: Workspace, record: RunRecord) -> Path:
-    """Fill derived fields + environment and write ``record.json`` atomically."""
+def package_run(ws: Workspace, record: RunRecord) -> None:
+    """Materialise ``deliverable/`` + ``telemetry/`` and mirror them onto the record.
+
+    Best-effort by contract: a packaging failure is logged and the run still
+    gets its ``record.json`` (the old layout is always enough to read a run)."""
+    from codeverse.flywheel.deliverable import build_deliverable
+    from codeverse.flywheel.telemetry import build_telemetry
+
+    try:
+        ws.ensure_layout()
+    except OSError as e:  # read-only mount, exotic filesystem
+        log.warning("run layout not created in %s: %s", ws.root, e)
+        return
+    try:
+        record.deliverable = build_deliverable(ws, record)
+    except Exception as e:  # noqa: BLE001 - never fail a finished run over packaging
+        log.warning("deliverable not built for %s: %s", ws.root, e)
+    try:
+        record.telemetry = build_telemetry(ws, record)
+    except Exception as e:  # noqa: BLE001
+        log.warning("telemetry not written for %s: %s", ws.root, e)
+
+
+def finalize_record(ws: Workspace, record: RunRecord, *, package: bool = True) -> Path:
+    """Fill derived fields + environment, package the run and write ``record.json``."""
     record.workspace = record.workspace or str(ws.root)
     fill_derived(record)
+    if package:
+        package_run(ws, record)
     ws.write_json(ws.record_path, record)
     return ws.record_path
 

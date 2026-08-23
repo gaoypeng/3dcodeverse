@@ -5,11 +5,24 @@ Language: scene_threejs.  Generation is staged (each stage cached by
 renders authored cameras + orbit at t=0 and t=1.5, judges with ``scene_v1``
 (console/shader errors become gate ERRORS) and dispatches refine tasks per
 zone / asset / env / camera, in parallel when file-disjoint.
+
+Cost/latency shaping (the baseline used to eat the whole budget, leaving the
+refine rounds nothing):
+
+* assets are single-shot by default (``scene_assets`` / ``scene_asset_gen``);
+* **small zones are batched** — a zone that places ≤ 3 assets is written
+  together with its neighbour in ONE session that exclusively owns both files,
+  while big zones keep the parallel fan-out;
+* every stage session gets a timeout clipped to the wall-clock actually left;
+* the baseline runs against a **soft sub-budget** (``soft_budget_fraction``);
+  when it is spent the stages degrade (single-shot instead of an agent session,
+  fewer assets, no asset judge) instead of dying at the hard cap.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from codeverse.contracts.artifacts import (
@@ -41,13 +54,28 @@ from codeverse.tracks.prompting import (
     judge_digest,
 )
 from codeverse.tracks.repair import format_error_report
-from codeverse.tracks.scene_assets import AssetResult, asset_api_summary, run_asset_stage
+from codeverse.tracks.scene_asset_gen import select_assets, single_shot_ctx
+from codeverse.tracks.scene_assets import (
+    MAX_ASSETS,
+    AssetResult,
+    asset_api_summary,
+    run_asset_stage,
+)
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
 SCENE_TIMES: tuple[float, float] = (0.0, 1.5)
 MAX_CONSOLE_ERRORS = 8
+#: a zone placing at most this many assets is small enough to share a session
+SMALL_ZONE_CONTENTS = 3
+#: how many small zones may share one session (file ownership stays disjoint)
+MAX_ZONES_PER_BATCH = 2
+ENV_TIMEOUT_S = 420
+ZONE_TIMEOUT_S = 600
+#: a refine session that runs for half an hour (the desert-canyon round 1 did) spends the
+#: wall clock the NEXT round needed; clip it to what the hard budget still allows
+REFINE_TIMEOUT_S = 900
 
 
 class ScenePipeline:
@@ -121,6 +149,10 @@ class SceneTrack(BaseTrack):
     def make_pipeline(self) -> ScenePipeline:
         return ScenePipeline()
 
+    #: the baseline (assets → env → zones → assemble → round 0) may use this share of
+    #: the run budget; the rest belongs to the refine rounds.
+    soft_budget_fraction = 0.55
+
     # ------------------------------------------------------------------ stages
     def prepare(self, ctx: RunContext, runner: StageRunner) -> None:
         self.stage_skeleton(ctx, runner)
@@ -128,56 +160,111 @@ class SceneTrack(BaseTrack):
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         assets = runner.stage("assets", lambda: run_asset_stage(ctx), inputs={"assets": plan.assets, "agent": ctx.agent_id})
         assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v for k, v in (assets or {}).items()}
+        # the merge map is a pure function of the plan, so a RESUMED run (cached asset
+        # stage) still tells the zones which builder+variant to call
+        _, alias = select_assets(list(plan.assets), MAX_ASSETS)
         ctx.extra["assets"] = assets
-        ctx.extra["asset_api"] = asset_api_summary(plan, assets)
+        ctx.extra["asset_alias"] = alias
+        ctx.extra["asset_api"] = asset_api_summary(plan, assets, alias)
         runner.stage("env", lambda: self._env_stage(ctx), inputs={"plan_env": plan.environment, "setting": plan.setting, "agent": ctx.agent_id})
         runner.stage("zones", lambda: self._zones_stage(ctx), inputs={"zones": plan.zones, "asset_api": ctx.extra["asset_api"], "agent": ctx.agent_id})
         runner.stage("assemble", lambda: self._assemble_stage(ctx), inputs={"cameras": plan.cameras, "zones": [z.name for z in plan.zones]})
 
+    # ---- degradation ------------------------------------------------------
+    def _strategy(self, ctx: RunContext, stage: str) -> RunContext:
+        """The context a stage should generate with: the agent normally, single-shot
+        once the baseline has spent its soft sub-budget (never dying at the hard cap)."""
+        reason = ctx.budget.soft_exceeded()
+        if not reason:
+            return ctx
+        sub = None if ctx.single_shot else single_shot_ctx(ctx)
+        if sub is None:
+            self.note_degraded(ctx, f"{stage}: soft budget spent ({reason}); already cheapest strategy")
+            return ctx
+        self.note_degraded(ctx, f"{stage}: soft budget spent ({reason}) → single-shot instead of an agent session")
+        return sub
+
+    def note_degraded(self, ctx: RunContext, note: str) -> None:
+        notes: list[str] = ctx.extra.setdefault("degraded", [])
+        if note not in notes:
+            notes.append(note)
+            ctx.events.emit("budget.degraded", note=note, spent_usd=round(ctx.budget.spent.cost_usd, 4),
+                            elapsed_min=round(ctx.budget.elapsed_minutes(), 2))
+
     def _env_stage(self, ctx: RunContext) -> dict[str, Any]:
-        prompt = render("tracks/scene_env.j2", **self._ctx(ctx))
+        gen = self._strategy(ctx, "env")
+        prompt = render("tracks/scene_env.j2", **self._ctx(gen))
         ctx.record_prompt("scene_env", prompt)
         task = GenerationTask(label="env", prompt=prompt, system=self.system_prompt(ctx), files_hint=["src/env.js"], round=0, kind="env",
-                              temperature=0.5)
-        res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
+                              temperature=0.5, timeout_s=ctx.budget.timeout_s(ENV_TIMEOUT_S, floor_s=120))
+        res = generate(ctx.ws, agent_id=gen.agent_id, task=task, agent=gen.agent, model=gen.model, settings=ctx.settings,
                        budget=ctx.budget, events=ctx.events)
         ctx.ws.commit("env")
         return {"ok": res.ok, "files": [c.path for c in res.files_changed], "notes": res.notes}
 
     def _zones_stage(self, ctx: RunContext) -> dict[str, Any]:
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
+        t0 = time.time()
+        batches = plan_zone_batches(list(plan.zones))
+        if any(len(b) > 1 for b in batches):
+            ctx.events.emit("zones.batched", batches=[[z.name for z in b] for b in batches])
 
-        def _one(zone: ZonePlan) -> GenerationResult:
-            task = self._zone_task(ctx, zone)
-            return generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
+        def _one(batch: list[ZonePlan]) -> GenerationResult:
+            gen = self._strategy(ctx, "zones")
+            task = self._zone_task(gen, batch)
+            return generate(ctx.ws, agent_id=gen.agent_id, task=task, agent=gen.agent, model=gen.model, settings=ctx.settings,
                             budget=ctx.budget, events=ctx.events)
 
-        results = fan_out(list(plan.zones), _one, max_workers=ctx.settings.limits.max_parallel_agents, label="zones",
-                          item_name=lambda z: z.name)
+        results = fan_out(batches, _one, max_workers=ctx.settings.limits.max_parallel_agents, label="zones",
+                          item_name=lambda b: "+".join(z.name for z in b))
         out: dict[str, Any] = {}
-        for zone, r in zip(plan.zones, results, strict=True):
+        for batch, r in zip(batches, results, strict=True):
             if isinstance(r, Exception):
                 from codeverse.orchestrator.budget import BudgetExceeded
 
                 if isinstance(r, BudgetExceeded):
                     raise r
-                out[zone.name] = {"ok": False, "notes": f"{type(r).__name__}: {r}"}
+                for zone in batch:
+                    out[zone.name] = {"ok": False, "notes": f"{type(r).__name__}: {r}"}
             else:
-                out[zone.name] = {"ok": r.ok, "files": [c.path for c in r.files_changed], "notes": r.notes}
+                written = {c.path for c in r.files_changed}
+                for zone in batch:
+                    rel = zone_file(zone)
+                    # a batched session must have produced EVERY file it owns; the skeleton
+                    # left a stub at every zone path, so existence proves nothing — the file
+                    # must have been reported as changed or actually rewritten in this stage
+                    ok = r.ok and (len(batch) == 1 or rel in written or _touched(ctx.ws.root / rel, t0))
+                    out[zone.name] = {"ok": ok, "files": [rel] if ok else [], "notes": r.notes}
         ctx.ws.commit("zones")
         ctx.events.emit("zones.done", ok=[k for k, v in out.items() if v["ok"]], failed=[k for k, v in out.items() if not v["ok"]])
         return out
 
-    def _zone_task(self, ctx: RunContext, zone: ZonePlan) -> GenerationTask:
+    def _zone_task(self, ctx: RunContext, batch: list[ZonePlan]) -> GenerationTask:
+        """One task for one zone, or for a batch of small zones that shares a session.
+
+        A batched task exclusively owns every file it lists, so ``files_hint``
+        attribution and the refine fan-out stay file-disjoint."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
-        rel = f"src/zones/{to_snake(zone.name)}.js"
-        neighbours = [f"{z.name}: {bbox_line(z.bbox)}" for z in plan.zones if z.name != zone.name]
-        prompt = render("tracks/scene_zone.j2", **self._ctx(ctx, zone_name=zone.name, zone_description=zone.description,
-                                                           zone_bbox=bbox_line(zone.bbox), zone_contents=zone.contents,
-                                                           zone_file=rel, neighbours=neighbours))
-        ctx.record_prompt("scene_zone", prompt)
-        return GenerationTask(label=f"zone_{to_snake(zone.name)}", prompt=prompt, system=self.system_prompt(ctx), files_hint=[rel],
-                              round=0, kind="zone", temperature=0.5)
+        names = [z.name for z in batch]
+        files = [zone_file(z) for z in batch]
+        briefs = []
+        for zone in batch:
+            neighbours = [f"{z.name}: {bbox_line(z.bbox)}" for z in plan.zones if z.name != zone.name]
+            briefs.append(render("tracks/scene_zone.j2", **self._ctx(ctx, zone_name=zone.name, zone_description=zone.description,
+                                                                    zone_bbox=bbox_line(zone.bbox), zone_contents=zone.contents,
+                                                                    zone_file=zone_file(zone), neighbours=neighbours)))
+        ctx.record_prompt("scene_zone", briefs[0])
+        if len(batch) == 1:
+            prompt, label = briefs[0], f"zone_{to_snake(names[0])}"
+        else:
+            header = (f"# {len(batch)} zone modules in ONE session — write ALL of: {', '.join(files)}\n\n"
+                      f"You own exactly these files and nothing else. {len(batch)} complete zone briefs follow, "
+                      "separated by a horizontal rule; implement each one in its own file exactly as its brief says. "
+                      "They are small neighbouring zones, so keep their styling consistent and do not build into each other.\n")
+            prompt = header + "\n\n---\n\n".join(briefs)
+            label = "zones_" + "_".join(to_snake(n) for n in names)
+        return GenerationTask(label=label, prompt=prompt, system=self.system_prompt(ctx), files_hint=files,
+                              round=0, kind="zone", temperature=0.5, timeout_s=ctx.budget.timeout_s(ZONE_TIMEOUT_S, floor_s=180))
 
     def _assemble_stage(self, ctx: RunContext) -> dict[str, Any]:
         try:
@@ -195,6 +282,23 @@ class SceneTrack(BaseTrack):
                        budget=ctx.budget, events=ctx.events)
         ctx.ws.commit("compose")
         return {"ok": res.ok, "deterministic": False, "files": [c.path for c in res.files_changed], "notes": res.notes}
+
+    def prepare_salvage(self, ctx: RunContext) -> bool:
+        """The budget stopped a stage before round 0: assemble whatever the stages DID
+        write (the skeleton guarantees a stub per zone) so the run still delivers a
+        built, rendered, judged scene instead of no score at all."""
+        plan: ScenePlan = ctx.plan  # type: ignore[assignment]
+        zones = [z for z in plan.zones if (ctx.ws.root / zone_file(z)).is_file()]
+        if not zones:
+            return False
+        ctx.extra.setdefault("asset_api", asset_api_summary(plan, ctx.extra.get("assets") or {}, ctx.extra.get("asset_alias")))
+        self.note_degraded(ctx, f"salvage: assembled {len(zones)}/{len(plan.zones)} zones written before the budget stop")
+        ctx.plan = plan.model_copy(update={"zones": zones})
+        try:
+            self._assemble_stage(ctx)
+        finally:
+            ctx.plan = plan
+        return True
 
     # ------------------------------------------------------------------ rounds
     def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
@@ -216,7 +320,8 @@ class SceneTrack(BaseTrack):
                                                               current_files=current_files(ctx, files) if ctx.single_shot else {}))
         ctx.record_prompt("scene_refine", prompt)
         return GenerationTask(label=f"refine_{group.label}" if parallel else "refine", prompt=prompt, system=self.system_prompt(ctx),
-                              files_hint=files, round=index, kind="refine", temperature=0.4)
+                              files_hint=files, round=index, kind="refine", temperature=0.4,
+                              timeout_s=ctx.budget.timeout_s(REFINE_TIMEOUT_S, floor_s=180, soft=False))
 
     def _rebuild_task(self, ctx: RunContext, last: RoundRecord, index: int) -> GenerationTask:
         """One repair task carrying the structured error report (build + lint + census
@@ -237,7 +342,8 @@ class SceneTrack(BaseTrack):
                                                              current_files=current_files(ctx, files) if ctx.single_shot else {}))
         ctx.record_prompt("scene_refine", prompt)
         return GenerationTask(label="rebuild", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
-                              kind="rebuild", temperature=0.7, thinking="high")
+                              kind="rebuild", temperature=0.7, thinking="high",
+                              timeout_s=ctx.budget.timeout_s(REFINE_TIMEOUT_S, floor_s=180, soft=False))
 
     # ------------------------------------------------------------------ helpers
     def system_prompt(self, ctx: RunContext) -> str:
@@ -257,6 +363,44 @@ class SceneTrack(BaseTrack):
 
 
 # ----------------------------------------------------------------------------- helpers
+def zone_file(zone: ZonePlan) -> str:
+    return f"src/zones/{to_snake(zone.name)}.js"
+
+
+def _touched(path: Any, since: float) -> bool:
+    """Was ``path`` (re)written after ``since``?  (mtime beats existence: every zone
+    path already holds a skeleton stub.)"""
+    try:
+        return path.is_file() and path.stat().st_mtime > since
+    except OSError:
+        return False
+
+
+def plan_zone_batches(zones: list[ZonePlan], *, small_max: int = SMALL_ZONE_CONTENTS,
+                      max_per_batch: int = MAX_ZONES_PER_BATCH) -> list[list[ZonePlan]]:
+    """Group consecutive SMALL zones (≤ ``small_max`` asset placements) into shared
+    sessions; big zones keep a session of their own.
+
+    Plan order is preserved, so a batch is always a pair of neighbours and the
+    batching is deterministic (stage-hash stable across resumes)."""
+    batches: list[list[ZonePlan]] = []
+    pending: list[ZonePlan] = []
+    for z in zones:
+        if len(z.contents) > small_max:
+            if pending:
+                batches.append(pending)
+                pending = []
+            batches.append([z])
+            continue
+        pending.append(z)
+        if len(pending) >= max_per_batch:
+            batches.append(pending)
+            pending = []
+    if pending:
+        batches.append(pending)
+    return batches
+
+
 def census_gate_report(build: BuildResult) -> GateReport | None:
     """Turn scene census error lists (console/shader) into a gate, when present."""
     c = build.census or {}

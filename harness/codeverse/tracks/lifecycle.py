@@ -107,6 +107,9 @@ class BaseTrack:
     plan_max_output_tokens: int = 24000
     #: refine fan-out (graphics is always ONE whole-program task)
     allow_refine_fanout: bool = True
+    #: share of the run budget the BASELINE may use (1.0 = no soft cap).  The scene
+    #: track lowers it so the refine rounds always inherit money and minutes.
+    soft_budget_fraction: float = 1.0
 
     def __init__(
         self,
@@ -147,6 +150,15 @@ class BaseTrack:
 
     def round_files_hint(self, ctx: RunContext) -> list[str]:
         return []
+
+    def round_extra_notes(self, ctx: RunContext) -> list[str]:
+        """Notes folded into every round record (e.g. 'the baseline was degraded')."""
+        return list(ctx.extra.get("degraded") or [])
+
+    def prepare_salvage(self, ctx: RunContext) -> bool:
+        """Make the workspace buildable after a stage tripped the budget before
+        round 0.  Return False (the default) when the track has nothing to salvage."""
+        return False
 
     # ---- planner hooks (tracks/planner.py runs the one loop)
     def plan_example(self, spec: Spec) -> dict[str, Any]:
@@ -238,6 +250,7 @@ class BaseTrack:
         except BudgetExceeded as e:
             events.emit("budget.exceeded", reason=e.reason, spent_usd=round(e.spent_usd, 4))
             stop, error = "budget", e.reason
+            self._salvage_baseline(ctx, rounds)
         except Exception as e:  # noqa: BLE001 — persist a FAILED record, then fail loud
             error = f"{type(e).__name__}: {e}"
             events.emit("run.failed", error=error, traceback=traceback.format_exc()[-3000:])
@@ -255,7 +268,7 @@ class BaseTrack:
     def build_context(self, spec: Spec, ws: Workspace, events: EventLog, state: RunState) -> RunContext:
         settings = self._settings or get_settings()
         runtime = self._runtime or self.services.runtime(spec.language)
-        budget = BudgetGuard(spec.budget)
+        budget = BudgetGuard(spec.budget, soft_fraction=self.soft_budget_fraction)
         spent = state.extra.get("spent_usage")
         if spent:
             budget.spent = Usage.model_validate(spent)
@@ -408,7 +421,8 @@ class BaseTrack:
                     rec = run_best_of_n(self, ctx, tasks, pipeline, files_hint=self.round_files_hint(ctx))
                 else:
                     rec = run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
-                                    previous=previous, files_hint=self.round_files_hint(ctx))
+                                    previous=previous, files_hint=self.round_files_hint(ctx),
+                                    extra_notes=self.round_extra_notes(ctx))
             except RoundFailed as e:
                 if index == 0:
                     raise
@@ -424,6 +438,41 @@ class BaseTrack:
             if best is not None and ctx.state.update_best(best, rounds[best].commit, rounds[best].score):
                 ctx.events.emit("best.updated", round=best, score=rounds[best].score)
             self._save_spent(ctx)
+
+    def _salvage_baseline(self, ctx: RunContext, rounds: list[RoundRecord]) -> None:
+        """A stage tripped the budget BEFORE round 0 ever ran (the greenhouse scene:
+        the zone fan-out crossed the ceiling, so the run finished with no build, no
+        render, no judge and no score at all).
+
+        The workspace still holds buildable code, and build → render → judge is a
+        fraction of a generation session, so grant an explicit one-off grace and
+        deliver ONE no-generation round.  Any failure here is swallowed: the run is
+        already stopping on budget."""
+        if rounds or ctx.state.completed_rounds or ctx.plan is None:
+            return  # nothing was built yet (the PLAN itself blew the budget) → nothing to salvage
+        if not ctx.budget.ok() and ctx.budget.spent.cost_usd > ctx.budget.hard_usd * 2:
+            return  # runaway spend: do not throw good money after bad
+        grace_usd = max(0.15, ctx.spec.budget.max_usd * 0.10)
+        grace_min = max(5.0, ctx.spec.budget.max_minutes * 0.15)
+        ctx.budget.grant_grace(usd=grace_usd, minutes=grace_min)
+        ctx.events.emit("budget.salvage", reason="no round completed before the budget stop",
+                        grace_usd=round(grace_usd, 3), grace_minutes=round(grace_min, 1))
+        try:
+            if not self.prepare_salvage(ctx):
+                ctx.events.emit("budget.salvage_skipped", reason="nothing buildable to salvage")
+                return
+            rec = run_round(ctx, index=0, kind="baseline", tasks=[], pipeline=self.make_pipeline(), instructions=[],
+                            previous=None, files_hint=self.round_files_hint(ctx),
+                            extra_notes=["salvaged: the budget stopped the run before round 0", *self.round_extra_notes(ctx)])
+        except Exception as e:  # noqa: BLE001 — the run is already stopping; never mask the budget stop
+            log.warning("salvage round failed: %s", e)
+            ctx.events.emit("budget.salvage_failed", error=f"{type(e).__name__}: {e}")
+            return
+        rounds.append(rec)
+        ctx.state.mark_round_done(0, rec.commit)
+        if ctx.state.update_best(0, rec.commit, rec.score):
+            ctx.events.emit("best.updated", round=0, score=rec.score)
+        self._save_spent(ctx)
 
     def _save_spent(self, ctx: RunContext) -> None:
         ctx.state.extra["spent_usage"] = ctx.budget.spent.model_dump(mode="json")

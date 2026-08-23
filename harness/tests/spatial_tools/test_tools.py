@@ -332,7 +332,7 @@ def test_build_tool_scene_reports_probe_census(tmp_ws: Workspace, monkeypatch: p
 
 
 def test_build_tool_graphics_reports_frames(tmp_ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.languages.glsl_shader.gl_build as gl_build
+    import codeverse.languages._gl_common as gl_build  # the one metrics reader (gl_build is a shim over it)
     from codeverse.spatial.frame_stats import FrameStat, SequenceStats
 
     ctx = ToolContext(workspace=tmp_ws, language="glsl_shader", track="graphics")
