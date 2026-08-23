@@ -2,7 +2,32 @@
 
 Everything Three.js / headless-Chrome the harness does lives here.  **Agent code
 never imports from this directory**; it only imports `three` (and
-`three/addons/...`), which the harness resolves for it.
+`three/addons/...`), which the harness resolves for it — through the
+`--import lib/resolve_three.mjs` hook in node, and through the import map
+`serve.cjs::importMapHtml()` in the browser (runtime_js is mounted at
+`/__runtime/`; nothing is fetched from a CDN).
+
+## Install
+
+This directory is an ordinary npm package owned by the harness: `package.json`
+and `package-lock.json` are committed, `node_modules/` is **not** (gitignored,
+~97 MB, 100 packages).  Node itself is a system prerequisite (>= 20; v24.14.0
+here) — installing it is separate from what `npm ci` does here.
+
+```bash
+cd harness/runtime_js
+npm ci                                  # exact-lockfile install (~2 s); NOT `npm install`
+npx puppeteer browsers install chrome   # only if ~/.cache/puppeteer is empty
+```
+
+`bash harness/scripts/setup.sh` does both of these (plus the python install and
+`3dcodeverse doctor`) and skips `npm ci` when the lockfile has not moved.
+
+Re-run `npm ci` after a fresh clone or after pulling a `package.json` /
+`package-lock.json` change — it deletes `node_modules/` first, so never while a
+render or bench is running.  Deps: `three` 0.182 (export + render + scene host),
+`puppeteer` 24 (headless Chrome, downloads its own build into `~/.cache/puppeteer`),
+`three-mesh-bvh` 0.9.14 (accelerated raycasts).  Full guide: `../docs/INSTALL.md`.
 
 ```
 gpu_launch.cjs        launchBrowser({gpu:'auto'|'on'|'off'}) → {browser, gpu, renderer, shared, release()};
@@ -63,7 +88,7 @@ Python entry points: `codeverse.spatial.node.run_node`, `codeverse.spatial.rende
 `codeverse.languages.threejs.ThreeJsRuntime`.
 
 Quick checks:
-```
+```bash
 node --import lib/resolve_three.mjs export_glb.mjs --ws /path/to/ws
 node render_glb.mjs --glb ws/artifacts/object.glb --out /tmp/r --views '[{"name":"front","azimuth":0,"elevation":10}]'
 ```

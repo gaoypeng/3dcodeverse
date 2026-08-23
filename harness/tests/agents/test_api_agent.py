@@ -99,7 +99,7 @@ def test_loop_writes_file_and_finishes(tmp_ws):
     assert last_req.messages[-1].role == "tool" and isinstance(last_req.messages[-1].parts[0], ToolResultPart)
     assert last_req.tools and {t.name for t in last_req.tools} >= {"read_file", "write_file", "edit_file", "list_files", "run_shell"}
     # transcript
-    kinds = [json.loads(l)["kind"] for l in Path(res.transcript_path).read_text().splitlines()]
+    kinds = [json.loads(ln)["kind"] for ln in Path(res.transcript_path).read_text().splitlines()]
     assert kinds[0] == "system" and kinds.count("assistant") == 3 and kinds.count("tool_result") == 2
     rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
     assert rec["nudged"] is False and "write_file" in rec["tools"]
@@ -192,7 +192,7 @@ def test_compaction_triggers_in_loop(tmp_ws, monkeypatch):
     fake = FakeChatModel([resp("", call("read_file", path="src/big.txt")) for _ in range(8)] + [resp("done")])
     res = ApiAgent("fake:fake-1", chat_model=fake).run(_job(tmp_ws, max_turns=12))
     assert res.ok
-    kinds = [json.loads(l)["kind"] for l in Path(res.transcript_path).read_text().splitlines()]
+    kinds = [json.loads(ln)["kind"] for ln in Path(res.transcript_path).read_text().splitlines()]
     assert "compact" in kinds
     assert any(m.text.startswith(FACTS_TAG) for m in fake.requests[-1].messages if m.role == "user")
 

@@ -2,7 +2,8 @@
  * Node-side environment for the scene host drivers: browser launch and
  * workspace serving.  Thin ESM adapters over the two CJS runtime modules —
  * `gpu_launch.cjs` (GPU-verified headless Chrome) and `serve.cjs` (loopback
- * static server + import map).  Single consumer: `lib/host_page.mjs`.
+ * static server + import map).  Consumers: `lib/host_page.mjs` (scenes) and
+ * `render_glb.mjs` (objects) — no other module reaches for the CJS files.
  */
 
 import path from 'node:path';
@@ -22,6 +23,16 @@ const serve = require_(path.join(RUNTIME_ROOT, 'serve.cjs'));
  */
 export async function launchBrowser(opts = {}) {
   return gpuLaunch.launchBrowser(opts);
+}
+
+/**
+ * Serve arbitrary directories / in-memory routes (see serve.cjs); runtime_js is
+ * always mounted at `runtimeMount()`.  The object renderer serves the GLB's
+ * directory this way; scenes go through `serveWorkspace` below.
+ * @returns {Promise<{server, base: string, url: (p: string) => string, close: () => Promise<void>}>}
+ */
+export async function serveDirs(opts = {}) {
+  return serve.serveDirs(opts);
 }
 
 /** URL prefix under which runtime_js is served ('/__runtime/'). */

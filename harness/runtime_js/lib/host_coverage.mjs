@@ -5,30 +5,17 @@
  * fog/background off, a flat white override material on everything left —
  * followed by a downscaled readback.  `sky_frac` is the remainder.
  *
- * The backdrop classifier mirrors the census rules (name + world-bbox size) so
- * "content" here means the same thing as `census.content_bbox`; a mesh is also
- * backdrop when its footprint is far larger than the content bbox (scatter
- * across the whole ground).
+ * The backdrop classifier is shared with the census (`lib/backdrop.mjs`) so
+ * "content" here means the same thing as `census.content_bbox`; passing the
+ * content span additionally treats a mesh whose footprint is far larger than
+ * the content bbox (scatter across the whole ground) as backdrop.
  */
 
-const SAMPLE_W = 96;
-const SAMPLE_H = 54;
-const SKY_NAME_RE = /\b(sky|skydome|skybox|stars|clouds?|sun|moon|atmosphere)\b/i;
-const GROUND_NAME_RE = /\b(ground|terrain|floor|water|ocean|sea|lake|river|plane|sand|grass|land)\b/i;
+import { classifyBackdrop } from './backdrop.mjs';
+import { sampleFrame } from './host_metrics.mjs';
 
-/** 'sky' | 'ground' | 'content' for one drawable with world box `box`. */
-export function classifyBackdrop(obj, box, contentSpan) {
-  const name = obj.name || (obj.parent && obj.parent.name) || '';
-  const sx = box.max.x - box.min.x, sy = box.max.y - box.min.y, sz = box.max.z - box.min.z;
-  const span = Math.max(sx, sz);
-  if (SKY_NAME_RE.test(name) && span > 50) return 'sky';
-  if (span > 2000 || (sy > 300 && span > 300)) return 'sky';
-  if (obj.isInstancedMesh) return 'content';
-  if (span > 20 && sy < 0.06 * span && GROUND_NAME_RE.test(name)) return 'ground';
-  if (span > 40 && sy < 0.02 * span) return 'ground';
-  if (contentSpan > 0 && span > 2.5 * contentSpan && sy < 0.1 * span) return 'ground';
-  return 'content';
-}
+export { classifyBackdrop };   // re-export: this module used to own the classifier
+
 
 function collectDrawables(scene, THREE, contentSpan) {
   const out = [];
@@ -47,13 +34,7 @@ function collectDrawables(scene, THREE, contentSpan) {
 }
 
 function brightFraction(canvas) {
-  const small = document.createElement('canvas');
-  small.width = SAMPLE_W;
-  small.height = SAMPLE_H;
-  const ctx = small.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(canvas, 0, 0, SAMPLE_W, SAMPLE_H);
-  const { data } = ctx.getImageData(0, 0, SAMPLE_W, SAMPLE_H);
-  const n = SAMPLE_W * SAMPLE_H;
+  const { data, n } = sampleFrame(canvas);
   let bright = 0;
   for (let i = 0; i < n; i++) {
     if (data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2] > 3 * 64) bright += 1;

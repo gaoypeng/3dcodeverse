@@ -19,6 +19,7 @@ import { frameStats, nearGeometry } from './host_metrics.mjs';
 import { frameCoverage } from './host_coverage.mjs';
 import { installShaderErrorHook } from './host_shader_errors.mjs';
 import { attributeErrors, captured, captureMaterialSources, materialAudit, stripCustomShaders } from './host_compile.mjs';
+import { makeRenderer, rendererString } from './browser/renderer.js';
 
 const FIXED_DT = 1 / 30;
 const LOAD_IDLE_TIMEOUT_MS = 30000;
@@ -64,27 +65,14 @@ function runUpdate(t, dt) {
   }
 }
 
-function makeRenderer(width, height, opts) {
+/** Host canvas + the shared harness renderer (lib/browser/renderer.js). */
+function makeHostRenderer(width, height, opts) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   canvas.id = '3dcv-canvas';
   document.body.appendChild(canvas);
-  const renderer = new THREE.WebGLRenderer({
-    canvas,
-    antialias: true,
-    preserveDrawingBuffer: true,
-    powerPreference: 'high-performance',
-    logarithmicDepthBuffer: !!opts.logDepth,
-  });
-  renderer.setPixelRatio(1);
-  renderer.setSize(width, height, false);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  return { renderer, canvas };
+  return { renderer: makeRenderer(canvas, width, height, { logDepth: !!opts.logDepth }), canvas };
 }
 
 function validateCameras(raw) {
@@ -147,14 +135,12 @@ async function boot(opts) {
     state.height = opts.height || 576;
     window.requestAnimationFrame = () => { state.rafCalls += 1; return 0; };
     window.cancelAnimationFrame = () => {};
-    const { renderer, canvas } = makeRenderer(state.width, state.height, opts);
+    const { renderer, canvas } = makeHostRenderer(state.width, state.height, opts);
     state.renderer = renderer;
     state.canvas = canvas;
     installShaderErrorHook(renderer, state.shaderErrors);
     try {
-      const gl = renderer.getContext();
-      const ext = gl.getExtension('WEBGL_debug_renderer_info');
-      info.renderer = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+      info.renderer = rendererString(renderer);
     } catch (e) { info.renderer = 'unknown'; }
 
     info.stage = 'import';

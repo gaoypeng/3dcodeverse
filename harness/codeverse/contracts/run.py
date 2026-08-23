@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -37,7 +37,7 @@ class RoundRecord(BaseModel):
     renders: RenderSet | None = None
     judgment: Judgment | None = None
     usage: Usage = Field(default_factory=Usage)
-    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     duration_s: float = 0.0
     notes: str = ""
 
@@ -58,7 +58,7 @@ class RunRecord(BaseModel):
     total_usage: Usage = Field(default_factory=Usage)
     environment: dict[str, str] = Field(default_factory=dict, description="tool versions, git sha, host")
     prompt_hashes: dict[str, str] = Field(default_factory=dict)
-    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     finished_at: datetime | None = None
     error: str = ""
     extra: dict[str, Any] = Field(default_factory=dict)

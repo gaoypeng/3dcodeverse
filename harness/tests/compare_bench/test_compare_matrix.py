@@ -12,7 +12,13 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from bench._compare_report import CellResult, PairRow, arm_stats, load_jsonl, pair_stats  # noqa: E402
+from bench._compare_report import (  # noqa: E402
+    CellResult,
+    PairRow,
+    arm_stats,
+    load_jsonl,
+    pair_stats,
+)
 from bench._fixed_eval import acceptance_from_spec  # noqa: E402
 from bench.compare_backends import (  # noqa: E402
     CompareDeps,

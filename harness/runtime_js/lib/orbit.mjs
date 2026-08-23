@@ -67,10 +67,18 @@ function corners(bbox) {
 /**
  * Smallest distance along `dir` (unit, from `center`) at which every corner sits
  * inside a camera looking back at `center` with the given half-angle tangents.
+ *
+ * THE distance fit for both rigs: the scene orbit (this module) and the object
+ * rig (`browser/camera_fit.js`, which passes the screen-up vector it gives the
+ * THREE camera).  Exact per-corner solution — the projected half-extent of a
+ * corner is `(offAxis * margin) / (tan · (dist - depthOffset))`, so requiring
+ * ≤ 1 on both axes for all eight corners is one max, no iteration.
+ * @param {number[]|null} upHint  screen-up used for the roll (default: +Y, or
+ *   -Z for an exactly vertical view — what THREE's lookAt does)
  */
-export function fitDistance(bbox, center, dir, tanH, tanV, margin) {
+export function fitDistance(bbox, center, dir, tanH, tanV, margin, upHint = null) {
   // same roll as THREE's lookAt (world up = +Y unless the view is exactly vertical)
-  const up0 = Math.abs(dir[1]) > 0.9999 ? [0, 0, -1] : [0, 1, 0];
+  const up0 = upHint || (Math.abs(dir[1]) > 0.9999 ? [0, 0, -1] : [0, 1, 0]);
   const f = dir.map((v) => -v);   // forward; right = forward × up0; up = right × forward
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const norm = (v) => { const l = Math.hypot(...v) || 1; return v.map((x) => x / l); };

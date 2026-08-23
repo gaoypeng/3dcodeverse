@@ -2,18 +2,12 @@
  * Deterministic scene census (page-side, pure over a THREE.Scene).
  * Counts meshes / instances / lights / triangles / custom-shader materials,
  * measures per top-level group (zone) world bboxes, classifies sky/ground
- * groups, computes a content bbox (sky + ground excluded) and pairwise zone
+ * groups (shared rules: `backdrop.mjs`), computes a content bbox (sky + ground excluded) and pairwise zone
  * overlap statistics.  Returns plain JSON.
  */
 
-function triCount(geom) {
-  if (!geom || !geom.attributes || !geom.attributes.position) return 0;
-  const n = geom.index ? geom.index.count : geom.attributes.position.count;
-  if (geom.drawRange && Number.isFinite(geom.drawRange.count) && geom.drawRange.count !== Infinity) {
-    return Math.floor(Math.min(n, geom.drawRange.count) / 3);
-  }
-  return Math.floor(n / 3);
-}
+import { classifyBackdrop } from './backdrop.mjs';
+import { geometryTriangles as triCount } from './census.mjs';
 
 export function isCustomShader(mat, THREE) {
   if (!mat) return false;
@@ -29,22 +23,6 @@ function boxToJson(box) {
     max: [box.max.x, box.max.y, box.max.z].map((v) => +v.toFixed(3)),
     size: [box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z].map((v) => +v.toFixed(3)),
   };
-}
-
-const SKY_NAME_RE = /\b(sky|skydome|skybox|stars|clouds?|sun|moon|atmosphere)\b/i;
-const GROUND_NAME_RE = /\b(ground|terrain|floor|water|ocean|sea|lake|river|plane|sand|grass|land)\b/i;
-
-/** Classify one mesh as 'sky' | 'ground' | 'content' from name + world box. */
-function classifyMesh(mesh, box) {
-  const name = mesh.name || (mesh.parent && mesh.parent.name) || '';
-  const sx = box.max.x - box.min.x, sy = box.max.y - box.min.y, sz = box.max.z - box.min.z;
-  const span = Math.max(sx, sz);
-  if (SKY_NAME_RE.test(name) && span > 50) return 'sky';
-  if (span > 2000 || (sy > 300 && span > 300)) return 'sky';
-  if (mesh.isInstancedMesh) return 'content';   // scattered instances span the map but are not ground
-  if (span > 20 && sy < 0.06 * span && GROUND_NAME_RE.test(name)) return 'ground';
-  if (span > 40 && sy < 0.02 * span) return 'ground';
-  return 'content';
 }
 
 function walkGroup(root, THREE) {
@@ -81,7 +59,7 @@ function walkGroup(root, THREE) {
       mb.copy(gb).applyMatrix4(o.matrixWorld);
     }
     if (mb.isEmpty()) return;
-    const kind = classifyMesh(o, mb);
+    const kind = classifyBackdrop(o, mb);   // shared rules (lib/backdrop.mjs); no content bbox yet here
     kinds[kind] += 1;
     boxAll.union(mb);
     if (kind === 'content') box.union(mb);

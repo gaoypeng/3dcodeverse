@@ -3,18 +3,28 @@
  * readback of the render canvas and near-geometry tests for a camera.
  */
 
-const SAMPLE_W = 96;
-const SAMPLE_H = 54;
+export const SAMPLE_W = 96;
+export const SAMPLE_H = 54;
 
-/** Mean luminance and dark/blown fractions of the current canvas. */
-export function frameStats(canvas) {
+/**
+ * Downscaled RGBA readback of `canvas` on the shared 96x54 sampling grid.
+ * THE one place a render canvas is sampled page-side (frame statistics here,
+ * coverage mask passes in host_coverage.mjs) — same grid, same cost, so the
+ * numbers of the two instruments are comparable.
+ * @returns {{data: Uint8ClampedArray, n: number}}
+ */
+export function sampleFrame(canvas) {
   const small = document.createElement('canvas');
   small.width = SAMPLE_W;
   small.height = SAMPLE_H;
   const ctx = small.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(canvas, 0, 0, SAMPLE_W, SAMPLE_H);
-  const { data } = ctx.getImageData(0, 0, SAMPLE_W, SAMPLE_H);
-  const n = SAMPLE_W * SAMPLE_H;
+  return { data: ctx.getImageData(0, 0, SAMPLE_W, SAMPLE_H).data, n: SAMPLE_W * SAMPLE_H };
+}
+
+/** Mean luminance and dark/blown fractions of the current canvas. */
+export function frameStats(canvas) {
+  const { data, n } = sampleFrame(canvas);
   let sum = 0, sumSq = 0, dark = 0, blown = 0;
   let top = 0, bottom = 0;
   const hist = new Uint32Array(8);

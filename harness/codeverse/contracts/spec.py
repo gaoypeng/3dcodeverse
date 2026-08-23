@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -51,7 +51,7 @@ class Spec(BaseModel):
     options: RunOptions = Field(default_factory=RunOptions)
     seed: int = 0
     tags: list[str] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @model_validator(mode="after")
     def _language_fits_track(self) -> Spec:

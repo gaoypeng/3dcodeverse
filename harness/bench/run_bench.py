@@ -44,6 +44,9 @@ class BenchPrompt(BaseModel):
     must_have: list[str] = Field(default_factory=list)
     dimensions_m: dict[str, float] | None = None
     tags: list[str] = Field(default_factory=list)
+    language: Language | None = Field(
+        default=None, description="per-prompt override of the battery language "
+        "(e.g. the opengl_python rows of a glsl_shader battery)")
 
 
 class Battery(BaseModel):
@@ -97,7 +100,7 @@ def build_spec(
     """Shared Spec core for bench drivers (``run_bench`` / ``compare_backends``).
     Drivers resolve their own ``Backends`` and pass their leading tag."""
     return Spec(
-        id=f"{battery.name}/{item.id}", track=battery.track, language=battery.language, prompt=item.prompt,
+        id=f"{battery.name}/{item.id}", track=battery.track, language=item.language or battery.language, prompt=item.prompt,
         constraints=Constraints(must_have=list(item.must_have), dimensions_m=item.dimensions_m),
         budget=Budget(max_rounds=rounds, max_usd=max_usd, max_minutes=max_minutes),
         backends=backends, tags=[tag0, battery.name, item.tier, item.category, *extra_tags, *item.tags],

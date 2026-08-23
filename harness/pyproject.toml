@@ -27,8 +27,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cad = ["cadquery>=2.4"]
-urdf = ["yourdfpy>=0.0.56", "scipy>=1.11"]
+# What each extra unlocks is documented in docs/INSTALL.md §4.
+cad = ["cadquery>=2.4"]                                   # language `cadquery`
+urdf = ["yourdfpy>=0.0.56", "scipy>=1.11"]                # track `articulated_object` (urdf_blender)
+graphics = ["moderngl>=5.8"]                              # track `graphics` (glsl_shader / opengl_python)
+mesh = ["shapely>=2.0", "networkx>=3.2", "manifold3d>=2.3"]  # cross_section area, mesh split, joint-sweep booleans
+mcp = ["mcp>=1.0"]                                        # `3dcv mcp` spatial-tool server for the agentic CLIs
+flywheel = ["pyarrow>=15"]                                # `3dcv flywheel export --pack` (parquet)
+all = ["3dcodeverse[cad,urdf,graphics,mesh,mcp,flywheel]"]
 dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.5"]
 
 [project.scripts]

@@ -19,7 +19,6 @@ from codeverse.contracts.spec import Spec
 from codeverse.texturing.generate import FakeImageModel
 
 
-
 def _box(ext: tuple[float, float, float], center: tuple[float, float, float]) -> trimesh.Trimesh:
     m = trimesh.creation.box(extents=ext)
     m.apply_translation(center)

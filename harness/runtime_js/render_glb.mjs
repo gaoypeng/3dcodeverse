@@ -9,36 +9,27 @@
 // Writes <out>/view_<name>.png for every view + <out>/views.json, and prints one JSON
 // line last on stdout: {ok, renderer, gpu, views:[{name,path,camera_position,look_at,fov,...}],
 // warnings, timing_ms}.  Exit 1 (with {ok:false,error}) on any failure.
+//
+// Thin driver: arg parsing / JSON-last-line protocol come from lib/cli.mjs, the
+// browser + static server from lib/host_env.mjs, the browser release dance from
+// lib/host_page.mjs, and everything visual from lib/browser/render_rig.js.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseArgs } from 'node:util';
-import { createRequire } from 'node:module';
 
-const require = createRequire(import.meta.url);
-const { launchBrowser } = require('./gpu_launch.cjs');
-const { serveDirs, importMapHtml, RUNTIME_MOUNT } = require('./serve.cjs');
+import { ensureDir, finish, parseCli, writeJson } from './lib/cli.mjs';
+import { launchBrowser, importMapHtml, runtimeMount, serveDirs } from './lib/host_env.mjs';
+import { releaseBrowser } from './lib/host_page.mjs';
 
 const MODES = ['shaded', 'wire', 'normals', 'silhouette', 'clay'];
 
-function cli() {
-  const { values } = parseArgs({
-    options: {
-      glb: { type: 'string' },
-      out: { type: 'string' },
-      views: { type: 'string' },
-      mode: { type: 'string', default: 'shaded' },
-      width: { type: 'string', default: '768' },
-      height: { type: 'string', default: '768' },
-      isolate: { type: 'string', default: '' },
-      explode: { type: 'string', default: '0' },
-      background: { type: 'string', default: 'studio' },
-      'anim-time': { type: 'string' },
-      gpu: { type: 'string', default: 'auto' },
-      shadow: { type: 'string', default: '1' },
-      fill: { type: 'string', default: '0.85' },
-      'timeout-s': { type: 'string', default: '240' },
-    },
+function config() {
+  const values = parseCli({
+    glb: {}, out: {}, views: {},
+    mode: { default: 'shaded' }, width: { default: '768' }, height: { default: '768' },
+    isolate: { default: '' }, explode: { default: '0' }, background: { default: 'studio' },
+    'anim-time': {}, gpu: { default: 'auto' }, shadow: { default: '1' }, fill: { default: '0.85' },
+    'timeout-s': { default: '240' },
   });
   if (!values.glb || !values.out || !values.views) throw new Error('--glb, --out and --views are required');
   if (!MODES.includes(values.mode)) throw new Error(`--mode must be one of ${MODES.join('|')}`);
@@ -67,44 +58,36 @@ function cli() {
 }
 
 function pageHtml(cfg) {
-  const config = { ...cfg, glbUrl: '/' + path.basename(cfg.glb) };
-  delete config.glb;
-  delete config.out;
+  const config_ = { ...cfg, glbUrl: '/' + path.basename(cfg.glb) };
+  delete config_.glb;
+  delete config_.out;
   return `<!doctype html><html><head><meta charset="utf-8">${importMapHtml()}
 <style>html,body{margin:0;background:#000}canvas{display:block}</style></head>
 <body><canvas id="c" width="${cfg.width}" height="${cfg.height}"></canvas>
 <script type="module">
-import { renderGlbViews } from '${RUNTIME_MOUNT}lib/browser/render_rig.js';
+import { renderGlbViews } from '${runtimeMount()}lib/browser/render_rig.js';
 window.__c3v_result = null;
-renderGlbViews(${JSON.stringify(config)}).then(
+renderGlbViews(${JSON.stringify(config_)}).then(
   (r) => { window.__c3v_result = r; },
   (e) => { window.__c3v_result = { ok: false, error: String(e && e.message || e), stack: String(e && e.stack || '') }; },
 );
 </script></body></html>`;
 }
 
-function emit(obj) {
-  process.stdout.write(JSON.stringify(obj) + '\n');
-}
-
 async function main() {
   const t0 = Date.now();
-  const cfg = cli();
+  const cfg = config();
   if (!fs.existsSync(cfg.glb)) throw new Error(`GLB not found: ${cfg.glb}`);
-  fs.mkdirSync(cfg.out, { recursive: true });
+  ensureDir(cfg.out);
 
   const srv = await serveDirs({ root: path.dirname(cfg.glb), routes: { '/__render.html': { body: pageHtml(cfg) } } });
   const consoleErrors = [];
   let launched = null;
   let page = null;
-  let gpu = false;
-  let launchRenderer = '';
-  const timing = {};
+  let record = null;
   try {
     launched = await launchBrowser({ gpu: cfg.gpu });
-    gpu = launched.gpu;
-    launchRenderer = launched.renderer;
-    timing.launch_ms = Date.now() - t0;
+    const timing = { launch_ms: Date.now() - t0 };
 
     page = await launched.browser.newPage();
     await page.setViewport({ width: cfg.width, height: cfg.height, deviceScaleFactor: 1 });
@@ -127,10 +110,10 @@ async function main() {
       const { b64: _b64, ...meta } = v;
       views.push({ ...meta, path: file, mode: cfg.mode });
     }
-    const record = {
+    record = {
       ok: true,
-      renderer: result.renderer || launchRenderer,
-      gpu,
+      renderer: result.renderer || launched.renderer,
+      gpu: launched.gpu,
       mode: cfg.mode,
       bbox: result.bbox,
       views,
@@ -138,20 +121,16 @@ async function main() {
       console_errors: consoleErrors,
       timing_ms: { ...timing, ...result.timing, total_ms: Date.now() - t0 },
     };
-    fs.writeFileSync(path.join(cfg.out, 'views.json'), JSON.stringify(record, null, 2));
-    emit(record);
+    writeJson(path.join(cfg.out, 'views.json'), record);
   } finally {
     // page first, then release: a shared browser is disconnected, never closed
     if (page) await page.close().catch(() => {});
-    if (launched && launched.browser) {
-      if (typeof launched.release === 'function') await Promise.resolve(launched.release()).catch(() => {});
-      else await launched.browser.close().catch(() => {});
-    }
+    await releaseBrowser(launched).catch(() => {});
     await srv.close();
   }
+  return finish(record, 0);
 }
 
 main().catch((err) => {
-  emit({ ok: false, error: err.message, details: err.details || null, stack: String(err.stack || '').split('\n').slice(0, 8) });
-  process.exit(1);
+  finish({ ok: false, error: err.message, details: err.details || null, stack: String(err.stack || '').split('\n').slice(0, 8) }, 1);
 });

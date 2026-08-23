@@ -1,32 +1,18 @@
 // Neutral studio look for object renders: RoomEnvironment PMREM + key/fill/rim
-// directionals, ACES tone mapping, sRGB output, optional shadow catcher.
+// directionals, optional shadow catcher, and the shared renderer factory
+// (renderer.js: ACES tone mapping, sRGB output, PCF shadows).
 //
 //   import { makeRenderer, buildStudio, applyMode } from '/__runtime/lib/browser/studio.js';
 
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { makeRenderer, rendererString } from './renderer.js';
+
+// the renderer factory lives in renderer.js (shared with the scene host); it is
+// re-exported here because studio.js is the object rig's one-stop import
+export { makeRenderer, rendererString };
 
 export const BACKGROUNDS = { studio: 0xe9e9ec, white: 0xffffff, transparent: null };
-
-/** WebGLRenderer on `canvas` sized width x height (device pixel ratio 1). */
-export function makeRenderer(canvas, width, height, { transparent = false } = {}) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: transparent, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(1);
-  renderer.setSize(width, height, false);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  return renderer;
-}
-
-/** UNMASKED_RENDERER_WEBGL string (or the masked one). */
-export function rendererString(renderer) {
-  const gl = renderer.getContext();
-  const ext = gl.getExtension('WEBGL_debug_renderer_info');
-  return String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
-}
 
 /**
  * Add environment + lights (+ shadow catcher) to `scene`, scaled to `box`.

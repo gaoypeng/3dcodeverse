@@ -17,7 +17,7 @@ def test_normal_run_streams_lines(tmp_path: Path):
     res = run_with_watchdog(
         [PY, "-c", "import sys; print('a'); print('b', file=sys.stderr); print('c')"],
         cwd=tmp_path, env=os.environ, soft_timeout_s=10, idle_grace_s=5, hard_timeout_s=20,
-        on_line=lambda s, l: seen.append((s, l)),
+        on_line=lambda stream, text: seen.append((stream, text)),
     )
     assert res.rc == 0 and not res.timed_out
     assert res.stdout.splitlines() == ["a", "c"]

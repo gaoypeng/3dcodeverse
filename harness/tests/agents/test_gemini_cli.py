@@ -88,8 +88,8 @@ def test_transient_failure_retries_once_with_other_key(tmp_ws: Workspace, agent:
     assert (tmp_ws.root / "attempts.txt").read_text() == "2"
     rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
     assert rec["attempts"] == 2 and (Path(res.transcript_path).parent / "stdout.2.json").exists()
-    lines = [json.loads(l) for l in Path(res.transcript_path).read_text().splitlines()]
-    keys = [l["key_tail"] for l in lines if l["kind"] == "invoke"]
+    lines = [json.loads(ln) for ln in Path(res.transcript_path).read_text().splitlines()]
+    keys = [ln["key_tail"] for ln in lines if ln["kind"] == "invoke"]
     assert keys == ["k1", "k2"]
 
 

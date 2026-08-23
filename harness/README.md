@@ -27,8 +27,10 @@ renders, judges, refines, textures and records every run as data-flywheel materi
   pairs, captions, sqlite index, HTML gallery.
 
 ```bash
-pip install -e .          # entry points: 3dcodeverse, 3dcv
-(cd runtime_js && npm install)
+bash scripts/setup.sh     # install everything + run doctor (idempotent; see docs/INSTALL.md)
+# ...or by hand:
+pip install -e '.[all,dev]'    # entry points: 3dcodeverse, 3dcv
+(cd runtime_js && npm ci)      # three@0.182 + puppeteer 24 (chrome → ~/.cache/puppeteer)
 3dcv doctor
 3dcv make "a mid-century wooden dining chair" --track static_object --language blender
 3dcv make "a kitchen cabinet with one door and a drawer" --track articulated_object --language urdf_blender
@@ -43,6 +45,7 @@ gemini-cli) 0.64 → 0.89, 36 min, $0.68; garden scene 0.56 → 0.60 over 2 refi
 45 min, $2.90; neon-rain shader (graphics, single-shot) 0.79 first round, 2 min, $0.05;
 best-of-2 stool 0.56 → 0.61, 7.6 min, $0.24.
 
-Docs: `docs/ARCHITECTURE.md` (design + what a run does) · `docs/INTERFACES.md`
+Docs: `docs/INSTALL.md` (install / prerequisites / doctor troubleshooting) ·
+`docs/ARCHITECTURE.md` (design + what a run does) · `docs/INTERFACES.md`
 (signatures) · `docs/RUNBOOK.md` (operate / extend) · `docs/DECISIONS.md` (ADRs) ·
 `docs/EVAL.md` (evaluation protocol + judge calibration) · `CLAUDE.md` (working rules).

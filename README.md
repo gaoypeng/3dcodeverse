@@ -9,6 +9,11 @@ The 3dcodeverse project. Top-level layout:
   plan → generate → gate → render → judge → refine loop, with text-to-image
   texturing and data-flywheel records.  See `harness/README.md`.
 
+  Install with `bash harness/scripts/setup.sh` (idempotent: python deps, the
+  `runtime_js/` node deps, puppeteer's Chrome, then `3dcodeverse doctor`) —
+  prerequisites, extras, keys, GPU notes and troubleshooting are in
+  `harness/docs/INSTALL.md`.
+
 - **`finetune/`** — LLM finetuning recipes (LoRA / full-parameter SFT, execution-
   and geometry-feedback DPO via unpatched LLaMA-Factory) and the execution-based
   evaluation stack (3DCodeBench + per-dialect executors) used to train open

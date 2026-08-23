@@ -139,9 +139,8 @@ def test_scene_prompts_state_composition_contracts():
 def test_graphics_v2_opengl_prompts_carry_language_override():
     """The ogl_* rows must run under opengl_python; the loader forwards the
     per-prompt override into the Spec (BenchPrompt.language or battery.language)."""
-    from codeverse.contracts.common import Backends, Language
-
     from bench.run_bench import build_spec
+    from codeverse.contracts.common import Backends, Language
 
     b = _load("graphics_v2")
     assert b.language == Language.GLSL_SHADER

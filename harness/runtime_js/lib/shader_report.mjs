@@ -16,20 +16,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { auditFile, fixHintFor, hasGlsl, locateSourceLine } from './glsl_audit.mjs';
 import { errorSummary } from './host_page.mjs';
+import { listJsFiles } from './syntax_check.mjs';
 
-/** All .js/.mjs sources under <root>/<sub> as [{file, text}] (posix rel paths). */
+/**
+ * All .js/.mjs sources under <root>/<sub> as [{file, text}] (posix rel paths,
+ * sorted).  The directory walk itself is `syntax_check.listJsFiles` — the one
+ * source-file walker in runtime_js.
+ */
 export function listSources(root, sub = 'src') {
-  const out = [];
-  const walk = (dir) => {
-    if (!fs.existsSync(dir)) return;
-    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-      const p = path.join(dir, ent.name);
-      if (ent.isDirectory()) { if (ent.name !== 'node_modules') walk(p); continue; }
-      if (/\.(m?js)$/.test(ent.name)) out.push({ file: path.relative(root, p).split(path.sep).join('/'), text: fs.readFileSync(p, 'utf8') });
-    }
-  };
-  walk(path.join(root, sub));
-  return out;
+  return listJsFiles(path.join(root, sub)).map((p) => ({
+    file: path.relative(root, p).split(path.sep).join('/'),
+    text: fs.readFileSync(p, 'utf8'),
+  }));
 }
 
 /**
