@@ -1,0 +1,17 @@
+model_name_or_path: /wekafs/ict/hx_624/models/Qwen3.5-9B
+trust_remote_code: true
+stage: sft
+do_train: true
+finetuning_type: lora
+dataset_dir: /wekafs/ict/hx_624/llm-ft/data/lf
+dataset: blender3d_v1_train
+eval_dataset: blender3d_v1_val
+template: qwen3_5
+enable_thinking: false
+cutoff_len: 8192
+preprocessing_num_workers: 16
+packing: true
+neat_packing: true
+tokenized_path: /wekafs/ict/hx_624/llm-ft/data/lf/tokenized_qwen35_v1_len8192_packed
+output_dir: /wekafs/ict/hx_624/llm-ft/runs/_preprocess_tmp
+overwrite_output_dir: true
