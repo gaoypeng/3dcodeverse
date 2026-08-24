@@ -117,7 +117,7 @@ def _bare_model(model_id: str, timeout_s: float):
 #: whole command line: the repo path itself contains "3dcodeverse", so a substring test
 #: counts every shell that merely `cd`s into the tree.
 _MODULE = "codeverse.cli.main"
-_SCRIPTS = ("compare_backends.py", "run_bench.py")
+_SCRIPTS = ("compare_backends.py", "run_bench.py", "ab_plan.py")
 _ENTRY_POINTS = ("3dcv", "3dcodeverse")
 
 

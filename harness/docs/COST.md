@@ -1082,7 +1082,8 @@ Three consequences:
    setting where it could not win.  Its negative result stands for the configuration
    tested and should NOT be read as "back-pressure does not help".
 3. **Operational rule until a cross-process limiter exists**: run ONE battery at a time,
-   or set `CV3D_MAX_IN_FLIGHT` to `64 / (concurrent processes)`.
+   or set `CV3D_RATE__MAX_IN_FLIGHT` (the name `Settings.rate` actually reads; the flat
+   `CV3D_MAX_IN_FLIGHT` is read by nothing) to `64 / (concurrent processes)`.
 
 The real fix is a machine-wide limiter — a file-locked token bucket under
 `~/.cache/codeverse/` that every process shares — so the quota is enforced where it
