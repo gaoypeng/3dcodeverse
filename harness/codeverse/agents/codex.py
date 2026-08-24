@@ -1,7 +1,8 @@
 """``codex:<model>`` — headless OpenAI Codex CLI session on a workspace.
 
 argv: ``codex exec --json -C <ws> --sandbox workspace-write --skip-git-repo-check
-[--model <model>] [-c mcp_servers.3dcv.command=... -c mcp_servers.3dcv.args=[...]] <prompt>``
+[--model <model>] [-c model_reasoning_effort=<effort>]
+[-c mcp_servers.3dcv.command=... -c mcp_servers.3dcv.args=[...]] <prompt>``
 (prompt on stdin when long).  stdout is JSONL:
 
 * ``{"type":"thread.started","thread_id":...}`` / ``turn.started``
@@ -36,6 +37,30 @@ from codeverse.contracts.common import Usage
 IDLE_GRACE_S = 300.0
 STDIN_PROMPT_BYTES = 100_000
 _TOOL_ITEMS = ("command_execution", "file_change", "mcp_tool_call", "web_search", "tool_call")
+
+#: what ``-c model_reasoning_effort=`` accepts; ``""`` means "leave it to ~/.codex/config.toml"
+REASONING_EFFORTS = ("", "minimal", "low", "medium", "high", "xhigh")
+
+
+def split_model_effort(model: str, effort: str | None = None) -> tuple[str, str]:
+    """``('gpt-5.6-sol@low', None) -> ('gpt-5.6-sol', 'low')``.
+
+    Precedence: an explicit ``effort`` argument, then an ``@<effort>`` suffix on the
+    model id, then ``Settings.agents.codex_reasoning_effort`` (default ``high`` — the
+    codex CLI's own default is *medium*, and the harness would rather pay for thinking).
+    ``""`` at any level means "pass no override and let ~/.codex/config.toml decide".
+    """
+    name, _, suffix = model.partition("@")
+    chosen = effort if effort is not None else (suffix or get_settings().agents.codex_reasoning_effort)
+    chosen = chosen.strip().lower()
+    if chosen not in REASONING_EFFORTS:
+        raise ValueError(f"bad codex reasoning effort {chosen!r}; expected one of {REASONING_EFFORTS}")
+    return name.strip(), chosen
+
+
+def effort_overrides(effort: str) -> list[str]:
+    """The ``-c`` pair for a reasoning effort (empty when nothing should be forced)."""
+    return ["-c", f"model_reasoning_effort={effort}"] if effort else []
 
 
 class CodexEvents:
@@ -80,11 +105,18 @@ class CodexEvents:
             self.errors.append(str(ev.get("message") or ev))
 
     def usage(self, model: str) -> Usage:
+        # `output_tokens` from the Responses API already CONTAINS
+        # `reasoning_output_tokens` (measured: output − reasoning tracks the answer
+        # length across every recorded cell).  `estimate_cost` bills output +
+        # thoughts, so the reasoning share is subtracted here instead of being
+        # charged twice — it stays visible in `thoughts_tokens`.
+        reasoning = self.usage_raw["reasoning_output_tokens"]
         u = Usage(
             backend="codex", model=model,
-            input_tokens=self.usage_raw["input_tokens"], output_tokens=self.usage_raw["output_tokens"],
+            input_tokens=self.usage_raw["input_tokens"],
+            output_tokens=max(0, self.usage_raw["output_tokens"] - reasoning),
             cached_tokens=self.usage_raw["cached_input_tokens"], tool_calls=self.tool_calls,
-            thoughts_tokens=self.usage_raw["reasoning_output_tokens"],
+            thoughts_tokens=reasoning,
         )
         u.cost_usd = estimate_cost_safe("openai", model, u)
         return u
@@ -100,8 +132,8 @@ def parse_codex_jsonl(stdout: str) -> CodexEvents:
 class CodexAgent:
     kind = "codex"
 
-    def __init__(self, model: str, binary: str | None = None):
-        self.model = model
+    def __init__(self, model: str, binary: str | None = None, reasoning_effort: str | None = None):
+        self.model, self.reasoning_effort = split_model_effort(model, reasoning_effort)
         self.binary = binary or get_settings().binaries.codex_cli
 
     @property
@@ -120,6 +152,7 @@ class CodexAgent:
                 "--skip-git-repo-check", "--ephemeral", "--color", "never"]
         if self.model:
             argv += ["--model", self.model]
+        argv += effort_overrides(self.reasoning_effort)
         if job.spatial_tools:
             argv += codex_mcp_overrides(mcp_command_for(s.ws, job))
         argv.append(prompt if prompt is not None else "-")
@@ -178,4 +211,5 @@ def _compose_prompt(job: AgentJob) -> str:
     return f"<harness_instructions>\n{job.system_append}\n</harness_instructions>\n\n{job.prompt}"
 
 
-__all__ = ["CodexAgent", "CodexEvents", "parse_codex_jsonl"]
+__all__ = ["REASONING_EFFORTS", "CodexAgent", "CodexEvents", "effort_overrides", "parse_codex_jsonl",
+           "split_model_effort"]

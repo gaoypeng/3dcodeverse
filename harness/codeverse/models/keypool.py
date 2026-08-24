@@ -5,12 +5,20 @@ Used by ``GeminiModel`` (22 keys on the owner's box) but provider-neutral.
 * ``acquire()`` picks the next healthy key round-robin, honouring per-key
   RPM / TPM token buckets and 429 cool-downs; it blocks (bounded) when every
   key is throttled and raises ``KeyPoolExhausted`` after ``timeout_s``.
+  ``tokens_hint`` reserves the pending call's estimated prompt tokens, so a
+  200 k-token judge verdict and a 2 k-token caption are scheduled differently
+  (``docs/COST.md`` Part III); ``max_in_flight`` additionally caps how many calls
+  may be out at once, and :meth:`KeyPool.release` (a ``finally`` in
+  ``rotate_with_retries``) hands the slot back.
 * ``report(key, outcome)`` feeds back ``ok | 429 | 5xx | error | dead`` so the
   pool can cool a key down and adjust its health score.  ``dead`` is for
   key-scoped auth/permission failures (revoked / suspended / invalid key): the
   key is benched for ``dead_cooldown_s`` (default one hour) and re-probed once
   that elapses — a dead key must never keep failing its share of calls.
-* ``stats()`` exposes counters for logs / ``3dcv doctor``.
+  ``report(..., tokens=actual, reserved=hint)`` reconciles the reservation with
+  the provider's real prompt-token count (refund or top-up).
+* ``stats()`` exposes counters for logs / ``3dcv doctor --live``: per-key health
+  and cooldown, pool RPM/TPM capacity and headroom, in-flight and peak in-flight.
 
 Thread-safe; ``clock`` / ``sleep`` are injectable for deterministic tests.
 """

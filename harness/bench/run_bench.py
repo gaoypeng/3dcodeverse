@@ -94,7 +94,10 @@ class BenchOptions(BaseModel):
     rounds: int = 4
     max_usd: float = 5.0
     max_minutes: float = 60.0
-    parallel: int = 2
+    #: measured (docs/COST.md Part III): one bench cell holds ~0.9 model calls
+    #: in flight, so 8 cells sit near 7 — far inside the 64-call model knee — and
+    #: their builds sit inside the 16-build subprocess knee.
+    parallel: int = 8
     limit: int | None = None
     ids: list[str] = Field(default_factory=list)
     tiers: list[str] = Field(default_factory=list)

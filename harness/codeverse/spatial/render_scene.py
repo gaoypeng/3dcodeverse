@@ -228,6 +228,25 @@ def _store_motion(out_dir: Path, metrics: dict[str, Any]) -> None:
         log.warning("could not write motion into %s: %s", path, e)
 
 
+def perf_detail(rs: RenderSet) -> str:
+    """`` — 5028 draw calls (budget 200), 191k triangles`` from a render's own instruments.
+
+    The number is what makes a low-fps finding actionable: "low fps" is a mood, "5028 draw
+    calls against a budget of 200" names the fix.  ``""`` when the instruments are missing."""
+    try:
+        path = metrics_path_for(rs)
+        if path is None:
+            return ""
+        fps = (json.loads(path.read_text()).get("fps") or {})
+        calls, tris = fps.get("draw_calls"), fps.get("triangles")
+        bits = [f"{int(calls)} draw calls (budget 200)" if isinstance(calls, (int, float)) else "",
+                f"{int(tris) / 1000:.0f}k triangles" if isinstance(tris, (int, float)) else ""]
+        inner = ", ".join(b for b in bits if b)
+        return f" — {inner}" if inner else ""
+    except (OSError, ValueError, TypeError):
+        return ""
+
+
 def select_judge_views(rs: RenderSet, max_n: int = JUDGE_MAX_VIEWS, *, orbit_names: Sequence[str] | None = None) -> RenderSet:
     """Copy of ``rs`` with the views a judge should see (≤ ``max_n``), in priority order:
     authored cameras at the first time · the first two overview orbit views at that time

@@ -27,23 +27,33 @@ export const RIG_VERSION = 2;
 export const BACKGROUNDS = { studio: 0xe9e9ec, white: 0xffffff, transparent: null };
 
 /** Tone-mapping exposure per background.  MEASURED over 12 recorded artifacts x 8 views
- *  (96 frames), on the same 96x54 sampling grid `lib/host_metrics.mjs` uses, plus the
- *  object-only statistics from an alpha-matted render of the same 96 frames:
+ *  (96 frames), on the 96x54 sampling grid `lib/host_metrics.mjs` uses, plus object-only
+ *  statistics from an alpha-matted render of the same 96 frames:
  *
- *    rig            frame mean_lum  frame modal_frac  object std  object p95-p05
- *    v1 (flat bg)       0.865            0.789          0.135         0.406
- *    v2 (sweep)         0.774            0.492          0.130         0.395
+ *    rig          frame mean_lum  frame modal_frac  object lum std  object p95-p05
+ *    v1 (flat bg)     0.865            0.789            0.135           0.406
+ *    v2 (sweep)       0.702            0.516            0.131           0.400
  *
  *  v2 is DARKER, not brighter, and the object's own shading range is unchanged: the
  *  difference is contrast STRUCTURE (a swept backdrop, a shaped environment), not
  *  exposure.  25 of the 96 v1 frames were over the flat-frame threshold in
- *  spatial/frame_metrics.py (modal_frac > 0.85); 0 of the v2 frames are, and neither
- *  rig comes near the dark (< 0.12) or blown (> 20 %) limits. */
+ *  spatial/frame_metrics.py (modal_frac > 0.85); 0 of the v2 frames are, and neither rig
+ *  comes near the dark (mean_lum < 0.12) or blown (> 20 % pure white) limits.
+ *  Cost (median of 4 runs x 3 objects, warm browser): 8 views at 768 px = 97 ms/view wall
+ *  (v1: 117) and 60 ms/view page-side (v1: 61) — the VSM blur spends what the two fewer
+ *  lights save, and the driver round trip got cheaper. */
 const EXPOSURE = { studio: 1.0, white: 1.05, transparent: 1.0 };
 
-const ENV_INTENSITY = 1.15;
-const KEY_INTENSITY = 1.35;
-const RIM_INTENSITY = 0.45;
+// The environment gives metals something shaped to reflect; the DIRECTIONALS are what
+// separate one flat panel of a box-shaped object from the next.  Measured on 96 frames:
+// dropping the directional total from v1's 4.0 to 1.8 flattened panelled objects (an
+// espresso machine's steel sides stopped reading as three different planes), so the key
+// is back up and a low fill returns — the object's shading range now matches v1's while
+// the reflections are v2's.
+const ENV_INTENSITY = 1.0;
+const KEY_INTENSITY = 2.0;
+const FILL_INTENSITY = 0.5;
+const RIM_INTENSITY = 0.5;
 /** Key/rim placement relative to the CAMERA azimuth (deg from the view direction) and
  *  their elevations.  Camera-relative is what a turntable product rig does: the key
  *  stays over the photographer's left shoulder, so the cast shadow always falls away
@@ -52,10 +62,14 @@ const RIM_INTENSITY = 0.45;
  *  frames of every object. */
 const KEY_YAW_DEG = 38;
 const KEY_ELEVATION_DEG = 52;
+const FILL_YAW_DEG = -58;
+const FILL_ELEVATION_DEG = 12;
 const RIM_YAW_DEG = -152;
 const RIM_ELEVATION_DEG = 34;
-/** Cast-shadow darkness and the ambient contact blob under the object. */
-const CAST_SHADOW_OPACITY = 0.30;
+/** Cast-shadow darkness and the ambient contact blob under the object.  The cast
+ *  shadow is soft (VSM, see buildStudio): a hard-edged slab under a product shot
+ *  reads as a rendering mistake, not as light. */
+const CAST_SHADOW_OPACITY = 0.24;
 const CONTACT_OPACITY = 0.34;
 const CONTACT_SPREAD = 1.9;
 
@@ -114,24 +128,25 @@ function lightDirection(yawDeg, elevationDeg) {
  */
 export function aimStudio(rig, azimuthDeg, elevationDeg = 0) {
   if (!rig || !rig.key) return;
-  const { center, radius, key, rim, scene } = rig;
+  const { center, radius, key, fill, rim, scene } = rig;
   const d = radius * 4;
   // a plan view needs the key nearly overhead, or the shadow sprawls across the frame
   const keyEl = Math.min(80, Math.max(KEY_ELEVATION_DEG, Math.abs(elevationDeg) * 0.85));
   key.position.copy(center).addScaledVector(lightDirection(azimuthDeg + KEY_YAW_DEG, keyEl), d);
   key.target.position.copy(center);
   key.target.updateMatrixWorld();
-  if (rim) {
-    rim.position.copy(center).addScaledVector(lightDirection(azimuthDeg + RIM_YAW_DEG, RIM_ELEVATION_DEG), d);
-    rim.target.position.copy(center);
-    rim.target.updateMatrixWorld();
+  for (const [light, yaw, el] of [[fill, FILL_YAW_DEG, FILL_ELEVATION_DEG], [rim, RIM_YAW_DEG, RIM_ELEVATION_DEG]]) {
+    if (!light) continue;
+    light.position.copy(center).addScaledVector(lightDirection(azimuthDeg + yaw, el), d);
+    light.target.position.copy(center);
+    light.target.updateMatrixWorld();
   }
   if (scene) scene.environmentRotation.set(0, azimuthDeg * DEG, 0);
 }
 
 /**
  * Add environment + backdrop + lights (+ shadow catcher) to `scene`, scaled to `box`.
- * Returns the rig handle `{catcher, key, rim, blob, center, radius, scene}` — `catcher`
+ * Returns the rig handle `{catcher, key, fill, rim, blob, center, radius, scene}` — `catcher`
  * is the shadow plane callers exclude from framing, the rest is what `aimStudio` moves.
  */
 export function buildStudio(renderer, scene, box, { background = 'studio', shadow = true, lights = true } = {}) {
@@ -149,7 +164,7 @@ export function buildStudio(renderer, scene, box, { background = 'studio', shado
 
   const center = box.getCenter(new THREE.Vector3());
   const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1e-3);
-  const rig = { catcher: null, key: null, rim: null, blob: null, center, radius, scene };
+  const rig = { catcher: null, key: null, fill: null, rim: null, blob: null, center, radius, scene };
 
   if (lights) {
     scene.environment = environmentTexture(renderer);
@@ -163,7 +178,13 @@ export function buildStudio(renderer, scene, box, { background = 'studio', shado
     key.shadow.mapSize.set(2048, 2048);
     key.shadow.bias = -0.0004;
     key.shadow.normalBias = radius * 0.012;
-    key.shadow.radius = 3;
+    // VSM is the only three shadow map whose blur radius actually does anything
+    // (PCFSoftShadowMap ignores `shadow.radius`), and a soft-edged contact shadow is
+    // most of what separates a product shot from a viewport grab.  Object rig only —
+    // renderer.js keeps PCF for the scene host.
+    renderer.shadowMap.type = THREE.VSMShadowMap;
+    key.shadow.radius = 5;
+    key.shadow.blurSamples = 12;
     const cam = key.shadow.camera;
     cam.left = cam.bottom = -radius * 1.45;
     cam.right = cam.top = radius * 1.45;
@@ -171,11 +192,12 @@ export function buildStudio(renderer, scene, box, { background = 'studio', shado
     cam.far = radius * 8;
     scene.add(key, key.target);
 
-    // A low back-rim keeps a dark object off a dark backdrop; the softboxes in the
-    // environment do the rest of the work the v1 fill/rim directionals used to do.
+    // A low fill opens the shadow side; a back-rim keeps a dark object off the backdrop.
+    const fill = new THREE.DirectionalLight(0xffffff, FILL_INTENSITY);
     const rim = new THREE.DirectionalLight(0xffffff, RIM_INTENSITY);
-    scene.add(rim, rim.target);
+    scene.add(fill, fill.target, rim, rim.target);
     rig.key = key;
+    rig.fill = fill;
     rig.rim = rim;
     aimStudio(rig, 0);
   }

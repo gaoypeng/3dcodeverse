@@ -183,7 +183,9 @@ def check_keys(live: bool) -> list[Row]:
 
             m = get_chat_model("gemini:gemini-3.7-flash")
             r = m.generate(ChatRequest(messages=[ChatMessage.user("Reply with the single word: pong")],
-                                       temperature=0.0, max_output_tokens=16, thinking="off", label="doctor"))
+                                       # 256, not 16: gemini-3.x spends output tokens on thoughts even
+                                       # with thinking="off", and a 16-token budget comes back empty
+                                       temperature=0.0, max_output_tokens=256, thinking="off", label="doctor"))
             rows.append(("gemini live call", "OK" if "pong" in r.text.lower() else "WARN",
                          f"{r.text.strip()[:40]!r} cost=${r.usage.cost_usd:.5f}"))
         except Exception as e:

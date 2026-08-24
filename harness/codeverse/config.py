@@ -37,6 +37,16 @@ class Binaries(BaseModel):
     ffmpeg: str = "ffmpeg"
 
 
+class Agents(BaseModel):
+    """Knobs for the CLI-backed coding agents (the subscription CLIs)."""
+
+    codex_reasoning_effort: str = Field(
+        default="high",
+        description="`-c model_reasoning_effort=` passed to every `codex:` call (agent and one-shot).  "
+        "One of minimal|low|medium|high|xhigh, or '' to leave the choice to ~/.codex/config.toml.  "
+        "Override per id with `codex:<model>@<effort>`.")
+
+
 class Render(BaseModel):
     width: int = 768
     height: int = 768
@@ -52,8 +62,15 @@ class Limits(BaseModel):
     render_timeout_s: int = 300
     agent_timeout_s: int = 1800
     bpy_rlimit_gb: int = 12
-    max_parallel_agents: int = 6
-    max_parallel_builds: int = 3
+    # Both measured, not guessed (docs/COST.md Part III).  These size the
+    # *subprocess* side (blender / node / chrome), which is bound by cores — 24
+    # here — and NOT by the provider: the model-call ceiling is Rate.max_in_flight.
+    # 32 concurrent blender builds of a recorded model.py peaked at 16 workers
+    # (1 392 builds/min; 24 workers gave 1 168, 32 gave 1 019), so a fan-out of 12
+    # agent tasks x their own builds stays inside the knee and leaves cores for the
+    # render pass, whose tail is minutes long.
+    max_parallel_agents: int = 12
+    max_parallel_builds: int = 8
     agent_max_turns: int = Field(
         default=0,
         description="hard cap on model turns per agent session (0 = the backend's own default, "
@@ -78,8 +95,18 @@ class Rate(BaseModel):
 
     rpm_per_key: int = Field(default=1000, description="requests/minute allowed per API key")
     tpm_per_key: int = Field(default=1_000_000, description="prompt tokens/minute allowed per API key")
-    max_in_flight: int = Field(default=32, description="process-wide cap on concurrent model calls (0 = off)")
-    storm_gate: bool = Field(default=True, description="share 503 capacity-storm back-pressure across workers")
+    max_in_flight: int = Field(
+        default=64,
+        description="process-wide cap on concurrent model calls (0 = off).  Measured knee: a "
+        "128-call burst of 12k-token prompts ran 29.6 calls/min at 16 in-flight, 43.9 at 32, "
+        "72.9 at 64 and fell back to 47.2 at 128 (docs/COST.md Part III).")
+    storm_gate: bool = Field(
+        default=False,
+        description="share 503 capacity-storm back-pressure across workers.  OFF: measured and it "
+        "LOST — 30.0/45.4 calls/min without it vs 18.2/20.0 with it, because Gemini's 503s are "
+        "intermittent rather than a clean outage, so parking every worker starves the unlucky call "
+        "(docs/COST.md §21).  The mechanism and its counters are kept so the experiment is "
+        "reproducible: CV3D_RATE__STORM_GATE=1, or bench/concurrency_probe.py --storm-gate.")
 
 
 class Judge(BaseModel):
@@ -97,6 +124,7 @@ class Settings(BaseSettings):
     runs_dir: Path = Field(default=Path("runs"))
     cache_dir: Path = Field(default=Path.home() / ".cache" / "codeverse")
     binaries: Binaries = Field(default_factory=Binaries)
+    agents: Agents = Field(default_factory=Agents)
     render: Render = Field(default_factory=Render)
     limits: Limits = Field(default_factory=Limits)
     rate: Rate = Field(default_factory=Rate)
@@ -117,6 +145,11 @@ class Settings(BaseSettings):
 
     # Cost dial: one name that sets model-per-role, judge samples, rounds, candidates,
     # turn cap, montage size and the texture pass together (codeverse/cost/profiles.py).
+    model_timeout_s: float = Field(
+        default=300.0,
+        description="HTTP read timeout for ONE API model call (per attempt; retries multiply it).  "
+        "Raise it when the provider is degraded and big structured calls (planner, judge) time out "
+        "before they answer: CV3D_MODEL_TIMEOUT_S=900.")
     profile: str = Field(default="balanced", description="economy | balanced | quality")
     cost_ledger: bool = Field(default=True, description="append one priced row per model call "
                               "to the run's telemetry/cost.jsonl (or a per-process log)")

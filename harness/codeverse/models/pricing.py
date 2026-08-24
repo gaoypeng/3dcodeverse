@@ -131,6 +131,8 @@ PRICES: dict[tuple[str, str], Price] = {
     # ---------------------------------------------------------------- openai
     # gpt-5.6-sol is CHEAPER than gpt-5.6 (was priced as its equal until 2026-08-23).
     ("openai", "gpt-5.6-sol"):                Price(4.00, 20.00, 0.40),
+    ("openai", "gpt-5.6-terra"):              Price(2.00, 12.00, 0.20),
+    ("openai", "gpt-5.6-luna"):               Price(0.20, 1.20, 0.02),
     ("openai", "gpt-5.6"):                    Price(5.00, 30.00, 0.50),
     ("openai", "gpt-5.5"):                    Price(5.00, 30.00, 0.50),
     ("openai", "gpt-5.4"):                    Price(2.50, 15.00, 0.25),
@@ -190,6 +192,10 @@ PROVENANCE: dict[tuple[str, str], Provenance] = {
                                              note="not listed on the pricing page; assumed = haiku-4.5"),
     ("anthropic", "claude-haiku-3-5"):    _V("anthropic", note="retired except on Bedrock / Google Cloud"),
     ("openai", "gpt-5.6-sol"):            _V("openai", note="4.00/20.00/0.40; was 5.00/30.00/0.50 here until 2026-08-23"),
+    ("openai", "gpt-5.6-terra"):          _V("openai", checked="2026-08-24",
+                                             note="mid tier; fast mode is 4.00/24.00 (not modelled)"),
+    ("openai", "gpt-5.6-luna"):           _V("openai", checked="2026-08-24",
+                                             note="small tier, cut 80% on 2026-07-30; fast mode is 0.40/2.40 (not modelled)"),
     ("openai", "gpt-5.6"):                _V("openai"),
     ("openai", "gpt-5.5"):                _V("openai"),
     ("openai", "gpt-5.4"):                _V("openai"),

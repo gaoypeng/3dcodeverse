@@ -186,8 +186,8 @@ def test_doctor_rows_have_troubleshooting_entries() -> None:
 
     text = INSTALL.read_text()
     names = {"python", "python deps", "blender", "node", "three", "puppeteer", "chrome webgl",
-             "gemini keys", "anthropic key", "openai key", "gemini-cli", "claude", "codex", "agy",
-             "git", "ffmpeg", "mcp"}
+             "gemini keys", "anthropic key", "openai key", "gemini quota", "gemini pool",
+             "storm gate", "gemini-cli", "claude", "codex", "agy", "git", "ffmpeg", "mcp"}
     assert hasattr(doctor_mod, "run_doctor")
     missing = [n for n in sorted(names) if f"`{n}`" not in text]
     assert not missing, f"doctor rows undocumented in docs/INSTALL.md: {missing}"

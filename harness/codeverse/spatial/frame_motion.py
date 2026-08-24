@@ -18,6 +18,7 @@ context and into the ``scene_frames`` gate.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,8 @@ MOVING_FRAC = 0.004
 #: a change this strong on even a few pixels (a lit window, a spark) is motion too
 STRONG_DELTA = 60
 STRONG_FRAC = 0.0008
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -156,3 +159,15 @@ def motion_from_dir(out_dir: Path | str) -> list[MotionRow]:
     except (OSError, ValueError):
         return []
     return motion_rows(metrics, d)
+
+
+def motion_text_for(out_dir: Path | str) -> str:
+    """``motion_summary_text`` for one render directory; ``""`` on any problem.
+
+    This is what a track puts in front of the judge, so it must never be the reason a
+    round fails: instrumentation that cannot be read is simply absent."""
+    try:
+        return motion_summary_text(motion_from_dir(out_dir))
+    except Exception as e:  # noqa: BLE001 — judge context must never break a round
+        log.warning("motion text failed for %s: %s", out_dir, e)
+        return ""

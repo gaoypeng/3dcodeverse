@@ -116,7 +116,10 @@ def run_level(
 ) -> LevelResult:
     pool = KeyPool(keys, rpm_per_key=rpm_per_key, tpm_per_key=tpm_per_key)
     gate = StormGate(f"probe:{model}:c{level}") if storm_gate else None
-    m = GeminiModel(model, pool=pool, storm_gate=gate)
+    m = GeminiModel(model, pool=pool)
+    # assign directly: passing storm_gate=None to the constructor means "use the
+    # process-wide gate", and this probe has to be able to switch it off entirely
+    m.storm_gate = gate
     body = filler(in_tokens)
     gauge = _Gauge()
     lat: list[float] = []

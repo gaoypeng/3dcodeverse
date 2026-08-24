@@ -21,7 +21,6 @@ refine rounds nothing):
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from collections.abc import Sequence
@@ -43,7 +42,8 @@ from codeverse.orchestrator.fanout import fan_out
 from codeverse.orchestrator.rounds import TaskGroup, compact_instructions
 from codeverse.orchestrator.runner import StageRunner
 from codeverse.prompts import render
-from codeverse.spatial.render_scene import JUDGE_MAX_VIEWS
+from codeverse.spatial.frame_motion import motion_text_for
+from codeverse.spatial.render_scene import JUDGE_MAX_VIEWS, perf_detail
 from codeverse.tracks.common import RunContext, ServiceUnavailable
 from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
 from codeverse.tracks.lifecycle import BaseTrack
@@ -121,7 +121,7 @@ class ScenePipeline:
                     for e in errs[:MAX_CONSOLE_ERRORS]]
         if renders.fps is not None and renders.fps < 20:
             findings.append(GateFinding(gate="render_console", severity=Severity.WARN, target="overall",
-                                        message=f"low frame rate {renders.fps:.0f} fps" + _perf_detail(renders),
+                                        message=f"low frame rate {renders.fps:.0f} fps" + perf_detail(renders),
                                         fix_hint="the budget is <= 200 draw calls and <= 2 M triangles: merge static geometry "
                                                  "(BufferGeometryUtils.mergeGeometries) and put anything repeated > 5x in ONE "
                                                  "InstancedMesh per material — a per-object mesh loop is what costs the frame rate"))
@@ -155,7 +155,7 @@ class ScenePipeline:
             return ""
         # the measured motion goes FIRST: this block is clipped to ~2.5 k chars in the judge
         # prompt and a long environment plan used to push everything after it off the end
-        lines = [t for t in (scene_motion_text(ws, round_index),) if t]
+        lines = [t for t in (motion_text_for(ws.renders_dir(round_index)),) if t]
         lines.append(f"Environment plan: {plan.environment}"[:1200])
         lines.append("Animation plan: " + "; ".join(plan.animation))
         lines.append("Cameras: " + "; ".join(f"{c.name} ({c.purpose})" for c in plan.cameras))
@@ -395,42 +395,6 @@ def refine_recipes(ctx: RunContext, files: Sequence[str]) -> str:
     if any("/zones/" in f for f in files) or not names:
         names += list(ZONE_RECIPES)
     return cookbook_sections(ctx, names)
-
-
-def _perf_detail(renders: RenderSet) -> str:
-    """`` (5028 draw calls, 191 k triangles)`` from the render's own instruments, or ``""``.
-
-    The number is what makes the finding actionable: "low fps" is a mood, "5028 draw calls
-    against a budget of 200" names the fix."""
-    from codeverse.spatial.render_scene import metrics_path_for
-
-    try:
-        path = metrics_path_for(renders)
-        if path is None:
-            return ""
-        fps = (json.loads(path.read_text()).get("fps") or {})
-        calls, tris = fps.get("draw_calls"), fps.get("triangles")
-        bits = [f"{int(calls)} draw calls (budget 200)" if isinstance(calls, (int, float)) else "",
-                f"{int(tris) / 1000:.0f}k triangles" if isinstance(tris, (int, float)) else ""]
-        inner = ", ".join(b for b in bits if b)
-        return f" — {inner}" if inner else ""
-    except (OSError, ValueError, TypeError):
-        return ""
-
-
-def scene_motion_text(ws: Workspace, round_index: int) -> str:
-    """The measured motion table for this round's renders (``""`` when not measured).
-
-    The two animation times reach the judge as tiles in DIFFERENT montage images, so
-    "did anything move?" is not a perception task it can win — the harness measures it
-    (``spatial.frame_motion``) and states the numbers as facts."""
-    from codeverse.spatial.frame_motion import motion_from_dir, motion_summary_text
-
-    try:
-        return motion_summary_text(motion_from_dir(ws.renders_dir(round_index)))
-    except Exception as e:  # noqa: BLE001 — judge context must never break a round
-        log.warning("scene motion context failed: %s", e)
-        return ""
 
 
 def zone_file(zone: ZonePlan) -> str:

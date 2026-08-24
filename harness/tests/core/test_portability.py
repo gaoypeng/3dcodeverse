@@ -46,10 +46,20 @@ FLOOR_VIOLATIONS = {
 }
 
 
+#: directories under the scanned trees that hold *run output*, not harness source:
+#: `bench/out/` is gitignored and full of LLM-authored `model.py` files, which are
+#: written by whatever model ran that battery and are not held to our python floor.
+_NOT_SOURCE = ("__pycache__", "out")
+
+
 def _py_files() -> list[Path]:
     out: list[Path] = []
     for sub in ("codeverse", "bench", "tests"):
-        out += [p for p in (HARNESS / sub).rglob("*.py") if "__pycache__" not in p.parts]
+        root = HARNESS / sub
+        out += [
+            p for p in root.rglob("*.py")
+            if not any(part in _NOT_SOURCE for part in p.relative_to(root).parts)
+        ]
     return sorted(out)
 
 

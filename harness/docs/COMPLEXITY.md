@@ -302,7 +302,47 @@ number the next wave should move.
 
 ---
 
-## 5. Caveats
+## 5. Live check: three `static_objects_v2` prompts re-run (2026-08-24)
+
+Re-run on the current tree with the same generator and judge as their recorded
+baselines (`api-agent:gemini:gemini-3.7-flash` / `gemini-3.1-pro-preview`), and
+scored against the recorded run of the same prompt:
+
+| run / arm | index | parts | tris | silhouette | feature density | hollow | overall | detail | fit | materials | $ | min |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| dining chair — recorded | 0.554 | 12 | 4 160 | 14.3 | 778 | 0.13 | 0.60 | 0.80 | 0.90 | 0.70 | 2.21 | 15 |
+| dining chair — new | **0.686** | 14 | 19 480 | 13.8 | **3 663** | 0.14 | **0.93** | 0.85 | 0.85 | 0.70 | 1.45 | 150* |
+| birdcage — recorded | 0.746 | 14 | 17 492 | 52.3 | 6 229 | 0.79 | 0.67 | 0.60 | 0.60 | 0.80 | 1.93 | 37 |
+| birdcage — new | **0.825** | 15 | 33 804 | 55.2 | **13 568** | 0.90 | **0.85** | 0.85 | 0.85 | 0.85 | 1.76 | 131* |
+| toaster — recorded | 0.420 | 11 | 4 722 | 1.7 | 474 | 0.13 | **0.95** | 0.90 | 0.90 | 0.95 | 0.61 | 8 |
+| toaster — new | **0.517** | 11 | 15 986 | 1.7 | **2 375** | 0.10 | 0.66 | 0.75 | **0.60** | 0.75 | 0.90 | 84* |
+
+\* the wall clocks are not comparable: this window sat inside a sustained
+`gemini-3.7-flash` 503 storm and each run was restarted at least once.  Cost is
+comparable and did not rise.
+
+**Read with the eyes, not only the index.**  The chair really is richer: the
+recorded one is a flat square seat slab with straight rails; the new one has a
+dished seat with a shaped front edge, a curved crest rail with turned
+terminals, tapered legs, side/rear aprons and corner blocks — 14 parts, 4.7× the
+feature density, and the score went 0.60 → 0.93.  The birdcage gained a wire
+floor grid, a framed door, more dome ribs and a trapeze — but it also lost its
+brass colour and now reads near-white, which the index cannot see and the judge
+did not punish.  The toaster is the finding of this document acted out: 5× the
+feature density, and the score **fell** 0.95 → 0.66 because the new detail
+interpenetrates (`assembly_fit` 0.90 → 0.60).  More artifact, worse verdict —
+F1, live.
+
+**What this does and does not prove.**  It proves the vector is produced,
+recorded and readable in a real run (`record.extra["complexity"]`, the per-round
+trail, the gallery chip).  It does **not** isolate this owner's changes: the
+same tree carries a parallel wave's generation work (scoped part generation, a
+`detail_budget` gate, planner-brief changes), which is the likelier cause of the
+extra geometry.  The rubric A/B in §3.1 is the isolated experiment.
+
+---
+
+## 6. Caveats
 
 * Object tracks only.  A shader or a scene has no `object.glb`; the report counts
   those runs as skipped rather than pretending they scored 0 complexity.

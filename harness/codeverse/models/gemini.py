@@ -88,6 +88,15 @@ def _rate() -> Any:
         return Rate()
 
 
+def _default_timeout_s() -> float:
+    from codeverse.config import get_settings
+
+    try:
+        return float(get_settings().model_timeout_s)
+    except Exception:  # pragma: no cover - settings must never break a model call
+        return 300.0
+
+
 def _default_keys() -> list[str]:
     from codeverse.config import get_settings
 
@@ -166,7 +175,7 @@ class GeminiModel:
         *,
         keys: list[str] | None = None,
         pool: KeyPool | None = None,
-        timeout_s: float = 300.0,
+        timeout_s: float | None = None,
         max_attempts: int = 6,
         base_delay: float = 1.0,
         max_delay: float = MAX_WAIT_S,
@@ -186,7 +195,7 @@ class GeminiModel:
         self.storm_gate = storm_gate if storm_gate is not None else (
             storm_gate_for(f"gemini:{model}") if _rate().storm_gate else None
         )
-        self.timeout_s = timeout_s
+        self.timeout_s = _default_timeout_s() if timeout_s is None else timeout_s
         self.max_attempts = max(1, max_attempts)
         self.base_delay = base_delay
         self.max_delay = max_delay

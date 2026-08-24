@@ -386,9 +386,12 @@ def cookbook_block() -> str:
         "});",
         "```",
         "",
-        "Roughness variation without a texture file: give the part 2-3 materials that differ",
-        "only in roughness (a worn edge strip at -0.15, a recessed face at +0.12), or drive",
-        "roughness from a `NoiseTexture` (Blender) / a small `DataTexture` (three).",
+        "**Roughness variation without a texture file.**  GLB export keeps only base colour,",
+        "metallic, roughness, emission, alpha and normal *textures* — a Blender noise node tree",
+        "does NOT survive it.  What does survive: give one part 2-3 materials that differ only in",
+        "roughness and assign them per face group (a worn edge strip at -0.15, a recessed panel at",
+        "+0.12, the underside at +0.20).  Two materials on one part is the cheapest thing that",
+        "stops a surface reading as plastic.",
     ]
     return "\n".join(rows) + "\n"
 

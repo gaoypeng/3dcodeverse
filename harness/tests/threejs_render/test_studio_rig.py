@@ -86,6 +86,8 @@ def test_studio_render_is_reproducible_and_stamps_the_rig_version(stool_glb: Pat
                    sheet=False, use_cache=False)
     meta = json.loads((tmp_path / "a" / "views.json").read_text())
     assert meta["rig_version"] == 2
+    if a.renderer != b.renderer:
+        pytest.skip(f"different GL backends between runs ({a.renderer} vs {b.renderer})")
     for va, vb in zip(a.views, b.views, strict=True):
         assert Path(va.path).read_bytes() == Path(vb.path).read_bytes(), f"{va.name} is not reproducible"
 
@@ -102,8 +104,10 @@ def test_the_render_cache_still_hits_after_the_rig_change(stool_glb: Path, tmp_p
 
 @pytest.mark.node
 def test_orbit_views_share_one_camera_distance(stool_glb: Path, tmp_path: Path):
-    """Consistent framing: every view in the orbit band (|elevation| <= 60) sits at the
-    same distance, so the object does not change apparent size across the montage."""
+    """Consistent framing: views in the orbit band (|elevation| <= 60) share one camera
+    distance so the object keeps its apparent size across the montage — but no view is
+    pulled back by more than 10 %, or a deep object shrinks every frame to what its
+    widest side needs and the judge loses detail resolution."""
     from codeverse.conventions import OBJECT_VIEWS
 
     render_glb(stool_glb, tmp_path / "o", views=OBJECT_VIEWS, width=192, height=192,
@@ -113,7 +117,8 @@ def test_orbit_views_share_one_camera_distance(stool_glb: Path, tmp_path: Path):
     for v in meta["views"]:
         d = float(np.linalg.norm(np.array(v["camera_position"]) - np.array(v["look_at"])))
         (steep if abs(v["elevation"]) > 60 else band).append(d)
-    assert len(band) >= 4 and max(band) - min(band) < 1e-4 * max(band)
+    assert len(band) >= 4
+    assert max(band) / min(band) <= 1.10 + 1e-6, f"orbit distances spread too far: {sorted(band)}"
     assert steep, "OBJECT_VIEWS should still contain a plan view that fits itself"
 
 

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from codeverse.agents.cli_common import begin_session
-from codeverse.agents.codex import CodexAgent, parse_codex_jsonl
+from codeverse.agents.codex import CodexAgent, parse_codex_jsonl, split_model_effort
 from codeverse.contracts.agent import AgentJob
 from codeverse.workspace import Workspace
 
@@ -49,6 +49,17 @@ def test_parse_jsonl():
     assert u.input_tokens == 1000 and u.cached_tokens == 600 and u.output_tokens == 50 and u.tool_calls == 2
 
 
+def test_reasoning_tokens_are_not_billed_twice():
+    """`output_tokens` already contains `reasoning_output_tokens` (Responses API)."""
+    ev = parse_codex_jsonl(json.dumps(
+        {"type": "turn.completed", "usage": {"input_tokens": 1000, "output_tokens": 9000,
+                                             "reasoning_output_tokens": 5000}}))
+    u = ev.usage("gpt-5.6-sol")
+    assert (u.output_tokens, u.thoughts_tokens) == (4000, 5000)
+    # 1000 in @ $4/M + 9000 billable output @ $20/M — the reasoning share counted once
+    assert u.cost_usd == pytest.approx(1000 * 4.0 / 1e6 + 9000 * 20.0 / 1e6)
+
+
 def test_argv_with_mcp_overrides(tmp_ws: Workspace):
     a = CodexAgent("gpt-5.6-sol", binary="codex")
     s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p"), "codex")
@@ -62,6 +73,21 @@ def test_argv_with_mcp_overrides(tmp_ws: Workspace):
     assert argv[argv.index("--model") + 1] == "gpt-5.6-sol"
     s2 = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "codex")
     assert "mcp_servers" not in " ".join(a.build_argv(s2, None)) and a.build_argv(s2, None)[-1] == "-"
+
+
+def test_reasoning_effort_is_explicit(tmp_ws: Workspace, monkeypatch):
+    """`codex exec` defaults to medium; every harness call states the effort instead."""
+    s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "codex")
+    argv = CodexAgent("gpt-5.6-sol", binary="codex").build_argv(s, "p")
+    assert argv[argv.index("-c") + 1] == "model_reasoning_effort=high"
+    a = CodexAgent("gpt-5.6-terra@medium", binary="codex")
+    assert (a.model, a.reasoning_effort, a.id) == ("gpt-5.6-terra", "medium", "codex:gpt-5.6-terra")
+    assert "model_reasoning_effort=medium" in a.build_argv(s, "p")
+    assert "model_reasoning_effort" not in " ".join(CodexAgent("gpt-5.6-sol", binary="codex",
+                                                               reasoning_effort="").build_argv(s, "p"))
+    assert split_model_effort("gpt-5.6-luna", "high") == ("gpt-5.6-luna", "high")
+    with pytest.raises(ValueError, match="reasoning effort"):
+        CodexAgent("gpt-5.6-sol", binary="codex", reasoning_effort="ludicrous")
 
 
 def test_fake_run(tmp_ws: Workspace, fake_bin, monkeypatch):

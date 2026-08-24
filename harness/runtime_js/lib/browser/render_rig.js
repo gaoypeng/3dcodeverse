@@ -14,6 +14,9 @@ const FOV_DEG = 35;
  *  different distance); everything in the orbit band shares one distance so the object
  *  keeps the same apparent size across the montage. */
 const UNIFORM_FRAMING_MAX_ELEVATION = 60;
+/** ...but never pull a view back by more than this, or a deep object shrinks every other
+ *  frame to the size its widest side needs and the judge loses detail resolution. */
+const UNIFORM_FRAMING_MAX_PULLBACK = 1.10;
 
 function loadGlb(url) {
   return new Promise((resolve, reject) => {
@@ -140,13 +143,14 @@ export async function renderGlbViews(cfg) {
   const rig = buildStudio(renderer, scene, box, { background, shadow: look.shadow && cfg.shadow !== false, lights: look.lights });
 
   const camera = new THREE.PerspectiveCamera(FOV_DEG, width / height, 0.01, 100);
-  const fill = cfg.fill || 0.88;
+  const fill = cfg.fill || 0.90;
   const uniform = uniformDistance(camera, box, cfg.views, fill);
   const views = [];
   for (const v of cfg.views) {
     let fit = fitCameraToBox(camera, box, v.azimuth, v.elevation, { fill });
     if (uniform != null && Math.abs(v.elevation) <= UNIFORM_FRAMING_MAX_ELEVATION && uniform > fit.distance) {
-      fit = placeAt(camera, box, v.azimuth, v.elevation, uniform);
+      fit = placeAt(camera, box, v.azimuth, v.elevation,
+                    Math.min(uniform, fit.distance * UNIFORM_FRAMING_MAX_PULLBACK));
     }
     aimStudio(rig, v.azimuth, v.elevation);
     renderer.render(scene, camera);

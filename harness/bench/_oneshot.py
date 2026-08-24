@@ -10,8 +10,9 @@ Backends (``get_oneshot_backend``):
 
 * ``claude-code`` / ``claude-code:<model>`` — ``claude -p`` with ``--tools ""``
   and ``--max-turns 1`` (subscription; model default when none given).
-* ``codex`` / ``codex:<model>`` — ``codex exec`` read-only sandbox, JSONL events
-  (subscription; model default when none given).
+* ``codex`` / ``codex:<model>[@<effort>]`` — ``codex exec`` read-only sandbox, JSONL
+  events, ``-c model_reasoning_effort=`` (default ``high``, see
+  ``Settings.agents.codex_reasoning_effort``) (subscription; model default when none given).
 * ``gemini:<m>`` / ``anthropic:<m>`` / ``openai:<m>`` — ``codeverse.models``
   chat model, one ``ChatRequest``.
 
@@ -34,7 +35,7 @@ from pydantic import BaseModel, Field
 
 from codeverse.agents.claude_code import parse_claude_json, usage_from_envelope
 from codeverse.agents.cli_common import is_secret_env, tail
-from codeverse.agents.codex import parse_codex_jsonl
+from codeverse.agents.codex import effort_overrides, parse_codex_jsonl, split_model_effort
 from codeverse.agents.watchdog import run_with_watchdog
 from codeverse.config import get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport
@@ -233,16 +234,17 @@ class CodexOneShot:
 
     kind = "codex"
 
-    def __init__(self, model: str = "", binary: str | None = None):
-        self.model = model
+    def __init__(self, model: str = "", binary: str | None = None, reasoning_effort: str | None = None):
+        self.model, self.reasoning_effort = split_model_effort(model, reasoning_effort)
         self.binary = binary or get_settings().binaries.codex_cli
-        self.id = f"oneshot:{self.kind}" + (f":{model}" if model else "")
+        self.id = f"oneshot:{self.kind}" + (f":{self.model}" if self.model else "")
 
     def argv(self, cwd: Path, last_msg: Path) -> list[str]:
         argv = [self.binary, "exec", "--json", "-C", str(cwd), "--sandbox", "read-only", "--skip-git-repo-check",
                 "--ephemeral", "--color", "never", "-o", str(last_msg)]
         if self.model:
             argv += ["--model", self.model]
+        argv += effort_overrides(self.reasoning_effort)
         argv.append("-")  # prompt on stdin
         return argv
 

@@ -95,6 +95,21 @@ def make_model(script: list[Any], keys=("k1", "k2", "k3"), pool: KeyPool | None 
     return m, log, pool
 
 
+def test_read_timeout_comes_from_settings(monkeypatch):
+    """CV3D_MODEL_TIMEOUT_S raises the per-attempt HTTP read timeout (degraded-provider escape hatch)."""
+    from codeverse.config import get_settings
+    from codeverse.models.gemini import GeminiModel
+
+    monkeypatch.setenv("GEMINI_API_KEYS", "k1")
+    get_settings.cache_clear()
+    assert GeminiModel("gemini-3.7-flash").timeout_s == 300.0
+    monkeypatch.setenv("CV3D_MODEL_TIMEOUT_S", "900")
+    get_settings.cache_clear()
+    assert GeminiModel("gemini-3.7-flash").timeout_s == 900.0
+    assert GeminiModel("gemini-3.7-flash", timeout_s=42.0).timeout_s == 42.0
+    get_settings.cache_clear()
+
+
 def test_text_usage_cost_and_raw():
     m, log, _ = make_model([text_response("hello")])
     r = m.generate(

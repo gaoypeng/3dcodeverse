@@ -56,7 +56,7 @@ def _in_caller_context(snapshot: contextvars.Context, fn: Callable[[int], None],
 def fan_out(
     items: Sequence[T] | Iterable[T],
     fn: Callable[[T], R],
-    max_workers: int = 4,
+    max_workers: int = 8,
     *,
     label: str = "fanout",
     item_name: Callable[[T], str] | None = None,
@@ -67,6 +67,11 @@ def fan_out(
     Each result is the return value or the raised ``Exception``.  ``on_done``
     (if given) is called from the worker thread with ``(index, item, result,
     seconds)`` — keep it cheap and thread-safe (e.g. an EventLog.emit).
+
+    ``max_workers`` is a *fallback*: every caller in the harness states its own,
+    sized from the measured ceilings in ``docs/COST.md`` Part III
+    (``Settings.limits`` for the subprocess side, ``Settings.rate.max_in_flight``
+    for model calls).  8 is the largest width that is inside both knees.
     """
     items = list(items)
     # Workers inherit the caller's context so ambient state set with contextvars

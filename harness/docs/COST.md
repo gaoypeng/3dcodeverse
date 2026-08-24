@@ -283,6 +283,7 @@ made:**
 | `gemini:gemini-2.5-flash-lite` cached | 0.025 | **0.01** | idem |
 | `gemini:gemini-3.1-pro-preview`, `gemini-3-pro-preview`, `gemini-2.5-pro` | one tier | **+ >200k tier** (4.00 / 18.00 / 0.40) | `estimate_cost` now applies the long-context tier automatically |
 | added | – | `claude-haiku-3-5`, `claude-mythos-5` | were unknown ⇒ silently $0 |
+| added 2026-08-24 | – | `openai:gpt-5.6-terra` **2.00 / 12.00 / 0.20**, `openai:gpt-5.6-luna` **0.20 / 1.20 / 0.02** | the other two codex tiers were unknown ⇒ silently $0 (luna was cut 80% on 2026-07-30) |
 | verified (no change) | – | every other gemini / anthropic / openai row | now flagged `verified` rather than "approximate" |
 | still `inferred` / `unverified` | – | `claude-haiku-4`, `o1-mini`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.2-codex`, `gemini-2.5-flash-image` | not listed on the pricing pages; `3dcv cost prices --unverified` lists them |
 
@@ -790,3 +791,214 @@ correction: the regression "switch then stop" rule and the r03+ marginal stop
 still cut 2 runs / **$1.14** with **0 best rounds lost** over the 107 recorded
 rounds (`waste-and-accounting/replay_stops.py`), and every round still emits its
 `cost.round` event.
+
+---
+
+# Part III — throughput: using the 22 keys (wave 3, 2026-08-24)
+
+Parts I and II are about **money**.  Part III is about **wall clock**: the owner has
+22 Gemini keys at 1 000 RPM / 1 000 000 TPM each and asked whether the harness rotates
+them and whether more parallelism would buy speed.  It does rotate — `KeyPool` has done
+round-robin + per-key RPM buckets + 429 cooldown + dead-key benching since wave 1.  The
+finding is that **rotation was never the constraint**: the pool was running at 0.7 % of
+its request quota and 1.6 % (median) of its token quota.
+
+Everything below is measured on this box (24 cores, 22 keys, `gemini-3.7-flash`), from
+the 6 014 live priced calls in `bench/out/**` and three probes; the reusable one is
+`bench/concurrency_probe.py`.
+
+## 18. The baseline: 3 % of the quota, and 17.7 h asleep
+
+| | measured | pool capacity | used |
+|---|---|---|---|
+| peak requests/minute | 154 | 22 000 | **0.7 %** |
+| peak prompt-tokens/minute | 4.00 M | 22.0 M | **18.2 %** |
+| median prompt-tokens/minute | 0.36 M | 22.0 M | **1.6 %** |
+| peak concurrent calls | 13 | 64 (§20) | 20 % |
+| mean concurrent calls | 2.05 | 64 | **3.2 %** |
+| 429s in 6 014 calls | 4 | — | all on one key |
+| 503 "capacity storm" waits | **2 833** | — | **17.72 h of thread time asleep** |
+
+Reconstructed per battery from `(ts, latency_ms)` in the cost ledgers — `mean_if` is
+the time-weighted mean of concurrent Gemini calls, `idle` the share of the span with
+none in flight:
+
+| battery | span | `--parallel` | calls | mean_if | peak_if | idle | model time | 503 sleep |
+|---|---|---|---|---|---|---|---|---|
+| static_v2_flash | 2.49 h | 3 | 4 453 | 2.57 | 10 | 5.3 % | 6.40 h | 1.65 h (504 waits) |
+| articulated_v2_flash | 5.95 h | 2 | 1 335 | 0.94 | 3 | 29.1 % | 5.60 h | 4.67 h (560) |
+| graphics_v2_flash | 1.10 h | 3 | 67 | 1.07 | 4 | 41.3 % | 1.18 h | 1.23 h (131) |
+| compare_v2_full | 1.41 h | 3 | 36 | 1.31 | 4 | 41.0 % | 1.85 h | 1.16 h (79) |
+
+Where a worker's time went, against the six candidates:
+
+* **our own thread pools — the dominant sink.**  `max_parallel_agents=6`,
+  `max_parallel_builds=3`, `bench --parallel 2`, `fan_out(max_workers=4)`: the harness
+  never *asked* for more than 13 concurrent calls out of a measured ceiling of 64.
+* **the pool's RPM buckets — ~0.**  154 RPM peak against a 22 000 RPM bucket.
+* **provider 429 — ~0.**  4 events in 6 014 calls, all on one key, all rotated away free.
+* **provider 503 storms — 22 – 39 % of every battery's wall clock**, 17.7 h in total,
+  ≈108 % of all model generation time.  Model-wide, so rotation cannot help (§21).
+* **subprocesses — negligible for build.**  351 recorded blender builds cost **325 s in
+  total** (mean 0.9 s, p50 0.2 s); a fresh build of a recorded `model.py` is 0.37 s.
+* **the model generating — 36 – 86 %** of worker time (p50 3.3 s, p90 14.5 s, p99 53 s).
+
+There is nothing to read from the provider: a live `POST …:generateContent` returns no
+`x-ratelimit-*` header at all, only `x-gemini-service-tier: standard`.  Headroom has to
+be modelled from the quota, which is what `Settings.rate` now does.
+
+## 19. TPM, not RPM, is the binding limit
+
+Prompt tokens dominate completely — over the corpus, output + thoughts were **2 % of
+input** (243.9 M in vs 4.0 M out) — and a generator call averages **41 739 prompt
+tokens**.  At that size 1 M TPM is ~24 calls/min per key (528 pool-wide) while the RPM
+quota would allow 1 000 per key.  So the meaningful limiter is a *token* rate:
+
+* `KeyPool` had a `tpm_per_key` hook that was never set (`None`).  It is now wired from
+  `Settings.rate.tpm_per_key` (default 1 000 000) via `shared_pool`, whose registry key
+  now includes the quota so two different quotas cannot silently share one set of buckets.
+* `acquire(tokens_hint=…)` **reserves** the estimated prompt tokens of the pending call.
+  The estimate is `codeverse.models.tokens.request_tokens`, a thin wrapper over
+  `cost.guard.estimate_call` that walks the whole request (system prompt, tool schemas,
+  response schema, tool results, a flat 1 290 per image).
+* `report(key, outcome, tokens=actual, reserved=hint)` **reconciles**: the bucket is
+  charged `actual - hint`, so an over-estimate is refunded, an under-estimate is paid off
+  (the bucket may go negative and is cleared by the next refill), and a call that never
+  reached the model — 429 or capacity storm — gets the whole reservation back.
+
+That is what makes a 200 k judge verdict and a 2 k caption schedule differently, and §20
+shows it is not theoretical.
+
+## 20. The measured knee — and why one number is not enough
+
+`bench/concurrency_probe.py` runs a fixed workload at several in-flight levels with a
+fresh `KeyPool` each time, so the `ok / 429 / 5xx` counters are exact deltas.
+
+**Generator-shaped (12 k-token prompt, 128 calls per level):**
+
+| in-flight | wall | calls/min | Mtok/min | mean_if | p50 | 429 | 5xx | $ |
+|---|---|---|---|---|---|---|---|---|
+| 16 | 259.8 s | 29.6 | 0.75 | 12.7 | 17.6 s | 0 | 32 | 0.71 |
+| 32 | 175.0 s | 43.9 | 1.12 | 24.5 | 28.6 s | 0 | 35 | 0.72 |
+| **64** | **105.4 s** | **72.9** | **1.86** | 24.6 | 13.4 s | 0 | 67 | 0.70 |
+| 128 | 162.9 s | 47.2 | 1.20 | 22.7 | 20.5 s | 0 | 41 | 0.71 |
+
+Throughput rises **2.5x** from 16 to 64 and falls back 35 % at 128 — the knee is 64.
+Cost per call is flat within ±2 % across the whole range: **concurrency buys wall clock,
+not money.**
+
+**Judge-shaped (200 k-token prompt, 32 calls per level):**
+
+| in-flight | calls/min | Mtok/min | 429 |
+|---|---|---|---|
+| 8 | 19.8 | 8.50 | 0 |
+| **16** | **46.8** | **20.05** | 2 |
+| 32 | 29.5 | 12.66 | 3 |
+
+429s appear exactly where the arithmetic predicts: 16 x 200 k ≈ **20.0 M prompt-tokens
+per minute against a 22 M pool quota** — a direct confirmation of the 1 M TPM per key
+(measured onset ≈ 0.91 M/key) and the reason a single fixed concurrency number is wrong:
+*the same in-flight count that is 3 % of quota for a caption is 91 % of it for a judge
+verdict.*  The TPM buckets, not a call counter, are what keep the big-call regime honest.
+
+**The subprocess ceiling is a different, much lower number.**  32 replays of a recorded
+blender `model.py`:
+
+| workers | 1 | 4 | 8 | **16** | 24 | 32 |
+|---|---|---|---|---|---|---|
+| builds/min | 155.9 | 590.3 | 1 051.7 | **1 392.0** | 1 167.6 | 1 018.7 |
+
+Knee = **16 concurrent blender builds** on 24 cores.  Headless-Chrome renders could not
+be measured cleanly (12 distinct GLBs at 1 – 12 workers, forwards and backwards, gave
+2.5 – 220 renders/min with single renders from 1.5 s to 153 s): that variance is the
+renderer's own tail, not parallelism.  Renders are treated as "1.5 – 3 s typical with a
+minutes-long tail" and the subprocess pools are sized from the clean build number.
+
+**64 model calls vs 16 subprocesses is 4x apart, so the two are capped separately:**
+`Settings.rate.max_in_flight` is a semaphore inside `KeyPool` (network-bound, provider-
+sized), `Settings.limits.max_parallel_*` size the thread pools (CPU-bound, core-sized).
+
+### Defaults changed, each from a number above
+
+| knob | was | now | basis |
+|---|---|---|---|
+| `Rate.tpm_per_key` | *(unset)* | 1 000 000 | owner's quota; 429 onset measured at ~0.91 M/key |
+| `Rate.rpm_per_key` | 900 | 1 000 | owner's quota (never binding: 0.7 % used) |
+| `Rate.max_in_flight` | *(none)* | 64 | §20 knee |
+| `Limits.max_parallel_agents` | 6 | 12 | build knee 16, derated for the render tail |
+| `Limits.max_parallel_builds` | 3 | 8 | build knee 16 |
+| `bench --parallel` (both drivers) | 2 / 3 | 8 | a cell holds ~0.9 calls in flight → 8 cells ≈ 7, far inside the 64 knee |
+| `fan_out(max_workers=…)` fallback | 4 | 8 | inside both knees (every real caller states its own) |
+
+## 21. Making 503 storms cheap: one shared wait instead of thirty
+
+A 429 is per key and rotation cures it.  A 503 *"this model is currently experiencing
+high demand"* is **model-wide**: every key sees it at once, so each worker that meets a
+storm independently spends a full failed round-trip to learn what its siblings already
+know, then sleeps on its own private backoff schedule.  That is the 2 833 waits / 17.7 h
+in §18.
+
+`codeverse/models/storm.py` adds a process-wide `StormGate` per model:
+
+* the first worker to see a 503 calls `hit()`, which closes the gate for a short,
+  escalating window (never longer than `MAX_WAIT_S` — patience comes from the *number*
+  of waits, not the length of one);
+* every other worker parks in `enter()` instead of issuing a call that is almost
+  certain to fail;
+* once the window elapses exactly **one** worker is let through as a probe, under a
+  lease so a crashed prober cannot wedge the gate.  Its success (`ok()`) reopens the
+  gate for everybody.
+
+It never adds waiting when no storm is running.  **And it lost its own A/B, so it ships
+OFF.**  Same workload (48 calls, 32 in flight, 12 k prompts), alternated to control for
+drift in the provider's mood:
+
+| round | gate | wall | calls/min | mean_if | p50 | max | 5xx attempts | parked |
+|---|---|---|---|---|---|---|---|---|
+| 1 | off | 96.0 s | **30.0** | 14.27 | 25.8 s | 71.0 s | 18 | — |
+| 1 | on | 158.3 s | 18.2 | 5.54 | 11.7 s | **158.2 s** | 27 | 140 s |
+| 2 | off | 63.4 s | **45.4** | 13.20 | 15.6 s | 63.4 s | 6 | — |
+| 2 | on | 144.1 s | 20.0 | 9.92 | 16.0 s | **142.8 s** | 20 | 100 s |
+
+The gate costs **45 – 56 % of throughput**, consistently, and the two columns that
+explain why are `5xx` and `max`:
+
+* it produced **more** 503s, not fewer (27 vs 18, 20 vs 6) — the opposite of its purpose.
+  A gate that reopens on one probe's success releases all 31 parked workers at the same
+  instant, and that thundering herd is exactly the burst the provider was 503-ing.
+* median latency **improved** (11.7 s vs 25.8 s in round 1 — parking really does spare a
+  worker some doomed round-trips) while the maximum blew out to the whole run length:
+  with one probe at a time, whichever call keeps losing the race is starved.
+
+Underneath both is the same misreading: Gemini's 503s here are **intermittent, not an
+outage** — most calls succeed while some 503 — so treating the first 503 as "the model
+is down" parks 31 healthy workers for nothing.  A shared signal only pays when the
+failure really is all-or-nothing.
+
+The A/B was run during *intermittent* 503s, which is what the logs show most of the
+time.  A single sustained outage is the case the gate was designed for and is not
+covered by this measurement — that is why the mechanism is kept rather than deleted.
+So `Settings.rate.storm_gate` defaults to **False**.  The mechanism, its counters and
+the probe flag are kept so the experiment is reproducible
+(`CV3D_RATE__STORM_GATE=1`, or `bench/concurrency_probe.py --storm-gate`) — the same
+treatment §13 gave cache-friendly prompt ordering.
+
+**Caveat on the knee under a storm.**  §20's knee optimises *throughput* — total calls
+per minute.  A bench cell is judged on *latency* instead: it has a `--max-minutes`
+budget, and under the sustained 503 storm of 2026-08-24 03:00–05:00 one planner call
+took **2 218 s** and cells hit the old 45-minute ceiling before producing code.  When
+the provider is capacity-limited, extra concurrency cannot add throughput but does add
+per-cell latency, so a long battery run in that state wants a *bigger time budget*
+(`--max-minutes 180`), not a smaller `--parallel`.
+
+What *did* make storms cheap is smaller and already in the retry loop: no single wait
+may exceed `MAX_WAIT_S` = 5 s (patience comes from the number of attempts, 60 of them),
+so a storm no longer blocks a worker for minutes — and with `--parallel 8` and
+`max_in_flight 64` the other seven cells keep working through it.  Deferring a
+storm-hit item to the back of the queue was **not** built: at the gate-off settings a
+whole 128-call level costs 6 – 35 storm attempts and **zero failures**, which does not
+justify a scheduler rewrite in `fan_out`.
+
+`3dcv doctor --live` prints the pool's live picture — keys, in-flight and peak in-flight,
+RPM/TPM headroom used, 429/5xx/dead counts this process — plus one row per storm gate
+with its storm count, 503 count, probe count and parked seconds.

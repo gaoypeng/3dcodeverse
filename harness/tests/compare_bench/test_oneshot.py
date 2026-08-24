@@ -87,6 +87,18 @@ def test_codex_argv_is_read_only_and_reads_prompt_from_stdin(tmp_path: Path):
     assert "--ephemeral" in argv and "-o" in argv and "mcp_servers" not in " ".join(argv)
 
 
+def test_codex_oneshot_forces_a_reasoning_effort(tmp_path: Path):
+    """Default high (Settings.agents.codex_reasoning_effort); `@effort` on the id wins; '' opts out."""
+    argv = CodexOneShot("gpt-5.6-terra", binary="codex").argv(tmp_path, tmp_path / "last.md")
+    assert argv[argv.index("--model") + 1] == "gpt-5.6-terra"
+    assert "model_reasoning_effort=high" in argv and argv[argv.index("-c") + 1] == "model_reasoning_effort=high"
+    b = CodexOneShot("gpt-5.6-luna@low", binary="codex")
+    assert b.model == "gpt-5.6-luna" and b.id == "oneshot:codex:gpt-5.6-luna"
+    assert "model_reasoning_effort=low" in b.argv(tmp_path, tmp_path / "last.md")
+    plain = CodexOneShot("gpt-5.6-sol", binary="codex", reasoning_effort="").argv(tmp_path, tmp_path / "l.md")
+    assert "model_reasoning_effort" not in " ".join(plain)
+
+
 def test_registry():
     assert isinstance(get_oneshot_backend("claude-code"), ClaudeOneShot)
     assert get_oneshot_backend("claude-code:sonnet").model == "sonnet"

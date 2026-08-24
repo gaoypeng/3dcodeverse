@@ -96,8 +96,13 @@ export function softboxEnvironment() {
  * Backdrop for `scene.background`: a neutral sweep — bright hotspot a little above
  * the frame centre falling off to a darker rim, i.e. what a lit paper cyclorama
  * looks like.  No hue, so it never tints a judge's read of the object's colour.
+ *
+ * The default sits BELOW mid-white (0.90 at the hotspot, 0.60 at the corners) on
+ * purpose: rig v1's flat 0xe9e9ec (0.91 everywhere) left a white appliance with
+ * nothing to separate against, and put 79 % of an average frame into one luminance
+ * bucket — over the flat-frame threshold in spatial/frame_metrics.py.
  */
-export function backdropTexture(size = 256, { centre = 0.955, edge = 0.70, hotspotY = 0.60 } = {}) {
+export function backdropTexture(size = 256, { centre = 0.90, edge = 0.60, hotspotY = 0.60 } = {}) {
   const data = new Uint8Array(size * size * 4);
   for (let y = 0; y < size; y++) {
     // texture row 0 is the BOTTOM of the screen for a background texture
