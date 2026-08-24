@@ -106,7 +106,7 @@ def _bare_model(model_id: str, timeout_s: float):
     if provider == "gemini":
         from codeverse.models.gemini import GeminiModel
 
-        return GeminiModel(name, timeout_s=timeout_s, max_attempts=1)
+        return GeminiModel(name, timeout_s=timeout_s, max_attempts=1, storm_attempts=0)
     from codeverse.models import get_chat_model  # other providers: no bare constructor needed yet
 
     return get_chat_model(model_id)

@@ -86,3 +86,30 @@ def test_sibling_count_never_raises(monkeypatch):
 
     monkeypatch.setattr(Path, "iterdir", boom)
     assert health.sibling_processes() == 0
+
+
+def test_probe_model_treats_a_503_as_final(monkeypatch):
+    """"No retries" must include the storm branch.  rotate_with_retries' capacity-storm
+    branch does NOT consume max_attempts, so max_attempts=1 alone still retried a 503
+    up to 60 times (bounded only by the 900 s deadline) — a "30-second" probe that could
+    take 15 minutes.  Observed 2026-08-24 in the parked compare_v2 preflight log."""
+    import codeverse.models.gemini as gm
+    from codeverse.models.health import _bare_model
+
+    captured: dict = {}
+
+    def fake_rotate(pool, call, **kw):
+        captured.update(kw)
+        return "unused"
+
+    monkeypatch.setattr(gm, "rotate_with_retries", fake_rotate)
+    m = _bare_model("gemini:gemini-3.7-flash", 30.0)
+    assert m.storm_attempts == 0 and m.max_attempts == 1
+    import contextlib
+
+    from codeverse.contracts.chat import ChatMessage, ChatRequest
+
+    with contextlib.suppress(Exception):  # the fake returns a non-response; only the kwargs matter
+        m.generate(ChatRequest(messages=[ChatMessage.user("pong")], max_output_tokens=8))
+    assert captured.get("storm_attempts") == 0, captured.keys()
+    assert captured.get("max_attempts") == 1

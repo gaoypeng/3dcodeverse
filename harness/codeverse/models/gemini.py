@@ -182,10 +182,15 @@ class GeminiModel:
         rpm_per_key: int | None = None,
         tpm_per_key: int | None = None,
         storm_gate: StormGate | None = None,
+        storm_attempts: int | None = None,
         sleep: Callable[[float], None] = time.sleep,
         client_factory: Callable[[str], Any] | None = None,
     ) -> None:
         self.model = model
+        #: None = rotate_with_retries' default (60).  0 = a 503 is final: for probes,
+        #: whose whole point is a fast verdict — the storm branch does NOT consume
+        #: max_attempts, so max_attempts=1 alone still retried a 503 for up to 15 min.
+        self.storm_attempts = storm_attempts
         keys = list(keys) if keys is not None else _default_keys()
         if pool is None and not keys:
             raise ModelError(
@@ -255,6 +260,7 @@ class GeminiModel:
             tokens_hint=request_tokens(request, model_id=self.id),
             storm_gate=self.storm_gate,
             label=f"gemini {self.model}",
+            **({} if self.storm_attempts is None else {"storm_attempts": self.storm_attempts}),
         )
 
     def _config(self, request: ChatRequest, warnings: list[str]) -> types.GenerateContentConfig:

@@ -190,7 +190,7 @@ def check_keys(live: bool) -> list[Row]:
             "OK" if sib == 0 else "WARN",
             f"{sib} other harness process(es) running — each keeps its OWN key pool, so the real "
             f"concurrency is ~{(sib + 1) * cap} in-flight against one shared quota "
-            f"(docs/COST.md §23; run one battery at a time or set CV3D_RATE__MAX_IN_FLIGHT={max(1, cap // (sib + 1))})"
+            f"(docs/COST.md §23; run one battery at a time or set CV3D_MAX_IN_FLIGHT={max(1, cap // (sib + 1))})"
             if sib else "sole harness process: max_in_flight applies as configured",
         ))
     rows.append(("anthropic key", "OK" if s.anthropic_api_key else "WARN", "set" if s.anthropic_api_key else "not set (anthropic:* backends unavailable)"))

@@ -15,10 +15,10 @@ import re
 import shutil
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from codeverse.contracts.common import Backends
@@ -120,6 +120,28 @@ class Judge(BaseModel):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CV3D_", env_nested_delimiter="__", extra="ignore")
+
+    #: Flat aliases for nested knobs people actually type.  ``CV3D_MAX_IN_FLIGHT=16`` was
+    #: written into three launch commands and two workflow briefs on 2026-08-24 before anyone
+    #: noticed pydantic-settings only reads ``CV3D_RATE__MAX_IN_FLIGHT`` — every one of them
+    #: silently ran at the default 64.  An env knob that is read by nothing is worse than no
+    #: knob; both spellings now work and the doctor prints the short one.
+    _FLAT_ALIASES: ClassVar[dict[str, tuple[str, str]]] = {
+        "CV3D_MAX_IN_FLIGHT": ("rate", "max_in_flight"),
+    }
+
+    @model_validator(mode="after")
+    def _apply_flat_aliases(self) -> Settings:
+        for env, (section, field) in self._FLAT_ALIASES.items():
+            raw = os.environ.get(env)
+            if raw is None or raw.strip() == "":
+                continue
+            try:
+                value = int(raw)
+            except ValueError as e:
+                raise ValueError(f"{env}={raw!r}: expected an integer") from e
+            setattr(getattr(self, section), field, value)
+        return self
 
     runs_dir: Path = Field(default=Path("runs"))
     cache_dir: Path = Field(default=Path.home() / ".cache" / "codeverse")

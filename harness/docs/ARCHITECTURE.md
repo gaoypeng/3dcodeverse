@@ -131,6 +131,8 @@ codeverse/
                       brief.py (cached EngineeringBrief: one cheap call turns a one-line prompt into
                       real dimensions / sub-assemblies / signature features; never fatal, CV3D_PLAN_BRIEF),
                       plan_budget.py (plan size derived from the request, capped per language),
+                      plan_features.py (CV3D_PLAN_FEATURES: one switch per plan-loop change, so each
+                      can be A/B'd alone — docs/PLAN_LOOP.md),
                       plan_examples.py (worked plans shown to the planner), depth.py + detailing.py
                       (per-part detail pass), envelope.py (bbox envelope), scene_asset_gen.py
   flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, migrate.py (schema moves),
