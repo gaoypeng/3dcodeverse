@@ -123,16 +123,17 @@ def test_variant_env_is_applied_to_the_variant_arm_only():
     assert "CV3D_PLAN_BRIEF" not in c, "the control must never inherit the switch under test"
     assert c["PATH"] == v["PATH"] == "/bin"
     assert c[MAX_IN_FLIGHT_ENV] == v[MAX_IN_FLIGHT_ENV] == "16"
-    assert MAX_IN_FLIGHT_ENV == "CV3D_RATE__MAX_IN_FLIGHT", "the name Settings.rate actually reads"
     # a cap set by the driver's own environment is respected, not overwritten
     assert child_env(VARIANT, opts, {MAX_IN_FLIGHT_ENV: "4"})[MAX_IN_FLIGHT_ENV] == "4"
     assert child_env(VARIANT, opts, {})["PYTHONUNBUFFERED"] == "1"
 
 
 def test_the_in_flight_env_name_is_one_settings_reads(monkeypatch):
+    """A cap that Settings does not read is no cap: the children would run at 64 each."""
     from codeverse.config import get_settings
 
     monkeypatch.setenv(MAX_IN_FLIGHT_ENV, "7")
+    monkeypatch.setenv("CV3D_RATE__MAX_IN_FLIGHT", "64")  # a shell-exported nested value must not win
     get_settings.cache_clear()
     try:
         assert get_settings().rate.max_in_flight == 7

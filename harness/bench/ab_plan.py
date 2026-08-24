@@ -15,7 +15,7 @@ from the environment (``codeverse.tracks.brief.brief_enabled`` reads ``os.enviro
 call time; anything under ``Settings`` is read once through an ``lru_cache``), so two
 threads in one interpreter cannot hold different values of them.  A child gets exactly
 the env its arm needs and nothing leaks across.  Each child owns a key pool, so the
-driver caps every child at ``CV3D_RATE__MAX_IN_FLIGHT`` (default 16) — two children at
+driver caps every child at ``CV3D_MAX_IN_FLIGHT`` (default 16) — two children at
 16 stay inside the 64 knee measured for one process (``docs/COST.md`` §23).
 
 Why the arms launch as simultaneous PAIRS: provider weather changes by the hour, and a
@@ -67,9 +67,11 @@ from bench.run_bench import Battery, BenchPrompt, select_prompts  # noqa: E402
 
 DEFAULT_GENERATOR = "api-agent:gemini:gemini-3.7-flash"
 DEFAULT_JUDGE = "gemini:gemini-3.1-pro-preview"
-#: the env name Settings actually reads (``Rate.max_in_flight`` under ``CV3D_`` + ``__``).
-#: NOT ``CV3D_MAX_IN_FLIGHT``: that flat name is read by nothing.
-MAX_IN_FLIGHT_ENV = "CV3D_RATE__MAX_IN_FLIGHT"
+#: the per-child cap.  The flat name is a first-class alias of ``CV3D_RATE__MAX_IN_FLIGHT``
+#: since 2026-08-24 (``Settings._FLAT_ALIASES``; before that it was read by nothing) and
+#: wins over the nested spelling when both are set, which is what makes ``setdefault``
+#: below a real cap even when the launching shell exported the nested one at 64.
+MAX_IN_FLIGHT_ENV = "CV3D_MAX_IN_FLIGHT"
 DEFAULT_MAX_IN_FLIGHT = 16
 #: only ever 2 — one control + one variant, launched together (see module docstring)
 PARALLEL = 2
