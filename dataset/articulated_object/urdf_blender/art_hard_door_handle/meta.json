@@ -1,0 +1,287 @@
+{
+  "id": "3dcodeverse/articulated_object/urdf_blender/art_hard_door_handle",
+  "key": "art_hard_door_handle",
+  "name": "ArticulatedHouseDoor",
+  "type": "Articulated Objects",
+  "track": "articulated_object",
+  "language": "urdf_blender",
+  "language_label": "URDF + Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meshes/door_leaf.glb",
+    "meshes/frame.glb",
+    "meshes/latch_bolt.glb",
+    "meshes/lever_handle.glb",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_articulation_sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_pose_door_hinge@upper.png",
+    "renders/view_pose_handle_turn@upper.png",
+    "renders/view_pose_latch_retract@upper.png",
+    "renders/view_pose_rest.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "robot.urdf",
+    "src/model.py",
+    "src/robot.urdf"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_articulation_sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_pose_door_hinge@upper.png",
+    "renders/view_pose_handle_turn@upper.png",
+    "renders/view_pose_latch_retract@upper.png",
+    "renders/view_pose_rest.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "articulated_object",
+    "language": "urdf_blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/articulated_v1_flash/runs/art_hard_door_handle",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a house door in its frame with hinges, a lever handle that rotates down 40 degrees, and a latch bolt that retracts when the handle turns",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "door frame",
+      "door on vertical hinges",
+      "lever handle revolute",
+      "latch bolt prismatic",
+      "door swings 90 degrees"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "articulated_v1",
+    "hard",
+    "architecture"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "articulated_v1",
+  "score": 0.6,
+  "passed": false,
+  "baseline_score": 0.066,
+  "acceptance_results": {
+    "a1": true,
+    "a2": false,
+    "a3": true,
+    "j1": true,
+    "j2": true,
+    "j3": false,
+    "must1": true,
+    "must2": true,
+    "must3": true,
+    "must4": true,
+    "must5": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Overall height is 2.12 m \u0001 0.02 m with base seated flat on ground z=0",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "Door frame surrounds the leaf with consistent 2-3 mm clearance on top, left, and right",
+      "how": "visual",
+      "priority": "must",
+      "passed": false
+    },
+    {
+      "id": "a3",
+      "text": "Door handle centered around 1.0 m height with lever oriented horizontally at rest",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j1",
+      "text": "DoorLeaf swings smoothly 90 degrees outward (-Y direction) about vertical hinge axis without penetrating frame",
+      "how": "articulation",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j2",
+      "text": "LeverHandle rotates down 40 degrees (0.698 rad) about horizontal spindle axis without hitting door surface",
+      "how": "articulation",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j3",
+      "text": "LatchBolt retracts 0.015 m horizontally inward into door leaf mortise pocket",
+      "how": "articulation",
+      "priority": "must",
+      "passed": false
+    },
+    {
+      "id": "must1",
+      "text": "Includes: door frame",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: door on vertical hinges",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: lever handle revolute",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must4",
+      "text": "Includes: latch bolt prismatic",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must5",
+      "text": "Includes: door swings 90 degrees",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 1,
+  "gate_summary": {
+    "lint:urdf": 0,
+    "connectivity": 0,
+    "contract": 0,
+    "joint_sweep": 0,
+    "motion_direction": 1
+  },
+  "quality_tier": "C",
+  "rounds": 4,
+  "best_round": 2,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "1929f71f78ef",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 32,
+      "score": 0.066,
+      "passed": false,
+      "issues": 4,
+      "judge_degraded": false,
+      "cost_usd": 0.771663,
+      "duration_s": 1253.0
+    },
+    {
+      "index": 1,
+      "kind": "refine",
+      "commit": "b6c8ae521fcd",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 29,
+      "score": 0.41,
+      "passed": false,
+      "issues": 4,
+      "judge_degraded": false,
+      "cost_usd": 0.474745,
+      "duration_s": 1115.4
+    },
+    {
+      "index": 2,
+      "kind": "refine",
+      "commit": "e31281ac54cb",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 1,
+      "score": 0.6,
+      "passed": false,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 0.331447,
+      "duration_s": 408.5
+    },
+    {
+      "index": 3,
+      "kind": "refine",
+      "commit": "b44bd016d17a",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 1,
+      "score": 0.5,
+      "passed": false,
+      "issues": 3,
+      "judge_degraded": false,
+      "cost_usd": 0.750977,
+      "duration_s": 1629.8
+    }
+  ],
+  "stop_reason": "max_rounds",
+  "code_commit": "e31281ac54cb8cabfa8b2791621b897b513fa10a",
+  "code_source": "commit",
+  "code_fingerprint": "943dbdc22d3d3d4614b04bdad543a85b598d5d2b87b5416f5c086a8f051cba8e",
+  "prompt_hash": "7800104f74b93720",
+  "status": "plateau",
+  "cost_usd": 3.068995,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 9946812,
+    "output_tokens": 211280,
+    "cached_tokens": 8014379,
+    "thoughts_tokens": 9565,
+    "tool_calls": 201,
+    "cost_usd": 3.068994675,
+    "latency_ms": 2005332
+  },
+  "created_at": "2026-08-23T16:25:28.416772Z",
+  "finished_at": "2026-08-23T16:52:38.746604Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "7b2ad5125449",
+    "cookbook": "e3b0c44298fc",
+    "refine": "aea83626543c"
+  },
+  "telemetry": {}
+}

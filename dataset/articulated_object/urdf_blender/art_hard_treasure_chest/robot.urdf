@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<robot name="treasure_chest">
+  <!-- link frames: root at the world origin; every other link frame sits at its joint pivot (world, rest pose). -->
+  <!-- visual/collision origin = -(link frame world) because meshes/<link>.glb hold WORLD coordinates at rest. -->
+  <!-- q=0 is the authored pose (the plan's rest pose); limits are the plan's lower-rest .. upper-rest. -->
+  <link name="chest_body">  <!-- frame at world 0 0 0 -->
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/chest_body.glb"/></geometry></visual>
+    <collision><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/chest_body.glb"/></geometry></collision>
+  </link>
+  <link name="domed_lid">  <!-- frame at world 0 0.2 0.3 -->
+    <visual><origin xyz="0 -0.2 -0.3" rpy="0 0 0"/><geometry><mesh filename="meshes/domed_lid.glb"/></geometry></visual>
+    <collision><origin xyz="0 -0.2 -0.3" rpy="0 0 0"/><geometry><mesh filename="meshes/domed_lid.glb"/></geometry></collision>
+  </link>
+  <link name="hasp">  <!-- frame at world 0 -0.205 0.315 -->
+    <visual><origin xyz="0 0.205 -0.315" rpy="0 0 0"/><geometry><mesh filename="meshes/hasp.glb"/></geometry></visual>
+    <collision><origin xyz="0 0.205 -0.315" rpy="0 0 0"/><geometry><mesh filename="meshes/hasp.glb"/></geometry></collision>
+  </link>
+  <link name="inner_tray">  <!-- frame at world -0.14 0 0.255 -->
+    <visual><origin xyz="0.14 0 -0.255" rpy="0 0 0"/><geometry><mesh filename="meshes/inner_tray.glb"/></geometry></visual>
+    <collision><origin xyz="0.14 0 -0.255" rpy="0 0 0"/><geometry><mesh filename="meshes/inner_tray.glb"/></geometry></collision>
+  </link>
+  <joint name="lid_hinge" type="revolute">
+    <parent link="chest_body"/>
+    <child link="domed_lid"/>
+    <origin xyz="0 0.2 0.3" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="-1 0 0"/>
+    <limit lower="0" upper="1.85" effort="10" velocity="1"/>
+  </joint>
+  <joint name="hasp_hinge" type="revolute">
+    <parent link="domed_lid"/>
+    <child link="hasp"/>
+    <origin xyz="0 -0.405 0.015" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="-1 0 0"/>
+    <limit lower="0" upper="2.2" effort="10" velocity="1"/>
+  </joint>
+  <joint name="tray_slide" type="prismatic">
+    <parent link="chest_body"/>
+    <child link="inner_tray"/>
+    <origin xyz="-0.14 0 0.255" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="0.28" effort="10" velocity="1"/>
+  </joint>
+</robot>

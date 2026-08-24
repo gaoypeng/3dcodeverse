@@ -34,10 +34,12 @@ class _CostGroup(TyperGroup):
     is forwarded to ``show`` instead of failing with "No such command"."""
 
     def resolve_command(self, ctx: click.Context, args: list[str]):  # type: ignore[override]
-        try:
-            return super().resolve_command(ctx, args)
-        except click.UsageError:
+        # Membership test rather than catching UsageError: typer >= 0.22 vendors its
+        # own click (typer._click), so the error it raises is NOT click.UsageError
+        # and the except clause silently stopped matching (CI, typer 0.27).
+        if args and not args[0].startswith("-") and args[0] not in self.commands:
             return "show", self.get_command(ctx, "show"), args
+        return super().resolve_command(ctx, args)
 
 
 cost_app = typer.Typer(no_args_is_help=True, invoke_without_command=True, cls=_CostGroup)

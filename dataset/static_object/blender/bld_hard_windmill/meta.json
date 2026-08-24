@@ -1,0 +1,267 @@
+{
+  "id": "3dcodeverse/static_object/blender/bld_hard_windmill",
+  "key": "bld_hard_windmill",
+  "name": "DutchWindmill",
+  "type": "3D Objects",
+  "track": "static_object",
+  "language": "blender",
+  "language_label": "Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "src/model.py",
+    "src/parts/base_structure.py",
+    "src/parts/entrance_door.py",
+    "src/parts/sail_blades.py",
+    "src/parts/sail_rotor_hub.py",
+    "src/parts/shuttered_windows.py",
+    "src/parts/smock_body.py",
+    "src/parts/stage_balcony.py",
+    "src/parts/windmill_cap.py"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "static_object",
+    "language": "blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/bld_hard_windmill",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a Dutch windmill with an octagonal tapered body, thatched cap, four lattice sails, a balcony stage with railing, a door, and two shuttered windows",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "octagonal tapered body",
+      "cap",
+      "four lattice sails in a cross",
+      "balcony with railing",
+      "door",
+      "shuttered windows"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "static_objects_v1",
+    "hard",
+    "buildings"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "static_object_v1",
+  "score": 0.746,
+  "passed": true,
+  "baseline_score": 0.7,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": true,
+    "a5": true,
+    "a6": true,
+    "a7": true,
+    "must1": true,
+    "must2": true,
+    "must3": true,
+    "must4": true,
+    "must5": true,
+    "must6": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Overall height to top vertical sail tip is approximately 10.6 m ± 0.3 m and lowest point touches z=0.0",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "Main body is distinctly octagonal and tapers inward as it rises towards the cap",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Cap is rounded/boat-shaped with thatched appearance resting on top of the smock tower",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Four lattice sails form a symmetrical 90-degree cross protruding from the front of the cap",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a5",
+      "text": "Horizontal gallery/balcony stage circles the windmill at roughly z=2.0 m with visible support struts and balustrade railing",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a6",
+      "text": "Entrance door is embedded at the base on the front (-Y) side",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a7",
+      "text": "At least two shuttered windows are present on the tower body",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must1",
+      "text": "Includes: octagonal tapered body",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: cap",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: four lattice sails in a cross",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must4",
+      "text": "Includes: balcony with railing",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must5",
+      "text": "Includes: door",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must6",
+      "text": "Includes: shuttered windows",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:blender": 0,
+    "connectivity": 0,
+    "contract": 0
+  },
+  "quality_tier": "A",
+  "rounds": 2,
+  "best_round": 1,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "3130babdb2ba",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 9,
+      "score": 0.7,
+      "passed": false,
+      "issues": 4,
+      "judge_degraded": false,
+      "cost_usd": 0.362441,
+      "duration_s": 324.1
+    },
+    {
+      "index": 1,
+      "kind": "refine",
+      "commit": "5f9ddae655ab",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.746,
+      "passed": true,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 0.353436,
+      "duration_s": 297.4
+    }
+  ],
+  "stop_reason": "pass",
+  "code_commit": "5f9ddae655ab531fbe54d16f594d491455eca845",
+  "code_source": "commit",
+  "code_fingerprint": "b6a28ef6edfcdcacf0c3f9b0898885590aa1d820438fa79d2a789156d5b2af5a",
+  "prompt_hash": "2ae4d89341a09156",
+  "status": "passed",
+  "cost_usd": 0.730463,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 2425385,
+    "output_tokens": 40815,
+    "cached_tokens": 1973256,
+    "thoughts_tokens": 3745,
+    "tool_calls": 65,
+    "cost_usd": 0.7304633250000001,
+    "latency_ms": 429580
+  },
+  "created_at": "2026-08-23T12:15:32.214609Z",
+  "finished_at": "2026-08-23T12:26:14.247126Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "654305b1094f",
+    "cookbook": "cfa846dfc95a",
+    "generate": "cae74f0716bf",
+    "refine": "5724078bd24a"
+  },
+  "telemetry": {}
+}

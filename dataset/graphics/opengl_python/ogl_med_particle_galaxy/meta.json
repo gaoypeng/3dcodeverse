@@ -1,0 +1,187 @@
+{
+  "id": "3dcodeverse/graphics/opengl_python/ogl_med_particle_galaxy",
+  "key": "ogl_med_particle_galaxy",
+  "name": "InstancedSpiralGalaxy",
+  "type": "Procedural Graphics",
+  "track": "graphics",
+  "language": "opengl_python",
+  "language_label": "OpenGL (moderngl Python + GLSL)",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meta.json",
+    "renders/preview.gif",
+    "renders/sheet.png",
+    "renders/view_t=0s.png",
+    "renders/view_t=1s.png",
+    "renders/view_t=2.5s.png",
+    "renders/view_t=4s.png",
+    "renders/view_t=6s.png",
+    "src/common.glsl",
+    "src/program.py",
+    "src/shader.frag"
+  ],
+  "renders": [
+    "renders/preview.gif",
+    "renders/sheet.png",
+    "renders/view_t=0s.png",
+    "renders/view_t=1s.png",
+    "renders/view_t=2.5s.png",
+    "renders/view_t=4s.png",
+    "renders/view_t=6s.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "graphics",
+    "language": "opengl_python",
+    "generator": "single-shot:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/graphics_v1_flash/runs/ogl_med_particle_galaxy",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "An instanced particle galaxy: 20k points orbiting in spiral arms with additive glow, slowly rotating camera",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "spiral arm structure",
+      "rotation over time"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "graphics_v1",
+    "medium",
+    ""
+  ],
+  "generator": "single-shot:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "shader_v1",
+  "score": 0.859,
+  "passed": true,
+  "baseline_score": 0.859,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": true,
+    "must1": true,
+    "must2": true,
+    "motion1": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "A clear spiral arm structure with distinct arm branches and concentrated nucleus is visible",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "Particles visibly rotate in orbit and the camera rotates over time between t=0, t=1, t=2.5, t=4, t=6",
+      "how": "probe",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "At least 20,000 instanced particle points are rendered with additive glow",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Galaxy exhibits cosmic palette with warm core, magenta mid-spiral, and cyan outer arms",
+      "how": "visual",
+      "priority": "should",
+      "passed": true
+    },
+    {
+      "id": "must1",
+      "text": "Includes: spiral arm structure",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: rotation over time",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "motion1",
+      "text": "Frames change over time as planned (not a static image)",
+      "how": "probe",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:opengl_python": 0,
+    "gl_frames": 0
+  },
+  "quality_tier": "A",
+  "rounds": 1,
+  "best_round": 0,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "3f18063975b8",
+      "agent_backend": "single-shot:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.859,
+      "passed": true,
+      "issues": 1,
+      "judge_degraded": false,
+      "cost_usd": 0.071903,
+      "duration_s": 114.0
+    }
+  ],
+  "stop_reason": "pass",
+  "code_commit": "3f18063975b8f25390240d1207e878706448eb64",
+  "code_source": "commit",
+  "code_fingerprint": "18b9cdb610f5f812a891d10d814e5f0b307009ab9e036df690d64cac1512777f",
+  "prompt_hash": "898c0e2c418cfb17",
+  "status": "passed",
+  "cost_usd": 0.086514,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 28970,
+    "output_tokens": 8989,
+    "cached_tokens": 12257,
+    "thoughts_tokens": 3371,
+    "tool_calls": 0,
+    "cost_usd": 0.086513525,
+    "latency_ms": 85830
+  },
+  "created_at": "2026-08-23T17:55:13.958858Z",
+  "finished_at": "2026-08-23T17:57:32.577690Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "68448b257519",
+    "cookbook": "63eb6ac112dd",
+    "generate": "1c347b9da4b0"
+  },
+  "telemetry": {}
+}

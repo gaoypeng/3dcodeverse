@@ -1,0 +1,267 @@
+{
+  "id": "3dcodeverse/articulated_object/urdf_blender/art_med_folding_chair",
+  "key": "art_med_folding_chair",
+  "name": "FoldingChair",
+  "type": "Articulated Objects",
+  "track": "articulated_object",
+  "language": "urdf_blender",
+  "language_label": "URDF + Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meshes/front_leg_frame.glb",
+    "meshes/main_frame.glb",
+    "meshes/seat.glb",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_articulation_sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_pose_front_leg_pivot@upper.png",
+    "renders/view_pose_rest.png",
+    "renders/view_pose_seat_hinge@upper.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "robot.urdf",
+    "src/model.py",
+    "src/robot.urdf"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_articulation_sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_pose_front_leg_pivot@upper.png",
+    "renders/view_pose_rest.png",
+    "renders/view_pose_seat_hinge@upper.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "articulated_object",
+    "language": "urdf_blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/articulated_v1_flash/runs/art_med_folding_chair",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a folding chair whose seat lifts up and whose front legs pivot toward the back legs to fold flat",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "seat hinged to the frame",
+      "front leg frame pivoting about a cross bar",
+      "back rest",
+      "folds to a flat state"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "articulated_v1",
+    "medium",
+    "furniture"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "articulated_v1",
+  "score": 0.6,
+  "passed": false,
+  "baseline_score": 0.418,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "j1": false,
+    "j2": true,
+    "must1": true,
+    "must2": true,
+    "must3": true,
+    "must4": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Total chair height is 0.80 m ± 0.02 m with seat top height at 0.44 m ± 0.01 m above ground",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "All four leg feet touch ground plane at z=0 in the open rest pose",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Two slatted backrest panels span horizontally between the rear uprights",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j1",
+      "text": "Seat flips upward 1.48 rad (approx 85°) toward the backrest without colliding with the frame",
+      "how": "articulation",
+      "priority": "must",
+      "passed": false
+    },
+    {
+      "id": "j2",
+      "text": "Front leg frame pivots 0.45 rad rearward toward the rear legs to create a flat folded profile",
+      "how": "articulation",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must1",
+      "text": "Includes: seat hinged to the frame",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: front leg frame pivoting about a cross bar",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: back rest",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must4",
+      "text": "Includes: folds to a flat state",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 1,
+  "gate_summary": {
+    "lint:urdf": 0,
+    "connectivity": 0,
+    "contract": 0,
+    "joint_sweep": 1,
+    "motion_direction": 0
+  },
+  "quality_tier": "C",
+  "rounds": 4,
+  "best_round": 1,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "2f5b66a15895",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 2,
+      "score": 0.418,
+      "passed": false,
+      "issues": 3,
+      "judge_degraded": false,
+      "cost_usd": 1.416056,
+      "duration_s": 1406.2
+    },
+    {
+      "index": 1,
+      "kind": "refine",
+      "commit": "6f937bcb1c2d",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 1,
+      "score": 0.6,
+      "passed": false,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 0.559229,
+      "duration_s": 823.8
+    },
+    {
+      "index": 2,
+      "kind": "refine",
+      "commit": "6879b317ff4b",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 1,
+      "score": 0.432,
+      "passed": false,
+      "issues": 4,
+      "judge_degraded": false,
+      "cost_usd": 0.217541,
+      "duration_s": 337.8
+    },
+    {
+      "index": 3,
+      "kind": "refine",
+      "commit": "7c0b9fa853af",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.4,
+      "passed": false,
+      "issues": 3,
+      "judge_degraded": false,
+      "cost_usd": 0.555585,
+      "duration_s": 1226.7
+    }
+  ],
+  "stop_reason": "max_rounds",
+  "code_commit": "6f937bcb1c2d736d65fc202ff8408647e536e1b8",
+  "code_source": "commit",
+  "code_fingerprint": "a024d90748f7d0fb5d92db7ae21b0ee8406c21cf1e7840e4e43f78e4a04dc0e1",
+  "prompt_hash": "f5e7a6acf3732b11",
+  "status": "plateau",
+  "cost_usd": 3.33718,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 10629357,
+    "output_tokens": 153587,
+    "cached_tokens": 8129600,
+    "thoughts_tokens": 33479,
+    "tool_calls": 227,
+    "cost_usd": 3.337179625,
+    "latency_ms": 2505205
+  },
+  "created_at": "2026-08-23T15:51:23.373672Z",
+  "finished_at": "2026-08-23T16:31:12.625907Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "7b2ad5125449",
+    "cookbook": "e3b0c44298fc",
+    "refine": "9864f1b4f1db"
+  },
+  "telemetry": {}
+}

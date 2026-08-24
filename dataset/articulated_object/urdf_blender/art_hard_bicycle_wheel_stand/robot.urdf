@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<robot name="bicycle_wheel_stand">
+  <!-- link frames: root at the world origin; every other link frame sits at its joint pivot (world, rest pose). -->
+  <!-- visual/collision origin = -(link frame world) because meshes/<link>.glb hold WORLD coordinates at rest. -->
+  <!-- q=0 is the authored pose (the plan's rest pose); limits are the plan's lower-rest .. upper-rest. -->
+  <link name="repair_stand">  <!-- frame at world 0 0 0 -->
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/repair_stand.glb"/></geometry></visual>
+    <collision><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/repair_stand.glb"/></geometry></collision>
+  </link>
+  <link name="fork_assembly">  <!-- frame at world 0 0 0.95 -->
+    <visual><origin xyz="0 0 -0.95" rpy="0 0 0"/><geometry><mesh filename="meshes/fork_assembly.glb"/></geometry></visual>
+    <collision><origin xyz="0 0 -0.95" rpy="0 0 0"/><geometry><mesh filename="meshes/fork_assembly.glb"/></geometry></collision>
+  </link>
+  <link name="bicycle_wheel">  <!-- frame at world 0 0 0.4 -->
+    <visual><origin xyz="0 0 -0.4" rpy="0 0 0"/><geometry><mesh filename="meshes/bicycle_wheel.glb"/></geometry></visual>
+    <collision><origin xyz="0 0 -0.4" rpy="0 0 0"/><geometry><mesh filename="meshes/bicycle_wheel.glb"/></geometry></collision>
+  </link>
+  <link name="brake_arm_left">  <!-- frame at world -0.025 -0.035 0.77 -->
+    <visual><origin xyz="0.025 0.035 -0.77" rpy="0 0 0"/><geometry><mesh filename="meshes/brake_arm_left.glb"/></geometry></visual>
+    <collision><origin xyz="0.025 0.035 -0.77" rpy="0 0 0"/><geometry><mesh filename="meshes/brake_arm_left.glb"/></geometry></collision>
+  </link>
+  <link name="brake_arm_right">  <!-- frame at world 0.025 -0.035 0.77 -->
+    <visual><origin xyz="-0.025 0.035 -0.77" rpy="0 0 0"/><geometry><mesh filename="meshes/brake_arm_right.glb"/></geometry></visual>
+    <collision><origin xyz="-0.025 0.035 -0.77" rpy="0 0 0"/><geometry><mesh filename="meshes/brake_arm_right.glb"/></geometry></collision>
+  </link>
+  <joint name="steering_joint" type="revolute">
+    <parent link="repair_stand"/>
+    <child link="fork_assembly"/>
+    <origin xyz="0 0 0.95" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="0 0 -1"/>
+    <limit lower="-1.047" upper="1.047" effort="10" velocity="1"/>
+  </joint>
+  <joint name="wheel_axle" type="continuous">
+    <parent link="fork_assembly"/>
+    <child link="bicycle_wheel"/>
+    <origin xyz="0 0 -0.55" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="1 0 0"/>
+    <limit effort="10" velocity="1"/>
+  </joint>
+  <joint name="left_brake_pivot" type="revolute">
+    <parent link="fork_assembly"/>
+    <child link="brake_arm_left"/>
+    <origin xyz="-0.025 -0.035 -0.18" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="0 -1 0"/>
+    <limit lower="0" upper="0.12" effort="10" velocity="1"/>
+  </joint>
+  <joint name="right_brake_pivot" type="revolute">
+    <parent link="fork_assembly"/>
+    <child link="brake_arm_right"/>
+    <origin xyz="0.025 -0.035 -0.18" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="0.12" effort="10" velocity="1"/>
+  </joint>
+</robot>

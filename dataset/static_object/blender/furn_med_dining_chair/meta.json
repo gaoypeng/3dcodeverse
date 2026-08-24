@@ -1,0 +1,226 @@
+{
+  "id": "3dcodeverse/static_object/blender/furn_med_dining_chair",
+  "key": "furn_med_dining_chair",
+  "name": "MidCenturyDiningChair",
+  "type": "3D Objects",
+  "track": "static_object",
+  "language": "blender",
+  "language_label": "Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "src/model.py",
+    "src/parts/_common.py",
+    "src/parts/back_leg_post.py",
+    "src/parts/back_slat.py",
+    "src/parts/bottom_back_rail.py",
+    "src/parts/front_leg.py",
+    "src/parts/seat.py",
+    "src/parts/side_stretcher.py",
+    "src/parts/top_rail.py"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "static_object",
+    "language": "blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/furn_med_dining_chair",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a mid-century wooden dining chair with a slatted backrest and tapered legs",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "four tapered legs",
+      "seat slab",
+      "backrest with at least three vertical slats",
+      "back legs continue into back posts"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "static_objects_v1",
+    "medium",
+    "furniture"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "static_object_v1",
+  "score": 0.842,
+  "passed": true,
+  "baseline_score": 0.842,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": true,
+    "a5": true,
+    "a6": false,
+    "must1": true,
+    "must2": true,
+    "must3": true,
+    "must4": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Total height is between 0.82 m and 0.86 m, and seat top height is at 0.45 m ± 0.02 m above ground.",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "All four legs contact the ground plane at z = 0 with no gaps or floating elements.",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Rear legs are continuous upright posts rising from floor level up to the backrest crest rail.",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Backrest contains at least 3 vertical slats framed between top and bottom horizontal rails.",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a5",
+      "text": "Front and back legs clearly exhibit round conical taper towards the floor.",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a6",
+      "text": "Wood grain / oiled teak material is consistently applied across all frame and seat members.",
+      "how": "visual",
+      "priority": "should",
+      "passed": false
+    },
+    {
+      "id": "must1",
+      "text": "Includes: four tapered legs",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: seat slab",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: backrest with at least three vertical slats",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must4",
+      "text": "Includes: back legs continue into back posts",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:blender": 0,
+    "connectivity": 0,
+    "contract": 0
+  },
+  "quality_tier": "A",
+  "rounds": 1,
+  "best_round": 0,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "6a91ce0dfbd3",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.842,
+      "passed": true,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 0.653223,
+      "duration_s": 726.4
+    }
+  ],
+  "stop_reason": "pass",
+  "code_commit": "6a91ce0dfbd3c5f2bb0c1924326adbe7fd4a2e13",
+  "code_source": "commit",
+  "code_fingerprint": "fed9df56328e1885f1e07efbc627900ab4964fd57e02f15cd2bcddbef4dd2636",
+  "prompt_hash": "624c86257f991ab0",
+  "status": "passed",
+  "cost_usd": 0.663825,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 2886475,
+    "output_tokens": 38015,
+    "cached_tokens": 2501597,
+    "thoughts_tokens": 1759,
+    "tool_calls": 60,
+    "cost_usd": 0.6638245249999999,
+    "latency_ms": 405709
+  },
+  "created_at": "2026-08-23T15:51:14.297436Z",
+  "finished_at": "2026-08-23T16:03:30.504200Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "654305b1094f",
+    "cookbook": "cfa846dfc95a",
+    "generate": "f07fd7eb0867"
+  },
+  "telemetry": {}
+}

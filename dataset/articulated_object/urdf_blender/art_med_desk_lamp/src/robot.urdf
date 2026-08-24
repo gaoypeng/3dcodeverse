@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<robot name="articulated_desk_lamp">
+  <!-- link frames: root at the world origin; every other link frame sits at its joint pivot (world, rest pose). -->
+  <!-- visual/collision origin = -(link frame world) because meshes/<link>.glb hold WORLD coordinates at rest. -->
+  <!-- q=0 is the authored pose (the plan's rest pose); limits are the plan's lower-rest .. upper-rest. -->
+  <link name="base">  <!-- frame at world 0 0 0 -->
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/base.glb"/></geometry></visual>
+    <collision><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/base.glb"/></geometry></collision>
+  </link>
+  <link name="lower_arm">  <!-- frame at world 0 0.02 0.045 -->
+    <visual><origin xyz="0 -0.02 -0.045" rpy="0 0 0"/><geometry><mesh filename="meshes/lower_arm.glb"/></geometry></visual>
+    <collision><origin xyz="0 -0.02 -0.045" rpy="0 0 0"/><geometry><mesh filename="meshes/lower_arm.glb"/></geometry></collision>
+  </link>
+  <link name="upper_arm">  <!-- frame at world 0 0.08 0.36 -->
+    <visual><origin xyz="0 -0.08 -0.36" rpy="0 0 0"/><geometry><mesh filename="meshes/upper_arm.glb"/></geometry></visual>
+    <collision><origin xyz="0 -0.08 -0.36" rpy="0 0 0"/><geometry><mesh filename="meshes/upper_arm.glb"/></geometry></collision>
+  </link>
+  <link name="lamp_shade">  <!-- frame at world 0 -0.2 0.5 -->
+    <visual><origin xyz="0 0.2 -0.5" rpy="0 0 0"/><geometry><mesh filename="meshes/lamp_shade.glb"/></geometry></visual>
+    <collision><origin xyz="0 0.2 -0.5" rpy="0 0 0"/><geometry><mesh filename="meshes/lamp_shade.glb"/></geometry></collision>
+  </link>
+  <joint name="base_to_lower_arm" type="revolute">
+    <parent link="base"/>
+    <child link="lower_arm"/>
+    <origin xyz="0 0.02 0.045" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.6" upper="0.8" effort="10" velocity="1"/>
+  </joint>
+  <joint name="elbow_joint" type="revolute">
+    <parent link="lower_arm"/>
+    <child link="upper_arm"/>
+    <origin xyz="0 0.06 0.315" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="1 0 0"/>
+    <limit lower="-1.2" upper="1" effort="10" velocity="1"/>
+  </joint>
+  <joint name="shade_joint" type="revolute">
+    <parent link="upper_arm"/>
+    <child link="lamp_shade"/>
+    <origin xyz="0 -0.28 0.14" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="-1 0 0"/>
+    <limit lower="-0.8" upper="0.8" effort="10" velocity="1"/>
+  </joint>
+</robot>

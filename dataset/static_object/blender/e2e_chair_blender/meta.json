@@ -1,0 +1,191 @@
+{
+  "id": "3dcodeverse/static_object/blender/e2e_chair_blender",
+  "key": "e2e_chair_blender",
+  "name": "MidCenturyDiningChair",
+  "type": "3D Objects",
+  "track": "static_object",
+  "language": "blender",
+  "language_label": "Blender Python",
+  "entry": "code.py",
+  "multi_file": false,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "src/model.py"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "static_object",
+    "language": "blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/runs/e2e_chair_blender",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a mid-century wooden dining chair with a gently curved backrest and tapered legs",
+  "constraints": {
+    "style": "",
+    "must_have": [],
+    "must_not": []
+  },
+  "tags": [],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.7-flash",
+  "judge_rubric": "static_object_v1",
+  "score": 0.7436,
+  "passed": true,
+  "baseline_score": 0.6744,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": true,
+    "a5": true,
+    "a6": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Total height is 0.80 m \u0001 0.02 m and seat surface height is 0.45 m \u0001 0.01 m above ground",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "All four legs contact ground plane at z = 0",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Curved backrest exhibits visible concave curve embracing the seated position",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Legs display visible taper from top joint to bottom foot",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a5",
+      "text": "Side stretchers connect front and back legs cleanly without loose ends",
+      "how": "visual",
+      "priority": "should",
+      "passed": true
+    },
+    {
+      "id": "a6",
+      "text": "Uniform warm walnut material applied across all wooden components",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:blender": 0,
+    "connectivity": 0,
+    "contract": 0
+  },
+  "quality_tier": "A",
+  "rounds": 2,
+  "best_round": 1,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "dc1ca8cea587",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 6,
+      "score": 0.6744,
+      "passed": false,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 0.323647,
+      "duration_s": 396.6
+    },
+    {
+      "index": 1,
+      "kind": "refine",
+      "commit": "8074f2ce05f8",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.7436,
+      "passed": true,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 0.50173,
+      "duration_s": 291.8
+    }
+  ],
+  "stop_reason": "pass",
+  "code_commit": "8074f2ce05f8f35f2add23e7b44c4fc0a064576d",
+  "code_source": "commit",
+  "code_fingerprint": "a36c532d572457a4facaf916ff87e395fafa2e3015e2a7cc25add823c71f0f05",
+  "prompt_hash": "73278fe64fb51cfd",
+  "status": "passed",
+  "cost_usd": 0.837187,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 2643142,
+    "output_tokens": 94047,
+    "cached_tokens": 2223781,
+    "thoughts_tokens": 855,
+    "tool_calls": 51,
+    "cost_usd": 0.8371868250000001,
+    "latency_ms": 448500
+  },
+  "created_at": "2026-08-23T07:32:46.026448Z",
+  "finished_at": "2026-08-23T07:44:35.564021Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "567ee0a1100e",
+    "cookbook": "6ebaa2ef8f1f",
+    "generate": "8fade8f8298a",
+    "refine": "8ed076411ae8"
+  },
+  "telemetry": {}
+}

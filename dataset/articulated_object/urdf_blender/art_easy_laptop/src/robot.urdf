@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<robot name="laptop">
+  <!-- link frames: root at the world origin; every other link frame sits at its joint pivot (world, rest pose). -->
+  <!-- visual/collision origin = -(link frame world) because meshes/<link>.glb hold WORLD coordinates at rest. -->
+  <!-- q=0 is the authored pose (the plan's rest pose); limits are the plan's lower-rest .. upper-rest. -->
+  <link name="base">  <!-- frame at world 0 0 0 -->
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/base.glb"/></geometry></visual>
+    <collision><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/base.glb"/></geometry></collision>
+  </link>
+  <link name="lid">  <!-- frame at world 0 0.11 0.012 -->
+    <visual><origin xyz="0 -0.11 -0.012" rpy="0 0 0"/><geometry><mesh filename="meshes/lid.glb"/></geometry></visual>
+    <collision><origin xyz="0 -0.11 -0.012" rpy="0 0 0"/><geometry><mesh filename="meshes/lid.glb"/></geometry></collision>
+  </link>
+  <joint name="lid_hinge" type="revolute">
+    <parent link="base"/>
+    <child link="lid"/>
+    <origin xyz="0 0.11 0.012" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="-1 0 0"/>
+    <limit lower="0" upper="2.356" effort="10" velocity="1"/>
+  </joint>
+</robot>

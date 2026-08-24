@@ -1,0 +1,244 @@
+{
+  "id": "3dcodeverse/static_object/blender/appl_med_toaster",
+  "key": "appl_med_toaster",
+  "name": "RetroToaster",
+  "type": "3D Objects",
+  "track": "static_object",
+  "language": "blender",
+  "language_label": "Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "src/model.py",
+    "src/parts/base_chassis.py",
+    "src/parts/body_main.py",
+    "src/parts/browning_dial.py",
+    "src/parts/control_buttons.py",
+    "src/parts/crumb_tray_handle.py",
+    "src/parts/foot.py",
+    "src/parts/lever_slide_assembly.py",
+    "src/parts/slot_liners.py",
+    "src/parts/top_trim.py"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "static_object",
+    "language": "blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/appl_med_toaster",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a two-slot retro toaster with rounded chrome body, a lever on the side, a browning dial and a crumb tray",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "two bread slots on top",
+      "side lever",
+      "dial knob",
+      "rounded body",
+      "small feet"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "static_objects_v1",
+    "medium",
+    "appliances"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "static_object_v1",
+  "score": 0.881,
+  "passed": true,
+  "baseline_score": 0.881,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": true,
+    "a5": true,
+    "a6": true,
+    "a7": true,
+    "must1": true,
+    "must2": true,
+    "must3": true,
+    "must4": true,
+    "must5": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Overall height sits between 0.18 m and 0.22 m, with feet resting at z=0 ± 0.001 m",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "Two distinct parallel bread slots on top face with clear internal cavity depth",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Main body is smoothly rounded and bulbous with polished reflective chrome finish",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Plunge lever mechanism extends outward from the right (+X) side wall",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a5",
+      "text": "Circular rotary browning dial knob is mounted on the front (-Y) face",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a6",
+      "text": "Four distinct support feet lift the plastic base slightly off the ground plane",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a7",
+      "text": "Crumb tray pull handle visible along the lower chassis perimeter",
+      "how": "visual",
+      "priority": "should",
+      "passed": true
+    },
+    {
+      "id": "must1",
+      "text": "Includes: two bread slots on top",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: side lever",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: dial knob",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must4",
+      "text": "Includes: rounded body",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must5",
+      "text": "Includes: small feet",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:blender": 0,
+    "connectivity": 0,
+    "contract": 0
+  },
+  "quality_tier": "A",
+  "rounds": 1,
+  "best_round": 0,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "a2b3aba738b7",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.881,
+      "passed": true,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 0.305993,
+      "duration_s": 316.2
+    }
+  ],
+  "stop_reason": "pass",
+  "code_commit": "a2b3aba738b77259d2a571c4c7884c29a9e98c8e",
+  "code_source": "commit",
+  "code_fingerprint": "a6afa9df12e08c9bb901a144a48d93527164673b80c6e4d432fae8543e07baa0",
+  "prompt_hash": "66b92c0e27f21a05",
+  "status": "passed",
+  "cost_usd": 0.318134,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 1163480,
+    "output_tokens": 16223,
+    "cached_tokens": 978470,
+    "thoughts_tokens": 1738,
+    "tool_calls": 34,
+    "cost_usd": 0.31813375,
+    "latency_ms": 218882
+  },
+  "created_at": "2026-08-23T11:55:35.837895Z",
+  "finished_at": "2026-08-23T12:01:05.296591Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "654305b1094f",
+    "cookbook": "cfa846dfc95a",
+    "generate": "22df09097d84"
+  },
+  "telemetry": {}
+}

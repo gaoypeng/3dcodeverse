@@ -1,0 +1,286 @@
+{
+  "id": "3dcodeverse/articulated_object/urdf_blender/art_hard_bicycle_wheel_stand",
+  "key": "art_hard_bicycle_wheel_stand",
+  "name": "BicycleWheelStand",
+  "type": "Articulated Objects",
+  "track": "articulated_object",
+  "language": "urdf_blender",
+  "language_label": "URDF + Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meshes/bicycle_wheel.glb",
+    "meshes/brake_arm_left.glb",
+    "meshes/brake_arm_right.glb",
+    "meshes/fork_assembly.glb",
+    "meshes/repair_stand.glb",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_articulation_sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_pose_left_brake_pivot@upper.png",
+    "renders/view_pose_rest.png",
+    "renders/view_pose_right_brake_pivot@upper.png",
+    "renders/view_pose_steering_joint@lower.png",
+    "renders/view_pose_steering_joint@upper.png",
+    "renders/view_pose_wheel_axle@half.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "robot.urdf",
+    "src/model.py",
+    "src/robot.urdf"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_articulation_sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_pose_left_brake_pivot@upper.png",
+    "renders/view_pose_rest.png",
+    "renders/view_pose_right_brake_pivot@upper.png",
+    "renders/view_pose_steering_joint@lower.png",
+    "renders/view_pose_steering_joint@upper.png",
+    "renders/view_pose_wheel_axle@half.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "articulated_object",
+    "language": "urdf_blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/articulated_v1_flash/runs/art_hard_bicycle_wheel_stand",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a bicycle front wheel and fork on a repair stand, with the wheel spinning on its axle, the fork turning about the steering tube, and a brake caliper whose arms pinch the rim",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "spoked wheel on a continuous axle joint",
+      "fork on a steering revolute joint",
+      "two brake arms pivoting toward the rim",
+      "stand base"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "articulated_v1",
+    "hard",
+    "vehicles"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "articulated_v1",
+  "score": 0.6,
+  "passed": false,
+  "baseline_score": 0.5,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": false,
+    "j1": true,
+    "j2": true,
+    "j3": false,
+    "j4": false,
+    "must1": true,
+    "must2": true,
+    "must3": false,
+    "must4": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Overall assembly stands upright on z=0 with total height ~1.15 m",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "Wheel outer diameter measures approximately 0.66 m (700c standard)",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Spoked wheel is visibly laced between hub flange and rim with clear clearance inside fork blades",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Brake pads sit symmetrically on left and right sides of the rim with ~5 mm initial clearance",
+      "how": "visual",
+      "priority": "must",
+      "passed": false
+    },
+    {
+      "id": "j1",
+      "text": "Steering joint allows fork assembly to smoothly rotate ±60 degrees (±1.05 rad) about vertical axis without hitting stand",
+      "how": "articulation",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j2",
+      "text": "Wheel spins continuously on its horizontal axle at (0, 0, 0.40) without binding",
+      "how": "articulation",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j3",
+      "text": "Left brake arm pivots inward towards +X to pinch against the rim",
+      "how": "articulation",
+      "priority": "must",
+      "passed": false
+    },
+    {
+      "id": "j4",
+      "text": "Right brake arm pivots inward towards -X to pinch against the rim",
+      "how": "articulation",
+      "priority": "must",
+      "passed": false
+    },
+    {
+      "id": "must1",
+      "text": "Includes: spoked wheel on a continuous axle joint",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: fork on a steering revolute joint",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: two brake arms pivoting toward the rim",
+      "how": "visual",
+      "priority": "must",
+      "passed": false
+    },
+    {
+      "id": "must4",
+      "text": "Includes: stand base",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:urdf": 0,
+    "connectivity": 0,
+    "contract": 0,
+    "joint_sweep": 0,
+    "motion_direction": 0
+  },
+  "quality_tier": "C",
+  "rounds": 3,
+  "best_round": 1,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "10c4ae532c16",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 1,
+      "score": 0.5,
+      "passed": false,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 0.308128,
+      "duration_s": 233.8
+    },
+    {
+      "index": 1,
+      "kind": "refine",
+      "commit": "e31c9a5bc272",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.6,
+      "passed": false,
+      "issues": 3,
+      "judge_degraded": false,
+      "cost_usd": 0.208572,
+      "duration_s": 117.4
+    },
+    {
+      "index": 2,
+      "kind": "refine",
+      "commit": "22da88ebd1c4",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.54,
+      "passed": false,
+      "issues": 3,
+      "judge_degraded": false,
+      "cost_usd": 0.740452,
+      "duration_s": 1840.5
+    }
+  ],
+  "stop_reason": "budget",
+  "code_commit": "e31c9a5bc2726ccbf792ae598f633a9ca03f6787",
+  "code_source": "commit",
+  "code_fingerprint": "5ab74c08dd0f1462134cc5f84a129eedd6ed2bccb058a9777787d39a37cfe16f",
+  "prompt_hash": "1b06c83a5cbfee90",
+  "status": "budget",
+  "cost_usd": 1.371366,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 4022427,
+    "output_tokens": 103364,
+    "cached_tokens": 3274357,
+    "thoughts_tokens": 14252,
+    "tool_calls": 90,
+    "cost_usd": 1.371365775,
+    "latency_ms": 796220
+  },
+  "created_at": "2026-08-23T16:47:18.403633Z",
+  "finished_at": "2026-08-23T17:53:40.839076Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "7b2ad5125449",
+    "cookbook": "e3b0c44298fc",
+    "generate": "85b2fb50ba15",
+    "refine": "05767ad2de4e"
+  },
+  "telemetry": {}
+}

@@ -1,0 +1,233 @@
+{
+  "id": "3dcodeverse/articulated_object/urdf_blender/art_easy_drawer_unit",
+  "key": "art_easy_drawer_unit",
+  "name": "BedsideDrawerUnit",
+  "type": "Articulated Objects",
+  "track": "articulated_object",
+  "language": "urdf_blender",
+  "language_label": "URDF + Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meshes/bottom_drawer.glb",
+    "meshes/carcass.glb",
+    "meshes/top_drawer.glb",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_articulation_sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_pose_bottom_drawer_slide@upper.png",
+    "renders/view_pose_rest.png",
+    "renders/view_pose_top_drawer_slide@upper.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "robot.urdf",
+    "src/model.py",
+    "src/robot.urdf"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_articulation_sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_pose_bottom_drawer_slide@upper.png",
+    "renders/view_pose_rest.png",
+    "renders/view_pose_top_drawer_slide@upper.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "articulated_object",
+    "language": "urdf_blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/articulated_v1_flash/runs/art_easy_drawer_unit",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a bedside drawer unit with two drawers that slide out",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "carcass",
+      "two drawers on prismatic slides",
+      "drawers pull out at least 30 cm",
+      "drawer pulls"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "articulated_v1",
+    "easy",
+    "furniture"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "articulated_v1",
+  "score": 0.988,
+  "passed": true,
+  "baseline_score": 0.988,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": true,
+    "j1": true,
+    "j2": true,
+    "must1": true,
+    "must2": true,
+    "must3": true,
+    "must4": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Total height is 0.55 m \u0001 0.01 m and width is 0.50 m \u0001 0.01 m",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "Four legs rest firmly on ground plane z=0 with 0.10 m floor clearance beneath the carcass",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Two horizontally aligned brass bar pull handles visible on front faces of drawers",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Distinct top and bottom drawer compartments with consistent 0.005 m gap clearance around front panels",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j1",
+      "text": "Top drawer smoothly slides outward along -Y by 0.32 m without colliding with carcass walls",
+      "how": "articulation",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j2",
+      "text": "Bottom drawer smoothly slides outward along -Y by 0.32 m without colliding with carcass walls",
+      "how": "articulation",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must1",
+      "text": "Includes: carcass",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: two drawers on prismatic slides",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: drawers pull out at least 30 cm",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must4",
+      "text": "Includes: drawer pulls",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:urdf": 0,
+    "connectivity": 0,
+    "contract": 0,
+    "joint_sweep": 0,
+    "motion_direction": 0
+  },
+  "quality_tier": "A",
+  "rounds": 1,
+  "best_round": 0,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "e37161854076",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.988,
+      "passed": true,
+      "issues": 0,
+      "judge_degraded": false,
+      "cost_usd": 0.359205,
+      "duration_s": 305.2
+    }
+  ],
+  "stop_reason": "pass",
+  "code_commit": "e371618540766d53b144616229bbfb11f9eff647",
+  "code_source": "commit",
+  "code_fingerprint": "87040b3deacfcc982ab3368cb03449cac5dfa995e75f69cb6e84c3db04dc8f29",
+  "prompt_hash": "1bc113a937db829f",
+  "status": "passed",
+  "cost_usd": 0.37332,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 851190,
+    "output_tokens": 24053,
+    "cached_tokens": 601017,
+    "thoughts_tokens": 3104,
+    "tool_calls": 28,
+    "cost_usd": 0.373319525,
+    "latency_ms": 197210
+  },
+  "created_at": "2026-08-23T11:10:55.469522Z",
+  "finished_at": "2026-08-23T11:16:12.959867Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "7b2ad5125449",
+    "cookbook": "e3b0c44298fc",
+    "generate": "b49e790663c9"
+  },
+  "telemetry": {}
+}

@@ -1,0 +1,281 @@
+{
+  "id": "3dcodeverse/static_object/blender/bld_med_lighthouse",
+  "key": "bld_med_lighthouse",
+  "name": "Lighthouse",
+  "type": "3D Objects",
+  "track": "static_object",
+  "language": "blender",
+  "language_label": "Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "src/model.py",
+    "src/parts/domed_cap.py",
+    "src/parts/fresnel_beacon.py",
+    "src/parts/gallery_deck.py",
+    "src/parts/gallery_railing.py",
+    "src/parts/lantern_room.py",
+    "src/parts/rock_base.py",
+    "src/parts/tower_doorway.py",
+    "src/parts/tower_plinth.py",
+    "src/parts/tower_shaft.py"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "static_object",
+    "language": "blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/bld_med_lighthouse",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a tapered lighthouse with red and white bands, a gallery with railing, a glass lantern room and a domed cap, on a rocky base",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "tapered tower",
+      "alternating bands",
+      "gallery walkway with railing",
+      "glass lantern room",
+      "dome",
+      "rock base"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "static_objects_v1",
+    "medium",
+    "buildings"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "static_object_v1",
+  "score": 0.91,
+  "passed": true,
+  "baseline_score": 0.467,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": true,
+    "a5": true,
+    "a6": true,
+    "a7": true,
+    "must1": true,
+    "must2": true,
+    "must3": true,
+    "must4": true,
+    "must5": true,
+    "must6": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Total object height is 13.70 m ± 0.20 m with ground contact at z = 0.0 m",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "Tower body clearly exhibits conical taper narrowing from bottom (dia ~3.2m) to top (dia ~2.1m)",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Tower shaft displays high-contrast alternating red and white painted horizontal bands",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Gallery deck extends wider than tower top with a complete perimeter protective railing",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a5",
+      "text": "Lantern room has transparent glazed windows enclosing an internal lens/beacon",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a6",
+      "text": "Lighthouse is capped with a smooth hemispherical dome and top finial",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a7",
+      "text": "Entire structure sits grounded upon an irregular sculpted rock outcropping base",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must1",
+      "text": "Includes: tapered tower",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: alternating bands",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: gallery walkway with railing",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must4",
+      "text": "Includes: glass lantern room",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must5",
+      "text": "Includes: dome",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must6",
+      "text": "Includes: rock base",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:blender": 0,
+    "connectivity": 0,
+    "contract": 0
+  },
+  "quality_tier": "A",
+  "rounds": 3,
+  "best_round": 2,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "c0f9d426773d",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 8,
+      "score": 0.467,
+      "passed": false,
+      "issues": 3,
+      "judge_degraded": false,
+      "cost_usd": 0.337695,
+      "duration_s": 438.7
+    },
+    {
+      "index": 1,
+      "kind": "refine",
+      "commit": "ff58242e2df0",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 1,
+      "score": 0.6,
+      "passed": false,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 1.42362,
+      "duration_s": 366.5
+    },
+    {
+      "index": 2,
+      "kind": "refine",
+      "commit": "c9eeca5ab7a3",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.91,
+      "passed": true,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 0.46327,
+      "duration_s": 428.5
+    }
+  ],
+  "stop_reason": "pass",
+  "code_commit": "c9eeca5ab7a35206892005ee68487d640a59a826",
+  "code_source": "commit",
+  "code_fingerprint": "91af4561566415ad338ed5551c22730ecc2388f9a158dfd6db1bee7a17de05d0",
+  "prompt_hash": "782cb09c6efbecbe",
+  "status": "passed",
+  "cost_usd": 2.738772,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 8748586,
+    "output_tokens": 109648,
+    "cached_tokens": 6474189,
+    "thoughts_tokens": 5799,
+    "tool_calls": 288,
+    "cost_usd": 2.7387723000000004,
+    "latency_ms": 2149421
+  },
+  "created_at": "2026-08-23T16:19:02.866424Z",
+  "finished_at": "2026-08-23T16:26:11.368662Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "654305b1094f",
+    "cookbook": "cfa846dfc95a",
+    "refine": "68cb1b92485b"
+  },
+  "telemetry": {}
+}

@@ -1,0 +1,258 @@
+{
+  "id": "3dcodeverse/static_object/blender/mus_easy_drum",
+  "key": "mus_easy_drum",
+  "name": "SnareDrum",
+  "type": "3D Objects",
+  "track": "static_object",
+  "language": "blender",
+  "language_label": "Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "src/model.py",
+    "src/parts/_common.py",
+    "src/parts/bottom_head.py",
+    "src/parts/bottom_hoop.py",
+    "src/parts/drum_shell.py",
+    "src/parts/drum_stick_primary.py",
+    "src/parts/drum_stick_secondary.py",
+    "src/parts/lugs.py",
+    "src/parts/snare_strainer.py",
+    "src/parts/tension_rods.py",
+    "src/parts/top_head.py",
+    "src/parts/top_hoop.py"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "static_object",
+    "language": "blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/mus_easy_drum",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a snare drum with tension rods and two drumsticks resting on top",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "cylindrical shell",
+      "top head",
+      "at least eight tension rods around the rim",
+      "two sticks"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "static_objects_v1",
+    "easy",
+    "musical_instruments"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "static_object_v1",
+  "score": 0.626,
+  "passed": false,
+  "baseline_score": 0.626,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": true,
+    "a5": true,
+    "a6": true,
+    "must1": true,
+    "must2": true,
+    "must3": true,
+    "must4": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Bottom hoop base rests at z = 0.000 m (within +/- 0.002 m)",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "Drum shell has cylindrical diameter of approx 0.356 m (14 inches)",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Top batter drumhead is clearly visible inside the upper rim",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Exactly eight evenly-spaced tension rods and lug casings are distributed radially around the shell perimeter",
+      "how": "probe",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a5",
+      "text": "Two drumsticks rest on top of the snare drum in an overlapping arrangement",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a6",
+      "text": "Distinct material separation between polished chrome metal shell/hoops, white head membrane, and wooden drumsticks",
+      "how": "visual",
+      "priority": "should",
+      "passed": true
+    },
+    {
+      "id": "must1",
+      "text": "Includes: cylindrical shell",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: top head",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: at least eight tension rods around the rim",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must4",
+      "text": "Includes: two sticks",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:blender": 0,
+    "connectivity": 0,
+    "contract": 0
+  },
+  "quality_tier": "C",
+  "rounds": 3,
+  "best_round": 0,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "09d2e24876c1",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.626,
+      "passed": false,
+      "issues": 3,
+      "judge_degraded": false,
+      "cost_usd": 0.592317,
+      "duration_s": 725.6
+    },
+    {
+      "index": 1,
+      "kind": "refine",
+      "commit": "c29a5f88a828",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.528,
+      "passed": false,
+      "issues": 4,
+      "judge_degraded": false,
+      "cost_usd": 0.356045,
+      "duration_s": 433.3
+    },
+    {
+      "index": 2,
+      "kind": "refine",
+      "commit": "4690a4701b03",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.362,
+      "passed": false,
+      "issues": 5,
+      "judge_degraded": false,
+      "cost_usd": 0.436687,
+      "duration_s": 343.1
+    }
+  ],
+  "stop_reason": "plateau",
+  "code_commit": "09d2e24876c1420d06690157476f257081ae0ca0",
+  "code_source": "commit",
+  "code_fingerprint": "0f76206d4fd56b031c0923c154d97c3581e5886deab2a0828559eb389ed98424",
+  "prompt_hash": "48c57652c8c22d87",
+  "status": "plateau",
+  "cost_usd": 1.401867,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 5050079,
+    "output_tokens": 54753,
+    "cached_tokens": 4055017,
+    "thoughts_tokens": 6190,
+    "tool_calls": 141,
+    "cost_usd": 1.401866775,
+    "latency_ms": 998773
+  },
+  "created_at": "2026-08-23T16:26:11.371660Z",
+  "finished_at": "2026-08-23T16:51:56.133612Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "654305b1094f",
+    "cookbook": "cfa846dfc95a",
+    "generate": "89e22a069afd",
+    "refine": "ba16597ff4ca"
+  },
+  "telemetry": {}
+}

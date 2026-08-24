@@ -1,0 +1,241 @@
+{
+  "id": "3dcodeverse/articulated_object/urdf_blender/art_med_wheelbarrow",
+  "key": "art_med_wheelbarrow",
+  "name": "ArticulatedWheelbarrow",
+  "type": "Articulated Objects",
+  "track": "articulated_object",
+  "language": "urdf_blender",
+  "language_label": "URDF + Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meshes/chassis.glb",
+    "meshes/tray.glb",
+    "meshes/wheel.glb",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_articulation_sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_pose_rest.png",
+    "renders/view_pose_tray_dump@upper.png",
+    "renders/view_pose_wheel_spin@half.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "robot.urdf",
+    "src/model.py",
+    "src/robot.urdf"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_articulation_sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_pose_rest.png",
+    "renders/view_pose_tray_dump@upper.png",
+    "renders/view_pose_wheel_spin@half.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "articulated_object",
+    "language": "urdf_blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/articulated_v1_flash/runs/art_med_wheelbarrow",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a wheelbarrow with a spinning front wheel and a tray that tips forward on its axle to dump",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "tray",
+      "two handles",
+      "two rear legs",
+      "front wheel on a continuous axle joint",
+      "tipping joint for the tray"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "articulated_v1",
+    "medium",
+    "garden"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "articulated_v1",
+  "score": 0.988,
+  "passed": true,
+  "baseline_score": 0.988,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": true,
+    "j1": true,
+    "j2": true,
+    "must1": true,
+    "must2": true,
+    "must3": true,
+    "must4": true,
+    "must5": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Overall bounding box is approximately 0.68 x 1.45 x 0.68 m with base resting on the ground plane at z=0",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "Both rear support legs and the front wheel touch the ground plane at z=0 in the rest pose",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Two distinct rear handle grips project toward +Y for operator handling",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Front wheel is securely captured between front frame forks at y = -0.55 m",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j1",
+      "text": "Front wheel rotates continuously around the +X axis without collision with frame tubing",
+      "how": "articulation",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j2",
+      "text": "Tray pivots forward about its front hinge axis to a dumping angle of 1.2 radians without penetrating the front bumper or chassis",
+      "how": "articulation",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must1",
+      "text": "Includes: tray",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: two handles",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: two rear legs",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must4",
+      "text": "Includes: front wheel on a continuous axle joint",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must5",
+      "text": "Includes: tipping joint for the tray",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:urdf": 0,
+    "connectivity": 0,
+    "contract": 0,
+    "joint_sweep": 0
+  },
+  "quality_tier": "A",
+  "rounds": 1,
+  "best_round": 0,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "2b1d6b57588b",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.988,
+      "passed": true,
+      "issues": 0,
+      "judge_degraded": false,
+      "cost_usd": 0.707725,
+      "duration_s": 442.9
+    }
+  ],
+  "stop_reason": "pass",
+  "code_commit": "2b1d6b57588b7cff9ba0605f7b395eca1460224a",
+  "code_source": "commit",
+  "code_fingerprint": "55ab42a8a4b49b051d1520595134f0e8942d99a4a6e20d7bc7d81c73b59a1d9a",
+  "prompt_hash": "f41fa70231bb8afe",
+  "status": "passed",
+  "cost_usd": 0.719154,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 2283735,
+    "output_tokens": 35688,
+    "cached_tokens": 1817844,
+    "thoughts_tokens": 15820,
+    "tool_calls": 44,
+    "cost_usd": 0.7191538000000001,
+    "latency_ms": 362887
+  },
+  "created_at": "2026-08-23T11:50:43.134830Z",
+  "finished_at": "2026-08-23T11:58:31.948854Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "7b2ad5125449",
+    "cookbook": "e3b0c44298fc",
+    "generate": "fbd1dab053f2"
+  },
+  "telemetry": {}
+}

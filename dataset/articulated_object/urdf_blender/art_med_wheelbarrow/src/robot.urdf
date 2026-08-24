@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<robot name="articulated_wheelbarrow">
+  <!-- link frames: root at the world origin; every other link frame sits at its joint pivot (world, rest pose). -->
+  <!-- visual/collision origin = -(link frame world) because meshes/<link>.glb hold WORLD coordinates at rest. -->
+  <!-- q=0 is the authored pose (the plan's rest pose); limits are the plan's lower-rest .. upper-rest. -->
+  <link name="chassis">  <!-- frame at world 0 0 0 -->
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/chassis.glb"/></geometry></visual>
+    <collision><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/chassis.glb"/></geometry></collision>
+  </link>
+  <link name="wheel">  <!-- frame at world 0 -0.55 0.2 -->
+    <visual><origin xyz="0 0.55 -0.2" rpy="0 0 0"/><geometry><mesh filename="meshes/wheel.glb"/></geometry></visual>
+    <collision><origin xyz="0 0.55 -0.2" rpy="0 0 0"/><geometry><mesh filename="meshes/wheel.glb"/></geometry></collision>
+  </link>
+  <link name="tray">  <!-- frame at world 0 -0.45 0.35 -->
+    <visual><origin xyz="0 0.45 -0.35" rpy="0 0 0"/><geometry><mesh filename="meshes/tray.glb"/></geometry></visual>
+    <collision><origin xyz="0 0.45 -0.35" rpy="0 0 0"/><geometry><mesh filename="meshes/tray.glb"/></geometry></collision>
+  </link>
+  <joint name="wheel_spin" type="continuous">
+    <parent link="chassis"/>
+    <child link="wheel"/>
+    <origin xyz="0 -0.55 0.2" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="1 0 0"/>
+    <limit effort="10" velocity="1"/>
+  </joint>
+  <joint name="tray_dump" type="revolute">
+    <parent link="chassis"/>
+    <child link="tray"/>
+    <origin xyz="0 -0.45 0.35" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="1.2" effort="10" velocity="1"/>
+  </joint>
+</robot>

@@ -1,0 +1,274 @@
+{
+  "id": "3dcodeverse/articulated_object/urdf_blender/art_med_desk_lamp",
+  "key": "art_med_desk_lamp",
+  "name": "ArticulatedDeskLamp",
+  "type": "Articulated Objects",
+  "track": "articulated_object",
+  "language": "urdf_blender",
+  "language_label": "URDF + Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meshes/base.glb",
+    "meshes/lamp_shade.glb",
+    "meshes/lower_arm.glb",
+    "meshes/upper_arm.glb",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_articulation_sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_pose_base_to_lower_arm@lower.png",
+    "renders/view_pose_base_to_lower_arm@upper.png",
+    "renders/view_pose_elbow_joint@lower.png",
+    "renders/view_pose_elbow_joint@upper.png",
+    "renders/view_pose_rest.png",
+    "renders/view_pose_shade_joint@lower.png",
+    "renders/view_pose_shade_joint@upper.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "robot.urdf",
+    "src/model.py",
+    "src/robot.urdf"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_articulation_sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_pose_base_to_lower_arm@lower.png",
+    "renders/view_pose_base_to_lower_arm@upper.png",
+    "renders/view_pose_elbow_joint@lower.png",
+    "renders/view_pose_elbow_joint@upper.png",
+    "renders/view_pose_rest.png",
+    "renders/view_pose_shade_joint@lower.png",
+    "renders/view_pose_shade_joint@upper.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "articulated_object",
+    "language": "urdf_blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/articulated_v1_flash/runs/art_med_desk_lamp",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a desk lamp with a round base, a lower arm that pivots at the base and an upper arm that pivots at the elbow, ending in a shade",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "weighted base",
+      "lower arm revolute at base",
+      "upper arm revolute at elbow",
+      "shade at the tip",
+      "both joints have limits"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "articulated_v1",
+    "medium",
+    "lighting"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "articulated_v1",
+  "score": 0.75,
+  "passed": true,
+  "baseline_score": 0.5,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": true,
+    "j1": true,
+    "j2": true,
+    "j3": true,
+    "must1": true,
+    "must2": true,
+    "must3": true,
+    "must4": true,
+    "must5": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Base resting firmly on ground plane z=0 with 0.20 m diameter",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "Total height at rest pose is between 0.50 m and 0.58 m",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Twin strut arms with visible hinge brackets at base and elbow",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Conical shade facing downwards and forwards towards -Y",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j1",
+      "text": "Lower arm pitches about base pivot X-axis from -0.60 to +0.80 rad without colliding with base",
+      "how": "articulation",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j2",
+      "text": "Upper arm flexes about elbow pivot X-axis from -1.20 to +1.00 rad",
+      "how": "articulation",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "j3",
+      "text": "Lamp shade rotates smoothly on knuckle joint from -0.80 to +0.80 rad",
+      "how": "articulation",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must1",
+      "text": "Includes: weighted base",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: lower arm revolute at base",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: upper arm revolute at elbow",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must4",
+      "text": "Includes: shade at the tip",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must5",
+      "text": "Includes: both joints have limits",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:urdf": 0,
+    "connectivity": 0,
+    "contract": 0,
+    "joint_sweep": 0,
+    "motion_direction": 0
+  },
+  "quality_tier": "A",
+  "rounds": 2,
+  "best_round": 1,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "82fda77bdc35",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 1,
+      "score": 0.5,
+      "passed": false,
+      "issues": 3,
+      "judge_degraded": false,
+      "cost_usd": 0.735138,
+      "duration_s": 608.1
+    },
+    {
+      "index": 1,
+      "kind": "refine",
+      "commit": "f2049fcd4b38",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.75,
+      "passed": true,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 0.63897,
+      "duration_s": 736.2
+    }
+  ],
+  "stop_reason": "pass",
+  "code_commit": "f2049fcd4b384ede145a46f61f182aba4e89ab61",
+  "code_source": "commit",
+  "code_fingerprint": "96b3c0a3ba11a324b2bf232e39a5f82c5e32a52faf425197d8f7b1348ddeaf80",
+  "prompt_hash": "2c6c68f0cb71fb43",
+  "status": "passed",
+  "cost_usd": 1.387641,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 4853555,
+    "output_tokens": 86019,
+    "cached_tokens": 4043719,
+    "thoughts_tokens": 18771,
+    "tool_calls": 95,
+    "cost_usd": 1.387640925,
+    "latency_ms": 831412
+  },
+  "created_at": "2026-08-23T11:46:01.006756Z",
+  "finished_at": "2026-08-23T12:09:10.212225Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "7b2ad5125449",
+    "cookbook": "e3b0c44298fc",
+    "generate": "c10428083830",
+    "refine": "41bfbea9f819"
+  },
+  "telemetry": {}
+}

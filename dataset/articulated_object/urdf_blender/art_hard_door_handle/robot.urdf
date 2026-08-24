@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<robot name="articulated_house_door">
+  <!-- Frame at world origin -->
+  <link name="frame">
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/frame.glb"/></geometry></visual>
+    <collision><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/frame.glb"/></geometry></collision>
+  </link>
+
+  <!-- DoorLeaf frame at pivot (-0.410, -0.024, 1.020) -->
+  <link name="door_leaf">
+    <visual><origin xyz="0.410 0.024 -1.020" rpy="0 0 0"/><geometry><mesh filename="meshes/door_leaf.glb"/></geometry></visual>
+    <collision><origin xyz="0.410 0.024 -1.020" rpy="0 0 0"/><geometry><mesh filename="meshes/door_leaf.glb"/></geometry></collision>
+  </link>
+
+  <!-- LeverHandle frame at pivot (0.330, -0.035, 1.000) -->
+  <link name="lever_handle">
+    <visual><origin xyz="-0.330 0.035 -1.000" rpy="0 0 0"/><geometry><mesh filename="meshes/lever_handle.glb"/></geometry></visual>
+    <collision><origin xyz="-0.330 0.035 -1.000" rpy="0 0 0"/><geometry><mesh filename="meshes/lever_handle.glb"/></geometry></collision>
+  </link>
+
+  <!-- LatchBolt frame at pivot (0.415, 0.000, 1.000) -->
+  <link name="latch_bolt">
+    <visual><origin xyz="-0.415 0.000 -1.000" rpy="0 0 0"/><geometry><mesh filename="meshes/latch_bolt.glb"/></geometry></visual>
+    <collision><origin xyz="-0.415 0.000 -1.000" rpy="0 0 0"/><geometry><mesh filename="meshes/latch_bolt.glb"/></geometry></collision>
+  </link>
+
+  <!-- Door hinge: swings outward (-Y front), axis (0, 0, -1) so +q swings to -Y -->
+  <!-- Origin = pivot_door - frame_frame = (-0.410, -0.024, 1.020) -->
+  <joint name="door_hinge" type="revolute">
+    <parent link="frame"/>
+    <child link="door_leaf"/>
+    <origin xyz="-0.410 -0.024 1.020" rpy="0 0 0"/>
+    <axis xyz="0 0 -1"/>
+    <limit lower="0" upper="1.5708" effort="10" velocity="1"/>
+  </joint>
+
+  <!-- Handle turn: lever on front (-Y) points right (+X). Rotating DOWN means rotating about -Y axis: +q rotates lever downwards -->
+  <!-- Relative origin: pivot_handle - pivot_door = (0.330 - (-0.410), -0.035 - (-0.024), 1.000 - 1.020) = (0.740, -0.011, -0.020) -->
+  <joint name="handle_turn" type="revolute">
+    <parent link="door_leaf"/>
+    <child link="lever_handle"/>
+    <origin xyz="0.740 -0.011 -0.020" rpy="0 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="0" upper="0.6981" effort="10" velocity="1"/>
+  </joint>
+
+  <!-- Latch retract: retracts horizontally inward into door leaf (-X direction) -->
+  <!-- Relative origin: pivot_latch - pivot_door = (0.415 - (-0.410), 0.000 - (-0.024), 1.000 - 1.020) = (0.825, 0.024, -0.020) -->
+  <!-- Axis is (-1, 0, 0) so positive q retracts inward toward door center (-X) -->
+  <joint name="latch_retract" type="prismatic">
+    <parent link="door_leaf"/>
+    <child link="latch_bolt"/>
+    <origin xyz="0.825 0.024 -0.020" rpy="0 0 0"/>
+    <axis xyz="-1 0 0"/>
+    <limit lower="0" upper="0.015" effort="10" velocity="1"/>
+  </joint>
+</robot>

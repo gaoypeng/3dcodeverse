@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<robot name="pair_of_scissors">
+  <!-- link frames: root at the world origin; every other link frame sits at its joint pivot (world, rest pose). -->
+  <!-- visual/collision origin = -(link frame world) because meshes/<link>.glb hold WORLD coordinates at rest. -->
+  <!-- q=0 is the authored pose (the plan's rest pose); limits are the plan's lower-rest .. upper-rest. -->
+  <link name="base_half">  <!-- frame at world 0 0 0 -->
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/base_half.glb"/></geometry></visual>
+    <collision><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/base_half.glb"/></geometry></collision>
+  </link>
+  <link name="pivot_half">  <!-- frame at world 0 -0.01 0.007 -->
+    <visual><origin xyz="0 0.01 -0.007" rpy="0 0 0"/><geometry><mesh filename="meshes/pivot_half.glb"/></geometry></visual>
+    <collision><origin xyz="0 0.01 -0.007" rpy="0 0 0"/><geometry><mesh filename="meshes/pivot_half.glb"/></geometry></collision>
+  </link>
+  <joint name="blade_pivot" type="revolute">
+    <parent link="base_half"/>
+    <child link="pivot_half"/>
+    <origin xyz="0 -0.01 0.007" rpy="0 0 0"/>  <!-- pivot_world(child) - frame_world(parent) -->
+    <axis xyz="0 0 1"/>
+    <limit lower="0" upper="1.05" effort="10" velocity="1"/>
+  </joint>
+</robot>

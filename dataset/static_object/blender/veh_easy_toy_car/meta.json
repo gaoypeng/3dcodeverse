@@ -1,0 +1,245 @@
+{
+  "id": "3dcodeverse/static_object/blender/veh_easy_toy_car",
+  "key": "veh_easy_toy_car",
+  "name": "ToyCar",
+  "type": "3D Objects",
+  "track": "static_object",
+  "language": "blender",
+  "language_label": "Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "src/model.py",
+    "src/parts/car_body.py",
+    "src/parts/front_axle.py",
+    "src/parts/front_wheel.py",
+    "src/parts/headlight.py",
+    "src/parts/rear_axle.py",
+    "src/parts/rear_wheel.py",
+    "src/parts/taillight.py"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "static_object",
+    "language": "blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/veh_easy_toy_car",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a chunky toy car with a rounded body and four thick wheels",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "one-piece rounded body",
+      "four wheels touching the ground",
+      "wheels protrude sideways"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "static_objects_v1",
+    "easy",
+    "vehicles"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "static_object_v1",
+  "score": 0.85,
+  "passed": true,
+  "baseline_score": 0.282,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": true,
+    "a5": true,
+    "a6": true,
+    "must1": true,
+    "must2": true,
+    "must3": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Overall bounding box is approximately 0.136 x 0.210 x 0.110 m (±0.01 m)",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "All four wheels touch the ground plane at z = 0.000 m (±0.001 m)",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Wheel outer faces extend beyond the car body sides by at least 0.020 m on each side",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Car body is a cohesive, rounded one-piece shape with smooth corners",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a5",
+      "text": "Axles pass continuously through the lower body section into wheel hubs",
+      "how": "visual",
+      "priority": "should",
+      "passed": true
+    },
+    {
+      "id": "a6",
+      "text": "Headlights and taillights are symmetrically placed on the front and rear faces",
+      "how": "visual",
+      "priority": "should",
+      "passed": true
+    },
+    {
+      "id": "must1",
+      "text": "Includes: one-piece rounded body",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: four wheels touching the ground",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: wheels protrude sideways",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:blender": 0,
+    "connectivity": 0,
+    "contract": 0
+  },
+  "quality_tier": "A",
+  "rounds": 3,
+  "best_round": 2,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "f38d001e9737",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 3,
+      "score": 0.282,
+      "passed": false,
+      "issues": 3,
+      "judge_degraded": false,
+      "cost_usd": 0.79224,
+      "duration_s": 375.0
+    },
+    {
+      "index": 1,
+      "kind": "refine",
+      "commit": "352a14bb9305",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.6,
+      "passed": false,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 0.568302,
+      "duration_s": 498.5
+    },
+    {
+      "index": 2,
+      "kind": "refine",
+      "commit": "46168fe7798c",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.85,
+      "passed": true,
+      "issues": 0,
+      "judge_degraded": false,
+      "cost_usd": 0.308739,
+      "duration_s": 299.2
+    }
+  ],
+  "stop_reason": "pass",
+  "code_commit": "46168fe7798c64efa1ffb0fc53cff7dd88261b26",
+  "code_source": "commit",
+  "code_fingerprint": "80a3422c8ee633e8a399b560edf47751906b33a148620f350586fe196cb2aac5",
+  "prompt_hash": "62c335587dd3c714",
+  "status": "passed",
+  "cost_usd": 1.681467,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 6773465,
+    "output_tokens": 114212,
+    "cached_tokens": 5866088,
+    "thoughts_tokens": 5180,
+    "tool_calls": 143,
+    "cost_usd": 1.6814668499999998,
+    "latency_ms": 1005195
+  },
+  "created_at": "2026-08-23T11:10:43.849497Z",
+  "finished_at": "2026-08-23T11:31:30.655722Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "654305b1094f",
+    "cookbook": "cfa846dfc95a",
+    "generate": "04a237f035da",
+    "refine": "252f027467b1"
+  },
+  "telemetry": {}
+}

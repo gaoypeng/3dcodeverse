@@ -1,0 +1,233 @@
+{
+  "id": "3dcodeverse/static_object/blender/plant_med_palm",
+  "key": "plant_med_palm",
+  "name": "PottedPalm",
+  "type": "3D Objects",
+  "track": "static_object",
+  "language": "blender",
+  "language_label": "Blender Python",
+  "entry": "code.py",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.py",
+    "meta.json",
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png",
+    "src/model.py",
+    "src/parts/crown_shaft.py",
+    "src/parts/frond_leaflets.py",
+    "src/parts/frond_stem.py",
+    "src/parts/pot.py",
+    "src/parts/soil.py",
+    "src/parts/trunk.py"
+  ],
+  "renders": [
+    "renders/object.glb",
+    "renders/sheet.png",
+    "renders/view_back.png",
+    "renders/view_back_left_34.png",
+    "renders/view_front.png",
+    "renders/view_front_right_34.png",
+    "renders/view_left.png",
+    "renders/view_low_front_left.png",
+    "renders/view_right.png",
+    "renders/view_top.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "static_object",
+    "language": "blender",
+    "generator": "api-agent:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/static_v1_flash/runs/plant_med_palm",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "a small potted palm with a textured trunk and eight arching fronds made of many leaflets",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "textured trunk",
+      "at least eight fronds",
+      "fronds arch downward",
+      "leaflets along each frond",
+      "pot"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "static_objects_v1",
+    "medium",
+    "plants"
+  ],
+  "generator": "api-agent:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "static_object_v1",
+  "score": 0.75,
+  "passed": true,
+  "baseline_score": 0.75,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": true,
+    "a5": true,
+    "a6": true,
+    "must1": true,
+    "must2": true,
+    "must3": true,
+    "must4": true,
+    "must5": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Overall height is between 0.60 m and 0.68 m, pot sitting firmly on z=0",
+      "how": "measure",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "Planter pot is present with visible soil fill inside the upper opening",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Palm trunk has visible horizontal rings / fibrous texture",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Exactly eight distinct fronds radiate from the central crown",
+      "how": "probe",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a5",
+      "text": "Fronds arch outward and visibly curve downward at their outer ends",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a6",
+      "text": "Each frond contains numerous individual slender leaflets along its stem",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must1",
+      "text": "Includes: textured trunk",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: at least eight fronds",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: fronds arch downward",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must4",
+      "text": "Includes: leaflets along each frond",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must5",
+      "text": "Includes: pot",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 2,
+  "gate_summary": {
+    "lint:blender": 0,
+    "connectivity": 0,
+    "contract": 2
+  },
+  "quality_tier": "B",
+  "rounds": 1,
+  "best_round": 0,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "84ebffa526c1",
+      "agent_backend": "api-agent:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 2,
+      "score": 0.75,
+      "passed": true,
+      "issues": 2,
+      "judge_degraded": false,
+      "cost_usd": 0.474005,
+      "duration_s": 495.8
+    }
+  ],
+  "stop_reason": "pass",
+  "code_commit": "84ebffa526c1523705c5dd31d3e5aa0473d491b7",
+  "code_source": "commit",
+  "code_fingerprint": "9566fd865b62ca73ddffc5c996da8d6e10d6e126ea76d356ead44216b0fbae67",
+  "prompt_hash": "e383c90b3ec10502",
+  "status": "passed",
+  "cost_usd": 0.485678,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 2201672,
+    "output_tokens": 28158,
+    "cached_tokens": 1953701,
+    "thoughts_tokens": 2103,
+    "tool_calls": 49,
+    "cost_usd": 0.4856783250000001,
+    "latency_ms": 271082
+  },
+  "created_at": "2026-08-23T16:10:26.724126Z",
+  "finished_at": "2026-08-23T16:19:02.864730Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "654305b1094f",
+    "cookbook": "cfa846dfc95a",
+    "generate": "55f43b2ac6ba"
+  },
+  "telemetry": {}
+}

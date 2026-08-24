@@ -1,0 +1,195 @@
+{
+  "id": "3dcodeverse/graphics/glsl_shader/glsl_med_nebula",
+  "key": "glsl_med_nebula",
+  "name": "DeepSpaceNebulaFlythrough",
+  "type": "Procedural Graphics",
+  "track": "graphics",
+  "language": "glsl_shader",
+  "language_label": "GLSL fragment shader",
+  "entry": "code.frag",
+  "multi_file": true,
+  "files": [
+    "captions.json",
+    "code.frag",
+    "meta.json",
+    "renders/preview.gif",
+    "renders/sheet.png",
+    "renders/view_t=0s.png",
+    "renders/view_t=1s.png",
+    "renders/view_t=2.5s.png",
+    "renders/view_t=4s.png",
+    "renders/view_t=6s.png",
+    "src/common.glsl",
+    "src/shader.frag"
+  ],
+  "renders": [
+    "renders/preview.gif",
+    "renders/sheet.png",
+    "renders/view_t=0s.png",
+    "renders/view_t=1s.png",
+    "renders/view_t=2.5s.png",
+    "renders/view_t=4s.png",
+    "renders/view_t=6s.png"
+  ],
+  "environment": {
+    "python": "3.13.9",
+    "codeverse": "0.1.0",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "host": "iMind",
+    "harness_git_sha": "",
+    "blender": "Blender 5.0.1",
+    "blender_path": "/home/yipeng/.local/bin/blender-5.0",
+    "node": "v24.14.0",
+    "three": "0.182.0",
+    "track": "graphics",
+    "language": "glsl_shader",
+    "generator": "single-shot:gemini:gemini-3.7-flash"
+  },
+  "source": "3dcodeverse",
+  "source_run": "/home/yipeng/3dcodeverse/harness/bench/out/graphics_v1_flash/runs/glsl_med_nebula",
+  "license": "CC-BY-4.0",
+  "harness_version": "0.1.0",
+  "prompt": "A deep-space nebula flythrough: layered volumetric clouds with domain warping, twinkling star field, slow forward drift",
+  "constraints": {
+    "style": "",
+    "must_have": [
+      "parallax star field",
+      "warped nebula clouds",
+      "continuous forward motion"
+    ],
+    "must_not": []
+  },
+  "tags": [
+    "bench",
+    "graphics_v1",
+    "medium",
+    ""
+  ],
+  "generator": "single-shot:gemini:gemini-3.7-flash",
+  "planner": "gemini:gemini-3.7-flash",
+  "judge_backend": "gemini:gemini-3.1-pro-preview",
+  "judge_rubric": "shader_v1",
+  "score": 0.818,
+  "passed": true,
+  "baseline_score": 0.818,
+  "acceptance_results": {
+    "a1": true,
+    "a2": true,
+    "a3": true,
+    "a4": false,
+    "a5": true,
+    "must1": true,
+    "must2": true,
+    "must3": true
+  },
+  "acceptance": [
+    {
+      "id": "a1",
+      "text": "Continuous forward motion creates visible parallax expansion between frames (compare t=0, t=1, t=2.5, t=4)",
+      "how": "probe",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a2",
+      "text": "Warped volumetric nebula clouds with organic, gaseous swirling tendrils are clearly rendered",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a3",
+      "text": "Multi-tier parallax starfield with variable size, twinkle, and depth is present throughout",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "a4",
+      "text": "Palette exhibits deep cosmic darks illuminated by vibrant magenta, cyan, and warm stellar highlights",
+      "how": "visual",
+      "priority": "should",
+      "passed": false
+    },
+    {
+      "id": "a5",
+      "text": "Rendering is artifact-free without NaN/Inf clamping or blown-out whiteouts",
+      "how": "probe",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must1",
+      "text": "Includes: parallax star field",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must2",
+      "text": "Includes: warped nebula clouds",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    },
+    {
+      "id": "must3",
+      "text": "Includes: continuous forward motion",
+      "how": "visual",
+      "priority": "must",
+      "passed": true
+    }
+  ],
+  "gate_errors": 0,
+  "gate_summary": {
+    "lint:glsl_shader": 0,
+    "gl_frames": 0
+  },
+  "quality_tier": "A",
+  "rounds": 1,
+  "best_round": 0,
+  "rounds_summary": [
+    {
+      "index": 0,
+      "kind": "baseline",
+      "commit": "fc571fffdf39",
+      "agent_backend": "single-shot:gemini:gemini-3.7-flash",
+      "build_ok": true,
+      "gate_errors": 0,
+      "score": 0.818,
+      "passed": true,
+      "issues": 1,
+      "judge_degraded": false,
+      "cost_usd": 0.066111,
+      "duration_s": 374.4
+    }
+  ],
+  "stop_reason": "pass",
+  "code_commit": "fc571fffdf398554b7d53dfa3d608b95b00ffc17",
+  "code_source": "commit",
+  "code_fingerprint": "08d813ef90388f68ce818d8d63ad11f412d7729f40cea46ee90beb14062a32ab",
+  "prompt_hash": "7e5270dd443d9ec5",
+  "status": "passed",
+  "cost_usd": 0.075791,
+  "usage": {
+    "backend": "gemini",
+    "model": "gemini-3.7-flash",
+    "input_tokens": 20831,
+    "output_tokens": 6968,
+    "cached_tokens": 8163,
+    "thoughts_tokens": 3228,
+    "tool_calls": 0,
+    "cost_usd": 0.075790975,
+    "latency_ms": 76147
+  },
+  "created_at": "2026-08-23T16:00:45.348997Z",
+  "finished_at": "2026-08-23T16:07:15.255543Z",
+  "has_captions": false,
+  "captioner": "",
+  "prompt_hashes": {
+    "contract": "0384ac7a5139",
+    "cookbook": "a16077d832f1",
+    "generate": "eaf78141773a"
+  },
+  "telemetry": {}
+}
