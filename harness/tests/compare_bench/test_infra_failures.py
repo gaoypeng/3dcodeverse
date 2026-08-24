@@ -104,3 +104,52 @@ def test_budget_and_outage_are_different_buckets():
     outage = "ModelError: Gemini API error 503: This model is currently experiencing high demand."
     assert is_budget_exhaustion(budget) and not is_infra_failure(budget)
     assert is_infra_failure(outage) and not is_budget_exhaustion(outage)
+
+
+def test_preflight_probes_every_model_a_harness_arm_needs(monkeypatch):
+    """A harness arm is only as available as the weakest model in its loop.
+
+    Regression (2026-08-24): `harness:codex:gpt-5.6-sol` — a local subscription CLI
+    generator with a healthy judge — was stuck for hours because the default PLANNER
+    is gemini-3.7-flash, which was down.  The first preflight only probed the judge
+    and the arm targets, so it would have waved those runs straight into the wall.
+    """
+    from bench import compare_backends as cb
+    from codeverse.models.health import Health
+
+    probed: list[str] = []
+
+    def fake_probe(model, **_):
+        probed.append(model)
+        return Health(model=model, n_ok=4, n_tried=4)
+
+    monkeypatch.setattr("codeverse.models.health.probe", fake_probe)
+    arms = cb.parse_arms("harness:codex:gpt-5.6-sol")
+    opts = cb.CompareOptions(judge="gemini:fixed-judge")
+    assert cb._preflight("gemini:fixed-judge", arms, opts) is True
+
+    assert "gemini:fixed-judge" in probed, "the fixed judge must always be probed"
+    planner = get_settings_planner()
+    assert planner in probed, f"the harness planner {planner!r} was not probed: {probed}"
+    # the subscription CLI is not an API model and has nothing to probe
+    assert not any("codex" in m for m in probed), probed
+
+
+def get_settings_planner() -> str:
+    from codeverse.config import get_settings
+
+    return get_settings().backends().planner
+
+
+def test_preflight_skips_loop_models_for_oneshot_only_batteries(monkeypatch):
+    """A one-shot battery runs no harness loop, so it must not be blocked by a
+    planner it will never call."""
+    from bench import compare_backends as cb
+    from codeverse.models.health import Health
+
+    probed: list[str] = []
+    monkeypatch.setattr("codeverse.models.health.probe",
+                        lambda m, **_: (probed.append(m), Health(model=m, n_ok=4, n_tried=4))[1])
+    arms = cb.parse_arms("oneshot:claude-code,oneshot:codex")
+    assert cb._preflight("gemini:fixed-judge", arms, cb.CompareOptions(judge="gemini:fixed-judge")) is True
+    assert probed == ["gemini:fixed-judge"], probed

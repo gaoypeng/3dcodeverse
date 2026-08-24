@@ -371,17 +371,32 @@ def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm
 
 
 # ----------------------------------------------------------------------------- CLI
-def _preflight(judge: str, arms: Sequence[Arm], *, wait_minutes: float = 0.0) -> bool:
+def _preflight(judge: str, arms: Sequence[Arm], opts: CompareOptions, *, wait_minutes: float = 0.0) -> bool:
     """Refuse to start a battery against a model that is not serving.
 
     A dead provider does not fail fast on its own: every cell burns its full retry
     budget first.  On 2026-08-24 that cost ~9 hours of wall clock and a contaminated
     battery.  One 20-second probe per model is the whole cure.
+
+    Every model a HARNESS arm needs counts, not just the generator: the same outage
+    took down `harness:codex:gpt-5.6-sol` — whose generator is a local subscription
+    CLI and whose judge was healthy — because the default PLANNER is flash.  A
+    harness arm is only as available as the weakest model in its loop.
     """
     from codeverse.models.health import probe
 
-    models = {judge, *(a.target for a in arms if a.target.startswith(("gemini:", "anthropic:", "openai:")))}
-    models |= {a.target.split(":", 1)[1] for a in arms if a.target.startswith("api-agent:")}
+    def api_model(target: str) -> str:
+        """'api-agent:gemini:x' -> 'gemini:x'; a subscription CLI target -> ''."""
+        inner = target.split(":", 1)[1] if target.startswith("api-agent:") else target
+        return inner if inner.startswith(("gemini:", "anthropic:", "openai:")) else ""
+
+    models = {judge, *(api_model(a.target) for a in arms)}
+    if any(a.kind.startswith("harness") for a in arms):
+        # the harness loop runs a planner and its own in-loop judge on EVERY arm,
+        # whatever the generator is
+        backends = get_settings().backends(judge=opts.loop_judge, planner=opts.planner)
+        models |= {backends.planner, backends.judge}
+    models.discard("")
     deadline = time.time() + wait_minutes * 60
     while True:
         sick = [h for h in (probe(m) for m in sorted(models)) if not h.ok]
@@ -436,7 +451,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                           gen_timeout_s=ns.gen_timeout, repair_attempts=ns.repair_attempts, pairwise=not ns.no_pairwise,
                           redo_status=[x for x in ns.redo_status.split(",") if x])
     arms = parse_arms(ns.arms)
-    if not ns.no_preflight and not _preflight(opts.judge, arms, wait_minutes=ns.wait_for_provider):
+    if not ns.no_preflight and not _preflight(opts.judge, arms, opts, wait_minutes=ns.wait_for_provider):
         return 2
     deps = CompareDeps(FixedEvaluator(opts.judge, n_samples=opts.n_samples))
 
