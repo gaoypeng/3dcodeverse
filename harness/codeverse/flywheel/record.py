@@ -286,7 +286,15 @@ def iter_runs(
     root = Path(runs_dir)
     if not root.is_dir():
         raise FileNotFoundError(f"runs dir not found: {root}")
-    for d in sorted(p for p in root.iterdir() if p.is_dir()):
+    children = sorted(p for p in root.iterdir() if p.is_dir())
+    if not any((d / "record.json").is_file() for d in children) and (root / "runs").is_dir():
+        # pointing at a BATTERY dir (bench/out/<battery>) instead of its runs/ root is the
+        # easy mistake, and every exporter here reports "0 runs" as a success.  Silence
+        # must not look like an empty dataset.
+        raise FileNotFoundError(
+            f"no run directories directly under {root} — did you mean {root / 'runs'}? "
+            f"(a battery directory holds its runs in runs/)")
+    for d in children:
         if not (d / "record.json").is_file():
             continue
         ws = Workspace(d)

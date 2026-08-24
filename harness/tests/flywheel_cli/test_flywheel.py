@@ -369,3 +369,29 @@ def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
     export_samples(ws.root.parent, tmp_path / "ds2")
     sdir2 = next((tmp_path / "ds2").rglob("meta.json")).parent
     assert not (sdir2 / "textures").exists()
+
+
+def test_pointing_at_a_battery_dir_says_so_instead_of_exporting_nothing(tmp_path):
+    """`bench/out/<battery>` holds its runs in `runs/`, and pointing one level too high
+    used to report "runs 0, exported 0" as a SUCCESS — an empty dataset that looks like
+    a finished one.  Silence must not read as an empty result."""
+    import pytest
+
+    from codeverse.flywheel.record import iter_runs
+
+    battery = tmp_path / "static_v2_flash"
+    (battery / "runs" / "some_run").mkdir(parents=True)
+    (battery / "runs" / "some_run" / "record.json").write_text("{}")
+
+    with pytest.raises(FileNotFoundError, match=r"did you mean .*runs"):
+        list(iter_runs(battery))
+
+
+def test_a_genuinely_empty_runs_root_is_still_just_empty(tmp_path):
+    """The hint only fires when a `runs/` sibling exists — an empty runs root is a
+    legitimate empty result, not an error."""
+    from codeverse.flywheel.record import iter_runs
+
+    empty = tmp_path / "runs"
+    empty.mkdir()
+    assert list(iter_runs(empty)) == []
