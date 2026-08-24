@@ -1002,3 +1002,36 @@ justify a scheduler rewrite in `fan_out`.
 `3dcv doctor --live` prints the pool's live picture — keys, in-flight and peak in-flight,
 RPM/TPM headroom used, 429/5xx/dead counts this process — plus one row per storm gate
 with its storm count, 503 count, probe count and parked seconds.
+
+## 22. The retry budget was counted in attempts, so a "90-minute" run took 200
+
+Two independent bugs let a single provider outage burn hours of paid wall clock on
+2026-08-24.  Both are cost-control failures, not model failures.
+
+**The storm budget was never a time budget.**  §21's storm branch is bounded by
+`storm_attempts = 60` with each wait capped at `MAX_WAIT_S`, and its docstring claimed
+patience of "60 × ≤5 s ≈ 5 min".  It never counted the read timeout each doomed
+attempt burns first: with `model_timeout_s = 300`, one logical call is
+60 × (300 + 5) s = **5.1 hours**.  Measured on a fake clock, a call in a sustained
+storm consumed **5.59 h**; with the deadline it consumes **15.1 min**:
+
+| | one call in a sustained storm |
+|---|---|
+| attempts-only budget (before) | 5.59 h |
+| `RETRY_DEADLINE_S = 900 s` (after) | 15.1 min |
+
+`rotate_with_retries` now takes `max_total_s` and stops retrying once the wall clock
+says so, in both the storm branch and ordinary backoff.  A slow call that is *making
+progress* is never cut — the deadline bounds retrying, not the call.  Past it the cell
+is `infra_failed`, which is excluded from every rate and re-runnable with
+`--redo-status infra_failed` (`docs/EVAL.md` §7).
+
+**The wall-clock ceiling is only checked when money is spent.**  `BudgetGuard.check()`
+is called from `spend()`/`charge()`, so a run whose calls never *complete* is never
+tested against `max_minutes`: nothing is billed, so nothing is checked.  That is how a
+`--max-minutes 90` run reached **200 minutes**.  The retry deadline is the root fix —
+every call now terminates within ~15 min and charges or raises, so the ceiling is
+evaluated again — but the residual remains real: **`max_minutes` is enforced at
+billing points, not on a timer.**  Closing it properly means giving the runner a
+reference to the guard and checking at stage boundaries; not done here, because it is
+plumbing through several layers and deserves its own measured change.

@@ -20,6 +20,15 @@ from typing import TYPE_CHECKING, TypeVar
 
 from codeverse.models.keypool import MAX_WAIT_S, KeyPoolExhausted
 
+#: the longest ONE logical call may spend being retried, waits and timeouts included.
+#: The storm branch used to be bounded only in ATTEMPTS: 60 storm attempts x (a 300 s
+#: read timeout + a <=5 s wait) is **5.1 hours** for a single call, though the docstring
+#: claimed "~5 min".  Measured 2026-08-24: that, plus a wall-clock ceiling only checked
+#: when a call is BILLED (a stalled call bills nothing), let a run with --max-minutes 90
+#: reach 200 minutes during a flash outage.  Past this deadline the call gives up and the
+#: cell is recorded infra_failed, which is re-runnable (`--redo-status infra_failed`).
+RETRY_DEADLINE_S = 900.0
+
 if TYPE_CHECKING:  # pragma: no cover
     from codeverse.models.base import ModelError
     from codeverse.models.keypool import KeyPool, Outcome
@@ -92,7 +101,9 @@ def rotate_with_retries(
     max_delay: float = MAX_WAIT_S,
     storm_attempts: int = 60,
     storm_max_delay: float = MAX_WAIT_S,
+    max_total_s: float = RETRY_DEADLINE_S,
     sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
     on_free_retry: Callable[[ModelError], bool] | None = None,
     retry_after: Callable[[BaseException], float | None] | None = None,
     tokens_of: Callable[[T], int] | None = None,
@@ -147,6 +158,11 @@ def rotate_with_retries(
     last_err: ModelError | None = None
     attempt = 0
     storm = 0
+    deadline = monotonic() + max_total_s if max_total_s > 0 else float("inf")
+
+    def out_of_time() -> bool:
+        return monotonic() >= deadline
+
     while attempt < max_attempts:
         attempt += 1
         # never go back to a key that looked dead this call; throttled keys are
@@ -190,7 +206,7 @@ def rotate_with_retries(
                 reserved=tokens_hint,
                 retry_after_s=retry_after(exc) if (outcome == "429" and retry_after) else None,
             )
-            if err.retryable and err.status in (503, 529) and storm < storm_attempts:
+            if err.retryable and err.status in (503, 529) and storm < storm_attempts and not out_of_time():
                 # capacity storm: model-wide, so waiting (on a rotated key) is the
                 # only cure — paid from its own budget, not max_attempts
                 storm += 1
@@ -223,6 +239,9 @@ def rotate_with_retries(
                     continue
             if not err.retryable or attempt >= max_attempts:
                 bench()
+                raise err from exc
+            if out_of_time():
+                log.warning("%s giving up after %.0f s of retrying (%s)", label, max_total_s, err)
                 raise err from exc
             delay = backoff_delay(attempt, base_delay=base_delay, max_delay=max_delay)
             log.warning(

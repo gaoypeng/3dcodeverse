@@ -299,3 +299,65 @@ def test_live_tests_are_opt_in_by_default():
     addopts = cfg["tool"]["pytest"]["ini_options"].get("addopts", [])
     joined = " ".join(addopts) if isinstance(addopts, list) else str(addopts)
     assert "not live" in joined, "live tests must be deselected by default (see pyproject addopts)"
+
+
+def test_one_call_cannot_retry_for_hours():
+    """The storm branch was bounded in ATTEMPTS, not in time.
+
+    60 storm attempts x (a 300 s read timeout + a <=5 s wait) is 5.1 hours for ONE
+    logical call, while the docstring claimed "~5 min".  Measured 2026-08-24: combined
+    with a wall-clock ceiling that is only checked when a call is BILLED (a stalled
+    call bills nothing), a run with --max-minutes 90 reached 200 minutes.
+    """
+    from codeverse.models.base import ModelError
+    from codeverse.models.keypool import KeyPool
+    from codeverse.models.retry import RETRY_DEADLINE_S, rotate_with_retries
+
+    clock = {"t": 0.0}
+    naps: list[float] = []
+
+    def sleep(d):  # every wait advances the fake clock
+        naps.append(d)
+        clock["t"] += d
+
+    def call(_key):
+        clock["t"] += 300.0  # the read timeout each doomed attempt burns
+        raise RuntimeError("503 high demand")
+
+    with pytest.raises(ModelError):
+        rotate_with_retries(
+            KeyPool(["k1", "k2"], rpm_per_key=10_000), call,
+            classify=lambda e: ModelError(str(e), retryable=True, status=503),
+            outcome_of=lambda e: "5xx", max_attempts=6, storm_attempts=60,
+            sleep=sleep, monotonic=lambda: clock["t"],
+        )
+    # the whole point: bounded by the clock, not by 60 x (timeout + wait)
+    assert clock["t"] <= RETRY_DEADLINE_S + 305.0, (
+        f"one call burned {clock['t'] / 3600:.1f} h; the deadline is {RETRY_DEADLINE_S / 60:.0f} min")
+    assert clock["t"] < 5 * 3600, "this is the 5.1-hour regression"
+
+
+def test_the_deadline_does_not_cut_a_call_that_is_making_progress():
+    """A slow-but-succeeding call must not be killed by the retry deadline."""
+    from codeverse.models.base import ModelError
+    from codeverse.models.keypool import KeyPool
+    from codeverse.models.retry import rotate_with_retries
+
+    clock = {"t": 0.0}
+    calls = {"n": 0}
+
+    def call(_key):
+        calls["n"] += 1
+        clock["t"] += 280.0           # slow, but under the per-attempt timeout
+        if calls["n"] < 3:
+            raise RuntimeError("503 high demand")
+        return "ok"
+
+    out = rotate_with_retries(
+        KeyPool(["k1", "k2"], rpm_per_key=10_000), call,
+        classify=lambda e: ModelError(str(e), retryable=True, status=503),
+        outcome_of=lambda e: "5xx", max_attempts=6, storm_attempts=60,
+        sleep=lambda d: clock.__setitem__("t", clock["t"] + d),
+        monotonic=lambda: clock["t"],
+    )
+    assert out == "ok" and calls["n"] == 3
