@@ -77,3 +77,58 @@ def _bare_model(model_id: str, timeout_s: float):
     from codeverse.models import get_chat_model  # other providers: no bare constructor needed yet
 
     return get_chat_model(model_id)
+
+
+# --------------------------------------------------------------------------- siblings
+#: how a harness process appears in its own argv.  Matched on ARGUMENTS, never on the
+#: whole command line: the repo path itself contains "3dcodeverse", so a substring test
+#: counts every shell that merely `cd`s into the tree.
+_MODULE = "codeverse.cli.main"
+_SCRIPTS = ("compare_backends.py", "run_bench.py")
+_ENTRY_POINTS = ("3dcv", "3dcodeverse")
+
+
+def _is_harness_argv(args: list[str]) -> bool:
+    if not args:
+        return False
+    from pathlib import PurePath
+
+    if PurePath(args[0]).name in _ENTRY_POINTS:
+        return True
+    for i, a in enumerate(args):
+        if a == "-m" and i + 1 < len(args) and args[i + 1] == _MODULE:
+            return True
+        if PurePath(a).name in _SCRIPTS:
+            return True
+    return False
+
+
+def sibling_processes() -> int:
+    """How many OTHER harness processes are running on this machine.
+
+    ``shared_pool`` keeps one KeyPool per PROCESS, so each sibling believes it owns the
+    whole key quota and gets its own ``max_in_flight``.  N siblings multiply the real
+    concurrency by N against a quota that is shared: on 2026-08-24 six concurrent
+    batteries took gemini-3.7-flash from 25 % success to 0 % (``docs/COST.md`` §23).
+
+    Best-effort — reads /proc and returns 0 when it cannot tell, because a wrong number
+    here must never block a run.
+    """
+    import os
+    from pathlib import Path
+
+    me, found = os.getpid(), 0
+    try:
+        entries = list(Path("/proc").iterdir())
+    except OSError:
+        return 0
+    for entry in entries:
+        if not entry.name.isdigit() or int(entry.name) == me:
+            continue
+        try:
+            raw = (entry / "cmdline").read_bytes()
+        except OSError:
+            continue  # exited between listing and reading
+        if _is_harness_argv([a for a in raw.decode(errors="replace").split("\0") if a]):
+            found += 1
+    return found

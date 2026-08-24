@@ -1035,3 +1035,56 @@ evaluated again — but the residual remains real: **`max_minutes` is enforced a
 billing points, not on a timer.**  Closing it properly means giving the runner a
 reference to the guard and checking at stage boundaries; not done here, because it is
 plumbing through several layers and deserves its own measured change.
+
+## 23. The key pool is per-PROCESS, so N batteries multiply the quota by N
+
+§20 measured the concurrency knee at 64 in-flight and shipped it as the default.  That
+number was measured with **one process and nothing else running**, and the limiter it
+configures is per-process by construction:
+
+```python
+_pools: dict[tuple[str, ...], KeyPool] = {}      # codeverse/models/gemini.py — MODULE level
+def shared_pool(...):  """One KeyPool per distinct (key list, quota) so limiters are process-wide."""
+```
+
+Process-wide is not machine-wide.  Every `3dcv bench run`, every `compare_backends.py`
+and every `3dcv make` is its own OS process with its own pool, each believing it owns the
+whole 22-key quota and each allowing its own 64 in-flight.  On 2026-08-24 six batteries
+from different waves ran at once: **~384 concurrent calls against a quota sized for 64**.
+
+What that did, measured on the same keys and the same model within 15 minutes:
+
+| condition | `gemini-3.7-flash` trivial call |
+|---|---|
+| ~15 of our processes running | **0 / 8 succeeded** |
+| machine quiet (we killed everything) | **3 / 12 succeeded** (25 %), 7.4 – 25.5 s |
+| machine quiet, `gemini-3.1-pro-preview` | **4 / 4 succeeded**, 3.1 – 29.7 s |
+
+Read it honestly, in both directions:
+
+* **The provider really was degraded.**  25 % success at four concurrent trivial calls is
+  not something we caused, and pro was healthy on the same keys at the same moment, so
+  this was flash-specific capacity on Google's side — not our key quota.
+* **Our own concurrency turned a degraded service into a total outage.**  0/8 under load
+  versus 3/12 quiet is the same model, same keys, minutes apart.
+
+Three consequences:
+
+1. **The knee is a per-process number and must be divided by the number of concurrent
+   harness processes.**  Running six batteries at `max_in_flight = 64` is asking for
+   6 × the concurrency the sweep found optimal — well past the point where §20 measured
+   throughput *falling* (128 in-flight was worse than 64).
+2. **It reframes §21's negative result.**  The StormGate lost its A/B, and the conclusion
+   was "gemini's 503s are intermittent, so parking is a waste".  But that A/B ran inside
+   ONE process while five other batteries kept hammering: a per-process gate can neither
+   see nor slow the traffic actually causing the storm, so the polite process paid the
+   latency and its siblings took the capacity it freed.  The gate was measured in a
+   setting where it could not win.  Its negative result stands for the configuration
+   tested and should NOT be read as "back-pressure does not help".
+3. **Operational rule until a cross-process limiter exists**: run ONE battery at a time,
+   or set `CV3D_MAX_IN_FLIGHT` to `64 / (concurrent processes)`.
+
+The real fix is a machine-wide limiter — a file-locked token bucket under
+`~/.cache/codeverse/` that every process shares — so the quota is enforced where it
+actually lives.  Not built here: it needs crash/staleness handling and its own A/B, and
+it should be measured against the operational rule above rather than assumed better.
