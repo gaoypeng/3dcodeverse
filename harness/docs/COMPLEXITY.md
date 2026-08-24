@@ -342,7 +342,55 @@ extra geometry.  The rubric A/B in §3.1 is the isolated experiment.
 
 ---
 
-## 6. Caveats
+## 6. Why the toaster regressed: interpenetration is the price of detail
+
+The one loss in §5 (`ctrl_med_toaster`, overall **0.95 → 0.66**, `assembly_fit`
+0.90 → 0.60) has a measured, deterministic cause.  Replaying the recorded
+connectivity gate of the baseline run against the new one:
+
+| run | penetrating pairs | max depth | connectivity gate | overall |
+|---|---|---|---|---|
+| `static_v2_flash` (baseline) | 4 | 3.5 mm | **passed** | 0.953 |
+| `complexity_e2e2` (this tree) | 8 | **9.0 mm** | **passed** | 0.658 |
+
+Detail doubled the number of interpenetrating part pairs and nearly tripled the
+depth — and **the gate reported both as warnings**, because `PENETRATION_ERROR_M`
+is an absolute 10 mm and 9 mm squeaks under it.  The judge was not fooled; the
+deterministic gate was.
+
+Interpenetration predicts the judge, across 160 recorded rounds that have both an
+`assembly_fit` score and a connectivity report:
+
+| max fraction of a part buried | n | mean `assembly_fit` |
+|---|---|---|
+| none | 74 | **0.709** |
+| 0.1 – 10 % | 19 | 0.647 |
+| 10 – 25 % | 31 | 0.542 |
+| 25 – 50 % | 26 | 0.573 |
+| > 50 % | 10 | 0.505 |
+
+`corr(max fraction inside, assembly_fit) = -0.243`, `corr(max depth, …) = -0.247`,
+`corr(number of penetrating pairs, …) = -0.258`.  Two things follow, and the second
+is a negative result worth recording:
+
+1. **Any** interpenetration costs roughly 0.06–0.20 of `assembly_fit`, and the gate
+   currently passes runs with up to **89 %** of a part buried inside another.  The
+   ERROR bar is too lax — the harness owns a signal that predicts the judge and
+   throws it away as a warning.
+2. Scaling the threshold by *fraction buried* instead of absolute depth sounded
+   better — 9 mm is 3.2 % of a 0.28 m toaster but nothing on a 2 m wardrobe — but the
+   corpus does **not** support it: fraction (-0.243) is no better a predictor than
+   depth (-0.247), and the plain count of penetrating pairs (-0.258) beats both.
+
+NOT CHANGED YET, deliberately.  Raising the bar makes the gate fail more runs, which
+changes how many repair rounds fire and what they cost, and that cannot be evaluated
+from recorded data — it needs an A/B on live runs.  The queued experiment is: current
+thresholds vs `error when a part is >25 % buried OR depth > 10 mm`, on
+`static_objects_v2`, reading out `assembly_fit`, overall score, rounds and $/run.
+Same discipline as the storm gate in `docs/COST.md` §21, which was built, measured and
+shipped **off** because it lost.
+
+## 7. Caveats
 
 * Object tracks only.  A shader or a scene has no `object.glb`; the report counts
   those runs as skipped rather than pretending they scored 0 complexity.
