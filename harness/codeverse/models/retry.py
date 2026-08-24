@@ -194,8 +194,10 @@ def rotate_with_retries(
                 # capacity storm: model-wide, so waiting (on a rotated key) is the
                 # only cure — paid from its own budget, not max_attempts
                 storm += 1
-                delay = min(storm_max_delay, base_delay * (2 ** min(storm, 8)))
-                delay *= 0.75 + 0.5 * random.random()
+                # jitter FIRST, cap LAST: capping before a >1 jitter factor let a
+                # "<=5 s" wait land at 6.25 s in the wild (observed 2026-08-24).
+                raw = base_delay * (2 ** min(storm, 8)) * (0.75 + 0.5 * random.random())
+                delay = min(storm_max_delay, raw)
                 if storm_gate is not None:
                     # tell every other worker as well: the next one to arrive parks at
                     # the gate instead of spending its own round-trip to find the storm

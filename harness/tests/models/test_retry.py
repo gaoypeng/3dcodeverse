@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import random
+
 import pytest
 
 from codeverse.models.retry import backoff_delay, with_retries
@@ -234,7 +236,34 @@ def test_503_storm_has_its_own_patience_budget():
         sleep=naps.append,
     )
     assert out == "ok" and calls["n"] == 9
-    assert len(naps) == 8 and all(d <= 0.05 * 1.25 for d in naps)
+    assert len(naps) == 8 and all(d <= 0.05 for d in naps)  # the cap is the cap
+
+
+def test_storm_waits_never_exceed_the_house_limit_at_production_defaults():
+    """Jitter must be applied BEFORE the cap.  Regression: the storm branch capped
+    first and then multiplied by up to 1.25, so a documented "<=5 s" wait was
+    observed at 6 s in a live bench run (2026-08-24)."""
+    from codeverse.models.base import ModelError
+    from codeverse.models.keypool import MAX_WAIT_S, KeyPool
+    from codeverse.models.retry import rotate_with_retries
+
+    naps: list[float] = []
+    for seed in range(50):  # exercise many jitter draws, not one lucky one
+        random.seed(seed)
+        pool = KeyPool(["k1", "k2"], rpm_per_key=10_000)
+        with pytest.raises(ModelError):
+            rotate_with_retries(
+                pool,
+                lambda key: (_ for _ in ()).throw(RuntimeError("503 high demand")),
+                classify=lambda e: ModelError(str(e), retryable=True, status=503),
+                outcome_of=lambda e: "5xx",
+                max_attempts=2,
+                storm_attempts=12,  # deep enough that the exponent saturates the cap
+                sleep=naps.append,
+            )
+    assert naps, "expected the storm path to sleep"
+    assert max(naps) <= MAX_WAIT_S, f"a storm wait exceeded {MAX_WAIT_S}s: {max(naps)}"
+    assert max(naps) > MAX_WAIT_S * 0.9, "the cap should still be reached, not just respected"
 
 
 def test_503_storm_budget_exhausts_then_normal_budget_applies():
