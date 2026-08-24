@@ -195,3 +195,37 @@ def test_doctor_rows_have_troubleshooting_entries() -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_architecture_package_map_covers_every_module():
+    """`docs/ARCHITECTURE.md` is the maintained map of the codebase — a module that
+    exists but is not on it is a hole in the map.
+
+    Hand-maintained docs drift silently: three parallel waves on 2026-08-24 added six
+    modules (brief, plan_budget, tokens, storm, health, _infra) and none reached the
+    map.  A whole package (`reference/`, 11 modules) had never been on it at all.
+
+    The doc's shorthand counts: an explicit name, a glob (`tools*.py`, `joints*.py`),
+    or the bare stem in prose all satisfy it.  `wrappers/` subtrees are covered by the
+    `wrappers/` entry, and private / dunder modules are exempt.
+    """
+    import fnmatch
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    arch = (root / "docs" / "ARCHITECTURE.md").read_text()
+    globs = set(re.findall(r"[A-Za-z_][\w*]*\.py", arch))
+
+    def documented(mod: Path) -> bool:
+        return (any(fnmatch.fnmatch(mod.name, g) for g in globs)
+                or re.search(rf"\b{re.escape(mod.stem)}\b", arch) is not None)
+
+    missing = sorted(
+        str(m.relative_to(root))
+        for m in (root / "codeverse").rglob("*.py")
+        if m.name != "__init__.py" and not m.name.startswith("_")
+        and "wrappers" not in m.parts and not documented(m)
+    )
+    assert not missing, (
+        "modules missing from the docs/ARCHITECTURE.md package map:\n  " + "\n  ".join(missing))

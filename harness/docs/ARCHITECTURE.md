@@ -81,16 +81,21 @@ codeverse/
   workspace.py        run-dir layout + git snapshots ;  events.py  JSONL event log
   proc.py             stdlib-only subprocess + atomic-JSON primitives (run_subprocess w/ group kill +
                       preexec_fn, kill_group, tail, write_json_atomic) — shared by languages/spatial/cli
-  models/             ChatModel; gemini.py (dead-key + free 429 rotation), gemini_image.py (ImageModel),
-                      anthropic.py openai.py, keypool.py ('dead' outcome), pricing.py (version-suffix-only
-                      fallback), retry.py, schema_utils.py (strict schema: no null-for-default), registry.py
+  models/             ChatModel; gemini_convert.py anthropic_convert.py openai_convert.py
+                      (request/response shapes per provider), parts.py; gemini.py (dead-key + free 429 rotation), gemini_image.py (ImageModel),
+                      anthropic.py openai.py, keypool.py ('dead' outcome + TPM reservation/reconcile),
+                      tokens.py (prompt-token estimate for the TPM bucket), pricing.py (version-suffix-only
+                      fallback), retry.py (MAX_WAIT_S: no single wait > 5 s), storm.py (shared 503 gate —
+                      measured, ships OFF, see docs/COST.md §21), health.py (preflight probe: is the model
+                      serving? no retries, no backoff), schema_utils.py (strict schema), registry.py
   agents/             CodingAgent; gemini_cli.py claude_code.py codex.py antigravity.py api_agent.py
                       (+ api_tools.py run_shell policy), materialize.py, cli_common.py (sessions, retry
                       trajectory naming, files_changed attribution), watchdog.py, transcript.py, registry.py
   languages/          LanguageRuntime; blender/ (multi-file: layout.py, model.py + parts/*.py) cadquery/
-                      threejs/ urdf/ scene_threejs/ glsl_shader/ (wrap.py header+line-map, gl_build.py)
+                      threejs/ (+ templates.py) urdf/ scene_threejs/ glsl_shader/ (wrap.py header+line-map, gl_build.py)
                       opengl_python/ (wrappers/run_gl.py) — each runtime.py, lint.py, skeleton.py, wrappers/
-  spatial/            node.py, render.py, render_scene.py (judge view subset, content-fitted orbit),
+  spatial/            node.py, render.py, tool_common.py (shared tool plumbing), cookbook_tool.py
+                      (read_cookbook), render_scene.py (judge view subset, content-fitted orbit),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
                       gl_render.py (GlHost), frame_stats.py (gl_frames),
                       sheet.py (montage_2x2, crop_region), turntable.py, measure.py, connectivity.py,
@@ -108,18 +113,32 @@ codeverse/
   judges/             rubrics.py + rubrics/*.yaml (defect checklists), vlm_judge.py, montage.py,
                       prompt_builder.py, output_schema.py, scoring.py, caps.py, images.py, pairwise.py
                       (compare_many), reference.py, calibration.py, metrics.py
+  reference/          reference GROUNDING — give the pipeline a picture of what it is building:
+                      synth.py (prompt → reference image(s)), gate.py (THE plausibility gate that makes a
+                      synthesized reference safe to use), attach.py (Spec attachment + honesty guards),
+                      proportions.py (does the picture agree with the brief?), mismatch.py (render-vs-
+                      reference IoU + a vision call that names the difference), spec_text.py, prompts.py,
+                      cache.py (content-addressed), run.py (the one call the CLI makes), types.py
   texturing/          plan.py (VLM material plan), generate.py (+ tile.py seam fix), uv.py (world-metre
-                      unwrap), apply.py, gate.py (seam + before/after judge), scene_pack.py, run.py (texture_pass)
+                      unwrap), apply.py, gate.py (seam + before/after judge), scene_pack.py, run.py (texture_pass),
+                      maps.py (PBR map set), materials.py (named material library), normalise.py
   orchestrator/       runner.py, state.py, rounds.py (RoundPolicy, compaction), candidates.py (best-of-N
                       + pairwise decisions), fanout.py, budget.py
   tracks/             base.py (get_track(track, **options)), lifecycle.py, steps.py, candidates.py,
                       generation.py, repair.py, planner.py, prompting.py (prompt helpers, split from common),
                       common.py (RunContext, Services), motion.py, reference.py, static_object.py,
-                      articulated_object.py, scene.py, scene_assets.py, graphics.py + graphics_steps.py
-  flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, trajectories.py (repair-pair
+                      articulated_object.py, scene.py, scene_assets.py, graphics.py + graphics_steps.py,
+                      brief.py (cached EngineeringBrief: one cheap call turns a one-line prompt into
+                      real dimensions / sub-assemblies / signature features; never fatal, CV3D_PLAN_BRIEF),
+                      plan_budget.py (plan size derived from the request, capped per language),
+                      plan_examples.py (worked plans shown to the planner), depth.py + detailing.py
+                      (per-part detail pass), envelope.py (bbox envelope), scene_asset_gen.py
+  flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, migrate.py (schema moves),
+                      deliverable.py, telemetry.py, trajectories.py (repair-pair
                       mining), captions.py, quality.py (tiers + dedupe), gallery.py (the shared
                       self-contained renderer bench/report.py reuses), dedupe.py, index.py
-  gallery/            THE local run gallery (`3dcv gallery serve|build`): index.py (run roots →
+  gallery/            THE local run gallery (`3dcv gallery serve|build`): cards.py, labels.py,
+                      compare.py (side-by-side arms), index.py (run roots →
                       typed RunEntry, tolerant of half-written records), model.py, page.py (cards +
                       table + filters + per-filter summary), detail.py (/run/<battery>/<slug>),
                       code.py (src browser), viewer.py (GLB orbit viewer on the vendored three.js),
@@ -128,8 +147,12 @@ codeverse/
   prompts/            system/*, <lang>/{contract,cookbook}.md (incl. glsl_shader/, opengl_python/),
                       texturing/*.md, tracks/*.j2 (incl. plan/generate/refine_graphics.j2)
   cli/                main.py, tools_cmd.py, flywheel_cmd.py, gallery_cmd.py, bench_cmd.py,
-                      texture_cmd.py, doctor.py
-bench/                run_bench.py, report.py (reuses flywheel gallery), compare_backends.py,
+                      texture_cmd.py, cost_cmd.py (`3dcv cost`), layout_cmd.py, doctor.py
+bench/                run_bench.py, report.py (reuses flywheel gallery), compare_backends.py
+                      (preflights every model it needs; --wait-for-provider / --no-preflight),
+                      _infra.py (outage vs model failure: infra_failed / budget_exhausted, docs/EVAL.md §7),
+                      _compare_report.py (arm table incl. the `dropped` / `over budget` loss columns),
+                      concurrency_probe.py (in-flight knee sweep), complexity_report.py,
                       prompts/{static_objects_v1 (24), articulated_v1 (12), scenes_v1 (12), compare_v1 (8)}.yaml
 runtime_js/           export_glb.mjs (placement policy, instance baking, selfcheck) render_glb.mjs
                       render_scene.mjs probe_scene.mjs check_shaders.mjs gpu_launch.cjs serve.cjs
