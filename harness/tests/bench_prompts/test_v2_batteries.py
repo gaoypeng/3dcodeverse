@@ -11,7 +11,8 @@ contracts directly in ``must_have``.  These tests pin those contracts:
 * articulated_v2: every prompt names >= 3 quantified motions for the
   pose-sweep judge;
 * scenes_v2: every scene states a luminance band and a camera brief;
-* compare_v2 prompts are drawn verbatim from static_objects_v2.
+* compare_v2 / compare_v3 prompts are drawn verbatim from static_objects_v2;
+  compare_v3 is a strict superset of compare_v2.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ V2_FILES = {
     "scenes_v2": PROMPTS / "scenes_v2.yaml",
     "graphics_v2": PROMPTS / "graphics_v2.yaml",
     "compare_v2": PROMPTS / "compare_v2.yaml",
+    "compare_v3": PROMPTS / "compare_v3.yaml",
 }
 
 EXPECTED_COUNTS = {
@@ -44,6 +46,7 @@ EXPECTED_COUNTS = {
     "scenes_v2": 10,
     "graphics_v2": 10,
     "compare_v2": 8,
+    "compare_v3": 12,
 }
 
 ID_RE = re.compile(r"^[a-z0-9]+(_[a-z0-9]+)+$")
@@ -90,7 +93,7 @@ def _load(name: str) -> Battery:
     return Battery.load(V2_FILES[name])
 
 
-@pytest.mark.parametrize("name", ["static_objects_v2", "compare_v2"])
+@pytest.mark.parametrize("name", ["static_objects_v2", "compare_v2", "compare_v3"])
 def test_static_prompts_have_dense_dimensioned_checklists(name: str):
     b = _load(name)
     with_dims = 0
@@ -155,12 +158,28 @@ def test_graphics_v2_opengl_prompts_carry_language_override():
         assert spec.language == want, f"{prompt.id}: spec language {spec.language} != {want}"
 
 
-def test_compare_v2_is_a_subset_of_static_v2():
+@pytest.mark.parametrize("name", ["compare_v2", "compare_v3"])
+def test_compare_is_a_subset_of_static_v2(name: str):
     static = {p.id.split("_", 1)[1]: p for p in _load("static_objects_v2").prompts}
-    for p in _load("compare_v2").prompts:
+    for p in _load(name).prompts:
         key = p.id.split("_", 1)[1]  # cmp_hard_violin -> hard_violin == prefix-stripped static key
         src = static.get(key)
         assert src is not None, f"{p.id}: no matching static_objects_v2 prompt"
         assert p.prompt == src.prompt, f"{p.id}: prompt text drifted from static_objects_v2"
         assert p.must_have == src.must_have, f"{p.id}: must_have drifted"
         assert p.dimensions_m == src.dimensions_m, f"{p.id}: dimensions drifted"
+
+
+def test_compare_v3_extends_compare_v2_verbatim():
+    """Recorded compare_v2 cells are reused on compare_v3 runs, so the shared 8 must
+    match exactly; the 4 extras widen category coverage (>=1 medium, >=3 hard)."""
+    v2 = {p.id: p for p in _load("compare_v2").prompts}
+    v3 = {p.id: p for p in _load("compare_v3").prompts}
+    assert set(v2) <= set(v3)
+    for pid, p in v2.items():
+        assert v3[pid].model_dump() == p.model_dump(), f"{pid}: drifted from compare_v2"
+    extra = [v3[pid] for pid in v3 if pid not in v2]
+    assert len(extra) == 4
+    assert sum(p.tier == "medium" for p in extra) >= 1
+    assert sum(p.tier == "hard" for p in extra) >= 3
+    assert not {p.category for p in extra} & {p.category for p in v2.values()}

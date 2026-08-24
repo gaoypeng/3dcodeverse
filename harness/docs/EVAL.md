@@ -43,6 +43,7 @@ fooling ourselves.  Tools: `3dcv bench`, `bench/compare_backends.py`,
 | `scenes_v1.yaml` | scene / scene_threejs | 12 | tiers |
 | `compare_v1.yaml` | static_object / blender | 8 | 2 easy / 3 medium / 3 hard; for harness-vs-one-shot |
 | `compare_v2.yaml` | static_object / blender | 8 | 2 medium controls / 6 hard (one per v2 difficulty axis); harness-vs-one-shot on hard prompts |
+| `compare_v3.yaml` | static_object / blender | 12 | compare_v2's 8 verbatim + 3 medium controls / 9 hard total (adds tools, vehicles, animals, props); codex-tier battery |
 
 Each prompt: `{id, tier, category, prompt, must_have[], dimensions_m?}`.  `must_have`
 becomes acceptance items (planner-appended in the loop, fixed-judge checklist in
@@ -112,6 +113,31 @@ saying so.  Run them sparingly.  `codex` arms always state their reasoning effor
 (`-c model_reasoning_effort=`, default `high` from `Settings.agents.codex_reasoning_effort`,
 per-arm override `codex:<model>@<effort>`) — the CLI's own default is *medium*, so an
 unstated effort silently changes what a codex arm measures.
+
+### Codex tiers — results (compare_v3, verified 2026-08-24)
+
+**Incomplete: `harness:codex:gpt-5.6-sol` has 2 evaluated cells, `harness:api-agent:gemini:gemini-3.7-flash` 2, `oneshot:gemini:gemini-3.7-flash` 7; harness terra / luna have none** — flash (the planner) answered on 0/6 keys and pro (the judge) intermittently for the whole window, so only the 8 compare_v2 prompts are covered and none of compare_v3's 4 new prompts has run.  Full table, per-prompt grid and re-pricing notes: `bench/out/codex_tiers_v3/report.md`.
+
+Fixed judge `gemini:gemini-3.1-pro-preview` for every cell; `infra_failed` / outage-text cells excluded (`dropped`), not scored 0; codex USD re-priced from recorded tokens with `codeverse.models.pricing` (terra/luna price rows post-date the runs, so `results.jsonl` shows 0.00 for terra).  All 44 codex invocations (24 one-shot argv, 20 harness trajectory argv) carry `--model gpt-5.6-<tier>` and `-c model_reasoning_effort=high`; the un-tiered `oneshot:codex` arm resolves to sol@high via `~/.codex/config.toml`.
+
+| arm | n | dropped | mean | median | pass | build ok | $gen/run real | $gen/run notional | $/pass |
+|---|---|---|---|---|---|---|---|---|---|
+| harness:codex:gpt-5.6-sol | 2 | 0 | 0.928 | 0.928 | 2/2 | 100% | 0.26 | 6.97 | 7.23 |
+| oneshot:codex (config = sol@high) | 8 | 0 | 0.637 | 0.600 | 1/8 | 100% | 0 | 0.33 | 2.60 |
+| oneshot:codex:gpt-5.6-sol | 8 | 0 | 0.627 | 0.600 | 1/8 | 100% | 0 | 0.34 | 2.74 |
+| harness:api-agent:gemini:gemini-3.7-flash | 2 | 0 | 0.600 | 0.600 | 0/2 | 100% | 0.64 | 0 | — |
+| oneshot:codex:gpt-5.6-terra | 8 | 0 | 0.481 | 0.551 | 2/8 | 88% | 0 | 0.14 | 0.55 |
+| oneshot:claude-code | 8 | 0 | 0.472 | 0.600 | 0/8 | 75% | 0 | 1.17 | — |
+| oneshot:codex:gpt-5.6-luna | 8 | 0 | 0.344 | 0.324 | 1/8 | 75% | 0 | 0.01 | 0.11 |
+| oneshot:gemini:gemini-3.7-flash | 7 | 1 | 0.146 | 0.000 | 0/7 | 57% | 0.04 | 0 | — |
+
+Judge adds ~$0.10–0.12 real per cell to every arm.  What can and cannot be said:
+
+* **Harness lift** (paired, same prompt): sol **+0.34 on n=2** (medium prompts only, both harness cells pass); flash **+0.60 on n=2** but against one-shot zeros and with the harness stopping at 0.60 on `budget`; terra/luna not measured.  Not a result at n=2.
+* **One-shot tier ranking**, n=8: sol 0.627 > terra 0.481 > luna 0.344, and it survives dropping each arm's best and worst prompt (0.609 > 0.491 > 0.302).  It does not hold on pass rate (terra 2/8 vs sol 1/8, luna 1/8).
+* **$ per passing artifact**: notional (subscription) luna 0.11 < terra 0.55 < sol 2.7 one-shot; harness sol 7.23 (0.26 real + 6.97 notional).  Real spend on the API arms bought no pass (flash harness $1.27, flash one-shot $0.30).  One or two passes per arm — prices of single artifacts, not rates.
+
+Pending: rerun the parked sol battery, then terra, then luna, then the claude-code / gemini one-shot baselines on the 4 new prompts (one process, `CV3D_MAX_IN_FLIGHT=16`, `--wait-for-provider 240`, `--redo-status infra_failed`).
 
 ## 5. Comparing backends inside the harness
 
