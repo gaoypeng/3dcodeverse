@@ -1088,3 +1088,37 @@ The real fix is a machine-wide limiter — a file-locked token bucket under
 `~/.cache/codeverse/` that every process shares — so the quota is enforced where it
 actually lives.  Not built here: it needs crash/staleness handling and its own A/B, and
 it should be measured against the operational rule above rather than assumed better.
+
+
+## 24. A preflight probe must look like the work it is guarding
+
+The §23 preflight passed `gemini-3.7-flash` and the battery immediately lost its first
+two cells — `infra_failed`, 15.1 and 15.3 min, $0.00 generated.  The gate was wrong in
+two independent ways, both now fixed, both worth stating because they generalise to any
+health check in front of a batch job.
+
+**1. The probe was five tokens; the work is twelve thousand.**  During this degradation
+a trivial prompt answered while the planner calls beside it were still 503-ing — the
+fidelity wave observed the same thing independently.  Re-measured at workload size
+(~10 k tokens), the same service that looked fine on tiny prompts is not:
+
+| model | trivial prompt | ~10 k-token prompt |
+|---|---|---|
+| `gemini-3.7-flash` | 4 / 4 | **4 / 6** |
+| `gemini-3.1-pro-preview` | 4 / 4 | **4 / 6** |
+
+`probe` now sends `PROBE_TOKENS = 8000` of filler and still asks for a one-word answer,
+so it costs input tokens — the thing under test — and about $0.003 per preflight.
+
+**2. The bar was 50 %, which for a pipeline means zero.**  A preflight guards a
+BATTERY, and one cell is dozens of model calls that must all land: at per-call success
+p a 20-call cell completes with p²⁰, so p = 0.5 is not "half healthy".  Retries soften
+it to roughly p ≥ 0.7 for a coin-flip chance at a cell, so `DEFAULT_MIN_OK` is now
+**0.75** over `DEFAULT_SAMPLE = 6`.  The asymmetry settles the tie: refusing wrongly
+costs one 2-minute re-probe, starting wrongly costs hours.  This one is a judgement
+call, not a measured optimum, and it is written here so it can be revisited with data.
+
+What did work, in production, on those two lost cells: they were recorded
+`infra_failed` with `score=None` rather than a hard 0.0 (§7 of `docs/EVAL.md`), and the
+retry deadline (§22) stopped each at ~15 min instead of the 56-87 min the same cells
+burned earlier the same morning.

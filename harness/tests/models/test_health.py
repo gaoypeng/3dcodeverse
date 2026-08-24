@@ -5,14 +5,31 @@ from __future__ import annotations
 from codeverse.models.health import DEFAULT_MIN_OK, Health
 
 
-def test_a_model_answering_on_most_keys_is_healthy():
-    assert Health("m", n_ok=3, n_tried=4).ok
-    assert Health("m", n_ok=2, n_tried=4).ok, f"the bar is {DEFAULT_MIN_OK:.0%} of sampled keys"
+def test_a_model_answering_almost_every_call_is_healthy():
+    assert Health("m", n_ok=6, n_tried=6).ok
+    assert Health("m", n_ok=3, n_tried=4).ok, f"the bar is {DEFAULT_MIN_OK:.0%} of sampled calls"
 
 
-def test_a_model_answering_on_almost_nothing_is_not():
+def test_a_half_working_model_is_NOT_healthy():
+    """The bar is not 50%.  A cell is dozens of calls that must all land, so p=0.5 per
+    call is not "half healthy" — it is a cell that never completes.  Measured
+    2026-08-24: the gate passed flash at 2/4 and the battery lost both its first cells
+    to the retry deadline at ~15 min each."""
+    assert not Health("m", n_ok=2, n_tried=4).ok
+    assert not Health("m", n_ok=4, n_tried=6).ok
     assert not Health("m", n_ok=1, n_tried=4).ok
     assert not Health("m", n_ok=0, n_tried=4).ok
+
+
+def test_the_probe_prompt_is_the_size_of_real_work():
+    """A five-token probe answers when a 12 k-token planner call does not — that false
+    green light is exactly what this gate must not give."""
+    from codeverse.models.health import PROBE_TOKENS, _probe_prompt
+
+    prompt = _probe_prompt()
+    approx_tokens = len(prompt) // 4
+    assert approx_tokens > 0.5 * PROBE_TOKENS, f"probe is only ~{approx_tokens} tokens"
+    assert "pong" in prompt, "the answer must still be one word, so the probe costs input not output"
 
 
 def test_no_keys_probed_is_not_reported_as_healthy():
