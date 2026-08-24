@@ -63,10 +63,16 @@ def check_blender() -> list[Row]:
 
 
 def check_node() -> list[Row]:
+    from codeverse.spatial.node import NODE_MIN_STR, node_version_error, parse_node_version
+
     s = get_settings()
     rows: list[Row] = []
     okk, v = _ver([s.binaries.node, "--version"])
-    rows.append(("node", "OK" if okk else "FAIL", v))
+    too_old = node_version_error(parse_node_version(v)) if okk else ""
+    if too_old:
+        rows.append(("node", "FAIL", f"{v} — too old, need >= {NODE_MIN_STR} (nvm install --lts)"))
+    else:
+        rows.append(("node", "OK" if okk else "FAIL", v if okk else f"{v} (need >= {NODE_MIN_STR})"))
     rj = s.runtime_js_dir()
     three = rj / "node_modules" / "three" / "package.json"
     pup = rj / "node_modules" / "puppeteer" / "package.json"

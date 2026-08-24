@@ -12,7 +12,8 @@ The 3dcodeverse project. Top-level layout:
   Install with `bash harness/scripts/setup.sh` (idempotent: python deps, the
   `runtime_js/` node deps, puppeteer's Chrome, then `3dcodeverse doctor`) —
   prerequisites, extras, keys, GPU notes and troubleshooting are in
-  `harness/docs/INSTALL.md`.
+  `harness/docs/INSTALL.md`.  Needs **python 3.10+** and **node 20.6+** on Linux
+  (developed on 3.13 / node 24; CI runs both ends — `harness/docs/INSTALL.md` §2.1).
 
 - **`finetune/`** — LLM finetuning recipes (LoRA / full-parameter SFT, execution-
   and geometry-feedback DPO via unpatched LLaMA-Factory) and the execution-based

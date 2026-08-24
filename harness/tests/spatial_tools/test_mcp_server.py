@@ -45,13 +45,18 @@ def test_cli_list(stool_ctx: ToolContext, capsys: pytest.CaptureFixture[str]) ->
     assert main(["--workspace", str(stool_ctx.workspace.root / "nope")]) == 2
 
 
-def test_stdio_roundtrip(stool_ctx: ToolContext) -> None:
+def test_stdio_roundtrip(stool_ctx: ToolContext, tmp_path: Path) -> None:
     from mcp import ClientSession
     from mcp.client.stdio import StdioServerParameters, stdio_client
 
+    # `errlog` is handed straight to loop.subprocess_exec, which needs a real
+    # fileno(); pytest's captured sys.stderr (stdio_client's default) has none
+    # from anyio 4.14 on.  A file also keeps the server's stderr readable here.
+    errlog = (tmp_path / "server.err").open("w")
+
     async def run():
         params = StdioServerParameters(command=sys.executable, args=["-m", "codeverse.spatial.mcp_server", "--workspace", str(stool_ctx.workspace.root)])
-        async with stdio_client(params) as (r, w), ClientSession(r, w) as s:
+        async with stdio_client(params, errlog=errlog) as (r, w), ClientSession(r, w) as s:
             await s.initialize()
             tools = await s.list_tools()
             by_name = {t.name: t for t in tools.tools}
@@ -68,4 +73,7 @@ def test_stdio_roundtrip(stool_ctx: ToolContext) -> None:
             unknown = await s.call_tool("nope", {})
             assert unknown.is_error
 
-    asyncio.run(asyncio.wait_for(run(), timeout=120))
+    try:
+        asyncio.run(asyncio.wait_for(run(), timeout=120))
+    finally:
+        errlog.close()

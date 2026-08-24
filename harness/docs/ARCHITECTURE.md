@@ -66,6 +66,8 @@ the flywheel unit.
 
 ```
 codeverse/
+  _compat.py          the ONLY stdlib shims for the python floor (StrEnum, UTC, tomllib — all 3.11+;
+                      floor is 3.10, see docs/INSTALL.md §2.1).  Its docstring says when each dies
   conventions.py      frames (LANGUAGE_FRAME, GLB_FRAME), units, OBJECT_VIEWS/_QUICK, SCENE_VIEWS,
                       to_snake/to_pascal/slugify, MAX_TRIS_*, BBOX_TOLERANCE_M, CONTACT_GAP_M  (THE source)
   config.py           Settings (CV3D_* env, ~/.config/codeverse/config.yaml; role defaults come from
@@ -112,10 +114,18 @@ codeverse/
                       common.py (RunContext, Services), motion.py, reference.py, static_object.py,
                       articulated_object.py, scene.py, scene_assets.py, graphics.py + graphics_steps.py
   flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, trajectories.py (repair-pair
-                      mining), captions.py, quality.py (tiers + dedupe), gallery.py, dedupe.py, index.py
+                      mining), captions.py, quality.py (tiers + dedupe), gallery.py (the shared
+                      self-contained renderer bench/report.py reuses), dedupe.py, index.py
+  gallery/            THE local run gallery (`3dcv gallery serve|build`): index.py (run roots →
+                      typed RunEntry, tolerant of half-written records), model.py, page.py (cards +
+                      table + filters + per-filter summary), detail.py (/run/<battery>/<slug>),
+                      code.py (src browser), viewer.py (GLB orbit viewer on the vendored three.js),
+                      paths.py (traversal guard), urls.py (server vs file:// targets + content types),
+                      server.py (stdlib http.server, loopback-only), static_site.py, theme.py, scripts.py
   prompts/            system/*, <lang>/{contract,cookbook}.md (incl. glsl_shader/, opengl_python/),
                       texturing/*.md, tracks/*.j2 (incl. plan/generate/refine_graphics.j2)
-  cli/                main.py, tools_cmd.py, flywheel_cmd.py, bench_cmd.py, texture_cmd.py, doctor.py
+  cli/                main.py, tools_cmd.py, flywheel_cmd.py, gallery_cmd.py, bench_cmd.py,
+                      texture_cmd.py, doctor.py
 bench/                run_bench.py, report.py (reuses flywheel gallery), compare_backends.py,
                       prompts/{static_objects_v1 (24), articulated_v1 (12), scenes_v1 (12), compare_v1 (8)}.yaml
 runtime_js/           export_glb.mjs (placement policy, instance baking, selfcheck) render_glb.mjs
@@ -337,3 +347,13 @@ repair pairs and **in-session repair pairs mined from api-agent transcripts**
 {detailed, instruction, factory} captions (image-grounded, brand-free, `--out` for
 side-car mode); `flywheel gallery` renders a self-contained HTML gallery (tier
 badges, thumbnails, filter/sort) that `bench/report.py` reuses.
+
+`codeverse/gallery/` is the **local** answer to the same question: `3dcv gallery
+serve` indexes `runs/` + every `bench/out/*/runs`, serves the page **and the run
+directories** on 127.0.0.1 (so every link opens: sheet, renders, `src/`, `object.glb`
+in an orbit viewer built on the vendored three.js, `record.json`), and re-reads a
+run's record per request so a battery that is still writing shows up live.  A run
+with no record yet is a *pending* card, a half-written one a *broken* card.  Two
+gates keep it safe: a URL can only name a `(battery, slug)` the scanner found under
+a declared root, and `paths.safe_join` refuses anything that escapes that run
+directory.  `3dcv gallery build [--embed]` writes the same page as one file.

@@ -7,8 +7,21 @@ name = "3dcodeverse"
 version = "0.1.0"
 description = "3dcodeverse: a data-flywheel harness for LLM-written 3D code (Blender / CadQuery / Three.js / URDF / GLSL) across static objects, articulated objects and scenes."
 readme = "README.md"
-requires-python = ">=3.11"
+# Floor = 3.10 (the oldest interpreter the whole dependency set still resolves on and the
+# offline suite is green on); developed and measured on 3.13.  CI runs both ends.
+# Nothing in the package uses a 3.11+ stdlib name directly — the three that were used
+# (StrEnum, datetime.UTC, tomllib) live behind codeverse/_compat.py.
+requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+]
 dependencies = [
   "pydantic>=2.7",
   "pydantic-settings>=2.3",
@@ -25,6 +38,7 @@ dependencies = [
   "anthropic>=0.40",
   "openai>=1.40",
   "playwright>=1.45",
+  'tomli>=2.0; python_version < "3.11"',   # stdlib `tomllib` backport — see codeverse/_compat.py
 ]
 
 [project.optional-dependencies]
@@ -50,7 +64,7 @@ codeverse = ["prompts/**/*", "judges/rubrics/*.yaml", "languages/**/wrappers/*",
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py310"   # == requires-python floor: no 3.11+ idiom may slip in
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]

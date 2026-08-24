@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "description": "Harness-owned node runtime for 3dcodeverse: GLB export, headless GPU rendering, scene probes, shader preflight. Agent code never imports from here; it only imports 'three'.",
   "type": "module",
+  "engines": {
+    "node": ">=20.6.0"
+  },
   "dependencies": {
     "three": "^0.182.0",
     "puppeteer": "^24.43.1",

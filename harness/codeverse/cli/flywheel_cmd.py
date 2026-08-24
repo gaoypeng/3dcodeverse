@@ -162,9 +162,11 @@ def gallery_cmd(
     out_html: Annotated[Path, typer.Argument(help="output .html (self-contained)")],
     title: Annotated[str | None, typer.Option("--title")] = None,
     thumb_px: Annotated[int, typer.Option("--thumb-px", min=128, help="thumbnail long edge")] = 640,
+    embed: Annotated[bool, typer.Option("--embed/--no-embed", help="inline the contact sheets as data: URIs")] = True,
 ) -> None:
-    """One self-contained HTML page: best sheet, score, cost, prompt, links per run."""
-    from codeverse.flywheel.gallery import write_gallery
+    """Alias of `3dcv gallery build` (kept for scripts): one self-contained HTML page."""
+    from codeverse.gallery.static_site import build_static
 
-    path, n = write_gallery(runs_dir, out_html, title=title, thumb_px=thumb_px)
+    path, n, _ = build_static([runs_dir], out_html, title=title, embed=embed, thumb_px=thumb_px)
     ok(f"gallery of {n} runs → {path} ({path.stat().st_size // 1024} KB)")
+    console.print("[dim]`3dcv gallery serve` serves the same page with working links[/dim]")

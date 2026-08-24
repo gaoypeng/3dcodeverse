@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import struct
 import zlib
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+from codeverse._compat import UTC
 from codeverse.contracts.artifacts import (
     BuildResult,
     GateFinding,

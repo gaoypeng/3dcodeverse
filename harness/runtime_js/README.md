@@ -11,8 +11,20 @@ never imports from this directory**; it only imports `three` (and
 
 This directory is an ordinary npm package owned by the harness: `package.json`
 and `package-lock.json` are committed, `node_modules/` is **not** (gitignored,
-~97 MB, 100 packages).  Node itself is a system prerequisite (>= 20; v24.14.0
-here) — installing it is separate from what `npm ci` does here.
+~97 MB, 100 packages).  Node itself is a system prerequisite — installing it is
+separate from what `npm ci` does here.
+
+**Node floor: 20.6.0** (`package.json` `engines.node`; developed on v24.14.0).
+20.6.0 is where `node --import` lands, which `lib/resolve_three.mjs` needs; the
+npm dependencies themselves bottom out at node 18, and `node:util.parseArgs`
+(the CLI helpers) at 18.3.  Between 20.6 and 22.15 the resolver registers the
+older *async* loader hooks (`lib/resolve_three_async.mjs`, a separate loader
+thread) instead of the in-thread `module.registerHooks`; the resolutions are
+identical.  The python side refuses to spawn an older node with an actionable
+message (`codeverse.spatial.node.NODE_MIN`, mirrored by `3dcv doctor`'s `node`
+row), and `tests/core/test_portability.py` pins the two declarations together.
+The floor is exercised, not assumed: the 93 `node`-marked tests all pass on node
+20.19.5 (`CV3D_BINARIES__NODE=/path/to/node20 pytest tests -m "node and not live and not blender"`).
 
 ```bash
 cd harness/runtime_js
@@ -58,7 +70,9 @@ render_glb.mjs        --glb --out --views '[{name,azimuth,elevation}]' [--mode s
                       args/JSON protocol from lib/cli.mjs, browser + server from lib/host_env.mjs,
                       browser release from lib/host_page.mjs, everything visual from lib/browser/
 lib/resolve_three.mjs node --import hook: bare 'three' / 'three/addons/*' (and three-mesh-bvh) resolve
-                      from runtime_js/node_modules for modules anywhere on disk (NODE_PATH is CJS-only)
+                      from runtime_js/node_modules for modules anywhere on disk (NODE_PATH is CJS-only);
+                      module.registerHooks on node >= 22.15, module.register + lib/resolve_three_async.mjs
+                      on the 20.6 floor.  Redirect rule stated once in lib/three_redirect.mjs
 lib/node_polyfills.mjs FileReader/Blob/self shims so GLTFExporter writes binary GLB without a DOM
 lib/census.mjs        per-part tri counts, world bboxes, materials, NaN check naming mesh + part (node + browser)
 lib/instances.mjs     bakeInstancedMeshes(THREE, root): InstancedMesh → Group of named plain meshes

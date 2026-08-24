@@ -13,8 +13,11 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import resource
+import subprocess
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +25,18 @@ from codeverse.config import get_settings
 from codeverse.proc import run_subprocess
 
 TAIL_CHARS = 4000
+
+#: Oldest node the harness runs on — the single source of truth for the floor.
+#: 20.6.0 is what ``node --import`` needs (``run_node(three_hook=True)``, the only
+#: way agent code outside runtime_js can ``import 'three'``); everything else the
+#: harness and ``runtime_js`` use is older (``node:util.parseArgs`` 18.3), and the
+#: npm dependencies bottom out at node 18.  ``runtime_js/package.json``'s
+#: ``engines.node`` restates this for npm and is pinned to it by
+#: ``tests/core/test_portability.py``.
+NODE_MIN: tuple[int, int, int] = (20, 6, 0)
+NODE_MIN_STR = ".".join(str(n) for n in NODE_MIN)
+
+_VERSION_RE = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
 
 
 class NodeError(RuntimeError):
@@ -95,6 +110,48 @@ def _limit_memory(limit_gb: float | None):
     return _pre
 
 
+def parse_node_version(text: str) -> tuple[int, int, int] | None:
+    """``"v20.6.1\\n"`` -> ``(20, 6, 1)``; None when the output is not a version."""
+    m = _VERSION_RE.search(text.strip())
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+
+
+@lru_cache(maxsize=8)
+def node_version(node_bin: str) -> tuple[int, int, int] | None:
+    """``node --version`` for ``node_bin``, or None when it cannot be asked.
+
+    Cached per binary: this runs at most once per interpreter per node path.
+    """
+    try:
+        proc = subprocess.run([node_bin, "--version"], capture_output=True, text=True,
+                              timeout=20, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return parse_node_version(proc.stdout or proc.stderr) if proc.returncode == 0 else None
+
+
+def node_version_error(version: tuple[int, int, int] | None) -> str:
+    """The actionable message for a too-old ``version``, or ``""`` when it is fine.
+
+    Unknown versions pass: a node we could not interrogate fails later with its
+    own error, and guessing here would break more than it protects.
+    """
+    if version is None or version >= NODE_MIN:
+        return ""
+    got = ".".join(str(n) for n in version)
+    return (f"node {got} is too old: 3dcodeverse needs node >= {NODE_MIN_STR} "
+            f"(`--import` module hooks; see runtime_js/package.json \"engines\").  "
+            f"Install a newer one (`nvm install --lts`, or https://nodejs.org) and put it on PATH, "
+            f"or point the harness at it with CV3D_BINARIES__NODE=/path/to/node.")
+
+
+def require_node_version(node_bin: str) -> None:
+    """Raise :class:`NodeError` when ``node_bin`` is older than :data:`NODE_MIN`."""
+    msg = node_version_error(node_version(node_bin))
+    if msg:
+        raise NodeError(msg)
+
+
 def run_node(
     script: Path | str,
     args: list[str] | None = None,
@@ -118,6 +175,7 @@ def run_node(
     """
     settings = get_settings()
     node_bin = settings.binaries.node
+    require_node_version(node_bin)
     script = Path(script)
     if not script.is_file():
         raise NodeError(f"node script not found: {script}")

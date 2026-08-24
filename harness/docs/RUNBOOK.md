@@ -111,6 +111,34 @@ artifacts in `artifacts/` (`object.glb`, `robot.urdf` + `meshes/`, scene
 `3dcv status <slug>` prints the rounds table (best round starred), cost and the last
 events.
 
+### Looking at results locally
+
+```bash
+3dcv gallery serve                       # ./runs + every ./bench/out/*/runs → http://127.0.0.1:8765/
+3dcv gallery serve bench/out/static_v2_flash/runs --port 9000 --reload --no-open
+3dcv gallery build --out gallery.html [--embed]      # one self-contained file (--embed inlines the sheets)
+3dcv flywheel gallery runs/ gallery.html             # alias of `gallery build --embed` (old signature)
+```
+`serve` indexes the run roots (records only — ~85 runs in ~0.15 s) and serves the run
+**directories** too, so every link works: contact sheet, full-size renders, `record.json`,
+`plan.json`/`spec.json`, the `src/` tree (browsable, line-numbered, `raw` = text/plain),
+`object.glb` (orbit viewer on the vendored three.js — no network), articulation sheets,
+`preview.gif`, frames, textures.  The page has a live summary strip (n, pass rate,
+mean/median score, total $, $ per passing artifact, wall clock — **recomputed per filter**),
+filters (track / language / tier / backend / verdict / battery + text search over
+prompt+slug) and sort (score / cost / time / name) that never reload, a card ⇄ table
+toggle, light/dark, and a detail page per run (`/run/<battery>/<slug>`) with every round,
+the best round's judge verdict + issues + improvement plan, the measurement table, the
+full render set, the cost breakdown and the code.
+
+Filters live in the query string, so a view can be curled or bookmarked:
+`curl -s 'http://127.0.0.1:8765/?track=graphics&tier=A&sort=cost'`, and
+`/api/runs?...` / `/api/summary?...` return the same selection as JSON.
+`--reload` re-scans on every page load, which is what you want while a bench is writing:
+a run with no `record.json` yet shows as a *pending* card and a half-written one as
+*broken*, never as a crash.  The server binds `127.0.0.1` and refuses any other address
+unless you type `--host` yourself; it never serves a path outside the declared roots.
+
 ## 5. Resume, re-render, re-judge, texture, export
 
 ```bash
@@ -125,7 +153,7 @@ events.
                                      [--captions-dir caps/] [--drop-duplicates]
 3dcv flywheel pairs runs/ pairs.jsonl [--min-delta 0.05] [--no-trajectories]
 3dcv flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
-3dcv flywheel gallery runs/ gallery.html [--title …]        # self-contained HTML gallery (tiers, thumbs)
+3dcv flywheel gallery runs/ gallery.html [--title …]        # alias of `3dcv gallery build --embed` (§4)
 3dcv flywheel index runs/ runs_index.sqlite · 3dcv flywheel dedupe dataset/
 python -m codeverse.judges.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)

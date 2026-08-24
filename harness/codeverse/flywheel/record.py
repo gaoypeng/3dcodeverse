@@ -16,12 +16,13 @@ import logging
 import platform
 import subprocess
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from codeverse import __version__
+from codeverse._compat import UTC
 from codeverse.config import get_settings
 from codeverse.contracts.common import Usage
 from codeverse.contracts.run import RoundRecord, RunRecord

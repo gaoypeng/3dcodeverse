@@ -22,6 +22,7 @@ from codeverse.cli.bench_cmd import bench_app
 from codeverse.cli.cost_cmd import cost_app
 from codeverse.cli.doctor import doctor_app
 from codeverse.cli.flywheel_cmd import flywheel_app
+from codeverse.cli.gallery_cmd import gallery_app
 from codeverse.cli.texture_cmd import texture_app
 from codeverse.cli.tools_cmd import tools
 from codeverse.config import get_settings
@@ -31,6 +32,7 @@ from codeverse.contracts.spec import Constraints, ReferenceImage, RunOptions, Sp
 app = typer.Typer(name="3dcv", help="3dcodeverse: LLMs write raw 3D code; the harness builds, judges, refines, records.",
                   pretty_exceptions_enable=False)
 app.add_typer(flywheel_app, name="flywheel", help="Dataset export / pairs / captions / index.")
+app.add_typer(gallery_app, name="gallery", help="Look at runs locally: `serve` on localhost, `build` one shareable HTML file.")
 app.add_typer(bench_app, name="bench", help="Prompt batteries: run + report.")
 app.add_typer(cost_app, name="cost", help="Cost audit: per stage/role/model, waste, $ per passing artifact.")
 app.add_typer(doctor_app, name="doctor", help="Environment checks.")
@@ -240,7 +242,9 @@ def _print_candidates(ws) -> None:
 
 
 def _event_time(ev: dict) -> str:
-    from datetime import UTC, datetime
+    from datetime import datetime
+
+    from codeverse._compat import UTC
 
     try:
         return datetime.fromtimestamp(float(ev["t"]), UTC).strftime("%H:%M:%S")

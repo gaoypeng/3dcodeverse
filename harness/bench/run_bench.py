@@ -25,13 +25,14 @@ import time
 import traceback
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
 
+from codeverse._compat import UTC
 from codeverse.config import get_settings
 from codeverse.contracts.common import Backends, Budget, Language, Track
 from codeverse.contracts.run import RunRecord

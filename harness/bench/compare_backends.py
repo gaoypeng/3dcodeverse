@@ -39,11 +39,13 @@ import time
 import traceback
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+from codeverse._compat import UTC
 
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:  # `python bench/compare_backends.py` from anywhere

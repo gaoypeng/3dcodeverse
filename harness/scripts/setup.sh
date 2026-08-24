@@ -3,15 +3,18 @@
 #
 #   bash harness/scripts/setup.sh [options]
 #
-# Does, in order: version checks (python >= 3.11, node >= 20) -> `pip install -e
+# Does, in order: version checks (python >= 3.10, node >= 20.6) -> `pip install -e
 # harness[<extras>]` -> `npm ci` in runtime_js *only when the lockfile moved* ->
 # puppeteer chrome download (no-op when cached) -> `3dcodeverse doctor`.
 # Re-running is safe: every step is a no-op when it is already satisfied.
 # Full guide: docs/INSTALL.md
 set -euo pipefail
 
-MIN_PY_MINOR=11      # python 3.11+
-MIN_NODE_MAJOR=20    # node 20+
+# The supported floor (docs/INSTALL.md §2.1).  Pinned to pyproject's requires-python
+# and to codeverse/spatial/node.py NODE_MIN by tests/core/test_portability.py.
+MIN_PY_MINOR=10      # python 3.10+
+MIN_NODE_MAJOR=20    # node 20.6+ (`node --import` module hooks)
+MIN_NODE_MINOR=6
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS="$(cd "$HERE/.." && pwd)"
@@ -68,7 +71,7 @@ die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 # --------------------------------------------------------------- prerequisites
 step "prerequisites"
 
-command -v "$PY" >/dev/null 2>&1 || die "python interpreter not found: $PY (install python 3.11+ or pass --python)"
+command -v "$PY" >/dev/null 2>&1 || die "python interpreter not found: $PY (install python 3.$MIN_PY_MINOR+ or pass --python)"
 PY_VER="$("$PY" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])')"
 "$PY" -c "import sys; sys.exit(0 if sys.version_info[:2] >= (3, $MIN_PY_MINOR) else 1)" \
   || die "python 3.$MIN_PY_MINOR+ required, found $PY_VER ($PY)"
@@ -80,10 +83,12 @@ info "git      $(git --version | awk '{print $3}')"
 NODE_OK=1
 if command -v node >/dev/null 2>&1; then
   NODE_VER="$(node --version)"            # vNN.NN.NN
-  NODE_MAJOR="${NODE_VER#v}"; NODE_MAJOR="${NODE_MAJOR%%.*}"
-  if [ "$NODE_MAJOR" -lt "$MIN_NODE_MAJOR" ]; then
+  NODE_NUM="${NODE_VER#v}"
+  NODE_MAJOR="${NODE_NUM%%.*}"; NODE_REST="${NODE_NUM#*.}"; NODE_MINOR="${NODE_REST%%.*}"
+  if [ "$NODE_MAJOR" -lt "$MIN_NODE_MAJOR" ] \
+     || { [ "$NODE_MAJOR" -eq "$MIN_NODE_MAJOR" ] && [ "$NODE_MINOR" -lt "$MIN_NODE_MINOR" ]; }; then
     NODE_OK=0
-    info "node     $NODE_VER  (need >= $MIN_NODE_MAJOR — three.js / scene / GLB tracks will not run)"
+    info "node     $NODE_VER  (need >= $MIN_NODE_MAJOR.$MIN_NODE_MINOR — three.js / scene / GLB tracks will not run)"
   else
     info "node     $NODE_VER"
   fi

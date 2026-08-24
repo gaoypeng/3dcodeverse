@@ -25,6 +25,15 @@ renders, judges, refines, textures and records every run as data-flywheel materi
 * **Flywheel:** git-versioned `src/` per round, `record.json`, sample export with
   quality tiers + dedupe (+ parquet, tar locators), preference/repair/trajectory
   pairs, captions, sqlite index, HTML gallery.
+* **Looking at results:** `3dcv gallery serve` — a local page over `runs/` +
+  `bench/out/*/runs` with filters, a per-filter summary strip and a detail page per run;
+  it serves the run directories too, so every link (sheet, renders, `src/`, `object.glb`
+  in an orbit viewer, `record.json`) actually opens.  `3dcv gallery build --embed` writes
+  the same page as one shareable file.
+
+**Supported versions:** python **3.10+** and node **20.6+** (Linux x86_64; Blender
+4.2+ optional).  Developed and measured on python 3.13 / node 24 — CI runs both
+ends of that range.  See `docs/INSTALL.md` §2.1.
 
 ```bash
 bash scripts/setup.sh     # install everything + run doctor (idempotent; see docs/INSTALL.md)
@@ -36,6 +45,7 @@ pip install -e '.[all,dev]'    # entry points: 3dcodeverse, 3dcv
 3dcv make "a kitchen cabinet with one door and a drawer" --track articulated_object --language urdf_blender
 3dcv make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs
 3dcv make "neon cyberpunk rain on a window" --track graphics --language glsl_shader
+3dcv gallery serve             # browse every run at http://127.0.0.1:8765/ (docs/RUNBOOK.md §4)
 python -m pytest tests -q -m "not live"
 ```
 

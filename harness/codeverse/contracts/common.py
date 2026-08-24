@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from codeverse._compat import StrEnum
 
 Vec3 = Annotated[tuple[float, float, float], Field(description="x, y, z")]
 

@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from codeverse._compat import UTC
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse.contracts.common import ENTRY_FILE, Language, Track
 from codeverse.contracts.run import RunRecord

@@ -27,17 +27,27 @@ calibration) before changing anything.
 7. No wrapper re-centres or grounds the object: export **as authored**, warn in the
    build, let `check_contract`/`check_connectivity` gate it.
 
+## Supported versions (what other people can run this on)
+python **3.10+** · node **20.6+** · Blender 4.2+ · Linux x86_64.  Developed and
+measured on 3.13 / node 24; CI runs both ends of the python range.  The floor is
+load-bearing, not decorative: `pyproject` `requires-python` + ruff `target-version`,
+`codeverse/_compat.py` (the only place allowed to name `StrEnum` / `datetime.UTC` /
+`tomllib`), `spatial/node.py:NODE_MIN` + `runtime_js/package.json` `engines`, all
+pinned together by `tests/core/test_portability.py`.  Do not use a 3.11+ stdlib name
+or PEP 695 syntax — that test and the 3.10 CI job will fail.  Details: `docs/INSTALL.md` §2.1.
+
 ## Environment (this machine)
 - Gemini keys: `~/.config/astra3d/gemini_keys.env` (22 keys) → `get_settings().gemini_api_keys`
   (or `GEMINI_API_KEYS` / `GEMINI_API_KEY` env).  Settings: `~/.config/codeverse/config.yaml`
   or `./codeverse.yaml`, env prefix `CV3D_` (`CV3D_RENDER__GPU=off`, `CV3D_RUNS_DIR=…`,
   `CV3D_DEFAULT_CANDIDATES=2`).
 - Blender 5.0.1 headless: `~/.local/bin/blender-5.0` (always `--factory-startup`; clear scene).
-- Node 24 + `runtime_js/node_modules` (three@0.182, puppeteer; chrome cached).  Headless
+- Node 24 (floor 20.6) + `runtime_js/node_modules` (three@0.182, puppeteer; chrome cached).  Headless
   Chrome WebGL uses the GPU on WSL2 with `--use-angle=gl-egl` + Mesa d3d12 env (see
   `runtime_js/gpu_launch.cjs`; `CV3D_RENDER_GPU=on|off|auto`); SwiftShader fallback.
   Bare ESM `import 'three'` needs `--import runtime_js/lib/resolve_three.mjs`
-  (`spatial.node.run_node(three_hook=True)`) — `NODE_PATH` alone does not work.
+  (`spatial.node.run_node(three_hook=True)`) — `NODE_PATH` alone does not work;
+  that hook is `module.registerHooks` on node ≥ 22.15, `module.register` below.
   The `graphics` track renders with moderngl (d3d12 GPU context, llvmpipe fallback).
 - CLIs: `gemini` 0.53 (api-key auth + `dynamicModelConfiguration` + `folderTrust.enabled=false`
   via the system settings file the harness writes — else it silently substitutes models /
@@ -70,6 +80,7 @@ cd /home/yipeng/3dcodeverse/harness
 3dcv cost prices [--stale] · 3dcv cost profiles · 3dcv cost estimate gemini:gemini-3.1-pro-preview --in 12000
 3dcv flywheel export runs/ dataset/ [--pack --drop-duplicates --captions-dir d/] · 3dcv flywheel pairs runs/ pairs.jsonl
 3dcv flywheel caption <slug> [--out dir] · 3dcv flywheel gallery runs/ gallery.html
+3dcv gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcv gallery build --out gallery.html [--embed]
 3dcv bench run bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview
 python -m codeverse.judges.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:api-agent:gemini:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1

@@ -20,12 +20,21 @@ jobs:
         working-directory: harness
 
   tests:
+    # THE TWO ENDS OF THE SUPPORTED RANGE: 3.10 is the floor in pyproject's
+    # requires-python (and ruff's target-version), 3.13 is what the harness is
+    # developed and measured on.  Anything in between is covered by both ends
+    # agreeing; anything outside is not supported.  The floor job is the one that
+    # catches a 3.11+ stdlib name or a PEP 695 annotation sneaking in (see
+    # codeverse/_compat.py and tests/core/test_portability.py).
+    # Node is not installed on the runner, so the node floor (20.6.0, see
+    # runtime_js/package.json "engines") is only checked by the version logic in
+    # tests/core/test_portability.py — the `node`-marked tests are deselected below.
     name: offline tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.13"]
+        python-version: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,7 +45,8 @@ jobs:
         run: pip install -e ./harness[dev]
       # The suite is marked: `live` needs API keys, `blender` needs a Blender
       # binary, `node` needs runtime_js/node_modules — none exist on a runner,
-      # so CI runs the pure-python subset (locally: 1159 tests, here ~900).
+      # so CI runs the pure-python subset (1809 on 3.10 / 1810 on 3.13 locally;
+      # the whole offline suite is 2413 / 2414).
       - name: pytest (pure python subset)
         run: python -m pytest tests/core tests/models tests/judges tests/orchestrator_tracks tests/flywheel_cli tests/bench_prompts tests/cost -q -m "not live and not blender and not node"
         working-directory: harness

@@ -8,7 +8,8 @@ to the harness root `/home/yipeng/3dcodeverse/harness` unless absolute.
 Once installed, read `docs/RUNBOOK.md` (how to run), `docs/ARCHITECTURE.md`
 (what a run does) and `CLAUDE.md` (working rules).
 
-1. [TL;DR](#1-tldr) · 2. [Prerequisites](#2-prerequisites) ·
+1. [TL;DR](#1-tldr) · 2. [Prerequisites](#2-prerequisites)
+(incl. [supported versions](#21-supported-versions)) ·
 3. [Get the code](#3-get-the-code) · 4. [Python package + extras](#4-python-package--extras) ·
 5. [runtime_js — the node side](#5-runtime_js--the-node-side) · 6. [Blender](#6-blender) ·
 7. [GPU / headless rendering](#7-gpu--headless-rendering) ·
@@ -50,15 +51,41 @@ cd harness/runtime_js && npm ci && npx puppeteer browsers install chrome && cd .
 
 ## 2. Prerequisites
 
+### 2.1 Supported versions
+
+The harness is **developed and measured on python 3.13 / node 24**, and
+**supported down to python 3.10 / node 20.6** — both ends are installed from
+scratch and run in CI on every push (`.github/workflows/ci.yml`), so the floor is
+a tested claim, not an aspiration.
+
+| component | floor | developed on | how the floor is enforced | what you lose at the floor |
+|---|---|---|---|---|
+| **python** | **3.10** | 3.13 | `requires-python = ">=3.10"` (pip refuses 3.9); ruff `target-version = "py310"`; CI matrix 3.10 + 3.13; `tests/core/test_portability.py` parses every module with `ast.parse(feature_version=(3, 10))` and bans direct imports of 3.11-only stdlib names | nothing — the offline suite is green on both (2413 passed / 1 skipped on 3.10 vs 2414 passed on 3.13; the one skip is the `enum.StrEnum` parity check, which needs 3.11 to have something to compare against). Resolved deps are a little older (numpy 2.2 vs 2.4, scipy 1.15 vs 1.18, networkx 3.4 vs 3.6, cadquery 2.7 vs 2.8) and pip additionally installs `tomli` |
+| **node** | **20.6.0** | 24 (LTS) | `runtime_js/package.json` `engines.node`; `codeverse.spatial.node.NODE_MIN` fails every node workload with an actionable message; `3dcv doctor`'s `node` row; `scripts/setup.sh` | nothing. 20.6.0 is where `node --import` lands, which the `three` resolver hook needs; below 22.15 it registers the older async loader hooks (`lib/resolve_three_async.mjs`) instead of the in-thread ones — same resolutions, a few ms slower at startup.  Verified: all 93 `node`-marked tests (GLB export, headless-Chrome renders, scene probes, shader preflight) pass on node 20.19.5 |
+| **Blender** | 4.2 | 5.0.1 | runtime probe only (`Settings.resolve_blender()`) | untested below 4.2; the `blender` / `urdf_blender` languages are the only users |
+| **OS** | Linux x86_64 | WSL2 Ubuntu | — | macOS should work (pure-python + node + Blender; no code is Linux-specific except `resource.setrlimit` guards) but is **not** tested. Windows is not supported: use WSL2 |
+
+Python 3.11 and 3.12 are in the middle of a range whose two ends CI proves, and
+are not run separately.  The three 3.11 stdlib names the harness wants —
+`enum.StrEnum`, `datetime.UTC`, `tomllib` — live behind `codeverse/_compat.py`,
+whose docstring says exactly when each shim can be deleted (when the floor
+reaches 3.11).  Nothing else in the package is newer than 3.10.
+
+Raising the floor later is a four-line change: `requires-python`, ruff's
+`target-version`, `PY_FLOOR` in `tests/core/test_portability.py`, `MIN_PY_MINOR`
+in `scripts/setup.sh` — the test will then tell you which shims to delete.
+
+### 2.2 What you need installed
+
 | what | required? | verified here | how it degrades without it |
 |---|---|---|---|
-| **Python 3.11+** | yes | 3.13.9 (`/home/yipeng/miniconda3/bin/python`) | nothing runs; `requires-python = ">=3.11"` |
+| **Python 3.10+** | yes | 3.13.9 (`/home/yipeng/miniconda3/bin/python`) | nothing runs; `requires-python = ">=3.10"` (§2.1) |
 | **git** | yes | 2.53.0 | run workspaces are git repos (one commit per round); `Workspace.create()` and the flywheel trajectory/pair miners fail |
-| **node ≥ 20** | yes, except for the `graphics` track | v24.14.0 (npm 11.9.0) | the `threejs` / `scene_threejs` languages disappear **and no object renders happen at all**: `spatial/render.py` renders *every* GLB (Blender-built and CadQuery-built included) with three.js in headless Chrome. Only `graphics` (moderngl) is node-free |
+| **node ≥ 20.6** | yes, except for the `graphics` track | v24.14.0 (npm 11.9.0) | the `threejs` / `scene_threejs` languages disappear **and no object renders happen at all**: `spatial/render.py` renders *every* GLB (Blender-built and CadQuery-built included) with three.js in headless Chrome. Only `graphics` (moderngl) is node-free |
 | **Blender 4.2+ / 5.x** | optional | 5.0.1 (`~/.local/bin/blender-5.0`) | `blender` and `urdf_blender` languages unavailable → the `static_object` default language and the whole `articulated_object` track cannot build (`BlenderNotFoundError`); scenes lose planner-chosen bpy GLB assets |
 | **ffmpeg** | optional | **not installed** | `render_turntable` silently writes an animated **GIF** via PIL instead of `.mp4` (`spatial/turntable.py`); nothing else changes |
 | **EGL-capable GPU stack** | optional | ANGLE / D3D12 / RTX 5090 Laptop | headless Chrome falls back to **SwiftShader** and moderngl to **llvmpipe** — everything still renders, just several times slower; no correctness change |
-| C toolchain | usually no | — | only if pip has to build a wheel from source (`python-fcl`, `manifold3d` ship wheels for cp311–cp313 x86_64) |
+| C toolchain | usually no | — | only if pip has to build a wheel from source (`python-fcl`, `manifold3d` ship wheels for cp310–cp313 x86_64) |
 
 Disk: ~100 MB for `runtime_js/node_modules`, ~640 MB for puppeteer's Chrome,
 ~1 GB for a Blender tarball, plus whatever `runs/` and `~/.cache/codeverse` grow
@@ -446,7 +473,7 @@ that the keys work end to end):
 | `python deps` | FAIL | a core import is missing/broken | `pip install -e 'harness[all]'`; a broken native lib (`fcl`, `manifold3d`) shows up here too — reinstall that wheel (`pip install --force-reinstall python-fcl`) |
 | `python deps` | WARN | only `manifold3d` / `yourdfpy` / `mcp` / `shapely` missing | install the matching extra: `pip install -e 'harness[mesh,urdf,mcp]'` (§4) |
 | `blender` | FAIL | no binary found, or `--version` failed | §6 — install Blender, or `export CV3D_BINARIES__BLENDER=/path/to/blender`. If it is found but fails, run it by hand: a `libSM.so.6`/`libICE.so.6` error means you need the `LD_LIBRARY_PATH` wrapper |
-| `node` | FAIL | node missing or < 20 | install node 20+ (`nvm install 24`) or set `binaries.node` |
+| `node` | FAIL | node missing or older than 20.6.0 (§2.1) | install a newer node (`nvm install --lts`) or point `binaries.node` / `CV3D_BINARIES__NODE` at one.  The same check fires from every node workload (`codeverse.spatial.node.run_node`), so a too-old node cannot fail obscurely mid-render |
 | `three` | FAIL | `runtime_js/node_modules/three` missing | `cd harness/runtime_js && npm ci` (§5) |
 | `puppeteer` | FAIL | not installed in `runtime_js` | `cd harness/runtime_js && npm ci` |
 | `puppeteer` | WARN | installed, but no Chrome in `~/.cache/puppeteer` | `cd harness/runtime_js && npx puppeteer browsers install chrome` (or unset `PUPPETEER_SKIP_DOWNLOAD` / fix `PUPPETEER_CACHE_DIR`) |
@@ -544,9 +571,9 @@ those by hand (`npm rm -g @google/gemini-cli @anthropic-ai/claude-code @openai/c
 
 | component | version | where |
 |---|---|---|
-| python | 3.13.9 | `/home/yipeng/miniconda3/bin/python` |
+| python | 3.13.9 (floor 3.10 — §2.1, verified in a clean 3.10.21 venv) | `/home/yipeng/miniconda3/bin/python` |
 | pip packages | pydantic 2.13.2 · trimesh 4.12.2 · python-fcl 0.7.0.11 · moderngl 5.12.0 · shapely 2.1.2 · networkx 3.6.1 · manifold3d 3.5.2 · pyarrow 24.0.0 · mcp 2.0.0 · scipy 1.18.0 · yourdfpy 0.0.60 · cadquery 2.8.0 · google-genai 2.10.0 · pytest 9.1.1 · ruff 0.15.20 | editable install of `harness/` |
-| node / npm | v24.14.0 / 11.9.0 | `/home/yipeng/miniconda3/bin/node` |
+| node / npm | v24.14.0 / 11.9.0 (floor 20.6.0 — §2.1, verified against node 20.19.5) | `/home/yipeng/miniconda3/bin/node` |
 | runtime_js deps | three 0.182.0 · puppeteer 24.43.1 · three-mesh-bvh 0.9.14 (100 packages, 97 MB) | `harness/runtime_js/node_modules` |
 | Chrome (puppeteer) | 148.0.7778.97 (+ headless-shell) | `~/.cache/puppeteer` |
 | Blender | 5.0.1 (2025-12-16) | `~/.local/bin/blender-5.0` → `~/3dcodeverse_data/tools/blender-5.0.1-linux-x64` |

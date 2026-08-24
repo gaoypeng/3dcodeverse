@@ -198,7 +198,14 @@ export+render live in `runtime_js/` (`export_glb.mjs`, `render_glb.mjs`,
 **Placement policy (all languages)**: nothing re-centres or drops to ground at
 export; the build warns and the contract/connectivity gates report it.
 **Δ Node ESM resolution**: bare `import 'three'` needs
-`run_node(..., three_hook=True)` (`--import runtime_js/lib/resolve_three.mjs`).
+`run_node(..., three_hook=True)` (`--import runtime_js/lib/resolve_three.mjs`;
+`module.registerHooks` on node >= 22.15, `module.register` +
+`lib/resolve_three_async.mjs` down to the 20.6 floor — same resolutions).
+**Δ Node floor**: `spatial.node.NODE_MIN = (20, 6, 0)` is the single source of truth
+(`runtime_js/package.json` `engines.node` mirrors it).  `run_node` calls
+`require_node_version()` before spawning, so an old node raises `NodeError` with the fix
+in the message instead of failing obscurely; `parse_node_version` / `node_version_error`
+are the pure helpers `3dcv doctor` reuses for its `node` row.
 
 ## spatial/
 ```python
@@ -359,11 +366,19 @@ from codeverse.flywheel.captions import caption_sample # Δ (ws, record, model_i
                                                        # out_dir → side-car <out_dir>/<slug>.json, run untouched
 from codeverse.flywheel.gallery import write_gallery, gallery_items, render_gallery   # self-contained HTML gallery (tier badges,
                                                                                       # thumbs); bench/report.py reuses it
+from codeverse.gallery import build_index, default_roots, build_static, serve, GalleryApp   # THE local gallery
+                                                       # build_index(roots) -> GalleryIndex (sections of RunEntry; never raises per run)
+                                                       # build_static(roots, out_html, *, embed=False) -> (path, n, index)
+                                                       # GalleryApp(roots, reload=False).route(path, query) -> Response  (pure, testable)
+                                                       # serve(roots, *, host=None, host_explicit=False, port=8765, reload=False)
+from codeverse.gallery.paths import safe_join          # (root, rel) -> Path inside root, else PathError
+from codeverse.gallery.urls import content_type        # .glb→model/gltf-binary, .py/.js/.frag→text/plain; charset=utf-8
 from codeverse.flywheel.index import build_index, query, summary   # sqlite + parquet: adds quality_tier, gate_errors, cost_usd,
                                                                    # rounds, status, code_fingerprint, prompt_hash, duplicate_of, has_captions
 3dcodeverse make [--profile economy|balanced|quality]|resume|status|show|render|judge|tools|mcp
              |texture {pass,scene-pack,show}|cost {<slug>,show,cache,prices,profiles,estimate}
-             |flywheel {export,pairs,caption,index,dedupe,gallery}|bench {run,report}|doctor    # alias: 3dcv
+             |flywheel {export,pairs,caption,index,dedupe,gallery}|gallery {serve,build}
+             |bench {run,report}|doctor    # alias: 3dcv
 ```
 
 ## Events and records

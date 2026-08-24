@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from enum import StrEnum
+
+from codeverse._compat import StrEnum
 
 UNITS = "meters"
 

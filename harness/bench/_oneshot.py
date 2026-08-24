@@ -220,7 +220,7 @@ class ClaudeOneShot:
 def codex_default_model() -> str:
     """The model ``codex`` will use when none is passed (``~/.codex/config.toml``), for labelling/pricing."""
     try:
-        import tomllib
+        from codeverse._compat import tomllib
 
         cfg = tomllib.loads((Path.home() / ".codex" / "config.toml").read_text())
         return str(cfg.get("model") or "")
