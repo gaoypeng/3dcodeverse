@@ -1,0 +1,58 @@
+{
+  "pairs_kept": 768596,
+  "tokens": 891094910,
+  "by_dialect": {
+    "cadquery": {
+      "n": 390449,
+      "Mtok": 395.5,
+      "by_caption": {
+        "instruction": 129689,
+        "detailed": 130171,
+        "factory": 130589
+      }
+    },
+    "glsl": {
+      "n": 353061,
+      "Mtok": 470.4,
+      "by_caption": {
+        "instruction": 117700,
+        "detailed": 117682,
+        "factory": 117679
+      }
+    },
+    "blender": {
+      "n": 19609,
+      "Mtok": 15.2,
+      "by_caption": {
+        "instruction": 6579,
+        "detailed": 6588,
+        "factory": 6442
+      }
+    },
+    "openscad": {
+      "n": 3312,
+      "Mtok": 4.9,
+      "by_caption": {
+        "instruction": 1104,
+        "detailed": 1104,
+        "factory": 1104
+      }
+    },
+    "web": {
+      "n": 1616,
+      "Mtok": 2.5,
+      "by_caption": {
+        "instruction": 808,
+        "detailed": 808
+      }
+    },
+    "threejs": {
+      "n": 549,
+      "Mtok": 2.5,
+      "by_caption": {
+        "instruction": 274,
+        "detailed": 275
+      }
+    }
+  }
+}
