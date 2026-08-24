@@ -1085,8 +1085,13 @@ Three consequences:
    `max_in_flight` across every harness process on the machine at or below the measured
    knee (64).  One battery at 64, or N batteries at `64 / N` each via
    `CV3D_MAX_IN_FLIGHT=<n>` (`CV3D_RATE__MAX_IN_FLIGHT` is the same knob; the flat name was
-   read by nothing until 2026-08-24 — three launches that "set" it ran at 64).  `3dcv doctor`'s
-   `pool sharing` row prints the current sibling count and the value to use.
+   read by nothing until 2026-08-24 — three launches that "set" it ran at 64).
+   `codeverse.models.health.pool_budget()` reads every sibling's cap from `/proc/<pid>/environ`
+   and reports used / headroom; `3dcv doctor`'s `pool sharing` row prints it, and
+   `bench/ab_plan.py` refuses to start only when its own need does not FIT the headroom.
+   The first version of this rule counted *processes* and made every agent wait for an
+   empty machine — which stalled an entire A/B wave behind two batteries that were
+   themselves parked.  A budget, not a head-count.
 
 The real fix is a machine-wide limiter — a file-locked token bucket under
 `~/.cache/codeverse/` that every process shares — so the quota is enforced where it

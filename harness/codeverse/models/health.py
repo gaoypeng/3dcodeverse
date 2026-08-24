@@ -22,6 +22,7 @@ from __future__ import annotations
 import concurrent.futures as cf
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -148,7 +149,6 @@ def sibling_processes() -> int:
     here must never block a run.
     """
     import os
-    from pathlib import Path
 
     me, found = os.getpid(), 0
     try:
@@ -165,3 +165,83 @@ def sibling_processes() -> int:
         if _is_harness_argv([a for a in raw.decode(errors="replace").split("\0") if a]):
             found += 1
     return found
+
+
+#: the measured per-process knee (docs/COST.md §20); the machine-wide budget is the same
+#: number, because the provider sees one machine's worth of traffic, not one process's
+POOL_KNEE = 64
+_CAP_ENVS = ("CV3D_MAX_IN_FLIGHT", "CV3D_RATE__MAX_IN_FLIGHT")
+
+
+def _cap_of(pid_dir: Path) -> int:
+    """The in-flight cap a sibling process runs under, read from its environment.
+
+    A process that set neither name runs at the default; one that set an unparsable value
+    is counted at the default too (the child itself would have refused to start).
+    """
+    from codeverse.config import Rate
+
+    default = Rate().max_in_flight
+    try:
+        raw = (pid_dir / "environ").read_bytes()
+    except OSError:
+        return default
+    env = dict(kv.split(b"=", 1) for kv in raw.split(b"\0") if b"=" in kv)
+    for name in _CAP_ENVS:
+        val = env.get(name.encode())
+        if val:
+            try:
+                return int(val)
+            except ValueError:
+                return default
+    return default
+
+
+@dataclass(frozen=True)
+class PoolBudget:
+    """How much of the machine-wide in-flight budget the running siblings already hold."""
+
+    siblings: int
+    used: int
+    knee: int = POOL_KNEE
+
+    @property
+    def headroom(self) -> int:
+        return max(0, self.knee - self.used)
+
+    def fits(self, my_cap: int) -> bool:
+        return my_cap <= self.headroom
+
+    def __str__(self) -> str:
+        return (f"{self.siblings} sibling harness process(es) hold {self.used}/{self.knee} in-flight; "
+                f"headroom {self.headroom}")
+
+
+def pool_budget() -> PoolBudget:
+    """Sum the in-flight caps of every OTHER harness process on this machine.
+
+    This is the quantity docs/COST.md §23 is actually about: the provider sees one machine,
+    so the SUM of ``max_in_flight`` across processes must stay at the knee, not each
+    process alone.  Counting *processes* (the first version) made every agent refuse to
+    launch while any sibling existed, and on 2026-08-24 that stalled a whole A/B wave
+    behind two batteries that were themselves parked.  Best-effort like
+    :func:`sibling_processes`: on any /proc trouble it reports no siblings and no usage.
+    """
+    import os
+
+    me, used, n = os.getpid(), 0, 0
+    try:
+        entries = list(Path("/proc").iterdir())
+    except OSError:
+        return PoolBudget(0, 0)
+    for entry in entries:
+        if not entry.name.isdigit() or int(entry.name) == me:
+            continue
+        try:
+            raw = (entry / "cmdline").read_bytes()
+        except OSError:
+            continue
+        if _is_harness_argv([a for a in raw.decode(errors="replace").split("\0") if a]):
+            n += 1
+            used += _cap_of(entry)
+    return PoolBudget(n, used)

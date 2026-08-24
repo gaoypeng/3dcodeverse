@@ -113,3 +113,72 @@ def test_probe_model_treats_a_503_as_final(monkeypatch):
         m.generate(ChatRequest(messages=[ChatMessage.user("pong")], max_output_tokens=8))
     assert captured.get("storm_attempts") == 0, captured.keys()
     assert captured.get("max_attempts") == 1
+
+
+
+# --------------------------------------------------------------------------- pool budget
+def _fake_proc(monkeypatch, procs):
+    """procs: {pid: (argv list, env dict)} — a fake /proc for pool_budget()."""
+    import os
+    from pathlib import Path
+
+    import codeverse.models.health as health
+
+    me = os.getpid()
+
+    class Entry:
+        def __init__(self, pid):
+            self.name = str(pid)
+            self._pid = pid
+
+        def __truediv__(self, leaf):
+            argv, env = procs[self._pid]
+            data = {"cmdline": "\0".join(argv).encode() + b"\0",
+                    "environ": b"\0".join(f"{k}={v}".encode() for k, v in env.items())}[leaf]
+            return _Blob(data)
+
+    class _Blob:
+        def __init__(self, data):
+            self._data = data
+
+        def read_bytes(self):
+            return self._data
+
+    monkeypatch.setattr(Path, "iterdir", lambda self: [Entry(p) for p in procs if p != me])
+    return health
+
+
+def test_pool_budget_sums_caps_not_heads(monkeypatch):
+    """Two siblings at 16 each leave 32 of headroom; a third at 16 fits, one at 64 does not.
+    Head-counting (the first rule) would have refused both — and on 2026-08-24 it stalled
+    an entire A/B wave behind two batteries that were themselves parked."""
+    health = _fake_proc(monkeypatch, {
+        101: (["python", "-m", "codeverse.cli.main", "bench", "run"], {"CV3D_MAX_IN_FLIGHT": "16"}),
+        102: (["python", "bench/compare_backends.py", "--arms", "x"], {"CV3D_RATE__MAX_IN_FLIGHT": "16"}),
+        103: (["/bin/bash", "-c", "cd /home/u/3dcodeverse && sleep 1"], {}),  # not a harness process
+    })
+    pb = health.pool_budget()
+    assert (pb.siblings, pb.used, pb.headroom) == (2, 32, 32), str(pb)
+    assert pb.fits(16) and pb.fits(32) and not pb.fits(33) and not pb.fits(64)
+
+
+def test_a_sibling_that_set_no_cap_counts_at_the_default(monkeypatch):
+    """An unconfigured battery runs at Rate().max_in_flight (64) and fills the whole budget."""
+    health = _fake_proc(monkeypatch, {
+        201: (["python", "-m", "codeverse.cli.main", "make", "a chair"], {}),
+    })
+    pb = health.pool_budget()
+    assert pb.used == 64 and pb.headroom == 0 and not pb.fits(1)
+
+
+def test_pool_budget_never_raises(monkeypatch):
+    from pathlib import Path
+
+    import codeverse.models.health as health
+
+    def boom(_self):
+        raise OSError("no /proc")
+
+    monkeypatch.setattr(Path, "iterdir", boom)
+    pb = health.pool_budget()
+    assert pb.siblings == 0 and pb.used == 0 and pb.fits(64)

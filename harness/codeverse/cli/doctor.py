@@ -181,17 +181,17 @@ def check_keys(live: bool) -> list[Row]:
     n = len(s.gemini_api_keys)
     rows: list[Row] = [("gemini keys", "OK" if n else "FAIL", f"{n} key(s)")]
     if n:
-        from codeverse.models.health import sibling_processes
+        from codeverse.models.health import pool_budget
 
-        sib = sibling_processes()
+        pb = pool_budget()
         cap = _rate_cap()
         rows.append((
             "pool sharing",
-            "OK" if sib == 0 else "WARN",
-            f"{sib} other harness process(es) running — each keeps its OWN key pool, so the real "
-            f"concurrency is ~{(sib + 1) * cap} in-flight against one shared quota "
-            f"(docs/COST.md §23; run one battery at a time or set CV3D_MAX_IN_FLIGHT={max(1, cap // (sib + 1))})"
-            if sib else "sole harness process: max_in_flight applies as configured",
+            "OK" if pb.fits(cap) else "WARN",
+            (f"{pb}; this process at {cap} {'fits' if pb.fits(cap) else 'does NOT fit'} "
+             f"(docs/COST.md §23: keep the SUM at or under {pb.knee}"
+             + ("" if pb.fits(cap) else f" — set CV3D_MAX_IN_FLIGHT={max(1, pb.headroom)} or wait") + ")")
+            if pb.siblings else "sole harness process: max_in_flight applies as configured",
         ))
     rows.append(("anthropic key", "OK" if s.anthropic_api_key else "WARN", "set" if s.anthropic_api_key else "not set (anthropic:* backends unavailable)"))
     rows.append(("openai key", "OK" if s.openai_api_key else "WARN", "set" if s.openai_api_key else "not set (openai:* backends unavailable)"))

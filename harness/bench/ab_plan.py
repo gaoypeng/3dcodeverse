@@ -313,11 +313,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if not opts.variant_env:
         _parser().error("--variant-env KEY=VALUE is required: an A/B with identical arms measures only the judge")
-    from codeverse.models.health import sibling_processes
+    from codeverse.models.health import pool_budget
 
-    if (sib := sibling_processes()) and not ns.allow_siblings:
-        print(f"refusing to start: {sib} other harness process(es) are running and would share the key quota "
-              "(docs/COST.md §23).  Wait for them, or pass --allow-siblings.", flush=True)
+    # the rule is a BUDGET, not a head-count: the provider sees one machine, so the sum of
+    # every process's in-flight cap must stay at the knee.  Two children run at once here.
+    need = 2 * opts.max_in_flight
+    if not (pb := pool_budget()).fits(need) and not ns.allow_siblings:
+        print(f"refusing to start: {pb}; this A/B needs {need} (2 children x {opts.max_in_flight}) "
+              f"(docs/COST.md §23).  Wait, lower --max-in-flight, or pass --allow-siblings.", flush=True)
         return 3
     if not ns.no_preflight and not preflight(opts, wait_minutes=ns.wait_for_provider):
         return 2
