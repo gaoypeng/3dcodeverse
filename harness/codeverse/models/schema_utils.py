@@ -291,6 +291,36 @@ def _first_balanced(text: str, opener: str = "{", closer: str = "}") -> str | No
     return None
 
 
+#: C0 control characters that are never legitimate inside a model's text field.  TAB,
+#: LF and CR are kept — they carry meaning in a description or a code snippet.
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+#: what a stripped control character is replaced BY.  A space, not "": the observed case
+#: was a model writing \u0000 where it meant a glyph it could not encode ("0.078 × 0.300"
+#: -> "0.078 \x00 0.300"), and deleting the byte would silently fuse "0.078" and "0.300"
+#: into a different number.  A space keeps the text honest and readable.
+_CONTROL_SUB = " "
+
+
+def strip_control_chars(value: Any) -> Any:
+    """Recursively replace C0 control characters in every string of a parsed JSON value.
+
+    A model can emit ``\u0000`` — it is legal JSON, pydantic accepts it, and the harness
+    persists it happily.  It then detonates far away: on 2026-08-24 a gemini-3.7-flash
+    plan carried five of them (written where the model meant ``×`` and ``±``), survived
+    validation and ``plan.json``, and killed all four generation tasks of a codex cell
+    four stages later with ``ValueError: embedded null byte`` out of ``subprocess.Popen``
+    — an error naming no file, no field and no value.  Sanitising at ingestion is the
+    only place that covers every model, every track and every downstream consumer.
+    """
+    if isinstance(value, str):
+        return _CONTROL_RE.sub(_CONTROL_SUB, value)
+    if isinstance(value, dict):
+        return {k: strip_control_chars(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [strip_control_chars(v) for v in value]
+    return value
+
+
 def parse_json_lenient(text: str) -> Any:
     """Parse JSON from model text tolerating code fences, leading prose and
     trailing chatter.  Tries: whole text → fenced block → first balanced {...}
@@ -314,14 +344,14 @@ def parse_json_lenient(text: str) -> Any:
     last_err: Exception | None = None
     for cand in candidates:
         try:
-            return json.loads(cand)
+            return strip_control_chars(json.loads(cand))
         except json.JSONDecodeError as exc:
             last_err = exc
             # tolerate trailing commas
             fixed = re.sub(r",\s*([}\]])", r"\1", cand)
             if fixed != cand:
                 try:
-                    return json.loads(fixed)
+                    return strip_control_chars(json.loads(fixed))
                 except json.JSONDecodeError:
                     pass
     raise JsonParseError(f"no JSON value found: {last_err} — head={s[:120]!r}")

@@ -126,6 +126,7 @@ def run_with_watchdog(
     dirs = list(activity_dirs) if activity_dirs is not None else [cwd / "src"]
     tracker = ActivityTracker()
     t0 = time.monotonic()
+    _reject_control_chars(cmd, cwd)
     proc = subprocess.Popen(
         list(cmd), cwd=str(cwd), env=dict(env) if env is not None else None,
         stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
@@ -173,3 +174,23 @@ def run_with_watchdog(
         rc=rc, stdout="\n".join(out), stderr="\n".join(err), duration_s=time.monotonic() - t0,
         timed_out=bool(killed), killed_reason=killed, stdout_lines=out, stderr_lines=err,
     )
+
+
+def _reject_control_chars(cmd: Sequence[str], cwd: object) -> None:
+    """Fail with an argv position and an excerpt instead of a bare "embedded null byte".
+
+    ``subprocess.Popen`` raises ``ValueError: embedded null byte`` naming nothing at all —
+    not the argument, not the offset, not the value.  On 2026-08-24 that cost an hour to
+    trace back to five ``\\u0000`` escapes a planner had written into plan.json four stages
+    earlier (see ``schema_utils.strip_control_chars``, which is the actual cure).  This is
+    the backstop: if one ever leaks again, the error says where.
+    """
+    for i, arg in enumerate(cmd):
+        text = str(arg)
+        j = text.find("\x00")
+        if j != -1:
+            raise ValueError(
+                f"argv[{i}] contains a NUL at offset {j} of {len(text)} — a model almost "
+                f"certainly emitted \\u0000 in structured output and it was not sanitised "
+                f"(cwd={cwd}).  Context: {text[max(0, j - 60):j + 40]!r}"
+            )
