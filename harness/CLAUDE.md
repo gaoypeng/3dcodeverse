@@ -48,6 +48,8 @@ calibration) before changing anything.
   range).  Judge default `gemini-3.1-pro-preview` (`Settings.default_judge`; tracks use
   n_samples=1); flash + `--n 3` is the cheap fallback, pro for calibration/eval.
 - Live runs under `runs/` (`e2e_*`): read-only reference material; never modify.
+- Every model call is priced into the run's `telemetry/cost.jsonl` (`codeverse.cost.instrument`;
+  `CV3D_COST_LEDGER=off` to disable).  `docs/COST.md` Part II has the measured cost controls.
 
 ## Commands
 ```
@@ -55,6 +57,7 @@ pip install -e /home/yipeng/3dcodeverse/harness   # once (entry points: 3dcodeve
 cd /home/yipeng/3dcodeverse/harness
 3dcodeverse doctor [--live] [--no-gpu] [--json]
 3dcodeverse make "a mid-century wooden dining chair" --track static_object --language blender
+3dcodeverse make "..." --profile economy|balanced|quality   # one dial: models, judge n, rounds, candidates, texture, ceilings (--profile == CV3D_PROFILE)
 3dcodeverse make "..." --track static_object --language threejs --generator gemini-cli:gemini-3.7-flash
 3dcodeverse make "..." --track articulated_object --language urdf_blender
 3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-usd 3
@@ -63,6 +66,8 @@ cd /home/yipeng/3dcodeverse/harness
 3dcv resume <slug> · 3dcv status <slug> · 3dcv render <slug> [--mode wire] · 3dcv judge <slug> [--model ... --n 3]
 3dcv texture pass <slug> [--no-judge] · 3dcv texture scene-pack <slug> · 3dcv texture show <slug>
 3dcv tools list · 3dcv tools measure --workspace runs/<slug> · 3dcv mcp --workspace runs/<slug>
+3dcv cost <slug> · 3dcv cost --runs-dir bench/out/<battery> · 3dcv cost cache <slug>
+3dcv cost prices [--stale] · 3dcv cost profiles · 3dcv cost estimate gemini:gemini-3.1-pro-preview --in 12000
 3dcv flywheel export runs/ dataset/ [--pack --drop-duplicates --captions-dir d/] · 3dcv flywheel pairs runs/ pairs.jsonl
 3dcv flywheel caption <slug> [--out dir] · 3dcv flywheel gallery runs/ gallery.html
 3dcv bench run bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview

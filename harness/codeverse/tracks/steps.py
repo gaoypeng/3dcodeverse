@@ -4,6 +4,18 @@
 gates / measurement / rendering.  Every step writes its artifact under the
 workspace (gates/rNN, renders/rNN, judge/rNN.json, rounds/rNN.json) so a run
 can be resumed and the flywheel can replay it.
+
+Two cost rules live here (docs/COST.md §5, §6):
+
+* **never pay for a verdict you will not use** — :func:`skip_judge_reason` drops
+  the judge only where the verdict is provably never bought at all, and
+  :func:`rejudge_round` re-buys one only after the judge was TRIED and failed, so
+  a skip is a saving and not a deferral.  Two wave-2 branches were removed for
+  failing exactly that test (docs/COST.md §17).
+* **every round reports what it burned** — :func:`emit_round_cost` writes one
+  ``cost.round`` event ({stage → $}, judge $, agent turns, wasted flag) at the
+  end of the round *and* when the round raises half-way, so the ledger never has
+  to reconstruct a round the budget cut.
 """
 
 from __future__ import annotations
@@ -20,6 +32,7 @@ from codeverse.contracts.common import Usage
 from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord
+from codeverse.orchestrator.budget import usage_delta
 from codeverse.orchestrator.fanout import fan_out
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
@@ -71,7 +84,8 @@ def run_generation_tasks(ctx: RunContext, tasks: Sequence[GenerationTask]) -> li
 
     def _one(task: GenerationTask) -> GenerationResult:
         return generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model,
-                        settings=ctx.settings, budget=ctx.budget, events=ctx.events)
+                        settings=ctx.settings, budget=ctx.budget, events=ctx.events,
+                        max_turns=ctx.policy.agent_max_turns, wrapup_turns=ctx.policy.agent_wrapup_turns)
 
     # fan_out also for ONE task: a crashing generator (503 storm, parse error) becomes a failed
     # result → RoundFailed (refine rounds treat that as a plateau) instead of killing the run.
@@ -105,34 +119,75 @@ def run_round(
     files_hint: Sequence[str] = (),
     extra_usage: Usage | None = None,
     extra_notes: Sequence[str] = (),
+    previous_best: float | None = None,
 ) -> RoundRecord:
     """Execute one round and persist its record.  Budget is charged as it goes.
 
     ``tasks`` may be empty when the code is already in place (scene stages,
     best-of-N winner copied in): the round is then build → gates → render →
     judge only.  ``extra_usage`` / ``extra_notes`` fold pre-round work
-    (candidate generation) into the record."""
+    (candidate generation) into the record; ``previous_best`` is the best score
+    before this round, used only to flag the round as wasted in ``cost.round``."""
+    mark = ctx.budget.mark()
+    try:
+        return _run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
+                          previous=previous, files_hint=files_hint, extra_usage=extra_usage,
+                          extra_notes=extra_notes, previous_best=previous_best)
+    except BaseException as e:
+        # the round died half-way (budget stop, 503 storm, RoundFailed).  Whatever it
+        # burned is already in the guard: report it so the round is not invisible.
+        burned = usage_delta(ctx.budget.spent, mark)
+        record_aborted_round(ctx, index=index, kind=kind, usage=burned, error=f"{type(e).__name__}: {e}")
+        raise
+
+
+def _run_round(
+    ctx: RunContext,
+    *,
+    index: int,
+    kind: str,
+    tasks: Sequence[GenerationTask],
+    pipeline: RoundPipeline,
+    instructions: Sequence[str] = (),
+    previous: Judgment | None = None,
+    files_hint: Sequence[str] = (),
+    extra_usage: Usage | None = None,
+    extra_notes: Sequence[str] = (),
+    previous_best: float | None = None,
+) -> RoundRecord:
     t0 = time.time()
     ctx.events.emit("round.start", round=index, kind=kind, n_tasks=len(tasks))
     rec = RoundRecord(index=index, kind=kind, agent_backend=ctx.agent_id, instructions=list(instructions),
                       started_at=datetime.now(UTC))
     usage = extra_usage or Usage()
     notes: list[str] = list(extra_notes)
+    cost: dict[str, float] = {}
+    if extra_usage is not None and extra_usage.cost_usd:
+        cost["candidates"] = round(extra_usage.cost_usd, 6)
 
     gens = run_generation_tasks(ctx, tasks)
+    turns = 0
     for g in gens:
         usage = usage + g.usage
+        turns += g.turns
         if not g.ok:
             notes.append(f"{g.label}: {g.notes}")
+    if gens:
+        cost["generate"] = round(sum(g.usage.cost_usd for g in gens), 6)
     ctx.ws.commit(f"r{index:02d} {kind}: generated")
 
     outcome: RepairOutcome = build_with_repair(ctx, round_index=index, label=f"r{index:02d}_{kind}",
                                                files_hint=list(files_hint))
     usage = usage + outcome.usage
+    if outcome.usage.cost_usd:
+        cost["repair"] = round(outcome.usage.cost_usd, 6)
     rec.build = outcome.build
     gates: list[GateReport] = [outcome.lint]
     if outcome.attempts:
-        notes.append(f"repair attempts: {len(outcome.attempts)} ({'fixed' if outcome.ok else 'still failing'})")
+        notes.append(
+            f"repair attempts: {len(outcome.attempts)}/{outcome.max_attempts} "
+            f"({'fixed' if outcome.ok else 'still failing'})"
+        )
 
     if outcome.build.ok:
         rec.measurement = pipeline.measure(ctx, outcome.build)
@@ -144,18 +199,20 @@ def run_round(
         n_err = sum(len(g.errors) for g in gates)
         ctx.events.emit("gates.done", round=index, n_gates=len(gates), n_errors=n_err,
                         tri_count=rec.measurement.tri_count if rec.measurement else None)
-        if ctx.judge is not None and rec.renders is not None and rec.renders.views and (n_err == 0 or ctx.policy.judge_on_gate_errors):
+        skip = skip_judge_reason(ctx, gates=gates, renders=rec.renders)
+        if skip:
+            notes.append(f"judge skipped ({skip})")
+            ctx.events.emit("judge.skipped", round=index, reason=skip)
+        else:
             rec.judgment = _judge(ctx, pipeline, index, outcome.build, gates, rec, previous)
             if rec.judgment is not None:
                 usage = usage + rec.judgment.usage
+                cost["judge"] = round(rec.judgment.usage.cost_usd, 6)
                 # add, never charge: the verdict exists and is paid for — raising here
                 # would drop a fully judged round before it is committed/recorded
                 # (the loop stops at its next budget_ok check instead, AFTER best promotion).
-                ctx.budget.add(rec.judgment.usage)
-        elif ctx.judge is None:
-            notes.append("no judge configured")
-        else:
-            notes.append("judge skipped (gate errors)")
+                ctx.budget.add(rec.judgment.usage, stage="judge", role="judge", round_index=index,
+                               label=rec.judgment.rubric or "judge")
     else:
         notes.append(f"build failed: {outcome.build.error_type}: {outcome.build.error_message[:200]}")
     rec.gates = gates
@@ -168,7 +225,115 @@ def run_round(
     ctx.ws.write_json(round_record_path(ctx, index), rec)
     ctx.events.emit("round.done", round=index, kind=kind, commit=rec.commit[:10], score=rec.score,
                     build_ok=outcome.build.ok, duration_s=rec.duration_s, cost_usd=round(usage.cost_usd, 4))
+    emit_round_cost(ctx, index=index, kind=kind, cost=cost, usage=usage, turns=turns, score=rec.score,
+                    previous_best=previous_best, build_ok=outcome.build.ok, judged=rec.judgment is not None)
     return rec
+
+
+# ----------------------------------------------------------------------------- cost of a round
+def skip_judge_reason(ctx: RunContext, *, gates: Sequence[GateReport], renders: RenderSet | None) -> str:
+    """Why this round must NOT be judged (``""`` = judge it).
+
+    Only states in which the verdict is never bought at all — a skip that the
+    loop buys back a moment later (``rejudge_round``) is not a saving, it is a
+    ``judge.retry`` plus a lost score:
+
+    * ``no judge configured`` / ``no renders`` — there is nothing to buy.
+    * ``budget already exceeded`` — the loop's next ``budget_ok`` check ends the
+      run, so this verdict could not promote anything.  Measured: 2 verdicts /
+      $0.09 in the audit were bought past the run's wall clock (docs/COST.md §5).
+    * ``gate errors`` — only when the caller set ``judge_on_gate_errors=False``;
+      ``rejudge_round`` honours that too, so the verdict is not re-bought.
+
+    A broken build never gets here (``run_round`` judges only when the build is
+    ok) and a round in which nothing changed never gets here either
+    (``run_generation_tasks`` raises :class:`RoundFailed` first)."""
+    if ctx.judge is None:
+        return "no judge configured"
+    if renders is None or not renders.views:
+        return "no renders"
+    if not ctx.budget.ok():
+        return "budget already exceeded"
+    if judge_blocked_by_gates(ctx, gates):
+        return "gate errors"
+    return ""
+
+
+def judge_blocked_by_gates(ctx: RunContext, gates: Sequence[GateReport]) -> bool:
+    """The caller asked not to judge rounds with gate errors, and this round has some."""
+    return bool(not ctx.policy.judge_on_gate_errors and any(g.errors for g in gates))
+
+
+def emit_round_cost(
+    ctx: RunContext,
+    *,
+    index: int,
+    kind: str,
+    cost: dict[str, float],
+    usage: Usage,
+    turns: int,
+    score: float | None,
+    previous_best: float | None,
+    build_ok: bool,
+    judged: bool,
+    aborted: str = "",
+) -> None:
+    """One ``cost.round`` event per round: ``{stage → $}``, judge $, agent turns and
+    whether the money bought anything.  The ledger/audit reads this instead of
+    reconstructing the round from trajectories and events."""
+    wasted, why = _waste_flag(score=score, previous_best=previous_best, build_ok=build_ok,
+                              judged=judged, aborted=aborted)
+    ctx.events.emit(
+        "cost.round", round=index, kind=kind,
+        stages={k: round(v, 6) for k, v in cost.items()},
+        judge_usd=round(cost.get("judge", 0.0), 6),
+        total_usd=round(usage.cost_usd, 6),
+        agent_turns=turns,
+        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, cached_tokens=usage.cached_tokens,
+        score=score, previous_best=previous_best, wasted=wasted, waste_reason=why, aborted=aborted,
+        run_usd=round(ctx.budget.spent.cost_usd, 6),
+    )
+
+
+def _waste_flag(*, score: float | None, previous_best: float | None, build_ok: bool,
+                judged: bool, aborted: str) -> tuple[bool, str]:
+    """Did this round buy anything?  (docs/COST.md §5 vocabulary)"""
+    if aborted:
+        return True, "aborted"
+    if not build_ok:
+        return True, "build_failed"
+    if not judged or score is None:
+        return True, "unjudged"
+    if previous_best is None:
+        return False, ""
+    delta = score - previous_best
+    if delta < -0.005:
+        return True, "regression"
+    if abs(delta) < 0.005:
+        return True, "zero_delta"
+    return False, ""
+
+
+def record_aborted_round(ctx: RunContext, *, index: int, kind: str, usage: Usage, error: str) -> None:
+    """A round that raised half-way still reports what it burned.
+
+    Its record is written next to the round records as ``aborted_rNN.json`` (never
+    ``rNN.json``: the round did not happen, and ``load_round_records`` must not
+    resume from it), a ``cost.round`` event is emitted, and the usage is remembered
+    in ``ctx.extra`` so the run record can carry it.  Accounting a stop must never
+    raise on top of the stop that is already happening."""
+    try:
+        rec = RoundRecord(index=index, kind=kind, agent_backend=ctx.agent_id, usage=usage,
+                          notes=f"aborted: {error}")
+        path = ctx.ws.root / "rounds" / f"aborted_r{index:02d}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        ctx.ws.write_json(path, rec)
+        aborted = ctx.extra.setdefault("aborted_rounds", [])
+        aborted.append({"index": index, "kind": kind, "cost_usd": round(usage.cost_usd, 6), "error": error[:300]})
+        emit_round_cost(ctx, index=index, kind=kind, cost={"aborted": round(usage.cost_usd, 6)}, usage=usage,
+                        turns=0, score=None, previous_best=None, build_ok=False, judged=False, aborted=error[:300])
+    except Exception as e:  # noqa: BLE001 — never mask the exception that stopped the round
+        log.warning("could not record aborted round r%02d: %s", index, e)
 
 
 def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildResult, gates: list[GateReport],
@@ -209,7 +374,8 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
     if _is_degraded(judgment):
         # a glitch, never a score: keep the raw verdict on disk, pay for it, but do not
         # let 0.0 poison plateau/best/refine (judges/scoring.degraded_judgment contract)
-        ctx.budget.add(judgment.usage)
+        ctx.budget.add(judgment.usage, stage="judge", role="judge", round_index=index,
+                       label=judgment.rubric or "judge", outcome="degraded")
         ctx.events.emit("judge.degraded", round=index, error=judgment.summary[:300],
                         cost_usd=round(judgment.usage.cost_usd, 4))
         rec.notes = (rec.notes + "; " if rec.notes else "") + f"judge degraded: {judgment.summary[:200]}"
@@ -229,12 +395,19 @@ def _is_degraded(judgment: Judgment) -> bool:
 
 
 def rejudge_round(ctx: RunContext, pipeline: RoundPipeline, rec: RoundRecord, previous: Judgment | None = None) -> bool:
-    """Re-judge an already built+rendered round whose judgment failed or was degraded.
+    """Re-judge an already built+rendered round whose judgment FAILED or was degraded.
 
     No regeneration, no rebuild: the same commit is judged again.  On success the
     round record is updated in place and re-persisted.  Returns True when the
-    round now has a usable judgment."""
-    if rec.build is None or not rec.build.ok or rec.renders is None or not rec.renders.views:
+    round now has a usable judgment.
+
+    A verdict :func:`skip_judge_reason` deliberately did not buy is NOT bought
+    here — otherwise the skip only moves the same dollar one loop iteration later
+    (the verifier's reproduction: three rounds "skipped", two of them re-judged on
+    the next iteration and the last one left without a score)."""
+    if ctx.judge is None or rec.build is None or not rec.build.ok or rec.renders is None or not rec.renders.views:
+        return False
+    if judge_blocked_by_gates(ctx, rec.gates):
         return False
     ctx.events.emit("judge.retry", round=rec.index)
     judgment = _judge(ctx, pipeline, rec.index, rec.build, list(rec.gates), rec, previous)
@@ -242,7 +415,8 @@ def rejudge_round(ctx: RunContext, pipeline: RoundPipeline, rec: RoundRecord, pr
         return False
     rec.judgment = judgment
     rec.usage = rec.usage + judgment.usage
-    ctx.budget.add(judgment.usage)
+    ctx.budget.add(judgment.usage, stage="judge", role="judge", round_index=rec.index,
+                   label=judgment.rubric or "judge", outcome="rejudge")
     ctx.ws.write_json(round_record_path(ctx, rec.index), rec)
     return True
 

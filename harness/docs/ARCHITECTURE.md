@@ -93,6 +93,13 @@ codeverse/
                       contract.py (authoring-frame hints), sections.py, silhouette.py, probes.py,
                       joints*.py + joints_collide.py (deterministic penetration), registry.py, tools*.py
                       (tools_texture.py, tools_graphics.py), mcp_server.py (MCP name: 3dcv)
+  cost/               types.py (CallCost/Stage/Role) ledger.py (append-only telemetry/cost.jsonl + price provenance)
+                      context.py (per-call > ambient attribution) instrument.py (MeteredChatModel /
+                      MeteredAgent — one row per ChatModel.generate; one session row only for a backend
+                      that does NOT meter itself; run_ledger nests + is context-local so bench --parallel works)
+                      profiles.py (economy|balanced|quality; cli._common.resolve_dial is THE resolver)
+                      caching.py (Block/order_blocks/session_cache — measurement only, docs/COST.md §13)
+                      guard.py routing.py reconstruct.py (old runs) audit.py report.py
   judges/             rubrics.py + rubrics/*.yaml (defect checklists), vlm_judge.py, montage.py,
                       prompt_builder.py, output_schema.py, scoring.py, caps.py, images.py, pairwise.py
                       (compare_many), reference.py, calibration.py, metrics.py
@@ -127,7 +134,8 @@ runs/<slug>/
   public/         (scene) compiled assets public/assets/<snake>.glb; (textured scenes) public/textures/*.png + manifest.json
   _assets/<snake>/  (scene) sub-workspaces for blender_glb assets (gitignored)
   _cand/c<k>/     (--candidates N) throw-away best-of-N sub-workspaces (gitignored, kept for the flywheel)
-  stages/<name>.json   rounds/rNN.json   rounds/candidates.json
+  stages/<name>.json   rounds/rNN.json   rounds/candidates.json   rounds/aborted_rNN.json (a round the
+                       budget/a crash cut: what it burned, never resumed from)   cost_ledger.jsonl (live ledger)
   artifacts/      object.glb object.stl|step robot.urdf meshes/ articulation.json build.json census.json
                   measurement.json … ; graphics: frames/fNN_tT.png frames_sheet.png preview.gif metrics.json
                   texturing: object_textured.glb textures/{<id>.png, texture_plan.json, texturing.json, gate/}
@@ -230,13 +238,23 @@ round 0 "baseline": generate → build_with_repair → measure → gates → ren
     selection build_ok → quick score → fewer gate errors with pairwise tie-break; winner copied back, normal r00 follows)
 repeat while StopPolicy says continue (≤ max_rounds refine rounds, plateau_window=2 / min_delta=0.02,
                                        target = rubric threshold, budget ok):
+   money stops, sized by the judge's MEASURED noise σ (cost/routing.JUDGE_NOISE: pro 0.030, flash 0.083):
+     regression — last round scored < best − 1σ ⇒ never another round of the same shape: the first one
+                  switches strategy (ONE whole-artifact rewrite, kind "rewrite"), a second stops the run
+     diminishing_returns — from r03 on, only start when the last gain > 1.5σ AND best < target
    refine tasks = gate ERRORS (fix hints, authoring-frame numbers) ∪ failed must-acceptance ∪ judge improvement plan
    (≤ 6 tasks, ≤ 6 compacted instruction lines each; reference runs add an IoU task when silhouette IoU < 0.6)
    fan out when ≥ 2 file-disjoint groups AND every task maps to files (threejs/blender parts, scene zones/assets/env)
-   generate → build+repair (error-focused, escalates on identical signatures) → gates → … → judge
+   generate (NO turn cap by default — 28 was A/B'd and rejected, +$0.02/−0.21 score, docs/COST.md §17;
+             a cap a caller sets (CV3D_AGENT_MAX_TURNS / task; no profile sets one) still buys a wrap-up session
+             that lands a final build + summary instead of being killed) → build+repair (error-focused,
+             escalates on identical signatures) → gates → … → judge (SKIPPED only where the verdict is never
+             bought at all: no judge/renders, budget already exceeded, or judge_on_gate_errors=False)
    BestSelector: highest score, tie → fewer gate errors; |Δ| < pairwise_margin (0.03) → position-swapped
    PairwiseJudge decides (replace only at confidence ≥ 0.6; note persisted in rNN.json)
-stop reasons: pass | plateau | budget | max_rounds | no_change | no_refine_tasks
+   every round emits cost.round {stage → $, judge $, agent turns, wasted flag}; a round that raises mid-way
+   still reports what it burned (rounds/aborted_rNN.json + record.extra["aborted_rounds"])
+stop reasons: pass | plateau | budget | max_rounds | no_change | no_refine_tasks | regression | diminishing_returns
 finalise: restore best commit, rebuild so artifacts match delivered code, finalize_record → record.json
 ```
 Track-specific gates: static `connectivity` + `contract` (+ `reference_silhouette`),

@@ -9,6 +9,12 @@ Layout of ``out_dir``::
 
 Every prompt becomes a ``Spec`` with the battery's track/language, a FIXED judge
 model (methodology: paired runs share the judge), and the generator under test.
+
+Each prompt runs inside its own ``codeverse.cost.run_ledger``, exactly like a
+``3dcv make``: the batteries are where most runs come from, so without it the
+priced per-call rows of a whole battery went to the per-process fallback log and
+``3dcv cost --runs-dir <out>/runs`` had to reconstruct them from trajectories.
+The binding is context-local, so ``--parallel N`` keeps N ledgers apart.
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ from codeverse.config import get_settings
 from codeverse.contracts.common import Backends, Budget, Language, Track
 from codeverse.contracts.run import RunRecord
 from codeverse.contracts.spec import Constraints, Spec
+from codeverse.cost import run_ledger
 from codeverse.workspace import Workspace
 
 RESULT_FIELDS = ("id", "tier", "category", "score_baseline", "score_final", "passed", "rounds", "cost_usd",
@@ -193,7 +200,8 @@ def run_battery(
             ws.write_json(ws.spec_path, spec)
         t0 = time.time()
         try:
-            rec = run_fn(spec, ws, resume)
+            with run_ledger(ws.root, run=item.id):
+                rec = run_fn(spec, ws, resume)
         except Exception as e:  # one failing prompt must not kill the battery
             return BenchItemResult(id=item.id, tier=item.tier, category=item.category, status="error",
                                    errors=f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1500:]}",

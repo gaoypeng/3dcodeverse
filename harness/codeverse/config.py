@@ -15,6 +15,7 @@ import re
 import shutil
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
@@ -53,6 +54,21 @@ class Limits(BaseModel):
     bpy_rlimit_gb: int = 12
     max_parallel_agents: int = 6
     max_parallel_builds: int = 3
+    agent_max_turns: int = Field(
+        default=0,
+        description="hard cap on model turns per agent session (0 = the backend's own default, "
+        "which is what ships: a 28-turn cap cost $0.02 more and 0.205 of a score point in its "
+        "own A/B — docs/COST.md §17 — so no profile sets one; name it here if you want one).",
+    )
+
+
+class Judge(BaseModel):
+    """Judge payload size — what one verdict is allowed to send (docs/COST.md §3)."""
+
+    max_px: int = Field(default=1024, description="longest edge of a montage / crop sent to the judge")
+    montages: int = Field(default=3, description="max 2x2 montages per verdict")
+    detail_crops: int = Field(default=2, description="max zoomed detail crops per verdict")
+    samples: int = Field(default=1, description="default VLM samples per verdict")
 
 
 class Settings(BaseSettings):
@@ -63,6 +79,7 @@ class Settings(BaseSettings):
     binaries: Binaries = Field(default_factory=Binaries)
     render: Render = Field(default_factory=Render)
     limits: Limits = Field(default_factory=Limits)
+    judge: Judge = Field(default_factory=Judge)
 
     gemini_api_keys: list[str] = Field(default_factory=list)
     anthropic_api_key: str = ""
@@ -76,6 +93,12 @@ class Settings(BaseSettings):
     default_judge: str = Field(default_factory=lambda: Backends().judge)
     default_captioner: str = Field(default_factory=lambda: Backends().captioner)
     default_candidates: int = Field(default=1, description="best-of-N baseline candidates (tracks read it)")
+
+    # Cost dial: one name that sets model-per-role, judge samples, rounds, candidates,
+    # turn cap, montage size and the texture pass together (codeverse/cost/profiles.py).
+    profile: str = Field(default="balanced", description="economy | balanced | quality")
+    cost_ledger: bool = Field(default=True, description="append one priced row per model call "
+                              "to the run's telemetry/cost.jsonl (or a per-process log)")
 
     # ------------------------------------------------------------------ helpers
     def backends(self, **overrides: str | None) -> Backends:
@@ -95,6 +118,37 @@ class Settings(BaseSettings):
             if value:
                 base[role] = value
         return Backends(**base)
+
+    def apply_profile(self, name: str | None = None, *, force: bool = False) -> Any:
+        """Set every profile-controlled default on this Settings object and return
+        the :class:`~codeverse.cost.profiles.Profile`.
+
+        A field the user stated themselves (config file / ``CV3D_*`` env) is left
+        alone unless ``force`` — so a profile is a *default* dial, while
+        ``3dcv make --profile X`` (which forces) is an instruction.  The CLI's own
+        flags are applied after this and always win."""
+        from codeverse.cost.profiles import get_profile
+
+        p = get_profile(name or self.profile)
+        stated = set() if force else set(self.model_fields_set)
+
+        def put(field: str, value: Any) -> None:
+            if field not in stated and value not in (None, ""):
+                setattr(self, field, value)
+
+        self.profile = p.name
+        put("default_generator", p.generator)
+        put("default_planner", p.planner)
+        put("default_judge", p.judge)
+        put("default_captioner", p.captioner)
+        put("default_candidates", p.candidates)
+        if "judge" not in stated:
+            self.judge = self.judge.model_copy(update={
+                "max_px": p.judge_max_px, "montages": p.judge_montages,
+                "detail_crops": p.judge_detail_crops, "samples": p.judge_samples})
+        if "limits" not in stated:
+            self.limits = self.limits.model_copy(update={"agent_max_turns": p.max_turns})
+        return p
 
     def resolve_blender(self) -> str:
         if self.binaries.blender and Path(self.binaries.blender).exists():
@@ -152,4 +206,8 @@ def get_settings() -> Settings:
     # de-dupe keys preserving order
     seen: set[str] = set()
     s.gemini_api_keys = [k for k in s.gemini_api_keys if not (k in seen or seen.add(k))]
+    # the dial named in config.yaml / CV3D_PROFILE, applied as a *default*: a value the
+    # user stated themselves survives it.  `3dcv make --profile X` forces the same dial
+    # (codeverse.cli._common.resolve_dial is the one resolver both paths go through).
+    s.apply_profile(s.profile)
     return s

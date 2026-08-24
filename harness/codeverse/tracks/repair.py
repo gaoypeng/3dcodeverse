@@ -35,6 +35,7 @@ class RepairOutcome(BaseModel):
     attempts: list[GenerationResult] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)
     repaired: bool = False
+    max_attempts: int = Field(default=0, description="repair budget this outcome ran under")
 
     @property
     def ok(self) -> bool:
@@ -149,7 +150,7 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
     build, lint = build_once(ctx)
     ctx.events.emit("build.done", round=round_index, ok=build.ok, lint_errors=len(lint.errors),
                     error=build.error_message[:200], duration_ms=build.duration_ms)
-    outcome = RepairOutcome(build=build, lint=lint)
+    outcome = RepairOutcome(build=build, lint=lint, max_attempts=max_attempts)
     prev_sig = ""
     repeats = 0
     attempt = 0
@@ -162,7 +163,8 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
                                 label=f"{label}_repair{attempt}", files_hint=files_hint)
         ctx.events.emit("repair.attempt", round=round_index, attempt=attempt, repeats=repeats, signature=sig[:200])
         res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model,
-                       settings=ctx.settings, budget=ctx.budget, events=ctx.events)
+                       settings=ctx.settings, budget=ctx.budget, events=ctx.events,
+                       max_turns=ctx.policy.agent_max_turns, wrapup_turns=ctx.policy.agent_wrapup_turns)
         outcome.attempts.append(res)
         outcome.usage = outcome.usage + res.usage
         if not res.ok:

@@ -77,6 +77,56 @@ Rules that callers must know:
   (`-nano`, `-mini`, `-codex`, `-lite`) never inherit the parent's price — they are
   unknown (0.0 + warning) unless a row exists.
 
+## cost/  (ledger · profiles · price provenance)
+```python
+from codeverse.cost import record_call, load_ledger, summarise, open_run_ledger
+record_call(usage, *, run="", round=None, stage=None, role=None, label="", backend="", model="",
+            outcome="ok", latency_ms=None, n_calls=1, source="live", ledger=None, reprice=False) -> CallCost
+    # Δ everything left out is resolved from the ambient context + the call label (cost.context);
+    # unknown model -> $0 and price_source="unknown" (flagged, never silently dropped); never raises.
+from codeverse.cost.instrument import (run_ledger, metered_chat_model, metered_agent,
+                                       per_call_metering, meters_own_calls, IN_PROCESS_AGENT_KINDS)
+with run_ledger(ws.root, run=slug):        # binds the run, points record_call at <run>/telemetry/cost.jsonl
+    ...                                    # (+ a <run>/cost_ledger.jsonl symlink for the run-layout alias)
+    # NESTS (restores the outer ledger + run binding on exit) and is context-local first, so
+    #   bench.run_bench / compare_backends can hold one ledger per prompt across N threads
+    # models.get_chat_model returns a MeteredChatModel → ONE row per ChatModel.generate
+    # agents.get_coding_agent returns a MeteredAgent  → ambient round/stage for the session, the
+    #   profile's turn cap (only ever LOWERS job.max_turns), and — iff NOT meters_own_calls(agent),
+    #   i.e. the backend is not in IN_PROCESS_AGENT_KINDS = {"api-agent"} — one session row.
+    #   The rule is the BACKEND, never "did a row get written while it ran": a CLI session with one
+    #   in-process tool call used to be dropped entirely, an in-process session whose turns ran in
+    #   another thread used to be counted twice.  A backend may declare `meters_own_calls`.
+per_call_metering() -> bool                # aggregate writers (BudgetGuard) skip their row while True
+from codeverse.cost.context import CallContext, call_context, bind_run, context_from_label, SELF_DESCRIBING
+    # precedence: explicit > a label naming a job of its OWN (SELF_DESCRIBING = plan/judge/pairwise/
+    #   texture/caption) > ambient (call_context) > the rest of the label > nothing.  A judge or a
+    #   texture pass that bills a model INSIDE an agent session is filed under its own stage, not the
+    #   session's; a generation label yields to the session (best-of-N: kind="candidate" beats
+    #   label="baseline"); Stage.OTHER means "the label said nothing" and displaces nothing.
+    # labels understood: api-agent:<job label>:t<turn> · judge:<rubric>:r<NN>:s<k> · planner · pairwise:… · texture… · caption…
+from codeverse.cost.caching import Block, order_blocks, prefix_report, session_cache, session_key
+session_cache(rows) -> [SessionCache]      # per session: cold first call, cached share, saved_usd, cold_usd
+from codeverse.cost.profiles import get_profile, PROFILES   # economy | balanced | quality
+get_settings().apply_profile(name, *, force=False) -> Profile
+    # sets default_{generator,planner,judge,captioner}, default_candidates, Settings.judge
+    # (max_px/montages/detail_crops/samples) and limits.agent_max_turns; a value the user stated in
+    # config.yaml / CV3D_* survives unless force (3dcv make --profile forces).
+from codeverse.cli._common import resolve_dial, ResolvedDial   # THE resolver, one per `3dcv make`
+resolve_dial(settings, profile_flag=None, *, rounds=None, candidates=None, max_usd=None,
+             max_minutes=None, texture=False) -> ResolvedDial
+    # profile/generator/planner/judge/captioner, judge_samples/judge_max_px/judge_montages/
+    # judge_detail_crops, agent_max_turns, rounds, candidates, texture, max_usd, max_minutes.
+    # `--profile X` and `CV3D_PROFILE=X` resolve to the SAME dial (they used to disagree on
+    # candidates + texture); an explicit flag beats both.  Spec.options.profile always records the
+    # resolved name so `3dcv resume` re-applies it.
+from codeverse.models.pricing import price_provenance    # (provider, model) -> PriceRow(price, match, status, checked)
+```
+`3dcv cost <slug|path>…` · `3dcv cost --runs-dir <root>` · `3dcv cost cache <slug>` ·
+`3dcv cost prices [--stale] [--days N] [--unverified]` · `3dcv cost profiles` · `3dcv cost estimate`.
+A run with a live ledger is read from it (`RunLedger.source == "live"`); older runs are
+reconstructed, so all 61 recorded runs keep auditing.
+
 ## agents/
 ```python
 from codeverse.agents import get_coding_agent           # (agent_id) -> CodingAgent  .run(job) .available() .id .kind .model
@@ -223,10 +273,26 @@ from codeverse.tracks import get_track
 rec = get_track(spec.track, **options).run(spec, ws, resume=False) -> RunRecord   # Δ kwargs forwarded to the constructor:
 # services=, judge=, agent=, model=, runtime=, policy=RoundPolicy, settings=, planner_model=, n_candidates=
 # (CLI --candidates > run_state.extra > settings.default_candidates); StaticObject | Articulated | Scene | Graphics
-from codeverse.orchestrator.rounds import RoundPolicy, StopPolicy, BestSelector, build_refine_instructions, compact_instructions
+from codeverse.orchestrator.rounds import RoundPolicy, StopPolicy, StopDecision, BestSelector, judge_sigma, \
+    best_score, last_gain, REWRITE_KIND, build_refine_instructions, compact_instructions
 RoundPolicy(max_rounds=4, plateau_window=2, min_delta=0.02, target=0.8, judge_on_gate_errors=True, max_refine_tasks=6,
             max_instructions_per_task=6, parallel_min_tasks=2, n_candidates=1, pairwise_margin=0.03,
-            pairwise_min_confidence=0.6, judge_samples=1).with_candidates(n)
+            pairwise_min_confidence=0.6, judge_samples=1,
+            judge_model="", regression_sigma=1.0, regression_allow_switch=True,   # money stops (docs/COST.md §5)
+            marginal_sigma=1.5, marginal_from_round=3,                            # r03+ must beat 1.5σ
+            agent_max_turns=0, agent_wrapup_turns=6      # 0 = UNCAPPED: a 28-turn cap was A/B'd
+            # and rejected (+$0.02, −0.21 score, docs/COST.md §17); wrapup applies to a cap a caller sets
+            ).with_candidates(n).with_judge(spec.backends.judge)
+policy.sigma / .regression_delta / .marginal_delta   # judge_sigma() reads cost.routing.JUDGE_NOISE — THE σ table
+StopPolicy(policy).evaluate(history, budget_ok=True) -> StopDecision(reason, strategy="same"|"switch", detail)
+    # .decide(...) -> StopReason is unchanged; strategy "switch" = ONE whole-artifact rewrite round (kind REWRITE_KIND)
+from codeverse.orchestrator.budget import BudgetGuard, usage_delta
+BudgetGuard(budget, *, soft_fraction=1.0, run="", ledger=None)
+    .spend(usage, *, stage="other", role=None, label="", round_index=None, outcome="ok", enforce=True)
+    # THE door every dollar goes through: accumulate → bucket by stage/round → one priced ledger row
+    # (skipped when cost.instrument.per_call_metering() already writes them) → enforce the ceilings.
+    # charge(...) = spend(enforce=True); add(...) = spend(enforce=False) — "not enforced" never means "not seen".
+    .by_stage / .by_round / .round_costs(i) / .stage_summary() / .mark()   # what a round burned, live
 from codeverse.orchestrator.candidates import CandidateRecord, rank_candidates, decide_best   # pure decision logic
 from codeverse.tracks.candidates import run_best_of_n, choose_best_round   # N parallel baselines in <ws>/_cand/c<k>
 # (quick 4-view judge, crashed candidate retried once; selection by build_ok → quick score → fewer gate errors, pairwise
@@ -236,8 +302,22 @@ from codeverse.tracks.reference import silhouette_gate, reference_refine_tasks  
 from codeverse.tracks.prompting import base_prompt_context, reference_images, file_for_target_factory   # Δ split out of
 from codeverse.tracks.common import RunContext, Services   # common.py (lazy re-exports keep old imports working)
 from codeverse.tracks.generation import generate, run_agent_task, parse_multifile, is_single_shot
-from codeverse.tracks.repair import build_with_repair
-from codeverse.tracks.steps import run_round
+generate(ws, *, agent_id, task, ..., budget=BudgetGuard, max_turns=0, wrapup_turns=6) -> GenerationResult
+    # GenerationResult adds turns / sessions / turn_capped.  A turn cap is applied ONLY if a caller
+    # asks: task.max_turns > max_turns > $CV3D_AGENT_MAX_TURNS > settings.limits.agent_max_turns >
+    # DEFAULT_AGENT_MAX_TURNS (0 = leave AgentJob.max_turns at the backend's own default — a 28-turn
+    # default was measured and rejected, docs/COST.md §17).  A session that hits a cap that IS set is
+    # asked for a final build + summary (WRAPUP_PROMPT) instead of being killed.
+    # EVERY session (attempt 1, <label>.a2 retry, <label>.wrapup) is charged as it ends.
+from codeverse.tracks.repair import build_with_repair   # RepairOutcome(.ok/.repaired/.max_attempts, attempts, usage)
+from codeverse.tracks.steps import run_round, skip_judge_reason, emit_round_cost, record_aborted_round
+skip_judge_reason(ctx, *, gates, renders) -> str    # "" = judge it.  ONLY states where the verdict is
+    # never bought at all: no judge / no renders / budget already exceeded / gate errors with
+    # policy.judge_on_gate_errors=False.  rejudge_round honours the last one too, so a policy skip is
+    # never re-bought (docs/COST.md §17 — "no file change" and "build not repaired" were removed)
+run_round(ctx, *, index, kind, tasks, pipeline, ..., previous_best=None) -> RoundRecord
+    # emits cost.round {stages{}, judge_usd, total_usd, agent_turns, wasted, waste_reason}; on ANY exception it
+    # records what the round burned (rounds/aborted_rNN.json, ctx.extra["aborted_rounds"]) and re-raises
 from codeverse.tracks.planner import plan, plan_model_for, ensure_acceptance    # graphics uses tracks/graphics_steps.plan_graphics
 ```
 `run_round` = generate → commit → `build_with_repair` → measure → gates → render →
@@ -250,7 +330,11 @@ generation prompts.
 
 ## texturing/  (derived asset pack; code stays truth — object.glb is never touched)
 ```python
-from codeverse.texturing.run import texture_pass, load_report
+from codeverse.texturing.run import texture_pass, texture_requested, load_report
+texture_requested(spec) -> bool   # THE owner of "does this run texture?" (Spec.options.texture, or
+    # the legacy "texture" tag).  Asked by tracks.lifecycle.finalise AND by the texture_pass spatial
+    # tool, which refuses in a run that did not ask — the tool is registered for every object track,
+    # so `texture: false` used to be bypassable from inside an agent session.
 texture_pass(ws, spec, plan, *, model_id, image_model=None, judge=True, judge_model_id=None, rubric=None,
              glb_in=None, views=OBJECT_VIEWS_QUICK, size=1024, ..., events=None, update_record=True) -> TextureReport
 # 1 vision call material plan (cacheable) → tileable textures (mirror cross-fade, seam_score ≤ 0.08) → world-metre UV
@@ -277,7 +361,8 @@ from codeverse.flywheel.gallery import write_gallery, gallery_items, render_gall
                                                                                       # thumbs); bench/report.py reuses it
 from codeverse.flywheel.index import build_index, query, summary   # sqlite + parquet: adds quality_tier, gate_errors, cost_usd,
                                                                    # rounds, status, code_fingerprint, prompt_hash, duplicate_of, has_captions
-3dcodeverse make|resume|status|render|judge|tools|mcp|texture {pass,scene-pack,show}
+3dcodeverse make [--profile economy|balanced|quality]|resume|status|show|render|judge|tools|mcp
+             |texture {pass,scene-pack,show}|cost {<slug>,show,cache,prices,profiles,estimate}
              |flywheel {export,pairs,caption,index,dedupe,gallery}|bench {run,report}|doctor    # alias: 3dcv
 ```
 
@@ -290,7 +375,15 @@ Event names: `run.start`, `stage.start/done`, `plan.done`, `workspace.materializ
 `candidate.start/done/failed/retry/selected`, `pairwise.done`,
 `texture.start/plan/generated/applied/gate/done`, `budget.exceeded`,
 `finalise.rebuild`, `stop`, `run.done` / `run.failed`.
+Cost events: **`cost.round`** (per round: `stages{stage → $}`, `judge_usd`, `total_usd`,
+`agent_turns`, `score`, `previous_best`, `wasted`, `waste_reason` ∈ aborted | build_failed |
+unjudged | regression | zero_delta, `run_usd`) — emitted for aborted rounds too;
+`judge.skipped` (reason), `generate.turn_cap` (label, max_turns, turns, cost_usd),
+`strategy.switch` (regression → whole-artifact rewrite), `budget.overrun` (a post-loop
+texture pass crossed the ceiling; the loop is already finished, so not `budget.exceeded`).
 `RunRecord` (record.json): spec, plan, workspace, status, rounds[RoundRecord],
 best_round, baseline_score, final_score, total_usage, environment,
 prompt_hashes{contract, cookbook, generate, refine}, error, extra{stop_reason,
-rubric, budget, rounds_summary, n_candidates?, candidates?, texturing?, captions?}.
+rubric, budget, cost_by_stage, aborted_rounds?, rounds_summary, n_candidates?,
+candidates?, texturing?, captions?}.  `total_usage` is the BudgetGuard total whenever it
+exceeds the sum of the rounds (aborted rounds, retried sessions, texture pass).

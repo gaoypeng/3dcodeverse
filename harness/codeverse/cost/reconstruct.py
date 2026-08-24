@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -113,6 +114,7 @@ class RunLedger:
     parallel: bool = False
     resumed: bool = False
     selected_candidate: str = ""   # "c1" when the run ran best-of-N and c1 won
+    source: str = "reconstructed"  # live (the run wrote its own ledger) | reconstructed
     rows: list[CallCost] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -165,6 +167,24 @@ def _gemini_cli_usages(stdout: dict[str, Any]) -> list[Usage]:
     return out
 
 
+#: a retried / wrapped-up agent session records itself as ``<label>.a2`` / ``<label>.wrapup``
+_ATTEMPT_SUFFIX = re.compile(r"\.(a\d+|wrapup)$")
+
+
+def _base_label(label: str) -> str:
+    """The *job* label a session label was derived from.
+
+    A retry is recorded as ``<label>.a2``, a wrap-up as ``<label>.wrapup`` and a
+    best-of-N candidate as ``c<k>:<label>``, while the ``generate.done`` event that
+    summarises the whole job carries the plain job label.  De-duplication has to
+    use this key: keying it on the session's own label left the retry's dollars in
+    a different bucket, the job's pool ran dry, and the event was counted a SECOND
+    time.  That artifact — not lost money — was most of the "$4.80 invisible to
+    record.total_usage" in docs/COST.md §6; §6 now quotes the corrected figure."""
+    lab = label.split(":", 1)[-1] if ":" in label else label
+    return _ATTEMPT_SUFFIX.sub("", lab)
+
+
 def _session_rows(d: Path, run: str, *, recheck: bool,
                   candidate: str = "") -> tuple[list[CallCost], str, int | None, float]:
     """Rows for one ``trajectories/<label>_rNN`` directory.  ``candidate`` is the
@@ -203,6 +223,35 @@ def _session_rows(d: Path, run: str, *, recheck: bool,
     return rows, label, rnd, duration
 
 
+def _live_rows(root: Path, *, run: str, recheck: bool) -> list[CallCost]:
+    """The run's own ledger rows, when it wrote one while it ran.
+
+    Rows carry their run name from the writer; stamp the directory's name on any
+    that do not (a battery copies runs around).  ``recheck`` re-prices them from
+    today's table exactly like a reconstructed row."""
+    try:
+        from codeverse.cost.ledger import load_ledger
+
+        rows = load_ledger(root)
+    except Exception as e:  # noqa: BLE001 - a corrupt ledger falls back to reconstruction
+        log.debug("cost: live ledger unreadable in %s: %s", root, e)
+        return []
+    out: list[CallCost] = []
+    for row in rows:
+        if not row.run:
+            row.run = run
+        if recheck:
+            usage = Usage(backend=row.backend, model=row.model_id or row.model,
+                          input_tokens=row.input_tokens, cached_tokens=row.cached_tokens,
+                          output_tokens=row.output_tokens, thoughts_tokens=row.thoughts_tokens,
+                          tool_calls=row.tool_calls, cost_usd=row.recorded_usd)
+            cost, fields = price_call(usage, backend=row.backend, model=row.model_id or row.model,
+                                      cache_write_tokens=row.cache_write_tokens, reprice=True)
+            row = row.model_copy(update={"cost_usd": cost, **fields})
+        out.append(row)
+    return out
+
+
 def _trajectory_dirs(root: Path) -> list[tuple[Path, str]]:
     """Every session directory of a run as ``(dir, candidate)``, including scene
     asset sub-workspaces (``_assets/<name>/trajectories/*``) and best-of-N
@@ -219,6 +268,12 @@ def _trajectory_dirs(root: Path) -> list[tuple[Path, str]]:
 # --------------------------------------------------------------------------- one run
 def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
     """Build the ledger of one run directory.
+
+    A run that wrote its own ledger while it ran (``telemetry/cost.jsonl``, see
+    :mod:`codeverse.cost.instrument`) is read from that ledger — one priced row
+    per real call, nothing inferred.  Runs recorded before the ledger existed are
+    rebuilt from ``trajectories/`` + ``record.json`` + ``events.jsonl`` exactly as
+    before, so all 61 reference runs keep auditing.
 
     ``recheck=True`` re-prices every row with the CURRENT price table (and rebuilds
     gemini-cli rows from the raw CLI stats) — that is the audit view; the default
@@ -246,15 +301,21 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
     led.n_rounds = len(rounds)
     led.passed = bool(record.get("status") == "passed")
 
-    covered: dict[str, float] = {}  # label -> $ already accounted for by its agent session(s);
-    #                                 a ``generate.done`` event within that budget is a duplicate
+    live_rows = _live_rows(root, run=run, recheck=recheck)
+    led.source = "live" if live_rows else "reconstructed"
+    led.rows += live_rows
+
+    covered: dict[str, float] = {}  # JOB label (see _base_label) -> $ already accounted for by
+    #                                 its session(s); a ``generate.done`` event within that
+    #                                 budget is a duplicate, retries and wrap-ups included
     model_s = 0.0
 
-    for d, cand in _trajectory_dirs(root):
+    for d, cand in (() if live_rows else _trajectory_dirs(root)):
         rows, label, rnd, duration = _session_rows(d, run, recheck=recheck, candidate=cand)
         if rows:
             led.rows += rows
-            covered[label] = covered.get(label, 0.0) + sum(r.recorded_usd for r in rows)
+            key = _base_label(label)
+            covered[key] = covered.get(key, 0.0) + sum(r.recorded_usd for r in rows)
             model_s += duration
 
     judged_rounds: set[int] = set()
@@ -267,6 +328,8 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
         ju = _usage(judgment.get("usage"))
         if ju.input_tokens or ju.cost_usd:
             judged_rounds.add(idx)
+            model_s += ju.latency_ms / 1000.0
+        if (ju.input_tokens or ju.cost_usd) and not live_rows:
             n = int(judgment.get("n_samples") or 1)
             degraded = bool((judgment.get("raw") or {}).get("degraded")) if isinstance(judgment.get("raw"), dict) else False
             led.rows.append(_row(ju, run=run, stage=Stage.JUDGE, label=str(judgment.get("rubric") or "judge"),
@@ -274,7 +337,6 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
                                  outcome="degraded" if degraded else "ok", reprice=recheck,
                                  backend=str(judgment.get("judge_backend") or ju.backend) or ju.backend,
                                  model=str(judgment.get("judge_backend") or ju.model) or ju.model))
-            model_s += ju.latency_ms / 1000.0
 
     # ------------------------------------------------------------------ events
     first_t = last_t = 0.0
@@ -295,14 +357,16 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
         if name == "judge.done":
             model_s += float(ev.get("duration_s") or 0.0) if int(ev.get("round", -1)) not in judged_rounds else 0.0
         cost = ev.get("cost_usd")
-        if not isinstance(cost, (int, float)) or not cost or name in _AGGREGATE_EVENTS:
+        if live_rows or not isinstance(cost, (int, float)) or not cost or name in _AGGREGATE_EVENTS:
             continue
         rnd = ev.get("round")
         rnd = int(rnd) if isinstance(rnd, (int, float)) else None
         label = str(ev.get("label") or name.split(".")[0])
-        if name == "generate.done" and covered.get(label, 0.0) >= float(cost) - 0.0005:
-            covered[label] = covered.get(label, 0.0) - float(cost)
-            continue                 # a session already contributed this spend
+        if name == "generate.done":
+            key = _base_label(label)
+            if covered.get(key, 0.0) >= float(cost) - 0.0005:
+                covered[key] = covered[key] - float(cost)
+                continue             # a session already contributed this spend
         if name == "judge.done" and rnd in judged_rounds:
             continue
         stage = Stage.TEXTURE if name.startswith("texture") else stage_for_label(label)
@@ -363,6 +427,12 @@ def reconstruct_cell(cell_dir: str | Path, *, recheck: bool = False) -> RunLedge
                     status=str(cell.get("status") or ""), passed=bool(cell.get("passed")),
                     final_score=cell.get("score"), n_rounds=1,
                     wall_s=float(cell.get("wall_s") or 0.0), model_s=float(cell.get("gen_seconds") or 0.0))
+    live = _live_rows(root, run=run, recheck=recheck)
+    if live:  # the cell wrote its own ledger while it ran: one priced row per real call
+        led.source = "live"
+        led.rows += live
+        led.recorded_usd = float(cell.get("gen_cost_usd") or 0.0) + float(cell.get("judge_cost_usd") or 0.0)
+        return led
     for attempt in sorted(root.glob("gen/attempt*")):
         result = _read_json(attempt / "result.json")
         usage = _usage(result.get("usage"))
@@ -415,5 +485,10 @@ def reconstruct(path: str | Path, *, recheck: bool = False) -> RunLedger:
     if (p / "run" / "record.json").is_file():
         led = reconstruct_run(p / "run", recheck=recheck)
         led.run = f"{p.parent.name}/{p.name}"
+        # a compare cell also spends OUTSIDE the harness run it wraps: the fixed
+        # evaluator's judge, and a repair arm's extra generations.  `run_cell` opens a
+        # ledger for the cell itself (nested around the run's own), and that spend is
+        # exactly the §6 gap the audit sees on the two cmp_easy_stool harness cells.
+        led.rows += _live_rows(p, run=led.run, recheck=recheck)
         return led
     return reconstruct_cell(p, recheck=recheck)

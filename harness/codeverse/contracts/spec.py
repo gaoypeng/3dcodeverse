@@ -37,6 +37,9 @@ class RunOptions(BaseModel):
 
     candidates: int | None = Field(default=None, ge=1, description="best-of-N baseline candidates")
     texture: bool = Field(default=False, description="run the derived texture pass after the loop")
+    profile: str = Field(default="", description="cost/quality dial this run was created with "
+                         "(codeverse/cost/profiles.py); '' = the settings default, and a resume "
+                         "re-applies it so judge samples / montage size / turn cap survive")
 
 
 class Spec(BaseModel):

@@ -1,0 +1,534 @@
+{
+ "_source": "recorded telemetry of three runs from the docs/COST.md \u00a76 off-record list (bench/out/*/runs/<slug>); read-only reference data, copied here as fixtures",
+ "runs": {
+  "art_hard_door_handle": {
+   "status": "plateau",
+   "stop_reason": "max_rounds",
+   "recorded_total_usd": 3.068995,
+   "recorded_total_input_tokens": 9946812,
+   "rounds_in_record": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "round_usd": {
+    "0": 0.771663,
+    "1": 0.474745,
+    "2": 0.331447,
+    "3": 0.750977
+   },
+   "sessions": [
+    {
+     "dir": "baseline.a2_r00",
+     "label": "baseline.a2",
+     "job_label": "baseline",
+     "round": 0,
+     "attempt": 2,
+     "exit_reason": "completed",
+     "turns": 82,
+     "cost_usd": 0.663884,
+     "input_tokens": 2500987,
+     "output_tokens": 66902,
+     "cached_tokens": 2167020,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "baseline_r00",
+     "label": "baseline",
+     "job_label": "baseline",
+     "round": 0,
+     "attempt": 1,
+     "exit_reason": "error",
+     "turns": 9,
+     "cost_usd": 0.035494,
+     "input_tokens": 53988,
+     "output_tokens": 59,
+     "cached_tokens": 8119,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine.a2_r01",
+     "label": "refine.a2",
+     "job_label": "refine",
+     "round": 1,
+     "attempt": 2,
+     "exit_reason": "completed",
+     "turns": 82,
+     "cost_usd": 0.357542,
+     "input_tokens": 1529537,
+     "output_tokens": 15943,
+     "cached_tokens": 1258366,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine.a2_r03",
+     "label": "refine.a2",
+     "job_label": "refine",
+     "round": 3,
+     "attempt": 2,
+     "exit_reason": "completed",
+     "turns": 84,
+     "cost_usd": 0.683181,
+     "input_tokens": 2226412,
+     "output_tokens": 51036,
+     "cached_tokens": 1745205,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_r01",
+     "label": "refine",
+     "job_label": "refine",
+     "round": 1,
+     "attempt": 1,
+     "exit_reason": "error",
+     "turns": 13,
+     "cost_usd": 0.045647,
+     "input_tokens": 103904,
+     "output_tokens": 79,
+     "cached_tokens": 48796,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_r02",
+     "label": "refine",
+     "job_label": "refine",
+     "round": 2,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 48,
+     "cost_usd": 0.257921,
+     "input_tokens": 829760,
+     "output_tokens": 20677,
+     "cached_tokens": 654722,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_r03",
+     "label": "refine",
+     "job_label": "refine",
+     "round": 3,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 96,
+     "cost_usd": 0.726272,
+     "input_tokens": 2653708,
+     "output_tokens": 46718,
+     "cached_tokens": 2132151,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    }
+   ],
+   "judges": [
+    {
+     "round": 0,
+     "rubric": "articulated_v1",
+     "cost_usd": 0.072284,
+     "input_tokens": 11668,
+     "output_tokens": 2335
+    },
+    {
+     "round": 1,
+     "rubric": "articulated_v1",
+     "cost_usd": 0.071556,
+     "input_tokens": 12102,
+     "output_tokens": 2260
+    },
+    {
+     "round": 2,
+     "rubric": "articulated_v1",
+     "cost_usd": 0.073526,
+     "input_tokens": 10681,
+     "output_tokens": 1649
+    },
+    {
+     "round": 3,
+     "rubric": "articulated_v1",
+     "cost_usd": 0.067796,
+     "input_tokens": 10558,
+     "output_tokens": 1868
+    }
+   ],
+   "post_hoc_texture_passes": []
+  },
+  "tool_med_hand_drill": {
+   "status": "budget",
+   "stop_reason": "budget",
+   "recorded_total_usd": 4.021042,
+   "recorded_total_input_tokens": 16463068,
+   "rounds_in_record": [
+    0,
+    1
+   ],
+   "round_usd": {
+    "0": 0.624707,
+    "1": 1.095167
+   },
+   "sessions": [
+    {
+     "dir": "baseline_r00",
+     "label": "baseline",
+     "job_label": "baseline",
+     "round": 0,
+     "attempt": 1,
+     "exit_reason": "budget",
+     "turns": 121,
+     "cost_usd": 0.580225,
+     "input_tokens": 3012928,
+     "output_tokens": 39110,
+     "cached_tokens": 2705383,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_assembly_r02",
+     "label": "refine_assembly",
+     "job_label": "refine_assembly",
+     "round": 2,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 50,
+     "cost_usd": 0.181432,
+     "input_tokens": 637080,
+     "output_tokens": 5733,
+     "cached_tokens": 470929,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_drill_bit.a2_r01",
+     "label": "refine_drill_bit.a2",
+     "job_label": "refine_drill_bit",
+     "round": 1,
+     "attempt": 2,
+     "exit_reason": "completed",
+     "turns": 16,
+     "cost_usd": 0.082922,
+     "input_tokens": 110928,
+     "output_tokens": 657,
+     "cached_tokens": 4056,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_drill_bit_r01",
+     "label": "refine_drill_bit",
+     "job_label": "refine_drill_bit",
+     "round": 1,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 20,
+     "cost_usd": 0.097178,
+     "input_tokens": 144813,
+     "output_tokens": 597,
+     "cached_tokens": 20253,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_drill_bit_r02",
+     "label": "refine_drill_bit",
+     "job_label": "refine_drill_bit",
+     "round": 2,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 24,
+     "cost_usd": 0.07962,
+     "input_tokens": 208685,
+     "output_tokens": 676,
+     "cached_tokens": 117672,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_main_housing.a2_r01",
+     "label": "refine_main_housing.a2",
+     "job_label": "refine_main_housing",
+     "round": 1,
+     "attempt": 2,
+     "exit_reason": "completed",
+     "turns": 32,
+     "cost_usd": 0.120601,
+     "input_tokens": 330206,
+     "output_tokens": 3374,
+     "cached_tokens": 206972,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_main_housing_r01",
+     "label": "refine_main_housing",
+     "job_label": "refine_main_housing",
+     "round": 1,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 40,
+     "cost_usd": 0.20125,
+     "input_tokens": 411341,
+     "output_tokens": 2065,
+     "cached_tokens": 170369,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_main_housing_r02",
+     "label": "refine_main_housing",
+     "job_label": "refine_main_housing",
+     "round": 2,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 20,
+     "cost_usd": 0.107131,
+     "input_tokens": 191298,
+     "output_tokens": 2745,
+     "cached_tokens": 69091,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_overall.a2_r01",
+     "label": "refine_overall.a2",
+     "job_label": "refine_overall",
+     "round": 1,
+     "attempt": 2,
+     "exit_reason": "completed",
+     "turns": 64,
+     "cost_usd": 0.300438,
+     "input_tokens": 1045197,
+     "output_tokens": 7017,
+     "cached_tokens": 755220,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_overall_r01",
+     "label": "refine_overall",
+     "job_label": "refine_overall",
+     "round": 1,
+     "attempt": 1,
+     "exit_reason": "budget",
+     "turns": 121,
+     "cost_usd": 0.680978,
+     "input_tokens": 3165991,
+     "output_tokens": 49693,
+     "cached_tokens": 2784983,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_rubber_overmold.a2_r01",
+     "label": "refine_rubber_overmold.a2",
+     "job_label": "refine_rubber_overmold",
+     "round": 1,
+     "attempt": 2,
+     "exit_reason": "completed",
+     "turns": 106,
+     "cost_usd": 0.48986,
+     "input_tokens": 2358423,
+     "output_tokens": 22979,
+     "cached_tokens": 2022413,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_rubber_overmold_r01",
+     "label": "refine_rubber_overmold",
+     "job_label": "refine_rubber_overmold",
+     "round": 1,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 92,
+     "cost_usd": 0.444199,
+     "input_tokens": 2197274,
+     "output_tokens": 25188,
+     "cached_tokens": 1923276,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_rubber_overmold_r02",
+     "label": "refine_rubber_overmold",
+     "job_label": "refine_rubber_overmold",
+     "round": 2,
+     "attempt": 1,
+     "exit_reason": "budget",
+     "turns": 121,
+     "cost_usd": 0.496051,
+     "input_tokens": 2612152,
+     "output_tokens": 23083,
+     "cached_tokens": 2295740,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    }
+   ],
+   "judges": [
+    {
+     "round": 0,
+     "rubric": "static_object_v1",
+     "cost_usd": 0.044482,
+     "input_tokens": 10802,
+     "output_tokens": 1956
+    },
+    {
+     "round": 1,
+     "rubric": "static_object_v1",
+     "cost_usd": 0.062174,
+     "input_tokens": 10957,
+     "output_tokens": 2020
+    }
+   ],
+   "post_hoc_texture_passes": []
+  },
+  "furn_hard_rolltop_desk": {
+   "status": "passed",
+   "stop_reason": "pass",
+   "recorded_total_usd": 1.216518,
+   "recorded_total_input_tokens": 3381927,
+   "rounds_in_record": [
+    0,
+    1,
+    2
+   ],
+   "round_usd": {
+    "0": 0.479199,
+    "1": 0.327666,
+    "2": 0.398044
+   },
+   "sessions": [
+    {
+     "dir": "baseline_r00",
+     "label": "baseline",
+     "job_label": "baseline",
+     "round": 0,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 108,
+     "cost_usd": 0.425861,
+     "input_tokens": 2144051,
+     "output_tokens": 21382,
+     "cached_tokens": 1870162,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_desk_top_r02",
+     "label": "refine_desk_top",
+     "job_label": "refine_desk_top",
+     "round": 2,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 16,
+     "cost_usd": 0.079404,
+     "input_tokens": 99297,
+     "output_tokens": 1315,
+     "cached_tokens": 0,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_drawer_front_r02",
+     "label": "refine_drawer_front",
+     "job_label": "refine_drawer_front",
+     "round": 2,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 44,
+     "cost_usd": 0.151169,
+     "input_tokens": 471835,
+     "output_tokens": 3576,
+     "cached_tokens": 320173,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_leather_inlay_r01",
+     "label": "refine_leather_inlay",
+     "job_label": "refine_leather_inlay",
+     "round": 1,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 24,
+     "cost_usd": 0.121015,
+     "input_tokens": 172309,
+     "output_tokens": 1460,
+     "cached_tokens": 20284,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_overall_r01",
+     "label": "refine_overall",
+     "job_label": "refine_overall",
+     "round": 1,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 40,
+     "cost_usd": 0.144453,
+     "input_tokens": 309989,
+     "output_tokens": 504,
+     "cached_tokens": 133228,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    },
+    {
+     "dir": "refine_overall_r02",
+     "label": "refine_overall",
+     "job_label": "refine_overall",
+     "round": 2,
+     "attempt": 1,
+     "exit_reason": "completed",
+     "turns": 22,
+     "cost_usd": 0.110066,
+     "input_tokens": 148847,
+     "output_tokens": 309,
+     "cached_tokens": 4041,
+     "backend": "api-agent",
+     "model": "gemini:gemini-3.7-flash"
+    }
+   ],
+   "judges": [
+    {
+     "round": 0,
+     "rubric": "static_object_v1",
+     "cost_usd": 0.053338,
+     "input_tokens": 10601,
+     "output_tokens": 1639
+    },
+    {
+     "round": 1,
+     "rubric": "static_object_v1",
+     "cost_usd": 0.062198,
+     "input_tokens": 10705,
+     "output_tokens": 1721
+    },
+    {
+     "round": 2,
+     "rubric": "static_object_v1",
+     "cost_usd": 0.057404,
+     "input_tokens": 10750,
+     "output_tokens": 1679
+    }
+   ],
+   "post_hoc_texture_passes": [
+    {
+     "cost_usd": 0.294,
+     "shipped": false
+    },
+    {
+     "cost_usd": 0.0919,
+     "shipped": false
+    },
+    {
+     "cost_usd": 0.2703,
+     "shipped": true
+    }
+   ]
+  }
+ }
+}

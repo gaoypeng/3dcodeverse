@@ -31,7 +31,7 @@ def test_full_path_single_sample(judge_input, cache_dir):
     assert "[verdict: overall 0.80 vs threshold 0.72 → PASS]" in j.summary
     req = model.requests[0]
     assert req.response_schema is not None and "Criteria" in req.response_schema["$defs"]
-    assert req.label == "judge:static_object_v1:s0" and req.temperature == 0.2
+    assert req.label == "judge:static_object_v1:r00:s0" and req.temperature == 0.2
     assert len(image_parts(req)) == 3  # 2×2 montage + 2 detail crops
     assert "BLIND JUDGE" in req.system and "DEFECT CHECKLIST" in req.system
     assert "Defects" in req.response_schema["$defs"]
@@ -163,3 +163,27 @@ def test_no_acceptance_items(judge_input, cache_dir):
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
     assert j.passed and j.acceptance_results == {}
     assert "acceptance" not in model.requests[0].response_schema["properties"]
+
+
+# --------------------------------------------------------------- payload size (docs/COST.md §3)
+def test_judge_payload_size_comes_from_the_settings_dial(monkeypatch):
+    """``Settings.judge`` (set coherently by a cost profile) sizes the verdict's
+    images unless the caller states its own."""
+    from codeverse.config import Settings, get_settings
+    from codeverse.judges.vlm_judge import VlmJudge
+
+    s = Settings()
+    s.apply_profile("economy", force=True)
+    monkeypatch.setattr("codeverse.judges.vlm_judge.get_settings", lambda: s)
+    j = VlmJudge(rubric="static_object_v1", model_id="fake:fake-1")
+    # no profile shrinks the payload: 768 px bills the same as 1024 on Gemini and is
+    # noisier, and the 2→1 crop cut did not survive a second draw (docs/COST.md §14)
+    assert j.max_px == 1024 and j.detail_crops == 2 and j.max_montages == 3
+    # a caller that states a size still gets it — the dial is the default, not a cap
+    explicit = VlmJudge(rubric="static_object_v1", model_id="fake:fake-1", max_px=768, detail_crops=1)
+    assert explicit.max_px == 768 and explicit.detail_crops == 1
+    s2 = Settings(judge={"detail_crops": 0, "max_px": 512})
+    monkeypatch.setattr("codeverse.judges.vlm_judge.get_settings", lambda: s2)
+    s2.apply_profile("economy")  # a stated payload survives a profile
+    assert VlmJudge(rubric="static_object_v1", model_id="fake:fake-1").detail_crops == 0
+    get_settings.cache_clear()

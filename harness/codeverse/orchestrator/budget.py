@@ -4,6 +4,17 @@ Every model / agent call yields a ``Usage``; the track charges it here.  When
 either **hard** ceiling is crossed ``BudgetExceeded`` is raised so the round
 loop can stop cleanly (status ``budget``) instead of silently overspending.
 
+**One door for every dollar.**  ``charge`` and ``add`` are thin wrappers over
+:meth:`BudgetGuard.spend`, which is the only place money enters the run: it
+accumulates the ``Usage``, buckets it by stage and by round, appends one priced
+row to the run's cost ledger (``<run>/cost_ledger.jsonl``,
+``codeverse.cost.record_call``) and then — for ``charge`` — enforces the
+ceilings.  The audit (docs/COST.md §6) found $4.80 of real spend that never
+reached ``record.total_usage``: rounds the budget cut after the work was done,
+retried ``.a2`` agent sessions and post-hoc texture passes.  Anything that goes
+through ``spend`` is visible to the guard, to the record and to the ledger, so
+that class of blindness cannot come back.
+
 On top of that a **soft** sub-budget (``soft_fraction`` of the hard ceilings)
 lets a track see the wall coming: ``soft_ok()`` / ``soft_exceeded()`` say
 "the baseline has used its share — degrade now (fewer assets, single-shot
@@ -15,10 +26,18 @@ build + render + judge) instead of dying with no score at all.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
+from pathlib import Path
+from typing import Any
 
 from codeverse.contracts.common import Budget, Usage
+
+log = logging.getLogger(__name__)
+
+#: stage label used when a caller does not say where the money went
+OTHER_STAGE = "other"
 
 
 class BudgetExceeded(RuntimeError):
@@ -38,7 +57,8 @@ class BudgetGuard:
     ``BudgetExceeded`` when ``max_usd`` or ``max_minutes`` is exceeded.
     """
 
-    def __init__(self, budget: Budget, start_time: float | None = None, *, soft_fraction: float = 1.0):
+    def __init__(self, budget: Budget, start_time: float | None = None, *, soft_fraction: float = 1.0,
+                 run: str = "", ledger: str | Path | Any | None = None):
         self.budget = budget
         self.start_time = time.time() if start_time is None else start_time
         self.spent = Usage()
@@ -49,24 +69,87 @@ class BudgetGuard:
         #: one-off extension of the HARD ceilings (finalise/salvage headroom)
         self.grace_usd = 0.0
         self.grace_minutes = 0.0
+        #: run slug + ledger sink for the per-call rows (None = do not write a ledger)
+        self.run = run
+        self.ledger = ledger
+        #: stage -> USD and round -> {stage -> USD}, so a round can report what it burned
+        self.by_stage: dict[str, float] = {}
+        self.by_round: dict[int, dict[str, float]] = {}
 
     # ----------------------------------------------------------------- accounting
-    def charge(self, usage: Usage | None) -> None:
-        """Add ``usage`` to the running total, then enforce the ceilings."""
-        self.add(usage)
-        self.check()
+    def spend(
+        self,
+        usage: Usage | None,
+        *,
+        stage: str = OTHER_STAGE,
+        role: str | None = None,
+        label: str = "",
+        round_index: int | None = None,
+        outcome: str = "ok",
+        enforce: bool = True,
+    ) -> None:
+        """THE door every dollar goes through.
 
-    def add(self, usage: Usage | None) -> None:
-        """Accumulate ``usage`` WITHOUT enforcing the ceilings.
+        Accumulates ``usage``, buckets it by ``stage`` (and by round), appends a
+        priced row to the run's cost ledger, and — when ``enforce`` — raises
+        ``BudgetExceeded`` if a hard ceiling is now crossed.  Accounting never
+        fails a run: a broken ledger is logged, not propagated."""
+        if usage is None:
+            return
+        with self._lock:
+            self.spent = self.spent + usage
+            self.calls += 1
+            key = stage or OTHER_STAGE
+            self.by_stage[key] = self.by_stage.get(key, 0.0) + float(usage.cost_usd)
+            if round_index is not None:
+                per = self.by_round.setdefault(int(round_index), {})
+                per[key] = per.get(key, 0.0) + float(usage.cost_usd)
+        self._ledger_row(usage, stage=key, role=role, label=label, round_index=round_index, outcome=outcome)
+        if enforce:
+            self.check()
+
+    def charge(self, usage: Usage | None, **kw: Any) -> None:
+        """Account for ``usage``, then enforce the ceilings (see :meth:`spend`)."""
+        kw.setdefault("enforce", True)
+        self.spend(usage, **kw)
+
+    def add(self, usage: Usage | None, **kw: Any) -> None:
+        """Account for ``usage`` WITHOUT enforcing the ceilings.
 
         For work that is already done and persisted (a completed judge verdict,
         a pairwise tie-break, the texture pass): the money is spent either way,
         and raising here would throw away a finished, paid-for result.  The
-        round loop stops at its next ``ok()`` check instead."""
-        if usage is not None:
-            with self._lock:
-                self.spent = self.spent + usage
-                self.calls += 1
+        round loop stops at its next ``ok()`` check instead.  The dollar is
+        still bucketed and still written to the ledger — "not enforced" never
+        means "not seen"."""
+        kw["enforce"] = False
+        self.spend(usage, **kw)
+
+    def _ledger_row(self, usage: Usage, *, stage: str, role: str | None, label: str,
+                    round_index: int | None, outcome: str) -> None:
+        if self.ledger is None:
+            return
+        try:
+            from codeverse.cost import per_call_metering, record_call
+
+            # When the run is metered call by call (codeverse.cost.instrument wraps every
+            # ChatModel / CodingAgent), those rows already ARE this dollar with per-call
+            # tokens, cache hits and latency — one aggregate row on top would double count.
+            if per_call_metering():
+                return
+            record_call(usage, run=self.run, stage=stage, role=role, round=round_index, label=label,
+                        backend=usage.backend, model=usage.model, outcome=outcome, ledger=self.ledger)
+        except Exception as e:  # noqa: BLE001 — accounting must never fail a run
+            log.debug("cost ledger row failed (%s): %s", self.ledger, e)
+
+    def mark(self) -> Usage:
+        """Snapshot of the running total — diff it with :func:`usage_delta` to see
+        what a round burned even when the round itself raised half-way."""
+        return self.spent.model_copy(deep=True)
+
+    def round_costs(self, round_index: int) -> dict[str, float]:
+        """``{stage: USD}`` charged against one round index (empty when none)."""
+        return dict(self.by_round.get(int(round_index), {}))
 
     def elapsed_minutes(self) -> float:
         return (time.time() - self.start_time) / 60.0
@@ -162,3 +245,23 @@ class BudgetGuard:
             "input_tokens": self.spent.input_tokens,
             "output_tokens": self.spent.output_tokens,
         }
+
+    def stage_summary(self) -> dict[str, float]:
+        """``{stage: USD}`` over the whole run (what the ``cost.round`` events add up to)."""
+        return {k: round(v, 6) for k, v in sorted(self.by_stage.items(), key=lambda kv: -kv[1])}
+
+
+def usage_delta(after: Usage, before: Usage) -> Usage:
+    """``after - before`` field by field (never negative).  Used to report what a
+    round burned when it raised before it could fold its own usage together."""
+    return Usage(
+        backend=after.backend or before.backend,
+        model=after.model or before.model,
+        input_tokens=max(0, after.input_tokens - before.input_tokens),
+        output_tokens=max(0, after.output_tokens - before.output_tokens),
+        cached_tokens=max(0, after.cached_tokens - before.cached_tokens),
+        thoughts_tokens=max(0, after.thoughts_tokens - before.thoughts_tokens),
+        tool_calls=max(0, after.tool_calls - before.tool_calls),
+        cost_usd=max(0.0, after.cost_usd - before.cost_usd),
+        latency_ms=max(0, after.latency_ms - before.latency_ms),
+    )

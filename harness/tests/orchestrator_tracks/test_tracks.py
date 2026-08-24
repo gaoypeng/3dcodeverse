@@ -91,7 +91,7 @@ def test_static_track_single_shot_with_repair_and_budget_stop(tmp_path, chair_pl
 
     def responder(req):
         n["gen"] += 1
-        if req.label == "baseline":  # first build fails, the repair fixes it
+        if req.label.startswith("baseline"):  # first build fails, the repair fixes it
             return f"=== FILE: src/object.js ===\n// {FAIL_MARK}\nexport function build(){{}}\n=== END FILE ==="
         return "=== FILE: src/object.js ===\nexport function build(THREE) { return new THREE.Group(); }\n=== END FILE ==="
 
@@ -99,7 +99,7 @@ def test_static_track_single_shot_with_repair_and_budget_stop(tmp_path, chair_pl
     track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5, 0.55, 0.6, 0.62)), model=model,
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.THREEJS))
     rec = track.run(spec, ws)
-    assert rec.status is RunStatus.BUDGET and rec.rounds[0].build.ok and "repair attempts: 1 (fixed)" in rec.rounds[0].notes
+    assert rec.status is RunStatus.BUDGET and rec.rounds[0].build.ok and "repair attempts: 1/2 (fixed)" in rec.rounds[0].notes
     assert rec.rounds[0].score == pytest.approx(0.5)
     assert any(r.label.startswith("r00_baseline_repair") for r in model.requests) or any("Repair" in r.messages[0].text for r in model.requests)
     assert rec.total_usage.cost_usd > 0.03 and ws.record_path.is_file()

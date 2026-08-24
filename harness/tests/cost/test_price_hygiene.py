@@ -119,3 +119,40 @@ def test_every_recorded_model_id_resolves_to_a_price():
     unknown = sorted(f"{p}:{m}" for p, m in _recorded_model_ids()
                      if p and price_provenance(p, m).price is None)
     assert not unknown, f"models with no price row (they cost $0 in every report): {unknown}"
+
+
+# --------------------------------------------------------------- staleness maintenance
+def test_every_price_row_was_checked_within_the_maintenance_window():
+    """A price nobody re-checked for 90 days is not evidence.  When this fails,
+    re-read the providers' pricing pages, update PRICES/PROVENANCE and bump
+    ``CHECKED`` — do not raise the threshold."""
+    from datetime import date, datetime
+
+    from codeverse.cli.cost_cmd import STALE_AFTER_DAYS
+    from codeverse.models.pricing import PRICES, price_provenance
+
+    stale = []
+    for prov, model in sorted(PRICES):
+        row = price_provenance(prov, model)
+        try:
+            age = (date.today() - datetime.strptime(row.checked, "%Y-%m-%d").date()).days
+        except (TypeError, ValueError):
+            stale.append(f"{prov}:{model} (no checked date)")
+            continue
+        if age > STALE_AFTER_DAYS:
+            stale.append(f"{prov}:{model} ({age} days)")
+    assert not stale, f"price rows older than {STALE_AFTER_DAYS} days: {stale}"
+
+
+def test_a_ledger_row_carries_the_provenance_of_the_price_it_used(tmp_path):
+    """The audit trail: which row produced this dollar, and can we stand behind it."""
+    from codeverse.contracts.common import Usage as U
+    from codeverse.cost import record_call
+
+    row = record_call(U(backend="gemini", model="gemini-3.1-pro-preview", input_tokens=1_000,
+                        output_tokens=100), run="r", stage="judge", ledger=tmp_path / "l.jsonl")
+    assert row.price_source == "exact" and row.price_approximate is False
+    assert row.price_checked and row.price_input == 2.0 and row.price_output == 12.0
+    unknown = record_call(U(backend="gemini", model="gemini-9.9-imaginary", input_tokens=1_000),
+                          run="r", stage="judge", ledger=tmp_path / "l.jsonl")
+    assert unknown.price_source == "unknown" and unknown.price_approximate is True

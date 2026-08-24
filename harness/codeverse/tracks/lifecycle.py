@@ -27,11 +27,15 @@ from codeverse.contracts.spec import Spec
 from codeverse.events import EventLog
 from codeverse.orchestrator.budget import BudgetExceeded, BudgetGuard
 from codeverse.orchestrator.rounds import (
+    REWRITE_KIND,
     BestSelector,
+    RefineTask,
     RoundPolicy,
     StopPolicy,
     StopReason,
+    Strategy,
     TaskGroup,
+    best_score,
     build_refine_instructions,
     plan_refine_groups,
 )
@@ -67,9 +71,31 @@ log = logging.getLogger(__name__)
 
 REFERENCE_RUBRIC = "reference_v1"
 
+#: fallback name of the run's live cost ledger when the cost package cannot place
+#: one itself (``flywheel/telemetry.py`` publishes it as ``telemetry/usage.jsonl``)
+LEDGER_NAME = "cost_ledger.jsonl"
+
+
+def run_ledger_path(ws: Workspace) -> Any:
+    """Where this run's priced per-call rows go.
+
+    ``codeverse.cost`` owns the run layout (``telemetry/cost.jsonl`` + the
+    ``cost_ledger.jsonl`` alias); fall back to the alias name if it cannot."""
+    try:
+        from codeverse.cost.ledger import open_run_ledger
+
+        return open_run_ledger(ws.root)
+    except Exception as e:  # noqa: BLE001 — accounting must never fail a run
+        log.debug("cost ledger placement fell back to %s: %s", LEDGER_NAME, e)
+        return ws.root / LEDGER_NAME
+
+
 _STATUS: dict[str, RunStatus] = {
     "pass": RunStatus.PASSED, "plateau": RunStatus.PLATEAU, "max_rounds": RunStatus.PLATEAU,
     "budget": RunStatus.BUDGET,
+    # the two money stops (orchestrator/rounds.py): the code is intact and the best
+    # round is delivered — the run stopped because another round was not worth buying.
+    "regression": RunStatus.PLATEAU, "diminishing_returns": RunStatus.PLATEAU,
     # judge outage (degraded/crashed verdicts even after a retry): the code is intact
     # and the best built round is delivered — a stop, not a failure.
     "judge_unavailable": RunStatus.PLATEAU,
@@ -191,8 +217,14 @@ class BaseTrack:
         raise NotImplementedError
 
     # ------------------------------------------------------------------ refine scaffold
-    def refine_tasks(self, ctx: RunContext, last: RoundRecord, history: Sequence[RoundRecord]) -> tuple[list[GenerationTask], list[str]]:
-        """index → rebuild guard → instructions → groups → per-track ``_refine_task``."""
+    def refine_tasks(self, ctx: RunContext, last: RoundRecord, history: Sequence[RoundRecord],
+                     *, strategy: Strategy = "same") -> tuple[list[GenerationTask], list[str]]:
+        """index → rebuild guard → instructions → groups → per-track ``_refine_task``.
+
+        ``strategy="switch"`` is what the loop asks for after a regression: the same
+        evidence, but ONE whole-artifact task instead of the per-part set that just
+        made the score worse (docs/COST.md §5 — repeating the shape is what the 19
+        regression rounds did)."""
         index = len(history)
         if last.build is None or not last.build.ok:
             return [self._rebuild_task(ctx, last, index)], ["rebuild: previous round did not build"]
@@ -202,11 +234,15 @@ class BaseTrack:
                                           extra=self.extra_refine_tasks(ctx, last))
         if not tasks:
             return [], []
-        groups, parallel = plan_refine_groups(tasks, allow_fanout=self.allow_refine_fanout,
-                                              parallel_min_tasks=ctx.policy.parallel_min_tasks)
+        if strategy == "switch":
+            tasks = [rewrite_task(last, best_score(history))] + tasks
+            groups, parallel = [TaskGroup(tasks=tasks, files=[])], False
+        else:
+            groups, parallel = plan_refine_groups(tasks, allow_fanout=self.allow_refine_fanout,
+                                                  parallel_min_tasks=ctx.policy.parallel_min_tasks)
         gen_tasks = [self._refine_task(ctx, g, last, index, parallel=parallel) for g in groups]
         ctx.events.emit("refine.planned", round=index, n_tasks=len(tasks), n_groups=len(groups), parallel=parallel,
-                        targets=[g.targets for g in groups])
+                        strategy=strategy, targets=[g.targets for g in groups])
         return gen_tasks, [t.line() for t in tasks]
 
     def _rebuild_task(self, ctx: RunContext, last: RoundRecord, index: int) -> GenerationTask:
@@ -268,12 +304,14 @@ class BaseTrack:
     def build_context(self, spec: Spec, ws: Workspace, events: EventLog, state: RunState) -> RunContext:
         settings = self._settings or get_settings()
         runtime = self._runtime or self.services.runtime(spec.language)
-        budget = BudgetGuard(spec.budget, soft_fraction=self.soft_budget_fraction)
+        budget = BudgetGuard(spec.budget, soft_fraction=self.soft_budget_fraction,
+                             run=ws.root.name, ledger=run_ledger_path(ws))
         spent = state.extra.get("spent_usage")
         if spent:
             budget.spent = Usage.model_validate(spent)
         n_cand = self._resolve_candidates(spec, state, settings)
-        policy = (self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds)).with_candidates(n_cand)
+        policy = ((self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds))
+                  .with_candidates(n_cand).with_judge(spec.backends.judge))
         # reference images: static objects are scored with reference_v1 (adds the measured silhouette
         # criterion); other tracks keep their rubric but the judge still sees the references.
         rubric = REFERENCE_RUBRIC if spec.references and self.track is Track.STATIC_OBJECT else self.rubric
@@ -381,10 +419,14 @@ class BaseTrack:
         selector = BestSelector()
         rejudged: set[int] = set()
         while True:
-            decision = stop_policy.decide(rounds, budget_ok=ctx.budget.ok()) if rounds else "continue"
-            if decision != "continue":
-                ctx.events.emit("stop", reason=decision, rounds=len(rounds), best=ctx.state.best_round)
-                return decision
+            decision = stop_policy.evaluate(rounds, budget_ok=ctx.budget.ok())
+            if decision.stop:
+                ctx.events.emit("stop", rounds=len(rounds), best=ctx.state.best_round, **decision.event())
+                return decision.reason
+            if decision.strategy == "switch":
+                # the last round regressed by more than the judge's noise: one round of a
+                # DIFFERENT shape (whole-artifact rewrite), never another of the same.
+                ctx.events.emit("strategy.switch", round=len(rounds), reason="regression", detail=decision.detail)
             index = len(rounds)
             previous = rounds[-1].judgment if rounds else None
             if index == 0:
@@ -404,8 +446,8 @@ class BaseTrack:
                             ctx.events.emit("best.updated", round=best, score=rounds[best].score)
                         self._save_spent(ctx)
                         continue  # decide() re-runs with the recovered score
-                tasks, instructions = self.refine_tasks(ctx, last, rounds)
-                kind = "refine"
+                tasks, instructions = self.refine_tasks(ctx, last, rounds, strategy=decision.strategy)
+                kind = REWRITE_KIND if decision.strategy == "switch" else "refine"
                 if not tasks:
                     if last.judgment is None and last.build is not None and last.build.ok:
                         # no tasks only because the judge never scored the round: stopping
@@ -422,7 +464,7 @@ class BaseTrack:
                 else:
                     rec = run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
                                     previous=previous, files_hint=self.round_files_hint(ctx),
-                                    extra_notes=self.round_extra_notes(ctx))
+                                    extra_notes=self.round_extra_notes(ctx), previous_best=best_score(rounds))
             except RoundFailed as e:
                 if index == 0:
                     raise
@@ -490,7 +532,7 @@ class BaseTrack:
                 ctx.events.emit("finalise.rebuild", round=best, ok=build.ok)
             except Exception as e:  # noqa: BLE001 — the best round already built once; report, don't fail
                 ctx.events.emit("finalise.rebuild_failed", error=f"{type(e).__name__}: {e}")
-        if rounds and (ctx.spec.options.texture or "texture" in ctx.spec.tags or ctx.extra.get("texture")):
+        if rounds and self._texture_wanted(ctx):
             self._texture_pass(ctx)
         ctx.state.status, ctx.state.stop_reason, ctx.state.error = status, stop_reason, error
         ctx.state.save(ctx.ws)
@@ -512,9 +554,35 @@ class BaseTrack:
             log.warning("changed_files failed in finalise: %s", e)
             return False
 
+    @staticmethod
+    def _texture_wanted(ctx: RunContext) -> bool:
+        """``codeverse.texturing.run.texture_requested`` is the single owner of this
+        decision (spec.options.texture / the legacy tag) — the same predicate the
+        ``texture_pass`` spatial tool asks, so a ``texture: false`` run cannot be
+        textured from inside an agent session either."""
+        try:
+            from codeverse.texturing.run import texture_requested
+
+            return texture_requested(ctx.spec)
+        except Exception as e:  # noqa: BLE001 — texturing is optional; never block finalise
+            log.debug("texture_requested unavailable: %s", e)
+            return bool(ctx.spec.options.texture)
+
     def _texture_pass(self, ctx: RunContext) -> None:
-        """Optional post-hoc texture pass (spec tag 'texture').  Additive: any failure
-        is logged + emitted, never fatal; usage is added to the budget totals."""
+        """Optional post-hoc texture pass (``Spec.options.texture``).  Additive: any
+        failure is logged + emitted, never fatal.
+
+        Its usage goes through the SAME guard as everything else (stage ``texture``,
+        role ``image``) so it lands in ``record.total_usage`` and in the ledger — four
+        post-hoc passes on ``furn_hard_rolltop_desk`` ($0.656) were invisible to both
+        (docs/COST.md §6).  It is charged without enforcement: the run is finalising,
+        the tiles are already paid for, and raising here would throw away the pack."""
+        if self._already_textured(ctx):
+            # An agent can call the `texture_pass` spatial tool during a round; the
+            # finalise hook must not buy the same pack a second time (a texture pass
+            # is $0.10-0.30 and the input GLB is unchanged).
+            ctx.events.emit("texture.skipped", reason="already_textured_this_artifact")
+            return
         try:
             from codeverse.texturing.run import texture_pass
 
@@ -525,21 +593,58 @@ class BaseTrack:
             log.warning("texture pass failed: %s", e)
             ctx.events.emit("texture.failed", error=f"{type(e).__name__}: {e}")
             return
-        ctx.budget.add(trep.usage)
+        ctx.budget.add(trep.usage, stage="texture", role="image", label="texture_pass")
         ctx.extra["texturing"] = trep.summary()
+        if not ctx.budget.ok():
+            # visible, but NOT `budget.exceeded`: that event means "the loop stopped",
+            # and a texture pass runs after the loop has already finished.
+            ctx.events.emit("budget.overrun", stage="texture",
+                            reason=f"the texture pass took the run past its ceiling "
+                                   f"(${ctx.budget.spent.cost_usd:.3f} of ${ctx.budget.hard_usd:.2f})",
+                            spent_usd=round(ctx.budget.spent.cost_usd, 4))
+
+    @staticmethod
+    def _already_textured(ctx: RunContext) -> bool:
+        """True when a texture pass already ran against the current ``object.glb``.
+
+        The report (``artifacts/texturing.json``) records the GLB it consumed; the
+        hook compares content hashes so a texture pass from an EARLIER round (whose
+        GLB has since been rebuilt) does not suppress the final one."""
+        import hashlib
+        import json as _json
+
+        report = ctx.ws.artifacts / "texturing.json"
+        glb = ctx.ws.artifacts / "object.glb"
+        if not report.is_file() or not glb.is_file():
+            return False
+        try:
+            data = _json.loads(report.read_text())
+            prev = Path(str(data.get("glb_in") or ""))
+            if not prev.is_file():
+                return False
+            digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()  # noqa: E731
+            return digest(prev) == digest(glb)
+        except Exception:  # noqa: BLE001 — a malformed report must not block texturing
+            return False
 
     def _record(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, error: str, stop_reason: str) -> RunRecord:
         best = ctx.state.best_round
         baseline = rounds[0].score if rounds else None
         final = rounds[best].score if best is not None and best < len(rounds) else None
         total = sum_usage(rounds)
-        # planner + other non-round calls are in the budget guard but not in rounds
+        # planner, aborted rounds, retried sessions, the texture pass: all in the guard,
+        # none of them in ``rounds`` — the guard is the honest total (docs/COST.md §6).
         if ctx.budget.spent.cost_usd > total.cost_usd:
             total = ctx.budget.spent
         extra: dict[str, Any] = {"stop_reason": stop_reason, "rubric": ctx.rubric, "budget": ctx.budget.summary(),
-                                 "n_candidates": ctx.policy.n_candidates, "candidates": ctx.state.extra.get("candidates")}
+                                 "n_candidates": ctx.policy.n_candidates, "candidates": ctx.state.extra.get("candidates"),
+                                 "cost_by_stage": ctx.budget.stage_summary()}
         if ctx.extra.get("texturing"):
             extra["texturing"] = ctx.extra["texturing"]
+        if ctx.extra.get("aborted_rounds"):
+            # rounds the budget (or a crash) cut after the money was spent: they are not
+            # in ``rounds``, so name them here and keep their dollars in total_usage.
+            extra["aborted_rounds"] = ctx.extra["aborted_rounds"]
         return RunRecord(
             spec=ctx.spec, plan=ctx.plan, workspace=str(ctx.ws.root), status=status, rounds=rounds, best_round=best,
             baseline_score=baseline, final_score=final, total_usage=total,
@@ -549,6 +654,18 @@ class BaseTrack:
             finished_at=datetime.now(UTC), error=error,
             extra=extra,
         )
+
+
+def rewrite_task(last: RoundRecord, best: float | None) -> RefineTask:
+    """The instruction that turns a repeat into a change of approach."""
+    was = f"{last.score:.3f}" if last.score is not None else "no score"
+    peak = f"{best:.3f}" if best is not None else "the earlier best"
+    return RefineTask(
+        target="overall", kind="rewrite", priority=0, source="judge",
+        instruction=(f"The previous round made the artifact WORSE ({was} against {peak}) — its edits are not the "
+                     "way forward. Do NOT repeat them part by part: re-read the plan and the failures below, then "
+                     "rewrite the whole artifact coherently, keeping only what the evidence shows was already right."),
+    )
 
 
 def generator_label(agent_id: str) -> str:

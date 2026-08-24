@@ -1,7 +1,8 @@
 """Cost accounting: a typed ledger of every model call, a price-provenance layer
-on top of ``models/pricing.py``, an audit over recorded runs, and the two cheap
-helpers that keep the bill down (cache-friendly prompt ordering, a pre-send cost
-guard).
+on top of ``models/pricing.py``, an audit over recorded runs, a pre-send cost
+guard, and the prompt-prefix measurement helpers (``Block`` / ``order_blocks`` /
+``prefix_report`` — measurement only: reordering the generation prompts for the
+cache was measured and reverted, see ``docs/COST.md`` §13).
 
 Public API::
 
@@ -26,6 +27,7 @@ from codeverse.cost.caching import (
     prefix_signature,
     render_blocks,
 )
+from codeverse.cost.context import CallContext, bind_run, call_context
 from codeverse.cost.guard import (
     CostEstimate,
     CostGuard,
@@ -33,15 +35,25 @@ from codeverse.cost.guard import (
     estimate_call,
     text_tokens,
 )
+from codeverse.cost.instrument import (
+    MeteredAgent,
+    MeteredChatModel,
+    metered_agent,
+    metered_chat_model,
+    per_call_metering,
+    run_ledger,
+)
 from codeverse.cost.ledger import (
     CostLedger,
     ledger_path,
     load_ledger,
+    open_run_ledger,
     price_call,
     record_call,
     set_default_ledger,
     summarise,
 )
+from codeverse.cost.profiles import PROFILES, Profile, get_profile
 from codeverse.cost.reconstruct import RunLedger, find_runs, reconstruct, reconstruct_run
 from codeverse.cost.report import console, markdown
 from codeverse.cost.routing import (
@@ -54,11 +66,56 @@ from codeverse.cost.routing import (
 from codeverse.cost.types import CallCost, CostBucket, Role, Stage, Summary
 
 __all__ = [
-    "ROUTES", "Audit", "Block", "CallCost", "CostBucket", "CostEstimate", "CostGuard", "CostLedger",
-    "PrefixReport", "Role", "Route", "RunLedger", "Stage", "Summary", "WasteItem", "audit_dir",
-    "audit_runs", "cache_efficiency", "cheapest_affordable", "console", "default_route",
-    "estimate_call", "find_runs", "ledger_path", "load_ledger", "markdown", "order_blocks",
-    "prefix_report", "prefix_signature", "price_call", "pro_break_even", "reconstruct",
-    "reconstruct_run", "record_call", "render_blocks", "samples_for_precision",
-    "set_default_ledger", "summarise", "text_tokens",
+    "Audit",
+    "Block",
+    "CallContext",
+    "CallCost",
+    "CostBucket",
+    "CostEstimate",
+    "CostGuard",
+    "CostLedger",
+    "MeteredAgent",
+    "MeteredChatModel",
+    "PROFILES",
+    "PrefixReport",
+    "Profile",
+    "ROUTES",
+    "Role",
+    "Route",
+    "RunLedger",
+    "Stage",
+    "Summary",
+    "WasteItem",
+    "audit_dir",
+    "audit_runs",
+    "bind_run",
+    "cache_efficiency",
+    "call_context",
+    "cheapest_affordable",
+    "console",
+    "default_route",
+    "estimate_call",
+    "find_runs",
+    "get_profile",
+    "ledger_path",
+    "load_ledger",
+    "markdown",
+    "metered_agent",
+    "metered_chat_model",
+    "open_run_ledger",
+    "order_blocks",
+    "per_call_metering",
+    "prefix_report",
+    "prefix_signature",
+    "price_call",
+    "pro_break_even",
+    "reconstruct",
+    "reconstruct_run",
+    "record_call",
+    "render_blocks",
+    "run_ledger",
+    "samples_for_precision",
+    "set_default_ledger",
+    "summarise",
+    "text_tokens",
 ]

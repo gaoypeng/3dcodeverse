@@ -7,6 +7,7 @@ import hashlib
 import importlib
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -113,3 +114,118 @@ def echo_json(obj: Any) -> None:
     import json
 
     console.print_json(json.dumps(obj, default=str, ensure_ascii=False))
+
+
+# --------------------------------------------------------------------------- cost profile
+def active_profile(settings: Any | None = None) -> Any:
+    """The :class:`~codeverse.cost.profiles.Profile` the current settings name."""
+    from codeverse.cost.profiles import get_profile
+
+    return get_profile((settings or get_settings()).profile)
+
+
+@dataclass(frozen=True)
+class ResolvedDial:
+    """Every profile-controlled value, after the profile and the user's own
+    settings/flags have been folded together.  This is what a run actually gets."""
+
+    profile: str
+    generator: str
+    planner: str
+    judge: str
+    captioner: str
+    judge_samples: int
+    judge_max_px: int
+    judge_montages: int
+    judge_detail_crops: int
+    agent_max_turns: int
+    rounds: int
+    candidates: int
+    texture: bool
+    max_usd: float
+    max_minutes: float
+
+
+def resolve_dial(
+    settings: Any | None = None,
+    profile_flag: str | None = None,
+    *,
+    rounds: int | None = None,
+    candidates: int | None = None,
+    max_usd: float | None = None,
+    max_minutes: float | None = None,
+    texture: bool = False,
+) -> ResolvedDial:
+    """The single resolver for the cost dial — used by ``3dcv make`` and by the tests.
+
+    ``--profile X`` (``profile_flag``) *forces* the dial over anything the user
+    stated in ``config.yaml`` / ``CV3D_*``; ``CV3D_PROFILE=X`` set the same dial
+    as a *default* when :func:`codeverse.config.get_settings` built the settings.
+    With nothing else stated the two paths therefore resolve **identically** —
+    that equality is what ``tests/cost/test_profiles.py`` asserts, and it
+    is the bug this function exists to prevent: the run shape (candidates, the
+    texture pass) used to be read off the flag and so applied to only one path.
+
+    An explicit CLI flag (``--rounds`` / ``--candidates`` / ``--max-usd`` /
+    ``--max-minutes`` / ``--texture``) always wins over both.
+    """
+    settings = settings or get_settings()
+    prof = settings.apply_profile(profile_flag, force=True) if profile_flag else active_profile(settings)
+    return ResolvedDial(
+        profile=prof.name,
+        generator=settings.default_generator,
+        planner=settings.default_planner,
+        judge=settings.default_judge,
+        captioner=settings.default_captioner,
+        judge_samples=int(settings.judge.samples),
+        judge_max_px=int(settings.judge.max_px),
+        judge_montages=int(settings.judge.montages),
+        judge_detail_crops=int(settings.judge.detail_crops),
+        agent_max_turns=int(settings.limits.agent_max_turns),
+        rounds=prof.rounds if rounds is None else int(rounds),
+        candidates=int(settings.default_candidates if candidates is None else candidates),
+        texture=bool(texture or prof.texture),
+        max_usd=prof.max_usd if max_usd is None else float(max_usd),
+        max_minutes=prof.max_minutes if max_minutes is None else float(max_minutes),
+    )
+
+
+def round_policy_options(spec: Spec, settings: Any | None = None) -> dict[str, Any]:
+    """``get_track(...)`` options the active profile implies.
+
+    Only the judge sample count needs a ``RoundPolicy`` (rounds travel on
+    ``spec.budget``, best-of-N on ``spec.options``), so a run at the default
+    ``n=1`` gets **no** policy and keeps the track's own — including the
+    rubric-derived stop target that ``BaseTrack.after_plan`` binds when no policy
+    was injected.  When a profile does ask for more samples we bind that target
+    here instead, from the same rubric the track will use."""
+    settings = settings or get_settings()
+    samples = int(getattr(settings.judge, "samples", 1) or 1)
+    if samples <= 1:
+        return {}
+    from dataclasses import replace
+
+    from codeverse.orchestrator.rounds import RoundPolicy
+
+    policy = RoundPolicy(max_rounds=spec.budget.max_rounds, judge_samples=samples)
+    threshold = rubric_threshold(spec)
+    if threshold is not None:
+        policy = replace(policy, target=float(threshold))
+    return {"policy": policy}
+
+
+def rubric_threshold(spec: Spec) -> float | None:
+    """Pass threshold of the rubric this spec will be judged with (``None`` when
+    the rubric cannot be loaded — the caller then keeps the policy default)."""
+    try:
+        from codeverse.contracts.common import Track
+        from codeverse.judges.rubrics import load_rubric
+        from codeverse.tracks import get_track
+        from codeverse.tracks.lifecycle import REFERENCE_RUBRIC
+
+        # same selection rule as BaseTrack.build_context
+        name = (REFERENCE_RUBRIC if spec.references and spec.track is Track.STATIC_OBJECT
+                else get_track(spec.track).rubric)
+        return float(load_rubric(name).pass_threshold)
+    except Exception:  # noqa: BLE001 - a missing rubric must not stop a run
+        return None

@@ -120,6 +120,19 @@ def _is_model_missing(err: ModelError) -> bool:
     return err.status == 404 or (err.status == 400 and ("not found" in s or "not supported" in s))
 
 
+def _record(usage: Usage, n_images: int) -> None:
+    """One ledger row per image batch (the image model is not a ChatModel, so
+    ``models.registry`` cannot meter it).  Never raises."""
+    try:
+        from codeverse.cost import record_call
+        from codeverse.cost.types import Role, Stage
+
+        record_call(usage, stage=Stage.TEXTURE, role=Role.IMAGE, label="image",
+                    backend="gemini-image", model=usage.model, n_calls=max(1, n_images))
+    except Exception:  # noqa: BLE001 - accounting must never break a texture pass
+        pass
+
+
 class GeminiImageModel:
     """See module docstring.  ``model`` is the primary; ``fallback`` the second try."""
 
@@ -193,6 +206,7 @@ class GeminiImageModel:
             usage = usage + u
         if len(images) > n:
             images = images[:n]
+        _record(usage, len(images))
         return images, usage
 
     # ------------------------------------------------------------------ internals

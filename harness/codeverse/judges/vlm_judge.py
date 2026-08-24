@@ -65,9 +65,9 @@ class VlmJudge:
         *,
         thinking: Literal["off", "low", "medium", "high"] = "low",
         max_attempts: int = 3,
-        max_montages: int = 3,
-        detail_crops: int = 2,
-        max_px: int = 1024,
+        max_montages: int | None = None,
+        detail_crops: int | None = None,
+        max_px: int | None = None,
         chat_model: ChatModel | None = None,
         cache_dir: Path | None = None,
         label: str = "judge",
@@ -78,9 +78,11 @@ class VlmJudge:
         self.temperature = temperature
         self.thinking = thinking
         self.max_attempts = max(1, int(max_attempts))
-        self.max_montages = max(1, int(max_montages))
-        self.detail_crops = max(0, int(detail_crops))
-        self.max_px = max_px
+        # payload size: the profile's dial (Settings.judge) unless the caller states one
+        jd = get_settings().judge
+        self.max_montages = max(1, int(jd.montages if max_montages is None else max_montages))
+        self.detail_crops = max(0, int(jd.detail_crops if detail_crops is None else detail_crops))
+        self.max_px = int(jd.max_px if max_px is None else max_px)
         self._model = chat_model
         self.cache_dir = cache_dir
         self.label = label
@@ -122,7 +124,10 @@ class VlmJudge:
             )
             reqs.append(ChatRequest(
                 messages=messages, system=system, response_schema=schema, temperature=self.temperature,
-                thinking=self.thinking, label=f"{self.label}:{self.rubric.name}:s{k}",
+                thinking=self.thinking,
+                # the label is the ledger's attribution when the sample runs in a worker
+                # thread (fan_out does not carry context vars): keep stage + round in it
+                label=f"{self.label}:{self.rubric.name}:r{inp.round_index:02d}:s{k}",
             ))
         if len(reqs) == 1:  # serial path: no pool, no thread hop
             outcomes = [self._sample(reqs[0], acceptance_ids, measured)]

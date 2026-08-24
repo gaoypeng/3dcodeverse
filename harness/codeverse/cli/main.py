@@ -62,9 +62,12 @@ def make(
     judge: Annotated[str | None, typer.Option()] = None,
     captioner: Annotated[str | None, typer.Option()] = None,
     image: Annotated[list[Path] | None, typer.Option("--image", help="reference image(s)")] = None,
-    rounds: Annotated[int, typer.Option("--rounds", min=0)] = 4,
-    max_usd: Annotated[float, typer.Option("--max-usd")] = 5.0,
-    max_minutes: Annotated[float, typer.Option("--max-minutes")] = 60.0,
+    profile: Annotated[str | None, typer.Option("--profile", help="cost/quality dial: economy | balanced | quality "
+                                               "(sets models, judge samples, rounds, candidates, turn cap, "
+                                               "montage size and the texture pass together)")] = None,
+    rounds: Annotated[int | None, typer.Option("--rounds", min=0, help="refine rounds after the baseline (default: the profile's)")] = None,
+    max_usd: Annotated[float | None, typer.Option("--max-usd")] = None,
+    max_minutes: Annotated[float | None, typer.Option("--max-minutes")] = None,
     candidates: Annotated[int | None, typer.Option("--candidates", min=1, help="best-of-N baseline: N parallel candidates, keep the best (default: settings.default_candidates or 1)")] = None,
     slug: Annotated[str | None, typer.Option("--slug")] = None,
     runs_dir: RunsDirOpt = None,
@@ -86,7 +89,14 @@ def make(
     if language is None:
         language = TRACK_LANGUAGES[track][0]
     run_slug = C.make_slug(prompt, track.value, language.value, slug)
-    backends = get_settings().backends(generator=generator, planner=planner, judge=judge, captioner=captioner)
+    settings = get_settings()
+    # ONE resolver for the whole dial, so `--profile X` and `CV3D_PROFILE=X` land the same
+    # values (they used to disagree on candidates + texture); an explicit flag beats both.
+    dial = C.resolve_dial(settings, profile, rounds=rounds, candidates=candidates,
+                          max_usd=max_usd, max_minutes=max_minutes, texture=texture)
+    rounds, max_usd, max_minutes = dial.rounds, dial.max_usd, dial.max_minutes
+    candidates, texture = dial.candidates, dial.texture
+    backends = settings.backends(generator=generator, planner=planner, judge=judge, captioner=captioner)
     # validate the whole Spec BEFORE touching the filesystem: an invalid
     # track/language combination must not leave an orphan run directory behind.
     try:
@@ -96,7 +106,10 @@ def make(
             constraints=Constraints(dimensions_m=C.parse_kv_floats(dim, "--dim") or None, must_have=must,
                                     must_not=must_not, style=style),
             budget=Budget(max_rounds=rounds, max_usd=max_usd, max_minutes=max_minutes),
-            backends=backends, options=RunOptions(candidates=candidates, texture=texture),
+            # options.profile records the dial this run resolved to, whichever way it was
+            # named (flag, CV3D_PROFILE, config.yaml), so `3dcv resume` re-applies it
+            backends=backends, options=RunOptions(candidates=candidates, texture=texture,
+                                                  profile=dial.profile),
             seed=seed, tags=tag,
         )
     except ValueError as e:
@@ -106,7 +119,11 @@ def make(
     ws.commit("spec")
     console.print(kv_table("run", {"slug": run_slug, "workspace": ws.root, "track": track.value,
                                    "language": language.value, "generator": backends.generator,
-                                   "candidates": candidates or "default"}))
+                                   "profile": f"{dial.profile} ({C.active_profile(settings).expectation()})",
+                                   "judge": f"{backends.judge} n={dial.judge_samples} "
+                                            f"({dial.judge_max_px}px/{dial.judge_detail_crops}crop)",
+                                   "rounds": rounds, "max_usd": max_usd,
+                                   "candidates": candidates, "texture": texture}))
     if no_run:
         ok(f"spec written: {ws.spec_path} (not run; `3dcv resume {run_slug}` to start)")
         return
@@ -114,10 +131,15 @@ def make(
 
 
 def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None) -> None:
+    from codeverse.cost.instrument import run_ledger
+
     get_track = C.lazy("codeverse.tracks", "get_track")
-    options = {"n_candidates": candidates} if candidates else {}
+    options: dict = {"n_candidates": candidates} if candidates else {}
+    options.update(C.round_policy_options(spec))
     try:
-        record = get_track(spec.track, **options).run(spec, ws, resume=resume)
+        # every model call and agent session of this run lands in telemetry/cost.jsonl
+        with run_ledger(ws.root, run=ws.root.name):
+            record = get_track(spec.track, **options).run(spec, ws, resume=resume)
     except KeyboardInterrupt:
         raise C.CliError(f"interrupted; resume with `3dcv resume {ws.root.name}`", code=130) from None
     except Exception as e:  # the track failed outside its own error handling
@@ -143,6 +165,8 @@ def resume(
     first — the only way to continue a BUDGET-stopped run."""
     ws = C.open_workspace(slug, runs_dir)
     spec = C.load_spec(ws)
+    if spec.options.profile:  # the dial the run was created with (judge samples, montage px, turn cap)
+        get_settings().apply_profile(spec.options.profile, force=True)
     raised = {k: v for k, v in {"max_usd": max_usd, "max_minutes": max_minutes, "max_rounds": rounds}.items() if v is not None}
     if raised:
         from codeverse.events import EventLog
@@ -279,8 +303,13 @@ def judge(
     inp = J.build_judge_input(ws, rec, rnd)
     judge_obj = J.make_judge(rec, rubric_name, model or rec.spec.backends.judge, n)
     n_images = J.count_prompt_images(inp, rubric_name)
+    from codeverse.cost.instrument import run_ledger
+
     try:
-        verdict = judge_obj.judge(inp)
+        # a re-judge joins the run's ledger when it has one; otherwise the per-process log
+        # (a ledger holding only this verdict would be read as the whole run's cost)
+        with run_ledger(ws.root, run=ws.root.name, create=False):
+            verdict = judge_obj.judge(inp)
     except ValueError as e:  # e.g. a measured rubric fed to a judge that computes nothing
         raise C.CliError(f"judge failed: {e}") from e
     except Exception as e:

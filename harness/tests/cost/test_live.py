@@ -74,3 +74,33 @@ def test_estimate_is_within_15_percent_of_the_bill():
     usage = _send(get_chat_model("gemini:gemini-3.7-flash"),
                   text + "\n\nReply with ONE JSON object {\"ok\": true}.")
     assert abs(est.input_tokens - usage.input_tokens) / usage.input_tokens < 0.15
+
+
+# --------------------------------------------------------------- the metered run loop
+def test_a_metered_run_reconciles_with_its_own_record(tmp_path: Path):
+    """LIVE end-to-end: a real (cheap) run's ledger must equal record.total_usage.
+
+    This is the invariant docs/COST.md §12 reports at 0.000% on two fresh runs;
+    the threshold here is the 1% the wave asked for."""
+    from typer.testing import CliRunner
+
+    from codeverse.cli.main import app
+    from codeverse.cost.ledger import load_ledger
+    from codeverse.flywheel.record import load_record
+    from codeverse.workspace import Workspace
+
+    runs = tmp_path / "runs"
+    r = CliRunner().invoke(app, [
+        "make", "a smooth grey ceramic bowl", "--track", "static_object", "--language", "blender",
+        "--generator", "single-shot:gemini:gemini-3.7-flash", "--judge", "gemini:gemini-3.7-flash",
+        "--rounds", "0", "--max-usd", "1", "--max-minutes", "15",
+        "--runs-dir", str(runs), "--slug", "cost_live_bowl"])
+    assert r.exit_code in (0, 1), r.output  # a failed judge/build is still a metered run
+    ws = Workspace(runs / "cost_live_bowl")
+    rows = load_ledger(ws.root)
+    assert rows and (ws.root / "telemetry" / "cost.jsonl").is_file()
+    assert all(row.run == "cost_live_bowl" for row in rows)
+    assert {row.stage.value for row in rows} >= {"plan", "baseline"}
+    recorded = load_record(ws).total_usage.cost_usd
+    ledger = sum(row.cost_usd for row in rows)
+    assert recorded > 0 and abs(ledger - recorded) / recorded < 0.01, f"{ledger} vs {recorded}"

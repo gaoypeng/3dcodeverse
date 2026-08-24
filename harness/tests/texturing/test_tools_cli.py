@@ -14,9 +14,12 @@ from codeverse.workspace import Workspace
 from tests.texturing.conftest import FakeJudge, fake_render
 
 
-def _ws(tmp_path: Path, chair_glb, chair_spec, chair_plan) -> Workspace:
+def _ws(tmp_path: Path, chair_glb, chair_spec, chair_plan, *, texture: bool = True) -> Workspace:
     ws = Workspace(tmp_path / "run").create()
-    ws.write_json(ws.spec_path, chair_spec)
+    # texturing.run.texture_requested is the ONE owner of "does this run texture?" —
+    # the tool refuses in a run whose spec says no, so the spec has to say yes here
+    spec = chair_spec.model_copy(update={"options": chair_spec.options.model_copy(update={"texture": texture})})
+    ws.write_json(ws.spec_path, spec)
     ws.write_json(ws.plan_path, chair_plan)
     shutil.copy(chair_glb, ws.artifacts / "object.glb")
     return ws
@@ -52,6 +55,21 @@ def test_texture_pass_tool_without_glb_is_usage_error(tmp_path, chair_spec, chai
     ws.write_json(ws.plan_path, chair_plan)
     obs = get_tool("texture_pass").call(ToolContext(workspace=ws), {})
     assert not obs.ok and "build" in obs.text
+
+
+def test_texture_pass_tool_refuses_when_the_run_did_not_ask_for_texturing(
+        tmp_path, chair_glb, chair_spec, chair_plan):
+    """`texture: false` must actually prevent the pass.  The tool is registered for every
+    object track, so an agent used to be able to buy a texture pass inside any run
+    (docs/COST.md §15: the quality run paid for two)."""
+    ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan, texture=False)
+    services = TextureServices(image_model=FakeImageModel(), judge_obj=FakeJudge([(0.7, {})]),
+                               render=fake_render, cache_dir=tmp_path / "c")
+    obs = get_tool("texture_pass").call(
+        ToolContext(workspace=ws, track="static_object", language="blender",
+                    extra={"texture_services": services}), {})
+    assert not obs.ok and "did not ask for texturing" in obs.text
+    assert not (ws.artifacts / "object_textured.glb").exists()
 
 
 def test_cli_texture_show_and_help(tmp_path, chair_glb, chair_spec, chair_plan):

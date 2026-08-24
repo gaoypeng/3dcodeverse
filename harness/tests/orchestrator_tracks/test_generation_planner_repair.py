@@ -92,7 +92,8 @@ def test_generate_single_shot_writes_files_and_charges(tmp_ws):
     res = generate(tmp_ws, agent_id="single-shot:gemini:x", task=task, model=model, budget=budget, events=events)
     assert res.ok and [c.path for c in res.files_changed] == ["src/model.py"] and (tmp_ws.src / "model.py").read_text() == "import bpy\n"
     assert budget.spent.cost_usd == pytest.approx(0.002)
-    assert "=== FILE:" in model.requests[0].system and model.requests[0].label == "baseline"
+    # the label carries the round so the cost ledger can attribute a single-shot call
+    assert "=== FILE:" in model.requests[0].system and model.requests[0].label == "baseline:r00"
     assert (tmp_ws.trajectories / "baseline_r00" / "response.md").is_file()
     # parse failure → ok=False, no raise
     bad = FakeChatModel(lambda req: "nope")

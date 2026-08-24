@@ -9,6 +9,7 @@ retried).  Exceptions that are ``BaseException`` but not ``Exception``
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import time
 from collections.abc import Callable, Iterable, Sequence
@@ -41,6 +42,17 @@ class FanOutReport:
         }
 
 
+def _in_caller_context(snapshot: contextvars.Context, fn: Callable[[int], None], i: int) -> None:
+    """Run ``fn(i)`` with the values the caller's context held at fan-out time.
+
+    ``Context.run`` cannot be re-entered from several threads, so each worker
+    replays the snapshot's variables into its own (already fresh) context.
+    """
+    for var, value in snapshot.items():
+        var.set(value)
+    fn(i)
+
+
 def fan_out(
     items: Sequence[T] | Iterable[T],
     fn: Callable[[T], R],
@@ -57,6 +69,11 @@ def fan_out(
     seconds)`` — keep it cheap and thread-safe (e.g. an EventLog.emit).
     """
     items = list(items)
+    # Workers inherit the caller's context so ambient state set with contextvars
+    # (the cost ledger's run/stage/role attribution) follows a parallel judge
+    # sample, best-of-N candidate or bench cell instead of falling back to the
+    # process default.
+    ctx_snapshot = contextvars.copy_context()
     results: list[R | Exception] = [None] * len(items)  # type: ignore[list-item]
     if not items:
         return results
@@ -85,7 +102,8 @@ def fan_out(
             _run(i)
     else:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix=label) as pool:
-            list(pool.map(_run, range(len(items))))
+            list(pool.map(lambda i: contextvars.copy_context().run(_in_caller_context, ctx_snapshot, _run, i),
+                          range(len(items))))
 
     n_failed = sum(1 for r in results if isinstance(r, Exception))
     report = FanOutReport(label, len(items), len(items) - n_failed, n_failed, durations, time.time() - t_all)

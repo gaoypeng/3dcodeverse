@@ -76,6 +76,7 @@ from codeverse.config import get_settings  # noqa: E402
 from codeverse.contracts.artifacts import RenderSet  # noqa: E402
 from codeverse.contracts.run import RunRecord  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402
+from codeverse.cost import run_ledger  # noqa: E402
 from codeverse.tracks.generation import MultiFileParseError  # noqa: E402
 from codeverse.workspace import Workspace  # noqa: E402
 
@@ -208,7 +209,11 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, 
     if not resume:
         run_ws.create()
         run_ws.write_json(run_ws.spec_path, spec)
-    rec = deps.run_track(spec, run_ws, resume)
+    # the harness arm is a real run: give it its own ledger, nested inside the cell's
+    # (run_ledger restores the outer one on the way out, so the fixed evaluation that
+    # follows keeps landing in the cell ledger)
+    with run_ledger(run_ws.root, run=f"{spec.id}:{run_ws.root.parent.name}"):
+        rec = deps.run_track(spec, run_ws, resume)
     res.gen_cost_usd = rec.total_usage.cost_usd
     res.tool_calls = rec.total_usage.tool_calls
     res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), rec.final_score
@@ -229,16 +234,20 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
     eval_ws = _fresh_ws(cell / "eval")
     eval_ws.write_json(eval_ws.spec_path, spec)
     try:
-        if arm.kind == "harness":
-            _run_harness(spec, cell, eval_ws, deps, res)
-        else:
-            _generate_oneshot(arm, spec, cell, eval_ws, opts, deps, res)
-        if (eval_ws.root / MODEL_FILE).is_file():
-            outcome = deps.evaluator.evaluate(eval_ws, spec)
-            eval_ws.write_json(eval_ws.root / "eval.json", outcome)
-            _fill_from_outcome(res, outcome)
-        else:
-            res.status, res.score, res.passed, res.build_ok = "no_code", 0.0, False, False
+        # one ledger per cell: generation (one-shot arms) AND the fixed evaluation's
+        # judge calls are priced into cells/<prompt>/<arm>/telemetry/cost.jsonl instead
+        # of the per-process fallback log.  Context-local, so --parallel keeps cells apart.
+        with run_ledger(cell, run=f"{item.id}:{arm.slug}"):
+            if arm.kind == "harness":
+                _run_harness(spec, cell, eval_ws, deps, res)
+            else:
+                _generate_oneshot(arm, spec, cell, eval_ws, opts, deps, res)
+            if (eval_ws.root / MODEL_FILE).is_file():
+                outcome = deps.evaluator.evaluate(eval_ws, spec)
+                eval_ws.write_json(eval_ws.root / "eval.json", outcome)
+                _fill_from_outcome(res, outcome)
+            else:
+                res.status, res.score, res.passed, res.build_ok = "no_code", 0.0, False, False
     except Exception as e:  # noqa: BLE001 — one cell must never kill the matrix
         res.status = "error"
         res.error = (res.error + "; " if res.error else "") + f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1200:]}"
@@ -343,7 +352,9 @@ def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm
             if on_result:
                 on_result(r)
     if opts.pairwise:
-        run_pairwise(battery, done, arms, out, opts, deps)
+        # the arena is battery-level spend: its own ledger at <out>/telemetry/cost.jsonl
+        with run_ledger(out, run=f"{battery.name}:pairwise"):
+            run_pairwise(battery, done, arms, out, opts, deps)
     build_compare_report(out)
     return list(done.values())
 

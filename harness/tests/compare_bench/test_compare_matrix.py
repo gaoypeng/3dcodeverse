@@ -211,3 +211,55 @@ def test_redo_status_reuses_recorded_answers(tmp_path: Path):
     r3 = next(r for r in rows3 if r.arm == "oneshot:claude-code")
     assert r3.status == "no_code" and "empty" in r3.error
     assert not (out / "cells" / "cmp_easy_stool" / "oneshot_claude-code" / "gen" / "attempt0" / "result.json").exists()
+
+
+def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
+    """compare_backends is a run-producing path: its cells must be priced into the
+    tree, not into the per-process fallback log (docs/COST.md §12).  The harness arm
+    gets a nested ledger for its own run; the cell's own ledger holds the spend that
+    sits OUTSIDE that run (the fixed evaluator's judge) — the §6 gap."""
+    from codeverse.contracts.chat import ChatMessage, ChatRequest, ChatResponse
+    from codeverse.contracts.common import Usage
+    from codeverse.cost.instrument import MeteredChatModel
+    from codeverse.cost.ledger import load_ledger
+
+    class FakeChat:
+        provider, model, id = "gemini", "gemini-3.7-flash", "gemini:gemini-3.7-flash"
+
+        def supports_vision(self) -> bool:
+            return True
+
+        def generate(self, request: ChatRequest) -> ChatResponse:
+            return ChatResponse(text="ok", usage=Usage(backend="gemini", model="gemini-3.7-flash",
+                                                       input_tokens=1000, output_tokens=10))
+
+    def bill(label: str) -> None:
+        MeteredChatModel(FakeChat()).generate(ChatRequest(messages=[ChatMessage.user("x")], label=label))
+
+    ev = FakeEvaluator()
+    inner_eval = ev.evaluate
+
+    def evaluate(ws, spec):          # the fixed evaluator buys a verdict
+        bill("judge:static_object_v1:r00:s0")
+        return inner_eval(ws, spec)
+
+    ev.evaluate = evaluate           # type: ignore[method-assign]
+    inner_track = fake_run_track(0.9)
+
+    def run_track(spec, ws, resume):  # the harness run spends inside its own ledger
+        bill("api-agent:baseline:t0")
+        return inner_track(spec, ws, resume)
+
+    deps = _deps(ev, {"claude-code": FakeBackend(["```python\n" + GOOD.format(score=0.6) + "```"])}, run_track)
+    out = tmp_path / "cmp"
+    opts = CompareOptions(judge="gemini:fixed", limit=1, parallel=2, pairwise=False)
+    rows = run_matrix(BATTERY, out, parse_arms("harness:api-agent:gemini:gemini-3.7-flash,oneshot:claude-code"),
+                      opts, deps)
+    assert len(rows) == 2
+    cells = {r.arm: Path(r.workspace) for r in rows}
+    harness = cells["harness:api-agent:gemini:gemini-3.7-flash"]
+    assert [r.label for r in load_ledger(harness / "run")] == ["api-agent:baseline:t0"]
+    assert [r.label for r in load_ledger(harness)] == ["judge:static_object_v1:r00:s0"]
+    oneshot = cells["oneshot:claude-code"]
+    assert not (oneshot / "run").exists()
+    assert [r.label for r in load_ledger(oneshot)] == ["judge:static_object_v1:r00:s0"]

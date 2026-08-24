@@ -124,7 +124,11 @@ def test_stop_policy_decisions():
     assert sp.decide([_round(0, 0.5)]) == "continue"
     assert sp.decide([_round(0, 0.5)], budget_ok=False) == "budget"
     assert sp.decide([_round(0, 0.5), _round(1, 0.85)]) == "pass"
-    assert sp.decide([_round(0, 0.5), _round(1, 0.51), _round(2, 0.515)]) == "plateau"
+    # three flat rounds: from r03 on the marginal-value stop answers first (both stop;
+    # "diminishing_returns" is the more precise reason — see test_round_economics.py)
+    assert sp.decide([_round(0, 0.5), _round(1, 0.51), _round(2, 0.515)]) == "diminishing_returns"
+    flat = StopPolicy(RoundPolicy(max_rounds=3, plateau_window=2, min_delta=0.02, target=0.8, marginal_from_round=99))
+    assert flat.decide([_round(0, 0.5), _round(1, 0.51), _round(2, 0.515)]) == "plateau"
     assert sp.decide([_round(0, 0.5), _round(1, 0.6), _round(2, 0.7)]) == "continue"
     assert sp.decide([_round(0, 0.5), _round(1, 0.6), _round(2, 0.7), _round(3, 0.75)]) == "max_rounds"
     # unscored rounds (build failed) do not count as plateau evidence

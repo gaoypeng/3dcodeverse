@@ -45,8 +45,13 @@ def pass_(
     load_plan = C.lazy("codeverse.spatial.tool_common", "load_plan")
     plan = load_plan(ws.plan_path)
     texture_pass = C.lazy("codeverse.texturing.run", "texture_pass")
-    rep = texture_pass(ws, spec, plan, model_id=model or spec.backends.planner, image_model=_image_model(image_model),
-                       judge=judge, judge_model_id=judge_model, size=size)
+    from codeverse.cost.instrument import run_ledger
+
+    # a post-hoc pass joins the run's ledger when it has one, else the per-process log
+    with run_ledger(ws.root, run=ws.root.name, create=False):
+        rep = texture_pass(ws, spec, plan, model_id=model or spec.backends.planner,
+                           image_model=_image_model(image_model), judge=judge,
+                           judge_model_id=judge_model, size=size)
     _print_report(rep)
 
 

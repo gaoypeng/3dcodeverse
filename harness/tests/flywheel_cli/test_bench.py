@@ -83,3 +83,38 @@ def test_run_battery_resume_and_report(tmp_path: Path):
     page = (out / "report.html").read_text()
     assert "data:image/jpeg;base64," in page and "furn_easy_stool" in page  # self-contained gallery
     assert "veh_easy_toy_car" in page and "boom" in page  # errored prompt still gets a card
+
+
+def test_every_bench_prompt_opens_its_own_run_ledger(tmp_path: Path):
+    """The batteries produce most of the runs; without a ledger their per-call rows
+    went to the per-process fallback log instead of the run (docs/COST.md §12)."""
+    from codeverse.contracts.chat import ChatMessage, ChatRequest, ChatResponse
+    from codeverse.contracts.common import Usage
+    from codeverse.cost.instrument import MeteredChatModel
+    from codeverse.cost.ledger import load_ledger
+
+    class FakeChat:
+        provider, model, id = "gemini", "gemini-3.7-flash", "gemini:gemini-3.7-flash"
+
+        def supports_vision(self) -> bool:
+            return True
+
+        def generate(self, request: ChatRequest) -> ChatResponse:
+            return ChatResponse(text="ok", usage=Usage(backend="gemini", model="gemini-3.7-flash",
+                                                       input_tokens=1000, output_tokens=10))
+
+    inner = _fake_run_fn({})
+
+    def run(spec, ws: Workspace, resume: bool) -> RunRecord:
+        MeteredChatModel(FakeChat()).generate(
+            ChatRequest(messages=[ChatMessage.user("x")], label="api-agent:baseline:t0"))
+        return inner(spec, ws, resume)
+
+    battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
+    out = tmp_path / "bench_out"
+    res = run_battery(battery, out, BenchOptions(parallel=2, limit=3), run_fn=run)
+    assert len(res) == 3
+    for r in res:
+        rows = load_ledger(Path(r.workspace))
+        assert len(rows) == 1, f"{r.id}: {rows}"
+        assert rows[0].run == r.id and rows[0].cost_usd > 0  # and not a sibling's row

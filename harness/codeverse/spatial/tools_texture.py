@@ -46,6 +46,15 @@ def _spec_plan(ctx: ToolContext) -> tuple[Spec, StaticPlan]:
 def texture_pass_tool(ctx: ToolContext, args: TexturePassArgs) -> Observation:
     glb = glb_path(ctx)
     spec, plan = _spec_plan(ctx)
+    texture_requested = lazy("codeverse.texturing.run", "texture_requested")
+    if not texture_requested(spec):
+        # ONE owner for "does this run texture?" (codeverse.texturing.run.texture_requested).
+        # The tool is registered for every object track, so without this an agent could —
+        # and did — buy a texture pass in a run whose spec says texture: false.
+        raise ToolUsageError(
+            "this run did not ask for texturing (spec.options.texture is false), so the "
+            "texture pass is off; finish the geometry instead",
+            "3dcv make ... --texture   # or `3dcv texture pass <slug>` after the run")
     texture_pass = lazy("codeverse.texturing.run", "texture_pass")
     services = ctx.extra.get("texture_services")  # the ONE injection point (TextureServices)
     rep = texture_pass(ctx.workspace, spec, plan, model_id=args.model or spec.backends.planner,

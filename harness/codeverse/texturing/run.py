@@ -106,6 +106,24 @@ def _measure(glb: Path) -> Measurement | None:
         return None
 
 
+#: the ONE owner of "does this run texture?".  Three call sites used to answer it
+#: independently — ``tracks.lifecycle.finalise`` (spec.options.texture / a "texture" tag /
+#: ctx.extra), and the ``texture_pass`` spatial tool, which the coding agent could call in
+#: any run because the tool is registered for every object track.  That is how a
+#: ``texture: false`` run still paid for a texture pass (docs/COST.md §15: the quality run's
+#: ledger was +9.5% over record.total_usage because the pass ran twice, once from inside a
+#: round-2 agent session).  Both now ask this function.
+def texture_requested(spec: Spec) -> bool:
+    """True when the run asked for the derived texture pass.
+
+    ``Spec.options.texture`` is the switch; the legacy ``texture`` tag is still
+    honoured because recorded specs carry it.  Nothing else may turn texturing
+    on — an agent calling the ``texture_pass`` tool in a run that did not ask for
+    it is refused, and ``3dcv texture pass <slug>`` is an explicit user
+    instruction that does not go through here at all."""
+    return bool(spec.options.texture or "texture" in (spec.tags or []))
+
+
 def texture_pass(
     ws: Workspace,
     spec: Spec,

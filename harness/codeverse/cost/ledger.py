@@ -20,10 +20,12 @@ import os
 import threading
 import time
 from collections.abc import Iterable, Sequence
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
 from codeverse.contracts.common import Usage
+from codeverse.cost.context import CallContext, attribute
 from codeverse.cost.types import (
     CallCost,
     CostBucket,
@@ -31,6 +33,7 @@ from codeverse.cost.types import (
     Stage,
     Summary,
     normalise_ids,
+    role_for_stage,
     stage_for_label,
 )
 from codeverse.models.pricing import (
@@ -42,11 +45,20 @@ from codeverse.models.pricing import (
 
 log = logging.getLogger(__name__)
 
-#: default ledger file inside a run workspace
+#: the ledger of a run lives in its telemetry bucket (docs/RUN_LAYOUT.md §telemetry)
+TELEMETRY_DIR = "telemetry"
+TELEMETRY_LEDGER = f"{TELEMETRY_DIR}/cost.jsonl"
+
+#: legacy/alias name at the run root.  ``flywheel.telemetry.live_ledger_path`` looks
+#: here for "does this run have a live ledger", and runs recorded before the
+#: telemetry bucket existed have the real file here — so it stays readable, and
+#: :func:`open_run_ledger` leaves a symlink pointing at the telemetry copy.
 LEDGER_NAME = "cost_ledger.jsonl"
 
 #: env var that points ``record_call`` at a ledger when no path is passed
+#: (``off`` / ``0`` / ``none`` disables ledger writing for the process)
 LEDGER_ENV = "CV3D_COST_LEDGER"
+_LEDGER_OFF = frozenset({"off", "0", "no", "none", "false"})
 
 DIMENSIONS = ("run", "stage", "role", "backend", "model", "provider", "round", "outcome")
 
@@ -84,32 +96,130 @@ class CostLedger:
 
 _default_lock = threading.Lock()
 _default: CostLedger | None = None
+_fallback: CostLedger | None = None
+_fallback_read = False
+
+#: sentinel: "this execution context did not state a ledger"
+_UNSET: Any = object()
+#: context-local override of the default ledger.  Mirrors
+#: ``codeverse.cost.context.bind_run``: a bench worker running its own prompt in
+#: its own thread must not have its rows land in a sibling run's file, while a
+#: plain worker thread that inherited no context still finds the process's ledger.
+_default_var: ContextVar[Any] = ContextVar("cv3d_cost_default_ledger", default=_UNSET)
 
 
 def set_default_ledger(path: str | Path | None) -> CostLedger | None:
-    """Point the module-level :func:`record_call` at ``path`` (``None`` disables it)."""
-    global _default
+    """Point the module-level :func:`record_call` at ``path``.
+
+    ``None`` clears the override (back to ``$CV3D_COST_LEDGER`` / the per-process
+    log).  Sets both the context-local override and the process-wide one, so a
+    nested or parallel run is attributed correctly and an uninstrumented worker
+    thread still writes somewhere sensible."""
+    global _default, _fallback_read
+    led = CostLedger(path) if path is not None else None
+    _default_var.set(led if led is not None else _UNSET)
     with _default_lock:
-        _default = CostLedger(path) if path is not None else None
-        return _default
+        _default = led
+        if led is None:
+            _fallback_read = False  # re-read $CV3D_COST_LEDGER next time
+    return led
+
+
+def default_ledger_path() -> Path | None:
+    """The path :func:`set_default_ledger` last set here (``None`` = no override).
+    Used to save/restore around a nested :func:`~codeverse.cost.instrument.run_ledger`."""
+    led = _default_var.get()
+    if led is not _UNSET:
+        return led.path if led is not None else None
+    with _default_lock:
+        return _default.path if _default is not None else None
 
 
 def default_ledger() -> CostLedger | None:
     """The ledger :func:`record_call` writes to when no ``ledger=`` is given:
-    whatever :func:`set_default_ledger` set, else ``$CV3D_COST_LEDGER``."""
-    global _default
+    whatever :func:`set_default_ledger` set, else ``$CV3D_COST_LEDGER``, else the
+    per-process fallback log (:func:`process_ledger_path`) so a call made outside
+    any run — ``3dcv judge``, a bench script, a notebook — is still accounted for.
+    ``CV3D_COST_LEDGER=off`` turns writing off entirely."""
+    global _fallback, _fallback_read
+    led = _default_var.get()
+    if led is not _UNSET:
+        return led
     with _default_lock:
         if _default is not None:
             return _default
+        if _fallback_read:
+            return _fallback
         env = os.environ.get(LEDGER_ENV, "").strip()
-        if env:
-            _default = CostLedger(env)
-        return _default
+        _fallback = None if env.lower() in _LEDGER_OFF else CostLedger(env or process_ledger_path())
+        _fallback_read = True
+        return _fallback
+
+
+def process_ledger_path() -> Path:
+    """The fallback log for calls made with no run context: one file per process
+    under ``<cache_dir>/cost/``.  Never inside a run directory, so it can never be
+    mistaken for a run's own ledger."""
+    try:
+        from codeverse.config import get_settings
+
+        base = Path(get_settings().cache_dir)
+    except Exception:  # pragma: no cover - settings must never break accounting
+        base = Path.home() / ".cache" / "codeverse"
+    stamp = time.strftime("%Y%m%d", time.localtime())
+    return base / "cost" / f"p{os.getpid()}-{stamp}.jsonl"
 
 
 def ledger_path(workspace: str | Path) -> Path:
-    """The conventional ledger path of a run workspace (``<ws>/cost_ledger.jsonl``)."""
-    return Path(workspace) / LEDGER_NAME
+    """The live ledger of a run workspace: ``<ws>/telemetry/cost.jsonl``."""
+    return Path(workspace) / TELEMETRY_LEDGER
+
+
+def existing_ledger_path(workspace: str | Path) -> Path | None:
+    """The ledger file a run actually has — the telemetry one, else the legacy
+    root file — or ``None``."""
+    root = Path(workspace)
+    for name in (TELEMETRY_LEDGER, LEDGER_NAME):
+        p = root / name
+        if p.is_file():
+            return p
+    return None
+
+
+def open_run_ledger(workspace: str | Path) -> CostLedger:
+    """The run's live ledger, ready to append to.
+
+    Writes to ``telemetry/cost.jsonl`` and leaves ``<run>/cost_ledger.jsonl`` as a
+    relative symlink to it, so there is exactly one physical copy and the run
+    layout's ``live_ledger_path`` / ``telemetry/usage.jsonl`` alias keep working."""
+    root = Path(workspace)
+    path = root / TELEMETRY_LEDGER
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        alias = root / LEDGER_NAME
+        if not alias.exists() and not alias.is_symlink():
+            os.symlink(TELEMETRY_LEDGER, alias)
+    except OSError as e:  # pragma: no cover - read-only dir / no symlinks
+        log.debug("cost: could not prepare the run ledger at %s: %s", path, e)
+    return CostLedger(path)
+
+
+def _as_stage(value: Stage | str | None) -> Stage | None:
+    if value is None or isinstance(value, Stage):
+        return value
+    try:
+        return Stage(value)
+    except ValueError:
+        return stage_for_label(str(value))
+
+
+def _as_role(value: Role | str | None) -> Role | None:
+    if value is None or isinstance(value, Role):
+        return value
+    try:
+        return Role(value)
+    except ValueError:
+        return Role.OTHER
 
 
 def price_call(
@@ -162,7 +272,7 @@ def record_call(
     usage: Usage | None = None,
     *,
     run: str = "",
-    stage: Stage | str = Stage.OTHER,
+    stage: Stage | str | None = None,
     role: Role | str | None = None,
     round: int | None = None,  # noqa: A002 - matches the record/round vocabulary
     label: str = "",
@@ -186,21 +296,17 @@ def record_call(
         record_call(res.usage, run=ws.slug, round=idx, stage="baseline",
                     role="generator", ledger=ws.root / "cost_ledger.jsonl")
 
+    Anything the caller leaves out (``run`` / ``round`` / ``stage`` / ``role``) is
+    resolved from the ambient run context and the call label — see
+    :mod:`codeverse.cost.context`.
+
     Never raises: a failure to account is logged, not propagated."""
     u = usage or Usage()
-    try:
-        st = Stage(stage) if not isinstance(stage, Stage) else stage
-    except ValueError:
-        st = stage_for_label(str(stage))
-    if role is None:
-        from codeverse.cost.types import role_for_stage
-
-        rl = role_for_stage(st)
-    else:
-        try:
-            rl = Role(role) if not isinstance(role, Role) else role
-        except ValueError:
-            rl = Role.OTHER
+    ctx = attribute(CallContext(run=run, round=round, stage=_as_stage(stage), role=_as_role(role),
+                                label=label), label=label)
+    st = ctx.stage or Stage.OTHER
+    rl = ctx.role or role_for_stage(st)
+    run, round, label = ctx.run, ctx.round, ctx.label  # noqa: A001 - see the signature
     try:
         cost, price_fields = price_call(u, backend=backend, model=model,
                                         cache_write_tokens=cache_write_tokens, reprice=reprice)
@@ -237,11 +343,15 @@ def record_call(
 
 
 def load_ledger(path: str | Path) -> list[CallCost]:
-    """Read a ledger file (or a directory containing one).  Bad lines are skipped
-    with a debug log — a truncated last line never loses the rest of the file."""
+    """Read a ledger file (or a run directory containing one: ``telemetry/cost.jsonl``
+    first, then the legacy root ``cost_ledger.jsonl``).  Bad lines are skipped with a
+    debug log — a truncated last line never loses the rest of the file."""
     p = Path(path)
     if p.is_dir():
-        p = p / LEDGER_NAME
+        found = existing_ledger_path(p)
+        if found is None:
+            return []
+        p = found
     if not p.is_file():
         return []
     rows: list[CallCost] = []
