@@ -14,26 +14,52 @@ from pathlib import Path
 from codeverse.contracts.common import ENTRY_FILE
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel.record import effective_judgment
+from codeverse.gallery.cards import gallery_figure, tier_tag, verdict_tag
 from codeverse.gallery.code import CODE_CSS, numbered, read_text, src_files
-from codeverse.gallery.index import best_sheet
+from codeverse.gallery.index import best_sheet, hero_view
 from codeverse.gallery.model import RunEntry
 from codeverse.gallery.theme import esc, footer, page_shell, top_bar
 from codeverse.gallery.urls import UrlMaker
 from codeverse.workspace import Workspace
 
 DETAIL_CSS = CODE_CSS + """
-.hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:var(--s-4);align-items:start}
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:var(--s-4);align-items:start}
 @media (max-width:900px){.hero{grid-template-columns:1fr}}
-.hero .shotbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);
-  overflow:hidden;box-shadow:var(--shadow)}
-.hero .shotbox img{width:100%;display:block;background:var(--sunken)}
+.hero .shotbox{position:relative;background-color:var(--shot-bg);
+  background-image:repeating-conic-gradient(var(--shot-check) 0% 25%,transparent 0% 50%);
+  background-size:22px 22px;border-radius:var(--r-3);overflow:hidden;
+  box-shadow:var(--shadow),inset 0 0 0 1px var(--shot-ring)}
+.hero .shotbox img{width:100%;display:block;aspect-ratio:4/3;max-height:min(44vh,430px);
+  object-fit:contain}
+.hero .shotbox figcaption{position:absolute;inset:auto 0 0 0;color:#fff;font-size:var(--fs-sm);
+  font-weight:550;padding:26px 12px 8px;background:linear-gradient(to top,var(--overlay),transparent);
+  text-shadow:0 1px 2px rgba(0,0,0,.55)}
 .linkrow{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:var(--s-3);font-size:var(--fs-sm);
   overflow-wrap:anywhere}
-.badges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--s-3)}
+.badges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--s-3);align-items:center}
 .best{background:var(--accent-soft)}
+.best td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 details.round{border-top:1px solid var(--line);padding:var(--s-2) 0}
 details.round summary{cursor:pointer;font-size:var(--fs-sm)}
+.jump{display:flex;flex-wrap:wrap;gap:6px;margin:var(--s-4) 0 0;position:sticky;top:52px;z-index:10;
+  padding:6px 0;background:color-mix(in srgb,var(--bg) 92%,transparent)}
+.jump a{font-size:var(--fs-sm);padding:3px 10px;border-radius:999px;background:var(--chip);
+  color:var(--chip-fg);font-weight:550}
+.jump a:hover{text-decoration:none;background:var(--accent-soft);color:var(--accent)}
+.neighbours{display:flex;gap:6px;align-items:center}
+.neighbours .btn.dead{opacity:.4;pointer-events:none}
+ul.plain li{display:list-item}
+#judge ul.plain li{margin:5px 0;line-height:1.55}
+.footnav{display:flex;gap:var(--s-2);justify-content:space-between;margin:var(--s-5) 0 0}
+.panel table{width:auto;min-width:min(100%,560px)}
+.panel .tablewrap{width:fit-content;max-width:100%}
 """
+
+
+#: judge severities, worst first — a triage reader must see "critical" before "minor"
+SEVERITY_ORDER = {"critical": 0, "blocker": 0, "major": 1, "moderate": 2, "minor": 3, "nit": 4}
+SEVERITY_CLASS = {"critical": "pill-fail", "blocker": "pill-fail", "major": "pill-fail",
+                  "moderate": "pill-warn", "minor": "pill-warn"}
 
 
 def _fmt(v: float | None, d: int = 3) -> str:
@@ -44,9 +70,9 @@ def _kv(key: str, value: str) -> str:
     return f"<div class='kv'><span class='k'>{esc(key)}</span><span class='v'>{value}</span></div>"
 
 
-def _panel(title: str, inner: str, *, anchor: str = "") -> str:
+def _panel(title: str, inner: str, *, anchor: str = "", extra_head: str = "") -> str:
     ident = f" id='{esc(anchor)}'" if anchor else ""
-    return f"<div class='panel'{ident}><h2>{esc(title)}</h2>{inner}</div>"
+    return f"<div class='panel'{ident}><h2>{esc(title)}{extra_head}</h2>{inner}</div>"
 
 
 def _rel(run: Path, path: str | None) -> str:
@@ -62,15 +88,19 @@ def _rel(run: Path, path: str | None) -> str:
 
 # --------------------------------------------------------------------------- sections
 def _hero(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
-    sheet = entry.sheet
-    shot = (f"<a href='{esc(urls.file(entry, sheet))}'><img src='{esc(urls.file(entry, sheet))}' "
-            f"alt='contact sheet — {esc(entry.slug)}' loading='eager'></a>") if sheet else \
-        "<div class='empty'>no contact sheet</div>"
-    badges = (f"<span class='tag tier {esc(entry.tier)}'>{esc(entry.tier)}</span>"
-              f"<span class='tag {'pill-pass' if entry.passed else ('pill-fail' if entry.passed is False else '')}'>"
-              f"{'passed' if entry.passed else ('failed' if entry.passed is False else 'unjudged')}</span>"
-              f"<span class='tag'>{esc(entry.status)}</span>"
-              f"<span class='tag'>{esc(entry.track)}</span><span class='tag'>{esc(entry.language)}</span>")
+    """One big legible view + the facts.  Every other angle is in ``renders`` below,
+    which is where a grid belongs — the top of the page answers "what is this?"."""
+    image = entry.hero or entry.sheet
+    label = entry.hero_label or ("Contact sheet" if entry.sheet else "")
+    shot = (f"<a href='{esc(urls.file(entry, image))}' title='open full size'>"
+            f"<img src='{esc(urls.file(entry, image))}' "
+            f"alt='{esc(label)} — {esc(entry.slug)}' loading='eager'>"
+            f"<figcaption>{esc(label)}</figcaption></a>") if image else \
+        "<div class='empty'>no render</div>"
+    redundant = not entry.status or (entry.passed and entry.status == "passed")
+    badges = (f"{tier_tag(entry)}{verdict_tag(entry)}"
+              + ("" if redundant else f"<span class='tag'>{esc(entry.status)}</span>")
+              + f"<span class='tag'>{esc(entry.track)}</span><span class='tag'>{esc(entry.language)}</span>")
     delta = ("—" if entry.score is None or entry.baseline_score is None
              else format(entry.score - entry.baseline_score, "+.3f"))
     facts = "".join([
@@ -96,13 +126,13 @@ def _hero(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
 
 def _rounds_table(entry: RunEntry, urls: UrlMaker) -> str:
     head = ("<tr><th>r</th><th>kind</th><th class='n'>score</th><th>verdict</th><th class='n'>gates</th>"
-            "<th>build</th><th class='n'>$</th><th class='n'>s</th><th>commit</th><th>sheet</th></tr>")
+            "<th>build</th><th class='n'>$</th><th class='n'>sec</th><th>commit</th><th>views</th></tr>")
     rows = []
     for r in entry.round_rows:
         verdict = "—" if r.passed is None else ("pass" if r.passed else "fail")
         build = "—" if r.build_ok is None else ("ok" if r.build_ok else "failed")
         gates = str(r.gate_errors) + (" (" + ", ".join(f"{k}:{v}" for k, v in r.gates.items()) + ")" if r.gates else "")
-        sheet = f"<a href='{esc(urls.file(entry, r.sheet))}'>sheet</a>" if r.sheet else "—"
+        sheet = f"<a href='{esc(urls.file(entry, r.sheet))}'>all views</a>" if r.sheet else "—"
         best = " class='best'" if r.index == entry.best_round else ""
         rows.append(f"<tr{best}><td class='n'>{r.index}</td><td>{esc(r.kind)}</td>"
                     f"<td class='n'>{_fmt(r.score)}</td><td>{verdict}</td><td class='n'>{esc(gates)}</td>"
@@ -122,9 +152,11 @@ def _judgment_panel(rec: RunRecord, best: int | None) -> str:
                       anchor="judge")
     scores = "".join(_kv(k, f"{v:.3f}") for k, v in sorted(j.scores.items()))
     issues = "".join(
-        f"<li><b>{esc(i.severity)}</b> · {esc(i.target)} · {esc(i.kind)} — {esc(i.detail)}"
+        f"<li><span class='tag {SEVERITY_CLASS.get(str(i.severity).lower(), '')}'>{esc(i.severity)}</span>"
+        f" <b>{esc(i.target)}</b> · {esc(i.kind)} — {esc(i.detail)}"
         + (f" <span class='faint'>[{esc(i.evidence)}]</span>" if i.evidence else "") + "</li>"
-        for i in j.issues) or "<li class='faint'>none reported</li>"
+        for i in sorted(j.issues, key=lambda i: SEVERITY_ORDER.get(str(i.severity).lower(), 9))
+    ) or "<li class='faint'>none reported</li>"
     plan = "".join(f"<li><b>p{it.priority}</b> {esc(it.target)} — {esc(it.instruction)}</li>"
                    for it in sorted(j.improvement_plan, key=lambda i: i.priority)) or "<li class='faint'>none</li>"
     strengths = "".join(f"<li>{esc(s)}</li>" for s in j.strengths)
@@ -180,19 +212,17 @@ def _renders_panel(entry: RunEntry, urls: UrlMaker, rec: RunRecord, best: int | 
         for v in rnd.renders.views:
             rel = _rel(run, v.path)
             if rel and (run / rel).is_file():
-                label = v.name + (f" · t={v.time_s:g}s" if v.time_s is not None else "")
-                figs.append((label, rel))
-    extra = [(link.label, link.rel) for link in entry.links
+                figs.append((v.name, rel))
+    figs += [(link.label, link.rel) for link in entry.links
              if link.label in ("articulation", "preview.gif") and link.rel]
-    for label, rel in extra:
-        figs.append((label, rel))
     if not figs:
         return ""
-    cells = "".join(
-        f"<figure><a href='{esc(urls.file(entry, rel))}'>"
-        f"<img loading='lazy' src='{esc(urls.file(entry, rel))}' alt='{esc(label)}'></a>"
-        f"<figcaption>{esc(label)}</figcaption></figure>" for label, rel in figs)
-    return _panel(f"renders ({len(figs)})", f"<div class='shots'>{cells}</div>", anchor="renders")
+    cells = "".join(gallery_figure(label, urls.file(entry, rel), urls.file(entry, rel))
+                    for label, rel in figs)
+    sheet = (f" <a class='small' href='{esc(urls.file(entry, entry.sheet))}'>· contact sheet</a>"
+             if entry.sheet else "")
+    return _panel(f"renders ({len(figs)})", f"<div class='shots'>{cells}</div>",
+                  anchor="renders", extra_head=sheet)
 
 
 def _cost_panel(entry: RunEntry, ws: Workspace, rec: RunRecord) -> str:
@@ -257,31 +287,74 @@ def _code_panel(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
 
 
 # --------------------------------------------------------------------------- page
-def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord) -> str:
+def _neighbours(urls: UrlMaker, prev: RunEntry | None, nxt: RunEntry | None) -> str:
+    """Triage is sequential: the next bad run is one click away, not a trip home."""
+    def one(target: RunEntry | None, glyph: str, side: str, ident: str) -> str:
+        if target is None:
+            return f"<span class='btn dead' aria-hidden='true'>{glyph}</span>"
+        label = target.title or target.slug
+        return (f"<a class='btn' id='{ident}' href='{esc(urls.detail(target))}' "
+                f"title='{side} run in this battery: {esc(label)}  (arrow key)'>{glyph}</a>")
+    return (f"<span class='neighbours'>{one(prev, '← prev', 'previous', 'nav-prev')}"
+            f"{one(nxt, 'next →', 'next', 'nav-next')}</span>")
+
+
+def _foot_nav(urls: UrlMaker, prev: RunEntry | None, nxt: RunEntry | None) -> str:
+    """The same walk, repeated where the reader actually finishes reading."""
+    def one(target: RunEntry | None, glyph: str) -> str:
+        if target is None:
+            return "<span></span>"
+        return (f"<a class='btn' href='{esc(urls.detail(target))}'>{glyph} "
+                f"{esc(target.title or target.slug)}</a>")
+    if prev is None and nxt is None:
+        return ""
+    return f"<nav class='footnav'>{one(prev, '←')}{one(nxt, '→')}</nav>"
+
+
+#: ← / → walk the battery; typing in a field is never hijacked
+NEIGHBOUR_JS = """
+(function(){var p=document.getElementById('nav-prev'),n=document.getElementById('nav-next');
+document.addEventListener('keydown',function(e){
+  var t=e.target||{}; if(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT') return;
+  if(e.metaKey||e.ctrlKey||e.altKey) return;
+  if(e.key==='ArrowLeft'&&p&&p.href) location.href=p.href;
+  if(e.key==='ArrowRight'&&n&&n.href) location.href=n.href;
+});})();
+"""
+
+
+def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord, *,
+                  prev: RunEntry | None = None, nxt: RunEntry | None = None) -> str:
     """Full detail page for a run whose record parsed."""
     best = entry.best_round
     if not entry.sheet:
         entry = entry.model_copy(update={"sheet": best_sheet(ws, rec)})
-    nav = " · ".join(f"<a href='#{a}'>{a}</a>" for a in
-                     ("rounds", "judge", "measurement", "renders", "cost", "code"))
+    if not entry.hero:
+        hero, label, n = hero_view(ws, rec, best)
+        entry = entry.model_copy(update={"hero": hero, "hero_label": label, "n_views": n})
+    nav = "".join(f"<a href='#{a}'>{a}</a>" for a in
+                  ("rounds", "judge", "measurement", "renders", "cost", "code"))
     body = (
         top_bar("3dcv gallery",
                 crumbs=f"<a href='/'>gallery</a> <span class='faint'>/</span> "
                        f"<a href='/?battery={esc(entry.battery)}'>{esc(entry.battery)}</a> "
-                       f"<span class='faint'>/</span> <b>{esc(entry.slug)}</b>")
+                       f"<span class='faint'>/</span> <b>{esc(entry.slug)}</b>",
+                right=_neighbours(urls, prev, nxt) if urls.has_detail else "")
         + "<main class='wrap'>"
         + _hero(entry, urls, rec)
-        + f"<p class='small muted' style='margin-top:var(--s-4)'>jump to: {nav}</p>"
+        + f"<nav class='jump' aria-label='sections'>{nav}</nav>"
         + _rounds_table(entry, urls)
         + _judgment_panel(rec, best)
         + _measurement_panel(rec, best)
         + _renders_panel(entry, urls, rec, best)
         + _cost_panel(entry, ws, rec)
         + _code_panel(entry, urls, rec)
+        + (_foot_nav(urls, prev, nxt) if urls.has_detail else "")
         + "</main>"
         + footer(f"{entry.path} · record.json re-read on every request")
     )
-    return page_shell(f"{entry.slug} — 3dcv gallery", body, extra_css=DETAIL_CSS)
+    return page_shell(f"{entry.slug} — 3dcv gallery", body, extra_css=DETAIL_CSS,
+                      scripts=NEIGHBOUR_JS)
 
 
 def render_broken_detail(entry: RunEntry, urls: UrlMaker) -> str:

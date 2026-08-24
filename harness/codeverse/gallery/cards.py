@@ -127,7 +127,8 @@ def render_card(entry: RunEntry, urls: UrlMaker, *, hidden: bool = False) -> str
     redundant = not entry.status or (entry.passed and entry.status == "passed")
     status = "" if redundant else f"<span class='tag'>{esc(entry.status)}</span>"
     caption = f"<p class='xs faint clamp1'>{esc(entry.caption)}</p>" if entry.caption else ""
-    err = f"<div class='err'>{esc(entry.error[:300])}</div>" if entry.error else ""
+    err = f"<div class='err clamp2' title='{esc(entry.error)}'>{esc(entry.error[:300])}</div>" \
+        if entry.error else ""
     return (
         f"<article class='card {VERDICT_META[entry.verdict][1]}{hide}' data-run='{esc(entry.key)}'"
         f" data-verdict='{esc(entry.verdict)}'>{select_box(entry)}{card_shot(entry, urls)}"
@@ -140,20 +141,21 @@ def render_card(entry: RunEntry, urls: UrlMaker, *, hidden: bool = False) -> str
 
 
 TABLE_HEAD = ("<tr><th class='pickcol'><span class='sr'>select</span></th><th class='thumbcol'></th>"
-              "<th>run</th><th>verdict</th><th>track</th><th>lang</th><th>backend</th><th>tier</th>"
-              "<th class='n'>base</th><th class='n'>best</th><th class='n'>Δ</th><th class='n'>gates</th>"
-              "<th class='n'>$</th><th class='n'>min</th><th class='n'>sec</th><th>links</th></tr>")
+              "<th class='runcol'>run</th><th>verdict</th><th class='track'>track</th>"
+              "<th class='lang'>lang</th><th class='backend'>backend</th><th class='tier'>tier</th>"
+              "<th class='n base'>base</th><th class='n'>best</th><th class='n delta'>Δ</th>"
+              "<th class='n'>gates</th><th class='n'>$</th><th class='n min'>min</th>"
+              "<th class='rowlinks'>links</th></tr>")
 
 
 def render_row(entry: RunEntry, urls: UrlMaker, *, hidden: bool = False) -> str:
     delta = (entry.score - entry.baseline_score
              if entry.score is not None and entry.baseline_score is not None else None)
     links = " ".join(f"<a href='{esc(urls.link(entry, link))}'>{esc(link.label)}</a>"
-                     for link in entry.links if link.label in ("workspace", "src/", "sheet", "glb"))
+                     for link in entry.links if link.label in ("src/", "glb"))
     image = entry.card_image
     thumb = (f"<a href='{esc(urls.detail(entry))}'><img class='rowthumb' loading='lazy' decoding='async'"
              f" src='{esc(urls.img(entry, image))}' alt=''></a>" if image else "")
-    seconds = "—" if entry.minutes is None else f"{entry.minutes * 60:.0f}"
     return (
         f"<tr class='{'is-hidden ' if hidden else ''}{VERDICT_META[entry.verdict][1]}'"
         f" data-run='{esc(entry.key)}' data-verdict='{esc(entry.verdict)}'>"
@@ -161,12 +163,13 @@ def render_row(entry: RunEntry, urls: UrlMaker, *, hidden: bool = False) -> str:
         f"<td class='wide'><a href='{esc(urls.detail(entry))}'>{esc(entry.title or entry.slug)}</a>"
         f"<div class='xs faint'>{esc(entry.slug)}</div></td>"
         f"<td>{verdict_tag(entry)}</td>"
-        f"<td>{esc(entry.track)}</td><td>{esc(entry.language)}</td><td>{esc(entry.generator)}</td>"
-        f"<td>{tier_tag(entry)}</td>"
-        f"<td class='n'>{fmt(entry.baseline_score)}</td><td class='n'>{fmt(entry.score)}</td>"
-        f"<td class='n'>{'—' if delta is None else format(delta, '+.3f')}</td>"
+        f"<td class='track'>{esc(entry.track)}</td><td class='lang'>{esc(entry.language)}</td>"
+        f"<td class='backend' title='{esc(entry.generator)}'>{esc(entry.generator)}</td>"
+        f"<td class='tier'>{tier_tag(entry)}</td>"
+        f"<td class='n base'>{fmt(entry.baseline_score)}</td><td class='n'>{fmt(entry.score)}</td>"
+        f"<td class='n delta'>{'—' if delta is None else format(delta, '+.3f')}</td>"
         f"<td class='n'>{entry.gate_errors}</td><td class='n'>{entry.cost_usd:.2f}</td>"
-        f"<td class='n'>{fmt(entry.minutes, 1)}</td><td class='n'>{seconds}</td>"
+        f"<td class='n min'>{fmt(entry.minutes, 1)}</td>"
         f"<td class='rowlinks'>{links}</td></tr>"
     )
 

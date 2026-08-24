@@ -32,6 +32,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from codeverse._compat import UTC
 from codeverse.gallery import code as code_page
 from codeverse.gallery import viewer as viewer_page
+from codeverse.gallery.compare import MAX_COMPARE, export_csv, parse_keys, render_compare
 from codeverse.gallery.detail import render_broken_detail, render_detail
 from codeverse.gallery.index import build_index
 from codeverse.gallery.model import FILTER_KEYS, RunEntry, match, sort_entries
@@ -86,6 +87,11 @@ class Response:
     def text(cls, text: str, status: int = 200) -> Response:
         return cls(status=status, content_type="text/plain; charset=utf-8", body=text.encode("utf-8"))
 
+    @classmethod
+    def csv(cls, text: str, filename: str = "runs.csv") -> Response:
+        return cls(content_type="text/csv; charset=utf-8", body=text.encode("utf-8"),
+                   headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
 
 def _error_page(status: int, title: str, detail: str) -> Response:
     body = (top_bar("3dcv gallery", "", crumbs="<a href='/'>gallery</a>")
@@ -129,6 +135,31 @@ class GalleryApp:
         flt = self._filters(query)
         return sort_entries([e for e in self.index.entries() if match(e, flt)], query.get("sort", "score"))
 
+    def picked(self, keys: list[str]) -> tuple[list[RunEntry], list[str]]:
+        """``(entries, unknown_keys)`` for ``battery/slug`` keys, in the order given."""
+        found, missing = [], []
+        for key in keys:
+            battery, _, slug = key.partition("/")
+            entry = self._entry(battery, slug) if slug else None
+            if entry is None:
+                missing.append(key)
+            else:
+                found.append(entry)
+        return found, missing
+
+    def _picked(self, query: dict[str, str]) -> tuple[list[RunEntry], UrlMaker, str]:
+        """What ``?runs=`` names, capped, with a note about anything dropped."""
+        self.refresh()
+        keys = parse_keys(query.get("runs", ""))
+        entries, missing = self.picked(keys)
+        notes = []
+        if len(entries) > MAX_COMPARE:
+            notes.append(f"showing the first {MAX_COMPARE} of {len(entries)} selected runs")
+            entries = entries[:MAX_COMPARE]
+        if missing:
+            notes.append("unknown: " + ", ".join(missing[:6]))
+        return entries, self.urls, " · ".join(notes)
+
     # ----------------------------------------------------------------- routing
     def route(self, path: str, query: dict[str, str] | None = None) -> Response:
         """Decoded ``path`` (``/run/x/y``) + query → a response.  Never raises."""
@@ -152,6 +183,12 @@ class GalleryApp:
         head, rest = parts[0], parts[1:]
         if head == "healthz":
             return Response.text("ok")
+        if head == "compare":
+            entries, urls, note = self._picked(query)
+            return Response.html(render_compare(entries, urls, note=note))
+        if head in ("export.csv", "export"):
+            entries, _, _note = self._picked(query)
+            return Response.csv(export_csv(entries or self.selected(query)))
         if head == "api":
             return self._api(rest, query)
         if head == "vendor":
@@ -203,7 +240,22 @@ class GalleryApp:
         from codeverse.gallery.index import entry_from_record
 
         fresh = entry_from_record(entry.battery, ws, rec)  # newest rounds, even mid-bench
-        return Response.html(render_detail(fresh, self.urls, ws, rec))
+        prev, nxt = self.neighbours(entry)
+        return Response.html(render_detail(fresh, self.urls, ws, rec, prev=prev, nxt=nxt))
+
+    def neighbours(self, entry: RunEntry) -> tuple[RunEntry | None, RunEntry | None]:
+        """The runs either side of ``entry`` in its battery, in the index's own order,
+        so triage can walk a battery run by run instead of bouncing off the index."""
+        section = next((s for s in self.index.sections if s.label == entry.battery), None)
+        if section is None:
+            return None, None
+        ordered = sort_entries(section.entries, "score")
+        keys = [e.key for e in ordered]
+        if entry.key not in keys:
+            return None, None
+        i = keys.index(entry.key)
+        return (ordered[i - 1] if i > 0 else None,
+                ordered[i + 1] if i + 1 < len(ordered) else None)
 
     def _api(self, rest: list[str], query: dict[str, str]) -> Response:
         self.refresh()

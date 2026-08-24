@@ -131,7 +131,7 @@ class RunEntry(BaseModel):
         return {
             "key": self.key, "battery": self.battery, "slug": self.slug, "name": self.title or self.slug,
             "track": self.track, "lang": self.language, "backend": self.generator, "tier": self.tier,
-            "pass": self.pass_state, "verdict": self.verdict, "score": self.score,
+            "pass": self.pass_state, "verdict": self.verdict, "score": self.score, "path": self.path,
             "cost": round(self.cost_usd, 6), "minutes": self.minutes, "state": self.state,
             "text": self.search_text(),
         }

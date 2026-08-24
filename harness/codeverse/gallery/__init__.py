@@ -2,7 +2,10 @@
 
 * ``index``       ``build_index(roots)`` · ``default_roots()`` — record.json → typed entries
 * ``model``       ``RunEntry`` / ``RootSection`` / ``GalleryIndex`` / ``summarize`` / ``match``
-* ``page``        the index page (summary strip, filters, cards + table)
+* ``labels``      view-name humanisation + the four disjoint verdict buckets
+* ``page``        the index page (status rail, filters, cards + table)
+* ``cards``       one run as a card / a table row / a compare column
+* ``compare``     ``/compare`` side-by-side + ``/export.csv`` (read-only projections)
 * ``detail``      ``/run/<battery>/<slug>`` — rounds, judge, measurement, renders, cost, code
 * ``code``        directory listings + the file viewer
 * ``viewer``      optional GLB viewer on the vendored three.js (no CDN)
@@ -10,8 +13,17 @@
 * ``static_site`` ``build_static(roots, out.html, embed=…)``
 """
 
+from codeverse.gallery.compare import export_csv, render_compare
 from codeverse.gallery.index import build_index, default_roots
-from codeverse.gallery.model import GalleryIndex, RootSection, RunEntry, Summary, summarize
+from codeverse.gallery.labels import VERDICTS, humanize_view
+from codeverse.gallery.model import (
+    GalleryIndex,
+    RootSection,
+    RunEntry,
+    Summary,
+    summarize,
+    verdict_breakdown,
+)
 from codeverse.gallery.server import (
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -23,7 +35,8 @@ from codeverse.gallery.server import (
 from codeverse.gallery.static_site import build_static, render_static
 
 __all__ = [
-    "DEFAULT_HOST", "DEFAULT_PORT", "GalleryApp", "GalleryError", "GalleryIndex", "RootSection",
-    "RunEntry", "Summary", "build_index", "build_static", "default_roots", "render_static",
-    "resolve_host", "serve", "summarize",
+    "DEFAULT_HOST", "DEFAULT_PORT", "VERDICTS", "GalleryApp", "GalleryError", "GalleryIndex",
+    "RootSection", "RunEntry", "Summary", "build_index", "build_static", "default_roots",
+    "export_csv", "humanize_view", "render_compare", "render_static", "resolve_host", "serve",
+    "summarize", "verdict_breakdown",
 ]

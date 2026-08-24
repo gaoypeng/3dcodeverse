@@ -109,7 +109,7 @@ def test_server_page_applies_the_filter_server_side(gallery_tree: dict[str, Path
     assert markup.count("<article class='card") == 6
     # ...but only the matching one is visible, and the summary counts only that one
     assert len(re.findall(r"<article class='card [^']*is-hidden' data-run=", markup)) == 5
-    assert ">1 / 6<" in markup
+    assert ">1 <span class='faint'>of 6</span><" in markup
     assert "<option value='threejs' selected>" in markup
 
 

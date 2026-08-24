@@ -22,6 +22,8 @@ VIEWER_CSS = """
 #stage{width:100%;height:min(78vh,900px);background:var(--sunken);border:1px solid var(--line);
   border-radius:var(--r-3);overflow:hidden;position:relative}
 #stage canvas{display:block;width:100%;height:100%}
+.touch-only{display:none}
+@media (pointer:coarse){.mouse-only{display:none}.touch-only{display:inline}}
 #hint{position:absolute;left:10px;bottom:10px;font-size:var(--fs-xs);color:var(--fg-3);
   background:color-mix(in srgb,var(--surface) 80%,transparent);padding:3px 8px;border-radius:999px}
 #vmsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
@@ -126,10 +128,13 @@ def render_viewer(entry: RunEntry, urls: UrlMaker, rel: str) -> str:
         top_bar("3dcv gallery", entry.slug,
                 crumbs=f"<a href='/'>gallery</a> <span class='faint'>/</span> "
                        f"<a href='{esc(urls.detail(entry))}'>{esc(entry.slug)}</a> "
-                       f"<span class='faint'>/</span> <b>{esc(rel)}</b>")
+                       f"<span class='faint'>/</span> <b>{esc(rel)}</b>",
+                right=f"<a class='btn' href='{esc(urls.detail(entry))}'>← back to the run</a>")
         + "<main class='wrap'>"
         + f"<div id='stage' data-src='{esc(src)}'><div id='vmsg'>loading {esc(rel)}…</div>"
-          f"<div id='hint'>drag to orbit · scroll to zoom · right-drag to pan</div></div>"
+          f"<div id='hint'><span class='mouse-only'>drag to orbit · scroll to zoom · right-drag to pan"
+          f"</span><span class='touch-only'>drag to orbit · pinch to zoom · two-finger drag to pan"
+          f"</span></div></div>"
         + f"<p class='small muted' style='margin-top:var(--s-3)'>bounding box: <span id='dims' class='num'>—</span>"
           f" · <a href='{esc(src)}'>download the raw GLB</a>"
           f" · <a href='{esc(urls.detail(entry))}'>back to the run</a></p>"
