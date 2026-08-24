@@ -129,7 +129,11 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     assert deps.pw["gemini:fixed"].calls == 4
     # report
     md = (out / "report.md").read_text()
-    assert "fixed judge: **gemini:fixed**" in md and "| harness:api-agent:gemini:gemini-3.7-flash | harness | 2 | 0.900 |" in md
+    assert "fixed judge: **gemini:fixed**" in md
+    # the arm row is n | dropped | over budget | mean: the two loss columns stay blank when
+    # nothing was lost, but must always be PRESENT so a drop can never hide (docs/EVAL.md §7)
+    assert "| arm | kind | n | dropped | over budget | mean |" in md, md
+    assert "| harness:api-agent:gemini:gemini-3.7-flash | harness | 2 |  |  | 0.900 |" in md, md
     assert "| cmp_easy_stool | easy | 0.90✓ | 0.60 | 0.75✓ | 0.00 ✗build |" in md
     assert "| harness:api-agent:gemini:gemini-3.7-flash | oneshot:claude-code | 2 | 2 | 0 | 0 | 100% |" in md
     page = (out / "report.html").read_text()

@@ -149,9 +149,13 @@ Run the offline test suite to confirm the install:
 
 ```bash
 cd harness
-python -m pytest tests -q -m "not live"                                 # needs node + Blender for the full set
-python -m pytest tests -q -m "not live and not blender and not node"    # pure-python subset
+python -m pytest tests -q                                               # needs node + Blender for the full set
+python -m pytest tests -q -m "not blender and not node"                 # pure-python subset
+python -m pytest tests -q -m live                                       # OPT-IN: real API calls, needs keys
 ```
+
+Live tests are deselected by default (`addopts = ["-m", "not live"]` in `pyproject.toml`),
+so a bare `pytest` never spends money and never hangs waiting on a provider outage.
 
 ---
 
@@ -487,6 +491,9 @@ that the keys work end to end):
 | `ffmpeg` | WARN | not found | optional; turntables become GIFs. `sudo apt-get install ffmpeg` (or `conda install -c conda-forge ffmpeg`) |
 | `mcp` | WARN | `mcp` package or the server module missing | `pip install -e 'harness[mcp]'`; only affects the agentic CLI backends |
 | `gemini live call` (`--live`) | FAIL | key rejected / no network | check the key value and outbound access; a `503 … high demand` is transient, not an install problem |
+| `gemini quota` | OK | always informational | the per-key RPM/TPM the pool schedules against x the number of keys (`Settings.rate`, docs/COST.md Part III); tune with `CV3D_RATE__TPM_PER_KEY` / `CV3D_RATE__MAX_IN_FLIGHT` |
+| `gemini pool` (`--live`) | WARN | a key is benched as dead | that key 401/403'd; rotate or remove it — the pool re-probes it after an hour.  The row also shows in-flight, RPM/TPM headroom used and this process's 429/5xx counts |
+| `storm gate` (`--live`) | WARN | a capacity storm is running | provider-side (`503 high demand`), not an install problem; the gate is off by default (docs/COST.md §21) and the row only appears when something enabled it |
 
 ---
 

@@ -42,6 +42,7 @@ fooling ourselves.  Tools: `3dcv bench`, `bench/compare_backends.py`,
 | `articulated_v1.yaml` | articulated_object / urdf_blender | 12 | tiers |
 | `scenes_v1.yaml` | scene / scene_threejs | 12 | tiers |
 | `compare_v1.yaml` | static_object / blender | 8 | 2 easy / 3 medium / 3 hard; for harness-vs-one-shot |
+| `compare_v2.yaml` | static_object / blender | 8 | 2 medium controls / 6 hard (one per v2 difficulty axis); harness-vs-one-shot on hard prompts |
 
 Each prompt: `{id, tier, category, prompt, must_have[], dimensions_m?}`.  `must_have`
 becomes acceptance items (planner-appended in the loop, fixed-judge checklist in
@@ -104,8 +105,13 @@ cost and wall time per prompt; arena: wins/ties/losses with mean confidence.  Cl
 harness advantage only when (a) the fixed-judge mean and pass rate are higher **and**
 (b) the pairwise arena agrees, at comparable or lower cost.
 
-Subscription-backed one-shot arms (`claude-code`, `codex`) have estimated or zero USD;
-report token counts alongside.  Run them sparingly.
+Subscription-backed arms (`claude-code`, `codex`) bill no dollars: their USD is a
+notional API-rate estimate from the tokens the CLI reports, so report tokens and
+wall-clock alongside it and never compare it to an API arm's real spend without
+saying so.  Run them sparingly.  `codex` arms always state their reasoning effort
+(`-c model_reasoning_effort=`, default `high` from `Settings.agents.codex_reasoning_effort`,
+per-arm override `codex:<model>@<effort>`) — the CLI's own default is *medium*, so an
+unstated effort silently changes what a codex arm measures.
 
 ## 5. Comparing backends inside the harness
 
@@ -153,9 +159,42 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
 * Never tune rubric text against the battery you report on; bump the rubric version
   (`*_v2`) instead and re-run.
 
-## 7. Reporting checklist
+## 7. Failures that are not results
+
+A cell can end without a score for reasons that say nothing about the model, and
+counting those as zeros silently rigs a comparison.  `bench/_infra.py` classifies
+them, and `compare_backends` applies the SAME rule to every arm:
+
+| status | what happened | score | build rate | wall clock |
+|---|---|---|---|---|
+| `infra_failed` | provider outage — 503/529 storm, read timeout, exhausted key pool | excluded | excluded | excluded |
+| `budget_exhausted` | ran out of minutes/dollars with zero rounds and no artifact | excluded | **counts as a miss** | excluded |
+| `no_code` | the model answered, but with prose or unparseable code | **0.0** | counts | counts |
+| `build_failed` | the code ran and the build failed | **0.0** | counts | counts |
+
+The distinction is not academic.  Before 2026-08-24 the two failure paths in
+`run_cell` disagreed: a one-shot cell that got no answer recorded `score=0.0` while a
+harness cell killed by the *same* 503 recorded `score=None`.  During a multi-hour
+`gemini-3.7-flash` capacity storm this put five hard zeros on the one-shot arm of
+`compare_v2_full` and quietly dropped four harness cells — a bias worth roughly a
+quarter of a point, pointing the same way as the claim being tested.  `compare_v1_full`
+and `compare_v1_live2` were audited and are unaffected.
+
+Rules that follow from it:
+
+* an outage cell is **re-run, never reported** — `--redo-status infra_failed`; the run
+  summary prints the exact command and the arm table carries a `dropped` column, so a
+  loss can never be mistaken for a result;
+* never compare arms measured in different weather.  If one arm ran during a storm and
+  another did not, re-run the affected cells before putting the two in one table;
+* `budget_exhausted` is deliberately *not* excused on the build rate: the provider is
+  not at fault for a model that cannot finish inside the cap.
+
+## 8. Reporting checklist
 
 battery name + git sha of prompts; judge id, rubric name + hash, `n_samples`; per-arm
 generator/planner ids; rounds and budget caps; per-tier table (n, mean ± std, pass
 rate, build-fail rate, cost, minutes); pairwise table; number of degraded verdicts
-re-run; links to `record.json` / `report.html` under `bench/out/`.
+re-run; **cells dropped as `infra_failed` and `budget_exhausted`, per arm** (§7 — an
+omitted drop count is an unreadable table); links to `record.json` / `report.html`
+under `bench/out/`.

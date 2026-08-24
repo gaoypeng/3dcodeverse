@@ -12,8 +12,9 @@ pip install -e /home/yipeng/3dcodeverse/harness      # once; entry points 3dcode
 cd /home/yipeng/3dcodeverse/harness/runtime_js && npm install   # three@0.182, puppeteer (chrome cached)
 3dcv doctor            # python deps (incl. python-fcl, moderngl), blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, ffmpeg, mcp
 3dcv doctor --live     # + one tiny Gemini call ("pong", ~$0.00001)
-python -m pytest tests -q -m "not live"                 # ~860 offline tests (blender/node/GL tests run when the binaries exist)
-python -m pytest tests -q -m "not live and not blender and not node"   # pure-python subset
+python -m pytest tests -q                              # offline suite; live tests are opt-in (blender/node/GL run when the binaries exist)
+python -m pytest tests -q -m "not blender and not node"   # pure-python subset
+python -m pytest tests -q -m live                      # OPT-IN: real API calls
 ```
 
 ### Keys and settings
@@ -76,7 +77,7 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60 --max-u
 | `single-shot:gemini:gemini-3.7-flash` | one structured-output call → multi-file envelope, no tools | fastest/cheapest; baseline for "raw model" deltas |
 | `gemini-cli:gemini-3.7-flash` | `gemini -p … --approval-mode yolo --skip-trust --output-format json` | see gotchas below |
 | `claude-code:<model>` | `claude -p … --dangerously-skip-permissions --mcp-config ws/.mcp.json …` | local subscription — test lightly |
-| `codex:<model>` | `codex exec --json -C ws --sandbox workspace-write … -c mcp_servers.3dcv.…` | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it) |
+| `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high … -c mcp_servers.3dcv.…` | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id, `""` to defer to `~/.codex/config.toml`) |
 | `agy:<model>` | `agy --print … --add-dir ws` | no per-workspace MCP: tools via `3dcv tools <name> --json … --workspace .`; no served-model or cost reporting |
 | `gemini:* / anthropic:* / openai:*` | ChatModel for planner / judge / captioner / single-shot | Anthropic/OpenAI untested live here |
 
@@ -185,6 +186,13 @@ python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
 Results stream to `results.jsonl` (resumable).  Batteries: `static_objects_v1` (24),
 `articulated_v1` (12), `scenes_v1` (12), `compare_v1` (8, harness-vs-one-shot).
 Protocol and judge calibration: `docs/EVAL.md`.
+
+`compare_backends` **preflights every model it needs** (one ~20 s probe each) and
+refuses to start when one is not serving — a dead provider does not fail fast on its
+own, it lets each cell burn its full retry budget first.  `--wait-for-provider 60`
+parks until it recovers instead; `--no-preflight` skips the check.  Cells that a
+provider outage kills anyway are recorded `infra_failed`, excluded from every rate,
+and re-run with `--redo-status infra_failed` (see `docs/EVAL.md` §7).
 
 ## 8. Extending (plugin paths)
 

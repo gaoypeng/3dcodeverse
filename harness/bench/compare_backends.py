@@ -3,7 +3,7 @@
     python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \\
         --arms harness:api-agent:gemini:gemini-3.7-flash,harness:gemini-cli:gemini-3.7-flash,\\
 oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash \\
-        --judge gemini:gemini-3.1-pro-preview --out <dir> [--parallel 3] [--limit N]
+        --judge gemini:gemini-3.1-pro-preview --out <dir> [--parallel 8] [--limit N]
 
 Arms
 * ``harness:<generator-id>`` — the full static_object track (plan → generate →
@@ -58,6 +58,7 @@ from bench._compare_report import (  # noqa: E402
     load_jsonl,
 )
 from bench._fixed_eval import RUBRIC, EvalOutcome, FixedEvaluator  # noqa: E402
+from bench._infra import is_budget_exhaustion, is_infra_failure  # noqa: E402
 from bench._oneshot import (  # noqa: E402
     MODEL_FILE,
     OneShotBackend,
@@ -121,7 +122,7 @@ class CompareOptions(BaseModel):
     rounds: int = 3
     max_usd: float = 2.5
     max_minutes: float = 45.0
-    parallel: int = 3
+    parallel: int = 8  # measured knee, see BenchOptions.parallel / docs/COST.md Part III
     limit: int | None = None
     ids: list[str] = Field(default_factory=list)
     tiers: list[str] = Field(default_factory=list)
@@ -248,10 +249,18 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
                 outcome = deps.evaluator.evaluate(eval_ws, spec)
                 eval_ws.write_json(eval_ws.root / "eval.json", outcome)
                 _fill_from_outcome(res, outcome)
+            elif is_budget_exhaustion(res.error, rounds=res.harness_rounds):
+                # nothing was ever built, so there is no score to average — but the arm
+                # DID fail to deliver, so this still counts against its build rate
+                res.status, res.score, res.passed, res.build_ok = "budget_exhausted", None, False, False
+            elif is_infra_failure(res.error):
+                # a provider outage is not a capability result: drop the cell (score
+                # None) instead of scoring the model 0 for someone else's downtime
+                res.status, res.score, res.passed, res.build_ok = "infra_failed", None, None, False
             else:
                 res.status, res.score, res.passed, res.build_ok = "no_code", 0.0, False, False
     except Exception as e:  # noqa: BLE001 — one cell must never kill the matrix
-        res.status = "error"
+        res.status = "infra_failed" if is_infra_failure(e) else "error"  # same rule as the no-code path
         res.error = (res.error + "; " if res.error else "") + f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1200:]}"
     res.wall_s = round(time.time() - t0, 1)
     eval_ws.write_json(cell / "cell.json", res)
@@ -362,23 +371,57 @@ def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm
 
 
 # ----------------------------------------------------------------------------- CLI
+def _preflight(judge: str, arms: Sequence[Arm], *, wait_minutes: float = 0.0) -> bool:
+    """Refuse to start a battery against a model that is not serving.
+
+    A dead provider does not fail fast on its own: every cell burns its full retry
+    budget first.  On 2026-08-24 that cost ~9 hours of wall clock and a contaminated
+    battery.  One 20-second probe per model is the whole cure.
+    """
+    from codeverse.models.health import probe
+
+    models = {judge, *(a.target for a in arms if a.target.startswith(("gemini:", "anthropic:", "openai:")))}
+    models |= {a.target.split(":", 1)[1] for a in arms if a.target.startswith("api-agent:")}
+    deadline = time.time() + wait_minutes * 60
+    while True:
+        sick = [h for h in (probe(m) for m in sorted(models)) if not h.ok]
+        if not sick:
+            return True
+        for h in sick:
+            print(f"preflight: {h}", flush=True)
+        if time.time() >= deadline:
+            print("\nrefusing to start: the cells would spend their whole retry budget losing to this.\n"
+                  "  wait for it:   --wait-for-provider 60\n"
+                  "  start anyway:  --no-preflight", flush=True)
+            return False
+        print(f"preflight: parking 120 s (up to {wait_minutes:.0f} min) for the provider…", flush=True)
+        time.sleep(120)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--prompts", required=True)
     ap.add_argument("--arms", required=True, help="comma-separated arm ids")
     ap.add_argument("--judge", default="gemini:gemini-3.1-pro-preview", help="FIXED judge model id")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--parallel", type=int, default=3)
+    ap.add_argument("--parallel", type=int, default=8)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--ids", default="", help="comma-separated prompt ids")
     ap.add_argument("--tiers", default="", help="comma-separated tiers (easy,medium,hard)")
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--max-usd", type=float, default=2.5)
+    ap.add_argument("--max-minutes", type=float, default=45.0, help="wall-clock ceiling for ONE harness run")
     ap.add_argument("--loop-judge", default=None, help="harness in-loop judge (default: settings default)")
     ap.add_argument("--repair-attempts", type=int, default=2)
     ap.add_argument("--gen-timeout", type=float, default=900.0)
     ap.add_argument("--no-pairwise", action="store_true")
-    ap.add_argument("--redo-status", default="", help="comma list of statuses to re-run (error,no_code,build_failed,judge_error); "
+    ap.add_argument("--no-preflight", action="store_true",
+                    help="skip the provider health check (see --wait-for-provider)")
+    ap.add_argument("--wait-for-provider", type=float, default=0.0, metavar="MIN",
+                    help="if the preflight fails, park up to MIN minutes for the provider to recover "
+                         "instead of refusing to start")
+    ap.add_argument("--redo-status", default="", help="comma list of statuses to re-run "
+                    "(error,no_code,build_failed,judge_error,infra_failed); "
                     "recorded one-shot answers are re-used, not re-generated")
     ap.add_argument("--no-resume", action="store_true")
     ap.add_argument("--report-only", action="store_true", help="only rebuild report.md/html from results")
@@ -386,12 +429,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if ns.report_only:
         build_compare_report(Path(ns.out))
         return 0
-    opts = CompareOptions(judge=ns.judge, loop_judge=ns.loop_judge, rounds=ns.rounds, max_usd=ns.max_usd, parallel=ns.parallel,
+    opts = CompareOptions(judge=ns.judge, loop_judge=ns.loop_judge, rounds=ns.rounds, max_usd=ns.max_usd,
+                          max_minutes=ns.max_minutes, parallel=ns.parallel,
                           limit=ns.limit, ids=[i for i in ns.ids.split(",") if i],
                           tiers=[t for t in ns.tiers.split(",") if t], resume=not ns.no_resume,
                           gen_timeout_s=ns.gen_timeout, repair_attempts=ns.repair_attempts, pairwise=not ns.no_pairwise,
                           redo_status=[x for x in ns.redo_status.split(",") if x])
     arms = parse_arms(ns.arms)
+    if not ns.no_preflight and not _preflight(opts.judge, arms, wait_minutes=ns.wait_for_provider):
+        return 2
     deps = CompareDeps(FixedEvaluator(opts.judge, n_samples=opts.n_samples))
 
     def _log(r: CellResult) -> None:
@@ -400,6 +446,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     run_matrix(ns.prompts, ns.out, arms, opts, deps, on_result=_log)
     print(f"report: {Path(ns.out) / 'report.md'}")
+    dropped = [r for r in load_jsonl(Path(ns.out) / "results.jsonl", CellResult) if r.status == "infra_failed"]
+    if dropped:
+        # never let downtime pass as a result: say what was lost and how to get it back
+        print(f"\n{len(dropped)} cell(s) lost to provider outages and EXCLUDED from every rate: "
+              + ", ".join(sorted({f"{r.prompt_id}/{r.arm}" for r in dropped})[:6])
+              + (" ..." if len(dropped) > 6 else "")
+              + "\nre-run them once the provider recovers with:  --redo-status infra_failed")
     return 0
 
 

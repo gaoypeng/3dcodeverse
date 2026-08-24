@@ -27,7 +27,9 @@ class CellResult(BaseModel):
     kind: str
     target: str = ""
     judge: str = ""
-    status: str = Field(default="", description="scored | build_failed | no_code | judge_error | error")
+    status: str = Field(default="",
+        description="scored | build_failed | no_code | judge_error | error | infra_failed "
+                    "(provider outage: excluded from every rate, see bench/_infra.py)")
     score: float | None = Field(default=None, description="fixed-judge overall (0 when the build failed)")
     score_std: float = 0.0
     passed: bool | None = None
@@ -78,7 +80,10 @@ def load_jsonl(path: Path, model: type[T]) -> list[T]:
 class ArmStats(BaseModel):
     arm: str
     kind: str
-    n: int
+    n: int = Field(description="cells attempted")
+    n_evaluated: int = Field(default=0, description="cells that actually ran (n minus provider outages)")
+    infra_failed: int = Field(default=0, description="cells dropped: the provider, not the model, failed")
+    budget_exhausted: int = Field(default=0, description="cells that ran out of time/money with no artifact")
     mean_score: float | None
     median_score: float | None
     pass_rate: float | None
@@ -111,17 +116,22 @@ def arm_stats(rows: list[CellResult]) -> list[ArmStats]:
         by_arm.setdefault(r.arm, []).append(r)
     out = []
     for arm, rs in by_arm.items():
-        scores = [r.score for r in rs if r.score is not None]
-        passed = [r.passed for r in rs if r.passed is not None]
+        # a provider outage never tested the model: it must not land in ANY rate, or
+        # an arm unlucky with the weather looks worse than one that ran in the clear
+        ev = [r for r in rs if r.status != "infra_failed"]
+        scores = [r.score for r in ev if r.score is not None]
+        passed = [r.passed for r in ev if r.passed is not None]
         out.append(ArmStats(
-            arm=arm, kind=rs[0].kind, n=len(rs), mean_score=_mean(scores),
+            arm=arm, kind=rs[0].kind, n=len(rs), n_evaluated=len(ev),
+            infra_failed=len(rs) - len(ev),
+            budget_exhausted=sum(1 for r in ev if r.status == "budget_exhausted"), mean_score=_mean(scores),
             median_score=round(statistics.median(scores), 4) if scores else None,
             pass_rate=round(sum(passed) / len(passed), 4) if passed else None,
-            build_ok_rate=round(sum(r.build_ok for r in rs) / len(rs), 4),
-            mean_gen_usd=round(statistics.fmean(r.gen_cost_usd for r in rs), 4),
-            mean_judge_usd=round(statistics.fmean(r.judge_cost_usd for r in rs), 4),
-            mean_minutes=round(statistics.fmean(r.wall_s for r in rs) / 60, 2),
-            tool_calls=sum(r.tool_calls for r in rs), errors=sum(1 for r in rs if r.status in ("error", "judge_error")),
+            build_ok_rate=round(sum(r.build_ok for r in ev) / len(ev), 4) if ev else 0.0,
+            mean_gen_usd=round(statistics.fmean(r.gen_cost_usd for r in ev), 4) if ev else 0.0,
+            mean_judge_usd=round(statistics.fmean(r.judge_cost_usd for r in ev), 4) if ev else 0.0,
+            mean_minutes=round(statistics.fmean(r.wall_s for r in ev) / 60, 2) if ev else 0.0,
+            tool_calls=sum(r.tool_calls for r in ev), errors=sum(1 for r in rs if r.status in ("error", "judge_error")),
         ))
     return sorted(out, key=lambda s: (s.kind != "harness", -(s.mean_score or -1)))
 
@@ -178,11 +188,14 @@ def compare_markdown(out: Path, rows: list[CellResult], pairs: list[PairRow], me
           f"harness rounds ≤ {opts.get('rounds', '?')}, ≤ ${opts.get('max_usd', '?')} · cells: {len(rows)}", "",
           "Every arm's final `src/model.py` is re-built, re-rendered and judged by the same evaluator; a failed "
           "build scores 0.  `$gen` for harness arms is the whole run (planner + generator + its loop judge); for "
-          "one-shot arms it is the single call (subscription CLIs report 0 unless the CLI returns a cost).", "",
-          "## arms", "", "| arm | kind | n | mean | median | pass | build ok | $gen | $judge | min | tool calls | errors |",
-          "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+          "one-shot arms it is the single call (subscription CLIs report 0 unless the CLI returns a cost).  "
+          "`n` counts cells that actually ran; `dropped` counts cells lost to a provider outage "
+          "(503 storm, timeout, exhausted pool) — those test nothing about the model and are excluded "
+          "from every rate on this page rather than scored 0.", "",
+          "## arms", "", "| arm | kind | n | dropped | over budget | mean | median | pass | build ok | $gen | $judge | min | tool calls | errors |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for s in arm_stats(rows):
-        md.append(f"| {s.arm} | {s.kind} | {s.n} | {_f(s.mean_score)} | {_f(s.median_score)} | {_f(s.pass_rate, '.0%')} | "
+        md.append(f"| {s.arm} | {s.kind} | {s.n_evaluated} | {s.infra_failed or ''} | {s.budget_exhausted or ''} | {_f(s.mean_score)} | {_f(s.median_score)} | {_f(s.pass_rate, '.0%')} | "
                   f"{s.build_ok_rate:.0%} | {s.mean_gen_usd:.2f} | {s.mean_judge_usd:.3f} | {s.mean_minutes:.1f} | "
                   f"{s.tool_calls} | {s.errors} |")
     md += ["", "## per prompt (score, ✓ = passed, ✗build = build failed)", "",

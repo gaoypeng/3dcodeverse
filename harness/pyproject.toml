@@ -73,6 +73,11 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 timeout = 600
+# Live tests are OPT-IN (`pytest -m live`).  Without this, a bare `pytest` on a machine
+# that happens to have API keys configured fires real requests, and during a provider
+# outage it hangs instead of failing — which is exactly what happened on 2026-08-24.
+# Everyone's default run is now the offline suite CI runs.
+addopts = ["-m", "not live"]
 markers = [
   "live: needs network + API keys (deselect with -m 'not live')",
   "blender: needs a Blender binary",

@@ -282,3 +282,20 @@ def test_503_storm_budget_exhausts_then_normal_budget_applies():
             outcome_of=lambda e: "5xx", max_attempts=2, base_delay=0.0,
             storm_attempts=3, storm_max_delay=0.0, sleep=lambda d: None,
         )
+
+
+def test_live_tests_are_opt_in_by_default():
+    """A bare `pytest` must never fire real API calls.
+
+    On 2026-08-24 a plain run on a keyed machine hung for the whole timeout because
+    the live suite was selected by default and the provider was in a capacity storm.
+    """
+    from pathlib import Path
+
+    from codeverse._compat import tomllib  # 3.10 floor: stdlib tomllib is 3.11+
+
+    root = Path(__file__).resolve().parents[2]
+    cfg = tomllib.loads((root / "pyproject.toml").read_text())
+    addopts = cfg["tool"]["pytest"]["ini_options"].get("addopts", [])
+    joined = " ".join(addopts) if isinstance(addopts, list) else str(addopts)
+    assert "not live" in joined, "live tests must be deselected by default (see pyproject addopts)"
