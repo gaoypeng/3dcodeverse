@@ -229,6 +229,7 @@ def cross_section(ctx: ToolContext, args: CrossSectionArgs) -> Observation:
 # register the remaining tool modules (order matters only for the prompt card listing)
 import codeverse.spatial.cookbook_tool  # noqa: E402,F401
 import codeverse.spatial.tools_graphics  # noqa: E402,F401
+import codeverse.spatial.tools_reference  # noqa: E402,F401
 import codeverse.spatial.tools_render  # noqa: E402,F401
 import codeverse.spatial.tools_scene  # noqa: E402,F401
 import codeverse.spatial.tools_texture  # noqa: E402,F401

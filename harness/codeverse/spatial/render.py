@@ -30,7 +30,7 @@ from codeverse.workspace import Workspace
 
 MODES = ("shaded", "wire", "normals", "silhouette", "clay")
 BACKGROUNDS = ("studio", "white", "transparent")
-CACHE_VERSION = 3  # bump when the rig changes in a way that invalidates cached PNGs
+CACHE_VERSION = 4  # bump when the rig changes in a way that invalidates cached PNGs
 
 
 class RenderError(RuntimeError):
@@ -50,11 +50,28 @@ def _cache_key(glb: Path, params: dict[str, Any]) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:24]
 
 
+#: Every file that can change what an object render LOOKS like: the driver, the
+#: page-side rig, the studio (environment/backdrop/lights) and the camera-fit math.
+#: Host plumbing (lib/cli.mjs, lib/host_env.mjs, lib/host_page.mjs) is deliberately
+#: NOT here — it cannot change a pixel, and hashing it would drop every cached PNG
+#: on an unrelated edit.  ``tests/threejs_render/test_studio_rig.py`` walks the real
+#: import graph and fails when a new page-side module is missing from this list.
+RIG_FILES = (
+    "render_glb.mjs",
+    "lib/browser/render_rig.js",
+    "lib/browser/studio.js",
+    "lib/browser/studio_env.js",
+    "lib/browser/renderer.js",
+    "lib/browser/camera_fit.js",
+    "lib/orbit.mjs",
+)
+
+
 def _rig_signature() -> str:
     """Hash of the JS rig files so editing the rig invalidates the cache."""
     rt = runtime_js_dir()
     h = hashlib.sha256()
-    for rel in ("render_glb.mjs", "lib/browser/render_rig.js", "lib/browser/studio.js", "lib/browser/camera_fit.js"):
+    for rel in RIG_FILES:
         p = rt / rel
         if p.is_file():
             h.update(p.read_bytes())

@@ -182,6 +182,39 @@ def round_rows(ws: Workspace, rec: RunRecord) -> list[RoundRow]:
     return rows
 
 
+#: complexity axes worth putting on a card / detail page (the index carries the rest)
+_CX_AXES = ("part_count", "assembly_depth", "tri_count", "materials",
+            "silhouette", "feature_density", "symmetry_groups", "hollowness")
+
+
+def _measurement_complexity(ws: Workspace) -> dict | None:
+    """The complexity block sitting in ``artifacts/measurement.json`` — how a run
+    finished before the record carried its own block (and after any re-measure)."""
+    try:
+        data = json.loads((ws.root / "artifacts" / "measurement.json").read_text())
+    except (OSError, ValueError):
+        return None
+    block = (data.get("extra") or {}).get("complexity")
+    return block if isinstance(block, dict) else None
+
+
+def _complexity(ws: Workspace, rec: RunRecord) -> tuple[float | None, str, dict[str, float]]:
+    """``(index, band, axes)`` of the delivered artifact: the record's own
+    complexity block, else the best round's measurement, else the measurement
+    file on disk.  A run built before the complexity vector existed has none
+    (``bench/complexity_report.py`` recomputes those from the GLB)."""
+    from codeverse.flywheel.record import complexity_block
+
+    try:
+        block = rec.extra.get("complexity") or complexity_block(rec) or _measurement_complexity(ws)
+    except Exception:  # noqa: BLE001 - a card is never worth an exception
+        block = None
+    if not isinstance(block, dict) or block.get("index") is None:
+        return None, "", {}
+    axes = {a: float(block[a]) for a in _CX_AXES if isinstance(block.get(a), (int, float))}
+    return float(block["index"]), str(block.get("band") or ""), axes
+
+
 def entry_from_record(battery: str, ws: Workspace, rec: RunRecord) -> RunEntry:
     """A complete card from a parsed record (never raises: every field degrades)."""
     best = best_round_index(rec)
@@ -194,6 +227,7 @@ def entry_from_record(battery: str, ws: Workspace, rec: RunRecord) -> RunEntry:
     caps = rec.extra.get("captions") or {}
     hero, hero_label, n_views = hero_view(ws, rec, best)
     plan = rec.plan
+    cx_index, cx_band, cx_axes = _complexity(ws, rec)
     return RunEntry(
         battery=battery, slug=ws.root.name, path=str(ws.root), state="ok",
         title=(getattr(plan, "object_name", "") or getattr(plan, "title", "") or "") if plan else "",
@@ -206,6 +240,7 @@ def entry_from_record(battery: str, ws: Workspace, rec: RunRecord) -> RunEntry:
         gate_errors=n_err, gate_summary={k: v for k, v in gates.items() if v},
         cost_usd=rec.total_usage.cost_usd, minutes=round(minutes, 1) if minutes is not None else None,
         rounds=len(rec.rounds), best_round=best,
+        complexity=cx_index, complexity_band=cx_band, complexity_axes=cx_axes,
         sheet=best_sheet(ws, rec), hero=hero, hero_label=hero_label, n_views=n_views,
         links=entry_links(ws, rec, best), round_rows=round_rows(ws, rec),
         cost_by_stage={k: round(v, 4) for k, v in (digest.get("by_stage") or {}).items()},

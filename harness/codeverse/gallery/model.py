@@ -25,7 +25,7 @@ RunState = Literal["ok", "pending", "broken"]
 
 #: filter names the index page and ``/api/runs`` both understand
 FILTER_KEYS = ("q", "track", "lang", "tier", "backend", "pass", "verdict", "battery")
-SORT_KEYS = ("score", "cost", "time", "name")
+SORT_KEYS = ("score", "cost", "time", "complexity", "name")
 
 
 class RunLink(BaseModel):
@@ -86,6 +86,12 @@ class RunEntry(BaseModel):
     rounds: int = 0
     best_round: int | None = None
 
+    complexity: float | None = Field(
+        default=None, description="objective complexity index of the delivered artifact (spatial/complexity.py)")
+    complexity_band: str = Field(default="", description="trivial | simple | moderate | complex | intricate")
+    complexity_axes: dict[str, float] = Field(
+        default_factory=dict, description="the measured axes behind the index, for the detail page")
+
     sheet: str = Field(default="", description="run-relative contact sheet (best round)")
     hero: str = Field(default="", description="run-relative single hero view (the card's image)")
     hero_label: str = Field(default="", description="what the hero view shows, humanised")
@@ -133,7 +139,7 @@ class RunEntry(BaseModel):
             "track": self.track, "lang": self.language, "backend": self.generator, "tier": self.tier,
             "pass": self.pass_state, "verdict": self.verdict, "score": self.score, "path": self.path,
             "cost": round(self.cost_usd, 6), "minutes": self.minutes, "state": self.state,
-            "text": self.search_text(),
+            "complexity": self.complexity, "text": self.search_text(),
         }
 
 
@@ -245,11 +251,13 @@ def match(entry: RunEntry, flt: dict[str, str]) -> bool:
 
 
 def sort_entries(entries: list[RunEntry], key: str) -> list[RunEntry]:
-    """Sort a copy of ``entries``: score/cost/time descending, name ascending."""
+    """Sort a copy of ``entries``: score/cost/time/complexity descending, name ascending."""
     if key == "cost":
         return sorted(entries, key=lambda e: (-e.cost_usd, e.slug))
     if key == "time":
         return sorted(entries, key=lambda e: (-(e.minutes or 0.0), e.slug))
+    if key == "complexity":
+        return sorted(entries, key=lambda e: (-(e.complexity if e.complexity is not None else -1.0), e.slug))
     if key == "name":
         return sorted(entries, key=lambda e: (e.slug, e.battery))
     return sorted(entries, key=lambda e: (-(e.score if e.score is not None else -1.0), e.slug))

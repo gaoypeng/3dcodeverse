@@ -14,8 +14,13 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
    car ~4.5 × 1.8 × 1.45 m, a coffee mug ~0.09 × 0.09 × 0.10 m). Never unit cubes. Centre the
    footprint on the up axis; the bottom sits at up=0, so the bbox centre's up-coordinate equals half
    the height.
-4. `parts` — 6 to 14 parts (use `instances` for identical copies: 4 legs = ONE part, instances=4,
-   bbox of ONE copy; `symmetry` says how copies are laid out). For EACH part:
+4. `parts` — **about {{ target_parts }} parts** (floor {{ min_parts }}, ceiling {{ cap_parts }}; the PLAN BUDGET block in the
+   request states where that number came from).  Every nameable feature in the request and in the
+   constraints must be either its own part or explicitly named in another part's `description` as
+   geometry that part carries — a feature named nowhere will not be built, and the judge's
+   checklist will mark it missing.
+   (Use `instances` for identical copies: 4 legs = ONE part, instances=4,
+   bbox of ONE copy; `symmetry` says how copies are laid out.)  For EACH part:
    * `name` PascalCase, unique, descriptive (`SeatCushion`, `FrontLeg`, `Backrest`).
    * `role` one line; `description` the construction recipe in numbers: primitive(s), thickness,
      radii, taper, angles, edge treatment, visible detail (slats, grooves, bolts …).
@@ -23,14 +28,39 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
      least 0.002 m (2 mm) — never leave a gap between a leg and the seat.
    * `attach_to` the part it is physically joined to (one parent; the main body has none).
    * `material` plain words incl. colour (`oiled oak, warm brown`, `brushed steel`, `matte black plastic`).
-5. `style_notes` — era/style cues and the exact proportions that make it read as THAT object.
-6. `acceptance` — 6 to 12 checklist items, each verifiable from renders or measurements:
+   * `children` — 3 to 6 SUB-PARTS, but only for a part that is really an ASSEMBLY (rule 5).
+   * `detail_hint` — one line, on the 3-5 parts that carry the object's identity, saying what makes
+     THAT part read as real ("carries the visible mechanism — model the burr cone's flutes, the
+     square shaft and the retaining nut"; "the eye follows this edge: keep the 6 mm bullnose").
+5. `children` — WHEN TO NEST AND WHEN NOT TO.
+   Nest a part when a parts diagram would give it its own exploded view: a burr mechanism, a pegbox,
+   a quill-and-chuck head, a belt housing, a sash in its frame, a lamp head, a swivel base.  Give it
+   3-6 `children`, each with `name`, `description` in numbers, a `bbox` INSIDE the parent's bbox
+   (same frame) and `material` where it differs from the parent's.
+   Do NOT nest a leg, a stretcher, a panel, a bolt, a plain slab — those are shapes, not assemblies:
+   describe them in `description` and leave `children` empty.
+   A sub-part is a PLANNING unit, not an export unit: the builder builds all of a part's sub-parts
+   and exports the result as ONE object named after the PARENT.  So nesting buys detail without
+   adding a part that can float, interpenetrate or go missing — nest wherever the object earns it,
+   and prefer nesting over inventing an extra top-level part.
+6. `style_notes` — era/style cues and the exact proportions that make it read as THAT object.
+7. `acceptance` — 6 to 12 checklist items, each verifiable from renders or measurements:
    one per user constraint and must-have, one for overall dimensions (`how: measure`), one for
    ground contact, one per key visible feature (`how: visual`). Ids `a1`, `a2`, …; `priority: must`
    for things whose absence makes it the wrong object, `should` for polish.
 
 RULES
+- Count before you write: list the nameable features the request names, then make sure each one is
+  covered by a part row or by a `description` sentence with its own numbers.  A feature that appears
+  in neither will not be built, and the judge's checklist will mark it missing.
 - Real proportions over invention: think of a real reference product and its catalogue dimensions.
+  When the request carries an ENGINEERING BRIEF, its dimensions, sub-assemblies and signature features
+  are ground truth: every signature feature must be findable in your plan as a part, a sub-part, or a
+  named detail inside some `description`.
+- A plan of boxes at different sizes is a FAILED plan and will be sent back.  Every part's
+  `description` must say something a plain primitive cannot: a profile (tapered 35→25 mm, fluted,
+  bullnosed r=6 mm), a counted repeat ("7 slats at 42 mm pitch", "24 spokes"), an edge treatment,
+  or the sub-shapes it is built from.
 - Parts must tile the object: the union of part bboxes ≈ the overall bbox; no part larger than the object.
 - Mirror pairs share one part with `symmetry: mirror_x` (or `mirror_y`) and `instances: 2`.
 - Every part name appears once; every `attach_to` names an existing part.

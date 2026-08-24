@@ -129,3 +129,38 @@ def test_extra_anchor_levels_reach_the_judge_prompt() -> None:
     # the four required levels are still rendered, richest first
     idx = [block.index(f"     {lvl}: ") for lvl in ("1.0", "0.7", "0.4", "0.1")]
     assert idx == sorted(idx)
+
+
+# --------------------------------------------------------------------------- delivery
+def test_the_quality_chapters_travel_INSIDE_the_zone_and_env_prompts() -> None:
+    """Naming a chapter is not teaching it: on scenes_v1 not one of the 20 zone/env
+    sessions called `read_cookbook`, so the chapters that decide the score are inlined
+    into the brief itself (`tracks.prompting.cookbook_sections`)."""
+    from codeverse.tracks.scene import ENV_RECIPES, ZONE_RECIPES
+
+    cookbook = load_text("scene_threejs/cookbook.md")
+    from codeverse.spatial.cookbook_tool import find_section, split_sections
+
+    secs = split_sections(cookbook)
+    for names in (ENV_RECIPES, ZONE_RECIPES):
+        for n in names:
+            assert find_section(secs, n) is not None, n
+    for tpl in ("tracks/scene_zone.j2", "tracks/scene_env.j2", "tracks/scene_refine.j2"):
+        assert "{{ recipes }}" in load_text(tpl), tpl
+
+
+def test_cookbook_sections_inlines_whole_chapters_and_clips_safely(tmp_path) -> None:
+    from types import SimpleNamespace
+
+    from codeverse.tracks.prompting import cookbook_sections
+    from codeverse.tracks.scene import ZONE_RECIPES
+
+    ctx = SimpleNamespace(cookbook_text=load_text("scene_threejs/cookbook.md"))
+    text = cookbook_sections(ctx, ZONE_RECIPES)
+    assert all(f"## {t.split(':')[0]}" in text or t.split(":")[0] in text for t in ZONE_RECIPES)
+    for token in ("setColorAt", "cameraMask", "foreground frame", "±0.10–0.20 rad"):
+        assert token in text, token
+    assert len(text) > 12_000
+    assert cookbook_sections(ctx, ZONE_RECIPES, max_chars=500).endswith("call read_cookbook for the rest]")
+    assert cookbook_sections(SimpleNamespace(cookbook_text=""), ZONE_RECIPES) == ""
+    assert cookbook_sections(ctx, ["zzz qqq"]) == ""                  # no match → nothing, never junk

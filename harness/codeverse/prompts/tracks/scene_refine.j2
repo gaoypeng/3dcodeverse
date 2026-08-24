@@ -48,8 +48,8 @@ Animation: {{ animation }}
 - No DOM, no textures, no fetch, no Math.random, no CDN imports.
 
 ## The recurring defects on this track and the cookbook chapter that fixes each
-Do not re-explain the problem back — apply the recipe (`read_cookbook(section="...")`) and change
-the numbers.  If the judge repeated an issue from the previous round, the earlier fix was too
+Do not re-explain the problem back — apply the recipe (the named chapters are printed in full
+under **Recipes** at the end of this brief) and change the numbers.  If the judge repeated an issue from the previous round, the earlier fix was too
 timid: double the amplitude / the count / the contrast this time.
 
 | what the judge wrote | fix it with |
@@ -78,7 +78,13 @@ timid: double the amplitude / the count / the contrast this time.
 
 ## Tools
 {{ tool_cards }}
-Run `build` (and `scene_probe`) after editing; finish only when clean.
+Run `build` (and `scene_probe`) after editing; finish only when clean.  `scene_views` prints the
+frame table and the MEASURED MOTION per camera — use those numbers, not your impression.
+{% endif %}
+{% if recipes is defined and recipes %}
+
+# Recipes (from the scene cookbook — the chapters for the files you own; copy their numbers)
+{{ recipes }}
 {% endif %}
 
 ## Output

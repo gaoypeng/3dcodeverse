@@ -13,6 +13,13 @@ extra_instructions: >
   (silhouette) AND be finished on every side because cameras will see it from
   anywhere.  Credit only visible detail.  A plain-but-correct asset scores ~0.7;
   an asset that is a single box or that is unfinished on its back/underside scores low.
+  REFINEMENT KINDS — the countable unit of detail_level: (1) bevel / chamfer / fillet;
+  (2) taper or draft; (3) curve or compound surface where a primitive would be flat;
+  (4) moulding or profile; (5) cut-out, hole, slot or notch; (6) visible wall thickness
+  or hollow section; (7) surface relief (flutes, ribs, grooves, panelling, bark);
+  (8) separately modelled hardware.  Colour and material are not refinement kinds.
+  A richer asset outscores a plainer one on detail_level even when the plain one is
+  cleaner: cleanliness has its own criterion.
 
 criteria:
   - id: identity_silhouette
@@ -71,12 +78,16 @@ criteria:
     weight: 0.12
     title: Detail level
     description: >
-      Is there enough shape refinement for the asset's role — edges, insets, thickness,
-      trim, hardware — beyond primitives?  Do not credit detail you cannot see.
+      How much SHAPE was modelled for the asset's role?  Count REFINEMENT KINDS (see
+      the rubric notes) and how many of the asset's parts carry one.  Geometry only:
+      colour and material variety are scored by material_truth and never raise this.
     anchors:
-      "1.0": Several visible refinements; reads as a crafted asset.
-      "0.7": Two visible refinements; otherwise plain.
+      "1.0": Five or more refinement kinds visible and at least two thirds of the parts carry one; the finest features are at real hardware scale and survive in the geometry-only montage.
+      "0.85": Three or four refinement kinds on at least half the parts.
+      "0.7": Exactly two refinement kinds, or more but only on one hero part.
+      "0.55": One refinement kind on a couple of parts; the rest unmodified primitives.
       "0.4": Primitive stack with one token detail.
+      "0.25": Every part is an unmodified primitive; only size, position and colour vary.
       "0.1": A single primitive or a blob.
 
   - id: material_truth
@@ -99,7 +110,8 @@ criteria:
       No z-fighting, black (inverted) faces, holes, stretched geometry, stray slivers
       or duplicate shells.
     anchors:
-      "1.0": No artefacts in any view.
+      "1.0": No artefact anywhere, including at detail scale in a crop — no cracks at joins, no coplanar flicker, no stray slivers, no coarse facets on a surface that should read as curved.
+      "0.85": Clean at asset scale; one blemish only findable in a crop.
       "0.7": One minor artefact in one view.
       "0.4": A clearly visible artefact.
       "0.1": Artefacts dominate.

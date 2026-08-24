@@ -14,12 +14,21 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
    references ("cyberpunk poster", "Studio Ghibli sky"), rendering character (soft/filmic, crisp/flat, glow).
 4. `resolution` — [width, height]; default [1280, 720]; use [720, 1280] only for explicitly vertical requests.
 5. `duration_s` — loop length in seconds (6-12 s; the judge samples up to 6 s).
-6. `passes` — 2 to 5 passes in draw order. For a fragment shader these are LAYERS inside one
-   shader (background → midground → foreground → grade); for an OpenGL program they may be real
-   passes (geometry, FBO post-process). For EACH pass: `name` PascalCase, `kind`
+6. `passes` — about {{ target_parts }} passes in draw order (floor {{ min_parts }}, ceiling {{ cap_parts }}; the PLAN BUDGET
+   block in the request says where that number came from). For a fragment shader these are LAYERS
+   inside one shader (background → midground → foreground → grade); for an OpenGL program they may
+   be real passes (geometry, FBO post-process). For EACH pass: `name` PascalCase, `kind`
    (fullscreen | geometry | postprocess | feedback), `description` = the RECIPE in numbers:
    technique (fbm octaves, sdf shapes, raymarch steps, particle counts, grid cells), sizes in
    screen fractions, counts, speeds, colours from the style. Concrete beats adjectives.
+   * `elements` — 3 to 6 NAMED things this pass draws, each with its own numbers ("7 gear wheels,
+     12-24 teeth, radii 0.06-0.22 of screen height, involute tooth profile", "3 dust layers at
+     0.02/0.05/0.11 screen-widths per second"). A pass with one element is a flat pass; the judge's
+     `visual_richness` criterion is measuring exactly this.
+   * `detail_hint` — one line: what makes THIS pass read as real rather than as a demo
+     ("the gears must mesh: adjacent radii in integer tooth ratios, contra-rotating").
+   A thin plan is the single biggest scored weakness of this track: depth in the LAYERS
+   (foreground occluders, mid detail, grade, vignette, grain) is what separates 0.5 from 0.8.
 7. `uniforms` — which harness uniforms the effect needs (`u_time`, `u_resolution`, `u_prev` for
    feedback trails, `u_noise` for a noise texture).
 8. `motion` — ONE paragraph: exactly what animates and how (direction, speed in screen-fractions

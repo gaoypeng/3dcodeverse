@@ -22,6 +22,23 @@ extra_instructions: >
   or lying on its back.  A primitive box-stack and a crafted product must be ≥ 0.4
   apart.  The DEFECT CHECKLIST is binary and literal: mark an item present only when
   an image or a gate finding shows it, and cite it.
+  REFINEMENT KINDS — the countable unit of geometry_detail.  A kind counts once for the
+  whole object, and only when you can point at it in an image: (1) bevel / chamfer /
+  fillet on an edge; (2) taper or draft along a part; (3) curve, sweep or compound
+  surface where a primitive would be flat; (4) moulding or profile (a shaped edge, a
+  cornice, a bead); (5) cut-out, hole, slot or notch; (6) visible wall thickness or
+  hollow section (a rim, a lip, an open tube end); (7) surface relief (flutes, ribs,
+  grooves, panelling, treads, weave, bark); (8) separately modelled hardware (hinge,
+  knob, screw, bracket, strap, spoke, ferrule).  Colour, material and shading are NOT
+  refinement kinds — read geometry_detail off the geometry-only montage first and only
+  then confirm it in the shaded views.
+  DETAIL AND SIZE — geometry_detail is scored against the object BUILT, not against the
+  simplest version of the subject.  A 20-part model with mouldings and hardware must
+  score higher on geometry_detail than a clean 5-part box-stack of the same subject,
+  even when the box-stack has fewer defects; those defects belong to
+  structure_plausibility, assembly_fit and craftsmanship, not here.  Conversely a large
+  part count with no refinement on any part is still 0.25-0.4: many primitives are not
+  detail.
 
 criteria:
   - id: intent_fidelity
@@ -57,15 +74,22 @@ criteria:
     weight: 0.16
     title: Geometry detail
     description: >
-      Are part shapes refined beyond naive primitives where the real object is refined?
-      Look for bevels/chamfers, tapers, curves, wall thickness, cut-outs, profiles,
-      mouldings, hardware.  Credit only what is visible in the renders.
+      How much SHAPE was actually modelled?  Count REFINEMENT KINDS (the list is in
+      the rubric notes: bevel/fillet, taper, curve/sweep, moulding/profile,
+      cut-out/hole/slot, visible wall thickness, surface relief, separately modelled
+      hardware) and how many of the object's nameable parts carry at least one.
+      Geometry only: colour, material variety and shading are scored elsewhere and
+      never raise this criterion.  Credit only refinements visible in the renders —
+      use the centre crop and the geometry-only montage, where shape survives and
+      colour does not.
     anchors:
-      "1.0": Multiple refinements visible at once in the centre crop — rounded/bevelled edges, tapered legs, curved rails or seats, visible wall thickness, mouldings, hardware, cut-outs — the object reads as a designed product or natural form.
-      "0.7": At least two visible refinements (e.g. bevelled seat edge AND tapered legs), the rest plain but acceptable.
-      "0.4": A stack of plain boxes/cylinders with sharp 90° corners; at most one token detail (one chamfer, one rounded top).
+      "1.0": Five or more refinement KINDS are visible and at least two thirds of the nameable parts carry one; the finest features are at real hardware scale (a few mm — screw heads, hinge leaves, bead mouldings, tread edges) and the geometry montage proves they are modelled, not painted.
+      "0.85": Three or four refinement kinds, on at least half the nameable parts; the object reads as a designed product rather than an assembly of stock shapes.
+      "0.7": Exactly two refinement kinds, or more kinds but concentrated on one or two hero parts while everything else is stock.
+      "0.55": One refinement kind on a couple of parts (tapered legs and nothing else), the rest unmodified primitives.
+      "0.4": A stack of plain boxes/cylinders with sharp 90° corners; at most one token detail on one part.
+      "0.25": Every part is an unmodified primitive; the only variation between parts is size, position and colour.
       "0.1": Primitive blobs or a single lump; parts are not individually shaped.
-
   - id: proportions_scale
     weight: 0.12
     title: Proportions and scale
@@ -116,7 +140,8 @@ criteria:
       missing faces / see-through walls, stretched or torn geometry, stray
       slivers, duplicated shells, or degenerate triangles?
     anchors:
-      "1.0": No visible artefacts in any view or crop; shading is smooth and consistent; the geometry montage shows closed, clean surfaces.
+      "1.0": No artefact anywhere, INCLUDING at detail scale in the centre crop — no cracks where parts meet, no coplanar faces flickering, no stray sliver left over from a boolean, no visibly coarse facets on a surface that should read as curved; shading is smooth and consistent and the geometry montage shows closed surfaces.
+      "0.85": Clean at object scale; one blemish only findable in the centre crop (a faceted curve, a hairline crack at one join, one duplicated coplanar face).
       "0.7": One small artefact (a sliver, a minor shading seam, faint z-fighting on one face) visible only in one view.
       "0.4": A clearly visible artefact — black/inverted faces, a hole in a surface, a see-through wall, obvious z-fighting stripes.
       "0.1": Artefacts dominate; the object is torn, inside-out, or visibly broken.
@@ -176,8 +201,11 @@ defects:
     penalty: 0.10
     cap: 0.50
   - id: primitive_only
-    text: Every part is an unmodified box / cylinder / sphere with sharp 90° edges — no bevel, taper, profile, curve or cut-out anywhere.
+    text: Two thirds or more of the nameable parts are unmodified boxes / cylinders / spheres with sharp 90° edges, and at most one part carries any bevel, taper, profile, curve or cut-out. Different colours on stock shapes do NOT count as refinement.
     penalty: 0.08
+  - id: detail_below_part_count
+    text: The object has TEN or more nameable parts but fewer than THREE distinct refinement kinds (the numbered list in the rubric notes) are visible across all of them together — many primitives, little shape. Count kinds, not instances; do not count colour.
+    penalty: 0.05
   - id: untextured_flat
     text: Default grey / magenta placeholder materials are visible, or surfaces are unlit flat fills with no shading response. A uniform but sensible colour (an all-walnut chair, an all-oak cabinet) is NOT this defect.
     penalty: 0.05

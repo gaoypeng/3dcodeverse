@@ -6,7 +6,11 @@ baseColorTexture=<PIL image>, baseColorFactor=tint|white, metallicFactor,
 roughnessFactor))``; ``Scene.export(path)`` (glTF exporter) writes TEXCOORD_0,
 one glTF ``image``/``texture``/``material`` per distinct ``PBRMaterial`` object
 (materials are shared across parts with the same texture id + factors, so the
-GLB carries each PNG once) and keeps node names + transforms.  Geometry
+GLB carries each PNG once) and keeps node names + transforms.  Each material also
+carries a ``metallicRoughnessTexture`` and a ``normalTexture`` DERIVED from its
+albedo (:mod:`codeverse.texturing.maps`), so the grain modulates the specular
+lobe and the relief, not only the colour — ``derived_maps=False`` restores the
+albedo-only behaviour.  Geometry
 positions are never altered (only seam-split vertices are duplicated); parts
 marked ``skip`` keep their original visuals (flat colours / vertex colours).
 
@@ -19,6 +23,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import trimesh
@@ -27,6 +32,8 @@ from pydantic import BaseModel, Field
 
 from codeverse.conventions import to_snake
 from codeverse.spatial.measure import GlbLoadError, instance_groups, load_scene
+from codeverse.texturing.maps import is_flat, metallic_roughness_image, normal_image
+from codeverse.texturing.materials import COARSE_TO_FINE
 from codeverse.texturing.plan import TexturePart, TexturePlan
 from codeverse.texturing.uv import unwrap
 
@@ -40,6 +47,7 @@ class ApplyReport(BaseModel):
     parts_unmatched: list[str] = Field(default_factory=list, description="scene nodes with no plan part")
     projections: dict[str, str] = Field(default_factory=dict, description="node → projection used")
     n_materials: int = 0
+    n_derived_maps: int = 0
     n_split_vertices: int = 0
     warnings: list[str] = Field(default_factory=list)
     duration_ms: int = 0
@@ -61,9 +69,25 @@ def node_part_lookup(node_names: list[str], plan_parts: dict[str, TexturePart]) 
     return out
 
 
-def _material(part: TexturePart, image: Image.Image) -> trimesh.visual.material.PBRMaterial:
+def _material(
+    part: TexturePart, image: Image.Image, *, derived_maps: bool = True
+) -> trimesh.visual.material.PBRMaterial:
+    """PBR material for one texture id.
+
+    Beyond the albedo the material carries two maps DERIVED from that albedo (see
+    ``texturing.maps``): a metallic/roughness texture so the grain also modulates
+    the specular lobe, and a normal map so it catches light in relief.  They cost
+    no extra image call and cannot disagree with the colour.  ``derived_maps=False``
+    reproduces the albedo-only material the pass shipped before.
+    """
     tint = part.tint_rgb or (1.0, 1.0, 1.0)
     factor = [int(round(255 * float(c))) for c in tint] + [255]
+    fine = COARSE_TO_FINE.get(part.material_family, part.material_family)
+    extra: dict[str, Any] = {}
+    if derived_maps and not is_flat(image):
+        extra["metallicRoughnessTexture"] = metallic_roughness_image(
+            image, float(part.roughness), float(part.metallic), fine)
+        extra["normalTexture"] = normal_image(image, fine)
     return trimesh.visual.material.PBRMaterial(
         name=part.texture_id,
         baseColorTexture=image,
@@ -71,6 +95,7 @@ def _material(part: TexturePart, image: Image.Image) -> trimesh.visual.material.
         metallicFactor=float(part.metallic),
         roughnessFactor=float(part.roughness),
         doubleSided=False,
+        **extra,
     )
 
 
@@ -86,6 +111,7 @@ def apply_textures(
     glb_out: Path | str,
     *,
     verify: bool = True,
+    derived_maps: bool = True,
 ) -> ApplyReport:
     """Write ``glb_out`` = ``glb_in`` with textured PBR materials on the planned parts.
     ``textures`` maps texture_id → PNG path (missing ids leave those parts untextured)."""
@@ -139,7 +165,7 @@ def apply_textures(
         mkey = (part.texture_id, float(part.roughness), float(part.metallic), part.tint_rgb)
         mat = materials.get(mkey)
         if mat is None:
-            mat = materials[mkey] = _material(part, img)
+            mat = materials[mkey] = _material(part, img, derived_maps=derived_maps)
         mesh = trimesh.Trimesh(vertices=uw.vertices, faces=uw.faces, vertex_normals=uw.normals, process=False)
         mesh.visual = trimesh.visual.TextureVisuals(uv=uw.uv, material=mat)
         mesh.metadata = dict(geom.metadata or {})
@@ -149,6 +175,7 @@ def apply_textures(
         rep.projections[node] = uw.projection
         rep.n_split_vertices += uw.n_split
     rep.n_materials = len(materials)
+    rep.n_derived_maps = sum(1 for m in materials.values() if getattr(m, "normalTexture", None) is not None)
     glb_out.parent.mkdir(parents=True, exist_ok=True)
     scene.export(glb_out)
     if verify:

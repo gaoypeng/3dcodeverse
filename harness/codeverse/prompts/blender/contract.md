@@ -36,8 +36,8 @@
   `bpy.ops.image.*`, `bpy.ops.screen.*`, `bpy.ops.view3d.*`, `bpy.data.libraries`,
   `bpy.app.timers`, `open(`, `exec(`, `eval(`, `__import__`, camera / light creation, `input()`,
   network, file writes; never touch `bpy.context.scene.render` / `scene.world` (harness-owned).
-* Limits: ≤ 600 k triangles total (aim 20–150 k); subdivision levels ≤ 2; ≤ 12 boolean cutters
-  per object; < 120 s headless.  Self-check at the end of `main()` (see the examples).
+* Limits: hit the prompt's **DETAIL BUDGET** (target/floor/ceiling tris + build seconds, sized from
+  this plan), not a flat number.  Ceilings: 600 k tris, subdiv ≤ 2, ≤ 12 booleans/object, 300 s.
 
 ## COMPLETE minimal example A — multi-file (verified with Blender 5.0 headless)
 `src/parts/seat.py`

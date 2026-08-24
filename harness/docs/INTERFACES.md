@@ -223,6 +223,12 @@ from codeverse.spatial.frame_metrics import frame_gate_from_renders, frame_findi
 frame_gate_from_renders(renders) -> GateReport         # gate "scene_frames"; data.kind ∈ dark_frame | blown_frame | flat_frame |
     # camera_in_geometry | camera_underground | camera_low | camera_high | content_small; authored cameras → ERROR, orbit rig → WARN
 from codeverse.spatial.measure import measure_glb      # link-hierarchy rule: metadata["links"] → each link is its own part
+    # Δ Measurement.extra["complexity"] = ComplexityVector.model_dump() (additive, best-effort, never raises)
+from codeverse.spatial.complexity import (ComplexityVector, COMPLEXITY_WEIGHTS, COMPLEXITY_VERSION,
+                                          complexity_of_glb, complexity_of_parts, complexity_summary_line, band_of)
+complexity_of_glb(glb) -> ComplexityVector     # part_count, assembly_depth, tri_count, materials, silhouette,
+    # feature_density, symmetry_groups, hollowness, + index 0-1 (documented weights) and band
+    # (trivial|simple|moderate|complex|intricate).  Deterministic, no VLM/render.  docs/COMPLEXITY.md
 from codeverse.spatial.connectivity import check_connectivity   # (glb, *, gap_m=…, …, language="") — Δ language selects the
 from codeverse.spatial.contract import check_contract           # frame of fix hints; both gates emit hints in the AUTHORING frame
                                                                 # (labelled "blender frame: Z-up, -Y front" etc.), GLB vectors in data
@@ -287,12 +293,18 @@ RoundPolicy(max_rounds=4, plateau_window=2, min_delta=0.02, target=0.8, judge_on
             pairwise_min_confidence=0.6, judge_samples=1,
             judge_model="", regression_sigma=1.0, regression_allow_switch=True,   # money stops (docs/COST.md §5)
             marginal_sigma=1.5, marginal_from_round=3,                            # r03+ must beat 1.5σ
-            agent_max_turns=0, agent_wrapup_turns=6      # 0 = UNCAPPED: a 28-turn cap was A/B'd
+            agent_max_turns=0, agent_wrapup_turns=6,     # 0 = UNCAPPED: a 28-turn cap was A/B'd
             # and rejected (+$0.02, −0.21 score, docs/COST.md §17); wrapup applies to a cap a caller sets
+            detail_rounds=0, detail_min_score=0.45, detail_bbox_tol_m=0.005   # surface-detail round;
+            # 0 here, raised to 1 by lifecycle.detail_round_budget for tracks with supports_detail_round
+            # ($CV3D_DETAIL_ROUNDS overrides both — the A/B switch)
             ).with_candidates(n).with_judge(spec.backends.judge)
 policy.sigma / .regression_delta / .marginal_delta   # judge_sigma() reads cost.routing.JUDGE_NOISE — THE σ table
-StopPolicy(policy).evaluate(history, budget_ok=True) -> StopDecision(reason, strategy="same"|"switch", detail)
-    # .decide(...) -> StopReason is unchanged; strategy "switch" = ONE whole-artifact rewrite round (kind REWRITE_KIND)
+StopPolicy(policy).evaluate(history, budget_ok=True) -> StopDecision(reason, strategy="same"|"switch"|"detail", detail)
+    # .decide(...) -> StopReason is unchanged; strategy "switch" = ONE whole-artifact rewrite round (kind REWRITE_KIND),
+    # "detail" = ONE surface-detail round (kind DETAIL_KIND) — a plateau/diminishing stop is converted into it
+    # only when detail_blocked(history, policy) == "" (clean gates, built, judged, within σ of best, budget left)
+from codeverse.orchestrator.rounds import DETAIL_KIND, kind_for_strategy, detail_blocked   # THE strategy → kind map
 from codeverse.orchestrator.budget import BudgetGuard, usage_delta
 BudgetGuard(budget, *, soft_fraction=1.0, run="", ledger=None)
     .spend(usage, *, stage="other", role=None, label="", round_index=None, outcome="ok", enforce=True)
@@ -306,9 +318,25 @@ from codeverse.tracks.candidates import run_best_of_n, choose_best_round   # N p
 # within margin); winner copied back, normal r00 pipeline follows; rounds/candidates.json + record.extra["candidates"]
 from codeverse.tracks.motion import default_motion_checks, expected_direction   # gate "motion_direction" (articulated)
 from codeverse.tracks.reference import silhouette_gate, reference_refine_tasks  # gate "reference_silhouette" (IoU<0.6 → WARN + refine task)
-from codeverse.tracks.prompting import base_prompt_context, reference_images, file_for_target_factory   # Δ split out of
+from codeverse.tracks.depth import depth_budget, DepthBudget, scope_groups, PartScope, interfaces_text, \
+    scoped_generation_enabled                          # complexity-aware budgets + per-part scoped generation
+depth_budget(plan, *, build_timeout_s=300) -> DepthBudget   # min/target/max triangles + max_build_s sized from
+    # the plan's LEAF count (parts × instances × children); .as_prompt() is the DETAIL BUDGET block every
+    # generate/refine/detail template shows in place of a flat "≤ 300k tris"
+scope_groups(plan, *, files_for, max_groups=6, parts_per_scope=3, min_parts=8) -> [PartScope]
+    # [] = one session owns the object (small plan, no per-part file ownership, or $CV3D_SCOPED_PARTS=off);
+    # otherwise attachment-subtree groups whose files are disjoint, so the sessions run in parallel
+interfaces_text(plan, scope) -> str    # the planned boxes of the neighbours this scope must weld to
+from codeverse.tracks.detailing import drift_gate, detail_instructions, DRIFT_GATE   # gate "detail_drift":
+    # ERROR when a detail round moved/resized/removed a part or changed the overall extents (tol from policy)
+from codeverse.tracks.prompting import base_prompt_context, reference_images, file_for_target_factory, \
+    scope_context, budget_for, detail_budget_text      # Δ split out of
 from codeverse.tracks.common import RunContext, Services   # common.py (lazy re-exports keep old imports working)
 from codeverse.tracks.generation import generate, run_agent_task, parse_multifile, is_single_shot
+GenerationTask.phase: int = 0   # tasks run in parallel WITHIN a phase, phases in ascending order
+    # (tracks.steps.run_generation_tasks).  Only user: the scoped baseline — phase 0 = one session per
+    # part group (`baseline_<parts>`, own files only), phase 1 = ONE `assemble` session that owns the
+    # entry file and the placement gates.  Every other caller is phase 0, i.e. unchanged.
 generate(ws, *, agent_id, task, ..., budget=BudgetGuard, max_turns=0, wrapup_turns=6) -> GenerationResult
     # GenerationResult adds turns / sessions / turn_capped.  A turn cap is applied ONLY if a caller
     # asks: task.max_turns > max_turns > $CV3D_AGENT_MAX_TURNS > settings.limits.agent_max_turns >
@@ -356,6 +384,9 @@ from codeverse.texturing.scene_pack import scene_texture_pack, texture_pack_prom
 ## flywheel/ + cli/
 ```python
 from codeverse.flywheel.record import finalize_record, load_record, iter_runs, best_round_index
+from codeverse.flywheel.record import complexity_block, round_complexity   # objective complexity of what shipped
+    # finalize_record fills record.extra["complexity"] = the BEST round's vector + plan_parts /
+    # parts_per_plan_part / by_round; every rounds_summary row gains "complexity" (the index or None)
 from codeverse.flywheel.export import export_samples   # (runs_dir, out_dir, *, min_score=None, only_passed=False, best_round=True,
     # overwrite=True, include_unbuilt=False, captions_dir=None, drop_duplicates=False) -> ExportReport{…, n_duplicates, duplicates, tiers}
 from codeverse.flywheel.quality import quality_tier, prompt_hash, find_duplicates   # tiers: A passed & 0 gate errors, B passed,

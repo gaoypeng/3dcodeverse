@@ -72,6 +72,20 @@ class AssetResult(BaseModel):
     judged: bool = False
 
 
+def is_model_outage(e: BaseException) -> bool:
+    """Is this a *service* failure (the model is down) rather than a bad answer?
+
+    A 503 capacity storm reaches us only after ``models.retry`` has already spent its
+    whole storm budget waiting, so the escalation the harness would normally do —
+    a full agent session, ten times the money and ten minutes — hits the same wall.
+    """
+    from codeverse.models.base import ModelError
+
+    if isinstance(e, ModelError):
+        return bool(e.retryable) or e.status in (429, 500, 502, 503, 504, 529)
+    return False
+
+
 def asset_file(asset: AssetPlan) -> str:
     snake = to_snake(asset.name)
     return f"src/assets/{snake}.js" if asset.kind == "threejs" else f"public/assets/{snake}.glb"
@@ -151,28 +165,41 @@ def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     sub = single_shot_ctx(ctx)
     chk: AssetCheck | None = None
     strategy, notes = "", ""
+    outage = False
     if sub is not None:
         for attempt in range(2):  # first shot + ONE error-feedback repair
             try:
                 res = _generate_asset(sub, asset, rel, language=Language.SCENE_THREEJS, attempt=attempt,
                                       feedback=repair_feedback(chk, rel) if chk is not None else "")
-            except Exception as e:  # noqa: BLE001 — a model outage escalates, it does not lose the asset
+            except Exception as e:  # noqa: BLE001 — a bad answer escalates; a dead model does not
                 from codeverse.orchestrator.budget import BudgetExceeded
 
                 if isinstance(e, BudgetExceeded):
                     raise
-                log.warning("single-shot asset %s failed: %s", asset.name, e)
-                ctx.events.emit("asset.generate_failed", asset=asset.name, attempt=attempt, error=f"{type(e).__name__}: {e}"[:300])
+                outage = is_model_outage(e)
+                log.warning("single-shot asset %s failed%s: %s", asset.name, " (model outage)" if outage else "", e)
+                ctx.events.emit("asset.generate_failed", asset=asset.name, attempt=attempt, outage=outage,
+                                error=f"{type(e).__name__}: {e}"[:300])
                 chk = AssetCheck(ok=False, ran=True, fatal=True, errors=[f"the generator failed: {type(e).__name__}: {e}"[:300]])
+                if outage:
+                    continue      # the answer is not bad, the model is down: try the cheap shot again
                 break
+            outage = False
             notes = res.notes
             chk = (check_threejs_asset(ctx, rel, pascal, expected_size_m=asset.approx_size_m) if res.ok
                    else AssetCheck(ok=False, ran=True, fatal=True, errors=[f"no file was written ({res.notes or 'empty answer'})"]))
             if chk.ok:
                 strategy = "single-shot" if attempt == 0 else "single-shot+repair"
                 break
-        if not strategy:
+        if not strategy and not outage:
             ctx.events.emit("asset.escalated", asset=asset.name, errors=(chk.errors[:3] if chk else []))
+    if not strategy and outage:
+        # the model itself is down (503 capacity storm), and the retry layer already spent its
+        # storm budget waiting: a full agent session is ten times the money and the same wall.
+        # Give the asset up cheaply — the zones read "NOT AVAILABLE" and build around it.
+        ctx.events.emit("asset.skipped_outage", asset=asset.name, errors=(chk.errors[:2] if chk else []))
+        return AssetResult(name=asset.name, kind=asset.kind, ok=False, strategy="outage",
+                           notes="generator unavailable (model outage); asset skipped")
     if not strategy:  # no chat model, or single-shot failed twice → the full agent session
         res = _generate_asset(ctx, asset, rel, language=Language.SCENE_THREEJS, attempt=0,
                               timeout_s=ctx.budget.timeout_s(ASSET_AGENT_TIMEOUT_S, floor_s=120))

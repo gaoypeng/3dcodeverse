@@ -162,6 +162,28 @@ def test_ensure_acceptance_is_idempotent():
     n1 = len(ensure_acceptance(p, spec).acceptance)
     n2 = len(ensure_acceptance(p, spec).acceptance)
     assert n1 == n2 and any(a.how == "measure" for a in p.acceptance)
+    # an object plan's own items keep their priority: there IS a measurement pass to settle them
+    assert all(a.priority == "must" for a in p.acceptance)
+
+
+def test_scene_plan_items_are_advisory_and_only_the_spec_must_haves_gate():
+    """A *must* the judge cannot verify caps the run at 0.60 AND fails it, so on the scene
+    track (no measurement pass, planner writes its checklist before the scene exists) only
+    the spec's must_have list keeps that priority — measured: a1/a6-style planner wishes
+    capped a 0.75 japanese garden at 0.60."""
+    from codeverse.contracts.plan import AcceptanceItem
+
+    p = ScenePlan.model_validate(plan_example(Track.SCENE))
+    p.acceptance = [AcceptanceItem(id="a1", text="parapet is 1.05 m high", how="measure", priority="must"),
+                    AcceptanceItem(id="a2", text="the water ripples", how="probe", priority="must")]
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS)
+    spec = spec.model_copy(update={"constraints": spec.constraints.model_copy(
+        update={"dimensions_m": None, "must_have": ["a koi pond", "gentle water ripple animation"]})})
+    out = ensure_acceptance(p, spec)
+    by = {a.id: a for a in out.acceptance}
+    assert [a.id for a in out.acceptance] == ["a1", "a2", "must1", "must2"]
+    assert [a.priority for a in out.acceptance] == ["should", "should", "must", "must"]
+    assert by["must2"].text.endswith("gentle water ripple animation")
 
 
 # ----------------------------------------------------------------------------- repair

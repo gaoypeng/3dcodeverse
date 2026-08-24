@@ -18,6 +18,7 @@ from codeverse.contracts.chat import ChatRequest, ChatResponse
 from codeverse.contracts.common import Usage
 from codeverse.models.anthropic_convert import THINKING_BLOCKS, build_kwargs, parse_content
 from codeverse.models.base import ModelError
+from codeverse.models.keypool import MAX_WAIT_S
 from codeverse.models.parts import Stopwatch
 from codeverse.models.pricing import cache_write_surcharge, estimate_cost
 from codeverse.models.retry import with_retries
@@ -59,8 +60,8 @@ class AnthropicModel:
         api_key: str | None = None,
         timeout_s: float = 600.0,
         max_attempts: int = 6,
-        base_delay: float = 2.0,
-        max_delay: float = 30.0,
+        base_delay: float = 1.0,
+        max_delay: float = MAX_WAIT_S,
         json_mode: str = "tool",
         sleep: Callable[[float], None] = time.sleep,
         client: Any | None = None,

@@ -141,11 +141,22 @@ def _n_gate_errors(r: RoundRecord) -> int:
     return sum(len(g.errors) for g in r.gates)
 
 
+def round_complexity(r: RoundRecord) -> dict[str, Any] | None:
+    """The round's objective complexity vector, as measured on its own build.
+
+    ``spatial/measure.py`` stores it in ``Measurement.extra["complexity"]``; a
+    round measured before that existed (or one whose build failed) has none."""
+    m = r.measurement
+    block = (m.extra.get("complexity") if m is not None else None)
+    return block if isinstance(block, dict) else None
+
+
 def round_summary(r: RoundRecord) -> dict[str, Any]:
     """Compact per-round digest (for record.extra, dashboards and the CLI).
 
     A degraded judgment shows up as score/passed None + ``judge_degraded``."""
     j = effective_judgment(r)
+    cx = round_complexity(r)
     return {
         "index": r.index,
         "kind": r.kind,
@@ -159,6 +170,7 @@ def round_summary(r: RoundRecord) -> dict[str, Any]:
         "judge_degraded": r.judgment is not None and j is None,
         "cost_usd": round(r.usage.cost_usd, 6),
         "duration_s": round(r.duration_s, 1),
+        "complexity": cx.get("index") if cx else None,
     }
 
 
@@ -188,7 +200,35 @@ def fill_derived(record: RunRecord) -> RunRecord:
     env.update(record.environment)  # the track's own entries win
     record.environment = env
     record.extra["rounds_summary"] = [round_summary(r) for r in record.rounds]
+    block = complexity_block(record)
+    if block is not None:
+        record.extra["complexity"] = block
     return record
+
+
+def complexity_block(record: RunRecord) -> dict[str, Any] | None:
+    """``record.extra["complexity"]``: the delivered artifact's complexity vector
+    plus what the plan asked for.
+
+    The vector is the one measured on the BEST round — the round whose code is
+    restored and rebuilt at finalise, so it describes the artifact actually
+    shipped.  ``plan_parts`` / ``parts_per_plan_part`` say whether the build
+    reached the plan's ambition or collapsed it (docs/COMPLEXITY.md)."""
+    best = next((r for r in record.rounds if r.index == record.best_round), None)
+    cx = round_complexity(best) if best is not None else None
+    if cx is None:
+        cx = next((c for c in (round_complexity(r) for r in reversed(record.rounds)) if c), None)
+    if cx is None:
+        return None
+    plan_parts = len(record.plan.parts) if record.plan is not None else 0
+    block = dict(cx)
+    block["plan_parts"] = plan_parts
+    block["parts_per_plan_part"] = (
+        round(int(cx.get("part_count") or 0) / plan_parts, 3) if plan_parts else None
+    )
+    trail = [c["index"] for c in (round_complexity(r) for r in record.rounds) if c]
+    block["by_round"] = trail
+    return block
 
 
 # --------------------------------------------------------------------------- io

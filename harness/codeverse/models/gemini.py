@@ -36,11 +36,14 @@ from codeverse.models.gemini_convert import (
     parse_usage,
     to_contents,
 )
-from codeverse.models.keypool import KeyPool, KeyPoolExhausted, Outcome
+from codeverse.models.keypool import MAX_WAIT_S, KeyPool, KeyPoolExhausted, Outcome
 from codeverse.models.parts import Stopwatch
 from codeverse.models.pricing import estimate_cost
 from codeverse.models.retry import rotate_with_retries
 from codeverse.models.schema_utils import JsonParseError, parse_json_lenient
+from codeverse.models.storm import StormGate
+from codeverse.models.storm import storm_gate as storm_gate_for
+from codeverse.models.tokens import request_tokens
 
 log = logging.getLogger(__name__)
 
@@ -51,15 +54,38 @@ _clients: dict[tuple[str, int], genai.Client] = {}
 _registry_lock = threading.Lock()
 
 
-def shared_pool(keys: list[str], *, rpm_per_key: int = 900) -> KeyPool:
-    """One ``KeyPool`` per distinct key list so limiters are process-wide."""
-    sig = tuple(keys)
+def shared_pool(
+    keys: list[str],
+    *,
+    rpm_per_key: int | None = None,
+    tpm_per_key: int | None = None,
+    max_in_flight: int | None = None,
+) -> KeyPool:
+    """One ``KeyPool`` per distinct (key list, quota) so limiters are process-wide.
+
+    Unset arguments come from ``Settings.rate`` — the owner's real per-key quota
+    (``docs/COST.md`` Part III), which is what makes the pool TPM-aware: a
+    200 k-token judge verdict reserves 100x what a caption does."""
+    rate = _rate()
+    rpm = rate.rpm_per_key if rpm_per_key is None else rpm_per_key
+    tpm = rate.tpm_per_key if tpm_per_key is None else tpm_per_key
+    cap = rate.max_in_flight if max_in_flight is None else max_in_flight
+    sig = (*keys, f"|{rpm}|{tpm}|{cap}")
     with _registry_lock:
         pool = _pools.get(sig)
         if pool is None:
-            pool = KeyPool(keys, rpm_per_key=rpm_per_key)
+            pool = KeyPool(keys, rpm_per_key=rpm, tpm_per_key=tpm or None, max_in_flight=cap or 0)
             _pools[sig] = pool
         return pool
+
+
+def _rate() -> Any:
+    from codeverse.config import Rate, get_settings
+
+    try:
+        return get_settings().rate
+    except Exception:  # pragma: no cover - settings must never break a model call
+        return Rate()
 
 
 def _default_keys() -> list[str]:
@@ -143,8 +169,10 @@ class GeminiModel:
         timeout_s: float = 300.0,
         max_attempts: int = 6,
         base_delay: float = 1.0,
-        max_delay: float = 30.0,
-        rpm_per_key: int = 900,
+        max_delay: float = MAX_WAIT_S,
+        rpm_per_key: int | None = None,
+        tpm_per_key: int | None = None,
+        storm_gate: StormGate | None = None,
         sleep: Callable[[float], None] = time.sleep,
         client_factory: Callable[[str], Any] | None = None,
     ) -> None:
@@ -154,7 +182,10 @@ class GeminiModel:
             raise ModelError(
                 "no Gemini API keys configured (GEMINI_API_KEYS / ~/.config/astra3d/gemini_keys.env)"
             )
-        self.pool = pool or shared_pool(keys, rpm_per_key=rpm_per_key)
+        self.pool = pool or shared_pool(keys, rpm_per_key=rpm_per_key, tpm_per_key=tpm_per_key)
+        self.storm_gate = storm_gate if storm_gate is not None else (
+            storm_gate_for(f"gemini:{model}") if _rate().storm_gate else None
+        )
         self.timeout_s = timeout_s
         self.max_attempts = max(1, max_attempts)
         self.base_delay = base_delay
@@ -211,7 +242,9 @@ class GeminiModel:
             sleep=self._sleep,
             on_free_retry=downgrade_thinking,
             retry_after=_retry_after_s,
-            tokens_of=lambda r: r.usage.input_tokens + r.usage.output_tokens,
+            tokens_of=lambda r: r.usage.input_tokens,
+            tokens_hint=request_tokens(request, model_id=self.id),
+            storm_gate=self.storm_gate,
             label=f"gemini {self.model}",
         )
 

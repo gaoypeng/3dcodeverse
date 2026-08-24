@@ -23,7 +23,7 @@ from codeverse.workspace import Workspace
 
 #: tools every workspace gets (no track/language restriction)
 CORE_TOOLS = {"build", "measure", "render_views", "render_sheet", "isolate", "cross_section", "check_connectivity",
-              "check_contract", "compare_silhouette", "read_cookbook"}
+              "check_contract", "compare_silhouette", "compare_reference", "read_cookbook"}
 #: track- / language-scoped tools (documented; keep in sync when registering a new one)
 SCOPED_TOOLS = {
     "joint_sweep",  # articulated_object

@@ -1,8 +1,9 @@
 """``texture_pass``: the orchestrating entry for object texturing.
 
-    renders (latest sheet or a quick render) → material_plan (1 vision call)
+    renders (latest sheet or a quick render) → normalise_materials (free, deterministic)
+    → material_plan (1 vision call)
     → generate_textures (image model, cached, parallel) → seam_gate
-    → apply_textures → artifacts/object_textured.glb
+    → apply_textures (+ derived roughness/normal maps) → artifacts/object_textured.glb
     → judge_gate (before/after, n=1) → TextureReport (+ artifacts/texturing.json,
       record.json extra["texturing"] when a record exists)
 
@@ -31,6 +32,7 @@ from codeverse.events import EventLog
 from codeverse.texturing.apply import ApplyReport, apply_textures
 from codeverse.texturing.gate import GateResult, SeamGateResult, judge_gate, seam_gate
 from codeverse.texturing.generate import TextureSet, generate_textures
+from codeverse.texturing.normalise import NormaliseReport, normalise_materials
 from codeverse.texturing.plan import TexturePlan, material_plan
 from codeverse.workspace import Workspace
 
@@ -58,6 +60,7 @@ class TextureReport(BaseModel):
     plan: TexturePlan
     textures: TextureSet
     seam: SeamGateResult
+    normalise: NormaliseReport | None = None
     apply: ApplyReport | None = None
     gate: GateResult | None = None
     glb_in: str
@@ -73,6 +76,8 @@ class TextureReport(BaseModel):
             "shipped": self.shipped, "delta": self.delta, "glb_out": self.glb_out,
             "n_textures": len(self.textures.paths()), "seam_failed": sorted(self.seam.failed),
             "parts_textured": len(self.apply.parts_textured) if self.apply else 0,
+            "materials_normalised": len(self.normalise.changes) if self.normalise else 0,
+            "derived_maps": self.apply.n_derived_maps if self.apply else 0,
             "materials_delta": self.gate.materials_delta if self.gate else None,
             "cost_usd": round(self.usage.cost_usd, 4), "duration_s": self.duration_s,
             "plan_source": self.plan.source, "reason": self.gate.reason if self.gate else "; ".join(self.notes),
@@ -144,6 +149,7 @@ def texture_pass(
     services: TextureServices | None = None,
     events: EventLog | None = None,
     update_record: bool = True,
+    normalise: bool = True,
 ) -> TextureReport:
     """Run the whole pass on ``ws``.
 
@@ -151,7 +157,14 @@ def texture_pass(
     textured and no seam failed); ``judge_obj`` replaces the constructed
     ``VlmJudge`` (tests).  ``services`` bundles the five injectable dependencies
     (image_model / plan_model / render / cache_dir / judge_obj); explicit
-    keyword arguments win over the bundle."""
+    keyword arguments win over the bundle.
+
+    ``normalise=True`` first runs the deterministic material normaliser
+    (:func:`codeverse.texturing.normalise.normalise_materials`) over the input GLB,
+    so the parts the texture pass *skips* — chrome, glass, tiny hardware — still get
+    plausible metallic/roughness numbers.  It costs no model call, and the same
+    before/after judge gate (BEFORE is always the untouched ``glb_in``) decides
+    whether the combined result ships."""
     if not isinstance(judge, bool):  # tolerate the retired bool|judge union for one wave
         log.warning("texture_pass(judge=<object>) is deprecated; pass judge_obj=... instead")
         judge_obj = judge_obj if judge_obj is not None else judge
@@ -178,6 +191,16 @@ def texture_pass(
         rs = _render_quick(glb_in, tex_dir / "planner_views", views, render)
         sheet = Path(rs.contact_sheet) if rs.contact_sheet else (Path(rs.views[0].path) if rs.views else None)
 
+    # 1b. deterministic material normalisation (free; the texture base, never the judged BEFORE)
+    texture_base = glb_in
+    norm = None
+    if normalise:
+        norm = normalise_materials(glb_in, tex_dir / "object_normalised.glb", plan=plan)
+        if norm.glb_out:
+            texture_base = Path(norm.glb_out)
+        events.emit("texture.normalised", changed=len(norm.changes), materials=norm.n_materials,
+                    families=sorted({c.family for c in norm.changes}))
+
     # 2. material plan
     tplan = material_plan(spec, plan, sheet, model_id, model=plan_model, cache_dir=cache_dir)
     usage = tplan.usage
@@ -198,14 +221,15 @@ def texture_pass(
     for tid, err in tset.failed().items():
         notes.append(f"texture {tid} failed: {err}")
     keep = {tid: Path(tset.textures[tid].path) for tid in seam.passed}
-    report = TextureReport(plan=tplan, textures=tset, seam=seam, glb_in=str(glb_in), usage=usage, notes=notes)
+    report = TextureReport(plan=tplan, textures=tset, seam=seam, glb_in=str(glb_in), usage=usage,
+                           notes=notes, normalise=norm)
     notes = report.notes  # pydantic copied the list; keep appending to the report's own
     if not keep:
         notes.append("no usable textures (all failed or seams too strong) — nothing applied")
         return _finish(ws, report, t0, events, update_record)
 
     # 4. apply
-    report.apply = apply_textures(glb_in, tplan, keep, glb_out)
+    report.apply = apply_textures(texture_base, tplan, keep, glb_out)
     report.glb_out = str(glb_out)
     notes.extend(report.apply.warnings)
     events.emit("texture.applied", parts=len(report.apply.parts_textured), skipped=len(report.apply.parts_skipped),

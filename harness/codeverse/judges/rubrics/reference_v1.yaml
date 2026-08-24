@@ -73,10 +73,15 @@ criteria:
     title: Detail fidelity
     description: >
       Are the reference's visible details (mouldings, hardware, patterns, edges)
-      reproduced rather than smoothed away?
+      reproduced as GEOMETRY rather than smoothed away or merely painted on?  Count
+      how many distinct details the reference shows and how many of them exist as
+      shape in the render.  Colour alone is never detail here — a printed-on panel
+      line is not a modelled one; material_color scores the colours.
     anchors:
-      "1.0": Reference details reproduced convincingly.
+      "1.0": Nearly every detail the reference shows exists as modelled shape, at the reference's own scale (hardware, mouldings, edge profiles) — visible in the geometry-only montage, not only in the shaded views.
+      "0.85": Most reference details are modelled; a few fine ones are simplified.
       "0.7": Major details present, fine ones smoothed.
+      "0.55": A couple of details modelled; the rest suggested by colour only.
       "0.4": Only the gross form; details absent.
       "0.1": A primitive approximation.
 
@@ -87,7 +92,8 @@ criteria:
     description: >
       No artefacts — z-fighting, black faces, holes, slivers, floating parts.
     anchors:
-      "1.0": No artefacts in any view.
+      "1.0": No artefact anywhere, including at detail scale in a crop — no cracks at joins, no coplanar flicker, no stray slivers, no coarse facets on a surface that should read as curved.
+      "0.85": Clean at object scale; one blemish only findable in a crop.
       "0.7": One minor artefact.
       "0.4": A clearly visible artefact.
       "0.1": Artefacts dominate.

@@ -18,11 +18,12 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, TypeVar
 
-from codeverse.models.keypool import KeyPoolExhausted
+from codeverse.models.keypool import MAX_WAIT_S, KeyPoolExhausted
 
 if TYPE_CHECKING:  # pragma: no cover
     from codeverse.models.base import ModelError
     from codeverse.models.keypool import KeyPool, Outcome
+    from codeverse.models.storm import StormGate
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ def with_retries(
     is_retryable: Callable[[BaseException], bool],
     attempts: int = 6,
     base_delay: float = 1.0,
-    max_delay: float = 30.0,
+    max_delay: float = MAX_WAIT_S,
     on_retry: OnRetry | None = None,
     sleep: Callable[[float], None] = time.sleep,
     jitter: bool = True,
@@ -88,13 +89,15 @@ def rotate_with_retries(
     outcome_of: Callable[[ModelError], Outcome],
     max_attempts: int = 6,
     base_delay: float = 1.0,
-    max_delay: float = 30.0,
-    storm_attempts: int = 10,
-    storm_max_delay: float = 120.0,
+    max_delay: float = MAX_WAIT_S,
+    storm_attempts: int = 60,
+    storm_max_delay: float = MAX_WAIT_S,
     sleep: Callable[[float], None] = time.sleep,
     on_free_retry: Callable[[ModelError], bool] | None = None,
     retry_after: Callable[[BaseException], float | None] | None = None,
     tokens_of: Callable[[T], int] | None = None,
+    tokens_hint: int = 0,
+    storm_gate: StormGate | None = None,
     label: str = "model",
 ) -> T:
     """Run ``call(key)`` against a rotating :class:`KeyPool` until it succeeds.
@@ -114,12 +117,22 @@ def rotate_with_retries(
       429 counts against ``max_attempts`` with exponential backoff.
     * a **capacity storm** (HTTP 503/529 — model-wide, key rotation cannot
       help) gets its own patience budget: up to ``storm_attempts`` waits with
-      exponential backoff capped at ``storm_max_delay`` (~8 min total by
-      default) that do NOT consume ``max_attempts``.  Observed 2026-08-23: a
+      backoff capped at ``storm_max_delay`` = 5 s per wait (the house rule), so
+      patience comes from the NUMBER of waits (60 x <=5 s ~ 5 min) rather than
+      from long sleeps that do NOT consume ``max_attempts``.  Observed 2026-08-23: a
       multi-minute gemini-3.7-flash "high demand" outage killed 8 bench runs
-      under the plain 6-attempt budget.
+      under the plain 6-attempt budget.  A ``storm_gate`` (see
+      :mod:`codeverse.models.storm`) shares that discovery across the process:
+      workers park at the gate instead of each spending a round-trip to learn
+      the model is out of capacity, and one probe at a time reopens it.
     * other retryable errors → exponential backoff + jitter until
       ``max_attempts``; non-retryable errors raise immediately.
+
+    ``tokens_hint`` is the estimated **prompt** tokens of the pending call
+    (:func:`codeverse.models.tokens.request_tokens`); the pool reserves them in
+    the per-key TPM bucket at ``acquire`` and the reservation is reconciled
+    against the provider's real count on ``report``, so a 200 k-token judge call
+    and a 2 k-token caption are scheduled differently.
     """
     failed_keys: set[str] = set()  # keys that 429'd or looked dead during this call
     dead_keys: set[str] = set()
@@ -139,13 +152,18 @@ def rotate_with_retries(
         # never go back to a key that looked dead this call; throttled keys are
         # excluded while an untried one remains, else acquire() waits for a cooldown
         exclude = dead_keys | (failed_keys if len(failed_keys) < len(pool) else set())
+        if storm_gate is not None:
+            storm_gate.enter()
         try:
-            key = pool.acquire(exclude=exclude)
+            key = pool.acquire(exclude=exclude, tokens_hint=tokens_hint)
         except KeyPoolExhausted as exc:
             raise classify(exc) from exc
         try:
             result = call(key)
-            pool.report(key, "ok", tokens=tokens_of(result) if tokens_of is not None else 0)
+            pool.report(key, "ok", tokens=tokens_of(result) if tokens_of is not None else 0,
+                        reserved=tokens_hint)
+            if storm_gate is not None:
+                storm_gate.ok()
             bench()
             return result
         except Exception as exc:  # noqa: BLE001 - classification is delegated
@@ -160,7 +178,7 @@ def rotate_with_retries(
                 # benched once another key proves the request itself is fine
                 dead_keys.add(key)
                 failed_keys.add(key)
-                pool.report(key, "error")
+                pool.report(key, "error", reserved=tokens_hint)
                 if len(dead_keys) < len(pool):
                     log.warning("%s key …%s looks dead (%s); rotating", label, key[-4:], err)
                     attempt -= 1
@@ -169,6 +187,7 @@ def rotate_with_retries(
             pool.report(
                 key,
                 outcome,
+                reserved=tokens_hint,
                 retry_after_s=retry_after(exc) if (outcome == "429" and retry_after) else None,
             )
             if err.retryable and err.status in (503, 529) and storm < storm_attempts:
@@ -177,8 +196,17 @@ def rotate_with_retries(
                 storm += 1
                 delay = min(storm_max_delay, base_delay * (2 ** min(storm, 8)))
                 delay *= 0.75 + 0.5 * random.random()
-                log.warning("%s capacity storm %d/%d (%s); waiting %.0fs", label, storm, storm_attempts, err, delay)
-                sleep(delay)
+                if storm_gate is not None:
+                    # tell every other worker as well: the next one to arrive parks at
+                    # the gate instead of spending its own round-trip to find the storm
+                    delay = max(delay, storm_gate.hit(retry_after(exc) if retry_after else None))
+                    log.warning("%s capacity storm %d/%d (%s); gate closed %.0fs",
+                                label, storm, storm_attempts, err, delay)
+                    storm_gate.enter()
+                else:
+                    log.warning("%s capacity storm %d/%d (%s); waiting %.0fs",
+                                label, storm, storm_attempts, err, delay)
+                    sleep(delay)
                 attempt -= 1
                 continue
             if outcome == "429":
@@ -200,6 +228,8 @@ def rotate_with_retries(
                 label, attempt, max_attempts, err, delay,
             )
             sleep(delay)
+        finally:
+            pool.release()
     assert last_err is not None
     bench()
     raise last_err

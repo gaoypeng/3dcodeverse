@@ -1,74 +1,198 @@
-// Neutral studio look for object renders: RoomEnvironment PMREM + key/fill/rim
-// directionals, optional shadow catcher, and the shared renderer factory
-// (renderer.js: ACES tone mapping, sRGB output, PCF shadows).
+// Product-shot studio look for object renders (RIG v2): a procedural softbox
+// environment through PMREM (studio_env.js), a swept neutral backdrop, one
+// shadow-casting key + a soft ambient contact shadow, and the shared renderer
+// factory (renderer.js: ACES tone mapping, sRGB output, PCF shadows).
 //
-//   import { makeRenderer, buildStudio, applyMode } from '/__runtime/lib/browser/studio.js';
+//   import { makeRenderer, buildStudio, applyMode, RIG_VERSION } from '/__runtime/lib/browser/studio.js';
+//
+// RIG v1 (up to 2026-08-23) was `RoomEnvironment` + three white directionals on a
+// flat #e9e9ec clear colour.  It lit geometry fine but told the judge nothing
+// about materials: with only a uniform grey box to reflect, metallicFactor 0.95
+// chrome and metallicFactor 0.85 cast iron both resolve to the same mid grey.
+// v2 changes the *environment*, not the object — see studio_env.js for the why,
+// and docs/EVAL.md for the measured score delta that switching rigs is worth
+// (it is large; scores across the rig change are not comparable).
 
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { makeRenderer, rendererString } from './renderer.js';
+import { backdropTexture, contactShadowTexture, softboxEnvironment } from './studio_env.js';
 
 // the renderer factory lives in renderer.js (shared with the scene host); it is
 // re-exported here because studio.js is the object rig's one-stop import
 export { makeRenderer, rendererString };
 
+/** Bumped whenever the look changes.  Recorded in views.json so a sheet can be dated. */
+export const RIG_VERSION = 2;
+
 export const BACKGROUNDS = { studio: 0xe9e9ec, white: 0xffffff, transparent: null };
 
+/** Tone-mapping exposure per background.  MEASURED over 12 recorded artifacts x 8 views
+ *  (96 frames), on the same 96x54 sampling grid `lib/host_metrics.mjs` uses, plus the
+ *  object-only statistics from an alpha-matted render of the same 96 frames:
+ *
+ *    rig            frame mean_lum  frame modal_frac  object std  object p95-p05
+ *    v1 (flat bg)       0.865            0.789          0.135         0.406
+ *    v2 (sweep)         0.774            0.492          0.130         0.395
+ *
+ *  v2 is DARKER, not brighter, and the object's own shading range is unchanged: the
+ *  difference is contrast STRUCTURE (a swept backdrop, a shaped environment), not
+ *  exposure.  25 of the 96 v1 frames were over the flat-frame threshold in
+ *  spatial/frame_metrics.py (modal_frac > 0.85); 0 of the v2 frames are, and neither
+ *  rig comes near the dark (< 0.12) or blown (> 20 %) limits. */
+const EXPOSURE = { studio: 1.0, white: 1.05, transparent: 1.0 };
+
+const ENV_INTENSITY = 1.15;
+const KEY_INTENSITY = 1.35;
+const RIM_INTENSITY = 0.45;
+/** Key/rim placement relative to the CAMERA azimuth (deg from the view direction) and
+ *  their elevations.  Camera-relative is what a turntable product rig does: the key
+ *  stays over the photographer's left shoulder, so the cast shadow always falls away
+ *  from the lens instead of sprawling across the backdrop on the rear views — rig v1's
+ *  world-fixed key put a metre-long grey slab through the `back`, `left` and `top`
+ *  frames of every object. */
+const KEY_YAW_DEG = 38;
+const KEY_ELEVATION_DEG = 52;
+const RIM_YAW_DEG = -152;
+const RIM_ELEVATION_DEG = 34;
+/** Cast-shadow darkness and the ambient contact blob under the object. */
+const CAST_SHADOW_OPACITY = 0.30;
+const CONTACT_OPACITY = 0.34;
+const CONTACT_SPREAD = 1.9;
+
+let _envTexture = null;   // PMREM output is reusable for the whole page
+
+function environmentTexture(renderer) {
+  if (_envTexture) return _envTexture;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+  const envScene = softboxEnvironment();
+  _envTexture = pmrem.fromScene(envScene, 0.02).texture;
+  envScene.traverse((o) => {
+    if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
+    if (o.geometry) o.geometry.dispose();
+  });
+  pmrem.dispose();
+  return _envTexture;
+}
+
+/** Test seam: drop the cached PMREM texture (a fresh renderer needs a fresh env). */
+export function resetStudioCache() {
+  if (_envTexture) _envTexture.dispose();
+  _envTexture = null;
+}
+
+function addContactShadow(scene, center, box, radius) {
+  const size = box.getSize(new THREE.Vector3());
+  const spread = Math.max(size.x, size.z, radius * 0.5) * CONTACT_SPREAD;
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0x000000, transparent: true, opacity: CONTACT_OPACITY,
+    alphaMap: contactShadowTexture(), depthWrite: false, toneMapped: false,
+  });
+  const blob = new THREE.Mesh(new THREE.PlaneGeometry(spread, spread), mat);
+  blob.name = '__contact_shadow';
+  blob.rotation.x = -Math.PI / 2;
+  blob.position.set(center.x, box.min.y + radius * 2e-3, center.z);
+  blob.renderOrder = -1;
+  scene.add(blob);
+  return blob;
+}
+
+const DEG = Math.PI / 180;
+
+/** Unit vector towards a light placed at (yaw from +Z, elevation), both degrees. */
+function lightDirection(yawDeg, elevationDeg) {
+  const a = yawDeg * DEG;
+  const e = elevationDeg * DEG;
+  return new THREE.Vector3(Math.sin(a) * Math.cos(e), Math.sin(e), Math.cos(a) * Math.cos(e));
+}
+
 /**
- * Add environment + lights (+ shadow catcher) to `scene`, scaled to `box`.
- * Returns the shadow-catcher mesh (or null) so callers can exclude it from framing.
+ * Point the rig at a view: key/rim yaw with the camera azimuth and the environment
+ * spins with them, so every frame is the same product shot from a different side.
+ * `azimuthDeg` follows the harness convention (0 = camera on +Z = object front);
+ * `elevationDeg` only raises the key for steep (plan / underside) views.
+ */
+export function aimStudio(rig, azimuthDeg, elevationDeg = 0) {
+  if (!rig || !rig.key) return;
+  const { center, radius, key, rim, scene } = rig;
+  const d = radius * 4;
+  // a plan view needs the key nearly overhead, or the shadow sprawls across the frame
+  const keyEl = Math.min(80, Math.max(KEY_ELEVATION_DEG, Math.abs(elevationDeg) * 0.85));
+  key.position.copy(center).addScaledVector(lightDirection(azimuthDeg + KEY_YAW_DEG, keyEl), d);
+  key.target.position.copy(center);
+  key.target.updateMatrixWorld();
+  if (rim) {
+    rim.position.copy(center).addScaledVector(lightDirection(azimuthDeg + RIM_YAW_DEG, RIM_ELEVATION_DEG), d);
+    rim.target.position.copy(center);
+    rim.target.updateMatrixWorld();
+  }
+  if (scene) scene.environmentRotation.set(0, azimuthDeg * DEG, 0);
+}
+
+/**
+ * Add environment + backdrop + lights (+ shadow catcher) to `scene`, scaled to `box`.
+ * Returns the rig handle `{catcher, key, rim, blob, center, radius, scene}` — `catcher`
+ * is the shadow plane callers exclude from framing, the rest is what `aimStudio` moves.
  */
 export function buildStudio(renderer, scene, box, { background = 'studio', shadow = true, lights = true } = {}) {
   const bg = BACKGROUNDS[background];
   if (bg === undefined) throw new Error(`unknown background '${background}' (studio|white|transparent)`);
-  if (bg === null) renderer.setClearColor(0x000000, 0);
-  else renderer.setClearColor(bg, 1);
+  renderer.toneMappingExposure = EXPOSURE[background] ?? 1.0;
+  if (bg === null) {
+    renderer.setClearColor(0x000000, 0);
+  } else if (background === 'studio' && lights) {
+    scene.background = backdropTexture();
+    renderer.setClearColor(bg, 1);   // still the clear colour for any un-drawn pixel
+  } else {
+    renderer.setClearColor(bg, 1);
+  }
 
   const center = box.getCenter(new THREE.Vector3());
   const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1e-3);
+  const rig = { catcher: null, key: null, rim: null, blob: null, center, radius, scene };
 
   if (lights) {
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = 0.8;
+    scene.environment = environmentTexture(renderer);
+    scene.environmentIntensity = ENV_INTENSITY;
 
-    const key = new THREE.DirectionalLight(0xffffff, 2.2);
-    key.position.copy(center).add(new THREE.Vector3(1.0, 1.6, 1.3).normalize().multiplyScalar(radius * 4));
-    key.target.position.copy(center);
+    // ONE shadow-casting key, placed high and camera-relative (see aimStudio) so the
+    // cast shadow stays under the object instead of the metre-long grey slab rig v1
+    // threw across the backdrop.
+    const key = new THREE.DirectionalLight(0xffffff, KEY_INTENSITY);
     key.castShadow = shadow;
     key.shadow.mapSize.set(2048, 2048);
-    key.shadow.bias = -0.0005;
-    key.shadow.normalBias = radius * 0.01;
+    key.shadow.bias = -0.0004;
+    key.shadow.normalBias = radius * 0.012;
+    key.shadow.radius = 3;
     const cam = key.shadow.camera;
-    cam.left = cam.bottom = -radius * 1.6;
-    cam.right = cam.top = radius * 1.6;
+    cam.left = cam.bottom = -radius * 1.45;
+    cam.right = cam.top = radius * 1.45;
     cam.near = radius * 0.5;
     cam.far = radius * 8;
     scene.add(key, key.target);
 
-    const fill = new THREE.DirectionalLight(0xffffff, 0.8);
-    fill.position.copy(center).add(new THREE.Vector3(-1.2, 0.8, 0.6).normalize().multiplyScalar(radius * 4));
-    fill.target.position.copy(center);
-    scene.add(fill, fill.target);
-
-    const rim = new THREE.DirectionalLight(0xffffff, 1.0);
-    rim.position.copy(center).add(new THREE.Vector3(-0.5, 1.2, -1.4).normalize().multiplyScalar(radius * 4));
-    rim.target.position.copy(center);
+    // A low back-rim keeps a dark object off a dark backdrop; the softboxes in the
+    // environment do the rest of the work the v1 fill/rim directionals used to do.
+    const rim = new THREE.DirectionalLight(0xffffff, RIM_INTENSITY);
     scene.add(rim, rim.target);
+    rig.key = key;
+    rig.rim = rim;
+    aimStudio(rig, 0);
   }
 
-  let catcher = null;
   if (shadow && lights) {
-    const geo = new THREE.PlaneGeometry(radius * 20, radius * 20);
-    const mat = new THREE.ShadowMaterial({ opacity: 0.22 });
-    catcher = new THREE.Mesh(geo, mat);
+    const geo = new THREE.CircleGeometry(radius * 6, 64);
+    const mat = new THREE.ShadowMaterial({ opacity: CAST_SHADOW_OPACITY });
+    const catcher = new THREE.Mesh(geo, mat);
     catcher.name = '__shadow_catcher';
     catcher.rotation.x = -Math.PI / 2;
     catcher.position.set(center.x, box.min.y - radius * 1e-3, center.z);
     catcher.receiveShadow = true;
     scene.add(catcher);
+    rig.catcher = catcher;
+    rig.blob = addContactShadow(scene, center, box, radius);
   }
-  return catcher;
+  return rig;
 }
 
 const CLAY = new THREE.MeshStandardMaterial({ color: 0x9c9c9c, roughness: 0.85, metalness: 0.0 });

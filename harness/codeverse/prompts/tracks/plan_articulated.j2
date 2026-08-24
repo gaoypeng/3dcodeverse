@@ -10,12 +10,24 @@ LANGUAGE CONTRACT THE BUILDER WILL FOLLOW:
 WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
 1. `object_name` PascalCase; `summary` two sentences incl. overall size in meters and what moves.
 2. `overall_bbox` — real-world dimensions in meters, authored at the REST pose; bottom at up=0.
-3. `parts` = LINKS, 4 to 12. One part per rigid body that moves as a unit (a drawer is ONE link even
-   if it has a front, a box and a handle — describe those sub-shapes in `description`). Each part:
+3. `parts` = LINKS, about {{ target_parts }} (floor {{ min_parts }}, ceiling {{ cap_parts }}; the PLAN BUDGET block in the
+   request says where that number came from).  One part per rigid body that MOVES AS A UNIT — a
+   drawer is ONE link even though it has a front, a box, runners and a handle.  Each part:
    PascalCase `name`, `role`, `description` with construction numbers, `bbox` (centre + extents, meters,
    rest pose, WORLD coordinates), `attach_to` = the parent link, `material` with colour.
    Moving links must NOT penetrate their neighbours at rest: leave ≥ 0.003 m clearance in the motion
    direction (drawer vs cabinet opening, door vs frame); fixed neighbours overlap ≥ 0.002 m.
+   * `children` — 3 to 6 SUB-PARTS: this is where an articulated plan gets its detail.  A link is
+     rarely one box.  The drawer's `children` are DrawerFront (18 mm, rebated, with a 6 mm shadow
+     gap), DrawerBox (12 mm sides, 8 mm base, rebated corners), Handle (turned knob, 32 mm dia) and
+     Runners (2 × 10 × 10 mm strips).  Each child needs `name`, `description` in numbers, a `bbox`
+     INSIDE the link's bbox (same frame, rest pose) and `material` when it differs.
+     Sub-parts are NOT extra links: they carry no joint, they add no collision pair, and the builder
+     exports the whole link as ONE object named after the LINK.  Add depth here, not by splitting a
+     rigid body into more links — every extra link costs a joint and a collision-sweep pair.
+     Leave `children` empty for a link that really is one shape (a rod, a plate, a wheel).
+   * `detail_hint` — one line on the 3-4 links that carry the object's identity: what makes THAT
+     link read as real.
 4. `root_link` — the grounded/base link (cabinet, base, chassis).
 5. `joints` — one per moving link, forming a single tree from `root_link`:
    * `type` revolute (hinges, lids, doors; radians) · prismatic (drawers, slides; meters) ·
@@ -30,6 +42,12 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
    cabinet", "door swings 90° about the left edge, no penetration through the range").
 
 RULES
+- When the request carries an ENGINEERING BRIEF, its dimensions, sub-assemblies and signature
+  features are ground truth: every signature feature must be findable as a link, a sub-part or a
+  named detail in some `description`.  Sub-assemblies that do not move become `children`, not links.
+- A plan of boxes at different sizes is a FAILED plan and will be sent back.  Every link's
+  `description` (or its `children`) must say something a plain primitive cannot: a profile, a
+  counted repeat, an edge treatment, a rebate, a fillet radius.
 - Sweep-safe design: imagine each joint at lower, mid and upper — no link passes through another.
   Hinged lids pivot at their back edge, NOT their centre; drawers slide along the cabinet depth.
 - Pivot and axis are the contract the URDF will be checked against; choose them to 3 decimals.

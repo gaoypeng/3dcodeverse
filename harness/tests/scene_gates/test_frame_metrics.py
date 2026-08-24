@@ -76,11 +76,19 @@ def test_camera_in_geometry_and_near_hit():
 
 
 def test_eye_height_sanity_against_ground():
+    # a camera below the scene's highest ground surface whose frame renders fine is NOT
+    # buried — census ground_y is the TOP of every ground mesh, so a hill or a raised bed
+    # puts it above a camera standing in the open (measured: this false ERROR capped a
+    # finished japanese garden at 0.50)
     rep = frame_findings(_metrics(_chk("Under", eye_height_m=-0.5), _chk("Ant", eye_height_m=0.1), _chk("Sat", eye_height_m=120.0),
                                   ground_y=0.0))
     assert [(k, s) for k, s, _ in _kinds(rep)] == [
-        ("camera_underground", Severity.ERROR), ("camera_low", Severity.WARN), ("camera_high", Severity.WARN)]
+        ("camera_below_high_ground", Severity.WARN), ("camera_low", Severity.WARN), ("camera_high", Severity.WARN)]
     assert "heightAt" in rep.findings[0].fix_hint
+    # …but when the frame agrees (dark / empty / inside geometry) it stays a capped ERROR
+    buried = frame_findings(_metrics(_chk("Under", eye_height_m=-0.5, mean_lum=0.03, dark_frac=0.9), ground_y=0.0))
+    kinds = [k for k, _, _ in _kinds(buried)]
+    assert "camera_underground" in kinds and not buried.passed
 
 
 def test_content_small_roles():

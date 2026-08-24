@@ -64,6 +64,12 @@ def make(
     judge: Annotated[str | None, typer.Option()] = None,
     captioner: Annotated[str | None, typer.Option()] = None,
     image: Annotated[list[Path] | None, typer.Option("--image", help="reference image(s)")] = None,
+    reference: Annotated[bool, typer.Option("--reference/--no-reference", help="reference grounding: synthesize a "
+                        "neutral studio product shot of the prompt with the image model, validate it, and use it as "
+                        "the fidelity anchor for planning, the compare_reference tool, the silhouette gate and the "
+                        "judge. Ignored when --image is given (your own references always win); ~$0.15 for 2 views")] = False,
+    reference_views: Annotated[int, typer.Option("--reference-views", min=1, max=4, help="how many reference views to "
+                        "synthesize (1 = 3/4 only, 2 = + straight front elevation)")] = 2,
     profile: Annotated[str | None, typer.Option("--profile", help="cost/quality dial: economy | balanced | quality "
                                                "(sets models, judge samples, rounds, candidates, turn cap, "
                                                "montage size and the texture pass together)")] = None,
@@ -126,10 +132,37 @@ def make(
                                             f"({dial.judge_max_px}px/{dial.judge_detail_crops}crop)",
                                    "rounds": rounds, "max_usd": max_usd,
                                    "candidates": candidates, "texture": texture}))
+    if reference:
+        spec = _ground_in_reference(spec, ws, n_views=reference_views)
     if no_run:
         ok(f"spec written: {ws.spec_path} (not run; `3dcv resume {run_slug}` to start)")
         return
     _run_track(spec, ws, resume=False, candidates=candidates)
+
+
+def _ground_in_reference(spec: Spec, ws, *, n_views: int) -> Spec:
+    """`--reference`: synthesize + validate a reference image and attach it to the spec.
+
+    Never fatal — a run that cannot get a usable reference simply runs without one.
+    """
+    from codeverse.cost import Role, Stage, call_context
+    from codeverse.cost.instrument import run_ledger
+    from codeverse.events import EventLog
+    from codeverse.reference import ground_spec
+
+    events = EventLog(ws.events_path)
+    with run_ledger(ws.root, run=ws.root.name), call_context(stage=Stage.PLAN, role=Role.PLANNER, label="reference"):
+        grounded, refset, why = ground_spec(spec, ws, n_views=n_views, events=events)
+    (ok if grounded is not spec else warn)(f"reference grounding: {why}")
+    for v in refset.views:
+        detail = v.verdict.failure() if v.verdict and not v.accepted else (Path(v.path).name if v.path else "-")
+        if v.accepted and v.dimension_conflict:
+            got = f"{v.aspect:.2f}" if v.aspect else "?"
+            detail += f"  (aspect {got} disagrees with the stated dimensions — shape target only)"
+        console.print(f"  {'KEPT    ' if v.accepted else 'REJECTED'} {v.view}: {detail}")
+    if refset.usage.cost_usd:
+        console.print(f"  reference cost ${refset.usage.cost_usd:.4f} ({refset.source})")
+    return grounded
 
 
 def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None) -> None:

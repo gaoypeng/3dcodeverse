@@ -30,6 +30,15 @@ class KeyPoolExhausted(RuntimeError):
     """Every key is cooling down / throttled and the wait budget ran out."""
 
 
+MAX_WAIT_S = 5.0
+"""The longest any single retry / cooldown wait may be (seconds).
+
+House rule (owner, 2026-08-24): with 22 keys there is always another key to try,
+so the harness rotates rather than sitting out a long backoff.  Patience comes
+from the NUMBER of attempts, never from the length of one sleep.
+"""
+
+
 @dataclass
 class TokenBucket:
     """Classic token bucket: ``capacity`` tokens, refilled at ``rate`` per second."""
@@ -54,12 +63,27 @@ class TokenBucket:
             return True
         return False
 
+    def charge(self, n: float, now: float) -> None:
+        """Take ``n`` tokens unconditionally; ``n < 0`` gives tokens back.
+
+        Unlike :meth:`try_take` the bucket is allowed to go negative, so an
+        under-estimated reservation is paid off by the next refill instead of
+        being silently forgiven.  Used to reconcile a TPM reservation with the
+        provider's real prompt-token count."""
+        self._refill(now)
+        self.tokens = min(self.capacity, self.tokens - n)
+
     def wait_for(self, n: float, now: float) -> float:
         """Seconds until ``n`` tokens are available (0 if already)."""
         self._refill(now)
         if self.tokens >= n:
             return 0.0
         return (n - self.tokens) / self.rate if self.rate > 0 else float("inf")
+
+    def headroom(self, now: float) -> float:
+        """Fraction of capacity currently available (0.0 – 1.0)."""
+        self._refill(now)
+        return max(0.0, min(1.0, self.tokens / self.capacity)) if self.capacity > 0 else 1.0
 
 
 @dataclass
@@ -76,6 +100,7 @@ class _KeyState:
     n_error: int = 0
     n_dead: int = 0
     n_acquired: int = 0
+    tokens_used: int = 0
     last_used: float = 0.0
     health_ts: float = 0.0
 
@@ -103,7 +128,8 @@ class KeyPool:
         *,
         rpm_per_key: int = 900,
         tpm_per_key: int | None = None,
-        cooldown_s: float = 30.0,
+        max_in_flight: int = 0,
+        cooldown_s: float = MAX_WAIT_S,
         dead_cooldown_s: float = 3600.0,
         min_health: float = 0.3,
         clock: Callable[[], float] = time.monotonic,
@@ -119,6 +145,13 @@ class KeyPool:
         self._min_health = min_health
         self._lock = threading.Lock()
         self._rr = 0
+        self._in_flight = 0
+        self._peak_in_flight = 0
+        # Process-wide ceiling on concurrent model calls, independent of the caller's
+        # thread pools: blender/node/chrome workers are CPU-bound and sized by cores,
+        # while this is sized by the provider (docs/COST.md Part III).  0 = unlimited.
+        self._max_in_flight = int(max_in_flight or 0)
+        self._slots = threading.BoundedSemaphore(self._max_in_flight) if self._max_in_flight else None
         now = clock()
         self._states: list[_KeyState] = []
         for k in uniq:
@@ -147,7 +180,27 @@ class KeyPool:
         """Return the next usable key, blocking (bounded by ``timeout_s``) while all
         keys are throttled.  ``exclude`` skips keys that already failed this call.
         Raises ``KeyPoolExhausted`` at once when no key can become available before
-        the deadline (e.g. every key is dead) — availability only moves later."""
+        the deadline (e.g. every key is dead) — availability only moves later.
+
+        ``tokens_hint`` is the estimated prompt tokens of the pending call: they
+        are reserved in the chosen key's TPM bucket now and reconciled by
+        :meth:`report`.  When ``max_in_flight`` is set the call also waits for a
+        free concurrency slot; :meth:`release` hands it back."""
+        if self._slots is not None:
+            self._slots.acquire()
+        try:
+            return self._acquire_key(tokens_hint, exclude, timeout_s)
+        except BaseException:
+            if self._slots is not None:
+                self._slots.release()
+            raise
+
+    def _acquire_key(
+        self,
+        tokens_hint: int,
+        exclude: set[str] | frozenset[str] | None,
+        timeout_s: float | None,
+    ) -> str:
         deadline = None if timeout_s is None else self._clock() + timeout_s
         while True:
             with self._lock:
@@ -159,6 +212,8 @@ class KeyPool:
                         chosen.tpm.try_take(float(tokens_hint), now)
                     chosen.n_acquired += 1
                     chosen.last_used = now
+                    self._in_flight += 1
+                    self._peak_in_flight = max(self._peak_in_flight, self._in_flight)
                     return chosen.key
                 soonest = min(
                     (
@@ -182,15 +237,36 @@ class KeyPool:
                 )
             self._sleep(wait)
 
+    def release(self) -> None:
+        """Mark one :meth:`acquire`-d call finished (call it in a ``finally``).
+
+        Frees the in-flight gauge and the ``max_in_flight`` slot; outcome
+        accounting is :meth:`report`, which may legitimately be called more than
+        once for one call (a key that looked dead is reported again once a
+        sibling proves the request fine).  A stray ``release`` is a no-op."""
+        with self._lock:
+            if self._in_flight <= 0:
+                return
+            self._in_flight -= 1
+        if self._slots is not None:
+            self._slots.release()
+
     def report(
         self,
         key: str,
         outcome: Outcome,
         *,
         tokens: int = 0,
+        reserved: int = 0,
         retry_after_s: float | None = None,
     ) -> None:
-        """Feed back the result of a call made with ``key``."""
+        """Feed back the result of a call made with ``key``.
+
+        ``tokens`` is what the provider says the call really cost (prompt
+        tokens); ``reserved`` is the ``tokens_hint`` :meth:`acquire` already took
+        out of the TPM bucket for it.  The pool charges the *difference*, so an
+        over-estimate is refunded and an under-estimate is paid off — pass both,
+        or neither, and never the same tokens twice."""
         with self._lock:
             st = self._by_key.get(key)
             if st is None:
@@ -204,6 +280,9 @@ class KeyPool:
                 st.n_429 += 1
                 st.health *= 0.5
                 cool = retry_after_s if retry_after_s and retry_after_s > 0 else self._cooldown_s
+                # House rule (owner, 2026-08-24): no single wait exceeds MAX_WAIT_S — we
+                # rotate to another key instead of sitting out a provider's suggested delay.
+                cool = min(cool, MAX_WAIT_S)
                 st.cooldown_until = max(st.cooldown_until, now + cool)
             elif outcome == "5xx":
                 st.n_5xx += 1
@@ -217,10 +296,11 @@ class KeyPool:
             else:
                 st.n_error += 1
                 st.health *= 0.9
-            if tokens > 0 and st.tpm is not None:
-                # charge actual usage (callers that pass a tokens_hint at acquire
-                # should report tokens=0 to avoid double charging)
-                st.tpm.try_take(float(tokens), now)
+            if st.tpm is not None and (tokens or reserved):
+                # reconcile the reservation with reality; a call that never reached
+                # the model (429 / capacity storm) reports tokens=0 and is refunded
+                st.tpm.charge(float(tokens) - float(reserved), now)
+            st.tokens_used += max(0, int(tokens))
 
     def stats(self) -> dict[str, Any]:
         """Counters per key (keys are redacted to their last 4 chars)."""
@@ -232,6 +312,9 @@ class KeyPool:
                     "health": round(s.health, 3),
                     "cooldown_s": round(max(0.0, s.cooldown_until - now), 1),
                     "rpm_tokens": round(s.rpm.tokens, 1),
+                    "rpm_headroom": round(s.rpm.headroom(now), 3),
+                    "tpm_headroom": None if s.tpm is None else round(s.tpm.headroom(now), 3),
+                    "tokens_used": s.tokens_used,
                     "acquired": s.n_acquired,
                     "ok": s.n_ok,
                     "429": s.n_429,
@@ -241,10 +324,21 @@ class KeyPool:
                 }
                 for s in self._states
             ]
+            n = len(self._states)
             return {
-                "n_keys": len(self._states),
+                "n_keys": n,
                 "n_cooling": sum(1 for s in self._states if s.cooldown_until > now),
                 "n_dead": sum(1 for s in self._states if s.dead_until > now),
+                "in_flight": self._in_flight,
+                "peak_in_flight": self._peak_in_flight,
+                "rpm_capacity": int(sum(s.rpm.capacity for s in self._states)),
+                "tpm_capacity": int(sum(s.tpm.capacity for s in self._states if s.tpm)),
+                "rpm_headroom": round(sum(s.rpm.headroom(now) for s in self._states) / n, 3),
+                "tpm_headroom": (
+                    None if self._states[0].tpm is None
+                    else round(sum(s.tpm.headroom(now) for s in self._states if s.tpm) / n, 3)
+                ),
+                "tokens_used": sum(s.tokens_used for s in self._states),
                 "acquired": sum(s.n_acquired for s in self._states),
                 "ok": sum(s.n_ok for s in self._states),
                 "429": sum(s.n_429 for s in self._states),

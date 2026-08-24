@@ -105,4 +105,19 @@ def scene_views(ctx: ToolContext, args: SceneViewsArgs) -> Observation:
     key = f"{args.cameras}_{'_'.join(f'{t:g}' for t in args.times)}".replace(".", "p")
     out_dir = tool_out_dir(ctx, f"scene_{key}")
     rs = call_adaptive(render_scene, ctx.workspace, out_dir, cameras=cams, orbit=orbit, times=tuple(args.times), sheet=True)
-    return _as_observation(rs, ctx.workspace.root, title=f"scene views ({args.cameras}, t={args.times})")
+    obs = _as_observation(rs, ctx.workspace.root, title=f"scene views ({args.cameras}, t={args.times})")
+    table = _frame_table(out_dir)
+    return obs.model_copy(update={"text": truncate(obs.text + "\n\n" + table)}) if table else obs
+
+
+def _frame_table(out_dir) -> str:
+    """The deterministic numbers behind the pictures — exposure/coverage per camera plus the
+    measured motion between the times.  Without them the agent is asked to LOOK at a sheet and
+    guess whether its sway is visible or its dusk is too dark; with them it can read the answer."""
+    read_metrics = lazy("codeverse.spatial.render_scene", "read_metrics")
+    frame_summary_text = lazy("codeverse.spatial.frame_metrics", "frame_summary_text")
+    try:
+        metrics = read_metrics(out_dir)
+        return frame_summary_text(metrics) if metrics else ""
+    except Exception:  # noqa: BLE001 — a tool observation must never fail on instrumentation
+        return ""

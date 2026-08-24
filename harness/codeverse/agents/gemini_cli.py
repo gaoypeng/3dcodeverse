@@ -195,6 +195,7 @@ class GeminiCliAgent:
             outcome = self._interpret(s, proc)
             usage_total = usage_total + outcome["usage"]
             pool.report(key, "429" if outcome["quota"] else ("ok" if outcome["ok"] else "5xx"))
+            pool.release()  # one acquire per attempt: keep the pool's in-flight gauge honest
             if outcome["ok"] or outcome["exit_reason"] in ("timeout", "model_substituted") or not outcome["transient"] or attempts >= 2:
                 break
             next_key = _retry_key(pool, used)

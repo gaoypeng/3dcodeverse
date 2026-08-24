@@ -84,7 +84,7 @@ def test_scene_pipeline_selects_at_most_ten_judge_views():
     rs = RenderSet(views=views, renderer="fake")
     ctx = SimpleNamespace(services=FakeServices())
     out = ScenePipeline().judge_views(ctx, rs)
-    assert len(out.views) == JUDGE_MAX_VIEWS == 10
+    assert len(out.views) == 9 <= JUDGE_MAX_VIEWS == 10   # 7 authored at t=0 + the first two at t=1.5
     # authored views at t=0 all survive
     kept_t0 = [v.name for v in out.views if v.time_s == 0.0]
     assert set(kept_t0) >= {f"cam{i}" for i in range(7)}

@@ -15,6 +15,7 @@ driver's ``views.json``) carries ``judge: true|false`` — stamped once from
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -30,8 +31,13 @@ from codeverse.spatial._render_common import read_json as _read_json
 from codeverse.spatial.node import NodeError, run_node, runtime_js_dir
 from codeverse.workspace import Workspace
 
+log = logging.getLogger(__name__)
+
 #: views the judge sees (contact sheet + individual images are built from these)
 JUDGE_MAX_VIEWS = 10
+#: how many overview-rig tiles the judge gets (layout / grounding X-ray; the eye-level
+#: rig views are diagnostics only and never reach the judge)
+MAX_JUDGE_OVERVIEWS = 3
 
 
 class SceneRenderError(RuntimeError):
@@ -161,6 +167,7 @@ def render_scene(
         driver_error = str(e).splitlines()[0][:500]
         res = NodeResult(returncode=2, stdout="", stderr="", summary={"error": driver_error}, duration_ms=0)
     metrics = _read_json(out_dir / "metrics.json")
+    _store_motion(out_dir, metrics)
     views: list[RenderView] = []
     for v in metrics.get("views", []):
         views.append(RenderView(
@@ -193,6 +200,34 @@ def render_scene(
     return rs
 
 
+def _store_motion(out_dir: Path, metrics: dict[str, Any]) -> None:
+    """Measure inter-frame motion (``spatial.frame_motion``) and persist it into the
+    payload AND into ``metrics.json``, so every later reader — the ``scene_frames``
+    gate, the judge context, the agent's frame table — sees the same numbers without
+    re-reading the PNGs.  Never fatal: a scene that could not be diffed simply has no
+    ``motion`` key (which means "not measured", never "static")."""
+    from codeverse.spatial.frame_motion import motion_rows
+
+    if not metrics.get("views"):
+        return
+    try:
+        rows = motion_rows(metrics, out_dir)
+    except Exception as e:  # noqa: BLE001 — instrumentation must not break a render
+        log.warning("motion measurement failed: %s", e)
+        return
+    if not rows:
+        return
+    metrics["motion"] = [r.as_dict() for r in rows]
+    path = out_dir / "metrics.json"
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(metrics, indent=1))
+        tmp.replace(path)
+    except OSError as e:
+        tmp.unlink(missing_ok=True)
+        log.warning("could not write motion into %s: %s", path, e)
+
+
 def select_judge_views(rs: RenderSet, max_n: int = JUDGE_MAX_VIEWS, *, orbit_names: Sequence[str] | None = None) -> RenderSet:
     """Copy of ``rs`` with the views a judge should see (≤ ``max_n``), in priority order:
     authored cameras at the first time · the first two overview orbit views at that time
@@ -209,10 +244,15 @@ def select_judge_views(rs: RenderSet, max_n: int = JUDGE_MAX_VIEWS, *, orbit_nam
     overview = [v for v in views if v.name in orbit and v.name.startswith("overview")]
     at = lambda vs, t: [v for v in vs if (v.time_s if v.time_s is not None else 0.0) == t]  # noqa: E731
     first_two = [v.name for v in at(authored, t0)[:2]]
-    ordered: list[RenderView] = [*at(authored, t0), *at(overview, t0)[:2]]
+    ordered: list[RenderView] = [*at(authored, t0), *at(overview, t0)[:MAX_JUDGE_OVERVIEWS]]
     if t_last != t0:
         ordered += [v for v in at(authored, t_last) if v.name in first_two]
-    ordered += [v for v in views if v not in ordered]
+    # Everything left is the harness's own eye-level rig: cameras nobody authored, fitted
+    # to the bounds, routinely staring at a fence or standing at street level under a
+    # rooftop.  They stay on disk (and in the frame gate) as diagnostics, but a judge that
+    # SEES them marks the scene unlit / undressed for pictures the builder never framed.
+    if not ordered:
+        ordered = list(views)
     chosen = ordered[:max_n]
     keep = {id(v) for v in chosen}
     return rs.model_copy(update={"views": [v for v in views if id(v) in keep]})  # disk order, judge subset

@@ -68,10 +68,15 @@ def test_render_views_modes_isolate_and_cache(stool_glb: Path, tmp_path: Path):
 
     sil = render_glb(stool_glb, tmp_path / "sil", views=[ViewPreset("front", 0, 8)], mode="silhouette", width=128, height=128, sheet=False)
     with Image.open(sil.views[0].path) as im:
-        px = list(im.convert("RGB").get_flattened_data()) if hasattr(im, "get_flattened_data") else list(im.convert("RGB").getdata())
-        blacks = sum(1 for p in px if p == (0, 0, 0))
-        whites = sum(1 for p in px if p == (255, 255, 255))
-        assert blacks > 300 and whites > 3000 and blacks + whites > 0.97 * 128 * 128
+        px = list(im.convert("L").getdata())
+        # The contract of silhouette mode is SEPARABILITY (compare_silhouette
+        # thresholds it), not literally two pixel values: antialiased edges are
+        # legitimate — a tighter camera fit simply produces more of them.
+        dark = sum(1 for v in px if v < 32)
+        light = sum(1 for v in px if v > 223)
+        mid = len(px) - dark - light
+        assert dark > 300 and light > 3000
+        assert mid < 0.08 * len(px), f"silhouette is not separable: {mid} mid-tone px of {len(px)}"
     assert sil.contact_sheet is None
 
     iso = render_glb(stool_glb, tmp_path / "iso", views=[ViewPreset("front", 0, 8)], isolate=["Legs"], width=128, height=128, sheet=False)

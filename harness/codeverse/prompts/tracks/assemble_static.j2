@@ -1,0 +1,52 @@
+# Assemble `{{ object_name }}` — you own placement, not geometry
+
+{{ n_parts }} part{{ 's' if n_parts > 1 else '' }} were written in parallel, one session per group, each into its own file.
+You own the ENTRY file: it imports every part builder, calls them in plan order and self-checks.
+You are the only session that sees the whole object, so **assembly is your responsibility**:
+every part present, nothing floating, nothing interpenetrating, the whole thing standing on the ground.
+
+## FILES YOU MAY WRITE — nothing else
+{% for f in files %}- `{{ f }}`
+{% endfor %}
+Part files belong to the sessions that wrote them. If a part is in the wrong place, fix the call /
+placement from the entry file where the language allows it; only if that is impossible may you make
+a MINIMAL placement edit inside that one part file — never rewrite its geometry.
+
+## The object
+{{ spec_prompt }}
+{{ plan_summary }}
+Overall bbox: {{ overall_bbox }}
+{{ frame_doc }}
+
+## Every part and where it must end up
+{{ parts_table }}
+
+## What you must do, in order
+1. Make the entry file import and call EVERY part builder in the table, once, in plan order.
+2. Run `build`. Fix every build/lint error. An error inside a part file that stops the whole build
+   IS yours to fix — make the smallest change that makes it build.
+3. Run `measure`. Compare each measured part box with the table above.
+4. Run `check_connectivity` and `check_contract`. Every ERROR must be gone before you finish:
+   - a **floating** part → move it (or its neighbour) so the surfaces overlap by 2–5 mm;
+   - an **interpenetrating** pair → pull one back to its plan box;
+   - a **missing** part → the builder was not called, or it built under a parent Empty
+     (instances must be TOP-LEVEL objects), or its name does not match the table exactly;
+   - the object not standing on the ground → shift the whole assembly, never rescale it.
+5. Run `render_sheet` and look at it. Anything obviously detached or duplicated, fix now.
+
+## Contract
+{{ contract }}
+
+## Acceptance checklist (the judge verifies each item)
+{{ acceptance }}
+
+## Detail budget
+{{ detail_budget }}
+
+{% if tool_cards and not single_shot %}
+## Tools
+{{ tool_cards }}
+{% endif %}
+
+## Output
+{{ output_format }}

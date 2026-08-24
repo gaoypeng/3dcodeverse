@@ -11,8 +11,9 @@ texture pass, and a data-flywheel record per run.
 Read `docs/ARCHITECTURE.md` (design, package map, authoring contracts, what a run
 really does, known limits), `docs/INTERFACES.md` (binding cross-package signatures as
 built), `docs/RUNBOOK.md` (how to run / resume / extend), `docs/DECISIONS.md`
-(ADR-style laws + deviations) and `docs/EVAL.md` (evaluation protocol + judge
-calibration) before changing anything.
+(ADR-style laws + deviations), `docs/EVAL.md` (evaluation protocol + judge
+calibration) and `docs/COMPLEXITY.md` (the objective complexity vector + the
+score-vs-complexity corpus study) before changing anything.
 
 ## Laws (do not break)
 1. Generated code is raw language — never an SDK/helper import; the harness owns
@@ -83,6 +84,7 @@ cd /home/yipeng/3dcodeverse/harness
 3dcv gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcv gallery build --out gallery.html [--embed]
 3dcv bench run bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview
 python -m codeverse.judges.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
+python bench/complexity_report.py bench/out --recursive   # score-vs-complexity + $/complexity point (docs/COMPLEXITY.md)
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:api-agent:gemini:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
 python -m pytest tests -q -m "not live"            # ~860 offline tests; add "and not blender and not node" for pure python
 ```

@@ -9,12 +9,19 @@ description: >
   the picture it makes, and the place it depicts.
 
 extra_instructions: >
-  Views labelled OVERVIEW are harness cameras fitted to the scene bounds — use them for
-  layout, coverage, floating/sunken objects and scale.  Views labelled CAM are the
-  scene's own authored cameras — grade composition, lighting, atmosphere and effects
-  on those.  Views at different times (t=...) show animation: compare them for what
-  moves.  The probe digest lists console/shader errors and fps measured by the harness;
-  treat those as facts.  Use zone and asset names from the plan digest as targets.
+  Views named overview_* are HARNESS cameras fitted to the scene bounds — nobody framed
+  them; use them only for layout, coverage, floating/sunken objects and scale, and never
+  as evidence that a picture is badly composed, badly lit or under-dressed.  Every other
+  view is one of the scene's OWN authored cameras (PascalCase plan names such as
+  Establishing / BridgeView) — grade composition, lighting, atmosphere and effects on
+  those alone.  Views at different times (t=...) show animation, but they reach you in
+  different montage images: do NOT judge motion by comparing them — the harness measures
+  the pixel change between the two times per camera and states it in the context; that
+  measurement decides `nothing_moves` and every "it must move" acceptance item.  The probe
+  digest lists console/shader errors and fps measured by the harness; treat those as facts.
+  A gate finding that starts with "harness rig view" describes one of the harness's own
+  cameras, not the scene: never turn it into a defect against the scene.
+  Use zone and asset names from the plan digest as targets.
   A scene a person would screenshot belongs at 0.8+; a recognisable place with one
   dead zone / flat lighting / floating asset sits near 0.5; an unlit, empty or
   unreadable scene sits at 0.1-0.3.
@@ -149,11 +156,17 @@ defects:
     text: The scene is a different kind of place than the brief describes (or an unreadable world).
     cap: 0.30
   - id: camera_unusable
-    text: An authored camera (cam_*) shows only sky / ground / the inside of a wall, or is clipped by the near plane.
+    text: >
+      One of the SCENE'S OWN authored cameras shows only sky / ground / the inside of a wall,
+      or is clipped by the near plane.  (Never answer this for an overview_* harness view.)
     penalty: 0.08
     cap: 0.60
   - id: unlit_or_blown
-    text: A view is near-black, blown to white, or the light direction contradicts the sky.
+    text: >
+      One of the SCENE'S OWN authored cameras is near-black, blown to white, or lit from a
+      direction that contradicts the sky.  (Never answer this for an overview_* harness view:
+      a rig shot taken at street level under a rooftop, or from above a night scene, is dark
+      because of where the harness put it.)
     penalty: 0.08
     cap: 0.60
   - id: floating_or_sunken_asset
@@ -168,7 +181,10 @@ defects:
     penalty: 0.05
     cap: 0.75
   - id: nothing_moves
-    text: Frames at different times (t=) are identical although motion was planned.
+    text: >
+      The harness's MEASURED MOTION line says no authored camera changed between the animation
+      times although motion was planned.  Answer this from that measurement only — never from
+      comparing tiles by eye, and never because you cannot see what moved.
     penalty: 0.05
   - id: world_edge_visible
     text: A hard world edge / terrain cliff / missing horizon is visible from an authored camera.

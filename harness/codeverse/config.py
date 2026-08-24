@@ -62,6 +62,26 @@ class Limits(BaseModel):
     )
 
 
+class Rate(BaseModel):
+    """Provider quota the key pool schedules against, and the model-call ceiling.
+
+    Measured, not guessed — ``docs/COST.md`` Part III.  On this box (22 keys,
+    ``gemini-3.7-flash``) ``tpm_per_key`` is the binding limit, not ``rpm_per_key``:
+    a generator call averages ~42 k prompt tokens, so 1 M TPM is ~24 calls/min per
+    key (528 pool-wide) while the RPM quota would allow 1 000.
+
+    ``max_in_flight`` is a process-wide ceiling on *concurrent model calls* and is
+    deliberately separate from ``Limits.max_parallel_agents`` /
+    ``max_parallel_builds``: blender / node / chrome are CPU-bound and sized by
+    cores, model calls are network-bound and sized by the provider.  0 = unlimited.
+    """
+
+    rpm_per_key: int = Field(default=1000, description="requests/minute allowed per API key")
+    tpm_per_key: int = Field(default=1_000_000, description="prompt tokens/minute allowed per API key")
+    max_in_flight: int = Field(default=32, description="process-wide cap on concurrent model calls (0 = off)")
+    storm_gate: bool = Field(default=True, description="share 503 capacity-storm back-pressure across workers")
+
+
 class Judge(BaseModel):
     """Judge payload size — what one verdict is allowed to send (docs/COST.md §3)."""
 
@@ -79,6 +99,7 @@ class Settings(BaseSettings):
     binaries: Binaries = Field(default_factory=Binaries)
     render: Render = Field(default_factory=Render)
     limits: Limits = Field(default_factory=Limits)
+    rate: Rate = Field(default_factory=Rate)
     judge: Judge = Field(default_factory=Judge)
 
     gemini_api_keys: list[str] = Field(default_factory=list)

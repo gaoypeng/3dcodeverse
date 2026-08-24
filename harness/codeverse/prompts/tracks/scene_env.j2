@@ -32,9 +32,8 @@ So `src/env.js` must export exactly:
   with hex colours so zones look coherent.
 
 ## What this module is graded on
-Read these cookbook chapters and copy their recipes (`read_cookbook(section="...")`):
-`"Ground that reads real"`, `"Horizon: the world must not end"`,
-`"Atmosphere: time-of-day triads with numbers"`.
+The chapters behind these rules are printed in full at the end of this brief
+(**Recipes**) — copy their numbers and snippets; do not invent your own.
 
 1. **Ground must not be one flat colour.**  One displaced plane, ~1 segment per metre, vertex
    colours blending 3-4 palette colours by height, slope and noise, plus the path carved by
@@ -80,7 +79,13 @@ Read these cookbook chapters and copy their recipes (`read_cookbook(section="...
 ## Tools
 {{ tool_cards }}
 After editing run `build`, then `scene_views` and LOOK: is the horizon hazy, is the ground
-multi-coloured, is the shade coloured rather than black?
+multi-coloured, is the shade coloured rather than black?  Read the frame table it prints:
+every authored camera needs mean luminance >= 0.15 with dark <= 35 %.
+{% endif %}
+{% if recipes is defined and recipes %}
+
+# Recipes (from the scene cookbook — copy these numbers and snippets)
+{{ recipes }}
 {% endif %}
 
 ## Output

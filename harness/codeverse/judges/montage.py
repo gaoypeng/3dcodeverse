@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Literal
 
 from codeverse.contracts.artifacts import RenderSet, RenderView
+from codeverse.conventions import SCENE_VIEWS
 from codeverse.judges.images import JudgeImageError, default_cache_dir, view_az_el
 from codeverse.spatial.sheet import crop_region, montage_2x2
 
@@ -39,8 +40,12 @@ MontageKind = Literal["shaded", "geometry", "poses", "pose_sheet", "detail"]
 GEOMETRY_MODES = ("clay", "normals", "wire", "silhouette", "depth")
 #: most-informative-first order for the object rig (names from conventions.OBJECT_VIEWS)
 OBJECT_RANK = ("front_right_34", "back_left_34", "top", "low_front_left", "front", "right", "back", "left")
-#: scene rig: authored cameras first (graded for composition), then overview rig
-SCENE_OVERVIEW_RANK = ("overview_front_right", "overview_back_left", "eye_front", "overview_top", "eye_right", "eye_back_left")
+#: scene rig: authored cameras first (graded for composition), then the overview rig.
+#: The rig names come from ``conventions.SCENE_VIEWS`` — anything else in a scene render
+#: set is a camera the SCENE authored, whatever it is called (they are PascalCase plan
+#: names such as ``Establishing``, never a fixed prefix).
+SCENE_OVERVIEW_RANK = ("overview_front_right", "overview_back_left", "overview_top", "eye_front", "eye_right", "eye_back_left")
+SCENE_RIG_NAMES = frozenset(v.name for v in SCENE_VIEWS) | frozenset(SCENE_OVERVIEW_RANK)
 POSE_PREFIX = "pose_"
 POSE_SHEET_NAMES = ("articulation_sheet", "pose_sheet")
 _POSITIONS = {
@@ -86,8 +91,8 @@ def rank_views(views: list[RenderView], *, scene: bool) -> list[RenderView]:
     if scene:
         def key(iv: tuple[int, RenderView]) -> tuple[int, int, int]:
             i, v = iv
-            if v.name.startswith("cam_"):
-                return (0, 0, i)
+            if v.name not in SCENE_RIG_NAMES:
+                return (0, 0, i)          # the scene's OWN cameras: the pictures being graded
             if v.name in SCENE_OVERVIEW_RANK:
                 return (1, SCENE_OVERVIEW_RANK.index(v.name), i)
             return (2, 0, i)

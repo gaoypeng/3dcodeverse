@@ -184,6 +184,166 @@ procedural textures are lost on export.  Colours given as hex are sRGB (correct)
 Rules: ≥ 3 distinct masses in the silhouette; break every large flat face once; thin
 things are 1–3 mm, never 0; anything hands touch gets a radius.
 
+## Density: visual complexity without hand-modelling every screw
+
+Measured on this harness (183 judged rounds): **triangles inside a part are free score, extra
+top-level parts are not** — ρ(tri_per_part, geometry_detail) ≈ +0.08 while ρ(n_plan_parts,
+assembly_fit) = −0.48.  Everything below adds density *inside* a part the plan already names,
+so `src/parts/<snake>.js` still returns exactly one `THREE.Group` called `<PascalName>`.
+
+**Where the budget goes** — silhouette first, then the 2–3 largest faces, then whatever is at eye
+height and at +Z (the front), then where two materials meet.  Not: the underside, the back, or
+interior volumes.  Skip subdividing a flat panel; add a seam instead.
+
+| priority | what | tri cost | recipe |
+|---|---|---|---|
+| 1 | silhouette break (taper, waist, overhang) | 0 | `LatheGeometry`, `ExtrudeGeometry` of the real section |
+| 2 | rounded edges everywhere hands touch | ×2–4 on that piece | `RoundedBoxGeometry`, `bevelEnabled` |
+| 3 | panel lines on big faces | ~100 | thin dark boxes 1 mm proud in the seam |
+| 4 | fasteners at real joints | 50–150 each | `instanceRing` |
+| 5 | counted repeats (slats, spokes, dentils) | 100–400 each | `repeatMerged` |
+| 6 | greebles in a bounded patch | 300–1500 | `greeblePatch` |
+| 7 | per-instance colour/scale variation | 0 | `setColorAt`, seeded jitter |
+
+```js
+// --- seeded RNG: identical repeats read as CG, 2-5 % variation reads as real.
+// NEVER Math.random() — the harness rebuilds your code and the judge sees both builds.
+function rng(seed) { let s = seed >>> 0 || 1; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
+
+// --- repeatMerged: N placed copies of one geometry, merged into ONE mesh.
+// The cheapest countable detail there is: spokes, slats, dentils, rafter tails, balusters.
+function repeatMerged(geo, n, place, { seed = 0, jitter = 0, tilt = 0, scale = 0 } = {}) {
+  const r = rng(seed), out = [];
+  for (let i = 0; i < n; i++) {
+    const g = geo.clone();
+    const s = 1 + (r() * 2 - 1) * scale;
+    if (scale) g.scale(s, s, s);
+    if (tilt) { g.rotateX((r() * 2 - 1) * tilt); g.rotateZ((r() * 2 - 1) * tilt); }
+    const [x, y, z] = place(i, r);
+    g.translate(x + (r() * 2 - 1) * jitter, y + (r() * 2 - 1) * jitter, z + (r() * 2 - 1) * jitter);
+    out.push(g);
+  }
+  const merged = mergeGeometries(out);
+  merged.computeVertexNormals();
+  return merged;
+}
+
+// --- repeatRadial: N copies ROTATED around an axis through the origin.  Spokes, dentils,
+// cage wires, flutes, balusters, turbine blades — anything on a circle.  Merged into one mesh.
+function repeatRadial(geo, n, { axis = 'y', phase = 0, seed = 0, tilt = 0 } = {}) {
+  const r = rng(seed), out = [];
+  for (let i = 0; i < n; i++) {
+    const g = geo.clone(), a = phase + (i / n) * Math.PI * 2;
+    if (tilt) g.rotateX((r() * 2 - 1) * tilt);
+    if (axis === 'y') g.rotateY(a); else if (axis === 'x') g.rotateX(a); else g.rotateZ(a);
+    out.push(g);
+  }
+  const merged = mergeGeometries(out);
+  merged.computeVertexNormals();
+  return merged;
+}
+
+// 24 wheel spokes, ONE mesh: a rod laid along X, rotated 24× about Z (the wheel's axis)
+const spokeGeo = new THREE.CylinderGeometry(0.004, 0.004, 0.62, 6).rotateZ(Math.PI / 2);
+const spokes = new THREE.Mesh(repeatRadial(spokeGeo, 24, { axis: 'z' }),
+                              new THREE.MeshStandardMaterial({ metalness: 0.9, roughness: 0.35 }));
+spokes.name = 'Spokes';
+```
+
+```js
+// --- instanceRing: N identical fasteners as ONE InstancedMesh with per-instance colour.
+// The harness BAKES InstancedMesh into plain `<Name>_<i>` meshes at GLB export, so the
+// instance count becomes real objects — use it for 6-40 small repeats, not for 500.
+function instanceRing(geo, mat, n, radius, y, { seed = 0, tint = 0 } = {}) {
+  const r = rng(seed), im = new THREE.InstancedMesh(geo, mat, n);
+  const m = new THREE.Matrix4(), c = new THREE.Color();
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    m.makeRotationY(-a);
+    m.setPosition(radius * Math.cos(a), y, radius * Math.sin(a));
+    im.setMatrixAt(i, m);
+    if (tint) { c.setHSL(0, 0, 0.5 + (r() * 2 - 1) * tint); im.setColorAt(i, c); }
+  }
+  im.instanceMatrix.needsUpdate = true;
+  if (im.instanceColor) im.instanceColor.needsUpdate = true;
+  im.computeBoundingSphere();
+  return im;
+}
+
+const boltHead = new THREE.CylinderGeometry(0.005, 0.0045, 0.002, 8);
+const bolts = instanceRing(boltHead, new THREE.MeshStandardMaterial({ metalness: 1, roughness: 0.45 }),
+                           8, 0.09, 0.031, { seed: 4, tint: 0.06 });
+bolts.name = 'FlangeBolts';
+
+// --- greeblePatch: seeded surface clutter bounded to a rectangle, merged into one mesh.
+// Bound it so it can never break the silhouette or leave the part's planned bbox.
+function greeblePatch(w, d, { n = 24, seed = 0, hMin = 0.002, hMax = 0.010, cell = 0.02 } = {}) {
+  const r = rng(seed), out = [];
+  for (let i = 0; i < n; i++) {
+    const bw = cell * (0.35 + r()), bd = cell * (0.35 + r()), bh = hMin + r() * (hMax - hMin);
+    const g = new THREE.BoxGeometry(bw, bh, bd);
+    g.translate((r() - 0.5) * (w - bw), bh / 2, (r() - 0.5) * (d - bd));
+    out.push(g);
+  }
+  const merged = mergeGeometries(out);
+  merged.computeVertexNormals();
+  return merged;
+}
+
+// --- panelLines: 1 mm dark ribs sunk into a face — the cheapest "manufactured" cue there is.
+function panelLines(lines, thickness = 0.0015) {
+  const geos = lines.map(([x, y, z, w, h]) =>
+    new THREE.BoxGeometry(Math.max(w, thickness), Math.max(h, thickness), thickness).translate(x, y, z));
+  const merged = mergeGeometries(geos);
+  merged.computeVertexNormals();
+  return merged;
+}
+
+// one housing part: shell + greebles + seams + bolts = ONE Group named as the plan says
+const housing = new THREE.Group();
+housing.name = 'MotorHousing';
+housing.add(new THREE.Mesh(new RoundedBoxGeometry(0.24, 0.10, 0.16, 3, 0.006),
+                           new THREE.MeshStandardMaterial({ color: 0x5a5f66, roughness: 0.55 })));
+housing.add(new THREE.Mesh(greeblePatch(0.20, 0.12, { n: 26, seed: 7 }).translate(0, 0.05, 0),
+                           new THREE.MeshStandardMaterial({ color: 0x4c5158, roughness: 0.6 })));
+housing.add(new THREE.Mesh(panelLines([[0, 0.0, 0.0805, 0.22, 0.001], [0, -0.03, 0.0805, 0.22, 0.001]]),
+                           new THREE.MeshStandardMaterial({ color: 0x1a1c1f, roughness: 0.9 })));
+housing.add(bolts);
+```
+
+```js
+// --- profile sweeps: draw the SECTION once, drag it along the path.  Mouldings, handrails,
+// rims, gutters, cornices.  A curved path needs one sample per 5-10 degrees, not four corners.
+function sweep(sectionPts, pathPts, { closed = false, radialSegments = 1 } = {}) {
+  const shape = new THREE.Shape(sectionPts.map(([x, y]) => new THREE.Vector2(x, y)));
+  const curve = new THREE.CatmullRomCurve3(pathPts.map(([x, y, z]) => new THREE.Vector3(x, y, z)), closed);
+  const geo = new THREE.ExtrudeGeometry(shape, { steps: pathPts.length * 2, bevelEnabled: false,
+                                                 extrudePath: curve, curveSegments: 4 * radialSegments });
+  geo.computeVertexNormals();
+  return geo;
+}
+
+const HANDRAIL = [[0.022, 0], [0.010, 0.009], [-0.010, 0.009], [-0.022, 0], [0, -0.006]];
+const helix = [];
+for (let a = 0; a <= 360; a += 5) {
+  const t = (a * Math.PI) / 180;
+  helix.push([0.70 * Math.cos(t), 0.95 + 0.0075 * a, 0.70 * Math.sin(t)]);
+}
+const handrail = new THREE.Mesh(sweep(HANDRAIL, helix), new THREE.MeshStandardMaterial({ color: 0x2b2b2b }));
+handrail.name = 'Handrail';
+
+// --- the density check: what would tell a photo of the real thing from this?
+// "edges are perfectly sharp" -> RoundedBoxGeometry / bevelEnabled.  "one flat face" -> panelLines.
+// "no fixings" -> instanceRing.  "repeats are identical" -> repeatMerged with jitter/tilt/scale.
+// "all one grey" -> split the materials.  Then count: `measure` prints the triangle total —
+// under the detail budget's floor means nothing has been detailed yet.
+const density = [spokes, bolts, housing, handrail];
+let densityTris = 0;
+for (const o of density) o.traverse((m) => { if (m.isMesh) densityTris += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3 * (m.count || 1); });
+console.log('[selfcheck] density recipes tris', Math.round(densityTris), 'parts', density.length);
+if (densityTris < 3000) throw new Error('density recipes produced almost no geometry: ' + densityTris);
+```
+
 ## Common objects — dimensions (metres, Y-up) and decomposition
 
 | object | W × D × H | parts | key numbers |

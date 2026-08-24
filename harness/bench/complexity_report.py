@@ -1,0 +1,396 @@
+"""Score-vs-complexity study over recorded runs.
+
+Every finished run carries a judge verdict and (since the complexity vector
+landed) an objective measure of *how much artifact was actually built*.  This
+script joins the two so the harness can be asked the only question that matters
+for the complexity wave: **when the artifact gets richer, does the score go up
+or down, and what does a complexity point cost?**
+
+    python bench/complexity_report.py bench/out/static_v2_flash [more roots...]
+    python bench/complexity_report.py bench/out --recursive --csv /tmp/c.csv
+    python bench/complexity_report.py bench/out/complexity_v3 --battery bench/prompts/complexity_v3.yaml
+
+A "root" is a battery directory (``<battery>/runs/<slug>``), a runs directory,
+or a single run directory — all three are detected.  The complexity vector is
+read from the run's recorded measurement when present and recomputed from
+``artifacts/object.glb`` otherwise, so the whole historic corpus is usable.
+Rows without a judgment or without geometry are skipped and counted.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import math
+import sys
+from collections.abc import Iterable, Sequence
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[0].parent))
+
+from codeverse.spatial.complexity import COMPLEXITY_WEIGHTS, ComplexityVector, band_of  # noqa: E402
+
+CRITERIA = (
+    "intent_fidelity",
+    "structure_plausibility",
+    "geometry_detail",
+    "proportions_scale",
+    "assembly_fit",
+    "materials",
+    "craftsmanship_no_artifacts",
+)
+#: the complexity axis ``materials`` is renamed ``n_materials`` in a row: the
+#: static rubric has a *criterion* called ``materials`` and the two must not collide.
+AXIS_COL = {"materials": "n_materials"}
+AXES = tuple(AXIS_COL.get(a, a) for a in COMPLEXITY_WEIGHTS) + ("plan_parts",)
+#: index buckets the scatter table is printed in
+BUCKETS = (0.0, 0.30, 0.40, 0.50, 0.60, 0.70, 1.01)
+
+
+# --------------------------------------------------------------------------- rows
+class Row(dict):
+    """One run: identity + complexity axes + judge criteria + cost.  A plain dict
+    so the CSV/JSON writers stay trivial."""
+
+
+def _read_json(p: Path) -> dict[str, Any] | None:
+    try:
+        return json.loads(p.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _vector_for(run: Path, best: dict[str, Any] | None) -> ComplexityVector | None:
+    """The run's recorded complexity vector, else one recomputed from its GLB.
+
+    The historic corpus predates the vector, so recomputing is the normal path
+    for anything recorded before 2026-08-24 — that is what makes the whole
+    corpus comparable.
+    """
+    for meas in (best or {}).get("measurement"), (_read_json(run / "artifacts" / "measurement.json") or {}):
+        block = ((meas or {}).get("extra") or {}).get("complexity")
+        if isinstance(block, dict):
+            try:
+                return ComplexityVector.model_validate(block)
+            except Exception:  # noqa: BLE001 - an older/foreign block must not stop the scan
+                pass
+    glb = run / "artifacts" / "object.glb"
+    if not glb.is_file():
+        return None
+    from codeverse.spatial.complexity import complexity_of_glb
+
+    try:
+        return complexity_of_glb(glb)
+    except Exception:  # noqa: BLE001 - a corrupt GLB skips the row, never the scan
+        return None
+
+
+def _best_round(record: dict[str, Any]) -> dict[str, Any] | None:
+    rounds = record.get("rounds") or []
+    if not rounds:
+        return None
+    idx = record.get("best_round")
+    for r in rounds:
+        if r.get("index") == idx:
+            return r
+    return rounds[-1]
+
+
+def _minutes(record: dict[str, Any]) -> float:
+    tel = (record.get("telemetry") or {}).get("cost") or {}
+    if tel.get("wall_clock_s"):
+        return round(float(tel["wall_clock_s"]) / 60.0, 2)
+    return round(sum(float(r.get("duration_s") or 0.0) for r in record.get("rounds") or []) / 60.0, 2)
+
+
+def row_for(run: Path, battery: str) -> Row | None:
+    record = _read_json(run / "record.json")
+    if not record:
+        return None
+    best = _best_round(record)
+    judgment = (best or {}).get("judgment") or {}
+    scores = judgment.get("scores") or {}
+    vec = _vector_for(run, best)
+    if vec is None or not scores:
+        return None
+    plan_parts = len((record.get("plan") or {}).get("parts") or [])
+    row = Row(
+        battery=battery,
+        slug=run.name,
+        track=(record.get("spec") or {}).get("track", ""),
+        language=(record.get("spec") or {}).get("language", ""),
+        tier=next((t for t in (record.get("spec") or {}).get("tags", []) if t in ("easy", "medium", "hard")), ""),
+        status=record.get("status", ""),
+        rounds=len(record.get("rounds") or []),
+        plan_parts=plan_parts,
+        parts_per_plan_part=round(vec.part_count / plan_parts, 3) if plan_parts else None,
+        gate_errors=sum(len([f for f in (g.get("findings") or []) if f.get("severity") == "error"])
+                        for g in (best or {}).get("gates") or []),
+        overall=judgment.get("overall"),
+        passed=judgment.get("passed"),
+        issues=len(judgment.get("issues") or []),
+        cost_usd=round(float((record.get("total_usage") or {}).get("cost_usd") or 0.0), 4),
+        minutes=_minutes(record),
+        index=vec.index,
+        band=vec.band,
+    )
+    row.update({AXIS_COL.get(a, a): getattr(vec, a) for a in COMPLEXITY_WEIGHTS})
+    row.update({c: scores.get(c) for c in CRITERIA})
+    return row
+
+
+def iter_runs(root: Path) -> Iterable[tuple[str, Path]]:
+    """``(battery, run dir)`` for a battery dir, a runs dir or a single run."""
+    if (root / "record.json").is_file():
+        yield root.parent.parent.name if root.parent.name == "runs" else root.parent.name, root
+        return
+    runs = root / "runs" if (root / "runs").is_dir() else root
+    for d in sorted(p for p in runs.iterdir() if p.is_dir()):
+        if (d / "record.json").is_file():
+            yield (root.name if runs != root else root.parent.name), d
+
+
+def collect(roots: Sequence[Path], *, recursive: bool = False) -> tuple[list[Row], int]:
+    """Rows for every run under ``roots`` (``--recursive``: also one level down)."""
+    targets: list[Path] = []
+    for r in roots:
+        if recursive and r.is_dir() and not (r / "runs").is_dir() and not (r / "record.json").is_file():
+            targets.extend(sorted(p for p in r.iterdir() if p.is_dir()))
+        else:
+            targets.append(r)
+    rows: list[Row] = []
+    skipped = 0
+    for t in targets:
+        if not t.is_dir():
+            continue
+        for battery, run in iter_runs(t):
+            row = row_for(run, battery)
+            if row is None:
+                skipped += 1
+            else:
+                rows.append(row)
+    return rows, skipped
+
+
+# --------------------------------------------------------------------------- stats
+def _pairs(rows: Sequence[Row], x: str, y: str) -> tuple[list[float], list[float]]:
+    xs, ys = [], []
+    for r in rows:
+        a, b = r.get(x), r.get(y)
+        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            xs.append(float(a))
+            ys.append(float(b))
+    return xs, ys
+
+
+def pearson(xs: Sequence[float], ys: Sequence[float]) -> float | None:
+    n = len(xs)
+    if n < 3:
+        return None
+    mx, my = sum(xs) / n, sum(ys) / n
+    sxy = sum((a - mx) * (b - my) for a, b in zip(xs, ys, strict=False))
+    sxx = sum((a - mx) ** 2 for a in xs)
+    syy = sum((b - my) ** 2 for b in ys)
+    if sxx <= 0 or syy <= 0:
+        return None
+    return sxy / math.sqrt(sxx * syy)
+
+
+def _ranks(v: Sequence[float]) -> list[float]:
+    order = sorted(range(len(v)), key=lambda i: v[i])
+    out = [0.0] * len(v)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and v[order[j + 1]] == v[order[i]]:
+            j += 1
+        avg = (i + j) / 2.0 + 1.0
+        for k in range(i, j + 1):
+            out[order[k]] = avg
+        i = j + 1
+    return out
+
+
+def spearman(xs: Sequence[float], ys: Sequence[float]) -> float | None:
+    if len(xs) < 3:
+        return None
+    return pearson(_ranks(xs), _ranks(ys))
+
+
+def correlations(rows: Sequence[Row], targets: Sequence[str], predictors: Sequence[str]) -> list[dict[str, Any]]:
+    out = []
+    for t in targets:
+        entry: dict[str, Any] = {"target": t}
+        for p in predictors:
+            xs, ys = _pairs(rows, p, t)
+            entry[p] = (pearson(xs, ys), spearman(xs, ys), len(xs))
+        out.append(entry)
+    return out
+
+
+def _fmt(v: float | None, w: int = 6) -> str:
+    return " " * (w - 1) + "-" if v is None else f"{v:>{w}.2f}"
+
+
+def _mean(vals: Iterable[float | None]) -> float | None:
+    v = [float(x) for x in vals if isinstance(x, (int, float))]
+    return sum(v) / len(v) if v else None
+
+
+# --------------------------------------------------------------------------- report
+def scatter_table(rows: Sequence[Row]) -> str:
+    """Score vs complexity, bucketed by index — the scatter as a text table."""
+    lines = [
+        "| complexity band | n | mean index | mean overall | pass % | detail | struct | fit | craft | $/run | min |",
+        "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
+    ]
+    for lo, hi in zip(BUCKETS, BUCKETS[1:], strict=False):
+        b = [r for r in rows if isinstance(r.get("index"), (int, float)) and lo <= r["index"] < hi]
+        if not b:
+            continue
+        npass = sum(1 for r in b if r.get("passed"))
+        lines.append(
+            f"| {band_of((lo + hi) / 2)} {lo:.2f}–{min(hi, 1.0):.2f} | {len(b)} |"
+            f"{_fmt(_mean(r['index'] for r in b))} |{_fmt(_mean(r['overall'] for r in b))} |"
+            f" {100 * npass / len(b):5.0f} |{_fmt(_mean(r['geometry_detail'] for r in b))} |"
+            f"{_fmt(_mean(r['structure_plausibility'] for r in b))} |{_fmt(_mean(r['assembly_fit'] for r in b))} |"
+            f"{_fmt(_mean(r['craftsmanship_no_artifacts'] for r in b))} |"
+            f"{_fmt(_mean(r['cost_usd'] for r in b))} |{_fmt(_mean(r['minutes'] for r in b))} |"
+        )
+    return "\n".join(lines)
+
+
+def correlation_table(rows: Sequence[Row], predictors: Sequence[str] = AXES) -> str:
+    targets = ("overall", *CRITERIA, "cost_usd", "minutes")
+    head = "| target | " + " | ".join(p[:12] for p in ("index", *predictors)) + " |"
+    lines = [head, "|---" * (len(predictors) + 2) + "|"]
+    for entry in correlations(rows, targets, ("index", *predictors)):
+        cells = []
+        for p in ("index", *predictors):
+            r, _rho, _n = entry[p]
+            cells.append(_fmt(r, 6))
+        lines.append(f"| {entry['target']} |" + "|".join(cells) + "|")
+    return "\n".join(lines)
+
+
+def dollars_per_point(rows: Sequence[Row]) -> dict[str, Any]:
+    """$ and minutes per complexity point (index × 100) actually delivered."""
+    cost = sum(float(r.get("cost_usd") or 0.0) for r in rows)
+    mins = sum(float(r.get("minutes") or 0.0) for r in rows)
+    points = sum(100.0 * float(r.get("index") or 0.0) for r in rows)
+    passed = [r for r in rows if r.get("passed")]
+    p_cost = sum(float(r.get("cost_usd") or 0.0) for r in passed)
+    p_points = sum(100.0 * float(r.get("index") or 0.0) for r in passed)
+    return {
+        "runs": len(rows),
+        "total_usd": round(cost, 3),
+        "total_minutes": round(mins, 1),
+        "complexity_points": round(points, 1),
+        "usd_per_point": round(cost / points, 4) if points else None,
+        "minutes_per_point": round(mins / points, 3) if points else None,
+        "usd_per_point_passed_only": round(p_cost / p_points, 4) if p_points else None,
+        "passed": len(passed),
+    }
+
+
+def per_run_table(rows: Sequence[Row], limit: int = 60) -> str:
+    lines = [
+        "| run | parts | tris | sil | featdens | hollow | index | band | overall | detail | $ | min |",
+        "|---|--:|--:|--:|--:|--:|--:|---|--:|--:|--:|--:|",
+    ]
+    for r in sorted(rows, key=lambda r: -(r.get("index") or 0))[:limit]:
+        lines.append(
+            f"| {r['battery']}/{r['slug']} | {r['part_count']} | {r['tri_count']} |"
+            f" {r['silhouette']:.1f} | {r['feature_density']:.0f} | {r['hollowness']:.2f} |"
+            f" {r['index']:.3f} | {r['band']} |{_fmt(r.get('overall'))} |{_fmt(r.get('geometry_detail'))} |"
+            f" {r.get('cost_usd', 0):.2f} | {r.get('minutes', 0):.0f} |"
+        )
+    return "\n".join(lines)
+
+
+def battery_expectations(battery_path: Path, rows: Sequence[Row]) -> str:
+    """Measured index vs the ``expected_complexity`` band each prompt declares."""
+    import yaml
+
+    data = yaml.safe_load(battery_path.read_text()) or {}
+    want = {
+        p["id"]: p.get("expected_complexity")
+        for p in data.get("prompts", [])
+        if isinstance(p, dict) and p.get("expected_complexity")
+    }
+    if not want:
+        return ""
+    by_slug = {r["slug"]: r for r in rows}
+    lines = ["| prompt | expected | measured | in band? | overall |", "|---|---|--:|---|--:|"]
+    for pid, band in want.items():
+        r = by_slug.get(pid)
+        lo, hi = float(band[0]), float(band[1])
+        if r is None:
+            lines.append(f"| {pid} | {lo:.2f}–{hi:.2f} | - | not run | - |")
+            continue
+        ok = "yes" if lo <= r["index"] <= hi else ("LOW" if r["index"] < lo else "HIGH")
+        lines.append(f"| {pid} | {lo:.2f}–{hi:.2f} | {r['index']:.3f} | {ok} |{_fmt(r.get('overall'))} |")
+    return "\n".join(lines)
+
+
+def render_report(rows: Sequence[Row], skipped: int, battery: Path | None = None) -> str:
+    out = [
+        f"# complexity report — {len(rows)} runs ({skipped} skipped: no judgment or no geometry)",
+        "",
+        "## score vs complexity",
+        "",
+        scatter_table(rows),
+        "",
+        "## pearson r (row = judge target, column = complexity axis)",
+        "",
+        correlation_table(rows),
+        "",
+        "## cost of complexity",
+        "",
+        "```",
+        json.dumps(dollars_per_point(rows), indent=2),
+        "```",
+    ]
+    if battery is not None:
+        table = battery_expectations(battery, rows)
+        if table:
+            out += ["", "## battery expectations", "", table]
+    out += ["", "## per run (richest first)", "", per_run_table(rows)]
+    return "\n".join(out)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("roots", nargs="+", type=Path, help="battery dir, runs dir or run dir")
+    ap.add_argument("--recursive", action="store_true", help="treat each root as a directory OF batteries")
+    ap.add_argument("--battery", type=Path, help="battery yaml with expected_complexity bands")
+    ap.add_argument("--csv", type=Path, help="write the per-run rows as CSV")
+    ap.add_argument("--json", dest="json_out", type=Path, help="write the per-run rows as JSON")
+    ap.add_argument("--out", type=Path, help="write the markdown report here instead of stdout")
+    args = ap.parse_args(argv)
+
+    rows, skipped = collect(args.roots, recursive=args.recursive)
+    if not rows:
+        print("no runs with both a judgment and geometry found", file=sys.stderr)
+        return 1
+    if args.csv:
+        fields = list(rows[0].keys())
+        with args.csv.open("w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=fields)
+            w.writeheader()
+            w.writerows(rows)
+    if args.json_out:
+        args.json_out.write_text(json.dumps(rows, indent=2))
+    report = render_report(rows, skipped, args.battery)
+    if args.out:
+        args.out.write_text(report)
+        print(f"wrote {args.out}")
+    else:
+        print(report)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

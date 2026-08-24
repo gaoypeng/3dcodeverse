@@ -204,6 +204,46 @@ def _measurement_panel(rec: RunRecord, best: int | None) -> str:
     return _panel("measurement", f"<div class='kvs'>{rows}</div>{parts}", anchor="measurement")
 
 
+#: axis -> (label, format) for the complexity panel, in reading order
+_CX_ROWS = (
+    ("part_count", "parts", "{:.0f}"),
+    ("assembly_depth", "sub-assembly depth", "{:.0f}"),
+    ("tri_count", "triangles", "{:,.0f}"),
+    ("materials", "distinct materials", "{:.0f}"),
+    ("silhouette", "silhouette P²/4πA", "{:.1f}"),
+    ("feature_density", "feature density", "{:.0f}"),
+    ("symmetry_groups", "repeat groups", "{:.0f}"),
+    ("hollowness", "hollowness", "{:.2f}"),
+)
+
+
+def _complexity_panel(entry: RunEntry, rec: RunRecord) -> str:
+    """What was BUILT, measured without a VLM — the difficulty half of the verdict.
+
+    Read it next to the judge panel: a high score on a low index is an easy win,
+    a low score on a high index is the framework hitting its ceiling."""
+    block = rec.extra.get("complexity")
+    if entry.complexity is None and not isinstance(block, dict):
+        return ""
+    block = block if isinstance(block, dict) else {}
+    index = entry.complexity if entry.complexity is not None else block.get("index")
+    rows = [_kv("index", f"{float(index):.3f} ({esc(entry.complexity_band or block.get('band', ''))})")]
+    for axis, label, fmt in _CX_ROWS:
+        v = entry.complexity_axes.get(axis, block.get(axis))
+        if isinstance(v, (int, float)):
+            rows.append(_kv(label, fmt.format(float(v))))
+    if isinstance(block.get("plan_parts"), int) and block["plan_parts"]:
+        rows.append(_kv("plan parts", str(block["plan_parts"])))
+        if block.get("parts_per_plan_part") is not None:
+            rows.append(_kv("built / planned parts", f"{float(block['parts_per_plan_part']):.2f}"))
+    trail = block.get("by_round")
+    if isinstance(trail, list) and len(trail) > 1:
+        rows.append(_kv("by round", " → ".join(f"{float(x):.2f}" for x in trail)))
+    note = ("<p class='xs faint'>objective complexity of the delivered artifact "
+            "(codeverse/spatial/complexity.py) — difficulty, not quality; see docs/COMPLEXITY.md</p>")
+    return _panel("complexity", f"<div class='kvs'>{''.join(rows)}</div>{note}", anchor="complexity")
+
+
 def _renders_panel(entry: RunEntry, urls: UrlMaker, rec: RunRecord, best: int | None) -> str:
     run = Path(entry.path)
     rnd = next((r for r in rec.rounds if r.index == best), None)
@@ -333,7 +373,7 @@ def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord
         hero, label, n = hero_view(ws, rec, best)
         entry = entry.model_copy(update={"hero": hero, "hero_label": label, "n_views": n})
     nav = "".join(f"<a href='#{a}'>{a}</a>" for a in
-                  ("rounds", "judge", "measurement", "renders", "cost", "code"))
+                  ("rounds", "judge", "complexity", "measurement", "renders", "cost", "code"))
     body = (
         top_bar("3dcv gallery",
                 crumbs=f"<a href='/'>gallery</a> <span class='faint'>/</span> "
@@ -345,6 +385,7 @@ def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord
         + f"<nav class='jump' aria-label='sections'>{nav}</nav>"
         + _rounds_table(entry, urls)
         + _judgment_panel(rec, best)
+        + _complexity_panel(entry, rec)
         + _measurement_panel(rec, best)
         + _renders_panel(entry, urls, rec, best)
         + _cost_panel(entry, ws, rec)

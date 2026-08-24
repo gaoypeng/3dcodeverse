@@ -10,6 +10,7 @@ state, stage cache, best tracking, stop policy, record — lives here once.
 from __future__ import annotations
 
 import logging
+import os
 import platform
 import traceback
 from collections.abc import Sequence
@@ -28,7 +29,6 @@ from codeverse.contracts.spec import Spec
 from codeverse.events import EventLog
 from codeverse.orchestrator.budget import BudgetExceeded, BudgetGuard
 from codeverse.orchestrator.rounds import (
-    REWRITE_KIND,
     BestSelector,
     RefineTask,
     RoundPolicy,
@@ -38,6 +38,7 @@ from codeverse.orchestrator.rounds import (
     TaskGroup,
     best_score,
     build_refine_instructions,
+    kind_for_strategy,
     plan_refine_groups,
 )
 from codeverse.orchestrator.runner import StageRunner
@@ -75,6 +76,24 @@ REFERENCE_RUBRIC = "reference_v1"
 #: fallback name of the run's live cost ledger when the cost package cannot place
 #: one itself (``flywheel/telemetry.py`` publishes it as ``telemetry/usage.jsonl``)
 LEDGER_NAME = "cost_ledger.jsonl"
+
+
+#: surface-detail rounds a track that implements one gets by default.  ``RoundPolicy`` itself
+#: defaults to 0 so the pure stop policy is unchanged for everyone else; ``CV3D_DETAIL_ROUNDS``
+#: overrides both (0 = off — the A/B switch for docs/EVAL.md).
+DEFAULT_DETAIL_ROUNDS = 1
+
+
+def detail_round_budget(policy: RoundPolicy, supported: bool, *, explicit: bool) -> int:
+    """How many detail rounds THIS run gets: env > an explicit policy > the track default."""
+    raw = os.environ.get("CV3D_DETAIL_ROUNDS", "").strip()
+    if raw.isdigit():
+        return int(raw) if supported else 0
+    if not supported:
+        return 0
+    if explicit:
+        return policy.detail_rounds
+    return policy.detail_rounds or DEFAULT_DETAIL_ROUNDS
 
 
 def run_ledger_path(ws: Workspace) -> Any:
@@ -134,6 +153,10 @@ class BaseTrack:
     plan_max_output_tokens: int = 24000
     #: refine fan-out (graphics is always ONE whole-program task)
     allow_refine_fanout: bool = True
+    #: does this track implement ``detail_tasks``?  When False the round policy's detail
+    #: budget is zeroed for the run, so the stop policy never offers a round the track
+    #: cannot build (see orchestrator/rounds.detail_blocked).
+    supports_detail_round: bool = False
     #: share of the run budget the BASELINE may use (1.0 = no soft cap).  The scene
     #: track lowers it so the refine rounds always inherit money and minutes.
     soft_budget_fraction: float = 1.0
@@ -217,6 +240,15 @@ class BaseTrack:
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
         raise NotImplementedError
 
+    def detail_tasks(self, ctx: RunContext, last: RoundRecord, index: int) -> tuple[list[GenerationTask], list[str]]:
+        """The SURFACE-DETAIL round (``kind='detail'``): bevels, seams, fasteners, wear —
+        no change to the silhouette, the placement or the part list.
+
+        Offered by the stop policy only once the structure gates are clean
+        (``orchestrator.rounds.detail_blocked``); tracks that do not implement it set
+        ``supports_detail_round = False`` and are never offered the round."""
+        return [], []
+
     # ------------------------------------------------------------------ refine scaffold
     def refine_tasks(self, ctx: RunContext, last: RoundRecord, history: Sequence[RoundRecord],
                      *, strategy: Strategy = "same") -> tuple[list[GenerationTask], list[str]]:
@@ -229,6 +261,14 @@ class BaseTrack:
         index = len(history)
         if last.build is None or not last.build.ok:
             return [self._rebuild_task(ctx, last, index)], ["rebuild: previous round did not build"]
+        if strategy == "detail":
+            gen_tasks, lines = self.detail_tasks(ctx, last, index)
+            if gen_tasks:
+                ctx.events.emit("refine.planned", round=index, n_tasks=len(lines), n_groups=len(gen_tasks),
+                                parallel=len(gen_tasks) > 1, strategy="detail",
+                                targets=[t.files_hint for t in gen_tasks])
+                return gen_tasks, lines
+            return [], []  # the track offered no detail work: let the loop stop as it meant to
         tasks = build_refine_instructions(last.judgment, last.gates, failed_acceptance(ctx, last.judgment), ctx.plan,
                                           file_for_target=self.refine_file_for_target(ctx),
                                           max_tasks=ctx.policy.max_refine_tasks,
@@ -313,6 +353,8 @@ class BaseTrack:
         n_cand = self._resolve_candidates(spec, state, settings)
         policy = ((self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds))
                   .with_candidates(n_cand).with_judge(spec.backends.judge))
+        policy = replace(policy, detail_rounds=detail_round_budget(policy, self.supports_detail_round,
+                                                                    explicit=self._policy is not None))
         # reference images: static objects are scored with reference_v1 (adds the measured silhouette
         # criterion); other tracks keep their rubric but the judge still sees the references.
         rubric = REFERENCE_RUBRIC if spec.references and self.track is Track.STATIC_OBJECT else self.rubric
@@ -448,7 +490,7 @@ class BaseTrack:
                         self._save_spent(ctx)
                         continue  # decide() re-runs with the recovered score
                 tasks, instructions = self.refine_tasks(ctx, last, rounds, strategy=decision.strategy)
-                kind = REWRITE_KIND if decision.strategy == "switch" else "refine"
+                kind = kind_for_strategy(decision.strategy)
                 if not tasks:
                     if last.judgment is None and last.build is not None and last.build.ok:
                         # no tasks only because the judge never scored the round: stopping

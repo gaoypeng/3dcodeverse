@@ -17,19 +17,21 @@ def _rs(times=(0.0, 1.5), authored=AUTHORED, orbit=True) -> RenderSet:
     return RenderSet(views=views, contact_sheet="/x/sheet.png")
 
 
-def test_default_selection_is_ten_in_priority_order():
+def test_default_selection_is_authored_plus_overviews():
     rs = _rs()
     assert len(rs.views) == 18
     sel = select_judge_views(rs)
-    assert len(sel.views) == JUDGE_MAX_VIEWS == 10
+    assert len(sel.views) == 8 <= JUDGE_MAX_VIEWS == 10
     keys = [(v.name, v.time_s) for v in sel.views]
-    # authored t=0, first two overviews t=0 always in; first two authored at t=1.5 in
+    # authored t=0, the overview rig t=0, first two authored at t=1.5
     for n in AUTHORED:
         assert (n, 0.0) in keys
-    assert ("overview_front_right", 0.0) in keys and ("overview_back_left", 0.0) in keys
+    assert ("overview_front_right", 0.0) in keys and ("overview_back_left", 0.0) in keys and ("overview_top", 0.0) in keys
     assert ("Establishing", 1.5) in keys and ("BridgeAndPond", 1.5) in keys
     assert ("LanternDetail", 1.5) not in keys
     assert not any(t == 1.5 and n.startswith(("overview", "eye")) for n, t in keys)
+    # the harness's eye-level rig is a diagnostic, never a judged picture
+    assert not any(n.startswith("eye_") for n, _ in keys)
     # disk order preserved; original untouched
     assert keys == sorted(keys, key=lambda k: (k[1], rs.views.index(next(v for v in rs.views if (v.name, v.time_s) == k))))
     assert len(rs.views) == 18 and sel.contact_sheet == rs.contact_sheet
@@ -48,9 +50,9 @@ def test_max_n_and_custom_orbit_names():
     rs = _rs()
     sel = select_judge_views(rs, max_n=4)
     assert [(v.name, v.time_s) for v in sel.views] == [(n, 0.0) for n in AUTHORED] + [("overview_front_right", 0.0)]
-    # unknown orbit names → everything counts as authored
+    # unknown orbit names → everything counts as authored (9 at t=0 + the first two at t=1.5)
     sel2 = select_judge_views(rs, max_n=12, orbit_names=["nothing"])
-    assert len(sel2.views) == 12 and sum(1 for v in sel2.views if v.time_s == 0.0) == 9
+    assert len(sel2.views) == 11 and sum(1 for v in sel2.views if v.time_s == 0.0) == 9
 
 
 def test_metrics_path_for_locates_sibling_file(tmp_path: Path):

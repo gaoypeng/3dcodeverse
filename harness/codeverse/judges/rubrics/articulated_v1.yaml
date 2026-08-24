@@ -18,7 +18,14 @@ extra_instructions: 'POSE tiles (the POSE SHEET image and any tile whose label s
   are named in the plan digest; use link and joint names as targets.  CALIBRATION: 0.9+ = photographs of the object
   in use (door open on its hinge edge, drawer out on its rails, clearances visible, crisp parts); 0.5 = joints move
   but one moves wrongly or the object is a primitive stack; 0.2 = nothing moves / parts explode when posed / wrong
-  object.  The DEFECT CHECKLIST is binary and literal.'
+  object.  The DEFECT CHECKLIST is binary and literal.  REFINEMENT KINDS — the countable
+  unit of geometry_detail: (1) bevel / chamfer / fillet; (2) taper or draft; (3) curve or compound surface where
+  a primitive would be flat; (4) moulding or profile; (5) cut-out, hole, slot or notch; (6) visible wall thickness
+  or hollow section; (7) surface relief (flutes, ribs, grooves, panelling); (8) separately modelled hardware
+  (hinge leaf, knuckle, runner, knob, catch, screw, bracket).  Colour and material are not refinement kinds.
+  DETAIL AND SIZE — geometry_detail is scored against the object BUILT: a 15-link mechanism with modelled hinges
+  must score higher here than a clean 4-link box-stack of the same subject, even when the box-stack has fewer
+  defects; those defects belong to structure_plausibility, assembly_fit and craftsmanship.'
 criteria:
 - id: intent_fidelity
   weight: 0.16
@@ -82,14 +89,23 @@ criteria:
 - id: geometry_detail
   weight: 0.12
   title: Geometry detail
-  description: 'Are part shapes refined beyond primitives — handles, hinges, bevels, panel insets, thickness — visible
-    in the renders?
+  description: 'How much SHAPE was actually modelled, mechanism included?  Count REFINEMENT KINDS (the list is in
+    the rubric notes) and how many of the links carry at least one, and count the mechanism parts that exist as
+    geometry rather than as an implied joint: hinge leaves and knuckles, rails and runners, handles and knobs,
+    catches, hinges'' screw plates, panel insets, edge thickness.  Geometry only — colour and material variety
+    never raise this criterion.
 
     '
   anchors:
-    '1.0': Multiple refinements including visible mechanism details (handles, hinge leaves, rails).
-    '0.7': At least two refinements; the rest plain.
-    '0.4': Primitive stack, at most one token detail.
+    '1.0': Five or more refinement kinds visible AND the mechanism itself is modelled (hinge leaves, drawer runners,
+      catches, handles) on at least two thirds of the links; finest features at real hardware scale.
+    '0.85': Three or four refinement kinds on at least half the links, and at least one mechanism part modelled
+      rather than implied.
+    '0.7': Exactly two refinement kinds, or more but concentrated on one hero link; the joint is a bare abutment
+      with no visible hardware.
+    '0.55': One refinement kind on a couple of links, the rest unmodified primitives.
+    '0.4': Primitive stack, at most one token detail on one link.
+    '0.25': Every link is an unmodified primitive; only size, position and colour vary.
     '0.1': Blobs or a single lump.
 - id: proportions_scale
   weight: 0.1
@@ -124,7 +140,10 @@ criteria:
 
     '
   anchors:
-    '1.0': No artefacts in any view.
+    '1.0': No artefact anywhere, including at detail scale in the centre crop and in every posed tile — no crack
+      opening at a join when a joint moves, no coplanar flicker, no stray sliver, no coarse facets on a surface
+      that should read as curved.
+    '0.85': Clean at object scale; one blemish only findable in a crop or in one posed tile.
     '0.7': One minor artefact in one view.
     '0.4': A clearly visible artefact.
     '0.1': Artefacts dominate.
@@ -241,6 +260,11 @@ defects:
   text: In a posed tile a moving part passes through the carcass / frame / another link.
   penalty: 0.08
   cap: 0.6
+- id: detail_below_part_count
+  text: The object has EIGHT or more links but fewer than THREE distinct refinement kinds (the numbered list in the
+    rubric notes) are visible across all of them together, and the joints are bare abutments with no modelled
+    hardware. Count kinds, not instances; do not count colour.
+  penalty: 0.05
 - id: primitive_only
   text: Every part is an unmodified box / cylinder with sharp 90° edges — no handles, bevels, insets, rails or thickness
     anywhere.

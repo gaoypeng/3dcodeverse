@@ -41,10 +41,8 @@ So `{{ zone_file }}` exports `export function build(ctx) → THREE.Group` named 
 `ctx` also gives you `ctx.env` (whatever `buildEnv` returned) and `ctx.heightAt`.
 
 ## What this zone is graded on
-Copy the recipes from the cookbook (`read_cookbook(section="...")`):
-`"Vegetation that reads real"`, `"Rocks, cliffs and boulders that read organic"`,
-`"Set dressing: how many props a place needs"`, `"Scene layering: foreground, midground, background"`,
-`"Motion you can SEE between t = 0 and t = 1.5 s"`.
+The recipes for all five points below are printed in full at the end of this brief
+(**Recipes**) — copy their numbers and snippets; do not invent your own.
 
 1. **Hit the density counts in the description.**  A zone with 5 objects in it reads as a token
    gesture; the counts are the difference between 0.5 and 0.8.  Props go **against** things
@@ -66,9 +64,11 @@ Copy the recipes from the cookbook (`read_cookbook(section="...")`):
    of the establishing camera ruins the shot.  Then, by hand (not scatter, so the mask does not
    remove it), place ONE element 2.5-4 m from a camera that looks across this zone, off to one
    side, as its foreground frame.
-5. **Motion that shows.**  Amplitudes from the cookbook table (foliage +/-0.10-0.20 rad, particles
-   >= 0.6 m per 1.5 s).  Sub-centimetre sway is invisible at 1024x576 and scores as
-   `nothing_moves`.  Everything is a pure function of `t`.
+5. **Motion that shows.**  Amplitudes from the Recipes table (foliage +/-0.10-0.20 rad, particles
+   >= 0.6 m per 1.5 s).  The harness DIFFERENCES the t=0 and t=1.5 frames pixel by pixel and
+   reports the number: anything under **0.4 % of the frame changed** counts as `nothing_moves`
+   (-0.05 and the animation criterion).  Sub-centimetre sway is invisible at 1024x576.  Give this
+   zone at least one motion big enough to see across the frame, and everything a pure function of `t`.
 6. Use `InstancedMesh` for anything repeated > 5x; <= 400k triangles and <= 40 draw calls per zone;
    the file stays <= 320 lines.
 
@@ -81,7 +81,13 @@ Copy the recipes from the cookbook (`read_cookbook(section="...")`):
 ## Tools
 {{ tool_cards }}
 After editing run `build`, then `scene_views` and LOOK at the frames: count the silhouettes, look
-for a flat colour under your props, and compare t=0 with t=1.5.
+for a flat colour under your props, and read the MEASURED MOTION line it prints — if your zone's
+motion is under 0.4 % of the frame, double the amplitude and render again.
+{% endif %}
+{% if recipes is defined and recipes %}
+
+# Recipes (from the scene cookbook — copy these numbers and snippets)
+{{ recipes }}
 {% endif %}
 
 ## Output

@@ -79,9 +79,41 @@ def load_round_records(ctx: RunContext) -> list[RoundRecord]:
 
 
 def run_generation_tasks(ctx: RunContext, tasks: Sequence[GenerationTask]) -> list[GenerationResult]:
-    """Run tasks (parallel when > 1).  Raises ``RoundFailed`` when none succeeded."""
+    """Run tasks (parallel when > 1).  Raises ``RoundFailed`` when none succeeded.
+
+    ``GenerationTask.phase`` sequences the round: tasks run in parallel WITHIN a
+    phase, phases in ascending order.  Every task is phase 0 unless a track says
+    otherwise, so this is a no-op for every existing caller; per-part scoped
+    generation uses it so the assembly session sees the part files first.
+    """
     if not tasks:
         return []
+    phases = sorted({t.phase for t in tasks})
+    if len(phases) > 1:
+        out: dict[int, GenerationResult] = {}
+        ok_any = False
+        for ph in phases:
+            picked = [(i, t) for i, t in enumerate(tasks) if t.phase == ph]
+            try:
+                got = _run_phase(ctx, [t for _, t in picked])
+            except RoundFailed:
+                # a phase in which nothing succeeded is not automatically a dead round:
+                # the earlier phases may have written the parts.  Record the failures
+                # and let the final check below decide.
+                got = [GenerationResult(ok=False, notes="phase produced no change", label=t.label)
+                       for _, t in picked]
+            for (i, _), r in zip(picked, got, strict=True):
+                out[i] = r
+            ok_any = ok_any or any(r.ok for r in got)
+        results_seq = [out[i] for i in range(len(tasks))]
+        if not ok_any:
+            raise RoundFailed("; ".join(f"{r.label}: {r.notes}" for r in results_seq) or "no generation task succeeded")
+        return results_seq
+    return _run_phase(ctx, list(tasks))
+
+
+def _run_phase(ctx: RunContext, tasks: Sequence[GenerationTask]) -> list[GenerationResult]:
+    """One parallel batch of generation tasks (the pre-phase behaviour, unchanged)."""
 
     def _one(task: GenerationTask) -> GenerationResult:
         return generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model,

@@ -1,0 +1,70 @@
+# Detail pass on `{{ object_name }}` — round {{ round_index }}
+
+The structure is DONE and it passed the assembly gates. This round has exactly one job: make the
+surfaces read as a real manufactured/grown object instead of clean primitives. Nothing about the
+silhouette, the layout or the part list may change — a harness gate compares this round's bounding
+box and every part's box against the previous round and fails the round if they moved.
+
+## THE RULE
+- **Do not move, resize, rename, add or delete any part.** Every part keeps its name and its
+  bounding box (±5 mm). If a change would grow a box, make it smaller instead.
+- **Do not change the overall bounding box** ({{ overall_bbox }}).
+- Everything you add must be *inside or on* an existing part's surface.
+
+## What to add (pick what suits each part — you do NOT have to do all of them)
+{% for t in tasks %}
+{{ loop.index }}. {{ t }}
+{% endfor %}
+
+Detail vocabulary that is worth score here, cheapest first:
+- **Edge treatment**: bevel/chamfer every hard edge a real object would have (2–6 mm on furniture,
+  0.5–2 mm on metal parts). A single bevel modifier on a part transforms how it reads under light.
+- **Panel lines and seams**: shallow inset grooves where two shells of the real object meet
+  (drawer fronts, housings, lids, crumb trays). 1–2 mm wide, 1 mm deep.
+- **Fasteners**: bolt heads, screws, rivets, hinges, nuts — small, arrayed, at the places a real
+  object is actually joined. Use a loop, not twelve hand-placed cylinders.
+- **Secondary shapes**: fillets at joints, ribs and gussets on cast parts, flutes and knurling on
+  handles, tread and sipes on tyres, laminations and grain steps on wood.
+- **Counted features the brief asks for** that are missing or under-count (spokes, slats, dentils,
+  panes, rafter tails) — add the missing ones INSIDE the existing part.
+- **Material variation**: distinct roughness/metalness per material family, a darker worn value
+  where hands touch, a lighter one on exposed edges. Do not make everything one grey.
+
+## Files in scope
+{% for f in files %}- `{{ f }}`
+{% endfor %}
+
+## What the judge saw last round
+{{ judge_summary }}
+
+## Part boxes you must stay inside (unchanged from last round)
+{{ parts_table }}
+
+## Detail budget
+{{ detail_budget }}
+
+## Contract reminders
+{{ frame_doc }}
+- One code path; no environment sniffing, no DOM/texture loading/network/file IO.
+- Keep the build clean and under the time budget: prefer a bevel/array/solidify stack over
+  subdividing everything.
+{% if current_files %}
+
+## Current file contents (edit these; return each edited file COMPLETE)
+{% for path, body in current_files.items() %}
+--- {{ path }} ---
+```
+{{ body }}
+```
+{% endfor %}
+{% endif %}
+{% if tool_cards and not single_shot %}
+
+## Tools
+{{ tool_cards }}
+Run `build` and then `measure` after editing: if any part box moved by more than 5 mm, undo that
+change before you finish.
+{% endif %}
+
+## Output
+{{ output_format }}

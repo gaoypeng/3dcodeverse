@@ -97,7 +97,7 @@ def _controls(index: GalleryIndex, flt: dict[str, str], sort: str) -> str:
         _select("tier", "tier", facets["tier"], flt.get("tier", "")),
         _select("verdict", "verdict", list(VERDICTS), flt.get("verdict", ""), any_label="any"),
         _select("battery", "battery", facets["battery"], flt.get("battery", "")),
-        _select("sort", "sort", ["score", "cost", "time", "name"], sort, any_label="score"),
+        _select("sort", "sort", ["score", "cost", "time", "complexity", "name"], sort, any_label="score"),
         "<label class='fld'><span class='flab'>&nbsp;</span>"
         "<button class='btn' id='f-reset' type='button'>reset</button></label>",
     ]

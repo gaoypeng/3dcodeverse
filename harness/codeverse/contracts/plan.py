@@ -42,6 +42,34 @@ class AcceptanceItem(BaseModel):
     priority: Literal["must", "should"] = "must"
 
 
+#: how far a sub-part may stick out of its parent's bbox before the plan is rejected:
+#: ``max(SUBPART_SLACK_M, SUBPART_REL_SLACK × parent extent)`` per axis.  Planner boxes are
+#: design intent, not measurements, so the check catches "this child is somewhere else
+#: entirely", never a 3 mm rounding.
+SUBPART_SLACK_M = 0.01
+SUBPART_REL_SLACK = 0.15
+
+
+class SubPartPlan(BaseModel):
+    """One sub-part of a :class:`PartPlan` — depth 1 by construction (a sub-part has no
+    children of its own, so a cycle cannot be expressed).
+
+    Sub-parts are a PLANNING device, not export nodes: the parent part is still exactly ONE
+    named object in the GLB and the contract gate still checks exactly the parent's bbox.
+    They exist so a part a human would call an *assembly* ("burr mechanism", "pegbox",
+    "belt housing") can be planned as the 3-6 shapes it really is — which is where the
+    measured judge reward lives — without adding contact surfaces the assembly gates must
+    police.  See ``docs/EVAL.md`` / the complexity baseline: built-parts ÷ planned-parts is
+    the only complexity metric with a positive partial correlation to geometry_detail."""
+
+    name: str = Field(description="PascalCase, unique within the parent, e.g. Burr")
+    role: str = Field(default="", description="what this sub-part is, a few words")
+    description: str = Field(description="shape and construction in numbers")
+    bbox: BBox = Field(description="inside the parent's bbox, same frame")
+    material: str = Field(default="", description="material / finish when it differs from the parent's")
+    instances: int = Field(default=1, ge=1, description="identical copies inside the parent")
+
+
 class PartPlan(BaseModel):
     name: str = Field(description="PascalCase unique part name, e.g. SeatCushion")
     role: str = Field(description="what this part is / does, one line")
@@ -51,6 +79,43 @@ class PartPlan(BaseModel):
     attach_to: str | None = Field(default=None, description="parent part name this part touches")
     symmetry: Literal["none", "mirror_x", "mirror_y", "radial"] = "none"
     instances: int = Field(default=1, ge=1, description="identical copies (e.g. 4 legs)")
+    children: list[SubPartPlan] = Field(
+        default_factory=list, max_length=8,
+        description="sub-parts of an ASSEMBLY part (a mechanism, a housing, a head) — still ONE named "
+                    "object in the export; leave empty for a simple part such as a leg")
+    detail_hint: str = Field(
+        default="", description="one line telling the builder what makes THIS part read as real "
+                                "(e.g. 'carries the visible mechanism — model the burrs, the shaft and the nut')")
+
+    @property
+    def leaf_count(self) -> int:
+        """Shapes this part stands for: its own copies, or the sum of its children's."""
+        inner = sum(c.instances for c in self.children) or 1
+        return self.instances * inner
+
+    @model_validator(mode="after")
+    def _children_ok(self) -> PartPlan:
+        seen: set[str] = set()
+        pmin, pmax = self.bbox.min, self.bbox.max
+        for c in self.children:
+            key = to_snake(c.name)
+            if not key:
+                raise ValueError(f"part {self.name}: a sub-part has an empty name")
+            if key == to_snake(self.name):
+                raise ValueError(f"part {self.name}: sub-part {c.name} repeats its parent's name")
+            if key in seen:
+                raise ValueError(f"part {self.name}: duplicate sub-part name (after normalisation): {c.name}")
+            seen.add(key)
+            cmin, cmax = c.bbox.min, c.bbox.max
+            for axis, lo, hi, clo, chi, ext in zip("xyz", pmin, pmax, cmin, cmax, self.bbox.extents, strict=True):
+                slack = max(SUBPART_SLACK_M, SUBPART_REL_SLACK * abs(ext))
+                over = max(lo - clo, chi - hi)
+                if over > slack:
+                    raise ValueError(
+                        f"part {self.name}: sub-part {c.name} sticks {over * 1000:.0f} mm out of the parent bbox on "
+                        f"{axis} (parent {axis} in [{lo:.3f}, {hi:.3f}], sub-part [{clo:.3f}, {chi:.3f}], "
+                        f"allowed slack {slack * 1000:.0f} mm) — either shrink/move the sub-part or grow the parent bbox")
+        return self
 
 
 class StaticPlan(BaseModel):
@@ -73,7 +138,22 @@ class StaticPlan(BaseModel):
         for p in self.parts:
             if p.attach_to and to_snake(p.attach_to) not in names:
                 raise ValueError(f"part {p.name} attaches to unknown part {p.attach_to}")
+        dotted: set[str] = set()
+        for p in self.parts:
+            for c in p.children:
+                key = f"{to_snake(p.name)}.{to_snake(c.name)}"
+                if key in dotted:  # pragma: no cover — PartPlan._children_ok already rejects this
+                    raise ValueError(f"duplicate sub-part name {p.name}.{c.name}")
+                dotted.add(key)
+                if to_snake(c.name) in names:
+                    raise ValueError(f"sub-part {p.name}.{c.name} has the same name as top-level part {c.name}; "
+                                     "either rename it or promote it to a top-level part")
         return self
+
+    @property
+    def leaf_count(self) -> int:
+        """Total shapes the plan asks for (parts × instances, sub-parts counted individually)."""
+        return sum(p.leaf_count for p in self.parts)
 
 
 class JointPlan(BaseModel):
@@ -201,10 +281,74 @@ class ScenePlan(BaseModel):
         return self
 
 
+class RefDimension(BaseModel):
+    """One reference dimension of the real object.  A LIST of typed rows, not a free
+    ``dict[str, float]``: an open-ended object maps to a property-less ``{"type":
+    "object"}`` in the Gemini structured-output schema, and the model then answers ``{}``
+    every time (measured on the first live run of this wave)."""
+
+    name: str = Field(description="width | depth | height | length | diameter | wall_thickness | …")
+    meters: float = Field(description="the real-world size in METERS")
+
+
+class SubAssembly(BaseModel):
+    """One sub-assembly a real instance of the requested object has."""
+
+    name: str = Field(description="what a catalogue would call it, e.g. 'burr mechanism'")
+    purpose: str = Field(default="", description="what it does, one line")
+    parts: list[str] = Field(default_factory=list, max_length=10,
+                             description="the parts it is made of, named as a fitter would name them")
+    material: str = Field(default="", description="dominant material / finish")
+
+
+class EngineeringBrief(BaseModel):
+    """The expanded engineering brief for ONE request: what a person who has actually held
+    the object knows about it.  Produced by a cheap model call *before* planning
+    (``tracks/brief.py``) and folded into the plan; never a deliverable of its own.
+
+    The load-bearing fields are REQUIRED on purpose.  Measured on the first live run: with
+    every field defaulted, gemini-3.7-flash answered three of four requests with
+    ``sub_assemblies: []`` and ``signature_features: []`` — a schema that lets the model
+    say nothing gets nothing.  Only the two genuinely-sometimes-empty lists keep defaults.
+    """
+
+    object_name: str = Field(description="PascalCase name of the thing")
+    reference: str = Field(description="the real-world reference instance the numbers come from")
+    one_line: str = Field(description="what it is, one sentence")
+    dimensions_m: list[RefDimension] = Field(
+        max_length=12, description="4-10 real-world reference dimensions in METERS, the small ones included")
+    sub_assemblies: list[SubAssembly] = Field(max_length=10, description="3-8 assemblies a fitter would name")
+    mechanism: str = Field(description="how it works / how force or material moves through it")
+    visible_from_outside: list[str] = Field(
+        max_length=16, description="8-16 things a viewer actually sees from outside — the only things worth modelling")
+    signature_features: list[str] = Field(
+        max_length=6, description="3-6 features a viewer uses to recognise it — absence makes it the wrong object")
+    materials: list[str] = Field(max_length=12, description="'<part>: <material, colour, finish>' lines, 6-12 of them")
+    hidden_inside: list[str] = Field(default_factory=list, max_length=10,
+                                     description="real parts that are NOT visible and must not be modelled")
+    not_present: list[str] = Field(default_factory=list, max_length=10,
+                                   description="things a naive model would wrongly add")
+
+    @property
+    def dimension_map(self) -> dict[str, float]:
+        return {d.name: d.meters for d in self.dimensions_m}
+
+    @property
+    def is_useful(self) -> bool:
+        """A brief with no assemblies AND no signature features tells the planner nothing —
+        the caller discards it rather than pasting an empty block into the prompt."""
+        return len(self.sub_assemblies) >= 2 or len(self.signature_features) >= 2
+
+
 class PassPlan(BaseModel):
     name: str = Field(description="PascalCase pass name, e.g. Clouds, Bloom")
     kind: Literal["fullscreen", "geometry", "postprocess", "feedback"] = "fullscreen"
     description: str = Field(description="what this pass draws / computes, concrete")
+    elements: list[str] = Field(
+        default_factory=list, max_length=8,
+        description="named things this pass draws, each with its numbers "
+                    "(e.g. '7 gear wheels, 12-24 teeth, radii 0.06-0.22 screen units')")
+    detail_hint: str = Field(default="", description="one line: what makes THIS pass read as real")
 
 
 class GraphicsPlan(BaseModel):

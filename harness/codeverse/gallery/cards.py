@@ -28,6 +28,19 @@ def fmt(value: float | None, digits: int = 3, dash: str = "—") -> str:
     return dash if value is None else format(value, f".{digits}f")
 
 
+def complexity_chip(entry: RunEntry) -> str:
+    """``cx 0.65`` — how much artifact was actually built, next to what it scored.
+
+    Complexity is *difficulty*, not quality: the pair is the point.  A run with no
+    complexity block (a graphics/scene run, or one recorded before the vector
+    existed) simply shows nothing."""
+    if entry.complexity is None:
+        return ""
+    axes = " · ".join(f"{k.replace('_', ' ')} {v:g}" for k, v in entry.complexity_axes.items())
+    title = f"objective complexity index {entry.complexity:.3f} ({entry.complexity_band}) — {axes}"
+    return f"<span class='num' title='{esc(title)}'>cx {entry.complexity:.2f}</span>"
+
+
 def tier_tag(entry: RunEntry) -> str:
     return f"<span class='tag tier {esc(entry.tier)}' title='quality tier {esc(entry.tier)}'>{esc(entry.tier)}</span>"
 
@@ -116,10 +129,12 @@ def render_card(entry: RunEntry, urls: UrlMaker, *, hidden: bool = False) -> str
         cls = "up" if entry.score >= entry.baseline_score else "down"
         delta = f" <span class='{cls}'>{entry.score - entry.baseline_score:+.3f}</span>"
     best = f"r{entry.best_round}" if entry.best_round is not None else "r–"
+    cx = complexity_chip(entry)
     facts2 = (f"<span>{fmt(entry.baseline_score)} → <b>{fmt(entry.score)}</b>{delta}</span>"
               f"<span>{best}/{entry.rounds}</span>"
               f"<span>${entry.cost_usd:.2f}</span>"
-              + (f"<span>{entry.minutes:.0f} min</span>" if entry.minutes is not None else ""))
+              + (f"<span>{entry.minutes:.0f} min</span>" if entry.minutes is not None else "")
+              + cx)
     gates = (f"<span class='tag pill-warn'>{entry.gate_errors} gate err</span>" if entry.gate_errors
              else "<span class='tag pill-ok'>gates clean</span>")
     # the run status only earns a chip when it says something the verdict does not

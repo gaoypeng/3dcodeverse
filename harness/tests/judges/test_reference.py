@@ -23,7 +23,8 @@ def test_reference_judge_measures_silhouette_and_adds_reference_images(judge_inp
         return {"iou": 0.7, "aspect_ratio_delta": 0.05}
 
     model = FakeChatModel([good_reply(REF, ["A1", "A2"], 0.8)])
-    j = ReferenceJudge("fake:fake-1", chat_model=model, silhouette_fn=fake_sil, cache_dir=cache_dir).judge(judge_input)
+    # diff=False: the mismatch pass is a SECOND model call (covered in tests/reference/test_judge_diff.py)
+    j = ReferenceJudge("fake:fake-1", chat_model=model, silhouette_fn=fake_sil, cache_dir=cache_dir, diff=False).judge(judge_input)
     assert calls and calls[0][0].endswith("view_front.png") and calls[0][1] == str(ref_png)
     assert j.scores["silhouette_match"] == pytest.approx(0.75)
     expected = sum(REF.weights[c] * (0.75 if c == "silhouette_match" else 0.8) for c in REF.weights)

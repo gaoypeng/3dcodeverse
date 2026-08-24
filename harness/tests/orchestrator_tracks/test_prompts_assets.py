@@ -22,6 +22,7 @@ from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import FakeAgent, FakeJudge, FakeRuntime, FakeServices
 
 TEMPLATES = {"plan_static", "plan_articulated", "plan_scene", "generate_static", "generate_articulated", "refine_object", "repair",
+             "generate_static_part", "assemble_static", "detail_object",
              "scene_asset", "scene_env", "scene_zone", "scene_compose", "scene_refine"}
 
 
@@ -110,3 +111,15 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     sa = render("tracks/scene_asset.j2", **base_prompt_context(ctx, asset_name="Bollard", asset_kind="threejs", asset_description="d", asset_size=(0.3, 0.5, 0.3),
                                                               asset_file="src/assets/bollard.js", asset_language="scene_threejs", fix_instructions=["- x"], current_code=""))
     assert "buildBollard" in sa and "FIX PASS" in sa
+
+
+def test_a_model_outage_is_not_an_escalation_signal() -> None:
+    """A 503 reaches the asset stage only after models.retry spent its whole storm budget
+    waiting; escalating to a full agent session then costs 10× and hits the same wall."""
+    from codeverse.models.base import ModelError
+    from codeverse.tracks.scene_assets import is_model_outage
+
+    assert is_model_outage(ModelError("high demand", retryable=True, status=503))
+    assert is_model_outage(ModelError("overloaded", status=529))
+    assert not is_model_outage(ModelError("bad request", status=400))
+    assert not is_model_outage(ValueError("the module does not import"))

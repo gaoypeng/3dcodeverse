@@ -46,7 +46,7 @@ function num(v){return (v===null||v===undefined)?-1:Number(v);}
 function cmp(a,b){
   var s=els.sort?els.sort.value:'score';
   if(s==='name') return a.slug<b.slug?-1:(a.slug>b.slug?1:0);
-  var k=(s==='cost')?'cost':(s==='time'?'minutes':'score');
+  var k=(s==='cost')?'cost':(s==='time'?'minutes':(s==='complexity'?'complexity':'score'));
   var d=num(b[k])-num(a[k]);
   if(d) return d;
   return a.slug<b.slug?-1:1;

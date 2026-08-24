@@ -8,7 +8,7 @@ consistent):
 * ``<out>/metadata.parquet`` — STORAGE_RULES §4 columns (``id, key, name,
   captions{detailed,instruction,factory}, meta_json, code, tar, byte_start,
   byte_len, n_files``) plus queryable extras (``track, language, score, passed,
-  generator, quality_tier, gate_errors, cost_usd, rounds, status,
+  generator, quality_tier, complexity (+band), gate_errors, cost_usd, rounds, status,
   code_fingerprint, prompt_hash, duplicate_of, has_captions``).  ``tar``/``byte_*``
   are filled by ``pack.py``; ``duplicate_of`` by the (code fingerprint, prompt)
   dedupe pass (``""`` = canonical row).
@@ -215,6 +215,8 @@ def row_for_sample(sample_dir: Path) -> dict[str, Any]:
         "passed": meta.get("passed"),
         "generator": meta.get("generator", ""),
         "quality_tier": str(meta.get("quality_tier") or "D"),
+        "complexity": meta.get("complexity"),
+        "complexity_band": str(meta.get("complexity_band") or ""),
         "gate_errors": int(meta.get("gate_errors") or 0),
         "cost_usd": float(meta.get("cost_usd") or 0.0),
         "rounds": int(meta.get("rounds") or 0),

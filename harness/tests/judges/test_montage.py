@@ -31,8 +31,11 @@ def _views(tmp: Path, names, *, mode="shaded", prefix="v"):
 def test_rank_views_objects_and_scenes():
     vs = [RenderView(name=n, path="x") for n in ("left", "top", "zzz", "front_right_34")]
     assert [v.name for v in rank_views(vs, scene=False)] == ["front_right_34", "top", "left", "zzz"]
-    sv = [RenderView(name=n, path="x") for n in ("overview_top", "cam_hero", "eye_front", "other", "cam_b")]
-    assert [v.name for v in rank_views(sv, scene=True)] == ["cam_hero", "cam_b", "eye_front", "overview_top", "other"]
+    # scene rig: the scene's OWN cameras (any name that is not a harness rig name) come
+    # first — they are the pictures being graded; the overview rig follows in rank order
+    # and the eye-level rig last
+    sv = [RenderView(name=n, path="x") for n in ("overview_top", "Establishing", "eye_front", "BridgeView", "cam_b")]
+    assert [v.name for v in rank_views(sv, scene=True)] == ["Establishing", "BridgeView", "cam_b", "overview_top", "eye_front"]
 
 
 def test_plan_montages_object_rig(tmp_path):

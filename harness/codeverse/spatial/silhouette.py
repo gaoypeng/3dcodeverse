@@ -159,6 +159,72 @@ def compare_silhouette(render_png: Path | str, reference_png: Path | str, *, dif
     return out
 
 
+def silhouette_aspect(path: Path | str) -> float:
+    """Width/height of the foreground bounding box (0.0 when the mask is empty).
+
+    The one number that says whether a picture and a brief agree about the
+    object's PROPORTIONS, independent of framing or resolution.
+    """
+    mask = foreground_mask(path)
+    ys, xs = np.nonzero(mask)
+    if len(ys) == 0:
+        return 0.0
+    h = int(ys.max() - ys.min()) + 1
+    w = int(xs.max() - xs.min()) + 1
+    return w / h if h else 0.0
+
+
+#: render views a reference photo could plausibly have been shot from — a straight-on
+#: studio elevation matches ``front``/``right``/``left``/``back``, a 3/4 product shot
+#: matches ``*_34``.  ``top`` and ``low_front_left`` are never a product-shot camera.
+CANDIDATE_VIEWS: tuple[str, ...] = ("front", "front_right_34", "right", "left", "back", "back_left_34")
+
+
+def best_view_match(
+    renders: Sequence[RenderView],
+    reference: Path | str,
+    *,
+    candidates: Sequence[str] = CANDIDATE_VIEWS,
+    diff_png: Path | str | None = None,
+) -> dict[str, Any]:
+    """IoU of the render view that best matches ``reference``, and which one it was.
+
+    A reference photograph has ONE camera; comparing it to a fixed ``front`` render
+    punishes an object whose reference happens to be a three-quarter shot.  Scoring
+    the best-matching candidate view instead measures *shape* rather than *camera
+    agreement* — and the chosen view is reported so the number stays auditable.
+
+    Returns the :func:`compare_silhouette` dict plus ``view`` (the winning view name)
+    and ``per_view`` (name → IoU).  ``{"error": ...}`` when nothing could be compared.
+    """
+    named = {v.name: v for v in renders}
+    order = [n for n in candidates if n in named] or [v.name for v in renders]
+    per_view: dict[str, float] = {}
+    best: tuple[float, str, dict[str, Any]] | None = None
+    for name in order:
+        view = named.get(name) or next((v for v in renders if v.name == name), None)
+        if view is None or not Path(view.path).is_file():
+            continue
+        try:
+            res = compare_silhouette(view.path, reference)
+        except (OSError, ValueError):
+            continue
+        per_view[name] = res["iou"]
+        if best is None or res["iou"] > best[0]:
+            best = (res["iou"], name, res)
+    if best is None:
+        return {"error": "no comparable render view"}
+    _, name, res = best
+    out = dict(res)
+    out["view"] = name
+    out["per_view"] = {k: round(v, 4) for k, v in per_view.items()}
+    if diff_png is not None:
+        view = named[name] if name in named else next(v for v in renders if v.name == name)
+        out.update(compare_silhouette(view.path, reference, diff_png=diff_png))
+        out["view"] = name
+    return out
+
+
 def silhouette_series(
     renders: Sequence[RenderView],
     reference_imgs: Sequence[Path | str],

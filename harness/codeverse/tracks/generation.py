@@ -127,6 +127,11 @@ class GenerationTask(BaseModel):
     timeout_s: int | None = None
     max_turns: int = Field(default=0, description="model turns for an agent session (0 = the harness default)")
     write_roots: list[str] = Field(default_factory=lambda: ["src", "public"])
+    phase: int = Field(default=0, ge=0, description=(
+        "execution phase inside ONE round: tasks run in parallel WITHIN a phase and phases run "
+        "in ascending order.  Everything is phase 0 unless a track says otherwise — the only "
+        "current user is per-part scoped generation, where the assembly session (phase 1) must "
+        "see the part files the scoped sessions (phase 0) wrote."))
 
 
 class GenerationResult(BaseModel):

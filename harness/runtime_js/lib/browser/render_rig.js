@@ -6,10 +6,14 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { fitCameraToBox } from './camera_fit.js';
-import { makeRenderer, buildStudio, applyMode, rendererString } from './studio.js';
+import { fitCameraToBox, viewDirection } from './camera_fit.js';
+import { makeRenderer, buildStudio, applyMode, aimStudio, rendererString, RIG_VERSION } from './studio.js';
 
 const FOV_DEG = 35;
+/** Views steeper than this fit themselves (a plan view of a tall object needs a very
+ *  different distance); everything in the orbit band shares one distance so the object
+ *  keeps the same apparent size across the montage. */
+const UNIFORM_FRAMING_MAX_ELEVATION = 60;
 
 function loadGlb(url) {
   return new Promise((resolve, reject) => {
@@ -71,6 +75,30 @@ function visibleBox(root) {
   return box;
 }
 
+/** The largest self-fit distance over the orbit-band views (null when there are none). */
+function uniformDistance(camera, box, views, fill) {
+  let best = null;
+  for (const v of views) {
+    if (Math.abs(v.elevation) > UNIFORM_FRAMING_MAX_ELEVATION) continue;
+    const d = fitCameraToBox(camera, box, v.azimuth, v.elevation, { fill }).distance;
+    best = best == null ? d : Math.max(best, d);
+  }
+  return best;
+}
+
+/** Re-place an already-fitted camera at an explicit distance along (azimuth, elevation). */
+function placeAt(camera, box, azimuth, elevation, distance) {
+  const center = box.getCenter(new THREE.Vector3());
+  const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1e-3);
+  camera.position.copy(center).addScaledVector(viewDirection(azimuth, elevation), distance);
+  camera.lookAt(center);
+  camera.near = Math.max(distance * 0.01, 1e-4);
+  camera.far = distance * 10 + radius * 4;
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+  return { position: camera.position.toArray(), lookAt: center.toArray(), distance };
+}
+
 /**
  * Render all views.  Resolves to
  * {ok, renderer, views:[{name, b64, camera_position, look_at, fov, width, height}], warnings, timing}
@@ -109,12 +137,18 @@ export async function renderGlbViews(cfg) {
   const look = applyMode(root, mode);
   const box = visibleBox(root);
   if (box.isEmpty()) throw new Error('nothing visible to render (empty GLB or isolate hid everything)');
-  buildStudio(renderer, scene, box, { background, shadow: look.shadow && cfg.shadow !== false, lights: look.lights });
+  const rig = buildStudio(renderer, scene, box, { background, shadow: look.shadow && cfg.shadow !== false, lights: look.lights });
 
   const camera = new THREE.PerspectiveCamera(FOV_DEG, width / height, 0.01, 100);
+  const fill = cfg.fill || 0.88;
+  const uniform = uniformDistance(camera, box, cfg.views, fill);
   const views = [];
   for (const v of cfg.views) {
-    const fit = fitCameraToBox(camera, box, v.azimuth, v.elevation, { fill: cfg.fill || 0.85 });
+    let fit = fitCameraToBox(camera, box, v.azimuth, v.elevation, { fill });
+    if (uniform != null && Math.abs(v.elevation) <= UNIFORM_FRAMING_MAX_ELEVATION && uniform > fit.distance) {
+      fit = placeAt(camera, box, v.azimuth, v.elevation, uniform);
+    }
+    aimStudio(rig, v.azimuth, v.elevation);
     renderer.render(scene, camera);
     const b64 = canvas.toDataURL('image/png').split(',')[1];
     views.push({ name: v.name, b64, camera_position: fit.position, look_at: fit.lookAt, fov: FOV_DEG, width, height, azimuth: v.azimuth, elevation: v.elevation });
@@ -123,6 +157,7 @@ export async function renderGlbViews(cfg) {
   return {
     ok: true,
     renderer: rendererString(renderer),
+    rig_version: RIG_VERSION,
     views,
     warnings,
     bbox: { min: box.min.toArray(), max: box.max.toArray() },

@@ -21,8 +21,10 @@ refine rounds nothing):
 
 from __future__ import annotations
 
+import json
 import logging
 import time
+from collections.abc import Sequence
 from typing import Any
 
 from codeverse.contracts.artifacts import (
@@ -49,6 +51,7 @@ from codeverse.tracks.prompting import (
     SCENE_FILES,
     base_prompt_context,
     bbox_line,
+    cookbook_sections,
     current_files,
     file_for_target_factory,
     judge_digest,
@@ -71,6 +74,17 @@ MAX_CONSOLE_ERRORS = 8
 SMALL_ZONE_CONTENTS = 3
 #: how many small zones may share one session (file ownership stays disjoint)
 MAX_ZONES_PER_BATCH = 2
+#: cookbook chapters inlined into the env / zone prompts (the sessions never call
+#: read_cookbook on their own — measured on scenes_v1: 0 of 20 sessions did)
+ENV_RECIPES: tuple[str, ...] = (
+    "Ground that reads real", "Horizon: the world must not end", "Atmosphere: time-of-day triads with numbers",
+    "Dusk / night lighting recipe",
+)
+ZONE_RECIPES: tuple[str, ...] = (
+    "Vegetation that reads real", "Rocks, cliffs and boulders that read organic",
+    "Set dressing: how many props a place needs", "Scene layering: foreground, midground, background",
+    "Motion you can SEE between t = 0 and t = 1.5 s",
+)
 ENV_TIMEOUT_S = 420
 ZONE_TIMEOUT_S = 600
 #: a refine session that runs for half an hour (the desert-canyon round 1 did) spends the
@@ -107,7 +121,10 @@ class ScenePipeline:
                     for e in errs[:MAX_CONSOLE_ERRORS]]
         if renders.fps is not None and renders.fps < 20:
             findings.append(GateFinding(gate="render_console", severity=Severity.WARN, target="overall",
-                                        message=f"low frame rate {renders.fps:.0f} fps", fix_hint="reduce triangle/draw counts: merge geometries, use InstancedMesh"))
+                                        message=f"low frame rate {renders.fps:.0f} fps" + _perf_detail(renders),
+                                        fix_hint="the budget is <= 200 draw calls and <= 2 M triangles: merge static geometry "
+                                                 "(BufferGeometryUtils.mergeGeometries) and put anything repeated > 5x in ONE "
+                                                 "InstancedMesh per material — a per-object mesh loop is what costs the frame rate"))
         out = [GateReport(gate="render_console", passed=not errs, findings=findings)]
         try:
             # scene_frames: exposure / camera-in-geometry / coverage checks from metrics.json
@@ -136,7 +153,11 @@ class ScenePipeline:
     def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
         if not isinstance(plan, ScenePlan):
             return ""
-        lines = [f"Environment plan: {plan.environment}", "Animation plan: " + "; ".join(plan.animation)]
+        # the measured motion goes FIRST: this block is clipped to ~2.5 k chars in the judge
+        # prompt and a long environment plan used to push everything after it off the end
+        lines = [t for t in (scene_motion_text(ws, round_index),) if t]
+        lines.append(f"Environment plan: {plan.environment}"[:1200])
+        lines.append("Animation plan: " + "; ".join(plan.animation))
         lines.append("Cameras: " + "; ".join(f"{c.name} ({c.purpose})" for c in plan.cameras))
         return "\n".join(lines)
 
@@ -193,7 +214,7 @@ class SceneTrack(BaseTrack):
 
     def _env_stage(self, ctx: RunContext) -> dict[str, Any]:
         gen = self._strategy(ctx, "env")
-        prompt = render("tracks/scene_env.j2", **self._ctx(gen))
+        prompt = render("tracks/scene_env.j2", **self._ctx(gen, recipes=cookbook_sections(gen, ENV_RECIPES)))
         ctx.record_prompt("scene_env", prompt)
         task = GenerationTask(label="env", prompt=prompt, system=self.system_prompt(ctx), files_hint=["src/env.js"], round=0, kind="env",
                               temperature=0.5, timeout_s=ctx.budget.timeout_s(ENV_TIMEOUT_S, floor_s=120))
@@ -247,10 +268,12 @@ class SceneTrack(BaseTrack):
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         names = [z.name for z in batch]
         files = [zone_file(z) for z in batch]
+        recipes = cookbook_sections(ctx, ZONE_RECIPES)
         briefs = []
-        for zone in batch:
+        for i, zone in enumerate(batch):
             neighbours = [f"{z.name}: {bbox_line(z.bbox)}" for z in plan.zones if z.name != zone.name]
-            briefs.append(render("tracks/scene_zone.j2", **self._ctx(ctx, zone_name=zone.name, zone_description=zone.description,
+            # a batched session reads ONE copy of the recipes (they are identical per zone)
+            briefs.append(render("tracks/scene_zone.j2", **self._ctx(ctx, recipes=recipes if i == 0 else "", zone_name=zone.name, zone_description=zone.description,
                                                                     zone_bbox=bbox_line(zone.bbox), zone_contents=zone.contents,
                                                                     zone_file=zone_file(zone), neighbours=neighbours)))
         ctx.record_prompt("scene_zone", briefs[0])
@@ -260,7 +283,8 @@ class SceneTrack(BaseTrack):
             header = (f"# {len(batch)} zone modules in ONE session — write ALL of: {', '.join(files)}\n\n"
                       f"You own exactly these files and nothing else. {len(batch)} complete zone briefs follow, "
                       "separated by a horizontal rule; implement each one in its own file exactly as its brief says. "
-                      "They are small neighbouring zones, so keep their styling consistent and do not build into each other.\n")
+                      "They are small neighbouring zones, so keep their styling consistent and do not build into each other. "
+                      "The recipes printed in the first brief apply to every zone in this session.\n")
             prompt = header + "\n\n---\n\n".join(briefs)
             label = "zones_" + "_".join(to_snake(n) for n in names)
         return GenerationTask(label=label, prompt=prompt, system=self.system_prompt(ctx), files_hint=files,
@@ -314,7 +338,7 @@ class SceneTrack(BaseTrack):
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
         files = group.files or list(SCENE_FILES)
         lines = compact_instructions(group.tasks, max_lines=ctx.policy.max_instructions_per_task)
-        prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, round_index=index, tasks=lines,
+        prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes=refine_recipes(ctx, files), round_index=index, tasks=lines,
                                                               targets=group.targets, files=files, edit_only_these=parallel,
                                                               judge_summary=judge_digest(last),
                                                               current_files=current_files(ctx, files) if ctx.single_shot else {}))
@@ -336,7 +360,7 @@ class SceneTrack(BaseTrack):
             if (ctx.ws.root / rel).is_file():
                 files = [rel]
         files = files or self.round_files_hint(ctx)
-        prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, round_index=index, tasks=lines, targets=["build"],
+        prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes="", round_index=index, tasks=lines, targets=["build"],
                                                              files=files, edit_only_these=False,
                                                              judge_summary="(no judgment: the scene did not build — fix the errors above first)",
                                                              current_files=current_files(ctx, files) if ctx.single_shot else {}))
@@ -363,6 +387,52 @@ class SceneTrack(BaseTrack):
 
 
 # ----------------------------------------------------------------------------- helpers
+def refine_recipes(ctx: RunContext, files: Sequence[str]) -> str:
+    """The cookbook chapters that match the files this refine task owns (env / zones)."""
+    names: list[str] = []
+    if any(f.endswith("env.js") for f in files):
+        names += list(ENV_RECIPES)
+    if any("/zones/" in f for f in files) or not names:
+        names += list(ZONE_RECIPES)
+    return cookbook_sections(ctx, names)
+
+
+def _perf_detail(renders: RenderSet) -> str:
+    """`` (5028 draw calls, 191 k triangles)`` from the render's own instruments, or ``""``.
+
+    The number is what makes the finding actionable: "low fps" is a mood, "5028 draw calls
+    against a budget of 200" names the fix."""
+    from codeverse.spatial.render_scene import metrics_path_for
+
+    try:
+        path = metrics_path_for(renders)
+        if path is None:
+            return ""
+        fps = (json.loads(path.read_text()).get("fps") or {})
+        calls, tris = fps.get("draw_calls"), fps.get("triangles")
+        bits = [f"{int(calls)} draw calls (budget 200)" if isinstance(calls, (int, float)) else "",
+                f"{int(tris) / 1000:.0f}k triangles" if isinstance(tris, (int, float)) else ""]
+        inner = ", ".join(b for b in bits if b)
+        return f" — {inner}" if inner else ""
+    except (OSError, ValueError, TypeError):
+        return ""
+
+
+def scene_motion_text(ws: Workspace, round_index: int) -> str:
+    """The measured motion table for this round's renders (``""`` when not measured).
+
+    The two animation times reach the judge as tiles in DIFFERENT montage images, so
+    "did anything move?" is not a perception task it can win — the harness measures it
+    (``spatial.frame_motion``) and states the numbers as facts."""
+    from codeverse.spatial.frame_motion import motion_from_dir, motion_summary_text
+
+    try:
+        return motion_summary_text(motion_from_dir(ws.renders_dir(round_index)))
+    except Exception as e:  # noqa: BLE001 — judge context must never break a round
+        log.warning("scene motion context failed: %s", e)
+        return ""
+
+
 def zone_file(zone: ZonePlan) -> str:
     return f"src/zones/{to_snake(zone.name)}.js"
 

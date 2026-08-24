@@ -6,7 +6,8 @@ runtime (`runtime_js/`) for everything Three.js / headless Chrome, and moderngl
 for the graphics track.  Reconciled against the code and the live runs on
 2026-08-23 (waves 2–3 + fix batch 1); design history and deviations are in
 `docs/DECISIONS.md`, how-to in `docs/RUNBOOK.md`, evaluation protocol in
-`docs/EVAL.md`, binding signatures in `docs/INTERFACES.md`.
+`docs/EVAL.md`, complexity measurement + the score-vs-complexity study in
+`docs/COMPLEXITY.md`, binding signatures in `docs/INTERFACES.md`.
 
 ## 0. What it is
 
@@ -90,9 +91,11 @@ codeverse/
                       threejs/ urdf/ scene_threejs/ glsl_shader/ (wrap.py header+line-map, gl_build.py)
                       opengl_python/ (wrappers/run_gl.py) — each runtime.py, lint.py, skeleton.py, wrappers/
   spatial/            node.py, render.py, render_scene.py (judge view subset, content-fitted orbit),
-                      frame_metrics.py (scene_frames gate), gl_render.py (GlHost), frame_stats.py (gl_frames),
+                      frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
+                      gl_render.py (GlHost), frame_stats.py (gl_frames),
                       sheet.py (montage_2x2, crop_region), turntable.py, measure.py, connectivity.py,
                       contract.py (authoring-frame hints), sections.py, silhouette.py, probes.py,
+                      complexity.py (objective complexity vector -> Measurement.extra, docs/COMPLEXITY.md),
                       joints*.py + joints_collide.py (deterministic penetration), registry.py, tools*.py
                       (tools_texture.py, tools_graphics.py), mcp_server.py (MCP name: 3dcv)
   cost/               types.py (CallCost/Stage/Role) ledger.py (append-only telemetry/cost.jsonl + price provenance)
@@ -244,6 +247,11 @@ plan (structured output, one re-ask) → skeleton (buildable placeholder) → ma
 [scene only] assets (parallel; blender_glb assets get a sub-workspace + asset_v1 judge + one fix pass)
              → env → zones (parallel) → assemble (deterministic scene.js)
 round 0 "baseline": generate → build_with_repair → measure → gates → render → post-render gates → judge
+   (object tracks, ≥ 8 plan parts, a language with one file per part, an agent backend: the baseline FANS OUT
+    per part — phase 0 = one scoped session per attachment subtree (its parts + the planned boxes of the
+    neighbours it must weld to + the shared detail budget, its own files only), phase 1 = ONE "assemble"
+    session that owns the entry file, placement and the connectivity/contract gates.  $CV3D_SCOPED_PARTS=off
+    restores the single whole-object session; single-shot always uses it.)
    (--candidates N: N parallel baselines in <ws>/_cand/c<k>, quick 4-view judge, crashed candidate retried once,
     selection build_ok → quick score → fewer gate errors with pairwise tie-break; winner copied back, normal r00 follows)
 repeat while StopPolicy says continue (≤ max_rounds refine rounds, plateau_window=2 / min_delta=0.02,
@@ -264,15 +272,24 @@ repeat while StopPolicy says continue (≤ max_rounds refine rounds, plateau_win
    PairwiseJudge decides (replace only at confidence ≥ 0.6; note persisted in rNN.json)
    every round emits cost.round {stage → $, judge $, agent turns, wasted flag}; a round that raises mid-way
    still reports what it burned (rounds/aborted_rNN.json + record.extra["aborted_rounds"])
+   a plateau / diminishing_returns stop on a CLEAN artifact (built, judged, no gate ERROR, score ≥ 0.45 and
+   within σ of the best) is converted into ONE round of kind "detail" instead: surface detail only — bevels,
+   panel lines, fasteners, wear, material variation — with the silhouette, placement and part list frozen and
+   a deterministic `detail_drift` gate that ERRORs if any part box moved > 5 mm.  Measured on 88 refine-round
+   pairs: the part count never changed once and mean Δgeometry_detail was +0.003, so detail needed its own
+   round; the rounds that added geometry DURING repair lost 0.075 assembly_fit.  $CV3D_DETAIL_ROUNDS=0 is off.
 stop reasons: pass | plateau | budget | max_rounds | no_change | no_refine_tasks | regression | diminishing_returns
 finalise: restore best commit, rebuild so artifacts match delivered code, finalize_record → record.json
 ```
 Track-specific gates: static `connectivity` + `contract` (+ `reference_silhouette`),
 articulated + `joint_sweep` + `motion_direction` (URDF axis vs plan motion text),
-scene `render_console` (the `scene_frames` gate — dark/blown/flat frames, camera in
-geometry/underground, content too small — is built in `spatial/frame_metrics.py`
-and pending its 2-line wire-up in the scene track), graphics `gl_frames`
-(NaN/black/blown/static/flicker).
+scene `render_console` + `scene_frames` (`spatial/frame_metrics.py`, wired in
+`ScenePipeline.post_render_gates`: dark/blown/flat frames, camera in geometry, content
+too small, and **`no_motion`** — the frames of one camera at the first and last animation
+time are diffed in `spatial/frame_motion.py` and the per-camera "% of pixels changed"
+goes to the judge as a fact, because two tiles in different montage images are not
+comparable by eye and every scene judged before it was told "nothing moves" while its
+water was rippling), graphics `gl_frames` (NaN/black/blown/static/flicker).
 
 ## 8. Texturing (derived asset pack)
 
@@ -315,8 +332,11 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
   n=3); its dynamic range comes from the defect checklist.  Use pro (default) or
   `n_samples ≥ 3` for decisions.  Detail crops are position-heuristic (no 2D part
   boxes yet).
-* `scene_frames` gate + judge-view subset are built (renders side) but not yet
-  wired into the scene track.
+* Scene judging is deliberately narrow: the judge sees the scene's OWN cameras (first,
+  and the detail crop is taken from one of them) plus at most three overview-rig tiles;
+  the harness's eye-level rig is a diagnostic only.  A `must` acceptance item the harness
+  cannot verify caps a run at 0.60 AND fails it, so on the scene track only the spec's
+  `must_have` list keeps that priority (the plan's own checklist is `should`).
 * Articulated: candidate selection uses the quick 4-view sheet (not pose views);
   mimic joints ignored; sweep is O(links² × poses).
 * Scenes: fps is a relative cost; camera-in-geometry can miss open-back enclosures.

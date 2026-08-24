@@ -11,6 +11,10 @@ world-space ``trimesh.Trimesh`` per top-level node (all child meshes merged).
 GLB (keyed on path + size + mtime_ns; ``load_scene`` itself is never cached —
 texturing mutates scenes), and ``solid_parts`` is that front door minus the
 empty parts — what connectivity / sections want.
+
+``Measurement.extra["complexity"]`` carries the objective complexity vector
+(``spatial/complexity.py``) alongside the census — additive, best-effort, and
+never a reason for a measurement to fail.
 """
 
 from __future__ import annotations
@@ -281,6 +285,20 @@ def measure_glb(glb: Path | str) -> Measurement:
     return m.model_copy(deep=True)
 
 
+def _complexity_extra(
+    scene: trimesh.Scene, parts: OrderedDict[str, trimesh.Trimesh | None], materials: int
+) -> dict[str, Any] | None:
+    """The complexity vector as a plain dict, or ``None`` when it cannot be
+    computed.  Additive by contract: measuring must never fail because an
+    artifact defeats one complexity axis."""
+    from codeverse.spatial.complexity import complexity_of_parts
+
+    try:
+        return complexity_of_parts(parts, scene=scene, materials=materials).model_dump()
+    except Exception:  # noqa: BLE001 - a census is worth more than an index
+        return None
+
+
 def _measure(scene: trimesh.Scene, parts: OrderedDict[str, trimesh.Trimesh | None]) -> Measurement:
     findings: list[str] = []
     rows: list[PartMeasure] = []
@@ -310,6 +328,14 @@ def _measure(scene: trimesh.Scene, parts: OrderedDict[str, trimesh.Trimesh | Non
     bmin, bmax = whole.bounds
     ext = bmax - bmin
     center = (bmin + bmax) / 2.0
+    extra: dict[str, Any] = {
+        "findings": findings,
+        "n_parts": len(parts),
+        "part_names": [r.name for r in rows],
+    }
+    cx = _complexity_extra(scene, parts, materials)
+    if cx is not None:
+        extra["complexity"] = cx
     return Measurement(
         bbox_min=_vec3(bmin),
         bbox_max=_vec3(bmax),
@@ -322,8 +348,7 @@ def _measure(scene: trimesh.Scene, parts: OrderedDict[str, trimesh.Trimesh | Non
         ground_gap_m=float(bmin[1]),
         footprint_offset_m=float(np.hypot(center[0], center[2])),
         materials=materials,
-        extra={"findings": findings, "n_parts": len(parts),
-               "part_names": [r.name for r in rows]},
+        extra=extra,
     )
 
 

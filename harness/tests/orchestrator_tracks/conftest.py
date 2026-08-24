@@ -10,6 +10,17 @@ from codeverse.contracts.plan import AcceptanceItem, BBox, PartPlan, StaticPlan
 from codeverse.contracts.spec import Constraints, Spec
 
 
+@pytest.fixture(autouse=True)
+def no_brief_expansion(monkeypatch) -> None:
+    """Turn the planner's optional brief-expansion call OFF for this package by default.
+
+    A fake planner model answers one canned plan per request; the extra brief call would
+    eat it and every ``FakeChatModel(lambda req: answers.pop(0))`` in here would go one
+    answer out of step.  The tests that exercise the brief set ``CV3D_PLAN_BRIEF=on``
+    themselves (``test_planner_depth.py``)."""
+    monkeypatch.setenv("CV3D_PLAN_BRIEF", "off")
+
+
 @pytest.fixture
 def settings(tmp_path) -> Settings:
     return Settings(runs_dir=tmp_path / "runs", cache_dir=tmp_path / "cache")

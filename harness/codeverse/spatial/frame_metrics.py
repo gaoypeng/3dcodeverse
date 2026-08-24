@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, RenderSet, Severity
+from codeverse.spatial.frame_motion import MotionRow, motion_summary_text, scene_moves
 
 FRAME_GATE = "scene_frames"
 
@@ -54,6 +55,12 @@ _FLAT_HINT = (
     "DirectionalLight, vary materials, and make sure the sky gradient / fog is not a single flat tint"
 )
 _NEAR_HINT = "move the camera ≥ 0.5 m away from every surface (raise it above ground/terrain, pull it out of walls and trees) and keep lookAt on the content"
+_STATIC_HINT = (
+    "nothing moved between the animation times: give the planned motion a visible amplitude — foliage/banner sway "
+    "±0.10–0.20 rad, water surface ≥ 3 cm vertical or a scrolling normal/uv, particles ≥ 0.6 m of travel per 1.5 s, "
+    "rotating parts ≥ 20°/s — and drive it from the ONE hook the harness calls: the object returned by createScene "
+    "(update(t, dt)) → env.update → each zone's group.userData.update(t, dt).  Everything must be a pure function of t"
+)
 _SMALL_HINT = (
     "the shot shows mostly sky/ground: move the camera closer to the content (distance ≈ 1.2 × the content's widest span), "
     "lower it toward eye level, point lookAt at the content centre, or fill the bounds with more zones/assets"
@@ -77,18 +84,22 @@ def _exposure_findings(chk: dict[str, Any], *, authored: bool) -> list[GateFindi
     name = str(chk.get("name", "?"))
     sev = Severity.ERROR if authored else Severity.WARN
     out: list[GateFinding] = []
+    # the orbit rig is the HARNESS's camera, not the scene's picture: say so in every
+    # message, or a dark ground-level rig shot of a rooftop reads to the judge as the
+    # scene being unlit (measured: it cost the rooftop battery a 0.60 cap three rounds running)
+    rig = "" if authored else "harness rig view (not an authored camera): "
     mean, dark, blown, modal = (_num(chk, k) for k in ("mean_lum", "dark_frac", "blown_frac", "modal_frac"))
     is_dark = (mean is not None and mean < DARK_MEAN_LUM) or (dark is not None and dark > DARK_FRAC)
     if is_dark:
-        out.append(_f(sev, name, f"frame too dark: mean luminance {mean:.2f}, {dark or 0:.0%} of pixels near black" if mean is not None
-                      else f"frame too dark: {dark:.0%} of pixels near black", _DARK_HINT,
+        out.append(_f(sev, name, rig + (f"frame too dark: mean luminance {mean:.2f}, {dark or 0:.0%} of pixels near black" if mean is not None
+                      else f"frame too dark: {dark:.0%} of pixels near black"), _DARK_HINT,
                       kind="dark_frame", view=name, mean_lum=mean, dark_frac=dark))
     if blown is not None and blown > BLOWN_FRAC:
-        out.append(_f(sev, name, f"frame blown out: {blown:.0%} of pixels pure white", _BLOWN_HINT,
+        out.append(_f(sev, name, rig + f"frame blown out: {blown:.0%} of pixels pure white", _BLOWN_HINT,
                       kind="blown_frame", view=name, blown_frac=blown))
     if modal is not None and modal > FLAT_MODAL_FRAC and not is_dark:
         flat_sev = sev if modal > FLAT_MODAL_ERROR else Severity.WARN
-        out.append(_f(flat_sev, name, f"flat frame: one luminance band holds {modal:.0%} of the pixels", _FLAT_HINT,
+        out.append(_f(flat_sev, name, rig + f"flat frame: one luminance band holds {modal:.0%} of the pixels", _FLAT_HINT,
                       kind="flat_frame", view=name, modal_frac=modal, mean_lum=mean))
     return out
 
@@ -99,17 +110,27 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
     out: list[GateFinding] = []
     near = _num(chk, "nearest_hit_m")
     inside = list(chk.get("inside_mesh_bbox") or [])
+    rig = "" if authored else "harness rig view (not an authored camera): "
     if chk.get("camera_in_geometry") or (near is not None and near < NEAR_HIT_M):
         where = f"inside {inside[:3]}" if inside else f"nearest surface {near:.2f} m ({chk.get('nearest_hit_name', '')})"
-        out.append(_f(sev, name, f"camera inside / touching geometry: {where}", _NEAR_HINT,
+        out.append(_f(sev, name, rig + f"camera inside / touching geometry: {where}", _NEAR_HINT,
                       kind="camera_in_geometry", view=name, nearest_hit_m=near, inside=inside[:5]))
     eye = _num(chk, "eye_height_m")
     if authored and eye is not None and ground_y is not None:
         above = eye - ground_y
         if above < -0.2:
-            out.append(_f(Severity.ERROR, name, f"camera is {-above:.1f} m BELOW the ground level ({ground_y:.2f} m)",
+            # ``ground_y`` is the TOP of every ground-classified mesh in the scene (census),
+            # so a hill, a terrace or a raised backdrop ring puts it metres above a camera
+            # that is standing in the open.  Only call the camera buried when the frame
+            # agrees: a buried camera renders dark, empty or from inside geometry.
+            buried = _frame_looks_buried(chk)
+            out.append(_f(Severity.ERROR if buried else Severity.WARN, name,
+                          f"camera is {-above:.1f} m below the scene's highest ground surface ({ground_y:.2f} m)"
+                          + ("" if buried else " — the frame itself renders fine, so this is probably terrain"
+                             " (a hill / raised bed / backdrop) reaching above the camera, not a buried camera"),
                           "set position[1] = heightAt(x, z) + 1.6 (eye level) — never below the terrain",
-                          kind="camera_underground", view=name, eye_height_m=eye, ground_y=ground_y))
+                          kind="camera_underground" if buried else "camera_below_high_ground",
+                          view=name, eye_height_m=eye, ground_y=ground_y))
         elif above < EYE_MIN_ABOVE_GROUND_M:
             out.append(_f(Severity.WARN, name, f"camera eye only {above:.2f} m above ground — ant's-eye view",
                           "human shots: position[1] = heightAt(x, z) + 1.6; establishing: 6–20 m above ground looking down 15–30°",
@@ -119,6 +140,18 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
                           "bring the camera down: establishing 6–20 m above ground at ~1.2 × the content span",
                           kind="camera_high", view=name, eye_height_m=eye, ground_y=ground_y))
     return out
+
+
+def _frame_looks_buried(chk: dict[str, Any]) -> bool:
+    """Does the rendered frame corroborate "this camera is under the ground"?"""
+    if chk.get("camera_in_geometry"):
+        return True
+    content, mean, modal = (_num(chk, k) for k in ("content_frac", "mean_lum", "modal_frac"))
+    if mean is not None and mean < DARK_MEAN_LUM:
+        return True
+    if content is not None and content < CONTENT_MIN_AUTHORED:
+        return True
+    return modal is not None and modal > FLAT_MODAL_ERROR
 
 
 def _coverage_finding(chk: dict[str, Any], *, role: str) -> GateFinding | None:
@@ -142,8 +175,44 @@ def _coverage_finding(chk: dict[str, Any], *, role: str) -> GateFinding | None:
     return None
 
 
+def stored_motion(metrics: dict[str, Any]) -> list[MotionRow]:
+    """Motion rows persisted into ``metrics.json`` by ``render_scene`` (``[]`` when absent)."""
+    out: list[MotionRow] = []
+    for m in metrics.get("motion") or []:
+        if not isinstance(m, dict):
+            continue
+        try:
+            out.append(MotionRow(name=str(m["name"]), kind=str(m.get("kind") or "authored"),
+                                 t0=float(m.get("t0", 0.0)), t1=float(m.get("t1", 0.0)),
+                                 changed_frac=float(m.get("changed_frac", 0.0)),
+                                 strong_frac=float(m.get("strong_frac", 0.0)),
+                                 max_delta=int(m.get("max_delta", 0)), mean_delta=float(m.get("mean_delta", 0.0))))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def _motion_findings(rows: list[MotionRow]) -> list[GateFinding]:
+    """One finding for the whole scene: frozen (ERROR) or the measured per-camera table (INFO)."""
+    moves = scene_moves(rows)
+    if moves is None:
+        return []
+    if moves is False:
+        worst = max((r.changed_frac for r in rows if r.authored), default=0.0)
+        return [_f(Severity.ERROR, "overall",
+                   f"nothing moves: the largest change on an authored camera is {worst:.2%} of pixels between "
+                   f"t={rows[0].t0:g}s and t={rows[0].t1:g}s (measured, not perceived)", _STATIC_HINT,
+                   kind="no_motion", changed_frac=round(worst, 5),
+                   views=[r.name for r in rows if r.authored][:6])]
+    moving = [r for r in rows if r.authored and r.moving]
+    return [_f(Severity.INFO, "overall",
+               "measured motion between the animation times: "
+               + ", ".join(f"{r.name} {r.changed_frac:.1%}" for r in rows if r.authored)[:220], "",
+               kind="motion", moving=[r.name for r in moving], n_moving=len(moving))]
+
+
 def frame_findings(metrics: dict[str, Any]) -> GateReport:
-    """``scene_frames`` gate from a ``metrics.json`` payload (``camera_checks`` + ``census``)."""
+    """``scene_frames`` gate from a ``metrics.json`` payload (``camera_checks`` + ``census`` + ``motion``)."""
     checks: list[dict[str, Any]] = [c for c in metrics.get("camera_checks") or [] if isinstance(c, dict)]
     ground_y = (metrics.get("census") or {}).get("ground_y")
     ground_y = float(ground_y) if isinstance(ground_y, (int, float)) else None
@@ -160,7 +229,8 @@ def frame_findings(metrics: dict[str, Any]) -> GateReport:
         cov = _coverage_finding(chk, role=role)
         if cov is not None:
             findings.append(cov)
-    if checks and not findings:
+    findings += _motion_findings(stored_motion(metrics))
+    if checks and not [f for f in findings if f.severity != Severity.INFO]:
         n = len(checks)
         findings.append(_f(Severity.INFO, "overall", f"{n} camera frame(s) checked: exposure, geometry and coverage within limits", "",
                            kind="frames_ok", n_views=n))
@@ -215,4 +285,6 @@ def frame_summary_text(metrics: dict[str, Any], *, max_rows: int = 12) -> str:
             bits.append("— " + ", ".join(flagged[name]))
         rows.append(" ".join(bits))
     head = f"frame checks ({'ok' if report.passed else 'FAILED'}; mean_lum ≥ 0.15, dark ≤ 35 %, blown ≤ 20 %, establishing content ≥ 20 %):"
-    return "\n".join([head, *rows]) if rows else "frame checks: no camera_checks in metrics"
+    motion = motion_summary_text(stored_motion(metrics))
+    body = "\n".join([head, *rows]) if rows else "frame checks: no camera_checks in metrics"
+    return body + ("\n\n" + motion if motion else "")

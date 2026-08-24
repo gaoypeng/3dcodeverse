@@ -1,0 +1,249 @@
+# complexity_v3 — the COMPLEXITY LADDER battery.
+#
+# Purpose: make the framework's complexity CEILING measurable over time.  The other
+# batteries ask "can it build this?"; this one asks "how much artifact can it build
+# before the score falls over?".  The 12 prompts climb one axis on purpose — the
+# number of nameable parts, from a 3-part stool to a 25-part beam engine with a
+# visible mechanism — while the secondary axes (thin features, repetition, hollow
+# sections, mouldings, mechanism) are switched on in a documented order.
+#
+# Every prompt declares `expected_complexity: [lo, hi]`, the band the BUILT artifact's
+# objective complexity index (codeverse/spatial/complexity.py, docs/COMPLEXITY.md)
+# should land in.  A run that scores well but lands BELOW its band did the easy thing
+# instead of the asked thing — the report calls that out as LOW, and it is the failure
+# mode this battery exists to catch.  `expected_complexity` is not read by run_bench
+# (extra keys are ignored); `bench/complexity_report.py --battery` reads it.
+#
+#   3dcv bench run bench/prompts/complexity_v3.yaml --out bench/out/complexity_v3 \
+#        --generator api-agent:gemini:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview
+#   python bench/complexity_report.py bench/out/complexity_v3 --battery bench/prompts/complexity_v3.yaml
+#
+# Ladder (measured index of the nearest corpus run is in brackets):
+#   a-tier  3-6 parts    solid primitives + one curve        0.25-0.52   [furn_easy_stool 0.40]
+#   b-tier  8-12 parts   drawers, panes, first mechanism     0.45-0.66   [ctrl_med_dining_chair 0.54]
+#   c-tier 14-18 parts   repetition, spokes, mouldings       0.55-0.75   [comp_hard_telescope 0.65]
+#   d-tier 20-25 parts   thin repetition + working mechanism 0.62-0.85   [arch_hard_spiral_stair 0.84]
+name: complexity_v3
+track: static_object
+language: blender
+description: >
+  12 static-object prompts on one deliberate complexity ladder (3 → 25 nameable parts,
+  with thin features, repeated elements, hollow sections, mouldings and a visible
+  mechanism switched on in order).  Each prompt states the objective complexity band
+  its built artifact is expected to reach, so the ceiling can be tracked over time
+  instead of argued about.
+prompts:
+  # ------------------------------------------------------------------ a-tier (3-6 parts)
+  - id: cx_a03_milking_stool
+    tier: easy
+    category: furniture
+    tags: ["axis:parts:3", "ladder:a"]
+    expected_complexity: [0.25, 0.42]
+    prompt: a three-legged wooden milking stool with a round dished seat and splayed round legs
+    must_have:
+      - "round seat about 0.30 m across"
+      - "seat top dished (concave) by about 0.008 m, not flat"
+      - "exactly three round legs"
+      - "legs splay outward so the floor circle is wider than the seat"
+      - "seat surface about 0.45 m above the floor"
+      - "leg diameter about 0.04 m at the seat"
+      - "all three feet touch the ground plane"
+      - "chamfered seat edge, chamfer about 0.006 m"
+    dimensions_m: {width: 0.36, depth: 0.36, height: 0.45}
+  - id: cx_a05_wall_shelf
+    tier: easy
+    category: furniture
+    tags: ["axis:parts:5", "ladder:a"]
+    expected_complexity: [0.30, 0.46]
+    prompt: an oak wall shelf on two cast-iron L brackets, with a moulded front edge and a small back lip
+    must_have:
+      - "shelf board about 0.80 m wide and 0.22 m deep"
+      - "board thickness about 0.025 m"
+      - "moulded (profiled, not square) front edge"
+      - "back lip about 0.03 m tall along the rear edge"
+      - "exactly two L brackets under the board"
+      - "each bracket has a vertical arm, a horizontal arm and a diagonal brace"
+      - "four screw heads visible on the bracket vertical arms"
+      - "brackets set in about 0.10 m from each end"
+    dimensions_m: {width: 0.80, depth: 0.24, height: 0.20}
+  - id: cx_a06_watering_can
+    tier: easy
+    category: tools
+    tags: ["axis:parts:6", "axis:hollow", "axis:curved", "ladder:a"]
+    expected_complexity: [0.38, 0.54]
+    prompt: a galvanised steel watering can with a long tapered spout, a rose head, an arched carry handle and a rear grip handle
+    must_have:
+      - "tapered body about 0.26 m tall with a visibly open top"
+      - "visible wall thickness of about 0.003 m at the open rim"
+      - "long spout about 0.30 m long, rising from the body base to above the rim"
+      - "perforated rose head about 0.07 m across on the spout end"
+      - "arched carry handle over the top"
+      - "separate rear grip handle"
+      - "rolled bead about 0.006 m thick around the body rim"
+      - "body diameter about 0.22 m at the base"
+    dimensions_m: {width: 0.46, depth: 0.22, height: 0.34}
+  # ------------------------------------------------------------------ b-tier (8-12 parts)
+  - id: cx_b08_writing_desk
+    tier: medium
+    category: furniture
+    tags: ["axis:parts:8", "axis:moulding", "ladder:b"]
+    expected_complexity: [0.44, 0.60]
+    prompt: a walnut writing desk with one central drawer, turned tapered legs, a moulded top edge and a leather inlay panel
+    must_have:
+      - "desk top about 1.20 m by 0.60 m"
+      - "top surface about 0.75 m above the floor"
+      - "moulded (profiled) top edge on all four sides, profile depth about 0.012 m"
+      - "leather inlay panel recessed about 0.003 m into the top"
+      - "one drawer in the apron with a visible drawer front"
+      - "drawer pull about 0.09 m wide, modelled as separate geometry"
+      - "four turned legs, tapering from about 0.06 m to 0.035 m"
+      - "apron rails between the legs on three sides"
+    dimensions_m: {width: 1.20, depth: 0.60, height: 0.75}
+  - id: cx_b10_gas_lantern
+    tier: medium
+    category: lighting
+    tags: ["axis:parts:10", "axis:thin_features", "axis:hollow", "ladder:b"]
+    expected_complexity: [0.48, 0.64]
+    prompt: a Victorian cast-iron gas lantern head on a fluted post - four glass panes in a tapered glazing frame, a vented crown cap and a finial
+    must_have:
+      - "fluted post about 2.2 m tall"
+      - "tapered four-sided glazing frame with visible corner bars under 0.02 m thick"
+      - "four separate glass panes about 0.004 m thick set inside the frame"
+      - "vented crown cap above the glazing"
+      - "finial about 0.12 m tall on top of the cap"
+      - "flared collar where the head meets the post"
+      - "square base plate about 0.35 m across"
+      - "ladder rest bar projecting from the post below the head"
+    dimensions_m: {width: 0.42, depth: 0.42, height: 2.60}
+  - id: cx_b12_sewing_machine
+    tier: medium
+    category: machines
+    tags: ["axis:parts:12", "axis:mechanism", "ladder:b"]
+    expected_complexity: [0.52, 0.68]
+    prompt: a cast-iron hand-crank sewing machine on a wooden base - curved arm, needle bar, presser foot, spool pin, hand wheel and drive belt
+    must_have:
+      - "wooden base about 0.40 m by 0.20 m"
+      - "curved cast-iron arm reaching about 0.22 m forward over the bed"
+      - "needle bar about 0.05 m long hanging from the arm head with a needle below it"
+      - "presser foot about 0.02 m long on the bed under the needle"
+      - "hand wheel about 0.09 m across on the right of the pillar"
+      - "crank handle on the hand wheel, offset from its centre"
+      - "spool pin about 0.05 m tall standing on top of the arm"
+      - "bobbin winder on the pillar"
+      - "flat bed plate with a visible needle plate"
+      - "tension discs on the arm face"
+    dimensions_m: {width: 0.40, depth: 0.20, height: 0.32}
+  # ------------------------------------------------------------------ c-tier (14-18 parts)
+  - id: cx_c14_ship_binnacle
+    tier: hard
+    category: instruments
+    tags: ["axis:parts:14", "axis:repetition", "axis:curved", "ladder:c"]
+    expected_complexity: [0.55, 0.72]
+    prompt: a brass ship's binnacle with a domed hood, a compass bowl on gimbals, two spherical correctors on side arms and a fluted pedestal on a stepped base
+    must_have:
+      - "fluted pedestal about 1.1 m tall"
+      - "domed hood about 0.30 m across with a viewing window opening"
+      - "compass bowl about 0.20 m across inside the hood"
+      - "two gimbal rings under 0.01 m thick around the bowl"
+      - "two spherical correctors, one on each side arm"
+      - "side arms clamped to the pedestal at the same height"
+      - "stepped circular base about 0.45 m across"
+      - "at least eight flutes around the pedestal"
+      - "hinged lamp housing on the hood"
+      - "spherical corrector diameter about 0.16 m"
+    dimensions_m: {width: 0.90, depth: 0.45, height: 1.30}
+  - id: cx_c16_apothecary_cabinet
+    tier: hard
+    category: furniture
+    tags: ["axis:parts:16", "axis:repetition", "axis:moulding", "ladder:c"]
+    expected_complexity: [0.56, 0.74]
+    prompt: an apothecary cabinet - a twelve-drawer grid in a moulded carcass on a plinth, each drawer with a turned knob and a brass label frame
+    must_have:
+      - "carcass about 0.90 m wide and 1.10 m tall"
+      - "twelve drawer fronts in a 4 by 3 grid"
+      - "each drawer front is inset, with a visible reveal about 0.003 m around it"
+      - "a turned knob about 0.03 m across on every drawer front"
+      - "a rectangular label frame on every drawer front"
+      - "moulded cornice about 0.05 m tall along the top"
+      - "plinth base about 0.10 m tall"
+      - "vertical divider between drawer columns"
+      - "carcass depth about 0.35 m"
+      - "drawer front height about 0.20 m"
+    dimensions_m: {width: 0.90, depth: 0.35, height: 1.10}
+  - id: cx_c18_orrery
+    tier: hard
+    category: instruments
+    tags: ["axis:parts:18", "axis:mechanism", "axis:thin_features", "ladder:c"]
+    expected_complexity: [0.60, 0.78]
+    prompt: a brass tabletop orrery - a central sun on a spindle, three planet arms of different lengths each carrying a sphere, a moon on a sub-arm, an exposed gear train and a turned wooden base
+    must_have:
+      - "turned wooden base about 0.30 m across"
+      - "central spindle carrying a sun sphere about 0.06 m across"
+      - "exactly three planet arms of different lengths"
+      - "a planet sphere at the end of each arm, all different sizes"
+      - "a moon on a short sub-arm off the outermost planet"
+      - "at least three toothed gears, the largest about 0.10 m across, visible under the arms"
+      - "gear teeth modelled as geometry, not painted"
+      - "arms under 0.008 m thick"
+      - "a crank handle about 0.05 m long on the side of the gear housing"
+      - "engraved zodiac ring about 0.015 m wide around the base rim"
+    dimensions_m: {width: 0.40, depth: 0.40, height: 0.28}
+  # ------------------------------------------------------------------ d-tier (20-25 parts)
+  - id: cx_d20_floor_loom
+    tier: hard
+    category: machines
+    tags: ["axis:parts:20", "axis:thin_features", "axis:repetition", "ladder:d"]
+    expected_complexity: [0.62, 0.82]
+    prompt: a wooden four-shaft floor loom - side frames, warp and cloth beams, four heddle shafts hung on cords, a swinging beater with a reed, two treadles and a bench
+    must_have:
+      - "two side frames about 1.1 m tall joined by cross rails"
+      - "warp beam at the back and cloth beam at the front, both round and about 0.08 m across"
+      - "exactly four heddle shafts hanging in the middle of the frame"
+      - "at least six vertical heddle wires per shaft, under 0.004 m thick"
+      - "swinging beater about 0.7 m long pivoted at the top, carrying a reed"
+      - "at least twelve reed dents modelled in the beater"
+      - "two treadles about 0.6 m long at floor level, connected upward by cords"
+      - "ratchet wheel and pawl on the cloth beam"
+      - "separate bench in front of the loom"
+      - "overall depth about 1.2 m"
+    dimensions_m: {width: 1.10, depth: 1.60, height: 1.20}
+  - id: cx_d22_letterpress
+    tier: hard
+    category: machines
+    tags: ["axis:parts:22", "axis:mechanism", "axis:repetition", "ladder:d"]
+    expected_complexity: [0.64, 0.84]
+    prompt: a cast-iron platen letterpress - a round ink disc, two ink rollers on a saddle, a hinged platen, a chase bed, a treadle, a flywheel with a crank and a scrolled cast frame on legs
+    must_have:
+      - "scrolled cast-iron side frames about 1.4 m tall"
+      - "round ink disc about 0.35 m across at the top, tilted forward"
+      - "two ink rollers about 0.05 m across on a roller saddle between disc and bed"
+      - "hinged platen about 0.25 m by 0.20 m that faces the chase bed"
+      - "chase bed with a rectangular chase about 0.20 m by 0.15 m inside it"
+      - "flywheel about 0.55 m across on the right side"
+      - "crank arm connecting the flywheel to the platen linkage"
+      - "treadle bar about 0.5 m long at floor level linked upward by a rod"
+      - "at least six spokes in the flywheel"
+      - "gripper fingers on the platen face"
+      - "throw-off lever on the frame"
+    dimensions_m: {width: 0.90, depth: 1.20, height: 1.60}
+  - id: cx_d25_beam_engine
+    tier: hard
+    category: machines
+    tags: ["axis:parts:25", "axis:mechanism", "axis:repetition", "axis:thin_features", "ladder:d"]
+    expected_complexity: [0.68, 0.88]
+    prompt: a model Watt beam engine on a cast base - a rocking overhead beam on an A-frame column, piston cylinder with rod and crosshead, connecting rod to a crank, a spoked flywheel, a centrifugal governor with two balls, and exposed valve linkage
+    must_have:
+      - "cast base plate about 0.60 m by 0.30 m"
+      - "A-frame column carrying the beam pivot about 0.55 m above the base"
+      - "rocking beam about 0.45 m long with an eye at each end"
+      - "vertical piston cylinder about 0.09 m across with a visible rod emerging from its top"
+      - "crosshead about 0.05 m wide joining the piston rod to the beam end"
+      - "connecting rod from the other beam end down to a crank"
+      - "spoked flywheel about 0.28 m across with at least six spokes"
+      - "crankshaft supported in two pedestal bearings"
+      - "centrifugal governor about 0.15 m tall with two arms and two balls about 0.03 m across"
+      - "governor driven by a belt or gear off the crankshaft"
+      - "valve rod running alongside the cylinder"
+      - "parallel motion linkage between the beam end and the piston rod"
+      - "flywheel rim under 0.03 m thick"
+    dimensions_m: {width: 0.60, depth: 0.30, height: 0.75}

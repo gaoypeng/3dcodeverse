@@ -126,6 +126,50 @@ def check_gpu_probe(timeout_s: int = 120) -> list[Row]:
              f"{'GPU' if res.get('gpu') else 'CPU/software'}: {renderer[:120]}")]
 
 
+def check_pool(live: bool) -> list[Row]:
+    """The key pool's live scheduling picture: quota, headroom, storm counters.
+
+    Only meaningful once something has used the pool this process, so it is part
+    of ``--live`` (``check_keys`` makes one call just before)."""
+    from codeverse.models.gemini import shared_pool
+    from codeverse.models.storm import all_gates
+
+    s = get_settings()
+    if not s.gemini_api_keys:
+        return []
+    r = s.rate
+    pool = shared_pool(list(s.gemini_api_keys))
+    st = pool.stats()
+    rows: list[Row] = [(
+        "gemini quota", "OK",
+        f"{st['n_keys']} keys x {r.rpm_per_key} RPM / {r.tpm_per_key:,} TPM "
+        f"= {st['rpm_capacity']:,} RPM / {st['tpm_capacity']:,} TPM pool-wide"
+        f"; max_in_flight={r.max_in_flight or 'off'}",
+    )]
+    if live:
+        used_rpm = 100 * (1 - st["rpm_headroom"])
+        used_tpm = "n/a" if st["tpm_headroom"] is None else f"{100 * (1 - st['tpm_headroom']):.1f}%"
+        bad = st["429"] + st["5xx"] + st["dead"]
+        rows.append((
+            "gemini pool", "WARN" if st["n_dead"] else "OK",
+            f"in-flight {st['in_flight']} (peak {st['peak_in_flight']}) · "
+            f"RPM used {used_rpm:.1f}% · TPM used {used_tpm} · "
+            f"{st['acquired']} acquired, {st['ok']} ok, {st['429']} x429, {st['5xx']} x5xx, "
+            f"{st['n_dead']} dead, {st['n_cooling']} cooling"
+            + ("" if not bad else " (this process)"),
+        ))
+        for gate in all_gates():
+            g = gate.snapshot()
+            rows.append((
+                f"storm gate {g['name'].split(':')[-1]}"[:24],
+                "WARN" if g["storming"] else "OK",
+                f"{g['storms']} storm(s), {g['hits']} x503, {g['probes']} probes, "
+                f"{g['parked_s']}s parked"
+                + (f" — CLOSED for {g['closed_for_s']}s" if g["storming"] else ""),
+            ))
+    return rows
+
+
 def check_keys(live: bool) -> list[Row]:
     s = get_settings()
     n = len(s.gemini_api_keys)
@@ -181,6 +225,7 @@ def run_doctor(*, live: bool = False, gpu: bool = True) -> list[Row]:
     if gpu:
         rows += check_gpu_probe()
     rows += check_keys(live)
+    rows += check_pool(live)
     rows += check_clis()
     rows += check_mcp()
     return rows

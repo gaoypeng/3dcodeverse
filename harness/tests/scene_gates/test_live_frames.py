@@ -57,14 +57,21 @@ def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace)
     assert rs.out_dir == str(out)
     assert all(v.judge is not None for v in rs.views)
     stamped = {(v.name, v.time_s) for v in rs.views if v.judge}
-    assert len(stamped) == JUDGE_MAX_VIEWS
+    # 3 authored at t=0 + the 3 overview-rig tiles + the first two authored at t=1.5;
+    # the harness's eye-level rig is a diagnostic and never reaches the judge
+    assert len(stamped) == 8 <= JUDGE_MAX_VIEWS
+    assert not any(n.startswith("eye_") for n, _ in stamped)
     assert stamped == {(v.name, v.time_s) for v in select_judge_views(rs).views}
+    # motion is measured from the written frames and persisted for the gate / judge context
+    motion = {r["name"]: r for r in m["motion"]}
+    assert motion and set(motion) == {v.name for v in rs.views}
+    assert all(0.0 <= r["changed_frac"] <= 1.0 for r in motion.values())
     entries = json.loads((out / "views.json").read_text())
     assert all("judge" in e for e in entries)
     assert {(v["name"], v["time_s"]) for v in entries if v["judge"]} == stamped
     sheet = Image.open(rs.contact_sheet)
     tile_h = Image.open(rs.views[0].path).size[1]
-    assert sheet.size[1] < 5 * tile_h                             # 10 tiles in 4 columns → 3 rows, not 5
+    assert sheet.size[1] < 5 * tile_h                             # 8 tiles in 4 columns → 2 rows, not 5
 
 
 def test_dark_variant_raises_dark_frame_errors(starter_ws: Workspace):

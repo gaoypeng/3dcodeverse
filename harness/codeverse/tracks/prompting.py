@@ -19,6 +19,7 @@ from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import LANGUAGE_FRAME, Frame, frame_doc, to_snake
 from codeverse.tracks.common import RunContext
+from codeverse.tracks.depth import DepthBudget, PartScope, depth_budget, interfaces_text
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
 
 log = logging.getLogger(__name__)
@@ -31,7 +32,11 @@ SCENE_FILES: tuple[str, ...] = ("src/scene.js", "src/env.js")
 
 def parts_table(plan: Plan) -> str:
     """Markdown table of parts with exact bboxes (meters, 3 decimals)."""
-    parts = getattr(plan, "parts", None)
+    return parts_table_for(getattr(plan, "parts", None) or ())
+
+
+def parts_table_for(parts: Sequence[Any]) -> str:
+    """``parts_table`` for an explicit part subset (one scoped session's parts)."""
     if not parts:
         return "(no parts)"
     rows = ["| part | role | bbox centre (x,y,z) m | extents (x,y,z) m | attach_to | inst | material |",
@@ -44,8 +49,30 @@ def parts_table(plan: Plan) -> str:
 
 
 def part_details(plan: Plan) -> str:
-    parts = getattr(plan, "parts", None) or []
-    return "\n".join(f"- **{p.name}** ({p.symmetry if p.symmetry != 'none' else 'no symmetry'}): {p.description}" for p in parts)
+    return part_details_for(getattr(plan, "parts", None) or [])
+
+
+def part_details_for(parts: Sequence[Any]) -> str:
+    """Per-part construction notes, including the sub-parts an ASSEMBLY part is made of.
+
+    Sub-parts (``PartPlan.children``) are a planning device — the parent is still ONE
+    named export node — but they are where the depth lives, so the builder must see
+    them with their own boxes, not just a sentence."""
+    out: list[str] = []
+    for p in parts:
+        sym = p.symmetry if getattr(p, "symmetry", "none") != "none" else "no symmetry"
+        line = f"- **{p.name}** ({sym}): {p.description}"
+        hint = getattr(p, "detail_hint", "") or ""
+        if hint:
+            line += f"  _{hint}_"
+        out.append(line)
+        for c in getattr(p, "children", None) or ():
+            cc = ", ".join(f"{v:.3f}" for v in c.bbox.center)
+            ce = ", ".join(f"{v:.3f}" for v in c.bbox.extents)
+            inst = f" ×{c.instances}" if getattr(c, "instances", 1) > 1 else ""
+            mat = f" [{c.material}]" if getattr(c, "material", "") else ""
+            out.append(f"    - sub-part **{c.name}**{inst}{mat} — centre ({cc}) extents ({ce}) m: {c.description}")
+    return "\n".join(out)
 
 
 def joints_table(plan: Plan) -> str:
@@ -99,6 +126,35 @@ def constraints_text(spec: Any) -> str:
     return "\n".join(lines) or "(none)"
 
 
+def cookbook_sections(ctx: RunContext, names: Sequence[str], *, max_chars: int = 24_000) -> str:
+    """The named cookbook chapters, inlined verbatim, for a prompt to carry.
+
+    Measured on the scenes_v1 battery: every zone and env session was told to call
+    ``read_cookbook(section=...)`` for its chapters and NOT ONE of the 20 sessions did —
+    flash writes the file immediately.  A chapter the model never reads teaches nothing,
+    so the chapters that decide the score (ground, horizon, vegetation, rocks, dressing,
+    layering, motion) travel inside the prompt instead; the tool stays for everything else.
+    """
+    from codeverse.spatial.cookbook_tool import find_section, split_sections
+
+    md = ctx.cookbook_text or ""
+    if not md.strip():
+        return ""
+    sections = split_sections(md)
+    out: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        sec = find_section(sections, name)
+        if sec is None or sec.title in seen:
+            continue
+        seen.add(sec.title)
+        out.append(sec.body.rstrip())
+    text = "\n\n".join(out)
+    if len(text) > max_chars:
+        text = text[:max_chars].rstrip() + "\n\n…[chapters clipped — call read_cookbook for the rest]"
+    return text
+
+
 def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
     """Variables every tracks/*.j2 template may use (StrictUndefined → all present)."""
     plan = ctx.plan
@@ -125,9 +181,45 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "acceptance": acceptance_lines(plan),
         "entry_files": ", ".join(getattr(ctx.runtime, "entry_globs", ()) or ()),
         "n_parts": len(getattr(plan, "parts", []) or []) if plan else 0,
+        "detail_budget": detail_budget_text(ctx),
         "root_link": getattr(plan, "root_link", "") if plan else "",
         "reference_note": reference_note(ctx),
     }
+    d.update(extra)
+    return d
+
+
+# ----------------------------------------------------------------------------- depth / scoping
+def budget_for(ctx: RunContext) -> DepthBudget:
+    """This run's complexity-aware triangle + build-time budget (cached on ctx.extra)."""
+    got = ctx.extra.get("depth_budget")
+    if isinstance(got, DepthBudget):
+        return got
+    timeout = int(getattr(getattr(ctx.settings, "limits", None), "build_timeout_s", 300) or 300)
+    b = depth_budget(ctx.plan, build_timeout_s=timeout)
+    ctx.extra["depth_budget"] = b
+    return b
+
+
+def detail_budget_text(ctx: RunContext) -> str:
+    """The limits block every generate/refine/detail prompt shows, sized from the plan."""
+    if ctx.plan is None or not (getattr(ctx.plan, "parts", None) or ()):
+        return ""
+    return budget_for(ctx).as_prompt()
+
+
+def scope_context(ctx: RunContext, scope: PartScope, **extra: Any) -> dict[str, Any]:
+    """Template context for ONE scoped part session: only its parts, plus the exact
+    numbers of the neighbours it must weld to but may not write."""
+    d = base_prompt_context(ctx, **extra)
+    d.update({
+        "scope_label": scope.label,
+        "scope_names": ", ".join(scope.names),
+        "parts_table": parts_table_for(scope.parts),
+        "part_details": part_details_for(scope.parts),
+        "interfaces": interfaces_text(ctx.plan, scope),
+        "n_scope_parts": len(scope.parts),
+    })
     d.update(extra)
     return d
 

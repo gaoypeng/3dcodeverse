@@ -164,6 +164,8 @@ def test_openai_strict_schema_rejects_nulls_that_pydantic_rejects():
         "attach_to": None,
         "symmetry": "none",
         "instances": 1,
+        "children": [],
+        "detail_hint": "",
     }
     good = {
         "object_name": "Chair",

@@ -46,7 +46,7 @@ from codeverse.models.gemini import (
     shared_pool,
 )
 from codeverse.models.gemini_convert import FATAL_FINISH, parse_usage
-from codeverse.models.keypool import KeyPool
+from codeverse.models.keypool import MAX_WAIT_S, KeyPool
 from codeverse.models.parts import Stopwatch
 from codeverse.models.pricing import estimate_cost
 from codeverse.models.retry import rotate_with_retries
@@ -147,8 +147,8 @@ class GeminiImageModel:
         pool: KeyPool | None = None,
         timeout_s: float = 180.0,
         max_attempts: int = 4,
-        base_delay: float = 2.0,
-        max_delay: float = 30.0,
+        base_delay: float = 1.0,
+        max_delay: float = MAX_WAIT_S,
         sleep: Callable[[float], None] = time.sleep,
         client_factory: Callable[[str], Any] | None = None,
     ) -> None:
@@ -165,6 +165,7 @@ class GeminiImageModel:
         self._sleep = sleep
         # reuse GeminiModel's cached clients (same key → same genai.Client)
         self._clients = GeminiModel(model, pool=self.pool, timeout_s=timeout_s, client_factory=client_factory)
+        self.storm_gate = self._clients.storm_gate
         self._lock = threading.Lock()
         self._primary_dead = False
 
@@ -261,7 +262,8 @@ class GeminiImageModel:
             max_delay=self.max_delay,
             sleep=self._sleep,
             retry_after=_retry_after_s,
-            tokens_of=lambda r: r[1].input_tokens + r[1].output_tokens,
+            tokens_of=lambda r: r[1].input_tokens,
+            storm_gate=self.storm_gate,
             label=f"image {model}",
         )
 

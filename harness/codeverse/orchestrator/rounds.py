@@ -47,10 +47,20 @@ StopReason = Literal["pass", "plateau", "budget", "continue", "max_rounds", "jud
                      "regression", "diminishing_returns"]
 
 #: what the next round should look like when the loop continues
-Strategy = Literal["same", "switch"]
+Strategy = Literal["same", "switch", "detail"]
 
 #: ``RoundRecord.kind`` of a round that already changed strategy after a regression
 REWRITE_KIND = "rewrite"
+#: ``RoundRecord.kind`` of the surface-detail round (see :func:`detail_round_due`)
+DETAIL_KIND = "detail"
+
+#: ``Strategy`` → the ``RoundRecord.kind`` the loop stamps on the round it starts
+KIND_FOR_STRATEGY: dict[str, str] = {"same": "refine", "switch": REWRITE_KIND, "detail": DETAIL_KIND}
+
+
+def kind_for_strategy(strategy: str) -> str:
+    """THE mapping from a stop decision's strategy to the round kind it produces."""
+    return KIND_FOR_STRATEGY.get(strategy, "refine")
 
 #: σ for a judge that is not in the measured table: the default judge's
 #: (``gemini-3.1-pro-preview``, ``Settings.default_judge``), because that is what
@@ -110,6 +120,15 @@ class RoundPolicy:
     # own AgentJob.max_turns.  Callers who want one set it explicitly (cost profiles do).
     agent_max_turns: int = 0  # model turns one generation session may take (0 = uncapped)
     agent_wrapup_turns: int = 6  # turns granted to land a final build + summary when a cap IS set
+    # ---- depth.  Measured (wave "generation-depth"): across 88 consecutive refine-round pairs the
+    # built part count changed ZERO times and mean Δgeometry_detail was +0.003 — the refine loop is
+    # a repair loop and never adds anything.  The rounds that DID add geometry did it while assembly
+    # was still broken and lost 0.075 of assembly_fit / 0.025 of overall for it.  So detail gets its
+    # own round, and it only runs once the structure gates are clean.
+    detail_rounds: int = 0  # surface-detail rounds a run may spend (0 = off; tracks that implement
+    #                         the round opt in — see lifecycle.BaseTrack.supports_detail_round)
+    detail_min_score: float = 0.45  # below this the object is still wrong; detail would be polish on a mistake
+    detail_bbox_tol_m: float = 0.005  # a detail round that moves a part box by more than this failed its brief
 
     def with_candidates(self, n: int | None) -> RoundPolicy:
         """Copy with ``n_candidates`` set (``None`` → unchanged)."""
@@ -183,16 +202,32 @@ class StopPolicy:
         # Plateau is the fallback: the same money statement, less precisely.
         exhausted = self._regression(history, switch=False)
         if exhausted is not None:
-            return exhausted
+            return self._maybe_detail(history, exhausted)
         marginal = self._diminishing(history)
         if marginal is not None:
-            return marginal
+            return self._maybe_detail(history, marginal)
         regressed = self._regression(history)
         if regressed is not None:
             return regressed
         if self._plateaued(history):
-            return StopDecision("plateau")
+            return self._maybe_detail(history, StopDecision("plateau"))
         return StopDecision("continue")
+
+    def _maybe_detail(self, history: Sequence[RoundRecord], stop: StopDecision) -> StopDecision:
+        """Convert a "we are done repairing" stop into ONE surface-detail round.
+
+        Only from a stop the loop was going to take anyway, so the detail round is
+        never bought instead of a repair round — and only on a clean, best-scoring
+        artifact, because the rounds that added geometry while assembly was still
+        broken measurably lost score (module docstring / ``detail_rounds``)."""
+        if stop.reason not in ("plateau", "diminishing_returns"):
+            return stop
+        why = detail_blocked(history, self.policy)
+        if why:
+            return stop
+        return StopDecision("continue", strategy="detail",
+                            detail=f"structure clean at r{history[-1].index:02d} → one surface-detail round "
+                                   f"({stop.reason} otherwise)")
 
     # ---------------------------------------------------------------- money stops
     def _regression(self, history: Sequence[RoundRecord], *, switch: bool = True) -> StopDecision | None:
@@ -260,6 +295,36 @@ class StopPolicy:
         before = max(r.score for r in scored[:-w])  # type: ignore[type-var]
         after = max(r.score for r in scored[-w:])  # type: ignore[type-var]
         return (after - before) < self.policy.min_delta
+
+
+def detail_blocked(history: Sequence[RoundRecord], policy: RoundPolicy) -> str:
+    """"" when a surface-detail round is due; otherwise the reason it is not.
+
+    A detail round is worth money only on an artifact whose STRUCTURE is finished:
+    the last round built, has no gate ERROR, scored at least ``detail_min_score``
+    and is within one judge σ of the best round in the run.  Anything else and the
+    money belongs to repair (measured: refine rounds that added > 2000 triangles
+    while assembly was still broken lost 0.075 of assembly_fit)."""
+    if policy.detail_rounds <= 0:
+        return "detail rounds disabled"
+    spent = sum(1 for r in history if r.kind == DETAIL_KIND)
+    if spent >= policy.detail_rounds:
+        return f"{spent} detail round(s) already spent"
+    if not history:
+        return "no rounds yet"
+    last = history[-1]
+    if last.build is None or not last.build.ok:
+        return "last round did not build"
+    if gate_error_count(last) > 0:
+        return f"{gate_error_count(last)} gate error(s) still open"
+    if last.score is None:
+        return "last round was not judged"
+    if last.score < policy.detail_min_score:
+        return f"score {last.score:.3f} < detail floor {policy.detail_min_score:.2f}"
+    best = best_score(history)
+    if best is not None and last.score < best - policy.sigma:
+        return f"last round {last.score:.3f} is below best {best:.3f} by more than σ"
+    return ""
 
 
 def best_score(history: Sequence[RoundRecord]) -> float | None:

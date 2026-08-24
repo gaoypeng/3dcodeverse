@@ -22,7 +22,7 @@ from codeverse.contracts.plan import StaticPlan
 from codeverse.models.base import ModelError
 from codeverse.models.gemini import GeminiModel, classify_exception, failure_outcome
 from codeverse.models.gemini_convert import SIGNATURES, build_config, to_contents
-from codeverse.models.keypool import KeyPool
+from codeverse.models.keypool import MAX_WAIT_S, KeyPool
 
 PNG_1PX = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
@@ -238,7 +238,6 @@ def test_429_on_every_key_waits_for_cooldown_then_counts_against_budget():
     clock = {"t": 1000.0}
     pool = KeyPool(
         ["k1", "k2", "k3"],
-        cooldown_s=30,
         clock=lambda: clock["t"],
         sleep=lambda s: clock.__setitem__("t", clock["t"] + s),
     )
@@ -248,7 +247,23 @@ def test_429_on_every_key_waits_for_cooldown_then_counts_against_budget():
         m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
     assert ei.value.retryable and ei.value.status == 429
     # 2 free rotations + 3 budgeted attempts; the pool waited out the cooldowns in between
-    assert len(log) == 5 and clock["t"] >= 1000.0 + 7.0
+    assert len(log) == 5
+    # …but no single wait exceeded the house limit, even though the provider's
+    # own retryDelay in THROTTLED asks for 7 s (MAX_WAIT_S caps it).
+    assert 1000.0 < clock["t"] <= 1000.0 + 5 * MAX_WAIT_S
+
+
+def test_no_single_wait_exceeds_the_house_limit():
+    """Every backoff path — 429 cooldown, provider retryDelay, 5xx, capacity
+    storm — sleeps at most MAX_WAIT_S at a time (owner rule, 2026-08-24)."""
+    naps: list[float] = []
+    pool = KeyPool(["k1", "k2"], sleep=naps.append)
+    m, _log, _ = _keyed_model(["k1", "k2"], {k: THROTTLED for k in ("k1", "k2")}, pool=pool, max_attempts=3)
+    m._sleep = naps.append
+    with pytest.raises(ModelError):
+        m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert naps, "expected the throttled path to sleep at least once"
+    assert max(naps) <= MAX_WAIT_S, f"a wait exceeded {MAX_WAIT_S}s: {sorted(naps)[-3:]}"
 
 
 def test_dead_key_is_rotated_past_and_benched():

@@ -35,7 +35,12 @@ from codeverse.flywheel import _git
 from codeverse.flywheel.dedupe import code_fingerprint
 from codeverse.flywheel.deliverable import deliverable_path
 from codeverse.flywheel.quality import QualityTier, prompt_hash, quality_tier
-from codeverse.flywheel.record import best_round_index, effective_judgment, round_summary
+from codeverse.flywheel.record import (
+    best_round_index,
+    effective_judgment,
+    round_complexity,
+    round_summary,
+)
 from codeverse.workspace import Workspace
 
 #: deprecated aliases — the registries in ``codeverse.contracts.common`` are the
@@ -96,6 +101,9 @@ class SampleMeta(BaseModel):
     gate_errors: int = Field(default=0, description="error findings across all gates of the exported round")
     gate_summary: dict[str, int] = Field(default_factory=dict, description="gate name → error count")
     quality_tier: QualityTier = "D"
+    complexity: float | None = Field(
+        default=None, description="objective complexity index of the exported artifact (spatial/complexity.py)")
+    complexity_band: str = Field(default="", description="trivial | simple | moderate | complex | intricate")
     rounds: int = 0
     best_round: int | None = None
     rounds_summary: list[dict[str, Any]] = Field(default_factory=list, description="compact per-round digest")
@@ -292,6 +300,9 @@ def build_meta(
     code_files = [f for f in files if f.startswith("src/")]
     gates = gate_error_summary(rnd)
     n_gate_errors = sum(gates.values())
+    # difficulty next to quality: a tier-A five-box stool and a tier-A machine are
+    # not the same training sample (docs/COMPLEXITY.md)
+    cx = record.extra.get("complexity") or (round_complexity(rnd) if rnd is not None else None)
     name = ""
     if record.plan is not None:
         name = getattr(record.plan, "object_name", "") or getattr(record.plan, "title", "")
@@ -324,6 +335,8 @@ def build_meta(
         gate_errors=n_gate_errors,
         gate_summary=gates,
         quality_tier=quality_tier(passed=j.passed if j else None, gate_errors=n_gate_errors, score=j.overall if j else None),
+        complexity=cx.get("index") if cx else None,
+        complexity_band=str(cx.get("band") or "") if cx else "",
         rounds=len(record.rounds),
         best_round=rnd.index if rnd is not None else None,
         rounds_summary=[round_summary(r) for r in record.rounds],

@@ -1,0 +1,66 @@
+# Build the `{{ scope_names }}` part{{ 's' if n_scope_parts > 1 else '' }} of `{{ object_name }}` in raw {{ language }}
+
+You own **{{ n_scope_parts }} part{{ 's' if n_scope_parts > 1 else '' }}** of a {{ n_parts }}-part object.
+Other sessions are building the other parts RIGHT NOW, in their own files, from the same plan.
+Your job is to make YOUR parts genuinely good — real geometry, real detail, exact placement — not
+to build the whole object. Do not create, rename or edit any part that is not yours.
+
+## The object this belongs to (context only — you build only your parts)
+{{ spec_prompt }}
+{{ plan_summary }}
+Overall bbox: {{ overall_bbox }}
+Style: {{ style_notes }}
+
+## The contract (hard rules — the build fails or the gate rejects when broken)
+{{ frame_doc }}
+{{ contract }}
+
+## FILES YOU MAY WRITE — nothing else
+{% for f in files %}- `{{ f }}`
+{% endfor %}
+The entry file and every other part file belong to other sessions. Touching them loses their work.
+{% if cookbook_rel %}Copyable snippets live in `{{ cookbook_rel }}` — read the density chapter before you write.{% endif %}
+
+## YOUR parts (build every row; object names must match EXACTLY — they become GLB node names)
+{{ parts_table }}
+
+Construction notes:
+{{ part_details }}
+
+## Interfaces — the neighbours you must physically meet
+{{ interfaces }}
+
+Those neighbour boxes are the truth another session is building to. Where your part attaches to
+one, overlap it by 2–5 mm (never leave a gap, never float); where a neighbour attaches to yours,
+leave a real surface for it at the stated box — no recess it cannot reach, no shape that would
+make it interpenetrate.
+
+## Detail budget (this is what "finished" means here)
+{{ detail_budget }}
+
+## DO
+- Place each part so its bounding box CENTRE and EXTENTS equal the plan row (±0.01 m).
+- Build the described geometry, not a box with the right size: profiles, tapers, chamfers 2–6 mm,
+  grooves, fasteners, seams, the counted features the description names (spokes, slats, dentils…).
+  A part that is a scaled cube where the plan says "fluted cylindrical body with 6 flutes" fails.
+- Use loops/arrays for repeated features rather than hand-placing them; parameterise from the
+  constants at the top of your file so the numbers stay honest.
+- Material per part with the stated colour, roughness and metalness.
+- Instances (`{{ '{' }}Name{{ '}' }}_0 … _N-1`) are looped inside YOUR file, each TOP-LEVEL.
+
+## DON'T
+- Do not build, rename, move or "fix" a part that is not in your table — even if it looks wrong.
+- Do not write the entry file, a README, notes or tests.
+- No placeholders ("TODO", "simplified"), no unit-cube stand-ins, no part outside its plan bbox.
+- No environment sniffing, no DOM/texture loading/network/file IO, no camera/light/render/export.
+
+{% if tool_cards and not single_shot %}
+## Tools available to you
+{{ tool_cards }}
+Run `build` after writing your files and fix every error it reports before you finish. The build
+compiles the WHOLE object, so an error in someone else's file is not yours to fix — fix only errors
+that name your files.
+{% endif %}
+
+## Output
+{{ output_format }}

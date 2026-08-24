@@ -544,6 +544,260 @@ Rules of thumb: a silhouette needs ≥ 3 distinct masses; every large flat face 
 break (seam, inset, bevel, trim); thin things (blades, sheet, glass) are 1–3 mm, never 0;
 every part that a human would touch has a rounded edge.
 
+## Density: visual complexity without hand-modelling every screw
+
+Measured on this harness (183 judged rounds): **triangles inside a part are free score, extra
+top-level parts are not** — ρ(tri_per_part, geometry_detail) ≈ +0.08 while ρ(n_plan_parts,
+assembly_fit) = −0.48.  Every recipe below adds density *inside* a part the plan already names.
+
+**Where the detail budget goes.** A viewer (and the judge's montage) looks, in order, at the
+silhouette, then the 2–3 largest faces, then whatever is at eye height and at the front, then the
+places where two materials meet.  Spend there and stop.
+
+| priority | what | typical tri cost | recipe |
+|---|---|---|---|
+| 1 | silhouette breaks (taper, waist, overhang) | 0 (shape the primitive) | `taper`, `lathe`, profile sweep |
+| 2 | bevel every hard edge | ×2–3 verts on that part | `add_bevel(w, 2–3)` |
+| 3 | panel lines / shut lines on big faces | 200–600 | `panel_lines` |
+| 4 | fasteners at real joints | 60–200 each | `polar_copies`, `bolt_ring` |
+| 5 | repeated countable features (slats, spokes, dentils) | 100–400 each | `add_array`, `radial_array` |
+| 6 | greebles in a bounded patch | 300–1500 | `greeble_patch` |
+| 7 | wear/variation in materials | 0 | per-instance material tint |
+
+Do **not** spend budget on: the underside, the back of a wall-mounted object, interior volumes the
+camera cannot enter, or subdividing a flat panel.
+
+### Parametric repetition (one part, N features, one loop)
+
+```python
+def radial_array(obj, count, *, center=(0.0, 0.0), axis='Z'):
+    """`count` copies of `obj` around `center` — ONE mesh, one modifier, N features.
+    Spokes, dentils, flutes, cage wires, balusters, turbine blades.
+    The Empty is a construction aid: it is applied and deleted here, so no non-mesh
+    object ever reaches the export (the contract allows meshes only)."""
+    piv = bpy.data.objects.new(f"{obj.name}_Pivot", None)
+    piv.location = (center[0], center[1], 0.0)
+    piv.rotation_euler['XYZ'.index(axis)] = 2 * math.pi / count
+    link(piv)
+    m = obj.modifiers.new("Radial", 'ARRAY')
+    m.count, m.use_relative_offset, m.use_object_offset, m.offset_object = count, False, True, piv
+    apply_modifiers(obj)
+    bpy.data.objects.remove(piv, do_unlink=True)
+    return obj
+
+
+def flutes(obj, count, radius, depth, height, z0, *, center=(0.0, 0.0), segments=8):
+    """`count` vertical grooves cut into a cylindrical body of radius `radius` standing on
+    `center` (pump bodies, columns, knurled knobs, fluted table legs)."""
+    cutter = make_cylinder(f"{obj.name}_Flute", depth, height,
+                           (center[0] + radius, center[1], z0 + height / 2), segments)
+    radial_array(cutter, count, center=center)
+    boolean_cut(obj, cutter)          # boolean_cut applies and deletes the cutter
+    return obj
+
+
+# 24 spokes on a wheel, then 8 flutes cut into a column — two loops, two modifiers
+spoke = make_cylinder("DemoSpoke", 0.004, 0.30, (0.0, 0.0, 0.15), 8)
+radial_array(spoke, 24)
+column = make_cylinder("DemoColumn", 0.045, 0.60, (0.0, 0.0, 0.30), 48)
+flutes(column, 8, 0.045, 0.006, 0.55, 0.03)
+assert len(column.data.vertices) > 96, "the flutes did not cut: is the cutter overlapping the body?"
+```
+
+### Instancing with per-instance variation
+
+Linked copies share mesh data (free memory, free triangles in Blender's sense) but they may
+differ in transform and material.  Identical repeats read as CG; 2–5 % variation reads as real.
+
+```python
+def varied_copies(src, n, place, *, seed=0, jitter_m=0.0, tilt_deg=0.0, scale_pct=0.0, mats=None):
+    """n named copies of `src` (`Name_0..Name_{n-1}`), each with a seeded wobble.
+    `place(i) -> (x, y, z)`; the copies stay TOP-LEVEL (never parented to an Empty)."""
+    rnd = random.Random(seed)
+    base = src.name
+    out = []
+    for i in range(n):
+        o = src if i == 0 else linked_copy(src, f"{base}_{i}", (0, 0, 0))
+        x, y, z = place(i)
+        o.name = f"{base}_{i}"
+        o.location = (x + rnd.uniform(-jitter_m, jitter_m), y + rnd.uniform(-jitter_m, jitter_m), z)
+        o.rotation_euler = (math.radians(rnd.uniform(-tilt_deg, tilt_deg)),
+                            math.radians(rnd.uniform(-tilt_deg, tilt_deg)), o.rotation_euler.z)
+        s = 1.0 + rnd.uniform(-scale_pct, scale_pct) / 100.0
+        o.scale = (s, s, s)
+        if mats:
+            o.data = o.data.copy()          # break the link ONLY to vary the material slot
+            o.data.materials.clear()
+            o.data.materials.append(mats[i % len(mats)])
+        out.append(o)
+    return out
+
+
+slat = make_box("DemoSlat", (0.30, 0.012, 0.05), (0, 0, 0))
+slats = varied_copies(slat, 7, lambda i: (0.0, 0.0, 0.10 + 0.07 * i), seed=3, jitter_m=0.0008,
+                      tilt_deg=0.6, scale_pct=1.5)
+assert [o.name for o in slats] == [f"DemoSlat_{i}" for i in range(7)]
+assert len({tuple(round(v, 5) for v in o.location) for o in slats}) == 7   # really varied
+```
+
+### Procedural greebles, bounded to a region
+
+Greebles are surface clutter (vents, boxes, ribs) that reads as machinery.  Bound them to a patch
+so they never break the silhouette or the part's plan bbox.
+
+```python
+def greeble_patch(name, origin, size_xy, *, n=24, seed=0, h_range=(0.002, 0.010),
+                  cell=0.02, material=None):
+    """One mesh of `n` seeded boxes inside an (x, y) patch at z=origin[2], heights in
+    `h_range`.  Join it INTO the host part afterwards so it stays one named object."""
+    rnd = random.Random(seed)
+    bm = bmesh.new()
+    sx, sy = size_xy
+    for _ in range(n):
+        w = rnd.uniform(cell * 0.35, cell * 1.4)
+        d = rnd.uniform(cell * 0.35, cell * 1.4)
+        h = rnd.uniform(*h_range)
+        cx = rnd.uniform(-sx / 2 + w / 2, sx / 2 - w / 2)
+        cy = rnd.uniform(-sy / 2 + d / 2, sy / 2 - d / 2)
+        m = Matrix.Translation((cx, cy, h / 2 - 0.0005)) @ Matrix.Diagonal((w, d, h, 1.0))
+        bmesh.ops.create_cube(bm, size=1.0, matrix=m)
+    obj = obj_from_bmesh(name, bm, origin)
+    if material is not None:
+        obj.data.materials.append(material)
+    return obj
+
+
+host = make_box("DemoHousing", (0.24, 0.16, 0.10), (0.6, 0, 0.05))
+greebles = greeble_patch("DemoHousing_Greebles", (0.6, 0, 0.10), (0.20, 0.12), n=26, seed=7)
+housing = join([host, greebles], "DemoHousing")   # ONE named part, 26 extra shapes of detail
+assert len(housing.data.polygons) == 6 + 26 * 6, "greebles were not joined into the host part"
+```
+
+### Profile sweeps (a section dragged along a path)
+
+The cheapest way to make mouldings, handrails, rims, tubing and cornices look machined: draw the
+*section* once, sweep it along the path.
+
+```python
+def sweep_profile(name, path_pts, profile_pts, *, closed_path=False, tilt_deg=0.0, resolution=6):
+    """Sweep a 2-D `profile_pts` [(x, y) in the section plane] along `path_pts` [(x, y, z)]
+    using a curve bevel object — cornices, handrails, rims, picture frames, gutters."""
+    prof = bpy.data.curves.new(f"{name}_Prof", 'CURVE')
+    prof.dimensions = '2D'
+    sp = prof.splines.new('POLY')
+    sp.points.add(len(profile_pts) - 1)
+    for p, (x, y) in zip(sp.points, profile_pts):
+        p.co = (x, y, 0.0, 1.0)
+    sp.use_cyclic_u = True
+    cu = bpy.data.curves.new(f"{name}_Path", 'CURVE')
+    cu.dimensions = '3D'
+    cu.bevel_mode, cu.bevel_object, cu.resolution_u = 'OBJECT', bpy.data.objects.new(f"{name}_ProfObj", prof), resolution
+    bpy.context.scene.collection.objects.link(cu.bevel_object)
+    ps = cu.splines.new('POLY')
+    ps.points.add(len(path_pts) - 1)
+    for p, (x, y, z) in zip(ps.points, path_pts):
+        p.co = (x, y, z, 1.0)
+    ps.use_cyclic_u = closed_path
+    obj = bpy.data.objects.new(name, cu)
+    link(obj)
+    activate(obj)
+    bpy.ops.object.convert(target='MESH')
+    obj = bpy.context.object
+    bpy.data.objects.remove(bpy.data.objects[f"{name}_ProfObj"], do_unlink=True)
+    return obj
+
+
+CORNICE = [(0.0, 0.0), (0.045, 0.0), (0.045, 0.012), (0.030, 0.020), (0.030, 0.032), (0.0, 0.032)]
+cornice = sweep_profile("DemoCornice", [(-0.6, -0.3, 0.9), (0.6, -0.3, 0.9), (0.6, 0.3, 0.9), (-0.6, 0.3, 0.9)],
+                        CORNICE, closed_path=True)
+
+# a curved path needs SAMPLES: one point per 5-10 degrees, not four corners.
+HANDRAIL = [(0.045, 0.0), (0.020, 0.018), (-0.020, 0.018), (-0.045, 0.0), (0.0, -0.012)]
+helix = [(0.70 * math.cos(math.radians(a)), 0.70 * math.sin(math.radians(a)), 0.95 + 0.0075 * a)
+         for a in range(0, 365, 5)]
+rail = sweep_profile("DemoHandrail", helix, HANDRAIL)
+assert len(cornice.data.polygons) >= 24 and len(rail.data.polygons) >= 300, "sweep produced no surface"
+```
+
+### Boolean detailing (grooves, slots, holes — in one cut)
+
+Build ALL cutters of one kind as a single mesh, then cut once: `n` booleans cost `n` evaluations
+and `n` chances to produce non-manifold garbage; one cutter costs one.
+
+```python
+def panel_lines(obj, lines, *, width=0.0015, depth=0.0015):
+    """Cut shut-lines into a body.  `lines` = [(center_xyz, size_xyz)] in world metres —
+    make one thin box per line, join them, cut once."""
+    bm = bmesh.new()
+    for (cx, cy, cz), (sx, sy, sz) in lines:
+        m = Matrix.Translation((cx, cy, cz)) @ Matrix.Diagonal(
+            (max(sx, width), max(sy, width), max(sz, depth), 1.0))
+        bmesh.ops.create_cube(bm, size=1.0, matrix=m)
+    boolean_cut(obj, obj_from_bmesh(f"{obj.name}_Lines", bm))
+    return obj
+
+
+def bolt_ring(obj, n, radius, center, *, head_r=0.004, head_h=0.0015, seg=12):
+    """n bolt heads standing 1.5 mm proud on a circle, joined INTO `obj` (one part)."""
+    cx, cy, cz = center
+    bm = bmesh.new()
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        m = Matrix.Translation((cx + radius * math.cos(a), cy + radius * math.sin(a), cz))
+        bmesh.ops.create_cone(bm, cap_ends=True, segments=seg, radius1=head_r, radius2=head_r * 0.9,
+                              depth=head_h, matrix=m)
+    heads = obj_from_bmesh(f"{obj.name}_Bolts", bm)
+    return join([obj, heads], obj.name)
+
+
+door = make_box("DemoDoor", (0.42, 0.018, 0.36), (1.2, 0, 0.18))
+panel_lines(door, [((1.2, -0.009, 0.36), (0.42, 0.004, 0.0015)),
+                   ((1.2, -0.009, 0.00), (0.42, 0.004, 0.0015))])
+door = bolt_ring(door, 6, 0.10, (1.2, -0.010, 0.18))
+assert len(door.data.polygons) > 6, "the panel lines / bolts did not land on the door"
+```
+
+### Bevel / solidify / weighted-normal stacks (sheet metal and cast parts)
+
+```python
+def shade_smooth(obj):
+    """Smooth shading on the MESH (4.1+ removed `use_auto_smooth`; a Smooth-by-Angle
+    modifier is what the UI now adds, and the GLB exporter bakes its normals)."""
+    for poly in obj.data.polygons:
+        poly.use_smooth = True
+    return obj
+
+
+def sheet_metal(obj, *, thickness=0.0012, bevel=0.0008, segments=2):
+    """Give a slab or zero-thickness shape a real sheet-metal read: wall, rounded edge,
+    shading that follows the bevel.  Order matters — solidify BEFORE bevel."""
+    add_solidify(obj, thickness, inward=False)
+    add_bevel(obj, bevel, segments)
+    wn = obj.modifiers.new("WeightedNormal", 'WEIGHTED_NORMAL')   # keeps the bevel crisp
+    wn.keep_sharp = True
+    return shade_smooth(obj)
+
+
+def cast_part(obj, *, fillet=0.004, segments=3):
+    """Cast/moulded read: one generous fillet on every edge, smooth shading, no sharp corners."""
+    add_bevel(obj, fillet, segments)
+    return shade_smooth(obj)
+
+
+tray = make_box("DemoTray", (0.26, 0.18, 0.004), (1.8, 0, 0.002))
+sheet_metal(tray)
+housing = make_box("DemoCastHousing", (0.12, 0.09, 0.07), (2.2, 0, 0.035))
+cast_part(housing)
+```
+
+### The density check
+
+Before you finish, ask of each part: *what would tell a photograph of the real thing from this?*
+If the answer is "the edges are perfectly sharp" → bevel.  "It is one flat face" → panel line or
+inset.  "It has no fixings" → bolt ring.  "The repeats are identical" → `varied_copies`.  "It is
+all one grey" → split the materials.  Then measure: `measure` reports the triangle count — if you
+are under the detail budget's floor, you have not detailed anything yet.
+
 ## Common objects — dimensions (metres) and decomposition
 
 | object | overall (W × D × H) | parts (plan names) | key numbers |
