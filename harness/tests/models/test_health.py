@@ -68,6 +68,12 @@ def test_sibling_detection_matches_arguments_not_the_repo_path():
     assert _is_harness_argv(["python", "bench/compare_backends.py", "--arms", "x"])
     assert _is_harness_argv(["/home/u/.local/bin/3dcv", "doctor"])
     assert _is_harness_argv(["/usr/bin/python3", "/x/y/run_bench.py"])
+    # a bench script launched as a MODULE is the same program and must weigh the same:
+    # a live `python -m bench.ab_plan` A/B was invisible here on 2026-08-24 and
+    # pool_budget reported headroom 48 on a machine already at the 64 knee
+    assert _is_harness_argv(["python", "-m", "bench.ab_plan", "--prompts", "x"])
+    assert _is_harness_argv(["python", "-m", "bench.compare_backends", "--arms", "x"])
+    assert _is_harness_argv(["python", "-m", "bench.run_bench", "b.yaml"])
     # the false positives
     assert not _is_harness_argv(["/bin/bash", "-c", "cd /home/u/3dcodeverse/harness && ls"])
     assert not _is_harness_argv(["vim", "/home/u/3dcodeverse/harness/codeverse/cli/main.py"])
@@ -169,6 +175,30 @@ def test_a_sibling_that_set_no_cap_counts_at_the_default(monkeypatch):
     })
     pb = health.pool_budget()
     assert pb.used == 64 and pb.headroom == 0 and not pb.fits(1)
+
+
+def test_an_ab_plan_driver_is_not_charged_for_its_children(monkeypatch):
+    """The driver spawns one capped cell child per arm and makes no model calls of its own.
+
+    It sets no cap on itself (``--max-in-flight`` is the CHILD cap), so charging it would
+    book the 64 default — the whole knee — on top of the children that actually hold the
+    traffic, and every sibling would refuse to launch."""
+    health = _fake_proc(monkeypatch, {
+        301: (["python", "-m", "bench.ab_plan", "--prompts", "p.yaml", "--max-in-flight", "16"], {}),
+        302: (["python", "-m", "bench.ab_plan", "cell", "--arm", "control"], {"CV3D_MAX_IN_FLIGHT": "16"}),
+        303: (["python", "-m", "bench.ab_plan", "cell", "--arm", "variant"], {"CV3D_MAX_IN_FLIGHT": "16"}),
+    })
+    pb = health.pool_budget()
+    assert (pb.siblings, pb.used, pb.headroom) == (3, 32, 32), str(pb)
+    # the same three processes under the script spelling read identically
+    health = _fake_proc(monkeypatch, {
+        311: (["python", "bench/ab_plan.py", "--prompts", "p.yaml"], {}),
+        312: (["python", "bench/ab_plan.py", "cell", "--arm", "control"], {"CV3D_MAX_IN_FLIGHT": "8"}),
+    })
+    assert health.pool_budget().used == 8
+    # a compare_backends driver runs its cells in THREADS, in itself: it is charged
+    health = _fake_proc(monkeypatch, {321: (["python", "-m", "bench.compare_backends"], {"CV3D_MAX_IN_FLIGHT": "16"})})
+    assert health.pool_budget().used == 16
 
 
 def test_pool_budget_never_raises(monkeypatch):

@@ -1092,6 +1092,17 @@ Three consequences:
    The first version of this rule counted *processes* and made every agent wait for an
    empty machine — which stalled an entire A/B wave behind two batteries that were
    themselves parked.  A budget, not a head-count.
+4. **The accounting only works if every process is visible to it.**  `pool_budget()`
+   matches on argv, and until 2026-08-24 it matched only the *script path* spelling
+   (`python bench/ab_plan.py`).  A live eight-prompt A/B launched as
+   `python -m bench.ab_plan` — driver plus two 16-in-flight cell children — was therefore
+   invisible: the budget read `16/64, headroom 48` on a machine already at 48, and the
+   next agent to check it would have launched 32 more and taken the machine to 80.  Both
+   spellings of every entry point are now listed (`health._MODULES` / `_SCRIPTS`).  The
+   mirror-image error is just as bad: an `ab_plan` *driver* spends its budget only through
+   capped children, and it sets no cap on itself, so charging it too would book the 64
+   default on top of the children and stall every sibling — `_is_delegating_driver` skips
+   it.  Whenever an entry point is added or renamed, update both lists.
 
 The real fix is a machine-wide limiter — a file-locked token bucket under
 `~/.cache/codeverse/` that every process shares — so the quota is enforced where it

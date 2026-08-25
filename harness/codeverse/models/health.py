@@ -117,24 +117,63 @@ def _bare_model(model_id: str, timeout_s: float):
 #: how a harness process appears in its own argv.  Matched on ARGUMENTS, never on the
 #: whole command line: the repo path itself contains "3dcodeverse", so a substring test
 #: counts every shell that merely `cd`s into the tree.
-_MODULE = "codeverse.cli.main"
+#:
+#: BOTH spellings of every entry point are listed, because a program launched two ways is
+#: still one program.  Measured 2026-08-24: an eight-prompt A/B running as
+#: ``python -m bench.ab_plan`` (driver + two 16-in-flight cell children) was invisible to
+#: :func:`pool_budget`, which reported "headroom 48" on a machine already sitting at the
+#: 64 knee — the exact over-launch ``docs/COST.md`` §23 exists to prevent.
+_MODULES = ("codeverse.cli.main", "bench.ab_plan", "bench.compare_backends", "bench.run_bench")
 _SCRIPTS = ("compare_backends.py", "run_bench.py", "ab_plan.py")
 _ENTRY_POINTS = ("3dcv", "3dcodeverse")
 
 
-def _is_harness_argv(args: list[str]) -> bool:
+def _harness_token(args: list[str]) -> str | None:
+    """The argv token that makes this a harness process, or ``None`` if it is not one.
+
+    Returned rather than a bool so callers can ask WHICH entry point is running without
+    re-scanning the command line (see :func:`_is_delegating_driver`).
+    """
     if not args:
-        return False
+        return None
     from pathlib import PurePath
 
     if PurePath(args[0]).name in _ENTRY_POINTS:
-        return True
+        return args[0]
     for i, a in enumerate(args):
-        if a == "-m" and i + 1 < len(args) and args[i + 1] == _MODULE:
-            return True
+        if a == "-m" and i + 1 < len(args) and args[i + 1] in _MODULES:
+            return args[i + 1]
         if PurePath(a).name in _SCRIPTS:
-            return True
-    return False
+            return a
+    return None
+
+
+def _is_harness_argv(args: list[str]) -> bool:
+    return _harness_token(args) is not None
+
+
+#: the ``ab_plan`` entry point under either spelling
+_AB_PLAN = ("ab_plan.py", "bench.ab_plan")
+
+
+def _is_delegating_driver(args: list[str]) -> bool:
+    """Does this process spend its in-flight budget only through capped CHILDREN?
+
+    ``bench/ab_plan.py`` in driver mode spawns one ``… cell`` child per arm and makes no
+    model calls of its own past a 6-key preflight probe; the children carry the caps and
+    are counted in their own right.  Charging the driver as well would double-count the
+    same traffic — and since ``--max-in-flight`` is the cap it hands its children, not one
+    it sets on itself, :func:`_cap_of` would charge it the 64 default, i.e. the whole knee,
+    and every sibling would refuse to launch.  Counting heads instead of budget is the
+    failure that stalled a whole A/B wave on 2026-08-24; this is its mirror image.
+    """
+    from pathlib import PurePath
+
+    tok = _harness_token(args)
+    if tok is None or PurePath(tok).name not in _AB_PLAN:
+        return False
+    i = args.index(tok)
+    return args[i + 1 : i + 2] != ["cell"]
 
 
 def sibling_processes() -> int:
@@ -241,7 +280,11 @@ def pool_budget() -> PoolBudget:
             raw = (entry / "cmdline").read_bytes()
         except OSError:
             continue
-        if _is_harness_argv([a for a in raw.decode(errors="replace").split("\0") if a]):
-            n += 1
-            used += _cap_of(entry)
+        argv = [a for a in raw.decode(errors="replace").split("\0") if a]
+        if not _is_harness_argv(argv):
+            continue
+        n += 1
+        if _is_delegating_driver(argv):
+            continue  # its capped children are counted separately; see _is_delegating_driver
+        used += _cap_of(entry)
     return PoolBudget(n, used)
