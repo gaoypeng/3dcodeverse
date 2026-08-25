@@ -52,6 +52,32 @@ def test_ab_plan_refuses_to_run_against_a_foreign_codeverse():
     assert "refusing to run" in text
 
 
+def test_the_guard_refuses_a_foreign_codeverse_for_real(tmp_path: Path):
+    """Not "the string is in the file": actually make the bad thing happen.
+
+    A foreign ``codeverse`` is pre-imported into ``sys.modules``, then ab_plan is run as
+    ``__main__``.  It must die with its own message rather than proceed to compare a tree
+    with itself.
+    """
+    import subprocess
+    import sys
+
+    other = tmp_path / "other"
+    (other / "codeverse").mkdir(parents=True)
+    (other / "codeverse" / "__init__.py").write_text("")
+    (other / "codeverse" / "_compat.py").write_text("from datetime import timezone as _t\nUTC = _t.utc\n")
+    src = (
+        "import sys, runpy\n"
+        f"sys.path.insert(0, {str(other)!r})\n"
+        "import codeverse\n"
+        "sys.argv = ['ab_plan.py', '--help']\n"
+        f"runpy.run_path({str(BENCH / 'ab_plan.py')!r}, run_name='__main__')\n"
+    )
+    p = subprocess.run([sys.executable, "-c", src], cwd=HARNESS, capture_output=True, text=True, check=False)
+    assert p.returncode != 0
+    assert "refusing to run" in (p.stdout + p.stderr)
+
+
 def test_the_guard_actually_compares_the_resolved_package_to_this_tree():
     import codeverse
     from bench.ab_plan import REPO, _assert_local_codeverse
