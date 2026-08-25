@@ -231,6 +231,22 @@ def test_a_child_that_dies_without_a_cell_is_an_error_not_a_score(tmp_path: Path
     assert (Path(res.workspace) / "worker.log").is_file()
 
 
+def test_a_non_utf8_byte_in_the_worker_log_does_not_kill_the_driver(tmp_path: Path, monkeypatch):
+    """CP-1: on the no-cell.json path the log tail is the only evidence there is, and an
+    agent CLI is free to print any byte.  One 0xff used to raise UnicodeDecodeError out of
+    spawn_cell — which run_ab re-raises through fut.result(), ending the whole A/B without
+    a summary — for a log that says '503 UNAVAILABLE' and classifies perfectly well."""
+    import bench.ab_plan as ab
+    from bench.run_bench import BenchPrompt
+
+    monkeypatch.setattr(ab, "worker_argv",
+                        lambda *a, **k: ["bash", "-c", r"printf 'starting cell\n503 Service Unavailable \xff\xfe\n'; exit 1"])
+    item = BenchPrompt(id="p_bad_bytes", prompt="x", tier="easy")
+    res = ab.spawn_cell(BATTERY, tmp_path, item, CONTROL, AbOptions(variant_env={"K": "v"}))
+    assert res.status == "infra_failed" and res.score is None
+    assert "503 Service Unavailable" in res.error
+
+
 # ----------------------------------------------------------------------------- the driver, with a fake cell runner
 class FakeCells:
     """Records (prompt, arm, env-at-call) and answers from a script; the pair order is observable."""

@@ -187,7 +187,10 @@ def spawn_cell(battery_path: Path, out: Path, item: BenchPrompt, arm: str, opts:
                             stdout=fh, stderr=subprocess.STDOUT, check=False).returncode
     if marker.is_file():
         return CellResult.model_validate_json(marker.read_text())
-    tail = log.read_text()[-1500:] if log.is_file() else ""
+    # errors="replace": the child's raw stdout lands in this log, and one non-UTF-8 byte
+    # from an agent CLI used to raise UnicodeDecodeError *here* — on the very path whose
+    # job is to classify an outage — killing the whole driver through fut.result().
+    tail = log.read_text(errors="replace")[-1500:] if log.is_file() else ""
     return CellResult(prompt_id=item.id, tier=item.tier, arm=arm, kind="harness", target=opts.generator,
                       judge=opts.judge, workspace=str(cell), wall_s=round(time.time() - t0, 1),
                       status="infra_failed" if is_infra_failure(tail) else "error",
