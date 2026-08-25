@@ -22,7 +22,7 @@ The spec's three tiers, and what each costs us per turn:
 
 | tier | what the agent sees | when | our cost |
 |---|---|---|---|
-| 1 · index | `name` + one clause of `description` | every turn | 41 tokens (native CLIs) / ≤ 400 (api-agent) |
+| 1 · index | `name` + one clause of `description` | every turn | 41 tokens (native CLIs) / 356 worst case (api-agent) |
 | 2 · body | the whole `SKILL.md` | on activation | 1,081–2,223 tokens, once |
 | 3 · depth | `references/*.md` | when the agent chooses to go deeper | as read |
 
@@ -133,6 +133,32 @@ The read rate is the FIRST readout, before any score: `read_cookbook` was called
 zone sessions on `scenes_v1_flash` although the prompt named five chapters by title, and
 shipping a nicer file format without measuring reads would repeat that at a new price.
 
+### Measured, on an ordinary build task
+
+Not a compliance prompt — "write `src/model.py` and `src/parts/*.py` for a four-legged
+dining chair, follow whatever conventions this workspace documents", five routed bundles
+sitting in the workspace, nothing in the prompt about skills (2026-08-25):
+
+| backend | listed | surfaced | deep | deep rate | body tokens read | exit |
+|---|---|---|---|---|---|---|
+| codex 0.149.0 | 5 | 5 | 5 | **100%** | 8,041 | completed, 18 turns |
+| claude-code 2.1.245 | 5 | 5 | 5 | **100%** | 8,041 | timed out on our 600 s cap after reading |
+| agy 1.1.20 | 5 | 5 | 5 | **100%** | 8,041 | completed |
+
+The mechanism works, and the advice lands: codex's `src/parts/common.py` came back with
+`WELD_OVERLAP = 0.001` and the comment "1 mm weld overlap with the seat", which is
+`cv3d-part-contact`'s recommendation and inside `PENETRATION_WARN_M`. Left to the prompt
+corpus alone it would have read 2–5 mm (§9).
+
+Two things this also says, and neither is comfortable:
+
+* **They read ALL five.** 8,041 tokens per session, every time. The cap of 5 is therefore
+  the real cost knob, not a safety net, and router *precision* — how often a skill is read
+  whose defect class never fires — is the number that should size it (§9).
+* **`api-agent` is not in this table.** It needs the Gemini pool, which was in an outage
+  while this was measured, so the backend with the strictest target (80%) and the only
+  exact-read ground truth is the one still unmeasured.
+
 ---
 
 ## 5. What the tests guarantee
@@ -172,7 +198,7 @@ Two contradiction checks are worth separating, because they answer different que
   is string→string. Quoted; `validate_bundle` now reports it instead of coercing.
 * **`cv3d-opengl-pipeline` claimed `measured` on n=5.** Now `mixed`.
 * **The api-agent index cost 780 tokens for five skills** against a 300-token budget,
-  because it quoted whole 1024-char descriptions. It quotes the first clause now (342
+  because it quoted whole 1024-char descriptions. It quotes the first clause now (356
   tokens for the worst real session, 400 is the ceiling): our router already decided, so
   that index is a pointer, not a matcher.
 * **The live smoke had never run.** It skipped every CLI because it looked for a binary
@@ -269,3 +295,7 @@ its battery, its n and its date.
   the atime probe's answer.
 * **`cadquery` and `threejs` bundles are routed off.** They stay off until each language
   reaches 20 graded runs.
+* **Router PRECISION is not reported.** The read rate says how often a listed skill was
+  read; nothing yet says how often a skill was read whose defect class never fired in that
+  run. That number decides whether the cap of 5 is too generous, and it needs a battery
+  with `CV3D_SKILLS=on` and gate reports on both sides to compute.
