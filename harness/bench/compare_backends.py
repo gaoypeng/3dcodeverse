@@ -192,6 +192,7 @@ def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts
         res.gen_seconds += gen.duration_s
         if not gen.ok:
             res.error = gen.notes or "empty answer"
+            res.error_is_infra = gen.infra_failed
             return
         try:
             write_model_file(eval_ws, gen.text)
@@ -254,7 +255,7 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
                 # nothing was ever built, so there is no score to average — but the arm
                 # DID fail to deliver, so this still counts against its build rate
                 res.status, res.score, res.passed, res.build_ok = "budget_exhausted", None, False, False
-            elif is_infra_failure(res.error):
+            elif res.error_is_infra or is_infra_failure(res.error):
                 # a provider outage is not a capability result: drop the cell (score
                 # None) instead of scoring the model 0 for someone else's downtime
                 res.status, res.score, res.passed, res.build_ok = "infra_failed", None, None, False

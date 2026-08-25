@@ -33,6 +33,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
+from bench._infra import is_infra_failure
 from codeverse.agents.claude_code import parse_claude_json, usage_from_envelope
 from codeverse.agents.cli_common import is_secret_env, tail
 from codeverse.agents.codex import effort_overrides, parse_codex_jsonl, split_model_effort
@@ -111,6 +112,11 @@ class OneShotResult(BaseModel):
     usage: Usage = Field(default_factory=Usage)
     tool_calls: int = Field(default=0, description="tool/command calls the CLI reported (should be 0)")
     notes: str = ""
+    infra_failed: bool = Field(default=False, description=(
+        "the provider, not the model, failed.  Decided at the raise site because only "
+        "there does the exception still carry .status and .__cause__: stringifying it "
+        "into `notes` first threw both away, so the one-shot arm scored a hard 0.0 for "
+        "the same outage that dropped the harness arm (see bench/_infra.py)."))
     duration_s: float = 0.0
     transcript_dir: str = ""
 
@@ -305,8 +311,8 @@ class ApiOneShot:
         try:
             resp = self.model.generate(req)
         except Exception as e:  # noqa: BLE001 — a model outage is a recorded failure, not a crash
-            return OneShotResult(ok=False, notes=f"{type(e).__name__}: {e}", duration_s=round(time.time() - t0, 2),
-                                 transcript_dir=str(out_dir))
+            return OneShotResult(ok=False, notes=f"{type(e).__name__}: {e}", infra_failed=is_infra_failure(e),
+                                 duration_s=round(time.time() - t0, 2), transcript_dir=str(out_dir))
         text = resp.text or ""
         (out_dir / "response.md").write_text(text)
         return OneShotResult(ok=bool(text.strip()), text=text, usage=resp.usage, duration_s=round(time.time() - t0, 2),

@@ -52,6 +52,10 @@ class CellResult(BaseModel):
     glb: str = ""
     workspace: str = ""
     error: str = ""
+    error_is_infra: bool = Field(default=False, description=(
+        "set at the raise site, where the exception still carries .status/.__cause__.  "
+        "run_cell's string fallback cannot recover those, so without this the one-shot "
+        "arm scored 0.0 for the same outage that dropped the harness arm."))
 
     def natural_key(self) -> tuple[str, ...]:
         """Row identity: one cell is one (prompt, arm).  results.jsonl is append-only, so

@@ -32,6 +32,11 @@ INFRA_MARKERS: tuple[str, ...] = (
     "deadline exceeded",
     "connection reset",
     "connection aborted",
+    # the provider adapters' own wording for a socket/TLS failure with no HTTP status:
+    # ModelError("Gemini transport error: ..."), ("Anthropic connection error: ...") and
+    # ("OpenAI connection error: ...") matched nothing here, so BOTH arms scored them 0.
+    "transport error",
+    "connection error",
     "remote end closed connection",
     "keypoolexhausted",
     "resource has been exhausted",
@@ -40,7 +45,10 @@ INFRA_MARKERS: tuple[str, ...] = (
 )
 
 #: HTTP statuses that mean "the provider could not serve this", not "the model was bad".
-INFRA_STATUSES: frozenset[int] = frozenset({429, 500, 502, 503, 504, 529})
+#: 408 is the adapters' own code for a request timeout (gemini.py:117, openai.py:40,
+#: anthropic.py:43) — the exception path must agree with the "request timed out" marker
+#: the string path already had.
+INFRA_STATUSES: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504, 529})
 
 
 def is_infra_failure(err: object) -> bool:

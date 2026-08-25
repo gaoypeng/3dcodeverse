@@ -72,15 +72,75 @@ def test_outage_cells_leave_every_rate_alone():
     assert b.infra_failed == 1 and b.n_evaluated == 4 and b.n == 5, "the loss must stay visible"
 
 
-def test_both_failure_paths_classify_the_same_way():
-    """The asymmetry itself: whichever path records the outage, the verdict matches."""
-    from bench import compare_backends as cb
+def test_both_failure_paths_classify_the_same_way(tmp_path):
+    """CQ-1, the asymmetry itself: ONE error hits both arms, both must reach one verdict.
 
-    src = cb.run_cell.__code__.co_consts
-    assert any(c == "infra_failed" for c in src if isinstance(c, str)), \
-        "the no-code path must be able to record infra_failed"
-    outage = "Gemini API error 503: This model is currently experiencing high demand."
-    assert is_infra_failure(outage) == is_infra_failure(RuntimeError(outage))
+    The previous version of this test could not fail — it grepped run_cell's code
+    constants for the literal "infra_failed" and then compared a single 503 string that
+    DOES contain one of the 14 INFRA_MARKERS.  It therefore passed straight through the
+    real bug: gemini's actual 500 prose ("An internal error has occurred") matches no
+    marker, and bench/_oneshot.py stringified the exception into `notes`, throwing away
+    the .status the harness path classifies on.  Same outage, harness dropped
+    (infra_failed / score None), one-shot scored a hard 0.0 — biasing every
+    harness-vs-one-shot mean in the harness's favour, which is precisely what this
+    module was written to end.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from bench._oneshot import ApiOneShot
+    from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
+    from bench.run_bench import Battery
+    from codeverse.models.base import ModelError
+    from tests.compare_bench.conftest import BATTERY, FakeEvaluator
+
+    for outage in (
+        ModelError("Gemini API error 500: An internal error has occurred.", retryable=True, status=500),
+        ModelError("Gemini transport error: [Errno 104] Connection reset by peer", retryable=True),
+        ModelError("Anthropic connection error: TLS handshake failed", retryable=True),
+        ModelError("Gemini request timed out: 600s", retryable=True, status=408),
+    ):
+        class DeadModel:  # the real ApiOneShot around a model that raises the outage
+            provider, model = "gemini", "gemini-3.7-flash"
+
+            def supports_vision(self):
+                return True
+
+            def generate(self, request):
+                raise outage
+
+        def dying_track(spec, ws, resume):
+            raise outage
+
+        battery = Battery.load(BATTERY)
+        deps = CompareDeps(FakeEvaluator(), run_track=dying_track,
+                           oneshot_backend=lambda t: ApiOneShot("gemini:gemini-3.7-flash", chat_model=DeadModel()))
+        opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x")
+        out = Path(tempfile.mkdtemp(dir=tmp_path))
+        got = {}
+        for raw in ("harness:api-agent:gemini:gemini-3.7-flash", "oneshot:gemini:gemini-3.7-flash"):
+            arm = parse_arm(raw)
+            r = run_cell(battery, battery.prompts[0], arm, out, opts, deps)
+            got[arm.kind] = (r.status, r.score)
+        assert got["harness"] == ("infra_failed", None), f"{outage} / harness -> {got}"
+        assert got["oneshot"] == got["harness"], (
+            f"one error, two verdicts for {outage!s}: {got} — the one-shot arm takes a hard "
+            f"zero for the same downtime that drops the harness arm")
+
+
+def test_a_real_capability_failure_still_keeps_its_zero():
+    """The other half of the contract: widening the classifier must not start excusing
+    models.  Prose, unparseable code and a refusal are results, not outages."""
+    from codeverse.models.base import ModelError
+
+    for not_an_outage in (
+        "unparseable answer: no code fence found",
+        ModelError("Gemini finish_reason=SAFETY", retryable=True),
+        ModelError("Gemini returned no candidates", retryable=True),
+        ModelError("Anthropic refused the request: None", retryable=False),
+        "empty answer",
+    ):
+        assert not is_infra_failure(not_an_outage), not_an_outage
 
 
 def test_budget_exhaustion_is_scoreless_but_still_counts_against_build_rate():
