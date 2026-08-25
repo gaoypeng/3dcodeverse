@@ -15,6 +15,8 @@ if str(REPO) not in sys.path:
 
 from bench._ab_report import (  # noqa: E402
     CONTROL,
+    KEEP_DELTA,
+    NOISE_SIGMAS,
     VARIANT,
     PairOutcome,
     arm_summary,
@@ -26,7 +28,9 @@ from bench._compare_report import CellResult, load_jsonl  # noqa: E402
 from bench.ab_plan import (  # noqa: E402
     MAX_IN_FLIGHT_ENV,
     AbOptions,
+    Todo,
     _plan_todo,
+    archive_cell,
     cell_dir,
     child_env,
     main,
@@ -112,6 +116,52 @@ def test_summary_marks_regressions_and_states_the_rule():
     md = render_summary(pair_up(rows), rows, title="t", variant_env={}, generator="g", judge="j", rounds=1)
     assert "| a |  | 0.800 | 0.700 | -0.100 | REGRESSION |" in md and "## Verdict: **inconclusive**" in md
     assert "keep iff mean delta >= +0.02" in md and "(none)" in md
+
+
+# ----------------------------------------------------------------------------- noise floor
+def test_a_verdict_states_the_spread_it_was_decided_on():
+    """The rule fires on a mean, and a mean of stochastic generations has a spread.  An
+    A/A run of this rig (identical arms) returned +0.344 on one prompt and the rule said
+    "keep" — so the report has to carry the noise beside the word."""
+    v = verdict_of(_pairs(0.30, -0.20, 0.10, 0.05, -0.10, 0.25, 0.02, -0.15))
+    assert v.sd_delta is not None and v.se_delta == pytest.approx(v.sd_delta / 8 ** 0.5, abs=1e-3)
+    assert not v.separated and "NOT separated from noise" in v.caution
+    # the honest answer to "would one more prompt settle this?": at this spread, hundreds
+    assert v.n_for_power == pytest.approx((NOISE_SIGMAS * v.sd_delta / KEEP_DELTA) ** 2, rel=0.01)
+    assert v.n_for_power > 100
+
+
+def test_a_tight_win_is_marked_separated_and_carries_no_caution():
+    v = verdict_of(_pairs(0.10, 0.11, 0.09, 0.12))
+    assert v.decision == "keep" and v.separated and v.caution == ""
+
+
+def test_one_pair_can_never_be_separated_from_noise():
+    v = verdict_of(_pairs(0.344))
+    assert v.decision == "keep", "the blunt rule still fires — that is exactly the danger"
+    assert v.sd_delta is None and not v.separated and "one pair cannot separate" in v.caution
+
+
+def test_summary_prints_the_confidence_block():
+    rows = [_row(f"p{i}", arm, s) for i, (c, x) in enumerate([(0.5, 0.9), (0.6, 0.3), (0.7, 0.72)])
+            for arm, s in ((CONTROL, c), (VARIANT, x))]
+    md = render_summary(pair_up(rows), rows, title="t", variant_env={"K": "v"}, generator="g", judge="j", rounds=1)
+    assert "## Confidence" in md and "separated from noise: NO" in md and "NOT separated from noise" in md
+
+
+def test_an_aa_run_is_labelled_so_nobody_reads_it_as_a_decision():
+    rows = [_row("a", CONTROL, 0.59), _row("a", VARIANT, 0.93)]
+    md = render_summary(pair_up(rows), rows, title="t", variant_env={}, generator="g", judge="j", rounds=1, aa=True)
+    assert md.startswith("# A/A: t") and "A/A calibration — the arms are identical" in md
+
+
+def test_aa_gives_both_arms_the_control_environment():
+    """Otherwise the calibration measures the switch it is supposed to be blind to."""
+    opts = AbOptions(variant_env={"CV3D_PLAN_FEATURES": "all"}, aa=True)
+    base = {"PATH": "/bin", "CV3D_PLAN_FEATURES": "all"}  # leaked from the launching shell
+    c, v = child_env(CONTROL, opts, base), child_env(VARIANT, opts, base)
+    assert "CV3D_PLAN_FEATURES" not in c and "CV3D_PLAN_FEATURES" not in v
+    assert c == v
 
 
 # ----------------------------------------------------------------------------- env isolation
@@ -233,9 +283,35 @@ def test_an_interrupted_pair_runs_only_its_missing_arm():
     p = b.prompts[0]
     done = {(p.id, CONTROL): _row(p.id, CONTROL, 0.5)}
     todo = _plan_todo(b, done, AbOptions(ids=[p.id]))
-    assert todo == [(p, [VARIANT])]
+    assert todo == [Todo(p, [VARIANT], fresh=False)], "a finished partner is not regenerated"
     assert _plan_todo(b, {(p.id, CONTROL): _row(p.id, CONTROL, 0.5), (p.id, VARIANT): _row(p.id, VARIANT, 0.5)},
                       AbOptions(ids=[p.id])) == []
+
+
+def test_a_redo_is_planned_fresh_so_the_pair_is_regenerated():
+    """compare_backends._run_harness resumes on the mere existence of <cell>/run, so
+    without the fresh flag a redo would hand back the surviving arm's OLD score — the
+    cross-weather comparison the pairing exists to prevent."""
+    b = Battery.load(BATTERY)
+    p = b.prompts[0]
+    done = {(p.id, CONTROL): _row(p.id, CONTROL, 0.5), (p.id, VARIANT): _row(p.id, VARIANT, None, "infra_failed")}
+    opts = AbOptions(ids=[p.id], redo_status=["infra_failed"])
+    assert _plan_todo(b, dict(done), opts) == [Todo(p, [CONTROL, VARIANT], fresh=True)]
+    # --redo-resume opts back into the cheap behaviour, explicitly
+    assert _plan_todo(b, dict(done), opts.model_copy(update={"redo_fresh": False})) == [Todo(p, [CONTROL, VARIANT], False)]
+
+
+def test_archive_cell_moves_the_old_attempt_aside_and_keeps_it(tmp_path: Path):
+    opts = AbOptions(variant_env={"K": "v"})
+    cell = cell_dir(tmp_path, CONTROL, "p1", opts.generator)
+    (cell / "run").mkdir(parents=True)
+    (cell / "run" / "record.json").write_text("{}")
+    first = archive_cell(tmp_path, CONTROL, "p1", opts)
+    assert first is not None and first.name.endswith(".attempt1") and (first / "run" / "record.json").is_file()
+    assert not cell.exists(), "the redo must start from an empty cell or the harness resumes"
+    assert archive_cell(tmp_path, CONTROL, "p1", opts) is None  # nothing left to archive
+    cell.mkdir(parents=True)
+    assert archive_cell(tmp_path, CONTROL, "p1", opts).name.endswith(".attempt2")  # type: ignore[union-attr]
 
 
 def test_cli_refuses_identical_arms_and_wrong_parallel(tmp_path: Path, capsys):
@@ -243,6 +319,19 @@ def test_cli_refuses_identical_arms_and_wrong_parallel(tmp_path: Path, capsys):
         main(["--prompts", str(BATTERY), "--out", str(tmp_path), "--no-preflight"])
     with pytest.raises(SystemExit):
         main(["--prompts", str(BATTERY), "--out", str(tmp_path), "--variant-env", "K=v", "--parallel", "8"])
+
+
+def test_aa_run_records_two_empty_arms(tmp_path: Path):
+    """--aa is the ONLY sanctioned way to run identical arms, and the record must say so
+    or a later reader will mistake a noise measurement for a result."""
+    b = Battery.load(BATTERY)
+    ids = [p.id for p in b.prompts[:2]]
+    fake = FakeCells({(ids[0], VARIANT): 0.9})
+    run_ab(BATTERY, tmp_path, AbOptions(variant_env={"CV3D_PLAN_FEATURES": "all"}, aa=True, ids=ids), run_cell_fn=fake)
+    meta = json.loads((tmp_path / "ab.json").read_text())
+    assert meta["aa"] is True and meta["arms"] == {"control": {}, "variant": {}}
+    assert {r.workspace for r in load_jsonl(tmp_path / "results.jsonl", CellResult)} == {""}, "no arm saw the switch"
+    assert (tmp_path / "summary.md").read_text().startswith("# A/A: ")
 
 
 def test_cli_report_only_rebuilds_from_results(tmp_path: Path, capsys):

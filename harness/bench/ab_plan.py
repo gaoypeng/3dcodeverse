@@ -24,7 +24,15 @@ storm.  Prompt N's control and variant start together and the next prompt waits 
 both (``--parallel`` is fixed at 2 by construction).  A cell lost to an outage is
 ``infra_failed`` and removes its prompt from the pairing, never scores it 0
 (``docs/EVAL.md`` §7); ``--redo-status infra_failed`` re-runs BOTH arms of that prompt so
-the pair is re-measured together.
+the pair is re-measured together, archiving the previous attempt first so the surviving
+arm regenerates instead of resuming its old answer (:func:`archive_cell`).
+
+What the verdict does NOT tell you: the generator is stochastic, so a paired delta carries
+the spread of two independent generations, not the judge's ±0.02 sampling noise.  Run
+``--aa`` (both arms identical) on the same battery to measure that floor; every summary
+prints the paired sd, the 2 SE band and how many pairs this spread would need before
+±0.02 is resolvable (``bench/_ab_report.NOISE_SIGMAS``).  Measured 2026-08-24: one A/A
+prompt came back +0.344 and the rule said "keep".
 
 Layout of ``--out``: ``ab.json`` (the arms, options and variant env) ·
 ``results.jsonl`` (one ``CellResult`` per (prompt, arm); resume source) ·
@@ -43,7 +51,9 @@ import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from itertools import count
 from pathlib import Path
+from typing import NamedTuple
 
 from pydantic import BaseModel, Field
 
@@ -93,6 +103,8 @@ class AbOptions(BaseModel):
     redo_status: list[str] = Field(default_factory=list, description="re-run prompts where EITHER arm has one of these")
     variant_env: dict[str, str] = Field(default_factory=dict, description="applied to the variant arm only")
     max_in_flight: int = DEFAULT_MAX_IN_FLIGHT
+    aa: bool = Field(default=False, description="calibration: run BOTH arms as the control, so the delta IS the noise")
+    redo_fresh: bool = Field(default=True, description="a redo regenerates both arms instead of resuming them")
 
     def compare_options(self) -> CompareOptions:
         """The per-cell options handed to ``compare_backends.run_cell`` (both arms identical)."""
@@ -119,11 +131,15 @@ def child_env(arm: str, opts: AbOptions, base: dict[str, str] | None = None) -> 
     driver's env with those same keys REMOVED, so a switch that happens to be set in
     the launching shell cannot silently turn the control into a second variant.  Both
     get the in-flight cap unless the driver already set one.
+
+    Under ``--aa`` the variant arm gets the CONTROL environment: the two arms then run
+    byte-identical code and the measured delta is the rig's own noise floor, which is the
+    number every A/B verdict has to be read against (``bench/_ab_report.NOISE_SIGMAS``).
     """
     env = dict(os.environ if base is None else base)
     for k in opts.variant_env:
         env.pop(k, None)
-    if arm == VARIANT:
+    if arm == VARIANT and not opts.aa:
         env.update(opts.variant_env)
     env.setdefault(MAX_IN_FLIGHT_ENV, str(opts.max_in_flight))
     env["PYTHONUNBUFFERED"] = "1"
@@ -196,7 +212,15 @@ def cell_main(battery_path: Path, out: Path, item_id: str, arm: str, opts: AbOpt
 
 
 # ----------------------------------------------------------------------------- the driver
-def _plan_todo(battery: Battery, done: dict[tuple[str, str], CellResult], opts: AbOptions) -> list[tuple[BenchPrompt, list[str]]]:
+class Todo(NamedTuple):
+    """One unit of work: a prompt, the arms of it still owed, and whether to start over."""
+
+    item: BenchPrompt
+    arms: list[str]
+    fresh: bool = False
+
+
+def _plan_todo(battery: Battery, done: dict[tuple[str, str], CellResult], opts: AbOptions) -> list[Todo]:
     """Which (prompt, arms) still need running.
 
     A prompt with EITHER arm in ``redo_status`` is re-run on BOTH arms — a redo exists
@@ -205,19 +229,44 @@ def _plan_todo(battery: Battery, done: dict[tuple[str, str], CellResult], opts: 
     the missing arm; its partner already finished and re-running it would pay twice
     for the same generation without making the weather match.
     """
-    todo: list[tuple[BenchPrompt, list[str]]] = []
+    todo: list[Todo] = []
     redo = set(opts.redo_status)
     for p in select_prompts(battery, ids=opts.ids, tiers=opts.tiers, limit=opts.limit):
         rows = {a: done.get((p.id, a)) for a in ARMS}
         if redo and any(r is not None and r.status in redo for r in rows.values()):
             for a in ARMS:
                 done.pop((p.id, a), None)
-            todo.append((p, list(ARMS)))
+            todo.append(Todo(p, list(ARMS), fresh=opts.redo_fresh))
             continue
         missing = [a for a in ARMS if rows[a] is None]
         if missing:
-            todo.append((p, missing))
+            todo.append(Todo(p, missing))
     return todo
+
+
+def archive_cell(out: Path, arm: str, item_id: str, opts: AbOptions) -> Path | None:
+    """Move a finished attempt aside so the next one REGENERATES; ``None`` if there was none.
+
+    ``compare_backends._run_harness`` resumes whenever ``<cell>/run`` exists — it never
+    consults ``resume`` — which is right for a harness run recovering from a crash and
+    wrong for this rig.  Without this, ``--redo-status infra_failed`` re-ran the pair on
+    paper only: the arm that had SUCCEEDED resumed its finished workspace and handed back
+    its old score, generated in the old weather, while its partner generated afresh in
+    today's.  That is precisely the cross-weather comparison the pairing exists to
+    prevent, and it was invisible in the report.
+
+    The old attempt is renamed, never deleted: it is the evidence for the outage that
+    caused the redo, and it holds that attempt's cost ledger.
+    """
+    cell = cell_dir(out, arm, item_id, opts.generator)
+    if not cell.exists():
+        return None
+    for n in count(1):
+        dest = cell.with_name(f"{cell.name}.attempt{n}")
+        if not dest.exists():
+            cell.rename(dest)
+            return dest
+    raise AssertionError("unreachable")  # pragma: no cover — count() is infinite
 
 
 def run_ab(battery_path: Path | str, out_dir: Path | str, opts: AbOptions, *, run_cell_fn: CellRunner = spawn_cell,
@@ -227,14 +276,18 @@ def run_ab(battery_path: Path | str, out_dir: Path | str, opts: AbOptions, *, ru
     battery = Battery.load(battery_path)
     out.mkdir(parents=True, exist_ok=True)
     (out / "ab.json").write_text(json.dumps({"battery": battery.name, "prompts": str(battery_path),
-                                             "arms": {CONTROL: {}, VARIANT: opts.variant_env},
+                                             "aa": opts.aa,
+                                             "arms": {CONTROL: {}, VARIANT: {} if opts.aa else opts.variant_env},
                                              "options": opts.model_dump(mode="json"),
                                              "started_at": datetime.now(UTC).isoformat()}, indent=2))
     results = out / "results.jsonl"
     done = {(r.prompt_id, r.arm): r for r in load_jsonl(results, CellResult)} if opts.resume else {}
     todo = _plan_todo(battery, done, opts)
     with ThreadPoolExecutor(max_workers=PARALLEL) as pool, results.open("a") as fh:
-        for item, arms in todo:  # one pair at a time: both arms of a prompt see the same weather
+        for item, arms, fresh in todo:  # one pair at a time: both arms of a prompt see the same weather
+            if fresh:
+                for a in arms:
+                    archive_cell(out, a, item.id, opts)
             futs = [pool.submit(run_cell_fn, battery_path, out, item, a, opts) for a in arms]
             for fut in futs:
                 r = fut.result()
@@ -245,7 +298,8 @@ def run_ab(battery_path: Path | str, out_dir: Path | str, opts: AbOptions, *, ru
                     on_result(r)
     order = [(p.id, p.tier) for p in battery.prompts]
     return write_report(out, list(done.values()), order, title=f"{battery.name} / {out.name}",
-                        variant_env=opts.variant_env, generator=opts.generator, judge=opts.judge, rounds=opts.rounds)
+                        variant_env={} if opts.aa else opts.variant_env, generator=opts.generator,
+                        judge=opts.judge, rounds=opts.rounds, aa=opts.aa)
 
 
 def preflight(opts: AbOptions, *, wait_minutes: float) -> bool:
@@ -281,6 +335,11 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-in-flight", type=int, default=DEFAULT_MAX_IN_FLIGHT, help=f"per child ({MAX_IN_FLIGHT_ENV})")
     ap.add_argument("--parallel", type=int, default=PARALLEL, help="accepted for symmetry; must be 2 (one pair)")
     ap.add_argument("--redo-status", default="", help="comma list, e.g. infra_failed (re-runs both arms of the prompt)")
+    ap.add_argument("--redo-resume", action="store_true",
+                    help="let a redo RESUME the old cells instead of regenerating them (cheap, but the pair then "
+                         "spans two weathers — see archive_cell)")
+    ap.add_argument("--aa", action="store_true",
+                    help="calibration run: both arms identical, so the measured delta IS this rig's noise floor")
     ap.add_argument("--no-resume", action="store_true")
     ap.add_argument("--no-preflight", action="store_true", help="skip the provider health check (do not)")
     ap.add_argument("--wait-for-provider", type=float, default=0.0, metavar="MIN")
@@ -302,17 +361,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                      rounds=ns.rounds, max_usd=ns.max_usd, max_minutes=ns.max_minutes, n_samples=ns.n_samples,
                      ids=[i for i in ns.ids.split(",") if i], tiers=[t for t in ns.tiers.split(",") if t],
                      limit=ns.limit, resume=not ns.no_resume, redo_status=[s for s in ns.redo_status.split(",") if s],
-                     variant_env=parse_variant_env(ns.variant_env), max_in_flight=ns.max_in_flight)
+                     variant_env=parse_variant_env(ns.variant_env), max_in_flight=ns.max_in_flight,
+                     aa=ns.aa, redo_fresh=not ns.redo_resume)
     out = Path(ns.out)
     if ns.report_only:
         battery = Battery.load(ns.prompts)
         v = write_report(out, load_jsonl(out / "results.jsonl", CellResult), [(p.id, p.tier) for p in battery.prompts],
-                         title=f"{battery.name} / {out.name}", variant_env=opts.variant_env, generator=opts.generator,
-                         judge=opts.judge, rounds=opts.rounds)
-        print(f"verdict: {v.decision} — {v.reason}\n{out / 'summary.md'}")
+                         title=f"{battery.name} / {out.name}", variant_env={} if opts.aa else opts.variant_env,
+                         generator=opts.generator, judge=opts.judge, rounds=opts.rounds, aa=opts.aa)
+        print(f"verdict: {v.decision} — {v.reason}" + (f"\nCAUTION: {v.caution}" if v.caution else "")
+              + f"\n{out / 'summary.md'}")
         return 0
-    if not opts.variant_env:
-        _parser().error("--variant-env KEY=VALUE is required: an A/B with identical arms measures only the judge")
+    if not opts.variant_env and not opts.aa:
+        _parser().error("--variant-env KEY=VALUE is required: an A/B with identical arms measures only the noise "
+                        "(pass --aa if measuring the noise is the point)")
     from codeverse.models.health import pool_budget
 
     # the rule is a BUDGET, not a head-count: the provider sees one machine, so the sum of
@@ -330,7 +392,8 @@ def main(argv: Sequence[str] | None = None) -> int:
               f"${r.gen_cost_usd + r.judge_cost_usd:.2f} {r.wall_s / 60:.1f}min {r.status} {r.error[:80]!r}", flush=True)
 
     v = run_ab(ns.prompts, out, opts, on_result=_log)
-    print(f"\nverdict: {v.decision} — {v.reason}\n{out / 'summary.md'}")
+    print(f"\nverdict: {v.decision} — {v.reason}" + (f"\nCAUTION: {v.caution}" if v.caution else "")
+          + f"\n{out / 'summary.md'}")
     lost = [r for r in load_jsonl(out / "results.jsonl", CellResult) if r.status == "infra_failed"]
     if lost:
         print(f"{len(lost)} cell(s) lost to provider outages and EXCLUDED from the pairing; re-run both arms of "
@@ -338,9 +401,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-__all__ = ["DEFAULT_GENERATOR", "DEFAULT_JUDGE", "MAX_IN_FLIGHT_ENV", "PARALLEL", "AbOptions", "CellRunner",
-           "cell_dir", "cell_main", "child_env", "main", "parse_variant_env", "preflight", "run_ab", "spawn_cell",
-           "worker_argv"]
+__all__ = ["DEFAULT_GENERATOR", "DEFAULT_JUDGE", "MAX_IN_FLIGHT_ENV", "PARALLEL", "AbOptions", "CellRunner", "Todo",
+           "archive_cell", "cell_dir", "cell_main", "child_env", "main", "parse_variant_env", "preflight", "run_ab",
+           "spawn_cell", "worker_argv"]
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -216,7 +216,38 @@ Rules that follow from it:
 * `budget_exhausted` is deliberately *not* excused on the build rate: the provider is
   not at fault for a model that cannot finish inside the cap.
 
-## 8. Reporting checklist
+## 8. The noise floor of a paired A/B (`bench/ab_plan.py`)
+
+`bench/ab_plan.py` runs one switch as control-vs-variant, paired per prompt, both arms
+launched together so the weather matches, both scored by the same fixed judge.  The
+verdict rule is blunt on purpose (`bench/_ab_report.verdict_of`, stated once):
+
+> keep iff mean paired delta ≥ +0.02 **and** no prompt at ≤ −0.03; revert iff mean ≤ −0.02
+> **or** ≥ 2 such prompts; else inconclusive.  A prompt counts only when BOTH arms scored.
+
+**That rule is a screen, not a proof, and the numbers say by how much.**  Measured
+2026-08-24: an A/A run — `--variant-env CV3D_PLAN_FEATURES=all` at a time when nothing on
+`main` read that variable, so the two arms were byte-identical code — produced
+control 0.591 vs variant 0.934 on `ctrl_med_dining_chair`, and the verdict line read
+**keep, mean delta +0.344**.  Nothing was under test and the rig said ship it.
+
+The reason is structural, not a bug: a paired delta is the difference of two *independent
+stochastic generations*, so it carries generation spread, not the fixed judge's ±0.02
+sampling noise.  The ±0.02 threshold was sized against the judge and is roughly an order
+of magnitude too tight for what it is applied to.  Consequences:
+
+* every summary now prints a **Confidence** block — paired sd, SE, the 2 SE band, and
+  `separated from noise: yes|NO` — beside the verdict, plus `n_for_power`, the number of
+  paired prompts this spread would need before ±0.02 is resolvable.  At a paired sd of
+  ~0.18 that is *hundreds*, not eight;
+* run `--aa` on the same battery and the same n to measure the floor before believing a
+  win.  Both arms get the control environment; the report is titled `A/A` and banners
+  itself so no reader can mistake a calibration for a result;
+* a `keep` that is not `separated` means "worth another look", never "ship it".  Prefer
+  changes whose per-prompt deltas are *consistent in sign* over ones with a big mean and
+  a big spread — the sign pattern survives this noise where the mean does not.
+
+## 9. Reporting checklist
 
 battery name + git sha of prompts; judge id, rubric name + hash, `n_samples`; per-arm
 generator/planner ids; rounds and budget caps; per-tier table (n, mean ± std, pass

@@ -14,6 +14,7 @@ report can never be argued into "keep" by hand.
 from __future__ import annotations
 
 import json
+import math
 import statistics
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +36,19 @@ KEEP_DELTA = 0.02
 REVERT_DELTA = -0.02
 #: this many regressing prompts is a revert even when the mean looks fine
 REVERT_REGRESSIONS = 2
+#: how many standard errors the mean delta must clear before the rig claims to have
+#: SEPARATED the change from run-to-run noise.  2 is the usual ~95 % two-sided band.
+#:
+#: This is reported, never enforced: the keep/revert rule above is the protocol
+#: (docs/EVAL.md §7) and a report must not be able to argue itself out of it.  But the
+#: rule alone is dangerously confident.  Measured 2026-08-24: an A/A run of this rig —
+#: `CV3D_PLAN_FEATURES=all` when nothing on main read that variable, so both arms were
+#: byte-identical code — scored control 0.591 vs variant 0.934 on one prompt and the
+#: verdict line read **keep, mean delta +0.344**.  The generator is stochastic; a paired
+#: delta carries the spread of two independent generations, not the judge's ±0.02 sample
+#: noise.  So every summary states the spread beside the verdict, and says plainly when
+#: the decision threshold sits inside it.
+NOISE_SIGMAS = 2.0
 
 
 class PairOutcome(BaseModel):
@@ -58,6 +72,24 @@ class Verdict(BaseModel):
     median_delta: float | None
     regressions: list[str] = Field(default_factory=list, description="prompt ids with delta <= REGRESSION_DELTA")
     reason: str = ""
+    sd_delta: float | None = Field(default=None, description="stdev of the paired deltas — the rig's own noise (None at n<2)")
+    se_delta: float | None = Field(default=None, description="standard error of the mean delta, sd/sqrt(n)")
+    separated: bool = Field(default=False, description="|mean delta| >= NOISE_SIGMAS * se: the decision is outside the noise")
+    n_for_power: int | None = Field(default=None, description="pairs this spread needs for NOISE_SIGMAS*se to fit inside KEEP_DELTA")
+
+    @property
+    def caution(self) -> str:
+        """The sentence a reader needs beside a decision that the data cannot support."""
+        if self.n_pairs == 0:
+            return ""
+        if self.se_delta is None:
+            return ("one pair cannot separate a change from run-to-run noise: an A/A run of this rig "
+                    "(identical arms) measured a paired delta of +0.344 on a single prompt.")
+        if self.separated:
+            return ""
+        need = f"~{self.n_for_power} paired prompts" if self.n_for_power else "more paired prompts"
+        return (f"NOT separated from noise: |mean delta| < {NOISE_SIGMAS:g} SE ({NOISE_SIGMAS * self.se_delta:+.3f}). "
+                f"At this spread {need} would be needed to resolve {KEEP_DELTA:+.2f}. Treat the decision as a screen.")
 
 
 def _scored(r: CellResult | None) -> bool:
@@ -102,7 +134,8 @@ def verdict_of(pairs: list[PairOutcome]) -> Verdict:
         return Verdict(decision="inconclusive", n_pairs=0, mean_delta=None, median_delta=None,
                        reason="no prompt has both arms scored")
     mean, median = round(statistics.fmean(deltas), 4), round(statistics.median(deltas), 4)
-    v = Verdict(decision="inconclusive", n_pairs=len(deltas), mean_delta=mean, median_delta=median, regressions=regressions)
+    v = Verdict(decision="inconclusive", n_pairs=len(deltas), mean_delta=mean, median_delta=median,
+                regressions=regressions, **_spread(deltas, mean))
     if mean <= REVERT_DELTA or len(regressions) >= REVERT_REGRESSIONS:
         v.decision, v.reason = "revert", (f"mean delta {mean:+.3f} <= {REVERT_DELTA:+.2f}" if mean <= REVERT_DELTA
                                           else f"{len(regressions)} regressions (>= {REVERT_REGRESSIONS})")
@@ -112,6 +145,23 @@ def verdict_of(pairs: list[PairOutcome]) -> Verdict:
         v.reason = (f"mean delta {mean:+.3f} inside ({REVERT_DELTA:+.2f}, {KEEP_DELTA:+.2f})" if not regressions
                     else f"mean delta {mean:+.3f} but {len(regressions)} regression(s): {', '.join(regressions)}")
     return v
+
+
+def _spread(deltas: list[float], mean: float) -> dict[str, object]:
+    """The noise block of a :class:`Verdict`: how wide the paired deltas are, and what
+    that width does to the decision.
+
+    ``n_for_power`` inverts the standard error: to get ``NOISE_SIGMAS * sd/sqrt(n)`` down
+    to ``KEEP_DELTA`` you need ``n = (NOISE_SIGMAS*sd/KEEP_DELTA)**2`` pairs.  It is the
+    honest answer to "would one more prompt settle this?" and it is usually brutal.
+    """
+    if len(deltas) < 2:
+        return {"sd_delta": None, "se_delta": None, "separated": False, "n_for_power": None}
+    sd = statistics.stdev(deltas)
+    se = sd / math.sqrt(len(deltas))
+    return {"sd_delta": round(sd, 4), "se_delta": round(se, 4),
+            "separated": abs(mean) >= NOISE_SIGMAS * se,
+            "n_for_power": math.ceil((NOISE_SIGMAS * sd / KEEP_DELTA) ** 2) if sd > 0 else 1}
 
 
 class ArmSummary(BaseModel):
@@ -155,21 +205,36 @@ def _cell(r: CellResult | None) -> str:
 
 
 def render_summary(pairs: list[PairOutcome], rows: list[CellResult], *, title: str, variant_env: dict[str, str],
-                   generator: str, judge: str, rounds: int) -> str:
-    """The Markdown report; pure so tests can read it without a filesystem."""
+                   generator: str, judge: str, rounds: int, aa: bool = False) -> str:
+    """The Markdown report; pure so tests can read it without a filesystem.
+
+    ``aa`` marks a calibration run whose arms are deliberately identical: there the
+    measured delta IS the noise floor, and any decision word would be a lie.
+    """
     v = verdict_of(pairs)
     arms = [arm_summary(rows, a) for a in ARMS]
-    lines = [f"# A/B: {title}", "",
-             f"variant env: `{' '.join(f'{k}={val}' for k, val in variant_env.items()) or '(none)'}`  ",
-             f"generator: `{generator}` · fixed judge: `{judge}` · rounds: {rounds} · "
-             f"written {datetime.now().strftime('%Y-%m-%d %H:%M')}", "",
-             f"## Verdict: **{v.decision}**", "",
-             f"{v.reason}.  Paired prompts: {v.n_pairs} · mean delta {_fmt(v.mean_delta, True)} · "
-             f"median delta {_fmt(v.median_delta, True)} · regressions (delta <= {REGRESSION_DELTA:+.2f}): "
-             f"{', '.join(v.regressions) or 'none'}", "",
-             "## Arms", "",
-             "| arm | n | scored | infra_failed | budget_exhausted | other unscored | mean | median | cost $ | mean min |",
-             "|---|---|---|---|---|---|---|---|---|---|"]
+    lines = [f"# A/{'A' if aa else 'B'}: {title}", ""]
+    if aa:
+        lines += ["> **A/A calibration — the arms are identical.** Every delta below is pure run-to-run",
+                  "> noise; the verdict word is printed only to show what this rig would have concluded",
+                  "> from nothing.  Use the spread as the floor an A/B has to clear.", ""]
+    lines += [
+        f"variant env: `{' '.join(f'{k}={val}' for k, val in variant_env.items()) or '(none)'}`  ",
+        f"generator: `{generator}` · fixed judge: `{judge}` · rounds: {rounds} · "
+        f"written {datetime.now().strftime('%Y-%m-%d %H:%M')}", "",
+        f"## Verdict: **{v.decision}**", "",
+        f"{v.reason}.  Paired prompts: {v.n_pairs} · mean delta {_fmt(v.mean_delta, True)} · "
+        f"median delta {_fmt(v.median_delta, True)} · regressions (delta <= {REGRESSION_DELTA:+.2f}): "
+        f"{', '.join(v.regressions) or 'none'}", "",
+        "## Confidence", "",
+        f"paired sd {_fmt(v.sd_delta)} · SE {_fmt(v.se_delta)} · {NOISE_SIGMAS:g} SE band "
+        f"{_fmt(v.mean_delta, True)} ± {_fmt(NOISE_SIGMAS * v.se_delta if v.se_delta else None)} · "
+        f"separated from noise: {'yes' if v.separated else 'NO'}",
+        *([f"\n**{v.caution}**"] if v.caution else []), "",
+        "## Arms", "",
+        "| arm | n | scored | infra_failed | budget_exhausted | other unscored | mean | median | cost $ | mean min |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
     for a in arms:
         lines.append(f"| {a.arm} | {a.n} | {a.n_scored} | {a.n_infra_failed} | {a.n_budget_exhausted} | "
                      f"{a.n_other_unscored} | {_fmt(a.mean_score)} | {_fmt(a.median_score)} | {a.cost_usd:.2f} | {a.mean_minutes:.1f} |")
@@ -196,6 +261,7 @@ def write_report(out: Path, rows: list[CellResult], prompt_order: list[tuple[str
     return v
 
 
-__all__ = ["ARMS", "CONTROL", "KEEP_DELTA", "REGRESSION_DELTA", "REVERT_DELTA", "REVERT_REGRESSIONS", "VARIANT",
+__all__ = ["ARMS", "CONTROL", "KEEP_DELTA", "NOISE_SIGMAS", "REGRESSION_DELTA", "REVERT_DELTA",
+           "REVERT_REGRESSIONS", "VARIANT",
            "ArmSummary", "PairOutcome", "Verdict", "arm_summary", "pair_up", "render_summary", "verdict_of",
            "write_report"]
