@@ -237,7 +237,102 @@ Two contradiction checks are worth separating, because they answer different que
 
 ## 6. Does it help? The A/B
 
-<!-- AB-RESULT -->
+**Verdict: ship OFF behind `CV3D_SKILLS`.**
+
+### The rig
+
+`bench/ab_plan.py`, arms differing in exactly one thing — `CV3D_SKILLS=on` on the variant —
+on `static_objects_v2`, `--rounds 1`, paired, generator `api-agent:gemini:gemini-3.7-flash`,
+fixed judge `gemini:gemini-3.1-pro-preview` at `n_samples 2`, `--max-in-flight 8` against
+32–48 of pool headroom, `--wait-for-provider`. The eight prompt ids are **the same eight
+`bench/out/plan_loop/C0` used for its A/A**, so the noise floor below was measured on this
+exact battery, on this rig, on this day.
+
+The switch is generation-side: the planner call happens in the `plan` stage before any
+skill is attached, and `attach_for_round` only touches generation and repair rounds. That
+matters for §8.1 of `docs/EVAL.md` and is the reason the next run of this can pin the plan.
+
+### The noise floor, measured first
+
+`bench/out/plan_loop/C0`, 2026-08-25, **two identical arms** on these eight prompts:
+
+| | |
+|---|---|
+| paired prompts scored | 6 of 8 (2 lost to `infra_failed`) |
+| mean delta | **+0.043** — from nothing |
+| paired sd | 0.202 · SE 0.082 · 2 SE band **±0.165** |
+| separated from noise | **NO** |
+| sign test | 2 up / 3 down, p = 1.000 |
+| worst "regression" | `mech_hard_pitcher_pump` **−0.206** |
+| prompts needed to resolve ±0.02 | ~408 |
+
+Read the last two rows against the shipping bar this wave was given — *mean delta ≥ 0 and
+no prompt regressed by more than 0.03*. **The A/A fails that bar.** Two of its six paired
+prompts regressed past 0.03 with byte-identical arms. So at n = 8 on this rig the bar is
+not a test of the change; nothing can pass it. That is a fact about the instrument, and it
+is the honest first line of any verdict it produces.
+
+`docs/EVAL.md` §8.1 opened C0's worst pair and found the cause: the two identical arms
+planned 1 part and 10 parts for the same pitcher pump. The dominant variance term is the
+**planner**, not the judge and not the generator.
+
+### The first attempt measured nothing, and said nothing about it
+
+Recorded here because it is the more useful half of this section. The first run of this
+A/B was **void**: `ab_plan.spawn_cell` starts each child as a file path, so `sys.path[0]`
+is `bench/`, and `ab_plan` imported `codeverse._compat` *above* its own `sys.path`
+bootstrap — which let the editable install resolve `codeverse` to the **main tree**. Both
+arms ran a harness with no `codeverse/skills` package at all. No error, no warning; the
+variant workspace simply had no `.agents/skills` directory and no `skills.attached` event,
+and the run would have reported "no effect" with a straight face.
+
+The plan-loop wave hit the same thing hours earlier
+(`bench/out/plan_loop/C0/invalid_attempt1_maintree_import`) and worked around it with
+`PYTHONPATH` in a launch script. It is fixed in the code now — bootstrap first, a guard
+that refuses to start against a foreign `codeverse`, and
+`tests/compare_bench/test_worktree_import.py` — because a workaround protects whoever
+remembers it, not the run.
+
+<!-- AB-NUMBERS -->
+
+### The deterministic readouts are not the escape hatch either
+
+The design planned around this: make the **gate counts** the primary readout, since they
+are deterministic and are what a contact skill actually targets, and put the judged score
+second under a sign test. `bench/ab_gate_rates.py` computes them, paired per prompt.
+
+Run it over the SAME A/A — two identical arms — and it says:
+
+| readout (variant − control, identical arms) | mean delta | better / worse / tied |
+|---|--:|---|
+| penetrating pairs | **+5.67** | 0 / 2 / 1 |
+| worst penetration depth (mm) | **+2.80** | 0 / 3 / 0 |
+| floating parts | +0.00 | 0 / 0 / 3 |
+| stray islands | −0.33 | 1 / 0 / 2 |
+| contract findings | −1.00 | 2 / 1 / 0 |
+
+`mech_hard_pitcher_pump` alone went **1 penetrating pair → 17** between two identical arms.
+Of course it did: the same §8.1 planner variance that produced a 1-part plan and a 10-part
+plan produces 1 contact pair and 17. The gate counts inherit the planner's spread *directly*
+— a bigger plan has more parts, more parts have more contacts. **They are not the low-noise
+readout the design hoped for**, and this A/A calibration of them did not exist before today.
+
+So at n = 8 with a free plan, neither readout can separate this switch from nothing.
+
+### What to try next, in order
+
+1. **Pin the plan** (`docs/EVAL.md` §8.1). The skills switch is generation-side — the
+   planner runs in the `plan` stage before anything is attached — so plan-once-write-both is
+   valid here, and it removes the dominant variance term from *both* readouts instead of
+   averaging it down. It also costs one planner call *less* per pair. This is the single
+   highest-value change and nothing else is worth running before it.
+2. **Reconcile the prompt corpus on weld overlap** (§9). `contract.md` is fixed, but
+   `tracks/generate_static.j2` still says "overlap neighbours by ≥ 0.002 m (push a leg
+   2-5 mm into the seat)". While that stands, `cv3d-part-contact` is arguing with the
+   prompt inside the same session, and the pair-count readout is measuring the argument.
+3. **Get one api-agent battery with the switch on**, for the exact-read calibration (§4).
+   Everything about the read metric on the CLI backends is an upper bound until then.
+4. Only then re-run this A/B, with the gate counts as the primary readout.
 
 ---
 
