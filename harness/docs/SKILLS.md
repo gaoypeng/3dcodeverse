@@ -297,9 +297,11 @@ remembers it, not the run.
 
 ### What this A/B actually measured
 
-`bench/out/ab_skills`, still running when this was written. Weather was hostile: the Gemini
-pool sat at 0–4 of 6 keys answering for most of the window, so the rig parked on its
-preflight for two hours and lost a pair to a 503 storm mid-cell.
+`bench/out/ab_skills`, **still running when this was written** — re-read `summary.md` for the
+current state, and re-run with `--redo-status infra_failed` before quoting it as final.
+Weather was hostile: the Gemini pool sat at 0–4 of 6 keys answering for most of the window,
+so the rig parked on its preflight for two hours and then lost whole pairs to 503 storms
+mid-cell.
 
 | | |
 |---|---|
@@ -307,7 +309,7 @@ preflight for two hours and lost a pair to a 503 storm mid-cell.
 | mean delta | **+0.002** (control 0.937, variant 0.939) |
 | 95% CI | **not computable at n = 1**; the A/A band on this battery is ±0.165 |
 | sign test | 1 up / 0 down, p = 1.000 |
-| `infra_failed` cells | **2** (both arms of `ctrl_med_toaster`), excluded, never scored 0 |
+| `infra_failed` cells | **3+** (both arms of `ctrl_med_toaster`, control of `mech_hard_coffee_grinder`), excluded, never scored 0 |
 | verdict printed by the rig | `inconclusive`, `separated from noise: NO` |
 
 **And the reason that delta is +0.002 is not that the skills did not help. It is that the
@@ -327,6 +329,9 @@ variant arm never read them.**
 | `read_cookbook` calls instead | 2 |
 | what the atime probe reported | 5 of 5 "deep" |
 | what the control reported | `control_read: true` — **the probe was blind**, exactly as §1 predicts |
+
+The next variant cell (`mech_hard_coffee_grinder`) repeated it: five bundles materialised,
+`read_file` called, **zero** skill paths.
 
 So on the backend the entire bench runs on, the mechanism is inert: the agent read 52 files
 and not one of them was a skill. The two arms differed by 356 tokens of index that nobody

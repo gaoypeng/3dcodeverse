@@ -121,7 +121,9 @@ the seat", which is `cv3d-part-contact`'s number, not the prompt corpus's 2–5 
 `bench/out/ab_skills`, eight `static_objects_v2` prompts (the same eight
 `bench/out/plan_loop/C0` used for its A/A), `--rounds 1`, paired, fixed judge, arms
 differing only in `CV3D_SKILLS=on`. A Gemini capacity outage held the pool at 0–4 of 6 keys
-for most of the window: **1 pair scored, 2 cells `infra_failed`** (excluded, never scored 0).
+for most of the window: **1 pair scored, 3+ cells `infra_failed`** (excluded, never scored 0;
+the run was still going when this was written — re-run with `--redo-status infra_failed`
+before quoting it as final).
 
 * mean delta **+0.002** (control 0.937, variant 0.939) · CI not computable at n=1 · sign
   test 1/0, p = 1.000 · the rig printed `inconclusive`, `separated from noise: NO`.
@@ -130,7 +132,8 @@ for most of the window: **1 pair scored, 2 cells `infra_failed`** (excluded, nev
   across 4 sessions and none of them was a skill**, while calling `read_cookbook` twice.
   The atime probe said 5 of 5 "deep" and its control simultaneously said `control_read:
   true` — the probe was blind, exactly as V-8 predicts, and the calibration arm supplied
-  the number it could not.
+  the number it could not.  The next variant cell repeated it: five bundles materialised,
+  `read_file` called, zero skill paths.
 
 So the two arms differed by 356 tokens of index that nobody opened, and +0.002 is what that
 is worth. **Ship OFF**, for three reasons that do not depend on more pairs: the read rate on
