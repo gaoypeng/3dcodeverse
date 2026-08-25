@@ -51,12 +51,44 @@ def brief_cache_dir() -> Path:
     return Path(root) / "briefs"
 
 
+def _reference_digest(spec: Spec) -> list[dict[str, str]]:
+    """Identify the reference images by path AND content hash.
+
+    ``--reference`` synthesises a NEW image per run under the same spec fields, so
+    the path alone does not separate two runs; the bytes do.  An unreadable file
+    still contributes its path, so it can never collapse onto "no references"."""
+    out: list[dict[str, str]] = []
+    for r in spec.references:
+        try:
+            digest = _sha256_file(Path(r.path))
+        except OSError:
+            digest = "(unreadable)"
+        out.append({"path": r.path, "role": r.role, "note": r.note, "sha256": digest})
+    return out
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def brief_cache_key(spec: Spec, model_id: str) -> str:
+    """Every input to the call must be in the key.
+
+    ``expand_brief`` attaches ``spec.references`` to the request and tells the model
+    to read the dimensions and features off them, so a key that omits them lets an
+    ``--image`` run drink a brief generated WITHOUT the image (and vice versa) —
+    silently, from the machine-wide ~/.cache/codeverse/briefs, with cached=True in
+    events.jsonl."""
     c = spec.constraints
     payload = json.dumps({
         "prompt": spec.prompt.strip(), "track": spec.track.value, "language": spec.language.value,
         "must_have": list(c.must_have), "must_not": list(c.must_not), "style": c.style,
         "dimensions_m": c.dimensions_m or {}, "model": model_id,
+        "references": _reference_digest(spec),
         "template": prompt_hash(load_text(BRIEF_TEMPLATE)),
     }, sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()[:20]

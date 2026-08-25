@@ -10,6 +10,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from codeverse.contracts.chat import ImagePart
 from codeverse.contracts.common import Backends, Language, Track
 from codeverse.contracts.plan import (
     SUBPART_REL_SLACK,
@@ -22,7 +23,7 @@ from codeverse.contracts.plan import (
     SubAssembly,
     SubPartPlan,
 )
-from codeverse.contracts.spec import Constraints, Spec
+from codeverse.contracts.spec import Constraints, ReferenceImage, Spec
 from codeverse.tracks import brief as BR
 from codeverse.tracks import plan_budget as B
 from codeverse.tracks.planner import (
@@ -270,6 +271,53 @@ def test_brief_is_cached_by_prompt_hash_and_the_second_call_is_free(tmp_path):
     # a different request is a different key
     BR.expand_brief(_spec("a violin"), "fake:planner", model=model, cache_dir=tmp_path)
     assert calls["n"] == 2
+
+
+def test_reference_images_are_part_of_the_brief_cache_key(tmp_path):
+    """RS-4: expand_brief attaches spec.references and tells the model to read the
+    dimensions off them, so a key that omits them let an --image run silently
+    reuse a brief generated WITHOUT the image (and vice versa)."""
+    img = tmp_path / "ref.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n-first-")
+    plain = _spec()
+    withref = plain.model_copy(update={"references": [ReferenceImage(path=str(img))]})
+
+    assert BR.brief_cache_key(plain, "m") != BR.brief_cache_key(withref, "m")
+
+    # --reference synthesises a NEW image per run under identical spec fields:
+    # the path alone does not separate the two runs, the bytes must.
+    before = BR.brief_cache_key(withref, "m")
+    img.write_bytes(b"\x89PNG\r\n\x1a\n-second-")
+    assert BR.brief_cache_key(withref, "m") != before
+
+    # ... and the role/note that go into the image label matter too
+    other = plain.model_copy(update={"references": [ReferenceImage(path=str(img), role="style")]})
+    assert BR.brief_cache_key(other, "m") != BR.brief_cache_key(withref, "m")
+
+
+def test_an_image_run_does_not_drink_the_no_image_brief(tmp_path):
+    """The end-to-end shape of RS-4: two expand_brief calls, one model call each."""
+    cache = tmp_path / "cache"
+    img = tmp_path / "ref.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n-bytes-")
+    calls: list[int] = []
+
+    def responder(req):
+        calls.append(sum(1 for part in req.messages[0].parts if isinstance(part, ImagePart)))
+        return json.loads(_brief().model_dump_json())
+
+    model = FakeChatModel(responder)
+    plain = _spec()
+    withref = plain.model_copy(update={"references": [ReferenceImage(path=str(img))]})
+    BR.expand_brief(plain, "fake:planner", model=model, cache_dir=cache)
+    BR.expand_brief(withref, "fake:planner", model=model, cache_dir=cache)
+
+    assert calls == [0, 1]  # the reference run made its own, grounded call
+
+
+def test_an_unreadable_reference_never_collapses_onto_no_references(tmp_path):
+    missing = _spec().model_copy(update={"references": [ReferenceImage(path=str(tmp_path / "gone.png"))]})
+    assert BR.brief_cache_key(missing, "m") != BR.brief_cache_key(_spec(), "m")
 
 
 def test_brief_failure_is_never_fatal(tmp_path):
