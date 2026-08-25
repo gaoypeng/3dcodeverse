@@ -118,6 +118,8 @@ def safe_relpath(path: str, allowed_roots: tuple[str, ...] = ALLOWED_ROOTS) -> s
     p = _clean_path(path)
     if not p or p.startswith("/") or ".." in Path(p).parts or re.match(r"^[A-Za-z]:", p):
         raise GenerationError(f"refusing to write outside the workspace: {path!r}")
+    if p.endswith("/"):  # '=== FILE: src/parts/ ===' names a directory, not a file
+        raise GenerationError(f"path {path!r} is a directory, not a file")
     if not any(p.startswith(root) for root in allowed_roots):
         raise GenerationError(f"path {p!r} is outside the allowed roots {allowed_roots}")
     return p
@@ -132,10 +134,10 @@ def write_files(
 ) -> list[FileChange]:
     """Write parsed files under the workspace; returns git-style FileChange rows.
 
-    A block whose path is unsafe or outside ``allowed_roots`` (flash models love
-    to add README.md / package.json despite the format rule) is SKIPPED — reported
-    via ``on_skip`` — instead of aborting the whole write: the valid files were
-    already paid for."""
+    A block whose path is unsafe, outside ``allowed_roots`` (flash models love
+    to add README.md / package.json despite the format rule) or unwritable is
+    SKIPPED — reported via ``on_skip`` — instead of aborting the whole write:
+    the valid files were already paid for."""
     changes: list[FileChange] = []
     for raw, content in files.items():
         try:
@@ -147,8 +149,17 @@ def write_files(
             continue
         dest = ws.root / rel
         existed = dest.exists()
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content if content.endswith("\n") else content + "\n")
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content if content.endswith("\n") else content + "\n")
+        except OSError as e:
+            # Same contract as an out-of-root path: one unwritable block (a path that
+            # is already a directory, a name the filesystem rejects) must not throw
+            # away the files that DID parse -- the whole answer was already paid for.
+            if on_skip is not None:
+                on_skip(raw, str(e))
+            log.warning("skipping unwritable file from generator: %s: %s", rel, e)
+            continue
         changes.append(FileChange(path=rel, status="modified" if existed else "added",
                                   lines_added=content.count("\n") + 1))
     return changes
