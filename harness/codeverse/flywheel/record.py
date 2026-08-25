@@ -275,30 +275,51 @@ def load_record(ws: Workspace | Path | str) -> RunRecord:
         raise RecordError(f"invalid record.json in {ws.root}: {e}") from e
 
 
-#: how deep to look for a nested run before giving up (ab_plan's layout is
-#: arms/<arm>/cells/<prompt>/<slug>/run — five levels below the battery root)
-_NESTED_SCAN_DEPTH = 6
+# Battery layouts nest their runs at these depths below the battery root: run_bench
+# ``runs/<id>`` = 2, compare_backends ``cells/<id>/<arm>/run`` = 4, ab_plan
+# ``arms/<arm>/cells/<id>/<slug>/run`` = 6.  Seven covers all three with a margin and
+# stops a mistyped root from walking a whole home directory.
+RUN_SEARCH_DEPTH = 7
+
+#: subdirectories that mark a bench battery directory rather than a plain runs root
+BATTERY_MARKERS = ("runs", "cells", "arms")
 
 
-def _find_nested_run(root: Path, depth: int = _NESTED_SCAN_DEPTH) -> Path | None:
-    """The first run directory strictly below ``root``, or None.  Breadth-first and
-    depth-bounded: this only has to prove that the caller pointed one level too high."""
-    level = [root]
-    for _ in range(depth):
+def is_run_dir(p: Path) -> bool:
+    return p.is_dir() and (p / "record.json").is_file()
+
+
+def find_run_dirs(root: Path | str, *, predicate: Callable[[Path], bool] = is_run_dir,
+                  max_depth: int = RUN_SEARCH_DEPTH) -> list[Path]:
+    """Run directories under ``root``, sorted.
+
+    Direct children win when there are any — that is the ``3dcv`` runs root and the
+    run_bench ``runs/`` layout, and it keeps the common case a single ``iterdir()``.
+    Only when there are none do we descend, which is what makes a compare_backends or
+    ab_plan BATTERY directory work: those hold their runs four and five levels down, so
+    every exporter used to scan one level, find nothing and report "0 runs" as a success.
+    A directory that IS a run is never descended into (a run holds candidate workspaces
+    of its own).
+    """
+    root = Path(root)
+    if not root.is_dir():
+        return []
+    direct = sorted(d for d in root.iterdir() if predicate(d))
+    if direct:
+        return direct
+    found: list[Path] = []
+    frontier = [d for d in sorted(root.iterdir()) if d.is_dir()]  # depth 1
+    for _ in range(max_depth):
+        if not frontier:
+            break
         nxt: list[Path] = []
-        for d in level:
-            try:
-                kids = sorted(p for p in d.iterdir() if p.is_dir())
-            except OSError:  # pragma: no cover - unreadable dir
-                continue
-            for k in kids:
-                if (k / "record.json").is_file():
-                    return k
-                nxt.append(k)
-        if not nxt:
-            return None
-        level = nxt
-    return None
+        for d in frontier:
+            if predicate(d):
+                found.append(d)
+                continue  # a run's own subdirectories are not runs
+            nxt.extend(c for c in sorted(d.iterdir()) if c.is_dir())
+        frontier = nxt
+    return sorted(found)
 
 
 def iter_runs(
@@ -312,22 +333,20 @@ def iter_runs(
     root = Path(runs_dir)
     if not root.is_dir():
         raise FileNotFoundError(f"runs dir not found: {root}")
-    children = sorted(p for p in root.iterdir() if p.is_dir())
-    if not any((d / "record.json").is_file() for d in children):
-        # Pointing at a BATTERY dir instead of its runs root is the easy mistake, and every
-        # exporter here reports "0 runs" as a SUCCESS — writing an empty metadata.parquet.
-        # Silence must not look like an empty dataset.  Keying the guard on root/runs alone
-        # left it silent for the two drivers that produce most batteries: compare_backends
-        # writes cells/<prompt>/<arm>/run and ab_plan writes arms/<arm>/cells/<prompt>/<slug>/run.
-        found = _find_nested_run(root)
-        if found is not None:
-            hint = (f"did you mean {root / 'runs'}?" if found.parent == root / "runs"
-                    else f"e.g. {found} — batteries nest their runs (cells/<prompt>/<arm>/run)")
-            raise FileNotFoundError(
-                f"no run directories directly under {root}, but there are runs below it — {hint}")
+    children = find_run_dirs(root)
+    battery_dirs = [m for m in BATTERY_MARKERS if (root / m).is_dir()]
+    if not children and battery_dirs:
+        # Silence must not look like an empty dataset.  This guard used to test only for
+        # ``<root>/runs`` — true for the run_bench layout, false for compare_backends
+        # (cells/) and ab_plan (arms/), i.e. exactly today's batteries, which therefore
+        # reported "0 runs" as a success.  find_run_dirs now FINDS all three layouts, so
+        # reaching here means a battery directory that really is empty; an ordinary runs
+        # root with no runs in it stays a legitimate empty result.
+        raise FileNotFoundError(
+            f"no run directories under {root} — it looks like a battery directory "
+            f"({', '.join(battery_dirs)}/) but holds no record.json within "
+            f"{RUN_SEARCH_DEPTH} levels")
     for d in children:
-        if not (d / "record.json").is_file():
-            continue
         ws = Workspace(d)
         try:
             rec = load_record(ws)

@@ -371,31 +371,72 @@ def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
     assert not (sdir2 / "textures").exists()
 
 
-def test_pointing_at_a_battery_dir_says_so_instead_of_exporting_nothing(tmp_path):
-    """`bench/out/<battery>` holds its runs in `runs/`, and pointing one level too high
-    used to report "runs 0, exported 0" as a SUCCESS — an empty dataset that looks like
-    a finished one.  Silence must not read as an empty result."""
+def test_a_battery_dir_is_discovered_rather_than_reported_as_zero_runs(tmp_path):
+    """CP-6: pointing an exporter at `bench/out/<battery>` used to report "runs 0,
+    exported 0" as a SUCCESS.  The old guard only fired when `<root>/runs` existed —
+    true for the run_bench layout, FALSE for compare_backends (cells/<id>/<arm>/run) and
+    ab_plan (arms/<arm>/cells/<id>/<slug>/run), i.e. exactly today's batteries.  All
+    three layouts are now discovered instead."""
+    from codeverse.flywheel.record import find_run_dirs
+
+    battery = tmp_path / "static_v2_flash"          # run_bench: runs/<id>
+    (battery / "runs" / "some_run").mkdir(parents=True)
+    (battery / "runs" / "some_run" / "record.json").write_text("{}")
+    assert [d.name for d in find_run_dirs(battery)] == ["some_run"]
+
+    cmp_bat = tmp_path / "compare_v2"               # compare_backends: cells/<id>/<arm>/run
+    cell = cmp_bat / "cells" / "cmp_med_chair" / "harness_api-agent" / "run"
+    cell.mkdir(parents=True)
+    (cell / "record.json").write_text("{}")
+    assert find_run_dirs(cmp_bat) == [cell]
+
+    ab = tmp_path / "ab_aa_noise"                   # ab_plan: arms/<arm>/cells/<id>/<slug>/run
+    for arm in ("control", "variant"):
+        d = ab / "arms" / arm / "cells" / "ctrl_med_chair" / "harness_api-agent" / "run"
+        d.mkdir(parents=True)
+        (d / "record.json").write_text("{}")
+    assert len(find_run_dirs(ab)) == 2
+
+
+def test_a_gallery_of_a_battery_dir_is_not_a_gallery_of_zero_runs(tmp_path):
+    """CP-6, the other half: gallery/index.scan_root did a single `root.iterdir()`, so
+    `3dcv gallery build bench/out/<ab battery>` printed "gallery of 0 runs" and exit 0."""
+    from codeverse.gallery.index import scan_root
+
+    ab = tmp_path / "ab_aa_noise"
+    d = ab / "arms" / "control" / "cells" / "ctrl_med_chair" / "harness_api-agent" / "run"
+    d.mkdir(parents=True)
+    (d / "spec.json").write_text("{}")
+    assert len(scan_root(ab).entries) == 1
+
+
+def test_an_empty_battery_dir_still_refuses_to_look_like_an_empty_dataset(tmp_path):
+    """A battery directory with the layout but no records is the case the anti-silence
+    guard is still for — it must raise, not export nothing and exit 0."""
     import pytest
 
     from codeverse.flywheel.record import iter_runs
 
-    battery = tmp_path / "static_v2_flash"
-    (battery / "runs" / "some_run").mkdir(parents=True)
-    (battery / "runs" / "some_run" / "record.json").write_text("{}")
-
-    with pytest.raises(FileNotFoundError, match=r"did you mean .*runs"):
+    battery = tmp_path / "compare_empty"
+    (battery / "cells" / "cmp_med_chair").mkdir(parents=True)
+    with pytest.raises(FileNotFoundError, match=r"looks like a battery directory"):
         list(iter_runs(battery))
 
 
-def test_a_compare_or_ab_battery_dir_says_so_too(tmp_path):
-    """RS-8: the guard only knew the runs/ layout, but compare_backends writes
-    cells/<prompt>/<arm>/run and ab_plan writes arms/<arm>/cells/<prompt>/<slug>/run —
-    so for the two drivers that produced today's compare_v3 / A-B batteries the exact
-    mistake the guard was added for was still silent (n_runs=0 reported as success,
-    plus an empty metadata.parquet)."""
-    import pytest
+def test_a_compare_or_ab_battery_dir_is_exported_not_refused(tmp_path):
+    """RS-8 / CP-6, the two reports of one defect.  The original guard only knew the
+    runs/ layout, so for compare_backends (``cells/<prompt>/<arm>/run``) and ab_plan
+    (``arms/<arm>/cells/<prompt>/<slug>/run``) — the drivers that produced today's
+    compare_v3 and A-B batteries — pointing an exporter at the battery reported
+    n_runs=0 as a SUCCESS and wrote an empty metadata.parquet.
 
-    from codeverse.flywheel.record import iter_runs
+    Sign-off note: two waves fixed this, one by raising a loud hint and one by
+    discovering the runs.  Discovery wins and subsumes the hint — every other battery
+    reader (``3dcv cost --runs-dir``) already accepts a battery root, so refusing here
+    would have been the only command that did not.  The anti-silence guard is kept for
+    the case discovery cannot rescue: a battery-SHAPED directory holding no records
+    (``test_an_empty_battery_dir_still_refuses_to_look_like_an_empty_dataset``)."""
+    from codeverse.flywheel.record import find_run_dirs, iter_runs
 
     compare = tmp_path / "compare_v3"
     for pid in ("p0", "p1"):
@@ -403,16 +444,16 @@ def test_a_compare_or_ab_battery_dir_says_so_too(tmp_path):
             run = compare / "cells" / pid / arm / "run"
             run.mkdir(parents=True)
             (run / "record.json").write_text("{}")
-
-    with pytest.raises(FileNotFoundError, match="runs below it"):
-        list(iter_runs(compare))
+    assert len(find_run_dirs(compare)) == 4
+    seen: list[str] = []
+    list(iter_runs(compare, on_error=lambda d, e: seen.append(d.name)))  # must not raise
+    assert len(seen) == 4, "every cell is reached; these stub records are invalid, not absent"
 
     ab = tmp_path / "ab_plan_v1"
     deep = ab / "arms" / "control" / "cells" / "p0" / "stool_ab12" / "run"
     deep.mkdir(parents=True)
     (deep / "record.json").write_text("{}")
-    with pytest.raises(FileNotFoundError, match="runs below it"):
-        list(iter_runs(ab))
+    assert find_run_dirs(ab) == [deep]
 
 
 def test_a_genuinely_empty_runs_root_is_still_just_empty(tmp_path):

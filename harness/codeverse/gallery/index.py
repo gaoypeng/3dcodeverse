@@ -18,7 +18,13 @@ from pathlib import Path
 
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel.quality import quality_tier
-from codeverse.flywheel.record import RecordError, best_round_index, effective_judgment, load_record
+from codeverse.flywheel.record import (
+    RecordError,
+    best_round_index,
+    effective_judgment,
+    find_run_dirs,
+    load_record,
+)
 from codeverse.flywheel.sample import gate_error_summary, telemetry_digest
 from codeverse.gallery.labels import humanize_view
 from codeverse.gallery.model import GalleryIndex, RootSection, RoundRow, RunEntry, RunLink
@@ -283,8 +289,12 @@ def is_run_dir(p: Path) -> bool:
 
 
 def scan_root(root: Path, label: str | None = None) -> RootSection:
+    """Runs under ``root``.  Uses ``find_run_dirs`` rather than a one-level
+    ``iterdir()``: a compare_backends or ab_plan battery directory holds its runs four
+    and five levels down, so pointing the gallery at one built a page "of 0 runs" and
+    exited 0 — the silent-empty failure, on a directory full of real runs."""
     label = label or root_label(root)
-    entries = [entry_for_dir(label, d) for d in sorted(root.iterdir()) if is_run_dir(d)] if root.is_dir() else []
+    entries = [entry_for_dir(label, d) for d in find_run_dirs(root, predicate=is_run_dir)]
     return RootSection(label=label, path=str(Path(root).resolve()), entries=entries)
 
 
