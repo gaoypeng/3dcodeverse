@@ -58,10 +58,10 @@ solid — a revolved profile faked from stacked boxes reads as a blocky toy.
    that splits a part also leaves 2 valid solids.
 4. **`.cut()` is for removing material only.** Do not union across plan boundaries; each
    plan part stays its own solid in the Assembly. Overshoot cutters by >= 0.1 mm.
-5. **Touching parts weld by overlapping >= 2 mm.** That figure is the CadQuery authoring
-   contract's own, and it is the overlap the worked examples in the cookbook use; the
-   connectivity gate's contact and penetration thresholds are stated once, in
-   `cv3d-part-contact`, and are not repeated here.
+5. **Touching parts weld by overlapping 0.5-2 mm.** The CadQuery authoring contract's
+   own figure, and the overlap its worked example uses; 2 mm is a ceiling, not a target,
+   because the connectivity gate calls a deeper overlap interpenetration. Its contact and
+   penetration thresholds are stated once, in `cv3d-part-contact`, and not repeated here.
 6. **Keep solids closed.** Export runs through STL as well as GLB; `.shell()` keeps a solid
    watertight, hand-assembled faces do not.
 7. Feature sizes >= 0.5 mm (OCC's tolerance eats smaller), <= 40 parts, build under 120 s.

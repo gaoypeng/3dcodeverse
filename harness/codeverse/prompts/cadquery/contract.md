@@ -51,7 +51,7 @@ import math
 # --- plan numbers (metres) -------------------------------------------------
 TOP_W, TOP_D, TOP_T, TOP_Z = 0.60, 0.40, 0.025, 0.45   # table top, its top face at 0.45
 LEG_S, LEG_INSET = 0.035, 0.04                          # square leg side, inset from edge
-WELD = 0.003                                            # legs poke 3 mm into the top
+WELD = 0.001                                            # legs poke 1 mm into the top
 
 def build_top() -> cq.Workplane:
     return (cq.Workplane("XY")
