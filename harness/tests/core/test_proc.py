@@ -162,18 +162,39 @@ def test_write_json_atomic_survives_concurrent_writers(tmp_path: Path):
     assert not list(tmp_path.glob("*.tmp")), "no temp file left behind"
 # --------------------------------------------------------------------------- atomic writes
 def test_unique_tmp_is_per_process_and_per_thread(tmp_path: Path):
-    """A FIXED '<name>.tmp' is what made concurrent writers of one destination race."""
+    """A FIXED '<name>.tmp' is what made concurrent writers of one destination race.
+
+    The threads are held at a BARRIER so all 8 are alive when they name their temp file.
+    That is the property CQ-2 actually needs — two writers racing on one destination at
+    the same instant must not choose the same name — and it is the only one
+    ``threading.get_ident()`` promises: an ident is unique among *living* threads and is
+    explicitly documented as recyclable once a thread exits.  Without the barrier these
+    8 one-line threads finish before the next starts, CPython hands out the same ident
+    every time, and the assertion reduces to 1 != 8 — which is exactly how this failed
+    on the Python 3.10 floor job (it happened to pass on 3.13) on the sign-off clean
+    clone, 2026-08-24.  The fix under test was never wrong; the test was.
+    """
     from codeverse.proc import unique_tmp
 
     out = tmp_path / "cache" / "checker.mjs"
     seen: list[Path] = []
-    threads = [threading.Thread(target=lambda: seen.append(unique_tmp(out))) for _ in range(8)]
+    lock = threading.Lock()
+    gate = threading.Barrier(8, timeout=30)
+
+    def name_it() -> None:
+        gate.wait()  # every thread is alive and running past this point
+        got = unique_tmp(out)
+        with lock:
+            seen.append(got)
+
+    threads = [threading.Thread(target=name_it) for _ in range(8)]
     for t in threads:
         t.start()
     for t in threads:
-        t.join()
+        t.join(timeout=30)
 
-    assert len({str(p) for p in seen}) == 8
+    assert len(seen) == 8
+    assert len({str(p) for p in seen}) == 8, "two live threads chose the same temp name"
     assert all(p.parent == out.parent and p.name.startswith("checker.mjs.") for p in seen)
     assert str(os.getpid()) in seen[0].name
 
