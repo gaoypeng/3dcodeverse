@@ -80,3 +80,55 @@ def test_the_rate_and_limits_dials_carry_their_bounds(monkeypatch):
         with pytest.raises(ValueError):
             Limits(**kwargs)
     assert Rate(max_in_flight=0).max_in_flight == 0, "0 stays legal: it means unlimited"
+
+
+# --------------------------------------------------------------------------- yaml layering
+def test_a_project_file_overrides_only_the_keys_it_names(tmp_path, monkeypatch):
+    """SM-04: the two YAML files were merged with ``dict.update``, so naming a section in
+    ./codeverse.yaml replaced the WHOLE sub-dict and every sibling key the user set in
+    ~/.config/codeverse/config.yaml fell back to the built-in Field default — not to the
+    user's value.  Here that means the key pool scheduling against the built-in
+    1,000,000 TPM when the operator declared 250,000, 4x their real quota, merely because
+    the project file mentions `rate:` at all.  docs/INSTALL.md §8.3 documents the order as
+    "built-in defaults < user config < project config < env", which reads as per-setting."""
+    import os
+
+    from codeverse import config as C
+
+    home = tmp_path / "fakehome"
+    (home / ".config" / "codeverse").mkdir(parents=True)
+    (home / ".config" / "codeverse" / "config.yaml").write_text(
+        "rate:\n  tpm_per_key: 250000\n  rpm_per_key: 300\njudge:\n  samples: 4\n")
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "codeverse.yaml").write_text("rate:\n  max_in_flight: 8\n")
+
+    monkeypatch.setattr(C, "_USER_CONFIG", home / ".config" / "codeverse" / "config.yaml")
+    monkeypatch.chdir(proj)
+    for var in ("CV3D_MAX_IN_FLIGHT", "CV3D_RATE__MAX_IN_FLIGHT", "CV3D_RATE__TPM_PER_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    C.get_settings.cache_clear()
+    try:
+        s = C.get_settings()
+        # the project file's own key applies ...
+        assert s.rate.max_in_flight == 8
+        # ... and the user's siblings in the SAME section survive it
+        assert s.rate.tpm_per_key == 250000, "the binding TPM limit must not silently reset"
+        assert s.rate.rpm_per_key == 300
+        # a section the project file does not name is untouched (this always worked)
+        assert s.judge.samples == 4
+    finally:
+        C.get_settings.cache_clear()
+        os.environ.pop("CV3D_PROFILE", None)
+
+
+def test_deep_merge_overlays_per_key_at_every_depth():
+    from codeverse.config import _deep_merge
+
+    base = {"rate": {"tpm": 1, "rpm": 2}, "judge": {"samples": 4}, "scalar": 1}
+    over = {"rate": {"tpm": 9}, "scalar": 2, "new": {"a": 1}}
+    assert _deep_merge(base, over) == {
+        "rate": {"tpm": 9, "rpm": 2}, "judge": {"samples": 4}, "scalar": 2, "new": {"a": 1}}
+    assert base == {"rate": {"tpm": 1, "rpm": 2}, "judge": {"samples": 4}, "scalar": 1}, "no mutation"
+    # a non-dict overlay replaces a dict outright rather than trying to merge into it
+    assert _deep_merge({"a": {"b": 1}}, {"a": 5}) == {"a": 5}

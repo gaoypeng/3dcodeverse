@@ -306,13 +306,34 @@ def _env_gemini_keys() -> list[str]:
     return keys
 
 
+def _deep_merge(base: dict, overlay: dict) -> dict:
+    """Recursive dict merge — ``overlay`` wins per SETTING, not per section.
+
+    ``dict.update`` replaced a whole sub-dict, so a project ``./codeverse.yaml`` that
+    merely NAMED a section silently dropped every sibling key the user had set in
+    ``~/.config/codeverse/config.yaml`` — those keys fell back to the built-in Field
+    defaults, not to the user's values.  Concretely: a user config with
+    ``rate.tpm_per_key: 250000`` plus a project file with only ``rate.max_in_flight: 8``
+    scheduled the key pool against the built-in 1,000,000 TPM, 4x the operator's real
+    quota, even though Rate's own docstring calls tpm_per_key the binding limit on this
+    box.  docs/INSTALL.md §8.3 documents the order as "built-in defaults < user config <
+    project config < env", which every reader takes as per-setting.
+    """
+    out = dict(base)
+    for k, v in overlay.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Build the singleton Settings (cached; call ``get_settings.cache_clear()`` in tests)."""
     data: dict = {}
     for p in (_USER_CONFIG, Path("codeverse.yaml")):
-        deep = _load_yaml(p)
-        data.update(deep)
+        data = _deep_merge(data, _load_yaml(p))
     s = Settings(**data)
     if not s.gemini_api_keys:
         s.gemini_api_keys = _env_gemini_keys() or _legacy_gemini_keys()
