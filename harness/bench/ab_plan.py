@@ -57,11 +57,40 @@ from typing import NamedTuple
 
 from pydantic import BaseModel, Field
 
-from codeverse._compat import UTC
-
+# ---------------------------------------------------------------------------------------
+# sys.path FIRST, and before any `codeverse` import.  `spawn_cell` starts each child as a
+# FILE path, so `sys.path[0]` is `bench/` and the cwd is NOT on the path; an editable
+# install (`__editable__.3dcodeverse-...pth`) then resolves `import codeverse` to whatever
+# tree it was installed from.  Importing `codeverse._compat` above this line made every
+# child of a worktree run the MAIN tree's harness, both arms identically, and the A/B
+# measured nothing while looking completely healthy — it happened twice on 2026-08-25
+# (`bench/out/plan_loop/C0/invalid_attempt1_maintree_import`, and again to the skills wave).
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:  # `python bench/ab_plan.py` from anywhere
     sys.path.insert(0, str(REPO))
+
+from codeverse._compat import UTC  # noqa: E402
+
+
+def _assert_local_codeverse() -> None:
+    """Refuse to run against a `codeverse` from a different tree.
+
+    A workaround in a launch script (`export PYTHONPATH=...`) protects the person who
+    remembers it.  This protects the run.
+    """
+    import codeverse
+
+    got = Path(codeverse.__file__).resolve().parent
+    want = REPO / "codeverse"
+    if got != want:
+        raise SystemExit(
+            f"refusing to run: `import codeverse` resolved to {got}, not {want}.\n"
+            f"  An editable install is shadowing this tree, so both arms would run the same\n"
+            f"  code and the A/B would measure nothing.  Launch with:\n"
+            f"      PYTHONPATH={REPO} python bench/ab_plan.py ...")
+
+
+_assert_local_codeverse()
 
 from bench._ab_report import ARMS, CONTROL, VARIANT, Verdict, write_report  # noqa: E402
 from bench._compare_report import CellResult, load_jsonl  # noqa: E402

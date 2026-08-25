@@ -45,8 +45,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from codeverse._compat import UTC
-
+# sys.path BEFORE any `codeverse` import: this file is also run as a script, and an
+# editable install would otherwise resolve `codeverse` to the tree it was installed from
+# rather than this one.  See the same note in `bench/ab_plan.py`.
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:  # `python bench/compare_backends.py` from anywhere
     sys.path.insert(0, str(REPO))
@@ -76,6 +77,7 @@ from bench.run_bench import (  # noqa: E402
     default_run_track,
     select_prompts,
 )
+from codeverse._compat import UTC  # noqa: E402
 from codeverse.config import get_settings  # noqa: E402
 from codeverse.contracts.artifacts import RenderSet  # noqa: E402
 from codeverse.contracts.run import RunRecord  # noqa: E402
