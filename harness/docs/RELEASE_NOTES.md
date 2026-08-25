@@ -75,7 +75,7 @@ the seat", which is `cv3d-part-contact`'s number, not the prompt corpus's 2–5 
 
 ### New standing tests
 
-`tests/skills/` — 590 offline, 4 live, 3 slow.
+`tests/skills/` — 712 tests: 650 in the default suite, 58 `slow`, 4 `live`.
 
 * **Contradiction**, library-wide, on the *pre-scale value* rather than the rendered text —
   "1 cm" and "0.01" metres are one tolerance in two units, and failing that pair would

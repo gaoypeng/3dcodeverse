@@ -186,7 +186,7 @@ Two things this also says, and neither is comfortable:
 
 ## 5. What the tests guarantee
 
-`tests/skills/` — 590 offline tests, plus 4 live and 3 slow.
+`tests/skills/` — 712 tests: 650 that run in the default suite, 58 marked `slow` (they recompute from `bench/out` or build a wheel), 4 marked `live` (they drive a real CLI).
 
 | file | guarantees |
 |---|---|
