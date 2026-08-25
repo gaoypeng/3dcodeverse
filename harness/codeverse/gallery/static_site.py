@@ -16,6 +16,7 @@ from codeverse.gallery.index import build_index
 from codeverse.gallery.model import GalleryIndex
 from codeverse.gallery.page import render_index
 from codeverse.gallery.urls import THUMB_PX, StaticUrls
+from codeverse.proc import write_text_atomic
 
 
 def render_static(index: GalleryIndex, *, title: str = "3dcv gallery", embed: bool = False,
@@ -30,11 +31,7 @@ def render_static(index: GalleryIndex, *, title: str = "3dcv gallery", embed: bo
 
 def write_atomic(path: Path, text: str) -> Path:
     """tmp + rename, so a reader never sees a partial gallery."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
-    return path
+    return write_text_atomic(path, text)
 
 
 def build_static(roots: list[Path] | list[str], out_html: Path | str, *, title: str | None = None,

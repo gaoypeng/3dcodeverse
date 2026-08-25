@@ -38,7 +38,7 @@ from codeverse.contracts.run import (
     SettingsSnapshot,
     StageCost,
 )
-from codeverse.proc import write_json_atomic
+from codeverse.proc import write_json_atomic, write_text_atomic
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -310,11 +310,7 @@ def read_json(path: Path) -> dict[str, Any] | None:
 
 # --------------------------------------------------------------------------- io
 def write_usage_jsonl(path: Path, rows: list[dict[str, Any]]) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".jsonl.tmp")
-    tmp.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows))
-    tmp.replace(path)
-    return path
+    return write_text_atomic(path, "".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows))
 
 
 def _place_usage_rows(ws: Workspace, rows: list[dict[str, Any]], source: str) -> str:

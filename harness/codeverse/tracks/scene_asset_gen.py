@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from codeverse.contracts.plan import AssetPlan
 from codeverse.conventions import to_pascal, to_snake
-from codeverse.proc import write_json_atomic
+from codeverse.proc import write_json_atomic, write_text_atomic
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import SINGLE_SHOT_PREFIX, is_single_shot
 from codeverse.workspace import Workspace
@@ -148,10 +148,10 @@ def _checker_path(ctx: RunContext) -> Path:
     """The checker script lives in the harness cache, never in the workspace."""
     p = Path(ctx.settings.cache_dir) / "scene_asset_check.mjs"
     if not p.is_file() or p.read_text() != _CHECK_JS:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".mjs.tmp")
-        tmp.write_text(_CHECK_JS)
-        tmp.replace(p)
+        # run_asset_stage fans the assets out over a thread pool, so every thread
+        # used to write the SAME '<cache>/scene_asset_check.mjs.tmp' and the loser's
+        # replace() raised FileNotFoundError -- swallowed below into ok=True, ran=False.
+        write_text_atomic(p, _CHECK_JS)
     return p
 
 

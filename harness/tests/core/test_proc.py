@@ -6,6 +6,7 @@ import json
 import os
 import resource
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -130,3 +131,54 @@ def test_write_json_atomic_survives_concurrent_writers(tmp_path: Path):
         assert out.strip() == "0", f"a reader saw a partial file {out.strip()} time(s)"
     assert json.loads(target.read_text())["writer"] in ("A", "B", "C")  # last writer wins, whole
     assert not list(tmp_path.glob("*.tmp")), "no temp file left behind"
+# --------------------------------------------------------------------------- atomic writes
+def test_unique_tmp_is_per_process_and_per_thread(tmp_path: Path):
+    """A FIXED '<name>.tmp' is what made concurrent writers of one destination race."""
+    from codeverse.proc import unique_tmp
+
+    out = tmp_path / "cache" / "checker.mjs"
+    seen: list[Path] = []
+    threads = [threading.Thread(target=lambda: seen.append(unique_tmp(out))) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len({str(p) for p in seen}) == 8
+    assert all(p.parent == out.parent and p.name.startswith("checker.mjs.") for p in seen)
+    assert str(os.getpid()) in seen[0].name
+
+
+def test_concurrent_writers_of_one_destination_all_succeed(tmp_path: Path):
+    """CQ-2: the second writer's replace() used to find its source already renamed
+    away -> FileNotFoundError.  Barrier-synchronised, this failed ~half the time."""
+    from codeverse.proc import write_text_atomic
+
+    out = tmp_path / "shared.txt"
+    n = 8
+    bar = threading.Barrier(n)
+    errors: list[BaseException] = []
+
+    def writer() -> None:
+        try:
+            bar.wait()
+            write_text_atomic(out, "payload\n")
+        except BaseException as e:  # noqa: BLE001 — the point of the test
+            errors.append(e)
+
+    threads = [threading.Thread(target=writer) for _ in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, errors
+    assert out.read_text() == "payload\n"
+    assert list(tmp_path.iterdir()) == [out]  # no temp litter left behind
+
+
+def test_write_json_atomic_round_trips(tmp_path: Path):
+    out = tmp_path / "d" / "x.json"
+    write_json_atomic(out, {"a": 1})
+    assert json.loads(out.read_text()) == {"a": 1}
+    assert [p.name for p in out.parent.iterdir()] == ["x.json"]
