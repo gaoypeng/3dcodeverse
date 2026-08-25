@@ -32,6 +32,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from bench._jsonl import read_jsonl, seal_for_append
 from codeverse._compat import UTC
 from codeverse.config import get_settings
 from codeverse.contracts.common import Backends, Budget, Language, Track
@@ -136,13 +137,10 @@ def result_from_record(item: BenchPrompt, rec: RunRecord, minutes: float, ws: Wo
 
 
 def _load_done(results_jsonl: Path) -> dict[str, BenchItemResult]:
-    done: dict[str, BenchItemResult] = {}
-    if results_jsonl.is_file():
-        for line in results_jsonl.read_text().splitlines():
-            if line.strip():
-                r = BenchItemResult.model_validate_json(line)
-                done[r.id] = r
-    return done
+    """Rows already paid for, latest wins.  Tolerant by design: this file is the
+    resume source and it is appended to a line at a time, so the run that a SIGKILL
+    ended is precisely the one whose last line is half-written."""
+    return {r.id: r for r in read_jsonl(results_jsonl, BenchItemResult)}
 
 
 def select_prompts(
@@ -213,6 +211,7 @@ def run_battery(
                                    generator=spec.backends.generator, judge=spec.backends.judge)
         return result_from_record(item, rec, (time.time() - t0) / 60, ws)
 
+    seal_for_append(results_jsonl)  # a kill left the last row unterminated; do not glue onto it
     with ThreadPoolExecutor(max_workers=max(1, opts.parallel)) as pool, results_jsonl.open("a") as fh:
         futs = {pool.submit(_one, item): item for item in todo}
         for fut in as_completed(futs):

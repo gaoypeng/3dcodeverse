@@ -59,6 +59,7 @@ from bench._compare_report import (  # noqa: E402
 )
 from bench._fixed_eval import RUBRIC, EvalOutcome, FixedEvaluator  # noqa: E402
 from bench._infra import is_budget_exhaustion, is_infra_failure  # noqa: E402
+from bench._jsonl import seal_for_append  # noqa: E402
 from bench._oneshot import (  # noqa: E402
     MODEL_FILE,
     OneShotBackend,
@@ -303,6 +304,7 @@ def run_pairwise(battery: Battery, cells: dict[tuple[str, str], CellResult], arm
     harness = [a for a in arms if a.kind == "harness"]
     oneshot = [a for a in arms if a.kind != "harness"]
     judge = None
+    seal_for_append(path)  # a kill left the last row unterminated; do not glue onto it
     with path.open("a") as fh:
         for item in battery.prompts:
             for ha in harness:
@@ -353,6 +355,7 @@ def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm
     selected = select_prompts(battery, ids=opts.ids, tiers=opts.tiers, limit=opts.limit)
     todo = [(p, a) for a in sorted(arms, key=lambda a: a.kind == "harness")  # cheap one-shots first
             for p in selected if (p.id, a.raw) not in done]
+    seal_for_append(results)  # a kill left the last row unterminated; do not glue onto it
     with ThreadPoolExecutor(max_workers=max(1, opts.parallel)) as pool, results.open("a") as fh:
         futs = {pool.submit(run_cell, battery, p, a, out, opts, deps): (p, a) for p, a in todo}
         for fut in as_completed(futs):

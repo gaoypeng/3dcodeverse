@@ -16,6 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from bench._jsonl import read_jsonl
 from bench.run_bench import BenchItemResult
 from codeverse.flywheel.gallery import GalleryItem, item_from_run, render_gallery
 from codeverse.flywheel.record import RecordError, load_record
@@ -51,11 +52,7 @@ class BenchReport(BaseModel):
 def load_results(out_dir: Path) -> list[BenchItemResult]:
     jl = out_dir / "results.jsonl"
     if jl.is_file():
-        latest: dict[str, BenchItemResult] = {}
-        for line in jl.read_text().splitlines():
-            if line.strip():
-                r = BenchItemResult.model_validate_json(line)
-                latest[r.id] = r
+        latest: dict[str, BenchItemResult] = {r.id: r for r in read_jsonl(jl, BenchItemResult)}
         return list(latest.values())
     js = out_dir / "results.json"
     if js.is_file():

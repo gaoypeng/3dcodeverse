@@ -66,6 +66,7 @@ if str(REPO) not in sys.path:  # `python bench/ab_plan.py` from anywhere
 from bench._ab_report import ARMS, CONTROL, VARIANT, Verdict, write_report  # noqa: E402
 from bench._compare_report import CellResult, load_jsonl  # noqa: E402
 from bench._infra import is_infra_failure  # noqa: E402
+from bench._jsonl import seal_for_append  # noqa: E402
 from bench.compare_backends import (  # noqa: E402
     Arm,
     CompareDeps,
@@ -307,6 +308,7 @@ def run_ab(battery_path: Path | str, out_dir: Path | str, opts: AbOptions, *, ru
     results = out / "results.jsonl"
     done = {(r.prompt_id, r.arm): r for r in load_jsonl(results, CellResult)} if opts.resume else {}
     todo = _plan_todo(battery, done, opts)
+    seal_for_append(results)  # a kill left the last row unterminated; do not glue onto it
     with ThreadPoolExecutor(max_workers=PARALLEL) as pool, results.open("a") as fh:
         for item, arms, fresh in todo:  # one pair at a time: both arms of a prompt see the same weather
             if fresh:

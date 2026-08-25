@@ -17,6 +17,8 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
+from bench._jsonl import read_jsonl
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -76,7 +78,7 @@ class PairRow(BaseModel):
 
 def load_jsonl(path: Path, model: type[T]) -> list[T]:
     """Rows in first-seen order, latest row winning per ``natural_key`` (models without
-    one keep every row).
+    one keep every row).  Unparseable lines are skipped, not fatal — see ``bench/_jsonl.py``.
 
     The dedup lives HERE, once, because the files are append-only and every reader needs
     the same rows: ``ab_plan --report-only`` used to hand the raw rows to ``render_summary``
@@ -84,14 +86,12 @@ def load_jsonl(path: Path, model: type[T]) -> list[T]:
     as 0.400 in the arms table, 0.800 per prompt, and based its verdict on 0.800 — and the
     "lost to outages" footer counted infra_failed cells that had already been re-run and
     scored, advising ``--redo-status infra_failed`` for nothing.
+
+    Tolerance and dedup compose: a killed battery's truncated last line is dropped by
+    ``read_jsonl`` and the surviving rows are still collapsed to one per cell.
     """
-    if not path.is_file():
-        return []
     rows: dict[Any, T] = {}
-    for i, line in enumerate(path.read_text().splitlines()):
-        if not line.strip():
-            continue
-        row = model.model_validate_json(line)
+    for i, row in enumerate(read_jsonl(path, model)):
         key = row.natural_key() if hasattr(row, "natural_key") else i
         rows[key] = row  # first appearance fixes the order, the last row wins the slot
     return list(rows.values())

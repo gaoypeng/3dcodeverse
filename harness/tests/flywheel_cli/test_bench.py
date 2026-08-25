@@ -118,3 +118,32 @@ def test_every_bench_prompt_opens_its_own_run_ledger(tmp_path: Path):
         rows = load_ledger(Path(r.workspace))
         assert len(rows) == 1, f"{r.id}: {rows}"
         assert rows[0].run == r.id and rows[0].cost_usd > 0  # and not a sibling's row
+
+
+def test_a_truncated_last_line_does_not_cost_the_whole_resume(tmp_path: Path):
+    """RS-3: results.jsonl is the resume source AND it is appended a line at a time,
+    so the run a SIGKILL ended is exactly the one whose last line is half-written.
+    Strict per-line validation made that file unusable: the battery could not be
+    resumed at all and its already-paid rows could not even be reported, so the
+    operator had to hand-edit the file or re-buy the battery."""
+    battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
+    out = tmp_path / "bench_out"
+    run_battery(battery, out, BenchOptions(parallel=1, limit=2), run_fn=_fake_run_fn({}))
+    jl = out / "results.jsonl"
+    good = [ln for ln in jl.read_text().splitlines() if ln.strip()]
+    assert len(good) == 2
+    # SIGKILL mid-append: the last row is truncated inside a JSON string
+    jl.write_text("\n".join(good) [: -30])
+
+    calls: list[str] = []
+
+    def counting(spec, ws, resume):
+        calls.append(spec.id.split("/")[-1])
+        return _fake_run_fn({})(spec, ws, resume)
+
+    res = run_battery(battery, out, BenchOptions(parallel=1, limit=2), run_fn=counting)
+    # the intact first row is still credited: only the truncated prompt is re-run
+    assert calls == [good and json.loads(good[1])["id"]]
+    assert len(res) == 2
+    # and the already-paid rows remain reportable
+    assert {r.id for r in load_results(out)} == {json.loads(ln)["id"] for ln in good}
