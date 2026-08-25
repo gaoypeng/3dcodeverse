@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from codeverse.skills import bundle_dirs, iter_skills, skills_dir, validate_bundle
-from codeverse.skills.claims import check_claims, claim_values
+from codeverse.skills.claims import check_claims, claim_bases, load_claims
 from codeverse.skills.loader import BODY_MAX_LINES, BODY_MAX_TOKENS
 from codeverse.skills.registry import ROUTED_SKILLS, ROUTES
 
@@ -73,18 +73,37 @@ def test_an_evidence_thin_bundle_says_so(s):
         assert s.metadata.get("evidence_note"), f"{s.name}: a non-measured bundle must say why in metadata"
 
 
-def test_co_routing_skills_never_disagree_about_a_number():
-    """T3: astra3d checked one hand-picked pair; this checks the whole co-routing graph."""
-    by_skill = {s.name: claim_values(s.name) for s in SKILLS}
-    pairs: set[tuple[str, str]] = set()
-    for a in by_skill:
-        for b in by_skill:
-            if a < b and _can_co_route(a, b):
-                pairs.add((a, b))
-    for a, b in sorted(pairs):
-        shared = set(by_skill[a]) & set(by_skill[b])
-        for key in sorted(shared):
-            assert by_skill[a][key] == by_skill[b][key], f"{a} and {b} disagree about {key}"
+def test_no_two_skills_anywhere_point_one_claim_key_at_different_numbers():
+    """T3: astra3d checked one hand-picked pair by hand; this checks the whole library.
+
+    Compared on the PRE-SCALE value, not the rendered text: "1 cm" and "0.01" metres are
+    the same tolerance honestly quoted in two units, and failing that pair would have
+    taught the next author to delete the claim rather than fix a contradiction.
+    """
+    by_key: dict[str, dict[str, tuple[str, object]]] = defaultdict(dict)
+    for s in SKILLS:
+        for key, base in claim_bases(s.name).items():
+            by_key[key][s.name] = base
+    for key, owners in sorted(by_key.items()):
+        targets = {t for t, _ in owners.values()}
+        values = {repr(v) for _, v in owners.values()}
+        assert len(targets) == 1, f"{key} is pinned to {sorted(targets)} by {sorted(owners)}"
+        assert len(values) == 1, f"{key} resolves to {sorted(values)} across {sorted(owners)}"
+
+
+def test_co_routing_skills_render_a_shared_number_the_same_way(): 
+    """A weaker but still useful rule for skills that can land in ONE session together:
+    if they chose the same units for a shared key, the sentence must read the same."""
+    rows = {s.name: {r["key"]: r for r in load_claims(s.name) if r.get("key")} for s in SKILLS}
+    for a in sorted(rows):
+        for b in sorted(rows):
+            if a >= b or not _can_co_route(a, b):
+                continue
+            for key in sorted(set(rows[a]) & set(rows[b])):
+                ra, rb = rows[a][key], rows[b][key]
+                if (ra.get("scale"), ra.get("format")) != (rb.get("scale"), rb.get("format")):
+                    continue
+                assert ra.get("text") == rb.get("text"), f"{a} and {b} disagree about {key}"
 
 
 def _can_co_route(a: str, b: str) -> bool:

@@ -31,7 +31,8 @@ No `OCP`/`OCC` direct calls, no numpy, no file I/O, no `cq.exporters`, no
 * ≤ 40 parts; each part a valid solid (`.val().isValid()`), no empty Workplanes; fillets
   < 0.45 × thinnest adjacent wall; feature sizes ≥ 0.5 mm; build < 120 s.
 * Do not union parts across plan boundaries (keep one solid per part); small intentional
-  overlap (≥ 2 mm) between touching parts is required — that is how they "weld".
+  overlap of **0.5–2 mm** between touching parts is required — that is how they "weld";
+  deeper than 2 mm and the connectivity gate calls it interpenetration.
 
 ## Self-check (put at the end of the file)
 ```python

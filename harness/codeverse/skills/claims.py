@@ -97,8 +97,27 @@ def check_claims(skill: Skill, root: Path | None = None) -> list[str]:
 
 
 def claim_values(name: str, root: Path | None = None) -> dict[str, str]:
-    """``key -> text`` for one bundle — what the agreement test compares across skills."""
+    """``key -> text`` for one bundle — the rendered string, in that bundle's own units."""
     return {str(r["key"]): str(r.get("text", "")) for r in load_claims(name, root) if r.get("key")}
 
 
-__all__ = ["CLAIMS_DIR", "check_claims", "claim_values", "claims_path", "load_claims", "render_claim", "resolve"]
+def claim_bases(name: str, root: Path | None = None) -> dict[str, tuple[str, Any]]:
+    """``key -> (dotted target, live value)`` — the agreement test's real comparison.
+
+    WHY not the rendered text: two skills may honestly quote one constant in two units.
+    ``cv3d-bbox-contract`` says "1 cm" (scale 100) and ``cv3d-repeats-and-mirrors`` says
+    "0.01" metres; both pin ``conventions:BBOX_TOLERANCE_M`` and both are right.  A
+    contradiction is two skills pointing a shared key at DIFFERENT numbers, so that is what
+    is compared — the pre-scale value, and the target it came from.
+    """
+    out: dict[str, tuple[str, Any]] = {}
+    for row in load_claims(name, root):
+        key = row.get("key")
+        if not key or not row.get("python"):
+            continue
+        out[str(key)] = (str(row["python"]), resolve(str(row["python"])))
+    return out
+
+
+__all__ = ["CLAIMS_DIR", "check_claims", "claim_bases", "claim_values", "claims_path", "load_claims",
+           "render_claim", "resolve"]

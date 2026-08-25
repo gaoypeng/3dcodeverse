@@ -22,6 +22,7 @@ a score claim in every prompt, and a score claim belongs in a measured report.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from codeverse.cost.guard import text_tokens
@@ -40,6 +41,24 @@ MANDATE = ("Skills for this task are installed in this workspace. Any whose desc
 
 _HEADING = "## Skills"
 
+#: how much of a description the api-agent index repeats.  The spec lets a description run to
+#: 1024 chars and ours use it — they are what a CLI's own matcher reads.  api-agent's index is
+#: not a matcher: OUR router already decided, so the line only has to be recognisable enough
+#: for the agent to know which file to open.  Measured on the real library, quoting the full
+#: 14 descriptions costs 780 tokens for five skills; the first clause costs 401.
+INDEX_SUMMARY_CHARS = 200
+
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z`])")
+
+
+def index_summary(description: str, limit: int = INDEX_SUMMARY_CHARS) -> str:
+    """The WHAT half of a description, for the one index we write ourselves."""
+    first = _SENTENCE_END.split(description.strip(), 1)[0].strip()
+    if len(first) <= limit:
+        return first
+    cut = first[:limit].rsplit(" ", 1)[0].rstrip(" ,;:—-")
+    return cut + " ..."
+
 
 def skill_path(name: str, *, agent_kind: str = "") -> str:
     root = CLAUDE_SKILL_ROOT if agent_kind == "claude-code" else AGENTS_SKILL_ROOT
@@ -57,7 +76,8 @@ def index_block(skills: Sequence[Skill | Selection], agent_kind: str) -> str:
         return ""
     if agent_kind in NATIVE_LOADERS:
         return f"{_HEADING}\n\n{MANDATE}\n"
-    lines = [f"- **{s.name}** — {s.description} Read `{skill_path(s.name, agent_kind=agent_kind)}` BEFORE writing code."
+    lines = [f"- **{s.name}** — {index_summary(s.description)} "
+             f"Read `{skill_path(s.name, agent_kind=agent_kind)}` BEFORE writing code."
              for s in items]
     return f"{_HEADING}\n\n{MANDATE}\n\n" + "\n".join(lines) + "\n"
 
@@ -99,5 +119,6 @@ def inline_body(selections: Sequence[Selection], *, max_tokens: int = 2500) -> t
     return "", ""
 
 
-__all__ = ["AGENTS_SKILL_ROOT", "CLAUDE_SKILL_ROOT", "MANDATE", "NATIVE_LOADERS",
-           "index_block", "index_tokens", "inline_body", "repair_pointers", "skill_path"]
+__all__ = ["AGENTS_SKILL_ROOT", "CLAUDE_SKILL_ROOT", "INDEX_SUMMARY_CHARS", "MANDATE",
+           "NATIVE_LOADERS", "index_block", "index_summary", "index_tokens", "inline_body",
+           "repair_pointers", "skill_path"]
