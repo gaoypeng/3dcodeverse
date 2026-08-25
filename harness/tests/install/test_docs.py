@@ -218,6 +218,14 @@ def test_doctor_checks_every_module_of_every_optional_extra(monkeypatch) -> None
     wanted = {re.split(r"[<>=!\[ ]", req)[0].replace("-", "_")
               for name, reqs in extras.items() if name not in ("all", "dev") for req in reqs}
     assert not wanted - set(_PY_DEPS), f"extras doctor never checks: {sorted(wanted - set(_PY_DEPS))}"
+    # ...and every one of them must also be ATTRIBUTED to its extra.  Checking without
+    # attributing is what made a correct base install report itself broken: scipy (urdf),
+    # networkx (mesh) and pyarrow (flywheel) were in _PY_DEPS but not in _OPTIONAL_DEPS, so
+    # a fresh 3.10 clone installed exactly as docs/INSTALL.md §1 documents printed
+    # `python deps FAIL 14/23` with a remedy that named four of the five extras and could
+    # not clear the row.  Found on the sign-off clean-clone run, 2026-08-24.
+    assert not wanted - set(_OPTIONAL_DEPS), (
+        f"extras doctor checks but cannot name: {sorted(wanted - set(_OPTIONAL_DEPS))}")
     # the two lazily-imported tracks are a WARN naming their extra, not a FAIL: without them
     # the harness installs and starts fine and only that track raises (docs/INSTALL.md §4)
     assert _OPTIONAL_DEPS["moderngl"] == "graphics" and _OPTIONAL_DEPS["cadquery"] == "cad"
@@ -232,6 +240,19 @@ def test_doctor_checks_every_module_of_every_optional_extra(monkeypatch) -> None
     monkeypatch.setattr(importlib, "import_module", no_graphics)
     _, deps = check_python_deps()
     assert deps[1] == "WARN" and "moderngl" in deps[2] and "harness[graphics]" in deps[2]
+
+    # and the whole base install — every extra absent, which is what `pip install -e harness`
+    # leaves behind — is a WARN whose remedy names EVERY missing extra, never a FAIL
+    def base_install(name: str, *a, **kw):
+        if name.split(".")[0] in _OPTIONAL_DEPS:
+            raise ModuleNotFoundError(f"No module named {name!r}")
+        return real(name, *a, **kw)
+
+    monkeypatch.setattr(importlib, "import_module", base_install)
+    _, deps = check_python_deps()
+    assert deps[1] == "WARN", f"a correct base install must not report FAIL: {deps[2]}"
+    for extra in sorted(set(_OPTIONAL_DEPS.values())):
+        assert extra in deps[2], f"the remedy does not name [{extra}]: {deps[2]}"
 
 
 def test_doctor_rows_have_troubleshooting_entries() -> None:

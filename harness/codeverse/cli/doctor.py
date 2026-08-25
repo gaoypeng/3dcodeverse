@@ -26,8 +26,14 @@ _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", 
 #: [graphics] passed doctor "21/21 importable" and then failed in the graphics track with
 #: "no usable OpenGL context: No module named 'moderngl'" — a missing pip package reported
 #: as a GPU/driver problem (docs/INSTALL.md §4 promises every extra is listed here).
-_OPTIONAL_DEPS = {"manifold3d": "mesh", "shapely": "mesh", "yourdfpy": "urdf", "mcp": "mcp",
-                  "moderngl": "graphics", "cadquery": "cad"}
+#: EVERY module of every extra must be here, or the base install misreports itself: the
+#: map was missing scipy/networkx/pyarrow, so a fresh clone installed exactly as
+#: docs/INSTALL.md §1 documents (no extras) got `python deps FAIL 14/23` — "your install
+#: is broken" for an install that is correct — and a remedy that named four of the five
+#: extras and could not clear the row.  Verified on a 3.10 clean clone, 2026-08-24.
+_OPTIONAL_DEPS = {"manifold3d": "mesh", "shapely": "mesh", "networkx": "mesh",
+                  "yourdfpy": "urdf", "scipy": "urdf", "mcp": "mcp",
+                  "moderngl": "graphics", "cadquery": "cad", "pyarrow": "flywheel"}
 _CLI_TIMEOUT = 25
 
 
