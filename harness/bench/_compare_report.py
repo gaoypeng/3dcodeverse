@@ -22,6 +22,10 @@ from bench._jsonl import read_jsonl
 T = TypeVar("T", bound=BaseModel)
 
 
+#: The fixed judge's rubric per battery track (bench/_fixed_eval.py builds the evaluator from it).
+RUBRIC_BY_TRACK: dict[str, str] = {"static_object": "static_object_v1", "articulated_object": "articulated_v1"}
+
+
 class CellResult(BaseModel):
     prompt_id: str
     tier: str = ""
@@ -218,7 +222,7 @@ def compare_markdown(out: Path, rows: list[CellResult], pairs: list[PairRow], me
     prompts = _prompt_order(rows, meta)
     cells = {(r.prompt_id, r.arm): r for r in rows}
     md = [f"# harness vs one-shot — {meta.get('battery', {}).get('name', out.name)}", "",
-          f"fixed judge: **{opts.get('judge', '?')}** (rubric static_object_v1, n_samples={opts.get('n_samples', 2)}, "
+          f"fixed judge: **{opts.get('judge', '?')}** (rubric {RUBRIC_BY_TRACK.get(str(meta.get('battery', {}).get('track', 'static_object')), 'static_object_v1')}, n_samples={opts.get('n_samples', 2)}, "
           f"acceptance = must_have list) · harness loop judge: {opts.get('loop_judge') or 'settings default'} · "
           f"harness rounds ≤ {opts.get('rounds', '?')}, ≤ ${opts.get('max_usd', '?')} · cells: {len(rows)}", "",
           "Every arm's final `src/model.py` is re-built, re-rendered and judged by the same evaluator; a failed "

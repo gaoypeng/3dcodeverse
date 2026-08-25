@@ -64,10 +64,11 @@ from bench._oneshot import (  # noqa: E402
     MODEL_FILE,
     OneShotBackend,
     OneShotResult,
+    files_for,
     get_oneshot_backend,
     oneshot_prompt,
     repair_prompt,
-    write_model_file,
+    write_answer_files,
 )
 from bench.run_bench import (  # noqa: E402
     Battery,
@@ -197,7 +198,7 @@ def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts
             res.error_is_infra = gen.infra_failed
             return
         try:
-            write_model_file(eval_ws, gen.text)
+            write_answer_files(eval_ws, gen.text, spec.language)
         except MultiFileParseError as e:
             res.error = f"unparseable answer: {e}"
             return
@@ -207,7 +208,8 @@ def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts
         build, lint = deps.evaluator.build(eval_ws)  # repair arm: error feedback only
         if build.ok and not lint.errors:
             return
-        prompt = repair_prompt(spec, (eval_ws.root / MODEL_FILE).read_text(), build, lint, attempt + 1)
+        previous = {rel: (eval_ws.root / rel).read_text() for rel in files_for(spec.language) if (eval_ws.root / rel).is_file()}
+        prompt = repair_prompt(spec, previous, build, lint, attempt + 1)
 
 
 def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, res: CellResult) -> None:
@@ -495,7 +497,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     arms = parse_arms(ns.arms)
     if not ns.no_preflight and not _preflight(opts.judge, arms, opts, wait_minutes=ns.wait_for_provider):
         return 2
-    deps = CompareDeps(FixedEvaluator(opts.judge, n_samples=opts.n_samples))
+    battery = Battery.load(ns.prompts)  # the fixed evaluator follows the battery's track / language
+    deps = CompareDeps(FixedEvaluator(opts.judge, n_samples=opts.n_samples, track=battery.track, language=battery.language))
 
     def _log(r: CellResult) -> None:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {r.prompt_id:28s} {r.arm:44s} score={r.score} build_ok={r.build_ok} "
