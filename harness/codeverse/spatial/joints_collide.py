@@ -79,8 +79,12 @@ def oriented_islands(mesh: trimesh.Trimesh) -> list[trimesh.Trimesh]:
     return islands
 
 
-def _inside(island: trimesh.Trimesh, points: np.ndarray) -> np.ndarray:
-    """Deterministic parity containment (fixed ray direction, both directions must agree)."""
+def inside_island(island: trimesh.Trimesh, points: np.ndarray) -> np.ndarray:
+    """Deterministic parity containment (fixed ray direction, both directions must agree).
+
+    Public because the connectivity gate measures interpenetration the same way: it must
+    work on the non-watertight meshes agents actually export, where ``Trimesh.contains``
+    cannot answer at all."""
     if len(points) == 0:
         return np.zeros(0, dtype=bool)
     return np.asarray(ray_util.contains_points(island.ray, points, check_direction=_RAY_DIR), dtype=bool)
@@ -132,14 +136,14 @@ class LinkBody:
         local = trimesh.transform_points(points_world, self.T_inv)
         depth = 0.0
         for island, pq in zip(self.islands, self._island_pq, strict=True):
-            inside = _inside(island, local)
+            inside = inside_island(island, local)
             if inside.any():
                 depth = max(depth, float(pq.on_surface(local[inside])[1].max()))
         return depth
 
     def any_inside(self, points_world: np.ndarray) -> bool:
         local = trimesh.transform_points(points_world, self.T_inv)
-        return any(bool(_inside(i, local).any()) for i in self.islands)
+        return any(bool(inside_island(i, local).any()) for i in self.islands)
 
 
 def aabb_gap(a: np.ndarray, b: np.ndarray) -> float:

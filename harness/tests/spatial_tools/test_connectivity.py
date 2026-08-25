@@ -119,3 +119,41 @@ def test_penetration_depth_zero_when_apart() -> None:
     b = trimesh.creation.box(extents=(1, 1, 1))
     b.apply_translation((2, 0, 0))
     assert penetration_depth(a, b) == (0.0, 0.0)
+
+
+def _open_bottom_box(extents, translation) -> trimesh.Trimesh:
+    """A box with its bottom face dropped — an open shell, what agents actually export."""
+    m = trimesh.creation.box(extents=extents)
+    m.apply_translation(translation)
+    low = m.vertices[m.faces].mean(axis=1)[:, 1]
+    shell = trimesh.Trimesh(vertices=m.vertices, faces=m.faces[low > low.min() + 1e-9], process=False)
+    assert not shell.is_watertight
+    return shell
+
+
+def test_interpenetration_is_found_between_two_non_watertight_parts(tmp_path: Path) -> None:
+    """CG-2: penetration_depth skipped any direction whose target was not watertight
+    (``Trimesh.contains`` needs one), so when NEITHER part was watertight it returned
+    (0.0, 0.0) — indistinguishable from "no overlap", with no warning that the check had
+    not run.  A 0.2 m post driven 50 mm into a base then passed the gate as soon as both
+    were modelled as open shells; only the mixed closed/open case still fired, which is
+    why the shipped tests stayed green."""
+    base_ext, post_ext = (0.4, 0.2, 0.4), (0.2, 0.2, 0.2)
+    base_at, post_at = (0, 0.1, 0), (0, 0.25, 0)  # post bottom 50 mm below the base's top face
+    closed = (trimesh.creation.box(extents=base_ext), trimesh.creation.box(extents=post_ext))
+    closed[0].apply_translation(base_at)
+    closed[1].apply_translation(post_at)
+    shells = (_open_bottom_box(base_ext, base_at), _open_bottom_box(post_ext, post_at))
+
+    for tag, (a, b) in (("closed", closed), ("open shells", shells)):
+        depth, frac = penetration_depth(a, b)
+        assert depth == pytest.approx(0.05, abs=1e-3), f"{tag}: 50 mm of interpenetration must be measured"
+        assert frac > 0.05, tag
+
+    scene = trimesh.Scene()
+    scene.add_geometry(shells[0], node_name="Base", geom_name="Base")
+    scene.add_geometry(shells[1], node_name="Post", geom_name="Post")
+    glb = tmp_path / "open_shells.glb"
+    scene.export(str(glb))
+    r = check_connectivity(glb)
+    assert not r.passed and any("interpenetrate" in f.message for f in r.errors)

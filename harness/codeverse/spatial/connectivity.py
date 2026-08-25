@@ -39,7 +39,7 @@ import trimesh
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.conventions import CONTACT_GAP_M, Frame
 from codeverse.spatial.contract import frame_label, glb_vec_to_plan, language_frame
-from codeverse.spatial.joints_collide import fcl_collision_object
+from codeverse.spatial.joints_collide import fcl_collision_object, inside_island, oriented_islands
 from codeverse.spatial.measure import GlbLoadError, fmt_vec, solid_parts
 
 GATE = "connectivity"
@@ -148,22 +148,40 @@ def _sample(mesh: trimesh.Trimesh, n: int, rng: np.random.Generator) -> np.ndarr
 
 
 def penetration_depth(a: trimesh.Trimesh, b: trimesh.Trimesh, n: int = N_SAMPLES) -> tuple[float, float]:
-    """(max depth, fraction of samples inside) of ``a``'s surface inside ``b`` and vice versa."""
+    """(max depth, fraction of samples inside) of ``a``'s surface inside ``b`` and vice versa.
+
+    Containment is the per-island, fixed-direction parity ray test the articulation gate
+    already uses (:func:`codeverse.spatial.joints_collide.inside_island`), NOT
+    ``Trimesh.contains``.  ``contains`` needs a watertight mesh, so this used to
+    ``continue`` past any open shell — and when NEITHER part was watertight it returned
+    (0.0, 0.0), indistinguishable from "no overlap", with no warning that the check had
+    not run.  A 50 mm post driven into a base passed the gate as soon as both parts were
+    modelled as open-bottomed shells, which is the common case for agent-exported meshes
+    (open shells, boolean leftovers, mirrored halves, single-sided planes); only the
+    mixed closed/open case still fired, which is why the shipped tests stayed green.
+    Islands that are not watertight are tested the same way and the answer is
+    approximate — the same trade joints_collide.penetration documents and flags.
+    """
     rng = np.random.default_rng(_RNG_SEED)
     worst_depth, worst_frac = 0.0, 0.0
     for src, dst in ((a, b), (b, a)):
-        if not dst.is_watertight:  # containment is meaningless on open shells
-            continue
         pts = _sample(src, n, rng)
-        try:
-            inside = dst.contains(pts)
-        except Exception:
-            continue
+        inside = np.zeros(len(pts), dtype=bool)
+        depth = 0.0
+        for island in oriented_islands(dst):
+            try:
+                hit = inside_island(island, pts)
+            except Exception:  # noqa: BLE001 - a degenerate island must not fail the gate
+                continue
+            if not hit.any():
+                continue
+            _, dist, _ = trimesh.proximity.closest_point(island, pts[hit])
+            depth = max(depth, float(np.max(dist)))
+            inside |= hit
         frac = float(np.mean(inside)) if len(inside) else 0.0
         if frac <= 0.0:
             continue
-        _, dist, _ = trimesh.proximity.closest_point(dst, pts[inside])
-        worst_depth = max(worst_depth, float(np.max(dist)))
+        worst_depth = max(worst_depth, depth)
         worst_frac = max(worst_frac, frac)
     return worst_depth, worst_frac
 
