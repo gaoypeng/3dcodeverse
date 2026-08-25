@@ -173,6 +173,10 @@ codeverse/
 bench/                run_bench.py, report.py (reuses flywheel gallery), compare_backends.py
                       (preflights every model it needs; --wait-for-provider / --no-preflight),
                       _infra.py (outage vs model failure: infra_failed / budget_exhausted, docs/EVAL.md §7),
+                      ab_plan.py (the paired control/variant A/B rig, --aa calibration mode),
+                      ab_gate_rates.py (the same run's deterministic readouts, paired per prompt),
+                      pin_plan.py (seed one plan into both arms so the paired delta stops carrying
+                      the planner's spread — permitted only by plan_features.pin_plan_blockers),
                       _compare_report.py (arm table incl. the `dropped` / `over budget` loss columns;
                       dedups the append-only rows per (prompt, arm) so every reader agrees),
                       _jsonl.py (the ONE tolerant reader/append-sealer for the resumable
