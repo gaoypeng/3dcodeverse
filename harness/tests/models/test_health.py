@@ -29,7 +29,9 @@ def test_the_probe_prompt_is_the_size_of_real_work():
     prompt = _probe_prompt()
     approx_tokens = len(prompt) // 4
     assert approx_tokens > 0.5 * PROBE_TOKENS, f"probe is only ~{approx_tokens} tokens"
-    assert "pong" in prompt, "the answer must still be one word, so the probe costs input not output"
+    assert "pong" in prompt, (
+        "the answer must still be one word, so the probe costs input not output"
+    )
 
 
 def test_no_keys_probed_is_not_reported_as_healthy():
@@ -38,8 +40,12 @@ def test_no_keys_probed_is_not_reported_as_healthy():
 
 
 def test_the_message_carries_the_provider_reason():
-    h = Health("gemini:gemini-3.7-flash", n_ok=0, n_tried=4,
-               reasons=("ModelError: Gemini API error 504: Deadline expired",))
+    h = Health(
+        "gemini:gemini-3.7-flash",
+        n_ok=0,
+        n_tried=4,
+        reasons=("ModelError: Gemini API error 504: Deadline expired",),
+    )
     text = str(h)
     assert "0/4" in text and "504" in text, text
 
@@ -68,6 +74,15 @@ def test_sibling_detection_matches_arguments_not_the_repo_path():
     assert _is_harness_argv(["python", "bench/compare_backends.py", "--arms", "x"])
     assert _is_harness_argv(["/home/u/.local/bin/3dcv", "doctor"])
     assert _is_harness_argv(["/usr/bin/python3", "/x/y/run_bench.py"])
+    # THE shape every real run has.  pip installs `3dcv` as a shebang script, so the
+    # kernel rewrites the exec and the interpreter takes argv[0] — the entry point is at
+    # argv[1].  Checking only argv[0] meant no `3dcv` was EVER counted: measured
+    # 2026-08-25, 21 live `3dcv make` and pool_budget said "0 siblings, headroom 64".
+    # The assertion above passed the whole time because its argv shape cannot occur.
+    assert _is_harness_argv(
+        ["/home/u/miniconda3/bin/python3.13", "/home/u/miniconda3/bin/3dcv", "make", "a chair"]
+    )
+    assert _is_harness_argv(["/usr/bin/python3", "/usr/local/bin/3dcodeverse", "doctor"])
     # a bench script launched as a MODULE is the same program and must weigh the same:
     # a live `python -m bench.ab_plan` A/B was invisible here on 2026-08-24 and
     # pool_budget reported headroom 48 on a machine already at the 64 knee
@@ -79,6 +94,12 @@ def test_sibling_detection_matches_arguments_not_the_repo_path():
     assert not _is_harness_argv(["vim", "/home/u/3dcodeverse/harness/codeverse/cli/main.py"])
     assert not _is_harness_argv(["python", "-m", "pytest", "tests/"])
     assert not _is_harness_argv([])
+    # widening to argv[1] must not widen to ALL of argv: these carry a token whose
+    # basename IS an entry point, as a PATH argument.  Charging them would make every
+    # sibling refuse to launch — the mirror-image failure of undercounting.
+    assert not _is_harness_argv(["ls", "-la", "/home/u/3dcodeverse"])
+    assert not _is_harness_argv(["tar", "czf", "b.tgz", "/home/u/.local/bin/3dcv"])
+    assert not _is_harness_argv(["python", "-c", "print(1)", "/home/u/.local/bin/3dcv"])
 
 
 def test_sibling_count_never_raises(monkeypatch):
@@ -95,7 +116,7 @@ def test_sibling_count_never_raises(monkeypatch):
 
 
 def test_probe_model_treats_a_503_as_final(monkeypatch):
-    """"No retries" must include the storm branch.  rotate_with_retries' capacity-storm
+    """ "No retries" must include the storm branch.  rotate_with_retries' capacity-storm
     branch does NOT consume max_attempts, so max_attempts=1 alone still retried a 503
     up to 60 times (bounded only by the 900 s deadline) — a "30-second" probe that could
     take 15 minutes.  Observed 2026-08-24 in the parked compare_v2 preflight log."""
@@ -125,7 +146,6 @@ def test_probe_model_treats_a_503_as_final(monkeypatch):
     assert captured.get("max_attempts") == 1
 
 
-
 # --------------------------------------------------------------------------- pool budget
 def _fake_proc(monkeypatch, procs):
     """procs: {pid: (argv list, env dict)} — a fake /proc for pool_budget()."""
@@ -143,8 +163,10 @@ def _fake_proc(monkeypatch, procs):
 
         def __truediv__(self, leaf):
             argv, env = procs[self._pid]
-            data = {"cmdline": "\0".join(argv).encode() + b"\0",
-                    "environ": b"\0".join(f"{k}={v}".encode() for k, v in env.items())}[leaf]
+            data = {
+                "cmdline": "\0".join(argv).encode() + b"\0",
+                "environ": b"\0".join(f"{k}={v}".encode() for k, v in env.items()),
+            }[leaf]
             return _Blob(data)
 
     class _Blob:
@@ -162,11 +184,23 @@ def test_pool_budget_sums_caps_not_heads(monkeypatch):
     """Two siblings at 16 each leave 32 of headroom; a third at 16 fits, one at 64 does not.
     Head-counting (the first rule) would have refused both — and on 2026-08-24 it stalled
     an entire A/B wave behind two batteries that were themselves parked."""
-    health = _fake_proc(monkeypatch, {
-        101: (["python", "-m", "codeverse.cli.main", "bench", "run"], {"CV3D_MAX_IN_FLIGHT": "16"}),
-        102: (["python", "bench/compare_backends.py", "--arms", "x"], {"CV3D_RATE__MAX_IN_FLIGHT": "16"}),
-        103: (["/bin/bash", "-c", "cd /home/u/3dcodeverse && sleep 1"], {}),  # not a harness process
-    })
+    health = _fake_proc(
+        monkeypatch,
+        {
+            101: (
+                ["python", "-m", "codeverse.cli.main", "bench", "run"],
+                {"CV3D_MAX_IN_FLIGHT": "16"},
+            ),
+            102: (
+                ["python", "bench/compare_backends.py", "--arms", "x"],
+                {"CV3D_RATE__MAX_IN_FLIGHT": "16"},
+            ),
+            103: (
+                ["/bin/bash", "-c", "cd /home/u/3dcodeverse && sleep 1"],
+                {},
+            ),  # not a harness process
+        },
+    )
     pb = health.pool_budget()
     assert (pb.siblings, pb.used, pb.headroom) == (2, 32, 32), str(pb)
     assert pb.fits(16) and pb.fits(32) and not pb.fits(33) and not pb.fits(64)
@@ -174,9 +208,12 @@ def test_pool_budget_sums_caps_not_heads(monkeypatch):
 
 def test_a_sibling_that_set_no_cap_counts_at_the_default(monkeypatch):
     """An unconfigured battery runs at Rate().max_in_flight (64) and fills the whole budget."""
-    health = _fake_proc(monkeypatch, {
-        201: (["python", "-m", "codeverse.cli.main", "make", "a chair"], {}),
-    })
+    health = _fake_proc(
+        monkeypatch,
+        {
+            201: (["python", "-m", "codeverse.cli.main", "make", "a chair"], {}),
+        },
+    )
     pb = health.pool_budget()
     assert pb.used == 64 and pb.headroom == 0 and not pb.fits(1)
 
@@ -187,21 +224,42 @@ def test_an_ab_plan_driver_is_not_charged_for_its_children(monkeypatch):
     It sets no cap on itself (``--max-in-flight`` is the CHILD cap), so charging it would
     book the 64 default — the whole knee — on top of the children that actually hold the
     traffic, and every sibling would refuse to launch."""
-    health = _fake_proc(monkeypatch, {
-        301: (["python", "-m", "bench.ab_plan", "--prompts", "p.yaml", "--max-in-flight", "16"], {}),
-        302: (["python", "-m", "bench.ab_plan", "cell", "--arm", "control"], {"CV3D_MAX_IN_FLIGHT": "16"}),
-        303: (["python", "-m", "bench.ab_plan", "cell", "--arm", "variant"], {"CV3D_MAX_IN_FLIGHT": "16"}),
-    })
+    health = _fake_proc(
+        monkeypatch,
+        {
+            301: (
+                ["python", "-m", "bench.ab_plan", "--prompts", "p.yaml", "--max-in-flight", "16"],
+                {},
+            ),
+            302: (
+                ["python", "-m", "bench.ab_plan", "cell", "--arm", "control"],
+                {"CV3D_MAX_IN_FLIGHT": "16"},
+            ),
+            303: (
+                ["python", "-m", "bench.ab_plan", "cell", "--arm", "variant"],
+                {"CV3D_MAX_IN_FLIGHT": "16"},
+            ),
+        },
+    )
     pb = health.pool_budget()
     assert (pb.siblings, pb.used, pb.headroom) == (3, 32, 32), str(pb)
     # the same three processes under the script spelling read identically
-    health = _fake_proc(monkeypatch, {
-        311: (["python", "bench/ab_plan.py", "--prompts", "p.yaml"], {}),
-        312: (["python", "bench/ab_plan.py", "cell", "--arm", "control"], {"CV3D_MAX_IN_FLIGHT": "8"}),
-    })
+    health = _fake_proc(
+        monkeypatch,
+        {
+            311: (["python", "bench/ab_plan.py", "--prompts", "p.yaml"], {}),
+            312: (
+                ["python", "bench/ab_plan.py", "cell", "--arm", "control"],
+                {"CV3D_MAX_IN_FLIGHT": "8"},
+            ),
+        },
+    )
     assert health.pool_budget().used == 8
     # a compare_backends driver runs its cells in THREADS, in itself: it is charged
-    health = _fake_proc(monkeypatch, {321: (["python", "-m", "bench.compare_backends"], {"CV3D_MAX_IN_FLIGHT": "16"})})
+    health = _fake_proc(
+        monkeypatch,
+        {321: (["python", "-m", "bench.compare_backends"], {"CV3D_MAX_IN_FLIGHT": "16"})},
+    )
     assert health.pool_budget().used == 16
 
 
@@ -210,9 +268,15 @@ def test_a_sibling_running_unlimited_is_charged_the_whole_knee(monkeypatch):
     `doctor` prints max_in_flight=off), so the one process with NO ceiling at all
     was accounted as holding NOTHING and pool_budget handed the next launcher the
     full 64 — straight past the measured knee."""
-    health = _fake_proc(monkeypatch, {
-        401: (["python", "-m", "codeverse.cli.main", "bench", "run"], {"CV3D_MAX_IN_FLIGHT": "0"}),
-    })
+    health = _fake_proc(
+        monkeypatch,
+        {
+            401: (
+                ["python", "-m", "codeverse.cli.main", "bench", "run"],
+                {"CV3D_MAX_IN_FLIGHT": "0"},
+            ),
+        },
+    )
     pb = health.pool_budget()
     assert (pb.siblings, pb.used, pb.headroom) == (1, 64, 0), str(pb)
     assert not pb.fits(1)
@@ -221,10 +285,16 @@ def test_a_sibling_running_unlimited_is_charged_the_whole_knee(monkeypatch):
 def test_a_negative_cap_does_not_grow_the_headroom(monkeypatch):
     """A negative cap used to be SUBTRACTED from `used`, so a sibling made the
     machine look emptier than with no sibling at all."""
-    health = _fake_proc(monkeypatch, {
-        501: (["python", "-m", "codeverse.cli.main", "bench", "run"], {"CV3D_MAX_IN_FLIGHT": "16"}),
-        502: (["python", "-m", "bench.compare_backends"], {"CV3D_MAX_IN_FLIGHT": "-8"}),
-    })
+    health = _fake_proc(
+        monkeypatch,
+        {
+            501: (
+                ["python", "-m", "codeverse.cli.main", "bench", "run"],
+                {"CV3D_MAX_IN_FLIGHT": "16"},
+            ),
+            502: (["python", "-m", "bench.compare_backends"], {"CV3D_MAX_IN_FLIGHT": "-8"}),
+        },
+    )
     pb = health.pool_budget()
     assert pb.used == 16 + health.POOL_KNEE and pb.headroom == 0, str(pb)
 
