@@ -19,7 +19,15 @@ doctor_app = typer.Typer(invoke_without_command=True)
 Row = tuple[str, str, str]
 _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", "numpy", "trimesh", "fcl", "PIL", "pyarrow",
             "scipy", "shapely", "networkx", "manifold3d", "playwright", "google.genai", "anthropic", "openai",
-            "yourdfpy", "mcp")
+            "yourdfpy", "mcp", "moderngl", "cadquery")
+#: modules that come from an OPTIONAL extra: missing means one track is unavailable, not a
+#: broken install, so they are a WARN naming the extra to install.  `moderngl` and `cadquery`
+#: were absent from the list entirely until 2026-08-24, so an environment installed without
+#: [graphics] passed doctor "21/21 importable" and then failed in the graphics track with
+#: "no usable OpenGL context: No module named 'moderngl'" — a missing pip package reported
+#: as a GPU/driver problem (docs/INSTALL.md §4 promises every extra is listed here).
+_OPTIONAL_DEPS = {"manifold3d": "mesh", "shapely": "mesh", "yourdfpy": "urdf", "mcp": "mcp",
+                  "moderngl": "graphics", "cadquery": "cad"}
 _CLI_TIMEOUT = 25
 
 
@@ -48,8 +56,12 @@ def check_python_deps() -> list[Row]:
     import sys
 
     rows: list[Row] = [("python", "OK", sys.version.split()[0] + f" ({sys.executable})")]
-    status = "OK" if not missing else ("WARN" if set(missing) <= {"manifold3d", "yourdfpy", "mcp", "shapely"} else "FAIL")
-    rows.append(("python deps", status, f"{len(present)}/{len(_PY_DEPS)} importable" + (f"; missing: {', '.join(missing)}" if missing else "")))
+    status = "OK" if not missing else ("WARN" if set(missing) <= set(_OPTIONAL_DEPS) else "FAIL")
+    detail = f"{len(present)}/{len(_PY_DEPS)} importable" + (f"; missing: {', '.join(missing)}" if missing else "")
+    extras = sorted({_OPTIONAL_DEPS[m] for m in missing if m in _OPTIONAL_DEPS})
+    if extras:  # name the fix, not just the symptom
+        detail += f"; fix: pip install -e 'harness[{','.join(extras)}]'"
+    rows.append(("python deps", status, detail))
     return rows
 
 

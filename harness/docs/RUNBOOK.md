@@ -13,7 +13,7 @@ cd /home/yipeng/3dcodeverse/harness/runtime_js && npm install   # three@0.182, p
 3dcv doctor            # python deps (incl. python-fcl, moderngl), blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, ffmpeg, mcp
 3dcv doctor --live     # + one tiny Gemini call ("pong", ~$0.00001)
 python -m pytest tests -q                              # offline suite; live tests are opt-in (blender/node/GL run when the binaries exist)
-python -m pytest tests -q -m "not blender and not node"   # pure-python subset
+python -m pytest tests -q -m "not live and not blender and not node"   # pure-python subset
 python -m pytest tests -q -m live                      # OPT-IN: real API calls
 ```
 

@@ -180,6 +180,60 @@ def test_every_pyproject_extra_is_documented() -> None:
     assert not undocumented, f"extras missing from docs/INSTALL.md: {undocumented}"
 
 
+#: `pytest ... -m "<expr>"` as published in the docs
+_PYTEST_MARKER_EXPR = re.compile(r'pytest[^\n]*?-m\s+"([^"]+)"')
+#: every file that publishes a pytest command a reader will paste
+DOCS_WITH_TEST_COMMANDS = [INSTALL, HARNESS / "docs" / "RUNBOOK.md", HARNESS / "CLAUDE.md",
+                           HARNESS / "README.md", REPO / "README.md"]
+
+
+@pytest.mark.parametrize("doc", DOCS_WITH_TEST_COMMANDS, ids=lambda p: p.name)
+def test_documented_pytest_subsets_never_re_enable_the_live_tests(doc: Path) -> None:
+    """PORT-1: a command-line ``-m`` REPLACES ``addopts = ["-m", "not live"]``, it does not
+    add to it.  The published "pure-python subset" line was ``-m "not blender and not
+    node"``, which selects 23 live tests (2058 collected vs 2035) — run verbatim it opened
+    real Gemini connections and hung against the intermittent provider, three lines above a
+    sentence promising the opposite.  Every documented selection must spell ``not live``
+    itself; the only exception is the deliberate ``-m live`` opt-in."""
+    if not doc.is_file():  # the harness can be checked out without the repo README
+        pytest.skip(f"{doc} not present")
+    for expr in _PYTEST_MARKER_EXPR.findall(doc.read_text()):
+        assert "not live" in expr or expr.strip() == "live", (
+            f"{doc.name} publishes pytest -m \"{expr}\", which re-enables the live tests")
+
+
+def test_doctor_checks_every_module_of_every_optional_extra(monkeypatch) -> None:
+    """PORT-3: docs/INSTALL.md §4 says `3dcv doctor` lists every one of these modules under
+    `python deps`, and docs/RUNBOOK.md:12 names moderngl explicitly — but neither moderngl
+    nor cadquery was in ``_PY_DEPS``, so a venv installed with every extra EXCEPT
+    [graphics] printed "21/21 importable" and exited 0, and the graphics track then died
+    with "no usable OpenGL context: ModuleNotFoundError: No module named 'moderngl'" — a
+    missing pip package reported as a GPU/driver problem."""
+    import importlib
+
+    from codeverse.cli.doctor import _OPTIONAL_DEPS, _PY_DEPS, check_python_deps
+
+    with (HARNESS / "pyproject.toml").open("rb") as fh:
+        extras = tomllib.load(fh)["project"]["optional-dependencies"]
+    wanted = {re.split(r"[<>=!\[ ]", req)[0].replace("-", "_")
+              for name, reqs in extras.items() if name not in ("all", "dev") for req in reqs}
+    assert not wanted - set(_PY_DEPS), f"extras doctor never checks: {sorted(wanted - set(_PY_DEPS))}"
+    # the two lazily-imported tracks are a WARN naming their extra, not a FAIL: without them
+    # the harness installs and starts fine and only that track raises (docs/INSTALL.md §4)
+    assert _OPTIONAL_DEPS["moderngl"] == "graphics" and _OPTIONAL_DEPS["cadquery"] == "cad"
+
+    real = importlib.import_module
+
+    def no_graphics(name: str, *a, **kw):
+        if name == "moderngl":
+            raise ModuleNotFoundError("No module named 'moderngl'")
+        return real(name, *a, **kw)
+
+    monkeypatch.setattr(importlib, "import_module", no_graphics)
+    _, deps = check_python_deps()
+    assert deps[1] == "WARN" and "moderngl" in deps[2] and "harness[graphics]" in deps[2]
+
+
 def test_doctor_rows_have_troubleshooting_entries() -> None:
     """Every check `3dcv doctor` can print must appear in the INSTALL troubleshooting table."""
     from codeverse.cli import doctor as doctor_mod

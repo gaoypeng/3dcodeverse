@@ -142,20 +142,23 @@ openai, playwright.
 `graphics`, `mesh`, `mcp` and `flywheel` are lazily imported: without them the
 harness installs and starts fine and only the named feature raises `ImportError`
 at the moment you use it.  `3dcodeverse doctor` lists every one of these modules
-under `python deps` and only tolerates `manifold3d`, `yourdfpy`, `mcp`, `shapely`
-as WARN — everything else missing is a FAIL.
+under `python deps` and only tolerates the optional-extra modules — `manifold3d`,
+`shapely` (mesh), `yourdfpy` (urdf), `mcp`, `moderngl` (graphics), `cadquery` (cad) —
+as WARN, naming the extra to install; everything else missing is a FAIL.
 
 Run the offline test suite to confirm the install:
 
 ```bash
 cd harness
 python -m pytest tests -q                                               # needs node + Blender for the full set
-python -m pytest tests -q -m "not blender and not node"                 # pure-python subset
+python -m pytest tests -q -m "not live and not blender and not node"    # pure-python subset
 python -m pytest tests -q -m live                                       # OPT-IN: real API calls, needs keys
 ```
 
 Live tests are deselected by default (`addopts = ["-m", "not live"]` in `pyproject.toml`),
-so a bare `pytest` never spends money and never hangs waiting on a provider outage.
+so a bare `pytest` never spends money and never hangs waiting on a provider outage.  A
+command-line `-m` **replaces** that default rather than adding to it, so any subset you
+select must spell `not live` itself — as the line above does.
 
 ---
 
@@ -442,7 +445,7 @@ Real output on this box (exit code 0; any FAIL row makes it exit 1):
 ┃ check         ┃ status ┃ detail                                              ┃
 ┡━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
 │ python        │ OK     │ 3.13.9 (/home/yipeng/miniconda3/bin/python3.13)     │
-│ python deps   │ OK     │ 21/21 importable                                    │
+│ python deps   │ OK     │ 23/23 importable                                    │
 │ blender       │ OK     │ Blender 5.0.1 @ /home/yipeng/.local/bin/blender-5.0 │
 │ node          │ OK     │ v24.14.0                                            │
 │ three         │ OK     │ 0.182.0 (…/harness/runtime_js/node_modules)         │
@@ -475,7 +478,7 @@ that the keys work end to end):
 |---|---|---|---|
 | `python` | — | interpreter running the CLI | if it is not the interpreter you installed into, your shell is picking up another `3dcodeverse` — `which -a 3dcodeverse`, reinstall with `python -m pip install -e harness` |
 | `python deps` | FAIL | a core import is missing/broken | `pip install -e 'harness[all]'`; a broken native lib (`fcl`, `manifold3d`) shows up here too — reinstall that wheel (`pip install --force-reinstall python-fcl`) |
-| `python deps` | WARN | only `manifold3d` / `yourdfpy` / `mcp` / `shapely` missing | install the matching extra: `pip install -e 'harness[mesh,urdf,mcp]'` (§4) |
+| `python deps` | WARN | only optional-extra modules missing (`manifold3d` / `shapely` / `yourdfpy` / `mcp` / `moderngl` / `cadquery`) | install the extra the row names, e.g. `pip install -e 'harness[mesh,urdf,mcp,graphics,cad]'` (§4) |
 | `blender` | FAIL | no binary found, or `--version` failed | §6 — install Blender, or `export CV3D_BINARIES__BLENDER=/path/to/blender`. If it is found but fails, run it by hand: a `libSM.so.6`/`libICE.so.6` error means you need the `LD_LIBRARY_PATH` wrapper |
 | `node` | FAIL | node missing or older than 20.6.0 (§2.1) | install a newer node (`nvm install --lts`) or point `binaries.node` / `CV3D_BINARIES__NODE` at one.  The same check fires from every node workload (`codeverse.spatial.node.run_node`), so a too-old node cannot fail obscurely mid-render |
 | `three` | FAIL | `runtime_js/node_modules/three` missing | `cd harness/runtime_js && npm ci` (§5) |
