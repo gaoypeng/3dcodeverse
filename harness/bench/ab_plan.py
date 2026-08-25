@@ -402,6 +402,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not opts.variant_env and not opts.aa:
         _parser().error("--variant-env KEY=VALUE is required: an A/B with identical arms measures only the noise "
                         "(pass --aa if measuring the noise is the point)")
+    if not opts.aa:
+        # A KEY no code path reads makes the variant arm byte-identical to the control, so
+        # the battery costs a full run and yields a verdict about nothing.  One such A/B is
+        # on record printing "keep, mean delta +0.344" (CQ-5).
+        from codeverse.tracks.plan_features import DEAD_SWITCHES, dead_env_keys
+
+        dead = dead_env_keys(opts.variant_env)
+        if dead and len(dead) == len(opts.variant_env):
+            _parser().error(
+                "--variant-env only sets switches nothing reads, so both arms would be identical: "
+                + "; ".join(f"{k} ({DEAD_SWITCHES[k]})" for k in dead)
+                + " (pass --aa if an identical-arms calibration run is the point)")
     from codeverse.models.health import pool_budget
 
     # the rule is a BUDGET, not a head-count: the provider sees one machine, so the sum of

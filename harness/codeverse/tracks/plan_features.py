@@ -11,6 +11,14 @@ turns into a variant.
 one on and ``all,-graph`` all but one.  Unknown names are ignored (and logged once)
 rather than fatal: a typo in a bench command must produce a control run, not a crash
 half-way through a battery.
+
+STATUS (CQ-5): none of the six features below is implemented, and nothing outside this
+module reads ``CV3D_PLAN_FEATURES`` — the plan-loop changes that DID land each invented
+their own spelling instead (see :data:`LIVE_SWITCHES`).  The switch is therefore DEAD,
+and an A/B whose arms differ only by it is a no-op by construction: one such run is on
+record printing "keep, mean delta +0.344" for two byte-identical arms.  :data:`DEAD_SWITCHES`
+exists so ``bench/ab_plan.py`` refuses that A/B instead of producing a verdict.  Delete
+this module, or implement a feature and move its variable into ``LIVE_SWITCHES``.
 """
 
 from __future__ import annotations
@@ -32,6 +40,29 @@ GRAPH_BUDGET = "graph_budget"  # plan budget derived from the brief graph instea
 GRAPH_EXAMPLE = "graph_example"  # the planner's worked example written as a graph (touches + assembly filled)
 CONSISTENCY = "consistency"    # plan overall bbox checked against the brief's dimension rows
 KNOWN_FEATURES: tuple[str, ...] = (FIT, CONTACTS, GRAPH, GRAPH_BUDGET, GRAPH_EXAMPLE, CONSISTENCY)
+
+#: Plan-loop switches the tree ACTUALLY reads, name → the module that reads it.  Kept
+#: honest by tests/orchestrator_tracks/test_plan_features.py, which greps the tree.
+LIVE_SWITCHES: dict[str, str] = {
+    "CV3D_PLAN_BRIEF": "codeverse/tracks/brief.py",
+    "CV3D_SCOPED_PARTS": "codeverse/tracks/depth.py",
+    "CV3D_DETAIL_ROUNDS": "codeverse/tracks/lifecycle.py",
+    "CV3D_REFERENCE_DIFF": "codeverse/judges/reference.py",
+}
+
+#: Switches that are DECLARED but read by no code path, with the reason.  An A/B arm that
+#: differs only by one of these is byte-identical to its control, so ``ab_plan`` refuses
+#: it: a rig that cannot tell a live switch from a dead one produces confident verdicts
+#: about nothing.  A name leaves this dict in the same commit as the code that reads it.
+DEAD_SWITCHES: dict[str, str] = {
+    PLAN_FEATURES_ENV: "no feature in KNOWN_FEATURES is implemented; nothing reads this variable",
+}
+
+
+def dead_env_keys(env: dict[str, str]) -> list[str]:
+    """The keys of ``env`` that no code path reads — empty when the arm really differs."""
+    return sorted(k for k in env if k in DEAD_SWITCHES)
+
 
 _warned: set[str] = set()
 
@@ -75,5 +106,6 @@ def plan_feature_on(name: str) -> bool:
     return name in plan_features()
 
 
-__all__ = ["CONSISTENCY", "CONTACTS", "FIT", "GRAPH", "GRAPH_BUDGET", "GRAPH_EXAMPLE", "KNOWN_FEATURES",
-           "PLAN_FEATURES_ENV", "parse_features", "plan_feature_on", "plan_features"]
+__all__ = ["CONSISTENCY", "CONTACTS", "DEAD_SWITCHES", "FIT", "GRAPH", "GRAPH_BUDGET", "GRAPH_EXAMPLE",
+           "KNOWN_FEATURES", "LIVE_SWITCHES", "PLAN_FEATURES_ENV", "dead_env_keys", "parse_features",
+           "plan_feature_on", "plan_features"]
