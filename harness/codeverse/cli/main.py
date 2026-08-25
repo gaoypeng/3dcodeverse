@@ -347,6 +347,8 @@ def render(
     round_index: Annotated[int | None, typer.Option("--round")] = None,
     mode: Annotated[str, typer.Option("--mode", help="shaded | wire | normals | clay | silhouette")] = "shaded",
     out: Annotated[Path | None, typer.Option("--out")] = None,
+    width: Annotated[int | None, typer.Option("--width", min=1, help="default: render.width (scene: render.scene_width)")] = None,
+    height: Annotated[int | None, typer.Option("--height", min=1, help="default: render.height (scene: render.scene_height)")] = None,
     runs_dir: RunsDirOpt = None,
 ) -> None:
     """Render the current artifact (object.glb or the scene) with the canonical rig."""
@@ -357,15 +359,20 @@ def render(
     if spec.track is Track.GRAPHICS:
         _render_graphics(ws, spec, out_dir)
         return
+    # the size settings are honoured by the in-run renders (tracks/static_object.py,
+    # tracks/scene.py) and were silently dropped by the one command whose whole job is
+    # rendering, so a CLI render did not match the one the judge saw
+    r = get_settings().render
     if spec.track is Track.SCENE:
         render_scene = C.lazy("codeverse.spatial.render", "render_scene")
-        rs = render_scene(ws, out_dir, cameras=None)
+        rs = render_scene(ws, out_dir, cameras=None,
+                          width=width or r.scene_width, height=height or r.scene_height)
     else:
         glb = ws.artifacts / "object.glb"
         if not glb.is_file():
             raise C.CliError(f"no artifact to render: {glb} (run a build first)")
         render_glb = C.lazy("codeverse.spatial.render", "render_glb")
-        rs = render_glb(glb, out_dir, mode=mode)
+        rs = render_glb(glb, out_dir, mode=mode, width=width or r.width, height=height or r.height)
     console.print(kv_table("renders", {"views": len(rs.views), "sheet": rs.contact_sheet, "dir": out_dir,
                                        "renderer": rs.renderer, "ms": rs.duration_ms}))
 
