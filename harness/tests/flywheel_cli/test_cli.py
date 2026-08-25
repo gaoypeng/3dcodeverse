@@ -364,3 +364,85 @@ def test_reference_with_no_run_says_it_is_about_to_spend_money(tmp_path: Path, m
 
     help_text = typing.get_type_hints(make_cmd, include_extras=True)["no_run"].__metadata__[0].help
     assert "with --reference the reference pass still runs first" in help_text
+
+
+def test_an_unknown_profile_is_a_clean_error_not_a_traceback(tmp_path: Path):
+    """SMOKE5: `--profile <unknown>` exited with a raw ValueError traceback out of
+    cost/profiles.py:153, while every other rejected value (a slug collision, a missing
+    battery) printed the clean "error: ..." line the CLI uses for user errors."""
+    r = runner.invoke(app, ["make", "a chair", "--profile", "turbo", "--no-run",
+                            "--runs-dir", str(tmp_path / "runs"), "--slug", "prof"])
+    assert r.exit_code == 2, "the CLI's typed configuration-error code (see SM-10)"
+    assert "unknown profile" in r.output and "economy, balanced, quality" in r.output
+    assert "Traceback" not in r.output and "ValueError" not in r.output
+    assert not (tmp_path / "runs" / "prof").exists(), "no workspace for a rejected flag"
+
+
+def test_a_negative_budget_is_rejected_before_the_workspace_exists(tmp_path: Path):
+    """SM-11: --max-usd took any float.  A negative ceiling is not a small budget, it is
+    an unrunnable one — BudgetGuard.ok() is False before a single token is spent, the
+    first charge raises "cost $0.001 exceeds max_usd $-2.50", and grant_grace cannot
+    lift a hard ceiling back above zero.  `3dcv make` nonetheless printed
+    `max_usd -3.0`, created the workspace and git-committed the spec."""
+    runs = tmp_path / "runs"
+    for flag, value in (("--max-usd", "-3"), ("--max-minutes", "-10")):
+        r = runner.invoke(app, ["make", "a chair", flag, value, "--no-run",
+                                "--runs-dir", str(runs), "--slug", "neg"])
+        assert r.exit_code != 0, f"{flag} {value} was accepted"
+        assert "range x>=0" in r.output.replace("\n", "")
+        assert not (runs / "neg").exists(), "no workspace may be created for a rejected budget"
+
+    # 0 stays legal (documented: a run at 0 degrades from its first check) ...
+    r = runner.invoke(app, ["make", "a chair", "--max-usd", "0", "--no-run",
+                            "--runs-dir", str(runs), "--slug", "zero"])
+    assert r.exit_code == 0 and (runs / "zero" / "spec.json").is_file()
+    # ... and the contract refuses a negative ceiling even when built directly
+    import pytest as _pytest
+    from pydantic import ValidationError
+
+    from codeverse.contracts.common import Budget
+
+    with _pytest.raises(ValidationError):
+        Budget(max_usd=-3.0)
+    assert Budget(max_usd=0.0).max_usd == 0.0
+
+
+def test_texture_is_not_offered_on_tracks_that_have_no_glb(tmp_path: Path):
+    """SM-08: `--texture` (and `--profile quality`, which forces it) was accepted on the
+    scene and graphics tracks, frozen on the spec, and printed as `texture True` — but a
+    scene has no GLB deliverable and neither graphics language produces one, so the
+    finalise pass could ONLY raise FileNotFoundError('no GLB to texture'), swallowed by
+    BaseTrack._texture_pass into a spurious `texture.failed`.  quality's advertised
+    "+texture" was a guaranteed no-op on half the tracks, and scene runs never reached
+    the command that would work.  `3dcv texture pass` already guards this; `3dcv make`
+    did not."""
+    from codeverse.contracts.common import Track
+    from codeverse.texturing.run import texture_requested, texture_supported
+
+    runs = tmp_path / "runs"
+    # profile-implied: quality still works, it just has no texture pass on this track
+    r = runner.invoke(app, ["make", "a plasma shader", "--track", "graphics", "--profile", "quality",
+                            "--no-run", "--runs-dir", str(runs), "--slug", "gfxq"])
+    assert r.exit_code == 0
+    opts = json.loads((runs / "gfxq" / "spec.json").read_text())["options"]
+    assert opts["texture"] is False, "a run must not record a pass it cannot run"
+    assert opts["profile"] == "quality", "the rest of the dial still applies"
+
+    # explicit: refused, and pointed at the command that does work
+    r = runner.invoke(app, ["make", "a kitchen", "--track", "scene", "--texture",
+                            "--no-run", "--runs-dir", str(runs), "--slug", "scnx"])
+    assert r.exit_code == 1 and "texture scene-pack" in r.output.replace("\n", "")
+    assert not (runs / "scnx").exists()
+
+    # the object tracks are untouched
+    r = runner.invoke(app, ["make", "a chair", "--profile", "quality",
+                            "--no-run", "--runs-dir", str(runs), "--slug", "objq"])
+    assert r.exit_code == 0
+    assert json.loads((runs / "objq" / "spec.json").read_text())["options"]["texture"] is True
+
+    # and the single owner of the decision knows the track scope, so a spec that already
+    # carries texture=True on a scene track (recorded before this fix) is a no-op too
+    assert texture_supported(Track.STATIC_OBJECT) and not texture_supported(Track.SCENE)
+    stale = Spec.model_validate(json.loads((runs / "objq" / "spec.json").read_text()))
+    assert texture_requested(stale)
+    assert not texture_requested(stale.model_copy(update={"track": Track.GRAPHICS}))

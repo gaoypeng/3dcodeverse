@@ -163,3 +163,35 @@ def test_show_prints_the_sheet_that_exists_after_a_move(tmp_path):
     shown = line.split("sheet:", 1)[1].strip().rstrip("│ ").strip()
     assert shown.endswith("sheet.png"), f"the panel wrapped the path: {line!r}"
     assert Path(shown).exists(), f"show printed a sheet that is not there: {shown!r}"
+
+
+def test_a_stale_index_lock_names_the_remedy(tmp_path):
+    """CP-7: a run killed mid-commit leaves .git/index.lock behind, and every subsequent
+    `3dcv resume <slug>` then failed with the bare line "Command '['git', 'add', '-A']'
+    returned non-zero exit status 128".  git's own explanation sat unread in e.stderr:
+    CalledProcessError.__str__ drops it and cli/main.py prints only
+    "run failed: {type(e).__name__}: {e}".  The 4-try/1.2 s retry loop is built for a
+    LIVE holder and can never clear a stale lock, so the failure repeated forever with
+    no clue and no named remedy."""
+    import subprocess
+
+    import pytest
+
+    from codeverse.workspace import Workspace, WorkspaceGitError
+
+    ws = Workspace(tmp_path / "run").create()
+    ws.src.mkdir(parents=True, exist_ok=True)
+    (ws.src / "model.py").write_text("x = 1\n")
+    ws.commit("round 0")
+
+    (ws.root / ".git" / "index.lock").write_text("")  # what a SIGKILL leaves behind
+    with pytest.raises(WorkspaceGitError) as ei:
+        ws.commit("round 1")
+
+    msg = str(ei.value)
+    assert "index.lock" in msg, "git's own explanation must reach the operator"
+    assert "File exists" in msg
+    assert f"rm {ws.root / '.git' / 'index.lock'}" in msg, "the remedy must be named"
+    # still a CalledProcessError, so existing handlers keep working, and stderr is kept
+    assert isinstance(ei.value, subprocess.CalledProcessError)
+    assert "index.lock" in (ei.value.stderr or "")

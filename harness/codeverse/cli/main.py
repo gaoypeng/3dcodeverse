@@ -83,8 +83,8 @@ def make(
                                                "(sets models, judge samples, rounds, candidates, turn cap, "
                                                "montage size and the texture pass together)")] = None,
     rounds: Annotated[int | None, typer.Option("--rounds", min=0, help="refine rounds after the baseline (default: the profile's)")] = None,
-    max_usd: Annotated[float | None, typer.Option("--max-usd")] = None,
-    max_minutes: Annotated[float | None, typer.Option("--max-minutes")] = None,
+    max_usd: Annotated[float | None, typer.Option("--max-usd", min=0)] = None,
+    max_minutes: Annotated[float | None, typer.Option("--max-minutes", min=0)] = None,
     candidates: Annotated[int | None, typer.Option("--candidates", min=1, help="best-of-N baseline: N parallel candidates, keep the best (default: settings.default_candidates or 1)")] = None,
     slug: Annotated[str | None, typer.Option("--slug")] = None,
     runs_dir: RunsDirOpt = None,
@@ -109,12 +109,24 @@ def make(
         language = TRACK_LANGUAGES[track][0]
     run_slug = C.make_slug(prompt, track.value, language.value, slug)
     settings = get_settings()
+    texture_arg = texture  # the dial folds the profile in below; remember what the USER asked
     # ONE resolver for the whole dial, so `--profile X` and `CV3D_PROFILE=X` land the same
     # values (they used to disagree on candidates + texture); an explicit flag beats both.
     dial = C.resolve_dial(settings, profile, rounds=rounds, candidates=candidates,
                           max_usd=max_usd, max_minutes=max_minutes, texture=texture)
     rounds, max_usd, max_minutes = dial.rounds, dial.max_usd, dial.max_minutes
     candidates, texture = dial.candidates, dial.texture
+    # A run must not record and display a pass it cannot run.  `3dcv texture pass` already
+    # refuses non-object tracks; `3dcv make` accepted --texture (and --profile quality,
+    # which forces it) on scene/graphics, froze it on the spec, printed "texture True",
+    # and then emitted a spurious texture.failed at finalise because there is no GLB.
+    from codeverse.texturing.run import texture_supported
+
+    if texture and not texture_supported(track):
+        if texture_arg:  # the user asked for it explicitly: say no, and say where to go
+            hint = " — use `3dcv texture scene-pack`" if track is Track.SCENE else ""
+            raise C.CliError(f"--texture is for object tracks; {track.value} runs have no GLB to texture{hint}")
+        texture = False  # profile-implied: quality simply has no texture pass on this track
     backends = settings.backends(generator=generator, planner=planner, judge=judge, captioner=captioner)
     # validate the whole Spec BEFORE touching the filesystem: an invalid
     # track/language combination must not leave an orphan run directory behind.
@@ -235,8 +247,8 @@ def resume(
     slug: str,
     runs_dir: RunsDirOpt = None,
     candidates: Annotated[int | None, typer.Option("--candidates", min=1, help="best-of-N baseline width (only matters before round 0 ran)")] = None,
-    max_usd: Annotated[float | None, typer.Option("--max-usd", help="raise the budget cap before resuming (rewrites spec.json)")] = None,
-    max_minutes: Annotated[float | None, typer.Option("--max-minutes", help="raise the time cap before resuming")] = None,
+    max_usd: Annotated[float | None, typer.Option("--max-usd", min=0, help="raise the budget cap before resuming (rewrites spec.json)")] = None,
+    max_minutes: Annotated[float | None, typer.Option("--max-minutes", min=0, help="raise the time cap before resuming")] = None,
     rounds: Annotated[int | None, typer.Option("--rounds", min=0, help="new max refine rounds (rewrites spec.json)")] = None,
     force: Annotated[bool, typer.Option("--force", help="re-enter a run that already finished (it will be re-planned and re-scored)")] = False,
 ) -> None:

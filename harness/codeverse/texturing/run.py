@@ -24,7 +24,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse.contracts.artifacts import Measurement, RenderSet
-from codeverse.contracts.common import TRACK_INFO, Usage
+from codeverse.contracts.common import TRACK_INFO, Track, Usage
 from codeverse.contracts.plan import StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
@@ -118,15 +118,35 @@ def _measure(glb: Path) -> Measurement | None:
 #: ``texture: false`` run still paid for a texture pass (docs/COST.md §15: the quality run's
 #: ledger was +9.5% over record.total_usage because the pass ran twice, once from inside a
 #: round-2 agent session).  Both now ask this function.
+#: the object tracks — the only ones with an ``artifacts/object.glb`` to texture.  A scene
+#: has no GLB deliverable (languages/scene_threejs/runtime.py: "BuildResult.glb_path stays
+#: None") and neither graphics language produces one at all, so ``texture_pass`` on those
+#: tracks can only ever raise FileNotFoundError.  Scenes have their own command,
+#: ``3dcv texture scene-pack``.
+TEXTURE_TRACKS = (Track.STATIC_OBJECT, Track.ARTICULATED_OBJECT)
+
+
+def texture_supported(track: Track) -> bool:
+    """Whether ``texture_pass`` can run on this track at all (is there a GLB?)."""
+    return track in TEXTURE_TRACKS
+
+
 def texture_requested(spec: Spec) -> bool:
-    """True when the run asked for the derived texture pass.
+    """True when the run asked for the derived texture pass AND the track can run one.
 
     ``Spec.options.texture`` is the switch; the legacy ``texture`` tag is still
     honoured because recorded specs carry it.  Nothing else may turn texturing
     on — an agent calling the ``texture_pass`` tool in a run that did not ask for
     it is refused, and ``3dcv texture pass <slug>`` is an explicit user
-    instruction that does not go through here at all."""
-    return bool(spec.options.texture or "texture" in (spec.tags or []))
+    instruction that does not go through here at all.
+
+    The track scope belongs here too, for the same "one owner" reason: without it
+    ``--profile quality`` (which forces texture=True) made every scene and graphics run
+    call a pass that could only raise FileNotFoundError, swallowed at log.warning into a
+    spurious ``texture.failed`` event — quality's advertised "+texture" was a guaranteed
+    no-op on half the tracks, and scene runs never reached the command that would work.
+    """
+    return bool(spec.options.texture or "texture" in (spec.tags or [])) and texture_supported(spec.track)
 
 
 def texture_pass(

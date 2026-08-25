@@ -54,6 +54,35 @@ _GITIGNORE_LINES = (
 )
 
 
+class WorkspaceGitError(subprocess.CalledProcessError):
+    """A git command in a run workspace failed, carrying git's own explanation.
+
+    Subclasses CalledProcessError so existing ``except subprocess.CalledProcessError``
+    handlers keep working.  The reason it exists: CalledProcessError.__str__ drops
+    stderr, and codeverse/cli/main.py reports failures as
+    "run failed: {type(e).__name__}: {e}" — so a stale ``.git/index.lock`` surfaced as
+    the bare line "Command '['git', 'add', '-A']' returned non-zero exit status 128"
+    while git's own "fatal: Unable to create ... index.lock: File exists" sat unread in
+    e.stderr.  The 4-try/1.2 s retry loop above is built for a LIVE holder and can never
+    clear a stale lock, so every subsequent ``3dcv resume <slug>`` repeated the same
+    opaque failure with no clue and no named remedy.
+    """
+
+    def __init__(self, root: Path, args: tuple[str, ...], returncode: int, stderr: str):
+        super().__init__(returncode, ["git", *args], None, stderr)
+        self.root = root
+        self._detail = (stderr or "").strip()[-800:]
+
+    def __str__(self) -> str:
+        msg = f"git {' '.join(self.cmd[1:])} failed in {self.root} (exit {self.returncode})"
+        if self._detail:
+            msg += f": {self._detail}"
+        if "index.lock" in (self.stderr or ""):
+            msg += (f"\n  a stale lock is left behind when a run is killed mid-commit; "
+                    f"if no other git is running here, remove it:  rm {self.root / '.git' / 'index.lock'}")
+        return msg
+
+
 class Workspace:
     """Paths + snapshot helpers for one run.  Cheap to construct; no I/O until used."""
 
@@ -258,7 +287,7 @@ class Workspace:
                     break
                 time.sleep(0.2 * (attempt + 1))  # another process holds .git/index.lock
             if check and proc.returncode != 0:
-                raise subprocess.CalledProcessError(proc.returncode, proc.args, proc.stdout, proc.stderr)
+                raise WorkspaceGitError(self.root, args, proc.returncode, proc.stderr or "")
             return proc
 
     def _git_init(self) -> None:

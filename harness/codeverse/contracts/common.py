@@ -121,12 +121,19 @@ class Usage(BaseModel):
 
 
 class Budget(BaseModel):
-    """Hard ceilings for a run.  The orchestrator stops (cleanly) when any is hit."""
+    """Hard ceilings for a run.  The orchestrator stops (cleanly) when any is hit.
 
-    max_rounds: int = 4
-    max_usd: float = 5.0
-    max_minutes: float = 60.0
-    max_repair_attempts: int = 3  # per build failure before escalating
+    The ceilings are non-negative by construction.  A negative one is not a small
+    budget, it is an unrunnable one: ``BudgetGuard.ok()`` is False before a single
+    token is spent, the first charge raises ``BudgetExceeded: cost $0.001 exceeds
+    max_usd $-2.50``, and ``grant_grace`` cannot lift a hard ceiling back above zero —
+    so the workspace and the git-committed spec are created for a run that can only die.
+    """
+
+    max_rounds: int = Field(default=4, ge=0)
+    max_usd: float = Field(default=5.0, ge=0)
+    max_minutes: float = Field(default=60.0, ge=0)
+    max_repair_attempts: int = Field(default=3, ge=0)  # per build failure before escalating
 
 
 class Backends(BaseModel):
