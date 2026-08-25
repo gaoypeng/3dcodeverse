@@ -387,14 +387,46 @@ def test_pointing_at_a_battery_dir_says_so_instead_of_exporting_nothing(tmp_path
         list(iter_runs(battery))
 
 
+def test_a_compare_or_ab_battery_dir_says_so_too(tmp_path):
+    """RS-8: the guard only knew the runs/ layout, but compare_backends writes
+    cells/<prompt>/<arm>/run and ab_plan writes arms/<arm>/cells/<prompt>/<slug>/run —
+    so for the two drivers that produced today's compare_v3 / A-B batteries the exact
+    mistake the guard was added for was still silent (n_runs=0 reported as success,
+    plus an empty metadata.parquet)."""
+    import pytest
+
+    from codeverse.flywheel.record import iter_runs
+
+    compare = tmp_path / "compare_v3"
+    for pid in ("p0", "p1"):
+        for arm in ("harness_codex", "oneshot_gemini"):
+            run = compare / "cells" / pid / arm / "run"
+            run.mkdir(parents=True)
+            (run / "record.json").write_text("{}")
+
+    with pytest.raises(FileNotFoundError, match="runs below it"):
+        list(iter_runs(compare))
+
+    ab = tmp_path / "ab_plan_v1"
+    deep = ab / "arms" / "control" / "cells" / "p0" / "stool_ab12" / "run"
+    deep.mkdir(parents=True)
+    (deep / "record.json").write_text("{}")
+    with pytest.raises(FileNotFoundError, match="runs below it"):
+        list(iter_runs(ab))
+
+
 def test_a_genuinely_empty_runs_root_is_still_just_empty(tmp_path):
-    """The hint only fires when a `runs/` sibling exists — an empty runs root is a
-    legitimate empty result, not an error."""
+    """The hint fires only when a run really does exist below — an empty runs root, and
+    a tree of directories holding no record.json at all, are legitimate empty results."""
     from codeverse.flywheel.record import iter_runs
 
     empty = tmp_path / "runs"
     empty.mkdir()
     assert list(iter_runs(empty)) == []
+
+    noise = tmp_path / "noise"
+    (noise / "a" / "b" / "c").mkdir(parents=True)
+    assert list(iter_runs(noise)) == []
 
 
 def test_parquet_keeps_the_complexity_columns_the_exporter_writes(tmp_path):

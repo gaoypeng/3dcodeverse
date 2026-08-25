@@ -275,6 +275,32 @@ def load_record(ws: Workspace | Path | str) -> RunRecord:
         raise RecordError(f"invalid record.json in {ws.root}: {e}") from e
 
 
+#: how deep to look for a nested run before giving up (ab_plan's layout is
+#: arms/<arm>/cells/<prompt>/<slug>/run — five levels below the battery root)
+_NESTED_SCAN_DEPTH = 6
+
+
+def _find_nested_run(root: Path, depth: int = _NESTED_SCAN_DEPTH) -> Path | None:
+    """The first run directory strictly below ``root``, or None.  Breadth-first and
+    depth-bounded: this only has to prove that the caller pointed one level too high."""
+    level = [root]
+    for _ in range(depth):
+        nxt: list[Path] = []
+        for d in level:
+            try:
+                kids = sorted(p for p in d.iterdir() if p.is_dir())
+            except OSError:  # pragma: no cover - unreadable dir
+                continue
+            for k in kids:
+                if (k / "record.json").is_file():
+                    return k
+                nxt.append(k)
+        if not nxt:
+            return None
+        level = nxt
+    return None
+
+
 def iter_runs(
     runs_dir: Path | str, *, on_error: Callable[[Path, Exception], None] | None = None
 ) -> Iterator[tuple[Workspace, RunRecord]]:
@@ -287,13 +313,18 @@ def iter_runs(
     if not root.is_dir():
         raise FileNotFoundError(f"runs dir not found: {root}")
     children = sorted(p for p in root.iterdir() if p.is_dir())
-    if not any((d / "record.json").is_file() for d in children) and (root / "runs").is_dir():
-        # pointing at a BATTERY dir (bench/out/<battery>) instead of its runs/ root is the
-        # easy mistake, and every exporter here reports "0 runs" as a success.  Silence
-        # must not look like an empty dataset.
-        raise FileNotFoundError(
-            f"no run directories directly under {root} — did you mean {root / 'runs'}? "
-            f"(a battery directory holds its runs in runs/)")
+    if not any((d / "record.json").is_file() for d in children):
+        # Pointing at a BATTERY dir instead of its runs root is the easy mistake, and every
+        # exporter here reports "0 runs" as a SUCCESS — writing an empty metadata.parquet.
+        # Silence must not look like an empty dataset.  Keying the guard on root/runs alone
+        # left it silent for the two drivers that produce most batteries: compare_backends
+        # writes cells/<prompt>/<arm>/run and ab_plan writes arms/<arm>/cells/<prompt>/<slug>/run.
+        found = _find_nested_run(root)
+        if found is not None:
+            hint = (f"did you mean {root / 'runs'}?" if found.parent == root / "runs"
+                    else f"e.g. {found} — batteries nest their runs (cells/<prompt>/<arm>/run)")
+            raise FileNotFoundError(
+                f"no run directories directly under {root}, but there are runs below it — {hint}")
     for d in children:
         if not (d / "record.json").is_file():
             continue
