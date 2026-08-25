@@ -323,9 +323,11 @@ def test_resume_skips_done_pairs_and_redo_reruns_both_arms(tmp_path: Path):
     v = run_ab(BATTERY, tmp_path, opts.model_copy(update={"redo_status": ["infra_failed"]}), run_cell_fn=redo)
     assert sorted(redo.calls) == [(ids[1], CONTROL), (ids[1], VARIANT)]
     assert v.n_pairs == 2
+    assert len((tmp_path / "results.jsonl").read_text().strip().splitlines()) == 6, "the file is append-only"
     rows = load_jsonl(tmp_path / "results.jsonl", CellResult)
     latest = {(r.prompt_id, r.arm): r for r in rows}
-    assert latest[(ids[1], VARIANT)].status == "scored" and len(rows) == 6
+    assert latest[(ids[1], VARIANT)].status == "scored"
+    assert len(rows) == 4, "readers see one row per (prompt, arm): the redo replaces the stale attempt"
 
 
 def test_an_interrupted_pair_runs_only_its_missing_arm():
@@ -397,3 +399,21 @@ def test_ab_plan_children_count_as_harness_processes():
 
     assert _is_harness_argv([sys.executable, str(REPO / "bench" / "ab_plan.py"), "cell", "--arm", "control"])
     assert os.environ is not None
+
+
+def test_report_only_reads_the_same_rows_the_live_driver_wrote(tmp_path: Path):
+    """CG-5: results.jsonl is append-only and a redo re-appends, so a stale attempt and its
+    redo both sit in the file.  load_jsonl promised "latest row wins per natural key" and
+    deduped nothing: run_ab passed deduped rows to write_report while `--report-only`
+    passed the raw ones, so ONE summary.md said the variant's mean was 0.400 in the Arms
+    table, 0.800 per prompt, and based its verdict on 0.800 — and the footer counted an
+    infra_failed cell that had already been re-run and scored."""
+    rows = [_row("p1", CONTROL, 0.60),
+            _row("p1", VARIANT, None, "infra_failed"),   # lost to the outage
+            _row("p1", VARIANT, 0.80)]                   # ... and re-run afterwards
+    (tmp_path / "results.jsonl").write_text("".join(r.model_dump_json() + "\n" for r in rows))
+    loaded = load_jsonl(tmp_path / "results.jsonl", CellResult)
+    assert [(r.prompt_id, r.arm) for r in loaded] == [("p1", CONTROL), ("p1", VARIANT)]
+    assert arm_summary(loaded, VARIANT).mean_score == 0.80
+    assert arm_summary(loaded, VARIANT).n == 1 and arm_summary(loaded, VARIANT).n_infra_failed == 0
+    assert [r for r in loaded if r.status == "infra_failed"] == [], "a redone cell is not still lost"

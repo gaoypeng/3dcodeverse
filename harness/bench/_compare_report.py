@@ -13,7 +13,7 @@ import json
 import shutil
 import statistics
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -51,6 +51,11 @@ class CellResult(BaseModel):
     workspace: str = ""
     error: str = ""
 
+    def natural_key(self) -> tuple[str, ...]:
+        """Row identity: one cell is one (prompt, arm).  results.jsonl is append-only, so
+        a resume / ``--redo-status`` re-run appends a SECOND row for the same key."""
+        return (self.prompt_id, self.arm)
+
 
 class PairRow(BaseModel):
     prompt_id: str
@@ -64,16 +69,32 @@ class PairRow(BaseModel):
     judged: bool = Field(default=True, description="False when decided by a missing build (no judge call)")
     error: str = ""
 
+    def natural_key(self) -> tuple[str, ...]:
+        """Row identity: one pairwise verdict is one (prompt, arm A, arm B)."""
+        return (self.prompt_id, self.arm_a, self.arm_b)
+
 
 def load_jsonl(path: Path, model: type[T]) -> list[T]:
-    """Latest row wins per natural key (re-appended rows on resume)."""
+    """Rows in first-seen order, latest row winning per ``natural_key`` (models without
+    one keep every row).
+
+    The dedup lives HERE, once, because the files are append-only and every reader needs
+    the same rows: ``ab_plan --report-only`` used to hand the raw rows to ``render_summary``
+    while the live driver passed deduped ones, so one summary.md printed the variant's mean
+    as 0.400 in the arms table, 0.800 per prompt, and based its verdict on 0.800 — and the
+    "lost to outages" footer counted infra_failed cells that had already been re-run and
+    scored, advising ``--redo-status infra_failed`` for nothing.
+    """
     if not path.is_file():
         return []
-    rows: list[T] = []
-    for line in path.read_text().splitlines():
-        if line.strip():
-            rows.append(model.model_validate_json(line))
-    return rows
+    rows: dict[Any, T] = {}
+    for i, line in enumerate(path.read_text().splitlines()):
+        if not line.strip():
+            continue
+        row = model.model_validate_json(line)
+        key = row.natural_key() if hasattr(row, "natural_key") else i
+        rows[key] = row  # first appearance fixes the order, the last row wins the slot
+    return list(rows.values())
 
 
 # ----------------------------------------------------------------------------- aggregates
