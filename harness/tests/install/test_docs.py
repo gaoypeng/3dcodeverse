@@ -239,7 +239,9 @@ def test_doctor_checks_every_module_of_every_optional_extra(monkeypatch) -> None
 
     monkeypatch.setattr(importlib, "import_module", no_graphics)
     _, deps = check_python_deps()
-    assert deps[1] == "WARN" and "moderngl" in deps[2] and "harness[graphics]" in deps[2]
+    # the remedy names [graphics]; on a box that also lacks another extra (CI has no cadquery)
+    # the extras merge into one `harness[cad,graphics]` string, which is still correct
+    assert deps[1] == "WARN" and "moderngl" in deps[2] and re.search(r"harness\[[^\]]*\bgraphics\b", deps[2]), deps[2]
 
     # and the whole base install — every extra absent, which is what `pip install -e harness`
     # leaves behind — is a WARN whose remedy names EVERY missing extra, never a FAIL

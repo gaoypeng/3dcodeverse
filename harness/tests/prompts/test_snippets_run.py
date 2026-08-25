@@ -44,7 +44,7 @@ def test_cadquery_cookbook_runs() -> None:
 
 
 def test_cadquery_contract_example_runs() -> None:
-    import cadquery as cq  # noqa: F401
+    pytest.importorskip("cadquery")  # the [cad] extra — absent on a [dev]-only install (CI)
 
     ns = _exec_python_blocks("cadquery/contract.md")
     result = ns["result"]

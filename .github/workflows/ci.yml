@@ -10,6 +10,7 @@ jobs:
   lint:
     name: ruff (harness)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,6 +32,7 @@ jobs:
     # tests/core/test_portability.py — the `node`-marked tests are deselected below.
     name: offline tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -45,12 +47,15 @@ jobs:
         run: pip install -e ./harness[dev]
       # The suite is marked: `live` needs API keys, `blender` needs a Blender
       # binary, `node` needs runtime_js/node_modules — none exist on a runner,
-      # so CI runs the pure-python subset: 1290 selected of 1306, 1284 passed
-      # on 3.13 locally, out of the 2110 the whole offline suite passes.  The
-      # few skips are data-dependent (recorded runs/batteries a fresh clone
-      # does not have).  Measured with NO credentials in the environment,
-      # which is what a runner has: every non-`live` test must pass without
-      # keys (PORT-2).
+      # so CI runs EVERY test directory with those three markers deselected.
+      # (Until 2026-08-25 the command listed 7 of the 24 test directories, so
+      # 828 pure-python tests — including every docs-vs-code drift guard under
+      # tests/install and tests/docs_html — never ran on a PR.)  Optional-dep
+      # tests importorskip cleanly on a [dev]-only install.  Measured 2026-08-25
+      # on py3.11 with Blender + node present: 2256 passed of the whole offline
+      # suite; the pure-python expression below leaves 2137 selected.  Measured
+      # with NO credentials in the environment, which is what a runner has:
+      # every non-`live` test must pass without keys (PORT-2).
       - name: pytest (pure python subset)
-        run: python -m pytest tests/core tests/models tests/judges tests/orchestrator_tracks tests/flywheel_cli tests/bench_prompts tests/cost -q -m "not live and not blender and not node"
+        run: python -m pytest tests -q -m "not live and not blender and not node"
         working-directory: harness
