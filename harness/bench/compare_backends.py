@@ -247,7 +247,14 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
                 _run_harness(spec, cell, eval_ws, deps, res)
             else:
                 _generate_oneshot(arm, spec, cell, eval_ws, opts, deps, res)
-            if (eval_ws.root / MODEL_FILE).is_file():
+            # A one-shot arm whose LAST attempt was lost to the provider has not finished
+            # its protocol: `oneshot+repair` writes attempt 0's file before the repair call,
+            # so when that call dies in a 503 storm the broken pre-repair code was being
+            # evaluated and scored 0 — a hard zero for someone else's downtime, the exact
+            # asymmetry tests/compare_bench/test_infra_failures.py exists to end.  Drop the
+            # cell instead (infra_failed); --redo-status re-runs the lost attempt only.
+            truncated = arm.kind != "harness" and res.error_is_infra
+            if (eval_ws.root / MODEL_FILE).is_file() and not truncated:
                 outcome = deps.evaluator.evaluate(eval_ws, spec)
                 eval_ws.write_json(eval_ws.root / "eval.json", outcome)
                 _fill_from_outcome(res, outcome)
