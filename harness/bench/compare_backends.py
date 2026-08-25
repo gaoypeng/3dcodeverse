@@ -81,6 +81,7 @@ from bench.run_bench import (  # noqa: E402
 )
 from codeverse.config import get_settings  # noqa: E402
 from codeverse.contracts.artifacts import RenderSet  # noqa: E402
+from codeverse.contracts.common import ENTRY_FILE  # noqa: E402
 from codeverse.contracts.run import RunRecord  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402
 from codeverse.cost import run_ledger  # noqa: E402
@@ -211,6 +212,20 @@ def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts
         prompt = repair_prompt(spec, (eval_ws.root / MODEL_FILE).read_text(), build, lint, attempt + 1)
 
 
+def entry_of(spec: Spec) -> str:
+    """The file THIS spec's language delivers its code in.
+
+    ``_oneshot.MODEL_FILE`` is ``src/model.py`` because the one-shot arms are a
+    blender-only comparison (their contract prompt is literally python).  The HARNESS arm
+    is not: a glsl run delivers ``src/shader.frag``, three.js ``src/object.js``, a scene
+    ``src/scene.js``, moderngl ``src/program.py``.  Gating the harness arm on the one-shot
+    constant made every cell in those four languages ``no_code`` / **0.0** while the run
+    itself came back ``passed`` — a rig failure wearing a capability result's clothes, and
+    invisible in the summary.  ``ENTRY_FILE`` is the canonical table; consult it.
+    """
+    return ENTRY_FILE[spec.language]
+
+
 def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, res: CellResult) -> None:
     run_ws = Workspace(cell / "run")
     resume = run_ws.exists()
@@ -225,8 +240,8 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, 
     res.gen_cost_usd = rec.total_usage.cost_usd
     res.tool_calls = rec.total_usage.tool_calls
     res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), rec.final_score
-    if not (run_ws.root / MODEL_FILE).is_file():
-        res.error = f"harness run produced no {MODEL_FILE} (status {rec.status.value}: {rec.error})"
+    if not (run_ws.root / entry_of(spec)).is_file():
+        res.error = f"harness run produced no {entry_of(spec)} (status {rec.status.value}: {rec.error})"
         return
     # the whole src/ tree: agents may split helpers into src/parts/*.py (the build wrapper puts src/ on sys.path)
     shutil.copytree(run_ws.src, eval_ws.src, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
@@ -250,7 +265,7 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
                 _run_harness(spec, cell, eval_ws, deps, res)
             else:
                 _generate_oneshot(arm, spec, cell, eval_ws, opts, deps, res)
-            if (eval_ws.root / MODEL_FILE).is_file():
+            if (eval_ws.root / entry_of(spec)).is_file():
                 outcome = deps.evaluator.evaluate(eval_ws, spec)
                 eval_ws.write_json(eval_ws.root / "eval.json", outcome)
                 _fill_from_outcome(res, outcome)
