@@ -116,7 +116,35 @@ the seat", which is `cv3d-part-contact`'s number, not the prompt corpus's 2–5 
   wheel holds all 14 `SKILL.md`, all 14 `references/` and all 9 `_claims`.
 * **Corpus** recomputes each bundle's claimed evidence from `bench/out`.
 
-<!-- AB-RELNOTES -->
+### The A/B, and why it ships OFF
+
+`bench/out/ab_skills`, eight `static_objects_v2` prompts (the same eight
+`bench/out/plan_loop/C0` used for its A/A), `--rounds 1`, paired, fixed judge, arms
+differing only in `CV3D_SKILLS=on`. A Gemini capacity outage held the pool at 0–4 of 6 keys
+for most of the window: **1 pair scored, 2 cells `infra_failed`** (excluded, never scored 0).
+
+* mean delta **+0.002** (control 0.937, variant 0.939) · CI not computable at n=1 · sign
+  test 1/0, p = 1.000 · the rig printed `inconclusive`, `separated from noise: NO`.
+* **The read rate on that cell was 0 of 5, with ground truth.** `api-agent` owns its
+  `read_file`, so this is a log and not a probe: the agent made **52 `read_file` calls
+  across 4 sessions and none of them was a skill**, while calling `read_cookbook` twice.
+  The atime probe said 5 of 5 "deep" and its control simultaneously said `control_read:
+  true` — the probe was blind, exactly as V-8 predicts, and the calibration arm supplied
+  the number it could not.
+
+So the two arms differed by 356 tokens of index that nobody opened, and +0.002 is what that
+is worth. **Ship OFF**, for three reasons that do not depend on more pairs: the read rate on
+the harness's own generator is 0 %; the bar it was given (mean ≥ 0, no prompt regressed past
+0.03) is one the A/A of two *identical* arms fails twice over (−0.038, −0.206); and the
+deterministic gate counts inherit the planner's spread directly (an A/A of them swings
++5.67 penetrating pairs, `bench/ab_gate_rates.py`).
+
+Next, in order: **give `api-agent` a first-class skill affordance** (a `read_skill` tool
+beside `read_cookbook`, or inline the top body) — with 0 % reads no A/B can measure the
+library at all; then pin the plan (`docs/EVAL.md` §8.1); then reconcile the prompt corpus on
+weld overlap; then re-run. The three subscription CLIs read all five bundles unprompted and
+codex's output carried the skill's number, so this is a delivery problem for one backend,
+not a verdict on the library.
 
 ### Known open
 

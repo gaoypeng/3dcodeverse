@@ -12,7 +12,9 @@ names the cookbook section to fetch. Two libraries of truth would be worse than 
 not ours to bend: **claude-code, codex, gemini-cli and agy discover these bundles
 themselves** — proven live, see §7. Only `api-agent` needs harness-side injection.
 
-Everything is behind `CV3D_SKILLS`. **It ships OFF.** §6 says why, with the numbers.
+Everything is behind `CV3D_SKILLS`. **It ships OFF**, because `api-agent` read 0 of 5
+routed bundles in the measured A/B while the three subscription CLIs read all five.
+§6 has the numbers.
 
 ---
 
@@ -293,7 +295,63 @@ that refuses to start against a foreign `codeverse`, and
 `tests/compare_bench/test_worktree_import.py` — because a workaround protects whoever
 remembers it, not the run.
 
-<!-- AB-NUMBERS -->
+### What this A/B actually measured
+
+`bench/out/ab_skills`, still running when this was written. Weather was hostile: the Gemini
+pool sat at 0–4 of 6 keys answering for most of the window, so the rig parked on its
+preflight for two hours and lost a pair to a 503 storm mid-cell.
+
+| | |
+|---|---|
+| paired prompts scored | **1** of 8 (`ctrl_med_dining_chair`) |
+| mean delta | **+0.002** (control 0.937, variant 0.939) |
+| 95% CI | **not computable at n = 1**; the A/A band on this battery is ±0.165 |
+| sign test | 1 up / 0 down, p = 1.000 |
+| `infra_failed` cells | **2** (both arms of `ctrl_med_toaster`), excluded, never scored 0 |
+| verdict printed by the rig | `inconclusive`, `separated from noise: NO` |
+
+**And the reason that delta is +0.002 is not that the skills did not help. It is that the
+variant arm never read them.**
+
+### The read rate, with ground truth: 0 of 5
+
+`api-agent` is the calibration arm — we own its `read_file` tool, so
+`telemetry/skill_reads.jsonl` is not a probe, it is a log. On the scored variant cell:
+
+| | |
+|---|---|
+| skills listed in message 0, marked MANDATORY | **5** |
+| index cost | 356 tokens |
+| `read_file` calls the agent made, across 4 sessions | **52** |
+| of those, on a skill path | **0** |
+| `read_cookbook` calls instead | 2 |
+| what the atime probe reported | 5 of 5 "deep" |
+| what the control reported | `control_read: true` — **the probe was blind**, exactly as §1 predicts |
+
+So on the backend the entire bench runs on, the mechanism is inert: the agent read 52 files
+and not one of them was a skill. The two arms differed by 356 tokens of index that nobody
+opened, and +0.002 is what that is worth.
+
+This is not the same answer for every backend. The three subscription CLIs read all five
+unprompted (§4) and codex's output carried the skill's number. The difference is the
+affordance: a CLI has a first-class skill tool its runtime surfaces, and `api-agent` has a
+line in a long markdown file plus a generic `read_file`.
+
+### Verdict
+
+**Ship OFF behind `CV3D_SKILLS`**, and not because the number was negative:
+
+1. On `api-agent`, the read rate is **0 %** with ground truth. Shipping a default-on feature
+   that its main generator does not use would pay 356 tokens a turn for nothing.
+2. The shipping bar it was given — mean delta ≥ 0 and no prompt regressed by more than 0.03
+   — **cannot be cleared by anything on this rig at n = 8**: the A/A of two identical arms
+   fails it, twice over (−0.038, −0.206).
+3. The deterministic readouts are not an escape hatch either (below).
+4. Two of fourteen bundles have no graded runs behind them at all and are already routed off.
+
+Nothing here says the library is wrong. The CLI evidence says the opposite. It says the
+delivery mechanism for `api-agent` is a pointer nobody follows, and that is fixable.
+
 
 ### The deterministic readouts are not the escape hatch either
 
@@ -321,6 +379,12 @@ So at n = 8 with a free plan, neither readout can separate this switch from noth
 
 ### What to try next, in order
 
+0. **Give `api-agent` a first-class affordance.** This is now the top item and it is not a
+   measurement problem. Either a `read_skill(name)` tool beside `read_cookbook` — which the
+   agent *does* call — or, for the routed set, inline the one highest-priority body the way
+   the single-shot arm already does. A pointer in message 0 competes with everything else in
+   message 0; a tool in the tool list does not. Re-measure the read rate before anything
+   else: with 0 %, no A/B of this switch on `api-agent` can measure the library at all.
 1. **Pin the plan** (`docs/EVAL.md` §8.1). The skills switch is generation-side — the
    planner runs in the `plan` stage before anything is attached — so plan-once-write-both is
    valid here, and it removes the dominant variance term from *both* readouts instead of
@@ -405,6 +469,9 @@ its battery, its n and its date.
 
 ## 9. Known open
 
+* **`api-agent` has no skill affordance, and does not read them.** 0 of 5, ground truth,
+  §6. It has `read_cookbook` as a tool and skills only as a line of markdown. Until that
+  changes, the switch is a no-op for the backend the whole bench runs on.
 * **Corpus percentages are checked for provenance, not recomputed.** A body's "47 graded
   blender runs" is a *slice* (one battery, one track, one round kind) and `bench/out` holds
   139 blender runs overall; without each claim declaring the query that produced it, a
