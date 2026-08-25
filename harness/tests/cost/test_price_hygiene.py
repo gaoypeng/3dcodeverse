@@ -31,6 +31,7 @@ CORE_MODEL_IDS = (
     "openai:gpt-5.6-sol",
     "anthropic:claude-fable-5",
     "anthropic:claude-haiku-4-5-20251001",
+    "anthropic:claude-opus-5[1m]",  # what the DEFAULT claude-code arm reports (CC-2)
 )
 
 
@@ -112,6 +113,22 @@ def test_core_model_ids_resolve_to_a_price(model_id: str):
     u = Usage(input_tokens=1_000, output_tokens=1_000)
     assert price_provenance(provider, model).price is not None, model_id
     assert estimate_cost(provider, model, u) > 0, model_id
+
+
+def test_the_bracketed_context_variant_prices_on_its_own_row():
+    """CC-2: '[1m]' is not a version/date/channel tag, so _is_version_suffix() refuses to
+    fall back to claude-opus-5 — correctly, since a sibling's rate is never assumed here.
+    The id is real (the default claude-code arm reports it, and one recorded cell billed
+    $1.218 under it), so it needs a row of its own or `3dcv cost prices` calls the default
+    arm unknown and estimate_cost values it $0.00."""
+    row = price_provenance("anthropic", "claude-opus-5[1m]")
+    assert row.match == "exact" and row.price is not None
+    assert row.provenance.status == "inferred" and row.provenance.checked >= "2026-08-24"
+    u = Usage(input_tokens=2, output_tokens=46_921)
+    assert estimate_cost("anthropic", "claude-opus-5[1m]", u) == pytest.approx(
+        estimate_cost("anthropic", "claude-opus-5", u)), "same rates as the standard-context row"
+    # a bracketed suffix still must not borrow a sibling's price by accident
+    assert price_provenance("anthropic", "claude-sonnet-5[1m]").price is None
 
 
 def test_every_recorded_model_id_resolves_to_a_price():

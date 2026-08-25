@@ -113,6 +113,10 @@ PRICES: dict[tuple[str, str], Price] = {
     ("anthropic", "claude-fable-5"):          Price(10.00, 50.00, 1.00, cache_write=12.50),
     ("anthropic", "claude-mythos-5"):         Price(10.00, 50.00, 1.00, cache_write=12.50),
     ("anthropic", "claude-opus-5"):           Price(5.00, 25.00, 0.50, cache_write=6.25),
+    # the 1M-context variant of opus-5, and the id the DEFAULT claude-code arm serves.
+    # "[1m]" is not a version suffix, so it cannot prefix-match claude-opus-5 and priced
+    # at $0.00 until 2026-08-24 (a recorded run billed $1.218 under this exact key).
+    ("anthropic", "claude-opus-5[1m]"):       Price(5.00, 25.00, 0.50, cache_write=6.25),
     ("anthropic", "claude-opus-4-8"):         Price(5.00, 25.00, 0.50, cache_write=6.25),
     ("anthropic", "claude-opus-4-7"):         Price(5.00, 25.00, 0.50, cache_write=6.25),
     ("anthropic", "claude-opus-4-6"):         Price(5.00, 25.00, 0.50, cache_write=6.25),
@@ -177,6 +181,12 @@ PROVENANCE: dict[tuple[str, str], Provenance] = {
     ("anthropic", "claude-fable-5"):      _V("anthropic", note="1h cache write 20.00 (not modelled)"),
     ("anthropic", "claude-mythos-5"):     _V("anthropic", note="limited availability"),
     ("anthropic", "claude-opus-5"):       _V("anthropic", note="fast mode is 10.00/50.00 (not modelled)"),
+    ("anthropic", "claude-opus-5[1m]"):   _V("provider-cost", checked="2026-08-24", status="inferred",
+                                             note="1M-context opus-5, served by the default claude-code arm.  A probe "
+                                                  "billed costUSD 0.034620 for in=2, out=4, 1h-cache-write=3451 — "
+                                                  "exactly 2x5.00 + 4x25.00 + 3451x10.00 per 1M, i.e. the standard "
+                                                  "opus-5 rates with the 1h cache write at 2x input (not modelled here, "
+                                                  "as for every other Anthropic row)"),
     ("anthropic", "claude-opus-4-8"):     _V("anthropic", note="fast mode is 10.00/50.00 (not modelled)"),
     ("anthropic", "claude-opus-4-7"):     _V("anthropic"),
     ("anthropic", "claude-opus-4-6"):     _V("anthropic"),
