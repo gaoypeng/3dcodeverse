@@ -1,0 +1,36 @@
+# The four thresholds this bundle quotes are the ones scene_frames actually applies.
+# Move one and the test that ships this skill fails, which is the point.
+
+[[claim]]
+key    = "scene_dark_mean_lum"
+text   = "0.12"
+python = "codeverse.spatial.frame_metrics:DARK_MEAN_LUM"
+format = "{:.2f}"
+
+[[claim]]
+key    = "scene_dark_frac"
+text   = "35 %"
+python = "codeverse.spatial.frame_metrics:DARK_FRAC"
+scale  = 100
+format = "{:.0f} %"
+
+[[claim]]
+key    = "scene_blown_frac"
+text   = "20 %"
+python = "codeverse.spatial.frame_metrics:BLOWN_FRAC"
+scale  = 100
+format = "{:.0f} %"
+
+[[claim]]
+key    = "scene_flat_modal_frac"
+text   = "85 %"
+python = "codeverse.spatial.frame_metrics:FLAT_MODAL_FRAC"
+scale  = 100
+format = "{:.0f} %"
+
+[[claim]]
+key    = "scene_flat_modal_error"
+text   = "92 %"
+python = "codeverse.spatial.frame_metrics:FLAT_MODAL_ERROR"
+scale  = 100
+format = "{:.0f} %"
