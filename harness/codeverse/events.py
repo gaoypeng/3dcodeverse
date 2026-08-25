@@ -7,10 +7,13 @@ tests read.  Keep payloads small (paths + numbers, not file contents).
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 class EventLog:
@@ -28,6 +31,21 @@ class EventLog:
             fh.write(line + "\n")
 
     def read(self) -> list[dict[str, Any]]:
+        """Read the log, skipping unparseable lines with a debug log.
+
+        ``emit`` appends one buffered ``write``, so a SIGKILL / OOM kill / reboot
+        leaves a partial trailing line — and a killed run is exactly when someone
+        types ``3dcv status``.  A truncated last line must never lose the rest of
+        the file (same contract as ``cost.ledger.load_ledger``)."""
         if not self.path.is_file():
             return []
-        return [json.loads(line) for line in self.path.read_text().splitlines() if line.strip()]
+        out: list[dict[str, Any]] = []
+        text = self.path.read_text(encoding="utf-8", errors="replace")
+        for i, line in enumerate(text.splitlines()):
+            if not line.strip():
+                continue
+            try:
+                out.append(json.loads(line))
+            except ValueError as e:
+                log.debug("events %s:%d unreadable: %s", self.path, i + 1, e)
+        return out
