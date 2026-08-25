@@ -44,6 +44,35 @@ def test_timeout_kills_the_whole_process_group(tmp_path: Path):
     raise AssertionError(f"grandchild sleep (pid {grandchild}) survived the group kill")
 
 
+def test_a_detached_descendant_holding_the_pipes_cannot_extend_the_timeout(tmp_path: Path, monkeypatch):
+    """CP-4: after TimeoutExpired the code called a SECOND communicate() with no
+    timeout.  killpg reaps only the child's own session, so a descendant that
+    setsid'd while inheriting stdout keeps the pipe open and that call blocked until
+    IT exited — unbounded.  A caller passing timeout_s=N was never released at N.
+    """
+    import codeverse.proc as proc_mod
+
+    # raising=False so this test still RUNS (and fails on the hang) against the
+    # pre-fix module, which has no such constant
+    monkeypatch.setattr(proc_mod, "DRAIN_TIMEOUT_S", 1.0, raising=False)
+    t0 = time.monotonic()
+
+    r = run_subprocess(["bash", "-c", "setsid sleep 20 & echo started; sleep 20"],
+                       cwd=tmp_path, timeout_s=1.0)
+
+    elapsed = time.monotonic() - t0
+    assert r.timed_out and r.returncode != 0
+    # timeout_s + one drain window + slack — NOT the 20 s the escaped descendant lives
+    assert elapsed < 8.0, f"run_subprocess returned only after {elapsed:.1f}s"
+
+
+def test_a_same_group_grandchild_still_has_its_output_collected(tmp_path: Path):
+    """The bound must not cost us the normal case: a grandchild inside the group is
+    killed by killpg, so the drain completes and the output survives."""
+    r = run_subprocess(["bash", "-c", "echo hello; sleep 30 & wait"], cwd=tmp_path, timeout_s=0.4)
+    assert r.timed_out and "hello" in r.stdout
+
+
 def test_preexec_fn_runs_in_the_child(tmp_path: Path):
     soft = 256
 

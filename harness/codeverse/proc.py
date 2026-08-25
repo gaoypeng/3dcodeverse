@@ -11,6 +11,7 @@ callers; it will become a re-export of this module.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import signal
@@ -67,7 +68,7 @@ def run_subprocess(
     except subprocess.TimeoutExpired:
         timed_out = True
         kill_group(proc)
-        out, err = proc.communicate()
+        out, err = _drain_after_kill(proc)
     return ProcResult(
         returncode=proc.returncode if proc.returncode is not None else -1,
         stdout=out or "",
@@ -75,6 +76,35 @@ def run_subprocess(
         timed_out=timed_out,
         duration_ms=int((time.monotonic() - t0) * 1000),
     )
+
+
+#: how long to keep draining the pipes after the group kill.  Matches
+#: ``agents/watchdog.py``'s ``thread.join(timeout=10)``.
+DRAIN_TIMEOUT_S = 10.0
+_ABANDONED = "(output abandoned: a detached descendant still holds the pipe)"
+
+
+def _drain_after_kill(proc: subprocess.Popen[str]) -> tuple[str, str]:
+    """Collect whatever the killed child wrote, WITHOUT waiting forever.
+
+    ``kill_group`` killpg's only the child's own session, so a descendant that
+    setsid'd or daemonised while inheriting stdout/stderr keeps those pipes open —
+    and an unbounded ``communicate()`` then blocks until IT exits, which has no upper
+    bound.  That silently voided ``timeout_s`` for every build/render path (blender,
+    node, cadquery, urdf, gl_render, joints_export, doctor) that funnels through here.
+    """
+    try:
+        return proc.communicate(timeout=DRAIN_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        # The child itself is already SIGKILLed; close our ends of the pipes so the
+        # escaped descendant cannot hold us, then reap the child (it is a zombie now).
+        for pipe in (proc.stdin, proc.stdout, proc.stderr):
+            if pipe is not None:
+                with contextlib.suppress(OSError):
+                    pipe.close()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=DRAIN_TIMEOUT_S)
+        return "", _ABANDONED
 
 
 def kill_group(proc: subprocess.Popen[str]) -> None:
