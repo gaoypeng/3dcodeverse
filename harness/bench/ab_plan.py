@@ -136,6 +136,11 @@ def parse_variant_env(items: Sequence[str]) -> dict[str, str]:
         k, sep, v = it.partition("=")
         if not sep or not k.strip():
             raise ValueError(f"--variant-env needs KEY=VALUE, got {it!r}")
+        if k.strip() in (MAX_IN_FLIGHT_ENV, NESTED_MAX_IN_FLIGHT_ENV):
+            # child_env sets the cap authoritatively so the §23 admission check and the
+            # children agree; accepting it here too would silently discard one of them.
+            raise ValueError(f"--variant-env {k.strip()} is not allowed: the in-flight cap is "
+                             f"the driver's (--max-in-flight), and the admission check budgets on it")
         out[k.strip()] = v
     return out
 

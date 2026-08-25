@@ -212,6 +212,15 @@ def test_children_run_at_exactly_the_cap_the_budget_reserved(monkeypatch):
     assert inherited_max_in_flight() == DEFAULT_MAX_IN_FLIGHT
 
 
+def test_the_in_flight_cap_cannot_be_smuggled_in_as_the_variant_switch():
+    """It would put the arms at different caps and make the admission figure wrong again."""
+    import pytest
+
+    for name in (MAX_IN_FLIGHT_ENV, NESTED_MAX_IN_FLIGHT_ENV):
+        with pytest.raises(ValueError, match="not allowed"):
+            parse_variant_env([f"{name}=64"])
+
+
 def test_the_in_flight_env_name_is_one_settings_reads(monkeypatch):
     """A cap that Settings does not read is no cap: the children would run at 64 each."""
     from codeverse.config import get_settings
