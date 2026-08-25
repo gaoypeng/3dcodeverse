@@ -153,7 +153,13 @@ codeverse/
 bench/                run_bench.py, report.py (reuses flywheel gallery), compare_backends.py
                       (preflights every model it needs; --wait-for-provider / --no-preflight),
                       _infra.py (outage vs model failure: infra_failed / budget_exhausted, docs/EVAL.md §7),
-                      _compare_report.py (arm table incl. the `dropped` / `over budget` loss columns),
+                      _compare_report.py (arm table incl. the `dropped` / `over budget` loss columns;
+                      dedups the append-only rows per (prompt, arm) so every reader agrees),
+                      _jsonl.py (the ONE tolerant reader/append-sealer for the resumable
+                      *.jsonl journals — a truncated last line never costs the paid rows),
+                      ab_plan.py (paired control/variant A/B for plan + brief switches; pins
+                      both children to the cap the §23 admission check reserved), _ab_report.py,
+                      _oneshot.py, _fixed_eval.py, cost_report.py,
                       concurrency_probe.py (in-flight knee sweep), complexity_report.py,
                       prompts/{static_objects_v1 (24), articulated_v1 (12), scenes_v1 (12), compare_v1 (8)}.yaml
 runtime_js/           export_glb.mjs (placement policy, instance baking, selfcheck) render_glb.mjs
