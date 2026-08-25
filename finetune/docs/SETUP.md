@@ -51,7 +51,7 @@ pip uninstall -y torchaudio                        # a mismatched torchaudio bre
 ## 2. External tools (called by absolute path from `eval/`)
 | tool | how | path key |
 |---|---|---|
-| Blender 5.0.1 (headless; executes generated bpy code, exports GLB) | `wget https://download.blender.org/release/Blender5.0/blender-5.0.1-linux-x64.tar.xz && tar xf … -C $WORKSPACE/tools` | `BLENDER` in `eval/run_bench.py`, `eval/blender_dialect_eval.py`, `scripts/*dpo*.sh` |
+| Blender 5.0.1 (headless; executes generated bpy code, exports GLB) | `wget https://download.blender.org/release/Blender5.0/blender-5.0.1-linux-x64.tar.xz && tar xf … -C $WORKSPACE/tools` — **then `blender-5.0.1-linux-x64/5.0/python/bin/python3.11 -m pip install scipy`**: 15 of the 212 3DCodeBench reference scripts import scipy, and without it any model that writes the same idiom is scored as a failure (this cost the tuned 27B 8.1 points before we caught it) | `BLENDER` in `eval/run_bench.py`, `eval/blender_dialect_eval.py`, `scripts/*dpo*.sh` |
 | OpenSCAD (nightly AppImage, extracted so it runs without FUSE) | `wget …/OpenSCAD-2026.08.19-x86_64.AppImage && ./OpenSCAD-*.AppImage --appimage-extract` → `squashfs-root/AppRun` | `OPENSCAD` in `eval/dialect_runners.py` |
 | glslangValidator | conda-forge `glslang` (in `llmft`) | `GLSLANG` in `eval/dialect_runners.py` |
 | Chromium (Playwright) | see `llmft` above | `PLAYWRIGHT_BROWSERS_PATH` |

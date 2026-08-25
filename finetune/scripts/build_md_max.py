@@ -219,6 +219,9 @@ def main():
         d["n"] += 1
         d["tok"] += n
         d["by_caption"][p["caption"]] = d["by_caption"].get(p["caption"], 0) + 1
+    def _san(t): return t.replace("<image>", "<image >").replace("<video>", "<video >").replace("<audio>", "<audio >")
+    for p_ in keep:
+        p_["code"] = _san(p_["code"]); p_["prompt"] = _san(p_["prompt"])
     random.shuffle(keep)
 
     os.makedirs(a.out, exist_ok=True)
