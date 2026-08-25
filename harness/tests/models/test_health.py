@@ -201,6 +201,30 @@ def test_an_ab_plan_driver_is_not_charged_for_its_children(monkeypatch):
     assert health.pool_budget().used == 16
 
 
+def test_a_sibling_running_unlimited_is_charged_the_whole_knee(monkeypatch):
+    """SM-02: 0 is the documented 'off = unlimited' value (Rate.max_in_flight,
+    `doctor` prints max_in_flight=off), so the one process with NO ceiling at all
+    was accounted as holding NOTHING and pool_budget handed the next launcher the
+    full 64 — straight past the measured knee."""
+    health = _fake_proc(monkeypatch, {
+        401: (["python", "-m", "codeverse.cli.main", "bench", "run"], {"CV3D_MAX_IN_FLIGHT": "0"}),
+    })
+    pb = health.pool_budget()
+    assert (pb.siblings, pb.used, pb.headroom) == (1, 64, 0), str(pb)
+    assert not pb.fits(1)
+
+
+def test_a_negative_cap_does_not_grow_the_headroom(monkeypatch):
+    """A negative cap used to be SUBTRACTED from `used`, so a sibling made the
+    machine look emptier than with no sibling at all."""
+    health = _fake_proc(monkeypatch, {
+        501: (["python", "-m", "codeverse.cli.main", "bench", "run"], {"CV3D_MAX_IN_FLIGHT": "16"}),
+        502: (["python", "-m", "bench.compare_backends"], {"CV3D_MAX_IN_FLIGHT": "-8"}),
+    })
+    pb = health.pool_budget()
+    assert pb.used == 16 + health.POOL_KNEE and pb.headroom == 0, str(pb)
+
+
 def test_pool_budget_never_raises(monkeypatch):
     from pathlib import Path
 

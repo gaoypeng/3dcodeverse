@@ -217,6 +217,12 @@ def _cap_of(pid_dir: Path) -> int:
 
     A process that set neither name runs at the default; one that set an unparsable value
     is counted at the default too (the child itself would have refused to start).
+
+    ``0`` is the documented "off = unlimited" value (``Rate.max_in_flight``; ``doctor``
+    prints ``max_in_flight=off``), so the one sibling with NO ceiling at all has to be
+    charged the whole knee — counting it as 0 handed the next launcher the full budget.
+    A negative cap is charged the same way rather than being SUBTRACTED from ``used``,
+    where it grew the headroom it should have shrunk.
     """
     from codeverse.config import Rate
 
@@ -230,9 +236,10 @@ def _cap_of(pid_dir: Path) -> int:
         val = env.get(name.encode())
         if val:
             try:
-                return int(val)
+                n = int(val)
             except ValueError:
                 return default
+            return POOL_KNEE if n <= 0 else n
     return default
 
 
