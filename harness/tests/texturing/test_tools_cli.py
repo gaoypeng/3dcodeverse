@@ -11,7 +11,7 @@ from codeverse.spatial.registry import ToolContext, get_tool, list_tools
 from codeverse.texturing.generate import FakeImageModel
 from codeverse.texturing.run import TextureServices
 from codeverse.workspace import Workspace
-from tests.texturing.conftest import FakeJudge, fake_render
+from tests.texturing.conftest import FakeJudge, FakePlanModel, fake_render
 
 
 def _ws(tmp_path: Path, chair_glb, chair_spec, chair_plan, *, texture: bool = True) -> Workspace:
@@ -36,8 +36,10 @@ def test_tools_registered_for_object_tracks():
 def test_texture_pass_tool_runs_with_injected_fakes(tmp_path, chair_glb, chair_spec, chair_plan):
     ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan)
     judge = FakeJudge([(0.7, {"materials": 0.5}), (0.72, {"materials": 0.7})])
+    # plan_model too: without it material_plan builds a REAL model from the spec's
+    # planner id, so this "injected fakes" test only passed on a box that has keys.
     services = TextureServices(image_model=FakeImageModel(), judge_obj=judge, render=fake_render,
-                               cache_dir=tmp_path / "c")
+                               plan_model=FakePlanModel(), cache_dir=tmp_path / "c")
     ctx = ToolContext(workspace=ws, track="static_object", language="blender",
                       extra={"texture_services": services})
     obs = get_tool("texture_pass").call(ctx, {"model": ""})

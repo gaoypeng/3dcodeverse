@@ -3,6 +3,7 @@ its plan + spec, a fake image model, a fake render function and a fake judge."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ import trimesh
 from PIL import Image
 
 from codeverse.contracts.artifacts import RenderSet, RenderView
+from codeverse.contracts.chat import ChatResponse
 from codeverse.contracts.common import Language, Track, Usage
 from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
@@ -112,3 +114,30 @@ class FakeJudge:
         summary = "judge_error: boom" if self.degraded else "ok"
         return Judgment(rubric="static_object_v1", scores=scores, overall=overall, passed=overall >= 0.72, summary=summary,
                         usage=Usage(cost_usd=0.01))
+
+
+class FakePlanModel:
+    """A ChatModel that answers the material-plan call — no credentials, no network.
+
+    ``TextureServices.plan_model`` is one of the five injectable dependencies, and a
+    test that leaves it None makes ``material_plan`` build a REAL model from the spec's
+    planner id: the test then only passes on a box that happens to have keys (PORT-2).
+    """
+
+    id = "fake:plan"
+
+    def __init__(self, payload: dict[str, Any] | None = None):
+        self.payload = payload or {"parts": [
+            {"part": "Seat", "texture_id": "oak_wood", "material_family": "wood",
+             "subject": "light oak", "projection": "planar_y", "tile_size_m": 0.4},
+            {"part": "Back", "texture_id": "oak_wood", "material_family": "wood",
+             "subject": "light oak", "projection": "box"},
+            {"part": "Leg", "texture_id": "steel", "material_family": "metal",
+             "subject": "brushed steel", "projection": "cylinder", "metallic": 1, "roughness": 0.3},
+        ], "notes": "fake plan"}
+        self.calls: list[Any] = []
+
+    def generate(self, req: Any) -> ChatResponse:
+        self.calls.append(req)
+        return ChatResponse(text=json.dumps(self.payload), parsed=self.payload,
+                            usage=Usage(cost_usd=0.002, input_tokens=100))

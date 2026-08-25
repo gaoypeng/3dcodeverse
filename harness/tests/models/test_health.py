@@ -109,6 +109,10 @@ def test_probe_model_treats_a_503_as_final(monkeypatch):
         return "unused"
 
     monkeypatch.setattr(gm, "rotate_with_retries", fake_rotate)
+    # a non-live test must pass with NO credentials in the environment (a fresh clone,
+    # the CI runner): _bare_model builds a real GeminiModel, which refuses to construct
+    # without keys, so hand it a fake one instead of borrowing this box's (PORT-2).
+    monkeypatch.setattr(gm, "_default_keys", lambda: ["fake-key-for-tests"])
     m = _bare_model("gemini:gemini-3.7-flash", 30.0)
     assert m.storm_attempts == 0 and m.max_attempts == 1
     import contextlib
