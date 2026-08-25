@@ -60,3 +60,40 @@ def test_an_unreadable_lock_never_bricks_a_run(tmp_path, junk):
     p.write_text(junk)
     with run_lock(tmp_path):
         pass
+
+
+# --------------------------------------------------------- --force must not evict a live run
+def test_force_refuses_to_wipe_a_run_a_live_process_is_holding(tmp_path):
+    """`--force` means "overwrite a DEAD run", never "evict a running one".
+
+    create_workspace(force=True) does shutil.rmtree on the run root, which deletes the
+    lock file itself — so before this check a forced run wiped a live holder's workspace
+    out from under it and then took a fresh lock, with no error and no message.
+    Reproduced 2026-08-25 on tsr_scn_boat_workshop_v2: two independent `3dcv make` on one
+    slug, 33 seconds apart, both writing.
+    """
+    from codeverse.cli._common import CliError, create_workspace
+
+    root = tmp_path / "held_run"
+    root.mkdir()
+    (root / "spec.json").write_text("{}")  # non-empty, so --force would rmtree it
+    with run_lock(root, what="3dcv make held_run"):
+        with pytest.raises(CliError) as ei:
+            create_workspace(root, force=True)
+        assert str(os.getpid()) in str(ei.value)
+        assert (root / "spec.json").exists(), "the live holder's workspace must survive"
+
+
+def test_force_still_overwrites_a_dead_run(tmp_path):
+    """The check must not make a crashed run un-forceable — that would be worse than the
+    bug it fixes, because 13 runs needed exactly this after the pkill incident."""
+    import json
+
+    from codeverse.cli._common import create_workspace
+
+    root = tmp_path / "dead_run"
+    (root / ".3dcv").mkdir(parents=True)
+    (root / "spec.json").write_text("{}")
+    _lock_path(root).write_text(json.dumps({"pid": 4194303, "started": 0, "what": "3dcv make ghost"}))
+    create_workspace(root, force=True)  # must not raise
+    assert not (root / "spec.json").exists(), "a dead run's directory is replaced as before"

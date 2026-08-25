@@ -69,6 +69,38 @@ def _holder(path: Path) -> dict | None:
     return rec
 
 
+def assert_free(run_root: Path | str, *, action: str = "overwrite") -> None:
+    """Raise :class:`RunLocked` if a live process holds this run.
+
+    Call this BEFORE destroying or recreating a run directory.  ``--force`` must mean
+    "overwrite a DEAD run", never "evict a running one": ``create_workspace(force=True)``
+    does ``shutil.rmtree`` on the run root, which deletes the lock file itself, so without
+    this check a forced run silently wipes a live holder's workspace out from under it and
+    then takes a fresh lock with no error.  Measured 2026-08-25 on
+    tsr_scn_boat_workshop_v2: two independent ``3dcv make`` on one slug, 33 seconds apart.
+
+    This narrows the window rather than closing it completely — two ``--force`` calls that
+    interleave between this check and the wipe can still both proceed.  Closing that
+    properly needs a lock held outside the directory being deleted; the check here removes
+    the case that actually happens, which is a force against a run someone is already
+    using.
+    """
+    if (held := _holder(_lock_path(run_root))) is not None:
+        raise RunLocked(_held_message(run_root, held, action=action))
+
+
+def _held_message(run_root: Path | str, held: dict, *, action: str) -> str:
+    started = time.strftime("%H:%M:%S", time.localtime(held.get("started", 0)))
+    name = Path(run_root).name
+    return (
+        f"refusing to {action} run {name}: it is being run right now by pid {held['pid']} "
+        f"(started {started}: {held.get('what') or '3dcv'}).  Two processes on one run "
+        f"corrupt each other's state.  Look at it with `3dcv status {name}`, or stop that "
+        f"ONE process with `kill {held['pid']}` — never `pkill -f 3dcv`, which kills every "
+        f"other run on this machine too."
+    )
+
+
 @contextmanager
 def run_lock(run_root: Path | str, *, what: str = "") -> Iterator[None]:
     """Hold the run directory for this process, or raise :class:`RunLocked`.
@@ -79,14 +111,7 @@ def run_lock(run_root: Path | str, *, what: str = "") -> Iterator[None]:
     path = _lock_path(run_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     if (held := _holder(path)) is not None:
-        started = time.strftime("%H:%M:%S", time.localtime(held.get("started", 0)))
-        raise RunLocked(
-            f"run {Path(run_root).name} is already being run by pid {held['pid']} "
-            f"(started {started}: {held.get('what') or '3dcv'}).  Two processes on one run "
-            f"corrupt each other's state.  Look at it with `3dcv status {Path(run_root).name}`, "
-            f"or stop that ONE process with `kill {held['pid']}` — never `pkill -f 3dcv`, "
-            f"which kills every other run on this machine too."
-        )
+        raise RunLocked(_held_message(run_root, held, action="enter"))
     rec = {"pid": os.getpid(), "started": time.time(), "what": what}
     tmp = path.with_suffix(".lock.tmp")
     tmp.write_text(json.dumps(rec))
