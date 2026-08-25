@@ -65,4 +65,25 @@ def test_cli_writes_paired_md_and_json(tmp_path):
     md = (tmp_path / "paired.md").read_text()
     assert "| harness arm |" in md and HA in md and "**" in md
     data = json.loads((tmp_path / "paired.json").read_text())
-    assert data[0]["n"] == 2 and data[0]["wins"] == 2
+    assert data["paired"][0]["n"] == 2 and data["paired"][0]["wins"] == 2
+    assert md.count("## judge-free") == 1 and {g["arm"] for g in data["gates"]} == {HA, OA}
+
+
+def test_degraded_harness_cells_are_reported_and_can_be_excluded():
+    """A storm-degraded harness cell (flagged by compare_backends.flag_degraded) stays in the
+    headline row but is counted, and an `all −degraded` row repeats the comparison without it."""
+    rows = []
+    for i, (h, o, deg) in enumerate([(0.9, 0.5, False), (0.8, 0.6, False), (0.3, 0.6, True), (0.2, 0.5, True)]):
+        hc = _cell(f"p{i}", HA, h)
+        hc.degraded, hc.degraded_reason = deg, "ceiling stop after 0 completed round(s) in 45 min" if deg else ""
+        rows += [hc, _cell(f"p{i}", OA, o)]
+    stats = {s.tier: s for s in analyse(rows)}
+    assert stats["all"].n == 4 and stats["all"].degraded_kept == 2 and stats["all"].dropped_degraded == 0
+    assert stats["all"].mean_delta == round((0.4 + 0.2 - 0.3 - 0.3) / 4, 4)
+    excl = stats["all −degraded"]
+    assert excl.n == 2 and excl.dropped_degraded == 2 and excl.degraded_kept == 0
+    assert excl.mean_delta == round((0.4 + 0.2) / 2, 4) and excl.wins == 2
+    # no degraded cells → no extra row
+    plain = analyse([_cell("q", HA, 0.7), _cell("q", OA, 0.5)])
+    assert "all −degraded" not in {s.tier for s in plain}
+

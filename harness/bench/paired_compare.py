@@ -24,6 +24,7 @@ import json
 import math
 import statistics
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -64,6 +65,8 @@ class PairedStats(BaseModel):
     n: int = Field(description="prompts with a score on BOTH arms")
     dropped_infra: int = Field(default=0, description="pairs lost to a provider outage on either arm")
     dropped_unscored: int = Field(default=0, description="pairs lost to an unscored, non-outage cell")
+    dropped_degraded: int = Field(default=0, description="pairs excluded because the harness cell is storm-degraded (exclude_degraded=True)")
+    degraded_kept: int = Field(default=0, description="pairs kept whose harness cell is storm-degraded (exclude_degraded=False)")
     mean_harness: float | None = None
     mean_oneshot: float | None = None
     mean_delta: float | None = None
@@ -102,7 +105,7 @@ def _usable(r: CellResult | None) -> tuple[bool, str]:
 
 
 def paired(cells: dict[tuple[str, str], CellResult], harness_arm: str, oneshot_arm: str, *,
-           tier: str = "all") -> PairedStats:
+           tier: str = "all", exclude_degraded: bool = False) -> PairedStats:
     prompts = sorted({p for (p, a) in cells if a in (harness_arm, oneshot_arm)})
     st = PairedStats(harness_arm=harness_arm, oneshot_arm=oneshot_arm, tier=tier, n=0)
     hs: list[float] = []
@@ -124,6 +127,11 @@ def paired(cells: dict[tuple[str, str], CellResult], harness_arm: str, oneshot_a
                 st.dropped_unscored += 1
             continue
         assert h is not None and o is not None and h.score is not None and o.score is not None
+        if h.degraded or o.degraded:
+            if exclude_degraded:
+                st.dropped_degraded += 1
+                continue
+            st.degraded_kept += 1
         hs.append(h.score)
         os_.append(o.score)
         st.deltas[p] = round(h.score - o.score, 4)
@@ -166,11 +174,47 @@ def analyse(rows: list[CellResult]) -> list[PairedStats]:
     oneshot = [a for a in arms if a.startswith("oneshot")]
     tiers = sorted({r.tier for r in cells.values() if r.tier}, key=lambda t: ("easy", "medium", "hard").index(t) if t in ("easy", "medium", "hard") else 9)
     out: list[PairedStats] = []
+    any_degraded = any(r.degraded for r in cells.values())
     for ha in harness:
         for oa in oneshot:
             out.append(paired(cells, ha, oa))
+            if any_degraded:  # the same comparison without the cells that measured the weather
+                st = paired(cells, ha, oa, exclude_degraded=True)
+                st.tier = "all −degraded"
+                out.append(st)
             for t in tiers:
                 out.append(paired(cells, ha, oa, tier=t))
+    return out
+
+
+class ArmGateStats(BaseModel):
+    """Judge-free numbers per arm: what the deterministic gates and the build say."""
+
+    arm: str
+    n: int
+    build_ok_rate: float
+    mean_gate_errors: float | None
+    zero_gate_error_rate: float | None
+    mean_tris: float | None
+    degraded: int = 0
+
+
+def gate_stats(cells: dict[tuple[str, str], CellResult]) -> list[ArmGateStats]:
+    by: dict[str, list[CellResult]] = defaultdict(list)
+    for (_, arm), r in cells.items():
+        if r.status != "infra_failed":
+            by[arm].append(r)
+    out = []
+    for arm, rs in sorted(by.items(), key=lambda kv: (not kv[0].startswith("harness:"), kv[0])):
+        built = [r for r in rs if r.build_ok]
+        out.append(ArmGateStats(
+            arm=arm, n=len(rs), build_ok_rate=round(sum(1 for r in rs if r.build_ok) / len(rs), 4) if rs else 0.0,
+            mean_gate_errors=round(statistics.fmean(len(r.gate_errors) for r in built), 3) if built else None,
+            zero_gate_error_rate=round(sum(1 for r in built if not r.gate_errors) / len(built), 4) if built else None,
+            mean_tris=round(statistics.fmean(r.tris for r in built if r.tris is not None), 0)
+            if any(r.tris is not None for r in built) else None,
+            degraded=sum(1 for r in rs if r.degraded),
+        ))
     return out
 
 
@@ -180,21 +224,37 @@ def _f(x: float | None, signed: bool = False) -> str:
     return f"{x:+.3f}" if signed else f"{x:.3f}"
 
 
-def render_markdown(stats: list[PairedStats], title: str) -> str:
+def render_gate_markdown(gs: list[ArmGateStats]) -> str:
+    lines = ["", "## judge-free (build + deterministic gates, cells that ran)", "",
+             "| arm | n | build ok | mean gate errors (built) | zero-gate-error (built) | mean tris | degraded |",
+             "|---|---|---|---|---|---|---|"]
+    for g in gs:
+        lines.append(f"| {g.arm} | {g.n} | {g.build_ok_rate:.0%} | {_f(g.mean_gate_errors)} | "
+                     f"{'—' if g.zero_gate_error_rate is None else format(g.zero_gate_error_rate, '.0%')} | "
+                     f"{'—' if g.mean_tris is None else int(g.mean_tris)} | {g.degraded or ''} |")
+    return "\n".join(lines) + "\n"
+
+
+def render_markdown(stats: list[PairedStats], title: str, gates: list[ArmGateStats] | None = None) -> str:
     lines = [f"# paired harness − one-shot — {title}", "",
              "Mean Δ with its paired 95 % t-interval and the exact two-sided sign test over prompts scored on BOTH arms; "
              "`infra` = pairs dropped to a provider outage, `unscored` = pairs dropped to a cell with no score for any other reason. "
              "A comparison is **supported** only when the interval excludes zero.", "",
-             "| harness arm | one-shot arm | tier | n | infra | unscored | harness | one-shot | Δ | 95 % CI | W/L/T | sign p | pass h/o | build h/o | verdict |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "`degraded` = pairs whose harness cell is storm-degraded (kept in every row except `all −degraded`, where they are excluded).", "",
+             "| harness arm | one-shot arm | tier | n | infra | unscored | degraded | harness | one-shot | Δ | 95 % CI | W/L/T | sign p | pass h/o | build h/o | verdict |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for s in stats:
         ci = f"[{_f(s.ci95_low, True)}, {_f(s.ci95_high, True)}]" if s.ci95_low is not None else "—"
+        deg = f"{s.dropped_degraded} excl." if s.dropped_degraded else (str(s.degraded_kept) if s.degraded_kept else "")
         lines.append(
-            f"| {s.harness_arm} | {s.oneshot_arm} | {s.tier} | {s.n} | {s.dropped_infra} | {s.dropped_unscored} | "
+            f"| {s.harness_arm} | {s.oneshot_arm} | {s.tier} | {s.n} | {s.dropped_infra} | {s.dropped_unscored} | {deg} | "
             f"{_f(s.mean_harness)} | {_f(s.mean_oneshot)} | {_f(s.mean_delta, True)} | {ci} | {s.wins}/{s.losses}/{s.ties} | "
             f"{_f(s.sign_p)} | {_f(s.pass_rate_harness)}/{_f(s.pass_rate_oneshot)} | {_f(s.build_ok_harness)}/{_f(s.build_ok_oneshot)} | "
             f"**{s.verdict}** |")
-    return "\n".join(lines) + "\n"
+    out = "\n".join(lines) + "\n"
+    if gates:
+        out += render_gate_markdown(gates)
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -204,9 +264,11 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(ns.out_dir)
     rows = read_jsonl(out / "results.jsonl", CellResult)
     stats = analyse(rows)
-    md = render_markdown(stats, out.name)
+    gates = gate_stats(latest_cells(rows))
+    md = render_markdown(stats, out.name, gates)
     (out / "paired.md").write_text(md)
-    (out / "paired.json").write_text(json.dumps([s.model_dump(mode="json") for s in stats], indent=2))
+    (out / "paired.json").write_text(json.dumps({"paired": [s.model_dump(mode="json") for s in stats],
+                                                 "gates": [g.model_dump(mode="json") for g in gates]}, indent=2))
     print(md)
     return 0
 

@@ -132,6 +132,8 @@ class CompareOptions(BaseModel):
     repair_attempts: int = 2
     n_samples: int = 2
     pairwise: bool = True
+    degraded_min_wall_s: float = Field(default=40 * 60, description="flag_degraded: a harness run this long that never iterated waited, it did not work")
+    degraded_max_rounds: int = Field(default=1, description="flag_degraded: completed rounds at or below this count")
     redo_status: list[str] = Field(default_factory=list, description="re-run cells whose status is one of these")
 
 
@@ -222,6 +224,8 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, 
     res.gen_cost_usd = rec.total_usage.cost_usd
     res.tool_calls = rec.total_usage.tool_calls
     res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), rec.final_score
+    res.harness_stop_reason = str(rec.extra.get("stop_reason") or "")
+    res.harness_aborted_rounds = len(rec.extra.get("aborted_rounds") or [])
     if not (run_ws.root / MODEL_FILE).is_file():
         res.error = f"harness run produced no {MODEL_FILE} (status {rec.status.value}: {rec.error})"
         return
@@ -272,8 +276,31 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
         res.status = "infra_failed" if is_infra_failure(e) else "error"  # same rule as the no-code path
         res.error = (res.error + "; " if res.error else "") + f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1200:]}"
     res.wall_s = round(time.time() - t0, 1)
+    flag_degraded(res, opts)
     eval_ws.write_json(cell / "cell.json", res)
     return res
+
+
+def flag_degraded(res: CellResult, opts: CompareOptions) -> None:
+    """Mark a harness cell whose run WAITED instead of iterating (compare_v4, 2026-08-25).
+
+    Under a day-long gemini-3.7-flash 503 storm 37 of 40 harness runs stopped on the
+    45-minute wall-clock ceiling with 0–2 completed rounds while the 3 runs that met a
+    calm window finished 2–4 rounds in 27–40 min and scored 0.92–0.95.  Those cells are
+    real artifacts and stay scored, but a paired mean over them measures the weather, not
+    the loop — so the cell says so.  Rule: the harness stopped for *budget* while money
+    was left (i.e. the clock, not the dollars), completed at most ``degraded_max_rounds``
+    rounds, and the cell ran at least ``degraded_min_wall_s``.  ``harness_aborted_rounds``
+    separately counts runs the ceiling interrupted mid-round.
+    """
+    if res.kind != "harness" or res.status not in ("scored", "build_failed"):
+        return
+    money_stop = res.gen_cost_usd >= 0.9 * opts.max_usd
+    if (res.harness_stop_reason == "budget" and not money_stop and res.harness_rounds <= opts.degraded_max_rounds
+            and res.wall_s >= opts.degraded_min_wall_s):
+        res.degraded = True
+        res.degraded_reason = (f"ceiling stop after {res.harness_rounds} completed round(s) in {res.wall_s / 60:.0f} min "
+                               f"with ${opts.max_usd - res.gen_cost_usd:.2f} of the budget unspent")
 
 
 def _fill_from_outcome(res: CellResult, o: EvalOutcome) -> None:
