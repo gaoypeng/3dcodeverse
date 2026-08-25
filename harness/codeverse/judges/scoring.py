@@ -3,12 +3,20 @@
 * per-criterion score = mean over samples; overall = rubric-weighted mean;
   ``score_std`` = std of the per-sample overalls;
 * floors: any criterion mean below its floor → verdict fails;
-* defects: the rubric's binary checklist, majority vote over samples (ties →
-  present); each present item subtracts its ``penalty`` from the overall and
-  its ``cap`` (if any) bounds it — arithmetic the VLM never does;
+* defects: the rubric's binary checklist, majority vote over samples; each
+  present item subtracts its ``penalty`` from the overall and its ``cap`` (if
+  any) bounds it — arithmetic the VLM never does;
 * caps: deterministic bounds from gate findings / acceptance / missing views
   (``caps.py``) plus the defect caps;
-* acceptance: majority vote over samples (ties → False);
+* acceptance: majority vote over samples;
+* an EXACT tie on a binary item (only possible with an even ``n_samples``) follows
+  the *representative* sample (below) instead of a fixed direction.  The old rule
+  (defect ties → present, acceptance ties → False) made ``n_samples=2`` strictly
+  harsher than both n=1 and n=3 — one dissenting sample applied every penalty and
+  failed every must item — so scores from the ``economy`` profile (n=2) were not
+  comparable with the others.  With the representative rule the probability that
+  an item is flagged at n=2 equals n=1's, while the continuous scores still average
+  over both samples; ids decided this way are listed in ``tie_broken``;
 * narrative (summary / issues / plan / strengths) is taken from the sample whose
   overall is closest to the mean (the *representative* sample) so it is coherent.
 """
@@ -50,7 +58,11 @@ class ScoreBreakdown(BaseModel):
     n_requested: int
     n_used: int
     sample_errors: list[str] = Field(default_factory=list)
+    tie_broken: list[str] = Field(default_factory=list,
+                                  description="defect / acceptance ids an exact vote tie handed to the representative sample")
     rubric_hash: str = ""
+    judge_prompt_hash: str = Field(default="", description="hash of everything the judge is told that is constant per rubric: "
+                                                           "role prompt + view-rig rules + wire schema (prompt_builder.judge_prompt_hash)")
     samples: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -61,6 +73,16 @@ def _std(vals: list[float]) -> float:
 def _representative(samples: list[JudgeOutput], overalls: list[float]) -> JudgeOutput:
     mean = statistics.fmean(overalls)
     return min(zip(samples, overalls, strict=True), key=lambda so: abs(so[1] - mean))[0]
+
+
+def _vote(votes: list[bool], tie_break: bool) -> tuple[bool, bool]:
+    """Majority of ``votes``; an exact tie takes ``tie_break``.  Returns (decision, was_tie)."""
+    if not votes:
+        return False, False
+    yes = sum(1 for v in votes if v)
+    if yes * 2 == len(votes):
+        return bool(tie_break), True
+    return yes * 2 > len(votes), False
 
 
 def aggregate_samples(
@@ -75,6 +97,7 @@ def aggregate_samples(
     judge_backend: str = "",
     n_requested: int | None = None,
     sample_errors: list[str] | None = None,
+    judge_prompt_hash: str = "",
 ) -> Judgment:
     """Combine ≥ 1 parsed samples into a Judgment (raises ValueError on zero samples).
 
@@ -97,20 +120,30 @@ def aggregate_samples(
     floors = [
         {"criterion": cid, "score": round(sc, 4), "floor": fl} for cid, sc, fl in rubric.floors_hit(mean_scores)
     ]
+    rep = _representative(samples, overalls)
+    tie_broken: list[str] = []
     votes: dict[str, list[bool]] = {}
     for s in samples:
         for aid, ok in s.acceptance_bools.items():
             votes.setdefault(aid, []).append(bool(ok))
     for a in acceptance_items:
         votes.setdefault(a.id, [False])
-    acceptance = {aid: (sum(v) * 2 > len(v)) for aid, v in votes.items()}
+    acceptance: dict[str, bool] = {}
+    for aid, v in votes.items():
+        acceptance[aid], tied = _vote(v, bool(rep.acceptance_bools.get(aid, False)))
+        if tied:
+            tie_broken.append(aid)
     must_missing = missing_must_items(acceptance_items, acceptance)
 
     d_votes: dict[str, list[bool]] = {d.id: [] for d in rubric.defects}
     for s in samples:
         for did, flag in s.defects.items():
             d_votes.setdefault(did, []).append(bool(flag))
-    defects = {did: (sum(v) * 2 >= len(v) and bool(v)) for did, v in d_votes.items()}
+    defects: dict[str, bool] = {}
+    for did, v in d_votes.items():
+        defects[did], tied = _vote(v, bool(rep.defects.get(did, False)))
+        if tied:
+            tie_broken.append(did)
     penalty = round(sum(rubric.defect(did).penalty for did, on in defects.items() if on), 4)
     after_defects = max(0.0, overall_uncapped - penalty)
 
@@ -119,7 +152,6 @@ def aggregate_samples(
     overall = caps.overall
     passed = overall >= rubric.pass_threshold and not floors and not must_missing
 
-    rep = _representative(samples, overalls)
     summary = rep.summary.strip()
     tail = _verdict_tail(rubric, overall, passed, floors, caps, must_missing, defects=defects, penalty=penalty)
     if tail:
@@ -142,7 +174,9 @@ def aggregate_samples(
         n_requested=n_requested or len(samples),
         n_used=len(samples),
         sample_errors=sample_errors or [],
+        tie_broken=tie_broken,
         rubric_hash=rubric.content_hash(),
+        judge_prompt_hash=judge_prompt_hash,
         samples=[s.model_dump(mode="json") for s in samples],
     )
     return Judgment(
@@ -180,7 +214,8 @@ def _verdict_tail(
     return " | ".join(bits) + "]"
 
 
-def degraded_judgment(rubric: Rubric, error: str, *, usage: Usage, judge_backend: str, n_requested: int) -> Judgment:
+def degraded_judgment(rubric: Rubric, error: str, *, usage: Usage, judge_backend: str, n_requested: int,
+                      judge_prompt_hash: str = "") -> Judgment:
     """A verdict the orchestrator must treat as a GLITCH (not a score): ``raw.status == 'degraded'``."""
     breakdown = {
         "status": "degraded",
@@ -188,6 +223,7 @@ def degraded_judgment(rubric: Rubric, error: str, *, usage: Usage, judge_backend
         "n_requested": n_requested,
         "n_used": 0,
         "rubric_hash": rubric.content_hash(),
+        "judge_prompt_hash": judge_prompt_hash,
     }
     return Judgment(
         rubric=rubric.name,

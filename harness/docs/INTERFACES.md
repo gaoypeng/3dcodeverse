@@ -262,7 +262,8 @@ from codeverse.judges.base import JudgeInput   # (spec, renders, measurement=Non
 from codeverse.judges.montage import plan_montages, render_montage, Montage    # ≤3 2×2 montages (shaded/geometry/poses) + ≤2 detail
     # crops @≤1024px replace sheet+9 views; clay/normals views (RenderView.mode) auto-route to the GEOMETRY montage
 from codeverse.judges.scoring import is_degraded, aggregate_samples   # ScoreBreakdown adds defects, defect_votes (majority,
-    # ties→present), defect_penalty, overall_after_defects; overall = caps(weighted_mean − Σpenalty)
+    # ties→representative sample, D36), tie_broken, defect_penalty, overall_after_defects,
+    # judge_prompt_hash (D37); overall = caps(weighted_mean − Σpenalty)
 from codeverse.judges.caps import apply_caps           # (rubric, overall, gates, acceptance_results, acceptance_items=None, *,
                                                        #  console_errors=None, views=None, defects_present=None) -> CapResult;
                                                        # cap rules add when="missing_views" and ledger lines "defect:<id>"

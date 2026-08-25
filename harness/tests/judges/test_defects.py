@@ -84,18 +84,54 @@ def test_penalties_and_caps_computed_in_code(judge_input, cache_dir):
     assert raw2["samples"][0]["defects"]["floating_part"] is True
 
 
-def test_defect_majority_vote_ties_count_as_present(judge_input, cache_dir):
+def test_defect_majority_vote_with_odd_n(judge_input, cache_dir):
     model = FakeChatModel(by_label={":s0": [_reply(0.9, ["render_artifacts"])], ":s1": [_reply(0.9)],
                                     ":s2": [_reply(0.9)]})
     j = VlmJudge("static_object_v1", chat_model=model, n_samples=3, cache_dir=cache_dir).judge(judge_input)
     raw = json.loads(j.raw)
     assert raw["defects"]["render_artifacts"] is False and raw["defect_votes"]["render_artifacts"] == [True, False, False]
-    assert j.overall == pytest.approx(0.9)
-    model2 = FakeChatModel(by_label={":s0": [_reply(0.9, ["render_artifacts"])], ":s1": [_reply(0.9)]})
-    j2 = VlmJudge("static_object_v1", chat_model=model2, n_samples=2, cache_dir=cache_dir).judge(judge_input)
-    assert json.loads(j2.raw)["defects"]["render_artifacts"] is True and j2.overall == pytest.approx(0.85)
+    assert raw["tie_broken"] == [] and j.overall == pytest.approx(0.9)
     # per-criterion std is reported for n-sample runs
-    assert set(json.loads(j2.raw)["per_criterion_std"]) == set(R.weights)
+    assert set(raw["per_criterion_std"]) == set(R.weights)
+
+
+def test_defect_vote_ties_follow_the_representative_sample(judge_input, cache_dir, caplog):
+    """D36: an exact tie (even n) is decided by the representative sample, not a fixed direction.
+
+    Under the old rule (ties → present) ONE dissenting sample at n=2 applied the penalty,
+    so n=2 was strictly harsher than n=1 and n=3.  With two samples both are equally close
+    to the mean, so the representative is the first one — the decision follows s0 in BOTH
+    directions, and the id is reported in ``tie_broken``.
+    """
+    flagged_first = FakeChatModel(by_label={":s0": [_reply(0.9, ["render_artifacts"])], ":s1": [_reply(0.9)]})
+    with caplog.at_level("WARNING", logger="codeverse.judges.vlm_judge"):
+        j = VlmJudge("static_object_v1", chat_model=flagged_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)
+    assert "n_samples=2 is even" in caplog.text
+    raw = json.loads(j.raw)
+    assert raw["defect_votes"]["render_artifacts"] == [True, False]
+    assert raw["defects"]["render_artifacts"] is True and j.overall == pytest.approx(0.85)
+    assert raw["tie_broken"] == ["render_artifacts"]
+
+    clean_first = FakeChatModel(by_label={":s0": [_reply(0.9)], ":s1": [_reply(0.9, ["render_artifacts"])]})
+    j2 = VlmJudge("static_object_v1", chat_model=clean_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)
+    raw2 = json.loads(j2.raw)
+    assert raw2["defect_votes"]["render_artifacts"] == [False, True]
+    assert raw2["defects"]["render_artifacts"] is False and j2.overall == pytest.approx(0.9)
+    assert raw2["tie_broken"] == ["render_artifacts"]
+
+
+def test_acceptance_vote_ties_follow_the_representative_sample(judge_input, cache_dir):
+    """Same rule for acceptance items: the old ties → False failed a must item on one dissent."""
+    a_ok, a_no = _reply(0.9), _reply(0.9)
+    a_no["acceptance"]["A1"]["verified"] = False
+    j = VlmJudge("static_object_v1", chat_model=FakeChatModel(by_label={":s0": [a_ok], ":s1": [a_no]}),
+                 n_samples=2, cache_dir=cache_dir).judge(judge_input)
+    assert j.acceptance_results["A1"] is True and json.loads(j.raw)["tie_broken"] == ["A1"]
+    b_ok, b_no = _reply(0.9), _reply(0.9)
+    b_no["acceptance"]["A1"]["verified"] = False
+    j2 = VlmJudge("static_object_v1", chat_model=FakeChatModel(by_label={":s0": [b_no], ":s1": [b_ok]}),
+                  n_samples=2, cache_dir=cache_dir).judge(judge_input)
+    assert j2.acceptance_results["A1"] is False and json.loads(j2.raw)["tie_broken"] == ["A1"]
 
 
 def test_missing_views_cap_for_articulated():

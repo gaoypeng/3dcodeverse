@@ -187,3 +187,38 @@ def test_judge_payload_size_comes_from_the_settings_dial(monkeypatch):
     s2.apply_profile("economy")  # a stated payload survives a profile
     assert VlmJudge(rubric="static_object_v1", model_id="fake:fake-1").detail_crops == 0
     get_settings.cache_clear()
+
+
+# ----------------------------------------------------------------------------- D37 judge protocol hash
+def test_judge_prompt_hash_is_recorded_in_every_verdict(judge_input, cache_dir):
+    from codeverse.judges.prompt_builder import judge_prompt_hash
+
+    j = _judge(FakeChatModel([good_reply(R, IDS, 0.8)]), cache_dir=cache_dir).judge(judge_input)
+    raw = json.loads(j.raw)
+    assert raw["judge_prompt_hash"] == judge_prompt_hash(R) and len(raw["judge_prompt_hash"]) == 12
+    assert raw["rubric_hash"] == R.content_hash() and raw["judge_prompt_hash"] != raw["rubric_hash"]
+    # a degraded verdict carries it too, so a glitch is still attributable to a protocol
+    d = _judge(FakeChatModel([ModelError("down", retryable=False)]), cache_dir=cache_dir).judge(judge_input)
+    assert is_degraded(d) and json.loads(d.raw)["judge_prompt_hash"] == judge_prompt_hash(R)
+    assert _judge(FakeChatModel([]), cache_dir=cache_dir).prompt_hash == judge_prompt_hash(R)
+
+
+def test_judge_prompt_hash_tracks_the_protocol_not_the_run(monkeypatch):
+    from codeverse.judges import prompt_builder as pb
+    from codeverse.judges.output_schema import wire_schema
+    from codeverse.judges.prompt_builder import judge_prompt_hash
+
+    base = judge_prompt_hash(R)
+    assert judge_prompt_hash(R) == base  # deterministic
+    # per-run content (acceptance ids) is NOT part of it: the schema is hashed with no ids
+    assert wire_schema(R, ["A1"]) != wire_schema(R, []) and judge_prompt_hash(R) == base
+    # the rubric is part of it (through the rendered rubric block)
+    other = load_rubric("shader_v1")
+    assert judge_prompt_hash(other) != base
+    # an edit to the role prompt or the rig rules changes it — that is the whole point
+    monkeypatch.setattr(pb, "_ROLE", pb._ROLE + "\nScore generously.")
+    edited_role = judge_prompt_hash(R)
+    assert edited_role != base
+    monkeypatch.setattr(pb, "RIG_RULES", {**pb.RIG_RULES, "object": "All views show the same object."})
+    assert judge_prompt_hash(R) not in (base, edited_role)
+

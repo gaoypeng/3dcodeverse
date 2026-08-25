@@ -34,7 +34,7 @@ from codeverse.judges.output_schema import (
     parse_judge_output,
     wire_schema,
 )
-from codeverse.judges.prompt_builder import build_judge_messages
+from codeverse.judges.prompt_builder import build_judge_messages, judge_prompt_hash
 from codeverse.judges.rubrics import Rubric, load_rubric
 from codeverse.judges.scoring import aggregate_samples, degraded_judgment
 from codeverse.models.base import ChatModel, ModelError
@@ -75,6 +75,9 @@ class VlmJudge:
         self.rubric: Rubric = rubric if isinstance(rubric, Rubric) else load_rubric(rubric)
         self.model_id = model_id or get_settings().default_judge
         self.n_samples = max(1, int(n_samples))
+        if self.n_samples % 2 == 0:
+            log.warning("judge n_samples=%d is even: exact vote ties on defects / acceptance items are decided by the "
+                        "representative sample (scoring.py); an odd n gives a true majority", self.n_samples)
         self.temperature = temperature
         self.thinking = thinking
         self.max_attempts = max(1, int(max_attempts))
@@ -86,6 +89,12 @@ class VlmJudge:
         self._model = chat_model
         self.cache_dir = cache_dir
         self.label = label
+
+    # ------------------------------------------------------------------ provenance
+    @property
+    def prompt_hash(self) -> str:
+        """``prompt_builder.judge_prompt_hash`` for this judge's rubric (recorded per verdict)."""
+        return judge_prompt_hash(self.rubric)
 
     # ------------------------------------------------------------------ model
     @property
@@ -150,12 +159,14 @@ class VlmJudge:
                 errors.append(err)
         if not samples:
             return degraded_judgment(
-                self.rubric, " || ".join(errors)[:2000], usage=usage, judge_backend=self.model_id, n_requested=self.n_samples
+                self.rubric, " || ".join(errors)[:2000], usage=usage, judge_backend=self.model_id, n_requested=self.n_samples,
+                judge_prompt_hash=self.prompt_hash,
             )
         return aggregate_samples(
             self.rubric, samples, gates=inp.gates, acceptance_items=inp.acceptance,
             console_errors=inp.renders.console_errors, views=list(inp.renders.views), usage=usage,
             judge_backend=self.model_id, n_requested=self.n_samples, sample_errors=errors,
+            judge_prompt_hash=self.prompt_hash,
         )
 
     # ------------------------------------------------------------------ hook (ReferenceJudge overrides)

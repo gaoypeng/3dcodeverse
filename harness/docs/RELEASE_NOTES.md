@@ -1,3 +1,20 @@
+# Addendum — evaluation integrity, 2026-08-25
+
+Four changes that affect what a recorded score MEANS, none of which changes a
+score computed under an odd `n_samples` (branch `ziyao/eval-integrity`, D36–D39):
+
+* `record.environment.harness_git_sha` is populated (it was always `""`: the probe
+  looked for `harness/.git`, which does not exist).  `-dirty` marks a modified tree.
+* `judge_prompt_hash` (role prompt + rig rules + wire schema) is stored in every
+  `ScoreBreakdown` and in `record.prompt_hashes["judge"]`.
+* Exact vote ties on defects / acceptance items follow the representative sample
+  instead of a fixed direction; `ScoreBreakdown.tie_broken` names the ids.  Under
+  the old rule `economy` (n=2) was strictly harsher than `balanced` (n=1) and
+  `quality` (n=3).
+* CI runs the whole offline suite (was 7 of 24 test directories).
+
+---
+
 # Release notes — stability pass, 2026-08-24
 
 Sign-off for the first release intended to be called **stable**. Five parallel waves hunted

@@ -169,6 +169,35 @@ written) that were accepted because the code works that way and the tests pin it
   become description hints); `pricing.lookup_price` prefix fallback matches only
   version/date/channel suffixes, so sibling models never inherit a parent's price.
 
+* **D36 Vote ties follow the representative sample (2026-08-25).**  Context: defect
+  votes were majority with ties → present and acceptance votes majority with ties →
+  False, so at `n_samples=2` ONE dissenting sample applied every penalty/cap and
+  failed every must item — n=2 was strictly harsher than n=1 and n=3, and the
+  `economy` profile (n=2) was not comparable with the others.  Decision: an exact
+  tie (even n only) takes the *representative* sample's answer (the sample whose
+  overall is closest to the mean — already the narrative source); ids decided this
+  way are listed in `ScoreBreakdown.tie_broken`; `VlmJudge` warns on an even n.
+  Consequence: P(item flagged) at n=2 equals n=1's while the continuous scores still
+  average over both samples; odd n is unchanged.
+* **D37 The judge protocol is hashed (2026-08-25).**  Context: only the rubric YAML was
+  hashed; the role prompt, the view-rig rules and the wire schema (whose field order
+  IS the observe-then-score protocol — EVAL.md §6 measured σ 0.01 → 0.08 when it
+  changed) were not, so a prompt edit left no trace in any record.  Decision:
+  `prompt_builder.judge_prompt_hash(rubric)` = hash(system prompt + rig rules +
+  wire-schema structure); stored in every `ScoreBreakdown.judge_prompt_hash` and,
+  for runs, `record.prompt_hashes["judge"]` (`BaseTrack.after_plan`).  Per-run content
+  is excluded so runs under one protocol share the hash.
+* **D38 `harness_git_sha` resolves through git, not a `.git` probe (2026-08-25).**
+  Context: `flywheel/record._harness_git_sha` looked for `harness/.git`; the repo's
+  `.git` is one level up, so every record shipped an empty sha and EVAL.md §1.7's
+  provenance was never met.  Decision: `git ls-files --error-unmatch` on the module
+  itself (a wheel / venv copy must not borrow an unrelated repo's sha), then
+  `rev-parse HEAD`, `-dirty` appended when tracked files under `harness/` are modified.
+* **D39 CI runs every offline test directory (2026-08-25).**  Context: `ci.yml`
+  listed 7 of 24 directories, so 828 pure-python tests — every docs-vs-code drift
+  guard among them — never ran on a PR.  Decision: `pytest tests -m "not live and
+  not blender and not node"` on both python floors; `timeout-minutes` on both jobs.
+
 ## Rejected / deferred
 
 * Registering `single-shot` as a CodingAgent kind (rejected: it has no tools/session).

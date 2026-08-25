@@ -396,6 +396,11 @@ class BaseTrack:
         """Bind judge / generator backends once the plan exists (rubric threshold → policy target)."""
         if ctx.judge is None:
             ctx.judge = self.make_judge(ctx)
+        # provenance: the judge protocol (role prompt + rig rules + wire schema) is hashed
+        # like the generator prompts, so a judge-prompt edit is visible in record.json
+        judge_hash = getattr(ctx.judge, "prompt_hash", "")
+        if isinstance(judge_hash, str) and judge_hash:
+            ctx.prompt_hashes["judge"] = judge_hash
         if self._policy is None:
             thr = self.services.rubric_threshold(ctx.rubric)
             if thr is not None:
