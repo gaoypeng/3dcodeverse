@@ -227,6 +227,11 @@ Two contradiction checks are worth separating, because they answer different que
   that index is a pointer, not a matcher.
 * **The live smoke had never run.** It skipped every CLI because it looked for a binary
   named after the agent kind — `gemini-cli` runs `gemini`, `claude-code` runs `claude`.
+* **A body could name one of our constants without pinning it.** `cv3d-glsl-craft` quoted
+  `DUPLICATE_DIFF` at `1e-4` with no claim row behind it, so moving the constant would have
+  left a confident sentence with the old number and nothing to notice.
+* **The read probe was measuring git**, not the agent (§1). The most consequential finding
+  of the pass, and the reason the control bundle exists.
 
 ---
 
@@ -257,11 +262,20 @@ that had only been argued statically:
 * gemini-cli's `activate_skill` consent prompt does not block us under
   `--approval-mode yolo`. This was the one claim that could not be verified statically.
 
-**The surfaced-vs-deep split holds.** Controlled check: a bundle whose description does
-*not* match the task, with the prompt "do not read any files, do not activate any skill" —
-codex opened `SKILL.md` (its discovery scan reads the frontmatter) and left
-`references/zebra.md` at `atime == mtime`. That is exactly the design: tier-1 scan bumps
-SKILL.md, only a real read bumps `references/`.
+**And the same run refutes the surfaced-vs-deep split.** Negative control, same rig: a
+bundle whose description does *not* match the task, prompt "do not read any files, do not
+activate any skill". All four CLIs opened `SKILL.md` **and** `references/`:
+
+| CLI | `.agents/` SKILL.md | `.agents/` references | `.claude/` SKILL.md | `.claude/` references |
+|---|---|---|---|---|
+| codex | opened | **opened** | — | — |
+| agy | opened | **opened** | — | — |
+| gemini-cli | opened | **opened** | — | — |
+| claude-code | opened | **opened** | opened | **opened** |
+
+Each touched only the root it owns (claude-code reads both), which is a second, independent
+confirmation of the mapping above — and the reason `deep` had to stop meaning "the agent
+chose to go deeper" (§1).
 
 ---
 
