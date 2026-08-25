@@ -1,6 +1,6 @@
 ---
 name: cv3d-threejs-shader-traps
-description: Write a ShaderMaterial or an onBeforeCompile patch that survives this harness's shader gate on the first build. Use on any scene_threejs or threejs session that authors custom GLSL, and on every round where shader_preflight reported an error or a warning. Says which mistakes the harness detects statically, which it detects at runtime, which it cannot see at all, and corrects three widely repeated three.js warnings that do not apply to this renderer.
+description: "Use when a threejs or scene_threejs session writes a ShaderMaterial or an onBeforeCompile patch, or when shader_preflight reported an error. Write custom GLSL that survives this harness's shader gate on the first build. Says which mistakes the harness detects statically, which it detects at runtime, which it cannot see at all, and corrects three widely repeated three.js warnings that do not apply to this renderer."
 license: Apache-2.0
 compatibility: three@0.182.0, headless WebGL via puppeteer. Rules read from runtime_js/lib/glsl_audit.mjs, runtime_js/lib/host_compile.mjs, runtime_js/lib/shader_report.mjs and runtime_js/lib/browser/renderer.js.
 metadata:

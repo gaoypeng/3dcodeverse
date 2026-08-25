@@ -1,6 +1,6 @@
 ---
 name: cv3d-bbox-contract
-description: Hit the plan's dimensions on the first build. Use whenever this session owns a part's or the object's size or placement — baseline, part, detail, refine, rebuild, zone — and on every repair round where the contract gate fired. Covers the tolerance the gate really uses (relative, not a flat millimetre figure), how instanced parts are measured, ground contact and footprint, part-name matching, and how to prove the numbers with measure / check_contract instead of by eye.
+description: "Use when a session owns part sizes, placement or ground contact, or when the contract gate fired: hit the plan's dimensions on the first build. Applies to baseline, part, detail, refine, rebuild and zone sessions on static_object, articulated_object and scene. Covers the tolerance the gate really uses (relative, not a flat millimetre figure), how instanced parts are measured, ground contact and footprint, part-name matching, and how to prove the numbers with measure / check_contract instead of by eye."
 license: Apache-2.0
 metadata:
   evidence: measured

@@ -1,6 +1,6 @@
 ---
 name: cv3d-glsl-craft
-description: Craft rules for the fragment shaders this harness judges — what the five sampled frames measure and where the real operating band is, how to build multi-scale structure that does not alias, how to make motion come from the mechanism instead of a uv scroll, and why an added radial falloff reads as a uniform glow instead of light shafts. Use in any graphics session with language glsl_shader when writing, refining, repairing or rebuilding the shader, and whenever gl_frames reports static, flicker or low detail.
+description: "Use when writing, refining or repairing a glsl_shader fragment shader, or when gl_frames reports static, flicker or low detail. Craft rules for the shaders this harness judges: what the five sampled frames measure and where the real operating band is, how to build multi-scale structure that does not alias, how to make motion come from the mechanism instead of a uv scroll, and why an added radial falloff reads as a uniform glow instead of light shafts."
 license: Apache-2.0
 compatibility: GLSL 330 core via moderngl, headless. One image pass (src/shader.frag), an optional src/common.glsl and one feedback pass (src/buffer_a.frag). The harness declares the uniforms; the contract lists them.
 metadata:

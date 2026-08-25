@@ -1,6 +1,6 @@
 ---
 name: cv3d-cadquery-forms
-description: Build the planned forms in CadQuery and get past the OCC kernel on the first try. Use for any session writing src/model.py in CadQuery — baseline, part, detail, refine, rebuild or repair. Gives the form-to-technique decision table, the fillet / revolve / boolean rules that decide whether the script builds at all, and the four traps our own lint and runtime wrapper are written to catch.
+description: "Use when writing CadQuery src/model.py - baseline, part, detail, refine, rebuild or repair: build the planned forms and get past the OCC kernel. Gives the form-to-technique decision table, the fillet / revolve / boolean rules that decide whether the script builds at all, and the four traps our own lint and runtime wrapper are written to catch."
 license: Apache-2.0
 compatibility: CadQuery 2.8 on OCP; one module src/model.py exporting a module-level `result`.
 metadata:

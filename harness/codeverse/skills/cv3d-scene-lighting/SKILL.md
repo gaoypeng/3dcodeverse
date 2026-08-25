@@ -1,6 +1,6 @@
 ---
 name: cv3d-scene-lighting
-description: Light a three.js scene so the frame gate passes and the mood still reads. Use in a scene baseline, env or refine session, and on any round where scene_frames called a frame too dark, blown out or flat. Gives the exact thresholds the gate measures, the key / fill / practical recipe with numbers, and the one thing hex colours hide - how dark an albedo really is once the renderer works in linear light.
+description: "Use when lighting a scene_threejs baseline, env or refine session, or when scene_frames called a frame too dark, blown out or flat. Light the scene so the frame gate passes and the mood still reads. Gives the exact thresholds the gate measures, the key / fill / practical recipe with numbers, and the one thing hex colours hide - how dark an albedo really is once the renderer works in linear light."
 license: Apache-2.0
 compatibility: three r0.182, headless WebGL; renderer fixed at ACES Filmic tone mapping, exposure 1.0, sRGB output.
 metadata:

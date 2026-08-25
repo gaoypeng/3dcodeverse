@@ -1,6 +1,6 @@
 ---
 name: cv3d-form-manifest
-description: "Decide every shape in language-neutral FORM words, with its dimensions, its placement and one countable refinement, BEFORE calling any geometry API. Use at the start of a baseline, part, detail or rebuild session on the static_object or articulated_object track — that is, whenever you are about to write geometry for a part you have not built yet. Turns the ENGINEERING BRIEF and the plan's part rows into a written element list the language skill's table then implements one line at a time. Skip it on a repair round: a repair is not re-planning."
+description: "Use before calling any geometry API on a baseline, part, detail or rebuild session: name every shape, its dimensions and placement in FORM words. For the static_object and articulated_object tracks - whenever you are about to write geometry for a part you have not built yet. Turns the ENGINEERING BRIEF and the plan's part rows into a written element list the language skill's table then implements one line at a time, each with one countable refinement. Skip it on a repair round: a repair is not re-planning."
 license: Apache-2.0
 compatibility: "static_object and articulated_object tracks, all four object languages (blender, urdf_blender, cadquery, threejs). Needs the plan and, when the run enabled it, the ENGINEERING BRIEF block in your prompt."
 metadata:

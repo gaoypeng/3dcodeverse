@@ -1,6 +1,6 @@
 ---
 name: cv3d-scene-motion
-description: "Make a scene_threejs scene visibly move between the two frames the harness photographs, and survive the four mechanisms that silently freeze it. Use in any scene session that authors or refines animation — baseline, zone, refine or compose — and on every repair round where the scene_frames gate reported no motion or the judge answered nothing_moves. Covers the measured motion threshold, the single update hook the harness actually calls, the amplitudes that read at 1024 x 576, and why clearing the motion gate is not the same as scoring animation_life — that is judged per item against the plan animation list."
+description: "Use when a scene_threejs session authors or refines animation, or when scene_frames reported no motion or the judge said nothing_moves. Make the scene visibly move between the two frames the harness photographs, and survive the four mechanisms that silently freeze it. Applies to baseline, zone, refine and compose sessions. Covers the measured motion threshold, the single update hook the harness actually calls, the amplitudes that read at 1024 x 576, and why clearing the motion gate is not the same as scoring animation_life - that is judged per item against the plan animation list."
 license: Apache-2.0
 compatibility: "scene track, language scene_threejs. three r182 in headless Chrome; the harness photographs each camera at t = 0 s and t = 1.5 s and diffs the pair."
 metadata:

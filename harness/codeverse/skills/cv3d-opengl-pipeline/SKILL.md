@@ -1,6 +1,6 @@
 ---
 name: cv3d-opengl-pipeline
-description: Write a raw OpenGL / moderngl program that renders what the brief asked for. Use for any opengl_python session - baseline, refine, repair or rebuild - and whenever the gl_frames gate reported flicker, no motion or a near-flat image. Covers the setup / render contract, the sampled-time trap that breaks every feedback simulation, VAO and uniform mechanics, ping-pong FBOs, and the three richness rules the judge scores this language worst on.
+description: "Use when writing an opengl_python / moderngl program, or when the gl_frames gate reported flicker, no motion or a near-flat image. Covers baseline, refine, repair and rebuild sessions: the setup / render contract, the sampled-time trap that breaks every feedback simulation, VAO and uniform mechanics, ping-pong FBOs, and the three richness rules the judge scores this language worst on."
 license: Apache-2.0
 compatibility: OpenGL 3.3 core through moderngl, headless EGL; one module src/program.py, GLSL 330 core inline or in src/*.glsl.
 metadata:

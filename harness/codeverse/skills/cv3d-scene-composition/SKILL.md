@@ -1,6 +1,6 @@
 ---
 name: cv3d-scene-composition
-description: Lay out a three.js scene so the harness's deterministic instruments agree with the picture — one height function everything samples, a world that does not end in shot, and cameras computed from measured bounds instead of guessed. Includes the sky/ground/content classifier that silently decides two gate findings, and the exact scene_frames thresholds and score caps for camera placement and frame coverage. Use in any scene_threejs session that owns the environment, a zone's placement, or the camera list, and on any repair round where scene_frames reported a camera problem.
+description: "Use when a scene_threejs session owns the environment, a zone's placement or the camera list, or when scene_frames reported a camera problem. Lay out the scene so the harness's deterministic instruments agree with the picture - one height function everything samples, a world that does not end in shot, and cameras computed from measured bounds instead of guessed. Includes the sky/ground/content classifier that silently decides two gate findings, and the exact scene_frames thresholds and score caps for camera placement and frame coverage."
 license: Apache-2.0
 compatibility: track scene, language scene_threejs (three r182, headless Chrome, the harness builds the cameras from your plain camera objects).
 metadata:

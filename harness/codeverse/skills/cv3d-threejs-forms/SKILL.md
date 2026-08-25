@@ -1,6 +1,6 @@
 ---
 name: cv3d-threejs-forms
-description: "Turn each FORM word in your manifest into the right three.js geometry maker, with the segment counts that make curves read and the traps that make a threejs part silently ship nothing. Use in any baseline, part, detail, refine, rebuild or repair session on the static_object track in language threejs — that is, whenever you are writing src/object.js or src/parts/*.js. Covers the fact that this language has no boolean/CSG at all, so cavities and shells are built into the profile instead of subtracted."
+description: "Use when writing three.js object geometry in src/object.js or src/parts/*.js on the static_object track, in any session kind. Turn each FORM word in your manifest into the right three.js geometry maker, with the segment counts that make curves read and the traps that make a threejs part silently ship nothing. Covers the fact that this language has no boolean/CSG at all, so cavities and shells are built into the profile instead of subtracted."
 license: Apache-2.0
 compatibility: "static_object track, language threejs. three r182 ESM in node, exported to GLB by the harness. Imports that resolve: three, three/addons/*, relative files under src/."
 metadata:

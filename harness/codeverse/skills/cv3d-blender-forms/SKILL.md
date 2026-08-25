@@ -1,6 +1,6 @@
 ---
 name: cv3d-blender-forms
-description: Turn a described shape into the right bpy technique, and avoid the five bpy traps this harness's lint and exporter actually catch (join without an active object, a part file model.py never imports, no PascalCase names, modifier_apply out of context, primitive_cube_add scale doubling the extents). Use in any session writing Blender python — static_object with language blender, or articulated_object with language urdf_blender — when building, detailing, refining or repairing geometry.
+description: "Use when writing Blender bpy code (language blender or urdf_blender): turn a described shape into the right bpy technique. Avoids the five bpy traps this harness's lint and exporter actually catch: join without an active object, a part file model.py never imports, no PascalCase names, modifier_apply out of context, and primitive_cube_add scale doubling the extents. Covers building, detailing, refining and repairing geometry."
 license: Apache-2.0
 compatibility: Blender 5.0.1 headless, run by codeverse/languages/blender/wrappers/run_bpy.py. bpy, bmesh, mathutils, math, random, numpy only.
 metadata:
