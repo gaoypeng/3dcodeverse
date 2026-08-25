@@ -242,6 +242,53 @@ def test_resume_budget_flags_rewrite_spec_and_emit_event(tmp_path: Path, monkeyp
     assert raised and raised[0]["max_usd"] == 4.5 and raised[0]["max_rounds"] == 3
 
 
+def test_resume_refuses_a_finished_run_and_never_re_enters_it(tmp_path: Path, monkeypatch):
+    """SMOKE1: `3dcv resume` called _run_track unconditionally, with no look at
+    run_state.  On a run that had ended stop_reason='pass' it re-entered the pipeline,
+    re-ran the plan stage as a real billed model call and rewrote status from 'passed'
+    back to 'planning' — a finished run left stuck mid-pipeline, and money spent, from
+    one accidental or scripted resume."""
+    from codeverse.contracts.run import RunStatus
+    from codeverse.orchestrator.state import RunState
+    from codeverse.workspace import Workspace
+
+    runs = tmp_path / "runs"
+    assert runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run"]).exit_code == 0
+    ws = Workspace(next(d for d in runs.iterdir() if d.is_dir()))
+    state = RunState(status=RunStatus.PASSED, stop_reason="pass", best_score=0.7436)
+    state.save(ws)
+
+    entered = []
+
+    def fake_get_track(track, **options):
+        class _T:
+            def run(self, spec, ws_, *, resume=False):
+                entered.append(resume)
+                raise KeyboardInterrupt
+
+        return _T()
+
+    import codeverse.tracks as tracks_pkg
+
+    monkeypatch.setattr(tracks_pkg, "get_track", fake_get_track)
+    r = runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)])
+    assert r.exit_code == 1 and "already finished" in r.output
+    assert entered == [], "the pipeline must not be re-entered"
+    assert RunState.load(ws).status is RunStatus.PASSED, "the terminal state must survive"
+    # ... and the escape hatch still works, loudly
+    assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--force"]).exit_code == 130
+    assert entered == [True]
+
+    # a budget stop is the documented exception: it resumes when a cap is raised
+    RunState(status=RunStatus.BUDGET, stop_reason="budget").save(ws)
+    assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)]).exit_code == 1
+    assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--max-usd", "4.5"]).exit_code == 130
+
+    # an interrupted run is untouched by the guard
+    RunState(status=RunStatus.REFINING).save(ws)
+    assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)]).exit_code == 130
+
+
 def test_status_shows_candidates_and_texturing(runs_dir: Path):
     import json as _json
 

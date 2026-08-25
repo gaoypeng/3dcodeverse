@@ -185,6 +185,33 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None) -
         raise typer.Exit(code=1)
 
 
+def _finished_reason(ws, raised: dict) -> str:
+    """Why this run must not be re-entered, or "" when resuming it is meaningful.
+
+    A run that reached a terminal state has nothing to resume, and re-entering it is
+    destructive, not idempotent: `3dcv resume` on a run that ended stop_reason='pass'
+    re-ran the plan stage as a real billed model call and rewrote run_state.status from
+    'passed' back to 'planning', leaving a finished run stuck mid-pipeline while still
+    holding its best_score.  A BUDGET stop is the documented exception — raising a cap is
+    how you continue one — so it only blocks when no cap was raised.
+    """
+    from codeverse.contracts.run import RunStatus
+    from codeverse.orchestrator.state import RunState, StateCorrupt
+
+    try:
+        state = RunState.load(ws)
+    except StateCorrupt:
+        return ""  # let the track report it the way it always has
+    if state is None:
+        return ""
+    if state.status in (RunStatus.PASSED, RunStatus.PLATEAU) or (state.status is RunStatus.BUDGET and not raised):
+        detail = f"status={state.status.value}" + (f" stop_reason={state.stop_reason!r}" if state.stop_reason else "")
+        if state.status is RunStatus.BUDGET:
+            return f"{detail}: raise a cap to continue it (--max-usd / --max-minutes / --rounds)"
+        return f"{detail} best_score={state.best_score}"
+    return ""
+
+
 @app.command()
 def resume(
     slug: str,
@@ -193,16 +220,23 @@ def resume(
     max_usd: Annotated[float | None, typer.Option("--max-usd", help="raise the budget cap before resuming (rewrites spec.json)")] = None,
     max_minutes: Annotated[float | None, typer.Option("--max-minutes", help="raise the time cap before resuming")] = None,
     rounds: Annotated[int | None, typer.Option("--rounds", min=0, help="new max refine rounds (rewrites spec.json)")] = None,
+    force: Annotated[bool, typer.Option("--force", help="re-enter a run that already finished (it will be re-planned and re-scored)")] = False,
 ) -> None:
     """Resume an interrupted / partial run (or start a `--no-run` one).
 
     ``--max-usd`` / ``--max-minutes`` / ``--rounds`` rewrite the spec's budget
-    first — the only way to continue a BUDGET-stopped run."""
+    first — the only way to continue a BUDGET-stopped run.  A run that already
+    reached a terminal state is refused unless ``--force``: re-entering it spends
+    money and overwrites its final state."""
     ws = C.open_workspace(slug, runs_dir)
     spec = C.load_spec(ws)
     if spec.options.profile:  # the dial the run was created with (judge samples, montage px, turn cap)
         get_settings().apply_profile(spec.options.profile, force=True)
     raised = {k: v for k, v in {"max_usd": max_usd, "max_minutes": max_minutes, "max_rounds": rounds}.items() if v is not None}
+    if not force and (why := _finished_reason(ws, raised)):
+        raise C.CliError(f"run {ws.root.name} already finished ({why}); nothing to resume.  "
+                         f"`3dcv status {ws.root.name}` to look at it, or --force to re-enter it "
+                         f"(that re-plans, re-scores and overwrites the final state).")
     if raised:
         from codeverse.events import EventLog
 
