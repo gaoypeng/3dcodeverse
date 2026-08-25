@@ -6,7 +6,7 @@ compatibility: CadQuery 2.8 on OCP; one module src/model.py exporting a module-l
 metadata:
   evidence: inherited-unverified
   evidence_note: 'Every kernel rule below was probed against the CadQuery 2.8.0 installed in this repo on 2026-08-25 and cross-checked with the cadquery lint, the run_cq wrapper and the language contract. What is NOT available is score evidence. This harness has ZERO graded cadquery bench runs, so nothing here is ranked by measured defect frequency the way the blender and urdf bundles are. Routed off by default until cadquery has 20 graded runs.'
-  verified: 2026-08-25
+  verified: "2026-08-25"
 ---
 
 # CadQuery: forms, and the kernel rules that gate them

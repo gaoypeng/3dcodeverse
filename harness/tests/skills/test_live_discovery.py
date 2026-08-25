@@ -12,7 +12,6 @@ and opened the bundle, ``atime > mtime`` on its ``references/`` file.
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import pytest
@@ -30,14 +29,21 @@ PROMPT = ("Your workspace has a skill installed whose description matches this t
           "directory, then reply with the single magic word the reference file contains. "
           "Do not write any file.")
 MAGIC = "ORTHOGONAL-KUMQUAT"
-BACKENDS = [("gemini-cli", "gemini-3.7-flash"), ("codex", "gpt-5.2-codex"),
+#: the model each CLI is driven with here.  ``codex`` must name a model the local login
+#: is entitled to — a 400 "not supported when using Codex with a ChatGPT account" is an
+#: auth problem, not a discovery problem, and would read as a discovery failure.
+BACKENDS = [("gemini-cli", "gemini-3.7-flash"), ("codex", "gpt-5.6-luna"),
             ("claude-code", "claude-opus-5"), ("agy", "gemini-3.7-flash")]
 
 
 @pytest.mark.parametrize("kind, model", BACKENDS, ids=[k for k, _ in BACKENDS])
 def test_the_cli_discovers_and_opens_a_materialised_skill(tmp_path: Path, kind: str, model: str):
-    if shutil.which(kind) is None:
-        pytest.skip(f"{kind} is not installed here")
+    # the binary is NOT named after the agent kind (`gemini-cli` runs `gemini`,
+    # `claude-code` runs `claude`), so ask the adapter, which owns that mapping
+    agent = get_coding_agent(f"{kind}:{model}")
+    ok, why = agent.available()
+    if not ok:
+        pytest.skip(f"{kind} unavailable: {why}")
     ws = tmp_path / "ws"
     (ws / "src").mkdir(parents=True)
     for name in ("AGENTS.md", "GEMINI.md", "CLAUDE.md"):
@@ -56,10 +62,6 @@ def test_the_cli_discovers_and_opens_a_materialised_skill(tmp_path: Path, kind: 
     materialize_skills(ws, [skill])
     write_index(ws, index_block([skill], kind))
 
-    agent = get_coding_agent(f"{kind}:{model}")
-    ok, why = agent.available()
-    if not ok:
-        pytest.skip(f"{kind} unavailable: {why}")
     res = agent.run(AgentJob(workspace=str(ws), prompt=PROMPT, spatial_tools=False,
                              max_turns=8, timeout_s=300, label="skills_live"))
 

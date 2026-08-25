@@ -50,10 +50,18 @@ def test_a_built_wheel_actually_contains_the_bundles(tmp_path: Path):
         assert r.returncode == 0, r.stdout + r.stderr
         whl = next(out.glob("*.whl"))
         names = set(zipfile.ZipFile(whl).namelist())
-        want = PROBE if made_probe else existing[0]
-        assert f"codeverse/skills/{want}/SKILL.md" in names, sorted(n for n in names if "skills" in n)[:20]
-        refs = [n for n in names if n.startswith(f"codeverse/skills/{want}/references/")]
-        assert refs, "references/ must ship too — it is the depth probe"
+        want = [PROBE] if made_probe else sorted(existing)
+        for name in want:
+            assert f"codeverse/skills/{name}/SKILL.md" in names, (
+                f"{name} is in the source tree and NOT in the wheel: "
+                f"{sorted(n for n in names if 'skills' in n)[:20]}")
+            refs = [n for n in names if n.startswith(f"codeverse/skills/{name}/references/")]
+            assert refs, f"{name}: references/ must ship too — it is the depth probe"
+        if not made_probe:
+            # every claims file too: `3dcv skills validate` runs against an installed wheel
+            claims = sorted((HARNESS / "codeverse" / "skills" / "_claims").glob("*.toml"))
+            for c in claims:
+                assert f"codeverse/skills/_claims/{c.name}" in names, f"{c.name} missing from the wheel"
         assert not any(n.endswith(".pyc") for n in names if "skills" in n)
     finally:
         if made_probe:

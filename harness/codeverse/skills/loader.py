@@ -73,6 +73,20 @@ def _as_str_map(value: object, where: str) -> dict[str, str]:
     return out
 
 
+def nonstring_metadata(fm: dict) -> list[str]:
+    """metadata values YAML did not hand back as strings.
+
+    An unquoted ``verified: 2026-08-25`` is a YAML *date*, not a string, and the spec says
+    metadata is string to string.  ``_as_str_map`` coerces so a run never dies of it; the
+    validator reports it so a bundle is not shipped depending on our leniency.
+    """
+    meta = fm.get("metadata")
+    if not isinstance(meta, dict):
+        return []
+    return [f"metadata.{k} is a {type(v).__name__}, not a string — quote it (the spec allows string→string)"
+            for k, v in meta.items() if not isinstance(v, str) and v is not None]
+
+
 def parse_skill(path: Path) -> Skill:
     """Read ``<dir>/SKILL.md`` into a :class:`Skill`, or raise :class:`SkillError`."""
     path = Path(path)
@@ -155,6 +169,11 @@ def validate_bundle(bundle: Path) -> list[str]:
         issues.append(f"metadata.evidence must be one of {list(EVIDENCE_LEVELS)}, got {skill.evidence!r}")
     if not skill.metadata.get("verified"):
         issues.append("metadata.verified (ISO date the claims were last checked) is missing")
+    try:
+        fm_text, _ = split_frontmatter((bundle / SKILL_FILE).read_text(encoding="utf-8"))
+        issues += nonstring_metadata(yaml.safe_load(fm_text) or {})
+    except (OSError, SkillError, yaml.YAMLError):  # already reported by parse_skill above
+        pass
     refs = bundle / REFERENCES_DIR
     if refs.is_dir():
         for p in refs.iterdir():
@@ -167,4 +186,5 @@ def validate_bundle(bundle: Path) -> list[str]:
 
 
 __all__ = ["BODY_MAX_LINES", "BODY_MAX_TOKENS", "DESCRIPTION_MAX", "NAME_MAX", "NAME_RE", "REFERENCES_DIR",
-           "SKILL_FILE", "SPEC_KEYS", "SkillError", "parse_skill", "split_frontmatter", "validate_bundle"]
+           "SKILL_FILE", "SPEC_KEYS", "SkillError", "nonstring_metadata", "parse_skill",
+           "split_frontmatter", "validate_bundle"]

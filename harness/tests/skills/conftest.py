@@ -19,7 +19,7 @@ description: {description}
 license: Apache-2.0
 metadata:
   evidence: {evidence}
-  verified: 2026-08-25
+  verified: "2026-08-25"
 ---
 
 # {name}

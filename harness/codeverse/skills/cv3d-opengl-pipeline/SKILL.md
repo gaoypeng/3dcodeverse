@@ -4,9 +4,9 @@ description: Write a raw OpenGL / moderngl program that renders what the brief a
 license: Apache-2.0
 compatibility: OpenGL 3.3 core through moderngl, headless EGL; one module src/program.py, GLSL 330 core inline or in src/*.glsl.
 metadata:
-  evidence: measured
+  evidence: mixed
   evidence_note: 'Thin but real, and labelled so in the body. 5 graded opengl_python runs across graphics_v1_flash and graphics_v2_flash, 10 judged rounds, recomputed 2026-08-25. The API facts come from the runtime wrapper and the lint, not from the corpus.'
-  verified: 2026-08-25
+  verified: "2026-08-25"
 ---
 
 # The moderngl pipeline, and the two things that actually sink these runs

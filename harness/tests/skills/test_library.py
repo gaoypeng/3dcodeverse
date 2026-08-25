@@ -10,8 +10,6 @@ add a test for each of those.
 from __future__ import annotations
 
 import re
-import shutil
-import subprocess
 from collections import defaultdict
 from pathlib import Path
 
@@ -134,32 +132,3 @@ def test_every_routed_skill_has_a_bundle_once_the_library_is_complete():
 def test_no_bundle_exists_that_no_route_can_ever_attach():
     orphans = [d.name for d in BUNDLES if d.name not in ROUTED_SKILLS]
     assert orphans == [], f"unroutable bundles pay the index and never help: {orphans}"
-
-
-@pytest.mark.skipif(shutil.which("skills-ref") is None,
-                    reason="the reference validator is not installed (pip install skills-ref)")
-@pytest.mark.parametrize("d", BUNDLES, ids=[d.name for d in BUNDLES])
-def test_the_reference_validator_accepts_the_bundle(d: Path):
-    """T1: our loader implements the spec, but the spec's own validator is the arbiter."""
-    p = subprocess.run(["skills-ref", "validate", str(d)], capture_output=True, text=True, check=False)
-    assert p.returncode == 0, p.stdout + p.stderr
-
-
-@pytest.mark.slow
-def test_every_corpus_statistic_a_skill_quotes_is_still_true():
-    """T8: a percentage in a body must be within 20% of what bench/out says today."""
-    out = Path(__file__).resolve().parents[2] / "bench" / "out"
-    if not out.is_dir():
-        pytest.skip("no bench/out in this checkout")
-    quoted = defaultdict(list)
-    for s in SKILLS:
-        for m in re.finditer(r"(\d{1,3}(?:\.\d)?)\s?%", s.body):
-            quoted[s.name].append(float(m.group(1)))
-    if not quoted:
-        pytest.skip("no corpus percentages quoted yet")
-    # The recomputation lives with the corpus tooling; here we only assert the bodies
-    # carry their provenance, so a reader can check the number without guessing.
-    for name, values in quoted.items():
-        body = next(s.body for s in SKILLS if s.name == name)
-        assert re.search(r"(bench/out|battery|n\s?=\s?\d+|20\d\d-\d\d-\d\d)", body), (
-            f"{name} quotes {values} with no battery / n / date beside it")

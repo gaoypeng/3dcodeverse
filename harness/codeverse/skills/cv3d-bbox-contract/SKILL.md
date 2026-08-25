@@ -4,7 +4,7 @@ description: Hit the plan's dimensions on the first build. Use whenever this ses
 license: Apache-2.0
 metadata:
   evidence: measured
-  verified: 2026-08-25
+  verified: "2026-08-25"
   corpus: bench/out, 142 graded records with gate artefacts, recomputed 2026-08-25
 ---
 
