@@ -41,6 +41,40 @@ GRAPH_EXAMPLE = "graph_example"  # the planner's worked example written as a gra
 CONSISTENCY = "consistency"    # plan overall bbox checked against the brief's dimension rows
 KNOWN_FEATURES: tuple[str, ...] = (FIT, CONTACTS, GRAPH, GRAPH_BUDGET, GRAPH_EXAMPLE, CONSISTENCY)
 
+#: Which stage a switch changes.  This is not documentation — ``bench/ab_plan.py --pin-plan``
+#: reads it, and pinning a PLAN-side switch would silently disable the very thing under test
+#: (both arms would share one plan, so a change that only alters planning becomes a no-op the
+#: rig would then report as "no effect").  A switch missing from here is treated as plan-side:
+#: refusing to pin costs one noisy A/B, pinning wrongly costs a confident wrong answer.
+#: docs/EVAL.md §8.1 measured why pinning matters — the A/A's worst pair differed 1 part vs 10.
+PLAN_SIDE: frozenset[str] = frozenset({FIT, GRAPH, GRAPH_BUDGET, GRAPH_EXAMPLE, CONSISTENCY})
+GENERATION_SIDE: frozenset[str] = frozenset({CONTACTS})
+#: env switches outside CV3D_PLAN_FEATURES, same rule
+PLAN_SIDE_ENV: frozenset[str] = frozenset({"CV3D_PLAN_BRIEF", "CV3D_SCOPED_PARTS"})
+GENERATION_SIDE_ENV: frozenset[str] = frozenset({"CV3D_SKILLS", "CV3D_SKILLS_MAX", "CV3D_SKILLS_UNVERIFIED",
+                                                 "CV3D_DETAIL_ROUNDS", "CV3D_REFERENCE_DIFF"})
+
+
+def pin_plan_blockers(variant_env: dict[str, str]) -> list[str]:
+    """Which of ``variant_env``'s switches forbid sharing one plan between the arms.
+
+    Empty list = every switch this A/B changes acts after planning, so both arms can be
+    seeded with the same ``plan.json`` and the paired difference stops carrying the
+    planner's spread (the dominant variance term, docs/EVAL.md §8.1).
+    """
+    blockers: list[str] = []
+    for key, value in sorted(variant_env.items()):
+        if key == PLAN_FEATURES_ENV:
+            names = set(KNOWN_FEATURES) if value.strip() == "all" else {
+                n.strip().lstrip("-") for n in value.split(",") if n.strip()}
+            for name in sorted(names & (set(KNOWN_FEATURES) - GENERATION_SIDE)):
+                blockers.append(f"{PLAN_FEATURES_ENV}={name} changes the plan itself")
+        elif key in GENERATION_SIDE_ENV:
+            continue
+        else:
+            blockers.append(f"{key} is not known to act after planning")
+    return blockers
+
 #: Plan-loop switches the tree ACTUALLY reads, name → the module that reads it.  Kept
 #: honest by tests/orchestrator_tracks/test_plan_features.py, which greps the tree.
 LIVE_SWITCHES: dict[str, str] = {
@@ -111,6 +145,7 @@ def plan_feature_on(name: str) -> bool:
     return name in plan_features()
 
 
-__all__ = ["CONSISTENCY", "CONTACTS", "DEAD_SWITCHES", "FIT", "GRAPH", "GRAPH_BUDGET", "GRAPH_EXAMPLE",
+__all__ = ["CONSISTENCY", "CONTACTS", "DEAD_SWITCHES", "FIT", "GENERATION_SIDE", "GENERATION_SIDE_ENV",
+           "GRAPH", "GRAPH_BUDGET", "GRAPH_EXAMPLE", "PLAN_SIDE", "PLAN_SIDE_ENV", "pin_plan_blockers",
            "KNOWN_FEATURES", "LIVE_SWITCHES", "PLAN_FEATURES_ENV", "dead_env_keys", "parse_features",
            "plan_feature_on", "plan_features"]
