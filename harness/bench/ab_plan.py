@@ -79,9 +79,10 @@ DEFAULT_GENERATOR = "api-agent:gemini:gemini-3.7-flash"
 DEFAULT_JUDGE = "gemini:gemini-3.1-pro-preview"
 #: the per-child cap.  The flat name is a first-class alias of ``CV3D_RATE__MAX_IN_FLIGHT``
 #: since 2026-08-24 (``Settings._FLAT_ALIASES``; before that it was read by nothing) and
-#: wins over the nested spelling when both are set, which is what makes ``setdefault``
-#: below a real cap even when the launching shell exported the nested one at 64.
+#: wins over the nested spelling when both are set.
 MAX_IN_FLIGHT_ENV = "CV3D_MAX_IN_FLIGHT"
+#: the nested spelling: popped from every child's env so it cannot fight the flat one
+NESTED_MAX_IN_FLIGHT_ENV = "CV3D_RATE__MAX_IN_FLIGHT"
 DEFAULT_MAX_IN_FLIGHT = 16
 #: only ever 2 — one control + one variant, launched together (see module docstring)
 PARALLEL = 2
@@ -113,6 +114,20 @@ class AbOptions(BaseModel):
                               resume=self.resume, pairwise=False)
 
 
+def inherited_max_in_flight() -> int:
+    """The cap the launching shell asks for, used only when ``--max-in-flight`` is absent.
+
+    Whatever wins here is BOTH what the children run at and what the budget preflight
+    reserves; the two must never disagree, which is why the answer is resolved once, into
+    ``AbOptions``, instead of once per child out of the ambient environment.
+    """
+    for name in (MAX_IN_FLIGHT_ENV, NESTED_MAX_IN_FLIGHT_ENV):
+        raw = os.environ.get(name, "").strip()
+        if raw.isdigit() and int(raw) > 0:
+            return int(raw)
+    return DEFAULT_MAX_IN_FLIGHT
+
+
 def parse_variant_env(items: Sequence[str]) -> dict[str, str]:
     """``["K=V", "K2=V2"]`` → ``{K: V, K2: V2}``; a bare ``K`` is rejected, not defaulted."""
     out: dict[str, str] = {}
@@ -130,7 +145,12 @@ def child_env(arm: str, opts: AbOptions, base: dict[str, str] | None = None) -> 
     The variant gets ``variant_env`` on top of the driver's env; the control gets the
     driver's env with those same keys REMOVED, so a switch that happens to be set in
     the launching shell cannot silently turn the control into a second variant.  Both
-    get the in-flight cap unless the driver already set one.
+    are PINNED to ``opts.max_in_flight`` (both spellings), never merely defaulted to it:
+    ``main`` refuses to start unless ``pool_budget().fits(2 * opts.max_in_flight)``, so a
+    child that inherited a different cap from the launching shell would make that
+    reservation a fiction — with ``--max-in-flight 8`` under a shell exporting 32 the A/B
+    reserved 16 of the 64-call knee and consumed 64 (docs/COST.md §23).  ``opts`` already
+    carries the inherited value when no flag was passed (:func:`inherited_max_in_flight`).
 
     Under ``--aa`` the variant arm gets the CONTROL environment: the two arms then run
     byte-identical code and the measured delta is the rig's own noise floor, which is the
@@ -141,7 +161,8 @@ def child_env(arm: str, opts: AbOptions, base: dict[str, str] | None = None) -> 
         env.pop(k, None)
     if arm == VARIANT and not opts.aa:
         env.update(opts.variant_env)
-    env.setdefault(MAX_IN_FLIGHT_ENV, str(opts.max_in_flight))
+    env[MAX_IN_FLIGHT_ENV] = str(opts.max_in_flight)
+    env.pop(NESTED_MAX_IN_FLIGHT_ENV, None)
     env["PYTHONUNBUFFERED"] = "1"
     return env
 
@@ -335,7 +356,9 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--ids", default="")
     ap.add_argument("--tiers", default="")
     ap.add_argument("--limit", type=int, default=None)
-    ap.add_argument("--max-in-flight", type=int, default=DEFAULT_MAX_IN_FLIGHT, help=f"per child ({MAX_IN_FLIGHT_ENV})")
+    ap.add_argument("--max-in-flight", type=int, default=None,
+                    help=f"per child; wins over an inherited {MAX_IN_FLIGHT_ENV} "
+                         f"(default: that variable, else {DEFAULT_MAX_IN_FLIGHT}).  The preflight reserves 2x it")
     ap.add_argument("--parallel", type=int, default=PARALLEL, help="accepted for symmetry; must be 2 (one pair)")
     ap.add_argument("--redo-status", default="", help="comma list, e.g. infra_failed (re-runs both arms of the prompt)")
     ap.add_argument("--redo-resume", action="store_true",
@@ -364,7 +387,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                      rounds=ns.rounds, max_usd=ns.max_usd, max_minutes=ns.max_minutes, n_samples=ns.n_samples,
                      ids=[i for i in ns.ids.split(",") if i], tiers=[t for t in ns.tiers.split(",") if t],
                      limit=ns.limit, resume=not ns.no_resume, redo_status=[s for s in ns.redo_status.split(",") if s],
-                     variant_env=parse_variant_env(ns.variant_env), max_in_flight=ns.max_in_flight,
+                     variant_env=parse_variant_env(ns.variant_env),
+                     max_in_flight=ns.max_in_flight if ns.max_in_flight is not None else inherited_max_in_flight(),
                      aa=ns.aa, redo_fresh=not ns.redo_resume)
     out = Path(ns.out)
     if ns.report_only:
@@ -404,9 +428,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-__all__ = ["DEFAULT_GENERATOR", "DEFAULT_JUDGE", "MAX_IN_FLIGHT_ENV", "PARALLEL", "AbOptions", "CellRunner", "Todo",
-           "archive_cell", "cell_dir", "cell_main", "child_env", "main", "parse_variant_env", "preflight", "run_ab",
-           "spawn_cell", "worker_argv"]
+__all__ = ["DEFAULT_GENERATOR", "DEFAULT_JUDGE", "MAX_IN_FLIGHT_ENV", "NESTED_MAX_IN_FLIGHT_ENV", "PARALLEL",
+           "AbOptions", "CellRunner", "Todo", "archive_cell", "cell_dir", "cell_main", "child_env",
+           "inherited_max_in_flight", "main", "parse_variant_env", "preflight", "run_ab", "spawn_cell", "worker_argv"]
 
 if __name__ == "__main__":
     raise SystemExit(main())

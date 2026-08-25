@@ -27,6 +27,16 @@ _LEGACY_KEYS_FILE = Path.home() / ".config" / "astra3d" / "gemini_keys.env"
 _USER_CONFIG = Path.home() / ".config" / "codeverse" / "config.yaml"
 
 
+def _lower_bound(model: type[BaseModel], field: str) -> int | None:
+    """The ``ge=`` declared on ``model.field`` (None when unbounded).  Lets a flat env
+    alias enforce exactly the bound its target field declares, in one place."""
+    for meta in model.model_fields[field].metadata:
+        lo = getattr(meta, "ge", None)
+        if lo is not None:
+            return int(lo)
+    return None
+
+
 class Binaries(BaseModel):
     blender: str = Field(default="", description="path to a Blender 4.2+/5.x binary (headless capable)")
     node: str = "node"
@@ -69,10 +79,11 @@ class Limits(BaseModel):
     # (1 392 builds/min; 24 workers gave 1 168, 32 gave 1 019), so a fan-out of 12
     # agent tasks x their own builds stays inside the knee and leaves cores for the
     # render pass, whose tail is minutes long.
-    max_parallel_agents: int = 12
-    max_parallel_builds: int = 8
+    max_parallel_agents: int = Field(default=12, ge=1, description="thread fan-out for agent tasks (>= 1)")
+    max_parallel_builds: int = Field(default=8, ge=1, description="concurrent build subprocesses (>= 1)")
     agent_max_turns: int = Field(
         default=0,
+        ge=0,
         description="hard cap on model turns per agent session (0 = the backend's own default, "
         "which is what ships: a 28-turn cap cost $0.02 more and 0.205 of a score point in its "
         "own A/B — docs/COST.md §17 — so no profile sets one; name it here if you want one).",
@@ -93,10 +104,15 @@ class Rate(BaseModel):
     cores, model calls are network-bound and sized by the provider.  0 = unlimited.
     """
 
-    rpm_per_key: int = Field(default=1000, description="requests/minute allowed per API key")
-    tpm_per_key: int = Field(default=1_000_000, description="prompt tokens/minute allowed per API key")
+    rpm_per_key: int = Field(default=1000, ge=1, description="requests/minute allowed per API key")
+    tpm_per_key: int = Field(default=1_000_000, ge=0, description="prompt tokens/minute allowed per API key (0 = no TPM bucket)")
     max_in_flight: int = Field(
         default=64,
+        ge=0,  # NEGATIVE is not "unlimited" here: 0 is.  Without this bound -5 survived config,
+               # was reported as FITTING the pool budget by `3dcv doctor`, poisoned the shared
+               # in-flight accounting, and finally died as a bare ValueError from
+               # threading.BoundedSemaphore inside KeyPool -- at the first model call, long
+               # after the workspace and spec.json were written.
         description="process-wide cap on concurrent model calls (0 = off).  Measured knee: a "
         "128-call burst of 12k-token prompts ran 29.6 calls/min at 16 in-flight, 43.9 at 32, "
         "72.9 at 64 and fell back to 47.2 at 128 (docs/COST.md Part III).")
@@ -140,7 +156,14 @@ class Settings(BaseSettings):
                 value = int(raw)
             except ValueError as e:
                 raise ValueError(f"{env}={raw!r}: expected an integer") from e
-            setattr(getattr(self, section), field, value)
+            # plain assignment does NOT re-validate (no validate_assignment), so the target
+            # field's own bound is enforced here — and the message names the variable the
+            # operator actually typed, not the nested field they never heard of.
+            sub = getattr(self, section)
+            lo = _lower_bound(type(sub), field)
+            if lo is not None and value < lo:
+                raise ValueError(f"{env}={raw!r}: must be >= {lo}")
+            setattr(sub, field, value)
         return self
 
     runs_dir: Path = Field(default=Path("runs"))

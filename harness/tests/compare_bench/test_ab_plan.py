@@ -26,13 +26,16 @@ from bench._ab_report import (  # noqa: E402
 )
 from bench._compare_report import CellResult, load_jsonl  # noqa: E402
 from bench.ab_plan import (  # noqa: E402
+    DEFAULT_MAX_IN_FLIGHT,
     MAX_IN_FLIGHT_ENV,
+    NESTED_MAX_IN_FLIGHT_ENV,
     AbOptions,
     Todo,
     _plan_todo,
     archive_cell,
     cell_dir,
     child_env,
+    inherited_max_in_flight,
     main,
     parse_variant_env,
     run_ab,
@@ -185,9 +188,28 @@ def test_variant_env_is_applied_to_the_variant_arm_only():
     assert "CV3D_PLAN_BRIEF" not in c, "the control must never inherit the switch under test"
     assert c["PATH"] == v["PATH"] == "/bin"
     assert c[MAX_IN_FLIGHT_ENV] == v[MAX_IN_FLIGHT_ENV] == "16"
-    # a cap set by the driver's own environment is respected, not overwritten
-    assert child_env(VARIANT, opts, {MAX_IN_FLIGHT_ENV: "4"})[MAX_IN_FLIGHT_ENV] == "4"
     assert child_env(VARIANT, opts, {})["PYTHONUNBUFFERED"] == "1"
+
+
+def test_children_run_at_exactly_the_cap_the_budget_reserved(monkeypatch):
+    """CQ-3: main() refuses to start unless ``pool_budget().fits(2 * opts.max_in_flight)``,
+    so both children must run at THAT number.  child_env used ``setdefault``, so a shell
+    exporting CV3D_MAX_IN_FLIGHT=32 under ``--max-in-flight 8`` reserved 16 of the 64-call
+    knee and then consumed 64 (docs/COST.md §23) — three lines after the function
+    deliberately pops every variant key so an inherited switch cannot win."""
+    opts = AbOptions(variant_env={"K": "v"}, max_in_flight=8)
+    base = {"PATH": "/bin", MAX_IN_FLIGHT_ENV: "32", NESTED_MAX_IN_FLIGHT_ENV: "48"}
+    for arm in (CONTROL, VARIANT):
+        env = child_env(arm, opts, base)
+        assert env[MAX_IN_FLIGHT_ENV] == "8", "an explicit --max-in-flight must beat the shell"
+        assert NESTED_MAX_IN_FLIGHT_ENV not in env, "the nested spelling must not fight the flat one"
+    # without the flag the inherited cap is still honoured — resolved ONCE, into AbOptions,
+    # so the number the children get and the number the preflight reserves are the same one
+    monkeypatch.setenv(MAX_IN_FLIGHT_ENV, "6")
+    monkeypatch.delenv(NESTED_MAX_IN_FLIGHT_ENV, raising=False)
+    assert inherited_max_in_flight() == 6
+    monkeypatch.delenv(MAX_IN_FLIGHT_ENV)
+    assert inherited_max_in_flight() == DEFAULT_MAX_IN_FLIGHT
 
 
 def test_the_in_flight_env_name_is_one_settings_reads(monkeypatch):
