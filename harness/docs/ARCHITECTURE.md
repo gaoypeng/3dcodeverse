@@ -174,6 +174,8 @@ bench/                run_bench.py, report.py (reuses flywheel gallery), compare
                       *.jsonl journals — a truncated last line never costs the paid rows),
                       ab_plan.py (paired control/variant A/B for plan + brief switches; pins
                       both children to the cap the §23 admission check reserved), _ab_report.py,
+                      ab_gate_rates.py (the same run's DETERMINISTIC readouts, paired per
+                      prompt: penetrating pairs, worst depth, floating parts, contract findings),
                       _oneshot.py, _fixed_eval.py, cost_report.py,
                       concurrency_probe.py (in-flight knee sweep), complexity_report.py,
                       prompts/{static_objects_v1 (24), articulated_v1 (12), scenes_v1 (12), compare_v1 (8)}.yaml
