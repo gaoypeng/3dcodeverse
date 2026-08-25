@@ -8,7 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.agents.claude_code import ClaudeCodeAgent, parse_claude_json, usage_from_envelope
+from codeverse.agents.claude_code import (
+    ClaudeCodeAgent,
+    parse_claude_json,
+    primary_served_model,
+    usage_from_envelope,
+)
 from codeverse.agents.cli_common import begin_session
 from codeverse.agents.materialize import materialize_workspace
 from codeverse.contracts.agent import AgentJob
@@ -20,6 +25,20 @@ ENVELOPE = {
     "usage": {"input_tokens": 10, "cache_creation_input_tokens": 200, "cache_read_input_tokens": 5000, "output_tokens": 40},
     "modelUsage": {"claude-sonnet-4-6": {"inputTokens": 10, "outputTokens": 40, "costUSD": 0.0123}},
 }
+
+#: what a real `claude -p --model sonnet` session bills: the work model PLUS the small
+#: background model the CLI uses for its own housekeeping — and claude 2.1.243 lists the
+#: AUXILIARY one FIRST.  Token counts and costs are the ones observed in the CC-1 repro.
+TWO_MODEL_ENVELOPE = {
+    "type": "result", "subtype": "success", "is_error": False, "duration_ms": 10000,
+    "num_turns": 1, "result": "pong", "session_id": "xyz", "total_cost_usd": 0.023795,
+    "usage": {"input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": 0},
+    "modelUsage": {
+        "claude-haiku-4-5-20251001": {"inputTokens": 1035, "outputTokens": 21, "costUSD": 0.000955},
+        "claude-sonnet-5": {"inputTokens": 2, "outputTokens": 4, "costUSD": 0.02284},
+    },
+}
+
 
 FAKE_CLAUDE = r'''
 args = sys.argv[1:]
@@ -87,3 +106,34 @@ def test_live_claude_tiny(tmp_ws: Workspace):
     assert res.ok, res.errors
     assert (tmp_ws.src / "hello.txt").read_text().strip() == "hi"
     assert res.usage.output_tokens > 0
+
+
+# --------------------------------------------------------------------------- CC-1
+def test_an_alias_records_the_model_that_did_the_work_not_the_housekeeping_one():
+    """`claude -p` bills two models and lists the AUXILIARY one first, so
+    `served[0]` recorded haiku — which did 0.9% of the tokens — for every
+    --model ALIAS ('sonnet', 'opus', and the default arm). A sonnet-vs-default
+    comparison was therefore labelled haiku-vs-haiku."""
+    for alias in ("sonnet", "opus", ""):
+        u = usage_from_envelope(TWO_MODEL_ENVELOPE, alias)
+        assert u.model == "claude-sonnet-5", alias
+    # the top-level usage block reports the MAIN conversation only — that is the signal
+    assert primary_served_model(TWO_MODEL_ENVELOPE, "sonnet") == "claude-sonnet-5"
+
+
+def test_a_full_id_we_passed_verbatim_is_kept():
+    """Full ids were never affected; the bug bit only the form the owner asked for."""
+    assert primary_served_model(TWO_MODEL_ENVELOPE, "claude-sonnet-5") == "claude-sonnet-5"
+    assert primary_served_model(TWO_MODEL_ENVELOPE, "claude-haiku-4-5-20251001") == "claude-haiku-4-5-20251001"
+
+
+def test_the_dearest_entry_wins_when_the_token_counts_do_not_match():
+    """Fallback for an envelope whose top-level usage block does not line up with any
+    modelUsage row: the work model is the one that cost the money, never the side-call."""
+    env = {**TWO_MODEL_ENVELOPE, "usage": {"input_tokens": 0, "output_tokens": 0}}
+    assert primary_served_model(env, "sonnet") == "claude-sonnet-5"
+
+
+def test_no_model_usage_block_keeps_what_we_asked_for():
+    assert primary_served_model({"usage": {"input_tokens": 1}}, "sonnet") == "sonnet"
+    assert usage_from_envelope({"usage": {"input_tokens": 1}}, "sonnet").model == "sonnet"

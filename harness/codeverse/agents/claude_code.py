@@ -77,11 +77,34 @@ def usage_from_envelope(env: dict[str, Any], model: str) -> Usage:
         cost_usd=float(env.get("total_cost_usd") or 0.0),
         latency_ms=int(env.get("duration_ms") or 0),
     )
-    # modelUsage carries the real served model name(s); keep the first when ours is an alias
-    served = list((env.get("modelUsage") or {}).keys())
-    if served and model not in served:
-        usage.model = served[0]
+    usage.model = primary_served_model(env, model)
     return usage
+
+
+def primary_served_model(env: dict[str, Any], model: str) -> str:
+    """The model that actually did the WORK, of the (up to two) that one session bills.
+
+    ``claude -p`` bills the work model PLUS the small background model the CLI uses for
+    its own housekeeping, and claude 2.1.243 lists the AUXILIARY one first — so taking
+    ``served[0]`` recorded a model that did ~1% of the tokens whenever ``--model`` was an
+    ALIAS ('sonnet', 'opus', or the default arm).  A sonnet-vs-default comparison was
+    therefore labelled haiku-vs-haiku, in CallCost.model and in OneShotResult.usage.
+
+    The envelope's top-level ``usage`` block reports the MAIN conversation only, so the
+    entry whose token counts match it is the work model; otherwise take the dearest.
+    An id we passed verbatim is already a served name and is kept as-is.
+    """
+    served: dict[str, Any] = env.get("modelUsage") or {}
+    if not served or model in served:
+        return model
+    u = env.get("usage") or {}
+    want = (int(u.get("input_tokens") or 0), int(u.get("output_tokens") or 0))
+    if any(want):
+        for name, row in served.items():
+            r = row or {}
+            if (int(r.get("inputTokens") or 0), int(r.get("outputTokens") or 0)) == want:
+                return name
+    return max(served, key=lambda n: float((served[n] or {}).get("costUSD") or 0.0))
 
 
 class ClaudeCodeAgent:
@@ -164,4 +187,4 @@ class ClaudeCodeAgent:
         )
 
 
-__all__ = ["ClaudeCodeAgent", "parse_claude_json", "usage_from_envelope", "ALLOWED_TOOLS"]
+__all__ = ["ClaudeCodeAgent", "parse_claude_json", "primary_served_model", "usage_from_envelope", "ALLOWED_TOOLS"]
