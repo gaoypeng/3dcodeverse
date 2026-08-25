@@ -19,6 +19,9 @@ accepted when the JSON envelope is missing.
 from __future__ import annotations
 
 import json
+import logging
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from codeverse.agents.cli_common import (
@@ -35,8 +38,62 @@ from codeverse.agents.watchdog import run_with_watchdog
 from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Usage
+from codeverse.proc import run_subprocess
+
+log = logging.getLogger(__name__)
 
 IDLE_GRACE_S = 300.0
+
+#: reasoning efforts agy exposes for the models that have them
+EFFORTS = ("low", "medium", "high")
+#: what a bare id is resolved to when agy offers only effort-suffixed spellings
+DEFAULT_EFFORT = "medium"
+_EFFORT_SUFFIXES = tuple(f"-{e}" for e in EFFORTS)
+
+
+@lru_cache(maxsize=4)
+def available_models(binary: str) -> tuple[str, ...]:
+    """The model ids ``agy models`` offers, or ``()`` when it cannot be reached.
+
+    Cached: one lookup per binary per process, and only for an id that needs it.
+    """
+    try:
+        r = run_subprocess([binary, "models"], cwd=Path.cwd(), timeout_s=30.0)
+    except OSError as e:  # pragma: no cover - defensive
+        log.debug("agy models unavailable: %s", e)
+        return ()
+    if r.returncode != 0:
+        return ()
+    ids = []
+    for line in r.stdout.splitlines():
+        head = line.split("\t", 1)[0].strip()
+        if head and " " not in head:
+            ids.append(head)
+    return tuple(ids)
+
+
+def resolve_model(model: str, binary: str) -> str:
+    """Map a bare model id onto the effort-suffixed one agy actually accepts.
+
+    agy 1.1.19 rejects ``--model gemini-3.7-flash`` outright ("requires --effort
+    (available: low, medium, high)") and equally rejects ``--effort`` for a model that
+    has none ("--effort is not supported for model claude-sonnet-4-6"), so the effort
+    cannot be a blanket flag — it belongs in the MODEL ID, which is the only spelling
+    ``agy models`` lists (gemini-3.7-flash-low/-medium/-high).
+
+    A bare id agy DOES offer (claude-sonnet-4-6) is passed through untouched, and so is
+    anything we cannot check, so this can only turn a guaranteed failure into a run.
+    """
+    if not model or model.endswith(_EFFORT_SUFFIXES):
+        return model
+    offered = available_models(binary)
+    if not offered or model in offered:
+        return model
+    for effort in (DEFAULT_EFFORT, *EFFORTS):
+        if f"{model}-{effort}" in offered:
+            log.info("agy has no bare %r; using the %s-effort id %r", model, effort, f"{model}-{effort}")
+            return f"{model}-{effort}"
+    return model
 
 
 def parse_agy_json(stdout: str) -> dict[str, Any] | None:
@@ -77,6 +134,10 @@ class AntigravityAgent:
     def id(self) -> str:
         return f"{self.kind}:{self.model}"
 
+    def served_model(self) -> str:
+        """The id actually sent to agy (a bare one gains its effort suffix)."""
+        return resolve_model(self.model, self.binary)
+
     def available(self) -> tuple[bool, str]:
         if not exists_on_path(self.binary):
             return False, f"agy CLI not found: {self.binary!r}"
@@ -88,7 +149,7 @@ class AntigravityAgent:
                 "--print-timeout", f"{minutes}m", "--output-format", "json",
                 "--add-dir", str(s.ws.root), "--disable-slash-commands"]
         if self.model:
-            argv += ["--model", self.model]
+            argv += ["--model", self.served_model()]
         return argv
 
     def build_env(self, s: Session) -> dict[str, str]:
@@ -110,7 +171,8 @@ class AntigravityAgent:
         s.traj.write_text("stdout.json", proc.stdout)
         s.traj.write_text("stderr.log", proc.stderr)
         env = parse_agy_json(proc.stdout)
-        usage = usage_from_agy(env, self.model) if env else Usage(backend=self.kind, model=self.model)
+        served = self.served_model()
+        usage = usage_from_agy(env, served) if env else Usage(backend=self.kind, model=served)
         usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
         text = str(env.get("response", "")) if env else proc.stdout.strip()
         errors: list[str] = []
