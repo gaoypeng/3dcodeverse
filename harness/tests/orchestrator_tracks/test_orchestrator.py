@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 import pytest
+from pydantic import BaseModel
 
 from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse.contracts.common import Budget, Usage
@@ -94,6 +95,41 @@ def test_stage_runner_caches_by_input_hash(tmp_ws):
     r2 = StageRunner(tmp_ws, events, st)
     assert r2.stage("s1", fn, inputs={"a": 2}) == {"x": 1} and len(calls) == 3
     assert runner.result_path("a:b/c").name == "a_b_c.json"
+
+
+def test_an_unreadable_cached_stage_is_a_miss_not_a_dead_run(tmp_ws):
+    """RS-2: inputs_hash covers the INPUTS, never the result model's schema.  A cached
+    result that no longer validates (the contract gained a field) or no longer parses
+    (a clobbered file) used to escape as ValidationError / JSONDecodeError, which
+    BaseTrack.run turns into a FAILED run — so every later `3dcv resume` died the same
+    way.  Both must re-run the stage and overwrite the file."""
+
+    class PlanV1(BaseModel):
+        name: str
+
+    class PlanV2(BaseModel):
+        name: str
+        units: str  # added after the cache was written
+
+    events = EventLog(tmp_ws.events_path)
+    runner = StageRunner(tmp_ws, events)
+    runner.stage("plan", lambda: PlanV1(name="stool"), inputs={"prompt": "a stool"}, model=PlanV1)
+
+    calls = []
+
+    def v2():
+        calls.append(1)
+        return PlanV2(name="stool", units="m")
+
+    r2 = StageRunner(tmp_ws, events, RunState.load(tmp_ws))
+    assert r2.stage("plan", v2, inputs={"prompt": "a stool"}, model=PlanV2).units == "m"
+    assert len(calls) == 1, "a cached result that does not validate must re-run the stage"
+
+    r2.result_path("plan").write_text('{"stage": "plan", "inputs_hash": ')  # clobbered mid-write
+    r3 = StageRunner(tmp_ws, events, RunState.load(tmp_ws))
+    assert r3.stage("plan", v2, inputs={"prompt": "a stool"}, model=PlanV2).units == "m"
+    assert len(calls) == 2
+    assert [e["event"] for e in events.read()].count("stage.cache_invalid") == 2
 
 
 def test_stage_runner_revives_models_and_raises(tmp_ws):

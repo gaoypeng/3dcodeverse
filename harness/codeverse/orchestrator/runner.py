@@ -6,12 +6,18 @@ file (``<ws>/stages/<name>.json``) exists, the cached result is returned
 without running ``fn`` (content-addressed skip — no mtime heuristics).
 Results may be pydantic models, lists of models, plain JSON values, or
 ``Path``s; pass ``model=`` to re-validate a cached JSON into its type.
+
+The hash covers the *inputs* only, never the result model's schema, so a cached
+file that no longer reads back — a contract that gained a field, a clobbered
+write — is treated as a cache MISS and re-run rather than raising out of the
+resume path.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import time
 from collections.abc import Callable
@@ -23,6 +29,8 @@ from pydantic import BaseModel
 from codeverse.events import EventLog
 from codeverse.orchestrator.state import RunState, StageState
 from codeverse.workspace import Workspace
+
+log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -80,10 +88,23 @@ class StageRunner:
         path = self.result_path(name)
         prior = self.state.stages.get(name)
         if not force and prior is not None and prior.inputs_hash == h and path.is_file():
-            data = json.loads(path.read_text())
-            result = _revive(data, model, list_of)
-            self.events.emit("stage.cached", stage=name, inputs_hash=h, path=str(path))
-            return result  # type: ignore[return-value]
+            # A cached result that cannot be read back is a cache MISS, not a dead run.
+            # ``inputs_hash`` covers the INPUTS only, never the result model's schema, so a
+            # contract that gained a field invalidates nothing — and a clobbered file
+            # invalidates nothing either.  Both used to escape as ValidationError /
+            # JSONDecodeError through BaseTrack.run, which marks the run FAILED and
+            # re-raises, so every later `3dcv resume <slug>` died the same way with no way
+            # out (StageRunner.invalidate has no caller and no flag).  Re-run instead and
+            # overwrite the file — the same tolerance load_ledger and _read_jsonl apply.
+            try:
+                result = _revive(json.loads(path.read_text()), model, list_of)
+            except (OSError, ValueError) as e:  # ValidationError is a ValueError
+                self.events.emit("stage.cache_invalid", stage=name, inputs_hash=h, path=str(path),
+                                 error=f"{type(e).__name__}: {e}")
+                log.warning("stage %s: cached result at %s is unusable (%s); re-running", name, path, e)
+            else:
+                self.events.emit("stage.cached", stage=name, inputs_hash=h, path=str(path))
+                return result  # type: ignore[return-value]
 
         self.events.emit("stage.start", stage=name, inputs_hash=h)
         t0 = time.time()
