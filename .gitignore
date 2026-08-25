@@ -11,3 +11,5 @@ harness/logs/
 *.pyc
 harness/logs/
 *.log
+build/
+dist/

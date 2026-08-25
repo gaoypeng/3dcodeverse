@@ -45,8 +45,12 @@ jobs:
         run: pip install -e ./harness[dev]
       # The suite is marked: `live` needs API keys, `blender` needs a Blender
       # binary, `node` needs runtime_js/node_modules — none exist on a runner,
-      # so CI runs the pure-python subset (1809 on 3.10 / 1810 on 3.13 locally;
-      # the whole offline suite is 2413 / 2414).
+      # so CI runs the pure-python subset: 1290 selected of 1306, 1284 passed
+      # on 3.13 locally, out of the 2110 the whole offline suite passes.  The
+      # few skips are data-dependent (recorded runs/batteries a fresh clone
+      # does not have).  Measured with NO credentials in the environment,
+      # which is what a runner has: every non-`live` test must pass without
+      # keys (PORT-2).
       - name: pytest (pure python subset)
         run: python -m pytest tests/core tests/models tests/judges tests/orchestrator_tracks tests/flywheel_cli tests/bench_prompts tests/cost -q -m "not live and not blender and not node"
         working-directory: harness
