@@ -286,9 +286,14 @@ def check_connectivity(
     grounded = {n for n in big if float(parts[n].bounds[0][1]) <= gap_m}
     support_sets = [c for c in comps if c & grounded]
     if support_sets:
-        support = max(support_sets, key=lambda c: sum(len(parts[n].faces) for n in c))
-        for c in support_sets:
-            support |= c
+        # THE support component (see the module docstring): ONE component, not the union
+        # of every ground-touching one.  Unioning made this max() dead and let any part
+        # that merely reaches y=0 count as supported, so the commonest static-object
+        # defect -- a leg 5 mm short of the seat, a rail shy of its post -- passed as long
+        # as the part still stood on the floor, and the INFO line then claimed "all 5
+        # parts are connected (3 contacts)" for a graph that needs >= 4 edges.  It also
+        # mutated the winning set in place, corrupting `comps`; hence the copy.
+        support = set(max(support_sets, key=lambda c: sum(len(parts[n].faces) for n in c)))
     else:
         support = max(comps, key=lambda c: sum(len(parts[n].faces) for n in c)) if comps else set()
         findings.append(GateFinding(gate=GATE, severity=Severity.WARN, message=f"no part touches the ground ({up}=0)",

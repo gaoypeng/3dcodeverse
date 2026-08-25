@@ -157,3 +157,56 @@ def test_interpenetration_is_found_between_two_non_watertight_parts(tmp_path: Pa
     scene.export(str(glb))
     r = check_connectivity(glb)
     assert not r.passed and any("interpenetrate" in f.message for f in r.errors)
+def _stool_with_a_leg_short_at_the_top(path: Path, gap_m: float = FLOAT_GAP_M) -> Path:
+    """The stool, but Leg_3 is shortened by ``gap_m`` at the TOP only.
+
+    It still stands on the floor and is ``gap_m`` shy of the seat — the single
+    commonest static-object defect, and the one CG-1 waved through."""
+    from tests.spatial_tools.conftest import LEG_XZ
+
+    sc = trimesh.Scene()
+    seat = trimesh.creation.box(extents=(0.4, 0.04, 0.4))
+    seat.apply_translation((0, 0.43, 0))
+    sc.add_geometry(seat, node_name="Seat", geom_name="Seat")
+    for i, (x, z) in enumerate(LEG_XZ):
+        h = 0.41 - gap_m if i == 3 else 0.41
+        leg = trimesh.creation.cylinder(radius=0.02, height=h, sections=24)
+        leg.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, (1, 0, 0)))
+        leg.apply_translation((x, h / 2, z))  # bottom stays on the ground
+        sc.add_geometry(leg, node_name=f"Leg_{i}", geom_name=f"Leg_{i}")
+    sc.export(str(path))
+    return path
+
+
+def test_a_part_detached_at_the_top_is_floating_even_though_it_reaches_the_floor(tmp_path: Path) -> None:
+    """CG-1: every ground-touching component was unioned into `support`, so a part
+    that merely reached y=0 counted as supported.  Byte for byte the same defect as
+    the lifted-leg control — it must be reported the same way."""
+    p = _stool_with_a_leg_short_at_the_top(tmp_path / "top_gap.glb")
+
+    r = check_connectivity(p)
+
+    assert not r.passed, [f.message for f in r.findings]
+    errs = r.errors
+    assert len(errs) == 1 and errs[0].target == "Leg_3"
+    assert errs[0].data["nearest"] == "Seat"
+    assert errs[0].data["gap_m"] == pytest.approx(FLOAT_GAP_M, abs=1e-4)
+    # and no self-contradictory "all N parts are connected" line reaches the judge
+    assert not [f for f in r.findings if "parts are connected" in f.message]
+
+
+def test_two_grounded_islands_are_not_one_connected_assembly(tmp_path: Path) -> None:
+    """The minimal shape of the same bug: two boxes 2 m apart, both on the floor,
+    used to pass as 'all 2 parts are connected (0 contacts)'."""
+    sc = trimesh.Scene()
+    for i, x in enumerate((0.0, 2.0)):
+        m = trimesh.creation.box((0.5, 0.5, 0.5))
+        m.apply_translation((x, 0.25, 0))
+        sc.add_geometry(m, node_name=f"P{i}", geom_name=f"P{i}")
+    p = tmp_path / "two_grounded.glb"
+    sc.export(str(p))
+
+    r = check_connectivity(p)
+
+    assert not r.passed and len(r.errors) == 1
+    assert not [f for f in r.findings if "parts are connected" in f.message]
