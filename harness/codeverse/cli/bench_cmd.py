@@ -27,6 +27,8 @@ def run_cmd(
     ids: Annotated[list[str] | None, typer.Option("--id", help="only these prompt ids")] = None,
     tiers: Annotated[list[str] | None, typer.Option("--tier")] = None,
     no_resume: Annotated[bool, typer.Option("--no-resume")] = False,
+    redo_status: Annotated[str, typer.Option("--redo-status", help="comma list of recorded statuses to re-run, "
+                                                                   "e.g. infra_failed once the provider recovers")] = "",
     report: Annotated[bool, typer.Option("--report/--no-report")] = True,
 ) -> None:
     """Run every prompt of a battery through its track (N parallel workers); resumable."""
@@ -35,7 +37,8 @@ def run_cmd(
     b = C.import_bench()
     run_bench = C.lazy("bench.run_bench")
     opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_usd=max_usd,
-                                 parallel=parallel, limit=limit, ids=ids or [], tiers=tiers or [], resume=not no_resume)
+                                 parallel=parallel, limit=limit, ids=ids or [], tiers=tiers or [], resume=not no_resume,
+                                 redo_status=[x for x in redo_status.split(",") if x])
     out_dir = out or (C.REPO_ROOT / "bench" / "out" / battery.stem)
     console.print(f"battery={battery} out={out_dir} generator={generator or 'default'} judge={judge or 'default'}")
 

@@ -147,3 +147,58 @@ def test_a_truncated_last_line_does_not_cost_the_whole_resume(tmp_path: Path):
     assert len(res) == 2
     # and the already-paid rows remain reportable
     assert {r.id for r in load_results(out)} == {json.loads(ln)["id"] for ln in good}
+
+
+def test_a_provider_outage_is_not_model_latency_and_not_an_error(tmp_path: Path):
+    """CQ-4: `3dcv bench` is the third battery driver and it never adopted
+    bench/_infra.py.  run_bench.py:210 recorded status='error' for ANY escaping
+    exception and report.py averaged r.minutes over every row including that one, so a
+    single 60-minute 503 storm cell inflated min/run 12.8x (1.0 -> 12.8) and was counted
+    in the same `errors` column as a genuine crash.  compare_backends has classified
+    this since 2026-08-24 and its own test states the invariant in words — "an hour
+    spent retrying a 503 is not model latency" — but only for the compare reporter."""
+    from bench.report import _stats
+    from bench.run_bench import BenchItemResult
+
+    clear = [BenchItemResult(id=f"p{i}", tier="easy", score_baseline=0.5, score_final=0.8,
+                             passed=True, minutes=1.0, cost_usd=0.10, status="passed") for i in range(4)]
+    storm = BenchItemResult(
+        id="p_storm", tier="easy", minutes=60.0, cost_usd=0.03, status="infra_failed",
+        errors="ModelError: Gemini API error 503: The model is overloaded. Please try again later.")
+
+    base, with_storm = _stats("easy", clear), _stats("easy", clear + [storm])
+    assert base.minutes_mean == 1.0 and base.cost_mean == 0.10
+    assert with_storm.minutes_mean == 1.0, "someone else's downtime is not this model's latency"
+    assert with_storm.cost_mean == 0.10
+    # the loss stays visible, in its own column, and is NOT an error
+    assert with_storm.n == 5 and with_storm.n_evaluated == 4 and with_storm.infra_failed == 1
+    assert with_storm.errors == 0, "a provider outage must not read as a crash"
+    # the scored rates were already safe; they must stay so
+    assert with_storm.final_mean == base.final_mean and with_storm.pass_rate == base.pass_rate
+
+
+def test_the_runner_classifies_the_outage_that_reaches_it(tmp_path: Path):
+    """The status has to be recorded in the first place — the reporter can only honour
+    what run_battery wrote."""
+    from codeverse.models.base import ModelError
+
+    battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
+    out = tmp_path / "bench_out"
+
+    def storm(spec, ws, resume):
+        raise ModelError("Gemini API error 503: The model is overloaded.", retryable=True, status=503)
+
+    res = run_battery(battery, out, BenchOptions(parallel=1, limit=1), run_fn=storm)
+    assert [r.status for r in res] == ["infra_failed"]
+
+    # ... and --redo-status makes it actionable, the way compare_backends' already is
+    calls: list[str] = []
+
+    def counting(spec, ws, resume):
+        calls.append(spec.id)
+        return _fake_run_fn({})(spec, ws, resume)
+
+    run_battery(battery, out, BenchOptions(parallel=1, limit=1), run_fn=counting)
+    assert calls == [], "a plain resume still skips every recorded row"
+    run_battery(battery, out, BenchOptions(parallel=1, limit=1, redo_status=["infra_failed"]), run_fn=counting)
+    assert len(calls) == 1, "--redo-status infra_failed re-runs what the weather lost"

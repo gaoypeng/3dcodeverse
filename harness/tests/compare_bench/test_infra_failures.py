@@ -94,12 +94,7 @@ def test_both_failure_paths_classify_the_same_way(tmp_path):
     from codeverse.models.base import ModelError
     from tests.compare_bench.conftest import BATTERY, FakeEvaluator
 
-    for outage in (
-        ModelError("Gemini API error 500: An internal error has occurred.", retryable=True, status=500),
-        ModelError("Gemini transport error: [Errno 104] Connection reset by peer", retryable=True),
-        ModelError("Anthropic connection error: TLS handshake failed", retryable=True),
-        ModelError("Gemini request timed out: 600s", retryable=True, status=408),
-    ):
+    def verdicts(outage: Exception, out: Path) -> dict[str, tuple[str, float | None]]:
         class DeadModel:  # the real ApiOneShot around a model that raises the outage
             provider, model = "gemini", "gemini-3.7-flash"
 
@@ -116,12 +111,20 @@ def test_both_failure_paths_classify_the_same_way(tmp_path):
         deps = CompareDeps(FakeEvaluator(), run_track=dying_track,
                            oneshot_backend=lambda t: ApiOneShot("gemini:gemini-3.7-flash", chat_model=DeadModel()))
         opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x")
-        out = Path(tempfile.mkdtemp(dir=tmp_path))
         got = {}
         for raw in ("harness:api-agent:gemini:gemini-3.7-flash", "oneshot:gemini:gemini-3.7-flash"):
             arm = parse_arm(raw)
             r = run_cell(battery, battery.prompts[0], arm, out, opts, deps)
             got[arm.kind] = (r.status, r.score)
+        return got
+
+    for outage in (
+        ModelError("Gemini API error 500: An internal error has occurred.", retryable=True, status=500),
+        ModelError("Gemini transport error: [Errno 104] Connection reset by peer", retryable=True),
+        ModelError("Anthropic connection error: TLS handshake failed", retryable=True),
+        ModelError("Gemini request timed out: 600s", retryable=True, status=408),
+    ):
+        got = verdicts(outage, Path(tempfile.mkdtemp(dir=tmp_path)))
         assert got["harness"] == ("infra_failed", None), f"{outage} / harness -> {got}"
         assert got["oneshot"] == got["harness"], (
             f"one error, two verdicts for {outage!s}: {got} — the one-shot arm takes a hard "

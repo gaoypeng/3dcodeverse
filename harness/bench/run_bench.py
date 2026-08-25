@@ -32,6 +32,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from bench._infra import is_infra_failure
 from bench._jsonl import read_jsonl, seal_for_append
 from codeverse._compat import UTC
 from codeverse.config import get_settings
@@ -103,6 +104,9 @@ class BenchOptions(BaseModel):
     ids: list[str] = Field(default_factory=list)
     tiers: list[str] = Field(default_factory=list)
     resume: bool = True
+    redo_status: list[str] = Field(default_factory=list,
+                                   description="re-run prompts already recorded with one of these statuses "
+                                               "(the point of `infra_failed`: retry what the weather lost)")
 
 
 def build_spec(
@@ -190,6 +194,9 @@ def run_battery(
                                                   "started_at": datetime.now(UTC).isoformat()}, indent=2))
     results_jsonl = out / "results.jsonl"
     done = _load_done(results_jsonl) if opts.resume else {}
+    # `--redo-status infra_failed` re-runs the cells the weather lost, once it clears
+    for pid in [k for k, r in done.items() if r.status in set(opts.redo_status)]:
+        del done[pid]
     todo = [p for p in select_prompts(battery, ids=opts.ids, tiers=opts.tiers, limit=opts.limit) if p.id not in done]
 
     def _one(item: BenchPrompt) -> BenchItemResult:
@@ -205,7 +212,13 @@ def run_battery(
             with run_ledger(ws.root, run=item.id):
                 rec = run_fn(spec, ws, resume)
         except Exception as e:  # one failing prompt must not kill the battery
-            return BenchItemResult(id=item.id, tier=item.tier, category=item.category, status="error",
+            # A provider outage is not a result: an hour spent retrying a 503 is not model
+            # latency and not a crash.  compare_backends has classified this since
+            # 2026-08-24; this driver never adopted it, so a 60-minute storm cell was
+            # averaged into min/run (12.8x inflation, measured) and counted in the same
+            # `errors` column as a genuine failure.
+            status = "infra_failed" if is_infra_failure(e) else "error"
+            return BenchItemResult(id=item.id, tier=item.tier, category=item.category, status=status,
                                    errors=f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1500:]}",
                                    minutes=round((time.time() - t0) / 60, 2), workspace=str(ws.root),
                                    generator=spec.backends.generator, judge=spec.backends.judge)
