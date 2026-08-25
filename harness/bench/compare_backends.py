@@ -52,6 +52,8 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:  # `python bench/compare_backends.py` from anywhere
     sys.path.insert(0, str(REPO))
 
+from datetime import UTC  # noqa: E402
+
 from bench._compare_report import (  # noqa: E402
     CellResult,
     PairRow,
@@ -77,7 +79,6 @@ from bench.run_bench import (  # noqa: E402
     default_run_track,
     select_prompts,
 )
-from codeverse._compat import UTC  # noqa: E402
 from codeverse.config import get_settings  # noqa: E402
 from codeverse.contracts.artifacts import RenderSet  # noqa: E402
 from codeverse.contracts.run import RunRecord  # noqa: E402

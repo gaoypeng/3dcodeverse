@@ -25,7 +25,7 @@ import time
 import traceback
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +34,6 @@ from pydantic import BaseModel, Field
 
 from bench._infra import is_infra_failure
 from bench._jsonl import read_jsonl, seal_for_append
-from codeverse._compat import UTC
 from codeverse.config import get_settings
 from codeverse.contracts.common import Backends, Budget, Language, Track
 from codeverse.contracts.run import RunRecord

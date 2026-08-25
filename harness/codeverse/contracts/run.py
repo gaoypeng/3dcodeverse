@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codeverse._compat import UTC, StrEnum
 from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
 from codeverse.contracts.common import Usage
 from codeverse.contracts.judgment import Judgment

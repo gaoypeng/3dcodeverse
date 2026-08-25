@@ -23,11 +23,10 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from codeverse._compat import UTC
 from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
 from codeverse.contracts.common import Usage
 from codeverse.contracts.judgment import Judgment

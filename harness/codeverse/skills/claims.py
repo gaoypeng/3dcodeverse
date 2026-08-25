@@ -24,10 +24,10 @@ attached to the same session may not carry two different values for one ``key``.
 from __future__ import annotations
 
 import importlib
+import tomllib
 from pathlib import Path
 from typing import Any
 
-from codeverse._compat import tomllib
 from codeverse.skills.model import Skill
 
 CLAIMS_DIR = "_claims"

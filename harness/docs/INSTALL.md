@@ -56,7 +56,7 @@ cd harness/runtime_js && npm ci && npx puppeteer browsers install chrome && cd .
 ### 2.1 Supported versions
 
 The harness is **developed and measured on python 3.13 / node 24**, and
-**supported down to python 3.10 / node 20.6** — both ends are installed from
+**supported down to python 3.12 / node 20.6** — both ends are installed from
 scratch and run in CI on every push (`.github/workflows/ci.yml`), so the floor is
 a tested claim, not an aspiration.
 
@@ -81,7 +81,7 @@ in `scripts/setup.sh` — the test will then tell you which shims to delete.
 
 | what | required? | verified here | how it degrades without it |
 |---|---|---|---|
-| **Python 3.10+** | yes | 3.13.9 (`/home/yipeng/miniconda3/bin/python`) | nothing runs; `requires-python = ">=3.10"` (§2.1) |
+| **Python 3.12+** | yes | 3.13.9 (`/home/yipeng/miniconda3/bin/python`) | nothing runs; `requires-python = ">=3.10"` (§2.1) |
 | **pip + venv** | yes | pip 25.3, `python -m venv` | `scripts/setup.sh` cannot install the package.  A stock Debian/Ubuntu `/usr/bin/python3` ships **without** pip and is PEP 668 `EXTERNALLY-MANAGED`, so `pip install -e harness` refuses even once pip is present: `sudo apt install python3-venv python3-pip`, then use a virtualenv |
 | **git** | yes | 2.53.0 | run workspaces are git repos (one commit per round); `Workspace.create()` and the flywheel trajectory/pair miners fail |
 | **node ≥ 20.6** | yes, except for the `graphics` track | v24.14.0 (npm 11.9.0) | the `threejs` / `scene_threejs` languages disappear **and no object renders happen at all**: `spatial/render.py` renders *every* GLB (Blender-built and CadQuery-built included) with three.js in headless Chrome. Only `graphics` (moderngl) is node-free |
@@ -587,7 +587,7 @@ those by hand (`npm rm -g @google/gemini-cli @anthropic-ai/claude-code @openai/c
 
 | component | version | where |
 |---|---|---|
-| python | 3.13.9 (floor 3.10 — §2.1, verified in a clean 3.10.21 venv) | `/home/yipeng/miniconda3/bin/python` |
+| python | 3.13.9 (floor 3.10 — §2.1, verified in a clean 3.12.14 venv) | `/home/yipeng/miniconda3/bin/python` |
 | pip packages | pydantic 2.13.2 · trimesh 4.12.2 · python-fcl 0.7.0.11 · moderngl 5.12.0 · shapely 2.1.2 · networkx 3.6.1 · manifold3d 3.5.2 · pyarrow 24.0.0 · mcp 2.0.0 · scipy 1.18.0 · yourdfpy 0.0.60 · cadquery 2.8.0 · google-genai 2.10.0 · pytest 9.1.1 · ruff 0.15.20 | editable install of `harness/` |
 | node / npm | v24.14.0 / 11.9.0 (floor 20.6.0 — §2.1, verified against node 20.19.5) | `/home/yipeng/miniconda3/bin/node` |
 | runtime_js deps | three 0.182.0 · puppeteer 24.43.1 · three-mesh-bvh 0.9.14 (100 packages, 97 MB) | `harness/runtime_js/node_modules` |

@@ -18,11 +18,10 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
-
-from codeverse._compat import tomllib
 
 HARNESS = Path(__file__).resolve().parents[2]
 REPO = HARNESS.parent

@@ -23,13 +23,12 @@ import os
 import socket
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from codeverse._compat import UTC
 from codeverse.gallery import code as code_page
 from codeverse.gallery import viewer as viewer_page
 from codeverse.gallery.compare import MAX_COMPARE, export_csv, parse_keys, render_compare

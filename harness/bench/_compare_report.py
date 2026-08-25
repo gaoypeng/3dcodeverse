@@ -80,7 +80,7 @@ class PairRow(BaseModel):
         return (self.prompt_id, self.arm_a, self.arm_b)
 
 
-def load_jsonl(path: Path, model: type[T]) -> list[T]:
+def load_jsonl[T: BaseModel](path: Path, model: type[T]) -> list[T]:
     """Rows in first-seen order, latest row winning per ``natural_key`` (models without
     one keep every row).  Unparseable lines are skipped, not fatal — see ``bench/_jsonl.py``.
 

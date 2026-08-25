@@ -69,7 +69,7 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:  # `python bench/ab_plan.py` from anywhere
     sys.path.insert(0, str(REPO))
 
-from codeverse._compat import UTC  # noqa: E402
+from datetime import UTC  # noqa: E402
 
 
 def _assert_local_codeverse() -> None:

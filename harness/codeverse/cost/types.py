@@ -10,9 +10,10 @@ leaf so any caller (track, judge, texturing, bench script) can use it.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydantic import BaseModel, ConfigDict, Field
 
-from codeverse._compat import StrEnum
 from codeverse.contracts.common import Usage
 
 

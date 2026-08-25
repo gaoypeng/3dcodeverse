@@ -290,9 +290,8 @@ def test_live_tests_are_opt_in_by_default():
     On 2026-08-24 a plain run on a keyed machine hung for the whole timeout because
     the live suite was selected by default and the provider was in a capacity storm.
     """
+    import tomllib  # 3.10 floor: stdlib tomllib is 3.11+
     from pathlib import Path
-
-    from codeverse._compat import tomllib  # 3.10 floor: stdlib tomllib is 3.11+
 
     root = Path(__file__).resolve().parents[2]
     cfg = tomllib.loads((root / "pyproject.toml").read_text())

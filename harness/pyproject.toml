@@ -11,7 +11,7 @@ readme = "README.md"
 # offline suite is green on); developed and measured on 3.13.  CI runs both ends.
 # Nothing in the package uses a 3.11+ stdlib name directly — the three that were used
 # (StrEnum, datetime.UTC, tomllib) live behind codeverse/_compat.py.
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
@@ -81,7 +81,7 @@ codeverse = ["**/__pycache__/*"]   # a wheel must not carry the build host's byt
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"   # == requires-python floor: no 3.11+ idiom may slip in
+target-version = "py312"  # == requires-python floor: no 3.13+ idiom may slip in
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]

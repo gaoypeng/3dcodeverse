@@ -29,13 +29,15 @@ score-vs-complexity corpus study) before changing anything.
    build, let `check_contract`/`check_connectivity` gate it.
 
 ## Supported versions (what other people can run this on)
-python **3.10+** · node **20.6+** · Blender 4.2+ · Linux x86_64.  Developed and
-measured on 3.13 / node 24; CI runs both ends of the python range.  The floor is
-load-bearing, not decorative: `pyproject` `requires-python` + ruff `target-version`,
-`codeverse/_compat.py` (the only place allowed to name `StrEnum` / `datetime.UTC` /
-`tomllib`), `spatial/node.py:NODE_MIN` + `runtime_js/package.json` `engines`, all
-pinned together by `tests/core/test_portability.py`.  Do not use a 3.11+ stdlib name
-or PEP 695 syntax — that test and the 3.10 CI job will fail.  Details: `docs/INSTALL.md` §2.1.
+python **3.12+** · node **20.6+** · Blender 4.2+ · Linux x86_64.  Developed on 3.13 /
+node 24; **CI runs the floor (3.12) and only the floor** — one job that tests exactly what
+`requires-python` claims, so the claim cannot drift untested.  3.12 is the floor because it
+is what Ubuntu 24.04 LTS ships; being >= 3.11 it also needs no compatibility shim
+(`StrEnum`, `datetime.UTC` and `tomllib` are stdlib from 3.11, which is why
+`codeverse/_compat.py` was deleted).  The floor lives in `pyproject` `requires-python` +
+ruff `target-version` + `scripts/setup.sh`, and `spatial/node.py:NODE_MIN` +
+`runtime_js/package.json` `engines` for node, pinned together by
+`tests/core/test_portability.py`.  Details: `docs/INSTALL.md` §2.1.
 
 ## Environment (this machine)
 - Gemini keys: `~/.config/astra3d/gemini_keys.env` (22 keys) → `get_settings().gemini_api_keys`

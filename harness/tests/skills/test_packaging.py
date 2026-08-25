@@ -12,12 +12,11 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
 
 import pytest
-
-from codeverse._compat import tomllib
 
 HARNESS = Path(__file__).resolve().parents[2]
 PROBE = "cv3d-packaging-probe"

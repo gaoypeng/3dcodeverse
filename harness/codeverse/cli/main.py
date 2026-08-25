@@ -344,9 +344,7 @@ def _print_candidates(ws) -> None:
 
 
 def _event_time(ev: dict) -> str:
-    from datetime import datetime
-
-    from codeverse._compat import UTC
+    from datetime import UTC, datetime
 
     try:
         return datetime.fromtimestamp(float(ev["t"]), UTC).strftime("%H:%M:%S")

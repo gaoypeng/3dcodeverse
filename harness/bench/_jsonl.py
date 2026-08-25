@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
-def read_jsonl(path: Path, model: type[T]) -> list[T]:
+def read_jsonl[T: BaseModel](path: Path, model: type[T]) -> list[T]:
     """Parse ``path`` as one ``model`` per line, skipping unparseable lines with a
     warning.  Missing file → ``[]``."""
     if not Path(path).is_file():

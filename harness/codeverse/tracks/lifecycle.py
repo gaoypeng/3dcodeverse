@@ -15,11 +15,10 @@ import platform
 import traceback
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from codeverse._compat import UTC
 from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import GateReport
 from codeverse.contracts.common import Track, Usage

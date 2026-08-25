@@ -53,7 +53,7 @@ def _in_caller_context(snapshot: contextvars.Context, fn: Callable[[int], None],
     fn(i)
 
 
-def fan_out(
+def fan_out[T, R](
     items: Sequence[T] | Iterable[T],
     fn: Callable[[T], R],
     max_workers: int = 8,
@@ -116,7 +116,7 @@ def fan_out(
     return results
 
 
-def split_results(results: Sequence[R | Exception]) -> tuple[list[R], list[Exception]]:
+def split_results[R](results: Sequence[R | Exception]) -> tuple[list[R], list[Exception]]:
     """Separate successes from failures (order preserved within each list)."""
     ok: list[R] = []
     bad: list[Exception] = []

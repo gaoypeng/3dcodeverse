@@ -52,7 +52,7 @@ def backoff_delay(
     return random.uniform(raw / 2.0, raw)
 
 
-def with_retries(
+def with_retries[T](
     fn: Callable[[], T],
     *,
     is_retryable: Callable[[BaseException], bool],
@@ -90,7 +90,7 @@ def with_retries(
     raise last
 
 
-def rotate_with_retries(
+def rotate_with_retries[T](
     pool: KeyPool,
     call: Callable[[str], T],
     *,

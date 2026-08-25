@@ -23,10 +23,9 @@ import json
 import logging
 import os
 import shutil
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
-from codeverse._compat import UTC
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.run import DeliverableFile, RoundRecord, RunDeliverable, RunRecord
 from codeverse.flywheel import _git
