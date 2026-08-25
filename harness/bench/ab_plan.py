@@ -411,6 +411,17 @@ def _parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _stored_options(out: Path) -> AbOptions | None:
+    """The options this run was launched with, from its own ``ab.json``."""
+    p = out / "ab.json"
+    if not p.is_file():
+        return None
+    try:
+        return AbOptions.model_validate(json.loads(p.read_text())["options"])
+    except (OSError, KeyError, ValueError):
+        return None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     ns = _parser().parse_args(argv)
     if ns.cmd == "cell":
@@ -429,6 +440,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     out = Path(ns.out)
     if ns.report_only:
         battery = Battery.load(ns.prompts)
+        # the RUN's own options, not this invocation's flags.  `--report-only` is normally
+        # typed with no --variant-env, and reporting the arms as identical would relabel a
+        # real A/B as an A/A in the file everyone reads afterwards.
+        opts = _stored_options(out) or opts
         v = write_report(out, load_jsonl(out / "results.jsonl", CellResult), [(p.id, p.tier) for p in battery.prompts],
                          title=f"{battery.name} / {out.name}", variant_env={} if opts.aa else opts.variant_env,
                          generator=opts.generator, judge=opts.judge, rounds=opts.rounds, aa=opts.aa)
