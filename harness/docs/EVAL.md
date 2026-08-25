@@ -262,6 +262,41 @@ of magnitude too tight for what it is applied to.  Consequences:
   or k generations per (prompt, arm) averaged before differencing, cuts the paired sd by
   √k.  Both cost the same dollars as more prompts and buy more per dollar here.
 
+### 8.1 Where the variance actually is: the planner, not the judge
+
+The 8-prompt A/A (`bench/out/plan_loop/C0`, 2026-08-25) put paired sd at **0.202**, SE 0.082,
+2 SE band ±0.165, and printed its own conclusion: *~408 paired prompts to resolve +0.02*.
+Opening the two arms of its worst pair says why, and it is not the judge:
+
+| `mech_hard_pitcher_pump` | planned parts | rounds | status | built parts | triangles | score |
+|---|---|---|---|---|---|---|
+| control | **1** — `WoodenPlatform` | 1 | passed | 3 | 4,796 | **0.750** |
+| variant | **10** — body, spout, domed cap, clevis, handle, linkage, piston rod … | 2 | budget | 13 | 61,340 | 0.600 |
+
+Identical arms, identical settings.  The planner returned a one-part plan for a pitcher pump
+in one arm and a proper ten-part plan in the other, and the 12.8× difference in delivered
+geometry is what the judge then scored.  **More judge samples cannot shrink this**; the two
+arms were not two measurements of one artifact, they were two different artifacts.
+
+Two consequences, and the first is worth more than any extra prompt:
+
+* **Pin the plan when the change is generation-side.**  Plan once per prompt, write that
+  `plan.json` into BOTH arms, and let the arms differ only in what is under test.  That
+  removes the dominant variance term outright rather than averaging it down, and costs one
+  planner call *less* per pair instead of k times more.  It is only valid when the switch
+  cannot affect planning — for a plan-side change (a budget, a fit check, a brief) the plan
+  must stay free and the sd above is the price.
+* **A degenerate plan is not a rare curiosity.**  7 of 122 recorded static-object runs shipped
+  a plan with ≤ 1 part, all after the plan-budget gate landed.  The gate is not broken —
+  `plan_quality_complaint` fires on exactly that plan ("Only 1 parts for a request that needs
+  about 10") and emits a `plan.thin` event — but after `MAX_QUALITY_REASKS` the planner accepts
+  whatever came back, and **nothing downstream is told**.  The pitcher-pump run above carries
+  `status: passed`, `score: 0.75`, and no record of the complaint.  The harness formed the
+  verdict "this plan is not worth building" and then discarded it; a known-thin plan should
+  reach the record and the rubric the way `missing_must_acceptance` does, so it cannot quietly
+  out-score a plan that did the work.  (Not a licence to fail the run — that was C1, reverted
+  the same day for turning recoverable planning slips into total losses.)
+
 ## 9. Reporting checklist
 
 battery name + git sha of prompts; judge id, rubric name + hash, `n_samples`; per-arm
