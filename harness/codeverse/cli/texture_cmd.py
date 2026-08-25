@@ -52,7 +52,7 @@ def pass_(
         rep = texture_pass(ws, spec, plan, model_id=model or spec.backends.planner,
                            image_model=_image_model(image_model), judge=judge,
                            judge_model_id=judge_model, size=size)
-    _print_report(rep)
+    _print_report(rep, ws)
 
 
 @texture_app.command("show")
@@ -64,16 +64,18 @@ def show(slug: str, runs_dir: RunsDirOpt = None) -> None:
         rep = load_report(ws)
     except FileNotFoundError as e:
         raise C.CliError(str(e)) from e
-    _print_report(rep)
+    _print_report(rep, ws)
 
 
-def _print_report(rep) -> None:
+def _print_report(rep, ws) -> None:
     plan_table = C.lazy("codeverse.texturing.plan", "plan_table")
     console.print(plan_table(rep.plan))
     rows = {tid: f"{Path(a.path).name}  seam={a.seam_score:.3f} (raw {a.seam_score_raw:.3f}) cached={a.cached}"
             + (f"  ERROR {a.error}" if a.error else "") for tid, a in rep.textures.textures.items()}
     console.print(kv_table("textures", rows or {"-": "none"}))
     s = rep.summary()
+    if s.get("glb_out"):
+        s["glb_out"] = str(ws.rebase(str(s["glb_out"])))  # stored absolute; see print_evidence
     if rep.gate is not None and rep.gate.overall_before is not None:
         s.update({"before": f"{rep.gate.overall_before:.3f}", "after": f"{rep.gate.overall_after:.3f}",
                   "materials": f"{rep.gate.materials_before:.3f} → {rep.gate.materials_after:.3f}"})

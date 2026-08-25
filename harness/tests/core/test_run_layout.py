@@ -195,3 +195,46 @@ def test_a_stale_index_lock_names_the_remedy(tmp_path):
     # still a CalledProcessError, so existing handlers keep working, and stderr is kept
     assert isinstance(ei.value, subprocess.CalledProcessError)
     assert "index.lock" in (ei.value.stderr or "")
+
+
+def test_show_itself_prints_the_relocated_sheet_not_the_stored_one(tmp_path):
+    """Sign-off follow-up to SMOKE2.  The reported command was `3dcv show`, but the fix
+    landed in ``cli/_fmt.py`` (which backs `3dcv status`) — ``cli/layout_cmd.py``'s
+    print_evidence still assigned ``rows["contact sheet"] = rnd.renders.contact_sheet``,
+    the raw stored ABSOLUTE path, so `3dcv show` on a moved run still printed a sheet
+    under the original root while ``object.glb`` beside it resolved correctly.  Verified
+    on the real e2e_chair_blender run before this line existed."""
+    import shutil
+
+    from codeverse.cli._fmt import console
+    from codeverse.cli.layout_cmd import print_evidence
+    from codeverse.contracts.artifacts import RenderSet
+    from codeverse.contracts.common import Backends, Language, Track
+    from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
+    from codeverse.contracts.spec import Spec
+    from codeverse.workspace import Workspace
+
+    a = tmp_path / "A" / "run1"
+    (a / "artifacts" / "renders" / "r01").mkdir(parents=True)
+    sheet_a = a / "artifacts" / "renders" / "r01" / "sheet.png"
+    sheet_a.write_bytes(b"PNG")
+
+    spec = Spec(id="run1", track=Track.STATIC_OBJECT, language=Language.BLENDER,
+                prompt="a wooden chair", backends=Backends(generator="api-agent:gemini:x"))
+    rec = RunRecord(spec=spec, workspace=str(a), status=RunStatus.PASSED, best_round=0,
+                    rounds=[RoundRecord(index=0, kind="generate",
+                                        renders=RenderSet(views=[], contact_sheet=str(sheet_a)))])
+
+    b = tmp_path / "B" / "run1"
+    b.parent.mkdir(parents=True)
+    shutil.move(str(a), str(b))
+
+    old_width, console.width = console.width, 400
+    try:
+        with console.capture() as cap:
+            print_evidence(Workspace(b), rec)
+    finally:
+        console.width = old_width
+    out = cap.get()
+    assert str(b / "artifacts" / "renders" / "r01" / "sheet.png") in out
+    assert str(a) not in out, "`3dcv show` must not print a path under the old root"

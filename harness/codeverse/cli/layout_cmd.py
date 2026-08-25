@@ -125,7 +125,12 @@ def print_evidence(ws: Workspace, record: RunRecord) -> None:
         rows["acceptance"] = f"{sum(1 for v in acc.values() if v)}/{len(acc)} met" if acc else "-"
         rows["judge summary"] = j.summary[:300]
     if rnd is not None and rnd.renders is not None and rnd.renders.contact_sheet:
-        rows["contact sheet"] = rnd.renders.contact_sheet
+        # rebase, never print the stored string: record.json holds the ABSOLUTE path the
+        # renderer wrote, so an archived / rsynced / moved run made `3dcv show` print a
+        # sheet under the ORIGINAL root — a path that is not there, next to an object.glb
+        # that resolved correctly (it is recomputed from the workspace), which is what
+        # made the breakage silent and partial.  ``_fmt`` does the same for `3dcv status`.
+        rows["contact sheet"] = ws.rebase(rnd.renders.contact_sheet)
     if rnd is not None and rnd.measurement is not None:
         mm = rnd.measurement
         rows["measured"] = (f"extents {tuple(round(v, 3) for v in mm.extents)} m · {mm.tri_count} tris · "
