@@ -10,6 +10,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from codeverse.contracts.run import RunRecord
+from codeverse.workspace import Workspace
 
 console = Console(emoji=False)
 err_console = Console(stderr=True, style="bold red", emoji=False)
@@ -65,7 +66,10 @@ def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None
         lines.append(f"workspace: {ws_root}")
         best = next((r for r in record.rounds if r.index == record.best_round), None)
         if best is not None and best.renders is not None and best.renders.contact_sheet:
-            lines.append(f"sheet: {best.renders.contact_sheet}")
+            # rebase, never print the stored string: record.json holds the ABSOLUTE path
+            # of the host that produced the run, so a moved/archived run printed a sheet
+            # that does not exist while the real one sat under this root.
+            lines.append(f"sheet: {Workspace(ws_root).rebase(best.renders.contact_sheet)}")
         glb = ws_root / "artifacts" / "object.glb"
         if glb.is_file():
             lines.append(f"glb: {glb}")

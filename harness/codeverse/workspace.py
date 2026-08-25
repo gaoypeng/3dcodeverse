@@ -61,6 +61,37 @@ class Workspace:
         self.root = Path(root).resolve()
 
     # ----------------------------------------------------------------- paths
+    def rebase(self, stored: str | Path) -> Path:
+        """A path out of ``record.json`` / ``run_state.json``, resolved against THIS
+        workspace wherever it was written.
+
+        The records store ABSOLUTE host paths (29 per run: rounds[].renders[].path,
+        contact_sheet, build.glb_path, build.extra_paths, census exports, and
+        run_state.stages[].result_path), so archiving, moving or rsyncing a run silently
+        broke every consumer that trusted them — `3dcv show` printed a contact sheet at
+        the old location that did not exist, while the real one sat under the new root.
+        object.glb kept working because it is recomputed from the workspace, which made
+        the breakage partial and therefore silent.
+
+        Relative paths join the root (what the old ``_judge.resolve_paths`` did, and the
+        only case it handled).  An absolute path that still exists is returned as-is.  An
+        absolute path that does NOT exist is re-rooted by finding its longest trailing
+        segment that does exist under this root — the run was moved, so the tail is
+        intact even though the prefix is not.  Nothing matches: the original is returned
+        so the caller reports a real missing file rather than a silently wrong one.
+        """
+        p = Path(stored)
+        if not p.is_absolute():
+            return self.root / p
+        if p.exists():
+            return p
+        parts = p.parts
+        for i in range(1, len(parts)):
+            candidate = self.root.joinpath(*parts[i:])
+            if candidate.exists():
+                return candidate
+        return p
+
     @property
     def src(self) -> Path:
         return self.root / "src"

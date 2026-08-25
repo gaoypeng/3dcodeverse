@@ -14,7 +14,6 @@ the spec carries reference images, ``VlmJudge`` otherwise.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from codeverse.cli import _common as C
@@ -95,19 +94,18 @@ def clay_geometry_views(ws: Workspace, index: int) -> RenderSet | None:
 
 
 def resolve_paths(ws: Workspace, rs: RenderSet | None) -> RenderSet | None:
-    """Round records may store workspace-relative render paths; make them absolute."""
+    """Render paths out of a round record, resolved against THIS workspace.
+
+    Delegates to ``Workspace.rebase``: this used to rebase only paths for which
+    ``is_absolute()`` was False, which made it a no-op against every record the harness
+    itself writes (they are all absolute) — so a moved or archived run kept pointing at
+    the host it was produced on.
+    """
     if rs is None:
         return None
-    fixed = []
-    for v in rs.views:
-        p = Path(v.path)
-        fixed.append(v if p.is_absolute() else v.model_copy(update={"path": str(ws.root / p)}))
-    sheet = rs.contact_sheet
-    if sheet and not Path(sheet).is_absolute():
-        sheet = str(ws.root / sheet)
-    out_dir = rs.out_dir
-    if out_dir and not Path(out_dir).is_absolute():
-        out_dir = str(ws.root / out_dir)
+    fixed = [v.model_copy(update={"path": str(ws.rebase(v.path))}) for v in rs.views]
+    sheet = str(ws.rebase(rs.contact_sheet)) if rs.contact_sheet else rs.contact_sheet
+    out_dir = str(ws.rebase(rs.out_dir)) if rs.out_dir else rs.out_dir
     return rs.model_copy(update={"views": fixed, "contact_sheet": sheet, "out_dir": out_dir})
 
 

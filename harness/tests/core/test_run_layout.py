@@ -79,3 +79,87 @@ def test_record_blocks_are_additive(tmp_path: Path):
     again = RunRecord.model_validate_json(rec.model_dump_json())
     assert again.deliverable is not None and again.deliverable.best_round == 1
     assert again.telemetry is not None and again.telemetry.schema_version == 1
+
+
+# --------------------------------------------------------------------------- relocation
+def test_a_relocated_run_still_resolves_its_stored_paths(tmp_path):
+    """SMOKE2: record.json stores ABSOLUTE host paths (29 per run — rounds[].renders[]
+    .path, contact_sheet, build.glb_path, build.extra_paths, census exports — plus
+    run_state.stages[].result_path), so archiving, moving or rsyncing a run silently
+    broke every consumer that trusted them.  `3dcv show` printed a contact sheet at the
+    OLD location, which did not exist, while the real one sat under the new root;
+    object.glb kept resolving because it is recomputed from the workspace, which made
+    the breakage partial and therefore silent.
+
+    The intended repair, _judge.resolve_paths, only rebased paths for which
+    ``Path(p).is_absolute()`` was False — a no-op against every record the harness itself
+    writes — and _fmt, which is what show/status actually use, never called it at all."""
+    import shutil
+
+    from codeverse.workspace import Workspace
+
+    a = tmp_path / "A" / "run1"
+    (a / "artifacts" / "renders" / "r01").mkdir(parents=True)
+    sheet_a = a / "artifacts" / "renders" / "r01" / "sheet.png"
+    sheet_a.write_bytes(b"PNG")
+    stored = str(sheet_a)  # what the writer puts in record.json
+
+    b = tmp_path / "B" / "run1"
+    b.parent.mkdir(parents=True)
+    shutil.move(str(a), str(b))
+
+    ws = Workspace(b)
+    got = ws.rebase(stored)
+    assert got.exists(), f"a moved run must still find its own sheet, got {got}"
+    assert got == b / "artifacts" / "renders" / "r01" / "sheet.png"
+    assert Path(stored) != got
+
+    # an absolute path that IS still valid is left alone
+    assert ws.rebase(str(got)) == got
+    # a relative path joins the root (the only case the old code handled)
+    assert ws.rebase("artifacts/renders/r01/sheet.png") == got
+    # nothing matches -> the original comes back, so the caller reports a real missing
+    # file instead of a silently wrong one
+    missing = tmp_path / "elsewhere" / "nope.png"
+    assert ws.rebase(str(missing)) == missing
+
+
+def test_show_prints_the_sheet_that_exists_after_a_move(tmp_path):
+    """The user-visible half: `3dcv show` must not print a path that is not there."""
+    import shutil
+
+    from codeverse.cli._fmt import console, print_record_summary
+    from codeverse.contracts.artifacts import RenderSet
+    from codeverse.contracts.common import Backends, Language, Track
+    from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
+    from codeverse.contracts.spec import Spec
+    from codeverse.workspace import Workspace
+
+    a = tmp_path / "A" / "run1"
+    (a / "artifacts" / "renders" / "r01").mkdir(parents=True)
+    sheet_a = a / "artifacts" / "renders" / "r01" / "sheet.png"
+    sheet_a.write_bytes(b"PNG")
+
+    spec = Spec(id="run1", track=Track.STATIC_OBJECT, language=Language.BLENDER,
+                prompt="a wooden chair", backends=Backends(generator="api-agent:gemini:x"))
+    rec = RunRecord(spec=spec, workspace=str(a), status=RunStatus.PASSED, best_round=0,
+                    rounds=[RoundRecord(index=0, kind="generate",
+                                        renders=RenderSet(views=[], contact_sheet=str(sheet_a)))])
+
+    b = tmp_path / "B" / "run1"
+    b.parent.mkdir(parents=True)
+    shutil.move(str(a), str(b))
+
+    # rich's Console holds its own stream, so capsys does not see it; widen it so the
+    # panel does not wrap the path we are asserting on
+    old_width, console.width = console.width, 400
+    try:
+        with console.capture() as cap:
+            print_record_summary(rec, Workspace(b).root)
+    finally:
+        console.width = old_width
+    printed = cap.get()
+    line = next(ln for ln in printed.splitlines() if "sheet:" in ln)
+    shown = line.split("sheet:", 1)[1].strip().rstrip("│ ").strip()
+    assert shown.endswith("sheet.png"), f"the panel wrapped the path: {line!r}"
+    assert Path(shown).exists(), f"show printed a sheet that is not there: {shown!r}"
