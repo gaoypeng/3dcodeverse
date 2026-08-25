@@ -40,7 +40,29 @@ own skill tool — fixed, and `3dcv doctor --skills` now checks it), and gemini-
 | V-5 | The live discovery smoke had never run and could not: it looked for a binary named after the agent kind, but `gemini-cli` runs `gemini` and `claude-code` runs `claude`. | `tests/skills/test_live_discovery.py` |
 | V-6 | `cv3d-cadquery-forms` still quoted the contract's old unbounded "≥ 2 mm" weld, and the cadquery worked example welded at 3 mm. | `cv3d-cadquery-forms/SKILL.md`, `prompts/cadquery/contract.md` |
 | V-7 | A body naming one of our constants was not required to pin it; `cv3d-glsl-craft` quoted `DUPLICATE_DIFF` at 1e-4 with no claim row behind it. | `cv3d-glsl-craft`, `tests/skills/test_freshness.py` |
-| **V-8** | **The read probe was measuring git, not the agent.** See below — the single most consequential finding of the pass. | `skills/telemetry.py`, `skills/materialize.py` |
+| **V-8** | **The read probe was measuring git, not the agent.** See below. | `skills/telemetry.py`, `skills/materialize.py` |
+| **V-9** | **An A/B launched from a worktree ran the MAIN tree's harness in both arms**, with no symptom at all. See below. | `bench/ab_plan.py`, `bench/compare_backends.py` |
+
+### V-9: the A/B rig was comparing a tree with itself
+
+`ab_plan.spawn_cell` starts each child as a **file path**, so `sys.path[0]` is `bench/` and
+the cwd is not on the path. `from codeverse._compat import UTC` sat **above** the script's
+own `sys.path` bootstrap, so that import resolved through the editable install
+(`__editable__.3dcodeverse-0.1.0.pth` pins a meta-path finder to `/home/yipeng/3dcodeverse`)
+— and every cell of every arm ran the **main tree**.
+
+The failure has no symptom. Both arms run the same foreign code, the switch under test is
+inert, the cells pass, and the report prints a verdict. It voided the plan-loop wave's first
+A/A (they found it, named the directory `invalid_attempt1_maintree_import`, and worked
+around it with `PYTHONPATH` in a launch script) and then voided this wave's first A/B: the
+variant arm ran a tree with no `codeverse/skills` package at all, materialised nothing,
+emitted no `skills.attached`, and would have reported "no effect".
+
+Three fixes, because a launch-script workaround protects whoever remembers it: the
+bootstrap moves above the first `codeverse` import in both bench scripts that have this
+shape; `ab_plan` refuses to start when `import codeverse` did not resolve inside its own
+tree, and says how to fix it; and `tests/compare_bench/test_worktree_import.py` asserts the
+ordering for every bench script that bootstraps `sys.path`.
 
 ### V-8: the read probe was measuring git
 
