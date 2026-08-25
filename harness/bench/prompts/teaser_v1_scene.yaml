@@ -1,0 +1,105 @@
+# Teaser showcase battery, split one file per track because a `Battery` binds exactly
+# one track + language (bench/run_bench.py).  Cross-language prompts inside a track use
+# the per-prompt `language:` override.  These four files ARE the source; edit them here.
+# Regenerate: python /tmp/claude-1000/-home-yipeng/256e9f01-5a86-4d6d-9b4b-3d662f71921d/scratchpad/teaser/make_batteries.py
+# Heroes (run with codex:gpt-5.6-sol, everything else api-agent:gemini:gemini-3.7-flash): tsr_scn_temple_night
+name: teaser_v1_scene
+track: scene
+language: scene_threejs
+description: 'teaser_v1 — scene slice (3 prompts).  Showcase battery: picked for the picture; every prompt carries its own `why`
+  for the selection evidence and the per-prompt `why`.'
+prompts:
+- id: tsr_scn_temple_night
+  tier: hard
+  category: multi_language
+  tags:
+  - hero
+  - multi_language
+  - blender_glb
+  - glsl
+  - motion
+  prompt: 'a small temple courtyard on a koi pond at night, lit by stone lanterns and paper lamps.  TWO
+    HERO PROPS ARE AUTHORED IN BLENDER WITH bpy AND COMPILED TO GLB (asset kind blender_glb), then loaded
+    into the three.js scene: (1) StoneLantern — a carved granite lantern about 1.7 m tall with a chamfered
+    cap, a pierced fire box, a lotus-carved plinth and moss-worn edges; (2) BronzeCenser — a three-legged
+    bronze incense burner about 0.9 m tall with a domed pierced lid, two ring handles and a relief band.  Everything
+    else is procedural three.js: maple and pine trees, the arched wooden bridge, stone paving, railings
+    and the temple hall.  A custom GLSL water material gives the pond ripples, lantern reflections and
+    koi moving under the surface; incense smoke and falling maple leaves drift through the frame; the
+    camera dollies across the bridge toward the hall.
+
+    '
+  must_have:
+  - '5 zones: koi pond, arched bridge, lantern path, incense terrace, temple hall'
+  - carved stone lanterns about 1.7 m tall at three stations along the path, each with a lit fire box
+  - bronze incense burner about 0.9 m tall on the terrace, catching a warm specular highlight
+  - at least 8 paper lamps strung between the hall eaves and the trees
+  - at least 3 maple trees with red foliage and at least 4 pines, in 3 silhouettes with size jitter
+  - pond water with animated ripples, lantern reflections on the surface and koi shapes moving below it
+  - temple hall with a tiled sweeping roof behind the terrace
+  - night mood with lantern glow as the dominant warm key against a deep blue sky, no black or blown-out
+    frames (mean luminance roughly 0.15-0.40)
+  - incense smoke rising from the burner and maple leaves falling across the frame
+  - camera dollies across the bridge toward the hall, visibly advancing between the sampled times
+  - camera never intersects the bridge railings, trees or lanterns
+- id: tsr_scn_boat_workshop
+  tier: hard
+  category: multi_language
+  tags:
+  - multi_language
+  - blender_glb
+  - glsl
+  - motion
+  - interior
+  prompt: 'a boatbuilder''s workshop at dusk with low sun raking through a dusty window wall. TWO HERO
+    PROPS ARE AUTHORED IN BLENDER WITH bpy AND COMPILED TO GLB (asset kind blender_glb), then loaded into
+    the three.js scene: (1) ClinkerSkiff — a lapstrake wooden skiff about 4 m long, upturned on trestles,
+    with overlapping planks, visible ribs and a bevelled stem; (2) PotbellyStove — a cast-iron potbelly
+    stove about 1.1 m tall with a bellied body, a bevelled door with a latch, claw feet and a flue collar.
+    Everything else is procedural three.js: workbenches, wall tool racks, timber stacks, sawhorses, clamps,
+    buckets and the roof trusses.  A GLSL shader makes the window sunbeams volumetric; sawdust motes drift
+    in the light, the stove glow flickers and a hanging work lamp sways; the camera cranes up from the
+    floor along the hull.
+
+    '
+  must_have:
+  - '4 zones: window wall, skiff on trestles, workbench row, stove corner'
+  - lapstrake wooden skiff about 4 m long resting on two trestles, the overlapping planks readable in
+    the render
+  - cast-iron potbelly stove about 1.1 m tall with a flue running up to the roof
+  - at least 3 workbenches carrying at least 20 small tools and props between them
+  - wall tool racks holding at least 12 hand tools
+  - at least 2 timber stacks and 4 sawhorses or clamp stands
+  - visible volumetric light shafts from the window falling across the hull
+  - 'dusk interior mood: warm low sun beams against cool shadow, no black or blown-out frames (mean luminance
+    roughly 0.20-0.50)'
+  - sawdust motes drifting inside the light shafts and a flickering warm glow at the stove door
+  - hanging work lamp visibly swaying between the sampled times
+  - camera cranes upward along the hull and never clips the hull, trestles or benches
+- id: tsr_scn_neon_alley
+  tier: hard
+  category: urban
+  tags:
+  - glsl
+  - motion
+  - night
+  - reflections
+  prompt: 'a rain-soaked neon alley at night between tall buildings: stacked kanji and script signs in
+    hot pink and cyan, a wet asphalt ground shader mirroring every sign, steam venting from a grate, a
+    flickering holographic billboard, fire escapes and hanging cables, with rain falling through the light
+    cones
+
+    '
+  must_have:
+  - '4 zones: alley mouth, sign wall, steam grate, dead end with the billboard'
+  - narrow alley between two building faces at least 12 m tall
+  - at least 10 emissive neon signs in at least 3 hues, stacked up both walls
+  - wet ground with a custom shader reflecting the signs as vertical streaks
+  - steam venting continuously from at least 2 grates
+  - holographic billboard at the dead end that flickers in brightness
+  - fire escape stairs on at least one wall and cables strung across the alley
+  - at least 20 small props (crates, bins, pipes, puddles, bottles) dressing the alley floor
+  - night mood with the neon as the only key light, no black or blown-out frames (mean luminance roughly
+    0.15-0.40)
+  - rain falling visibly through the sign light between the sampled times
+  - camera dollies down the alley toward the billboard without clipping the walls, cables or props

@@ -1,0 +1,202 @@
+# Teaser showcase battery, split one file per track because a `Battery` binds exactly
+# one track + language (bench/run_bench.py).  Cross-language prompts inside a track use
+# the per-prompt `language:` override.  These four files ARE the source; edit them here.
+# Regenerate: python /tmp/claude-1000/-home-yipeng/256e9f01-5a86-4d6d-9b4b-3d662f71921d/scratchpad/teaser/make_batteries.py
+# Heroes (run with codex:gpt-5.6-sol, everything else api-agent:gemini:gemini-3.7-flash): tsr_obj_penny_farthing, tsr_cad_radial_engine
+name: teaser_v1_static
+track: static_object
+language: blender
+description: 'teaser_v1 — static_object slice (7 prompts).  Showcase battery: picked for the picture,
+  every prompt carries its own `why` for the selection evidence.'
+prompts:
+- id: tsr_obj_penny_farthing
+  tier: hard
+  category: vehicles
+  tags:
+  - hero
+  - texture
+  - axis:thin_features
+  - material:iron+brass+leather
+  prompt: 'a Victorian penny-farthing bicycle: a very tall spoked front wheel, a small rear wheel, a curved
+    backbone frame, a sprung leather saddle above the front hub, pedals on the front hub, curved handlebars
+    and polished brass fittings
+
+    '
+  must_have:
+  - front wheel about 1.30 m in diameter with at least 32 straight spokes running hub to rim
+  - rear wheel about 0.40 m in diameter with at least 16 spokes
+  - curved backbone tube sweeping from the front hub head down to the rear fork
+  - leather saddle about 0.26 m long on a sprung post above the front wheel
+  - two cranks with pedals on the front hub, 180 degrees apart
+  - handlebars about 0.55 m wide with two grips
+  - solid tyre band on both rims
+  - brass or nickel fittings at the hubs, the head and the saddle post, distinct in colour from the black
+    frame
+  - both wheels touch the ground plane
+  - no spoke, fork or backbone tube intersects a wheel rim
+  dimensions_m:
+    width: 0.6
+    depth: 1.65
+    height: 1.55
+- id: tsr_obj_lighthouse
+  tier: medium
+  category: buildings
+  tags:
+  - texture
+  - axis:arch_detail
+  - material:stone+glass+copper
+  prompt: 'a coastal lighthouse on a rock plinth: a tapered stone tower with painted bands, a corbelled
+    gallery with a railing, a glazed lantern room with a fresnel lens and a domed copper roof with a weathervane,
+    and a keeper''s door at the base
+
+    '
+  must_have:
+  - tapered tower about 14 m tall, wider at the base than under the gallery
+  - at least 3 painted horizontal bands around the tower
+  - corbelled gallery ring projecting at least 0.5 m beyond the tower under the lantern room
+  - gallery railing with at least 16 balusters
+  - lantern room with at least 8 glazed panes between vertical astragals
+  - fresnel lens drum visible inside the lantern room
+  - domed roof with a finial or weathervane on top
+  - keeper's door with a frame and at least 3 small windows up the tower
+  - rock plinth the tower stands on, tower base fully seated on it
+  - stone tower, glass lantern panes and a copper dome as three distinct materials
+  dimensions_m:
+    width: 6.0
+    depth: 6.0
+    height: 18.0
+- id: tsr_obj_gramophone
+  tier: hard
+  category: props
+  tags:
+  - texture
+  - axis:curved_organic
+  - material:brass+oak+bakelite
+  prompt: 'an antique wind-up gramophone: a big flared brass horn on an elbow, an oak case with a felted
+    turntable and a shellac record, a curved tonearm with a sound box, a crank handle on the side and
+    turned feet
+
+    '
+  must_have:
+  - flared horn whose bell is about 0.55 m across, opening from a throat under 0.06 m along a smooth curved
+    flare
+  - elbow joining the horn throat to the sound box
+  - oak case about 0.40 x 0.40 x 0.22 m with a moulded lip
+  - turntable platter about 0.30 m in diameter on the case top
+  - record disc lying flat on the platter with a centre label
+  - curved tonearm from the case to the sound box, with the needle over the record
+  - crank handle on the side of the case
+  - four turned feet, all touching the ground plane
+  - polished brass horn against dark oak and a black record — three clearly different materials
+  - the horn does not intersect the case or the platter
+  dimensions_m:
+    width: 0.6
+    depth: 0.55
+    height: 0.75
+- id: tsr_cad_radial_engine
+  tier: hard
+  category: mechanisms
+  tags:
+  - hero
+  - texture
+  - axis:decomposition
+  - material:aluminium+steel+brass
+  language: cadquery
+  prompt: 'a five-cylinder radial aero engine: a round crankcase with a bolted front cover, five finned
+    cylinder barrels in a star, domed heads with rocker covers, a pushrod tube per cylinder, an exhaust
+    stub on each head and a splined propeller hub
+
+    '
+  must_have:
+  - five cylinder barrels evenly spaced 72 degrees apart around the crankcase axis
+  - at least 8 cooling fins on every barrel, all the same pitch
+  - domed head with a rocker cover on each cylinder
+  - one pushrod tube per cylinder running from the crankcase up to its head
+  - circular crankcase about 0.36 m in diameter
+  - front cover with at least 8 bolt heads on a circular pattern
+  - propeller hub on the crankcase axis with at least 6 bolt holes
+  - an exhaust stub on each head, all pointing the same way around the ring
+  - pale aluminium barrels, a darker steel crankcase and brass pushrod ends as distinct part colours
+  - no barrel, pushrod or exhaust stub intersects a neighbour
+  dimensions_m:
+    width: 0.9
+    depth: 0.42
+    height: 0.9
+- id: tsr_cad_portafilter
+  tier: medium
+  category: tools
+  tags:
+  - texture
+  - material:steel+walnut
+  - product_shot
+  language: cadquery
+  prompt: 'a double-spout espresso portafilter: a polished stainless basket holder with three locking
+    lugs, a knurled collar, two tapered spouts and a turned walnut handle on a chrome ferrule
+
+    '
+  must_have:
+  - cylindrical basket body about 0.075 m outside diameter and 0.035 m deep
+  - filter basket inside the body with a visible rim below the body lip
+  - three locking lugs evenly spaced around the body
+  - knurled or ribbed collar between the body and the ferrule
+  - two tapered spouts under the body, splayed at least 20 degrees apart
+  - turned walnut handle about 0.12 m long, thicker in the middle, on the body axis
+  - chrome ferrule joining handle to body
+  - steel body and chrome ferrule against a dark wood handle, three distinct part colours
+  - handle, ferrule and body are coaxial and touch without gaps
+  dimensions_m:
+    width: 0.09
+    depth: 0.24
+    height: 0.09
+- id: tsr_tjs_arcade_cabinet
+  tier: medium
+  category: props
+  tags:
+  - emissive
+  - material:laminate+glass+plastic
+  language: threejs
+  prompt: 'an upright 1980s arcade cabinet: a sloped control panel with a ball-top joystick and six buttons,
+    a recessed CRT screen behind a bezel, a glowing backlit marquee, a speaker grille, side art panels,
+    a coin door and T-molding trim
+
+    '
+  must_have:
+  - cabinet about 1.75 m tall, 0.70 m wide, 0.85 m deep, standing on the ground plane
+  - sloped control panel with one ball-top joystick and at least 6 round buttons in two rows
+  - screen recessed behind a bezel, the screen surface emissive so it reads as switched on
+  - backlit marquee across the top, emissive and brighter than the cabinet body
+  - speaker grille with at least 12 holes above the screen
+  - coin door with two coin slots and a coin return cup
+  - T-molding trim strip running along both side edges
+  - side art panel in a saturated colour distinct from the black cabinet body
+  - no button or joystick sinks below the control panel surface
+  dimensions_m:
+    width: 0.7
+    depth: 0.85
+    height: 1.75
+- id: tsr_tjs_deco_chandelier
+  tier: hard
+  category: lighting
+  tags:
+  - instancing
+  - material:brass+glass
+  - radial_symmetry
+  language: threejs
+  prompt: 'an art-deco brass chandelier: a central stem on a ceiling canopy and chain, two tiers of curved
+    arms carrying frosted candle shades, stepped faceted glass drops hanging in rings from each tier and
+    a fluted glass bowl at the crown
+
+    '
+  must_have:
+  - central brass stem with a ceiling canopy and a chain of at least 5 links above it
+  - upper tier of 6 curved arms and a lower tier of 8 curved arms, each tier evenly spaced
+  - a frosted candle shade at the end of every arm
+  - at least 40 faceted glass drops hanging in even rings below the two tiers
+  - fluted glass bowl at the crown under the stem
+  - overall diameter about 0.90 m and overall height about 1.10 m
+  - warm brass arms and stem against clear or frosted glass drops and shades
+  - every drop hangs free below its tier and no drop intersects an arm
+  dimensions_m:
+    width: 0.9
+    depth: 0.9
+    height: 1.1

@@ -1,0 +1,64 @@
+# Teaser showcase battery, split one file per track because a `Battery` binds exactly
+# one track + language (bench/run_bench.py).  Cross-language prompts inside a track use
+# the per-prompt `language:` override.  These four files ARE the source; edit them here.
+# Regenerate: python /tmp/claude-1000/-home-yipeng/256e9f01-5a86-4d6d-9b4b-3d662f71921d/scratchpad/teaser/make_batteries.py
+# Heroes (run with codex:gpt-5.6-sol, everything else api-agent:gemini:gemini-3.7-flash): (none)
+name: teaser_v1_articulated
+track: articulated_object
+language: urdf_blender
+description: 'teaser_v1 — articulated_object slice (2 prompts).  Showcase battery: picked for the picture,
+  every prompt carries its own `why` for the selection evidence.'
+prompts:
+- id: tsr_art_grandfather_clock
+  tier: medium
+  category: furniture
+  tags:
+  - texture
+  - motion
+  - material:walnut+brass+glass
+  prompt: 'a longcase grandfather clock with working articulation: a walnut case with a broken-arch bonnet
+    and turned finials, a brass dial with hour and minute hands, a glazed trunk door on hinges, a pendulum
+    with a brass bob on a pivot and two hanging weights
+
+    '
+  must_have:
+  - case about 2.0 m tall, 0.50 m wide, 0.28 m deep, standing on the ground plane
+  - hinged trunk door with a glass pane, a revolute joint on one side swinging at least 90 degrees open
+  - pendulum on a revolute pivot at the top of the trunk with a brass bob about 0.12 m across, swinging
+    at least 15 degrees each way
+  - hour hand and minute hand on separate revolute joints on the dial axis
+  - brass dial face about 0.28 m across in the bonnet with a chapter ring
+  - two cylindrical weights hanging inside the trunk
+  - broken-arch bonnet with at least two turned finials
+  - walnut case, brass dial and a clear glass door pane as three distinct materials
+  - the door and the pendulum clear the case through their whole joint range
+  dimensions_m:
+    width: 0.5
+    depth: 0.28
+    height: 2.0
+- id: tsr_art_roll_cabinet
+  tier: medium
+  category: tools
+  tags:
+  - texture
+  - motion
+  - material:painted_steel+chrome
+  prompt: 'a red steel rolling tool chest: seven drawers of three different heights on slides, full-width
+    chrome pulls, a hinged top lid over a shallow tray, a push handle on one end and four castors
+
+    '
+  must_have:
+  - carcass about 1.00 m wide, 0.50 m deep, 0.95 m tall excluding castors
+  - seven drawers, each on its own prismatic joint sliding out at least 0.35 m
+  - drawers in three distinct heights, the tallest at the bottom
+  - a full-width chrome pull on every drawer front
+  - hinged top lid on a revolute joint opening at least 70 degrees to reveal a tray
+  - four castors under the carcass, the two front ones on swivel forks
+  - tubular push handle on one end of the carcass
+  - red painted carcass, chrome pulls and black castors as distinct materials
+  - drawer fronts sit flush with the carcass when closed and no drawer intersects another at any joint
+    value
+  dimensions_m:
+    width: 1.0
+    depth: 0.5
+    height: 1.05

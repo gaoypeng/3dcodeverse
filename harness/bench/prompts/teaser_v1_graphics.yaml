@@ -1,0 +1,100 @@
+# Teaser showcase battery, split one file per track because a `Battery` binds exactly
+# one track + language (bench/run_bench.py).  Cross-language prompts inside a track use
+# the per-prompt `language:` override.  These four files ARE the source; edit them here.
+# Regenerate: python /tmp/claude-1000/-home-yipeng/256e9f01-5a86-4d6d-9b4b-3d662f71921d/scratchpad/teaser/make_batteries.py
+# Heroes (run with codex:gpt-5.6-sol, everything else api-agent:gemini:gemini-3.7-flash): (none)
+name: teaser_v1_graphics
+track: graphics
+language: glsl_shader
+description: 'teaser_v1 — graphics slice (4 prompts).  Showcase battery: picked for the picture; every prompt carries its own `why`
+  for the selection evidence and the per-prompt `why`.'
+prompts:
+- id: tsr_gfx_rain_window
+  tier: medium
+  category: stylised
+  tags:
+  - proven_family
+  - night
+  - refraction
+  prompt: 'raindrops running down a dark window in front of an out-of-focus neon city: each drop refracts
+    a tiny inverted image of the lights behind it, drops grow until they break loose and cut clean trails
+    downward, trails merge as they cross, the glass carries a fine mist between the drops and the city
+    bokeh drifts slowly
+
+    '
+  must_have:
+  - at least 25 separate drops on the glass at once, in at least 3 sizes
+  - each large drop refracts the background lights, brighter and inverted inside the drop
+  - drops slide downward and leave narrower clear trails behind them
+  - two trails that cross visibly merge into one heavier drop
+  - fine mist or fogging on the glass between the drops
+  - out-of-focus coloured city bokeh behind the glass in at least 3 hues
+  - the whole frame is dark with the neon bokeh as the only light source
+  - drop positions differ across the sampled frames — nothing is frozen
+- id: tsr_gfx_aurora_ridge
+  tier: medium
+  category: nature
+  tags:
+  - proven_family
+  - night
+  - atmosphere
+  prompt: 'an aurora over a snowy ridge: layered green and violet curtains with vertical ray structure
+    rippling across the sky, a dense star field behind them, a dark mountain-ridge silhouette along the
+    bottom third and a frozen lake reflecting the curtains with a soft shimmer
+
+    '
+  must_have:
+  - at least 3 overlapping aurora curtains at different depths and brightnesses
+  - vertical ray structure inside the curtains, not flat colour bands
+  - green low in the curtain shading to violet or magenta at the top
+  - star field visible through and above the curtains, at least 200 stars in 2 brightnesses
+  - dark mountain ridge silhouette across the lower third with at least 3 peaks
+  - frozen lake below the ridge reflecting the curtains, softer and dimmer than the sky
+  - the curtains ripple and drift horizontally across the sampled frames
+  - dark night frame with the aurora as the brightest element, nothing blown out
+- id: tsr_gfx_accretion_disc
+  tier: hard
+  category: space
+  tags:
+  - motion
+  - high_contrast
+  prompt: 'a black hole with a glowing accretion disc: a pure black sphere ringed by a thin bright photon
+    ring, a hot orange-white disc of turbulent filaments orbiting it with the approaching side visibly
+    brighter, the far side of the disc lensed up and over the shadow into an arc, and a star field warping
+    near the edge
+
+    '
+  must_have:
+  - perfectly black circular shadow at the centre with a thin bright ring at its edge
+  - accretion disc seen at a shallow angle, brighter and whiter toward the inner edge
+  - turbulent filament structure in the disc, not a smooth gradient
+  - the far side of the disc lensed into an arc above the black shadow
+  - one side of the disc clearly brighter than the other
+  - star field behind, distorted near the shadow's edge
+  - the disc rotates visibly between the sampled frames
+  - 'high dynamic range look: near-black background against a hot white inner disc, no blown-out flat
+    areas'
+- id: tsr_ogl_murmuration
+  tier: hard
+  category: instancing
+  tags:
+  - proven_family
+  - instancing
+  - motion
+  - dusk
+  language: opengl_python
+  prompt: 'a starling murmuration at dusk: several thousand instanced birds flocking with cohesion, separation
+    and alignment around a slowly moving attractor, their dark silhouettes thickening and thinning into
+    shifting shapes against a graded orange to deep-blue sky, with a low dark treeline along the bottom
+    edge
+
+    '
+  must_have:
+  - at least 3000 instanced bird silhouettes drawn in one instanced draw call
+  - flocking behaviour with visible cohesion, separation and alignment, not random motion
+  - the flock density varies across the frame, dense cores and thin trailing streams
+  - birds nearer the camera are larger than distant ones
+  - sky graded from warm orange at the horizon to deep blue at the top
+  - dark treeline or ridge silhouette along the bottom edge
+  - the flock shape changes noticeably between the sampled frames while staying one flock
+  - no bird sprites frozen or clipped at the frame edges
