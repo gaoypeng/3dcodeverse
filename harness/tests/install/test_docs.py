@@ -283,3 +283,59 @@ def test_architecture_package_map_covers_every_module():
     )
     assert not missing, (
         "modules missing from the docs/ARCHITECTURE.md package map:\n  " + "\n  ".join(missing))
+
+
+def test_setup_verifies_the_interpreter_it_installed_into(tmp_path) -> None:
+    """PORT-6: the closing doctor is the installer's only verification, and it used to
+    run `command -v 3dcodeverse` first.  With `--python` — the documented flag for
+    installing into a NON-activated interpreter — that venv's entry point is not on PATH,
+    so setup.sh ran a pre-existing install (here /home/.../miniconda3/bin/3dcodeverse,
+    python 3.13) and printed an all-green table for an environment it never touched.
+    An installer must verify what it installed."""
+    import sys
+
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    impostor = fake / "3dcodeverse"
+    impostor.write_text("#!/bin/sh\necho WRONG_INSTALL_ON_PATH\n")
+    impostor.chmod(0o755)
+
+    env = dict(os.environ, PATH=f"{fake}{os.pathsep}{os.environ['PATH']}")
+    proc = subprocess.run(
+        ["bash", str(SETUP), "--python", sys.executable, "--no-node", "--no-chrome", "--no-gpu", "--no-python"],
+        capture_output=True, text=True, timeout=300, env=env)
+    assert "WRONG_INSTALL_ON_PATH" not in proc.stdout + proc.stderr, (
+        "setup.sh verified the 3dcodeverse first on PATH instead of the --python interpreter")
+    assert "doctor" in proc.stdout
+
+
+def test_setup_names_the_remedy_when_the_interpreter_has_no_pip(tmp_path) -> None:
+    """PORT-7: on a stock Debian/Ubuntu box `/usr/bin/python3` ships without pip and is
+    PEP 668 marked, so the primary documented install path passed the whole prerequisite
+    block and then aborted on one unexplained line, `/usr/bin/python3: No module named
+    pip`, exit 1.  setup.sh already die()s with actionable text for a missing python,
+    git, npm and package-lock.json; pip was the gap in its own contract."""
+    import sys
+
+    # a stand-in that answers the version probes but refuses `-m pip`, like a distro python3
+    nopip = tmp_path / "python-nopip"
+    nopip.write_text(
+        "#!/bin/sh\n"
+        'for a in "$@"; do [ "$a" = "pip" ] && { echo "$0: No module named pip" >&2; exit 1; }; done\n'
+        f'exec {sys.executable} "$@"\n')
+    nopip.chmod(0o755)
+
+    proc = subprocess.run(["bash", str(SETUP), "--python", str(nopip), "--no-node", "--no-chrome", "--no-doctor"],
+                          capture_output=True, text=True, timeout=300)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode != 0, "a python that cannot pip must not look like a successful install"
+    assert "has no pip" in out, f"the bare ModuleNotFoundError is not an explanation:\n{out}"
+    assert "-m venv" in out and "python3-venv" in out, f"no actionable remedy in:\n{out}"
+
+
+def test_install_docs_list_pip_and_venv_as_prerequisites() -> None:
+    """The §2.2 table listed python/git/node/blender/ffmpeg but never pip or venv, and
+    §3 called a virtualenv "recommended but not required" — untrue on the OS §2.1 names."""
+    text = INSTALL.read_text()
+    assert "python3-venv" in text and "EXTERNALLY-MANAGED" in text
+    assert "pip + venv" in text, "the requirements table must name pip and venv"

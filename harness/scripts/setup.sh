@@ -77,6 +77,34 @@ PY_VER="$("$PY" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])')"
   || die "python 3.$MIN_PY_MINOR+ required, found $PY_VER ($PY)"
 info "python   $PY_VER  ($("$PY" -c 'import sys; print(sys.executable)'))"
 
+# pip is a prerequisite, not a given: Debian/Ubuntu ship /usr/bin/python3 without it and
+# mark it PEP 668 (EXTERNALLY-MANAGED), so the TL;DR install used to pass this whole block
+# and then abort on the bare line "/usr/bin/python3: No module named pip" with no guidance.
+if [ "$DO_PYTHON" -eq 1 ]; then
+  if ! "$PY" -m pip --version >/dev/null 2>&1; then
+    die "python has no pip: '$PY -m pip' is missing.
+    Create a virtualenv and re-run with it (recommended — docs/INSTALL.md §3):
+        $PY -m venv .venv && . .venv/bin/activate && bash $0
+    On Debian/Ubuntu the venv and pip modules are packaged separately:
+        sudo apt install python3-venv python3-pip"
+  fi
+  PIP_VER="$("$PY" -m pip --version | awk '{print $2}')"
+  # PEP 668: pip refuses to install into an externally-managed interpreter, so say so
+  # here rather than letting `pip install -e` fail three steps later.
+  if "$PY" - <<'PEP668'
+import os, sys, sysconfig
+managed = os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED"))
+sys.exit(0 if managed and sys.prefix == sys.base_prefix else 1)
+PEP668
+  then
+    die "python is PEP 668 externally-managed and this is not a virtualenv: $PY
+    pip will refuse to install here.  Create one and re-run with it:
+        $PY -m venv .venv && . .venv/bin/activate && bash $0
+    (docs/INSTALL.md §3)"
+  fi
+  info "pip      $PIP_VER"
+fi
+
 command -v git >/dev/null 2>&1 || die "git not found (every round is a git commit in the run workspace)"
 info "git      $(git --version | awk '{print $3}')"
 
@@ -141,11 +169,18 @@ fi
 # ----------------------------------------------------------------------- doctor
 if [ "$DO_DOCTOR" -eq 1 ]; then
   step "3dcodeverse doctor"
-  if command -v 3dcodeverse >/dev/null 2>&1; then
+  # Verify what we just INSTALLED, not whatever happens to be first on PATH.  With
+  # --python (the documented way to install into a non-activated interpreter) the venv's
+  # own entry point is not on PATH, so the old `command -v 3dcodeverse` branch ran a
+  # pre-existing install and printed an all-green table for an environment this script
+  # never touched — the closing doctor is the installer's only verification.
+  if "$PY" -c 'import codeverse' >/dev/null 2>&1; then
+    "$PY" -m codeverse.cli.main doctor ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} || true
+  elif command -v 3dcodeverse >/dev/null 2>&1; then
+    info "codeverse not importable by $PY — falling back to the 3dcodeverse on PATH"
     3dcodeverse doctor ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} || true
   else
-    info "3dcodeverse not on PATH — falling back to python -m codeverse.cli.main"
-    "$PY" -m codeverse.cli.main doctor ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} || true
+    info "codeverse not importable by $PY and 3dcodeverse not on PATH — skipping doctor"
   fi
 fi
 

@@ -24,6 +24,8 @@ Once installed, read `docs/RUNBOOK.md` (how to run), `docs/ARCHITECTURE.md`
 
 ```bash
 git clone <repo> 3dcodeverse && cd 3dcodeverse
+python3 -m venv .venv && source .venv/bin/activate    # see §3 — a distro python3 is
+                                                      # PEP 668 and pip will refuse it
 bash harness/scripts/setup.sh            # python + node deps + chrome + doctor
 ```
 
@@ -80,6 +82,7 @@ in `scripts/setup.sh` — the test will then tell you which shims to delete.
 | what | required? | verified here | how it degrades without it |
 |---|---|---|---|
 | **Python 3.10+** | yes | 3.13.9 (`/home/yipeng/miniconda3/bin/python`) | nothing runs; `requires-python = ">=3.10"` (§2.1) |
+| **pip + venv** | yes | pip 25.3, `python -m venv` | `scripts/setup.sh` cannot install the package.  A stock Debian/Ubuntu `/usr/bin/python3` ships **without** pip and is PEP 668 `EXTERNALLY-MANAGED`, so `pip install -e harness` refuses even once pip is present: `sudo apt install python3-venv python3-pip`, then use a virtualenv |
 | **git** | yes | 2.53.0 | run workspaces are git repos (one commit per round); `Workspace.create()` and the flywheel trajectory/pair miners fail |
 | **node ≥ 20.6** | yes, except for the `graphics` track | v24.14.0 (npm 11.9.0) | the `threejs` / `scene_threejs` languages disappear **and no object renders happen at all**: `spatial/render.py` renders *every* GLB (Blender-built and CadQuery-built included) with three.js in headless Chrome. Only `graphics` (moderngl) is node-free |
 | **Blender 4.2+ / 5.x** | optional | 5.0.1 (`~/.local/bin/blender-5.0`) | `blender` and `urdf_blender` languages unavailable → the `static_object` default language and the whole `articulated_object` track cannot build (`BlenderNotFoundError`); scenes lose planner-chosen bpy GLB assets |
@@ -104,8 +107,11 @@ Layout: the harness is the `harness/` subdirectory (python dist `3dcodeverse`,
 import package `codeverse`, CLIs `3dcodeverse` and `3dcv`).  See the repo
 `README.md` for the other top-level components.
 
-A virtualenv is recommended but not required — this box installs into a conda
-base env:
+Use a virtualenv (or a conda env — this box installs into a conda base env).  It is
+only optional when your interpreter already owns its site-packages: a distro
+`/usr/bin/python3` is PEP 668 `EXTERNALLY-MANAGED` and pip will refuse to install into
+it.  `scripts/setup.sh` checks for pip and for that marker up front and tells you which
+of the two you hit.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate     # or: conda create -n cv3d python=3.13
