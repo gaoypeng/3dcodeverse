@@ -2,7 +2,107 @@
 
 Newest first.
 
-<!-- SKILLS-WAVE -->
+## Skills — 2026-08-25
+
+A routed, spec-conformant skill library whose reads we can measure. Baseline `42a5457` →
+`HEAD`; six commits from five parallel waves (machinery, four authoring waves) plus this
+verification pass. Full story and the authoring contract: **`docs/SKILLS.md`**.
+
+**Ships behind `CV3D_SKILLS`, default OFF.** §A/B below says why, with the numbers.
+
+### What landed
+
+* `codeverse/skills/` — 14 bundles authored to the open Agent Skills spec
+  (agentskills.io), a typed R1–R24 route table, an atime read probe, and numbers pinned to
+  live constants. `3dcv skills list|show|validate|report`, `3dcv doctor --skills`.
+* Routing is automatic and gate-driven: the previous round's gate findings outrank the
+  standing sheets, which is the input no CLI's own skill loader can see.
+* `RoundRecord.skills` records what was listed, surfaced and read deep, with the index and
+  body token cost, so the price of the feature is auditable per round rather than asserted.
+
+### Native loading, proven live
+
+`pytest -m live tests/skills/test_live_discovery.py` — gemini-cli 0.53.0, codex 0.149.0,
+claude-code 2.1.245 and agy 1.1.20 each discover a materialised bundle, open `SKILL.md`,
+open `references/` and follow what they read. Two things this settled that had only been
+argued: `Skill` was **absent** from claude-code's `ALLOWED_TOOLS` (it would have denied its
+own skill tool — fixed, and `3dcv doctor --skills` now checks it), and gemini-cli's
+`activate_skill` consent does not block us under `--approval-mode yolo`.
+
+### Defects the verification tests found
+
+| # | What | Where |
+|---|---|---|
+| V-1 | Three language contracts told the agent to overlap parts by 2–4 mm / "≥ 2 mm" while `connectivity.py` WARNs above `PENETRATION_WARN_M` = 2 mm and its own `fix_hint` says "overlap by ≤ 2 mm". Two worked examples welded at 3–4 mm. | `prompts/{blender,cadquery,threejs}/contract.md` |
+| V-2 | Four bundles' `verified:` dates were YAML **dates**, not strings; the spec says metadata is string→string. `validate_bundle` now reports it instead of coercing. | 4 × `SKILL.md`, `skills/loader.py` |
+| V-3 | `cv3d-opengl-pipeline` shipped as `evidence: measured` on 5 graded runs. Now `mixed`. | `cv3d-opengl-pipeline/SKILL.md` |
+| V-4 | The api-agent index quoted whole 1024-char descriptions: **780 tokens** for a five-skill session against a 300-token budget. It quotes the first clause now (342 worst case). | `skills/prompting.py` |
+| V-5 | The live discovery smoke had never run and could not: it looked for a binary named after the agent kind, but `gemini-cli` runs `gemini` and `claude-code` runs `claude`. | `tests/skills/test_live_discovery.py` |
+| V-6 | `cv3d-cadquery-forms` still quoted the contract's old unbounded "≥ 2 mm" weld, and the cadquery worked example welded at 3 mm. | `cv3d-cadquery-forms/SKILL.md`, `prompts/cadquery/contract.md` |
+| V-7 | A body naming one of our constants was not required to pin it; `cv3d-glsl-craft` quoted `DUPLICATE_DIFF` at 1e-4 with no claim row behind it. | `cv3d-glsl-craft`, `tests/skills/test_freshness.py` |
+| **V-8** | **The read probe was measuring git, not the agent.** See below — the single most consequential finding of the pass. | `skills/telemetry.py`, `skills/materialize.py` |
+
+### V-8: the read probe was measuring git
+
+The design's headline differentiator was read telemetry: `atime > mtime` on
+`references/*.md` means the agent read the body, because nothing scans `references/`.
+**Measured, that is false twice over.**
+
+1. `Workspace.changed_files` runs `git add -A -N` then `git diff --numstat` after *every*
+   agent session to compute `files_changed`, and git reads each untracked file to diff it.
+   On a real git workspace that alone flips all four files of every bundle to "read", with
+   no agent involved. Reproduced in `test_git_diff_alone_trips_the_control`.
+2. A negative control — one bundle whose description does not match the task, prompt "do
+   not read any files, do not activate any skill" — had codex 0.149.0, claude-code
+   2.1.245, agy 1.1.20 and gemini-cli 0.53.0 **all** open `SKILL.md` and `references/`.
+   Each touched only the discovery root it owns, which independently confirms the mapping.
+
+Left alone, this metric would have reported 100% forever and we would have believed it.
+`materialize_skills` now writes one **never-routed, never-indexed control bundle** beside
+the real ones. Nothing should open it; when something does, `SkillsUsage.control_read` is
+set, `probe_trustworthy` is false, and `deep_read_rate` returns `None` rather than a
+confident number. `3dcv skills report` excludes those sessions and says how many it
+dropped. The control says when the probe is blind; it does not make it see.
+
+### Read rate, on an ordinary build task
+
+Five routed bundles in the workspace, an ordinary "build a dining chair in bpy" prompt,
+nothing about skills in it: codex, claude-code and agy each came back with 5 of 5 bundles
+surfaced and deep, 8,041 body tokens. Those runs predate the control, so treat the rate as
+an upper bound — but the behavioural evidence under it is not ambiguous: codex's
+`src/parts/common.py` came back with `WELD_OVERLAP = 0.001` and "1 mm weld overlap with
+the seat", which is `cv3d-part-contact`'s number, not the prompt corpus's 2–5 mm.
+
+### New standing tests
+
+`tests/skills/` — 590 offline, 4 live, 3 slow.
+
+* **Contradiction**, library-wide, on the *pre-scale value* rather than the rendered text —
+  "1 cm" and "0.01" metres are one tolerance in two units, and failing that pair would
+  teach the next author to delete the claim.
+* **Freshness** — every tool, gate kind, rubric criterion, constant, switch, sibling skill
+  and cookbook section a bundle names must still exist in the shipped source.
+* **Contract agreement** — a skill and its language contract cannot state different
+  numbers, arbitrated by the gate constant rather than by either document.
+* **Routing properties** — the real library over 5,376 sessions per track, every corpus
+  finding kind, and 2,000 seeded random walks: determinism, the cap, ordering,
+  explainability, and junk degrading to `[]`.
+* **Spec compliance** re-derived from the raw bytes, plus the reference validator
+  (`pip install skills-ref` → `agentskills`, now in the `dev` extra): 14/14 valid, and its
+  `read-properties` agrees with our loader field for field.
+* **Budget** re-measured against the shipped descriptions; **packaging** asserts a built
+  wheel holds all 14 `SKILL.md`, all 14 `references/` and all 9 `_claims`.
+* **Corpus** recomputes each bundle's claimed evidence from `bench/out`.
+
+<!-- AB-RELNOTES -->
+
+### Known open
+
+Listed in `docs/SKILLS.md` §9. The one that matters most: **`contract.md` was fixed but the
+wider prompt corpus still teaches 2–5 mm weld overlap** — `tracks/generate_static.j2`,
+`assemble_static.j2`, `generate_static_part.j2`, `system/harness_contract.md` and three
+cookbooks. That is a prompt-corpus change with its own measurement, and it is the most
+likely reason a contact skill would fail to move the number it targets.
 
 ---
 
