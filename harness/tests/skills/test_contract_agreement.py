@@ -32,7 +32,10 @@ from codeverse.spatial.connectivity import PENETRATION_WARN_M
 
 HARNESS = Path(__file__).resolve().parents[2]
 PROMPTS = HARNESS / "codeverse" / "prompts"
-CONTRACTS = sorted(PROMPTS.glob("*/contract.md"))
+#: BOTH contract families an agent can read: the prompt-side per-language contract, and
+#: the runtime-side CONTRACT.md the language package serves through `contract_doc()`.
+CONTRACTS = sorted(PROMPTS.glob("*/contract.md")) + sorted(
+    (HARNESS / "codeverse" / "languages").glob("*/CONTRACT.md"))
 BUNDLES = bundle_dirs()
 SKILLS = list(iter_skills()) if BUNDLES else []
 
@@ -74,13 +77,13 @@ def _mm_values(sentence: str) -> list[float]:
     return out
 
 
-@pytest.mark.parametrize("contract", CONTRACTS, ids=[p.parent.name for p in CONTRACTS])
+@pytest.mark.parametrize("contract", CONTRACTS, ids=[f"{p.parent.name}/{p.name}" for p in CONTRACTS])
 def test_no_contract_asks_for_an_overlap_the_gate_calls_interpenetration(contract: Path):
     """`PENETRATION_WARN_M` is the ceiling on a weld, and it is 2 mm, not 4."""
     for sentence in _weld_sentences(contract.read_text()):
         for mm in _mm_values(sentence):
             assert mm <= WARN_MM, (
-                f"{contract.parent.name}/contract.md asks for {mm} mm here, and the "
+                f"{contract.parent.name}/{contract.name} asks for {mm} mm here, and the "
                 f"connectivity gate WARNs above {WARN_MM:.0f} mm:\n    {sentence.strip()}")
 
 
@@ -145,7 +148,7 @@ def test_no_skill_recommends_an_api_its_language_contract_forbids(s):
                     f"saying so:\n    {' '.join(sentence.split())[:160]}")
 
 
-@pytest.mark.parametrize("contract", CONTRACTS, ids=[p.parent.name for p in CONTRACTS])
+@pytest.mark.parametrize("contract", CONTRACTS, ids=[f"{p.parent.name}/{p.name}" for p in CONTRACTS])
 def test_no_contract_states_a_contact_gap_looser_than_the_gate_measures(contract: Path):
     """"parts touch" means within CONTACT_GAP_M; a contract promising more is wrong."""
     for sentence in (s for s in _SENTENCE_SPLIT.split(contract.read_text())
@@ -154,5 +157,5 @@ def test_no_contract_states_a_contact_gap_looser_than_the_gate_measures(contract
             continue
         for mm in _mm_values(sentence):
             assert mm <= GAP_MM, (
-                f"{contract.parent.name}/contract.md allows a {mm} mm gap; the connectivity "
+                f"{contract.parent.name}/{contract.name} allows a {mm} mm gap; the connectivity "
                 f"gate joins parts only within {GAP_MM:.0f} mm:\n    {sentence.strip()}")
