@@ -109,6 +109,10 @@ def report(
 
     Targets from the design: >= 60% for CLI backends, >= 80% for api-agent.  A skill
     under 20% over 20 sessions is merged or deleted.
+
+    Sessions whose CONTROL bundle was also "read" are counted separately and excluded from
+    the rate: git's own diff and every CLI's skill activation both bump atime, so in those
+    sessions the probe saw nothing it can attribute to the agent (docs/SKILLS.md section 4).
     """
     from rich.table import Table
 
@@ -124,7 +128,11 @@ def report(
         raise typer.Exit(code=1)
 
     per: dict[tuple[str, str], list[int]] = {}
+    blind = sum(1 for r in rows if r.get("control_read"))
+    no_control = sum(1 for r in rows if not r.get("control_present"))
     for r in rows:
+        if r.get("control_read"):
+            continue                      # the probe was blind here; counting it would lie
         backend = str(r.get("agent", "?")).split(":", 1)[0]
         reads = {x["name"]: x for x in r.get("reads", [])}
         for name in r.get("listed", []):
@@ -134,12 +142,16 @@ def report(
             cell[1] += 1 if got.get("surfaced") else 0
             cell[2] += 1 if got.get("deep") else 0
     if as_json:
-        console.print_json(json.dumps([
-            {"skill": k[0], "backend": k[1], "listed": v[0], "surfaced": v[1], "deep": v[2],
-             "deep_read_rate": round(v[2] / v[0], 3) if v[0] else None}
-            for k, v in sorted(per.items())]))
+        console.print_json(json.dumps({
+            "sessions": len(rows), "control_read_sessions": blind, "no_control_sessions": no_control,
+            "skills": [
+                {"skill": k[0], "backend": k[1], "listed": v[0], "surfaced": v[1], "deep": v[2],
+                 "deep_read_rate": round(v[2] / v[0], 3) if v[0] else None}
+                for k, v in sorted(per.items())]}))
         return
-    t = Table(title=f"skill read rate ({len(rows)} sessions)")
+    scored = len(rows) - blind
+    t = Table(title=f"skill read rate ({scored} of {len(rows)} sessions; "
+                    f"{blind} blind — the control was read too)")
     for col in ("skill", "backend", "listed", "surfaced", "deep", "deep rate", "verdict"):
         t.add_column(col)
     for (name, backend), (listed, surfaced, deep) in sorted(per.items()):
@@ -148,6 +160,15 @@ def report(
         verdict = "delete/merge" if (listed >= 20 and rate < 0.20) else ("ok" if rate >= target else "below target")
         t.add_row(name, backend, str(listed), str(surfaced), str(deep), f"{rate:.0%}", verdict)
     console.print(t)
+    if blind:
+        err_console.print(
+            f"[yellow]{blind} of {len(rows)} sessions excluded[/]: the never-routed control bundle "
+            f"was opened too, so nothing in them can be attributed to the agent.")
+    if no_control:
+        err_console.print(
+            f"[yellow]{no_control} session(s) predate the control bundle[/]: their rates are an upper bound.")
+    if not per:
+        err_console.print("[red]every session was blind[/] — the read rate is unmeasured, not 0 and not 100%.")
 
 
 __all__ = ["skills_app"]

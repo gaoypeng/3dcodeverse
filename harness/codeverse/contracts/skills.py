@@ -33,6 +33,22 @@ class SkillsUsage(BaseModel):
     index_tokens: int = 0
     body_tokens_read: int = Field(default=0, description="tokens of the bodies the probe says were read deep")
     inlined: str = Field(default="", description="single-shot: the body inlined into the prompt, '' otherwise")
+    control_read: bool = Field(
+        default=False,
+        description="the never-routed control bundle was 'read' too, so this session's atime "
+                    "evidence proves nothing and every rate below is an upper bound")
+    control_present: bool = Field(default=False, description="a control bundle was materialised at all")
+
+    @property
+    def probe_trustworthy(self) -> bool:
+        """False when the control fired — the only honest reading of the numbers below.
+
+        A run computes ``files_changed`` through ``git add -A -N`` + ``git diff``, and git
+        reads every untracked file to do it, which bumps atime on the whole bundle tree.
+        CLI activation opens ``references/`` too.  Either way the probe says "read" when
+        nobody chose to read, and only the control can tell you which session you are in.
+        """
+        return self.control_present and not self.control_read
 
     @property
     def surfaced(self) -> list[str]:
@@ -44,7 +60,10 @@ class SkillsUsage(BaseModel):
 
     @property
     def deep_read_rate(self) -> float | None:
-        return (len(self.deep) / len(self.listed)) if self.listed else None
+        """None when there is nothing listed, or when the control says the probe is blind."""
+        if not self.listed or (self.control_present and self.control_read):
+            return None
+        return len(self.deep) / len(self.listed)
 
 
 __all__ = ["SkillRead", "SkillsUsage"]

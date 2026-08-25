@@ -58,7 +58,37 @@ def test_bundles_land_in_both_discovery_roots_as_real_files(ws, library):
             assert f.is_file() and not f.is_symlink()
             assert f.read_text() == s.path.read_text()
             assert (ws / root / s.name / "references" / "worked_example.md").is_file()
-    assert len(written) == 2 * 2 * 2  # 2 roots x 2 skills x (SKILL.md + one reference)
+    # 2 roots x (2 skills + the read control) x (SKILL.md + one reference)
+    assert len(written) == 2 * 3 * 2
+
+
+def test_a_never_routed_control_bundle_goes_in_beside_the_real_ones(ws, library):
+    """Signal 4: the probe's own falsification.
+
+    Nothing routes it, nothing indexes it, and if it comes back opened then whatever
+    opened it was not the agent choosing to read a skill — git's own diff does it, and so
+    does every CLI's activation.  Without this the read rate would report 100% forever.
+    """
+    from codeverse.skills.materialize import CONTROL_NAME
+
+    materialize_skills(ws, [library["cv3d-part-contact"]])
+    for root in SKILL_ROOTS:
+        d = ws / root / CONTROL_NAME
+        assert (d / "SKILL.md").is_file() and (d / "references" / "control.md").is_file()
+        assert CONTROL_NAME not in index_block([library["cv3d-part-contact"]], "api-agent")
+    from codeverse.skills.registry import ROUTED_SKILLS
+
+    assert CONTROL_NAME not in ROUTED_SKILLS
+
+
+def test_the_control_survives_a_reroute_and_never_counts_as_a_stale_bundle(ws, library):
+    from codeverse.skills.materialize import CONTROL_NAME
+
+    materialize_skills(ws, [library["cv3d-part-contact"], library["cv3d-bbox-contract"]])
+    materialize_skills(ws, [library["cv3d-bbox-contract"]])
+    for root in SKILL_ROOTS:
+        assert (ws / root / CONTROL_NAME / "SKILL.md").is_file()
+        assert not (ws / root / "cv3d-part-contact").exists()
 
 
 def test_nothing_in_a_materialised_tree_is_a_symlink_because_codex_refuses_them(ws, library):

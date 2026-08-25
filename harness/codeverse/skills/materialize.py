@@ -11,6 +11,22 @@ in skills").  A 2-10 KB duplicate in a disposable workspace costs nothing.
 WHY ``os.utime`` at the end: the read probe in ``telemetry.py`` says a bundle was opened
 when ``atime > mtime``.  That only means anything if the two start equal, so
 materialisation stamps them equal instead of trusting whatever the copy left behind.
+
+WHY a CONTROL bundle goes in beside them: because ``atime > mtime`` turned out to be a
+much weaker signal than the design assumed, and measured on 2026-08-25 it fires with
+nobody reading anything.  Two independent causes, both verified:
+
+* ``Workspace.changed_files`` runs ``git add -A -N`` then ``git diff --numstat`` after
+  every agent session, and git reads each untracked file to compute the diff.  On a real
+  git workspace that alone flips all four files of a bundle to "read".
+* all four CLIs (codex 0.149.0, claude-code 2.1.245, agy 1.1.20, gemini-cli 0.53.0) open
+  ``references/*.md`` while activating a skill, including on a task whose description does
+  not match and with the prompt telling them not to activate anything.
+
+Neither can be argued away, so the probe carries its own falsification: one extra bundle
+that is never routed, never indexed and never mentioned.  If IT comes back "read", the
+session's atime evidence proves nothing and ``deep_read_rate`` reports ``None`` instead of
+a confident 100%.
 """
 
 from __future__ import annotations
@@ -42,6 +58,43 @@ BODY_FILES = ("AGENTS.md", "GEMINI.md", "CLAUDE.md")
 MARK_BEGIN = "<!-- 3dcv:skills -->"
 MARK_END = "<!-- /3dcv:skills -->"
 
+#: the never-routed bundle whose atime falsifies the probe.  Named so it sorts away from
+#: the real ones, and worded so an agent that does read it has been told it is a control.
+CONTROL_NAME = "zz-cv3d-read-control"
+CONTROL_SKILL_MD = f"""---
+name: {CONTROL_NAME}
+description: Measurement control for the harness read probe. Never applies to any task; do
+  not use it. If you are reading this, note only that you opened it.
+license: Apache-2.0
+metadata:
+  evidence: measured
+  verified: "2026-08-25"
+  evidence_note: "Not advice. A control file whose access time falsifies the read probe."
+---
+
+# Not a skill
+
+This file exists so the harness can tell "the agent read a skill" apart from "something
+touched the file". It contains no guidance. Nothing routes it and nothing lists it.
+"""
+CONTROL_REFERENCE_MD = ("Control reference. If this file's access time moved, the read probe "
+                        "cannot distinguish a real read this session.\n")
+
+
+def write_control(ws_root: Path) -> list[Path]:
+    """Materialise the control bundle into both roots, stamped like the real ones."""
+    written: list[Path] = []
+    for rel in SKILL_ROOTS:
+        d = Path(ws_root) / rel / CONTROL_NAME
+        (d / "references").mkdir(parents=True, exist_ok=True)
+        (d / "SKILL.md").write_text(CONTROL_SKILL_MD)
+        (d / "references" / "control.md").write_text(CONTROL_REFERENCE_MD)
+        written += [d / "SKILL.md", d / "references" / "control.md"]
+    now = time.time()
+    for p in written:
+        os.utime(p, (now, now))
+    return written
+
 
 def _copy_bundle(skill: Skill, dest_root: Path) -> list[Path]:
     dest = dest_root / skill.name
@@ -70,7 +123,7 @@ def materialize_skills(ws_root: Path, skills: Sequence[Skill]) -> list[Path]:
     a later round no longer attaches.
     """
     root = Path(ws_root)
-    wanted = {s.name for s in skills}
+    wanted = {s.name for s in skills} | {CONTROL_NAME}
     written: list[Path] = []
     for rel in SKILL_ROOTS:
         base = root / rel
@@ -80,6 +133,7 @@ def materialize_skills(ws_root: Path, skills: Sequence[Skill]) -> list[Path]:
                 shutil.rmtree(old, ignore_errors=True)
         for s in skills:
             written += _copy_bundle(s, base)
+    written += write_control(root)
     now = time.time()
     for p in written:
         os.utime(p, (now, now))  # atime == mtime: the read probe's zero point
@@ -164,5 +218,5 @@ def attach_skills(
     return out
 
 
-__all__ = ["BODY_FILES", "MARK_BEGIN", "MARK_END", "SKILL_ROOTS", "attach_skills",
-           "materialize_skills", "write_index"]
+__all__ = ["BODY_FILES", "CONTROL_NAME", "MARK_BEGIN", "MARK_END", "SKILL_ROOTS",
+           "attach_skills", "materialize_skills", "write_control", "write_index"]

@@ -11,16 +11,27 @@ Three signals, cheapest first:
    after a write bumps ``atime``.  ``materialize_skills`` stamps ``atime == mtime`` on
    every file it writes, so ``atime > mtime`` afterwards means the file was opened.  No
    parsing, and it works identically for all five backends.
-2. **references/ depth probe** — signal 1 has one known false positive: a CLI's startup
-   scan opens SKILL.md to read the frontmatter.  Nothing scans ``references/*.md``, so an
-   atime bump there means the agent read the body and followed it.  Signal 1 = surfaced,
-   signal 2 = went deep.  (This is the spec's own progressive disclosure, so the probe is
-   free — but a bundle that ships no ``references/`` cannot be probed for depth, and says
-   so via ``deep_measurable`` instead of quietly scoring 0.)
+2. **references/ depth probe** — signal 1 has an obvious false positive: a CLI's startup
+   scan opens SKILL.md to read the frontmatter.  The design assumed nothing scans
+   ``references/*.md``, so an atime bump there meant the agent read the body and followed
+   it.  **Measured 2026-08-25, that assumption is false**, for two independent reasons:
+   ``Workspace.changed_files`` runs ``git add -A -N`` + ``git diff`` after every session
+   and git reads every untracked file to diff it; and all four CLIs open ``references/``
+   while activating a skill, even one whose description does not match the task.  So the
+   depth signal is kept — it is still the difference between "listed" and "opened" — but
+   it is no longer trusted on its own, which is what signal 4 is for.  (A bundle that
+   ships no ``references/`` cannot be probed for depth and says so via
+   ``deep_measurable`` instead of quietly scoring 0.)
 3. **exact reads for api-agent** — our own tool loop owns ``read_file``, so it logs every
    read of a skill path with its turn into ``telemetry/skill_reads.jsonl``.  api-agent is
    therefore the CALIBRATION arm: compare signals 1/2 against ground truth and report the
    probe's false-positive / false-negative rate rather than assuming it is exact.
+4. **the control bundle** — ``materialize.write_control`` puts one never-routed,
+   never-indexed bundle beside the real ones.  Nothing should ever open it.  When it comes
+   back opened, this session's atime evidence proves nothing, ``control_read`` is set and
+   ``deep_read_rate`` returns ``None`` rather than a confident 100%.  It costs two small
+   files and turns a metric that could silently read 100% forever into one that says when
+   it cannot see.
 """
 
 from __future__ import annotations
@@ -105,6 +116,7 @@ def probe_reads(ws_root: Path, materialized: SkillsMaterialized) -> SkillsUsage:
     """What the session did with the bundles we attached, per skill."""
     root = Path(ws_root)
     exact = _exact_reads(root)
+    control_present, control_read = _control_state(root)
     reads: list[SkillRead] = []
     for sel in materialized.selections:
         name = sel.name
@@ -129,7 +141,24 @@ def probe_reads(ws_root: Path, materialized: SkillsMaterialized) -> SkillsUsage:
         listed=list(materialized.listed), reads=reads, index_tokens=materialized.index_tokens,
         body_tokens_read=sum(r.body_tokens for r in reads if r.deep),
         inlined=materialized.inlined,
+        control_present=control_present, control_read=control_read,
     )
+
+
+def _control_state(root: Path) -> tuple[bool, bool]:
+    """(a control was materialised, something opened it) — the probe's own falsification."""
+    from codeverse.skills.materialize import CONTROL_NAME
+
+    present = False
+    opened = False
+    for rel in (AGENTS_SKILL_ROOT, CLAUDE_SKILL_ROOT):
+        d = root / rel / CONTROL_NAME
+        if not d.is_dir():
+            continue
+        present = True
+        for f in [d / "SKILL.md", *sorted((d / "references").glob("*.md"))]:
+            opened = opened or _opened(f)
+    return present, opened
 
 
 def append_usage(ws_root: Path, usage: SkillsUsage, **context: Any) -> Path | None:

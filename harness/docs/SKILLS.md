@@ -28,18 +28,37 @@ The spec's three tiers, and what each costs us per turn:
 
 The same three tiers are the read probe. `materialize_skills` writes every file with
 `atime == mtime`; the root filesystem is ext4 with `relatime`, so the first read afterwards
-bumps `atime`. A CLI's discovery scan opens `SKILL.md` to read the frontmatter — verified,
-§7 — and nothing scans `references/`. So:
+bumps `atime`:
 
-* `atime(SKILL.md) > mtime` → **surfaced**: the bundle reached the agent's index.
-* `atime(references/*.md) > mtime` → **deep**: the agent read the body and followed it.
+* `atime(SKILL.md) > mtime` → **surfaced**: something opened the bundle.
+* `atime(references/*.md) > mtime` → **deep**: something opened the body's depth file.
 
 A bundle with no `references/` reports `deep_measurable: false` rather than quietly
-scoring 0. `api-agent` owns its own `read_file`, so it logs exact reads with turn numbers
-and is the **calibration arm** for the probe.
+scoring 0. `api-agent` owns its own `read_file`, so it logs exact reads with turn numbers.
 
-`references/` is therefore not optional decoration. It is the only honest evidence that a
-skill was read rather than merely listed.
+### The probe carries its own falsification, because it had to
+
+The design read `deep` as "the agent chose to go deeper". **Measured 2026-08-25, it does
+not mean that.** Two independent causes, both reproduced:
+
+1. **`Workspace.changed_files` reads every file.** It runs `git add -A -N` then
+   `git diff --numstat` after *every* agent session to compute `files_changed`, and git
+   reads each untracked file to diff it. On a real git workspace that alone flips all four
+   files of every bundle to "read", with no agent involved. Reproduced in
+   `test_git_diff_alone_trips_the_control`.
+2. **Every CLI opens `references/` while activating a skill.** Negative control: one
+   bundle whose description does not match the task, prompt "do not read any files, do not
+   activate any skill" — codex 0.149.0, claude-code 2.1.245, agy 1.1.20 and gemini-cli
+   0.53.0 *all* opened `SKILL.md` **and** `references/`. (Each touched only the root it
+   owns, which is a nice independent confirmation of the root mapping in §7.)
+
+So a fourth signal was added: `materialize.write_control` puts one **never-routed,
+never-indexed** bundle beside the real ones. Nothing should ever open it. When it comes
+back opened, `SkillsUsage.control_read` is set, `probe_trustworthy` is false and
+`deep_read_rate` returns **`None`** — not 100%, not 0. `3dcv skills report` excludes those
+sessions from the rate and prints how many it dropped.
+
+This is the difference between a metric and a number that would have read 100% forever.
 
 ---
 
@@ -145,10 +164,14 @@ sitting in the workspace, nothing in the prompt about skills (2026-08-25):
 | claude-code 2.1.245 | 5 | 5 | 5 | **100%** | 8,041 | timed out on our 600 s cap after reading |
 | agy 1.1.20 | 5 | 5 | 5 | **100%** | 8,041 | completed |
 
-The mechanism works, and the advice lands: codex's `src/parts/common.py` came back with
-`WELD_OVERLAP = 0.001` and the comment "1 mm weld overlap with the seat", which is
-`cv3d-part-contact`'s recommendation and inside `PENETRATION_WARN_M`. Left to the prompt
-corpus alone it would have read 2–5 mm (§9).
+**Read those 100%s as an upper bound.** These runs predate the control bundle, and §1 says
+why every one of them would report 100% whether or not the agent chose to read anything.
+
+What is *not* ambiguous is the behavioural evidence underneath: codex's
+`src/parts/common.py` came back with `WELD_OVERLAP = 0.001` and the comment
+"1 mm weld overlap with the seat" — `cv3d-part-contact`'s recommendation, inside
+`PENETRATION_WARN_M`. Left to the prompt corpus alone it would have read 2–5 mm (§9). The
+content reached the model and changed the output; the atime number is what cannot prove it.
 
 Two things this also says, and neither is comfortable:
 
@@ -292,7 +315,14 @@ its battery, its n and its date.
   tokens per env/zone session — and has not been A/B'd against a routed skill.
 * **api-agent read calibration is unmeasured.** Signal 3 (exact reads) exists and is unit
   tested, but no real battery has yet produced a session where it can be compared against
-  the atime probe's answer.
+  the atime probe's answer. That comparison is now the only route to a *quantified* read
+  rate: the control (§1) can say when the atime probe is blind, but only api-agent's own
+  `read_file` log can say what was actually read when it is.
+* **The atime probe is blind in any git workspace.** `Workspace.changed_files` trips the
+  control on every real run, so until either that call stops reading file contents (`git
+  diff --numstat --no-index` on a copy, or `git status --porcelain` plus mtimes) or the
+  probe is sampled *before* it, the reported rate for the CLI backends will be "blind" in
+  every session. The control makes that visible instead of silent; it does not fix it.
 * **`cadquery` and `threejs` bundles are routed off.** They stay off until each language
   reaches 20 graded runs.
 * **Router PRECISION is not reported.** The read rate says how often a listed skill was
