@@ -1,4 +1,12 @@
-# Release notes — stability pass, 2026-08-24
+# Release notes
+
+Newest first.
+
+<!-- SKILLS-WAVE -->
+
+---
+
+## Stability pass — 2026-08-24
 
 Sign-off for the first release intended to be called **stable**. Five parallel waves hunted
 the harness for defects, a sixth verified them, three fixed them, and this pass reconciled,
@@ -13,7 +21,7 @@ Python 3.10 clean clone with no credentials.
 
 ---
 
-## 1. What was hunted
+### 1. What was hunted
 
 Six independent sweeps over the 54 files the parallel waves changed:
 
@@ -40,7 +48,7 @@ Each was then reproduced independently before any fix was written.
   tracked as CQ-5 (the switch nothing reads); the "all six switches silently accepted"
   half is not — they are validated and rejected.
 
-### Verified defects by severity
+#### Verified defects by severity
 
 | Severity | Count | Fixed | Open |
 |---|---|---|---|
@@ -58,13 +66,13 @@ at sign-off). 8 fixed, 1 open. **50 fixed in total.**
 
 ---
 
-## 2. What was fixed
+### 2. What was fixed
 
 Every fix below landed with a regression test that was **proved to fail without it** — the
 source change stashed, the test run, the change restored. The 24 tests belonging to the wave
 that had not yet landed were re-proved against `main` at sign-off, as a batch, after rebasing.
 
-### Crashes (8)
+#### Crashes (8)
 
 | ID | Defect | Commit |
 |---|---|---|
@@ -78,14 +86,14 @@ that had not yet landed were re-proved against `main` at sign-off, as a batch, a
 
 CP-3 and RS-6 were the same defect reported twice.
 
-### Data loss (2)
+#### Data loss (2)
 
 | ID | Defect | Commit |
 |---|---|---|
 | CP-5 | one directory-shaped path in a generation envelope discarded the whole answer instead of skipping the bad block | `0884aa7` |
 | RS-1 | `write_json_atomic` shared one `.tmp` name per path: concurrent writers published truncated JSON and crashed mid-save | `ba428eb` |
 
-### Wrong results (19)
+#### Wrong results (19)
 
 The gates that decide a score, and the accounting that decides what a run cost.
 
@@ -115,14 +123,14 @@ The gates that decide a score, and the accounting that decides what a run cost.
 `CQ-3`/`SM-01` and `CP-6`/`RS-8` were each one defect found twice by different sweeps; both
 landed twice and were reconciled at sign-off (§6).
 
-### Hangs (2)
+#### Hangs (2)
 
 | ID | Defect | Commit |
 |---|---|---|
 | CP-4 | `run_subprocess` ignored its own `timeout_s` when the child left a detached descendant holding the pipes — unbounded, on every build and render path | `3ba9532` |
 | PORT-1 | the documented "pure-python subset" pytest line silently re-enabled the live tests: a command-line `-m` **replaces** `addopts`, it does not add to it | `616fa46` |
 
-### Usability (10) and style (1)
+#### Usability (10) and style (1)
 
 | ID | Defect | Commit |
 |---|---|---|
@@ -137,7 +145,7 @@ landed twice and were reconciled at sign-off (§6).
 | PORT-7 | the TL;DR install path died with "No module named pip"; pip and venv were missing from the prerequisites | `5c79e09` |
 | PORT-8 | building left an untracked `harness/build/`, and the install docs' test counts were stale | `c3612eb` |
 
-### Found by running the thing, not reading it (9)
+#### Found by running the thing, not reading it (9)
 
 | ID | Defect | Status |
 |---|---|---|
@@ -162,7 +170,7 @@ gone red on push. The threads are now held at a barrier (`7942926`); no product 
 
 ---
 
-## 3. Notable behaviour changes
+### 3. Notable behaviour changes
 
 Things an operator will notice, beyond a bug no longer happening.
 
@@ -189,11 +197,11 @@ Things an operator will notice, beyond a bug no longer happening.
 
 ---
 
-## 4. Known open
+### 4. Known open
 
 **One item. No crash, data-loss or wrong-result defect is open.**
 
-### SMOKE4 — `CodingAgent.available()` is a false green light
+#### SMOKE4 — `CodingAgent.available()` is a false green light
 
 `available()` returned `(True, "ok")` for `agy:gemini-3.7-flash`, which could not launch at
 all, and for `codex:gpt-5.1-codex`, which the ChatGPT-account backend rejects with
@@ -222,7 +230,7 @@ first-cell `HTTP 400 model is not supported` as a configuration error, not a sco
 preflight that runs one trivial turn per CLI arm and classifies a backend model rejection as
 a config error; and narrowing `available()`'s docstring to what it actually verifies.
 
-### Pre-existing flakes (not from this pass, not fixed)
+#### Pre-existing flakes (not from this pass, not fixed)
 
 `tests/orchestrator_tracks/test_cost_latency.py::test_a_model_outage_escalates_the_asset_instead_of_losing_it`
 and `tests/orchestrator_tracks/test_prompts_assets.py::test_scene_templates_render_and_asset_stage_with_blender`
@@ -232,12 +240,12 @@ run reported here. Worth a separate look at their fan-out / ordering assumptions
 
 ---
 
-## 5. The claude-code arms, and Sonnet 5
+### 5. The claude-code arms, and Sonnet 5
 
 Two defects here, both fixed, both affecting **recorded cost and model attribution** rather
 than generated artifacts.
 
-### CC-1 — every `--model` ALIAS recorded the wrong model
+#### CC-1 — every `--model` ALIAS recorded the wrong model
 
 `claude -p` bills **two** models per session: the work model, plus a small background model
 the CLI uses for its own housekeeping. claude 2.1.243 lists the **auxiliary** one first in
@@ -270,7 +278,7 @@ Verified live at sign-off:
 | `claude-code:opus` | `claude-haiku-4-5-20251001` | `claude-opus-5` | exact |
 | default (no `--model`) | `claude-haiku-4-5-20251001` | `claude-opus-5[1m]` | exact |
 
-### CC-2 — the default arm's model had no price
+#### CC-2 — the default arm's model had no price
 
 `claude-opus-5[1m]` is the 1M-context Opus 5 variant the **default** claude-code arm serves.
 `[1m]` is not a version suffix, so it cannot prefix-match `claude-opus-5`, and the id had no
@@ -290,7 +298,7 @@ Opus 5 rates with the 1h cache write at 2× input (not modelled, as for every ot
 row). A test pins that a bracketed suffix still cannot borrow a sibling's price:
 `claude-sonnet-5[1m]` stays `unknown`.
 
-### Sonnet 5 pricing — checked, and correct
+#### Sonnet 5 pricing — checked, and correct
 
 The `claude-sonnet-5` row is `$2.00 / $10.00` per 1M (cached `$0.20`, cache write `$2.50`).
 This was re-verified at sign-off against the live model documentation on 2026-08-24, because
@@ -301,14 +309,14 @@ provenance note ("the launch rate became the standard rate; the 2026-09-01 incre
 cancelled") are right, and no 1 September repricing is pending. Opus 5 confirmed at $5 / $25
 and Haiku 4.5 at $1 / $5 on the same check.
 
-### Still true about the CLI arms
+#### Still true about the CLI arms
 
 `codex:gpt-5.1-codex` is rejected by a ChatGPT-account backend; the tiers this repo runs are
 `gpt-5.6-sol` / `-terra` / `-luna`. `available()` will not warn you (§4).
 
 ---
 
-## 6. Reconciliation notes for reviewers
+### 6. Reconciliation notes for reviewers
 
 Three things worth knowing about how this landed.
 
@@ -342,9 +350,9 @@ Three things worth knowing about how this landed.
 
 ---
 
-## 7. Verification
+### 7. Verification
 
-### Test suite
+#### Test suite
 
 | Run | Interpreter | Command | Result |
 |---|---|---|---|
@@ -355,7 +363,7 @@ Three things worth knowing about how this landed.
 The deselected are `live`; **no live test was run and no provider was billed by the suite.**
 The skips are data-dependent (recorded runs a fresh clone does not have).
 
-### Clean clone
+#### Clean clone
 
 `git clone` → fresh `python3.10 -m venv` → `pip install -e harness` → `3dcv doctor` →
 offline subset. Python **3.10.21**, the `requires-python` floor.
@@ -370,7 +378,7 @@ offline subset. Python **3.10.21**, the `requires-python` floor.
 - offline subset: green, with **no credentials in the environment**, which is what a CI
   runner has (PORT-2).
 
-### Smoke matrix
+#### Smoke matrix
 
 55 cells. **47 ok, 0 failed, 8 skipped.** All four cells that failed on the hunt were
 re-run at sign-off and now pass; the remaining 43 ok cells are carried forward from the hunt
@@ -443,7 +451,7 @@ the fix or sign-off passes called a model except the four subscription-CLI probe
 Sign-off re-runs of rows 15, 19, 26 and 52 used four subscription-CLI or offline calls and
 did not touch the Gemini key pool.
 
-### House rules
+#### House rules
 
 - All work done in `git worktree`s; the main tree was never edited while a battery was
   running, and `git -C /home/yipeng/3dcodeverse status --short` is empty at this commit.
