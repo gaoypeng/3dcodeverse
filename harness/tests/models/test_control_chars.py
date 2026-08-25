@@ -69,3 +69,78 @@ def test_the_subprocess_backstop_names_the_offender(tmp_path):
     poisoned = "harness_instructions: envelope is 0.078 \x00 0.300 m"
     with pytest.raises(ValueError, match=r"argv\[2\] contains a NUL at offset \d+"):
         run_with_watchdog(["echo", "ok", poisoned], cwd=tmp_path, env=None, soft_timeout_s=5)
+
+
+def test_the_anthropic_submit_tool_path_is_sanitised_too():
+    """CP-2: the SDK hands `submit` tool input back already parsed, so it never met
+    parse_json_lenient.  gemini/openai set ``parsed = parse_json_lenient(text)``
+    unconditionally and were clean; anthropic set ``parsed = submit`` raw, so a model
+    NUL reached plan.json (tracks/planner.py reads resp.parsed first) and detonated at
+    Popen four stages later — the very failure this module's fix was written to end."""
+    from types import SimpleNamespace as NS
+
+    from codeverse.contracts.chat import ChatMessage, ChatRequest
+    from codeverse.models.anthropic import AnthropicModel
+    from codeverse.models.anthropic_convert import SUBMIT_TOOL
+
+    block = NS(type="tool_use", id="t1", name=SUBMIT_TOOL,
+               input={"description": "0.078 \x00 0.300 slab"})
+    reply = NS(id="m1", model="claude-opus-5", content=[block], stop_reason="tool_use",
+               stop_details=None,
+               usage=NS(input_tokens=10, output_tokens=2,
+                        cache_read_input_tokens=0, cache_creation_input_tokens=0))
+
+    class FakeClient:
+        def __init__(self):
+            self.messages = NS(create=lambda **kw: reply)
+
+    model = AnthropicModel("claude-opus-5", client=FakeClient(), sleep=lambda s: None)
+    resp = model.generate(ChatRequest(
+        messages=[ChatMessage.user("hi")],
+        response_schema={"type": "object", "properties": {"description": {"type": "string"}}},
+    ))
+    assert "\x00" not in resp.parsed["description"]
+    assert resp.parsed["description"] == "0.078   0.300 slab"
+    # the text mirror the harness derives from it must be clean as well
+    assert "\x00" not in (resp.text or "")
+
+
+def test_the_brief_text_fallback_is_sanitised(tmp_path):
+    """CP-2 (second instance): tracks/brief.py fell back to ``json.loads(resp.text)``,
+    which is neither lenient nor sanitised — so a NUL in a brief field reached the plan
+    the same way the anthropic submit path did.  Uses the TEXT path (parsed=None), which
+    is what every provider returns when the model answers without the submit tool."""
+    from codeverse.contracts.chat import ChatResponse
+    from codeverse.contracts.common import Language, Track, Usage
+    from codeverse.contracts.plan import EngineeringBrief, RefDimension, SubAssembly
+    from codeverse.contracts.spec import Spec
+    from codeverse.tracks.brief import expand_brief
+
+    clean = EngineeringBrief(
+        object_name="Grinder", reference="Peugeot 1920s box grinder",
+        one_line="a wooden box grinder",
+        dimensions_m=[RefDimension(name="width", meters=0.14)],
+        sub_assemblies=[SubAssembly(name="burr", purpose="grinds", parts=["burr"])],
+        mechanism="the crank turns the shaft",
+        visible_from_outside=["the drawer seam"],
+        signature_features=["open hopper", "front drawer"], materials=["body: beech"])
+    payload = json.loads(clean.model_dump_json())
+    payload["mechanism"] = "the crank turns 0.078 \x00 0.300 the shaft"
+
+    class TextOnlyModel:
+        """Returns JSON as TEXT with parsed=None — the json.loads fallback branch."""
+
+        provider, model = "fake", "fake-1"
+
+        def supports_vision(self) -> bool:
+            return True
+
+        def generate(self, request):
+            return ChatResponse(text=json.dumps(payload), parsed=None, usage=Usage())
+
+    spec = Spec(id="s1", track=Track.STATIC_OBJECT, language=Language.BLENDER,
+                prompt="a hand-crank coffee grinder")
+    brief, _ = expand_brief(spec, "fake:planner", model=TextOnlyModel(), cache_dir=tmp_path)
+    assert brief is not None, "the brief must still be produced, only cleaned"
+    assert "\x00" not in brief.mechanism
+    assert brief.mechanism == "the crank turns 0.078   0.300 the shaft"

@@ -22,7 +22,7 @@ from codeverse.models.keypool import MAX_WAIT_S
 from codeverse.models.parts import Stopwatch
 from codeverse.models.pricing import cache_write_surcharge, estimate_cost
 from codeverse.models.retry import with_retries
-from codeverse.models.schema_utils import JsonParseError, parse_json_lenient
+from codeverse.models.schema_utils import JsonParseError, parse_json_lenient, strip_control_chars
 
 log = logging.getLogger(__name__)
 
@@ -147,7 +147,13 @@ class AnthropicModel:
         parsed: Any = None
         if request.response_schema is not None:
             if submit is not None:
-                parsed = submit
+                # The SDK hands back tool input already parsed, so it never passes through
+                # parse_json_lenient -> strip_control_chars the way the gemini/openai text
+                # paths do.  A model NUL in a `submit` field would otherwise survive into
+                # plan.json and detonate stages later at subprocess.Popen ("embedded null
+                # byte"): the identical failure strip_control_chars was written to end, and
+                # sanitising at ingestion is the only place that covers every model.
+                parsed = strip_control_chars(submit)
                 if not text:
                     text = json.dumps(parsed)
             elif not calls:

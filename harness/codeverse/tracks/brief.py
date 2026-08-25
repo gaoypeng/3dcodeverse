@@ -26,6 +26,7 @@ from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse.contracts.common import Track, Usage
 from codeverse.contracts.plan import EngineeringBrief
 from codeverse.contracts.spec import Spec
+from codeverse.models.schema_utils import parse_json_lenient
 from codeverse.prompts import load_text, prompt_hash, render
 
 log = logging.getLogger(__name__)
@@ -134,7 +135,9 @@ def expand_brief(spec: Spec, model_id: str, *, model: Any | None = None, events:
             response_schema=EngineeringBrief.model_json_schema(), temperature=0.3, thinking="low",
             max_output_tokens=BRIEF_MAX_TOKENS, label="planner-brief"))
         usage = usage + resp.usage
-        raw = resp.parsed if resp.parsed is not None else json.loads(resp.text or "{}")
+        # parse_json_lenient, not json.loads: it tolerates fences/prose AND strips the
+        # C0 controls a model can emit, which json.loads would carry into the brief.
+        raw = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text or "{}")
         brief = EngineeringBrief.model_validate(raw)
         if not brief.is_useful:
             raise ValueError(f"brief has {len(brief.sub_assemblies)} sub-assemblies and "
