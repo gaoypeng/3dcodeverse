@@ -235,18 +235,36 @@ class Settings(BaseSettings):
             if field not in stated and value not in (None, ""):
                 setattr(self, field, value)
 
+        def put_section(section: str, values: dict[str, Any]) -> None:
+            """Per-FIELD statedness inside a sub-model.
+
+            ``Settings.model_fields_set`` is SECTION-granular — pydantic marks the whole
+            ``judge`` sub-model as set when any ``CV3D_JUDGE__*`` is present — so testing
+            it here let one stated field suppress the profile's every other dial:
+            ``CV3D_PROFILE=quality CV3D_JUDGE__MAX_PX=800`` judged at n=1 instead of n=3,
+            silently, while `3dcv make` printed "judge sigma 0.017 at n=3".  The sub-model
+            has its own ``model_fields_set``, which is the per-field answer.  The values a
+            profile writes are DEFAULTS, not statements, so the field-set is restored
+            afterwards and re-applying a profile stays idempotent.
+            """
+            sub = getattr(self, section)
+            keep = set() if force else set(sub.model_fields_set)
+            update = {k: v for k, v in values.items() if k not in keep}
+            if not update:
+                return
+            new_sub = sub.model_copy(update=update)
+            new_sub.__pydantic_fields_set__ = keep
+            setattr(self, section, new_sub)
+
         self.profile = p.name
         put("default_generator", p.generator)
         put("default_planner", p.planner)
         put("default_judge", p.judge)
         put("default_captioner", p.captioner)
         put("default_candidates", p.candidates)
-        if "judge" not in stated:
-            self.judge = self.judge.model_copy(update={
-                "max_px": p.judge_max_px, "montages": p.judge_montages,
-                "detail_crops": p.judge_detail_crops, "samples": p.judge_samples})
-        if "limits" not in stated:
-            self.limits = self.limits.model_copy(update={"agent_max_turns": p.max_turns})
+        put_section("judge", {"max_px": p.judge_max_px, "montages": p.judge_montages,
+                              "detail_crops": p.judge_detail_crops, "samples": p.judge_samples})
+        put_section("limits", {"agent_max_turns": p.max_turns})
         return p
 
     def resolve_blender(self) -> str:

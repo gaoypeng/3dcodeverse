@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from codeverse.cli._common import resolve_dial
 from codeverse.cli.main import app
 from codeverse.config import Settings, get_settings
 from codeverse.cost.profiles import PROFILE_NAMES, PROFILES, get_profile, profile_table
@@ -79,6 +80,37 @@ def test_a_value_the_user_configured_survives_the_profile_unless_forced():
     assert s.default_judge == "gemini:gemini-3.7-flash"  # everything unstated still moves
     s.apply_profile("economy", force=True)
     assert s.default_generator == "single-shot:gemini:gemini-3.7-flash"
+
+
+def test_one_stated_judge_field_does_not_disable_the_whole_judge_block(monkeypatch):
+    """SM-03: ``model_fields_set`` on Settings is SECTION-granular — pydantic marks the
+    whole ``judge`` sub-model as set when any CV3D_JUDGE__* is present — so stating
+    max_px (which no profile even changes) used to suppress judge_samples too:
+    ``CV3D_PROFILE=quality CV3D_JUDGE__MAX_PX=800`` judged at n=1 while `3dcv make`
+    advertised "judge sigma 0.017 at n=3".  Statedness must be per FIELD."""
+    monkeypatch.setenv("CV3D_JUDGE__MAX_PX", "800")
+    s = Settings()
+    s.apply_profile("quality")
+    assert s.judge.max_px == 800, "the field the user stated wins"
+    assert s.judge.samples == 3, "every field the user did NOT state still follows the profile"
+    assert s.judge.montages == 3 and s.judge.detail_crops == 2
+    # and the same dial, whichever way the profile was named (cost/profiles.py's invariant)
+    monkeypatch.setenv("CV3D_PROFILE", "quality")
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+        assert resolve_dial(settings, None).judge_samples == resolve_dial(settings, "quality").judge_samples == 3
+    finally:
+        get_settings.cache_clear()
+
+
+def test_applying_a_profile_twice_is_idempotent():
+    """A profile writes DEFAULTS, so its own values must not come back as "stated" and
+    freeze the next apply_profile (model_copy(update=) marks the copied fields set)."""
+    s = Settings()
+    s.apply_profile("quality")
+    s.apply_profile("economy")
+    assert s.judge.samples == 2 and s.judge.max_px == 1024
 
 
 def test_unknown_profile_is_a_clear_error():
