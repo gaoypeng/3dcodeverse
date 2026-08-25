@@ -395,3 +395,24 @@ def test_a_genuinely_empty_runs_root_is_still_just_empty(tmp_path):
     empty = tmp_path / "runs"
     empty.mkdir()
     assert list(iter_runs(empty)) == []
+
+
+def test_parquet_keeps_the_complexity_columns_the_exporter_writes(tmp_path):
+    """RS-9: ``pa.Table.from_pylist(rows, schema=...)`` DROPS any key the schema does not
+    name, without a warning.  ``row_for_sample`` fills complexity / complexity_band,
+    metadata.jsonl keeps them and the module docstring lists them among the parquet's
+    queryable extras — but parquet_schema() had no such fields, so every query of the
+    shipped dataset (STORAGE_RULES §4) by complexity band silently returned nothing."""
+    import pyarrow.parquet as pq
+
+    from codeverse.flywheel.export import parquet_schema, write_parquet
+
+    row = dict.fromkeys(parquet_schema().names)
+    row.update(id="x", key="k", complexity=7.5, complexity_band="high")
+    table = pq.read_table(write_parquet([row], tmp_path / "metadata.parquet"))
+    assert {"complexity", "complexity_band"} <= set(table.column_names)
+    got = table.to_pylist()[0]
+    assert got["complexity"] == 7.5 and got["complexity_band"] == "high"
+    # and the schema can never fall behind row_for_sample again
+    with pytest.raises(ValueError, match="missing column"):
+        write_parquet([{**row, "a_new_metric": 1.0}], tmp_path / "later.parquet")

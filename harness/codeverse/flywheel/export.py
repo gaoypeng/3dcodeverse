@@ -259,6 +259,8 @@ def parquet_schema() -> Any:
             ("passed", pa.bool_()),
             ("generator", pa.string()),
             ("quality_tier", pa.string()),
+            ("complexity", pa.float64()),
+            ("complexity_band", pa.string()),
             ("gate_errors", pa.int32()),
             ("cost_usd", pa.float64()),
             ("rounds", pa.int32()),
@@ -272,10 +274,24 @@ def parquet_schema() -> Any:
 
 
 def write_parquet(rows: list[dict[str, Any]], path: Path) -> Path:
+    """One row per sample, in :func:`parquet_schema` order.
+
+    ``from_pylist(schema=...)`` DROPS any key the schema does not name, silently: that is
+    how ``complexity`` / ``complexity_band`` — filled by :func:`row_for_sample`, kept in
+    metadata.jsonl, and advertised in this module's docstring — went missing from the
+    parquet, so every query of the dataset by complexity band returned nothing.  The
+    schema and the row keys are asserted equal here so a future column cannot vanish
+    the same way.
+    """
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    table = pa.Table.from_pylist(rows, schema=parquet_schema())
+    schema = parquet_schema()
+    if rows:
+        missing = set(rows[0]) - set(schema.names)
+        if missing:
+            raise ValueError(f"parquet_schema() is missing column(s) written by row_for_sample: {sorted(missing)}")
+    table = pa.Table.from_pylist(rows, schema=schema)
     tmp = path.with_suffix(".parquet.tmp")
     pq.write_table(table, tmp, compression="zstd")
     tmp.replace(path)
