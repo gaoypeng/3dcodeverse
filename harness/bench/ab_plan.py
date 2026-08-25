@@ -31,8 +31,8 @@ What the verdict does NOT tell you: the generator is stochastic, so a paired del
 the spread of two independent generations, not the judge's ±0.02 sampling noise.  Run
 ``--aa`` (both arms identical) on the same battery to measure that floor; every summary
 prints the paired sd, the 2 SE band and how many pairs this spread would need before
-±0.02 is resolvable (``bench/_ab_report.NOISE_SIGMAS``).  Measured 2026-08-24: one A/A
-prompt came back +0.344 and the rule said "keep".
+±0.02 is resolvable (``bench/_ab_report.NOISE_SIGMAS``).  Measured 2026-08-24: two A/A
+runs of one prompt came back +0.344 and -0.100 — "keep" and "revert" from identical code.
 
 Layout of ``--out``: ``ab.json`` (the arms, options and variant env) ·
 ``results.jsonl`` (one ``CellResult`` per (prompt, arm); resume source) ·

@@ -131,6 +131,17 @@ def test_a_verdict_states_the_spread_it_was_decided_on():
     assert v.n_for_power > 100
 
 
+def test_sign_consistency_catches_the_win_the_mean_rule_throws_away():
+    """A change that helps every prompt a little is invisible to a +-0.02 mean at this
+    spread, and obvious to the sign test — which is the whole point of reporting it."""
+    v = verdict_of(_pairs(*([0.01] * 8)))
+    assert v.decision == "inconclusive", "the mean rule cannot see it"
+    assert (v.n_up, v.n_down) == (8, 0) and v.sign_p == pytest.approx(2 / 2 ** 8, abs=1e-4)
+    v = verdict_of(_pairs(0.30, -0.20, 0.10, 0.05, -0.10, 0.25, 0.02, -0.15))
+    assert (v.n_up, v.n_down) == (5, 3) and v.sign_p > 0.7, "a big mean with a coin-flip sign pattern"
+    assert verdict_of(_pairs(0.0, 0.0)).sign_p is None, "zero deltas are dropped, as the test requires"
+
+
 def test_a_tight_win_is_marked_separated_and_carries_no_caution():
     v = verdict_of(_pairs(0.10, 0.11, 0.09, 0.12))
     assert v.decision == "keep" and v.separated and v.caution == ""
@@ -147,6 +158,7 @@ def test_summary_prints_the_confidence_block():
             for arm, s in ((CONTROL, c), (VARIANT, x))]
     md = render_summary(pair_up(rows), rows, title="t", variant_env={"K": "v"}, generator="g", judge="j", rounds=1)
     assert "## Confidence" in md and "separated from noise: NO" in md and "NOT separated from noise" in md
+    assert "sign consistency: 2 up / 1 down" in md and "sign test p = 1.000" in md
 
 
 def test_an_aa_run_is_labelled_so_nobody_reads_it_as_a_decision():

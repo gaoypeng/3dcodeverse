@@ -40,14 +40,19 @@ REVERT_REGRESSIONS = 2
 #: SEPARATED the change from run-to-run noise.  2 is the usual ~95 % two-sided band.
 #:
 #: This is reported, never enforced: the keep/revert rule above is the protocol
-#: (docs/EVAL.md §7) and a report must not be able to argue itself out of it.  But the
-#: rule alone is dangerously confident.  Measured 2026-08-24: an A/A run of this rig —
-#: `CV3D_PLAN_FEATURES=all` when nothing on main read that variable, so both arms were
-#: byte-identical code — scored control 0.591 vs variant 0.934 on one prompt and the
-#: verdict line read **keep, mean delta +0.344**.  The generator is stochastic; a paired
-#: delta carries the spread of two independent generations, not the judge's ±0.02 sample
-#: noise.  So every summary states the spread beside the verdict, and says plainly when
-#: the decision threshold sits inside it.
+#: (docs/EVAL.md §8) and a report must not be able to argue itself out of it.  But the
+#: rule alone is dangerously confident.  Measured 2026-08-24 with two A/A runs — arms
+#: identical by construction — on the SAME prompt (`ctrl_med_dining_chair`, rounds 1):
+#:
+#:     0.591 vs 0.934  ->  delta +0.344  ->  verdict **keep**
+#:     0.700 vs 0.600  ->  delta -0.100  ->  verdict **revert**
+#:
+#: Nothing was under test either time, and the rule returned opposite decisions.  Those
+#: four same-code measurements of one prompt have sd 0.160, so a paired delta has
+#: sd ~0.226 and an 8-prompt mean has a 2 SE band of ±0.16 — eight times the ±0.02 the
+#: decision turns on.  The generator is stochastic; a paired delta carries the spread of
+#: two independent generations, not the judge's ±0.02 sampling noise.  So every summary
+#: states the spread beside the verdict, and says plainly when the threshold is inside it.
 NOISE_SIGMAS = 2.0
 
 
@@ -76,6 +81,9 @@ class Verdict(BaseModel):
     se_delta: float | None = Field(default=None, description="standard error of the mean delta, sd/sqrt(n)")
     separated: bool = Field(default=False, description="|mean delta| >= NOISE_SIGMAS * se: the decision is outside the noise")
     n_for_power: int | None = Field(default=None, description="pairs this spread needs for NOISE_SIGMAS*se to fit inside KEEP_DELTA")
+    n_up: int = Field(default=0, description="pairs where the variant scored higher (delta > 0)")
+    n_down: int = Field(default=0, description="pairs where the variant scored lower (delta < 0)")
+    sign_p: float | None = Field(default=None, description="two-sided exact sign test on n_up vs n_down; None with no non-zero deltas")
 
     @property
     def caution(self) -> str:
@@ -83,8 +91,9 @@ class Verdict(BaseModel):
         if self.n_pairs == 0:
             return ""
         if self.se_delta is None:
-            return ("one pair cannot separate a change from run-to-run noise: an A/A run of this rig "
-                    "(identical arms) measured a paired delta of +0.344 on a single prompt.")
+            return ("one pair cannot separate a change from run-to-run noise: two A/A runs of this rig "
+                    "(identical arms, same prompt) measured +0.344 and -0.100 — 'keep' and 'revert' from "
+                    "nothing at all.")
         if self.separated:
             return ""
         need = f"~{self.n_for_power} paired prompts" if self.n_for_power else "more paired prompts"
@@ -135,7 +144,7 @@ def verdict_of(pairs: list[PairOutcome]) -> Verdict:
                        reason="no prompt has both arms scored")
     mean, median = round(statistics.fmean(deltas), 4), round(statistics.median(deltas), 4)
     v = Verdict(decision="inconclusive", n_pairs=len(deltas), mean_delta=mean, median_delta=median,
-                regressions=regressions, **_spread(deltas, mean))
+                regressions=regressions, **_spread(deltas, mean), **_sign_test(deltas))
     if mean <= REVERT_DELTA or len(regressions) >= REVERT_REGRESSIONS:
         v.decision, v.reason = "revert", (f"mean delta {mean:+.3f} <= {REVERT_DELTA:+.2f}" if mean <= REVERT_DELTA
                                           else f"{len(regressions)} regressions (>= {REVERT_REGRESSIONS})")
@@ -145,6 +154,26 @@ def verdict_of(pairs: list[PairOutcome]) -> Verdict:
         v.reason = (f"mean delta {mean:+.3f} inside ({REVERT_DELTA:+.2f}, {KEEP_DELTA:+.2f})" if not regressions
                     else f"mean delta {mean:+.3f} but {len(regressions)} regression(s): {', '.join(regressions)}")
     return v
+
+
+def _sign_test(deltas: list[float]) -> dict[str, object]:
+    """How CONSISTENT the change is, as opposed to how big its mean is.
+
+    The mean is hostage to the generation spread (see :data:`NOISE_SIGMAS`): at a paired
+    sd near 0.23 an eight-prompt mean cannot resolve 0.02 and never will.  The SIGN of
+    each paired delta is far cheaper to move — a real improvement tends to help most
+    prompts a little, and 7 of 8 in one direction is p = 0.07 on the exact two-sided sign
+    test, a bar an eight-prompt battery can actually clear.  Reported, not enforced: the
+    keep/revert rule is the protocol.  Zero deltas are dropped, as the test requires.
+    """
+    up = sum(d > 0 for d in deltas)
+    down = sum(d < 0 for d in deltas)
+    n = up + down
+    if n == 0:
+        return {"n_up": 0, "n_down": 0, "sign_p": None}
+    k = max(up, down)
+    tail = sum(math.comb(n, i) for i in range(k, n + 1)) / 2 ** n
+    return {"n_up": up, "n_down": down, "sign_p": round(min(1.0, 2 * tail), 4)}
 
 
 def _spread(deltas: list[float], mean: float) -> dict[str, object]:
@@ -230,6 +259,8 @@ def render_summary(pairs: list[PairOutcome], rows: list[CellResult], *, title: s
         f"paired sd {_fmt(v.sd_delta)} · SE {_fmt(v.se_delta)} · {NOISE_SIGMAS:g} SE band "
         f"{_fmt(v.mean_delta, True)} ± {_fmt(NOISE_SIGMAS * v.se_delta if v.se_delta else None)} · "
         f"separated from noise: {'yes' if v.separated else 'NO'}",
+        f"sign consistency: {v.n_up} up / {v.n_down} down · exact two-sided sign test p = "
+        f"{'—' if v.sign_p is None else f'{v.sign_p:.3f}'} — the signal an 8-prompt battery can actually carry",
         *([f"\n**{v.caution}**"] if v.caution else []), "",
         "## Arms", "",
         "| arm | n | scored | infra_failed | budget_exhausted | other unscored | mean | median | cost $ | mean min |",

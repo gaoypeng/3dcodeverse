@@ -226,10 +226,20 @@ verdict rule is blunt on purpose (`bench/_ab_report.verdict_of`, stated once):
 > **or** ≥ 2 such prompts; else inconclusive.  A prompt counts only when BOTH arms scored.
 
 **That rule is a screen, not a proof, and the numbers say by how much.**  Measured
-2026-08-24: an A/A run — `--variant-env CV3D_PLAN_FEATURES=all` at a time when nothing on
-`main` read that variable, so the two arms were byte-identical code — produced
-control 0.591 vs variant 0.934 on `ctrl_med_dining_chair`, and the verdict line read
-**keep, mean delta +0.344**.  Nothing was under test and the rig said ship it.
+2026-08-24 with two A/A runs — arms identical by construction — on the *same* prompt
+`ctrl_med_dining_chair` at rounds 1, `api-agent:gemini:gemini-3.7-flash`, fixed judge
+`gemini-3.1-pro-preview` n=2:
+
+| run | control | variant | delta | verdict the rule printed |
+|---|---|---|---|---|
+| `bench/out/ab_smoke_features` | 0.591 | 0.934 | **+0.344** | **keep** |
+| `bench/out/ab_aa_noise` | 0.700 | 0.600 | **−0.100** | **revert** |
+
+Nothing was under test either time, and the rule returned opposite decisions.  Those four
+same-code measurements of one prompt have **sd 0.160** (mean 0.706, range 0.591–0.934), so
+a paired delta has sd ≈ 0.226 and an 8-prompt mean carries a 2 SE band of **±0.16** —
+eight times the ±0.02 the decision turns on.  Resolving ±0.02 at this spread would take
+roughly **500 paired prompts**.
 
 The reason is structural, not a bug: a paired delta is the difference of two *independent
 stochastic generations*, so it carries generation spread, not the fixed judge's ±0.02
@@ -238,14 +248,19 @@ of magnitude too tight for what it is applied to.  Consequences:
 
 * every summary now prints a **Confidence** block — paired sd, SE, the 2 SE band, and
   `separated from noise: yes|NO` — beside the verdict, plus `n_for_power`, the number of
-  paired prompts this spread would need before ±0.02 is resolvable.  At a paired sd of
-  ~0.18 that is *hundreds*, not eight;
+  paired prompts this spread would need before ±0.02 is resolvable.  At the spread above
+  that is *hundreds*, not eight;
 * run `--aa` on the same battery and the same n to measure the floor before believing a
   win.  Both arms get the control environment; the report is titled `A/A` and banners
   itself so no reader can mistake a calibration for a result;
 * a `keep` that is not `separated` means "worth another look", never "ship it".  Prefer
   changes whose per-prompt deltas are *consistent in sign* over ones with a big mean and
-  a big spread — the sign pattern survives this noise where the mean does not.
+  a big spread — the sign pattern survives this noise where the mean does not (a sign test
+  over 8 prompts needs 7/8 in one direction for p < 0.07, and that is a bar an 8-prompt
+  battery can actually clear);
+* the cheapest real power is not more prompts but **less per-cell variance**: more rounds,
+  or k generations per (prompt, arm) averaged before differencing, cuts the paired sd by
+  √k.  Both cost the same dollars as more prompts and buy more per dollar here.
 
 ## 9. Reporting checklist
 
