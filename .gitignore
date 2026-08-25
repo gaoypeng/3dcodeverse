@@ -3,6 +3,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 node_modules/
+# also the bare name: the documented worktree workflow symlinks
+# harness/runtime_js/node_modules, and a symlink is a FILE to git — the
+# trailing-slash pattern above does not match it, so `git add -A` committed it.
+node_modules
 runs/
 harness/runs/
 bench/out/
