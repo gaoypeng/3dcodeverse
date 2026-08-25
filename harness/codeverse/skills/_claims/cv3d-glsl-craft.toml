@@ -34,3 +34,9 @@ text = "0.98"
 python = "codeverse.spatial.frame_stats:BLOWN_LUM"
 scale = 1
 format = "{:.2f}"
+
+[[claim]]
+key = "duplicate_diff"
+text = "0.0001"
+python = "codeverse.spatial.frame_stats:DUPLICATE_DIFF"
+format = "{:g}"

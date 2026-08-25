@@ -25,7 +25,7 @@ corpus actually name.
 |---|---|---|
 | static | `STATIC_DIFF` | mean absolute pixel difference between consecutive frames **< 0.002** |
 | flicker | `FLICKER_DIFF` | any consecutive pair **> 0.35** |
-| duplicate frames | `DUPLICATE_DIFF` | a pair under 1e-4 (INFO) |
+| duplicate frames | `DUPLICATE_DIFF` | a pair under 0.0001 (INFO) |
 | near-flat image | `LOW_DETAIL_EDGE` | mean edge density **< 0.002** (fraction of pixels whose luminance gradient exceeds 0.02) |
 | black / blown | `BLACK_LUM` 0.03, `BLOWN_LUM` 0.98 | > 97% of pixels in every frame; ERROR, and the gate hint asks for mean luminance 0.2-0.6 |
 

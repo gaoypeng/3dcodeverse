@@ -226,3 +226,23 @@ def test_every_cookbook_section_a_skill_names_exists_in_that_cookbook(s):
         assert any(want in _squash(t) for t in titles), (
             f"{s.name} sends the agent to read_cookbook(section={want!r}), "
             f"which no cookbook of {sorted(langs)} has")
+
+
+@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
+def test_a_constant_a_body_names_is_also_pinned_by_a_claim(s):
+    """Naming `PENETRATION_WARN_M` in prose is a promise about its VALUE.
+
+    ``check_claims`` verifies the rows a bundle declares; nothing verified the rows it
+    forgot.  A body that names one of our constants is quoting the number beside it, so
+    that number needs a claim row — otherwise moving the constant leaves a confident
+    sentence with the old value and no test to notice.  Found `DUPLICATE_DIFF` quoted at
+    1e-4 in cv3d-glsl-craft with no row behind it.
+    """
+    from codeverse.skills.claims import load_claims
+
+    pinned = {str(r["python"]).rsplit(":", 1)[-1] for r in load_claims(s.name) if r.get("python")}
+    named = {c for c in _CONST.findall(_prose(s.body)) if c in LIVE_CONSTANTS}
+    unpinned = sorted(named - pinned)
+    assert unpinned == [], (
+        f"{s.name} names {unpinned} in prose but pins no claim to it — add a "
+        f"[[claim]] row to skills/_claims/{s.name}.toml")

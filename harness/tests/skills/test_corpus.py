@@ -25,8 +25,10 @@ produced it, a tight recomputation compares two different populations and fails 
 written prose.  Declaring those queries the way ``_claims/*.toml`` declares constants is
 the open item — see docs/SKILLS.md.
 
-Skipped when ``bench/out`` is absent (a fresh checkout, and CI), which is why it is also
-marked slow: it walks a few hundred records.
+Skipped when ``bench/out`` holds fewer than ``MIN_CORPUS`` graded runs — a fresh checkout,
+CI, or a directory holding nothing but an A/B in flight.  A corpus that small cannot audit
+anything, and asserting against it would fail every honest bundle.  Marked slow because it
+walks a few hundred records.
 """
 
 from __future__ import annotations
@@ -45,11 +47,8 @@ BUNDLES = bundle_dirs()
 SKILLS = list(iter_skills()) if BUNDLES else []
 BENCH_OUT = Path(__file__).resolve().parents[2] / "bench" / "out"
 
-pytestmark = [
-    pytest.mark.slow,
-    pytest.mark.skipif(not BUNDLES, reason=f"no bundles in {skills_dir()} yet"),
-    pytest.mark.skipif(not BENCH_OUT.is_dir(), reason="no bench/out in this checkout"),
-]
+#: below this, the directory is not a corpus and this file has nothing to say
+MIN_CORPUS = 50
 
 #: "102 graded blender runs", "23 graded urdf_blender runs", "9 graded glsl runs"
 _CLAIM = re.compile(r"\b(\d+)\s+graded\s+([a-z_]+?)(?:_blender)?\s*runs?\b", re.I)
@@ -84,11 +83,14 @@ def _graded_by_language() -> Counter:
     return out
 
 
-LIVE = _graded_by_language()
+LIVE = _graded_by_language() if BENCH_OUT.is_dir() else Counter()
 
-
-def test_the_corpus_is_big_enough_to_be_worth_mining():
-    assert sum(LIVE.values()) >= 50, f"bench/out only holds {sum(LIVE.values())} graded runs"
+pytestmark = [
+    pytest.mark.slow,
+    pytest.mark.skipif(not BUNDLES, reason=f"no bundles in {skills_dir()} yet"),
+    pytest.mark.skipif(sum(LIVE.values()) < MIN_CORPUS,
+                       reason=f"bench/out holds {sum(LIVE.values())} graded runs, under {MIN_CORPUS}"),
+]
 
 
 @pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
