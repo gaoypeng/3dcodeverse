@@ -29,6 +29,13 @@ FRAME_GATE = "scene_frames"
 
 # thresholds (fractions of the frame / of full white)
 DARK_MEAN_LUM = 0.12
+#: a frame this dark in the MEAN is still correctly exposed when it has real contrast --
+#: a lantern-lit night is dim on average and bright where the lanterns are.  Measured
+#: 2026-08-25 on tsr_scn_temple_night r01: the three authored cameras sat at lum_std
+#: 0.171 / 0.199 / 0.249 while the flat overview rig sat at 0.058, so lum_std separates
+#: "low-key by design" from "unlit or broken" cleanly.  ``lum_std`` has been in the
+#: camera_checks payload from host_metrics.mjs all along; this gate never read it.
+LOWKEY_MIN_STD = 0.12
 DARK_FRAC = 0.35
 BLOWN_FRAC = 0.20
 FLAT_MODAL_FRAC = 0.85
@@ -40,11 +47,26 @@ CONTENT_MIN_OVERVIEW = 0.05
 EYE_MIN_ABOVE_GROUND_M = 0.3
 EYE_MAX_ABOVE_GROUND_M = 80.0
 
+#: for a frame that is dark AND flat -- nothing is lit, so adding light is right
 _DARK_HINT = (
     "raise the key + fill: DirectionalLight intensity 2–4, HemisphereLight 0.5–1.0 (sky colour / ground colour), "
     "add emissive lights where the brief has them (lantern glow: MeshStandardMaterial emissive + emissiveIntensity 2–6, "
     "a PointLight 0.5–2 per lantern); scene.fog colour must match the sky colour; dusk/night is orange/purple/deep blue, "
     "NOT black — keep mean luminance ≥ 0.15 (check with scene_views: camera_checks.mean_lum)"
+)
+#: for a frame that is dark but CONTRASTY -- something IS lit, so adding fill is the
+#: wrong move and actively destroys the picture.  Measured 2026-08-25: temple_night was
+#: told by _DARK_HINT to add a HemisphereLight, did so, and the resulting flat fill
+#: washed the granite paving to near-white, flattened the scene to "snow at dawn" and
+#: drowned a working KoiWater ShaderMaterial -- the effect was running the whole time.
+#: The judge then scored the washed-out version 0.7287 and passed it.
+_LOWKEY_HINT = (
+    "this frame is DIM BUT LIT — it has real contrast, so do NOT add AmbientLight or HemisphereLight and do NOT "
+    "raise a DirectionalLight to fix it: flat fill is what turns a night scene into a grey wash, washes dark "
+    "materials out to near-white and drowns emissive/shader effects. Instead lift the picture where the light "
+    "actually comes from: raise emissiveIntensity on the lamps/lanterns themselves, add or brighten a PointLight "
+    "at each practical light, give dark materials a low but non-zero base colour so they read as material and not "
+    "as void, and let the shadowed areas stay dark. Only if the frame is ALSO flat (no contrast) does it need key/fill."
 )
 _BLOWN_HINT = (
     "lower exposure: DirectionalLight ≤ 3, HemisphereLight ≤ 1.0, no MeshBasicMaterial white planes; "
@@ -89,10 +111,19 @@ def _exposure_findings(chk: dict[str, Any], *, authored: bool) -> list[GateFindi
     # scene being unlit (measured: it cost the rooftop battery a 0.60 cap three rounds running)
     rig = "" if authored else "harness rig view (not an authored camera): "
     mean, dark, blown, modal = (_num(chk, k) for k in ("mean_lum", "dark_frac", "blown_frac", "modal_frac"))
+    std = _num(chk, "lum_std")
     is_dark = (mean is not None and mean < DARK_MEAN_LUM) or (dark is not None and dark > DARK_FRAC)
+    # dim BUT lit: real contrast and not mostly black.  A night scene must not be failed
+    # for being a night scene, and must never be told to flatten itself with fill light.
+    low_key = is_dark and std is not None and std >= LOWKEY_MIN_STD and (dark is None or dark <= DARK_FRAC)
     if is_dark:
-        out.append(_f(sev, name, rig + (f"frame too dark: mean luminance {mean:.2f}, {dark or 0:.0%} of pixels near black" if mean is not None
-                      else f"frame too dark: {dark:.0%} of pixels near black"), _DARK_HINT,
+        msg = (f"frame too dark: mean luminance {mean:.2f}, {dark or 0:.0%} of pixels near black" if mean is not None
+               else f"frame too dark: {dark:.0%} of pixels near black")
+        if low_key:
+            msg = (f"frame is dim but lit: mean luminance {mean:.2f} with contrast {std:.2f} "
+                   f"({dark or 0:.0%} of pixels near black) — low-key by design, not unlit")
+        out.append(_f(Severity.WARN if low_key else sev, name, rig + msg,
+                      _LOWKEY_HINT if low_key else _DARK_HINT,
                       kind="dark_frame", view=name, mean_lum=mean, dark_frac=dark))
     if blown is not None and blown > BLOWN_FRAC:
         out.append(_f(sev, name, rig + f"frame blown out: {blown:.0%} of pixels pure white", _BLOWN_HINT,

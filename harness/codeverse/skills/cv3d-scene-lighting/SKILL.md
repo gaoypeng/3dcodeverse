@@ -58,9 +58,20 @@ linear 0.02 to 0.05 moves the frame from 0.08 to 0.20. Small increases pay near 
 
 ## The recipe
 
-* **Tint, do not dim.** Dusk and night are coloured darkness. Turning the key down is not
-  how you make dusk; changing its hue and the hemisphere's is. Take the whole row from the
-  cookbook's time-of-day table rather than inventing a triad.
+* **Tint, do not dim** — for DUSK, and for a night lit from the sky. Dusk is coloured
+  darkness, so change the key's hue and the hemisphere's rather than turning the key down.
+  Take the whole row from the cookbook's time-of-day table rather than inventing a triad.
+* **But a PRACTICAL-lit night really is dim, and fill will ruin it.** When the brief says
+  the light comes from lanterns, lamps, fire, neon or windows, the picture is supposed to
+  be dark between them: that contrast IS the subject. Adding AmbientLight or a
+  HemisphereLight to lift the average is the single most destructive thing you can do to
+  such a scene — measured 2026-08-25 on a lantern-lit temple courtyard, the added fill
+  washed dark granite paving to near-white, flattened the whole frame to "snow at dawn",
+  and drowned a KoiWater ShaderMaterial that was running correctly the entire time. Light
+  it from its own practicals instead: emissive on the lamp, a PointLight at each one, a
+  low but non-zero base colour on dark materials so they read as material and not as void,
+  and shadows left dark. The gate now tells these two cases apart — a dim frame WITH
+  contrast (`lum_std` >= 0.12) is reported as "dim but lit" and is only a WARN.
 * **The sun is white at noon and warm only near the horizon.** A warm sun at high elevation
   reads as an error, not as mood.
 * **The fill is the opposite hue from the key.** Hemisphere light is sky colour above,
@@ -72,11 +83,18 @@ linear 0.02 to 0.05 moves the frame from 0.08 to 0.20. Small increases pay near 
 * **Fog colour is the sky's horizon colour**, never white or grey unless the brief says
   overcast, and never a black background.
 
-Working numbers, straight from the gate's own fix hint: DirectionalLight **2-4**,
-HemisphereLight **0.5-1.0**, `emissiveIntensity` **2-6** with a PointLight **0.5-2** per
-practical, and keep mean luminance **>= 0.15** so you are not sitting on the threshold. If
-the frame is blown instead: key <= 3, hemisphere <= 1.0, sky below 0.9 white,
-`emissiveIntensity` <= 4 on large surfaces.
+Working numbers for a scene lit from the SKY (day, overcast, dusk), straight from the
+gate's fix hint: DirectionalLight **2-4**, HemisphereLight **0.5-1.0**,
+`emissiveIntensity` **2-6** with a PointLight **0.5-2** per practical, and keep mean
+luminance **>= 0.15** so you are not sitting on the threshold. If the frame is blown
+instead: key <= 3, hemisphere <= 1.0, sky below 0.9 white, `emissiveIntensity` <= 4 on
+large surfaces.
+
+Do **not** carry that ">= 0.15" over to a scene lit from its PRACTICALS. There the target
+is contrast, not average: `lum_std` **>= 0.12** with the lit areas reading clearly, mean
+luminance wherever it lands (0.06-0.15 is normal and fine), one dim moon/sky key at
+**<= 0.2** if you want shape in the shadows, and no AmbientLight or HemisphereLight at
+all. Chasing the 0.15 average in a night scene is exactly how you get a grey wash.
 
 For a flat frame, add contrast rather than light: a shadow-casting key, materials with
 genuinely different albedos, and a camera aimed at content rather than at sky.

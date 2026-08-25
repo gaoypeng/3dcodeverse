@@ -34,3 +34,12 @@ text   = "92 %"
 python = "codeverse.spatial.frame_metrics:FLAT_MODAL_ERROR"
 scale  = 100
 format = "{:.0f} %"
+
+# The contrast floor that separates "dim but lit" (WARN) from "unlit or broken" (ERROR).
+# The skill tells authors to aim at this instead of the 0.15 mean in a practical-lit
+# night scene, so it must not drift from the gate.
+[[claim]]
+key    = "scene_lowkey_min_std"
+text   = "0.12"
+python = "codeverse.spatial.frame_metrics:LOWKEY_MIN_STD"
+format = "{:.2f}"
