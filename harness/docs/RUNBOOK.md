@@ -62,7 +62,8 @@ quick-judged, pairwise tie-break, winner kept; multiplies baseline cost ≈ N;
 default from `settings.default_candidates`), `--texture` (run the texture pass after
 finalise; see §6), `--max-usd`, `--max-minutes`, `--dim height=0.45`, `--must`,
 `--must-not`, `--style`, `--tag`, `--seed`, `--slug`, `--runs-dir`, `--force`,
-`--no-run`.
+`--no-run` (workspace + spec.json only — except that `--reference` still runs its
+paid grounding pass first, since the grounded spec is what it writes).
 
 Expected cost/time with gemini-3.7-flash: object tracks ≈ $0.7–0.9 and 12–36 min for
 baseline + 1 refine; best-of-2 single-shot ≈ $0.25 / 8 min; graphics single-shot

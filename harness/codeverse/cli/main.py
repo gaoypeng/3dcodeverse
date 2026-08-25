@@ -50,6 +50,15 @@ def _root(ctx: typer.Context, version: Annotated[bool, typer.Option("--version",
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
         raise typer.Exit()
+    # Build the settings HERE so a bad configuration value is one typed error instead of a
+    # raw traceback out of whichever command happened to touch get_settings() first: the app
+    # runs with pretty_exceptions_enable=False, and `CV3D_PROFILE=bogus` used to dump a
+    # Python stack from every command — including `3dcv doctor`, the one you would run to
+    # find out what is wrong with your configuration.
+    try:
+        get_settings()
+    except ValueError as e:
+        raise C.CliError(f"bad configuration: {e}", code=2) from e
 
 
 # --------------------------------------------------------------------------- make / resume
@@ -87,7 +96,9 @@ def make(
     texture: Annotated[bool, typer.Option("--texture", help="run the text-to-image texture pass after the rounds (frozen on spec.options)")] = False,
     seed: Annotated[int, typer.Option("--seed")] = 0,
     force: Annotated[bool, typer.Option("--force", help="overwrite an existing run dir")] = False,
-    no_run: Annotated[bool, typer.Option("--no-run", help="only create the workspace + spec.json")] = False,
+    no_run: Annotated[bool, typer.Option("--no-run", help="only create the workspace + spec.json and stop "
+                       "(with --reference the reference pass still runs first: it makes model calls and writes "
+                       "the grounded spec)")] = False,
 ) -> None:
     """Create a run (workspace + spec.json) and execute the track pipeline."""
     image, dim, must, must_not, tag = image or [], dim or [], must or [], must_not or [], tag or []
@@ -133,6 +144,13 @@ def make(
                                    "rounds": rounds, "max_usd": max_usd,
                                    "candidates": candidates, "texture": texture}))
     if reference:
+        # --reference runs even under --no-run, because the grounded spec IS the artifact
+        # it produces (reference/run.py writes it back to spec.json) — but the combination
+        # is otherwise read as "filesystem only", so say out loud that this part spends
+        # money and can block on a degraded provider before anything is written.
+        if no_run:
+            warn(f"--reference makes model calls now (1 planner call + {reference_views} image generation(s) "
+                 f"+ {reference_views} vision check(s), ~$0.15 for 2 views) — --no-run stops after that")
         spec = _ground_in_reference(spec, ws, n_views=reference_views)
     if no_run:
         ok(f"spec written: {ws.spec_path} (not run; `3dcv resume {run_slug}` to start)")
@@ -231,7 +249,10 @@ def resume(
     ws = C.open_workspace(slug, runs_dir)
     spec = C.load_spec(ws)
     if spec.options.profile:  # the dial the run was created with (judge samples, montage px, turn cap)
-        get_settings().apply_profile(spec.options.profile, force=True)
+        try:
+            get_settings().apply_profile(spec.options.profile, force=True)
+        except ValueError as e:  # a spec.json naming a profile this build no longer has
+            raise C.CliError(f"{ws.spec_path}: {e}", code=2) from e
     raised = {k: v for k, v in {"max_usd": max_usd, "max_minutes": max_minutes, "max_rounds": rounds}.items() if v is not None}
     if not force and (why := _finished_reason(ws, raised)):
         raise C.CliError(f"run {ws.root.name} already finished ({why}); nothing to resume.  "

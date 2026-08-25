@@ -118,6 +118,31 @@ def test_unknown_profile_is_a_clear_error():
         get_profile("cheapest")
 
 
+def test_a_bogus_profile_name_is_a_typed_cli_error_not_a_traceback(monkeypatch, tmp_path):
+    """SM-10: the profile is read while get_settings() builds, and `app` runs with
+    pretty_exceptions_enable=False, so one typo in an exported CV3D_PROFILE dumped a raw
+    Python stack from EVERY command — including `3dcv doctor`, the command you would run
+    to find out what is wrong with your configuration."""
+    runner = CliRunner()
+    monkeypatch.setenv("CV3D_PROFILE", "bogus")
+    get_settings.cache_clear()
+    try:
+        r = runner.invoke(app, ["doctor"])
+        out = " ".join(r.output.split())  # rich wraps at the console width
+        assert r.exit_code == 2 and r.exception.__class__.__name__ != "ValueError"
+        assert "unknown profile 'bogus'" in out and "economy, balanced, quality" in out
+        assert "Traceback" not in out
+    finally:
+        get_settings.cache_clear()
+    monkeypatch.delenv("CV3D_PROFILE")
+    get_settings.cache_clear()
+    r = runner.invoke(app, ["make", "x", "--profile", "bogus", "--no-run",
+                            "--runs-dir", str(tmp_path / "runs"), "--slug", "b2"])
+    out = " ".join(r.output.split())
+    assert r.exit_code == 2 and "unknown profile 'bogus'" in out and "Traceback" not in out
+    get_settings.cache_clear()
+
+
 def test_profile_table_and_cli():
     rows = profile_table()
     assert len(rows) == 3 and rows[0][0] == "economy"

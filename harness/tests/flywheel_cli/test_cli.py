@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 
 from codeverse.cli import _common as C
 from codeverse.cli.main import app
+from codeverse.cli.main import make as make_cmd
 from codeverse.contracts.spec import Spec
 
 runner = CliRunner()
@@ -335,3 +336,31 @@ def test_render_graphics_regenerates_frames(tmp_path: Path, monkeypatch):
     assert r.exit_code == 0, r.output
     assert (out / "sheet.png").is_file() and len(list(out.glob("f*.png"))) == 2
     assert "fake-gl" in r.output
+
+
+def test_reference_with_no_run_says_it_is_about_to_spend_money(tmp_path: Path, monkeypatch):
+    """SM-06: `--no-run` reads as "filesystem only" (its help said "only create the
+    workspace + spec.json"), but main.py grounds the reference BEFORE honouring it: 1
+    planner call + n_views image generations + n_views vision checks, ~$0.15, and a block
+    of up to model_timeout_s on a degraded provider.  The pass is not wasted — the
+    grounded spec is written back to spec.json — so it keeps running, but the command must
+    say so instead of looking offline."""
+    import codeverse.reference as REF
+
+    calls = []
+
+    def fake_ground_spec(spec, ws, *, n_views=2, events=None, **kw):
+        calls.append(n_views)
+        raise SystemExit(7)  # stop before any real model work
+
+    monkeypatch.setattr(REF, "ground_spec", fake_ground_spec)
+    runs = tmp_path / "runs"
+    r = runner.invoke(app, ["make", "a wooden stool", "--reference", "--no-run",
+                            "--runs-dir", str(runs), "--slug", "refnorun"])
+    out = " ".join(r.output.split())
+    assert calls == [2], "the grounding pass still runs: the grounded spec is the artifact"
+    assert "--reference makes model calls now" in out and "$0.15" in out
+    import typing
+
+    help_text = typing.get_type_hints(make_cmd, include_extras=True)["no_run"].__metadata__[0].help
+    assert "with --reference the reference pass still runs first" in help_text

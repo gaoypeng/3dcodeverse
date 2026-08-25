@@ -170,7 +170,10 @@ def resolve_dial(
     ``--max-minutes`` / ``--texture``) always wins over both.
     """
     settings = settings or get_settings()
-    prof = settings.apply_profile(profile_flag, force=True) if profile_flag else active_profile(settings)
+    try:
+        prof = settings.apply_profile(profile_flag, force=True) if profile_flag else active_profile(settings)
+    except ValueError as e:  # e.g. `--profile bogus`: a typed error, not a raw traceback
+        raise CliError(str(e), code=2) from e
     return ResolvedDial(
         profile=prof.name,
         generator=settings.default_generator,
