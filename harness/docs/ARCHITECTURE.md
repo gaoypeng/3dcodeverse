@@ -77,7 +77,8 @@ codeverse/
   contracts/          pydantic: common (Track, Language, Usage, Budget, Backends, TRACK_INFO registry,
                       ENTRY_FILE/code_file/LANGUAGE_LABEL tables), spec (+ RunOptions), plan, artifacts
                       (GateFinding.as_line, RenderView.judge, RenderSet.out_dir), judgment, run, chat,
-                      agent (typed AgentJob + ApiAgentOptions)
+                      agent (typed AgentJob + ApiAgentOptions), skills.py (SkillsUsage/SkillRead on
+                      RoundRecord: what was attached, what was read)
   workspace.py        run-dir layout + git snapshots ;  events.py  JSONL event log
   proc.py             stdlib-only subprocess + atomic-JSON primitives (run_subprocess w/ group kill +
                       preexec_fn, kill_group, tail, write_json_atomic) — shared by languages/spatial/cli
@@ -103,6 +104,16 @@ codeverse/
                       complexity.py (objective complexity vector -> Measurement.extra, docs/COMPLEXITY.md),
                       joints*.py + joints_collide.py (deterministic penetration), registry.py, tools*.py
                       (tools_texture.py, tools_graphics.py), mcp_server.py (MCP name: 3dcv)
+  skills/             THE skill library + its router (design: SKILL.md is an open standard, so
+                      claude-code / codex / gemini-cli / agy load our bundles natively):
+                      <name>/SKILL.md + <name>/references/*.md (the bundles, package data),
+                      loader.py (spec validation), model.py, registry.py (the R1-R24 route table +
+                      finding_kind(): the ONE place gate message text is matched), router.py
+                      (track/language/kind/plan/gate-findings -> a capped, ranked, reasoned set),
+                      materialize.py (writes into ws/.agents/skills AND ws/.claude/skills, real
+                      copies — codex refuses symlinks), prompting.py (per-backend index text),
+                      telemetry.py (the atime read probe: surfaced vs deep), claims.py (numbers
+                      pinned to live constants), config.py (CV3D_SKILLS, default OFF)
   cost/               types.py (CallCost/Stage/Role) ledger.py (append-only telemetry/cost.jsonl + price provenance)
                       context.py (per-call > ambient attribution) instrument.py (MeteredChatModel /
                       MeteredAgent — one row per ChatModel.generate; one session row only for a backend
@@ -134,7 +145,9 @@ codeverse/
                       plan_features.py (CV3D_PLAN_FEATURES: one switch per plan-loop change, so each
                       can be A/B'd alone — docs/PLAN_LOOP.md),
                       plan_examples.py (worked plans shown to the planner), depth.py + detailing.py
-                      (per-part detail pass), envelope.py (bbox envelope), scene_asset_gen.py
+                      (per-part detail pass), envelope.py (bbox envelope), scene_asset_gen.py,
+                      skills_hook.py (the round's view of codeverse/skills: attach before generating,
+                      probe reads after — a no-op unless CV3D_SKILLS is on)
   flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, migrate.py (schema moves),
                       deliverable.py, telemetry.py, trajectories.py (repair-pair
                       mining), captions.py, quality.py (tiers + dedupe), gallery.py (the shared
@@ -150,6 +163,8 @@ codeverse/
                       texturing/*.md, tracks/*.j2 (incl. plan/generate/refine_graphics.j2)
   cli/                main.py, tools_cmd.py, flywheel_cmd.py, gallery_cmd.py, bench_cmd.py,
                       texture_cmd.py, cost_cmd.py (`3dcv cost`), layout_cmd.py, doctor.py
+                      (`--skills` checks the library + its discovery wiring),
+                      skills_cmd.py (`3dcv skills list|show|validate|report` — the read-rate report)
 bench/                run_bench.py, report.py (reuses flywheel gallery), compare_backends.py
                       (preflights every model it needs; --wait-for-provider / --no-preflight),
                       _infra.py (outage vs model failure: infra_failed / budget_exhausted, docs/EVAL.md §7),

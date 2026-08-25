@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from codeverse.contracts.artifacts import BuildResult, GateReport
 from codeverse.contracts.common import Usage
 from codeverse.prompts import render
+from codeverse.tracks import skills_hook
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
 from codeverse.tracks.prompting import base_prompt_context
@@ -51,8 +52,12 @@ def error_signature(build: BuildResult, lint: GateReport) -> str:
     return "lint|" + "|".join(sorted(f"{f.target}:{f.message[:80]}" for f in lint.errors))
 
 
-def format_error_report(build: BuildResult, lint: GateReport, cookbook: str = "") -> str:
-    """Compact, structured error report for the fixer (the ONLY thing it must fix)."""
+def format_error_report(build: BuildResult, lint: GateReport, cookbook: str = "", skills: str = "") -> str:
+    """Compact, structured error report for the fixer (the ONLY thing it must fix).
+
+    ``skills`` is the gate→skill pointer block: the bundles already in the workspace that
+    answer THESE findings, named beside them.  Pointers, not text — the bodies are on
+    disk, and the repair prompt is the volatile tail nobody caches."""
     lines: list[str] = []
     if not build.ok:
         loc = build.error_file + (f":{build.error_line}" if build.error_line else "") if build.error_file else "(unknown file)"
@@ -68,6 +73,8 @@ def format_error_report(build: BuildResult, lint: GateReport, cookbook: str = ""
     if lint.errors:
         lines.append(f"LINT ERRORS ({lint.gate}):")
         lines.extend(f"- {f.as_line(with_target=True)}" for f in lint.errors)
+    if skills.strip():
+        lines.append("\n" + skills.strip())
     section = relevant_cookbook_section(cookbook, " ".join([build.error_type, build.error_message, build.stderr_tail[-2000:]]))
     if section:
         lines.append("\nRelevant cookbook section:\n" + section)
@@ -180,7 +187,7 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
 def make_repair_task(ctx: RunContext, build: BuildResult, lint: GateReport, *, round_index: int, attempt: int,
                      repeats: int, label: str, files_hint: list[str]) -> GenerationTask:
     """Render prompts/tracks/repair.j2 for the current strategy."""
-    report = format_error_report(build, lint, ctx.cookbook_text)
+    report = format_error_report(build, lint, ctx.cookbook_text, skills_hook.repair_pointers(ctx, lint))
     files = files_for_repair(ctx, build, lint, files_hint) if ctx.single_shot else {}
     prompt = render("tracks/repair.j2", **base_prompt_context(
         ctx, error_report=report, files=files, repeats=repeats, attempt=attempt,

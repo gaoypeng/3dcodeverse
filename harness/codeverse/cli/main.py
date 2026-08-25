@@ -23,6 +23,7 @@ from codeverse.cli.cost_cmd import cost_app
 from codeverse.cli.doctor import doctor_app
 from codeverse.cli.flywheel_cmd import flywheel_app
 from codeverse.cli.gallery_cmd import gallery_app
+from codeverse.cli.skills_cmd import skills_app
 from codeverse.cli.texture_cmd import texture_app
 from codeverse.cli.tools_cmd import tools
 from codeverse.config import get_settings
@@ -36,6 +37,7 @@ app.add_typer(gallery_app, name="gallery", help="Look at runs locally: `serve` o
 app.add_typer(bench_app, name="bench", help="Prompt batteries: run + report.")
 app.add_typer(cost_app, name="cost", help="Cost audit: per stage/role/model, waste, $ per passing artifact.")
 app.add_typer(doctor_app, name="doctor", help="Environment checks.")
+app.add_typer(skills_app, name="skills", help="The skill library: list / show / validate / read-rate report.")
 app.add_typer(texture_app, name="texture", help="Text-to-image texturing: object pass / scene pack.")
 app.command("tools", help="List spatial tools or run one: `3dcv tools list` | `3dcv tools <name> --json '{...}' --workspace ws`.")(tools)
 

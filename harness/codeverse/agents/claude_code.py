@@ -34,7 +34,11 @@ from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Usage
 
-ALLOWED_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
+#: ``--allowedTools``.  "Skill" is claude-code 2.1's model-invoked skill tool: without it
+#: the bundles the harness materialises into ``ws/.claude/skills/`` are listed at session
+#: start and then DENIED on activation, which reads in the transcript as the model
+#: ignoring them.  It only ever opens files already inside the workspace.
+ALLOWED_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "Skill",
                  "Bash(node:*)", "Bash(python:*)", "Bash(python3:*)", "Bash(ls:*)", "mcp__c3v__*")
 IDLE_GRACE_S = 300.0
 

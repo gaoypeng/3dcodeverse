@@ -189,6 +189,13 @@ class _Loop:
             out = self._dispatch(call.name, dict(call.arguments or {}))
             if call.name in ("write_file", "edit_file") and not out.is_error:
                 self.last_write_turn = turn
+            if call.name == "read_file" and not out.is_error:
+                # signal 3 of the read probe: api-agent is the only backend where we own
+                # the read tool, so it is the calibration arm for the atime probe.
+                from codeverse.skills.telemetry import record_exact_read
+
+                record_exact_read(self.s.ws.root, str((call.arguments or {}).get("path", "")),
+                                  turn=turn, label=getattr(self.s, "label", "") or "")
             if call.name in (BUILD_TOOL, "run_build"):
                 self.last_build_turn = turn
             parts.append(ToolResultPart(call_id=call.id, name=call.name, content=out.text, images=out.images, is_error=out.is_error))

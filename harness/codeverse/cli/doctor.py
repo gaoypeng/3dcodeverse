@@ -256,7 +256,38 @@ def check_mcp() -> list[Row]:
         return [("mcp", "WARN", f"codeverse.spatial.mcp_server not importable ({e})")]
 
 
-def run_doctor(*, live: bool = False, gpu: bool = True) -> list[Row]:
+def check_skills() -> list[Row]:
+    """The static half of the live CLI smoke: is the library there, valid, and reachable?
+
+    A CLI upgrade that moves its skills root ships an empty index and the run still
+    passes — the failure is invisible except as a read rate of zero a battery later.  So
+    the wiring gets a check you can run before spending money."""
+    from codeverse.agents.claude_code import ALLOWED_TOOLS
+    from codeverse.skills import bundle_dirs, skills_dir, validate_bundle
+    from codeverse.skills.config import skills_enabled
+    from codeverse.skills.materialize import SKILL_ROOTS
+    from codeverse.skills.registry import ROUTED_SKILLS
+
+    rows: list[Row] = [("skills switch", "OK" if skills_enabled() else "WARN",
+                        "CV3D_SKILLS=on" if skills_enabled() else "CV3D_SKILLS is off (default): no skill is attached")]
+    dirs = bundle_dirs()
+    if not dirs:
+        rows.append(("skills library", "WARN", f"no bundles under {skills_dir()}"))
+    else:
+        bad = {d.name: validate_bundle(d) for d in dirs}
+        bad = {k: v for k, v in bad.items() if v}
+        rows.append(("skills library", "FAIL" if bad else "OK",
+                     f"{len(dirs)} bundles, {len(bad)} invalid" + (f": {', '.join(bad)}" if bad else "")))
+    missing = [n for n in ROUTED_SKILLS if n not in {d.name for d in dirs}]
+    if missing:
+        rows.append(("skills routing", "WARN", f"{len(missing)} routed skill(s) have no bundle: {', '.join(missing[:4])}…"))
+    rows.append(("skills discovery", "OK", "materialised into " + " + ".join(SKILL_ROOTS)))
+    rows.append(("claude-code Skill tool", "OK" if "Skill" in ALLOWED_TOOLS else "FAIL",
+                 "in --allowedTools" if "Skill" in ALLOWED_TOOLS else "missing: claude-code would deny skill activation"))
+    return rows
+
+
+def run_doctor(*, live: bool = False, gpu: bool = True, skills: bool = False) -> list[Row]:
     rows: list[Row] = []
     rows += check_python_deps()
     rows += check_blender()
@@ -267,6 +298,8 @@ def run_doctor(*, live: bool = False, gpu: bool = True) -> list[Row]:
     rows += check_pool(live)
     rows += check_clis()
     rows += check_mcp()
+    if skills:
+        rows += check_skills()
     return rows
 
 
@@ -275,12 +308,13 @@ def doctor(
     ctx: typer.Context,
     live: Annotated[bool, typer.Option("--live", help="make one tiny Gemini call")] = False,
     gpu: Annotated[bool, typer.Option("--gpu/--no-gpu", help="probe headless Chrome WebGL")] = True,
+    skills: Annotated[bool, typer.Option("--skills", help="also check the skill library and its discovery wiring")] = False,
     as_json: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Check python deps, Blender, node/three/puppeteer, keys, CLIs and MCP."""
     if ctx.invoked_subcommand:
         return
-    rows = run_doctor(live=live, gpu=gpu)
+    rows = run_doctor(live=live, gpu=gpu, skills=skills)
     if as_json:
         console.print_json(json.dumps([{"check": c, "status": s, "detail": d} for c, s, d in rows]))
     else:

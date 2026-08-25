@@ -64,8 +64,12 @@ include = ["codeverse*"]
 # scene starter tree were missing and `spatial/js/*` matched nothing at all (no such
 # directory), so a wheel install shipped no starter files: skeleton.write_example()
 # rglob'd an absent directory and wrote ZERO files while reporting success.
+# `skills/**/*` carries the SKILL.md bundles + their references/: an installed wheel that
+# ships none of them routes an empty set, and the failure is silent (the run still passes,
+# the skill simply never appears).  tests/skills/test_packaging.py builds a wheel and
+# asserts the files are in it.
 codeverse = ["prompts/**/*", "judges/rubrics/*.yaml", "languages/**/wrappers/*",
-             "languages/**/*.md", "languages/**/starter/**/*"]
+             "languages/**/*.md", "languages/**/starter/**/*", "skills/**/*"]
 
 [tool.setuptools.exclude-package-data]
 codeverse = ["**/__pycache__/*"]   # a wheel must not carry the build host's bytecode
@@ -90,4 +94,5 @@ markers = [
   "live: needs network + API keys (deselect with -m 'not live')",
   "blender: needs a Blender binary",
   "node: needs node + runtime_js deps",
+  "slow: recomputes something from bench/out (deselect with -m 'not slow')",
 ]

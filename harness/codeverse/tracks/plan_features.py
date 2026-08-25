@@ -48,6 +48,11 @@ LIVE_SWITCHES: dict[str, str] = {
     "CV3D_SCOPED_PARTS": "codeverse/tracks/depth.py",
     "CV3D_DETAIL_ROUNDS": "codeverse/tracks/lifecycle.py",
     "CV3D_REFERENCE_DIFF": "codeverse/judges/reference.py",
+    # the skill system (design: scratchpad/skills/design/DESIGN.md §6.5).  All three are
+    # read at call time by one module, so an A/B arm that sets them really differs.
+    "CV3D_SKILLS": "codeverse/skills/config.py",
+    "CV3D_SKILLS_MAX": "codeverse/skills/config.py",
+    "CV3D_SKILLS_UNVERIFIED": "codeverse/skills/config.py",
 }
 
 #: Switches that are DECLARED but read by no code path, with the reason.  An A/B arm that
