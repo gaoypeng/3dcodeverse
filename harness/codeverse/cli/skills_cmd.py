@@ -30,18 +30,29 @@ def _root(ctx: typer.Context) -> None:
 def list_skills(
     routes: Annotated[bool, typer.Option("--routes", help="show the rules that can attach each skill")] = False,
 ) -> None:
-    """Every bundle in the library, with its evidence label and body size."""
+    """Every bundle in the library, with its evidence label, body size and its ONE claim.
+
+    ``target`` is the deterministic quantity the bundle says it moves (docs/SKILLS_LEDGER.md);
+    ``dir`` is the direction that counts as an improvement, and a ``?`` marks a bundle whose
+    claim no deterministic instrument can see.  Read them out with
+    ``python bench/skill_targets.py bench/out``.
+    """
     from rich.table import Table
 
     from codeverse.skills import iter_skills
     from codeverse.skills.registry import ROUTED_SKILLS, ROUTES
+    from codeverse.skills.targets import target_for
 
     found = list(iter_skills())
     t = Table(title="3dcv skills")
-    for col in ("name", "evidence", "verified", "lines", "~tokens", "refs", *(["routes"] if routes else [])):
+    for col in ("name", "evidence", "verified", "lines", "~tokens", "refs", "target", "dir",
+                *(["routes"] if routes else [])):
         t.add_column(col)
     for s in found:
-        row = [s.name, s.evidence, s.verified, str(s.body_lines), str(s.body_tokens), str(len(s.references))]
+        tg = target_for(s.name)
+        row = [s.name, s.evidence, s.verified, str(s.body_lines), str(s.body_tokens), str(len(s.references)),
+               tg.metric if tg else "[red]none[/]",
+               ("" if not tg else tg.direction if tg.measurable else f"{tg.direction} ?")]
         if routes:
             row.append(",".join(r.rule for r in ROUTES if r.skill == s.name))
         t.add_row(*row)

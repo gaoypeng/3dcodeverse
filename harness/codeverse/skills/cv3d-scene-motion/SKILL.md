@@ -8,6 +8,11 @@ metadata:
   evidence_note: "The mechanism, thresholds and hook are read from live code (spatial/frame_motion.py, spatial/frame_metrics.py, runtime_js/lib/scene_host.mjs) and are exact. The corpus behind them is thin: 3 graded scene runs / 8 judged rounds on scenes_v1_flash, 2026-08-23. Where a number is from that battery it says so."
   verified: "2026-08-25"
   pairs_with: "cv3d-scene-composition, cv3d-scene-lighting, cv3d-threejs-shader-traps"
+  target_metric: "min_authored_changed_frac"
+  target_direction: "up"
+  target_unit: "fraction of pixels changed on the WEAKEST authored camera, t=0 → t=1.5 s"
+  target_measurable: "false"
+  target_baseline: "0.006 median / 0.017 mean on the weakest authored camera; n=3 (bench/out, 2026-08-25). The gate needs only ONE authored camera over the 0.4 pct bar, so a run whose establishing shot is frozen at 0.13 pct still passes - which is why this is a guard, not a target"
 ---
 
 # Motion the harness can measure

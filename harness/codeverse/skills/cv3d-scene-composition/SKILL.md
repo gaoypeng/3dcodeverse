@@ -8,6 +8,11 @@ metadata:
   evidence_note: "Gate thresholds, score caps and the backdrop classifier are read from live code (spatial/frame_metrics.py, judges/rubrics/scene_v1.yaml, runtime_js/lib/backdrop.mjs, runtime_js/lib/scene_host.mjs). The corpus behind them is thin: only 3 graded scene runs exist, so every count below names its n."
   verified: "2026-08-25"
   corpus: "3 graded scene_threejs runs with gate artefacts, mined 2026-08-25"
+  target_metric: "camera_placement_findings"
+  target_direction: "down"
+  target_unit: "findings per run"
+  target_measurable: "true"
+  target_baseline: "0.00 findings per run; n=3 (bench/out, last gated round, 2026-08-25); 0.33 on the first gated round, so the repair loop already clears it"
 ---
 
 # Composing a scene the instruments can read

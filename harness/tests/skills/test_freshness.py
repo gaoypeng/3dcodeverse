@@ -246,3 +246,23 @@ def test_a_constant_a_body_names_is_also_pinned_by_a_claim(s):
     assert unpinned == [], (
         f"{s.name} names {unpinned} in prose but pins no claim to it — add a "
         f"[[claim]] row to skills/_claims/{s.name}.toml")
+
+
+@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
+def test_the_target_metric_a_bundle_declares_is_still_one_we_read_out(s):
+    """The fifth vocabulary: a bundle's own falsifiable claim.
+
+    ``metadata.target_metric`` is the quantity ``bench/skill_targets.py`` prints for this
+    bundle.  If the row is renamed or dropped, the frontmatter keeps promising a number
+    nothing computes, and the next A/B reads a silent zero as "no effect".
+    """
+    from codeverse.skills.targets import METRICS, target_for
+
+    metric = s.metadata.get("target_metric", "")
+    assert metric, (
+        f"{s.name}: metadata.target_metric is missing — every bundle owes one deterministic "
+        f"claim (docs/SKILLS_LEDGER.md)")
+    assert metric in METRICS, (
+        f"{s.name} declares target_metric {metric!r}, which skills/targets.py no longer defines")
+    row = target_for(s.name)
+    assert row is not None and row.metric == metric

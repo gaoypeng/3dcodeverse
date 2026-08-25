@@ -8,6 +8,11 @@ metadata:
   verified: "2026-08-25"
   corpus: "217 run records / 2,121 gate reports under bench/out, mined 2026-08-25"
   owns: "contract/instance_bbox, contract/instance_count"
+  target_metric: "contract_instance_findings"
+  target_direction: "down"
+  target_unit: "findings per run"
+  target_measurable: "true"
+  target_baseline: "0.32 mean / 0.0 median findings per run; n=164 (bench/out, last gated round, 2026-08-25); 132 of 164 runs already at zero"
 ---
 
 # Repeats, mirrors and arrays

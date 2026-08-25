@@ -7,6 +7,11 @@ metadata:
   evidence: inherited-unverified
   evidence_note: 'Every kernel rule below was probed against the CadQuery 2.8.0 installed in this repo on 2026-08-25 and cross-checked with the cadquery lint, the run_cq wrapper and the language contract. What is NOT available is score evidence. This harness has ZERO graded cadquery bench runs, so nothing here is ranked by measured defect frequency the way the blender and urdf bundles are. Routed off by default until cadquery has 20 graded runs.'
   verified: "2026-08-25"
+  target_metric: "build_failure_rate"
+  target_direction: "down"
+  target_unit: "fraction of rounds whose build failed"
+  target_measurable: "true"
+  target_baseline: "none: n=0, bench/out holds no graded cadquery run (2026-08-25)"
 ---
 
 # CadQuery: forms, and the kernel rules that gate them

@@ -7,6 +7,11 @@ metadata:
   evidence: measured
   verified: "2026-08-25"
   corpus: "102 graded blender runs + 23 urdf_blender runs with gate artefacts, mined 2026-08-25"
+  target_metric: "blender_lint_findings"
+  target_direction: "down"
+  target_unit: "findings per run"
+  target_measurable: "true"
+  target_baseline: "0.87 mean / 0.0 median findings per run; n=164 (bench/out, last gated round, 2026-08-25); blender 1.01, urdf_blender 0.00"
 ---
 
 # Shapes to bpy, and the traps the lint counts

@@ -7,6 +7,11 @@ metadata:
   evidence: mixed
   evidence_note: 'Thresholds and renderer settings are read from live code, namely spatial/frame_metrics.py and runtime_js/lib/browser/renderer.js, and the luminance figures are computed from those settings. The corpus half is thin and labelled as such, being 4 scene_threejs runs in scenes_v1_flash mined 2026-08-25, so it is quoted as examples and never as a rate.'
   verified: "2026-08-25"
+  target_metric: "dark_or_flat_frames"
+  target_direction: "down"
+  target_unit: "findings per run"
+  target_measurable: "true"
+  target_baseline: "1.00 mean / 1.0 median findings per run; n=3 (bench/out, last gated round, 2026-08-25); 2.67 on the first gated round"
 ---
 
 # Lighting a scene the frame gate will accept

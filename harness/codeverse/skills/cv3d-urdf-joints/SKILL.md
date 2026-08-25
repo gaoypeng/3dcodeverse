@@ -9,6 +9,11 @@ metadata:
   corpus: "26 urdf_blender runs / 50 judged rounds under bench/out, mined 2026-08-25"
   owns: "joint_sweep, motion_direction"
   scope: "URDF physical structure only; SRDF semantics are out of scope and must not be invented"
+  target_metric: "joint_sweep_errors"
+  target_direction: "down"
+  target_unit: "ERROR findings per run"
+  target_measurable: "true"
+  target_baseline: "6.91 mean / 0.0 median ERRORs per run; n=23 (bench/out, last gated round, 2026-08-25); 20 of 23 at zero, worst run 101"
 ---
 
 # URDF joints: axes, limits and clearance across the sweep

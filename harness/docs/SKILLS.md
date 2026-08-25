@@ -125,6 +125,14 @@ Fourteen bundles. `lines`/`tokens` are the body, against caps of 350 and 2,500.
 | `cv3d-cadquery-forms` | any | cadquery | **inherited-unverified** | 82 | 1,470 | R10 |
 | `cv3d-threejs-forms` | static_object | threejs | **inherited-unverified** | 120 | 1,934 | R11 |
 
+Every bundle also declares **one deterministic quantity it claims to move**, in its own
+frontmatter (`target_metric`, `target_direction`, `target_baseline`) and in
+`codeverse/skills/targets.py`. `python bench/skill_targets.py bench/out` prints them all —
+per battery or paired across an A/B's two arms — and **`docs/SKILLS_LEDGER.md` is the row-by-row
+maintenance surface**: baseline, graded-run count, and what each bundle owes before it can be
+called earned. `evidence` says where the prose came from; the target says what the bundle is
+for.
+
 `evidence` is a claim about **n**, and `tests/skills/test_corpus.py` recomputes it from
 `bench/out`:
 
@@ -504,7 +512,13 @@ chose to go deeper" (§1).
    format = "{:.0f} mm"
    ```
 4. Add its rows to `ROUTES` in `codeverse/skills/registry.py`, in the same commit.
-5. `3dcv skills validate --strict` and `pytest tests/skills`.
+5. Add a `Target` row to `codeverse/skills/targets.py` and the matching `target_*` keys to
+   the frontmatter — the ONE deterministic quantity the bundle claims to move, its
+   direction, and its baseline from `python bench/skill_targets.py bench/out`. If no
+   deterministic instrument can see the claim, say so with `measurable=False` and a
+   `caveat`: that is a finding about the bundle, not a gap to paper over with a judged
+   criterion. Then add its row to `docs/SKILLS_LEDGER.md`.
+6. `3dcv skills validate --strict` and `pytest tests/skills`.
 
 Body rules: ≤ 350 lines and ≤ 2,500 tokens; no code fence over 20 lines; never restate a
 frame, unit or naming rule (`conventions.py` owns those); every corpus percentage carries

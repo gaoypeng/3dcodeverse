@@ -8,6 +8,11 @@ metadata:
   evidence_note: "Zero graded threejs bench runs exist (bench/out/*/runs/*, checked 2026-08-25); the only recorded threejs run is runs/e2e_bench_threejs. Every API claim here is verified against codeverse/prompts/threejs/contract.md, codeverse/prompts/threejs/cookbook.md, codeverse/languages/threejs/lint.py and runtime_js/package.json, but the ADVICE has not been A/B'd on our corpus. Routed off unless CV3D_SKILLS_UNVERIFIED=on; upgrade to measured when threejs reaches 20 graded runs."
   verified: "2026-08-25"
   pairs_with: "cv3d-form-manifest, cv3d-part-contact, cv3d-bbox-contract"
+  target_metric: "missing_parts"
+  target_direction: "down"
+  target_unit: "findings per run"
+  target_measurable: "true"
+  target_baseline: "none: n=0, bench/out holds no graded threejs run (2026-08-25)"
 ---
 
 # FORM to three.js

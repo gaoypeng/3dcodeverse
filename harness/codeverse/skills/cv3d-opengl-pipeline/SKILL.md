@@ -7,6 +7,11 @@ metadata:
   evidence: mixed
   evidence_note: 'Thin but real, and labelled so in the body. 5 graded opengl_python runs across graphics_v1_flash and graphics_v2_flash, 10 judged rounds, recomputed 2026-08-25. The API facts come from the runtime wrapper and the lint, not from the corpus.'
   verified: "2026-08-25"
+  target_metric: "gl_frame_findings"
+  target_direction: "down"
+  target_unit: "findings per run"
+  target_measurable: "true"
+  target_baseline: "0.20 mean / 0.0 median findings per run; n=5 (bench/out, last gated round, 2026-08-25); 4 of 5 at zero"
 ---
 
 # The moderngl pipeline, and the two things that actually sink these runs

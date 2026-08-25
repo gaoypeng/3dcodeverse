@@ -72,7 +72,8 @@ _RULES: tuple[tuple[str, str, str], ...] = (
     ("motion_direction", r"WRONG", MOTION_WRONG_AXIS),
     ("scene_frames", r"too dark|flat frame", SCENE_DARK_OR_FLAT),
     ("scene_frames", r"BELOW the ground|inside / touching geometry", SCENE_CAMERA_PLACEMENT),
-    ("gl_frames", r"frame-to-frame|visual detail", GL_MOTION_OR_DETAIL),
+    ("gl_frames", r"frame-to-frame|visual detail|do not change over time"
+                 r"|essentially black|blown out|NaN/Inf|no frames were rendered", GL_MOTION_OR_DETAIL),
     ("detail_drift", r"moved|resized|removed|added", DETAIL_DRIFT),
     ("render_console", r"frame rate|error", RUNTIME_SLOW),
     ("shader_preflight", r".", SHADER_COMPILE_OR_BINDING),

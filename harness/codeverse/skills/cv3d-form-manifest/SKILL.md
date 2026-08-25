@@ -8,6 +8,11 @@ metadata:
   verified: "2026-08-25"
   corpus: "bench/out/*/runs/* graded records, recomputed 2026-08-25"
   pairs_with: "cv3d-blender-forms, cv3d-cadquery-forms, cv3d-threejs-forms, cv3d-part-contact"
+  target_metric: "feature_density"
+  target_direction: "up"
+  target_unit: "small sharp edges per unit surface (spatial/complexity)"
+  target_measurable: "true"
+  target_baseline: "2551 median / 7946 mean; n=164 (bench/out, last gated round, 2026-08-25); right-skewed, read the median"
 ---
 
 # Form manifest — name the shapes before you name an API

@@ -8,6 +8,11 @@ metadata:
   evidence_note: "Gate thresholds and rubric weights are read from live code (spatial/frame_stats.py, judges/rubrics/shader_v1.yaml). The corpus is thin: 9 graded glsl_shader runs, so every count below names its n and no rate is generalised."
   verified: "2026-08-25"
   corpus: "9 graded glsl_shader runs (18 judged rounds) + 5 opengl_python runs, mined 2026-08-25"
+  target_metric: "mean_edge_density"
+  target_direction: "up"
+  target_unit: "mean edge density over the 5 sampled frames (frame_stats)"
+  target_measurable: "true"
+  target_baseline: "0.167 median / 0.203 mean edge density; n=9 (bench/out, last gated round, 2026-08-25); range 0.031-0.464"
 ---
 
 # What separates a graded shader from a demo

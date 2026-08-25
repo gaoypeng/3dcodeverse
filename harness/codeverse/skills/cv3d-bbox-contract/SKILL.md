@@ -6,6 +6,11 @@ metadata:
   evidence: measured
   verified: "2026-08-25"
   corpus: bench/out, 142 graded records with gate artefacts, recomputed 2026-08-25
+  target_metric: "contract_findings"
+  target_direction: "down"
+  target_unit: "findings per run"
+  target_measurable: "true"
+  target_baseline: "1.51 mean / 1.0 median findings per run; n=167 (bench/out, last gated round, 2026-08-25); 1.23 on the first gated round"
 ---
 
 # The plan's numbers are the contract
