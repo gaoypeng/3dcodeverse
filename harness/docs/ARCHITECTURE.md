@@ -80,6 +80,8 @@ codeverse/
                       agent (typed AgentJob + ApiAgentOptions), skills.py (SkillsUsage/SkillRead on
                       RoundRecord: what was attached, what was read)
   workspace.py        run-dir layout + git snapshots ;  events.py  JSONL event log
+  runlock.py          ONE writer per run dir — a PID lock that names its holder so a
+                      human can kill that one run and not every run on the box
   proc.py             stdlib-only subprocess + atomic-JSON primitives (run_subprocess w/ group kill +
                       preexec_fn, kill_group, tail, write_json_atomic) — shared by languages/spatial/cli
   models/             ChatModel; gemini_convert.py anthropic_convert.py openai_convert.py
