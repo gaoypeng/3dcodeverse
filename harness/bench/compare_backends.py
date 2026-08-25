@@ -433,6 +433,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--loop-judge", default=None, help="harness in-loop judge (default: settings default)")
     ap.add_argument("--repair-attempts", type=int, default=2)
     ap.add_argument("--gen-timeout", type=float, default=900.0)
+    ap.add_argument("--judge-samples", type=int, default=2,
+                    help="FIXED judge samples per cell (default 2 — kept for resumable batteries; use an odd "
+                         "n for a true majority on the defect checklist, see docs/DECISIONS.md D36)")
     ap.add_argument("--no-pairwise", action="store_true")
     ap.add_argument("--no-preflight", action="store_true",
                     help="skip the provider health check (see --wait-for-provider)")
@@ -453,6 +456,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                           limit=ns.limit, ids=[i for i in ns.ids.split(",") if i],
                           tiers=[t for t in ns.tiers.split(",") if t], resume=not ns.no_resume,
                           gen_timeout_s=ns.gen_timeout, repair_attempts=ns.repair_attempts, pairwise=not ns.no_pairwise,
+                          n_samples=max(1, ns.judge_samples),
                           redo_status=[x for x in ns.redo_status.split(",") if x])
     arms = parse_arms(ns.arms)
     if not ns.no_preflight and not _preflight(opts.judge, arms, opts, wait_minutes=ns.wait_for_provider):
