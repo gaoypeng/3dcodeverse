@@ -15,10 +15,12 @@ def test_a_second_process_cannot_enter_a_locked_run(tmp_path):
     times and two ran concurrently on the same workspace for four minutes, both writing
     run_state.json, both snapshotting src/ into the same git repo, both spending the
     run's budget."""
-    with run_lock(tmp_path, what="3dcv make demo"):
-        with pytest.raises(RunLocked) as ei:
-            with run_lock(tmp_path):
-                pytest.fail("the second entry must not be granted")
+    with (
+        run_lock(tmp_path, what="3dcv make demo"),
+        pytest.raises(RunLocked) as ei,
+        run_lock(tmp_path),  # raises on __enter__, so the body below never runs
+    ):
+        pytest.fail("the second entry must not be granted")
     msg = str(ei.value)
     assert str(os.getpid()) in msg, "the message must name the PID so ONE process can be killed"
     assert "pkill" in msg, "and must warn against the pattern kill that took out 13 runs"
@@ -33,9 +35,8 @@ def test_the_lock_is_released_on_the_way_out(tmp_path):
 
 
 def test_an_exception_still_releases_the_lock(tmp_path):
-    with pytest.raises(ZeroDivisionError):
-        with run_lock(tmp_path):
-            raise ZeroDivisionError
+    with pytest.raises(ZeroDivisionError), run_lock(tmp_path):
+        raise ZeroDivisionError
     with run_lock(tmp_path):
         pass
 
