@@ -26,15 +26,17 @@ import re
 from collections.abc import Sequence
 
 from codeverse.cost.guard import text_tokens
+from codeverse.skills.delivery import (
+    AGENTS_SKILL_ROOT,
+    CLAUDE_SKILL_ROOT,
+    delivery_for,
+    known_backends,
+)
 from codeverse.skills.model import Selection, Skill
 
-#: where a materialised bundle lives, relative to the workspace root (the `.agents` root
-#: is the one gemini-cli, codex and agy all read; claude-code reads its own copy).
-AGENTS_SKILL_ROOT = ".agents/skills"
-CLAUDE_SKILL_ROOT = ".claude/skills"
-
-#: backends whose own loader indexes the bundles; they must NOT be handed a second index
-NATIVE_LOADERS = ("claude-code", "codex", "gemini-cli", "agy")
+#: Per-backend policy lives in ONE place (``skills/delivery.py``); these are re-exported so
+#: existing importers keep working and so nothing here re-derives what a backend needs.
+NATIVE_LOADERS = tuple(k for k in known_backends() if delivery_for(k).native_loader)
 
 #: what a NATIVE loader is told.  Its own index lists every skill it can see, including any
 #: the user installed globally, so "the ones that match" is the right instruction there.
@@ -69,8 +71,7 @@ def index_summary(description: str, limit: int = INDEX_SUMMARY_CHARS) -> str:
 
 
 def skill_path(name: str, *, agent_kind: str = "") -> str:
-    root = CLAUDE_SKILL_ROOT if agent_kind == "claude-code" else AGENTS_SKILL_ROOT
-    return f"{root}/{name}/SKILL.md"
+    return f"{delivery_for(agent_kind).root}/{name}/SKILL.md"
 
 
 def index_block(skills: Sequence[Skill | Selection], agent_kind: str) -> str:
@@ -82,7 +83,7 @@ def index_block(skills: Sequence[Skill | Selection], agent_kind: str) -> str:
     items = [s.skill if isinstance(s, Selection) else s for s in skills]
     if not items:
         return ""
-    if agent_kind in NATIVE_LOADERS:
+    if not delivery_for(agent_kind).needs_index:
         return f"{_HEADING}\n\n{MANDATE}\n"
     lines = [f"- **{s.name}** — {index_summary(s.description)} "
              f"Read `{skill_path(s.name, agent_kind=agent_kind)}` BEFORE writing code."

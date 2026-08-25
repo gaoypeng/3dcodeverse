@@ -18,6 +18,46 @@ routed bundles in the measured A/B while the three subscription CLIs read all fi
 
 ---
 
+## 0. How the library is managed
+
+**One library, one policy, thin adapters.**  The bundles under `codeverse/skills/<name>/`
+are plain [agentskills.io](https://agentskills.io/specification) `SKILL.md` directories and
+know nothing about any backend — anyone can `cp -r codeverse/skills/<name> ~/.claude/skills/`
+and use them without this harness at all.  `router.py` picks the set from typed inputs.
+
+Everything that genuinely differs between coding agents is **two bits**, and they live in
+one file, `skills/delivery.py`:
+
+| backend | native loader? | discovery root |
+|---|---|---|
+| `claude-code` | yes | `.claude/skills` |
+| `codex`, `gemini-cli`, `agy` | yes | `.agents/skills` |
+| `api-agent` | no | `.agents/skills` |
+| *anything unclassified* | **no** (safe default) | `.agents/skills` |
+
+Both bits were read out of the shipped binaries, not assumed.  Everything else is derived:
+a backend with its own loader must **not** be handed a second index (it would list the same
+skills twice) and needs no tool; a backend without one gets the explicit index **and** the
+`read_skill` tool.  Over-delivering costs tokens; under-delivering costs the skill, so an
+unknown backend gets the loaderless treatment.
+
+**Adding a backend is one row in that table.**  A test (`tests/skills/test_delivery.py`)
+fails if per-backend knowledge leaks back out into the other modules, and another checks
+that `prompting.py` agrees with the policy rather than re-deriving it.
+
+### Why loaderless backends get a tool
+
+Measured 2026-08-25, same library, same workspace, same task: `codex`, `claude-code` and
+`agy` each read **5 of 5** routed bundles unprompted through their own loaders.
+`api-agent` read **0 of 5** — not from unwillingness (it made **52 `read_file` calls** that
+session, and called `read_cookbook` twice), but because the bundles sit in hidden
+directories its `list_files` deliberately skips, and the index was prose in a 2.3 kB system
+prompt competing with the contract and the rules.  Prose is not an affordance.  So the
+routed set became a tool, `read_skill`, whose spec carries the names and one-line summaries
+where a model actually reads its options — and which records what was opened, giving the
+read rate ground truth instead of a probe.
+
+
 ## 1. The model: progressive disclosure, and why it is also the measurement
 
 The spec's three tiers, and what each costs us per turn:

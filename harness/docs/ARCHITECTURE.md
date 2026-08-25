@@ -90,7 +90,9 @@ codeverse/
                       measured, ships OFF, see docs/COST.md §21), health.py (preflight probe: is the model
                       serving? no retries, no backoff), schema_utils.py (strict schema), registry.py
   agents/             CodingAgent; gemini_cli.py claude_code.py codex.py antigravity.py api_agent.py
-                      (+ api_tools.py run_shell policy), materialize.py, cli_common.py (sessions, retry
+                      (+ api_tools.py run_shell policy, api_skills.py: the read_skill tool every
+                      backend WITHOUT a native loader gets — measured, prose in a system prompt is
+                      not an affordance), materialize.py, cli_common.py (sessions, retry
                       trajectory naming, files_changed attribution), watchdog.py, transcript.py, registry.py
   languages/          LanguageRuntime; blender/ (multi-file: layout.py, model.py + parts/*.py) cadquery/
                       threejs/ (+ templates.py) urdf/ scene_threejs/ glsl_shader/ (wrap.py header+line-map, gl_build.py)
@@ -111,7 +113,9 @@ codeverse/
                       finding_kind(): the ONE place gate message text is matched), router.py
                       (track/language/kind/plan/gate-findings -> a capped, ranked, reasoned set),
                       materialize.py (writes into ws/.agents/skills AND ws/.claude/skills, real
-                      copies — codex refuses symlinks), prompting.py (per-backend index text),
+                      copies — codex refuses symlinks), delivery.py (THE per-backend policy, two
+                      bits — native loader? which root? — so a new backend is one row and nothing
+                      else re-derives it), prompting.py (per-backend index text),
                       telemetry.py (the atime read probe: surfaced vs deep), claims.py (numbers
                       pinned to live constants), config.py (CV3D_SKILLS, default OFF)
   cost/               types.py (CallCost/Stage/Role) ledger.py (append-only telemetry/cost.jsonl + price provenance)

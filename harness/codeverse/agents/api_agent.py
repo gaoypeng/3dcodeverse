@@ -14,6 +14,7 @@ import logging
 import time
 from typing import Any
 
+from codeverse.agents.api_skills import SkillTools
 from codeverse.agents.api_tools import FileTools, SpatialTools, ToolOutcome
 from codeverse.agents.cli_common import Session, begin_session, failed, finish_session
 from codeverse.agents.context import compact_messages, message_chars
@@ -28,6 +29,7 @@ from codeverse.contracts.chat import (
     ToolSpec,
 )
 from codeverse.contracts.common import Usage
+from codeverse.skills.delivery import delivery_for
 
 log = logging.getLogger(__name__)
 
@@ -102,7 +104,15 @@ class _Loop:
             if not self.spatial.tools:
                 s.notes.append("spatial registry is empty; running with file tools only")
                 self.spatial = None
-        self.specs: list[ToolSpec] = self.files.specs() + (self.spatial.specs() if self.spatial else [])
+        # the routed bundles as a TOOL, not as prose: measured, api-agent read 0 of 5 from a
+        # MANDATORY paragraph in AGENTS.md while the CLI backends read 5 of 5 through their own
+        # loaders.  It responds to tool specs; the bundles also sit in hidden dirs list_files
+        # skips, so it could not have found them by looking (codeverse/agents/api_skills.py).
+        # a backend WITHOUT a native loader gets the routed set as a tool; the policy lives
+        # in skills/delivery.py so a new backend is one row there, not a branch here
+        self.skills = SkillTools(s.ws) if delivery_for(agent.kind).needs_tool else None
+        self.specs: list[ToolSpec] = (self.files.specs() + (self.skills.specs() if self.skills else [])
+                                      + (self.spatial.specs() if self.spatial else []))
         self.usage = Usage(backend="api-agent", model=agent.model)
         self.tool_calls = 0
         self.last_write_turn = -1
@@ -206,6 +216,8 @@ class _Loop:
     def _dispatch(self, name: str, args: dict[str, Any]) -> ToolOutcome:
         if name == "run_build" and self.spatial and BUILD_TOOL in self.spatial.names():
             name = BUILD_TOOL
+        if self.skills and (out := self.skills.dispatch(name, args)) is not None:
+            return out
         if name in self.files.names():
             return self.files.call(name, args)
         if self.spatial and name in self.spatial.names():
