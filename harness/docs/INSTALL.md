@@ -135,7 +135,7 @@ openai, playwright.
 | `graphics` | moderngl | the `graphics` track (`glsl_shader`, `opengl_python`) — headless GL rendering in `spatial/gl_render.py` |
 | `mesh` | shapely, networkx, manifold3d | `cross_section` filled-area/hollow ratio (shapely), mesh split / connectivity (networkx), joint-sweep boolean intersections (`trimesh.boolean(engine="manifold")`) |
 | `mcp` | mcp | `3dcv mcp` / `codeverse.spatial.mcp_server`, i.e. spatial tools for the `gemini-cli`, `claude-code` and `codex` backends |
-| `flywheel` | pyarrow | `3dcv flywheel export --pack` (parquet shards) |
+| `flywheel` | pyarrow | `3dcv flywheel export --pack` (parquet shards). A plain `flywheel export` needs nothing: without pyarrow it writes `metadata.jsonl` and skips `metadata.parquet` with a warning. |
 | `all` | all of the above | — |
 | `dev` | pytest, pytest-timeout, ruff | the test suite and the linter |
 

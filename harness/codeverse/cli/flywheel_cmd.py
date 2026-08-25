@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.markup import escape
 
 from codeverse.cli import _common as C
 from codeverse.cli._fmt import console, kv_table, ok, warn
@@ -25,15 +26,29 @@ def export_cmd(
     captions_dir: Annotated[Path | None, typer.Option("--captions-dir", help="side-car captions written by `caption --out`")] = None,
     drop_duplicates: Annotated[bool, typer.Option("--drop-duplicates", help="leave exact duplicates (code fingerprint + prompt) out of the index")] = False,
 ) -> None:
-    """Export runs → sample folders + metadata.parquet (+ optional plain tars)."""
+    """Export runs → sample folders + metadata.jsonl/.parquet (+ optional plain tars)."""
     from codeverse.flywheel.export import export_samples
+
+    if pack:
+        # pack_samples rewrites the index and reads it back with pyarrow, so --pack
+        # cannot degrade the way a plain export can.  Say so BEFORE the first sample is
+        # written rather than after a few hundred, with a raw ModuleNotFoundError.
+        try:
+            import pyarrow  # noqa: F401
+        except ImportError:
+            # escaped: rich reads "[flywheel]" as markup and would print the tag away
+            raise C.CliError(escape("--pack needs the flywheel extra: "
+                                    "pip install -e 'harness[flywheel]'")) from None
 
     rep = export_samples(runs_dir, out_dir, min_score=min_score, only_passed=only_passed, include_unbuilt=include_unbuilt,
                          captions_dir=captions_dir, drop_duplicates=drop_duplicates)
     tiers = " ".join(f"{t}:{rep.tiers.get(t, 0)}" for t in "ABCD")
     console.print(kv_table("export", {"runs": rep.n_runs, "exported": rep.n_exported, "indexed": rep.n_indexed,
                                       "duplicates": rep.n_duplicates, "tiers": tiers,
-                                      "skipped": len(rep.skipped), "parquet": rep.parquet}))
+                                      "skipped": len(rep.skipped), "jsonl": rep.jsonl,
+                                      "parquet": rep.parquet or "(skipped: no pyarrow)"}))
+    for note in rep.notes:
+        warn(escape(note))
     for d, why in list(rep.skipped.items())[:20]:
         warn(f"skip {Path(d).name}: {why}")
     for g in rep.duplicates[:20]:

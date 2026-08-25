@@ -448,3 +448,55 @@ def test_parquet_keeps_the_complexity_columns_the_exporter_writes(tmp_path):
     # and the schema can never fall behind row_for_sample again
     with pytest.raises(ValueError, match="missing column"):
         write_parquet([{**row, "a_new_metric": 1.0}], tmp_path / "later.parquet")
+
+
+def test_a_core_only_install_still_gets_a_complete_dataset(runs_dir: Path, tmp_path: Path, monkeypatch):
+    """PORT-5: `3dcv flywheel export` (no --pack) called write_parquet unconditionally,
+    so on an install without the optional `flywheel` extra it died with a raw
+    ModuleNotFoundError AFTER writing every sample folder — a partial dataset with no
+    index of any kind.  docs/INSTALL.md §4 scopes pyarrow to the extra and promises the
+    harness only raises when the named feature is used, so a plain export must degrade:
+    metadata.jsonl always, metadata.parquet only when pyarrow is importable."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_pyarrow(name, *a, **kw):
+        if name == "pyarrow" or name.startswith("pyarrow."):
+            raise ModuleNotFoundError("No module named 'pyarrow'")
+        return real_import(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", no_pyarrow)
+    out = tmp_path / "ds_core"
+    rep = export_samples(runs_dir, out)  # must NOT raise
+    assert rep.n_exported == 3 and rep.n_indexed == 3
+    # the index the operator can actually use is there, and complete
+    assert (out / "metadata.jsonl").is_file()
+    assert len((out / "metadata.jsonl").read_text().splitlines()) == 3
+    # the parquet is skipped, loudly and by name — never silently
+    assert not (out / "metadata.parquet").exists() and rep.parquet == ""
+    assert rep.notes and "pyarrow" in rep.notes[0] and "harness[flywheel]" in rep.notes[0]
+
+
+def test_pack_refuses_before_writing_anything_when_pyarrow_is_missing(runs_dir: Path, tmp_path: Path, monkeypatch):
+    """--pack genuinely needs pyarrow (pack.py reads the index back with pq.read_table),
+    so it must say so BEFORE the first sample is written, not after a few hundred."""
+    import builtins
+
+    from typer.testing import CliRunner
+
+    from codeverse.cli.main import app
+
+    real_import = builtins.__import__
+
+    def no_pyarrow(name, *a, **kw):
+        if name == "pyarrow" or name.startswith("pyarrow."):
+            raise ModuleNotFoundError("No module named 'pyarrow'")
+        return real_import(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", no_pyarrow)
+    out = tmp_path / "ds_pack"
+    res = CliRunner().invoke(app, ["flywheel", "export", str(runs_dir), str(out), "--pack"])
+    assert res.exit_code == 1
+    assert "harness[flywheel]" in res.output
+    assert not out.exists(), "no partial dataset may be left behind"

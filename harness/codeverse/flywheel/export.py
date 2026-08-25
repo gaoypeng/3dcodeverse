@@ -55,6 +55,8 @@ class ExportReport(BaseModel):
     tiers: dict[str, int] = Field(default_factory=dict, description="quality tier → count (indexed rows)")
     parquet: str = ""
     jsonl: str = ""
+    notes: list[str] = Field(default_factory=list,
+                             description="non-fatal degradations, e.g. parquet skipped for a missing extra")
 
 
 def load_captions(ws: Workspace, record: RunRecord, captions_dir: Path | None = None) -> dict[str, Any]:
@@ -183,8 +185,19 @@ def export_samples(
     rep.n_indexed = len(rows)
     for r in rows:
         rep.tiers[r["quality_tier"]] = rep.tiers.get(r["quality_tier"], 0) + 1
-    rep.parquet = str(write_parquet(rows, out / PARQUET_NAME))
+    # JSONL first, and unconditionally: it carries the same rows with no third-party
+    # dependency, so a core-only install still gets a complete, indexed dataset.
     rep.jsonl = str(write_jsonl(rows, out / JSONL_NAME))
+    try:
+        rep.parquet = str(write_parquet(rows, out / PARQUET_NAME))
+    except ImportError:
+        # docs/INSTALL.md §4 scopes pyarrow to the `flywheel` extra and promises the
+        # harness only raises at the moment the named feature is used.  Crashing here
+        # left a partial dataset on disk (samples written, no index at all) and the
+        # rows were already computed — degrade loudly instead.
+        rep.notes.append(f"{PARQUET_NAME} skipped: pyarrow is not installed "
+                         f"(pip install -e 'harness[flywheel]'); {JSONL_NAME} has the same rows")
+        log.warning("%s", rep.notes[-1])
     return rep
 
 
