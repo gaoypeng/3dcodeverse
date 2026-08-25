@@ -102,8 +102,12 @@ from bench.compare_backends import (  # noqa: E402
     CompareOptions,
     _preflight,
     run_cell,
+    spec_for,  # noqa: E402
 )
+from bench.pin_plan import PLAN_JSON, PinError, plan_once, seed_plan  # noqa: E402
 from bench.run_bench import Battery, BenchPrompt, select_prompts  # noqa: E402
+from codeverse.tracks.plan_features import pin_plan_blockers  # noqa: E402
+from codeverse.workspace import Workspace  # noqa: E402
 
 DEFAULT_GENERATOR = "api-agent:gemini:gemini-3.7-flash"
 DEFAULT_JUDGE = "gemini:gemini-3.1-pro-preview"
@@ -136,6 +140,8 @@ class AbOptions(BaseModel):
     max_in_flight: int = DEFAULT_MAX_IN_FLIGHT
     aa: bool = Field(default=False, description="calibration: run BOTH arms as the control, so the delta IS the noise")
     redo_fresh: bool = Field(default=True, description="a redo regenerates both arms instead of resuming them")
+    pin_plan: bool = Field(default=False, description="plan ONCE per prompt and seed both arms with it "
+                                                      "(generation-side switches only: see pin_plan_blockers)")
 
     def compare_options(self) -> CompareOptions:
         """The per-cell options handed to ``compare_backends.run_cell`` (both arms identical)."""
@@ -328,6 +334,36 @@ def archive_cell(out: Path, arm: str, item_id: str, opts: AbOptions) -> Path | N
     raise AssertionError("unreachable")  # pragma: no cover — count() is infinite
 
 
+def pin_pair(battery: Battery, item: BenchPrompt, out: Path, arms: Sequence[str], opts: AbOptions) -> str:
+    """Plan ``item`` ONCE and seed that plan into every arm about to run; return its hash.
+
+    The A/A of this rig measured paired sd 0.202 on the judged score and traced it to the
+    PLANNER — its worst pair planned 1 part against 10 on identical settings (docs/EVAL.md
+    §8.1).  A generation-side switch cannot change planning, so both arms may share one plan
+    and the paired difference stops carrying that spread.  ``pin_plan_blockers`` decides
+    whether that is true of THIS variant_env; ``main`` refuses the run when it is not.
+
+    Both arms are seeded from the same third workspace rather than the variant from the
+    control's run, so the pair still launches together and sees the same provider weather.
+    The returned ``inputs_hash`` is asserted equal for every arm: it is derived from the
+    spec, so a mismatch means the arms were not planning the same thing and the seed would
+    be a cache MISS — a silently UNpinned pair, which is the one failure this must not have.
+    """
+    spec = spec_for(battery, item, _harness_arm(opts.generator), opts.compare_options())
+    src = Workspace(out / "plans" / item.id / "run")
+    if not (src.root / PLAN_JSON).is_file():
+        plan_once(spec, src.root)
+    want = json.loads((src.root / "run_state.json").read_text())["stages"]["plan"]["inputs_hash"]
+    for arm in arms:
+        dst = Workspace(cell_dir(out, arm, item.id, opts.generator) / "run")
+        dst.create()
+        dst.write_json(dst.spec_path, spec)  # _run_harness only writes it when it creates the ws
+        got = seed_plan(src.root, dst.root)
+        if got != want:  # pragma: no cover — same spec both sides; the assert is the point
+            raise PinError(f"{item.id}/{arm}: seeded plan hash {got} != {want}; the pair would be unpinned")
+    return want
+
+
 def run_ab(battery_path: Path | str, out_dir: Path | str, opts: AbOptions, *, run_cell_fn: CellRunner = spawn_cell,
            on_result: Callable[[CellResult], None] | None = None) -> Verdict:
     """Run (or resume) the A/B, one prompt-pair at a time; write pairs.json + summary.md."""
@@ -348,6 +384,8 @@ def run_ab(battery_path: Path | str, out_dir: Path | str, opts: AbOptions, *, ru
             if fresh:
                 for a in arms:
                     archive_cell(out, a, item.id, opts)
+            if opts.pin_plan:
+                pin_pair(battery, item, out, arms, opts)
             futs = [pool.submit(run_cell_fn, battery_path, out, item, a, opts) for a in arms]
             for fut in futs:
                 r = fut.result()
@@ -400,6 +438,9 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--redo-resume", action="store_true",
                     help="let a redo RESUME the old cells instead of regenerating them (cheap, but the pair then "
                          "spans two weathers — see archive_cell)")
+    ap.add_argument("--pin-plan", action="store_true",
+                    help="plan once per prompt and seed BOTH arms with it, removing the planner's "
+                         "spread from the pairing; refused for a plan-side --variant-env")
     ap.add_argument("--aa", action="store_true",
                     help="calibration run: both arms identical, so the measured delta IS this rig's noise floor")
     ap.add_argument("--no-resume", action="store_true")
@@ -436,7 +477,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                      limit=ns.limit, resume=not ns.no_resume, redo_status=[s for s in ns.redo_status.split(",") if s],
                      variant_env=parse_variant_env(ns.variant_env),
                      max_in_flight=ns.max_in_flight if ns.max_in_flight is not None else inherited_max_in_flight(),
-                     aa=ns.aa, redo_fresh=not ns.redo_resume)
+                     aa=ns.aa, redo_fresh=not ns.redo_resume, pin_plan=ns.pin_plan)
     out = Path(ns.out)
     if ns.report_only:
         battery = Battery.load(ns.prompts)
@@ -465,6 +506,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "--variant-env only sets switches nothing reads, so both arms would be identical: "
                 + "; ".join(f"{k} ({DEAD_SWITCHES[k]})" for k in dead)
                 + " (pass --aa if an identical-arms calibration run is the point)")
+    if opts.pin_plan and (blockers := pin_plan_blockers(opts.variant_env)):
+        _parser().error(
+            "--pin-plan is refused for a PLAN-side switch: sharing one plan across the arms would delete the very "
+            "thing under test and the rig would report 'no effect' with confidence — "
+            + "; ".join(blockers))
     from codeverse.models.health import pool_budget
 
     # the rule is a BUDGET, not a head-count: the provider sees one machine, so the sum of
@@ -493,7 +539,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 __all__ = ["DEFAULT_GENERATOR", "DEFAULT_JUDGE", "MAX_IN_FLIGHT_ENV", "NESTED_MAX_IN_FLIGHT_ENV", "PARALLEL",
            "AbOptions", "CellRunner", "Todo", "archive_cell", "cell_dir", "cell_main", "child_env",
-           "inherited_max_in_flight", "main", "parse_variant_env", "preflight", "run_ab", "spawn_cell", "worker_argv"]
+           "inherited_max_in_flight", "main", "parse_variant_env", "pin_pair", "preflight", "run_ab", "spawn_cell",
+           "worker_argv"]
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -297,6 +297,46 @@ Two consequences, and the first is worth more than any extra prompt:
   out-score a plan that did the work.  (Not a licence to fail the run — that was C1, reverted
   the same day for turning recoverable planning slips into total losses.)
 
+### 8.2 `--pin-plan`: the driver actually does it now
+
+8.1 said to pin the plan; `bench/pin_plan.py` had the seeding and nothing called it.
+`bench/ab_plan.py --pin-plan` closes that: before a pair is launched, `pin_pair` plans the
+prompt ONCE into `<out>/plans/<id>/run` and seeds that result into both arms' `run/`
+workspaces, so the plan stage is a cache HIT (`StageRunner.stage` keys on
+`inputs_hash` + result file) and neither arm pays a planner call.
+
+Three details are the whole correctness of it:
+
+* **Both arms are seeded from a third workspace**, not the variant from the control's
+  finished run.  Seeding off the control would serialise the pair, and the pair is launched
+  together precisely so both arms see the same provider weather.
+* **The `inputs_hash` is asserted equal for every arm.**  It is derived from the spec
+  (`plan_stage_inputs`), so a mismatch means the seed is a cache MISS and the pair would
+  re-plan per arm while reporting itself pinned — the one failure this must not have.
+* **`pin_plan_blockers` gates the flag** and `main` refuses the run when it is non-empty.
+  Pinning a plan-side switch deletes the thing under test and the rig would then report
+  "no effect" with confidence.  `CV3D_SKILLS*` are in `GENERATION_SIDE_ENV`, so the skills
+  wave is pinnable; `CV3D_PLAN_BRIEF` is not, and `--pin-plan` rejects it.
+
+Pinning is orthogonal to `--aa`, and an A/A that will be read against a pinned A/B must be
+pinned too — otherwise the floor carries a variance term the A/B has already removed and
+every delta looks smaller than its own noise.
+
+### 8.3 A metric with no headroom is not an underpowered A/B
+
+`bench/skill_targets.py` prints `n to resolve 25%` for each bundle's own target, and for a
+count that is mostly zero the number is not a hurdle, it is a refusal.  Measured over the
+recorded corpus, before spending anything:
+
+| target | baseline | paired sd (est.) | pairs to resolve a 25% move |
+|---|---|---|---|
+| `cv3d-glsl-craft` / mean_edge_density | 0.234, spread 0.031–0.464 | 0.207 unpaired | ~50 unpaired — pinning + pairing is what makes it affordable |
+| `cv3d-urdf-joints` / joint_sweep_errors | 6.91 mean, 20 of 23 runs at **0**, tail 8/50/101 | ~32.6 | **~1420** (~89 even to see the metric go to zero) |
+| `cv3d-scene-composition` / camera_placement_findings | 0.25 on round 1, **0.00** by the last round | ~0.71 | **~512** (~32 to eliminate every fault) |
+
+Two of those three are answered by arithmetic, not by a battery.  Running them anyway and
+reporting "no effect" would be the rig lying about what it can see.
+
 ## 9. Reporting checklist
 
 battery name + git sha of prompts; judge id, rubric name + hash, `n_samples`; per-arm

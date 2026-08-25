@@ -21,8 +21,9 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 
-__all__ = ["PinError", "plan_artifacts", "seed_plan"]
+__all__ = ["PinError", "plan_artifacts", "plan_once", "seed_plan"]
 
 #: what a planned run leaves behind that a later run resumes from
 PLAN_JSON = "plan.json"
@@ -74,3 +75,40 @@ def seed_plan(src_run: Path, dst_run: Path) -> str:
     target["stages"] = stages
     dst_state.write_text(json.dumps(target, indent=1))
     return str(entry["inputs_hash"])
+
+
+def plan_once(spec: Any, ws_root: Path) -> str:
+    """Run ONLY the plan stage of ``spec``'s track into ``ws_root``; return its inputs_hash.
+
+    The A/B driver calls this once per prompt and :func:`seed_plan`s the result into BOTH
+    arms, so neither arm pays a planner call and neither one's plan is the other's.  Seeding
+    the variant from the *control's* finished run would work too, but it serialises the pair
+    — and the pair runs together precisely so both arms see the same provider weather.
+
+    Goes through ``StageRunner`` rather than ``track.plan`` so the artefacts are the ones a
+    real run leaves (``stages/plan.json`` + the ``run_state`` entry that makes the stage a
+    cache HIT); and through ``_plan_stage`` rather than the bare planner so the call is
+    charged to a budget and its spend is saved, exactly as in a run.
+    """
+    from codeverse.events import EventLog
+    from codeverse.orchestrator.runner import StageRunner
+    from codeverse.orchestrator.state import RunState
+    from codeverse.tracks import get_track
+    from codeverse.tracks.lifecycle import plan_stage_inputs
+    from codeverse.workspace import Workspace
+
+    ws = Workspace(Path(ws_root))
+    ws.create()
+    ws.write_json(ws.spec_path, spec)
+    events = EventLog(ws.events_path)
+    state = RunState.load_or_new(ws, resume=True)
+    track = get_track(spec.track)
+    ctx = track.build_context(spec, ws, events, state)
+    runner = StageRunner(ws, events, state)
+    runner.stage("plan", lambda: track._plan_stage(ctx),  # noqa: SLF001 — see docstring
+                 inputs={"spec": plan_stage_inputs(spec), "track": track.track.value},
+                 model=track.plan_model)
+    entry = state.stages.get(STAGE_NAME)
+    if entry is None or not entry.inputs_hash:  # pragma: no cover — stage() always records one
+        raise PinError(f"plan stage left no state entry in {ws_root}")
+    return str(entry.inputs_hash)

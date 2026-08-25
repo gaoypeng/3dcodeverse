@@ -8,6 +8,7 @@ experiment.  Both halves are tested here.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -102,3 +103,95 @@ def test_pinning_a_plan_side_switch_would_delete_the_experiment(tmp_path):
     # ...which is why the caller must refuse it for a switch that changes planning
     assert pin_plan_blockers({"CV3D_PLAN_FEATURES": "fit"}) == [
         "CV3D_PLAN_FEATURES=fit changes the plan itself"]
+
+
+# --------------------------------------------------------------- the driver's use of it
+def test_pin_pair_seeds_every_arm_from_one_plan(tmp_path, monkeypatch):
+    """``--pin-plan`` must plan ONCE and hand the same plan to both arms.
+
+    Planning per-arm is what the pinning exists to remove; planning per-arm *while
+    reporting itself pinned* is worse than not pinning at all, so the count is asserted.
+    """
+    from bench import ab_plan
+    from bench.run_bench import Battery
+
+    battery = Battery.load(ab_plan.REPO / "bench" / "prompts" / "compare_v1.yaml")
+    item = battery.prompts[0]
+    opts = ab_plan.AbOptions(variant_env={"CV3D_SKILLS": "1"}, pin_plan=True)
+    calls: list[Path] = []
+
+    def fake_plan_once(spec, ws_root):
+        calls.append(Path(ws_root))
+        run = Path(ws_root)
+        (run / "stages").mkdir(parents=True, exist_ok=True)
+        body = json.dumps({"object_name": "Chair", "parts": [{"name": "Seat"}]})
+        (run / "plan.json").write_text(body)
+        (run / "stages" / "plan.json").write_text(body)
+        (run / "run_state.json").write_text(json.dumps(
+            {"stages": {"plan": {"name": "plan", "inputs_hash": "h1",
+                                 "result_path": str(run / "stages" / "plan.json")}}}))
+        return "h1"
+
+    monkeypatch.setattr(ab_plan, "plan_once", fake_plan_once)
+    got = ab_plan.pin_pair(battery, item, tmp_path, list(ab_plan.ARMS), opts)
+
+    assert got == "h1"
+    assert len(calls) == 1, f"planned {len(calls)} times, not once: {calls}"
+    for arm in ab_plan.ARMS:
+        run = Path(ab_plan.cell_dir(tmp_path, arm, item.id, opts.generator)) / "run"
+        assert json.loads((run / "plan.json").read_text())["parts"] == [{"name": "Seat"}]
+        entry = json.loads((run / "run_state.json").read_text())["stages"]["plan"]
+        assert entry["inputs_hash"] == "h1"
+        assert entry["result_path"] == str((run / "stages" / "plan.json").resolve())
+        assert (run / "spec.json").is_file(), "_run_harness skips writing it once the ws exists"
+
+
+def test_pin_pair_reuses_the_plan_when_the_pair_is_retried(tmp_path, monkeypatch):
+    """A resumed / redone pair must not buy a second plan — and must not get a DIFFERENT
+    one, which would make the two attempts incomparable."""
+    from bench import ab_plan
+    from bench.run_bench import Battery
+
+    battery = Battery.load(ab_plan.REPO / "bench" / "prompts" / "compare_v1.yaml")
+    item = battery.prompts[0]
+    opts = ab_plan.AbOptions(variant_env={"CV3D_SKILLS": "1"}, pin_plan=True)
+    n = 0
+
+    def fake_plan_once(spec, ws_root):
+        nonlocal n
+        n += 1
+        run = Path(ws_root)
+        (run / "stages").mkdir(parents=True, exist_ok=True)
+        body = json.dumps({"object_name": "Chair", "parts": [{"name": f"call{n}"}]})
+        (run / "plan.json").write_text(body)
+        (run / "stages" / "plan.json").write_text(body)
+        (run / "run_state.json").write_text(json.dumps(
+            {"stages": {"plan": {"name": "plan", "inputs_hash": "h1",
+                                 "result_path": str(run / "stages" / "plan.json")}}}))
+        return "h1"
+
+    monkeypatch.setattr(ab_plan, "plan_once", fake_plan_once)
+    ab_plan.pin_pair(battery, item, tmp_path, list(ab_plan.ARMS), opts)
+    ab_plan.pin_pair(battery, item, tmp_path, list(ab_plan.ARMS), opts)
+
+    assert n == 1, "the second pass re-planned; the retry would not be comparable"
+    run = Path(ab_plan.cell_dir(tmp_path, "variant", item.id, opts.generator)) / "run"
+    assert json.loads((run / "plan.json").read_text())["parts"] == [{"name": "call1"}]
+
+
+def test_a_plan_side_variant_env_is_refused_by_the_cli():
+    """Pinning a plan-side switch deletes the thing under test, and the rig would then
+    report 'no effect' with confidence.  The refusal is the whole safety property."""
+    from bench import ab_plan
+
+    with pytest.raises(SystemExit):
+        ab_plan.main(["--prompts", str(ab_plan.REPO / "bench" / "prompts" / "compare_v1.yaml"),
+                      "--out", "/tmp/never", "--pin-plan", "--no-preflight",
+                      "--variant-env", "CV3D_PLAN_BRIEF=1"])
+
+
+def test_a_generation_side_variant_env_is_permitted():
+    """The premise of this whole wave: CV3D_SKILLS acts after planning, so it is pinnable."""
+    from codeverse.tracks.plan_features import pin_plan_blockers
+
+    assert pin_plan_blockers({"CV3D_SKILLS": "1", "CV3D_SKILLS_MAX": "1"}) == []
