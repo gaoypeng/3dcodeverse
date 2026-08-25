@@ -36,8 +36,16 @@ CLAUDE_SKILL_ROOT = ".claude/skills"
 #: backends whose own loader indexes the bundles; they must NOT be handed a second index
 NATIVE_LOADERS = ("claude-code", "codex", "gemini-cli", "agy")
 
+#: what a NATIVE loader is told.  Its own index lists every skill it can see, including any
+#: the user installed globally, so "the ones that match" is the right instruction there.
 MANDATE = ("Skills for this task are installed in this workspace. Any whose description matches "
            "your task are MANDATORY — activate and read them before writing code.")
+#: what api-agent is told.  The list under it was chosen by OUR router from the track, the
+#: language, the plan and the previous round's gate findings — inviting the agent to filter
+#: it again would only lose reads, and it cannot see what we used to pick them.
+MANDATE_ROUTED = ("The skills below were selected for THIS task by the harness, from your track, "
+                  "your language, your plan and the gate findings of the previous round. Reading "
+                  "them is MANDATORY — open each one before writing code.")
 
 _HEADING = "## Skills"
 
@@ -79,7 +87,7 @@ def index_block(skills: Sequence[Skill | Selection], agent_kind: str) -> str:
     lines = [f"- **{s.name}** — {index_summary(s.description)} "
              f"Read `{skill_path(s.name, agent_kind=agent_kind)}` BEFORE writing code."
              for s in items]
-    return f"{_HEADING}\n\n{MANDATE}\n\n" + "\n".join(lines) + "\n"
+    return f"{_HEADING}\n\n{MANDATE_ROUTED}\n\n" + "\n".join(lines) + "\n"
 
 
 def index_tokens(skills: Sequence[Skill | Selection], agent_kind: str) -> int:
@@ -119,6 +127,6 @@ def inline_body(selections: Sequence[Selection], *, max_tokens: int = 2500) -> t
     return "", ""
 
 
-__all__ = ["AGENTS_SKILL_ROOT", "CLAUDE_SKILL_ROOT", "INDEX_SUMMARY_CHARS", "MANDATE",
+__all__ = ["AGENTS_SKILL_ROOT", "CLAUDE_SKILL_ROOT", "INDEX_SUMMARY_CHARS", "MANDATE", "MANDATE_ROUTED",
            "NATIVE_LOADERS", "index_block", "index_summary", "index_tokens", "inline_body",
            "repair_pointers", "skill_path"]

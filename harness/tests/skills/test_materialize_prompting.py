@@ -92,9 +92,13 @@ def test_native_loader_backends_get_one_sentence_and_no_second_index(library):
 
 
 def test_api_agent_gets_the_index_it_cannot_discover(library):
+    """And it is told the set was ROUTED, not offered: our router already filtered it on
+    inputs the agent cannot see, so "the ones that match your task" would only lose reads."""
+    from codeverse.skills.prompting import MANDATE_ROUTED
+
     skills = [library["cv3d-part-contact"], library["cv3d-bbox-contract"]]
     text = index_block(skills, "api-agent")
-    assert MANDATE in text
+    assert MANDATE_ROUTED in text and MANDATE not in text
     for s in skills:
         assert f"**{s.name}**" in text and f".agents/skills/{s.name}/SKILL.md" in text
 
