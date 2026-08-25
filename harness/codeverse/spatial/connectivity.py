@@ -283,7 +283,14 @@ def check_connectivity(
                 ))
     # ---- components → floating parts
     comps = _components(big, edges)
-    grounded = {n for n in big if float(parts[n].bounds[0][1]) <= gap_m}
+    # TOUCHING the ground, not merely at-or-below it: the old one-sided `<= gap_m`
+    # counted a part buried 1 m under the floor as grounded, so a model authored around
+    # the origin instead of on it (a routine agent mistake, which the contract gate
+    # already reports separately as "object floats 1000 mm below the ground") put every
+    # part in `grounded`, hence in `support`, and switched the floating check off for the
+    # whole run.  abs() makes the sunk model fall through to the "no part touches the
+    # ground" WARN branch and report the same floating ERROR it does at y=0.
+    grounded = {n for n in big if abs(float(parts[n].bounds[0][1])) <= gap_m}
     support_sets = [c for c in comps if c & grounded]
     if support_sets:
         # THE support component (see the module docstring): ONE component, not the union
@@ -295,7 +302,13 @@ def check_connectivity(
         # mutated the winning set in place, corrupting `comps`; hence the copy.
         support = set(max(support_sets, key=lambda c: sum(len(parts[n].faces) for n in c)))
     else:
-        support = max(comps, key=lambda c: sum(len(parts[n].faces) for n in c)) if comps else set()
+        # Nothing touches the ground, so there is no ground to reason from: take the
+        # LOWEST component as the base (face count only breaks ties).  Picking the
+        # biggest instead made a model authored around the origin report its base as the
+        # floating part and the thing sitting on top as the support — the same finding as
+        # the correctly-placed model, but with the two parts swapped.
+        support = min(comps, key=lambda c: (round(min(float(parts[n].bounds[0][1]) for n in c), 6),
+                                            -sum(len(parts[n].faces) for n in c))) if comps else set()
         findings.append(GateFinding(gate=GATE, severity=Severity.WARN, message=f"no part touches the ground ({up}=0)",
                                     fix_hint=f"move the whole object down so its lowest point sits on the ground ({up}=0, {frame_label(language)})"))
     for n in big:

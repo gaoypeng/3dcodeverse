@@ -210,3 +210,44 @@ def test_two_grounded_islands_are_not_one_connected_assembly(tmp_path: Path) -> 
 
     assert not r.passed and len(r.errors) == 1
     assert not [f for f in r.findings if "parts are connected" in f.message]
+
+def _hat_and_body(path: Path, dy: float) -> Path:
+    """'hat' floating 100 mm above 'body', the pair translated by ``dy``."""
+    sc = trimesh.Scene()
+    body = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
+    body.apply_translation((0, 0.1 + dy, 0))
+    hat = trimesh.creation.box(extents=(0.1, 0.1, 0.1))
+    hat.apply_translation((0, 0.2 + 0.1 + 0.05 + dy, 0))  # 100 mm above the body's top
+    sc.add_geometry(body, node_name="body", geom_name="body")
+    sc.add_geometry(hat, node_name="hat", geom_name="hat")
+    path.write_bytes(sc.export(file_type="glb"))
+    return path
+
+
+def test_a_model_authored_below_the_floor_still_reports_its_floating_part(tmp_path: Path) -> None:
+    """CG-3: `grounded` was the one-sided `bounds[0][1] <= gap_m`, so a part buried 1 m
+    UNDER the floor counted as touching the ground.  Every part of a sunk model therefore
+    landed in `grounded`, hence in `support`, and no floating finding could be emitted at
+    all — one routine agent mistake (authoring around the origin instead of on the floor,
+    which the contract gate already flags separately) silently switched the whole
+    connectivity floating check off for the run."""
+    on_ground = check_connectivity(_hat_and_body(tmp_path / "f2_on_ground.glb", 0.0))
+    sunk = check_connectivity(_hat_and_body(tmp_path / "f2_sunk.glb", -1.0))
+
+    assert not on_ground.passed
+    assert [(e.target, e.data["nearest"]) for e in on_ground.errors] == [("hat", "body")]
+
+    # the identical model, 1 m lower, must reach the identical verdict
+    assert not sunk.passed, "a sunk model must not disable the floating check"
+    assert [(e.target, e.data["nearest"]) for e in sunk.errors] == [("hat", "body")]
+    # ... plus the ground warning, since nothing is on the floor any more
+    assert any("touches the ground" in f.message for f in sunk.findings)
+
+
+def test_a_part_resting_exactly_on_the_floor_is_still_grounded(tmp_path: Path) -> None:
+    """The abs() must not cost the ordinary case: y=0 and a hair above it are grounded."""
+    from codeverse.spatial.connectivity import check_connectivity as cc
+
+    for dy in (0.0, 0.001):
+        r = cc(_hat_and_body(tmp_path / f"f2_{dy}.glb", dy))
+        assert not any("touches the ground" in f.message for f in r.findings), dy
