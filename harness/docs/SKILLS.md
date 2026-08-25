@@ -146,8 +146,9 @@ answerable. Per session, `telemetry/skills.jsonl` gets one line.
 3dcv doctor --skills                            # library + discovery wiring
 ```
 
-Targets: ≥ 60% deep-read for CLI backends, ≥ 80% for api-agent. **A skill under 20% over 20
-sessions is merged or deleted.** A library that only ever grows is how this ends as bloat.
+Targets: ≥ 60% deep-read for CLI backends, ≥ 80% for api-agent, counted only over sessions
+the control (§1) says were measurable. **A skill under 20% over 20 such sessions is merged
+or deleted.** A library that only ever grows is how this ends as bloat.
 The read rate is the FIRST readout, before any score: `read_cookbook` was called by 0 of 16
 zone sessions on `scenes_v1_flash` although the prompt named five chapters by title, and
 shipping a nicer file format without measuring reads would repeat that at a new price.
@@ -197,7 +198,7 @@ Two things this also says, and neither is comfortable:
 | `test_router.py` / `test_routing_property.py` | the four routing laws, by row and over the whole input space |
 | `test_budget.py` | the index cost, re-measured against the shipped descriptions |
 | `test_corpus.py` | evidence labels and corpus claims recomputed from `bench/out` |
-| `test_telemetry.py` | the read probe, including the false-positive split |
+| `test_telemetry.py` | the read probe, **including the control that catches git reading the tree** |
 | `test_packaging.py` | **a built wheel contains all 14 `SKILL.md`, all 14 `references/`, all 9 `_claims`** |
 | `test_live_discovery.py` | §7 — a real CLI actually finds and opens a bundle |
 
