@@ -83,15 +83,32 @@ def _instance_re(snake: str) -> re.Pattern[str]:
 
 
 def match_parts(plan_parts: list[PartPlan], measured: list[PartMeasure]) -> tuple[dict[str, list[PartMeasure]], list[PartMeasure]]:
-    """Map each plan part → measured rows (``Name``, ``Name_0``… accepted); plus unmatched rows."""
+    """Map each plan part → measured rows (``Name``, ``Name_0``… accepted); plus unmatched rows.
+
+    Exact names are claimed FIRST, and the ``Name_0..Name_N`` instance pass never takes
+    a node that another plan part names exactly.  ``_instance_re("shelf")`` matches
+    ``shelf2``, so a plan of ``Shelf`` + ``Shelf2`` used to have ``Shelf`` swallow the
+    ``Shelf2`` node before ``Shelf2`` was considered — a false "missing from the GLB"
+    ERROR and a real 0.75 judge cap on geometry that matched the plan exactly.
+    ``Shelf``/``Shelf2``, ``Slat``/``Slat1``, ``Tier``/``Tier2`` are ordinary planner
+    output for PascalCase part names.
+    """
     remaining = {m.name: m for m in measured}
-    matched: dict[str, list[PartMeasure]] = {}
-    for pp in plan_parts:
-        pat = _instance_re(to_snake(pp.name))
-        hits = [m for n, m in list(remaining.items()) if pat.match(to_snake(n))]
+    matched: dict[str, list[PartMeasure]] = {pp.name: [] for pp in plan_parts}
+    reserved = {to_snake(pp.name) for pp in plan_parts}
+    for pp in plan_parts:  # pass 1: the node this plan part names exactly
+        snake = to_snake(pp.name)
+        hits = [m for n, m in list(remaining.items()) if to_snake(n) == snake]
         for m in hits:
             remaining.pop(m.name, None)
-        matched[pp.name] = hits
+        matched[pp.name].extend(hits)
+    for pp in plan_parts:  # pass 2: its Name_0..Name_N instances
+        pat = _instance_re(to_snake(pp.name))
+        hits = [m for n, m in list(remaining.items())
+                if to_snake(n) not in reserved and pat.match(to_snake(n))]
+        for m in hits:
+            remaining.pop(m.name, None)
+        matched[pp.name].extend(hits)
     return matched, list(remaining.values())
 
 

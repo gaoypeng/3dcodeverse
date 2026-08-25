@@ -86,6 +86,59 @@ def test_match_parts_instances() -> None:
     assert [e.name for e in extra] == ["Extra"]
 
 
+def test_a_sibling_ending_in_a_digit_is_not_swallowed() -> None:
+    """CG-4: _instance_re('shelf') matches 'shelf2', and match_parts popped every hit,
+    so 'Shelf' consumed the 'Shelf2' node before 'Shelf2' was ever considered — a false
+    "missing from the GLB" ERROR and a real 0.75 cap on a GLB that matched the plan."""
+    plan = [PartPlan(name=n, role="r", description="d", bbox=BBox(center=(0, 0, 0), extents=(1, 1, 1)))
+            for n in ("Shelf", "Shelf2")]
+    rows = [PartMeasure(name=n, bbox_min=(0, 0, 0), bbox_max=(1, 1, 1)) for n in ("Shelf", "Shelf2")]
+
+    matched, extra = match_parts(plan, rows)
+
+    assert [m.name for m in matched["Shelf"]] == ["Shelf"]
+    assert [m.name for m in matched["Shelf2"]] == ["Shelf2"]
+    assert extra == []
+
+
+def test_an_exact_name_wins_over_another_part_instance_pattern() -> None:
+    """Order must not decide it either: 'Slat1' is claimed by Slat1 even when the
+    Slat instances are matched first, and Slat still collects its real instances."""
+    plan = [PartPlan(name=n, role="r", description="d", bbox=BBox(center=(0, 0, 0), extents=(1, 1, 1)))
+            for n in ("Slat", "Slat1")]
+    rows = [PartMeasure(name=n, bbox_min=(0, 0, 0), bbox_max=(1, 1, 1))
+            for n in ("Slat_0", "Slat1", "Slat", "Slat_1")]
+
+    matched, extra = match_parts(plan, rows)
+
+    assert {m.name for m in matched["Slat"]} == {"Slat", "Slat_0", "Slat_1"}
+    assert [m.name for m in matched["Slat1"]] == ["Slat1"]
+    assert extra == []
+
+
+def test_the_gate_does_not_fire_on_a_glb_that_matches_the_plan_exactly() -> None:
+    """The end-to-end harm of CG-4: a false ERROR set passed=False, which fires
+    static_object_v1's contract_violation rule and caps the judge overall at 0.75 —
+    and the fix hint told the agent to create a part that already existed."""
+    plan = StaticPlan(
+        object_name="Rack", summary="s", overall_bbox=BBox(center=(0, 0, 0.5), extents=(1.0, 0.4, 0.64)),
+        parts=[PartPlan(name="Shelf", role="shelf", description="d", bbox=BBox(center=(0, 0, 0.2), extents=(1.0, 0.4, 0.04))),
+               PartPlan(name="Shelf2", role="shelf", description="d", bbox=BBox(center=(0, 0, 0.8), extents=(1.0, 0.4, 0.04)))],
+    )
+    m = Measurement(
+        bbox_min=(-0.5, 0.18, -0.2), bbox_max=(0.5, 0.82, 0.2), extents=(1.0, 0.64, 0.4),
+        center=(0.0, 0.5, 0.0), tri_count=24, n_meshes=2, n_islands=2,
+        ground_gap_m=0.0, footprint_offset_m=0.0,
+        parts=[PartMeasure(name="Shelf", bbox_min=(-0.5, 0.18, -0.2), bbox_max=(0.5, 0.22, 0.2)),
+               PartMeasure(name="Shelf2", bbox_min=(-0.5, 0.78, -0.2), bbox_max=(0.5, 0.82, 0.2))],
+    )
+
+    r = check_contract(m, plan, language="blender")
+
+    assert r.passed, [f.message for f in r.findings]
+    assert not [f for f in r.errors if "missing" in f.message]
+
+
 def test_scene_plan_bounds() -> None:
     plan = ScenePlan(title="t", summary="s", setting="x", bounds=BBox(center=(0, 0, 0), extents=(10, 10, 10)), environment="e",
                      zones=[ZonePlan(name="Harbour", description="d", bbox=BBox(center=(0, 0, 0), extents=(5, 5, 5)))],
