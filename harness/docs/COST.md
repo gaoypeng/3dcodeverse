@@ -1142,3 +1142,49 @@ What did work, in production, on those two lost cells: they were recorded
 `infra_failed` with `score=None` rather than a hard 0.0 (§7 of `docs/EVAL.md`), and the
 retry deadline (§22) stopped each at ~15 min instead of the 56-87 min the same cells
 burned earlier the same morning.
+
+## 25. `max_usd` guards money, and a subscription costs none
+
+`Usage.cost_usd` answers *"what would these tokens cost at list price?"*.  That is the
+right number for a report, a $/complexity point, or a flywheel record — it is comparable
+across backends and independent of who is paying.  It is the wrong number to hand a
+spend guard, because a backend on a flat-rate local subscription bills no dollars.
+
+The harness had exactly one number and used it for both.
+
+**Measured 2026-08-25**, `tsr_scn_temple_night`, `codex:gpt-5.6-sol`, `--profile
+quality`.  The two Blender hero-asset sessions were priced at OpenAI list rates
+(`agents/codex.py` → `estimate_cost_safe("openai", …)`) and the run crossed the profile's
+soft cap 6.8 minutes in:
+
+```
+budget.degraded  cost $7.712 exceeds soft cap $4.40 (55% of $8.00)
+asset.judge_skipped  BronzeCenser  reason=soft_budget
+asset.judge_skipped  StoneLantern  reason=soft_budget
+```
+
+Both heroes went unjudged and every later stage ran degraded — over a bill of **$0.00**.
+The run's own cost ledger said $0.00 the whole time; `PROVIDER_PRICED_BACKENDS` and
+`meters_own_calls()` had already got the ledger side right.  Only the guard disagreed
+with it, and the guard is the half that changes what the run does.
+
+**The split.**  The ledger and the reports keep pricing everything; the budget enforces
+only what is billed.  `cost/billing.py` names the flat-rate backends
+(`SUBSCRIPTION_BACKENDS` = codex, claude-code, agy, antigravity — `CLAUDE.md`
+"Environment" is the source of that list), and `BudgetGuard` accumulates a second
+counter, `billed_usd`, which every ceiling now reads instead of `spent.cost_usd`.
+`summary()` reports both: `spent_usd` (billed, what the ceilings saw) and `notional_usd`
+(list price, what the reports want).
+
+`gemini-cli` is deliberately **not** exempt: it authenticates with an API key, so its
+tokens draw on a real per-token quota even when that quota is free.  Unknown backends
+bill by default — a new provider nobody classified must be enforced, not exempted.
+Wrong in that direction costs a degraded run; wrong in the other spends real money with
+no ceiling.
+
+**What still bounds a subscription run:** `max_minutes`, which `BudgetGuard.timeout_s()`
+also clips individual sessions against.  When the money is flat-rate, wall clock is the
+scarce resource — the runaway is still stopped, by the ceiling that actually applies to
+it.  Note the corollary for benchmarking: an arm on a subscription backend and an arm on
+an API backend are not being held to the same ceiling, so compare them on
+`notional_usd`, never on `spent_usd`.

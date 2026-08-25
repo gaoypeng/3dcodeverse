@@ -144,3 +144,46 @@ def test_the_ledger_is_optional_and_never_breaks_a_run(tmp_path):
     quiet = BudgetGuard(Budget(max_usd=1.0, max_minutes=60))  # no ledger configured
     quiet.charge(Usage(cost_usd=0.1))
     assert quiet.spent.cost_usd == pytest.approx(0.1)
+
+
+# ------------------------------------------------- subscription backends vs the guard
+def test_a_subscription_backend_does_not_consume_the_spend_guard():
+    """``max_usd`` guards money, and a flat-rate CLI costs none.
+
+    Measured 2026-08-25, ``tsr_scn_temple_night`` (``codex:gpt-5.6-sol``,
+    ``--profile quality``): two Blender hero sessions priced at OpenAI list rates put the
+    run at $7.712 against the $4.40 soft cap in 6.8 minutes, so the asset judge was
+    skipped for BOTH heroes and every later stage ran degraded — over a bill of $0.00.
+    The run's own cost ledger said $0.00; only the guard disagreed.
+    """
+    from codeverse.contracts.common import Budget, Usage
+    from codeverse.orchestrator.budget import BudgetGuard
+
+    g = BudgetGuard(Budget(max_usd=8.0, max_minutes=60.0), soft_fraction=0.55)
+    g.spend(Usage(backend="codex", model="gpt-5.6-sol", cost_usd=7.712), enforce=False)
+
+    assert g.billed_usd == 0.0
+    assert g.soft_exceeded() == ""  # the degradation that actually happened
+    assert g.ok()
+    # the notional price is NOT discarded — reports and $/complexity still want it
+    assert g.spent.cost_usd == pytest.approx(7.712)
+    assert g.summary()["notional_usd"] == pytest.approx(7.712)
+    assert g.summary()["spent_usd"] == 0.0
+
+
+def test_the_guard_still_enforces_backends_that_really_bill():
+    """The exemption must not become a hole: API backends keep both ceilings, and an
+    unclassified backend is enforced rather than exempted."""
+    from codeverse.contracts.common import Budget, Usage
+    from codeverse.orchestrator.budget import BudgetExceeded, BudgetGuard
+
+    g = BudgetGuard(Budget(max_usd=8.0, max_minutes=60.0), soft_fraction=0.55)
+    g.spend(Usage(backend="codex", cost_usd=99.0), enforce=False)  # free, ignored
+    g.spend(Usage(backend="gemini", cost_usd=5.0), enforce=False)
+    assert g.soft_exceeded()  # soft cap fires on the real $5
+    assert g.ok()  # but the hard ceiling has not
+
+    g.spend(Usage(backend="some-new-provider", cost_usd=4.0), enforce=False)
+    assert g.billed_usd == pytest.approx(9.0), "an unknown backend must bill, not be exempt"
+    with pytest.raises(BudgetExceeded):
+        g.check()

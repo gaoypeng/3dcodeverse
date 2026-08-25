@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from codeverse.contracts.common import Budget, Usage
+from codeverse.cost.billing import bills_usd
 
 log = logging.getLogger(__name__)
 
@@ -57,11 +58,23 @@ class BudgetGuard:
     ``BudgetExceeded`` when ``max_usd`` or ``max_minutes`` is exceeded.
     """
 
-    def __init__(self, budget: Budget, start_time: float | None = None, *, soft_fraction: float = 1.0,
-                 run: str = "", ledger: str | Path | Any | None = None):
+    def __init__(
+        self,
+        budget: Budget,
+        start_time: float | None = None,
+        *,
+        soft_fraction: float = 1.0,
+        run: str = "",
+        ledger: str | Path | Any | None = None,
+    ):
         self.budget = budget
         self.start_time = time.time() if start_time is None else start_time
         self.spent = Usage()
+        #: the share of ``spent.cost_usd`` that is money someone is actually charged.
+        #: The ceilings enforce THIS, not ``spent.cost_usd`` — a backend on a flat-rate
+        #: subscription prices its tokens notionally and must not consume a spend guard.
+        #: See ``cost/billing.py`` for why, and what still bounds a subscription run.
+        self.billed_usd = 0.0
         self._lock = threading.Lock()
         self.calls = 0
         #: fraction of the hard ceilings the *baseline* may use (1.0 = no soft cap)
@@ -98,13 +111,17 @@ class BudgetGuard:
             return
         with self._lock:
             self.spent = self.spent + usage
+            if bills_usd(getattr(usage, "backend", None)):
+                self.billed_usd += float(usage.cost_usd)
             self.calls += 1
             key = stage or OTHER_STAGE
             self.by_stage[key] = self.by_stage.get(key, 0.0) + float(usage.cost_usd)
             if round_index is not None:
                 per = self.by_round.setdefault(int(round_index), {})
                 per[key] = per.get(key, 0.0) + float(usage.cost_usd)
-        self._ledger_row(usage, stage=key, role=role, label=label, round_index=round_index, outcome=outcome)
+        self._ledger_row(
+            usage, stage=key, role=role, label=label, round_index=round_index, outcome=outcome
+        )
         if enforce:
             self.check()
 
@@ -125,8 +142,16 @@ class BudgetGuard:
         kw["enforce"] = False
         self.spend(usage, **kw)
 
-    def _ledger_row(self, usage: Usage, *, stage: str, role: str | None, label: str,
-                    round_index: int | None, outcome: str) -> None:
+    def _ledger_row(
+        self,
+        usage: Usage,
+        *,
+        stage: str,
+        role: str | None,
+        label: str,
+        round_index: int | None,
+        outcome: str,
+    ) -> None:
         if self.ledger is None:
             return
         try:
@@ -137,8 +162,18 @@ class BudgetGuard:
             # tokens, cache hits and latency — one aggregate row on top would double count.
             if per_call_metering():
                 return
-            record_call(usage, run=self.run, stage=stage, role=role, round=round_index, label=label,
-                        backend=usage.backend, model=usage.model, outcome=outcome, ledger=self.ledger)
+            record_call(
+                usage,
+                run=self.run,
+                stage=stage,
+                role=role,
+                round=round_index,
+                label=label,
+                backend=usage.backend,
+                model=usage.model,
+                outcome=outcome,
+                ledger=self.ledger,
+            )
         except Exception as e:  # noqa: BLE001 — accounting must never fail a run
             log.debug("cost ledger row failed (%s): %s", self.ledger, e)
 
@@ -173,28 +208,33 @@ class BudgetGuard:
 
     def check(self) -> None:
         """Raise ``BudgetExceeded`` if any hard ceiling has been crossed."""
-        spent = self.spent.cost_usd
+        spent = self.billed_usd
         elapsed = self.elapsed_minutes()
         if spent > self.hard_usd:
             raise BudgetExceeded(
                 f"cost ${spent:.3f} exceeds max_usd ${self.hard_usd:.2f}",
-                spent_usd=spent, elapsed_min=elapsed,
+                spent_usd=spent,
+                elapsed_min=elapsed,
             )
         if elapsed > self.hard_minutes:
             raise BudgetExceeded(
                 f"elapsed {elapsed:.1f} min exceeds max_minutes {self.hard_minutes:.1f}",
-                spent_usd=spent, elapsed_min=elapsed,
+                spent_usd=spent,
+                elapsed_min=elapsed,
             )
 
     # ----------------------------------------------------------------- soft cap
     def soft_limits(self) -> tuple[float, float]:
         """(usd, minutes) the soft sub-budget allows (grace is hard-only)."""
-        return self.budget.max_usd * self.soft_fraction, self.budget.max_minutes * self.soft_fraction
+        return (
+            self.budget.max_usd * self.soft_fraction,
+            self.budget.max_minutes * self.soft_fraction,
+        )
 
     def soft_exceeded(self) -> str:
         """Reason string when the soft sub-budget is used up, else ``""``."""
         usd, minutes = self.soft_limits()
-        spent, elapsed = self.spent.cost_usd, self.elapsed_minutes()
+        spent, elapsed = self.billed_usd, self.elapsed_minutes()
         if spent > usd:
             return f"cost ${spent:.3f} exceeds soft cap ${usd:.2f} ({self.soft_fraction:.0%} of ${self.budget.max_usd:.2f})"
         if elapsed > minutes:
@@ -208,7 +248,10 @@ class BudgetGuard:
     def soft_remaining(self) -> dict[str, float]:
         """Headroom left inside the soft sub-budget (never negative)."""
         usd, minutes = self.soft_limits()
-        return {"usd": max(0.0, usd - self.spent.cost_usd), "minutes": max(0.0, minutes - self.elapsed_minutes())}
+        return {
+            "usd": max(0.0, usd - self.billed_usd),
+            "minutes": max(0.0, minutes - self.elapsed_minutes()),
+        }
 
     def ok(self) -> bool:
         """True when no ceiling is crossed (non-raising variant of ``check``)."""
@@ -220,7 +263,7 @@ class BudgetGuard:
 
     def remaining(self) -> dict[str, float]:
         """Remaining headroom: ``{"usd": ..., "minutes": ..., "fraction": ...}``."""
-        usd = max(0.0, self.hard_usd - self.spent.cost_usd)
+        usd = max(0.0, self.hard_usd - self.billed_usd)
         minutes = max(0.0, self.hard_minutes - self.elapsed_minutes())
         frac_usd = usd / self.hard_usd if self.hard_usd > 0 else 0.0
         frac_min = minutes / self.hard_minutes if self.hard_minutes > 0 else 0.0
@@ -237,7 +280,10 @@ class BudgetGuard:
 
     def summary(self) -> dict[str, float | int]:
         return {
-            "spent_usd": round(self.spent.cost_usd, 4),
+            "spent_usd": round(self.billed_usd, 4),
+            # what it WOULD have cost at list price; equal to spent_usd unless a
+            # subscription backend ran (cost/billing.py)
+            "notional_usd": round(self.spent.cost_usd, 4),
             "elapsed_min": round(self.elapsed_minutes(), 2),
             "soft_fraction": round(self.soft_fraction, 3),
             "grace_usd": round(self.grace_usd, 4),

@@ -124,6 +124,8 @@ codeverse/
                       that does NOT meter itself; run_ledger nests + is context-local so bench --parallel works)
                       profiles.py (economy|balanced|quality; cli._common.resolve_dial is THE resolver)
                       caching.py (Block/order_blocks/session_cache — measurement only, docs/COST.md §13)
+                      billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
+                      so max_usd guards money and not list price; docs/COST.md §25)
                       guard.py routing.py reconstruct.py (old runs) audit.py report.py
   judges/             rubrics.py + rubrics/*.yaml (defect checklists), vlm_judge.py, montage.py,
                       prompt_builder.py, output_schema.py, scoring.py, caps.py, images.py, pairwise.py
