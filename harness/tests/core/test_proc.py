@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import resource
+import sys
 import time
 from pathlib import Path
 
@@ -87,3 +88,45 @@ def test_workspace_write_json_delegates(tmp_ws):
     tmp_ws.write_json(p, M())
     assert json.loads(p.read_text()) == {"x": 2}
     assert not p.with_suffix(".json.tmp").exists()
+
+
+_WRITER = """
+import json, sys
+from pathlib import Path
+from codeverse.proc import write_json_atomic
+
+path, tag, n = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
+payload = {"writer": tag, "blob": [tag * 40] * 900}
+bad = 0
+for _ in range(n):
+    write_json_atomic(path, payload)          # a second writer must not break this one
+    try:
+        json.loads(path.read_text())          # ... and readers must never see a partial file
+    except ValueError:
+        bad += 1
+print(bad)
+"""
+
+
+def test_write_json_atomic_survives_concurrent_writers(tmp_path: Path):
+    """RS-1: `tmp = path.with_suffix('.tmp')` was ONE name for every writer, so writer A
+    renamed B's half-written tmp into place (readers saw truncated / zero-byte JSON at the
+    published path) and B's own replace() then died with FileNotFoundError.  Real callers
+    share a path: the scene track fans zone agents out over one workspace root and each
+    agent's MCP `build` tool writes artifacts/build_last.json through this function.
+
+    Three processes, same path.  With a private tmp per writer this cannot fail; on the old
+    code it fails within a few dozen iterations."""
+    import subprocess
+
+    harness = Path(__file__).resolve().parents[2]
+    target = tmp_path / "shared.json"
+    procs = [subprocess.Popen([sys.executable, "-c", _WRITER, str(target), tag, "40"],
+                              cwd=harness, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+             for tag in ("A", "B", "C")]
+    outs = [(p.wait(), *p.communicate()) for p in procs]
+    for rc, out, errtext in outs:
+        assert rc == 0, f"a writer crashed: {errtext[-500:]}"
+        assert out.strip() == "0", f"a reader saw a partial file {out.strip()} time(s)"
+    assert json.loads(target.read_text())["writer"] in ("A", "B", "C")  # last writer wins, whole
+    assert not list(tmp_path.glob("*.tmp")), "no temp file left behind"

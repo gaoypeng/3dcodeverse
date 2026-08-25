@@ -15,6 +15,7 @@ import json
 import os
 import signal
 import subprocess
+import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -92,8 +93,25 @@ def tail(text: str, *, max_lines: int = 40, max_chars: int = 4000) -> str:
 
 
 def write_json_atomic(path: Path, data: Any) -> None:
-    """tmp + rename so readers never see a partial file."""
+    """tmp + rename so readers never see a partial file — including when several
+    writers race for the same path.
+
+    The tmp name is private to this writer (pid + thread id, the convention
+    ``judges/images.py`` already uses for its shared cache).  One shared
+    ``<path>.tmp`` was NOT atomic across writers: A could rename B's half-written
+    tmp into place — readers then observed truncated or zero-byte JSON at the
+    published path — and B's own ``replace()`` died with FileNotFoundError.  That
+    is not hypothetical here: the scene track fans zone agents out over ONE
+    workspace root and every agent's MCP ``build`` tool writes
+    ``artifacts/build_last.json`` and ``artifacts/measurement.json`` through this
+    function, and a clobbered ``run_state.json`` is an unresumable run
+    (``RunState.load`` refuses to guess).  Last writer to rename still wins.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str))
-    tmp.replace(path)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}-{threading.get_ident()}.tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str))
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # a failed write must not leave litter behind
+        raise
