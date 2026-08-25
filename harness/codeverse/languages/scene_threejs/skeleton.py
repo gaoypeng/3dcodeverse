@@ -32,11 +32,23 @@ def _write(path: Path, text: str, written: list[Path]) -> None:
 
 
 def write_example(ws: Workspace) -> list[Path]:
-    """Copy the full example scene into ws.src (overwrites)."""
+    """Copy the full example scene into ws.src (overwrites).
+
+    Raises when the starter tree is not there: rglob over a missing directory yields
+    nothing, so this used to write ZERO files and report success — which is exactly what
+    a non-editable (wheel) install produced before the starter tree was added to
+    package-data, and it surfaced much later as an empty scene rather than a bad install.
+    """
+    if not STARTER_DIR.is_dir():
+        raise FileNotFoundError(
+            f"scene_threejs starter tree missing: {STARTER_DIR} — this install has no package data "
+            f"(a non-editable install needs [tool.setuptools.package-data] to ship languages/**/starter/**/*)")
     written: list[Path] = []
     for src in sorted(STARTER_DIR.rglob("*.js")):
         rel = src.relative_to(STARTER_DIR)
         _write(ws.src / rel, src.read_text(), written)
+    if not written:
+        raise FileNotFoundError(f"scene_threejs starter tree at {STARTER_DIR} contains no .js files")
     return written
 
 

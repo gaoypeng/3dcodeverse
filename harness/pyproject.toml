@@ -60,7 +60,15 @@ dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.5", "pyarrow>=15"]
 include = ["codeverse*"]
 
 [tool.setuptools.package-data]
-codeverse = ["prompts/**/*", "judges/rubrics/*.yaml", "languages/**/wrappers/*", "spatial/js/*"]
+# Every non-python file a runtime reads at call time.  `languages/**/*.md` + the
+# scene starter tree were missing and `spatial/js/*` matched nothing at all (no such
+# directory), so a wheel install shipped no starter files: skeleton.write_example()
+# rglob'd an absent directory and wrote ZERO files while reporting success.
+codeverse = ["prompts/**/*", "judges/rubrics/*.yaml", "languages/**/wrappers/*",
+             "languages/**/*.md", "languages/**/starter/**/*"]
+
+[tool.setuptools.exclude-package-data]
+codeverse = ["**/__pycache__/*"]   # a wheel must not carry the build host's bytecode
 
 [tool.ruff]
 line-length = 100

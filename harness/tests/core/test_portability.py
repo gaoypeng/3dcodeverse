@@ -32,6 +32,7 @@ from codeverse.spatial.node import (
     parse_node_version,
     require_node_version,
 )
+from codeverse.workspace import Workspace
 
 HARNESS = Path(__file__).resolve().parents[2]
 PY_FLOOR = (3, 10)
@@ -82,6 +83,38 @@ def test_setup_script_checks_the_same_floors() -> None:
 def test_runtime_js_engines_matches_node_min() -> None:
     pkg = json.loads((HARNESS / "runtime_js" / "package.json").read_text())
     assert pkg["engines"]["node"] == f">={NODE_MIN_STR}"
+
+
+def test_package_data_ships_every_file_a_runtime_reads() -> None:
+    """PORT-4: a wheel built from this tree shipped no scene_threejs starter tree and no
+    CONTRACT.md, and the declared glob ``spatial/js/*`` matched nothing at all (there is no
+    such directory).  skeleton.write_example() then rglob'd an absent directory and wrote
+    ZERO files while reporting success.  Every non-python file under codeverse/ must be
+    covered by a package-data glob, and no glob may be dead."""
+    cfg = tomllib.loads((HARNESS / "pyproject.toml").read_text())
+    globs = cfg["tool"]["setuptools"]["package-data"]["codeverse"]
+    pkg = HARNESS / "codeverse"
+    shipped: set[Path] = set()
+    for g in globs:
+        hits = {p for p in pkg.glob(g) if p.is_file()}
+        assert hits, f"dead package-data glob (matches nothing): {g!r}"
+        shipped |= hits
+    data = {p for p in pkg.rglob("*")
+            if p.is_file() and p.suffix not in (".py", ".pyc") and "__pycache__" not in p.parts}
+    missing = sorted(str(p.relative_to(pkg)) for p in data - shipped)
+    assert not missing, f"data files no wheel would ship: {missing}"
+    excluded = cfg["tool"]["setuptools"]["exclude-package-data"]["codeverse"]
+    assert any("__pycache__" in g for g in excluded), "a wheel must not carry the build host's bytecode"
+
+
+def test_write_example_refuses_to_write_nothing(tmp_path, monkeypatch) -> None:
+    """The other half of PORT-4: an install without the starter tree must fail loudly at
+    the moment it is needed, not hand back an empty scene."""
+    from codeverse.languages.scene_threejs import skeleton
+
+    monkeypatch.setattr(skeleton, "STARTER_DIR", tmp_path / "gone" / "src")
+    with pytest.raises(FileNotFoundError, match="starter tree missing"):
+        skeleton.write_example(Workspace(tmp_path / "ws").create())
 
 
 # ------------------------------------------------------------------- nothing exceeds it
