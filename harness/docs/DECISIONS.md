@@ -198,6 +198,33 @@ written) that were accepted because the code works that way and the tests pin it
   guard among them — never ran on a PR.  Decision: `pytest tests -m "not live and
   not blender and not node"` on both python floors; `timeout-minutes` on both jobs.
 
+* **D40 A harness cell that waited instead of iterating is flagged, not trusted
+  (2026-08-25).**  Context: under a day-long gemini-3.7-flash 503 storm 37 of 40 harness
+  runs stopped on the 45-minute ceiling with 0–2 completed rounds while the 3 that met a
+  calm window finished 2–4 rounds and scored 0.92–0.95; the paired mean over the stormed
+  cells (0.516) measured the weather.  Decision: `compare_backends.flag_degraded` marks a
+  harness cell that stopped for budget with money left, ≤ 1 completed round, after
+  ≥ 40 min; the report counts them (`degraded` / `cut` columns, † per prompt) and
+  `paired_compare` adds an `all −degraded` row.  Scores stay — the artifact is real.
+* **D41 Failures of the arm are zeros; failures of the provider are dropped (2026-08-25).**
+  Context: a `oneshot+repair` cell whose repair call died in a 503 storm was scored 0 on
+  its pre-repair file; a harness run whose planner failed validation twice was recorded
+  `error` / score None and vanished from the mean (5 of 14 articulated prompts).  Decision:
+  a one-shot arm whose LAST attempt was lost to the provider is `infra_failed` (redone);
+  a harness `PlanningError` is `no_code` / 0.0, like a one-shot answer in the wrong
+  format; "Error creating WebGL context" (a saturated shared GPU) is an infra marker.
+* **D42 `compare_backends` follows the battery's track (2026-08-25).**  Context: the
+  fixed evaluator was static_object-only.  Decision: `FixedEvaluator(track=, language=)`
+  picks the runtime and rubric from the battery (`RUBRIC_BY_TRACK`); articulated cells add
+  the joint-sweep gate and the pose sheet read from the built URDF (no plan, every arm
+  alike); one-shot arms get a language-aware minimal contract (the D18 recipe as rules,
+  no example) and must answer with both files in the `=== FILE ===` envelope.
+* **D43 Python lints never raise on unparseable source (2026-08-25).**  Context: a
+  generated bpy file made CPython 3.11's `ast.parse` raise `SystemError` and the round died
+  in `build_once`.  Decision: `_ast_lint.safe_parse` catches SyntaxError / RecursionError /
+  SystemError / MemoryError / ValueError; every python lint reports a lint ERROR with a
+  flatten-the-literal hint instead.
+
 ## Rejected / deferred
 
 * Registering `single-shot` as a CodingAgent kind (rejected: it has no tools/session).

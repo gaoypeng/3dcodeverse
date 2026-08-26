@@ -12,6 +12,17 @@ score computed under an odd `n_samples` (branch `ziyao/eval-integrity`, D36–D3
   the old rule `economy` (n=2) was strictly harsher than `balanced` (n=1) and
   `quality` (n=3).
 * CI runs the whole offline suite (was 7 of 24 test directories).
+* `bench/paired_compare.py`: paired Δ, 95 % t-interval, exact sign test, per tier, plus a
+  judge-free table (build rate, gate errors) per arm; `bench/prompts/compare_v4.yaml`
+  (40 static prompts); `--judge-samples` on `compare_backends`.
+* `compare_backends`: storm-degraded harness cells are flagged (D40); arm failures are
+  zeros and provider failures are dropped (D41); the articulated track is supported (D42).
+* Python lints survive unparseable source (D43).
+* Measured with these (2026-08-25/26, gemini-3.7-flash, judge gemini-3.1-pro-preview n=3):
+  static compare_v4, n=40 — harness 0.633 vs one-shot+repair 0.487, Δ +0.146
+  [+0.077, +0.215], sign p < 0.001; vs one-shot 0.232, Δ +0.401.  Articulated
+  articulated_v2, n=14 — harness 0.309 vs one-shot+repair 0.316, Δ −0.007 (CI crosses 0);
+  5/14 harness runs failed at planning.
 
 ---
 
