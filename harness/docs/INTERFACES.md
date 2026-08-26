@@ -49,7 +49,9 @@ append_jsonl_line(path, rec, lock) -> None                 # one json.dumps(ensu
 ## models/
 ```python
 from codeverse.models import get_chat_model            # (model_id) -> ChatModel, lru-cached, thread-safe
-resp = m.generate(ChatRequest(messages=[...], system=..., response_schema=..., temperature=..., thinking=..., label=...))
+resp = m.generate(ChatRequest(messages=[...], system=..., response_schema=..., temperature=..., thinking=..., label=..., max_wait_s=None))
+#   max_wait_s: the longest this ONE call may spend, retries included (None = models.retry.RETRY_DEADLINE_S = 900 s);
+#   GeminiModel clips its retry deadline to it; api_agent 20-120 s per turn, VlmJudge 240 s per sample, planner 300 s
 resp.parsed / resp.text / resp.tool_calls / resp.usage   # Usage always has cost_usd (models.pricing)
 from codeverse.models.keypool import KeyPool, KeyPoolExhausted
 KeyPool(keys, *, rpm_per_key=900, tpm_per_key=None, cooldown_s=30, dead_cooldown_s=3600)
@@ -265,7 +267,7 @@ python -m codeverse.spatial.mcp_server --workspace <ws> [--track X] [--language 
 from codeverse.judges.rubrics import load_rubric, Rubric   # Rubric{…, defects: [DefectItem{id, text, penalty, cap}], caps[{…, when:, kinds}]}
 from codeverse.judges.vlm_judge import VlmJudge
 VlmJudge(rubric="static_object_v1", model_id=None (settings.default_judge = gemini-3.1-pro-preview), n_samples=1,
-         temperature=0.2, *, thinking="low", max_attempts=3, max_montages=3, detail_crops=2, max_px=1024,
+         temperature=0.2, *, thinking="low", max_attempts=3, max_montages=3, detail_crops=2, max_px=1024, sample_budget_s=240,
          chat_model=None, cache_dir=None, label="judge")            # Δ max_images is GONE → montage budget
 VlmJudge.judge(inp, *, geometry_views: RenderSet | None = None) -> Judgment   # also reads inp.geometry_views
 from codeverse.judges.base import JudgeInput   # (spec, renders, measurement=None, gates=[], acceptance=[], plan_summary="",

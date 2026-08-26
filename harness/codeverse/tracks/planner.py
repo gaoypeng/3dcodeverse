@@ -61,6 +61,11 @@ PLAN_TOKENS_PER_LEAF = 400
 PLAN_TOKENS_MAX = 60000
 #: one more attempt when the model truncates anyway, with half again as much room
 TRUNCATION_GROWTH = 1.5
+#: retry budget (``ChatRequest.max_wait_s``) for one planner call.  Audit 2026-08-26 §2: the
+#: call itself is 13.7 s p50 / 32 s p90 / 76 s max (23.4 / 43 / 68 under the storm), yet the
+#: storm-day plan stage waited 492 s median per run for 39 s of model time; 300 s is ~4x the
+#: worst observed call and replaces the model's 900 s default.  The re-asks are on top.
+PLAN_MAX_WAIT_S = 300.0
 
 
 def plan_tokens(budget: PlanBudget, floor: int) -> int:
@@ -170,7 +175,8 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     tokens = plan_tokens(budget, max_output_tokens)
     for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS):
         req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=temperature,
-                          thinking="medium", max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}")
+                          thinking="medium", max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
+                          max_wait_s=PLAN_MAX_WAIT_S)
         try:
             resp = model.generate(req)
         except Exception as e:  # noqa: BLE001 — a truncated plan is retryable; anything else is not

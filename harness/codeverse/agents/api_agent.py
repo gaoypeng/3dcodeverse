@@ -36,6 +36,14 @@ log = logging.getLogger(__name__)
 BUILD_TOOL = "build"
 COMPACT_AT_CHARS = 350_000
 MODEL_RETRIES = 3
+#: retry budget (``ChatRequest.max_wait_s``) for ONE model call of a turn: the session's
+#: remaining time, clipped to this window.  Audit 2026-08-26 §5.1: with the model's own
+#: 900 s deadline x MODEL_RETRIES one turn could wait 2 700 s, and 66 such give-up spans
+#: (median 923 s, p90 2 743 s) were 30 % of a storm day's waiting — ~1 430 s per run.  A
+#: successful storm-day call is 8.3 s p50 / 31 s p90, so 120 s is ~4x p90; 20 s is the
+#: floor so a turn that starts near the deadline still gets one real attempt.
+TURN_WAIT_MIN_S = 20.0
+TURN_WAIT_MAX_S = 120.0
 DEFAULT_SYSTEM = (
     "You are an expert 3D programmer working inside a harness-managed workspace. "
     "Use the tools to read, write and verify code under src/ and public/. Write RAW code in the "
@@ -210,6 +218,11 @@ class _Loop:
             tools=[t.name for t in self.specs],
         )
 
+    def _turn_wait_s(self) -> float:
+        """Retry budget for one model call of this turn: what the session can still
+        afford, clipped to ``[TURN_WAIT_MIN_S, TURN_WAIT_MAX_S]``."""
+        return max(TURN_WAIT_MIN_S, min(TURN_WAIT_MAX_S, self.t_deadline - time.monotonic()))
+
     def _generate(self, turn: int) -> ChatResponse | None:
         req = ChatRequest(
             messages=self.messages,
@@ -218,24 +231,33 @@ class _Loop:
             temperature=self.s.job.api.temperature,
             thinking=self.s.job.api.thinking,
             label=f"api-agent:{self.s.label}:t{turn}",
+            max_wait_s=self._turn_wait_s(),
         )
         delay = 2.0
         for attempt in range(MODEL_RETRIES):
+            if attempt:  # a retry gets what is left, not the turn's opening budget again
+                req = req.model_copy(update={"max_wait_s": self._turn_wait_s()})
             try:
                 resp = self.chat.generate(req)
                 self.usage = self.usage + resp.usage
                 return resp
             except Exception as e:  # ModelError or provider glitch
                 retryable = bool(getattr(e, "retryable", False))
+                # the session deadline used to be checked only between turns, so a turn that
+                # met it inside this loop still slept and re-entered the model's whole
+                # retry machine (97 sessions overshot their timeout on 2026-08-26)
+                expired = time.monotonic() >= self.t_deadline
                 self.s.traj.append(
                     "model_error",
                     turn=turn,
                     attempt=attempt,
                     error=str(e)[:2000],
                     retryable=retryable,
+                    deadline_passed=expired,
                 )
-                if not retryable or attempt == MODEL_RETRIES - 1:
-                    self.errors.append(f"model error on turn {turn}: {type(e).__name__}: {e}")
+                if not retryable or expired or attempt == MODEL_RETRIES - 1:
+                    note = " (session deadline passed; not retried)" if expired and retryable else ""
+                    self.errors.append(f"model error on turn {turn}: {type(e).__name__}: {e}{note}")
                     return None
                 time.sleep(delay)
                 delay *= 2

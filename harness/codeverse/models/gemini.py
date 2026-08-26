@@ -39,7 +39,7 @@ from codeverse.models.gemini_convert import (
 from codeverse.models.keypool import MAX_WAIT_S, KeyPool, KeyPoolExhausted, Outcome
 from codeverse.models.parts import Stopwatch
 from codeverse.models.pricing import estimate_cost
-from codeverse.models.retry import rotate_with_retries
+from codeverse.models.retry import RETRY_DEADLINE_S, rotate_with_retries
 from codeverse.models.schema_utils import JsonParseError, parse_json_lenient
 from codeverse.models.storm import StormGate
 from codeverse.models.storm import storm_gate as storm_gate_for
@@ -245,6 +245,8 @@ class GeminiModel:
             state["config"] = self._config(request, warnings)
             return True
 
+        # the caller's budget clips the retry deadline, never extends it
+        budget = RETRY_DEADLINE_S if request.max_wait_s is None else min(RETRY_DEADLINE_S, float(request.max_wait_s))
         return rotate_with_retries(
             self.pool,
             lambda key: self._once(key, contents, state["config"], request, warnings),
@@ -253,6 +255,7 @@ class GeminiModel:
             max_attempts=self.max_attempts,
             base_delay=self.base_delay,
             max_delay=self.max_delay,
+            max_total_s=budget,
             sleep=self._sleep,
             on_free_retry=downgrade_thinking,
             retry_after=_retry_after_s,

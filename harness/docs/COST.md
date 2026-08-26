@@ -1222,6 +1222,25 @@ index in `telemetry/usage.jsonl` so the distribution of calls per key can be rea
 probed.
 
 
+
+**Follow-up, same day, from the time audit (51 storm-day runs vs 52 baseline; `time_audit/REPORT.md`).**
+Three accelerations, all additive and on by default:
+
+*A caller clips the retry budget to what it can afford* (`ChatRequest.max_wait_s`, None = the
+model's `RETRY_DEADLINE_S`).  Of the 246 297 s a storm-day run spent waiting on the provider,
+**30 % (72 921 s) was 66 `model_error` spans** in which one call retried until the 900 s deadline —
+median span 923 s, p90 2 743 s, i.e. three consecutive give-ups on ONE agent turn through
+`api_agent.MODEL_RETRIES`; 45 sessions were hit, **~1 430 s per run**.  `GeminiModel` now passes
+`max_total_s = min(900, max_wait_s)` to `rotate_with_retries`.  An agent turn asks for
+`max(20, min(120, session time left))` (a successful storm-day call is 8.3 s p50 / 31 s p90) and
+stops retrying once the session deadline has passed instead of sleeping 2 + 4 s past it (97
+sessions overshot their timeout by 182 s median / 1 154 s p90); a judge sample gets
+`SAMPLE_BUDGET_S = 240` for all its attempts (the verdict is 42 s p50 / 73 s p90, 50 / 103 s under
+the storm; two rounds lost 1 162 s and 927 s to 3 × 300 s timeouts before a second sample answered
+in 128 s); the planner 300 s (13.7 s p50 / 32 s p90, max 76 s; the storm-day plan stage waited
+492 s median for 39 s of model time).  Anthropic / OpenAI go through `with_retries`, which has no
+deadline (≈ 20 s of backoff at most), so the field is a no-op there.
+
 ## 25. Where the time goes — the 2026-08-26 audit (`docs/TIME_AUDIT_2026-08-26.md`)
 
 51 storm-day runs against 52 baseline runs, every stage and every model call, scripts in

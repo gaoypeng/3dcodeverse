@@ -227,3 +227,65 @@ def test_job_images_ride_on_the_first_user_message(tmp_ws, tmp_path):
     imgs = [pt for pt in first.parts if isinstance(pt, ImagePart)]
     assert imgs and imgs[0].path == str(png), "the image must be a part of the FIRST user message"
     assert "judge scored" in (imgs[0].label or "")
+
+
+# ------------------------------------------------------ per-turn retry budget (audit 2026-08-26 §5.1)
+class _Clock:
+    """Fake ``time`` for the agent loop: ``monotonic()`` moves only when a test moves it."""
+
+    def __init__(self, t: float = 1000.0):
+        self.t = t
+        self.slept: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.t
+
+    def sleep(self, s: float) -> None:
+        self.slept.append(s)
+        self.t += s
+
+
+def test_each_turn_gets_a_retry_budget_clipped_to_what_the_session_can_afford(tmp_ws, monkeypatch):
+    """Audit 2026-08-26 §5.1: 66 give-up spans of the model's 900 s deadline (up to 3 in a row on
+    one turn: median 923 s, p90 2 743 s) were 30 % of the storm day's waiting, ~1 430 s per run.
+    A turn's call may now retry for at most TURN_WAIT_MAX_S = 120 s (a storm-day call succeeds in
+    8.3 s p50 / 31 s p90) and never past the session deadline, floored at 20 s so a late turn
+    still gets one real attempt."""
+    import codeverse.agents.api_agent as mod
+
+    for timeout_s, want in ((600, 120.0), (60, 60.0), (5, 20.0)):
+        monkeypatch.setattr(mod, "time", _Clock())
+        fake = FakeChatModel([resp("", call("list_files")), resp("done")])
+        res = ApiAgent("fake:fake-1", chat_model=fake).run(_job(tmp_ws, timeout_s=timeout_s))
+        assert res.ok, res.errors
+        assert [r.max_wait_s for r in fake.requests] == [want, want], timeout_s
+
+
+def test_a_turn_stops_retrying_once_the_session_deadline_has_passed(tmp_ws, monkeypatch):
+    """The deadline used to be checked only at the top of a turn: a turn that met it inside the
+    retry loop still slept 2 s + 4 s and re-entered the model's whole retry machine twice more
+    (97 sessions overshot their timeout on 2026-08-26 by 182 s median / 1 154 s p90)."""
+    import codeverse.agents.api_agent as mod
+
+    clock = _Clock()
+    monkeypatch.setattr(mod, "time", clock)
+
+    class Boom(RuntimeError):
+        retryable = True
+
+    class StormModel(FakeChatModel):
+        def generate(self, request: ChatRequest) -> ChatResponse:
+            self.requests.append(request)
+            clock.t += request.max_wait_s  # the model spent its whole budget retrying
+            raise Boom("503 high demand")
+
+    fake = StormModel([])
+    res = ApiAgent("fake:fake-1", chat_model=fake).run(_job(tmp_ws, timeout_s=100))
+    assert not res.ok and res.exit_reason == "error"
+    assert fake.requests[0].max_wait_s == 100.0
+    assert len(fake.requests) == 1, "no retry once the deadline has passed"
+    assert clock.slept == [], "and no 2 s / 4 s sleep past it"
+    assert "deadline passed" in res.errors[0]
+    rows = [json.loads(ln) for ln in Path(res.transcript_path).read_text().splitlines()]
+    (err_row,) = [r for r in rows if r["kind"] == "model_error"]
+    assert err_row["deadline_passed"] is True and err_row["retryable"] is True

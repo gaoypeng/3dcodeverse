@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextlib
 
+import pytest
 from google.genai import errors as genai_errors
 
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
@@ -148,3 +149,36 @@ def test_png_bytes_are_not_counted_as_text():
     b64 = base64.b64encode(PNG_1PX * 500).decode()
     req = ChatRequest(messages=[ChatMessage.user("hi", images=[ImagePart(data_b64=b64)])])
     assert request_tokens(req) < 2000
+
+
+# ------------------------------------------------ retry budget + hedge (audit 2026-08-26 §5.1 / §5.2)
+def test_max_wait_s_clips_the_retry_deadline_and_never_extends_it(monkeypatch):
+    """Audit 2026-08-26 §5.1: 66 give-up spans of the model's 900 s deadline (x3 outer retries)
+    were 30 % of a storm day's waiting.  ``ChatRequest.max_wait_s`` is the caller's budget for
+    the whole call; the model clips its deadline to it and never goes above its own ceiling."""
+    import codeverse.models.gemini as gm
+    from codeverse.models.retry import RETRY_DEADLINE_S
+
+    seen: list[float] = []
+    real = gm.rotate_with_retries
+
+    def spy(pool, call, **kw):
+        seen.append(kw["max_total_s"])
+        return real(pool, call, **kw)
+
+    monkeypatch.setattr(gm, "rotate_with_retries", spy)
+    m, _log, _ = make_model([text_response("a"), text_response("b"), text_response("c")])
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=30))
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=5000))
+    assert seen == [RETRY_DEADLINE_S, 30.0, RETRY_DEADLINE_S]
+
+
+def test_max_wait_s_must_be_positive():
+    """0 would mean "no deadline" to rotate_with_retries — the opposite of what a caller
+    that is out of time wants — so the contract refuses it."""
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=0)
+
