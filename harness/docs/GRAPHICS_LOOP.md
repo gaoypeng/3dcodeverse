@@ -127,6 +127,18 @@ saw: flash lifts its night scenes.  A first replay without the plan digest and f
 v1 0.23 with four moving effects called static — the replay must hand the judge what the loop hands
 it (`bench/judge_calib_graphics.py` does now).
 
-**Switching the track default** (`TRACK_INFO[graphics].rubric` → `shader_v2`) is held until the
-reference A/B in flight (`refs_v1_graphics`) has finished, so both of its arms are judged in-loop by
-the same rubric; it lands with the cookbook-light branch.
+**The reference-photo A/B, first turn** (`refs_v1_graphics`: the aurora brief, three seeds with
+the two photos and three without, flash, 2 rounds, judged in-loop by v1 / LikenessJudge(v1);
+read out offline with ONE LikenessJudge(shader_v2) and the same photos on every run —
+`bench/out/refs_v1_graphics/refs_ab_readout.md`): with photos 0.461 / 0.220 / 0.353, without
+0.331 / 0.095 / 0.192; paired **+0.139**, sd 0.020, sign 3/3 (n=3 — a direction, not a
+number).  Every one of the six runs fired `comb_artefact` and `unlike_reference`: flash draws
+evenly spaced bars for an aurora whether or not it is shown one, and the in-loop v1 judge gave
+those runs 0.60–0.94.  The photos moved the judge more than the generator — which is why the
+second turn changes the generator's material: the cookbook's light chapter (aeb49c0) and
+brief-selected chapters (137541e), with shader_v2 in the loop (`refs_v2_graphics`, launched
+12:30; read it out with `bench/refs_ab_readout.py bench/out/refs_v2_graphics --refs
+bench/refs/tsr_gfx_aurora_ridge`).  The number to watch is the `comb_artefact` firing rate.
+
+**The track default is `shader_v2`** since c032700 (the switch waited for the first reference
+A/B to finish so both of its arms were judged in-loop by one rubric).
