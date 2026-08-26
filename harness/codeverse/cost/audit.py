@@ -220,10 +220,6 @@ def audit_runs(paths: Iterable[str | Path], *, recheck: bool = False) -> Audit:
     return audit
 
 
-def audit_dir(root: str | Path, *, recheck: bool = False) -> Audit:
-    return audit_runs([root], recheck=recheck)
-
-
 # --------------------------------------------------------------------------- derived views
 def cached_input_share(audit: Audit) -> tuple[int, int, float]:
     """``(cached, total input, $ paid for cache reads)`` — how much of every prompt

@@ -17,7 +17,7 @@ Nothing here imports tracks/ or orchestrator/, so any layer may use it.
 
 from __future__ import annotations
 
-from codeverse.cost.audit import Audit, WasteItem, audit_dir, audit_runs
+from codeverse.cost.audit import Audit, WasteItem, audit_runs
 from codeverse.cost.caching import (
     Block,
     PrefixReport,
@@ -86,7 +86,6 @@ __all__ = [
     "Stage",
     "Summary",
     "WasteItem",
-    "audit_dir",
     "audit_runs",
     "bind_run",
     "cache_efficiency",

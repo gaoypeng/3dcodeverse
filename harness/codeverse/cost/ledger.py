@@ -382,7 +382,3 @@ def summarise(rows: Iterable[CallCost], *, dimensions: Sequence[str] = DIMENSION
             bucket = out.by.setdefault(dim, {}).setdefault(_key(row, dim), CostBucket(key=_key(row, dim)))
             bucket.add(row)
     return out
-
-
-def totals_by(rows: Iterable[CallCost], dim: str) -> dict[str, CostBucket]:
-    return summarise(rows, dimensions=(dim,)).dimension(dim)

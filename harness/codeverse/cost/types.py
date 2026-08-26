@@ -14,14 +14,15 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from codeverse.contracts.common import Usage
-
 
 class Stage(StrEnum):
     """Where in a run the money was spent.  Mirrors the stage/round vocabulary
     of ``events.jsonl`` (``stage.start``/``generate.done`` labels)."""
 
     PLAN = "plan"
+    #: SKELETON / ASSEMBLE / GATES / RENDER are *deterministic harness work* (no
+    #: model call at all); kept in the enum so latency can be attributed to them
+    #: from events (``report.STAGE_ORDER``, ``audit.stage_latency``).
     SKELETON = "skeleton"
     ASSETS = "assets"
     ENV = "env"
@@ -50,10 +51,6 @@ class Role(StrEnum):
     IMAGE = "image"
     OTHER = "other"
 
-
-#: stages whose spend is *deterministic harness work* (no model call at all).
-#: Kept in the enum so latency can be attributed to them from events.
-FREE_STAGES: frozenset[Stage] = frozenset({Stage.SKELETON, Stage.ASSEMBLE, Stage.GATES, Stage.RENDER})
 
 #: label prefix → stage, longest prefix wins (``asset_stone_lantern`` → assets)
 _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
@@ -263,17 +260,3 @@ class Summary(BaseModel):
     def ranked(self, name: str, *, limit: int | None = None) -> list[CostBucket]:
         rows = sorted(self.dimension(name).values(), key=lambda b: -b.cost_usd)
         return rows[:limit] if limit else rows
-
-    def share(self, name: str, key: str) -> float:
-        b = self.dimension(name).get(key)
-        return (b.cost_usd / self.total.cost_usd) if b and self.total.cost_usd else 0.0
-
-
-def usage_to_tokens(usage: Usage) -> dict[str, int]:
-    return {
-        "input_tokens": int(usage.input_tokens),
-        "cached_tokens": int(usage.cached_tokens),
-        "output_tokens": int(usage.output_tokens),
-        "thoughts_tokens": int(usage.thoughts_tokens),
-        "tool_calls": int(usage.tool_calls),
-    }
