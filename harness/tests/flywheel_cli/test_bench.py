@@ -218,7 +218,8 @@ def test_a_redo_starts_from_a_fresh_workspace(tmp_path):
     b = Battery.load(Path("bench/prompts/static_objects_v1.yaml"))
     pid = b.prompts[0].id
     ws_root = out / "runs" / pid
-    (ws_root / "src").mkdir(parents=True)
+    stale = Workspace(ws_root).create()  # a real (stale) workspace, the way the budget run left it
+    stale.spec_path.write_text("{}")
     (ws_root / "src" / "old.py").write_text("# stale")
     out.mkdir(exist_ok=True)
     (out / "results.jsonl").write_text(json.dumps({"id": pid, "tier": b.prompts[0].tier, "status": "budget", "score_final": None}) + "\n")
