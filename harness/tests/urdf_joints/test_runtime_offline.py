@@ -11,6 +11,7 @@ from codeverse.contracts.common import Language
 from codeverse.languages import get_runtime
 from codeverse.languages.urdf import runtime as rt_mod
 from codeverse.languages.urdf.runtime import UrdfBlenderRuntime
+from codeverse.proc import ProcResult
 from codeverse.workspace import Workspace
 from tests.urdf_joints.conftest import box_glb
 
@@ -34,13 +35,13 @@ def fake_blender(monkeypatch):
         if state["error"]:
             (art / "build.json").write_text(json.dumps({"ok": False, **state["error"]}))
             (art / "census.json").write_text(json.dumps({"objects": [], "links": {}, "hints": {"door": "did you mean ['Door']?"}}))
-            return {"returncode": 0, "stdout": "", "stderr": "", "timed_out": False}
+            return ProcResult(returncode=0, stdout="", stderr="", timed_out=False, duration_ms=0)
         box_glb(art / "meshes" / "body.glb", *BODY)
         box_glb(art / "meshes" / "door.glb", *state["door"])
         (art / "census.json").write_text(json.dumps({"objects": [], "links": {"body": _census_row(*BODY), "door": _census_row(*state["door"])},
                                                      "unmatched_objects": [], "missing_links": [], "hints": {}}))
         (art / "build.json").write_text(json.dumps({"ok": True, "stdout_tail": "built\n"}))
-        return {"returncode": 0, "stdout": "", "stderr": "", "timed_out": False}
+        return ProcResult(returncode=0, stdout="", stderr="", timed_out=False, duration_ms=0)
 
     monkeypatch.setattr(rt_mod, "_run_blender", run)
     monkeypatch.setattr(rt_mod, "get_settings", lambda: SimpleNamespace(
@@ -113,7 +114,8 @@ def test_build_rest_penetration_fails(tmp_path, cabinet_plan, fake_blender):
 
 
 def test_build_timeout(tmp_path, cabinet_plan, fake_blender, monkeypatch):
-    monkeypatch.setattr(rt_mod, "_run_blender", lambda *a, **k: {"returncode": -9, "stdout": "", "stderr": "", "timed_out": True})
+    monkeypatch.setattr(rt_mod, "_run_blender",
+                        lambda *a, **k: ProcResult(returncode=-9, stdout="", stderr="", timed_out=True, duration_ms=0))
     ws = _ws(tmp_path, cabinet_plan)
     res = UrdfBlenderRuntime().build(ws, timeout_s=1)
     assert not res.ok and res.error_type == "Timeout"
