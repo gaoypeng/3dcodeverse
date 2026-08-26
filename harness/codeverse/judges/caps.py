@@ -83,7 +83,7 @@ def measured_absent(rubric: Rubric, defect_id: str, gates: list[GateReport]) -> 
     )
     if rule is None:
         return False
-    watched = [g for g in gates if fnmatch.fnmatch(g.gate, rule.gate)]
+    watched = [g for g in gates if fnmatch(g.gate, rule.gate)]
     if not watched:
         return False
     for g in watched:
