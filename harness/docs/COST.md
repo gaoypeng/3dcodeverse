@@ -1220,3 +1220,35 @@ streak, up to 900 s); what it costs is one more round-trip on a fresh key.  Foll
 measuring: rank keys by recent latency (the 30 s keys are consistent), and record the key
 index in `telemetry/usage.jsonl` so the distribution of calls per key can be read instead of
 probed.
+
+
+## 25. Where the time goes — the 2026-08-26 audit (`docs/TIME_AUDIT_2026-08-26.md`)
+
+51 storm-day runs against 52 baseline runs, every stage and every model call, scripts in
+`bench/time_audit/` (read-only over `bench/out`).  The numbers that decide what to build next:
+
+* A blender object run is **1 811 s** median on a healthy provider and **4 726 s** under the storm;
+  build + gates + render together are 3–19 % of a baseline run and 1–4 % of a storm run.  The
+  agent session is where the time is: baseline 57 % model thinking / 11 % tools / 32 % waiting;
+  storm day **22 % / 2 % / 77 %**.
+* Waiting is not the backoff sleep.  Logged sleeps are ~13 % of the wait; a failed 503 costs a
+  **21–50 s held round-trip** before the provider rejects it, and streaks average 4.7 attempts.
+  **30 % of all storm-day waiting (72 921 s) is 66 give-up spans** — one call retrying to the
+  900 s `RETRY_DEADLINE_S`, up to three times per turn through `api_agent.MODEL_RETRIES`,
+  never clipped to the session's or the round's remaining budget.  18 of 51 storm runs ended
+  with zero rounds; 14 of them overshot the bench ceiling by 837 s median because the ceiling is
+  only checked between stages.
+* Successful calls are also slower under the storm: flash p50 3.3 → 8.3 s, p90 17 → 31 s; the
+  judge (pro) p50 42 → 50 s.  The judge is not the bottleneck at the median; its tail is
+  (2 rounds lost 1 100 s each to three 300 s read timeouts).  The planner waits 492 s median
+  per storm-day run for 39 s of model time.
+* No telemetry row records which key served a call, so per-key distribution was unanswerable
+  from the corpus (the §24 probe answered it directly).
+
+Ranked by measured seconds per storm-day run: (1) clip the per-call retry budget to the
+remaining session / round budget (~1 430 s/run) — (2) hedge a 503 retry across 2–3 keys
+(~900–1 400 s/run) — (3) hedge / cap the planner and judge calls (~400 s/run + the judge tail)
+— (4) plan cache on re-runs (548 s) — (5) no sleep on 503 (≤ 13 %; landed with §24) — (6) enforce
+the ceiling inside a round (837 s sooner on killed runs) — (7) flash as the loop judge (~60 s
+baseline) — (8) 30 s render cap (≤ 100 s).  (1)–(3) and the key/attempt ledger fields are in
+progress on branch `retry-budget`.
