@@ -8,16 +8,13 @@ version = "0.1.0"
 description = "3dcodeverse: a data-flywheel harness for LLM-written 3D code (Blender / CadQuery / Three.js / URDF / GLSL) across static objects, articulated objects and scenes."
 readme = "README.md"
 # Floor = 3.10 (the oldest interpreter the whole dependency set still resolves on and the
-# offline suite is green on); developed and measured on 3.13.  CI runs both ends.
+# one fixed version, 3.13 (owner, 2026-08-26): developed, measured and CI-tested on it.
 # Nothing in the package uses a 3.11+ stdlib name directly — the three that were used
 # (StrEnum, datetime.UTC, tomllib) live behind codeverse/_compat.py.
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 license = { text = "Apache-2.0" }
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Operating System :: POSIX :: Linux",
   "Operating System :: MacOS",
@@ -81,7 +78,7 @@ codeverse = ["**/__pycache__/*"]   # a wheel must not carry the build host's byt
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"  # == requires-python floor: no 3.13+ idiom may slip in
+target-version = "py313"  # == requires-python: one fixed version (owner, 2026-08-26)
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]

@@ -7,7 +7,7 @@ fakes.  Three things are pinned:
 
 * the floors agree across ``pyproject.toml``, ``ruff``, ``scripts/setup.sh``,
   ``codeverse/spatial/node.py`` and ``runtime_js/package.json``;
-* no module reaches past the floor — no 3.12 syntax, and the three 3.11 stdlib
+* no module reaches past the floor — no 3.14 syntax, and the three 3.11 stdlib
   names the harness needs come from ``codeverse/_compat`` and nowhere else;
 * the ``StrEnum`` shim behaves exactly like ``enum.StrEnum``.
 """
@@ -32,8 +32,8 @@ from codeverse.spatial.node import (
 from codeverse.workspace import Workspace
 
 HARNESS = Path(__file__).resolve().parents[2]
-PY_FLOOR = (3, 12)
-PY_FLOOR_STR = "3.12"
+PY_FLOOR = (3, 13)
+PY_FLOOR_STR = "3.13"
 
 
 #: directories under the scanned trees that hold *run output*, not harness source:

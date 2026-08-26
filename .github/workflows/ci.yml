@@ -20,9 +20,10 @@ jobs:
         working-directory: harness
 
   tests:
-    # ONE JOB, ON THE FLOOR.  3.12 is pyproject's requires-python and ruff's
-    # target-version, so this job tests exactly what the package claims and the
-    # claim cannot drift untested.  It was a 3.10 + 3.13 matrix until 2026-08-25;
+    # ONE JOB, ONE VERSION.  3.13 is pyproject's requires-python and ruff's
+    # target-version (the owner fixed a single version on 2026-08-26; the 3.12
+    # floor and its LTS argument are gone), so this job tests exactly what the
+    # package claims and the claim cannot drift untested.  It was a 3.10 + 3.13 matrix until 2026-08-25;
     # across every failure it ever saw, both jobs failed identically — the source
     # level is already covered by tests/core/test_portability.py, which is static
     # and runs anywhere, so the second interpreter only ever reported one bug
@@ -32,13 +33,13 @@ jobs:
     # Node is not installed on the runner, so the node floor (20.6.0, see
     # runtime_js/package.json "engines") is only checked by the version logic in
     # tests/core/test_portability.py — the `node`-marked tests are deselected below.
-    name: offline tests (py3.12 — the requires-python floor)
+    name: offline tests (py3.13 — the one supported version)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           cache: pip
       - name: Install the harness (no Blender / node / GPU on the runner)
         run: pip install -e ./harness[dev]

@@ -29,14 +29,11 @@ score-vs-complexity corpus study) before changing anything.
    build, let `check_contract`/`check_connectivity` gate it.
 
 ## Supported versions (what other people can run this on)
-python **3.12+** · node **20.6+** · Blender 4.2+ · Linux x86_64.  Developed on 3.13 /
-node 24; **CI runs the floor (3.12) and only the floor** — one job that tests exactly what
-`requires-python` claims, so the claim cannot drift untested.  3.12 is the floor because it
-is what Ubuntu 24.04 LTS ships; being >= 3.11 it also needs no compatibility shim
-(`StrEnum`, `datetime.UTC` and `tomllib` are stdlib from 3.11, which is why
-`codeverse/_compat.py` was deleted).  The floor lives in `pyproject` `requires-python` +
-ruff `target-version` + `scripts/setup.sh`, and `spatial/node.py:NODE_MIN` +
-`runtime_js/package.json` `engines` for node, pinned together by
+python **3.13** (one fixed version — owner's decision 2026-08-26; no floor, no matrix) ·
+node **20.6+** · Blender 4.2+ · Linux x86_64.  **CI runs one job on 3.13** that tests exactly
+what `requires-python` claims, so the claim cannot drift untested.  The version lives in
+`pyproject` `requires-python` + ruff `target-version` + `scripts/setup.sh`, and
+`spatial/node.py:NODE_MIN` + `runtime_js/package.json` `engines` for node, pinned together by
 `tests/core/test_portability.py`.  Details: `docs/INSTALL.md` §2.1.
 
 ## Environment (this machine)
