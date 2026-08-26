@@ -20,6 +20,7 @@ OUTAGES = [
     "KeyPoolExhausted: every key is cooling down",
     "APIError: 500 Internal server error",
     "ConnectionError: Connection reset by peer",
+    "RenderError: render_glb failed: node script render_glb.mjs exited 1: Error creating WebGL context.",
 ]
 MODEL_FAILURES = [
     "unparseable answer: no python block in the response",
@@ -265,3 +266,25 @@ def test_a_repair_lost_to_an_outage_drops_the_cell_instead_of_scoring_the_pre_re
                   CompareDeps(ev2, oneshot_backend=lambda t: StormBackend(storm_on_repair=False)))
     assert (r2.status, r2.score, r2.build_ok) == ("build_failed", 0.0, False), r2
     assert ev2.evaluated and r2.attempts == 2
+
+
+def test_a_harness_planning_failure_is_a_zero_not_a_dropped_cell(tmp_path):
+    """compare_art_v2 (2026-08-25): 5 of 14 articulated harness runs raised PlanningError (the
+    plan failed validation twice) and were recorded `error` / score None — dropped from the
+    mean, so a third of the harness's failures vanished.  The harness delivered nothing by its
+    own doing: no_code / 0.0, exactly what a one-shot answer in the wrong format gets."""
+    from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
+    from bench.run_bench import Battery
+    from codeverse.tracks.planner import PlanningError
+    from tests.compare_bench.conftest import BATTERY, FakeEvaluator
+
+    def no_plan(spec, ws, resume):
+        raise PlanningError("plan did not validate after re-ask: joint X references unknown link(s)")
+
+    battery = Battery.load(BATTERY)
+    opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x")
+    r = run_cell(battery, battery.prompts[0], parse_arm("harness:api-agent:gemini:gemini-3.7-flash"), tmp_path, opts,
+                 CompareDeps(FakeEvaluator(), run_track=no_plan))
+    assert (r.status, r.score, r.passed, r.build_ok) == ("no_code", 0.0, False, False)
+    assert r.error.startswith("PlanningError:")
+

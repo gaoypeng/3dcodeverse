@@ -18,7 +18,12 @@ import ast
 import re
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.languages._ast_lint import BASE_FORBIDDEN_IMPORTS, check_imports
+from codeverse.languages._ast_lint import (
+    BASE_FORBIDDEN_IMPORTS,
+    check_imports,
+    describe_parse_failure,
+    safe_parse,
+)
 from codeverse.workspace import Workspace
 
 GATE = "lint:opengl_python"
@@ -132,10 +137,10 @@ def lint_source(text: str) -> list[GateFinding]:
     findings: list[GateFinding] = []
     if len(text) > MAX_CHARS:
         findings.append(_finding(Severity.WARN, "too_long", f"file is {len(text)} chars", "keep the program focused"))
-    try:
-        tree = ast.parse(text)
-    except SyntaxError as e:
-        findings.append(_finding(Severity.ERROR, "syntax", f"SyntaxError: {e.msg}", "fix the syntax at this line", e.lineno))
+    tree, exc = safe_parse(text)
+    if tree is None:
+        msg, hint, line = describe_parse_failure(exc)  # type: ignore[arg-type]
+        findings.append(_finding(Severity.ERROR, "syntax", msg, hint if not isinstance(exc, SyntaxError) else "fix the syntax at this line", line))
         return findings
     v = _Visitor()
     v.visit(tree)

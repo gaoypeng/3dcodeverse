@@ -78,3 +78,71 @@ def test_dotted_chains() -> None:
     assert dotted(expr("(a + b)")) == ""
     # the same function is what the language lints re-export
     assert blender_lint.dotted is dotted and cadquery_lint.dotted is dotted
+
+
+# ----------------------------------------------------------------------------- safe_parse (2026-08-25)
+def test_safe_parse_turns_parser_crashes_into_findings(monkeypatch):
+    """compare_v4_calm: a generated bpy file made CPython 3.11's ``ast.parse`` raise
+    ``SystemError: AST constructor recursion depth mismatch`` and the whole harness round
+    died in ``build_once``.  Every python lint now goes through ``safe_parse`` and reports
+    a lint ERROR the agent can act on instead."""
+    import ast
+
+    from codeverse.languages._ast_lint import describe_parse_failure, safe_parse
+
+    tree, exc = safe_parse("x = 1\n")
+    assert isinstance(tree, ast.Module) and exc is None
+    tree, exc = safe_parse("x = (\n", "src/model.py")
+    assert tree is None and isinstance(exc, SyntaxError)
+    msg, hint, line = describe_parse_failure(exc)
+    assert msg.startswith("SyntaxError:") and "fix the syntax near line" in hint
+
+    def boom(*a, **k):
+        raise SystemError("AST constructor recursion depth mismatch (before=54, after=62)")
+
+    monkeypatch.setattr(ast, "parse", boom)
+    tree, exc = safe_parse("x = 1\n")
+    assert tree is None and isinstance(exc, SystemError)
+    msg, hint, line = describe_parse_failure(exc)
+    assert "SystemError" in msg and "deeper than the parser" in msg and "flatten" in hint and line is None
+    tree, exc = safe_parse("x = 1\n")  # RecursionError / MemoryError take the same path
+    monkeypatch.setattr(ast, "parse", lambda *a, **k: (_ for _ in ()).throw(RecursionError("maximum recursion depth exceeded")))
+    tree, exc = safe_parse("x = 1\n")
+    assert tree is None and isinstance(exc, RecursionError)
+
+
+def test_every_python_lint_survives_a_parser_crash(monkeypatch):
+    import ast
+
+    from codeverse.contracts.artifacts import Severity
+    from codeverse.languages.blender.lint import lint_blender_source
+    from codeverse.languages.cadquery.lint import lint_cadquery_source
+    from codeverse.languages.opengl_python.lint import lint_source as lint_gl
+    from codeverse.languages.urdf.lint import lint_model_text
+
+    real = ast.parse
+
+    def crash(src, *a, **k):
+        if "DEEP" in src:
+            raise SystemError("AST constructor recursion depth mismatch (before=54, after=62)")
+        return real(src, *a, **k)
+
+    monkeypatch.setattr(ast, "parse", crash)
+    src = "import bpy\nDEEP = 1\n"
+    for name, run in (("blender", lambda: lint_blender_source(src).findings),
+                      ("cadquery", lambda: lint_cadquery_source("import cadquery as cq\nDEEP = 1\n").findings),
+                      ("opengl", lambda: lint_gl(src)),
+                      ("urdf", lambda: lint_model_text(src, ["base"]))):
+        findings = run()  # must not raise
+        errs = [f for f in findings if f.severity == Severity.ERROR]
+        assert errs and "SystemError" in errs[0].message, (name, findings)
+
+
+def test_real_deeply_nested_source_does_not_escape_the_lint():
+    """A 40 000-term binary chain: on 3.11 this is the SystemError, on 3.12+ a RecursionError,
+    on some builds a plain SyntaxError — whichever, the lint returns a report."""
+    from codeverse.languages.blender.lint import lint_blender_source
+
+    deep = "import bpy\nx = " + " + ".join(["1"] * 40_000) + "\n"
+    rep = lint_blender_source(deep)
+    assert isinstance(rep.passed, bool)

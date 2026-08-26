@@ -42,6 +42,11 @@ INFRA_MARKERS: tuple[str, ...] = (
     "resource has been exhausted",
     "quota exceeded",
     "capacity storm",
+    # headless Chrome could not get a WebGL context — the shared GPU was saturated by
+    # another job (compare_v4_calm / compare_art_v2, 2026-08-25: six cells, all on a
+    # box whose GPU 0 sat at 100 % for someone else).  A render that never started says
+    # nothing about the code it would have rendered.
+    "error creating webgl context",
 )
 
 #: HTTP statuses that mean "the provider could not serve this", not "the model was bad".

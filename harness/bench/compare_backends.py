@@ -83,6 +83,7 @@ from codeverse.contracts.run import RunRecord  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402
 from codeverse.cost import run_ledger  # noqa: E402
 from codeverse.tracks.generation import MultiFileParseError  # noqa: E402
+from codeverse.tracks.planner import PlanningError  # noqa: E402
 from codeverse.workspace import Workspace  # noqa: E402
 
 ArmKind = Literal["harness", "oneshot", "oneshot+repair"]
@@ -274,6 +275,13 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
                 res.status, res.score, res.passed, res.build_ok = "infra_failed", None, None, False
             else:
                 res.status, res.score, res.passed, res.build_ok = "no_code", 0.0, False, False
+    except PlanningError as e:
+        # the harness's OWN planner gave up (its plan failed validation twice): no
+        # artifact, and nobody else's fault — a capability failure of the arm, scored 0
+        # like a one-shot answer in the wrong format (compare_art_v2, 2026-08-25: 5 of 14
+        # articulated prompts; dropping them as `error` hid a third of the harness's losses)
+        res.status, res.score, res.passed, res.build_ok = "no_code", 0.0, False, False
+        res.error = f"PlanningError: {e}"
     except Exception as e:  # noqa: BLE001 — one cell must never kill the matrix
         res.status = "infra_failed" if is_infra_failure(e) else "error"  # same rule as the no-code path
         res.error = (res.error + "; " if res.error else "") + f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1200:]}"
