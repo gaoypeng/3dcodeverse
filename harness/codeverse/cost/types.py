@@ -185,6 +185,12 @@ class CallCost(BaseModel):
     outcome: str = "ok"  # ok | error | timeout | budget | degraded | discarded
     n_calls: int = 1  # >1 when a row aggregates a whole agent session
     source: str = "live"  # live | record | events | transcript | stdout | residual
+    #: which API key served the call, as its last 4 chars ("…ab12") — never the key
+    #: itself; "" for a failed call, a session row, or a row older than 2026-08-26
+    key: str = ""
+    #: round-trips the retry machine issued for this call (hedged siblings included);
+    #: 1 = clean, 0 = not recorded
+    attempts: int = 0
 
     @property
     def uncached_tokens(self) -> int:
@@ -213,10 +219,15 @@ class CostBucket(BaseModel):
     cost_usd: float = 0.0
     latency_ms: int = 0
     approximate_usd: float = 0.0  # spend priced from an approximate/unknown row
+    attempts: int = 0  # round-trips over the rows that recorded them
+    n_attempted: int = 0  # calls in those rows
 
     def add(self, row: CallCost) -> None:
         self.n_calls += max(1, row.n_calls)
         self.n_rows += 1
+        if row.attempts:
+            self.attempts += row.attempts
+            self.n_attempted += max(1, row.n_calls)
         self.input_tokens += row.input_tokens
         self.cached_tokens += min(row.cached_tokens, row.input_tokens) if row.input_tokens else row.cached_tokens
         self.output_tokens += row.output_tokens
@@ -246,6 +257,11 @@ class CostBucket(BaseModel):
     @property
     def usd_per_call(self) -> float:
         return self.cost_usd / self.n_calls if self.n_calls else 0.0
+
+    @property
+    def attempts_per_call(self) -> float:
+        """Mean round-trips per call (1.0 = every call landed first time); 0 when unrecorded."""
+        return self.attempts / self.n_attempted if self.n_attempted else 0.0
 
 
 class Summary(BaseModel):

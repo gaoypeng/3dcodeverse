@@ -90,6 +90,22 @@ def test_a_live_ledger_is_read_instead_of_being_reconstructed(fake_run: Path):
     assert "unattributed" in r.output or "difference" in r.output
 
 
+def test_cost_reports_the_calls_per_key_when_the_ledger_recorded_them(fake_run: Path, tmp_path: Path):
+    """audit 2026-08-26 §4: no row said which key served a call, so 'is one key hammered' could
+    only be probed.  Live rows now carry the key suffix and the round-trip count; the report
+    shows both, and a ledger without them (older, or reconstructed) simply has no key section."""
+    base = {"run": fake_run.name, "round": 0, "stage": "baseline", "role": "generator", "backend": "gemini",
+            "provider": "gemini", "model": "gemini-3.7-flash", "input_tokens": 1_000, "output_tokens": 10,
+            "cost_usd": 0.001, "price_source": "exact"}
+    _live_ledger(fake_run, [dict(base, key="…k1", attempts=1), dict(base, key="…k1", attempts=3),
+                            dict(base, key="…k2", attempts=1)])
+    r = runner.invoke(app, ["cost", str(fake_run), "--md", str(tmp_path / "c.md")])
+    assert r.exit_code == 0, r.output
+    assert "key (last 4 chars):" in r.output and "…k1" in r.output and "tries/call 2.00" in r.output
+    md = (tmp_path / "c.md").read_text()
+    assert "## Per API key" in md and "tries/call" in md
+
+
 def test_cost_cache_reports_the_cold_head_of_every_session(fake_run: Path):
     _live_ledger(fake_run, [
         {"run": "x", "round": 0, "stage": "baseline", "label": "api-agent:baseline:t0",

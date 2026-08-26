@@ -291,3 +291,69 @@ def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Pat
     for name in names:
         rows = load_ledger(tmp_path / name)
         assert len(rows) == 3 and {r.run for r in rows} == {name}
+
+
+# ------------------------------------------------------- key + attempts on the row (audit 2026-08-26 §4)
+class KeyedChat(FakeChat):
+    """A gemini-shaped response: ``raw`` names the key that answered and the round-trips."""
+
+    def __init__(self, raw: dict):
+        super().__init__()
+        self.raw = raw
+
+    def generate(self, request: ChatRequest) -> ChatResponse:
+        self.requests.append(request)
+        return ChatResponse(text="ok", usage=_usage(), raw=dict(self.raw))
+
+
+def test_the_row_says_which_key_served_the_call_and_how_many_round_trips(tmp_path: Path):
+    """No telemetry row used to say which key served a call — `keys.py` scanned 1 542 files of
+    the storm-day corpus for the `"key": "…xxxx"` that gemini.py puts in ``raw`` and found none,
+    so the per-key distribution could only be probed, never read."""
+    with run_ledger(tmp_path, run="r1"):
+        MeteredChatModel(KeyedChat({"key": "…ab12", "attempts": 3, "hedged": 1})).generate(
+            ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
+    (row,) = load_ledger(tmp_path)
+    assert row.key == "…ab12" and row.attempts == 3
+
+
+def test_a_full_key_never_reaches_the_ledger(tmp_path: Path):
+    with run_ledger(tmp_path, run="r1"):
+        MeteredChatModel(KeyedChat({"key": "AIzaSy-a-whole-secret-key-9999"})).generate(
+            ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
+    (row,) = load_ledger(tmp_path)
+    assert row.key == "…9999" and row.attempts == 0
+    assert "secret" not in (tmp_path / "telemetry" / "cost.jsonl").read_text()
+
+
+def test_a_failed_call_records_its_attempts_but_no_key(tmp_path: Path):
+    from codeverse.models.base import ModelError
+
+    err = ModelError("503 high demand", retryable=True, status=503, attempts=7)
+    with run_ledger(tmp_path, run="r1"), pytest.raises(ModelError):
+        MeteredChatModel(FakeChat(err)).generate(ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
+    (row,) = load_ledger(tmp_path)
+    assert row.outcome == "error" and row.attempts == 7 and row.key == ""
+
+
+def test_per_key_buckets_and_tries_per_call(tmp_path: Path):
+    from types import SimpleNamespace
+
+    from codeverse.cost.ledger import record_call, summarise
+    from codeverse.cost.report import BUCKET_HEADERS, bucket_rows, keyed_buckets
+
+    led = tmp_path / "cost.jsonl"
+    rows = [
+        record_call(_usage(), label="planner", ledger=led, key="…k1", attempts=1),
+        record_call(_usage(), label="planner", ledger=led, key="…k1", attempts=3),
+        record_call(_usage(), label="planner", ledger=led, key="…k2", attempts=1),
+        record_call(_usage(), label="baseline", ledger=led, n_calls=4, source="session"),  # a CLI session: no key
+    ]
+    by = summarise(rows, dimensions=("key",)).dimension("key")
+    assert by["…k1"].n_calls == 2 and by["…k1"].attempts_per_call == 2.0
+    assert by["…k2"].attempts_per_call == 1.0
+    assert by["(none)"].n_calls == 4 and by["(none)"].attempts_per_call == 0.0
+    audit = SimpleNamespace(summary=summarise(rows, dimensions=("key",)))
+    assert [b.key for b in keyed_buckets(audit)] == ["…k1", "…k2"], "most calls first, unkeyed rows left out"
+    table = bucket_rows(keyed_buckets(audit), total=1.0)
+    assert BUCKET_HEADERS[-1] == "tries/call" and table[0][-1] == "2.00" and table[1][-1] == "1.00"

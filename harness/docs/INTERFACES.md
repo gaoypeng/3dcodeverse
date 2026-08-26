@@ -52,6 +52,7 @@ from codeverse.models import get_chat_model            # (model_id) -> ChatModel
 resp = m.generate(ChatRequest(messages=[...], system=..., response_schema=..., temperature=..., thinking=..., label=..., max_wait_s=None))
 #   max_wait_s: the longest this ONE call may spend, retries included (None = models.retry.RETRY_DEADLINE_S = 900 s);
 #   GeminiModel clips its retry deadline to it; api_agent 20-120 s per turn, VlmJudge 240 s per sample, planner 300 s
+#   resp.raw["key"] = "…ab12" (the key that answered), resp.raw["attempts"] = round-trips issued (hedged siblings included)
 resp.parsed / resp.text / resp.tool_calls / resp.usage   # Usage always has cost_usd (models.pricing)
 from codeverse.models.keypool import KeyPool, KeyPoolExhausted
 KeyPool(keys, *, rpm_per_key=900, tpm_per_key=None, cooldown_s=30, dead_cooldown_s=3600)

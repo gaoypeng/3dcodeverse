@@ -29,7 +29,7 @@ from codeverse.cost.types import CallCost, CostBucket, Role, Stage, Summary
 
 #: dimensions the audit always aggregates on
 AUDIT_DIMENSIONS = ("run", "track", "language", "stage", "role", "backend", "model", "provider",
-                    "status", "outcome", "source")
+                    "status", "outcome", "source", "key")
 
 
 @dataclass

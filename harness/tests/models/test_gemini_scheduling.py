@@ -11,6 +11,7 @@ import pytest
 from google.genai import errors as genai_errors
 
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
+from codeverse.models.base import ModelError
 from codeverse.models.gemini import GeminiModel, shared_pool
 from codeverse.models.keypool import KeyPool
 from codeverse.models.storm import StormGate
@@ -183,6 +184,18 @@ def test_max_wait_s_must_be_positive():
         ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=0)
 
 
+def test_a_second_503_is_hedged_across_keys_and_the_response_says_how_hard_it_was():
+    """§5.2: after the first 503 (a free rotation) the next attempt goes out on two fresh
+    keys at once; the response carries the winner's key suffix and the round-trip count."""
+    pool = KeyPool(["k1", "k2", "k3"], cooldown_s=0.0)
+    m, log, _ = make_model([api_error(503, "high demand"), api_error(503, "high demand"), text_response("ok")],
+                           pool=pool, max_attempts=3)
+    r = m.generate(ChatRequest(messages=[ChatMessage.user("hi")]))
+    assert r.text == "ok" and len(log) == 3
+    assert r.raw["attempts"] == 3 and r.raw["hedged"] == 1
+    assert r.raw["key"] in ("…k2", "…k3"), "the key that answered, never the first one that 503'd"
+
+
 def test_the_hedge_is_a_settings_knob_and_a_constructor_argument(monkeypatch):
     from codeverse.config import Rate, get_settings
 
@@ -191,3 +204,12 @@ def test_the_hedge_is_a_settings_knob_and_a_constructor_argument(monkeypatch):
     monkeypatch.setattr(get_settings(), "rate", Rate(hedge=1))
     assert make_model([])[0].hedge == 1, "CV3D_RATE__HEDGE=1 is the A/B switch"
 
+
+def test_a_clean_call_reports_one_attempt_and_a_failed_call_carries_its_count():
+    m, _log, _ = make_model([text_response("hi")])
+    r = m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert r.raw["attempts"] == 1 and r.raw["hedged"] == 0 and r.raw["key"] == "…k1"
+    m2, _log2, _ = make_model([api_error(503, "high demand")] * 2, keys=("k1",), max_attempts=1, storm_attempts=0)
+    with pytest.raises(ModelError) as ei:
+        m2.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert ei.value.attempts == 1, "the ledger's error row gets the count too"
