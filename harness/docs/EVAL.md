@@ -202,6 +202,21 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
 * Never tune rubric text against the battery you report on; bump the rubric version
   (`*_v2`) instead and re-run.
 
+### 6.1 The graphics judge, calibrated against an eye (2026-08-26)
+
+The graphics track shared the judge machinery and none of its calibration.  Seventeen judged
+graphics runs (graphics_v1/v2 batteries, teaser, codex wave) were scored by a person from the
+same contact sheets ("would a curator screenshot it / does it look like the thing"):
+**Spearman(shader_v1 loop-time verdict, eye) = 0.16**, judge mean 0.773 vs eye mean 0.550.
+Three aurora versions nobody would take for an aurora scored 0.78 / 0.94 / 0.94 with empty issue
+lists; opaque pastel discs for bokeh 0.92; a lifted purple wash for a nebula 0.82; a crisp
+ukiyo-e wave 0.59 under planner must items.  The rubric scored the nouns of the brief being
+present.  `docs/GRAPHICS_LOOP.md` is the loop that fixes this (rubric `shader_v2`: likeness,
+tonal range, an artefact checklist; reference photos via `bench/refs/<id>/`; `LikenessJudge`)
+and the ledger of turns; `bench/judge_calib_graphics.py` re-judges the corpus under two rubrics
+against the eye file and is the gate for switching the track default.  The rule from §6 holds:
+never tune `shader_v1` in place — bump the version and re-judge.
+
 ## 7. Failures that are not results
 
 A cell can end without a score for reasons that say nothing about the model, and
