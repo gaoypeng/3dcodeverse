@@ -185,10 +185,6 @@ def texture_pass(
     plausible metallic/roughness numbers.  It costs no model call, and the same
     before/after judge gate (BEFORE is always the untouched ``glb_in``) decides
     whether the combined result ships."""
-    if not isinstance(judge, bool):  # tolerate the retired bool|judge union for one wave
-        log.warning("texture_pass(judge=<object>) is deprecated; pass judge_obj=... instead")
-        judge_obj = judge_obj if judge_obj is not None else judge
-        judge = True
     if services is not None:
         image_model = image_model if image_model is not None else services.image_model
         plan_model = plan_model if plan_model is not None else services.plan_model
