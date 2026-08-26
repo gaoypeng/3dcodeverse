@@ -99,13 +99,16 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 ```glsl
 vec3 skyGrad(vec2 p) { return mix(vec3(0.95, 0.6, 0.35), vec3(0.1, 0.25, 0.6), smoothstep(-0.3, 0.6, p.y)); }
 float sun(vec2 p, vec2 c, float r) { float d = length(p - c); return smoothstep(r, r * 0.8, d) + 0.3 * exp(-8.0 * d); }
-float stars(vec2 p, float density) {               // twinkling hash stars
+// DENSE STARS: thousands of sub-pixel points, a few brighter; keep = fraction of cells that hold a star (0.2-0.3).
+// Two layers (density 160 and 70) read as a real sky; twenty twinkling sparkles do not (that version cost a run).
+float stars(vec2 p, float density, float keep) {
     vec2 g = floor(p * density), f = fract(p * density);
-    float h = hash12(g); vec2 o = hash22(g) * 0.8 + 0.1;
-    float d = length(f - o);
-    float tw = 0.5 + 0.5 * sin(u_time * (2.0 + 3.0 * h) + h * 6.28);
-    return step(0.92, h) * smoothstep(0.08, 0.0, d) * tw;
+    float h = hash12(g); vec2 o = hash22(g) * 0.7 + 0.15;
+    float d = length(f - o);                                  // cell units
+    float size = 0.07 + 0.10 * step(0.97, h);                 // a few are bigger / brighter
+    return step(1.0 - keep, h) * exp(-d * d / (size * size)) * (0.35 + 0.65 * hash12(g + 9.0));
 }
+// usage: col += vec3(0.9, 0.95, 1.0) * (stars(p, 160.0, 0.22) * 0.55 + stars(p + 3.7, 70.0, 0.25) * 0.9);
 float waterHeight(vec2 xz, float t) { return 0.05 * sin(xz.x * 4.0 + t * 1.5) + 0.03 * sin(xz.y * 6.0 - t * 1.1) + 0.04 * noise(xz * 3.0 + t * 0.4); }
 // water colour: mix(deep, shallow, fresnel) + specular: pow(max(dot(reflect(-lig, n), -rd), 0.0), 64.0)
 ```
@@ -126,26 +129,67 @@ vec2 dropsLayer(vec2 uv, float t, float scale) {          // returns (mask, trai
 // usage: vec2 dr = dropsLayer(uv, u_time, 8.0); vec2 off = dr.x * 0.03 * normalize(p + 1e-3); col = background(uv + off);
 ```
 
-## Bokeh city lights (hash-placed discs, depth layers, pulsing)
+## Bokeh city lights (soft discs ADDED on a dark ground, depth layers, pulsing)
+Soft gaussian discs added on a near-black ground with muted warm/cool tints — the hard `smoothstep` discs in
+full-saturation `palette()` colours this recipe used to hold read as opaque candy and cost a run.
 ```glsl
-vec3 bokeh(vec2 p, float t) {
+// SOFT BOKEH: gaussian discs ADDED on a dark ground, dim, muted tints — not opaque smoothstep circles.
+vec3 bokehSoft(vec2 p, float t) {
     vec3 acc = vec3(0.0);
     for (int layer = 0; layer < 3; layer++) {
-        float fl = float(layer), scale = 4.0 + 3.0 * fl, blur = 0.08 - 0.02 * fl;
+        float fl = float(layer), scale = 4.0 + 3.0 * fl;
         vec2 q = p * scale + vec2(t * (0.02 + 0.01 * fl), 0.0);
         vec2 id = floor(q), f = fract(q) - 0.5;
         for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
             vec2 o = vec2(i, j); vec2 h = hash22(id + o); vec2 c = o + h - 0.5;
-            float r = 0.15 + 0.2 * hash12(id + o + 7.0);
-            float d = length(f - c) - r * 0.3;
-            float disc = smoothstep(blur, -blur, d) * (0.6 + 0.4 * sin(t * (0.5 + h.x) + h.y * 6.28));
-            vec3 tint = palette(h.x, vec3(0.5), vec3(0.5), vec3(1.0), vec3(0.0, 0.33, 0.67));
-            acc += disc * tint * (0.25 + 0.25 * fl);
+            float r = 0.12 + 0.12 * hash12(id + o + 7.0);
+            float d = length(f - c);
+            float disc = exp(-d * d / (r * r)) * smoothstep(r * 1.6, r * 0.6, d);   // soft core, soft rim
+            disc *= 0.7 + 0.3 * sin(t * (0.5 + h.x) + h.y * 6.28);                     // gentle pulsing
+            vec3 tint = mix(vec3(0.9, 0.6, 0.3), vec3(0.3, 0.6, 0.9), h.x) * (0.5 + 0.5 * h.y);   // warm/cool, muted
+            acc += disc * tint * (0.28 + 0.18 * fl);                                    // many small adds on a dark ground, never a flat fill
         }
     }
     return acc;
 }
 ```
+
+## Light phenomena look like LIGHT, not paint (aurora, curtains, glow)
+Three habits, each one cost a real run (2026-08-26, frames judged by eye): an aurora drawn as a comb of evenly
+spaced vertical bars; bokeh as hard opaque candy discs; a "star field" of twenty sparkles.  Light has soft
+falloff, sits on real darks, and is dense at fine scale.  Verified recipe (rendered and looked at):
+```glsl
+// ORGANIC CURTAIN (aurora, drapery, flame sheets): a ribbon whose LOWER EDGE wanders and folds, sharp below,
+// fading upward, with fine vertical rays grouped in bundles and gaps where the ribbon thins out.  Never a comb.
+// k = 0 at the lower edge .. 1 at the top (drive the green -> violet gradient with it).
+float curtain(vec2 p, float t, float seed, out float k) {
+    float xw = p.x + 0.55 * (fbm(vec2(p.x * 0.7 + seed, t * 0.05 + seed * 2.0)) - 0.5);   // horizontal folding (domain warp)
+    float base = -0.08 + 0.11 * sin(xw * 2.3 + seed * 1.7 + t * 0.07)
+               + 0.16 * fbm(vec2(xw * 2.0 + seed * 3.1, 0.7 + t * 0.06));                  // a long arc + a sinuous lower edge
+    float h = 0.22 + 0.25 * fbm(vec2(xw * 0.6 + seed * 5.0, 2.0 + t * 0.03));               // how tall the curtain is here
+    float d = p.y - base;  k = clamp(d / h, 0.0, 1.0);
+    float rays = 0.45 + 0.55 * noise(vec2(xw * 55.0 + t * 0.9, seed));                      // fine vertical striations ...
+    rays *= 0.55 + 0.45 * noise(vec2(xw * 12.0 - t * 0.25, seed + 3.0));                    // ... grouped into bundles
+    float lower = smoothstep(-0.02 - 0.05 * rays, 0.012, d);                                 // bright lower edge, ragged by the rays
+    float upper = exp(-max(d, 0.0) / h * 1.7);                                               // fades out upward
+    float gaps = smoothstep(0.36, 0.66, fbm(vec2(xw * 1.6 + seed * 7.0, t * 0.04)));        // the ribbon thins and breaks
+    return lower * upper * rays * gaps;
+}
+vec3 auroraCol(float k) { return mix(vec3(0.10, 0.95, 0.42), vec3(0.70, 0.20, 0.85), smoothstep(0.18, 0.9, k)); }  // green low, violet crown
+vec3 aurora(vec2 p, float t) {                       // three curtains at different depths: nearest brightest
+    vec3 acc = vec3(0.0); float k = 0.0;
+    acc += auroraCol(k) * curtain(p, t, 0.0, k) * 1.00;
+    acc += auroraCol(k) * curtain(p - vec2(0.3, 0.12), t * 0.8, 11.0, k) * 0.55;
+    acc += auroraCol(k) * curtain(p - vec2(-0.5, 0.22), t * 0.6, 23.0, k) * 0.30;
+    return acc;                                      // then: col += au * 1.7 + au * au * 0.5;  (bloom on the bright edge)
+}
+```
+Tonal discipline for any night / space / dusk subject: start from a near-black ground (`vec3(0.02, 0.035, 0.08)` at
+the horizon → `vec3(0, 0, 0.012)` at the zenith), ADD light, tonemap `c / (1 + 0.6 c)`, and check `gl_frames`: mean
+luminance 0.06–0.15 is a night scene; 0.3 with no black pixels is a wash.  Haze and bloom go on the light, not on
+the frame.  Stars: `stars()` above (two layers, keep 0.2–0.3); city lights: `bokehSoft()` above.  Complete verified
+example (aurora over a ridge with a frozen lake, three curtains, 5 k stars, blurred reflection): the harness ships
+it as `codeverse/prompts/glsl_shader/examples/aurora_ridge.frag`.
 
 ## Feedback trails (u_prev) and Buffer A
 ```glsl
@@ -177,3 +221,5 @@ fragColor = vec4(col, 1.0);
 * `precision` qualifiers, `#version`, `#extension`, `#include`, `uniform` / `out` declarations: leave them out.
 * gl_FragCoord origin is bottom-left; y up.  (The harness flips rows when writing PNGs, so what you compute is what you see.)
 * Symmetric patterns at t=0 (everything at the origin) look dead — offset phases with hashes.
+* A light phenomenon drawn as evenly spaced bars / hard discs / a flat wash: the judge's likeness criterion scores it
+  0.4 — see the Light section.
