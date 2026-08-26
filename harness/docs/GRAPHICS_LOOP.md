@@ -113,5 +113,20 @@ and generator capability (a better rubric makes flash's ceiling visible, it does
 | date | rubric | n runs | Spearman(judge, eye) | judge mean | eye mean | note |
 |---|---|---|---|---|---|---|
 | 2026-08-26 | shader_v1 (loop-time scores) | 17 | 0.16 | 0.773 | 0.550 | before any turn |
-| 2026-08-26 | shader_v1 (re-judged, pro n=2, no acceptance) | 17 | *pending* | | | `bench/out/judge_calib_graphics/summary.md` |
-| 2026-08-26 | shader_v2 (re-judged, pro n=2, no acceptance) | 17 | *pending* | | | same run |
+| 2026-08-26 | shader_v1 (re-judged, pro n=2, plan digest + frame metrics, no acceptance) | 17 | 0.34 | 0.736 | 0.550 | `bench/out/judge_calib_graphics/summary.md` |
+| 2026-08-26 | shader_v2 (same replay) | 17 | **0.71** | 0.562 | 0.550 | same run — the switch is earned |
+
+Reading the v2 table: the three aurora versions land at 0.46–0.55 with `comb_artefact` capping
+them (eye 0.30–0.40); neon-rain 0.66 with `opaque_shapes_for_light` (eye 0.45); the ukiyo-e wave
+0.61 with no defects (eye 0.80 — still under-scored, but no longer capped); the murmuration 0.875
+(eye 0.85).  The two misses are `garbage_pixels` firing on particle dots (the galaxy: 0.30 vs eye
+0.70; the reaction-diffusion rings, which are bad anyway) — the checklist text now says particles,
+stars and film grain the brief asks for are not garbage; a gate cannot veto this one because the
+NaN gate measures NaN, not "garbage".  `no_dark_range` fired on 7/17, which matches what the eye
+saw: flash lifts its night scenes.  A first replay without the plan digest and frame metrics gave
+v1 0.23 with four moving effects called static — the replay must hand the judge what the loop hands
+it (`bench/judge_calib_graphics.py` does now).
+
+**Switching the track default** (`TRACK_INFO[graphics].rubric` → `shader_v2`) is held until the
+reference A/B in flight (`refs_v1_graphics`) has finished, so both of its arms are judged in-loop by
+the same rubric; it lands with the cookbook-light branch.
