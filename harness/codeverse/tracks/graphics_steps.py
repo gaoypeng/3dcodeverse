@@ -21,6 +21,8 @@ from codeverse.contracts.spec import Spec
 from codeverse.languages._gl_common import SHEET_NAME, read_metrics
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
+from codeverse.tracks.graphics_recipes import EXTRA_KEY as SEEDED_KEY
+from codeverse.tracks.graphics_recipes import graphics_brief
 from codeverse.tracks.planner import add_acceptance_item, build_system_prompt
 from codeverse.tracks.planner import plan as run_planner
 from codeverse.tracks.prompting import (
@@ -117,10 +119,11 @@ def graphics_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
     """Every variable the graphics templates may reference (StrictUndefined)."""
     plan = ctx.plan if isinstance(ctx.plan, GraphicsPlan) else None
     res = plan.resolution if plan else (1280, 720)
-    brief = ctx.spec.prompt + " " + " ".join(plan.key_visuals if plan else [])
     d: dict[str, Any] = {
         "track": ctx.track.value, "language": ctx.language.value, "contract": ctx.contract_text,
-        "cookbook_rel": ctx.cookbook_rel, "cookbook_excerpt": select_cookbook_excerpt(ctx, brief), "tool_cards": ctx.tool_cards,
+        "cookbook_rel": ctx.cookbook_rel, "cookbook_excerpt": select_cookbook_excerpt(ctx, graphics_brief(ctx)), "tool_cards": ctx.tool_cards,
+        # the recipes tracks/graphics_recipes.py put in src/common.glsl before the session ([] = no prompt block)
+        "seeded_recipes": list((getattr(ctx, "extra", None) or {}).get(SEEDED_KEY) or []),
         "single_shot": ctx.single_shot, "output_format": SINGLE_SHOT_FORMAT if ctx.single_shot else AGENT_OUTPUT_RULES,
         "spec_prompt": ctx.spec.prompt, "constraints": constraints_text(ctx.spec),
         "title": plan.title if plan else "Untitled effect", "plan_summary": plan.summary if plan else "",

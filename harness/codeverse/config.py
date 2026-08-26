@@ -97,6 +97,16 @@ class Limits(BaseModel):
         "reads out; `CV3D_FEWER_TURNS=1` (read at call time by `fewer_turns_enabled`) is "
         "what `bench/ab_plan.py --variant-env` flips.",
     )
+    seed_recipes: bool = Field(
+        default=True,
+        description="graphics / glsl_shader: paste the cookbook recipes the brief calls for "
+        "(curtain / aurora / stars / bokehSoft / dropsLayer + the hash / noise / fbm helpers "
+        "they use) into src/common.glsl BEFORE the baseline session (tracks/graphics_recipes.py).  "
+        "ON by default: measured 2026-08-26 (refs_v2_graphics, aurora brief, gemini-3.7-flash) "
+        "the prompt carried the verified curtain() recipe five times and the agent used it zero "
+        "times — round 0 was again a comb of bars (comb_artefact, 0.33).  `CV3D_SEED_RECIPES=0` "
+        "(read at call time by `seed_recipes_enabled`) is the control arm.",
+    )
 
 
 class Rate(BaseModel):
@@ -155,6 +165,8 @@ class Judge(BaseModel):
 #: differs its arms by environment alone, and a value frozen at first ``get_settings()``
 #: would hand the variant the control's behaviour (the CQ-5 lesson, tracks/plan_features.py).
 FEWER_TURNS_ENV = "CV3D_FEWER_TURNS"
+#: The recipe-seeding switch (Limits.seed_recipes); same call-time contract as FEWER_TURNS_ENV.
+SEED_RECIPES_ENV = "CV3D_SEED_RECIPES"
 _TRUE_WORDS = frozenset({"1", "on", "true", "yes", "y"})
 _FALSE_WORDS = frozenset({"0", "off", "false", "no", "n"})
 
@@ -168,18 +180,30 @@ def _env_flag(raw: str, env: str) -> bool:
     raise ValueError(f"{env}={raw!r}: expected on/off (1/0, true/false, yes/no)")
 
 
-def fewer_turns_enabled() -> bool:
-    """Is the fewer-turns bundle on for THIS call?  ``$CV3D_FEWER_TURNS`` when it is set
-    (garbage counts as off, with a warning — a typo in a bench command must produce a
-    control run, not a crash mid-battery), else ``Settings.limits.fewer_turns``."""
-    raw = os.environ.get(FEWER_TURNS_ENV)
+def _call_time_flag(env: str, fallback: bool) -> bool:
+    """``$env`` when it is set (garbage counts as off, with a warning — a typo in a bench
+    command must produce a control run, not a crash mid-battery), else ``fallback`` (the
+    cached Settings value)."""
+    raw = os.environ.get(env)
     if raw is not None and raw.strip():
         try:
-            return _env_flag(raw, FEWER_TURNS_ENV)
+            return _env_flag(raw, env)
         except ValueError as e:
             logging.getLogger(__name__).warning("%s; treating it as off", e)
             return False
-    return get_settings().limits.fewer_turns
+    return fallback
+
+
+def fewer_turns_enabled() -> bool:
+    """Is the fewer-turns bundle on for THIS call?  ``$CV3D_FEWER_TURNS`` when it is set,
+    else ``Settings.limits.fewer_turns``."""
+    return _call_time_flag(FEWER_TURNS_ENV, get_settings().limits.fewer_turns)
+
+
+def seed_recipes_enabled() -> bool:
+    """Is recipe seeding (``tracks/graphics_recipes.py``) on for THIS call?  ``$CV3D_SEED_RECIPES``
+    when it is set, else ``Settings.limits.seed_recipes`` (default ON)."""
+    return _call_time_flag(SEED_RECIPES_ENV, get_settings().limits.seed_recipes)
 
 
 class Settings(BaseSettings):
@@ -193,6 +217,7 @@ class Settings(BaseSettings):
     _FLAT_ALIASES: ClassVar[dict[str, tuple[str, str]]] = {
         "CV3D_MAX_IN_FLIGHT": ("rate", "max_in_flight"),
         FEWER_TURNS_ENV: ("limits", "fewer_turns"),
+        SEED_RECIPES_ENV: ("limits", "seed_recipes"),
     }
 
     @model_validator(mode="after")

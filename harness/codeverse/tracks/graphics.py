@@ -24,6 +24,7 @@ from codeverse.orchestrator.rounds import TaskGroup
 from codeverse.prompts import render
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationTask
+from codeverse.tracks.graphics_recipes import seed_recipes
 from codeverse.tracks.graphics_steps import (
     PLAN_MAX_OUTPUT_TOKENS,
     PLAN_TEMPERATURE,
@@ -36,7 +37,7 @@ from codeverse.tracks.graphics_steps import (
     graphics_prompt_context,
 )
 from codeverse.tracks.graphics_steps import plan_example as graphics_plan_example
-from codeverse.tracks.lifecycle import BaseTrack
+from codeverse.tracks.lifecycle import BaseTrack, StageRunner
 from codeverse.tracks.prompting import (
     current_files,
     judge_digest,
@@ -103,6 +104,14 @@ class GraphicsTrack(BaseTrack):
 
     def plan_event_stats(self, plan_obj: Any) -> dict[str, Any]:
         return graphics_event_stats(plan_obj)
+
+    # ------------------------------------------------------------------ prepare
+    def prepare(self, ctx: RunContext, runner: StageRunner) -> None:
+        """Skeleton, then the brief's verified cookbook recipes into src/common.glsl (graphics_recipes:
+        measured, flash does not call a recipe it is only shown; it does call one that is on disk)."""
+        super().prepare(ctx, runner)
+        if seed_recipes(ctx):
+            ctx.ws.commit("recipes")
 
     # ------------------------------------------------------------------ baseline
     def system_prompt(self, ctx: RunContext) -> str:

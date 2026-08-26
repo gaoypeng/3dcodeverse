@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from codeverse.config import fewer_turns_enabled
 from codeverse.contracts.chat import ImagePart
@@ -22,6 +22,9 @@ from codeverse.conventions import LANGUAGE_FRAME, Frame, frame_doc, to_snake
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.depth import DepthBudget, PartScope, depth_budget, interfaces_text
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
+
+if TYPE_CHECKING:
+    from codeverse.spatial.cookbook_tool import Section
 
 log = logging.getLogger(__name__)
 
@@ -198,9 +201,22 @@ def _words(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if (len(w) >= 3 or w in COOKBOOK_SYNONYMS) and w not in _STOP}
 
 
+def is_always_chapter(title: str, always: Sequence[str] = COOKBOOK_ALWAYS) -> bool:
+    """Is ``title`` one of the chapters every graphics prompt carries (helpers / grading / pitfalls)?"""
+    low = title.lower()
+    return any(name.lower() in low for name in always)
+
+
 def select_cookbook_excerpt(ctx: RunContext, brief: str, *, budget: int = 9000,
                             always: Sequence[str] = COOKBOOK_ALWAYS) -> str:
-    """Whole cookbook chapters chosen for ``brief``, never a blind prefix.
+    """Whole cookbook chapters chosen for ``brief``, never a blind prefix (see
+    :func:`select_cookbook_chapters` for the selection; this joins their bodies)."""
+    return "\n\n".join(s.body.rstrip() for s in select_cookbook_chapters(ctx, brief, budget=budget, always=always))
+
+
+def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,
+                             always: Sequence[str] = COOKBOOK_ALWAYS) -> list[Section]:
+    """The cookbook chapters (cookbook order) a brief calls for.
 
     Measured 2026-08-26: the graphics prompt carried ``cookbook_text[:7000]`` of an 11,298-char
     cookbook, so everything after the raymarching template (sky / stars, rain, bokeh, feedback,
@@ -211,12 +227,13 @@ def select_cookbook_excerpt(ctx: RunContext, brief: str, *, budget: int = 9000,
     ``COOKBOOK_SYNONYMS`` as the strong signal, until ``budget`` is spent.  A chapter is added
     whole or not at all; the output keeps cookbook order.  The default budget is the measured
     need of a night-sky brief: always-set 4.4 k + Light phenomena 3.2 k + Gradient sky 1.3 k.
+    ``tracks/graphics_recipes.py`` seeds the SAME selection's code into ``src/common.glsl``.
     """
     from codeverse.spatial.cookbook_tool import Section, find_section, split_sections
 
     md = ctx.cookbook_text or ""
     if not md.strip():
-        return ""
+        return []
     chapters: list[Section] = []
     for s in split_sections(md):        # fold ### sub-headings into their ## chapter
         if s.level >= 3 and chapters:
@@ -245,7 +262,7 @@ def select_cookbook_excerpt(ctx: RunContext, brief: str, *, budget: int = 9000,
         if used + size <= budget:
             chosen.add(i)
             used += size
-    return "\n\n".join(chapters[i].body.rstrip() for i in sorted(chosen))
+    return [chapters[i] for i in sorted(chosen)]
 
 
 def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:

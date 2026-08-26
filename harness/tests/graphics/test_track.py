@@ -136,12 +136,19 @@ def test_graphics_track_end_to_end(tmp_path, settings):
     # prompts: baseline is concrete (passes table, key visuals, contract, tools), refine carries judge + metrics
     p0 = agent.jobs[0].prompt
     assert "| RainDrops |" in p0 and "rain drops with trails" in p0 and "glsl_shader authoring contract" in p0 and "gl_frames" in p0
+    # the brief's recipes were seeded into src/common.glsl before the session and the prompt names them
+    common = (ws.src / "common.glsl").read_text()
+    assert "harness-seeded verified recipes" in common and "vec3 bokehSoft(vec2 p, float t)" in common and "vec2 dropsLayer(" in common
+    assert "Verified helpers ALREADY in `src/common.glsl`" in p0 and "`vec3 bokehSoft(vec2 p, float t)`" in p0
+    assert "harness-seeded VERIFIED helpers" in agent.jobs[1].prompt and "`bokehSoft`" in agent.jobs[1].prompt
     p1 = agent.jobs[1].prompt
     assert "Refine" in p1 and "Frame metrics" in p1 and "Previous score 0.55" in p1
     assert rec.rounds[1].instructions and all("[judge/" in i or "[gate/" in i for i in rec.rounds[1].instructions)
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
-    for k in ("plan.done", "round.start", "build.done", "gates.done", "judge.done", "refine.planned", "stop", "run.done"):
+    for k in ("plan.done", "recipes.seeded", "round.start", "build.done", "gates.done", "judge.done", "refine.planned", "stop", "run.done"):
         assert k in kinds, k
+    seeded = next(e for e in EventLog(ws.events_path).read() if e["event"] == "recipes.seeded")
+    assert {"dropsLayer", "bokehSoft"} <= set(seeded["names"]) and seeded["present"] == seeded["names"]   # + the night-sky chapter
 
 
 def test_static_frames_become_a_gate_warning_and_refine_task(tmp_path, settings):
