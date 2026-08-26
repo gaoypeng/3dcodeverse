@@ -31,7 +31,7 @@ renders, judges, refines, textures and records every run as data-flywheel materi
   in an orbit viewer, `record.json`) actually opens.  `3dcv gallery build --embed` writes
   the same page as one shareable file.
 
-**Supported versions:** python **3.10+** and node **20.6+** (Linux x86_64; Blender
+**Supported versions:** python **3.13** and node **20.6+** (Linux x86_64; Blender
 4.2+ optional).  Developed and measured on python 3.13 / node 24 — CI runs both
 ends of that range.  See `docs/INSTALL.md` §2.1.
 

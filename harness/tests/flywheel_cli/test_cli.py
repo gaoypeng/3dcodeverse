@@ -174,15 +174,34 @@ def test_judge_rubric_map_includes_graphics():
     from codeverse.contracts.common import TRACK_INFO, Track
     from codeverse.contracts.run import RoundRecord
 
-    assert TRACK_INFO[Track.GRAPHICS].rubric == "shader_v1"
+    assert TRACK_INFO[Track.GRAPHICS].rubric == "shader_v2"
 
     class _R:  # minimal record stub
         class spec:
             track = Track.GRAPHICS
 
     rnd = RoundRecord(index=0, kind="baseline")
-    assert rubric_for(_R, rnd, None) == "shader_v1"
+    assert rubric_for(_R, rnd, None) == "shader_v2"
     assert rubric_for(_R, rnd, "asset_v1") == "asset_v1"
+
+
+def test_calibration_rubric_map_includes_graphics(tmp_path: Path):
+    """Same default as `3dcv judge`: a graphics round with no stored judgment used to be
+    re-judged with static_object_v1 because calibration kept its own three-track
+    TRACK_RUBRIC instead of reading TRACK_INFO."""
+    from codeverse.contracts.artifacts import RenderSet, RenderView
+    from codeverse.contracts.common import Language, Track
+    from codeverse.contracts.run import RoundRecord
+    from codeverse.judges.calibration import load_run_cases
+
+    run = tmp_path / "shader_run"
+    (run / "rounds").mkdir(parents=True)
+    spec = Spec(id="shader_run", track=Track.GRAPHICS, language=Language.GLSL_SHADER, prompt="neon rain on a window")
+    (run / "spec.json").write_text(spec.model_dump_json())
+    renders = RenderSet(views=[RenderView(name="frame_0", path=str(run / "artifacts" / "renders" / "r00" / "frame_0.png"))],
+                        renderer="fake")
+    (run / "rounds" / "r00.json").write_text(RoundRecord(index=0, kind="baseline", renders=renders).model_dump_json())
+    assert [c.rubric for c in load_run_cases(run)] == ["shader_v2"]
 
 
 # --------------------------------------------------------------------------- make --texture / status extras / render graphics
@@ -446,3 +465,59 @@ def test_texture_is_not_offered_on_tracks_that_have_no_glb(tmp_path: Path):
     stale = Spec.model_validate(json.loads((runs / "objq" / "spec.json").read_text()))
     assert texture_requested(stale)
     assert not texture_requested(stale.model_copy(update={"track": Track.GRAPHICS}))
+
+
+# --------------------------------------------------- render must not publish the wrong round
+def _round_guard_ws(tmp_path: Path, *, best: int, tree: int):
+    """A workspace whose record names `best` while the render tree sits at `tree`."""
+    import json as _json
+
+    from codeverse.workspace import Workspace
+
+    ws = Workspace(tmp_path / "wronground")
+    ws.create()
+    for i in range(tree + 1):
+        (ws.artifacts / "renders" / f"r{i:02d}").mkdir(parents=True, exist_ok=True)
+    ws.record_path.write_text(_json.dumps({"best_round": best}))
+    return ws
+
+
+def test_render_refuses_when_the_tree_is_not_the_best_round(tmp_path: Path):
+    """`render` renders the WORKING TREE, and a run's tree sits at its LAST round — which
+    is not always its best.  Measured 2026-08-25 on tsr_scn_neon_alley: judge by round
+    0.338 / 0.375 / 0.529 / 0.632 / 0.000, round 4 rendering eight completely blank tiles.
+    The harness correctly kept r3, but a plain `3dcv render` re-rendered the blank r4 and
+    was very nearly published."""
+    from codeverse.cli._common import CliError
+    from codeverse.cli.main import _render_round_or_refuse
+
+    ws = _round_guard_ws(tmp_path, best=3, tree=4)
+    with pytest.raises(CliError) as ei:
+        _render_round_or_refuse(ws, None)
+    msg = str(ei.value)
+    assert "BEST round is r3" in msg and "working tree is at r4" in msg
+    assert "deliverable" in msg, "it must point at the packaged best round"
+    assert "--round 4" in msg, "and offer the explicit escape"
+    assert ei.value.exit_code == 2
+
+
+def test_render_round_flag_cannot_mislabel_another_rounds_code(tmp_path: Path):
+    """--round only chose the OUTPUT FOLDER, so `render X --round 3` wrote r03-labelled
+    images of round 4's code.  Refuse rather than write a picture whose label is a lie."""
+    from codeverse.cli._common import CliError
+    from codeverse.cli.main import _render_round_or_refuse
+
+    ws = _round_guard_ws(tmp_path, best=3, tree=4)
+    with pytest.raises(CliError):
+        _render_round_or_refuse(ws, 3)
+    assert _render_round_or_refuse(ws, 4) == 4, "rendering the tree's own round is fine"
+
+
+def test_render_is_unaffected_when_the_best_round_is_the_last(tmp_path: Path):
+    """The common case must not become noisier: no record, or best == tree, just renders."""
+    from codeverse.cli.main import _render_round_or_refuse
+
+    assert _render_round_or_refuse(_round_guard_ws(tmp_path / "a", best=2, tree=2), None) == 2
+    ws = _round_guard_ws(tmp_path / "b", best=1, tree=1)
+    ws.record_path.unlink()  # a run that has not written a record yet
+    assert _render_round_or_refuse(ws, None) == 1

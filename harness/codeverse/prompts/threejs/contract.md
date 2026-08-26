@@ -80,7 +80,7 @@ export function buildSeat(THREE) {
 `src/parts/legs.js`
 ```js
 import * as THREE from 'three';
-const LEG_R = 0.018, LEG_H = 0.45 - 0.04 + 0.004;   // reaches 4 mm into the seat (weld)
+const LEG_R = 0.018, LEG_H = 0.45 - 0.04 + 0.001;   // reaches 1 mm into the seat (weld)
 const LEG_XZ = 0.15;
 export function buildLegs(THREE) {
   const g = new THREE.Group(); g.name = 'Legs';

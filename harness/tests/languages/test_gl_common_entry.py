@@ -4,14 +4,8 @@ from __future__ import annotations
 
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.languages import _gl_common
-from codeverse.languages.glsl_shader import gl_build, wrap
+from codeverse.languages.glsl_shader import wrap
 from codeverse.spatial.gl_render import GlHost
-
-
-def test_gl_build_shim_reexports_gl_common() -> None:
-    for name in ("finish_build", "judge_times", "load_plan", "preview_times", "resolution_for",
-                 "traceback_location", "read_metrics", "SHEET_NAME", "JUDGE_TIMES"):
-        assert getattr(gl_build, name) is getattr(_gl_common, name), name
 
 
 def test_wrap_reexports_moved_glsl_log_types() -> None:

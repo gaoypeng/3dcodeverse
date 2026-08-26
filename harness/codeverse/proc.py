@@ -1,8 +1,9 @@
 """Subprocess + atomic-JSON primitives shared across the harness.
 
 One home for the run-a-child-process pattern (own process group, wall-clock
-timeout, group kill, captured output) and the tmp+rename JSON write.  Peer of
-``workspace.py``; stdlib-only — imports nothing from ``codeverse`` so wrappers,
+timeout, group kill, captured output), the tmp+rename JSON write, and the
+tolerant JSON / JSONL readers every "best effort" side-car consumer needs.  Peer
+of ``workspace.py``; stdlib-only — imports nothing from ``codeverse`` so wrappers,
 spatial helpers and agents can all use it without layering back-edges.
 
 ``languages/_common.py`` currently carries the same helpers for its runtime
@@ -13,12 +14,13 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import os
 import signal
 import subprocess
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -162,3 +164,87 @@ def write_json_atomic(path: Path, data: Any) -> None:
     (``RunState.load`` refuses to guess).  Last writer to rename still wins.
     """
     write_text_atomic(path, json.dumps(data, indent=2, ensure_ascii=False, default=str))
+
+
+# ------------------------------------------------------------------ tolerant reads
+def read_json_or_none(path: Path | str, *, errors: str | None = None) -> dict[str, Any] | None:
+    """Parse ``path`` as a JSON object; ``None`` when absent, unreadable, malformed
+    or not a dict at the top level.
+
+    The one tolerant reader behind every "use it if it is there" side-car: it
+    replaced identical ``try: json.loads(read_text()) except (OSError, ValueError)``
+    copies in ``flywheel/telemetry.read_json``, ``bench/complexity_report._read_json``,
+    ``gallery/index._measurement_complexity`` / ``_spec_fields``,
+    ``cli/main._best_round_of_record``, ``runlock._holder``,
+    ``languages/threejs/lint._load_plan``, ``cost/reconstruct._read_json``,
+    ``spatial/_render_common.read_json`` and ``cli/_judge.plan_summary_for`` — all
+    the same algorithm, differing only in whether they also checked ``isinstance(dict)``
+    (which every caller then relied on anyway).  Strict readers that must raise on
+    a corrupt input (``Workspace.read_json``, ``judges/calibration._read_json``)
+    deliberately do NOT use this.
+
+    ``errors`` is ``read_text``'s decode policy (``"replace"`` for files another
+    process may still be writing).  Reads UTF-8, the encoding :func:`write_json_atomic`
+    writes.
+    """
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8", errors=errors))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def iter_jsonl_lines(path: Path | str) -> Iterator[tuple[int, str]]:
+    """``(line_no, line)`` for every non-blank line of a JSONL file, 1-based.
+
+    Missing file → nothing; decoded UTF-8 with ``errors="replace"`` so one bad byte
+    (or a SIGKILL mid-append) costs at most that line.  Shared by
+    :func:`read_jsonl_lenient` and by the model-validating readers that keep their own
+    per-line parse (``cost/ledger.load_ledger``, ``bench/_jsonl.read_jsonl``).
+    """
+    p = Path(path)
+    if not p.is_file():
+        return
+    for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines()):
+        if line.strip():
+            yield i + 1, line
+
+
+def read_jsonl_lenient(
+    path: Path | str, *, log: logging.Logger | None = None, dicts_only: bool = False
+) -> list[Any]:
+    """Every parseable JSON line of ``path``; unparseable lines are skipped (debug-logged
+    to ``log`` when given), ``dicts_only`` also drops non-object rows.
+
+    Replaced the same skip-bad-lines loop in ``events.EventLog.read``,
+    ``cost/reconstruct._read_jsonl``, ``flywheel/trajectories.read_events``,
+    ``cli/skills_cmd`` (skills report) and ``agents/transcript.read_transcript`` —
+    a truncated last line must never lose the rest of the file (the contract
+    ``cost.ledger.load_ledger`` has always had).
+    """
+    out: list[Any] = []
+    for i, line in iter_jsonl_lines(path):
+        try:
+            row = json.loads(line)
+        except ValueError as e:
+            if log is not None:
+                log.debug("%s:%d unreadable: %s", path, i, e)
+            continue
+        if dicts_only and not isinstance(row, dict):
+            continue
+        out.append(row)
+    return out
+
+
+def append_jsonl_line(path: Path | str, rec: Any, lock: threading.Lock) -> None:
+    """Append ``rec`` as one JSON line under ``lock`` (``ensure_ascii=False``,
+    ``default=str`` so paths / enums / datetimes serialise).
+
+    Replaced the identical bodies of ``events.EventLog.emit`` and
+    ``agents/transcript.Trajectory.append``.  ``cost/ledger.CostLedger.append`` is NOT
+    a copy — it mkdirs, flushes and swallows OSError ("flushed on write") — and keeps
+    its own.
+    """
+    line = json.dumps(rec, ensure_ascii=False, default=str)
+    with lock, Path(path).open("a", encoding="utf-8") as fh:
+        fh.write(line + "\n")

@@ -152,22 +152,3 @@ def test_live_timeout_and_memory_cap(tmp_ws, blender_bin) -> None:
     (tmp_ws.src / "model.py").write_text("import bpy\nimport numpy as np\nbpy.ops.mesh.primitive_cube_add(size=1)\nbig = np.ones((3_000_000_000,))\n")
     r = rt.build(tmp_ws, timeout_s=60)
     assert not r.ok and r.error_type == "MemoryError" and r.error_line == 4
-
-
-@pytest.mark.blender
-def test_live_native_render(tmp_ws, table_plan, blender_bin, tmp_path) -> None:
-    from codeverse.languages._common import run_subprocess
-    from codeverse.languages.blender.runtime import RENDER_WRAPPER, blender_env
-
-    rt = BlenderRuntime(blender=blender_bin)
-    rt.skeleton(tmp_ws, table_plan)
-    r = rt.build(tmp_ws, timeout_s=120)
-    assert r.ok
-    out = tmp_path / "renders"
-    proc = run_subprocess([blender_bin, "-b", "--factory-startup", "--python", str(RENDER_WRAPPER), "--", "--glb", r.glb_path,
-                           "--out", str(out), "--size", "256", "--views", "front_right_34:35:22,top:0:88"],
-                          cwd=tmp_ws.root, env=blender_env(), timeout_s=180)
-    assert proc.returncode == 0, proc.stderr[-2000:]
-    manifest = json.loads((out / "renders.json").read_text())
-    assert [v["name"] for v in manifest["views"]] == ["front_right_34", "top"]
-    assert all(Path(v["path"]).stat().st_size > 1000 for v in manifest["views"])

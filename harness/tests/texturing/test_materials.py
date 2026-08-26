@@ -8,7 +8,6 @@ from codeverse.texturing.materials import (
     BARE_METAL_FAMILIES,
     COARSE_TO_FINE,
     MATERIALS,
-    cookbook_block,
     family_for,
     is_framework_default,
     is_warm_metal_hue,
@@ -94,12 +93,3 @@ def test_saturated_colour_means_paint_but_gold_still_means_metal():
     assert not looks_painted("hardwood", (0.10, 0.35, 0.18))   # rule only applies to bare metals
     assert is_warm_metal_hue((0.72, 0.40, 0.25)) and not is_warm_metal_hue((0.8, 0.1, 0.1))
     assert set(MATERIALS) >= BARE_METAL_FAMILIES
-
-
-def test_cookbook_block_is_copyable_text():
-    text = cookbook_block()
-    for name in MATERIALS:
-        assert f"| {name} |" in text
-    assert "Principled BSDF" in text and "MeshPhysicalMaterial" in text
-    assert "metallic 0.0" in text          # the paint-is-dielectric rule is spelled out
-    assert text.count("\n|---|") == 1   # exactly one table header separator

@@ -61,6 +61,11 @@ PLAN_TOKENS_PER_LEAF = 400
 PLAN_TOKENS_MAX = 60000
 #: one more attempt when the model truncates anyway, with half again as much room
 TRUNCATION_GROWTH = 1.5
+#: retry budget (``ChatRequest.max_wait_s``) for one planner call.  Audit 2026-08-26 §2: the
+#: call itself is 13.7 s p50 / 32 s p90 / 76 s max (23.4 / 43 / 68 under the storm), yet the
+#: storm-day plan stage waited 492 s median per run for 39 s of model time; 300 s is ~4x the
+#: worst observed call and replaces the model's 900 s default.  The re-asks are on top.
+PLAN_MAX_WAIT_S = 300.0
 
 
 def plan_tokens(budget: PlanBudget, floor: int) -> int:
@@ -108,7 +113,7 @@ def default_event_stats(plan_obj: Any) -> dict[str, Any]:
             "n_acceptance": len(plan_obj.acceptance)}
 
 
-def plan(spec: Spec, model_id: str, plan_model: type[P], ws: Workspace, *, model: Any | None = None,
+def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Workspace, *, model: Any | None = None,
          events: Any | None = None, budget: Any | None = None, runtime: Any | None = None,
          template: str | None = None, example: dict[str, Any] | None = None, temperature: float = 0.4,
          max_output_tokens: int = 24000, finalise: FinalisePlan | None = None,
@@ -130,7 +135,7 @@ def plan(spec: Spec, model_id: str, plan_model: type[P], ws: Workspace, *, model
     return result
 
 
-def plan_with_usage(spec: Spec, model_id: str, plan_model: type[P], ws: Workspace, *, model: Any | None = None,
+def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Workspace, *, model: Any | None = None,
                     events: Any | None = None, runtime: Any | None = None, template: str | None = None,
                     example: dict[str, Any] | None = None, temperature: float = 0.4, max_output_tokens: int = 24000,
                     finalise: FinalisePlan | None = None, event_stats: EventStats | None = None) -> tuple[P, Usage]:
@@ -170,7 +175,8 @@ def plan_with_usage(spec: Spec, model_id: str, plan_model: type[P], ws: Workspac
     tokens = plan_tokens(budget, max_output_tokens)
     for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS):
         req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=temperature,
-                          thinking="medium", max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}")
+                          thinking="medium", max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
+                          max_wait_s=PLAN_MAX_WAIT_S)
         try:
             resp = model.generate(req)
         except Exception as e:  # noqa: BLE001 — a truncated plan is retryable; anything else is not
@@ -291,7 +297,7 @@ def add_acceptance_item(items: list[AcceptanceItem], prefix: str, text: str, how
     items.append(AcceptanceItem(id=f"{prefix}{n}", text=text, how=how, priority="must"))  # type: ignore[arg-type]
 
 
-def ensure_acceptance(plan_obj: P, spec: Spec) -> P:
+def ensure_acceptance[P: BaseModel](plan_obj: P, spec: Spec) -> P:
     """Append acceptance items derived from the spec constraints when missing.
 
     A *must* item that the judge cannot verify caps the score (``missing_must_acceptance``)
@@ -322,7 +328,7 @@ def ensure_acceptance(plan_obj: P, spec: Spec) -> P:
     return plan_obj
 
 
-def normalise_names(plan_obj: P) -> P:
+def normalise_names[P: BaseModel](plan_obj: P) -> P:
     """PascalCase part/link/zone/asset names in place — prompts ask for it; code guarantees it.
     Normalisation keeps the snake key, so validated uniqueness/tree properties are preserved."""
     for attr in ("parts", "zones", "assets"):

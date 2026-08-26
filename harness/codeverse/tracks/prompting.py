@@ -11,16 +11,20 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from codeverse.config import fewer_turns_enabled
 from codeverse.contracts.chat import ImagePart
-from codeverse.contracts.common import Language
+from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import LANGUAGE_FRAME, Frame, frame_doc, to_snake
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.depth import DepthBudget, PartScope, depth_budget, interfaces_text
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
+
+if TYPE_CHECKING:
+    from codeverse.spatial.cookbook_tool import Section
 
 log = logging.getLogger(__name__)
 
@@ -39,12 +43,16 @@ def parts_table_for(parts: Sequence[Any]) -> str:
     """``parts_table`` for an explicit part subset (one scoped session's parts)."""
     if not parts:
         return "(no parts)"
-    rows = ["| part | role | bbox centre (x,y,z) m | extents (x,y,z) m | attach_to | inst | material |",
-            "|---|---|---|---|---|---|---|"]
+    rows = [
+        "| part | role | bbox centre (x,y,z) m | extents (x,y,z) m | attach_to | inst | material |",
+        "|---|---|---|---|---|---|---|",
+    ]
     for p in parts:
         c = ", ".join(f"{v:.3f}" for v in p.bbox.center)
         e = ", ".join(f"{v:.3f}" for v in p.bbox.extents)
-        rows.append(f"| {p.name} | {p.role} | ({c}) | ({e}) | {p.attach_to or '-'} | {p.instances} | {p.material or '-'} |")
+        rows.append(
+            f"| {p.name} | {p.role} | ({c}) | ({e}) | {p.attach_to or '-'} | {p.instances} | {p.material or '-'} |"
+        )
     return "\n".join(rows)
 
 
@@ -71,7 +79,9 @@ def part_details_for(parts: Sequence[Any]) -> str:
             ce = ", ".join(f"{v:.3f}" for v in c.bbox.extents)
             inst = f" ×{c.instances}" if getattr(c, "instances", 1) > 1 else ""
             mat = f" [{c.material}]" if getattr(c, "material", "") else ""
-            out.append(f"    - sub-part **{c.name}**{inst}{mat} — centre ({cc}) extents ({ce}) m: {c.description}")
+            out.append(
+                f"    - sub-part **{c.name}**{inst}{mat} — centre ({cc}) extents ({ce}) m: {c.description}"
+            )
     return "\n".join(out)
 
 
@@ -79,12 +89,16 @@ def joints_table(plan: Plan) -> str:
     joints = getattr(plan, "joints", None)
     if not joints:
         return "(no joints)"
-    rows = ["| joint | type | parent | child | axis | pivot (world, m) | lower | upper | rest | motion |",
-            "|---|---|---|---|---|---|---|---|---|---|"]
+    rows = [
+        "| joint | type | parent | child | axis | pivot (world, m) | lower | upper | rest | motion |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
     for j in joints:
         ax = ", ".join(f"{v:.3f}" for v in j.axis)
         pv = ", ".join(f"{v:.3f}" for v in j.pivot)
-        rows.append(f"| {j.name} | {j.type} | {j.parent} | {j.child} | ({ax}) | ({pv}) | {j.lower:.3f} | {j.upper:.3f} | {j.rest:.3f} | {j.motion} |")
+        rows.append(
+            f"| {j.name} | {j.type} | {j.parent} | {j.child} | ({ax}) | ({pv}) | {j.lower:.3f} | {j.upper:.3f} | {j.rest:.3f} | {j.motion} |"
+        )
     return "\n".join(rows)
 
 
@@ -101,7 +115,9 @@ def bbox_line(bbox: Any) -> str:
     return f"centre ({c}) m, extents ({e}) m"
 
 
-def glb_to_plan_frame(v: Sequence[float], language: Language, *, extents: bool = False) -> tuple[float, float, float]:
+def glb_to_plan_frame(
+    v: Sequence[float], language: Language, *, extents: bool = False
+) -> tuple[float, float, float]:
     """Map a GLB-frame (Y-up, +Z front) vector into the language's authoring frame.
     Blender/CadQuery/URDF plans are Z-up with -Y front: glb (x, y, z) → (x, -z, y)."""
     x, y, z = float(v[0]), float(v[1]), float(v[2])
@@ -114,7 +130,9 @@ def constraints_text(spec: Any) -> str:
     c = spec.constraints
     lines = []
     if c.dimensions_m:
-        lines.append("Dimensions (m): " + ", ".join(f"{k}={v:.3f}" for k, v in c.dimensions_m.items()))
+        lines.append(
+            "Dimensions (m): " + ", ".join(f"{k}={v:.3f}" for k, v in c.dimensions_m.items())
+        )
     if c.max_triangles:
         lines.append(f"Max triangles: {c.max_triangles}")
     if c.style:
@@ -151,8 +169,100 @@ def cookbook_sections(ctx: RunContext, names: Sequence[str], *, max_chars: int =
         out.append(sec.body.rstrip())
     text = "\n\n".join(out)
     if len(text) > max_chars:
-        text = text[:max_chars].rstrip() + "\n\n…[chapters clipped — call read_cookbook for the rest]"
+        text = (
+            text[:max_chars].rstrip() + "\n\n…[chapters clipped — call read_cookbook for the rest]"
+        )
     return text
+
+
+#: brief words → cookbook chapter titles (case-insensitive substrings of a ``## `` heading) they call for
+COOKBOOK_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "aurora": ("Light phenomena",), "curtain": ("Light phenomena",), "curtains": ("Light phenomena",),
+    "northern": ("Light phenomena",), "glow": ("Light phenomena",),
+    "star": ("Gradient sky", "Light phenomena"), "stars": ("Gradient sky", "Light phenomena"),
+    "night": ("Gradient sky", "Light phenomena"), "space": ("Gradient sky", "Light phenomena"),
+    "galaxy": ("Gradient sky", "Light phenomena"), "nebula": ("Gradient sky", "Light phenomena"),
+    "bokeh": ("Bokeh",), "city": ("Bokeh",), "neon": ("Bokeh",), "lights": ("Bokeh",),
+    "rain": ("Rain",), "drops": ("Rain",), "glass": ("Rain",),
+    "cloud": ("Domain warping",), "clouds": ("Domain warping",), "smoke": ("Domain warping",),
+    "marble": ("Domain warping",),
+    "tunnel": ("Raymarching",), "temple": ("Raymarching",), "corridor": ("Raymarching",), "3d": ("Raymarching",),
+    "trail": ("Feedback",), "trails": ("Feedback",), "feedback": ("Feedback",),
+}
+COOKBOOK_ALWAYS: tuple[str, ...] = ("Hash / noise / fbm", "Palettes, tonemapping, grading", "PITFALLS")
+_STOP = frozenset(("the", "and", "with", "for", "from", "into", "over", "that", "this", "are", "its", "one", "two",
+                   "not", "but", "then", "than", "out", "each", "all", "any", "per", "via", "use", "like", "look",
+                   "looks", "very", "some", "more", "most"))
+
+
+def _words(text: str) -> set[str]:
+    import re
+
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if (len(w) >= 3 or w in COOKBOOK_SYNONYMS) and w not in _STOP}
+
+
+def is_always_chapter(title: str, always: Sequence[str] = COOKBOOK_ALWAYS) -> bool:
+    """Is ``title`` one of the chapters every graphics prompt carries (helpers / grading / pitfalls)?"""
+    low = title.lower()
+    return any(name.lower() in low for name in always)
+
+
+def select_cookbook_excerpt(ctx: RunContext, brief: str, *, budget: int = 9000,
+                            always: Sequence[str] = COOKBOOK_ALWAYS) -> str:
+    """Whole cookbook chapters chosen for ``brief``, never a blind prefix (see
+    :func:`select_cookbook_chapters` for the selection; this joins their bodies)."""
+    return "\n\n".join(s.body.rstrip() for s in select_cookbook_chapters(ctx, brief, budget=budget, always=always))
+
+
+def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,
+                             always: Sequence[str] = COOKBOOK_ALWAYS) -> list[Section]:
+    """The cookbook chapters (cookbook order) a brief calls for.
+
+    Measured 2026-08-26: the graphics prompt carried ``cookbook_text[:7000]`` of an 11,298-char
+    cookbook, so everything after the raymarching template (sky / stars, rain, bokeh, feedback,
+    PITFALLS) never reached the agent unless it called ``read_cookbook`` — and flash draws
+    what it was handed (an aurora as a comb of bars, twenty sparkles for a star field).
+    Here the header + ``always`` chapters go in first (4.4 k chars), then chapters ranked by
+    keyword overlap between the brief (+ plan key visuals) and the chapter heading / body, with
+    ``COOKBOOK_SYNONYMS`` as the strong signal, until ``budget`` is spent.  A chapter is added
+    whole or not at all; the output keeps cookbook order.  The default budget is the measured
+    need of a night-sky brief: always-set 4.4 k + Light phenomena 3.2 k + Gradient sky 1.3 k.
+    ``tracks/graphics_recipes.py`` seeds the SAME selection's code into ``src/common.glsl``.
+    """
+    from codeverse.spatial.cookbook_tool import Section, find_section, split_sections
+
+    md = ctx.cookbook_text or ""
+    if not md.strip():
+        return []
+    chapters: list[Section] = []
+    for s in split_sections(md):        # fold ### sub-headings into their ## chapter
+        if s.level >= 3 and chapters:
+            chapters[-1] = Section(chapters[-1].level, chapters[-1].title, chapters[-1].body + s.body)
+        else:
+            chapters.append(s)
+    chosen: set[int] = {i for i, s in enumerate(chapters) if s.level < 2}    # title / conventions header
+    for name in always:
+        sec = find_section(chapters, name)
+        if sec is not None:
+            chosen.add(chapters.index(sec))
+    brief_words = _words(brief)
+    wanted = {t.lower() for w in brief_words for t in COOKBOOK_SYNONYMS.get(w, ())}
+    scored: list[tuple[int, int]] = []
+    for i, s in enumerate(chapters):
+        if i in chosen:
+            continue
+        title = s.title.lower()
+        score = 4 * sum(1 for t in wanted if t in title)
+        score += 3 * len(brief_words & _words(s.title)) + len(brief_words & _words(s.body))
+        if score > 0:
+            scored.append((-score, i))
+    used = sum(len(chapters[i].body.rstrip()) + 2 for i in chosen)
+    for _, i in sorted(scored):
+        size = len(chapters[i].body.rstrip()) + 2
+        if used + size <= budget:
+            chosen.add(i)
+            used += size
+    return [chapters[i] for i in sorted(chosen)]
 
 
 def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
@@ -184,6 +294,9 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "detail_budget": detail_budget_text(ctx),
         "root_link": getattr(plan, "root_link", "") if plan else "",
         "reference_note": reference_note(ctx),
+        # a string, "" when off: templates render it with one {% if %} and stay byte-identical
+        # for the control arm
+        "turn_discipline": TURN_DISCIPLINE if (fewer_turns_enabled() and not ctx.single_shot) else "",
     }
     d.update(extra)
     return d
@@ -212,14 +325,16 @@ def scope_context(ctx: RunContext, scope: PartScope, **extra: Any) -> dict[str, 
     """Template context for ONE scoped part session: only its parts, plus the exact
     numbers of the neighbours it must weld to but may not write."""
     d = base_prompt_context(ctx, **extra)
-    d.update({
-        "scope_label": scope.label,
-        "scope_names": ", ".join(scope.names),
-        "parts_table": parts_table_for(scope.parts),
-        "part_details": part_details_for(scope.parts),
-        "interfaces": interfaces_text(ctx.plan, scope),
-        "n_scope_parts": len(scope.parts),
-    })
+    d.update(
+        {
+            "scope_label": scope.label,
+            "scope_names": ", ".join(scope.names),
+            "parts_table": parts_table_for(scope.parts),
+            "part_details": part_details_for(scope.parts),
+            "interfaces": interfaces_text(ctx.plan, scope),
+            "n_scope_parts": len(scope.parts),
+        }
+    )
     d.update(extra)
     return d
 
@@ -229,8 +344,56 @@ def reference_images(ctx: RunContext, limit: int = 3) -> list[ImagePart]:
     out: list[ImagePart] = []
     for r in list(ctx.spec.references)[:limit]:
         if Path(r.path).is_file():
-            out.append(ImagePart(path=r.path, label=f"reference ({r.role}){': ' + r.note if r.note else ''}"))
+            out.append(
+                ImagePart(
+                    path=r.path, label=f"reference ({r.role}){': ' + r.note if r.note else ''}"
+                )
+            )
     return out
+
+
+def judged_sheet(last: Any) -> list[ImagePart]:
+    """The contact sheet the judge scored last round, as ONE inline image for the refine session.
+
+    "What the judge saw" reached the refine agent as a paragraph of text; the picture it
+    was written about did not.  A session told "the horn intersects the case" then had to
+    re-render to find out which view showed it.  One image is cheap next to a session of
+    30 tool turns, and it is the same file the score came from, so the agent and the judge
+    are finally looking at the same thing.
+    """
+    sheet = getattr(getattr(last, "renders", None), "contact_sheet", None)
+    if not sheet or not Path(sheet).is_file():
+        return []
+    return [
+        ImagePart(
+            path=str(sheet),
+            label=f"the contact sheet the judge scored (round {getattr(last, 'index', '?')})",
+        )
+    ]
+
+
+def _likeness_note(ctx: RunContext, refs: list[Any]) -> str:
+    """Graphics / scene: the photos say what the REAL thing looks like, not what to compose.
+
+    The object-track note asks for a silhouette match and an IoU tool; a shader has no
+    silhouette.  What an aurora / a harbour / a nebula needs from a photo is its physics —
+    dominant colour, how the structure folds and thins, where the light sits, how much of
+    the frame stays dark — and the judge sees the same photos beside the frames.
+    """
+    lines = [
+        f"REFERENCE PHOTOS ({len(refs)}) of the REAL thing are attached.  They are not a composition to copy; "
+        "they show what the brief's subject actually looks like: its dominant colour and where the secondary "
+        "colours sit, how its structure folds / layers / thins out, where the brightness concentrates and how "
+        "much of the frame stays dark, its texture at fine scale.  Match THAT — it outranks the brief's "
+        "adjectives when the two disagree, and the judge scores your frames beside the same photos.  A row of "
+        "evenly spaced bars is not a curtain; a flat band is not a glow; cartoon saturation is not a night sky.  "
+        "Take the physics from the photo, not the postcard: foreground, framing and landscape stay as the brief says."
+    ]
+    for i, r in enumerate(refs, 1):
+        lines.append(f"- reference {i}: `{r.path}`" + (f" — {r.note}" if r.note else ""))
+    lines.append("The photos are attached to this message." if ctx.single_shot else
+                 "The photos are attached to your first message; look at them again before every `gl_frames` / `scene_views` comparison.")
+    return "\n".join(lines)
 
 
 def reference_note(ctx: RunContext) -> str:
@@ -238,17 +401,23 @@ def reference_note(ctx: RunContext) -> str:
     refs = [r for r in ctx.spec.references if Path(r.path).is_file()]
     if not refs:
         return ""
-    lines = [f"REFERENCE IMAGES ({len(refs)}): match their silhouette, proportions and visible details — they "
-             "outrank the text when the two disagree.  A harness measures the front-view outline IoU against the "
-             "target reference; aim for IoU ≥ 0.6."]
+    if ctx.track in (Track.GRAPHICS, Track.SCENE):
+        return _likeness_note(ctx, refs)
+    lines = [
+        f"REFERENCE IMAGES ({len(refs)}): match their silhouette, proportions and visible details — they "
+        "outrank the text when the two disagree.  A harness measures the front-view outline IoU against the "
+        "target reference; aim for IoU ≥ 0.6."
+    ]
     for i, r in enumerate(refs, 1):
         lines.append(f"- reference {i} ({r.role}): `{r.path}`" + (f" — {r.note}" if r.note else ""))
     if ctx.single_shot:
         lines.append("The images are attached to this message.")
     else:
         tgt = next((r.path for r in refs if r.role == "target"), refs[0].path)
-        lines.append(f"Use the `compare_silhouette` tool (render_png=<your front render>, reference_png=`{tgt}`) "
-                     "after building to check the outline, and `render_views` to look at your model.")
+        lines.append(
+            f"Use the `compare_silhouette` tool (render_png=<your front render>, reference_png=`{tgt}`) "
+            "after building to check the outline, and `render_views` to look at your model."
+        )
     return "\n".join(lines)
 
 
@@ -277,10 +446,38 @@ def expected_files(ctx: RunContext) -> list[str]:
 
 def skeleton_files(ctx: RunContext, max_chars: int = MAX_SKELETON_CHARS) -> dict[str, str]:
     """Current src/ files (the skeleton), trimmed, for single-shot prompts."""
-    return current_files(ctx, [str(p.relative_to(ctx.ws.root)) for p in sorted(ctx.ws.src.rglob("*")) if p.is_file()], max_chars)
+    return current_files(
+        ctx,
+        [str(p.relative_to(ctx.ws.root)) for p in sorted(ctx.ws.src.rglob("*")) if p.is_file()],
+        max_chars,
+    )
 
 
-def current_files(ctx: RunContext, rels: Sequence[str], max_chars: int = MAX_SKELETON_CHARS) -> dict[str, str]:
+def refine_inline_files(ctx: RunContext, rels: Sequence[str], *, scoped: bool) -> dict[str, str]:
+    """The files a refine task may edit, inlined for the prompt — or ``{}``.
+
+    Single-shot always gets them (it has no read tool).  An agent session gets them only
+    under ``fewer_turns`` and only when the task is scoped to ≤ ``INLINE_MAX_FILES`` files
+    totalling ≤ ``INLINE_MAX_CHARS`` — measured: a refine session spends 5.2 of its 24
+    turns on read_file, mostly on the files the task just named.  Larger sets are NOT
+    truncated into the prompt (a half file is worse than a read): they stay on disk.
+    """
+    if ctx.single_shot:
+        return current_files(ctx, rels)
+    if not (fewer_turns_enabled() and scoped) or not rels or len(rels) > INLINE_MAX_FILES:
+        return {}
+    paths = [ctx.ws.root / r for r in rels]
+    if not all(p.is_file() for p in paths):
+        return {}
+    if sum(p.stat().st_size for p in paths) > INLINE_MAX_CHARS:
+        return {}
+    files = current_files(ctx, rels, max_chars=INLINE_MAX_CHARS + 1)
+    return files if sum(len(t) for t in files.values()) <= INLINE_MAX_CHARS else {}
+
+
+def current_files(
+    ctx: RunContext, rels: Sequence[str], max_chars: int = MAX_SKELETON_CHARS
+) -> dict[str, str]:
     out: dict[str, str] = {}
     total = 0
     for rel in rels:
@@ -302,37 +499,70 @@ def judge_digest(last: RoundRecord, max_issues: int = 8) -> str:
     j = last.judgment
     if j is None:
         return "(no judgment for the previous round)"
-    lines = [f"Previous score {j.overall:.2f} ({'passed' if j.passed else 'not passed'}). {j.summary}".strip()]
+    lines = [
+        f"Previous score {j.overall:.2f} ({'passed' if j.passed else 'not passed'}). {j.summary}".strip()
+    ]
     for k, v in sorted(j.scores.items(), key=lambda kv: kv[1])[:6]:
         lines.append(f"- {k}: {v:.2f}")
     for i in j.issues[:max_issues]:
-        lines.append(f"- [{i.severity}/{i.kind}] {i.target}: {i.detail}" + (f" (seen in {i.evidence})" if i.evidence else ""))
+        lines.append(
+            f"- [{i.severity}/{i.kind}] {i.target}: {i.detail}"
+            + (f" (seen in {i.evidence})" if i.evidence else "")
+        )
     return "\n".join(lines)
 
 
-def measurement_vs_plan(last: RoundRecord, plan: Plan | None, language: Language = Language.THREEJS) -> str:
+def measurement_vs_plan(
+    last: RoundRecord, plan: Plan | None, language: Language = Language.THREEJS
+) -> str:
     """Exact numbers (in the plan's frame): measured overall/part bboxes vs planned ones."""
     m = last.measurement
     if m is None or plan is None or not hasattr(plan, "overall_bbox"):
         return ""
     pe = plan.overall_bbox.extents
     me = glb_to_plan_frame(m.extents, language, extents=True)
-    lines = [f"Measured overall extents {me[0]:.3f}×{me[1]:.3f}×{me[2]:.3f} m vs plan "
-             f"{pe[0]:.3f}×{pe[1]:.3f}×{pe[2]:.3f} m; ground gap {m.ground_gap_m:+.3f} m; footprint offset {m.footprint_offset_m:.3f} m; "
-             f"{m.tri_count} tris, {m.n_meshes} meshes, {m.n_islands} islands."]
+    lines = [
+        f"Measured overall extents {me[0]:.3f}×{me[1]:.3f}×{me[2]:.3f} m vs plan "
+        f"{pe[0]:.3f}×{pe[1]:.3f}×{pe[2]:.3f} m; ground gap {m.ground_gap_m:+.3f} m; footprint offset {m.footprint_offset_m:.3f} m; "
+        f"{m.tri_count} tris, {m.n_meshes} meshes, {m.n_islands} islands."
+    ]
     planned = {to_snake(p.name): p for p in getattr(plan, "parts", [])}
     for pm in m.parts[:24]:
         p = planned.get(to_snake(pm.name))
         if p is None:
             continue
-        ext = glb_to_plan_frame([b - a for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language, extents=True)
-        cen = glb_to_plan_frame([(a + b) / 2 for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language)
-        lines.append(f"- {p.name}: measured centre ({cen[0]:.3f}, {cen[1]:.3f}, {cen[2]:.3f}) extents ({ext[0]:.3f}, {ext[1]:.3f}, {ext[2]:.3f})"
-                     f" | plan centre ({p.bbox.center[0]:.3f}, {p.bbox.center[1]:.3f}, {p.bbox.center[2]:.3f}) extents "
-                     f"({p.bbox.extents[0]:.3f}, {p.bbox.extents[1]:.3f}, {p.bbox.extents[2]:.3f})")
+        ext = glb_to_plan_frame(
+            [b - a for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language, extents=True
+        )
+        cen = glb_to_plan_frame(
+            [(a + b) / 2 for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language
+        )
+        lines.append(
+            f"- {p.name}: measured centre ({cen[0]:.3f}, {cen[1]:.3f}, {cen[2]:.3f}) extents ({ext[0]:.3f}, {ext[1]:.3f}, {ext[2]:.3f})"
+            f" | plan centre ({p.bbox.center[0]:.3f}, {p.bbox.center[1]:.3f}, {p.bbox.center[2]:.3f}) extents "
+            f"({p.bbox.extents[0]:.3f}, {p.bbox.extents[1]:.3f}, {p.bbox.extents[2]:.3f})"
+        )
     gate_lines = [f"- {f.as_line(with_gate=True)}" for g in last.gates for f in g.errors][:12]
     return "\n".join(lines + gate_lines)
 
+
+#: fewer_turns (docs/COST.md §29): the baseline session hit the 60-turn cap in every measured
+#: run — 22.5 write_file + 8 build + 7.5 read_file + 4.6 check_connectivity + 4.1 check_contract
+#: per session, each a 4 s round trip re-sending a 35–70 k context.  The cap itself is NOT the
+#: lever (§17: a 28-turn cap cost 0.205 of a score point); the block asks for fewer, fuller turns.
+TURN_DISCIPLINE = """## Turn discipline (every tool call is a full round trip — spend as few as you can)
+- FIRST reply: write EVERY file listed under "Files you must produce" as multiple `write_file`
+  calls in that same reply, then call `build` once.  Do not write one file per turn.
+- `build` already runs check_connectivity and check_contract: read its CONNECTIVITY / CONTRACT
+  sections, fix what they list, build again.  Do not call those two tools separately.
+- Do not read a file back after writing or editing it: the write result reports its line count and
+  syntax verdict.
+- Call `render_sheet` once before you finish; `measure` at most once."""
+
+#: the refine prompt inlines the files a scoped task edits when they are few and small, so the
+#: session's first turn is the edit, not a read_file (fewer_turns, docs/COST.md §29)
+INLINE_MAX_FILES = 3
+INLINE_MAX_CHARS = 12_000
 
 AGENT_OUTPUT_RULES = """HOW TO FINISH (agent mode): edit files under src/ only (and public/ for compiled assets).
 Before you finish you MUST run the `build` tool and fix every error it reports; then run `measure`
@@ -359,7 +589,11 @@ def file_for_target_factory(ctx: RunContext):
                     try:
                         out = custom(part_names[key])
                         if out:
-                            return [str(out)] if isinstance(out, (str, Path)) else [str(p) for p in out]
+                            return (
+                                [str(out)]
+                                if isinstance(out, (str, Path))
+                                else [str(p) for p in out]
+                            )
                     except Exception as e:  # noqa: BLE001
                         log.warning("runtime.file_for_part failed for %s: %s", target, e)
                 return [f"src/parts/{key}.js"] if lang is Language.THREEJS else [entry]
@@ -369,11 +603,16 @@ def file_for_target_factory(ctx: RunContext):
                     try:
                         out = whole(target)
                         if out:
-                            return [str(out)] if isinstance(out, (str, Path)) else [str(p) for p in out]
+                            return (
+                                [str(out)]
+                                if isinstance(out, (str, Path))
+                                else [str(p) for p in out]
+                            )
                     except Exception as e:  # noqa: BLE001
                         log.warning("runtime.file_for_target failed for %s: %s", target, e)
                 return [entry]
             return []
+
         return _per_part
 
     if lang is Language.SCENE_THREEJS:
@@ -391,6 +630,13 @@ def file_for_target_factory(ctx: RunContext):
                 return ["src/scene.js"]
             if key in ("env", "environment", "lighting", "sky", "fog", "ground", "water", "light"):
                 return ["src/env.js"]
+            # "Zone/Asset" — the scene_placement gate names the asset but the fix lives in the
+            # zone's file; keeping the asset in the target keeps one refine task per asset
+            if "/" in target:
+                zone_key = to_snake(target.split("/", 1)[0])
+                if zone_key in zones:
+                    return [f"src/zones/{zone_key}.js"]
             return []
+
         return _scene
     return None

@@ -10,6 +10,7 @@ Gemini keys: ``GEMINI_API_KEYS`` (csv) or ``GEMINI_API_KEY`` or the owner's
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -88,6 +89,24 @@ class Limits(BaseModel):
         "which is what ships: a 28-turn cap cost $0.02 more and 0.205 of a score point in its "
         "own A/B — docs/COST.md §17 — so no profile sets one; name it here if you want one).",
     )
+    fewer_turns: bool = Field(
+        default=False,
+        description="fold the cheap gates into `build`, report a per-file lint verdict from "
+        "write_file / edit_file, inline the files a refine task edits, and ask the baseline "
+        "session for every file in its first turn (docs/COST.md §29).  OFF until the A/B "
+        "reads out; `CV3D_FEWER_TURNS=1` (read at call time by `fewer_turns_enabled`) is "
+        "what `bench/ab_plan.py --variant-env` flips.",
+    )
+    seed_recipes: bool = Field(
+        default=True,
+        description="graphics / glsl_shader: paste the cookbook recipes the brief calls for "
+        "(curtain / aurora / stars / bokehSoft / dropsLayer + the hash / noise / fbm helpers "
+        "they use) into src/common.glsl BEFORE the baseline session (tracks/graphics_recipes.py).  "
+        "ON by default: measured 2026-08-26 (refs_v2_graphics, aurora brief, gemini-3.7-flash) "
+        "the prompt carried the verified curtain() recipe five times and the agent used it zero "
+        "times — round 0 was again a comb of bars (comb_artefact, 0.33).  `CV3D_SEED_RECIPES=0` "
+        "(read at call time by `seed_recipes_enabled`) is the control arm.",
+    )
 
 
 class Rate(BaseModel):
@@ -123,6 +142,13 @@ class Rate(BaseModel):
         "intermittent rather than a clean outage, so parking every worker starves the unlucky call "
         "(docs/COST.md §21).  The mechanism and its counters are kept so the experiment is "
         "reproducible: CV3D_RATE__STORM_GATE=1, or bench/concurrency_probe.py --storm-gate.")
+    hedge: int = Field(
+        default=2, ge=1,
+        description="keys a retry is raced on once a call has met its first 503 (1 = off).  Measured "
+        "2026-08-26: a failed 503 costs the 21-50 s round-trip the provider holds before rejecting, "
+        "storm streaks average 4.7 attempts, and a 503 bills nothing — so the hedge is free while it "
+        "storms and wastes one call only when both keys answer (docs/COST.md §27).  "
+        "CV3D_RATE__HEDGE=1 for the A/B.")
 
 
 class Judge(BaseModel):
@@ -132,6 +158,52 @@ class Judge(BaseModel):
     montages: int = Field(default=3, description="max 2x2 montages per verdict")
     detail_crops: int = Field(default=2, description="max zoomed detail crops per verdict")
     samples: int = Field(default=1, description="default VLM samples per verdict")
+
+
+#: The fewer-turns switch (docs/COST.md §29).  Read at CALL time by
+#: :func:`fewer_turns_enabled`, never only through the cached Settings: ``bench/ab_plan.py``
+#: differs its arms by environment alone, and a value frozen at first ``get_settings()``
+#: would hand the variant the control's behaviour (the CQ-5 lesson, tracks/plan_features.py).
+FEWER_TURNS_ENV = "CV3D_FEWER_TURNS"
+#: The recipe-seeding switch (Limits.seed_recipes); same call-time contract as FEWER_TURNS_ENV.
+SEED_RECIPES_ENV = "CV3D_SEED_RECIPES"
+_TRUE_WORDS = frozenset({"1", "on", "true", "yes", "y"})
+_FALSE_WORDS = frozenset({"0", "off", "false", "no", "n"})
+
+
+def _env_flag(raw: str, env: str) -> bool:
+    word = raw.strip().lower()
+    if word in _TRUE_WORDS:
+        return True
+    if word in _FALSE_WORDS:
+        return False
+    raise ValueError(f"{env}={raw!r}: expected on/off (1/0, true/false, yes/no)")
+
+
+def _call_time_flag(env: str, fallback: bool) -> bool:
+    """``$env`` when it is set (garbage counts as off, with a warning — a typo in a bench
+    command must produce a control run, not a crash mid-battery), else ``fallback`` (the
+    cached Settings value)."""
+    raw = os.environ.get(env)
+    if raw is not None and raw.strip():
+        try:
+            return _env_flag(raw, env)
+        except ValueError as e:
+            logging.getLogger(__name__).warning("%s; treating it as off", e)
+            return False
+    return fallback
+
+
+def fewer_turns_enabled() -> bool:
+    """Is the fewer-turns bundle on for THIS call?  ``$CV3D_FEWER_TURNS`` when it is set,
+    else ``Settings.limits.fewer_turns``."""
+    return _call_time_flag(FEWER_TURNS_ENV, get_settings().limits.fewer_turns)
+
+
+def seed_recipes_enabled() -> bool:
+    """Is recipe seeding (``tracks/graphics_recipes.py``) on for THIS call?  ``$CV3D_SEED_RECIPES``
+    when it is set, else ``Settings.limits.seed_recipes`` (default ON)."""
+    return _call_time_flag(SEED_RECIPES_ENV, get_settings().limits.seed_recipes)
 
 
 class Settings(BaseSettings):
@@ -144,6 +216,8 @@ class Settings(BaseSettings):
     #: knob; both spellings now work and the doctor prints the short one.
     _FLAT_ALIASES: ClassVar[dict[str, tuple[str, str]]] = {
         "CV3D_MAX_IN_FLIGHT": ("rate", "max_in_flight"),
+        FEWER_TURNS_ENV: ("limits", "fewer_turns"),
+        SEED_RECIPES_ENV: ("limits", "seed_recipes"),
     }
 
     @model_validator(mode="after")
@@ -152,17 +226,21 @@ class Settings(BaseSettings):
             raw = os.environ.get(env)
             if raw is None or raw.strip() == "":
                 continue
-            try:
-                value = int(raw)
-            except ValueError as e:
-                raise ValueError(f"{env}={raw!r}: expected an integer") from e
-            # plain assignment does NOT re-validate (no validate_assignment), so the target
-            # field's own bound is enforced here — and the message names the variable the
-            # operator actually typed, not the nested field they never heard of.
             sub = getattr(self, section)
-            lo = _lower_bound(type(sub), field)
-            if lo is not None and value < lo:
-                raise ValueError(f"{env}={raw!r}: must be >= {lo}")
+            value: int | bool
+            if type(sub).model_fields[field].annotation is bool:
+                value = _env_flag(raw, env)
+            else:
+                try:
+                    value = int(raw)
+                except ValueError as e:
+                    raise ValueError(f"{env}={raw!r}: expected an integer") from e
+                # plain assignment does NOT re-validate (no validate_assignment), so the target
+                # field's own bound is enforced here — and the message names the variable the
+                # operator actually typed, not the nested field they never heard of.
+                lo = _lower_bound(type(sub), field)
+                if lo is not None and value < lo:
+                    raise ValueError(f"{env}={raw!r}: must be >= {lo}")
             setattr(sub, field, value)
         return self
 

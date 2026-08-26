@@ -182,8 +182,40 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   part should cap via `connectivity` findings with `data["kind"]="floating"`.
 * A better recurring smoke than re-judging e2e rounds: a separation set with
   deliberately broken variants (exploded / floating / primitive-only).
+* **A checklist defect a passed gate measured absent does not cap (7a9b6d3).**  The
+  judge's binary checklist feeds a per-item penalty and, for `floating_part` /
+  `interpenetration`-class items, a hard cap (`defect:<id>` in `caps_applied`).  Those are
+  also what the connectivity gate *measures*.  Measured 2026-08-26 on a plan-pinned pair
+  (fancy_v1 `gas_street_lamp`, two lamps the eye cannot tell apart): the gate reported
+  "all 9 parts connected, gap ≤ 2 mm" and was in the judge's input; both pro samples read
+  the dark seam under the pedestal as "floating in mid-air, a clear daylight gap", and
+  `defect:floating_part` capped the run at 0.600 (uncapped 0.720) against 0.962 for its
+  sibling.  `judges/caps.measured_absent`: when a `when=gate` cap rule with the same id
+  has all its watched gates passed with no ERROR finding of its `kinds`, the checklist
+  claim is switched off before the penalty and before `apply_caps`, and named in the verdict
+  tail ("checklist claims contradicted by a passed gate").  A failed gate, a gate that did
+  not run, or a defect nothing measures (`wrong_object`, `missing_named_part`) are
+  untouched.  Re-aggregating the eleven judged fancy_v1 cells from their stored samples
+  changed exactly one score (that lamp, 0.600 → 0.720); the other 0.600s are
+  `missing_must_acceptance` / interpenetration caps the gates agree with.  0b6f52b tells the
+  judge the same thing in its prompt; this holds when the judge does not listen.
 * Never tune rubric text against the battery you report on; bump the rubric version
   (`*_v2`) instead and re-run.
+
+### 6.1 The graphics judge, calibrated against an eye (2026-08-26)
+
+The graphics track shared the judge machinery and none of its calibration.  Seventeen judged
+graphics runs (graphics_v1/v2 batteries, teaser, codex wave) were scored by a person from the
+same contact sheets ("would a curator screenshot it / does it look like the thing"):
+**Spearman(shader_v1 loop-time verdict, eye) = 0.16**, judge mean 0.773 vs eye mean 0.550.
+Three aurora versions nobody would take for an aurora scored 0.78 / 0.94 / 0.94 with empty issue
+lists; opaque pastel discs for bokeh 0.92; a lifted purple wash for a nebula 0.82; a crisp
+ukiyo-e wave 0.59 under planner must items.  The rubric scored the nouns of the brief being
+present.  `docs/GRAPHICS_LOOP.md` is the loop that fixes this (rubric `shader_v2`: likeness,
+tonal range, an artefact checklist; reference photos via `bench/refs/<id>/`; `LikenessJudge`)
+and the ledger of turns; `bench/judge_calib_graphics.py` re-judges the corpus under two rubrics
+against the eye file and is the gate for switching the track default.  The rule from §6 holds:
+never tune `shader_v1` in place — bump the version and re-judge.
 
 ## 7. Failures that are not results
 
@@ -261,6 +293,185 @@ of magnitude too tight for what it is applied to.  Consequences:
 * the cheapest real power is not more prompts but **less per-cell variance**: more rounds,
   or k generations per (prompt, arm) averaged before differencing, cuts the paired sd by
   √k.  Both cost the same dollars as more prompts and buy more per dollar here.
+
+### 8.1 Where the variance actually is: the planner, not the judge
+
+The 8-prompt A/A (`bench/out/plan_loop/C0`, 2026-08-25) put paired sd at **0.202**, SE 0.082,
+2 SE band ±0.165, and printed its own conclusion: *~408 paired prompts to resolve +0.02*.
+Opening the two arms of its worst pair says why, and it is not the judge:
+
+| `mech_hard_pitcher_pump` | planned parts | rounds | status | built parts | triangles | score |
+|---|---|---|---|---|---|---|
+| control | **1** — `WoodenPlatform` | 1 | passed | 3 | 4,796 | **0.750** |
+| variant | **10** — body, spout, domed cap, clevis, handle, linkage, piston rod … | 2 | budget | 13 | 61,340 | 0.600 |
+
+Identical arms, identical settings.  The planner returned a one-part plan for a pitcher pump
+in one arm and a proper ten-part plan in the other, and the 12.8× difference in delivered
+geometry is what the judge then scored.  **More judge samples cannot shrink this**; the two
+arms were not two measurements of one artifact, they were two different artifacts.
+
+Two consequences, and the first is worth more than any extra prompt:
+
+* **Pin the plan when the change is generation-side.**  Plan once per prompt, write that
+  `plan.json` into BOTH arms, and let the arms differ only in what is under test.  That
+  removes the dominant variance term outright rather than averaging it down, and costs one
+  planner call *less* per pair instead of k times more.  It is only valid when the switch
+  cannot affect planning — for a plan-side change (a budget, a fit check, a brief) the plan
+  must stay free and the sd above is the price.
+* **A degenerate plan is not a rare curiosity.**  7 of 122 recorded static-object runs shipped
+  a plan with ≤ 1 part, all after the plan-budget gate landed.  The gate is not broken —
+  `plan_quality_complaint` fires on exactly that plan ("Only 1 parts for a request that needs
+  about 10") and emits a `plan.thin` event — but after `MAX_QUALITY_REASKS` the planner accepts
+  whatever came back, and **nothing downstream is told**.  The pitcher-pump run above carries
+  `status: passed`, `score: 0.75`, and no record of the complaint.  The harness formed the
+  verdict "this plan is not worth building" and then discarded it; a known-thin plan should
+  reach the record and the rubric the way `missing_must_acceptance` does, so it cannot quietly
+  out-score a plan that did the work.  (Not a licence to fail the run — that was C1, reverted
+  the same day for turning recoverable planning slips into total losses.)
+
+### 8.2 `--pin-plan`: the driver actually does it now
+
+8.1 said to pin the plan; `bench/pin_plan.py` had the seeding and nothing called it.
+`bench/ab_plan.py --pin-plan` closes that: before a pair is launched, `pin_pair` plans the
+prompt ONCE into `<out>/plans/<id>/run` and seeds that result into both arms' `run/`
+workspaces, so the plan stage is a cache HIT (`StageRunner.stage` keys on
+`inputs_hash` + result file) and neither arm pays a planner call.
+
+Three details are the whole correctness of it:
+
+* **Both arms are seeded from a third workspace**, not the variant from the control's
+  finished run.  Seeding off the control would serialise the pair, and the pair is launched
+  together precisely so both arms see the same provider weather.
+* **The `inputs_hash` is asserted equal for every arm.**  It is derived from the spec
+  (`plan_stage_inputs`), so a mismatch means the seed is a cache MISS and the pair would
+  re-plan per arm while reporting itself pinned — the one failure this must not have.
+* **`pin_plan_blockers` gates the flag** and `main` refuses the run when it is non-empty.
+  Pinning a plan-side switch deletes the thing under test and the rig would then report
+  "no effect" with confidence.  `CV3D_SKILLS*` are in `GENERATION_SIDE_ENV`, so the skills
+  wave is pinnable; `CV3D_PLAN_BRIEF` is not, and `--pin-plan` rejects it.
+
+Pinning is orthogonal to `--aa`, and an A/A that will be read against a pinned A/B must be
+pinned too — otherwise the floor carries a variance term the A/B has already removed and
+every delta looks smaller than its own noise.
+
+### 8.3 A metric with no headroom is not an underpowered A/B
+
+`bench/skill_targets.py` prints `n to resolve 25%` for each bundle's own target, and for a
+count that is mostly zero the number is not a hurdle, it is a refusal.  Measured over the
+recorded corpus, before spending anything:
+
+| target | baseline | paired sd (est.) | pairs to resolve a 25% move |
+|---|---|---|---|
+| `cv3d-glsl-craft` / mean_edge_density | 0.234, spread 0.031–0.464 | 0.207 unpaired | ~50 unpaired — pinning + pairing is what makes it affordable |
+| `cv3d-urdf-joints` / joint_sweep_errors | 6.91 mean, 20 of 23 runs at **0**, tail 8/50/101 | ~32.6 | **~1420** (~89 even to see the metric go to zero) |
+| `cv3d-scene-composition` / camera_placement_findings | 0.25 on round 1, **0.00** by the last round | ~0.71 | **~512** (~32 to eliminate every fault) |
+
+Two of those three are answered by arithmetic, not by a battery.  Running them anyway and
+reporting "no effect" would be the rig lying about what it can see.
+
+### 8.4 What `ab_plan` can and cannot evaluate — and why the primary readout survives it
+
+Running the rig on a non-blender battery for the first time found two layers of the same
+assumption, one fixed here and one only documented:
+
+1. **Fixed.** `compare_backends._run_harness` gated the harness arm on
+   `bench/_oneshot.MODEL_FILE` (`src/model.py`).  A glsl_shader control that finished
+   `status: passed` having written `src/shader.frag` was recorded `no_code`, **score 0.0**.
+   Four of seven languages were affected — threejs, scene_threejs, glsl_shader,
+   opengl_python.  `entry_of(spec)` now reads `ENTRY_FILE`, the canonical table.
+2. **Not fixed, and it is structural.**  `bench/_fixed_eval.FixedEvaluator` pins
+   `get_runtime(Language.BLENDER)` and its `evaluate` is GLB-centric — build → `measure_glb`
+   → `check_connectivity` → `render_glb` → VLM judge.  So on any language that does not
+   deliver a GLB from a blender script, every cell still comes back `build_failed` / 0.0,
+   and **the only gates it runs are lint and connectivity** — never contract, joint_sweep,
+   scene_frames or gl_frames.
+
+The second one sounds fatal for a skills A/B and is not, because of where the numbers come
+from.  **`bench/skill_targets.py` reads each arm's harness run** (`<cell>/run/record.json`
+and its rendered frames), not the fixed evaluation — and the harness run is the real track,
+with all of its own gates.  Verified on the glsl A/A above: every cell was `build_failed`
+with `MissingEntryFile`, and the paired target metric still read out
+(`mean_edge_density` 0.073 → 0.052 on the first pair).
+
+So for a skills A/B the split is:
+
+| readout | source | works on |
+|---|---|---|
+| the bundle's target metric (**primary**) | the arms' own harness records + frames | every language |
+| the judged score (**secondary**) | `FixedEvaluator` | blender / cadquery only |
+
+which is the right way round, and is why the protocol says decide on the target and merely
+report the score.  A driver that had only ever been pointed at a blender battery could not
+have told the difference.
+
+### 8.5 The effect wave's result: the target metrics are their own obstacle
+
+Four bundles were to be A/B'd on their own deterministic targets, pinned, one bundle per
+run.  **None of the four produced a readable effect, and three of them were decided before
+any battery was bought** — which is the point of measuring the floor first.
+
+| bundle | target | what decided it |
+|---|---|---|
+| `cv3d-glsl-craft` | mean_edge_density | its **own pinned A/A**: paired sd **0.128**, ±2 SE **0.180**, control mean 0.092 → **123 pairs** to resolve a 25% move.  The A/A's identical arms differed by **+0.069**, three times any effect an 8-pair A/B could claim. |
+| `cv3d-repeats-and-mirrors` | contract_instance_findings | 132 of 164 corpus runs already at 0; the pinned A/A's one completed pair tied 1.000 → 1.000 |
+| `cv3d-urdf-joints` | joint_sweep_errors | arithmetic: 20 of 23 runs at 0 with a tail of 8/50/101, paired sd ≈ 32.6 → **~1420 pairs** for 25%, ~89 merely to drive it to zero |
+| `cv3d-scene-composition` | camera_placement_findings | undeliverable (§ below) *and* 0.25 → 0.00 across the corpus → ~512 pairs |
+
+Two things are worth keeping from it.
+
+**Pinning works, and it is not enough.**  Both arms of every pair reported `stage.cached`
+on the same `inputs_hash`: one planner call per prompt, one plan, zero planner variance.
+And the repeats A/A's one completed pair still scored **0.450 against 0.654 on identical
+arms** — a 0.204 spread, indistinguishable from the 0.202 paired sd that 8.1 measured
+*without* pinning.  The planner was the dominant term for *plans*; for the judged score
+there is a second term of the same size in generation, and pinning does not touch it.
+
+**A shader has no plan to pin.**  glsl's plan is passes and effects, not parts, so the term
+`--pin-plan` removes is nearly empty there — which is why the cheapest graphics A/B on the
+board still needs 123 pairs.  Pinning helps most exactly where the planner had the most
+freedom, and that is the object tracks.
+
+### 8.6 codex gpt-5.6-sol vs gemini-3.7-flash, harness against harness, on graphics and scene
+
+The one-shot comparison of §4 was blender objects.  On 2026-08-26 the same prompts the flash
+teaser runs had already scored were run again through the harness with `codex:gpt-5.6-sol` as
+the only change — no prompt edit, no profile change — and judged by the same fixed judge.
+Six pairs: four graphics (three GLSL, one OpenGL), two scenes.
+
+| prompt | track | flash | codex | Δ (codex − flash) |
+|---|---|---|---|---|
+| rain_window | glsl_shader | 0.909 | 0.919 | +0.010 |
+| aurora_ridge | glsl_shader | 0.940 | 0.936 | −0.004 |
+| accretion_disc | glsl_shader | 0.753 | 0.756 | +0.003 |
+| murmuration | opengl_python | 0.865 | 0.941 | +0.076 |
+| neon_alley | scene_threejs | 0.827 | 0.735 | −0.092 |
+| boat_workshop | scene_threejs | 0.747 | 0.837 | +0.090 |
+
+Mean **+0.014**, paired sd 0.065, SE 0.027, 95 % CI **[−0.038, +0.066]**, sign 4/6,
+exact p = 0.69.  The largest single delta (0.092) is under half the 0.202 A/A floor of §8.1.
+Two reviewers who looked at the pictures blind to the scores split the picture verdicts 3–3.
+
+**What it does and does not establish.**  It cannot answer "does flash match sol" — at
+sd 0.202, n = 6 detects only a ±0.21 mean difference, larger than the usable range of these
+scores.  What it supports, weakly, is *no sign of a large gap in either direction* on these
+tracks: the harness loop, not the generator, is setting the score.  Four confounds are live and
+listed so the next run removes them: the plans were not pinned; the 0.70 pass gate stops
+whichever arm crosses first and lets the other keep refining, which censors the winner
+(neon_alley: codex 1 round vs flash 5); `--candidates` was not pinned across arms; and
+best-of-N was inert on graphics for BOTH arms at the time (fixed in 99d13c9).  With plans and
+candidates pinned and a fixed round budget, ~32 pairs detect a 0.10 difference at 80 % power.
+
+**The one read that survives the confounds** comes from the pictures, not the scores: the two
+models fail differently and consistently.  codex is the tidier renderer and the more literal
+clause-follower — flat exact ridge interiors, crisp filaments, no aliasing — and its failure is
+a clean image of something *adjacent* to the brief (no city in rain_window; a twilight where a
+black winter night was specified; a hoop where a photon ring was).  flash puts the named subject
+and the hero effect on screen more often, and fails on craft — aliasing, fringing, grain, a
+broken scale.  The judge currently rewards artefact-absence over subject-presence: on
+rain_window it scored codex's cityless frame *higher* on brief_fidelity than flash's frame with
+the inverted city visible inside every drop, and praised the refine round because "the sharp
+building silhouettes are gone".  That is a rubric decision, not a model result, and it is worth
+settling before a larger n measures the rubric's preference with more precision.
 
 ## 9. Reporting checklist
 

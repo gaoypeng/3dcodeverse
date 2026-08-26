@@ -20,13 +20,14 @@ from codeverse.proc import write_text_atomic
 
 
 def render_static(index: GalleryIndex, *, title: str = "3dcv gallery", embed: bool = False,
-                  thumb_px: int = THUMB_PX, sort: str = "score", view: str = "cards") -> str:
+                  thumb_px: int = THUMB_PX, sort: str = "score", view: str = "cards",
+                  extra_html: str = "") -> str:
     """The complete HTML document for ``index`` (no server involved)."""
     note = ("images are inlined; the links open the original run directories on this machine"
             if embed else "images and links point at the run directories with file:// — "
                           "use `3dcv gallery serve` for a page that works anywhere")
     return render_index(index, StaticUrls(embed=embed, thumb_px=thumb_px),
-                        title=title, sort=sort, view=view, note=note)
+                        title=title, sort=sort, view=view, note=note, extra_html=extra_html)
 
 
 def write_atomic(path: Path, text: str) -> Path:

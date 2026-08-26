@@ -37,6 +37,11 @@ get_settings().backends(planner=..., generator=..., judge=..., captioner=...) ->
 from codeverse.proc import ProcResult, run_subprocess, kill_group, tail, write_json_atomic
 run_subprocess(cmd, *, cwd, timeout_s, env=None, stdin_text=None, preexec_fn=None) -> ProcResult
     # own session/process group, group-kill on timeout, never raises on rc != 0; stdlib-only module
+from codeverse.proc import read_json_or_none, iter_jsonl_lines, read_jsonl_lenient, append_jsonl_line
+read_json_or_none(path, *, errors=None) -> dict | None   # None when absent / unreadable / malformed / not a dict
+iter_jsonl_lines(path) -> Iterator[tuple[int, str]]       # (1-based line_no, line); missing file -> nothing; blanks skipped
+read_jsonl_lenient(path, *, log=None, dicts_only=False) -> list  # bad lines skipped (debug-logged when `log` given)
+append_jsonl_line(path, rec, lock) -> None                 # one json.dumps(ensure_ascii=False, default=str) line under `lock`
 ```
 `Spec.options` is plan-hash safe (`plan_stage_inputs` whitelists spec fields).
 `Workspace.write_json` delegates to `proc.write_json_atomic`.
@@ -44,11 +49,15 @@ run_subprocess(cmd, *, cwd, timeout_s, env=None, stdin_text=None, preexec_fn=Non
 ## models/
 ```python
 from codeverse.models import get_chat_model            # (model_id) -> ChatModel, lru-cached, thread-safe
-resp = m.generate(ChatRequest(messages=[...], system=..., response_schema=..., temperature=..., thinking=..., label=...))
+resp = m.generate(ChatRequest(messages=[...], system=..., response_schema=..., temperature=..., thinking=..., label=..., max_wait_s=None))
+#   max_wait_s: the longest this ONE call may spend, retries included (None = models.retry.RETRY_DEADLINE_S = 900 s);
+#   GeminiModel clips its retry deadline to it; api_agent 20-120 s per turn, VlmJudge 240 s per sample, planner 300 s
+#   resp.raw["key"] = "…ab12" (the key that answered), resp.raw["attempts"] = round-trips issued (hedged siblings included)
 resp.parsed / resp.text / resp.tool_calls / resp.usage   # Usage always has cost_usd (models.pricing)
 from codeverse.models.keypool import KeyPool, KeyPoolExhausted
 KeyPool(keys, *, rpm_per_key=900, tpm_per_key=None, cooldown_s=30, dead_cooldown_s=3600)
 pool.acquire(*, tokens_hint=0, exclude=None, timeout_s=120) -> key    # raises immediately when every key is dead/cooling past the deadline
+pool.try_acquire(*, tokens_hint=0, exclude=None) -> key | None        # never waits (a hedged retry's extra key); holds a slot like acquire
 pool.report(key, "ok"|"429"|"5xx"|"error"|"dead", *, tokens=0, retry_after_s=None)   # Δ "dead": health 0, benched dead_cooldown_s, re-probed after
 from codeverse.models.pricing import estimate_cost       # (provider, model, usage) -> usd (unknown model -> 0.0 + one warning)
 from codeverse.models.schema_utils import to_gemini_schema, to_openai_strict_schema, to_anthropic_schema, parse_json_lenient
@@ -209,10 +218,11 @@ are the pure helpers `3dcv doctor` reuses for its `node` row.
 
 ## spatial/
 ```python
-from codeverse.spatial.render import render_glb, render_scene, render_turntable
+from codeverse.spatial.render import render_glb, render_turntable
 render_glb(glb, out_dir, *, views=None, mode="shaded|wire|normals|silhouette|clay", width=768, height=768,
            isolate=None, explode=0.0, sheet=True, background=..., anim_time=None, shadow=True, gpu=None,
            timeout_s=None, use_cache=True) -> RenderSet
+from codeverse.spatial.render_scene import render_scene
 render_scene(ws, out_dir, *, cameras=None, orbit=True, times=(0.0, 1.5), width=1024, height=576, sheet=True,
              bounds=None, sheet_max_views=10) -> RenderSet
     # Δ bounds default from ws plan.json → orbit rig frustum-fits the CONTENT box (not ground/sky);
@@ -232,6 +242,11 @@ complexity_of_glb(glb) -> ComplexityVector     # part_count, assembly_depth, tri
 from codeverse.spatial.connectivity import check_connectivity   # (glb, *, gap_m=…, …, language="") — Δ language selects the
 from codeverse.spatial.contract import check_contract           # frame of fix hints; both gates emit hints in the AUTHORING frame
                                                                 # (labelled "blender frame: Z-up, -Y front" etc.), GLB vectors in data
+from codeverse.spatial.scene_placement import check_placement, placement_findings, placement_gate_safe, placement_census, placement_table_text
+check_placement(ws, *, indoor=None, force_probe=False) -> GateReport   # gate "scene_placement"; data.kind ∈ floating | sunken |
+    # unsupported | interpenetration | summary | probe_failed; target "Zone/Asset" (routes to src/zones/<zone>.js);
+    # messages carry the scene_v1 floating_part cap words; reads artifacts/census.json["placement"] (host_placement.mjs)
+placement_gate_safe(census, *, plan=None) -> GateReport | None       # round gate: None without a table, WARN on failure, never raises
 from codeverse.spatial.silhouette import compare_silhouette
 from codeverse.spatial.joints import load_urdf, fk, sweep_collisions, urdf_to_glb, render_poses   # RESERVED_LINK_NAMES={'world'}
 # joints_collide.py: deterministic penetration (oriented islands + fixed-direction parity ray test; python-fcl is a
@@ -245,7 +260,7 @@ from codeverse.spatial.frame_stats import sequence_stats, frame_gate    # gate "
 from codeverse.spatial.registry import tool, get_tool, list_tools, tool_cards, ToolContext, Observation
 import codeverse.spatial.tools   # registers: build, measure, render_views, render_sheet, isolate, cross_section,
     # check_connectivity, check_contract, compare_silhouette, joint_sweep [articulated], shader_probe, scene_probe,
-    # scene_views [scene], read_cookbook, gl_probe + gl_frames [graphics], texture_pass + texture_preview [object tracks]
+    # scene_views + check_placement [scene], read_cookbook, gl_probe + gl_frames [graphics], texture_pass + texture_preview [object tracks]
 python -m codeverse.spatial.mcp_server --workspace <ws> [--track X] [--language Y] [--round N] [--list]   # MCP name: 3dcv
 ```
 
@@ -254,7 +269,7 @@ python -m codeverse.spatial.mcp_server --workspace <ws> [--track X] [--language 
 from codeverse.judges.rubrics import load_rubric, Rubric   # Rubric{…, defects: [DefectItem{id, text, penalty, cap}], caps[{…, when:, kinds}]}
 from codeverse.judges.vlm_judge import VlmJudge
 VlmJudge(rubric="static_object_v1", model_id=None (settings.default_judge = gemini-3.1-pro-preview), n_samples=1,
-         temperature=0.2, *, thinking="low", max_attempts=3, max_montages=3, detail_crops=2, max_px=1024,
+         temperature=0.2, *, thinking="low", max_attempts=3, max_montages=3, detail_crops=2, max_px=1024, sample_budget_s=240,
          chat_model=None, cache_dir=None, label="judge")            # Δ max_images is GONE → montage budget
 VlmJudge.judge(inp, *, geometry_views: RenderSet | None = None) -> Judgment   # also reads inp.geometry_views
 from codeverse.judges.base import JudgeInput   # (spec, renders, measurement=None, gates=[], acceptance=[], plan_summary="",
@@ -332,7 +347,17 @@ from codeverse.tracks.detailing import drift_gate, detail_instructions, DRIFT_GA
     # ERROR when a detail round moved/resized/removed a part or changed the overall extents (tol from policy)
 from codeverse.tracks.prompting import base_prompt_context, reference_images, file_for_target_factory, \
     scope_context, budget_for, detail_budget_text      # Δ split out of
-from codeverse.tracks.common import RunContext, Services   # common.py (lazy re-exports keep old imports working)
+from codeverse.tracks.prompting import select_cookbook_chapters, select_cookbook_excerpt, is_always_chapter
+    # select_cookbook_chapters(ctx, brief, *, budget=9000, always=COOKBOOK_ALWAYS) -> list[Section]: the header +
+    # always-on chapters + the brief's chapters (whole, cookbook order, inside budget); the excerpt joins them
+from codeverse.tracks.graphics_recipes import seed_recipes, graphics_brief, cookbook_functions, EXTRA_KEY
+    # seed_recipes(ctx) -> list[str]: glsl_shader + seed_recipes_enabled() only.  Appends the selected chapters'
+    # function definitions (minus always-on chapters and the raymarching template) + the helpers they call to
+    # src/common.glsl under "// ---- harness-seeded verified recipes"; returns the names written THIS call;
+    # ctx.extra["seeded_recipes"] = [{name, signature, purpose}] for every seeded recipe on disk (the prompt
+    # block); emits recipes.seeded {names, present, chapters}.  GraphicsTrack.prepare() runs it after the
+    # skeleton and commits "recipes" when it wrote something.
+from codeverse.tracks.common import RunContext, Services   # common.py
 from codeverse.tracks.generation import generate, run_agent_task, parse_multifile, is_single_shot
 GenerationTask.phase: int = 0   # tasks run in parallel WITHIN a phase, phases in ascending order
     # (tracks.steps.run_generation_tasks).  Only user: the scoped baseline — phase 0 = one session per
@@ -396,11 +421,10 @@ from codeverse.flywheel.pairs import build_pairs       # (runs_dir, out_jsonl, *
 from codeverse.flywheel.trajectories import mine_run   # in-session repair pairs from api-agent transcripts (replay-verified)
 from codeverse.flywheel.captions import caption_sample # Δ (ws, record, model_id, *, model=None, out_dir=None) -> Captions;
                                                        # out_dir → side-car <out_dir>/<slug>.json, run untouched
-from codeverse.flywheel.gallery import write_gallery, gallery_items, render_gallery   # self-contained HTML gallery (tier badges,
-                                                                                      # thumbs); bench/report.py reuses it
 from codeverse.gallery import build_index, default_roots, build_static, serve, GalleryApp   # THE local gallery
                                                        # build_index(roots) -> GalleryIndex (sections of RunEntry; never raises per run)
                                                        # build_static(roots, out_html, *, embed=False) -> (path, n, index)
+                                                       # render_static(index, *, embed=…, extra_html="") — bench/report.py's page
                                                        # GalleryApp(roots, reload=False).route(path, query) -> Response  (pure, testable)
                                                        # serve(roots, *, host=None, host_explicit=False, port=8765, reload=False)
 from codeverse.gallery.paths import safe_join          # (root, rel) -> Path inside root, else PathError
@@ -417,7 +441,7 @@ from codeverse.flywheel.index import build_index, query, summary   # sqlite + pa
 `EventLog.emit(event, **data)` writes `{"t", "event", ...}` (**Δ** key is `event`).
 Event names: `run.start`, `stage.start/done`, `plan.done`, `workspace.materialized`,
 `round.start`, `generate.done`, `build.done`, `gates.done`, `judge.done`,
-`round.done`, `best.updated`, `refine.planned`, `asset.judged`, `assets.done`,
+`round.done`, `best.updated`, `refine.planned`, `recipes.seeded` (graphics: names written this call, present on disk, chapters), `asset.judged`, `assets.done`,
 `zones.done`, `assemble.done`, `round.no_change`, `candidates.start`,
 `candidate.start/done/failed/retry/selected`, `pairwise.done`,
 `texture.start/plan/generated/applied/gate/done`, `budget.exceeded`,

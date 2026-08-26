@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, model_validator
 
-from codeverse._compat import UTC
 from codeverse.contracts.common import TRACK_LANGUAGES, Backends, Budget, Language, Track
 
 

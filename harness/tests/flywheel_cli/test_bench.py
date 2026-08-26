@@ -28,7 +28,8 @@ def test_batteries_are_valid(path: Path):
     assert len(ids) == len(set(ids))
     tiers = {p.tier for p in b.prompts}
     assert tiers <= {"easy", "medium", "hard"}
-    assert all(p.must_have for p in b.prompts)
+    # head-to-head batteries keep the other side's brief verbatim: no must items by design (bench/h2h_*.py)
+    assert all(p.must_have for p in b.prompts) or b.name.startswith("h2h_")
     expected = {"static_objects_v1": 24, "articulated_v1": 12, "scenes_v1": 12}
     if b.name in expected:  # other batteries (compare_*, *_v2) are owned elsewhere; only the schema is checked
         assert len(tiers) == 3  # v1 batteries span all three tiers; v2 drops easy (it saturated)
@@ -83,6 +84,9 @@ def test_run_battery_resume_and_report(tmp_path: Path):
     page = (out / "report.html").read_text()
     assert "data:image/jpeg;base64," in page and "furn_easy_stool" in page  # self-contained gallery
     assert "veh_easy_toy_car" in page and "boom" in page  # errored prompt still gets a card
+    # pin (REVIEW_2026-08-26 D1+D2): the stats tables sit in the page and every card carries its tier
+    assert "<table>" in page and "by category" in page and page.count("<h3>") == 2
+    assert page.count("easy") >= 2 and "<title>bench — " in page
 
 
 def test_every_bench_prompt_opens_its_own_run_ledger(tmp_path: Path):
@@ -202,3 +206,35 @@ def test_the_runner_classifies_the_outage_that_reaches_it(tmp_path: Path):
     assert calls == [], "a plain resume still skips every recorded row"
     run_battery(battery, out, BenchOptions(parallel=1, limit=1, redo_status=["infra_failed"]), run_fn=counting)
     assert len(calls) == 1, "--redo-status infra_failed re-runs what the weather lost"
+
+
+def test_a_redo_starts_from_a_fresh_workspace(tmp_path):
+    """Measured 2026-08-26: a `budget` row redone with --max-minutes 120 resumed the old
+    workspace (old spec, old clock) and came back `budget` with 0 rounds.  The old tree
+    is archived as <id>.attempt1 and the prompt runs fresh."""
+    from bench.run_bench import archive_attempt
+
+    out = tmp_path / "out"
+    b = Battery.load(Path("bench/prompts/static_objects_v1.yaml"))
+    pid = b.prompts[0].id
+    ws_root = out / "runs" / pid
+    stale = Workspace(ws_root).create()  # a real (stale) workspace, the way the budget run left it
+    stale.spec_path.write_text("{}")
+    (ws_root / "src" / "old.py").write_text("# stale")
+    out.mkdir(exist_ok=True)
+    (out / "results.jsonl").write_text(json.dumps({"id": pid, "tier": b.prompts[0].tier, "status": "budget", "score_final": None}) + "\n")
+    seen: list[bool] = []
+
+    def run(spec, ws, resume):
+        seen.append(resume)
+        _ws, rec = make_fake_run(ws.root.parent, ws.root.name, prompt=spec.prompt, language=spec.language, scores=(0.5, 0.7))
+        rec.spec = spec
+        ws.write_json(ws.spec_path, spec)
+        ws.write_json(ws.record_path, rec)
+        return rec
+
+    opts = BenchOptions(ids=[pid], redo_status=["budget"], parallel=1, rounds=1)
+    run_battery(Path("bench/prompts/static_objects_v1.yaml"), out, opts, run_fn=run)
+    assert seen == [False], "the redo ran fresh, not resumed"
+    assert (out / "runs" / f"{pid}.attempt1" / "src" / "old.py").exists(), "the old tree is archived beside the new one"
+    assert archive_attempt(out / "runs" / pid).name == f"{pid}.attempt2"

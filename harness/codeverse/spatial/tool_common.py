@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import importlib
-import inspect
 import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -20,12 +19,12 @@ from pydantic import ValidationError
 from codeverse.contracts.artifacts import RenderSet, Severity
 from codeverse.contracts.plan import ArticulatedPlan, GraphicsPlan, Plan, ScenePlan, StaticPlan
 from codeverse.conventions import OBJECT_VIEWS, ViewPreset
-from codeverse.spatial.registry import Observation, ToolContext, ToolUnavailable, ToolUsageError
+from codeverse.spatial.registry import ToolContext, ToolUnavailable, ToolUsageError
 from codeverse.workspace import Workspace
 
 __all__ = [
-    "ToolUnavailable", "unavailable_obs", "lazy", "call_adaptive", "spec_dict", "language_of", "track_of",
-    "glb_path", "load_plan", "resolve_views", "check_mode", "tool_out_dir", "render_cache_dir",
+    "ToolUnavailable", "lazy", "spec_dict", "language_of", "track_of",
+    "glb_path", "reference_path", "load_plan", "resolve_views", "check_mode", "tool_out_dir", "render_cache_dir",
     "cached_render_glb", "gl_metrics_summary", "VIEW_BY_NAME", "RENDER_MODES",
 ]
 
@@ -35,16 +34,6 @@ RENDER_MODES = ("shaded", "wire", "normals", "silhouette", "depth", "clay")
 
 #: ``ToolUnavailable`` now lives in ``registry`` (``ToolDef.call`` catches it for
 #: every tool); re-exported here because that is where tools import it from.
-
-
-def unavailable_obs(tool: str, e: BaseException) -> Observation:
-    """The Observation ``ToolDef.call`` builds for a :class:`ToolUnavailable`.
-
-    Tools no longer need it — raise/propagate ``ToolUnavailable`` instead; it
-    stays for callers that catch the exception themselves (e.g. an optional
-    reader whose absence must not fail the whole tool).
-    """
-    return Observation.error(f"tool {tool} unavailable: {type(e).__name__}: {e}")
 
 
 def lazy(module: str, attr: str) -> Callable[..., Any]:
@@ -57,22 +46,6 @@ def lazy(module: str, attr: str) -> Callable[..., Any]:
     if fn is None:
         raise ToolUnavailable(f"{module} has no '{attr}'")
     return fn
-
-
-def call_adaptive(fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
-    """Call ``fn`` passing only the keyword arguments its signature accepts.
-
-    Sibling packages are written in parallel; this keeps us robust to optional
-    keywords they may not have (required ones still raise loudly).
-    """
-    try:
-        sig = inspect.signature(fn)
-    except (TypeError, ValueError):
-        return fn(*args, **kwargs)
-    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-        return fn(*args, **kwargs)
-    accepted = {k: v for k, v in kwargs.items() if k in sig.parameters}
-    return fn(*args, **accepted)
 
 
 # --------------------------------------------------------------------------- context
@@ -98,6 +71,26 @@ def language_of(ctx: ToolContext) -> str:
 
 def track_of(ctx: ToolContext) -> str:
     return ctx.track or str(spec_dict(ctx).get("track", ""))
+
+
+def reference_path(ctx: ToolContext, index: int, *, tool: str) -> tuple[Path, dict]:
+    """``spec.references[index]`` as ``(absolute path, reference dict)``.
+
+    Usage errors name ``tool`` in their example call (``compare_silhouette`` /
+    ``compare_reference`` share this lookup).
+    """
+    refs = spec_dict(ctx).get("references") or []
+    if not refs:
+        raise ToolUsageError("the spec has no reference images — nothing to compare against")
+    if index >= len(refs):
+        raise ToolUsageError(f"reference_index {index} out of range (have {len(refs)})",
+                             f"{tool}(reference_index=0)")
+    ref = refs[index]
+    ref = ref if isinstance(ref, dict) else {"path": ref.path, "role": ref.role, "note": ref.note}
+    p = Path(ref["path"])
+    if not p.is_absolute():
+        p = ctx.workspace.root / p
+    return p, ref
 
 
 def glb_path(ctx: ToolContext) -> Path:
@@ -191,8 +184,8 @@ def cached_render_glb(
         except ValidationError:
             pass
     render_glb = lazy("codeverse.spatial.render", "render_glb")
-    rs = call_adaptive(render_glb, glb, out_dir, views=list(views), mode=mode, width=size, height=size,
-                       isolate=list(isolate) if isolate else None, explode=explode, sheet=sheet)
+    rs = render_glb(glb, out_dir, views=list(views), mode=mode, width=size, height=size,
+                    isolate=list(isolate) if isolate else None, explode=explode, sheet=sheet)
     if not isinstance(rs, RenderSet):
         raise ToolUnavailable(f"render_glb returned {type(rs).__name__}, expected RenderSet")
     marker.write_text(rs.model_dump_json())

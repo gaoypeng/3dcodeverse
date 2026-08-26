@@ -1,0 +1,29 @@
+# Every motion threshold the body quotes, pinned to the constant it came from.
+# If frame_motion.py moves a number, the test that ships this skill fails before
+# an agent is ever told the old one.
+
+[[claim]]
+key    = "motion_pixel_delta"
+text   = "8 of 255"
+python = "codeverse.spatial.frame_motion:PIXEL_DELTA"
+format = "{:.0f} of 255"
+
+[[claim]]
+key    = "motion_moving_frac"
+text   = "0.4 %"
+python = "codeverse.spatial.frame_motion:MOVING_FRAC"
+scale  = 100
+format = "{:.1f} %"
+
+[[claim]]
+key    = "motion_strong_delta"
+text   = "60 of 255"
+python = "codeverse.spatial.frame_motion:STRONG_DELTA"
+format = "{:.0f} of 255"
+
+[[claim]]
+key    = "motion_strong_frac"
+text   = "0.08 %"
+python = "codeverse.spatial.frame_motion:STRONG_FRAC"
+scale  = 100
+format = "{:.2f} %"

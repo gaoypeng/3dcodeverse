@@ -32,7 +32,14 @@ class ChatModel(Protocol):
 
 
 class ModelError(RuntimeError):
-    def __init__(self, message: str, *, retryable: bool = False, status: int | None = None):
+    """A model call failed.  ``attempts`` is how many round-trips the retry machine
+    issued before giving up (0 = unknown / not a retried call); the cost ledger
+    records it on the error row (``docs/COST.md`` §24)."""
+
+    def __init__(
+        self, message: str, *, retryable: bool = False, status: int | None = None, attempts: int = 0
+    ):
         super().__init__(message)
         self.retryable = retryable
         self.status = status
+        self.attempts = attempts

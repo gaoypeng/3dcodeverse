@@ -15,11 +15,10 @@ import platform
 import traceback
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from codeverse._compat import UTC
 from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import GateReport
 from codeverse.contracts.common import Track, Usage
@@ -52,7 +51,7 @@ from codeverse.tracks.common import (
     language_contract,
     load_prompt_or,
 )
-from codeverse.tracks.generation import GenerationTask, is_single_shot, single_shot_model_id
+from codeverse.tracks.generation import GenerationTask, single_shot_model_id
 from codeverse.tracks.planner import default_event_stats, ensure_acceptance, normalise_names
 from codeverse.tracks.planner import plan as run_planner
 from codeverse.tracks.planner import plan_example as default_plan_example
@@ -384,11 +383,13 @@ class BaseTrack:
         return n
 
     def make_judge(self, ctx: RunContext, *, n_samples: int | None = None) -> Any:
-        """The main judge: injected → reference judge when the spec has images → rubric VLM judge."""
+        """The main judge: injected → reference / likeness judge when the spec has images → rubric VLM judge."""
         if self._judge is not None:
             return self._judge
         n_samples = ctx.policy.judge_samples if n_samples is None else n_samples
         if ctx.spec.references:
+            if ctx.track in (Track.GRAPHICS, Track.SCENE):  # nothing to silhouette-match: likeness only
+                return self.services.likeness_judge(ctx.spec.backends.judge, n_samples=n_samples, rubric=ctx.rubric)
             return self.services.reference_judge(ctx.spec.backends.judge, n_samples=n_samples, rubric=ctx.rubric)
         return self.services.judge(ctx.rubric, ctx.spec.backends.judge, n_samples=n_samples)
 
@@ -714,7 +715,3 @@ def rewrite_task(last: RoundRecord, best: float | None) -> RefineTask:
                      "way forward. Do NOT repeat them part by part: re-read the plan and the failures below, then "
                      "rewrite the whole artifact coherently, keeping only what the evidence shows was already right."),
     )
-
-
-def generator_label(agent_id: str) -> str:
-    return "single-shot" if is_single_shot(agent_id) else agent_id.split(":", 1)[0]

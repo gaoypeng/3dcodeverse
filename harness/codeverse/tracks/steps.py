@@ -23,18 +23,18 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
-from codeverse._compat import UTC
 from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
 from codeverse.contracts.common import Usage
 from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord
+from codeverse.fanout import fan_out
 from codeverse.orchestrator.budget import usage_delta
-from codeverse.orchestrator.fanout import fan_out
+from codeverse.tracks import skills_hook
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
 from codeverse.tracks.repair import RepairOutcome, build_with_repair
@@ -198,7 +198,8 @@ def _run_round(
     if extra_usage is not None and extra_usage.cost_usd:
         cost["candidates"] = round(extra_usage.cost_usd, 6)
 
-    gens = run_generation_tasks(ctx, tasks)
+    skills_hook.attach_for_round(ctx, index=index, kind=kind)
+    gens = run_generation_tasks(ctx, skills_hook.with_inlined_skill(ctx, tasks))
     turns = 0
     for g in gens:
         usage = usage + g.usage
@@ -249,6 +250,7 @@ def _run_round(
     else:
         notes.append(f"build failed: {outcome.build.error_type}: {outcome.build.error_message[:200]}")
     rec.gates = gates
+    rec.skills = skills_hook.record_usage(ctx, index=index, kind=kind)
     _write_gate_reports(ctx, index, gates)
 
     rec.commit = ctx.ws.commit(f"r{index:02d} {kind}")
@@ -477,8 +479,3 @@ def sum_usage(rounds: Sequence[RoundRecord], *extra: Usage) -> Usage:
     for u in extra:
         total = total + u
     return total
-
-
-def describe_round(rec: RoundRecord) -> dict[str, Any]:
-    return {"index": rec.index, "kind": rec.kind, "score": rec.score, "build_ok": bool(rec.build and rec.build.ok),
-            "gate_errors": sum(len(g.errors) for g in rec.gates), "commit": rec.commit[:10]}

@@ -65,6 +65,13 @@ async function main() {
   try {
     if (boot.ok) {
       result.census = await page.evaluate(() => window.__c3v.census());
+      // placement table (floating / sunken / unsupported / interpenetration per asset);
+      // a failure here must never fail the probe — the python gate reports it as a WARN
+      try {
+        result.census.placement = await page.evaluate(() => window.__c3v.placement());
+      } catch (e) {
+        result.census.placement = { error: String((e && e.message) || e).slice(0, 400) };
+      }
       // exercise update() for a few fixed steps and one tiny render (lazy programs compile)
       const steps = parseInt(args['update-steps'], 10);
       const upd = await page.evaluate((n) => {

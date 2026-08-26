@@ -24,6 +24,7 @@ from PIL import Image
 
 from codeverse.spatial.observe import fmt_numbers
 from codeverse.spatial.registry import Observation, ToolContext, ToolDef, list_tools
+from codeverse.spatial.tool_common import spec_dict
 from codeverse.workspace import Workspace
 
 MAX_IMAGES = 4
@@ -34,15 +35,12 @@ SERVER_NAME = "3dcv"
 
 def build_context(workspace: Path, *, track: str = "", language: str = "", round_index: int = 0) -> ToolContext:
     """ToolContext for ``workspace``; track/language fall back to spec.json."""
-    ws = Workspace(workspace)
-    if (not track or not language) and ws.spec_path.is_file():
-        try:
-            spec = json.loads(ws.spec_path.read_text())
-        except json.JSONDecodeError:
-            spec = {}
-        track = track or str(spec.get("track", ""))
-        language = language or str(spec.get("language", ""))
-    return ToolContext(workspace=ws, round_index=round_index, language=language, track=track)
+    ctx = ToolContext(workspace=Workspace(workspace), round_index=round_index, language=language, track=track)
+    if not track or not language:
+        spec = spec_dict(ctx)
+        ctx.track = track or str(spec.get("track", ""))
+        ctx.language = language or str(spec.get("language", ""))
+    return ctx
 
 
 def encode_image(path: str, max_side: int = MAX_IMAGE_SIDE) -> str | None:
@@ -87,7 +85,7 @@ def make_server(ctx: ToolContext):
     defs = {t.name: t for t in mcp_tools(ctx)}
 
     async def on_list_tools(_req_ctx: Any, _params: Any) -> types.ListToolsResult:
-        tools = [types.Tool(name=t.name, description=f"({t.cost_hint}) {t.description}", input_schema=t.schema())
+        tools = [types.Tool(name=t.name, description=f"({t.cost_hint}) {t.describe()}", input_schema=t.schema())
                  for t in defs.values()]
         return types.ListToolsResult(tools=tools)
 
@@ -125,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     ctx = build_context(ws, track=ns.track, language=ns.language, round_index=ns.round_index)
     if ns.list:
-        print(json.dumps([{"name": t.name, "description": t.description, "schema": t.schema()} for t in mcp_tools(ctx)], indent=1))
+        print(json.dumps([{"name": t.name, "description": t.describe(), "schema": t.schema()} for t in mcp_tools(ctx)], indent=1))
         return 0
     asyncio.run(serve_stdio(ctx))
     return 0

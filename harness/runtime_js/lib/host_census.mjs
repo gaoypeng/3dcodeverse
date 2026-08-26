@@ -8,6 +8,7 @@
 
 import { classifyBackdrop } from './backdrop.mjs';
 import { geometryTriangles as triCount } from './census.mjs';
+import { placementTable } from './host_placement.mjs';
 
 export function isCustomShader(mat, THREE) {
   if (!mat) return false;
@@ -87,8 +88,10 @@ function overlapStats(groups) {
   return out.sort((x, y) => y.footprint_overlap - x.footprint_overlap).slice(0, 20);
 }
 
-/** Walk `scene` and return the census JSON. */
-export function sceneCensus(scene, THREE) {
+/** Walk `scene` and return the census JSON.  `opts.placement` (default off — the
+ * render driver calls this per frame set) adds the per-asset placement table of
+ * `host_placement.mjs` under `placement`; the probe driver asks for it separately. */
+export function sceneCensus(scene, THREE, opts = {}) {
   scene.updateMatrixWorld(true);
   const groups = [];
   const totals = { meshes: 0, instances: 0, triangles: 0, lights: 0, custom_shader_meshes: 0 };
@@ -129,7 +132,7 @@ export function sceneCensus(scene, THREE) {
   }
   const groundY = groundAll.isEmpty() ? null : groundAll.max.y;
   const contentBox = boxToJson(content.isEmpty() ? unionAll : content);
-  return {
+  const out = {
     totals,
     light_types: lightTypes,
     materials: materials.size,
@@ -144,4 +147,6 @@ export function sceneCensus(scene, THREE) {
     has_ground: groundY !== null,
     overlaps: overlapStats(groups),
   };
+  if (opts.placement) out.placement = placementTable(scene, THREE, { groundY: out.ground_y, contentBox });
+  return out;
 }

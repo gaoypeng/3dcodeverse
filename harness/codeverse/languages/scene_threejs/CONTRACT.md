@@ -67,6 +67,8 @@ export function createScene({ THREE, renderer, loaders }) {   // may be async
 * No network, no CDN, no DOM besides `document.createElement('canvas')` for procedural textures.
 
 ## Harness tools you can call
-`build` (probe + shader preflight), `scene_probe` (census: meshes, tris, lights,
-zone bboxes, overlaps), `shader_probe` (does your shader actually change the frame?),
+`build` (probe + shader preflight), `check_placement` (per placed asset: floating / sunken /
+unsupported / interpenetration with "lower X by 0.23 m onto Terrain" hints; escape hatch for a
+deliberately airborne thing: `obj.userData.placement = 'free'`), `scene_probe` (census: meshes,
+tris, lights, zone bboxes, overlaps), `shader_probe` (does your shader actually change the frame?),
 `render_views` / `render_sheet` (authored + overview cameras at t = 0 and 1.5 s).

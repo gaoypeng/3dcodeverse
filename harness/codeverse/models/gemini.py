@@ -39,7 +39,7 @@ from codeverse.models.gemini_convert import (
 from codeverse.models.keypool import MAX_WAIT_S, KeyPool, KeyPoolExhausted, Outcome
 from codeverse.models.parts import Stopwatch
 from codeverse.models.pricing import estimate_cost
-from codeverse.models.retry import rotate_with_retries
+from codeverse.models.retry import RETRY_DEADLINE_S, rotate_with_retries
 from codeverse.models.schema_utils import JsonParseError, parse_json_lenient
 from codeverse.models.storm import StormGate
 from codeverse.models.storm import storm_gate as storm_gate_for
@@ -183,6 +183,7 @@ class GeminiModel:
         tpm_per_key: int | None = None,
         storm_gate: StormGate | None = None,
         storm_attempts: int | None = None,
+        hedge: int | None = None,
         sleep: Callable[[float], None] = time.sleep,
         client_factory: Callable[[str], Any] | None = None,
     ) -> None:
@@ -191,6 +192,9 @@ class GeminiModel:
         #: whose whole point is a fast verdict — the storm branch does NOT consume
         #: max_attempts, so max_attempts=1 alone still retried a 503 for up to 15 min.
         self.storm_attempts = storm_attempts
+        #: keys a retry is raced on after the call's first 503 (``Settings.rate.hedge``,
+        #: 2; 1 = off) — see ``rotate_with_retries`` and docs/COST.md §27
+        self.hedge = max(1, int(_rate().hedge if hedge is None else hedge))
         keys = list(keys) if keys is not None else _default_keys()
         if pool is None and not keys:
             raise ModelError(
@@ -245,23 +249,37 @@ class GeminiModel:
             state["config"] = self._config(request, warnings)
             return True
 
-        return rotate_with_retries(
-            self.pool,
-            lambda key: self._once(key, contents, state["config"], request, warnings),
-            classify=classify_exception,
-            outcome_of=failure_outcome,
-            max_attempts=self.max_attempts,
-            base_delay=self.base_delay,
-            max_delay=self.max_delay,
-            sleep=self._sleep,
-            on_free_retry=downgrade_thinking,
-            retry_after=_retry_after_s,
-            tokens_of=lambda r: r.usage.input_tokens,
-            tokens_hint=request_tokens(request, model_id=self.id),
-            storm_gate=self.storm_gate,
-            label=f"gemini {self.model}",
-            **({} if self.storm_attempts is None else {"storm_attempts": self.storm_attempts}),
-        )
+        # the caller's budget clips the retry deadline, never extends it
+        budget = RETRY_DEADLINE_S if request.max_wait_s is None else min(RETRY_DEADLINE_S, float(request.max_wait_s))
+        stats: dict[str, Any] = {}
+        try:
+            resp = rotate_with_retries(
+                self.pool,
+                lambda key: self._once(key, contents, state["config"], request, warnings),
+                classify=classify_exception,
+                outcome_of=failure_outcome,
+                max_attempts=self.max_attempts,
+                base_delay=self.base_delay,
+                max_delay=self.max_delay,
+                max_total_s=budget,
+                hedge=self.hedge,
+                sleep=self._sleep,
+                on_free_retry=downgrade_thinking,
+                retry_after=_retry_after_s,
+                tokens_of=lambda r: r.usage.input_tokens,
+                tokens_hint=request_tokens(request, model_id=self.id),
+                storm_gate=self.storm_gate,
+                label=f"gemini {self.model}",
+                stats=stats,
+                **({} if self.storm_attempts is None else {"storm_attempts": self.storm_attempts}),
+            )
+        except ModelError as err:
+            err.attempts = int(stats.get("attempts", 0))  # the ledger's error row wants it too
+            raise
+        # how hard the call was, next to which key served it (``_once``): ledger fields
+        resp.raw["attempts"] = int(stats.get("attempts", 0))
+        resp.raw["hedged"] = int(stats.get("hedged", 0))
+        return resp
 
     def _config(self, request: ChatRequest, warnings: list[str]) -> types.GenerateContentConfig:
         return build_config(

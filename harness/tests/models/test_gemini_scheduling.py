@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import contextlib
 
+import pytest
 from google.genai import errors as genai_errors
 
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
+from codeverse.models.base import ModelError
 from codeverse.models.gemini import GeminiModel, shared_pool
 from codeverse.models.keypool import KeyPool
 from codeverse.models.storm import StormGate
@@ -103,7 +105,9 @@ def test_shared_pool_takes_its_defaults_from_settings():
 def test_a_503_closes_the_shared_gate_and_the_call_still_succeeds():
     gate = StormGate("test", base_delay=0.0, max_wait_s=0.0)
     pool = KeyPool(["k1", "k2"], cooldown_s=0.0)
-    m, _log, _ = make_model([api_error(503, "high demand"), text_response("ok")],
+    # a 503 is per key at any instant (retry.py docstring, measured 2026-08-26): the first
+    # one rotates to k2 for free; only k2's 503 completes the 2-key quorum and closes the gate
+    m, _log, _ = make_model([api_error(503, "high demand"), api_error(503, "high demand"), text_response("ok")],
                             pool=pool, max_attempts=3)
     m.storm_gate = gate
     r = m.generate(ChatRequest(messages=[ChatMessage.user("hi")]))
@@ -146,3 +150,66 @@ def test_png_bytes_are_not_counted_as_text():
     b64 = base64.b64encode(PNG_1PX * 500).decode()
     req = ChatRequest(messages=[ChatMessage.user("hi", images=[ImagePart(data_b64=b64)])])
     assert request_tokens(req) < 2000
+
+
+# ------------------------------------------------ retry budget + hedge (audit 2026-08-26 §5.1 / §5.2)
+def test_max_wait_s_clips_the_retry_deadline_and_never_extends_it(monkeypatch):
+    """Audit 2026-08-26 §5.1: 66 give-up spans of the model's 900 s deadline (x3 outer retries)
+    were 30 % of a storm day's waiting.  ``ChatRequest.max_wait_s`` is the caller's budget for
+    the whole call; the model clips its deadline to it and never goes above its own ceiling."""
+    import codeverse.models.gemini as gm
+    from codeverse.models.retry import RETRY_DEADLINE_S
+
+    seen: list[float] = []
+    real = gm.rotate_with_retries
+
+    def spy(pool, call, **kw):
+        seen.append(kw["max_total_s"])
+        return real(pool, call, **kw)
+
+    monkeypatch.setattr(gm, "rotate_with_retries", spy)
+    m, _log, _ = make_model([text_response("a"), text_response("b"), text_response("c")])
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=30))
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=5000))
+    assert seen == [RETRY_DEADLINE_S, 30.0, RETRY_DEADLINE_S]
+
+
+def test_max_wait_s_must_be_positive():
+    """0 would mean "no deadline" to rotate_with_retries — the opposite of what a caller
+    that is out of time wants — so the contract refuses it."""
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=0)
+
+
+def test_a_second_503_is_hedged_across_keys_and_the_response_says_how_hard_it_was():
+    """§5.2: after the first 503 (a free rotation) the next attempt goes out on two fresh
+    keys at once; the response carries the winner's key suffix and the round-trip count."""
+    pool = KeyPool(["k1", "k2", "k3"], cooldown_s=0.0)
+    m, log, _ = make_model([api_error(503, "high demand"), api_error(503, "high demand"), text_response("ok")],
+                           pool=pool, max_attempts=3)
+    r = m.generate(ChatRequest(messages=[ChatMessage.user("hi")]))
+    assert r.text == "ok" and len(log) == 3
+    assert r.raw["attempts"] == 3 and r.raw["hedged"] == 1
+    assert r.raw["key"] in ("…k2", "…k3"), "the key that answered, never the first one that 503'd"
+
+
+def test_the_hedge_is_a_settings_knob_and_a_constructor_argument(monkeypatch):
+    from codeverse.config import Rate, get_settings
+
+    assert make_model([])[0].hedge == 2, "Settings.rate.hedge default"
+    assert make_model([], hedge=1)[0].hedge == 1
+    monkeypatch.setattr(get_settings(), "rate", Rate(hedge=1))
+    assert make_model([])[0].hedge == 1, "CV3D_RATE__HEDGE=1 is the A/B switch"
+
+
+def test_a_clean_call_reports_one_attempt_and_a_failed_call_carries_its_count():
+    m, _log, _ = make_model([text_response("hi")])
+    r = m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert r.raw["attempts"] == 1 and r.raw["hedged"] == 0 and r.raw["key"] == "…k1"
+    m2, _log2, _ = make_model([api_error(503, "high demand")] * 2, keys=("k1",), max_attempts=1, storm_attempts=0)
+    with pytest.raises(ModelError) as ei:
+        m2.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert ei.value.attempts == 1, "the ledger's error row gets the count too"

@@ -4,8 +4,6 @@
 cached under ``<cache_dir>/renders/<sha256(glb)+params>/`` so repeated judge
 calls on the same artifact do not re-render; cached PNGs are copied into the
 requested ``out_dir`` so every call still yields a self-contained directory.
-
-``render_scene`` delegates to ``codeverse.spatial.render_scene`` (package C2).
 """
 
 from __future__ import annotations
@@ -21,12 +19,9 @@ from typing import Any
 
 from codeverse.config import get_settings
 from codeverse.contracts.artifacts import RenderSet, RenderView
-from codeverse.contracts.plan import CameraPlan
 from codeverse.conventions import OBJECT_VIEWS, ViewPreset
 from codeverse.spatial._render_common import build_sheet, out_directory, view_specs
 from codeverse.spatial.node import NodeError, run_node, runtime_js_dir
-from codeverse.spatial.render_scene import render_scene as _render_scene_impl
-from codeverse.workspace import Workspace
 
 MODES = ("shaded", "wire", "normals", "silhouette", "clay")
 BACKGROUNDS = ("studio", "white", "transparent")
@@ -238,19 +233,4 @@ def render_turntable(
     return assemble_turntable([Path(v.path) for v in rs.views], out, fps=fps)
 
 
-def render_scene(
-    ws: Workspace,
-    out_dir: Path | str,
-    *,
-    cameras: list[CameraPlan] | None = None,
-    orbit: bool = True,
-    times: Sequence[float] = (0.0, 1.5),
-    width: int = 1024,
-    height: int = 576,
-    sheet: bool = True,
-) -> RenderSet:
-    """Scene renders: delegates to ``codeverse.spatial.render_scene`` (narrower kwarg surface)."""
-    return _render_scene_impl(ws, Path(out_dir), cameras=cameras, orbit=orbit, times=times, width=width, height=height, sheet=sheet)
-
-
-__all__ = ["render_glb", "render_turntable", "render_scene", "RenderError", "MODES", "BACKGROUNDS"]
+__all__ = ["render_glb", "render_turntable", "RenderError", "MODES", "BACKGROUNDS"]

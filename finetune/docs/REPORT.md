@@ -1,7 +1,7 @@
 # 3D-code LLM finetune 调研报告（dgx03 / 4×H100，2026-08-21 → 08-22）
 
 > 目标：在前 4 张 H100 上跑通「文本 → Blender Python 3D 代码」的 LLM 微调流程，评估 3DCodeVerse 数据是否适合训练，为后续 large-scale finetune 给出配置与结论。
-> 工程目录：`/wekafs/ict/hx_624/llm-ft`（README 有命令）。**所有数字见第 5 / 7 / 8 节；最近更新 2026-08-24 21:00（§11 全部完成：评估方法论、md_max 审计、27B 零样本/v1/v2、scipy 修正、caption 增强对照；**27B v2 以 3DCodeBench 93.4% 成为全项目最好模型**）。**
+> 工程目录：`/wekafs/ict/hx_624/llm-ft`（README 有命令）。**所有数字见第 5 / 7 / 8 节；最近更新 2026-08-25 20:30（§11 完成：评估方法论、md_max 审计、27B 零样本/v1/v2/v3/DPO、scipy 修正、caption 增强对照；**27B v2 = 3DCodeBench 93.4% + 最佳几何**，9B+执行反馈 DPO = 96.2%；完整实验清单见 `llm_finetune_exps.md`，数据已发布到 HF `ilabai/3dcodeverse-llamafactory`）。**
 
 ## 1. 环境（已 setup，可直接复用）
 | 项 | 内容 |
@@ -567,3 +567,47 @@ md_blender（4.9k）/ md_cadquery（9.8k）/ md_openscad（1.1k）/ md_glsl（9.
 2. **几何质量创新高**：Blender 留出 F@0.05(成功题) **0.890**、Chamfer **0.049**（此前最好 0.876 / 0.054 是 27B v1，SFT 9B 最好 0.776 / 0.080，几何反馈 DPO 0.800 / 0.070）。**规模 + 正确的数据配比，把 SFT 一直推不动的几何指标推上去了。**
 3. **每种语言的最佳模型不一样**：3DCodeBench 和 Blender 几何看 27B v2；CadQuery 看 9B md_xl（97.5%，27B 只有 86.5%——CadQuery 在 27B 混合里被压到 36k 对）；three.js 看 27B v1/v2（92–95%，9B 微调只有 37.5%）；OpenSCAD/GLSL 都要用 T=0.7 采样（27B v2 80% / 69%，是这两项的最好成绩）。**多语言一起训是对的，但每种语言的份额直接决定它的上限。**
 4. 输出长度也说明问题：v2 在 3DCodeBench 上平均只写 472 token（v1 1985、零样本 2619），因为 Blender 自举数据教会了它"用简洁的 bpy 代码直接建模"，而不是模仿 Infinigen 那种几千行的 factory 代码。
+
+### 11.11 27B v2 + 执行反馈 DPO：底座越强，这一步的收益越集中
+
+用微调后的 27B v2 在四种语言各 1200 条训练 prompt 上采样 2 次（T=0.8）→ 各语言执行器过滤 → **只凑出 756 对**（OpenSCAD 301 / GLSL 409 / CadQuery 26 / Blender 20——v2 自采样通过率已达 Blender 94.2%、CadQuery 98.8%、OpenSCAD 82.5%、GLSL 70.5%，"错误样本"本身变稀缺）→ DPO（r16、β 0.1、lr 5e-6、cutoff 2048、**ZeRO-3**，35 min）。
+
+| 指标 | 27B v2 | **v2 + 执行反馈 DPO** |
+|---|---|---|
+| 3DCodeBench | 93.4% / F 0.380 | 91.5% / F 0.358 |
+| Blender 留出 | 92.2% / F(all) 0.821 | **93.2% / 0.813** |
+| CadQuery | 86.5% | 84.5% |
+| **three.js** | 92.5% | **100% (40/40)** |
+| OpenSCAD（T=0.7） | 80% / F 0.321 | **82% / 0.368** |
+| GLSL（T=0.7） | 69% | **71%** |
+
+**结论**：和 9B 的规律完全一致——**DPO 的收益精确地落在"能凑出偏好对"的语言上**（OpenSCAD/GLSL 有 710 对 → 各涨 2 pt 且几何变好；three.js 涨到满分），而 Blender/CadQuery 只有 46 对，3DCodeBench 反而回落 1.9 pt（噪声内）。**在弱底座上执行反馈 DPO 是最赚的一步（9B：75%→96.2%），在已经 93% 的底座上它只是补齐短板，不再是提升主指标的手段**——要继续推 3DCodeBench，得换几何反馈或按语言定向凑对（例如只对 Blender 用 K=8 采样多凑几轮）。DPO 训练本身在 27B 上必须用 ZeRO-3：它要同时前向 chosen 和 rejected，DDP 会 OOM，而这一步 token 量很小（756 对 × 2 epoch），ZeRO-3 的慢不构成问题。
+
+### 11.12 27B v3：把 CadQuery 加回来能不能"一个模型全都要"？（不能）
+
+v2 的 CadQuery 只有 3.6 万对（86.5%），而 9B md_xl 有 13 万对（97.5%）。v3 把 CadQuery 提到 **6.5 万对**、GLSL 降到 1.8 万，Blender 保持 2.2 万 + 全部自举样本（共 107,366 对 / ~7,000 万 token；因为显存压线，rank 64→32、cutoff 4096→3072，4 卡 4 h 05 min，train loss 0.264）。
+
+| 套件 | 27B v2（Blender 40%, r64/4096） | **27B v3（CadQuery 加倍, r32/3072）** | 9B md_xl |
+|---|---|---|---|
+| 3DCodeBench | **93.4%** / F 0.380 | 91.5% / 0.363 | 90.1% / 0.346 |
+| Blender 留出 exec / F@0.05(ok) / Chamfer | 92.2% / **0.890** / **0.049** | 93.2% / 0.768 / 0.081 | 93.2% / 0.776 / 0.080 |
+| CadQuery | 86.5% | 85.0% | **97.5%** |
+| three.js | 92.5% | 90.0% | 37.5% |
+| OpenSCAD T=0.7 | **80%** | 62% | 90% |
+| GLSL T=0.7 | **69%** | 65.5% | 60% |
+
+**结论**：**把 CadQuery 的样本数几乎翻倍（3.6 万 → 6.5 万对）几乎没有改变 CadQuery 的成绩（86.5% → 85.0%），其它每一项还都略降。** 说明 27B 在 CadQuery 上的瓶颈不是数据量——9B 用 13 万对能到 97.5%，而 27B 用 6.5 万对停在 85%，差距更可能来自这次为了显存把 **rank 降到 32、cutoff 降到 3072**（CadQuery 的 deepcad 代码短，但 articraft 的长样本被切掉了），以及混合里 CadQuery 仍只占 ~35% 的 token。
+
+因此 **"一个 27B 通吃所有语言"在这轮没有实现**：目前最优组合仍是 **27B v2（3DCodeBench 93.4% + 最好的几何 + three.js）+ 9B md_xl（CadQuery 97.5%）**。要单模型通吃，下一步应该是：保持 v2 的配比不动、只把 CadQuery 追加到 10 万对以上，并把 rank/cutoff 恢复到 64/4096（需要 5 张以上的卡，或用 8-bit 优化器把显存压下来）。
+
+**当前全项目最佳一览**（截至 2026-08-25）：
+
+| 目标 | 最好的模型 | 成绩 |
+|---|---|---|
+| 3DCodeBench 执行率 | 9B v1 + 执行反馈 DPO ×2 | **96.2%** |
+| 3DCodeBench（单次 SFT，无 DPO） | **27B v2** | **93.4%**（F@0.05 0.380） |
+| Blender 留出几何质量 | **27B v2** | **F@0.05 0.890 / Chamfer 0.049** |
+| CadQuery | 9B md_xl | **97.5%** |
+| three.js | 27B v2 + 执行反馈 DPO | **100%** |
+| OpenSCAD（采样） | 9B md_xl / 27B v2+DPO | 90% / 82% |
+| GLSL（采样） | 27B v2 + 执行反馈 DPO | **71%** |

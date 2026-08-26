@@ -8,16 +8,13 @@ version = "0.1.0"
 description = "3dcodeverse: a data-flywheel harness for LLM-written 3D code (Blender / CadQuery / Three.js / URDF / GLSL) across static objects, articulated objects and scenes."
 readme = "README.md"
 # Floor = 3.10 (the oldest interpreter the whole dependency set still resolves on and the
-# offline suite is green on); developed and measured on 3.13.  CI runs both ends.
+# one fixed version, 3.13 (owner, 2026-08-26): developed, measured and CI-tested on it.
 # Nothing in the package uses a 3.11+ stdlib name directly — the three that were used
 # (StrEnum, datetime.UTC, tomllib) live behind codeverse/_compat.py.
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 license = { text = "Apache-2.0" }
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Operating System :: POSIX :: Linux",
   "Operating System :: MacOS",
@@ -50,7 +47,12 @@ mesh = ["shapely>=2.0", "networkx>=3.2", "manifold3d>=2.3"]  # cross_section are
 mcp = ["mcp>=1.0"]                                        # `3dcv mcp` spatial-tool server for the agentic CLIs
 flywheel = ["pyarrow>=15"]                                # `3dcv flywheel export --pack` (parquet)
 all = ["3dcodeverse[cad,urdf,graphics,mesh,mcp,flywheel]"]
-dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.5", "pyarrow>=15"]
+dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.5", "pyarrow>=15",
+       # the Agent Skills reference validator (CLI: `agentskills`).  Pure python,
+       # click + strictyaml.  tests/skills/test_spec_compliance.py runs it over every
+       # bundle and skips cleanly when it is absent, so it is dev-only on purpose:
+       # the spec is the arbiter of our library, not a runtime dependency of it.
+       "skills-ref>=0.1.1"]
 
 [project.scripts]
 3dcv = "codeverse.cli.main:app"
@@ -64,15 +66,19 @@ include = ["codeverse*"]
 # scene starter tree were missing and `spatial/js/*` matched nothing at all (no such
 # directory), so a wheel install shipped no starter files: skeleton.write_example()
 # rglob'd an absent directory and wrote ZERO files while reporting success.
+# `skills/**/*` carries the SKILL.md bundles + their references/: an installed wheel that
+# ships none of them routes an empty set, and the failure is silent (the run still passes,
+# the skill simply never appears).  tests/skills/test_packaging.py builds a wheel and
+# asserts the files are in it.
 codeverse = ["prompts/**/*", "judges/rubrics/*.yaml", "languages/**/wrappers/*",
-             "languages/**/*.md", "languages/**/starter/**/*"]
+             "languages/**/*.md", "languages/**/starter/**/*", "skills/**/*"]
 
 [tool.setuptools.exclude-package-data]
 codeverse = ["**/__pycache__/*"]   # a wheel must not carry the build host's bytecode
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"   # == requires-python floor: no 3.11+ idiom may slip in
+target-version = "py313"  # == requires-python: one fixed version (owner, 2026-08-26)
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
@@ -90,4 +96,5 @@ markers = [
   "live: needs network + API keys (deselect with -m 'not live')",
   "blender: needs a Blender binary",
   "node: needs node + runtime_js deps",
+  "slow: recomputes something from bench/out (deselect with -m 'not slow')",
 ]

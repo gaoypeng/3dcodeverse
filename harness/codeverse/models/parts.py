@@ -1,10 +1,13 @@
-"""Small helpers shared by the provider backends (images, timing, usage)."""
+"""Small helpers shared by the provider backends (images, timing, usage,
+bounded per-call-id cache)."""
 
 from __future__ import annotations
 
 import base64
 import mimetypes
+import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 from codeverse.contracts.chat import ImagePart
@@ -58,3 +61,34 @@ class Stopwatch:
 
     def __exit__(self, *exc: object) -> None:
         self.ms = int((time.perf_counter() - self._t0) * 1000)
+
+
+class BoundedCache[T]:
+    """Thread-safe bounded LRU ``str -> T`` map for per-call-id provider state.
+
+    Replaces ``gemini_convert._SignatureCache`` (thought signatures, ``bytes``)
+    and ``anthropic_convert._ThinkingCache`` (thinking blocks, ``list[dict]``):
+    both had the identical ``__init__``/``put``/``get`` — an ``OrderedDict``
+    under a lock, ``put`` skipping falsy values, ``move_to_end`` then
+    ``popitem(last=False)`` until under capacity — and differed only in value
+    type and capacity.  ``get`` returns ``None`` on a miss; a caller that needs
+    the old copy/empty-default shape wraps it: ``list(cache.get(k) or [])``.
+    """
+
+    def __init__(self, capacity: int) -> None:
+        self._d: OrderedDict[str, T] = OrderedDict()
+        self._cap = capacity
+        self._lock = threading.Lock()
+
+    def put(self, key: str, value: T | None) -> None:
+        if not value:
+            return
+        with self._lock:
+            self._d[key] = value
+            self._d.move_to_end(key)
+            while len(self._d) > self._cap:
+                self._d.popitem(last=False)
+
+    def get(self, key: str) -> T | None:
+        with self._lock:
+            return self._d.get(key)

@@ -10,10 +10,9 @@ leaf so any caller (track, judge, texturing, bench script) can use it.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from enum import StrEnum
 
-from codeverse._compat import StrEnum
-from codeverse.contracts.common import Usage
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Stage(StrEnum):
@@ -21,6 +20,9 @@ class Stage(StrEnum):
     of ``events.jsonl`` (``stage.start``/``generate.done`` labels)."""
 
     PLAN = "plan"
+    #: SKELETON / ASSEMBLE / GATES / RENDER are *deterministic harness work* (no
+    #: model call at all); kept in the enum so latency can be attributed to them
+    #: from events (``report.STAGE_ORDER``, ``audit.stage_latency``).
     SKELETON = "skeleton"
     ASSETS = "assets"
     ENV = "env"
@@ -49,10 +51,6 @@ class Role(StrEnum):
     IMAGE = "image"
     OTHER = "other"
 
-
-#: stages whose spend is *deterministic harness work* (no model call at all).
-#: Kept in the enum so latency can be attributed to them from events.
-FREE_STAGES: frozenset[Stage] = frozenset({Stage.SKELETON, Stage.ASSEMBLE, Stage.GATES, Stage.RENDER})
 
 #: label prefix → stage, longest prefix wins (``asset_stone_lantern`` → assets)
 _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
@@ -187,6 +185,12 @@ class CallCost(BaseModel):
     outcome: str = "ok"  # ok | error | timeout | budget | degraded | discarded
     n_calls: int = 1  # >1 when a row aggregates a whole agent session
     source: str = "live"  # live | record | events | transcript | stdout | residual
+    #: which API key served the call, as its last 4 chars ("…ab12") — never the key
+    #: itself; "" for a failed call, a session row, or a row older than 2026-08-26
+    key: str = ""
+    #: round-trips the retry machine issued for this call (hedged siblings included);
+    #: 1 = clean, 0 = not recorded
+    attempts: int = 0
 
     @property
     def uncached_tokens(self) -> int:
@@ -215,10 +219,15 @@ class CostBucket(BaseModel):
     cost_usd: float = 0.0
     latency_ms: int = 0
     approximate_usd: float = 0.0  # spend priced from an approximate/unknown row
+    attempts: int = 0  # round-trips over the rows that recorded them
+    n_attempted: int = 0  # calls in those rows
 
     def add(self, row: CallCost) -> None:
         self.n_calls += max(1, row.n_calls)
         self.n_rows += 1
+        if row.attempts:
+            self.attempts += row.attempts
+            self.n_attempted += max(1, row.n_calls)
         self.input_tokens += row.input_tokens
         self.cached_tokens += min(row.cached_tokens, row.input_tokens) if row.input_tokens else row.cached_tokens
         self.output_tokens += row.output_tokens
@@ -249,6 +258,11 @@ class CostBucket(BaseModel):
     def usd_per_call(self) -> float:
         return self.cost_usd / self.n_calls if self.n_calls else 0.0
 
+    @property
+    def attempts_per_call(self) -> float:
+        """Mean round-trips per call (1.0 = every call landed first time); 0 when unrecorded."""
+        return self.attempts / self.n_attempted if self.n_attempted else 0.0
+
 
 class Summary(BaseModel):
     """``summarise()`` output: a total plus one bucket map per dimension."""
@@ -262,17 +276,3 @@ class Summary(BaseModel):
     def ranked(self, name: str, *, limit: int | None = None) -> list[CostBucket]:
         rows = sorted(self.dimension(name).values(), key=lambda b: -b.cost_usd)
         return rows[:limit] if limit else rows
-
-    def share(self, name: str, key: str) -> float:
-        b = self.dimension(name).get(key)
-        return (b.cost_usd / self.total.cost_usd) if b and self.total.cost_usd else 0.0
-
-
-def usage_to_tokens(usage: Usage) -> dict[str, int]:
-    return {
-        "input_tokens": int(usage.input_tokens),
-        "cached_tokens": int(usage.cached_tokens),
-        "output_tokens": int(usage.output_tokens),
-        "thoughts_tokens": int(usage.thoughts_tokens),
-        "tool_calls": int(usage.tool_calls),
-    }

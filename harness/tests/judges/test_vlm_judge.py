@@ -222,3 +222,68 @@ def test_judge_prompt_hash_tracks_the_protocol_not_the_run(monkeypatch):
     monkeypatch.setattr(pb, "RIG_RULES", {**pb.RIG_RULES, "object": "All views show the same object."})
     assert judge_prompt_hash(R) not in (base, edited_role)
 
+
+# -------------------------------------------------------- per-sample retry budget (audit 2026-08-26 §5.1)
+def _fake_clock(monkeypatch):
+    import time as real_time
+    from types import SimpleNamespace
+
+    import codeverse.judges.vlm_judge as mod
+
+    clock = {"t": 0.0}
+    monkeypatch.setattr(mod, "time", SimpleNamespace(monotonic=lambda: clock["t"], time=real_time.time,
+                                                      sleep=real_time.sleep))
+    return clock
+
+
+def test_each_sample_has_a_retry_budget_and_hands_what_is_left_to_the_model(judge_input, cache_dir, monkeypatch):
+    """The verdict call is 42 s p50 / 73 s p90 on a normal day, 50 / 103 s under a storm
+    (audit 2026-08-26 §2); two storm-day rounds lost 1 162 s and 927 s to 3 x 300 s timeouts
+    before a second sample answered in 128 s.  A sample now has SAMPLE_BUDGET_S = 240 s for all
+    its attempts, and every attempt tells the model how much of it remains."""
+    from codeverse.judges.vlm_judge import SAMPLE_BUDGET_S
+
+    clock = _fake_clock(monkeypatch)
+
+    def slow_503(request):
+        clock["t"] += 100.0
+        return ModelError("503 high demand", retryable=True, status=503)
+
+    model = FakeChatModel([slow_503, slow_503, good_reply(R, IDS, 0.8)])
+    j = _judge(model, cache_dir=cache_dir).judge(judge_input)
+    assert j.passed and len(model.requests) == 3
+    assert SAMPLE_BUDGET_S == 240.0
+    assert [r.max_wait_s for r in model.requests] == [240.0, 140.0, 40.0]
+
+
+def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeypatch):
+    clock = _fake_clock(monkeypatch)
+
+    def spent(request):
+        clock["t"] += 250.0  # one attempt that retried inside the model for the whole budget
+        return ModelError("503 high demand", retryable=True, status=503)
+
+    model = FakeChatModel(default=spent)
+    j = _judge(model, cache_dir=cache_dir).judge(judge_input)
+    assert is_degraded(j) and len(model.requests) == 1, "max_attempts=3, but the budget is gone"
+    assert "sample budget" in j.summary
+    # the budget is a dial: a caller that can afford more gets the attempts back
+    model = FakeChatModel(default=spent)
+    j = _judge(model, cache_dir=cache_dir, sample_budget_s=600).judge(judge_input)
+    assert len(model.requests) == 3
+    assert [r.max_wait_s for r in model.requests] == [600.0, 350.0, 100.0]
+
+
+def test_the_last_attempt_still_gets_a_real_try(judge_input, cache_dir, monkeypatch):
+    """A few seconds of budget would be a deadline the model cannot use; the floor is 20 s."""
+    from codeverse.judges.vlm_judge import SAMPLE_MIN_WAIT_S
+
+    clock = _fake_clock(monkeypatch)
+
+    def nearly_spent(request):
+        clock["t"] += 235.0
+        return ModelError("503", retryable=True, status=503)
+
+    model = FakeChatModel([nearly_spent, good_reply(R, IDS, 0.8)])
+    j = _judge(model, cache_dir=cache_dir).judge(judge_input)
+    assert j.passed and [r.max_wait_s for r in model.requests] == [240.0, SAMPLE_MIN_WAIT_S]

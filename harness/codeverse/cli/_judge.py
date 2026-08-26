@@ -21,6 +21,8 @@ from codeverse.contracts.artifacts import BuildResult, RenderSet, RenderView
 from codeverse.contracts.common import TRACK_INFO
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.run import RoundRecord, RunRecord
+from codeverse.judges.replay_input import judged_subset, plan_digest, resolve_paths
+from codeverse.proc import read_json_or_none
 from codeverse.workspace import Workspace
 
 
@@ -47,14 +49,8 @@ def rubric_for(rec: RunRecord, rnd: RoundRecord, override: str | None) -> str:
 
 def plan_summary_for(ws: Workspace) -> str:
     """Track-agnostic plan digest from plan.json (same fields the tracks summarise)."""
-    if not ws.plan_path.is_file():
-        return ""
-    try:
-        data = json.loads(ws.plan_path.read_text())
-    except ValueError:
-        return ""
-    plan_digest = C.lazy("codeverse.judges.calibration", "plan_digest")
-    return plan_digest(data)
+    data = read_json_or_none(ws.plan_path)
+    return plan_digest(data) if data else ""
 
 
 def previous_judgment(ws: Workspace, rec: RunRecord, index: int) -> Any:
@@ -91,30 +87,6 @@ def clay_geometry_views(ws: Workspace, index: int) -> RenderSet | None:
     views = [RenderView(name=p.stem.removeprefix("view_"), path=str(p), mode="clay")
              for p in sorted(d.glob("view_*.png"))]
     return RenderSet(views=views, renderer="stored") if views else None
-
-
-def resolve_paths(ws: Workspace, rs: RenderSet | None) -> RenderSet | None:
-    """Render paths out of a round record, resolved against THIS workspace.
-
-    Delegates to ``Workspace.rebase``: this used to rebase only paths for which
-    ``is_absolute()`` was False, which made it a no-op against every record the harness
-    itself writes (they are all absolute) — so a moved or archived run kept pointing at
-    the host it was produced on.
-    """
-    if rs is None:
-        return None
-    fixed = [v.model_copy(update={"path": str(ws.rebase(v.path))}) for v in rs.views]
-    sheet = str(ws.rebase(rs.contact_sheet)) if rs.contact_sheet else rs.contact_sheet
-    out_dir = str(ws.rebase(rs.out_dir)) if rs.out_dir else rs.out_dir
-    return rs.model_copy(update={"views": fixed, "contact_sheet": sheet, "out_dir": out_dir})
-
-
-def judged_subset(rs: RenderSet | None) -> RenderSet | None:
-    """The views the in-run judge actually saw: the per-view ``judge`` flags
-    stamped at render time; legacy rounds (no flags) keep every stored view."""
-    if rs is None or not any(v.judge is not None for v in rs.views):
-        return rs
-    return rs.model_copy(update={"views": [v for v in rs.views if v.judge]})
 
 
 def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> Any:

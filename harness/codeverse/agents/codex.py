@@ -25,16 +25,16 @@ from codeverse.agents.cli_common import (
     failed,
     finish_session,
     hardened_env,
+    invoke,
     mcp_command_for,
     tail,
+    watchdog_error,
 )
 from codeverse.agents.materialize import codex_mcp_overrides
-from codeverse.agents.watchdog import run_with_watchdog
 from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Usage
 
-IDLE_GRACE_S = 300.0
 STDIN_PROMPT_BYTES = 100_000
 _TOOL_ITEMS = ("command_execution", "file_change", "mcp_tool_call", "web_search", "tool_call")
 
@@ -170,26 +170,15 @@ class CodexAgent:
         via_stdin = len(prompt.encode("utf-8")) > STDIN_PROMPT_BYTES
         argv = self.build_argv(s, None if via_stdin else prompt)
         events = CodexEvents()
-        s.traj.append("invoke", argv=[a if a != prompt else f"<prompt {len(prompt)} chars>" for a in argv], stdin=via_stdin)
-
-        def on_line(stream: str, line: str) -> None:
-            s.traj.append("line", stream=stream, text=line[:4000])
-            if stream == "stdout":
-                events.feed(line)
-
-        proc = run_with_watchdog(
-            argv, cwd=s.ws.root, env=self.build_env(s), soft_timeout_s=job.timeout_s, idle_grace_s=IDLE_GRACE_S,
-            on_line=on_line, stdin=prompt if via_stdin else None, activity_dirs=[s.ws.src, s.ws.public],
-        )
-        s.traj.write_text("stdout.jsonl", proc.stdout)
-        s.traj.write_text("stderr.log", proc.stderr)
+        proc = invoke(s, argv, self.build_env(s), prompt=prompt, stdout_name="stdout.jsonl",
+                      on_stdout=events.feed, stdin=prompt if via_stdin else None)
         usage = events.usage(self.model)
         usage.latency_ms = int(proc.duration_s * 1000)
         text = "\n\n".join(m for m in events.messages if m.strip())
         errors = list(events.errors)
         if proc.timed_out:
             ok, reason = False, "timeout"
-            errors.append(f"killed by watchdog ({proc.killed_reason}) after {proc.duration_s:.0f}s")
+            errors.append(watchdog_error(proc))
         elif proc.rc != 0 or events.n_events == 0:
             ok, reason = False, "error"
             errors.append(f"rc={proc.rc}; events={events.n_events}; stderr tail: {tail(proc.stderr, 1500)}")

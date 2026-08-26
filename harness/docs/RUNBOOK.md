@@ -195,6 +195,46 @@ parks until it recovers instead; `--no-preflight` skips the check.  Cells that a
 provider outage kills anyway are recorded `infra_failed`, excluded from every rate,
 and re-run with `--redo-status infra_failed` (see `docs/EVAL.md` §7).
 
+### 7.v Templates are read at render time — a new required variable breaks live workers like a moved name
+
+Measured 2026-08-26 13:45: the fewer-turns landing added `{{ turn_discipline }}` to four static
+templates; the four h2h drivers started 50 minutes earlier still ran the old python (no such
+context key) but rendered the NEW template from disk → `UndefinedError: 'turn_discipline' is
+undefined`, four prompts recorded `error` at 0 min.  Rule: every new template variable is
+guarded `{% if name is defined and name %}` for at least one wave, and the "Landing source
+changes while a wave is running" rule covers `codeverse/prompts/**` as well as moved names.
+
+### 7.u `bench run --redo-status` starts the redo fresh (since c828637)
+
+Before it, a redo resumed the old workspace — old `spec.json` (the old `max_minutes`) and the
+old clock — so a `budget` row redone with `--max-minutes 120` was over budget before its first
+round (clock_q4, lighthouse_1: `budget`, 0 rounds, "60.3 / 76.7 min elapsed").  Now the old
+tree is archived as `runs/<id>.attempt<N>` and the prompt runs from scratch with the new
+options, the way `ab_plan` has done since the skills wave.
+
+### 7.w One driver per out dir — a second `bench run` re-runs what the first is still running
+
+Measured 2026-08-26 (refs_v1_graphics): a redo driver (`--redo-status budget`) started while the
+original driver was still working the same battery resumed a prompt the first driver had in
+flight, re-ran its last round in the same workspace and rewrote `rounds/r02.json` (0.600 →
+0.944 for the same sheet: judge/acceptance variance, not a new picture) and appended a second
+`results.jsonl` row.  `run_battery` decides what to run from `results.jsonl`, and a prompt with no
+row yet is fair game to both.  Rule: never start a second `3dcv bench run` on an out dir with a
+live driver; wait for the driver to exit (exact pid, `kill -0`), then redo once with
+`--redo-status infra_failed,error,budget --max-minutes 120`.  `bench run` grew `--max-minutes`
+the same day so the storm budget no longer needs `ab_plan`.
+
+### 7.x Size `--max-minutes` to the weather
+
+`--max-minutes 60` is the right ceiling on a healthy provider.  Under a 503 storm every model
+call waits through the retry budget first, an agent session spends its wall clock on 15–23
+turns, and a hard prompt burns the whole hour without one judged round — measured 2026-08-26 on
+`fancy_v1`: the first six pairs ended `budget` with `judge.done = 0`.  When
+`codeverse.models.health.probe()` shows the generator below the 0.75 bar, launch (or redo) with
+`--max-minutes 120 --wait-for-provider 60`, and redo the storm's rows rather than reading them:
+`--redo-status error,infra_failed,budget` (add `build_failed` only when a harness defect, not the
+model, produced the zero — check `cell.json`'s `error`).
+
 ## 8. Extending (plugin paths)
 
 * **New language**: enum in `contracts/common.py::Language` (+ `TRACK_LANGUAGES`,
@@ -223,3 +263,31 @@ and re-run with `--redo-status infra_failed` (see `docs/EVAL.md` §7).
   template for a track with its own planner and no GLB.
 * **New bench battery**: `bench/prompts/<name>.yaml` with `name, track, language,
   prompts[{id, tier, category, prompt, must_have, dimensions_m}]`.
+
+
+## Landing source changes while a wave is running
+
+Workers (`3dcv make`, `ab_plan.py cell`) are long-lived python processes that import
+`codeverse/` **lazily**: a module already in `sys.modules` stays as it was at spawn time, a
+module first touched later comes from the tree as it is *then*.  Two measured failures on
+2026-08-26:
+
+* a patch script that edited one file and aborted on the next left a two-minute window in which
+  `static_object.py` imported a name `prompting.py` did not have yet — a driver died on it;
+* a clean, fully tested refactor (`proc.read_json_or_none` replacing eight copies) landed on
+  main at 02:47 while cells spawned at 01:56 were still generating; at eval time they lazily
+  imported a rewritten module which asked their *old, cached* `proc` for the new name —
+  `ImportError`, 75 minutes of generation per cell lost, recorded `status=error`.
+
+Rules:
+
+1. Multi-file patches validate every anchor first and write only after all pass.
+2. **Do not land cross-module refactors on main under a live wave** — moved symbols, new shared
+   helpers, renamed imports.  Keep them on worktree branches and cherry-pick between waves.
+   Additive changes and dead-code deletions are safe; a moved name is not.
+3. After landing anything, check every driver's `results.jsonl` for `ImportError` rows and redo
+   them from a **fresh** driver with `--redo-status error` (the old driver's own modules are
+   stale too).
+4. Count harness processes with `codeverse.models.health.pool_budget()`, never `pgrep | grep`
+   (it counts its own shell — measured: 3 phantoms on an idle box); kill by PID, never by
+   pattern (13 unrelated runs died to one `pkill -f "3dcv make"`).

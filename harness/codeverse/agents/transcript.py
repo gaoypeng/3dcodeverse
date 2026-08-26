@@ -15,6 +15,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from codeverse.proc import append_jsonl_line, read_jsonl_lenient
+
 
 class Trajectory:
     """Append-only writer for one agent session's files."""
@@ -66,10 +68,7 @@ class Trajectory:
 
     def append(self, kind: str, **data: Any) -> None:
         """Append one JSONL turn: ``{"t": epoch, "kind": kind, **data}``."""
-        rec = {"t": round(time.time(), 3), "kind": kind, **data}
-        line = json.dumps(rec, ensure_ascii=False, default=str)
-        with self._lock, self.transcript_path.open("a") as fh:
-            fh.write(line + "\n")
+        append_jsonl_line(self.transcript_path, {"t": round(time.time(), 3), "kind": kind, **data}, self._lock)
 
     def write_result(self, result: BaseModel, **extra: Any) -> Path:
         """Write ``result.json`` = AgentResult fields + any extra diagnostics."""
@@ -78,6 +77,4 @@ class Trajectory:
         return self.write_json("result.json", data)
 
     def read_transcript(self) -> list[dict[str, Any]]:
-        if not self.transcript_path.is_file():
-            return []
-        return [json.loads(ln) for ln in self.transcript_path.read_text().splitlines() if ln.strip()]
+        return read_jsonl_lenient(self.transcript_path)

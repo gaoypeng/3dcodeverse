@@ -12,7 +12,7 @@ set -euo pipefail
 
 # The supported floor (docs/INSTALL.md §2.1).  Pinned to pyproject's requires-python
 # and to codeverse/spatial/node.py NODE_MIN by tests/core/test_portability.py.
-MIN_PY_MINOR=10      # python 3.10+
+MIN_PY_MINOR=13      # python 3.13 (one fixed version)
 MIN_NODE_MAJOR=20    # node 20.6+ (`node --import` module hooks)
 MIN_NODE_MINOR=6
 

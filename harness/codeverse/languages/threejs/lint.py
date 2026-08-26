@@ -8,9 +8,7 @@ that every planned part has a file and is assembled by ``object.js``.
 
 from __future__ import annotations
 
-import json
 import re
-import subprocess
 import time
 from pathlib import Path
 
@@ -18,14 +16,15 @@ from codeverse.config import get_settings
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.contracts.plan import StaticPlan
 from codeverse.conventions import to_pascal, to_snake
+from codeverse.languages._js_lint import ImportKind, ImportVerdict, check_imports
+from codeverse.languages._js_lint import (
+    node_check_syntax as check_syntax,  # module-level name: tests monkeypatch it
+)
+from codeverse.proc import read_json_or_none
 from codeverse.workspace import Workspace
 
 GATE = "lint:threejs"
 
-_IMPORT_RE = re.compile(
-    r"""(?:^|\n)\s*(?:import\s+(?:[^'";]*?\s+from\s+)?|export\s+(?:\*|\{[^}]*\})\s+from\s+)['"]([^'"]+)['"]"""
-)
-_DYN_IMPORT_RE = re.compile(r"""\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)""")
 _EXPORT_BUILD_RE = re.compile(r"\bexport\s+(?:async\s+)?function\s+(build[A-Za-z0-9_]*)\s*\(")
 _EXPORT_CONST_BUILD_RE = re.compile(r"\bexport\s+(?:const|let|var)\s+(build[A-Za-z0-9_]*)\s*=")
 _EXPORT_LIST_RE = re.compile(r"\bexport\s*\{([^}]*)\}")
@@ -81,49 +80,26 @@ def list_sources(ws: Workspace) -> list[Path]:
     return sorted(p for p in ws.src.rglob("*.js") if "node_modules" not in p.parts and not p.name.startswith("."))
 
 
-def check_syntax(path: Path, node_bin: str) -> tuple[int | None, str] | None:
-    """``None`` when the file parses as ESM, else ``(line, message)``."""
-    try:
-        proc = subprocess.run(
-            [node_bin, "--input-type=module", "--check"],
-            input=path.read_bytes(), capture_output=True, timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return (None, f"syntax check could not run: {e}")
-    if proc.returncode == 0:
-        return None
-    err = proc.stderr.decode(errors="replace")
-    m = re.search(r"\[stdin\]:(\d+)", err)
-    msg = re.search(r"^(SyntaxError:.*)$", err, re.M)
-    return (int(m.group(1)) if m else None, msg.group(1) if msg else err.strip().splitlines()[-1:] or "syntax error")
-
-
 def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFinding]) -> set[Path]:
     """Validate import specifiers; return the set of resolved relative targets."""
-    targets: set[Path] = set()
-    specs = [(m.group(1), m.start(1)) for m in _IMPORT_RE.finditer(src)]
-    specs += [(m.group(1), m.start(1)) for m in _DYN_IMPORT_RE.finditer(src)]
     rel = _rel(ws, path)
-    for spec, pos in specs:
-        line = _line_of(src, pos)
-        if spec == "three" or spec.startswith("three/addons/") or spec.startswith("three/examples/jsm/"):
-            continue
-        if spec.startswith("./") or spec.startswith("../"):
-            target = (path.parent / spec).resolve()
-            if not target.is_relative_to(ws.src.resolve()):
-                findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
-                    message=f"{rel}:{line}: import '{spec}' escapes src/", fix_hint="keep all files under src/"))
-            elif not target.is_file():
-                findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
-                    message=f"{rel}:{line}: imported file does not exist: '{spec}'",
-                    fix_hint=f"create {_rel(ws, target)} or fix the path (extension '.js' is required)"))
-            else:
-                targets.add(target)
-            continue
-        kind = "URL" if re.match(r"https?://", spec) else "package"
-        findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
+
+    def make_finding(v: ImportVerdict, spec: str, line: int) -> GateFinding:
+        if v.kind is ImportKind.ESCAPES:
+            return GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
+                message=f"{rel}:{line}: import '{spec}' escapes src/", fix_hint="keep all files under src/")
+        if v.kind is ImportKind.MISSING:
+            assert v.target is not None
+            return GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
+                message=f"{rel}:{line}: imported file does not exist: '{spec}'",
+                fix_hint=f"create {_rel(ws, v.target)} or fix the path (extension '.js' is required)")
+        kind = "URL" if v.kind is ImportKind.URL else "package"
+        return GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
             message=f"{rel}:{line}: import of {kind} '{spec}' is not allowed",
-            fix_hint="only 'three', 'three/addons/...' and relative './' imports are available"))
+            fix_hint="only 'three', 'three/addons/...' and relative './' imports are available")
+
+    new, targets = check_imports(src, path, ws.src, make_finding=make_finding)
+    findings.extend(new)
     return targets
 
 
@@ -152,15 +128,13 @@ def _exports(src: str) -> set[str]:
 
 
 def _load_plan(ws: Workspace) -> StaticPlan | None:
-    if not ws.plan_path.is_file():
+    data = read_json_or_none(ws.plan_path)
+    if data is None or "parts" not in data or "joints" in data:
         return None
     try:
-        data = json.loads(ws.plan_path.read_text())
-        if isinstance(data, dict) and "parts" in data and "joints" not in data:
-            return StaticPlan.model_validate(data)
-    except (ValueError, OSError):
+        return StaticPlan.model_validate(data)
+    except ValueError:
         return None
-    return None
 
 
 def lint_workspace(ws: Workspace) -> GateReport:
@@ -181,9 +155,8 @@ def lint_workspace(ws: Workspace) -> GateReport:
         rel = _rel(ws, path)
         syn = check_syntax(path, node_bin)
         if syn is not None:
-            line, msg = syn
             findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
-                message=f"{rel}:{line or '?'}: {msg}", fix_hint="fix the syntax error at that line"))
+                message=f"{rel}:{syn.line or '?'}: {syn.message}", fix_hint="fix the syntax error at that line"))
             continue  # other checks are noise on a file that does not parse
         imported |= _lint_imports(ws, path, src, findings)
         _lint_forbidden(ws, path, src, findings)

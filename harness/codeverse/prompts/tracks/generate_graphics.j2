@@ -22,6 +22,18 @@ Files you must produce: {% for f in expected_files %}`{{ f }}`{% if not loop.las
 Cookbook excerpt:
 {{ cookbook_excerpt }}
 {% endif %}
+{% if seeded_recipes %}
+
+## Verified helpers ALREADY in `src/common.glsl` — call them, do not rewrite them
+`src/common.glsl` already contains these VERIFIED helpers; the harness pastes that file above your shader,
+so they are in scope in `src/shader.frag` with no include.  Call them and build on them: do not rewrite an
+aurora curtain / star field / bokeh / rain layer from scratch (the from-scratch versions are the comb of bars,
+the twenty sparkles and the opaque discs the judge caps), and do not define a function with one of these
+names yourself (a redefinition fails the compile).  When you write `src/common.glsl`, keep the seeded block
+under `// ---- harness-seeded verified recipes` intact and add your own helpers below it.
+{% for r in seeded_recipes %}- `{{ r.signature }}` — {{ r.purpose }}
+{% endfor %}
+{% endif %}
 
 ## Plan
 {{ plan_summary }}

@@ -61,11 +61,17 @@ class Health:
 
     def __str__(self) -> str:
         head = f"{self.model}: {self.n_ok}/{self.n_tried} keys answering"
-        return head if self.ok else f"{head} — {'; '.join(self.reasons[:2]) or 'no reason reported'}"
+        return (
+            head if self.ok else f"{head} — {'; '.join(self.reasons[:2]) or 'no reason reported'}"
+        )
 
 
-def probe(model: str = "gemini:gemini-3.7-flash", *, sample: int = DEFAULT_SAMPLE,
-          timeout_s: float = DEFAULT_TIMEOUT_S) -> Health:
+def probe(
+    model: str = "gemini:gemini-3.7-flash",
+    *,
+    sample: int = DEFAULT_SAMPLE,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+) -> Health:
     """One tiny call per sampled key, in parallel, no retries.  Never raises."""
     from codeverse.contracts.chat import ChatMessage, ChatRequest
 
@@ -75,8 +81,15 @@ def probe(model: str = "gemini:gemini-3.7-flash", *, sample: int = DEFAULT_SAMPL
         try:
             # built directly, not via get_chat_model: a probe must NOT retry or back off
             m = _bare_model(model, timeout_s)
-            m.generate(ChatRequest(messages=[ChatMessage.user(prompt)],
-                                   temperature=0.0, max_output_tokens=256, thinking="off", label="health"))
+            m.generate(
+                ChatRequest(
+                    messages=[ChatMessage.user(prompt)],
+                    temperature=0.0,
+                    max_output_tokens=256,
+                    thinking="off",
+                    label="health",
+                )
+            )
             return None
         except Exception as e:  # noqa: BLE001 — a probe reports, it does not propagate
             return f"{type(e).__name__}: {str(e)[:100]}"
@@ -128,6 +141,41 @@ _SCRIPTS = ("compare_backends.py", "run_bench.py", "ab_plan.py")
 _ENTRY_POINTS = ("3dcv", "3dcodeverse")
 
 
+def _program_slots(args: list[str]) -> list[str]:
+    """The argv tokens that can legitimately BE the program name.
+
+    Only argv[0] and, behind a python interpreter, the script slot after it.  Both bounds
+    matter and each was a real bug:
+
+    * Too narrow (argv[0] only) is how ``3dcv`` went uncounted from the start.  A console
+      script installed by pip is a shebang file, so the kernel rewrites ``3dcv make …``
+      into ``<python> /…/bin/3dcv make …`` and the entry point lands at argv[1] — argv[0]
+      is the interpreter.  Measured 2026-08-25: 21 live ``3dcv make`` processes, and
+      :func:`pool_budget` reported "0 siblings, headroom 64".  Every lane then sized
+      ``CV3D_MAX_IN_FLIGHT`` off a number that was structurally always 64, which is the
+      over-launch ``docs/COST.md`` §23 exists to prevent.
+    * Too wide (scanning all of argv) fails the other way: ``--runs-dir
+      /home/yipeng/3dcodeverse`` has basename ``3dcodeverse``, so a shell or an editor
+      holding that path would be charged as a harness process and every sibling would
+      refuse to launch.
+    """
+    from pathlib import PurePath
+
+    if not args:
+        return []
+    slots = [args[0]]
+    if not PurePath(args[0]).name.startswith("python"):
+        return slots
+    i = 1
+    while i < len(args) and args[i].startswith("-"):
+        if args[i] in ("-m", "-c"):  # module / inline code: not a script slot
+            return slots
+        i += 1
+    if i < len(args):
+        slots.append(args[i])
+    return slots
+
+
 def _harness_token(args: list[str]) -> str | None:
     """The argv token that makes this a harness process, or ``None`` if it is not one.
 
@@ -138,8 +186,9 @@ def _harness_token(args: list[str]) -> str | None:
         return None
     from pathlib import PurePath
 
-    if PurePath(args[0]).name in _ENTRY_POINTS:
-        return args[0]
+    for slot in _program_slots(args):
+        if PurePath(slot).name in _ENTRY_POINTS:
+            return slot
     for i, a in enumerate(args):
         if a == "-m" and i + 1 < len(args) and args[i + 1] in _MODULES:
             return args[i + 1]
@@ -259,8 +308,10 @@ class PoolBudget:
         return my_cap <= self.headroom
 
     def __str__(self) -> str:
-        return (f"{self.siblings} sibling harness process(es) hold {self.used}/{self.knee} in-flight; "
-                f"headroom {self.headroom}")
+        return (
+            f"{self.siblings} sibling harness process(es) hold {self.used}/{self.knee} in-flight; "
+            f"headroom {self.headroom}"
+        )
 
 
 def pool_budget() -> PoolBudget:

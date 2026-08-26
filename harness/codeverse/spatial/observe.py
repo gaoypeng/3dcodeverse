@@ -5,6 +5,8 @@
 * ``tail_lines``    – last ``n`` lines of a log.
 * ``image_budget``  – cap image lists (contact sheet kept first).
 * ``rel_path``      – workspace-relative display path (never leak host paths in text).
+* ``lint_lines`` / ``build_failure_lines`` – the one lint / BUILD FAILED report
+  format shared by the ``build`` and ``gl_probe`` / ``gl_frames`` tools.
 * ``text_observation`` / ``gate_observation`` / ``render_observation`` – the
   standard Observation builders (truncation + image budget applied once).
 """
@@ -15,7 +17,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from codeverse.contracts.artifacts import GateReport, RenderSet, Severity
+from codeverse.contracts.artifacts import BuildResult, GateReport, RenderSet, Severity
 from codeverse.spatial.registry import Observation
 
 MAX_IMAGES = 6
@@ -122,6 +124,47 @@ def text_observation(
 
 _SEV_ORDER = {Severity.ERROR: 0, Severity.WARN: 1, Severity.INFO: 2}
 _SEV_TAG = {Severity.ERROR: "ERROR", Severity.WARN: "WARN", Severity.INFO: "info"}
+
+
+# --------------------------------------------------------------------------- build reports
+def lint_lines(report: GateReport, root: Path, *, errors_only: bool) -> list[str]:
+    """``- ERROR (src/x.py): msg`` (+ ``    fix: …``) for the errors or the warnings
+    of a lint report — INFO findings are never shown to the agent."""
+    want = Severity.ERROR if errors_only else Severity.WARN
+    out = []
+    for f in report.findings:
+        if f.severity != want:
+            continue
+        loc = f" ({rel_path(f.target, root)})" if f.target else ""
+        out.append(f"- {_SEV_TAG[f.severity]}{loc}: {sanitize_text(f.message, root)}")
+        if f.fix_hint:
+            out.append(f"    fix: {sanitize_text(f.fix_hint, root)}")
+    return out
+
+
+def error_file_display(error_file: str, root: Path) -> str:
+    """``BuildResult.error_file`` for the agent: runtimes report either an absolute
+    path (→ workspace-relative) or an already-relative one (kept — ``rel_path``
+    would resolve it against the cwd and fall back to the bare file name)."""
+    if not error_file or not Path(error_file).is_absolute():
+        return error_file
+    return rel_path(error_file, root)
+
+
+def build_failure_lines(br: BuildResult, root: Path, lint_warns: Sequence[str], *, tail_n: int) -> list[str]:
+    """``BUILD FAILED: <type>: <message> at <file>:<line>`` + stderr tail (when it
+    adds to the message) + up to 10 lint hints — the failure report of every
+    build-running tool."""
+    where = f" at {error_file_display(br.error_file, root)}:{br.error_line}" if br.error_file else ""
+    # the location stays on the headline even when the message is multi-line (GLSL)
+    head, _, rest = sanitize_text(br.error_message, root).partition("\n")
+    lines = [f"BUILD FAILED: {br.error_type or 'Error'}: {head}{where}"] + ([rest] if rest else [])
+    tail = tail_lines(sanitize_text(br.stderr_tail, root), tail_n)
+    if tail and tail not in br.error_message:
+        lines.append("stderr (tail):\n" + tail)
+    if lint_warns:
+        lines.append("lint hints:\n" + "\n".join(lint_warns[:10]))
+    return lines
 
 
 def gate_observation(report: GateReport, *, title: str = "", max_findings: int = 20, images: Iterable[str] = ()) -> Observation:

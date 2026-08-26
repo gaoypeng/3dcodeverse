@@ -65,6 +65,10 @@ class Services:
         """Image-conditioned judge (spec has reference images): renders + references + silhouette IoU."""
         return _import("codeverse.judges.reference", "ReferenceJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
 
+    def likeness_judge(self, model_id: str, n_samples: int = 1, rubric: str = "shader_v2") -> Any:
+        """Reference photos beside the frames, no silhouette (graphics / scene with images)."""
+        return _import("codeverse.judges.reference", "LikenessJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
+
     def pairwise(self, model_id: str) -> Any:
         """Position-swapped A/B judge: ``.compare(spec, renders_a, renders_b, rubric=...)``."""
         return _import("codeverse.judges.pairwise", "PairwiseJudge")(model_id)
@@ -95,8 +99,8 @@ class Services:
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None, times: Sequence[float],
                      width: int, height: int) -> RenderSet:
-        return _import("codeverse.spatial.render", "render_scene")(ws, out_dir, cameras=cameras, orbit=True, times=tuple(times),
-                                                                  width=width, height=height, sheet=True)
+        return _import("codeverse.spatial.render_scene", "render_scene")(ws, out_dir, cameras=cameras, orbit=True, times=tuple(times),
+                                                                        width=width, height=height, sheet=True)
 
     def render_geometry(self, glb: Path, out_dir: Path, *, views: Sequence[ViewPreset]) -> RenderSet:
         """Clay renders (no materials/textures) exposing holes/intersections for the judge's
@@ -204,7 +208,7 @@ class RunContext:
 
 # ----------------------------------------------------------------------------- prompt helpers
 def load_prompt_or(rel: str, fallback: str) -> str:
-    """``prompts/<rel>`` if it exists (package K writes those), else ``fallback``."""
+    """``prompts/<rel>`` if it exists, else ``fallback``."""
     try:
         return load_text(rel)
     except FileNotFoundError:
@@ -245,16 +249,3 @@ _MINIMAL_CONTRACT: dict[Language, str] = {
 def cookbook_rel_for(language: Language) -> str:
     return f"{language.value}/cookbook.md"
 
-
-_PROMPTING = {"parts_table", "part_details", "joints_table", "acceptance_lines", "bbox_line", "glb_to_plan_frame",
-              "constraints_text", "base_prompt_context", "reference_images", "reference_note", "AGENT_OUTPUT_RULES",
-              "file_for_target_factory"}
-
-
-def __getattr__(name: str) -> Any:
-    """Prompt-context helpers moved to ``tracks/prompting.py``; keep old import paths working."""
-    if name in _PROMPTING:
-        import importlib
-
-        return getattr(importlib.import_module("codeverse.tracks.prompting"), name)
-    raise AttributeError(name)

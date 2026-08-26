@@ -5,8 +5,7 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-from codeverse.contracts.artifacts import RenderView
-from codeverse.spatial.silhouette import compare_silhouette, foreground_mask, silhouette_series
+from codeverse.spatial.silhouette import compare_silhouette, foreground_mask
 
 
 def _disc(path: Path, size: tuple[int, int], box: tuple[int, int, int, int], bg=(240, 240, 240), fg=(30, 30, 30)) -> Path:
@@ -58,11 +57,37 @@ def test_unreliable_when_empty(tmp_path: Path) -> None:
     assert r["iou"] == 0.0 and not r["reliable"]
 
 
-def test_series_picks_best_view(tmp_path: Path) -> None:
-    ref = _disc(tmp_path / "ref.png", (300, 300), (50, 50, 250, 250))
-    good = _disc(tmp_path / "good.png", (300, 300), (40, 40, 260, 260))
-    bad = _disc(tmp_path / "bad.png", (300, 300), (20, 120, 280, 180))
-    views = [RenderView(name="front", path=str(bad)), RenderView(name="top", path=str(good))]
-    res = silhouette_series(views, [ref], diff_dir=tmp_path)
-    assert res[0]["best_view"] == "top" and res[0]["iou"] > 0.9
-    assert Path(res[0]["diff_png_path"]).is_file()
+def test_a_photo_the_background_model_failed_on_is_unreliable(tmp_path: Path) -> None:
+    """A busy photo floods to a corner-to-corner mask, and the AREA test does not see it.
+
+    Measured 2026-08-25 over astra3d-brilliana/references_images: 9 of 21 photos produced
+    a mask whose bounding box spanned the whole frame — a coffee cup on a table read as
+    73.8 % "object" — and every one passed `reliable`, because fill only rejects above
+    95 %. The cost was not a missing number but a confident wrong one: a penny-farthing
+    render scored IoU 0.592 against the coffee cup and 0.636 against a flower, and both
+    fed `silhouette_match` in the reference_v1 rubric as measurements.
+    """
+    import numpy as np
+    from PIL import Image
+
+    from codeverse.spatial.silhouette import _bbox_cover
+
+    rng = np.random.default_rng(0)
+    busy = tmp_path / "busy.jpg"
+    Image.fromarray(rng.integers(0, 255, (300, 400, 3), dtype=np.uint8)).save(busy)
+    clean = _disc(tmp_path / "clean.png", (400, 300), (150, 90, 250, 210))
+
+    assert _bbox_cover(foreground_mask(busy)) > 0.98, "a noise field localises nothing"
+    assert _bbox_cover(foreground_mask(clean)) < 0.98, "a disc on a flat backdrop does"
+    assert compare_silhouette(clean, busy)["reliable"] is False
+    assert compare_silhouette(clean, clean)["reliable"] is True
+
+
+def test_a_render_that_fills_its_frame_is_still_reliable(tmp_path: Path) -> None:
+    """The bar must not condemn the render side. Real single-view renders measured at
+    bbox coverage 0.60-0.69; a tight crop must still pass."""
+    from codeverse.spatial.silhouette import _bbox_cover
+
+    tight = _disc(tmp_path / "tight.png", (300, 300), (12, 12, 288, 288))
+    assert 0.80 < _bbox_cover(foreground_mask(tight)) < 0.98
+    assert compare_silhouette(tight, tight)["reliable"] is True

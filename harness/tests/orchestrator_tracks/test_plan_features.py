@@ -113,3 +113,48 @@ def test_ab_plan_still_accepts_a_live_switch(monkeypatch, capsys):
 
     assert len(seen) == 2, capsys.readouterr()
     assert "CV3D_PLAN_BRIEF" in seen[0]
+
+
+# --------------------------------------------------------------------- pin-plan safety
+def test_a_generation_side_switch_may_share_one_plan():
+    """`contacts` renders a table into the BUILDER's prompt from an unchanged plan, so
+    both arms can be seeded with the same plan.json and the paired delta stops carrying
+    the planner's spread — the dominant variance term (docs/EVAL.md §8.1)."""
+    from codeverse.tracks.plan_features import pin_plan_blockers
+
+    assert pin_plan_blockers({"CV3D_PLAN_FEATURES": "contacts"}) == []
+    assert pin_plan_blockers({"CV3D_SKILLS": "1", "CV3D_SKILLS_MAX": "3"}) == []
+    assert pin_plan_blockers({}) == []
+
+
+def test_a_plan_side_switch_is_refused_by_name():
+    """Pinning `fit` would hand both arms one plan and so silently delete the change
+    under test — the rig would then report "no effect" with confidence."""
+    from codeverse.tracks.plan_features import pin_plan_blockers
+
+    assert pin_plan_blockers({"CV3D_PLAN_FEATURES": "fit"}) == [
+        "CV3D_PLAN_FEATURES=fit changes the plan itself"]
+    # one plan-side name in a list of otherwise-safe ones still blocks
+    assert pin_plan_blockers({"CV3D_PLAN_FEATURES": "contacts,fit"}) == [
+        "CV3D_PLAN_FEATURES=fit changes the plan itself"]
+    assert len(pin_plan_blockers({"CV3D_PLAN_FEATURES": "all"})) == 5
+
+
+def test_an_unclassified_switch_defaults_to_refusing():
+    """Refusing to pin costs one noisy A/B; pinning wrongly costs a confident wrong
+    answer.  So the default for anything unknown is: do not pin."""
+    from codeverse.tracks.plan_features import pin_plan_blockers
+
+    assert pin_plan_blockers({"CV3D_MYSTERY_KNOB": "1"}) == [
+        "CV3D_MYSTERY_KNOB is not known to act after planning"]
+    assert pin_plan_blockers({"CV3D_PLAN_BRIEF": "off"}) == [
+        "CV3D_PLAN_BRIEF is not known to act after planning"]
+
+
+def test_every_known_feature_is_classified():
+    """A new feature must be put on one side or the other in the same commit; otherwise
+    it silently inherits 'plan-side' and nobody notices the A/B got noisier."""
+    from codeverse.tracks.plan_features import GENERATION_SIDE, KNOWN_FEATURES, PLAN_SIDE
+
+    assert set(KNOWN_FEATURES) == PLAN_SIDE | GENERATION_SIDE
+    assert not (PLAN_SIDE & GENERATION_SIDE)

@@ -26,7 +26,7 @@
   plan says.  Auto-suffixed duplicates (`Leg.001`) violate it: name instances `<Name>_0 … <Name>_N-1`.
 * Meshes only (no empties as parts, no un-converted curves, no cameras/lights); link every
   object to `bpy.context.scene.collection`.  Plan numbers = constants at the top of each part
-  file; keep each part inside its plan bbox; attached parts touch (2–4 mm overlap is fine).
+  file; keep each part inside its plan bbox; attached parts overlap 0.5–2 mm (deeper = interpenetration).
 
 ## Allowed imports · forbidden calls · limits
 * Imports: `bpy`, `bmesh`, `mathutils`, `math`, `random`, `itertools`, `functools`, `typing`,
@@ -65,7 +65,7 @@ def build_seat() -> bpy.types.Object:
 import bpy, bmesh, math
 
 LEG_R, LEG_N, LEG_RING = 0.02, 3, 0.12             # metres, from the plan
-LEG_H = 0.45 - 0.04 + 0.004                        # reaches 4 mm into the seat (weld)
+LEG_H = 0.45 - 0.04 + 0.001                        # reaches 1 mm into the seat (weld)
 
 def build_leg() -> list[bpy.types.Object]:
     """Leg x3 — steel rods Leg_0..Leg_2 on a ring, each TOP-LEVEL (no parent Empty!)."""
@@ -131,7 +131,7 @@ def build_seat() -> bpy.types.Object:
     return seat
 
 def build_leg(i: int) -> bpy.types.Object:
-    a, h = 2 * math.pi * i / LEG_N, SEAT_Z - SEAT_T + 0.004          # 4 mm into the seat (weld)
+    a, h = 2 * math.pi * i / LEG_N, SEAT_Z - SEAT_T + 0.001          # 1 mm into the seat (weld)
     leg = make_cylinder(f"Leg{i + 1}", LEG_R, h, (LEG_RING * math.cos(a), LEG_RING * math.sin(a), h / 2), 24)
     leg.data.materials.append(make_material(f"Steel{i + 1}", (0.6, 0.6, 0.62), 0.35, 1.0))
     return leg

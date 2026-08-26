@@ -140,7 +140,7 @@ def test_pool_exhausted_before_first_attempt_is_a_budget_result(tmp_ws: Workspac
 
 def test_timeout_is_reported(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     monkeypatch.setenv("FAKE_MODE", "hang")
-    monkeypatch.setattr("codeverse.agents.gemini_cli.IDLE_GRACE_S", 1.0)
+    monkeypatch.setattr("codeverse.agents.cli_common.IDLE_GRACE_S", 1.0)
     res = agent.run(_job(tmp_ws, timeout_s=1))
     assert not res.ok and res.exit_reason == "timeout" and res.duration_s < 30
 

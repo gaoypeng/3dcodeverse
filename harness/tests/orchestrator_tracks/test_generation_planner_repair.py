@@ -180,6 +180,9 @@ def test_planner_validates_retries_and_writes(tmp_ws):
     assert isinstance(p, StaticPlan) and p.object_name == "DiningChair" and tmp_ws.plan_path.is_file()
     assert len(model.requests) == 2 and "failed validation" in model.requests[1].messages[-1].text
     assert model.requests[0].response_schema is not None and "PascalCase" in model.requests[0].system
+    # audit 2026-08-26 §2: the plan stage waited 492 s median per storm-day run for 39 s of
+    # model time; one planner call may now retry for 300 s (~4x the worst observed call), not 900
+    assert all(r.max_wait_s == 300.0 for r in model.requests)
     # deterministic acceptance items from constraints were appended
     texts = " ".join(a.text for a in p.acceptance)
     assert "height = 0.820" in texts and "Includes: armrests" in texts

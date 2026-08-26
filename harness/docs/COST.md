@@ -1038,6 +1038,18 @@ plumbing through several layers and deserves its own measured change.
 
 ## 23. The key pool is per-PROCESS, so N batteries multiply the quota by N
 
+> **Count processes with `pool_budget()`, never with a hand-rolled `pgrep`.**  A gate like
+> `pgrep -af 'bin/3dcv make' | grep -c 'codex:'` **counts itself**: the pattern text is in
+> the checking shell's own command line, so it sees phantom runs.  Measured 2026-08-25 on an
+> idle box — zero `3dcv` processes running, the naive gate returned **3**, and even the
+> bracket trick `pgrep -f '[b]in/3dcv make'` returned **2**, because the wrapper shell's
+> argv also carries the string.  Used in `while [ $(gate) -ge 3 ]; do sleep 60; done` that
+> blocks forever on nothing.  `codeverse.models.health.sibling_processes()` reads `/proc`
+> and excludes its own pid; `pool_budget()` wraps it with the in-flight arithmetic:
+> ```
+> python3 -c "from codeverse.models.health import pool_budget; print(pool_budget())"
+> ```
+
 §20 measured the concurrency knee at 64 in-flight and shipped it as the default.  That
 number was measured with **one process and nothing else running**, and the limiter it
 configures is per-process by construction:
@@ -1142,3 +1154,162 @@ What did work, in production, on those two lost cells: they were recorded
 `infra_failed` with `score=None` rather than a hard 0.0 (§7 of `docs/EVAL.md`), and the
 retry deadline (§22) stopped each at ~15 min instead of the 56-87 min the same cells
 burned earlier the same morning.
+
+## 25. `max_usd` guards money, and a subscription costs none
+
+`Usage.cost_usd` answers *"what would these tokens cost at list price?"*.  That is the
+right number for a report, a $/complexity point, or a flywheel record — it is comparable
+across backends and independent of who is paying.  It is the wrong number to hand a
+spend guard, because a backend on a flat-rate local subscription bills no dollars.
+
+The harness had exactly one number and used it for both.
+
+**Measured 2026-08-25**, `tsr_scn_temple_night`, `codex:gpt-5.6-sol`, `--profile
+quality`.  The two Blender hero-asset sessions were priced at OpenAI list rates
+(`agents/codex.py` → `estimate_cost_safe("openai", …)`) and the run crossed the profile's
+soft cap 6.8 minutes in:
+
+```
+budget.degraded  cost $7.712 exceeds soft cap $4.40 (55% of $8.00)
+asset.judge_skipped  BronzeCenser  reason=soft_budget
+asset.judge_skipped  StoneLantern  reason=soft_budget
+```
+
+Both heroes went unjudged and every later stage ran degraded — over a bill of **$0.00**.
+The run's own cost ledger said $0.00 the whole time; `PROVIDER_PRICED_BACKENDS` and
+`meters_own_calls()` had already got the ledger side right.  Only the guard disagreed
+with it, and the guard is the half that changes what the run does.
+
+**The split.**  The ledger and the reports keep pricing everything; the budget enforces
+only what is billed.  `cost/billing.py` names the flat-rate backends
+(`SUBSCRIPTION_BACKENDS` = codex, claude-code, agy, antigravity — `CLAUDE.md`
+"Environment" is the source of that list), and `BudgetGuard` accumulates a second
+counter, `billed_usd`, which every ceiling now reads instead of `spent.cost_usd`.
+`summary()` reports both: `spent_usd` (billed, what the ceilings saw) and `notional_usd`
+(list price, what the reports want).
+
+`gemini-cli` is deliberately **not** exempt: it authenticates with an API key, so its
+tokens draw on a real per-token quota even when that quota is free.  Unknown backends
+bill by default — a new provider nobody classified must be enforced, not exempted.
+Wrong in that direction costs a degraded run; wrong in the other spends real money with
+no ceiling.
+
+**What still bounds a subscription run:** `max_minutes`, which `BudgetGuard.timeout_s()`
+also clips individual sessions against.  When the money is flat-rate, wall clock is the
+scarce resource — the runaway is still stopped, by the ceiling that actually applies to
+it.  Note the corollary for benchmarking: an arm on a subscription backend and an arm on
+an API backend are not being held to the same ceiling, so compare them on
+`notional_usd`, never on `spent_usd`.
+
+
+## 27. A 503 is per key at any instant — rotate before you wait (2026-08-26)
+
+The retry path treated Gemini's *"This model is currently experiencing high demand"* (503) as
+model-wide: no rotation, a ≤ 5 s sleep per storm attempt (60 of them), the 900 s per-call
+deadline — and, when the gate was on, every worker in the process parked.  Measured with one
+tiny request per key fired in parallel, three rounds 20 s apart, in the middle of the day's
+storm: `gemini-3.7-flash` answered on **15/22, 18/22 and 21/22 keys** while **5, 4 and 1**
+keys returned 503 at the same instant (successful latencies 1.3–38 s; the slow ones were the
+same few keys).  So at any moment most keys work and the next key is the cure.
+
+`rotate_with_retries` now adds the 503'd key to the call's failed set and rotates to a fresh
+key for free (no sleep, no budget); only once `storm_quorum` (6, capped at the pool size)
+distinct keys have 503'd within one call is it a storm and the old wait budget applies.  What
+this buys per call is the whole storm wait it used to pay first (median 5 s × the storm
+streak, up to 900 s); what it costs is one more round-trip on a fresh key.  Follow-ups worth
+measuring: rank keys by recent latency (the 30 s keys are consistent), and record the key
+index in `telemetry/usage.jsonl` so the distribution of calls per key can be read instead of
+probed.
+
+
+
+**Follow-up, same day, from the time audit (51 storm-day runs vs 52 baseline; `time_audit/REPORT.md`).**
+Three accelerations, all additive and on by default:
+
+*A caller clips the retry budget to what it can afford* (`ChatRequest.max_wait_s`, None = the
+model's `RETRY_DEADLINE_S`).  Of the 246 297 s a storm-day run spent waiting on the provider,
+**30 % (72 921 s) was 66 `model_error` spans** in which one call retried until the 900 s deadline —
+median span 923 s, p90 2 743 s, i.e. three consecutive give-ups on ONE agent turn through
+`api_agent.MODEL_RETRIES`; 45 sessions were hit, **~1 430 s per run**.  `GeminiModel` now passes
+`max_total_s = min(900, max_wait_s)` to `rotate_with_retries`.  An agent turn asks for
+`max(20, min(120, session time left))` (a successful storm-day call is 8.3 s p50 / 31 s p90) and
+stops retrying once the session deadline has passed instead of sleeping 2 + 4 s past it (97
+sessions overshot their timeout by 182 s median / 1 154 s p90); a judge sample gets
+`SAMPLE_BUDGET_S = 240` for all its attempts (the verdict is 42 s p50 / 73 s p90, 50 / 103 s under
+the storm; two rounds lost 1 162 s and 927 s to 3 × 300 s timeouts before a second sample answered
+in 128 s); the planner 300 s (13.7 s p50 / 32 s p90, max 76 s; the storm-day plan stage waited
+492 s median for 39 s of model time).  Anthropic / OpenAI go through `with_retries`, which has no
+deadline (≈ 20 s of backoff at most), so the field is a no-op there.
+
+
+*The retry of a 503 is hedged across keys* (`rotate_with_retries(hedge=2)`; `Settings.rate.hedge`,
+`CV3D_RATE__HEDGE=1` for the A/B).  Logged sleep was only 645 s per cell median — **13 % of the
+wait**; `(wait − sleep) / storm lines` = **21.5 s per failed attempt** (p90 28.5, ~50 s late in a
+storm): the cost of a 503 is the round-trip the provider holds before rejecting, not the ≤ 5 s
+backoff.  Storm streaks average **4.7 attempts** (1 101 episodes / 5 143 lines).  From a call's
+first 503 on, every further attempt is issued on two distinct fresh keys at once — the extra key
+from `KeyPool.try_acquire`, never waited for, each request holding its own `max_in_flight` slot —
+and the first success is returned; a loser finishes its own round-trip, reports its outcome to
+the pool (a late success still reports its tokens) and releases its slot; when both fail it is
+ONE storm attempt.  Expected rounds per streak drop from ~4.7 to ~1.7, i.e. ~60 % of the retry
+wait: **≈ 930 s/run blender, 1 400 s threejs, 600 s cadquery, 450 s graphics**.  A 503 bills
+nothing, so the hedge is free while it storms; only a success-then-success wastes one call
+(cents for a chat turn — `GeminiImageModel` keeps `hedge=1` because an image is billed per image).
+
+
+*The ledger records the key and the attempt count.*  `keys.py` scanned 1 542 files of the corpus
+for the `"key": "…xxxx"` that `gemini.py:_once` puts in `ChatResponse.raw` and found none, so
+"is one key hammered" was unanswerable.  `rotate_with_retries(stats=)` hands back `attempts`
+(round-trips issued, hedged siblings included; 1 = clean) and `hedged`; `GeminiModel` puts both
+in `raw` and `attempts` on the raised `ModelError`; `cost/instrument.py` copies the key suffix
+(last 4 chars, never more) and `attempts` onto every `CallCost` row (`key`, `attempts`, both
+defaulted so old rows load); `3dcv cost` / `bench/cost_report.py` add a per-key table and a
+`tries/call` column (`CostBucket.attempts_per_call`) whenever the ledger carries them.
+
+## 28. Where the time goes — the 2026-08-26 audit (`docs/TIME_AUDIT_2026-08-26.md`)
+
+51 storm-day runs against 52 baseline runs, every stage and every model call, scripts in
+`bench/time_audit/` (read-only over `bench/out`).  The numbers that decide what to build next:
+
+* A blender object run is **1 811 s** median on a healthy provider and **4 726 s** under the storm;
+  build + gates + render together are 3–19 % of a baseline run and 1–4 % of a storm run.  The
+  agent session is where the time is: baseline 57 % model thinking / 11 % tools / 32 % waiting;
+  storm day **22 % / 2 % / 77 %**.
+* Waiting is not the backoff sleep.  Logged sleeps are ~13 % of the wait; a failed 503 costs a
+  **21–50 s held round-trip** before the provider rejects it, and streaks average 4.7 attempts.
+  **30 % of all storm-day waiting (72 921 s) is 66 give-up spans** — one call retrying to the
+  900 s `RETRY_DEADLINE_S`, up to three times per turn through `api_agent.MODEL_RETRIES`,
+  never clipped to the session's or the round's remaining budget.  18 of 51 storm runs ended
+  with zero rounds; 14 of them overshot the bench ceiling by 837 s median because the ceiling is
+  only checked between stages.
+* Successful calls are also slower under the storm: flash p50 3.3 → 8.3 s, p90 17 → 31 s; the
+  judge (pro) p50 42 → 50 s.  The judge is not the bottleneck at the median; its tail is
+  (2 rounds lost 1 100 s each to three 300 s read timeouts).  The planner waits 492 s median
+  per storm-day run for 39 s of model time.
+* No telemetry row records which key served a call, so per-key distribution was unanswerable
+  from the corpus (the §24 probe answered it directly).
+
+Ranked by measured seconds per storm-day run: (1) clip the per-call retry budget to the
+remaining session / round budget (~1 430 s/run) — (2) hedge a 503 retry across 2–3 keys
+(~900–1 400 s/run) — (3) hedge / cap the planner and judge calls (~400 s/run + the judge tail)
+— (4) plan cache on re-runs (548 s) — (5) no sleep on 503 (≤ 13 %; landed with §24) — (6) enforce
+the ceiling inside a round (837 s sooner on killed runs) — (7) flash as the loop judge (~60 s
+baseline) — (8) 30 s render cap (≤ 100 s).  (1)–(3) and the key/attempt ledger fields landed the same afternoon (§27's follow-up paragraphs).
+
+## 29. Fewer turns (in measurement) — `CV3D_FEWER_TURNS`, branch `fewer-turns`
+
+static_v2_flash (20 blender object runs, healthy provider, api-agent gemini-3.7-flash): wall median
+1 047 s, of which 823 s (79 %) is model time = **196 flash calls per run** at 4.2 s mean (p50 2.8 s;
+latency scales with prompt size — 1.3 s below 20 k tokens, 4.1 s at 80 k; prompt p50 35 k, output
+p50 **20 tokens**).  Most turns are one tiny tool call carrying a 35–70 k context; prefix caching
+already covers 84 % of input tokens, so the cost is round trips, not tokens.  The BASELINE session
+hits the 60-turn cap in every run (write_file 22.5, build 8, read_file 7.5, check_connectivity 4.6,
+check_contract 4.1 per session); REFINE sessions (5.3/run, 24 turns median) read_file 5.2, build 5.1,
+write_file 4.6, check_connectivity 3.8, check_contract 2.8.  Capping turns is NOT the lever (§17).
+So, behind one switch, default OFF: (1) `build` folds check_connectivity + check_contract into its
+observation (~44 turns/run); (2) write_file / edit_file return `(N lines) · syntax OK` or the first
+3 lint errors instead of being read back (~35 turns/run); (3) a scoped refine task ≤ 3 files /
+≤ 12 k chars gets its files inlined; (4) the baseline prompt asks for every file in turn one.
+Run: `python bench/ab_plan.py --prompts bench/prompts/turns_v1.yaml --out bench/out/turns_v1 --pin-plan --variant-env CV3D_FEWER_TURNS=1 --generator api-agent:gemini:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --rounds 3 --max-minutes 120 --max-in-flight 8 --allow-siblings`
+Read out, paired per prompt: wall (s), turns per session (baseline / refine), model calls per run,
+score (control vs variant, sign count) — and whether the baseline session still hits the cap.

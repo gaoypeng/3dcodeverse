@@ -148,8 +148,9 @@ def _section(label: str, path: str, entries: list[RunEntry], hidden: set[str], u
 
 def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcv gallery",
                  flt: dict[str, str] | None = None, sort: str = "score", view: str = "cards",
-                 note: str = "") -> str:
-    """The whole index page as one HTML document."""
+                 note: str = "", extra_html: str = "") -> str:
+    """The whole index page as one HTML document.  ``extra_html`` (already
+    escaped markup, e.g. bench/report.py's stats tables) goes under the summary strip."""
     flt = {k: (flt or {}).get(k, "") for k in FILTER_KEYS}
     all_entries = index.entries()
     selected = [e for e in all_entries if match(e, flt)]
@@ -169,6 +170,7 @@ def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcv gall
         + "<main class='wrap'>"
         + (f"<p class='small muted'>{esc(note)}</p>" if note else "")
         + _summary_strip(selected, len(all_entries))
+        + extra_html
         + _controls(index, flt, sort)
         + sections + empty + "</main>"
         + (_bulk_bar() if urls.has_detail else "")

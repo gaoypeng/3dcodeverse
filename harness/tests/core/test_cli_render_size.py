@@ -16,6 +16,7 @@ import pytest
 from typer.testing import CliRunner
 
 import codeverse.spatial.render as R
+import codeverse.spatial.render_scene as RS
 from codeverse.cli.main import app
 from codeverse.contracts.artifacts import RenderSet
 from codeverse.contracts.common import Backends, Language, Track
@@ -51,7 +52,7 @@ def captured(monkeypatch) -> dict[str, Any]:
         return RenderSet(views=[], renderer="fake")
 
     monkeypatch.setattr(R, "_run_render", fake_run_render)
-    monkeypatch.setattr(R, "render_scene", fake_scene)
+    monkeypatch.setattr(RS, "render_scene", fake_scene)
     return seen
 
 

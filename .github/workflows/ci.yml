@@ -21,27 +21,27 @@ jobs:
         working-directory: harness
 
   tests:
-    # THE TWO ENDS OF THE SUPPORTED RANGE: 3.10 is the floor in pyproject's
-    # requires-python (and ruff's target-version), 3.13 is what the harness is
-    # developed and measured on.  Anything in between is covered by both ends
-    # agreeing; anything outside is not supported.  The floor job is the one that
-    # catches a 3.11+ stdlib name or a PEP 695 annotation sneaking in (see
-    # codeverse/_compat.py and tests/core/test_portability.py).
+    # ONE JOB, ONE VERSION.  3.13 is pyproject's requires-python and ruff's
+    # target-version (the owner fixed a single version on 2026-08-26; the 3.12
+    # floor and its LTS argument are gone), so this job tests exactly what the
+    # package claims and the claim cannot drift untested.  It was a 3.10 + 3.13 matrix until 2026-08-25;
+    # across every failure it ever saw, both jobs failed identically — the source
+    # level is already covered by tests/core/test_portability.py, which is static
+    # and runs anywhere, so the second interpreter only ever reported one bug
+    # twice.  What the real interpreter DOES buy is the install step below: proof
+    # that the dependency set still resolves on the floor.  Development happens on
+    # 3.13; ruff's target-version keeps 3.13-only idiom out of the source.
     # Node is not installed on the runner, so the node floor (20.6.0, see
     # runtime_js/package.json "engines") is only checked by the version logic in
     # tests/core/test_portability.py — the `node`-marked tests are deselected below.
-    name: offline tests (py${{ matrix.python-version }})
+    name: offline tests (py3.13 — the one supported version)
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.13"
           cache: pip
       - name: Install the harness (no Blender / node / GPU on the runner)
         run: pip install -e ./harness[dev]

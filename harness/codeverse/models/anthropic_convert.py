@@ -12,8 +12,6 @@ Model-family rules (Anthropic API, 2026-08):
 from __future__ import annotations
 
 import json
-import threading
-from collections import OrderedDict
 from typing import Any
 
 from codeverse.contracts.chat import (
@@ -26,7 +24,7 @@ from codeverse.contracts.chat import (
     ToolSpec,
 )
 from codeverse.models.base import ModelError
-from codeverse.models.parts import image_b64
+from codeverse.models.parts import BoundedCache, image_b64
 from codeverse.models.schema_utils import to_anthropic_schema
 
 SUBMIT_TOOL = "submit"
@@ -62,31 +60,10 @@ def sampling_allowed(model: str) -> bool:
     return not any(tok in m for tok in _NO_SAMPLING)
 
 
-class _ThinkingCache:
-    """Assistant turns that contain tool calls must be replayed WITH their
-    thinking blocks on the next request.  ``ToolCallPart`` cannot carry them,
-    so we remember the blocks under the first tool-call id (bounded LRU)."""
-
-    def __init__(self, capacity: int = 2048) -> None:
-        self._d: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
-        self._cap = capacity
-        self._lock = threading.Lock()
-
-    def put(self, call_id: str, blocks: list[dict[str, Any]]) -> None:
-        if not blocks:
-            return
-        with self._lock:
-            self._d[call_id] = blocks
-            self._d.move_to_end(call_id)
-            while len(self._d) > self._cap:
-                self._d.popitem(last=False)
-
-    def get(self, call_id: str) -> list[dict[str, Any]]:
-        with self._lock:
-            return list(self._d.get(call_id, []))
-
-
-THINKING_BLOCKS = _ThinkingCache()
+#: Assistant turns that contain tool calls must be replayed WITH their
+#: thinking blocks on the next request.  ``ToolCallPart`` cannot carry them,
+#: so we remember the blocks under the first tool-call id (bounded LRU).
+THINKING_BLOCKS: BoundedCache[list[dict[str, Any]]] = BoundedCache(2048)
 
 
 # ------------------------------------------------------------------ messages
@@ -135,7 +112,7 @@ def to_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
         if not blocks:
             continue
         if role == "assistant" and first_call_id:
-            blocks = THINKING_BLOCKS.get(first_call_id) + blocks
+            blocks = list(THINKING_BLOCKS.get(first_call_id) or []) + blocks
         if out and out[-1]["role"] == role:
             out[-1]["content"].extend(blocks)
         else:

@@ -33,11 +33,13 @@ from codeverse.agents.cli_common import (
     failed,
     finish_session,
     hardened_env,
+    invoke,
     is_quota_failure,
     is_transient_failure,
     tail,
+    watchdog_error,
 )
-from codeverse.agents.watchdog import CompletedProc, run_with_watchdog
+from codeverse.agents.watchdog import CompletedProc
 from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Usage
@@ -52,7 +54,6 @@ SYSTEM_SETTINGS = {
     "experimental": {"dynamicModelConfiguration": True},
     "general": {"topicUpdateNarration": False},
 }
-IDLE_GRACE_S = 300.0
 #: how long a retry waits for a *different* healthy key before reusing the same one
 RETRY_KEY_WAIT_S = 10.0
 
@@ -214,19 +215,8 @@ class GeminiCliAgent:
         )
 
     def _invoke(self, s: Session, prompt: str, key: str, *, attempt: int) -> CompletedProc:
-        argv = self.build_argv(prompt)
-        env = self.build_env(s, key)
-        s.traj.append("invoke", attempt=attempt, argv=[a if a != prompt else f"<prompt {len(prompt)} chars>" for a in argv],
+        return invoke(s, self.build_argv(prompt), self.build_env(s, key), prompt=prompt, attempt=attempt,
                       model=self.model, key_tail=key[-4:])
-        proc = run_with_watchdog(
-            argv, cwd=s.ws.root, env=env, soft_timeout_s=s.job.timeout_s, idle_grace_s=IDLE_GRACE_S,
-            on_line=lambda stream, line: s.traj.append("line", stream=stream, text=line[:4000]),
-            activity_dirs=[s.ws.src, s.ws.public],
-        )
-        suffix = "" if attempt == 1 else f".{attempt}"
-        s.traj.write_text(f"stdout{suffix}.json", proc.stdout)
-        s.traj.write_text(f"stderr{suffix}.log", proc.stderr)
-        return proc
 
     def _interpret(self, s: Session, proc: CompletedProc) -> dict[str, Any]:
         parsed = parse_gemini_json(proc.stdout)
@@ -241,7 +231,7 @@ class GeminiCliAgent:
                                "session_id": (parsed or {}).get("session_id", "")}
         if proc.timed_out:
             out["exit_reason"] = "timeout"
-            errors.append(f"killed by watchdog ({proc.killed_reason}) after {proc.duration_s:.0f}s")
+            errors.append(watchdog_error(proc))
             return out
         if served and self.model not in served:
             out["exit_reason"] = "model_substituted"

@@ -1,0 +1,41 @@
+name: h2h_scene_v1
+track: scene
+language: scene_threejs
+description: >
+  Head-to-head SCENE battery: 5 prompts taken VERBATIM from the owner's previous
+  harnesses (scene_multifile x4, scene_multifile_graphics x1; prompts/input.md of
+  each output, whole file, nothing stripped).  must_have is deliberately EMPTY so
+  neither side is scored against a checklist the other never saw; the fixed judge
+  is bench/h2h_scene.py (scene_v1, gemini-3.1-pro-preview, n=2) over both sides'
+  authored-camera stills.
+prompts:
+  - id: h2h_bb1_bigben
+    tier: hard
+    category: landmark
+    tags: [h2h, scene_multifile, bb1_bigben]
+    prompt: |-
+      Westminster at golden hour seen from the south bank of the Thames: Big Ben's clock tower rising over the Houses of Parliament with its full gothic riverfront facade, Westminster Bridge crossing the foreground with red double-decker buses and black cabs in traffic, the London Eye downstream catching the light, river boats mid-crossing, wrought-iron lamp posts and crowds of tourists along both embankments, the river alive with reflections, pigeons wheeling over the water.
+  - id: h2h_co1_colosseum
+    tier: hard
+    category: landmark
+    tags: [h2h, scene_multifile, co1_colosseum]
+    prompt: |-
+      The Roman Colosseum at midday, seen whole from the Piazza del Colosseo: the full elliptical amphitheatre with its four tiers, arched arcades ringing every level, the broken upper ring exposing the inner wall, travertine gleaming, the hypogeum passages visible through the open arena floor, tour groups and street vendors around the base, horse carriages and scooters on the cobbled piazza, umbrella pines and the Arch of Constantine to one side, hard Mediterranean shadows.
+  - id: h2h_ct2_x_bookstore
+    tier: easy
+    category: interior
+    tags: [h2h, scene_multifile, ct2_x_bookstore]
+    prompt: |-
+      A cozy bookstore interior with warm lighting, tall shelves of books, and a reading nook
+  - id: h2h_ct2_wg_cyberpunk
+    tier: easy
+    category: urban
+    tags: [h2h, scene_multifile, ct2_wg_cyberpunk]
+    prompt: |-
+      A neon-lit cyberpunk street with rain reflections
+  - id: h2h_b01_neon_alley
+    tier: medium
+    category: urban
+    tags: [h2h, scene_multifile_graphics, b01_neon_alley]
+    prompt: |-
+      A narrow city alley at night full of neon signs, their light thrown onto the wet road and the facing wall, steam from a vent, a few people walking.

@@ -7,7 +7,9 @@ so n-sample mean/std measures judge noise.  With ``n_samples > 1`` the model
 calls run in parallel (``codeverse.fanout``); results accumulate in sample order.  Score/defect penalties/floors/caps
 /pass are computed in code (``scoring.py``).  Images are ≤2×2 montages
 (``montage.py``); tracks may pass a clay/normals ``geometry_views`` RenderSet.  Retries: up to
-``max_attempts`` per sample on ``ModelError`` / parse failure; if no sample
+``max_attempts`` per sample on ``ModelError`` / parse failure, all of them inside one
+``sample_budget_s`` (:data:`SAMPLE_BUDGET_S`) that also clips the model's own retry
+deadline (``ChatRequest.max_wait_s``); if no sample
 succeeds, a *degraded* Judgment (``passed=False, overall=0, summary
 'judge_error: …'``, ``raw.status='degraded'``) is returned for the orchestrator
 to treat as a glitch, never as a score.
@@ -41,6 +43,15 @@ from codeverse.models.base import ChatModel, ModelError
 
 log = logging.getLogger(__name__)
 
+#: retry budget for ONE judge sample, every attempt included.  The verdict call is 42 s
+#: p50 / 73 s p90 on a normal day and 50 / 103 s under a storm (audit 2026-08-26 §2), so
+#: 240 s is ~2.3x the storm p90.  It replaces 3 x (a 300 s read timeout + the model's 900 s
+#: retry deadline): two storm-day rounds lost 1 162 s and 927 s that way (three 300 s
+#: timeouts each) before a second sample answered in 128 s.
+SAMPLE_BUDGET_S = 240.0
+#: the floor of one attempt's ``max_wait_s``: a last attempt still gets a real try
+SAMPLE_MIN_WAIT_S = 20.0
+
 
 @dataclass
 class JudgeContext:
@@ -71,6 +82,7 @@ class VlmJudge:
         chat_model: ChatModel | None = None,
         cache_dir: Path | None = None,
         label: str = "judge",
+        sample_budget_s: float | None = None,
     ):
         self.rubric: Rubric = rubric if isinstance(rubric, Rubric) else load_rubric(rubric)
         self.model_id = model_id or get_settings().default_judge
@@ -81,6 +93,7 @@ class VlmJudge:
         self.temperature = temperature
         self.thinking = thinking
         self.max_attempts = max(1, int(max_attempts))
+        self.sample_budget_s = SAMPLE_BUDGET_S if sample_budget_s is None else float(sample_budget_s)
         # payload size: the profile's dial (Settings.judge) unless the caller states one
         jd = get_settings().judge
         self.max_montages = max(1, int(jd.montages if max_montages is None else max_montages))
@@ -189,8 +202,17 @@ class VlmJudge:
     ) -> tuple[JudgeOutput | None, Usage, str]:
         usage = Usage()
         last = ""
+        t_start = time.monotonic()
         for attempt in range(1, self.max_attempts + 1):
-            t0 = time.time()
+            remaining = self.sample_budget_s - (time.monotonic() - t_start)
+            if remaining <= 0:
+                last = (f"sample budget of {self.sample_budget_s:.0f}s spent after {attempt - 1} attempt(s)"
+                        + (f"; last: {last}" if last else ""))
+                log.warning("judge %s: %s", req.label, last[:300])
+                break
+            # the model may retry inside this call, never past what the sample can still afford
+            req = req.model_copy(update={"max_wait_s": max(SAMPLE_MIN_WAIT_S, remaining)})
+            t0 = time.monotonic()
             try:
                 resp: ChatResponse = self.model.generate(req)
             except ModelError as e:
@@ -203,7 +225,7 @@ class VlmJudge:
             payload = resp.parsed if resp.parsed is not None else resp.text
             try:
                 out = parse_judge_output(payload, self.rubric, acceptance_ids, measured_scores=measured)
-                log.debug("judge %s ok in %.1fs", req.label, time.time() - t0)
+                log.debug("judge %s ok in %.1fs", req.label, time.monotonic() - t0)
                 return out, usage, ""
             except JudgeParseError as e:
                 last = f"parse(attempt {attempt}): {e}"

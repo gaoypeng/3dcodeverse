@@ -1,0 +1,32 @@
+name: h2h_brilliana_v1_cadquery
+track: static_object
+language: cadquery
+description: >
+  Head-to-head vs the astra3d-brilliana curated gallery (showcase_tier=confirmed,
+  template=cadquery_baseline).  Prompts verbatim, must_have empty on purpose.
+  (tlr-camera was skipped: its stored prompt is truncated at 200 chars.)
+prompts:
+  - id: h2h_gate_valve_lr
+    tier: medium
+    category: mechanical
+    prompt: a gate valve with a handwheel and bolted flanges
+    must_have: []
+    tags: [h2h, brilliana, gate-valve-lr]
+  - id: h2h_telescope
+    tier: medium
+    category: instruments
+    prompt: a brass refractor telescope on a wooden tripod, a long cylindrical tube with focus knobs, an eyepiece, a small finder scope, an adjustable altazimuth mount, antique scientific instrument
+    must_have: []
+    tags: [h2h, brilliana, telescope]
+  - id: h2h_c_clamp_mv
+    tier: medium
+    category: tools
+    prompt: a C-clamp with a threaded screw and swivel pad
+    must_have: []
+    tags: [h2h, brilliana, c-clamp-mv]
+  - id: h2h_pipe_tee_c5
+    tier: medium
+    category: mechanical
+    prompt: a pipe tee fitting with bolted flanges on all three ends
+    must_have: []
+    tags: [h2h, brilliana, pipe-tee-c5]

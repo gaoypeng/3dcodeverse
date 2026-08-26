@@ -426,3 +426,64 @@ def test_report_only_reads_the_same_rows_the_live_driver_wrote(tmp_path: Path):
     assert arm_summary(loaded, VARIANT).mean_score == 0.80
     assert arm_summary(loaded, VARIANT).n == 1 and arm_summary(loaded, VARIANT).n_infra_failed == 0
     assert [r for r in loaded if r.status == "infra_failed"] == [], "a redone cell is not still lost"
+
+
+def test_report_only_uses_the_runs_own_options_not_this_invocations_flags(tmp_path):
+    """`--report-only` is typed without --variant-env, and the report is what people read.
+
+    Rebuilding it from the bare flags relabelled a real A/B as "variant env: (none)" — an
+    A/A — in the one file that outlives the run.
+    """
+    import json
+
+    from bench.ab_plan import AbOptions, _stored_options
+
+    out = tmp_path / "run"
+    out.mkdir()
+    opts = AbOptions(variant_env={"CV3D_SKILLS": "on"}, rounds=1, generator="api-agent:gemini:x")
+    (out / "ab.json").write_text(json.dumps({"options": json.loads(opts.model_dump_json())}))
+
+    got = _stored_options(out)
+    assert got is not None
+    assert got.variant_env == {"CV3D_SKILLS": "on"} and got.rounds == 1
+
+
+def test_report_only_survives_a_run_dir_with_no_or_broken_ab_json(tmp_path):
+    from bench.ab_plan import _stored_options
+
+    assert _stored_options(tmp_path) is None
+    (tmp_path / "ab.json").write_text("{not json")
+    assert _stored_options(tmp_path) is None
+    (tmp_path / "ab.json").write_text('{"no options key": 1}')
+    assert _stored_options(tmp_path) is None
+
+
+def test_a_pinned_plan_that_dies_in_a_storm_records_the_pair_and_continues(tmp_path: Path, monkeypatch):
+    """The pinned plan is ONE model call with a 15-minute retry budget. When a 503 storm
+    outlasts it the call raises — and that used to propagate out of run_ab's loop and end
+    the whole battery. Measured 2026-08-26: a 3-prompt driver died on its first pin, two
+    prompts never attempted, while the drivers beside it waited the storm out. An outage is
+    not a score (docs/EVAL.md §7): the pair is recorded infra_failed so --redo-status
+    infra_failed picks it up, and the loop goes on."""
+    from bench import ab_plan as ab
+    from codeverse.models.base import ModelError
+
+    b = Battery.load(BATTERY)
+    ids = [p.id for p in b.prompts[:2]]
+    fake = FakeCells({(ids[1], VARIANT): 0.6})
+    dead = {ids[0]}
+
+    def stormy_pin(battery, item, out, arms, opts):
+        if item.id in dead:
+            raise ModelError("Gemini API error 503: This model is currently experiencing high demand.")
+        return "h1"
+
+    monkeypatch.setattr(ab, "pin_pair", stormy_pin)
+    opts = AbOptions(variant_env={"CV3D_SKILLS": "1"}, pin_plan=True, ids=ids)
+    run_ab(BATTERY, tmp_path, opts, run_cell_fn=fake)
+
+    rows = load_jsonl(tmp_path / "results.jsonl", CellResult)
+    first = [r for r in rows if r.prompt_id == ids[0]]
+    assert {r.arm for r in first} == {CONTROL, VARIANT} and all(r.status == "infra_failed" for r in first)
+    assert all("pinned plan" in r.error for r in first)
+    assert [c[0] for c in fake.calls] == [ids[1], ids[1]], "no cell was spent on the dead pair; the next prompt ran"

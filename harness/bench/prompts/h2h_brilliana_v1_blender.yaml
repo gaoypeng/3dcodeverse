@@ -1,0 +1,39 @@
+name: h2h_brilliana_v1_blender
+track: static_object
+language: blender
+description: >
+  Head-to-head vs the astra3d-brilliana curated gallery (showcase_tier=confirmed,
+  template=blender_baseline).  Prompts are THEIR prompts verbatim, must_have left
+  empty on purpose so the brief is identical to what their run saw.  Both GLBs are
+  then judged by bench/h2h_glb.py with one fixed judge.
+prompts:
+  - id: h2h_microscope_x1b
+    tier: medium
+    category: instruments
+    prompt: a laboratory optical microscope with stage, eyepiece and focus knobs
+    must_have: []
+    tags: [h2h, brilliana, microscope-x1b]
+  - id: h2h_deskfan_v2b
+    tier: medium
+    category: appliances
+    prompt: a retro desk fan with wire cage and tilting head
+    must_have: []
+    tags: [h2h, brilliana, deskfan-v2b]
+  - id: h2h_espresso_bl
+    tier: medium
+    category: appliances
+    prompt: a chrome espresso machine with portafilter, steam wand and cup tray
+    must_have: []
+    tags: [h2h, brilliana, espresso-bl]
+  - id: h2h_office_chair_lr
+    tier: medium
+    category: furniture
+    prompt: a modern ergonomic office chair with five caster wheels
+    must_have: []
+    tags: [h2h, brilliana, office-chair-lr]
+  - id: h2h_street_lamp_bl
+    tier: medium
+    category: lighting
+    prompt: a Victorian cast-iron street lamp with three frosted globes
+    must_have: []
+    tags: [h2h, brilliana, street-lamp-bl]

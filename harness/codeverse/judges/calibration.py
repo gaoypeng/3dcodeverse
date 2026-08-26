@@ -27,17 +27,19 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse.contracts.artifacts import RenderSet
+from codeverse.contracts.common import TRACK_INFO
 from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.run import RoundRecord
 from codeverse.contracts.spec import Spec
 from codeverse.judges.base import JudgeInput
+from codeverse.judges.replay_input import judged_subset, plan_digest, resolve_paths
 from codeverse.judges.scoring import is_degraded
 from codeverse.judges.vlm_judge import VlmJudge
+from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-TRACK_RUBRIC = {"static_object": "static_object_v1", "articulated_object": "articulated_v1", "scene": "scene_v1"}
 GEOMETRY_VIEW_NAMES = ("front_right_34", "back_left_34", "top", "low_front_left")
 
 
@@ -124,35 +126,6 @@ class CalibrationTable(BaseModel):
 
 
 # --------------------------------------------------------------------------- loading runs
-def plan_digest(plan: dict[str, Any]) -> str:
-    """A track-agnostic plan summary (parts / joints / zones / assets / cameras) from ``plan.json``."""
-    bits: list[str] = []
-    title = plan.get("object_name") or plan.get("title") or ""
-    if title:
-        bits.append(f"{title}: {plan.get('summary', '')}".strip())
-    bbox = plan.get("overall_bbox") or {}
-    if isinstance(bbox, dict) and bbox.get("extents"):
-        e = bbox["extents"]
-        bits.append(f"Overall {e[0]:.2f}×{e[1]:.2f}×{e[2]:.2f} m.")
-    parts = plan.get("parts") or []
-    if parts:
-        bits.append("Parts: " + ", ".join(f"{p['name']}×{p['instances']}" if p.get("instances", 1) > 1 else p["name"] for p in parts) + ".")
-    if plan.get("root_link"):
-        bits.append(f"Root link {plan['root_link']}.")
-    joints = plan.get("joints") or []
-    if joints:
-        bits.append("Joints: " + "; ".join(
-            f"{j['name']} ({j.get('type', '?')} {j.get('parent', '?')}→{j.get('child', '?')}, [{j.get('lower', 0):.2f},{j.get('upper', 0):.2f}])"
-            for j in joints) + ".")
-    for key, label in (("zones", "Zones"), ("assets", "Assets"), ("cameras", "Cameras")):
-        items = plan.get(key) or []
-        if items:
-            bits.append(f"{label}: " + ", ".join(str(i.get("name", "?")) for i in items) + ".")
-    if plan.get("setting"):
-        bits.append(f"Setting: {plan['setting']}.")
-    return " ".join(bits)
-
-
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
@@ -166,6 +139,7 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
     best = record.get("best_round")
     acceptance = plan.get("acceptance") or []
     digest = plan_digest(plan)
+    ws = Workspace(run_dir)
     glb = run_dir / "artifacts" / "object.glb"
     cases: list[RoundCase] = []
     for path in sorted((run_dir / "rounds").glob("r*.json")):
@@ -174,9 +148,10 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
             continue
         if rec.renders is None or not rec.renders.views:
             continue
-        rubric = rec.judgment.rubric if rec.judgment else TRACK_RUBRIC.get(spec.track.value, "static_object_v1")
+        rubric = rec.judgment.rubric if rec.judgment else TRACK_INFO[spec.track].rubric
+        # the same views, at the same paths, that the in-run judge and `3dcv judge` see
         inp = JudgeInput(
-            spec=spec, renders=rec.renders, measurement=rec.measurement, gates=rec.gates,
+            spec=spec, renders=judged_subset(resolve_paths(ws, rec.renders)), measurement=rec.measurement, gates=rec.gates,
             acceptance=[AcceptanceItem.model_validate(a) for a in acceptance], plan_summary=digest,
             round_index=rec.index,
         )

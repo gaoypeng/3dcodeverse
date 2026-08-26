@@ -48,11 +48,20 @@ def bucket_rows(buckets: Sequence[CostBucket], total: float) -> list[list[object
             b.key, _usd(b.cost_usd), f"{100 * b.cost_usd / total:.1f}%" if total else "-",
             f"{b.n_calls:,}", _tok(b.input_tokens), f"{100 * b.cached_fraction:.0f}%",
             _tok(b.output_tokens), f"${b.usd_per_1k_tokens:.5f}", f"{b.latency_ms / 3.6e6:.1f} h",
+            f"{b.attempts_per_call:.2f}" if b.n_attempted else "-",
         ])
     return rows
 
 
-BUCKET_HEADERS = ("key", "USD", "share", "calls", "input", "cached", "output", "$/1k tok", "model time")
+BUCKET_HEADERS = ("key", "USD", "share", "calls", "input", "cached", "output", "$/1k tok", "model time",
+                  "tries/call")
+
+
+def keyed_buckets(audit: Audit) -> list[CostBucket]:
+    """Per-API-key buckets (``CallCost.key``), most calls first; empty for ledgers
+    written before the key suffix was recorded (2026-08-26)."""
+    return sorted((b for b in audit.summary.dimension("key").values() if b.key != "(none)"),
+                  key=lambda b: -b.n_calls)
 
 
 def dimension_table(audit: Audit, dim: str, *, limit: int | None = None, order: Sequence[str] = ()) -> str:
@@ -105,6 +114,8 @@ def markdown(audit: Audit, *, title: str = "Cost audit") -> str:
                                 ("track", "Per track", ()), ("backend", "Per backend", ()),
                                 ("model", "Per model", ())):
         parts += ["", f"## {heading}", "", dimension_table(audit, dim, order=order)]
+    if keyed_buckets(audit):
+        parts += ["", "## Per API key (last 4 chars)", "", dimension_table(audit, "key")]
     parts += ["", "## Most expensive runs", "", runs_table(audit)]
     parts += ["", "## Where a dollar bought nothing", "", waste_table(audit)]
     parts += ["", "## Model time per stage", "",
@@ -133,6 +144,11 @@ def console(audit: Audit) -> str:
     lines += ["", "role:"]
     for b in audit.summary.ranked("role"):
         lines.append(f"  {b.key:<12} {_usd(b.cost_usd):>10}  {100 * b.cost_usd / audit.total_usd:5.1f}%")
+    if keyed := keyed_buckets(audit):
+        lines += ["", "key (last 4 chars):"]
+        for b in keyed:
+            lines.append(f"  {b.key:<8} {b.n_calls:>6,} calls  {_usd(b.cost_usd):>10}  "
+                         f"tries/call {b.attempts_per_call:.2f}  model time {b.latency_ms / 6e4:.0f} min")
     lines += ["", "waste:"]
     for k, (n, usd) in audit.waste_by_kind().items():
         lines.append(f"  {k:<20} {n:>3}  {_usd(usd):>10}")

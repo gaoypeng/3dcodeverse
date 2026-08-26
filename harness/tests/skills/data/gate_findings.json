@@ -1,0 +1,314 @@
+{
+ "source": "bench/out/**/artifacts/gates/**/*.json — 2,113 gate reports, mined 2026-08-25",
+ "note": "Real WARN/ERROR gate messages, one row per distinct message shape (up to 6 per defect kind, including the shortest and longest shape seen).  finding_kind() must classify every row: an `unknown` here means a gate reword has silently unrouted a repair skill.  INFO findings are excluded on purpose — they are census, not defects.",
+ "n_shapes_mined": 113,
+ "findings": [
+  {
+   "gate": "connectivity",
+   "severity": "error",
+   "message": "part 'door_leaf' is floating: nearest supported part is 'frame' at 4.0 mm",
+   "n": 262,
+   "kind": "connectivity/floating_part"
+  },
+  {
+   "gate": "connectivity",
+   "severity": "warn",
+   "message": "'Leg_2' and 'Seat' interpenetrate by ≈5.0 mm (3% of surface samples inside)",
+   "n": 5406,
+   "kind": "connectivity/interpenetration"
+  },
+  {
+   "gate": "connectivity",
+   "severity": "error",
+   "message": "GLB has no mesh parts",
+   "n": 0,
+   "kind": "connectivity/no_geometry",
+   "origin": "codeverse source (gate not yet represented in bench/out)"
+  },
+  {
+   "gate": "connectivity",
+   "severity": "warn",
+   "message": "no part touches the ground (z=0)",
+   "n": 0,
+   "kind": "connectivity/no_ground_contact",
+   "origin": "codeverse source (gate not yet represented in bench/out)"
+  },
+  {
+   "gate": "connectivity",
+   "severity": "warn",
+   "message": "part 'frame' contains 8 tiny disconnected island(s) (< 5% of the part size) — stray geometry",
+   "n": 2907,
+   "kind": "connectivity/stray_islands"
+  },
+  {
+   "gate": "contract",
+   "severity": "warn",
+   "message": "footprint centre is 4.6 cm off the up axis",
+   "n": 233,
+   "kind": "contract/footprint_offset"
+  },
+  {
+   "gate": "contract",
+   "severity": "error",
+   "message": "object floats 130.0 mm above the ground",
+   "n": 6,
+   "kind": "contract/ground_gap"
+  },
+  {
+   "gate": "contract",
+   "severity": "warn",
+   "message": "'BaseFootPlates' (all instances) bbox deviates from the plan (worst 1.1× tolerance)",
+   "n": 94,
+   "kind": "contract/instance_bbox"
+  },
+  {
+   "gate": "contract",
+   "severity": "error",
+   "message": "'Leg' (each instance) bbox deviates from the plan (worst 3.4× tolerance)",
+   "n": 224,
+   "kind": "contract/instance_bbox"
+  },
+  {
+   "gate": "contract",
+   "severity": "warn",
+   "message": "'ApexFinial': found 1 instance(s), plan asks for 2",
+   "n": 12,
+   "kind": "contract/instance_count"
+  },
+  {
+   "gate": "contract",
+   "severity": "error",
+   "message": "plan part 'WoodenPlatform' is missing from the GLB",
+   "n": 2,
+   "kind": "contract/missing_part"
+  },
+  {
+   "gate": "contract",
+   "severity": "warn",
+   "message": "overall bbox deviates from the plan (worst 1.1× tolerance)",
+   "n": 348,
+   "kind": "contract/overall_bbox"
+  },
+  {
+   "gate": "contract",
+   "severity": "warn",
+   "message": "part 'ConicalShade' bbox deviates from the plan (worst 2.2× tolerance)",
+   "n": 1386,
+   "kind": "contract/part_bbox"
+  },
+  {
+   "gate": "contract",
+   "severity": "warn",
+   "message": "scene geometry exceeds the planned bounds by x +2.1 m",
+   "n": 0,
+   "kind": "contract/scene_bounds",
+   "origin": "codeverse source (gate not yet represented in bench/out)"
+  },
+  {
+   "gate": "detail_drift",
+   "severity": "error",
+   "message": "part 'DraftingStoolLegs0' moved 8.9 mm / resized 16.9 mm during the detail round (tolerance 5 mm)",
+   "n": 10,
+   "kind": "detail_drift/part_moved"
+  },
+  {
+   "gate": "gl_frames",
+   "severity": "warn",
+   "message": "very large frame-to-frame change (max |Δ| 0.392); flicker or hard cuts",
+   "n": 6,
+   "kind": "gl_frames/motion_or_detail"
+  },
+  {
+   "gate": "gl_frames",
+   "severity": "warn",
+   "message": "very low visual detail (edge density 0.0000); the image is a near-flat gradient",
+   "n": 2,
+   "kind": "gl_frames/motion_or_detail"
+  },
+  {
+   "gate": "joint_sweep",
+   "severity": "error",
+   "message": "link 'moving_jaw' slides in 'fixed_jaw_body' (prismatic joint) but the meshes are 42.5 mm apart at rest — nothing physically connects them",
+   "n": 4,
+   "kind": "joint_sweep/disconnected"
+  },
+  {
+   "gate": "joint_sweep",
+   "severity": "warn",
+   "message": "link 'seat' hinges on 'main_frame' (revolute joint) but the meshes are 11.0 mm apart at rest — nothing physically connects them",
+   "n": 2,
+   "kind": "joint_sweep/disconnected"
+  },
+  {
+   "gate": "joint_sweep",
+   "severity": "warn",
+   "message": "links 'door_leaf' and 'lever_handle' overlap by 3.0 mm at pose rest",
+   "n": 51,
+   "kind": "joint_sweep/link_overlap"
+  },
+  {
+   "gate": "joint_sweep",
+   "severity": "error",
+   "message": "links 'shaft_and_handle' and 'rib_assembly1' overlap by 4.6 mm at pose crown_hinge1=-0.891,crown_hinge2=-1.17,crown_hinge3=-1.2,crown_hinge4=-0.228,crown_hinge5=-0.106,crown_hinge6=-0.48,runner_slide=0.191 (pose q={'runner_slide': 0.19108850619643628, 'crown_hinge1': -0.8908602092080782, 'crown_hinge2': -1.1700123007978425, 'crown_hinge3': -1.1998362846551944, 'crown_hinge4': -0.2278103081756676, 'crown_hinge5': -0.10643819572117952, 'crown_hinge6': -0.4799043535640406}) [approx: non-watertight mesh]",
+   "n": 78,
+   "kind": "joint_sweep/link_overlap"
+  },
+  {
+   "gate": "joint_sweep",
+   "severity": "error",
+   "message": "links 'table_top' and 'left_leg_frame' overlap by 5.4 mm at pose left_brace_elbow_joint=0.0778,left_brace_upper_joint=0.424,left_leg_joint=0.968,right_brace_elbow_joint=1.73,right_brace_upper_joint=1.28,right_leg_joint=0.0251 (pose q={'left_leg_joint': 0.9681817647286105, 'left_brace_upper_joint': 0.4235651406092764, 'left_brace_elbow_joint': 0.07784969547876991, 'right_leg_joint': 0.025122006003364224, 'right_brace_upper_joint': 1.2768342755444277, 'right_brace_elbow_joint': 1.7342355968276713})",
+   "n": 334,
+   "kind": "joint_sweep/link_overlap"
+  },
+  {
+   "gate": "joint_sweep",
+   "severity": "error",
+   "message": "links 'turret' and 'lower_arm' overlap by 2.9 mm at pose elbow_joint=-1.01,head_tilt_joint=-0.967,shoulder_joint=-0.241,swivel_joint=0.548 (pose q={'swivel_joint': 0.5478467492858172, 'shoulder_joint': -0.241079353346475, 'elbow_joint': -1.0098582473403717, 'head_tilt_joint': -0.9669447289429418})",
+   "n": 48,
+   "kind": "joint_sweep/link_overlap"
+  },
+  {
+   "gate": "lint:blender",
+   "severity": "warn",
+   "message": "bpy.context.selected_objects is unreliable in background mode (often empty)",
+   "n": 18,
+   "kind": "lint/api_trap"
+  },
+  {
+   "gate": "lint:blender",
+   "severity": "warn",
+   "message": "bpy.ops.object.join needs all parts selected + an active object; the result inherits the ACTIVE object's transform",
+   "n": 231,
+   "kind": "lint/api_trap"
+  },
+  {
+   "gate": "lint:blender",
+   "severity": "warn",
+   "message": "bpy.ops.object.modifier_apply needs the object active+selected in OBJECT mode",
+   "n": 94,
+   "kind": "lint/api_trap"
+  },
+  {
+   "gate": "lint:blender",
+   "severity": "warn",
+   "message": "no PascalCase object names found (e.g. obj.name = 'SeatCushion')",
+   "n": 122,
+   "kind": "lint/api_trap"
+  },
+  {
+   "gate": "lint:blender",
+   "severity": "warn",
+   "message": "src/parts/backrest_assembly.py is never imported by src/model.py → its part is not built",
+   "n": 144,
+   "kind": "lint/part_not_imported"
+  },
+  {
+   "gate": "lint:scene_threejs",
+   "severity": "warn",
+   "message": "GLSL declares/reads uTime but JS never binds it (uniforms: { uTime: { value: 0 } } and update .value in update(t))",
+   "n": 0,
+   "kind": "shader/compile_or_binding",
+   "origin": "codeverse source (gate not yet represented in bench/out)"
+  },
+  {
+   "gate": "lint:urdf",
+   "severity": "warn",
+   "message": "link 'rib_assembly1' never appears as a string in src/model.py — the wrapper looks for an object named exactly 'rib_assembly1'",
+   "n": 12,
+   "kind": "lint/link_name"
+  },
+  {
+   "gate": "motion_direction",
+   "severity": "warn",
+   "message": "motion check skipped: motion_direction_check: 'lower_latch_mount' is not a movable joint",
+   "n": 2,
+   "kind": "motion_direction/skipped"
+  },
+  {
+   "gate": "motion_direction",
+   "severity": "error",
+   "message": "elbow_joint: child 'upper_arm' moves (0.0, 0.48, 0.877) for q=+0.35; expected front (WRONG — flip the axis sign or swap limits). Plan says: \"upper arm articulates forward and back over a 126 degree range\"",
+   "n": 8,
+   "kind": "motion_direction/wrong_axis"
+  },
+  {
+   "gate": "motion_direction",
+   "severity": "error",
+   "message": "left_leg_joint: child 'left_leg_frame' moves (0.985, 0.0, 0.174) for q=+0.35; expected +y (WRONG — flip the axis sign or swap limits). Plan says: \"Left leg frame rotates clockwise (+Y axis) folding inward toward table center\"",
+   "n": 6,
+   "kind": "motion_direction/wrong_axis"
+  },
+  {
+   "gate": "motion_direction",
+   "severity": "error",
+   "message": "right_leg_joint: child 'right_leg_frame' moves (-0.985, 0.0, 0.174) for q=+0.35; expected -y (WRONG — flip the axis sign or swap limits). Plan says: \"Right leg frame rotates counter-clockwise (-Y axis) folding inward toward table center\"",
+   "n": 6,
+   "kind": "motion_direction/wrong_axis"
+  },
+  {
+   "gate": "motion_direction",
+   "severity": "error",
+   "message": "shade_joint: child 'lamp_shade' moves (0.0, 0.73, -0.683) for q=+0.35; expected up (WRONG — flip the axis sign or swap limits). Plan says: \"tilts lamp shade up and down at the arm tip\"",
+   "n": 1,
+   "kind": "motion_direction/wrong_axis"
+  },
+  {
+   "gate": "motion_direction",
+   "severity": "error",
+   "message": "shoulder_joint: child 'lower_arm' moves (0.0, 0.895, 0.445) for q=+0.35; expected up (WRONG — flip the axis sign or swap limits). Plan says: \"lower arm pitches up and down from 20 to 80 degrees elevation\"",
+   "n": 8,
+   "kind": "motion_direction/wrong_axis"
+  },
+  {
+   "gate": "render_console",
+   "severity": "warn",
+   "message": "low frame rate 10 fps",
+   "n": 3,
+   "kind": "render_console/slow_or_error"
+  },
+  {
+   "gate": "scene_frames",
+   "severity": "warn",
+   "message": "camera inside / touching geometry: inside ['CityTower', 'CityTower']",
+   "n": 2,
+   "kind": "scene_frames/camera_placement"
+  },
+  {
+   "gate": "scene_frames",
+   "severity": "error",
+   "message": "camera is 1.0 m BELOW the ground level (6.21 m)",
+   "n": 3,
+   "kind": "scene_frames/camera_placement"
+  },
+  {
+   "gate": "scene_frames",
+   "severity": "warn",
+   "message": "flat frame: one luminance band holds 100% of the pixels",
+   "n": 5,
+   "kind": "scene_frames/dark_or_flat"
+  },
+  {
+   "gate": "scene_frames",
+   "severity": "warn",
+   "message": "frame too dark: mean luminance 0.11, 36% of pixels near black",
+   "n": 11,
+   "kind": "scene_frames/dark_or_flat"
+  },
+  {
+   "gate": "shader_preflight",
+   "severity": "warn",
+   "message": "ShaderMaterial 'Water' ignores scene.fog (set fog: true, merge THREE.UniformsLib.fog, include fog_pars_fragment/fog_fragment)",
+   "n": 0,
+   "kind": "shader/compile_or_binding",
+   "origin": "codeverse source (gate not yet represented in bench/out)"
+  },
+  {
+   "gate": "shader_preflight",
+   "severity": "error",
+   "message": "ShaderMaterial 'Water' reads uTime but uniforms.uTime is missing",
+   "n": 0,
+   "kind": "shader/compile_or_binding",
+   "origin": "codeverse source (gate not yet represented in bench/out)"
+  }
+ ]
+}

@@ -55,7 +55,7 @@ class FakeEvaluator:
         self.evaluated: list[str] = []
         self.builds = 0
 
-    def build(self, ws: Workspace) -> tuple[BuildResult, GateReport]:
+    def build(self, ws: Workspace, language: object = None) -> tuple[BuildResult, GateReport]:
         self.builds += 1
         code = (ws.root / MODEL_FILE).read_text()
         lint = GateReport(gate="lint:blender", passed=True)

@@ -53,7 +53,56 @@ def missing_must_items(
     acceptance_items: list[AcceptanceItem], acceptance_results: dict[str, bool]
 ) -> list[str]:
     """Ids of ``must`` acceptance items that are not verified (missing counts as failed)."""
-    return [a.id for a in acceptance_items if a.priority == "must" and not acceptance_results.get(a.id, False)]
+    return [
+        a.id
+        for a in acceptance_items
+        if a.priority == "must" and not acceptance_results.get(a.id, False)
+    ]
+
+
+def measured_absent(rubric: Rubric, defect_id: str, gates: list[GateReport]) -> bool:
+    """True when a deterministic gate MEASURED the thing this checklist defect claims, and found nothing.
+
+    A checklist defect is a VLM's reading of a picture.  Some of them — a floating part, an
+    interpenetration — are also what a gate measures on the exported mesh, and the rubric
+    already says which: a ``when="gate"`` cap rule with the same id and a ``kinds`` list.
+    When every gate that rule watches ran and passed with no ERROR finding of those kinds,
+    the measurement contradicts the perception, and the perception must not cap.
+
+    Measured 2026-08-26 on a plan-pinned pair (fancy_v1 gas_street_lamp): the connectivity
+    gate said "all 9 parts connected, gap <= 2 mm"; the judge read the dark seam under the
+    pedestal as "floating in mid-air, a clear daylight gap", marked floating_part present, and
+    ``defect:floating_part`` capped the run at 0.6 (uncapped 0.72) against 0.96 for a sibling
+    the eye cannot tell apart.  CLAUDE.md law 3: gates decide geometry, the VLM is perception.
+
+    A defect with no matching gate rule (wrong_object, missing_named_part …) is never
+    overridden: nothing measured it.  A gate that did not run overrides nothing either.
+    """
+    rule = next(
+        (r for r in rubric.caps if r.when == "gate" and r.id == defect_id and r.kinds), None
+    )
+    if rule is None:
+        return False
+    watched = [g for g in gates if fnmatch(g.gate, rule.gate)]
+    if not watched:
+        return False
+    for g in watched:
+        if not g.passed:
+            return False
+        for f in g.findings:
+            if f.severity == Severity.ERROR and any(
+                k in (f.message or "").lower() for k in rule.kinds
+            ):
+                return False
+    return True
+
+
+def veto_measured_defects(
+    rubric: Rubric, defects: dict[str, bool], gates: list[GateReport]
+) -> tuple[dict[str, bool], list[str]]:
+    """``defects`` with every measured-absent one switched off, plus the ids switched off."""
+    overridden = [did for did, on in defects.items() if on and measured_absent(rubric, did, gates)]
+    return {did: (on and did not in overridden) for did, on in defects.items()}, overridden
 
 
 def apply_caps(
@@ -76,7 +125,14 @@ def apply_caps(
     """
     applied: list[CapApplied] = []
     for rule in rubric.caps:
-        evidence = _rule_evidence(rule, gates, acceptance_results, acceptance_items or [], console_errors or [], views or [])
+        evidence = _rule_evidence(
+            rule,
+            gates,
+            acceptance_results,
+            acceptance_items or [],
+            console_errors or [],
+            views or [],
+        )
         if evidence is not None:
             applied.append(CapApplied(rule=rule.id, cap=rule.cap, evidence=evidence))
     for did, present in (defects_present or {}).items():
@@ -87,7 +143,13 @@ def apply_caps(
         except KeyError:
             continue
         if item.cap is not None:
-            applied.append(CapApplied(rule=f"defect:{did}", cap=item.cap, evidence=f"judge checklist: {item.text[:120]}"))
+            applied.append(
+                CapApplied(
+                    rule=f"defect:{did}",
+                    cap=item.cap,
+                    evidence=f"judge checklist: {item.text[:120]}",
+                )
+            )
     capped = overall
     for a in applied:
         capped = min(capped, a.cap)

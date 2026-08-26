@@ -13,7 +13,7 @@ from typing import Any
 
 import typer
 
-from codeverse.cli._fmt import console, err
+from codeverse.cli._fmt import err
 from codeverse.config import get_settings
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import slugify
@@ -88,10 +88,18 @@ def make_slug(prompt: str, track: str, language: str, explicit: str | None = Non
 
 
 def create_workspace(root: Path, *, force: bool) -> Workspace:
+    from codeverse.runlock import RunLocked, assert_free
+
     ws = Workspace(root)
     if ws.root.exists() and any(ws.root.iterdir()):
         if not force:
             raise CliError(f"{ws.root} already exists; use --force to overwrite or --slug for a new name")
+        # --force overwrites a DEAD run, never a live one: the rmtree below would delete
+        # that process's lock file along with its workspace (codeverse/runlock.py)
+        try:
+            assert_free(ws.root)
+        except RunLocked as e:
+            raise CliError(str(e), code=2) from None
         shutil.rmtree(ws.root)
     ws.create()
     return ws
@@ -108,12 +116,6 @@ def parse_kv_floats(items: list[str], flag: str) -> dict[str, float]:
         except ValueError as e:
             raise CliError(f"{flag} {k}: not a number: {v!r}") from e
     return out
-
-
-def echo_json(obj: Any) -> None:
-    import json
-
-    console.print_json(json.dumps(obj, default=str, ensure_ascii=False))
 
 
 # --------------------------------------------------------------------------- cost profile

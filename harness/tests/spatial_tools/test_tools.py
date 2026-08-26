@@ -27,7 +27,7 @@ CORE_TOOLS = {"build", "measure", "render_views", "render_sheet", "isolate", "cr
 #: track- / language-scoped tools (documented; keep in sync when registering a new one)
 SCOPED_TOOLS = {
     "joint_sweep",  # articulated_object
-    "shader_probe", "scene_probe", "scene_views",  # scene_threejs
+    "shader_probe", "scene_probe", "scene_views", "check_placement",  # scene_threejs
     "gl_probe", "gl_frames",  # graphics (glsl_shader / opengl_python)
     "texture_pass", "texture_preview",  # object tracks (texturing)
 }
@@ -283,13 +283,13 @@ def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pyt
 
     calls = {}
 
-    def fake_check_shaders(ws):
+    def fake_check_shaders(ws, *, module=None, timeout_s=90.0):
         return GateReport(gate="shaders", passed=False, findings=[GateFinding(gate="shaders", severity=Severity.ERROR, target="src/shaders/water.js", message="ERROR: 0:12: 'vUv' undeclared", fix_hint="declare varying vec2 vUv")])
 
     def fake_probe_scene(ws, **kw):
         return {"census": {"meshes": 12, "lights": 2}, "fps": 58.0, "errors": []}
 
-    def fake_joint_sweep(ws, *, n_random=8, seed=0, render=True, out_dir=None, joint=None, expected_direction=None):
+    def fake_joint_sweep(ws, *, n_random=8, seed=0, render=True, out_dir=None, joint=None, expected_direction=None, joints=None):
         calls["n_random"], calls["joint"] = n_random, joint
         from codeverse.spatial.registry import Observation
         return Observation(ok=True, text="sweep ok", numbers={"poses": n_random})
@@ -369,3 +369,63 @@ def test_load_plan_recognises_graphics_plan(tmp_ws: Workspace) -> None:
     tmp_ws.write_json(tmp_ws.plan_path, plan)
     loaded = load_plan(tmp_ws.plan_path)
     assert isinstance(loaded, GraphicsPlan) and loaded.title == "Neon rain"
+
+
+# --------------------------------------------------------------------------- fewer_turns: build folds the gates in
+def _stool_plan_with_missing_backrest() -> StaticPlan:
+    return StaticPlan(object_name="Stool", summary="s", overall_bbox=BBox(center=(0, 0, 0.225), extents=(0.4, 0.4, 0.45)),
+                      parts=[PartPlan(name="Seat", role="r", description="d", bbox=BBox(center=(0, 0, 0.43), extents=(0.4, 0.4, 0.04))),
+                             PartPlan(name="Leg", role="r", description="d", bbox=BBox(center=(0, 0, 0.205), extents=(0.04, 0.04, 0.41)), instances=4),
+                             PartPlan(name="Backrest", role="r", description="d", bbox=BBox(center=(0, 0.18, 0.6), extents=(0.4, 0.03, 0.3)))])
+
+
+def test_build_folds_connectivity_and_contract_in_when_fewer_turns(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """docs/COST.md §29: ~25 check_connectivity + ~19 check_contract calls per run, each a 4 s
+    round trip for a < 0.5 s check.  With the switch on, one build observation carries both."""
+    monkeypatch.setenv("CV3D_FEWER_TURNS", "1")
+    ws = stool_ctx.workspace
+    ws.write_json(ws.plan_path, _stool_plan_with_missing_backrest())
+    _patch_runtime(monkeypatch, _FakeRuntime(glb=ws.artifacts / "object.glb"))
+    obs = get_tool("build").call(stool_ctx, {})
+    assert obs.ok and obs.text.startswith("BUILD OK")             # the build itself succeeded
+    head, verdict = obs.text.splitlines()[:2]
+    assert verdict.startswith("CHECKS: connectivity FAIL") and "contract FAIL" in verdict and "build again" in verdict
+    assert "CONNECTIVITY: FAIL" in obs.text and "Leg_3" in obs.text          # the floating leg, with its fix hint
+    assert "CONTRACT: FAIL" in obs.text and "Backrest" in obs.text and "missing" in obs.text
+    assert "fix:" in obs.text
+    assert obs.numbers["connectivity_errors"] >= 1 and obs.numbers["contract_errors"] >= 1
+    assert obs.numbers["checks_passed"] is False
+    assert len(obs.text) <= 3000                                    # the existing build limit holds
+    gates = ws.gates_dir(stool_ctx.round_index)
+    assert (gates / "connectivity_tool.json").is_file() and (gates / "contract_tool.json").is_file()
+    # the separate tools still exist for an agent that insists
+    assert {"check_connectivity", "check_contract"} <= {t.name for t in list_tools()}
+
+
+def test_build_folded_checks_pass_on_a_solid_stool(tmp_ws: Workspace, solid_stool_glb: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CV3D_FEWER_TURNS", "on")
+    (tmp_ws.artifacts / "object.glb").write_bytes(solid_stool_glb.read_bytes())
+    tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "static_object", "language": "blender", "prompt": "a stool"}))
+    ctx = ToolContext(workspace=tmp_ws, language="blender", track="static_object")
+    _patch_runtime(monkeypatch, _FakeRuntime(glb=tmp_ws.artifacts / "object.glb"))
+    obs = get_tool("build").call(ctx, {})
+    verdict = obs.text.splitlines()[1]
+    assert verdict.startswith("CHECKS: connectivity PASS") and "no separate check_connectivity" in verdict
+    assert "CONTRACT: skipped — no plan.json" in obs.text          # no plan → no contract, said so
+    assert obs.numbers["checks_passed"] is True and "contract_errors" not in obs.numbers
+
+
+def test_build_card_and_observation_are_unchanged_when_fewer_turns_is_off(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CV3D_FEWER_TURNS", raising=False)
+    ws = stool_ctx.workspace
+    ws.write_json(ws.plan_path, _stool_plan_with_missing_backrest())
+    _patch_runtime(monkeypatch, _FakeRuntime(glb=ws.artifacts / "object.glb"))
+    obs = get_tool("build").call(stool_ctx, {})
+    assert "CONNECTIVITY" not in obs.text and "CONTRACT" not in obs.text and "CHECKS:" not in obs.text
+    assert "checks_passed" not in obs.numbers
+    card_off = get_tool("build").card()
+    assert "check_connectivity" not in card_off
+    monkeypatch.setenv("CV3D_FEWER_TURNS", "1")
+    card_on = get_tool("build").card()
+    assert "do not call those two tools separately" in card_on and card_on.startswith(card_off.splitlines()[0][:40])
+    assert get_tool("build").description == get_tool("build").description   # the static text never changes

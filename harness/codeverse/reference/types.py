@@ -8,12 +8,11 @@ importing any model backend.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from codeverse._compat import UTC
 from codeverse.contracts.common import Usage
 
 #: The note stamped on every synthesized ``ReferenceImage``.  It travels into the

@@ -642,6 +642,14 @@ const campfireDemo = buildCampfire(THREE, { heightAt }); campfireDemo.userData.u
 Rules: ≤ 3 shadow-casting lights per scene (the sun + 1–2 heroes); decorative lights get
 `castShadow = false` and distance-limited falloff.
 
+Placement is MEASURED (`check_placement`; the `scene_placement` gate runs on every build): each
+direct child of your zone group is an asset; from its lowest vertices the harness looks down for the
+nearest surface and up for one passing through it.  Gap > 5 cm (2 cm indoors) → `floating`; foot
+> 10 cm under a surface → `sunken` (rocks/posts/bushes may sit half their height in the ground; a basin
+or pit never counts; a foot at/under water is fine); bbox touching nothing → `unsupported`; boxes sharing
+> 20 % → `interpenetration`.  Seat things with `heightAt(x, z)` and they pass.  A thing MEANT to hang in
+the air (bird, drone): `obj.userData.placement = 'free'` on it or its zone = exempt.  Instanced meshes are not checked.
+
 ## Assets (`src/assets/*.js`) and GLB assets from Blender
 
 ```js
@@ -934,8 +942,9 @@ Composition self-check on every authored frame (the judge grades exactly these):
 * shade is coloured (sky-tinted), not black; key and fill hues differ;
 * t=0 and t=1.5 are visibly different.
 
-Then: `build` → `scene_probe` (draws/tris/fps/console) → `scene_views` (authored cameras +
+Then: `build` → `check_placement` (floating/sunken/interpenetration + the fix per asset) → `scene_probe` (draws/tris/fps/console) → `scene_views` (authored cameras +
 overview rig, with `camera_checks`) → `shader_probe` if you wrote GLSL → fix the worst →
 repeat.  Look at every camera's frame AND its numbers: `mean_lum` ≥ 0.15 (no black frames),
 `blown_frac` ≤ 0.10 (no white-out), `content_frac` ≥ 0.25 on the establishing shot (the
-subject, not sky/ground, fills the frame), `camera_in_geometry` false, nothing floating.
+subject, not sky/ground, fills the frame), `camera_in_geometry` false, and `check_placement`
+clean (nothing floating, sunken or interpenetrating).

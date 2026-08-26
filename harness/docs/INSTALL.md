@@ -55,33 +55,29 @@ cd harness/runtime_js && npm ci && npx puppeteer browsers install chrome && cd .
 
 ### 2.1 Supported versions
 
-The harness is **developed and measured on python 3.13 / node 24**, and
-**supported down to python 3.10 / node 20.6** — both ends are installed from
-scratch and run in CI on every push (`.github/workflows/ci.yml`), so the floor is
-a tested claim, not an aspiration.
+One fixed Python version — **3.13** — by the owner's decision (2026-08-26): no floor, no
+matrix, no compatibility shims.  The harness is developed, measured and CI-tested on it
+(`.github/workflows/ci.yml`: one `offline tests (py3.13)` job on every push, so the claim in
+`requires-python` cannot drift untested).
 
-| component | floor | developed on | how the floor is enforced | what you lose at the floor |
-|---|---|---|---|---|
-| **python** | **3.10** | 3.13 | `requires-python = ">=3.10"` (pip refuses 3.9); ruff `target-version = "py310"`; CI matrix 3.10 + 3.13; `tests/core/test_portability.py` parses every module with `ast.parse(feature_version=(3, 10))` and bans direct imports of 3.11-only stdlib names | nothing — the offline suite is green on both (2110 passed of the 2116 selected, measured on 3.13; the few skips are data-dependent — recorded runs and bench batteries a fresh clone does not have — and on 3.10 the `enum.StrEnum` parity check skips as well, since it needs 3.11 to have something to compare against). Resolved deps are a little older (numpy 2.2 vs 2.4, scipy 1.15 vs 1.18, networkx 3.4 vs 3.6, cadquery 2.7 vs 2.8) and pip additionally installs `tomli` |
-| **node** | **20.6.0** | 24 (LTS) | `runtime_js/package.json` `engines.node`; `codeverse.spatial.node.NODE_MIN` fails every node workload with an actionable message; `3dcv doctor`'s `node` row; `scripts/setup.sh` | nothing. 20.6.0 is where `node --import` lands, which the `three` resolver hook needs; below 22.15 it registers the older async loader hooks (`lib/resolve_three_async.mjs`) instead of the in-thread ones — same resolutions, a few ms slower at startup.  Verified: all 93 `node`-marked tests (GLB export, headless-Chrome renders, scene probes, shader preflight) pass on node 20.19.5 |
-| **Blender** | 4.2 | 5.0.1 | runtime probe only (`Settings.resolve_blender()`) | untested below 4.2; the `blender` / `urdf_blender` languages are the only users |
-| **OS** | Linux x86_64 | WSL2 Ubuntu | — | macOS should work (pure-python + node + Blender; no code is Linux-specific except `resource.setrlimit` guards) but is **not** tested. Windows is not supported: use WSL2 |
+| component | version | how it is enforced | notes |
+|---|---|---|---|
+| **python** | **3.13** | `requires-python = ">=3.13"`; ruff `target-version = "py313"`; `PY_FLOOR` in `tests/core/test_portability.py`; `MIN_PY_MINOR` in `scripts/setup.sh` | the four places are pinned together by the portability test |
+| **node** | **20.6.0+** (developed on 24 LTS) | `runtime_js/package.json` `engines.node`; `codeverse.spatial.node.NODE_MIN` fails every node workload with an actionable message | 20.6 is the `--import` module-hook floor |
+| **Blender** | 4.2+ (developed on 5.0.1) | runtime probe only (`Settings.resolve_blender()`) | `blender` / `urdf_blender` are the only users |
+| **OS** | Linux x86_64 (WSL2 Ubuntu here) | — | macOS should work (nothing is Linux-specific except `resource.setrlimit` guards) but is not tested |
 
-Python 3.11 and 3.12 are in the middle of a range whose two ends CI proves, and
-are not run separately.  The three 3.11 stdlib names the harness wants —
-`enum.StrEnum`, `datetime.UTC`, `tomllib` — live behind `codeverse/_compat.py`,
-whose docstring says exactly when each shim can be deleted (when the floor
-reaches 3.11).  Nothing else in the package is newer than 3.10.
+The offline suite on this box, 2026-08-26: **2736 passed of the 2775 selected** (11 skipped are
+data-dependent, 28 deselected are `live`).
 
-Raising the floor later is a four-line change: `requires-python`, ruff's
-`target-version`, `PY_FLOOR` in `tests/core/test_portability.py`, `MIN_PY_MINOR`
-in `scripts/setup.sh` — the test will then tell you which shims to delete.
+Moving to another Python later is the same four-line change (`requires-python`, ruff
+`target-version`, `PY_FLOOR`, `MIN_PY_MINOR`) plus the CI job's `python-version`.
 
 ### 2.2 What you need installed
 
 | what | required? | verified here | how it degrades without it |
 |---|---|---|---|
-| **Python 3.10+** | yes | 3.13.9 (`/home/yipeng/miniconda3/bin/python`) | nothing runs; `requires-python = ">=3.10"` (§2.1) |
+| **Python 3.13** | yes | 3.13.9 (`/home/yipeng/miniconda3/bin/python`) | nothing runs; `requires-python = ">=3.13"` (§2.1) |
 | **pip + venv** | yes | pip 25.3, `python -m venv` | `scripts/setup.sh` cannot install the package.  A stock Debian/Ubuntu `/usr/bin/python3` ships **without** pip and is PEP 668 `EXTERNALLY-MANAGED`, so `pip install -e harness` refuses even once pip is present: `sudo apt install python3-venv python3-pip`, then use a virtualenv |
 | **git** | yes | 2.53.0 | run workspaces are git repos (one commit per round); `Workspace.create()` and the flywheel trajectory/pair miners fail |
 | **node ≥ 20.6** | yes, except for the `graphics` track | v24.14.0 (npm 11.9.0) | the `threejs` / `scene_threejs` languages disappear **and no object renders happen at all**: `spatial/render.py` renders *every* GLB (Blender-built and CadQuery-built included) with three.js in headless Chrome. Only `graphics` (moderngl) is node-free |
@@ -587,7 +583,7 @@ those by hand (`npm rm -g @google/gemini-cli @anthropic-ai/claude-code @openai/c
 
 | component | version | where |
 |---|---|---|
-| python | 3.13.9 (floor 3.10 — §2.1, verified in a clean 3.10.21 venv) | `/home/yipeng/miniconda3/bin/python` |
+| python | 3.13.9 (the one supported version — §2.1) | `/home/yipeng/miniconda3/bin/python` |
 | pip packages | pydantic 2.13.2 · trimesh 4.12.2 · python-fcl 0.7.0.11 · moderngl 5.12.0 · shapely 2.1.2 · networkx 3.6.1 · manifold3d 3.5.2 · pyarrow 24.0.0 · mcp 2.0.0 · scipy 1.18.0 · yourdfpy 0.0.60 · cadquery 2.8.0 · google-genai 2.10.0 · pytest 9.1.1 · ruff 0.15.20 | editable install of `harness/` |
 | node / npm | v24.14.0 / 11.9.0 (floor 20.6.0 — §2.1, verified against node 20.19.5) | `/home/yipeng/miniconda3/bin/node` |
 | runtime_js deps | three 0.182.0 · puppeteer 24.43.1 · three-mesh-bvh 0.9.14 (100 packages, 97 MB) | `harness/runtime_js/node_modules` |

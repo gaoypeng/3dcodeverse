@@ -95,7 +95,7 @@ def test_urdf_repair_prompt_carries_both_previous_files():
 def test_fixed_evaluator_follows_the_battery_track():
     ev = FixedEvaluator("gemini:x", n_samples=3, track=Track.ARTICULATED_OBJECT, language=Language.URDF_BLENDER)
     assert ev.rubric == "articulated_v1" == RUBRIC_BY_TRACK["articulated_object"]
-    assert ev.language is Language.URDF_BLENDER and ev.runtime.language is Language.URDF_BLENDER
+    assert ev.language is Language.URDF_BLENDER and ev.runtime(Language.URDF_BLENDER).language is Language.URDF_BLENDER
     static = FixedEvaluator("gemini:x")
     assert static.rubric == "static_object_v1" and static.language is Language.BLENDER
     pinned = FixedEvaluator("gemini:x", rubric="asset_v1", track=Track.ARTICULATED_OBJECT)

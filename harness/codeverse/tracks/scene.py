@@ -38,12 +38,13 @@ from codeverse.contracts.common import TRACK_INFO, Track
 from codeverse.contracts.plan import Plan, ScenePlan, ZonePlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import to_snake
-from codeverse.orchestrator.fanout import fan_out
+from codeverse.fanout import fan_out
 from codeverse.orchestrator.rounds import TaskGroup, compact_instructions
 from codeverse.orchestrator.runner import StageRunner
 from codeverse.prompts import render
 from codeverse.spatial.frame_motion import motion_text_for
 from codeverse.spatial.render_scene import JUDGE_MAX_VIEWS, perf_detail
+from codeverse.tracks import skills_hook
 from codeverse.tracks.common import RunContext, ServiceUnavailable
 from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
 from codeverse.tracks.lifecycle import BaseTrack
@@ -55,6 +56,7 @@ from codeverse.tracks.prompting import (
     current_files,
     file_for_target_factory,
     judge_digest,
+    reference_images,
 )
 from codeverse.tracks.repair import format_error_report
 from codeverse.tracks.scene_asset_gen import select_assets, single_shot_ctx
@@ -106,6 +108,20 @@ class ScenePipeline:
         census_gate = census_gate_report(build)
         if census_gate is not None:
             out.append(census_gate)
+        # scene_placement (2026-08-26): floating / sunken / unsupported / interpenetrating assets from
+        # the probe census's placement table — the first deterministic placement gate on this track
+        # (before it, the scene_v1 floating_part cap could never fire).  Advisory instrumentation:
+        # a failure is a WARN finding, never an exception, so it cannot kill a round.
+        try:
+            from codeverse.spatial.scene_placement import placement_gate_safe
+
+            placement = placement_gate_safe(build.census, plan=ctx.plan)
+        except Exception as e:  # noqa: BLE001
+            log.warning("scene placement gate unavailable: %s", e)
+            placement = GateReport(gate="scene_placement", passed=True, findings=[GateFinding(
+                gate="scene_placement", severity=Severity.WARN, target="scene", message=f"placement probe failed: {e}"[:400])])
+        if placement is not None:
+            out.append(placement)
         return out
 
     def render(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> RenderSet:
@@ -212,14 +228,49 @@ class SceneTrack(BaseTrack):
             ctx.events.emit("budget.degraded", note=note, spent_usd=round(ctx.budget.spent.cost_usd, 4),
                             elapsed_min=round(ctx.budget.elapsed_minutes(), 2))
 
+    # ---- skills -----------------------------------------------------------
+    def _deliver_skills(self, gen: RunContext, stage_kind: str,
+                        tasks: Sequence[GenerationTask]) -> list[GenerationTask]:
+        """Route this stage's bundles into the workspace and inline them if single-shot.
+
+        WHY this is not just ``steps.run_round``'s job.  A scene builds its whole baseline
+        in ``prepare()``: ``_env_stage`` writes the lighting, ``_zones_stage`` the contents,
+        ``_assemble_stage`` the cameras — three real agent sessions that never passed
+        through ``steps.run_round``, the ONE place that called ``attach_for_round``.  The
+        router has always had ``kinds=("env", "zone", "compose")`` rows for the four scene
+        bundles (registry R14-R21), so they were selected for these very stages and then
+        delivered to nobody: measured 2026-08-25 at 0 opens out of 30 listings, while round
+        0's ``baseline_tasks`` returned ``[]`` and so listed them to a session that did not
+        exist.  That is the whole of the scene bundles' "unread", and no wording could
+        have fixed it.
+
+        ``index=0`` because these stages ARE round 0's generation; there is no earlier
+        round, so ``_previous_findings`` correctly returns nothing and only the plan-signal
+        and kind rows can fire.  Attaching once per stage (not once per task) keeps the
+        parallel zone sessions from racing each other's AGENTS.md write.
+        """
+        skills_hook.attach_for_round(gen, index=0, kind=stage_kind)
+        return skills_hook.with_inlined_skill(gen, tasks)
+
+    def _record_skills(self, gen: RunContext, stage_kind: str) -> None:
+        """Close the stage's telemetry row so the denominator counts sessions, not stages.
+
+        Without this a scene run reports ``skills.attached`` three times and ``skills.read``
+        never, which reads in ``3dcv skills report`` as "listed, unread" — the same false
+        signal the delivery gap itself produced."""
+        skills_hook.record_usage(gen, index=0, kind=stage_kind)
+
     def _env_stage(self, ctx: RunContext) -> dict[str, Any]:
         gen = self._strategy(ctx, "env")
         prompt = render("tracks/scene_env.j2", **self._ctx(gen, recipes=cookbook_sections(gen, ENV_RECIPES)))
         ctx.record_prompt("scene_env", prompt)
         task = GenerationTask(label="env", prompt=prompt, system=self.system_prompt(ctx), files_hint=["src/env.js"], round=0, kind="env",
-                              temperature=0.5, timeout_s=ctx.budget.timeout_s(ENV_TIMEOUT_S, floor_s=120))
+                              temperature=0.5, timeout_s=ctx.budget.timeout_s(ENV_TIMEOUT_S, floor_s=120),
+                              images=reference_images(ctx))
+        task = self._deliver_skills(gen, "env", [task])[0]
         res = generate(ctx.ws, agent_id=gen.agent_id, task=task, agent=gen.agent, model=gen.model, settings=ctx.settings,
                        budget=ctx.budget, events=ctx.events)
+        self._record_skills(gen, "env")
         ctx.ws.commit("env")
         return {"ok": res.ok, "files": [c.path for c in res.files_changed], "notes": res.notes}
 
@@ -230,9 +281,15 @@ class SceneTrack(BaseTrack):
         if any(len(b) > 1 for b in batches):
             ctx.events.emit("zones.batched", batches=[[z.name for z in b] for b in batches])
 
+        # once, before the fan-out: every zone session shares one workspace, so three
+        # parallel attaches would race the same AGENTS.md.  The zone rows (R3 "zone",
+        # R14/R18 "zone") are identical for every batch, so one route is the right route.
+        zone_gen = self._strategy(ctx, "zones")
+        skills_hook.attach_for_round(zone_gen, index=0, kind="zone")
+
         def _one(batch: list[ZonePlan]) -> GenerationResult:
             gen = self._strategy(ctx, "zones")
-            task = self._zone_task(gen, batch)
+            task = skills_hook.with_inlined_skill(gen, [self._zone_task(gen, batch)])[0]
             return generate(ctx.ws, agent_id=gen.agent_id, task=task, agent=gen.agent, model=gen.model, settings=ctx.settings,
                             budget=ctx.budget, events=ctx.events)
 
@@ -256,6 +313,7 @@ class SceneTrack(BaseTrack):
                     # must have been reported as changed or actually rewritten in this stage
                     ok = r.ok and (len(batch) == 1 or rel in written or _touched(ctx.ws.root / rel, t0))
                     out[zone.name] = {"ok": ok, "files": [rel] if ok else [], "notes": r.notes}
+        self._record_skills(zone_gen, "zone")
         ctx.ws.commit("zones")
         ctx.events.emit("zones.done", ok=[k for k, v in out.items() if v["ok"]], failed=[k for k, v in out.items() if not v["ok"]])
         return out
@@ -301,9 +359,11 @@ class SceneTrack(BaseTrack):
         prompt = render("tracks/scene_compose.j2", **self._ctx(ctx))
         ctx.record_prompt("scene_compose", prompt)
         task = GenerationTask(label="compose", prompt=prompt, system=self.system_prompt(ctx), files_hint=["src/scene.js"], round=0,
-                              kind="compose", temperature=0.4)
+                              kind="compose", temperature=0.4, images=reference_images(ctx))
+        task = self._deliver_skills(ctx, "compose", [task])[0]
         res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
                        budget=ctx.budget, events=ctx.events)
+        self._record_skills(ctx, "compose")
         ctx.ws.commit("compose")
         return {"ok": res.ok, "deterministic": False, "files": [c.path for c in res.files_changed], "notes": res.notes}
 

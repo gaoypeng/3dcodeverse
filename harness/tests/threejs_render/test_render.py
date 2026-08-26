@@ -36,15 +36,6 @@ def test_cache_key_depends_on_params(tmp_path: Path):
     assert len({k1, k2, k3}) == 3
 
 
-def test_render_scene_delegates_or_raises(tmp_path: Path):
-    from codeverse.workspace import Workspace
-    try:
-        import codeverse.spatial.render_scene  # noqa: F401
-    except ImportError:
-        with pytest.raises(NotImplementedError):
-            render_mod.render_scene(Workspace(tmp_path), tmp_path / "o")
-
-
 @pytest.mark.node
 def test_render_views_modes_isolate_and_cache(stool_glb: Path, tmp_path: Path):
     out = tmp_path / "shaded"

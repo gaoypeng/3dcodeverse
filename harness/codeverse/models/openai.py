@@ -142,6 +142,8 @@ class OpenAIModel:
                 delay,
             )
 
+        # ChatRequest.max_wait_s is not honoured here: with_retries has no deadline, and its
+        # 6 attempts x <= 5 s backoff bound one call to ~20 s of waiting plus the round-trips.
         return with_retries(
             attempt,
             is_retryable=lambda e: isinstance(e, ModelError) and e.retryable,

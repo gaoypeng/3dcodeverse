@@ -8,12 +8,11 @@ completed, and the best round/commit seen so far.  Writes are atomic
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from codeverse._compat import UTC
 from codeverse.contracts.run import RunStatus
 from codeverse.workspace import Workspace
 

@@ -1,4 +1,4 @@
-"""Articulation tools on URDF robots (package E facade).
+"""Articulation tools on URDF robots (facade).
 
 Import from here::
 

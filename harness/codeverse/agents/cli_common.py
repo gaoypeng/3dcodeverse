@@ -6,6 +6,9 @@
   git snapshot before/after, ``files_changed`` from git *attributed to this
   session* (see :func:`attribute_changes`), ``result.json``.
 * :func:`deliver_prompt` — argv prompt or "read the prompt file" stub.
+* :func:`invoke` / :func:`watchdog_error` — one CLI process under the watchdog,
+  recorded in the trajectory (``invoke`` line, every output line, stdout/stderr
+  captures); ``IDLE_GRACE_S`` is the shared idle kill threshold.
 * :func:`estimate_cost_safe` — lazy bridge to ``codeverse.models.pricing``.
 * :func:`is_transient_failure` — 429 / 503 / empty-response detection.
 """
@@ -19,11 +22,13 @@ import re
 import sys
 import threading
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from codeverse.agents.transcript import Trajectory
+from codeverse.agents.watchdog import CompletedProc, run_with_watchdog
 from codeverse.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse.contracts.common import Usage
 from codeverse.workspace import Workspace
@@ -252,6 +257,66 @@ def deliver_prompt(s: Session, prompt: str, *, max_bytes: int = MAX_ARGV_PROMPT_
         "Read that file completely with your file-reading tool FIRST, then carry out every "
         "instruction in it. Do not ask for confirmation."
     )
+
+
+# --------------------------------------------------------------------------- invoke
+#: seconds without output or workspace activity before the watchdog kills a CLI agent;
+#: read at call time by :func:`invoke` so a test can monkeypatch it here.
+IDLE_GRACE_S = 300.0
+
+
+def invoke(
+    s: Session,
+    argv: list[str],
+    env: Mapping[str, str],
+    *,
+    prompt: str,
+    stdout_name: str = "stdout.json",
+    on_stdout: Callable[[str], None] | None = None,
+    stdin: str | None = None,
+    attempt: int = 1,
+    idle_grace_s: float | None = None,
+    **invoke_extra: Any,
+) -> CompletedProc:
+    """Run one CLI agent process under the watchdog and record it in the trajectory.
+
+    Replaces the block ``claude_code.ClaudeCodeAgent.run``, ``codex.CodexAgent.run``,
+    ``antigravity.AntigravityAgent.run`` and ``gemini_cli.GeminiCliAgent._invoke`` each
+    carried verbatim: the ``invoke`` transcript line with the prompt masked out of argv,
+    ``run_with_watchdog`` with identical kwargs (workspace cwd, the job's soft timeout,
+    ``IDLE_GRACE_S``, every output line into the transcript, ``src/`` + ``public/`` as
+    activity dirs) and the stdout/stderr captures next to the transcript.
+
+    ``stdout_name`` sets the capture's name (codex streams JSONL → ``stdout.jsonl``);
+    ``on_stdout`` also receives each stdout line (codex folds events live); ``stdin``
+    feeds the prompt through stdin instead of argv; ``attempt`` > 1 writes
+    ``stdout.<n>.json`` / ``stderr.<n>.log`` so a retry keeps attempt 1's captures.
+    The ``invoke`` line records ``attempt`` and whether stdin was used, plus
+    ``invoke_extra`` (gemini-cli adds ``model`` and ``key_tail``).
+    """
+    masked = [a if a != prompt else f"<prompt {len(prompt)} chars>" for a in argv]
+    s.traj.append("invoke", argv=masked, attempt=attempt, stdin=stdin is not None, **invoke_extra)
+
+    def on_line(stream: str, line: str) -> None:
+        s.traj.append("line", stream=stream, text=line[:4000])
+        if on_stdout is not None and stream == "stdout":
+            on_stdout(line)
+
+    proc = run_with_watchdog(
+        argv, cwd=s.ws.root, env=env, soft_timeout_s=s.job.timeout_s,
+        idle_grace_s=IDLE_GRACE_S if idle_grace_s is None else idle_grace_s,
+        on_line=on_line, stdin=stdin, activity_dirs=[s.ws.src, s.ws.public],
+    )
+    suffix = "" if attempt == 1 else f".{attempt}"
+    out = Path(stdout_name)
+    s.traj.write_text(f"{out.stem}{suffix}{out.suffix}", proc.stdout)
+    s.traj.write_text(f"stderr{suffix}.log", proc.stderr)
+    return proc
+
+
+def watchdog_error(proc: CompletedProc) -> str:
+    """The error line every CLI backend records when the watchdog killed its process."""
+    return f"killed by watchdog ({proc.killed_reason}) after {proc.duration_s:.0f}s"
 
 
 # --------------------------------------------------------------------------- failures

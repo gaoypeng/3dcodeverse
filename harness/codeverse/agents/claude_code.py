@@ -26,17 +26,21 @@ from codeverse.agents.cli_common import (
     failed,
     finish_session,
     hardened_env,
+    invoke,
     is_transient_failure,
     tail,
+    watchdog_error,
 )
-from codeverse.agents.watchdog import run_with_watchdog
 from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Usage
 
-ALLOWED_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "Glob", "Grep",
+#: ``--allowedTools``.  "Skill" is claude-code 2.1's model-invoked skill tool: without it
+#: the bundles the harness materialises into ``ws/.claude/skills/`` are listed at session
+#: start and then DENIED on activation, which reads in the transcript as the model
+#: ignoring them.  It only ever opens files already inside the workspace.
+ALLOWED_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "Skill",
                  "Bash(node:*)", "Bash(python:*)", "Bash(python3:*)", "Bash(ls:*)", "mcp__c3v__*")
-IDLE_GRACE_S = 300.0
 
 
 def parse_claude_json(stdout: str) -> dict[str, Any] | None:
@@ -149,15 +153,7 @@ class ClaudeCodeAgent:
         if not ok:
             return failed(s, "error", why)
         prompt = deliver_prompt(s, job.prompt)
-        argv = self.build_argv(s, prompt)
-        s.traj.append("invoke", argv=[a if a != prompt else f"<prompt {len(prompt)} chars>" for a in argv])
-        proc = run_with_watchdog(
-            argv, cwd=s.ws.root, env=self.build_env(s), soft_timeout_s=job.timeout_s, idle_grace_s=IDLE_GRACE_S,
-            on_line=lambda stream, line: s.traj.append("line", stream=stream, text=line[:4000]),
-            activity_dirs=[s.ws.src, s.ws.public],
-        )
-        s.traj.write_text("stdout.json", proc.stdout)
-        s.traj.write_text("stderr.log", proc.stderr)
+        proc = invoke(s, self.build_argv(s, prompt), self.build_env(s), prompt=prompt)
         env = parse_claude_json(proc.stdout)
         usage = usage_from_envelope(env, self.model) if env else Usage(backend=self.kind, model=self.model)
         usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
@@ -166,7 +162,7 @@ class ClaudeCodeAgent:
         errors: list[str] = []
         if proc.timed_out:
             reason, ok = "timeout", False
-            errors.append(f"killed by watchdog ({proc.killed_reason}) after {proc.duration_s:.0f}s")
+            errors.append(watchdog_error(proc))
         elif env is None or proc.rc != 0:
             reason, ok = "error", False
             errors.append(f"rc={proc.rc}; no result envelope; stderr tail: {tail(proc.stderr, 1500)}")

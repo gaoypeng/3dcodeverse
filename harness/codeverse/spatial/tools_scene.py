@@ -1,6 +1,6 @@
 """Track/language-specific tools: joint_sweep (articulated), shader_probe /
 scene_probe / scene_views (scene_threejs).  All delegate lazily to sibling
-modules (``spatial.joints``, ``spatial.probes``, ``spatial.render``) written in
+modules (``spatial.joints``, ``spatial.probes``, ``spatial.render_scene``) written in
 parallel; a missing sibling raises ``ToolUnavailable``, which ``ToolDef.call``
 turns into a clear ``tool X unavailable`` Observation.
 """
@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field
 from codeverse.contracts.artifacts import GateReport, RenderSet
 from codeverse.contracts.common import Language, Track
 from codeverse.spatial.observe import fmt_numbers, gate_observation, render_observation, truncate
-from codeverse.spatial.registry import Observation, ToolContext, ToolUsageError, tool
-from codeverse.spatial.tool_common import call_adaptive, lazy, load_plan, tool_out_dir
+from codeverse.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
+from codeverse.spatial.tool_common import lazy, load_plan, tool_out_dir
 
 
 def _as_observation(result: Any, root, *, title: str) -> Observation:
@@ -44,28 +44,24 @@ class JointSweepArgs(BaseModel):
     n_samples: int = Field(default=8, ge=2, le=32, description="poses per joint across its range")
 
 
-@tool("joint_sweep", JointSweepArgs, "Sweep URDF joints through their ranges: pose renders + self-collision / limit findings.",
+@tool("joint_sweep", JointSweepArgs, "Sweep URDF joints through their ranges: self-collision / limit findings for ALL joints, "
+      "plus pose renders. Pass joints=[...] for the joints you changed — rendering every joint's poses is the slow part "
+      "(three views per pose); the collision check always covers the whole robot.",
       tracks=(Track.ARTICULATED_OBJECT.value,), cost_hint="slow")
 def joint_sweep(ctx: ToolContext, args: JointSweepArgs) -> Observation:
     fn = lazy("codeverse.spatial.joints", "joint_sweep_observation")
     out_dir = tool_out_dir(ctx, "joints")
-    # package E's signature: (ws, *, n_random, seed, render, out_dir, joint, expected_direction)
-    res = call_adaptive(fn, ctx.workspace, joints=args.joints or None, n_samples=args.n_samples,
-                        n_random=args.n_samples, joint=args.joints[0] if len(args.joints) == 1 else None,
-                        out_dir=out_dir, round_index=ctx.round_index)
+    res = fn(ctx.workspace, joints=args.joints or None, n_random=args.n_samples,
+             joint=args.joints[0] if len(args.joints) == 1 else None, out_dir=out_dir)
     return _as_observation(res, ctx.workspace.root, title="joint sweep")
 
 
 # --------------------------------------------------------------------------- scenes
-class NoArgs(BaseModel):
-    """This tool takes no arguments."""
-
-
 @tool("shader_probe", NoArgs, "Compile every GLSL/ShaderMaterial in the scene headlessly and report shader errors with line numbers.",
       languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
 def shader_probe(ctx: ToolContext, args: NoArgs) -> Observation:
     fn = lazy("codeverse.spatial.probes", "check_shaders")
-    res = call_adaptive(fn, ctx.workspace, round_index=ctx.round_index)
+    res = fn(ctx.workspace)
     return _as_observation(res, ctx.workspace.root, title="shader probe")
 
 
@@ -73,7 +69,7 @@ def shader_probe(ctx: ToolContext, args: NoArgs) -> Observation:
       languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
 def scene_probe(ctx: ToolContext, args: NoArgs) -> Observation:
     fn = lazy("codeverse.spatial.probes", "probe_scene")
-    res = call_adaptive(fn, ctx.workspace, round_index=ctx.round_index)
+    res = fn(ctx.workspace)
     obs = _as_observation(res, ctx.workspace.root, title="scene probe")
     census = obs.numbers.get("census") if isinstance(obs.numbers, dict) else None
     if isinstance(census, dict) and census:
@@ -93,7 +89,7 @@ def scene_views(ctx: ToolContext, args: SceneViewsArgs) -> Observation:
         raise ToolUsageError("cameras must be authored | orbit | all", "scene_views(cameras='authored')")
     if not args.times or len(args.times) > 6:
         raise ToolUsageError("times must hold 1..6 values", "scene_views(times=[0.0, 1.5])")
-    render_scene = lazy("codeverse.spatial.render", "render_scene")
+    render_scene = lazy("codeverse.spatial.render_scene", "render_scene")
     cams = None
     if args.cameras in ("authored", "all") and ctx.workspace.plan_path.is_file():
         try:
@@ -104,7 +100,7 @@ def scene_views(ctx: ToolContext, args: SceneViewsArgs) -> Observation:
     orbit = args.cameras in ("orbit", "all") or (args.cameras == "authored" and cams is None)
     key = f"{args.cameras}_{'_'.join(f'{t:g}' for t in args.times)}".replace(".", "p")
     out_dir = tool_out_dir(ctx, f"scene_{key}")
-    rs = call_adaptive(render_scene, ctx.workspace, out_dir, cameras=cams, orbit=orbit, times=tuple(args.times), sheet=True)
+    rs = render_scene(ctx.workspace, out_dir, cameras=cams, orbit=orbit, times=tuple(args.times), sheet=True)
     obs = _as_observation(rs, ctx.workspace.root, title=f"scene views ({args.cameras}, t={args.times})")
     table = _frame_table(out_dir)
     return obs.model_copy(update={"text": truncate(obs.text + "\n\n" + table)}) if table else obs
@@ -121,3 +117,33 @@ def _frame_table(out_dir) -> str:
         return frame_summary_text(metrics) if metrics else ""
     except Exception:  # noqa: BLE001 — a tool observation must never fail on instrumentation
         return ""
+
+
+class CheckPlacementArgs(BaseModel):
+    rebuild: bool = Field(default=False, description="re-run the scene probe first (slow) instead of reading the census of the last build")
+
+
+@tool("check_placement", CheckPlacementArgs,
+      "Deterministic placement check of the last build (scene only): per placed asset the gap from its feet to what is "
+      "under them, burial depth, water, contacts, plus 3-D interpenetrations between assets — findings read "
+      "'floating / sunken / unsupported / interpenetration' with 'lower X by 0.23 m onto Terrain' hints. Reads the "
+      "census of the last build/scene_probe; rebuild=true probes again. Tag a deliberately airborne thing with "
+      "obj.userData.placement = 'free'.",
+      languages=(Language.SCENE_THREEJS.value,), cost_hint="fast")
+def check_placement(ctx: ToolContext, args: CheckPlacementArgs) -> Observation:
+    census_of = lazy("codeverse.spatial.scene_placement", "placement_census")
+    findings_of = lazy("codeverse.spatial.scene_placement", "placement_findings")
+    table_of = lazy("codeverse.spatial.scene_placement", "placement_table_text")
+    infer_indoor = lazy("codeverse.spatial.scene_placement", "infer_indoor")
+    census = census_of(ctx.workspace, force_probe=args.rebuild)
+    indoor = False
+    if ctx.workspace.plan_path.is_file():
+        try:
+            plan = load_plan(ctx.workspace.plan_path)
+            indoor = infer_indoor(" ".join(str(getattr(plan, k, "") or "") for k in ("setting", "environment", "title")))
+        except ToolUsageError:
+            indoor = False
+    table = census.get("placement") or {}
+    report = findings_of(table, indoor=indoor)
+    obs = gate_observation(report, title="placement check")
+    return obs.model_copy(update={"text": truncate(obs.text + "\n\n" + table_of(table))})

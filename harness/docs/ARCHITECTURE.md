@@ -77,10 +77,21 @@ codeverse/
   contracts/          pydantic: common (Track, Language, Usage, Budget, Backends, TRACK_INFO registry,
                       ENTRY_FILE/code_file/LANGUAGE_LABEL tables), spec (+ RunOptions), plan, artifacts
                       (GateFinding.as_line, RenderView.judge, RenderSet.out_dir), judgment, run, chat,
-                      agent (typed AgentJob + ApiAgentOptions)
+                      agent (typed AgentJob + ApiAgentOptions), skills.py (SkillsUsage/SkillRead on
+                      RoundRecord: what was attached, what was read)
   workspace.py        run-dir layout + git snapshots ;  events.py  JSONL event log
+  runlock.py          ONE writer per run dir — a PID lock that names its holder so a
+                      human can kill that one run and not every run on the box
   proc.py             stdlib-only subprocess + atomic-JSON primitives (run_subprocess w/ group kill +
-                      preexec_fn, kill_group, tail, write_json_atomic) — shared by languages/spatial/cli
+                      preexec_fn, kill_group, tail, write_json_atomic) and the tolerant readers/writer
+                      (read_json_or_none, iter_jsonl_lines, read_jsonl_lenient, append_jsonl_line) —
+                      shared by languages/spatial/cli/cost/flywheel/gallery/bench.  RULE: any
+                      stdlib-only file / JSON / JSONL helper lives HERE; grep proc.py before writing a
+                      try/except read (the 2026-08-26 review found the same tolerant read written
+                      eight times because this module had not grown it), and keep it under ~250
+                      lines so it stays a leaf
+  fanout.py           bounded parallel fan-out (fan_out, split_results, FanOutReport) — shared by
+                      tracks/judges/texturing/bench
   models/             ChatModel; gemini_convert.py anthropic_convert.py openai_convert.py
                       (request/response shapes per provider), parts.py; gemini.py (dead-key + free 429 rotation), gemini_image.py (ImageModel),
                       anthropic.py openai.py, keypool.py ('dead' outcome + TPM reservation/reconcile),
@@ -89,30 +100,52 @@ codeverse/
                       measured, ships OFF, see docs/COST.md §21), health.py (preflight probe: is the model
                       serving? no retries, no backoff), schema_utils.py (strict schema), registry.py
   agents/             CodingAgent; gemini_cli.py claude_code.py codex.py antigravity.py api_agent.py
-                      (+ api_tools.py run_shell policy), materialize.py, cli_common.py (sessions, retry
+                      (+ api_tools.py run_shell policy, api_skills.py: the read_skill tool every
+                      backend WITHOUT a native loader gets — measured, prose in a system prompt is
+                      not an affordance), materialize.py, cli_common.py (sessions, retry
                       trajectory naming, files_changed attribution), watchdog.py, transcript.py, registry.py
   languages/          LanguageRuntime; blender/ (multi-file: layout.py, model.py + parts/*.py) cadquery/
-                      threejs/ (+ templates.py) urdf/ scene_threejs/ glsl_shader/ (wrap.py header+line-map, gl_build.py)
-                      opengl_python/ (wrappers/run_gl.py) — each runtime.py, lint.py, skeleton.py, wrappers/
+                      threejs/ (+ templates.py) urdf/ scene_threejs/ glsl_shader/ (wrap.py header+line-map)
+                      opengl_python/ (wrappers/run_gl.py) — each runtime.py, lint.py, skeleton.py, wrappers/;
+                      file_lint.py (one just-written file → syntax/lint verdict for write_file, COST.md §29)
   spatial/            node.py, render.py, tool_common.py (shared tool plumbing), cookbook_tool.py
                       (read_cookbook), render_scene.py (judge view subset, content-fitted orbit),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
+                      scene_placement.py (scene_placement gate + check_placement tool: floating / sunken /
+                      unsupported / interpenetration per placed asset from the probe census's placement
+                      table, runtime_js/lib/host_placement.mjs; added 2026-08-26),
                       gl_render.py (GlHost), frame_stats.py (gl_frames),
                       sheet.py (montage_2x2, crop_region), turntable.py, measure.py, connectivity.py,
                       contract.py (authoring-frame hints), sections.py, silhouette.py, probes.py,
                       complexity.py (objective complexity vector -> Measurement.extra, docs/COMPLEXITY.md),
                       joints*.py + joints_collide.py (deterministic penetration), registry.py, tools*.py
                       (tools_texture.py, tools_graphics.py), mcp_server.py (MCP name: 3dcv)
+  skills/             THE skill library + its router (design: SKILL.md is an open standard, so
+                      claude-code / codex / gemini-cli / agy load our bundles natively):
+                      <name>/SKILL.md + <name>/references/*.md (the bundles, package data),
+                      loader.py (spec validation), model.py, registry.py (the R1-R24 route table +
+                      finding_kind(): the ONE place gate message text is matched), router.py
+                      (track/language/kind/plan/gate-findings -> a capped, ranked, reasoned set),
+                      materialize.py (writes into ws/.agents/skills AND ws/.claude/skills, real
+                      copies — codex refuses symlinks), delivery.py (THE per-backend policy, two
+                      bits — native loader? which root? — so a new backend is one row and nothing
+                      else re-derives it), prompting.py (per-backend index text),
+                      telemetry.py (the atime read probe: surfaced vs deep), claims.py (numbers
+                      pinned to live constants), config.py (CV3D_SKILLS, default OFF)
   cost/               types.py (CallCost/Stage/Role) ledger.py (append-only telemetry/cost.jsonl + price provenance)
                       context.py (per-call > ambient attribution) instrument.py (MeteredChatModel /
                       MeteredAgent — one row per ChatModel.generate; one session row only for a backend
                       that does NOT meter itself; run_ledger nests + is context-local so bench --parallel works)
                       profiles.py (economy|balanced|quality; cli._common.resolve_dial is THE resolver)
                       caching.py (Block/order_blocks/session_cache — measurement only, docs/COST.md §13)
+                      billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
+                      so max_usd guards money and not list price; docs/COST.md §25)
                       guard.py routing.py reconstruct.py (old runs) audit.py report.py
   judges/             rubrics.py + rubrics/*.yaml (defect checklists), vlm_judge.py, montage.py,
                       prompt_builder.py, output_schema.py, scoring.py, caps.py, images.py, pairwise.py
-                      (compare_many), reference.py, calibration.py, metrics.py
+                      (compare_many), reference.py, calibration.py, metrics.py, replay_input.py
+                      (plan_digest / resolve_paths / judged_subset — the pure round-replay pieces
+                      `3dcv judge` and calibration share)
   reference/          reference GROUNDING — give the pipeline a picture of what it is building:
                       synth.py (prompt → reference image(s)), gate.py (THE plausibility gate that makes a
                       synthesized reference safe to use), attach.py (Spec attachment + honesty guards),
@@ -122,23 +155,32 @@ codeverse/
   texturing/          plan.py (VLM material plan), generate.py (+ tile.py seam fix), uv.py (world-metre
                       unwrap), apply.py, gate.py (seam + before/after judge), scene_pack.py, run.py (texture_pass),
                       maps.py (PBR map set), materials.py (named material library), normalise.py
-  orchestrator/       runner.py, state.py, rounds.py (RoundPolicy, compaction), candidates.py (best-of-N
-                      + pairwise decisions), fanout.py, budget.py
+  orchestrator/       runner.py, state.py, rounds.py (RoundPolicy, StopPolicy, BestSelector), refine_tasks.py
+                      (RefineTask compilation + file-ownership grouping + compaction), candidates.py (best-of-N
+                      + pairwise decisions), budget.py
   tracks/             base.py (get_track(track, **options)), lifecycle.py, steps.py, candidates.py,
                       generation.py, repair.py, planner.py, prompting.py (prompt helpers, split from common),
                       common.py (RunContext, Services), motion.py, reference.py, static_object.py,
                       articulated_object.py, scene.py, scene_assets.py, graphics.py + graphics_steps.py,
+                      graphics_recipes.py (the brief's verified cookbook recipes + their helpers written into
+                      src/common.glsl before the session — measured: flash calls a recipe on disk, not one it
+                      is shown; CV3D_SEED_RECIPES, docs/GRAPHICS_LOOP.md §3),
                       brief.py (cached EngineeringBrief: one cheap call turns a one-line prompt into
                       real dimensions / sub-assemblies / signature features; never fatal, CV3D_PLAN_BRIEF),
                       plan_budget.py (plan size derived from the request, capped per language),
                       plan_features.py (CV3D_PLAN_FEATURES: one switch per plan-loop change, so each
-                      can be A/B'd alone — docs/PLAN_LOOP.md),
+                      can be A/B'd alone, + pin_plan_blockers() deciding when two arms may share
+                      one plan — docs/PLAN_LOOP.md, docs/EVAL.md §8.1),
                       plan_examples.py (worked plans shown to the planner), depth.py + detailing.py
-                      (per-part detail pass), envelope.py (bbox envelope), scene_asset_gen.py
+                      (per-part detail pass), envelope.py (bbox envelope), scene_asset_gen.py,
+                      skills_hook.py (the round's view of codeverse/skills: attach before generating,
+                      probe reads after — a no-op unless CV3D_SKILLS is on)
   flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, migrate.py (schema moves),
                       deliverable.py, telemetry.py, trajectories.py (repair-pair
-                      mining), captions.py, quality.py (tiers + dedupe), gallery.py (the shared
-                      self-contained renderer bench/report.py reuses), dedupe.py, index.py
+                      mining), captions.py, quality.py (tiers + dedupe), dedupe.py, index.py,
+                      code_quality.py (the delivered CODE's own vector — magic numbers per 100 LOC,
+                      function length, dead functions, duplication, docstrings → record.extra
+                      ["code_quality"].index, a flywheel filter beside score and complexity)
   gallery/            THE local run gallery (`3dcv gallery serve|build`): cards.py, labels.py,
                       compare.py (side-by-side arms), index.py (run roots →
                       typed RunEntry, tolerant of half-written records), model.py, page.py (cards +
@@ -148,23 +190,33 @@ codeverse/
                       server.py (stdlib http.server, loopback-only), static_site.py, theme.py, scripts.py
   prompts/            system/*, <lang>/{contract,cookbook}.md (incl. glsl_shader/, opengl_python/),
                       texturing/*.md, tracks/*.j2 (incl. plan/generate/refine_graphics.j2)
-  cli/                main.py, tools_cmd.py, flywheel_cmd.py, gallery_cmd.py, bench_cmd.py,
+  cli/                main.py (app wiring, make/resume/mcp), inspect_cmd.py (status/render/judge
+                      on one existing run), tools_cmd.py, flywheel_cmd.py, gallery_cmd.py, bench_cmd.py,
                       texture_cmd.py, cost_cmd.py (`3dcv cost`), layout_cmd.py, doctor.py
-bench/                run_bench.py, report.py (reuses flywheel gallery), compare_backends.py
+                      (`--skills` checks the library + its discovery wiring),
+                      skills_cmd.py (`3dcv skills list|show|validate|report` — the read-rate report)
+bench/                run_bench.py, report.py (renders through codeverse/gallery), compare_backends.py
                       (preflights every model it needs; --wait-for-provider / --no-preflight),
                       _infra.py (outage vs model failure: infra_failed / budget_exhausted, docs/EVAL.md §7),
+                      ab_plan.py (the paired control/variant A/B rig, --aa calibration mode),
+                      ab_gate_rates.py (the same run's deterministic readouts, paired per prompt),
+                      pin_plan.py (seed one plan into both arms so the paired delta stops carrying
+                      the planner's spread — permitted only by plan_features.pin_plan_blockers),
                       _compare_report.py (arm table incl. the `dropped` / `over budget` loss columns;
                       dedups the append-only rows per (prompt, arm) so every reader agrees),
                       _jsonl.py (the ONE tolerant reader/append-sealer for the resumable
                       *.jsonl journals — a truncated last line never costs the paid rows),
                       ab_plan.py (paired control/variant A/B for plan + brief switches; pins
                       both children to the cap the §23 admission check reserved), _ab_report.py,
+                      ab_gate_rates.py (the same run's DETERMINISTIC readouts, paired per
+                      prompt: penetrating pairs, worst depth, floating parts, contract findings),
                       _oneshot.py, _fixed_eval.py, cost_report.py,
                       concurrency_probe.py (in-flight knee sweep), complexity_report.py,
                       prompts/{static_objects_v1 (24), articulated_v1 (12), scenes_v1 (12), compare_v1 (8)}.yaml
 runtime_js/           export_glb.mjs (placement policy, instance baking, selfcheck) render_glb.mjs
                       render_scene.mjs probe_scene.mjs check_shaders.mjs gpu_launch.cjs serve.cjs
-                      lib/{resolve_three, scene_host, host_coverage, orbit, instances, census, glsl_audit, browser/…}
+                      lib/{resolve_three, scene_host, host_coverage, host_census, host_placement, orbit, instances,
+                      census, glsl_audit, browser/…}
 tests/                core models agents blender_cadquery threejs_render urdf_joints scene_runtime scene_gates
                       spatial_tools judges orchestrator_tracks flywheel_cli graphics texturing prompts (~860 offline)
 ```
@@ -315,13 +367,21 @@ finalise: restore best commit, rebuild so artifacts match delivered code, finali
 ```
 Track-specific gates: static `connectivity` + `contract` (+ `reference_silhouette`),
 articulated + `joint_sweep` + `motion_direction` (URDF axis vs plan motion text),
-scene `render_console` + `scene_frames` (`spatial/frame_metrics.py`, wired in
+scene `scene_placement` (`spatial/scene_placement.py`, appended after the census gate in
+`ScenePipeline.gates`: per placed asset, foot-column gap to the surface beneath, burial depth,
+water, contacts and 3-D interpenetration pairs from `runtime_js/lib/host_placement.mjs` — the
+first deterministic placement check on the track; before 2026-08-26 the scene_v1
+`floating_part` cap could never fire and floating/sunken was left to the VLM) +
+`render_console` + `scene_frames` (`spatial/frame_metrics.py`, wired in
 `ScenePipeline.post_render_gates`: dark/blown/flat frames, camera in geometry, content
 too small, and **`no_motion`** — the frames of one camera at the first and last animation
 time are diffed in `spatial/frame_motion.py` and the per-camera "% of pixels changed"
 goes to the judge as a fact, because two tiles in different montage images are not
 comparable by eye and every scene judged before it was told "nothing moves" while its
-water was rippling), graphics `gl_frames` (NaN/black/blown/static/flicker).
+water was rippling, and **`unused_glb_asset`** — the scene host wraps `loaders.gltf` and
+records each GLB's geometry UUIDs, so the census can say whether any of it reached the
+rendered frame; `Object3D.clone()` shares geometry, so a cloned hero still counts and only
+a discarded load does not), graphics `gl_frames` (NaN/black/blown/static/flicker).
 
 ## 8. Texturing (derived asset pack)
 
@@ -397,8 +457,8 @@ errors, cost, fingerprints, `duplicate_of`; `--pack` tars with byte-range locato
 repair pairs and **in-session repair pairs mined from api-agent transcripts**
 (replay-verified against the git snapshots); `flywheel caption` adds
 {detailed, instruction, factory} captions (image-grounded, brand-free, `--out` for
-side-car mode); `flywheel gallery` renders a self-contained HTML gallery (tier
-badges, thumbnails, filter/sort) that `bench/report.py` reuses.
+side-car mode); `flywheel gallery` is an alias of `3dcv gallery build --embed`
+(the flywheel package has no renderer of its own).
 
 `codeverse/gallery/` is the **local** answer to the same question: `3dcv gallery
 serve` indexes `runs/` + every `bench/out/*/runs`, serves the page **and the run

@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codeverse._compat import UTC, StrEnum
 from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
 from codeverse.contracts.common import Usage
 from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import ArticulatedPlan, GraphicsPlan, ScenePlan, StaticPlan
+from codeverse.contracts.skills import SkillsUsage
 from codeverse.contracts.spec import Spec
 
 
@@ -37,6 +38,8 @@ class RoundRecord(BaseModel):
     renders: RenderSet | None = None
     judgment: Judgment | None = None
     usage: Usage = Field(default_factory=Usage)
+    skills: SkillsUsage | None = Field(
+        default=None, description="skills attached to this round's sessions, and which were actually read")
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     duration_s: float = 0.0
     notes: str = ""

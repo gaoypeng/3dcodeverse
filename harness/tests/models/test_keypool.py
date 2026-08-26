@@ -156,3 +156,21 @@ def test_all_keys_dead_raises_immediately_instead_of_waiting_out_the_timeout():
     with pytest.raises(KeyPoolExhausted):
         pool.acquire(timeout_s=120)
     assert clock.t == t0  # no pointless 120 s wait: availability only moves later
+
+
+def test_try_acquire_never_waits_for_a_key_or_a_slot():
+    """The extra keys of a hedged retry (``rotate_with_retries(hedge=...)``) come from
+    ``try_acquire``: a key that is usable right now, else None — never a wait."""
+    never = lambda s: (_ for _ in ()).throw(AssertionError(f"try_acquire slept {s}s"))  # noqa: E731
+    pool = KeyPool(["k1", "k2"], max_in_flight=2, cooldown_s=30, sleep=never)
+    a = pool.try_acquire()
+    assert a == "k1" and pool.stats()["in_flight"] == 1
+    assert pool.try_acquire(exclude={a}) == "k2"
+    assert pool.try_acquire() is None, "both max_in_flight slots are held"
+    pool.release()
+    pool.release()
+    assert pool.stats()["in_flight"] == 0
+    pool.report("k1", "429")
+    pool.report("k2", "429")
+    assert pool.try_acquire() is None, "every key is cooling down: no wait, no key"
+    assert pool.stats()["in_flight"] == 0, "a refused try_acquire holds nothing"

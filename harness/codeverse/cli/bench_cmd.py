@@ -23,6 +23,8 @@ def run_cmd(
     parallel: Annotated[int, typer.Option("--parallel", min=1)] = 4,
     rounds: Annotated[int, typer.Option("--rounds", min=0)] = 4,
     max_usd: Annotated[float, typer.Option("--max-usd")] = 5.0,
+    max_minutes: Annotated[float, typer.Option("--max-minutes", help="wall-clock budget per run; size it to the weather "
+                                                                   "(RUNBOOK 7.x: 120 in a 503 storm, else runs burn the hour with no judged round)")] = 60.0,
     limit: Annotated[int | None, typer.Option("--limit")] = None,
     ids: Annotated[list[str] | None, typer.Option("--id", help="only these prompt ids")] = None,
     tiers: Annotated[list[str] | None, typer.Option("--tier")] = None,
@@ -36,7 +38,7 @@ def run_cmd(
         raise C.CliError(f"battery not found: {battery}")
     b = C.import_bench()
     run_bench = C.lazy("bench.run_bench")
-    opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_usd=max_usd,
+    opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_usd=max_usd, max_minutes=max_minutes,
                                  parallel=parallel, limit=limit, ids=ids or [], tiers=tiers or [], resume=not no_resume,
                                  redo_status=[x for x in redo_status.split(",") if x])
     out_dir = out or (C.REPO_ROOT / "bench" / "out" / battery.stem)

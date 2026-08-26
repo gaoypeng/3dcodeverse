@@ -21,26 +21,24 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
+from codeverse.proc import iter_jsonl_lines
+
 log = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
 
-def read_jsonl(path: Path, model: type[T]) -> list[T]:
+def read_jsonl[T: BaseModel](path: Path, model: type[T]) -> list[T]:
     """Parse ``path`` as one ``model`` per line, skipping unparseable lines with a
     warning.  Missing file → ``[]``."""
-    if not Path(path).is_file():
-        return []
     rows: list[T] = []
     bad = 0
-    for i, line in enumerate(Path(path).read_text(encoding="utf-8", errors="replace").splitlines()):
-        if not line.strip():
-            continue
+    for i, line in iter_jsonl_lines(path):
         try:
             rows.append(model.model_validate_json(line))
         except Exception as e:  # a truncated/corrupt row must not cost us the good ones
             bad += 1
-            log.warning("%s:%d unreadable, skipping (%s: %s)", path, i + 1, type(e).__name__, str(e)[:120])
+            log.warning("%s:%d unreadable, skipping (%s: %s)", path, i, type(e).__name__, str(e)[:120])
     if bad:
         log.warning("%s: skipped %d unreadable line(s), kept %d", path, bad, len(rows))
     return rows

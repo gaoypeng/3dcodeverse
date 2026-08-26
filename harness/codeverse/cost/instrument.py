@@ -135,19 +135,32 @@ class MeteredChatModel:
             resp = self._inner.generate(request)
         except BaseException as exc:  # noqa: BLE001 - record the attempt, then re-raise
             self._record(Usage(backend=self.provider, model=self.model), request,
-                         outcome=_outcome(exc), ms=int((time.perf_counter() - t0) * 1000))
+                         outcome=_outcome(exc), ms=int((time.perf_counter() - t0) * 1000),
+                         attempts=getattr(exc, "attempts", 0))
             raise
+        # which key served it and how many round-trips it took (gemini.py puts both in
+        # ``raw``); until 2026-08-26 no telemetry row carried either, so the per-key
+        # distribution of calls could only be probed, never read
         self._record(resp.usage, request, outcome="ok",
-                     ms=int((time.perf_counter() - t0) * 1000))
+                     ms=int((time.perf_counter() - t0) * 1000),
+                     key=resp.raw.get("key"), attempts=resp.raw.get("attempts", 0))
         return resp
 
-    def _record(self, usage: Usage, request: ChatRequest, *, outcome: str, ms: int) -> None:
+    def _record(self, usage: Usage, request: ChatRequest, *, outcome: str, ms: int,
+                key: object = None, attempts: object = 0) -> None:
         try:
             record_call(usage, label=request.label, backend=usage.backend or self.provider,
                         model=usage.model or self.model, outcome=outcome,
-                        latency_ms=usage.latency_ms or ms)
+                        latency_ms=usage.latency_ms or ms,
+                        key=_key_suffix(key), attempts=int(attempts or 0))
         except Exception as e:  # pragma: no cover - accounting must never break a call
             log.debug("cost: could not record %s: %s", request.label, e)
+
+
+def _key_suffix(key: object) -> str:
+    """The last 4 chars of an API key as ``…ab12`` — the ledger never holds more."""
+    s = str(key or "").strip()
+    return f"…{s[-4:]}" if s else ""
 
 
 def _outcome(exc: BaseException) -> str:

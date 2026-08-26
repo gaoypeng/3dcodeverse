@@ -1,26 +1,26 @@
 """Static lint for ``scene_threejs`` workspaces (no browser).
 
 Checks: ``node --check`` syntax per file, import allowlist ('three',
-'three/addons/*', relative), forbidden network/DOM/render-loop usage, required
-exports (``createScene`` in src/scene.js, ``build`` in zones), removed three.js
-APIs, oversized files.  Returns a GateReport ``lint:scene_threejs``.
+'three/addons/*', relative — side-effect ``import './x.js'`` is matched too, so a
+bare import of a missing file is flagged), forbidden network/DOM/render-loop
+usage, required exports (``createScene`` in src/scene.js, ``build`` in zones),
+removed three.js APIs, oversized files.  Returns a GateReport ``lint:scene_threejs``.
 """
 
 from __future__ import annotations
 
 import re
-import subprocess
 import time
 from pathlib import Path
 
 from codeverse.config import get_settings
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse.languages._js_lint import ImportKind, ImportVerdict, check_imports, node_check_syntax
 from codeverse.workspace import Workspace
 
 GATE = "lint:scene_threejs"
 MAX_LINES = 800
 
-_IMPORT_RE = re.compile(r"""(?:^|\n)\s*(?:import|export)\s[^;'"\n]*?from\s*['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\)""")
 _CREATE_SCENE_RE = re.compile(r"export\s+(?:async\s+)?function\s+createScene\b|export\s+(?:const|let)\s+createScene\b|export\s*\{[^}]*\bcreateScene\b[^}]*\}")
 _BUILD_RE = re.compile(r"export\s+(?:async\s+)?function\s+build\b|export\s+(?:const|let)\s+build\b|export\s*\{[^}]*\bbuild\b[^}]*\}")
 _BUILD_ANY_RE = re.compile(r"export\s+(?:async\s+)?function\s+build[A-Za-z0-9_]*\b|export\s+(?:const|let)\s+build[A-Za-z0-9_]*\b")
@@ -53,47 +53,27 @@ def _js_files(ws: Workspace) -> list[Path]:
 
 
 def _node_check(path: Path, rel: str) -> GateFinding | None:
-    node = get_settings().binaries.node or "node"
-    try:
-        # ESM syntax check via stdin: `node --check file.js` treats a bare .js as CommonJS-or-detect
-        proc = subprocess.run([node, "--input-type=module", "--check"], input=path.read_text(errors="replace"),
-                              capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return _f(Severity.ERROR, f"node --check could not run: {e}", target=rel, hint="harness problem (node missing?)")
-    if proc.returncode == 0:
+    p = node_check_syntax(path, get_settings().binaries.node or "node")
+    if p is None:
         return None
-    err = proc.stderr.strip()
-    line = None
-    m = re.search(r"\[stdin\]:(\d+)", err) or re.search(r":(\d+)\n", err)
-    if m:
-        line = int(m.group(1))
-    msg = next((ln for ln in err.splitlines() if "Error" in ln), err.splitlines()[0] if err else "syntax error")
-    return _f(Severity.ERROR, f"syntax: {msg}", target=f"{rel}:{line}" if line else rel,
-              hint="fix the syntax error at the quoted line (node --check)", line=line, detail=err[-600:])
+    return _f(Severity.ERROR, f"syntax: {p.message}", target=f"{rel}:{p.line}" if p.line else rel,
+              hint="fix the syntax error at the quoted line (node --check)", line=p.line, detail=p.stderr_tail)
 
 
 def _check_imports(rel: str, text: str, ws: Workspace, path: Path) -> list[GateFinding]:
-    out: list[GateFinding] = []
-    for m in _IMPORT_RE.finditer(text):
-        spec = m.group(1) or m.group(2)
-        line = text.count("\n", 0, m.start()) + 1
+    def make_finding(v: ImportVerdict, spec: str, line: int) -> GateFinding:
         tgt = f"{rel}:{line}"
-        if spec == "three" or spec.startswith("three/addons/") or spec.startswith("three/examples/jsm/"):
-            continue
-        if spec.startswith("./") or spec.startswith("../"):
-            dest = (path.parent / spec).resolve()
-            if not dest.is_file():
-                out.append(_f(Severity.ERROR, f"import of missing file '{spec}'", target=tgt,
-                              hint="create the file or fix the path (relative imports need the .js extension)"))
-            elif not str(dest).startswith(str(ws.src.resolve())):
-                out.append(_f(Severity.ERROR, f"import '{spec}' escapes src/", target=tgt, hint="keep all code under src/"))
-            continue
-        if spec.startswith("/"):
-            out.append(_f(Severity.ERROR, f"absolute import '{spec}'", target=tgt, hint="use relative imports ('./x.js')"))
-            continue
-        out.append(_f(Severity.ERROR, f"import '{spec}' is not allowed (only 'three', 'three/addons/*', relative files)", target=tgt,
-                      hint="no CDN / npm packages; write the helper yourself in src/"))
-    return out
+        if v.kind is ImportKind.ESCAPES:
+            return _f(Severity.ERROR, f"import '{spec}' escapes src/", target=tgt, hint="keep all code under src/")
+        if v.kind is ImportKind.MISSING:
+            return _f(Severity.ERROR, f"import of missing file '{spec}'", target=tgt,
+                      hint="create the file or fix the path (relative imports need the .js extension)")
+        if v.kind is ImportKind.ABSOLUTE:
+            return _f(Severity.ERROR, f"absolute import '{spec}'", target=tgt, hint="use relative imports ('./x.js')")
+        return _f(Severity.ERROR, f"import '{spec}' is not allowed (only 'three', 'three/addons/*', relative files)", target=tgt,
+                  hint="no CDN / npm packages; write the helper yourself in src/")
+
+    return check_imports(text, path, ws.src, make_finding=make_finding)[0]
 
 
 def lint(ws: Workspace) -> GateReport:

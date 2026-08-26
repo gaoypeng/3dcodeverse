@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from codeverse.contracts.chat import ImagePart
 from codeverse.contracts.common import Usage
 
 
@@ -19,7 +20,9 @@ class FileChange(BaseModel):
 class ApiAgentOptions(BaseModel):
     """Knobs honoured only by the in-process ``api-agent`` backend."""
 
-    max_usd: float = Field(default=0.0, description="stop the session when its own cost exceeds this (0 = no cap)")
+    max_usd: float = Field(
+        default=0.0, description="stop the session when its own cost exceeds this (0 = no cap)"
+    )
     temperature: float = 0.3
     thinking: str = "low"
     allow_shell: bool = True
@@ -39,12 +42,18 @@ class AgentJob(BaseModel):
     timeout_s: int = 1800
     max_turns: int = 60
     allow_network: bool = False
-    spatial_tools: bool = Field(default=True, description="expose the 3dcv MCP spatial tools to the agent")
-    write_roots: list[str] = Field(default_factory=lambda: ["src", "public"], description="dirs the agent may edit")
+    spatial_tools: bool = Field(
+        default=True, description="expose the 3dcv MCP spatial tools to the agent"
+    )
+    write_roots: list[str] = Field(
+        default_factory=lambda: ["src", "public"], description="dirs the agent may edit"
+    )
     env: dict[str, str] = Field(default_factory=dict)
     # ------------------------------------------------------------- typed job context
     round: int = Field(default=0, description="round index → trajectory dir + ToolContext")
-    kind: str = Field(default="", description="task kind: baseline | refine | repair | asset | zone ...")
+    kind: str = Field(
+        default="", description="task kind: baseline | refine | repair | asset | zone ..."
+    )
     language: str = Field(default="", description="spec language (spatial tool filtering)")
     track: str = Field(default="", description="spec track (spatial tool filtering)")
     files_hint: list[str] = Field(
@@ -52,9 +61,28 @@ class AgentJob(BaseModel):
         description="workspace-relative files/dirs this task is expected to touch — attributes "
         "files_changed between concurrent sessions in one workspace",
     )
-    mcp_command: list[str] | None = Field(default=None, description="override for the 3dcv MCP server command")
+    edit_only: bool = Field(
+        default=False,
+        description="ENFORCE files_hint: an existing file outside it cannot be overwritten (new files "
+        "and the language entry file stay allowed). Refine tasks set this so a session fixing one "
+        "part cannot rewrite its neighbours.",
+    )
+    images: list[ImagePart] = Field(
+        default_factory=list,
+        description="inline images for the FIRST user message (reference photos; the contact sheet the "
+        "judge scored). Backends without an image channel ignore them; the prompt names the files too.",
+    )
+    always_writable: list[str] = Field(
+        default_factory=list,
+        description="files exempt from edit_only (the entry file: adding a part means importing it there)",
+    )
+    mcp_command: list[str] | None = Field(
+        default=None, description="override for the 3dcv MCP server command"
+    )
     api: ApiAgentOptions = Field(default_factory=ApiAgentOptions)
-    extra: dict[str, Any] = Field(default_factory=dict, description="one-off backend hints (legacy keys are lifted)")
+    extra: dict[str, Any] = Field(
+        default_factory=dict, description="one-off backend hints (legacy keys are lifted)"
+    )
 
     @model_validator(mode="before")
     @classmethod

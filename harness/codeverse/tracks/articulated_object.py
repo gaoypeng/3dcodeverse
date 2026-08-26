@@ -103,7 +103,7 @@ class ArticulatedObjectTrack(StaticObjectTrack):
 
 # ----------------------------------------------------------------------------- sweep adapter
 def default_joint_sweep(ws: Workspace, plan: Plan | None, out_dir: Path) -> tuple[GateReport, list[RenderView]]:
-    """Adapter to ``codeverse.spatial.joints`` (package E): load → pose samples →
+    """Adapter to ``codeverse.spatial.joints``: load → pose samples →
     ``sweep_collisions`` → ``sweep_findings`` (gate) and ``render_poses`` (pose views +
     ``articulation_sheet.png`` for the judge)."""
     from codeverse.spatial import joints

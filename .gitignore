@@ -19,3 +19,4 @@ build/
 dist/
 # in-tree virtualenv (docs/INSTALL.md tells users to create one)
 .venv/
+.venv*/

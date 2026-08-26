@@ -75,6 +75,13 @@ class ChatRequest(BaseModel):
     max_output_tokens: int = 16000
     thinking: Literal["off", "low", "medium", "high"] = "low"
     label: str = Field(default="", description="for logs/cost ledger: planner / judge / generate ...")
+    max_wait_s: float | None = Field(
+        default=None,
+        gt=0,
+        description="the longest this ONE logical call may spend, retries and their waits included; "
+        "None = the model's default (models.retry.RETRY_DEADLINE_S = 900 s).  A caller clips it to "
+        "what it can still afford: an agent turn 20-120 s, a judge sample 240 s, the planner 300 s.",
+    )
 
 
 class ChatResponse(BaseModel):

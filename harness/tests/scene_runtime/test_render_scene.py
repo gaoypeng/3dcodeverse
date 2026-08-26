@@ -204,32 +204,3 @@ def test_request_failure_line_filters_phantom_aborts():
     assert res["real"] == "request failed: /assets/a.glb (net::ERR_CONNECTION_REFUSED)"
     assert res["offsite"] is None
     assert res["cs_default"] == 20000 and res["cs_flag"] == 3000 and res["cs_small_budget"] == 6000
-
-
-def test_frame_table_from_metrics_dict():
-    from codeverse.spatial.render_scene import frame_table
-
-    metrics = {"camera_checks": [
-        {"name": "overview", "kind": "authored", "mean_lum": 0.34, "dark_frac": 0.05, "blown_frac": 0.0,
-         "content_frac": 0.48, "camera_in_geometry": False},
-        {"name": "buried", "kind": "orbit", "mean_lum": 0.02, "dark_frac": 0.91, "blown_frac": 0.0,
-         "content_frac": 0.01, "camera_in_geometry": True},
-    ]}
-    table = frame_table(metrics)
-    lines = table.splitlines()
-    assert lines[0].split() == ["view", "mean_lum", "dark%", "blown%", "content%", "cam_in_geom"]
-    assert "overview [authored]" in lines[1] and "0.34" in lines[1] and "48%" in lines[1] and lines[1].endswith("no")
-    assert "buried [orbit]" in lines[2] and "91%" in lines[2] and lines[2].endswith("YES")
-    assert "no camera_checks" in frame_table({})
-
-
-@pytest.mark.node
-@needs_browser
-def test_frame_table_from_renderset(starter_ws):
-    from codeverse.spatial.render_scene import frame_table
-
-    out = starter_ws.renders_dir(4)
-    rs = render_scene(starter_ws, out, times=(0.0,), width=320, height=180, fps_seconds=0, orbit_views=SCENE_VIEWS[:1], sheet=False)
-    table = frame_table(rs)
-    assert "overview [authored]" in table and "mean_lum" in table
-    assert table == frame_table(out)

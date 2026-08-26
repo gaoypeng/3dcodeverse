@@ -16,16 +16,16 @@ import logging
 import platform
 import subprocess
 from collections.abc import Callable, Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from codeverse import __version__
-from codeverse._compat import UTC
 from codeverse.config import get_settings
 from codeverse.contracts.common import Usage
 from codeverse.contracts.run import RoundRecord, RunRecord
+from codeverse.flywheel.code_quality import code_quality_block
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -282,6 +282,12 @@ def finalize_record(ws: Workspace, record: RunRecord, *, package: bool = True) -
     fill_derived(record)
     if package:
         package_run(ws, record)
+    # the delivered CODE's own vector, next to the delivered ARTIFACT's (complexity):
+    # the judge scored the picture, the gates the geometry; this scores what the
+    # flywheel will actually learn from (flywheel/code_quality.py)
+    cq = code_quality_block(ws, record)
+    if cq is not None:
+        record.extra["code_quality"] = cq
     ws.write_json(ws.record_path, record)
     return ws.record_path
 

@@ -112,3 +112,22 @@ def test_gl_tools_probe_and_frames(tmp_ws, host, monkeypatch):
     (ws.src / "shader.frag").write_text("#version 330 core\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(1.0); }\n")
     obs = get_tool("gl_probe").call(ctx, {})
     assert not obs.ok and "LINT FAILED" in obs.text and "#version" in obs.text
+
+
+def test_gl_probe_compile_error_report(tmp_ws, host, monkeypatch):
+    """Pin: the gl_probe failure report names the error type and the agent's
+    (workspace-relative) file:line, from any cwd, without host paths."""
+    ws = _ws_with_plan(tmp_ws)
+    GlslShaderRuntime(host=host).skeleton(ws, PLAN)
+    (ws.src / "shader.frag").write_text(
+        "// line 1\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord / u_resolution.xy;\n"
+        "    float v = twice(nope);\n    fragColor = vec4(uv, v, 1.0);\n}\n")
+    monkeypatch.setattr("codeverse.languages.glsl_shader.runtime.GlslShaderRuntime.host", lambda self, timeout_s=None: host)
+    ctx = ToolContext(workspace=ws, language="glsl_shader", track="graphics")
+    obs = get_tool("gl_probe").call(ctx, {})
+    assert not obs.ok and obs.numbers["stage"] == "build"
+    first = obs.text.splitlines()[0]
+    assert first.startswith("BUILD FAILED: GlslCompileError") and "at src/shader.frag:4" in first
+    assert "nope" in obs.text and str(ws.root) not in obs.text
+    assert obs.text.count("nope") == 1  # the compile log is the message — the stderr tail is not repeated
+    assert obs.numbers["error_type"] == "GlslCompileError" and obs.numbers["error_line"] == 4

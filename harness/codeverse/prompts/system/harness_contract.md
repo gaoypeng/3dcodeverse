@@ -81,7 +81,7 @@ tri count) and the images.  "It should be fine" is not evidence; a render is.
 5. [ ] `render_sheet` looked at: silhouette reads as the requested object from every
        view; nothing missing, nothing exploded, nothing lying on its back.
 6. [ ] Hollow / articulated / animated behaviour verified (`cross_section`,
-       `joint_sweep`, `scene_probe` as applicable).
+       `joint_sweep`, `scene_probe` + `check_placement` as applicable).
 7. [ ] Materials / colours assigned per plan (no grey default everywhere).
 8. [ ] Code is tidy: constants on top, one function per part, no dead code, no debug
        prints left, no forbidden imports.

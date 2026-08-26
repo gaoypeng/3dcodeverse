@@ -1,14 +1,12 @@
 """Rendering tools: render_views, render_sheet, isolate, compare_silhouette.
 
-All rendering goes through ``tool_common.cached_render_glb`` (→ ``render_glb``
-from package C1, imported lazily) so repeated calls with the same arguments are
+All rendering goes through ``tool_common.cached_render_glb`` (→ ``spatial.render.render_glb``,
+imported lazily) so repeated calls with the same arguments are
 free.  Images returned are absolute paths; text only shows workspace-relative
 paths.
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -22,9 +20,9 @@ from codeverse.spatial.tool_common import (
     cached_render_glb,
     check_mode,
     glb_path,
+    reference_path,
     render_cache_dir,
     resolve_views,
-    spec_dict,
 )
 
 _DEFAULT_VIEWS = [v.name for v in OBJECT_VIEWS_QUICK]
@@ -104,15 +102,7 @@ class CompareSilhouetteArgs(BaseModel):
 @tool("compare_silhouette", CompareSilhouetteArgs, "Silhouette IoU / aspect-ratio error between a rendered view and a reference image (+ diff image).", cost_hint="slow")
 def compare_silhouette(ctx: ToolContext, args: CompareSilhouetteArgs) -> Observation:
     glb = glb_path(ctx)
-    refs = spec_dict(ctx).get("references") or []
-    if not refs:
-        raise ToolUsageError("the spec has no reference images — nothing to compare against")
-    if args.reference_index >= len(refs):
-        raise ToolUsageError(f"reference_index {args.reference_index} out of range (have {len(refs)})", "compare_silhouette(reference_index=0)")
-    ref = refs[args.reference_index]
-    ref_path = Path(ref["path"] if isinstance(ref, dict) else ref.path)
-    if not ref_path.is_absolute():
-        ref_path = ctx.workspace.root / ref_path
+    ref_path, _ref = reference_path(ctx, args.reference_index, tool="compare_silhouette")
     if not ref_path.is_file():
         return Observation.error(f"reference image {ref_path.name} not found")
     if args.view not in VIEW_BY_NAME:

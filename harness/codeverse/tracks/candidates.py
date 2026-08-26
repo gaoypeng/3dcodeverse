@@ -28,6 +28,7 @@ from codeverse.contracts.artifacts import GateReport, RenderSet
 from codeverse.contracts.common import Usage
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import OBJECT_VIEWS_QUICK
+from codeverse.fanout import fan_out
 from codeverse.orchestrator.budget import BudgetExceeded
 from codeverse.orchestrator.candidates import (
     CandidateRecord,
@@ -35,7 +36,6 @@ from codeverse.orchestrator.candidates import (
     decide_best,
     rank_candidates,
 )
-from codeverse.orchestrator.fanout import fan_out
 from codeverse.orchestrator.rounds import BestSelector
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationTask
@@ -166,7 +166,8 @@ def run_candidate(track: Any, sub: RunContext, k: int, tasks: Sequence[Generatio
     if outcome.build.ok:
         measurement = pipeline.measure(sub, outcome.build)
         gates.extend(pipeline.gates(sub, 0, outcome.build, measurement))
-        renders = quick_render(sub, outcome.build.glb_path)
+        renders = quick_render(sub, outcome.build.glb_path, pipeline=pipeline,
+                               build=outcome.build, measurement=measurement)
         if renders is not None and renders.views:
             rec.sheet = renders.contact_sheet or ""
             judgment = quick_judge(track, sub, pipeline, outcome.build, gates, measurement, renders)
@@ -184,12 +185,34 @@ def run_candidate(track: Any, sub: RunContext, k: int, tasks: Sequence[Generatio
     return rec, renders
 
 
-def quick_render(ctx: RunContext, glb_path: str | None) -> RenderSet | None:
-    if not glb_path:
-        return None
+def quick_render(ctx: RunContext, glb_path: str | None, *, pipeline: RoundPipeline | None = None,
+                 build: Any | None = None, measurement: Any | None = None) -> RenderSet | None:
+    """Cheap renders for ranking a candidate — by the route THIS track actually has.
+
+    An object has a GLB and gets the reduced-view, reduced-resolution rig, which is the
+    whole point of a "quick" render.  A shader has no GLB at all, and returning None there
+    meant the candidate was never judged, scored None, and best-of-N fell through to index
+    0 — so every extra candidate was generated, paid for and discarded unlooked-at.
+
+    Measured 2026-08-25 across the teaser battery: static_object and articulated_object
+    candidates all carried real scores, and all SIX graphics runs recorded
+    ``scores: {c0: null, c1: null}`` with ``selected: 0``, two of them at n=3.  No
+    ``candidate.judge_failed`` event fired anywhere — nothing errored, the judge was simply
+    never reached.
+
+    So when there is no GLB, fall back to ``pipeline.render``, which is the renderer the
+    track uses for its real rounds (frames for graphics, authored cameras for a scene).
+    That costs more than the quick rig; it costs less than paying for N generations and
+    keeping the first one blind.
+    """
     out_dir = ctx.ws.renders_dir(0) / "quick"
     try:
-        return ctx.services.render_object(Path(glb_path), out_dir, views=OBJECT_VIEWS_QUICK, width=QUICK_PX, height=QUICK_PX)
+        if glb_path:
+            return ctx.services.render_object(Path(glb_path), out_dir, views=OBJECT_VIEWS_QUICK,
+                                              width=QUICK_PX, height=QUICK_PX)
+        if pipeline is None or build is None:
+            return None
+        return pipeline.render(ctx, 0, build, measurement)
     except Exception as e:  # noqa: BLE001 — a candidate without renders is ranked by gates only
         log.warning("quick render failed for %s: %s", ctx.ws.root, e)
         ctx.events.emit("candidate.render_failed", workspace=str(ctx.ws.root), error=f"{type(e).__name__}: {e}")

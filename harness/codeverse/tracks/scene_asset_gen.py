@@ -325,8 +325,3 @@ def write_variant_shims(ws: Workspace, alias: dict[str, str], available: set[str
             f"  return build{to_pascal(kept)}(THREE, {{ variant: {variant_index(alias, dropped)}, ...opts }});\n}}\n")
         written.append(rel)
     return written
-
-
-def asset_variant_call(kept: str, index: int) -> str:
-    """The call a zone should emit for a merged asset."""
-    return f"build{to_pascal(kept)}(THREE, {{ variant: {index} }})"

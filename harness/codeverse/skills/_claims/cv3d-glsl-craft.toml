@@ -1,0 +1,42 @@
+# gl_frames thresholds quoted in the body, pinned to spatial/frame_stats.py.
+
+[[claim]]
+key = "static_diff"
+text = "0.002"
+python = "codeverse.spatial.frame_stats:STATIC_DIFF"
+scale = 1
+format = "{:.3f}"
+
+[[claim]]
+key = "flicker_diff"
+text = "0.35"
+python = "codeverse.spatial.frame_stats:FLICKER_DIFF"
+scale = 1
+format = "{:.2f}"
+
+[[claim]]
+key = "low_detail_edge"
+text = "0.002"
+python = "codeverse.spatial.frame_stats:LOW_DETAIL_EDGE"
+scale = 1
+format = "{:.3f}"
+
+[[claim]]
+key = "black_lum"
+text = "0.03"
+python = "codeverse.spatial.frame_stats:BLACK_LUM"
+scale = 1
+format = "{:.2f}"
+
+[[claim]]
+key = "blown_lum"
+text = "0.98"
+python = "codeverse.spatial.frame_stats:BLOWN_LUM"
+scale = 1
+format = "{:.2f}"
+
+[[claim]]
+key = "duplicate_diff"
+text = "0.0001"
+python = "codeverse.spatial.frame_stats:DUPLICATE_DIFF"
+format = "{:g}"

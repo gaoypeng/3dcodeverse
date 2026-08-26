@@ -78,9 +78,3 @@ def test_texture_services_bundle_and_deprecated_judge_object(tmp_path, chair_glb
                                cache_dir=tmp_path / "cache")
     rep = texture_pass(ws, chair_spec, chair_plan, model_id="", services=services)
     assert rep.shipped and rep.gate is not None
-    # the retired bool|judge union still works for one wave (warns, routes to judge_obj)
-    ws2 = _ws(tmp_path / "b", chair_glb, chair_spec, chair_plan)
-    judge2 = FakeJudge([(0.70, {"materials": 0.6}), (0.73, {"materials": 0.75})])
-    rep2 = texture_pass(ws2, chair_spec, chair_plan, model_id="", image_model=FakeImageModel(), judge=judge2,
-                        render=fake_render, cache_dir=tmp_path / "cache2")
-    assert rep2.shipped and rep2.gate is not None

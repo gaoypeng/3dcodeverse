@@ -77,15 +77,3 @@ def humanize_view(name: str) -> str:
     if low.startswith("frame_"):
         return f"Frame {stem[6:]}"
     return " ".join(_word(t) for t in stem.split("_") if t) or stem
-
-
-def verdict_label(verdict: str) -> str:
-    return VERDICT_META.get(verdict, (verdict, "", ""))[0]
-
-
-def verdict_class(verdict: str) -> str:
-    return VERDICT_META.get(verdict, ("", "", ""))[1]
-
-
-def verdict_title(verdict: str) -> str:
-    return VERDICT_META.get(verdict, ("", "", ""))[2]

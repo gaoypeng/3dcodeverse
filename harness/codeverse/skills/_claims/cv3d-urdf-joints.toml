@@ -1,0 +1,18 @@
+# Pinned to the live constants. The sweep's `tol_m` (0.002) and `hinge_clearance_m`
+# (0.010) are keyword defaults of joints_sweep.sweep_collisions, not module constants,
+# so they cannot be pinned here; references/sweep-and-motion.md names their call site.
+
+[[claim]]
+key    = "contact_gap_m"
+text   = "0.002"
+python = "codeverse.conventions:CONTACT_GAP_M"
+
+[[claim]]
+key    = "fk_tol_m"
+text   = "0.001"
+python = "codeverse.languages.urdf.runtime:FK_TOL_M"
+
+[[claim]]
+key    = "rest_penetration_max_m"
+text   = "0.005"
+python = "codeverse.languages.urdf.runtime:REST_PENETRATION_MAX_M"

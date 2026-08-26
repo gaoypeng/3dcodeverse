@@ -10,12 +10,11 @@ URL and the static builder into a ``file://`` link — nothing here knows about 
 from __future__ import annotations
 
 import statistics
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from codeverse._compat import UTC
 from codeverse.gallery.labels import VERDICTS
 
 #: how an entry's link should be opened: raw bytes, a directory listing, the code

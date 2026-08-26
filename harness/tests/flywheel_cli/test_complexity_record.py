@@ -19,8 +19,9 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+from datetime import UTC  # noqa: E402
+
 from bench import complexity_report as CR  # noqa: E402
-from codeverse._compat import UTC  # noqa: E402
 from codeverse.contracts.artifacts import Measurement  # noqa: E402
 from codeverse.contracts.common import Backends, Language, Track, Usage  # noqa: E402
 from codeverse.contracts.judgment import Judgment  # noqa: E402

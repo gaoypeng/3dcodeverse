@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import random
+import threading
+import time
 
 import pytest
 
@@ -67,6 +69,7 @@ def test_exhausted_raises_last():
 from codeverse.models.base import ModelError  # noqa: E402
 from codeverse.models.keypool import KeyPool, KeyPoolExhausted, Outcome  # noqa: E402
 from codeverse.models.retry import rotate_with_retries  # noqa: E402
+from codeverse.models.storm import StormGate  # noqa: E402
 
 
 def _classify(exc: BaseException) -> ModelError:
@@ -211,19 +214,28 @@ def test_rotate_retry_after_hint_reaches_the_pool():
     assert 0 < cooling["…k1"] <= 7.0
 
 
-def test_503_storm_has_its_own_patience_budget():
-    """A model-wide 503 storm must not burn the normal attempt budget."""
+@pytest.mark.parametrize(("hedge", "want_calls", "want_naps"), [(1, {9}, 7), (2, {9, 10}, 4)])
+def test_503_storm_has_its_own_patience_budget(hedge, want_calls, want_naps):
+    """A model-wide 503 storm must not burn the normal attempt budget.
+
+    hedge=1: eight sequential 503s then ok — seven storm waits, more than max_attempts=3
+    could survive.  hedge=2 (the default, audit 2026-08-26 §5.2): from the second 503 on
+    every attempt races both keys, so the same eight failures are waited out in FOUR storm
+    waits, and the winning attempt's sibling may land too (a tenth call, discarded)."""
     from codeverse.models.base import ModelError
     from codeverse.models.keypool import KeyPool
     from codeverse.models.retry import rotate_with_retries
 
     pool = KeyPool(["k1", "k2"], rpm_per_key=10_000)
+    lock = threading.Lock()
     calls = {"n": 0}
     naps: list[float] = []
 
     def call(key):
-        calls["n"] += 1
-        if calls["n"] <= 8:  # longer than max_attempts=3 could survive
+        with lock:
+            calls["n"] += 1
+            n = calls["n"]
+        if n <= 8:  # longer than max_attempts=3 could survive
             raise RuntimeError("503 storm")
         return "ok"
 
@@ -233,10 +245,11 @@ def test_503_storm_has_its_own_patience_budget():
     out = rotate_with_retries(
         pool, call, classify=classify, outcome_of=lambda e: "5xx",
         max_attempts=3, base_delay=0.01, storm_attempts=10, storm_max_delay=0.05,
-        sleep=naps.append,
+        sleep=naps.append, hedge=hedge,
     )
-    assert out == "ok" and calls["n"] == 9
-    assert len(naps) == 8 and all(d <= 0.05 for d in naps)  # the cap is the cap
+    assert out == "ok" and calls["n"] in want_calls
+    # the first 503 rotates to k2 for free (no nap); k2's 503 completes the 2-key quorum
+    assert len(naps) == want_naps and all(d <= 0.05 for d in naps)  # the cap is the cap
 
 
 def test_storm_waits_never_exceed_the_house_limit_at_production_defaults():
@@ -290,9 +303,8 @@ def test_live_tests_are_opt_in_by_default():
     On 2026-08-24 a plain run on a keyed machine hung for the whole timeout because
     the live suite was selected by default and the provider was in a capacity storm.
     """
+    import tomllib  # 3.10 floor: stdlib tomllib is 3.11+
     from pathlib import Path
-
-    from codeverse._compat import tomllib  # 3.10 floor: stdlib tomllib is 3.11+
 
     root = Path(__file__).resolve().parents[2]
     cfg = tomllib.loads((root / "pyproject.toml").read_text())
@@ -330,6 +342,7 @@ def test_one_call_cannot_retry_for_hours():
             classify=lambda e: ModelError(str(e), retryable=True, status=503),
             outcome_of=lambda e: "5xx", max_attempts=6, storm_attempts=60,
             sleep=sleep, monotonic=lambda: clock["t"],
+            hedge=1,  # the fake clock is serial; two hedged 300 s calls would add 600 s, not 300
         )
     # the whole point: bounded by the clock, not by 60 x (timeout + wait)
     assert clock["t"] <= RETRY_DEADLINE_S + 305.0, (
@@ -359,5 +372,227 @@ def test_the_deadline_does_not_cut_a_call_that_is_making_progress():
         outcome_of=lambda e: "5xx", max_attempts=6, storm_attempts=60,
         sleep=lambda d: clock.__setitem__("t", clock["t"] + d),
         monotonic=lambda: clock["t"],
+        hedge=1,  # serial fake clock and call counter (see the hedge tests for the raced form)
     )
     assert out == "ok" and calls["n"] == 3
+
+
+def test_503_rotates_to_a_fresh_key_before_it_is_a_storm():
+    """Measured 2026-08-26: one tiny request per key in parallel during the day's storm —
+    flash answered on 15/22, 18/22, 21/22 keys while 5/4/1 keys said 503 at the same instant.
+    A 503 is per key at any moment; the next key is the cure, the storm wait the last resort."""
+    from codeverse.models.base import ModelError
+    from codeverse.models.keypool import KeyPool
+    from codeverse.models.retry import rotate_with_retries
+    from codeverse.models.storm import StormGate
+
+    pool = KeyPool(["k1", "k2", "k3", "k4"], rpm_per_key=10_000)
+    gate = StormGate()
+    calls: list[str] = []
+    naps: list[float] = []
+
+    def call(key):
+        calls.append(key)
+        if key in ("k1", "k2"):
+            raise RuntimeError("503 high demand")
+        return "ok"
+
+    out = rotate_with_retries(pool, call, classify=lambda e: ModelError(str(e), retryable=True, status=503),
+                              outcome_of=lambda e: "5xx", max_attempts=3, storm_attempts=10, storm_max_delay=0.05,
+                              sleep=naps.append, storm_gate=gate)
+    # k1 alone; then, with the default hedge, k2 and k3 raced at once (either may log first)
+    assert out == "ok" and calls[0] == "k1" and sorted(calls[1:]) == ["k2", "k3"]
+    assert naps == [], "rotation to a fresh key costs no sleep"
+    assert gate.n_storms == 0 and not gate.storming, "two keys' 503s are not a storm for the whole process"
+
+
+@pytest.mark.parametrize(("hedge", "want_calls", "want_hits"), [(1, {6}, 3), (2, {6, 7}, 2)])
+def test_503_on_every_key_is_still_a_storm(hedge, want_calls, want_hits):
+    """hedge=1: k1, k2, k3 fail one by one (quorum), then two storm waits, then ok.
+    hedge=2: k1 fails alone, k2+k3 fail together (quorum: storm 1), two more fail together
+    (storm 2), then the raced pair lands — one storm wait per hedged attempt, not per key."""
+    from codeverse.models.base import ModelError
+    from codeverse.models.keypool import KeyPool
+    from codeverse.models.retry import rotate_with_retries
+    from codeverse.models.storm import StormGate
+
+    pool = KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000)
+    gate = StormGate("t", base_delay=0.0, max_wait_s=0.0, probe_lease_s=0.0)  # no real waits
+    lock = threading.Lock()
+    n = {"c": 0}
+    naps: list[float] = []
+
+    def call(key):
+        with lock:
+            n["c"] += 1
+            i = n["c"]
+        if i <= 5:
+            raise RuntimeError("503 high demand")
+        return "ok"
+
+    out = rotate_with_retries(pool, call, classify=lambda e: ModelError(str(e), retryable=True, status=503),
+                              outcome_of=lambda e: "5xx", max_attempts=3, storm_attempts=10, storm_max_delay=0.05,
+                              sleep=naps.append, storm_gate=gate, hedge=hedge)
+    assert out == "ok" and n["c"] in want_calls
+    assert gate.n_storms == 1 and gate.n_hits == want_hits, "the storm is declared after all three keys failed, then waited out"
+
+
+# --------------------------------------------------------------------------- hedging (audit 2026-08-26 §5.2)
+def _wait_idle(pool, timeout: float = 5.0) -> None:
+    """Block until every hedged loser has finished and released its slot."""
+    t_end = time.monotonic() + timeout
+    while pool.stats()["in_flight"] and time.monotonic() < t_end:
+        time.sleep(0.005)
+    assert pool.stats()["in_flight"] == 0
+
+
+def _503(e):
+    return ModelError(str(e), retryable=True, status=503)
+
+
+def test_after_the_first_503_the_next_attempt_is_hedged_and_the_first_success_wins():
+    """Measured 2026-08-26: a failed 503 costs the 21-50 s round-trip the provider holds
+    before rejecting, not the <= 5 s sleep (logged sleep was 13 % of the wait), and storm
+    streaks average 4.7 attempts.  So from the first 503 on, the next attempt goes out on
+    two fresh keys at once and the first success is returned while the other is still in
+    flight; the loser reports its own outcome and releases its own slot when it lands."""
+    pool = KeyPool(["k1", "k2", "k3", "k4"], rpm_per_key=10_000, max_in_flight=8)
+    release_k2 = threading.Event()
+    lock = threading.Lock()
+    calls: list[str] = []
+    naps: list[float] = []
+    stats: dict = {}
+
+    def call(key):
+        with lock:
+            calls.append(key)
+        if key == "k1":
+            raise RuntimeError("503 high demand")
+        if key == "k2":  # the slow loser: still held by the provider when k3 answers
+            assert release_k2.wait(5.0)
+            raise RuntimeError("503 high demand")
+        return f"ok:{key}"
+
+    out = rotate_with_retries(pool, call, classify=_503, outcome_of=lambda e: "5xx", max_attempts=3,
+                              storm_attempts=10, sleep=naps.append, tokens_of=lambda r: 7, stats=stats)
+    assert out == "ok:k3"
+    assert naps == [], "a hedged retry sleeps for nothing"
+    assert calls[0] == "k1" and sorted(calls[1:]) == ["k2", "k3"], "two distinct fresh keys, k1 excluded"
+    assert stats == {"attempts": 3, "hedged": 1, "storm": 0}
+    st = pool.stats()
+    assert st["in_flight"] == 1 and st["peak_in_flight"] == 2, "the loser still holds its max_in_flight slot"
+    assert st["ok"] == 1 and st["5xx"] == 1
+    release_k2.set()
+    _wait_idle(pool)
+    st = pool.stats()
+    assert st["5xx"] == 2 and st["in_flight"] == 0, "the loser's 503 is reported when it lands"
+
+
+def test_a_loser_that_succeeds_later_is_discarded_but_its_tokens_are_reported():
+    """A success-then-success is the one case the hedge is not free: the second answer is
+    thrown away, its tokens still counted against the key (a 503 bills nothing, so while it
+    storms the hedge costs nothing)."""
+    pool = KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000, tpm_per_key=1_000_000)
+    release_k2 = threading.Event()
+
+    def call(key):
+        if key == "k1":
+            raise ModelError("503 high demand", retryable=True, status=503)
+        if key == "k2":
+            assert release_k2.wait(5.0)
+            return "late:k2"
+        return "ok:k3"
+
+    out = _rotate(pool, call, max_attempts=3, storm_attempts=10, tokens_of=lambda r: 900 if r.endswith("k2") else 100)
+    assert out == "ok:k3"
+    release_k2.set()
+    _wait_idle(pool)
+    assert pool.stats()["ok"] == 2
+    assert pool._by_key["k2"].tokens_used == 900 and pool._by_key["k3"].tokens_used == 100  # noqa: SLF001
+
+
+def test_a_hedged_attempt_that_fails_on_every_key_is_one_storm_attempt():
+    pool = KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000)
+    gate = StormGate("t", base_delay=0.0, max_wait_s=0.0, probe_lease_s=0.0)  # no real waits
+    lock = threading.Lock()
+    n = {"c": 0}
+    stats: dict = {}
+
+    def call(key):
+        with lock:
+            n["c"] += 1
+            i = n["c"]
+        if i <= 5:
+            raise RuntimeError("503 high demand")
+        return "ok"
+
+    out = rotate_with_retries(pool, call, classify=_503, outcome_of=lambda e: "5xx", max_attempts=3,
+                              storm_attempts=10, storm_max_delay=0.05, sleep=lambda d: None, storm_gate=gate,
+                              stats=stats)
+    assert out == "ok"
+    # k1 alone; k2+k3 (quorum of 3 → storm 1); two more (storm 2); the raced pair lands
+    assert stats == {"attempts": 7, "hedged": 3, "storm": 2}
+    assert gate.n_hits == 2, "two hedged failures = two storm waits, not four"
+
+
+def test_hedge_1_disables_and_a_full_pool_of_slots_degrades_to_one_key():
+    lock = threading.Lock()
+
+    def make_call():
+        n = {"c": 0}
+
+        def call(key):
+            with lock:
+                n["c"] += 1
+                i = n["c"]
+            if i <= 3:
+                raise ModelError("503 high demand", retryable=True, status=503)
+            return "ok"
+        return call
+
+    stats: dict = {}
+    _rotate(KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000), make_call(), max_attempts=3, storm_attempts=10,
+            storm_max_delay=0.0, hedge=1, stats=stats)
+    assert stats["hedged"] == 0 and stats["attempts"] == 4
+    # max_in_flight=1: the primary holds the only slot, so a partner is never waited for
+    pool = KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000, max_in_flight=1)
+    stats = {}
+    _rotate(pool, make_call(), max_attempts=3, storm_attempts=10, storm_max_delay=0.0, stats=stats)
+    assert stats["hedged"] == 0 and stats["attempts"] == 4 and pool.stats()["peak_in_flight"] == 1
+    # max_in_flight=2: a hedged attempt holds both slots
+    pool = KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000, max_in_flight=2)
+    stats = {}
+    _rotate(pool, make_call(), max_attempts=3, storm_attempts=10, storm_max_delay=0.0, stats=stats)
+    _wait_idle(pool)
+    assert stats["hedged"] >= 1 and pool.stats()["peak_in_flight"] == 2
+
+
+def test_the_worst_error_decides_a_hedged_attempt():
+    """One key says 503 and the other says the request itself is bad: raise the 400 at once
+    instead of storming on a request that can never succeed."""
+    pool = KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000)
+    stats: dict = {}
+
+    def call(key):
+        if key == "k3":
+            raise ModelError("bad request", retryable=False, status=400)
+        raise ModelError("503 high demand", retryable=True, status=503)
+
+    with pytest.raises(ModelError) as ei:
+        _rotate(pool, call, max_attempts=6, storm_attempts=10, stats=stats)
+    assert ei.value.status == 400 and stats == {"attempts": 3, "hedged": 1, "storm": 0}
+
+
+def test_a_dead_key_among_the_hedge_is_benched_once_the_sibling_wins():
+    pool = KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000)
+
+    def call(key):
+        if key == "k1":
+            raise ModelError("503 high demand", retryable=True, status=503)
+        if key == "k2":
+            raise ModelError("suspended", retryable=False, status=403)
+        return "ok:k3"
+
+    assert _rotate(pool, call, max_attempts=3, storm_attempts=10) == "ok:k3"
+    _wait_idle(pool)
+    assert pool.stats()["n_dead"] == 1, "k3 proved the request fine, so k2's 403 was the key's fault"

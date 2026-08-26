@@ -38,7 +38,7 @@ from codeverse.contracts.run import (
     SettingsSnapshot,
     StageCost,
 )
-from codeverse.proc import write_json_atomic, write_text_atomic
+from codeverse.proc import read_json_or_none, write_json_atomic, write_text_atomic
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -300,14 +300,6 @@ def cost_summary(record: RunRecord, rows: list[dict[str, Any]]) -> CostSummary:
     )
 
 
-def read_json(path: Path) -> dict[str, Any] | None:
-    try:
-        data = json.loads(path.read_text())
-    except (OSError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
-
-
 # --------------------------------------------------------------------------- io
 def write_usage_jsonl(path: Path, rows: list[dict[str, Any]]) -> Path:
     return write_text_atomic(path, "".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows))
@@ -358,8 +350,8 @@ def load_telemetry(ws: Workspace, record: RunRecord | None = None) -> RunTelemet
     """``record.telemetry`` when present, else the files under ``telemetry/``, else None."""
     if record is not None and record.telemetry is not None:
         return record.telemetry
-    cost = read_json(ws.cost_path)
-    settings = read_json(ws.settings_path)
+    cost = read_json_or_none(ws.cost_path)
+    settings = read_json_or_none(ws.settings_path)
     if cost is None and settings is None:
         return None
     try:

@@ -1,0 +1,286 @@
+# fancy_v1 — blender slice (10 prompts).  Complex, picture-worthy static objects, every
+# prompt written from how the real object is actually built: load-bearing parts, how they
+# attach, proportions in metres, where materials change, and the 2-4 details that make it
+# read as THAT object.  Objects chosen for a distinctive silhouette, real internal structure,
+# repeats-and-mirrors (spokes, slats, teeth, fins) and at least one hollow.  Blender slice
+# carries the organic and bevelled forms.  All hard tier; ids fancy_bl_<snake>.
+# Sibling files: fancy_v1_cadquery.yaml, fancy_v1_threejs.yaml.
+name: fancy_v1_blender
+track: static_object
+language: blender
+description: >
+  fancy_v1 blender slice: 10 hard static objects with real construction described the way
+  a product designer would (Windsor chair, harp, ship's wheel, carousel horse, orrery ...),
+  each with a countable falsifiable must_have list and realistic overall dimensions.
+prompts:
+  # Steam-bent bow socketed into a saddled seat, turned spindles and splayed legs: organic
+  # carving plus a large count of thin repeated parts that must all land in the seat.
+  - id: fancy_bl_windsor_chair
+    tier: hard
+    category: furniture
+    tags: [fancy_v1, hard]
+    prompt: >
+      a sack-back Windsor armchair in the traditional construction: a thick elm seat plank,
+      about 0.55 m wide and 0.05 m thick, carved into a saddle with a raised pommel at the front; a steam-bent ash bow of round section about 0.02 m
+      thick rising in a continuous arch whose two ends socket down into the seat behind the
+      sitter; a flat steam-bent arm rail wrapping around at elbow height whose ends terminate
+      in small hand rests, supported at the front by a turned arm post on each side; seven
+      tapered spindles passing through holes in the arm rail up into the bow, plus four
+      shorter spindles under each arm; four turned legs with baluster and ring profiles
+      raked outward and splayed to the sides, socketed into the underside of the seat, tied
+      by an H-stretcher of three turned rungs. Milk-paint black-green, worn through to pale wood on the arm tops.
+    must_have:
+      - "seat plank about 0.55 m wide with a visibly scooped saddle, not a flat slab"
+      - "a continuous round-section bow arching over the back and entering the seat at exactly two points"
+      - "a flat arm rail at about 0.68 m above the floor wrapping around both sides of the sitter"
+      - "at least 7 long spindles pass through the arm rail and continue up into the bow"
+      - "at least 4 short spindles under each arm between arm rail and seat"
+      - "four turned legs raked outward so the feet sit wider than the seat"
+      - "all four feet touch the ground plane"
+      - "paint worn through to pale wood on the arm tops as a second material"
+    dimensions_m: {width: 0.62, depth: 0.58, height: 1.02}
+  # A concert harp: a real triangular load path (pillar, neck, soundboard-in-body) and 47
+  # graduated strings in a plane, with coloured C and F strings and a hollow resonator.
+  - id: fancy_bl_concert_harp
+    tier: hard
+    category: instruments
+    tags: [fancy_v1, hard]
+    prompt: >
+      a concert pedal harp built as the real triangle: a fluted gilded column (the pillar)
+      standing about 1.75 m tall at the front, a hollow tapered spruce sound body at the
+      back, its rounded staved back closed and its flat soundboard facing the player,
+      widening from about 0.10 m at the top to 0.50 m at the base; a curved maple neck
+      arching from the top of the column down to the top of the body with the brass action
+      plate running along its side carrying a row of tuning pins; 47 strings, all in one
+      plane, strung from pins on the neck down to a straight rib on the soundboard centre,
+      graduating from about 0.08 m long at the treble to 1.50 m long at the bass; every
+      seventh string red (the Cs) and one in four blue (the Fs), the others natural gut colour; a base plate with seven pedals in a row and
+      two rear feet; gold-leaf ornament on the column capital and the crown.
+    must_have:
+      - "a fluted front pillar about 1.75 m tall, standing vertically at the front"
+      - "a hollow sound body at the back that widens toward the base and shows a rounded staved back"
+      - "a curved neck joining the pillar top to the body top, forming a closed triangle"
+      - "at least 40 strings, all lying in one plane, each attached at both ends"
+      - "strings graduate in length from short at the treble end to long at the bass end"
+      - "some strings coloured red and some blue among natural-coloured ones"
+      - "seven pedals visible on the base plate"
+      - "gold-coloured ornament on the column capital distinct from the wood body"
+    dimensions_m: {width: 0.55, depth: 1.0, height: 1.85}
+  # Ship's wheel on a binnacle: turned spokes through a laminated rim, a hub with a brass
+  # boss, the wheel mounted on a pedestal that is itself a hollow box with a compass bowl.
+  - id: fancy_bl_ships_wheel
+    tier: hard
+    category: vehicles
+    tags: [fancy_v1, hard]
+    prompt: >
+      a ship's steering wheel on its binnacle: a mahogany rim about 1.20 m across built from
+      a laminated ring of round section about 0.05 m thick, through which pass eight turned
+      spokes; each spoke runs from the central hub, through the rim, and out beyond it as a
+      turned handle with a bulbous knob, so the handles sit about 0.14 m proud of the rim;
+      the hub is a thick disc with a domed brass boss at its centre; the wheel is mounted
+      vertically on a horizontal brass axle that runs back into a hollow teak binnacle
+      pedestal about 1.10 m tall, square in plan with chamfered corners, brass bands top
+      and bottom; on top of the binnacle a brass compass bowl under a glazed hemispherical
+      hood with a hinged lamp housing on the side; a brass grab rail around the pedestal top.
+    must_have:
+      - "a circular rim about 1.20 m in diameter with a round cross-section"
+      - "exactly 8 spokes spaced evenly, each passing through the rim and continuing outward as a handle"
+      - "each handle ends in a bulbous turned knob outside the rim"
+      - "a thick hub disc at the centre with a domed brass boss"
+      - "the wheel stands vertically in front of a square-plan pedestal about 1.10 m tall"
+      - "a hemispherical glazed compass hood on top of the pedestal"
+      - "brass bands and boss distinct in colour from the dark wood rim and spokes"
+      - "the pedestal base sits flat on the ground plane"
+    dimensions_m: {width: 1.35, depth: 0.75, height: 1.75}
+  # Carousel horse: organic sculpted body in a gallop pose with a brass pole through it,
+  # carved tack, glass jewels, a decorated saddle; the pole is the hard rigid reference.
+  - id: fancy_bl_carousel_horse
+    tier: hard
+    category: toys
+    tags: [fancy_v1, hard]
+    prompt: >
+      a carousel jumper horse in the full-gallop carving pose: the body about 1.50 m from
+      nose to tail root, front legs tucked up under the chest, hind legs stretched straight
+      back, the head turned slightly to the outside (the romance side) with an open mouth
+      and flared nostrils, a carved flowing mane falling to one side and a long swept tail;
+      a polished brass pole about 0.045 m thick passing vertically through the body just
+      behind the withers and exiting under the belly, continuing down to a round base plate;
+      carved tack in relief: a saddle with a raised cantle and a saddle blanket with a
+      scalloped trailing edge, a breast strap, a bridle with a browband; the romance side
+      dressed with at least six faceted glass jewels set in gilded rosettes along the saddle
+      blanket and breast strap; painted a dapple white body with a gold-and-red saddle, a
+      black hoof on each leg and a horseshoe on each hoof.
+    must_have:
+      - "a horse body about 1.50 m long with both front legs tucked up and both hind legs stretched back"
+      - "no hoof touches the ground; the horse is held up only by the pole"
+      - "a vertical brass pole passes through the body behind the withers and exits under the belly"
+      - "the pole continues down to a round base plate on the ground"
+      - "a saddle with a raised cantle and a blanket with a scalloped rear edge"
+      - "at least 6 jewel-like faceted bosses along the saddle blanket or breast strap"
+      - "a flowing mane and a long tail carved as separate masses from the body"
+      - "at least 3 distinct paint colours: pale body, red or gold tack, black hooves"
+    dimensions_m: {width: 0.55, depth: 1.6, height: 1.85}
+  # Brass orrery: nested concentric arms at different heights, gear stack under the base,
+  # spheres on stalks with a moon sub-arm, a scalloped skirt, hollow base with visible gears.
+  - id: fancy_bl_orrery
+    tier: hard
+    category: instruments
+    tags: [fancy_v1, hard]
+    prompt: >
+      a Georgian-style brass orrery: a round mahogany base about 0.45 m in diameter with a
+      turned edge, carrying a brass calendar ring engraved with the zodiac around its rim on
+      twelve small turned pillars; under the ring, in the hollow between base and ring, a
+      visible stack of brass spur gears of decreasing size driving a central vertical shaft;
+      at the top of the shaft a gilt sun ball about 0.03 m across on a short stalk; six planet
+      arms of flat brass strip radiating at six different heights on nested concentric
+      sleeves around the shaft, each arm ending in a polished sphere on a small vertical
+      stalk, lengths increasing from 0.06 m for Mercury to 0.22 m for Saturn; the Earth arm
+      carries a small sub-arm with a tiny moon and a tilted brass ring around the Earth ball;
+      Saturn wears a thin flat ring; a crank handle on the side of the base drives the gears.
+    must_have:
+      - "a round wooden base about 0.45 m in diameter"
+      - "a brass ring around the rim supported on at least 12 small pillars"
+      - "at least 4 visible spur gears of different sizes in the hollow under the ring"
+      - "exactly 6 radial arms at six different heights, each ending in a sphere on a stalk"
+      - "arm lengths increase outward so the outermost sphere is farthest from the shaft"
+      - "one arm carries a small sub-arm with a tiny moon beside its planet"
+      - "the outermost sphere has a thin flat ring around it"
+      - "brass parts distinct in colour from the dark wood base"
+    dimensions_m: {width: 0.5, depth: 0.5, height: 0.42}
+  # A pipe organ facade: a carved case with a hollow impost, graduated speaking pipes in
+  # mitred flats and towers, a keyboard console; a hard count-and-graduation object.
+  - id: fancy_bl_chamber_organ
+    tier: hard
+    category: instruments
+    tags: [fancy_v1, hard]
+    prompt: >
+      a chamber pipe organ in an oak case about 2.20 m wide and 3.20 m tall: a lower case
+      with two panelled doors, a projecting keydesk with two manuals of 56 keys each (the
+      upper set back from the lower), a music stand and eight stop knobs on each side jamb; above a moulded impost, the facade of speaking pipes arranged as a central
+      round tower of seven pipes in a semicircle, a flat of nine pipes on each side, and an
+      outer tower of five pipes on each side, the towers standing proud of the flats; all
+      facade pipes are polished tin cylinders with conical feet standing in a toe-board,
+      a mouth with a cut-up and upper lip cut in each one about a fifth of the way up, and
+      pipe lengths graduated symmetrically from tallest at the centre of each tower to
+      shortest at the flat ends; carved pierced pipe shades filling the arch above each
+      tower and flat; a crown cornice with a carved centre finial.
+    must_have:
+      - "an oak case about 2.20 m wide and 3.20 m tall standing on the ground plane"
+      - "a central tower of pipes standing proud of two flanking flats"
+      - "an outer tower of pipes at each end, making 5 pipe groups in a left-right mirror"
+      - "at least 30 facade pipes in total, all polished tin colour"
+      - "pipe heights within each group graduate symmetrically about the group centre"
+      - "each pipe has a conical foot and a visible mouth notch in its lower fifth"
+      - "two keyboards visible on a projecting keydesk, the upper set back from the lower"
+      - "at least 8 stop knobs in a column on each side of the keyboards"
+    dimensions_m: {width: 2.2, depth: 1.1, height: 3.2}
+  # Victorian cast-iron street lamp: a fluted tapered column, a hollow four-sided lantern
+  # with glazed panes and a finial, ladder bar, acanthus base; architectural detail object.
+  - id: fancy_bl_gas_street_lamp
+    tier: hard
+    category: architecture
+    tags: [fancy_v1, hard]
+    prompt: >
+      a Victorian cast-iron gas street lamp about 4.2 m tall: a square stepped plinth at
+      the base about 0.45 m across, an octagonal pedestal with a cast acanthus-leaf collar
+      at its top, a fluted tapered column of 16 flutes narrowing from 0.20 m to 0.12 m over
+      its height with two moulded astragal rings, a short horizontal ladder bar with a
+      ball at each end just below the lantern for the lamplighter; the lantern is a hollow
+      four-sided tapered box, wider at the top, with a glazed pane in each face held by
+      thin glazing bars, a sloped four-sided pyramidal roof with a vented cap and a pointed
+      finial, and a copper gas-mantle burner visible inside the glass; the iron painted
+      gloss black with the acanthus collar and finial picked out in gold leaf; the lantern
+      glass slightly frosted.
+    must_have:
+      - "a stepped square plinth at the base sitting on the ground plane"
+      - "a tapered column with at least 12 visible flutes"
+      - "a cast leaf collar at the top of the pedestal, gold-coloured"
+      - "a horizontal ladder bar with a ball at each end just below the lantern"
+      - "a four-sided lantern that is wider at the top than at the bottom"
+      - "a glazed pane in each of the four lantern faces"
+      - "a pyramidal roof on the lantern with a finial at its apex"
+      - "a burner element visible inside the lantern"
+    dimensions_m: {width: 0.55, depth: 0.55, height: 4.2}
+  # Brass microscope: a hollow drawtube, triple nosepiece with objectives, rack-and-pinion
+  # focus, a mirror on a gimbal under a stage with clips, a horseshoe foot; optics object.
+  - id: fancy_bl_brass_microscope
+    tier: hard
+    category: optics
+    tags: [fancy_v1, hard]
+    prompt: >
+      a late-Victorian brass compound microscope: a heavy horseshoe-shaped foot, two
+      trunnion pillars carrying a pivoted limb so the whole body tilts back, a square stage
+      about 0.09 m across with two spring stage clips and a central aperture, beneath it a
+      concave mirror about 0.04 m across on a gimbal fork that swings under the stage;
+      above the stage a curved limb carrying the coarse focus rack, with a pair of large
+      knurled coarse-focus knobs on a shaft either side and a smaller fine-focus knob on top
+      of the limb; the body tube about 0.03 m in diameter and 0.16 m long, with an inner
+      drawtube telescoped out of its top ending in an eyepiece cap; at the bottom of the
+      body tube a revolving nosepiece carrying three objectives of different lengths in a
+      rotating triple; lacquered polished brass throughout with black japanned foot and
+      the limb, silvered mirror, and a black eyepiece cap.
+    must_have:
+      - "a horseshoe-shaped foot sitting flat on the ground plane"
+      - "the body is pivoted between two pillars rising from the foot"
+      - "a square stage with two stage clips on its top surface"
+      - "a round mirror on a fork below the stage"
+      - "a vertical body tube with a narrower drawtube extending from its top"
+      - "exactly 3 objectives of different lengths hanging from a rotating nosepiece"
+      - "two large matching knurled focus knobs on a common shaft either side of the limb"
+      - "brass body distinct in colour from the black foot and the black eyepiece cap"
+    dimensions_m: {width: 0.15, depth: 0.2, height: 0.36}
+  # Espresso lever machine: a chrome dome boiler, a spring-lever group with a long handle,
+  # portafilter locked in, a drip tray grille, gauge, eagle finial; appliance in curves.
+  - id: fancy_bl_lever_espresso
+    tier: hard
+    category: appliances
+    tags: [fancy_v1, hard]
+    prompt: >
+      a classic Italian lever espresso machine of the domestic kind: a polished chrome
+      boiler cylinder about 0.16 m in diameter and 0.30 m tall standing on a cast alloy
+      base with four rubber feet; a domed lid on the boiler with a brass eagle finial on
+      top and a round pressure gauge with a white dial set into the front of the boiler; a
+      brass group head cast into the front of the boiler near its base, with a long
+      cylindrical spring-lever housing rising above it and a lever arm about 0.30 m long
+      with a black bakelite knob angled up and back; a portafilter with a black handle
+      locked into the group with two spouts pointing down at a cup; a steam wand of thin
+      pipe with a black tap knob on the side of the boiler; a pull-out drip tray with a
+      slotted chrome grille under the group; a sight glass tube on the boiler side showing
+      water level.
+    must_have:
+      - "a vertical cylindrical boiler about 0.16 m in diameter with a domed lid"
+      - "a finial on the top of the dome"
+      - "a round gauge with a pale dial set into the boiler front"
+      - "a group head on the boiler front near its base with a vertical spring housing above it"
+      - "a lever arm at least 0.25 m long with a black knob angled up and back from the group"
+      - "a portafilter locked into the group with two spouts pointing down"
+      - "a drip tray with a slotted grille under the group"
+      - "chrome boiler, brass group head and black knobs as three distinct materials"
+    dimensions_m: {width: 0.24, depth: 0.32, height: 0.55}
+  # Orbital shaker-incubator: a radiused housing with a hinged clear lid on gas struts, a
+  # perforated platform, six clamped flasks with liquid; lab equipment with transparency.
+  - id: fancy_bl_lab_orbital_shaker
+    tier: hard
+    category: lab_equipment
+    tags: [fancy_v1, hard]
+    prompt: >
+      a benchtop orbital shaker-incubator as used in a microbiology lab: a squat white
+      powder-coated steel housing about 0.60 m wide, 0.55 m deep and 0.45 m tall with
+      radiused vertical corners and a recessed front control panel carrying a small dark
+      display, a speed knob, a temperature knob and two rocker switches; a clear hinged
+      acrylic lid on the top, propped open at about 60 degrees on two gas struts, revealing
+      the platform inside: a flat aluminium tray on the orbital drive with a grid of holes
+      and two rows of spring-wire flask clamps, each clamp a ring of curved spring fingers,
+      holding six 250 ml conical Erlenmeyer flasks with orange screw caps and pale broth
+      inside; a stainless handle on the lid front edge; four levelling feet; a louvred
+      vent strip on each side of the housing; a coiled black mains lead at the back.
+    must_have:
+      - "a white boxy housing about 0.60 m wide with rounded vertical corners"
+      - "a transparent lid hinged at the back, propped open on two struts"
+      - "a flat platform tray inside with a visible grid of holes"
+      - "exactly 6 conical flasks standing on the platform in two rows"
+      - "each flask is held by a ring of spring fingers around its base"
+      - "each flask has an orange cap and a visible liquid level inside"
+      - "a front control panel with two knobs and a small dark display"
+      - "the housing stands on four feet on the ground plane"
+    dimensions_m: {width: 0.62, depth: 0.58, height: 0.9}

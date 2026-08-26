@@ -176,7 +176,3 @@ def frame_gate(seq: SequenceStats, *, motion_expected: bool = True, gate: str = 
             "add structure: fbm layers, shapes (sdf), stars/particles, lines — the rubric rewards visual richness")
     passed = not any(x.severity == Severity.ERROR for x in f)
     return GateReport(gate=gate, passed=passed, findings=f)
-
-
-def stats_table(seq: SequenceStats) -> str:
-    return "\n".join(seq.summary_lines())

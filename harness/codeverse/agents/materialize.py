@@ -10,6 +10,17 @@ MCP wiring:
 * codex → ``-c`` overrides returned in :class:`Materialized.codex_overrides`
 * agy (Antigravity) → no per-workspace MCP; the body documents the CLI fallback.
 
+Skills: the routed ``SKILL.md`` bundles are written per ROUND, not here — the set depends
+on the round's kind and the previous round's gate findings (``codeverse/skills``,
+``tracks/skills_hook.py``).  ``skills.materialize.write_index`` then edits a marked section
+into the three body files this module writes, so there is exactly one shared head and no
+new one (docs/COST.md §13 measured and reverted a second head at +2,925 tokens/call).
+Nothing here needs to change for the CLIs to see them: codex's per-tool approval override
+below is scoped to ``mcp_servers.3dcv.*`` and cannot reach its skills loader, and
+gemini-cli's ``activate_skill`` consent is already covered by ``--approval-mode yolo``
+(``agents/gemini_cli.py``).  claude-code needed one change — ``Skill`` in its
+``--allowedTools``, see ``agents/claude_code.py``.
+
 Ignore files: ``.geminiignore`` / ``.aiexclude`` hide only noise (:data:`IGNORE_LINES`);
 ``.gemini/settings.json`` gets ``context.fileFiltering.respectGitIgnore=false`` because the
 workspace ``.gitignore`` hides ``artifacts/`` + ``trajectories/`` from git and gemini-cli

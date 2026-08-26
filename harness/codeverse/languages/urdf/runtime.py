@@ -25,10 +25,11 @@ from codeverse.config import get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import ArticulatedPlan, Plan
+from codeverse.languages._common import ProcResult, read_json_file, remove_stale, run_subprocess
 from codeverse.languages.urdf.consistency import check_fk_consistency
 from codeverse.languages.urdf.lint import lint_workspace
 from codeverse.languages.urdf.skeleton import write_skeleton
-from codeverse.proc import run_subprocess
+from codeverse.prompts import PROMPTS_DIR, load_text
 from codeverse.spatial.joints import (
     UrdfError,
     load_urdf,
@@ -64,15 +65,11 @@ class UrdfBlenderRuntime:
 
     def contract_doc(self) -> str:
         try:
-            from codeverse.prompts import load_text
-
             return load_text("urdf/contract.md")
         except FileNotFoundError:
             return CONTRACT_MD.read_text()
 
     def cookbook_path(self) -> Path:
-        from codeverse.prompts import PROMPTS_DIR
-
         return PROMPTS_DIR / "urdf" / "cookbook.md"
 
     # ------------------------------------------------------------ build
@@ -102,26 +99,25 @@ class UrdfBlenderRuntime:
         blender = settings.resolve_blender()
         if not blender:
             return fail("BlenderNotFound", "no Blender binary (set CV3D_BINARIES__BLENDER)", file="", census=census)
-        for stale in ("build.json", "census.json"):
-            (art / stale).unlink(missing_ok=True)
+        build_json, census_json = art / "build.json", art / "census.json"
+        remove_stale(build_json, census_json)
         shutil.rmtree(art / "meshes", ignore_errors=True)
         proc = _run_blender(blender, ws, art, timeout_s, settings.limits.bpy_rlimit_gb)
-        build_json = art / "build.json"
-        if proc["timed_out"]:
+        if proc.timed_out:
             return fail("Timeout", f"Blender build exceeded {timeout_s}s (killed)", file="src/model.py", census=census,
-                        stdout_tail=_tail(proc["stdout"]), stderr_tail=_tail(proc["stderr"]))
+                        stdout_tail=_tail(proc.stdout), stderr_tail=_tail(proc.stderr))
         if not build_json.is_file():
-            return fail("WrapperCrash", f"wrapper produced no build.json (exit {proc['returncode']})", file="src/model.py",
-                        census=census, stdout_tail=_tail(proc["stdout"]), stderr_tail=_tail(proc["stderr"]))
-        wb = json.loads(build_json.read_text())
-        wcensus = json.loads((art / "census.json").read_text()) if (art / "census.json").is_file() else {}
+            return fail("WrapperCrash", f"wrapper produced no build.json (exit {proc.returncode})", file="src/model.py",
+                        census=census, stdout_tail=_tail(proc.stdout), stderr_tail=_tail(proc.stderr))
+        wb = read_json_file(build_json)
+        wcensus = read_json_file(census_json) if census_json.is_file() else {}
         census.update({k: wcensus.get(k) for k in ("objects", "links", "unmatched_objects", "missing_links", "hints") if k in wcensus})
         if not wb.get("ok"):
             hints = "\n".join(f"  hint: {h}" for h in (wcensus.get("hints") or {}).values())
             return fail(wb.get("error_type") or "ScriptError", (wb.get("error_message") or "") + ("\n" + hints if hints else ""),
                         file=wb.get("error_file") or "src/model.py", line=wb.get("error_line"), census=census,
-                        stdout_tail=_tail(wb.get("stdout_tail", "") or proc["stdout"]),
-                        stderr_tail=_tail(wb.get("stderr_tail", "") or proc["stderr"]))
+                        stdout_tail=_tail(wb.get("stdout_tail", "") or proc.stdout),
+                        stderr_tail=_tail(wb.get("stderr_tail", "") or proc.stderr))
 
         # 3. URDF copy + load
         urdf_out = art / "robot.urdf"
@@ -169,11 +165,12 @@ class UrdfBlenderRuntime:
         return res
 
 
-def _run_blender(blender: str, ws: Workspace, art: Path, timeout_s: int, rlimit_gb: int) -> dict[str, Any]:
+def _run_blender(blender: str, ws: Workspace, art: Path, timeout_s: int, rlimit_gb: int) -> ProcResult:
     cmd = [blender, "-b", "--factory-startup", "--python", str(WRAPPER), "--",
            "--script", str(ws.root / "src" / "model.py"), "--urdf", str(ws.root / "src" / "robot.urdf"),
            "--out", str(art), "--rlimit-gb", str(rlimit_gb)]
+    # whitelist env (no inherited PYTHONPATH, user config pinned into artifacts) — deliberately
+    # stricter than blender.runtime.blender_env(); keep it that way
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", str(ws.root)),
-           "PYTHONDONTWRITEBYTECODE": "1", "BLENDER_USER_CONFIG": str(art / ".blender_config")}
-    r = run_subprocess(cmd, cwd=ws.root, env=env, timeout_s=timeout_s)
-    return {"returncode": r.returncode, "stdout": r.stdout, "stderr": r.stderr, "timed_out": r.timed_out}
+           "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1", "BLENDER_USER_CONFIG": str(art / ".blender_config")}
+    return run_subprocess(cmd, cwd=ws.root, env=env, timeout_s=timeout_s)

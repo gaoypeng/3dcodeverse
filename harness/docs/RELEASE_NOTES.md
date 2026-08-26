@@ -1,4 +1,8 @@
-# Addendum — evaluation integrity, 2026-08-25
+# Release notes
+
+Newest first.
+
+## Evaluation integrity — 2026-08-25/26
 
 Four changes that affect what a recorded score MEANS, none of which changes a
 score computed under an odd `n_samples` (branch `ziyao/eval-integrity`, D36–D39):
@@ -24,9 +28,165 @@ score computed under an odd `n_samples` (branch `ziyao/eval-integrity`, D36–D3
   articulated_v2, n=14 — harness 0.309 vs one-shot+repair 0.316, Δ −0.007 (CI crosses 0);
   5/14 harness runs failed at planning.
 
+
+## Skills — 2026-08-25
+
+A routed, spec-conformant skill library whose reads we can measure. Baseline `42a5457` →
+`HEAD`; six commits from five parallel waves (machinery, four authoring waves) plus this
+verification pass. Full story and the authoring contract: **`docs/SKILLS.md`**.
+
+**Ships behind `CV3D_SKILLS`, default OFF.** §A/B below says why, with the numbers.
+
+### What landed
+
+* `codeverse/skills/` — 14 bundles authored to the open Agent Skills spec
+  (agentskills.io), a typed R1–R24 route table, an atime read probe, and numbers pinned to
+  live constants. `3dcv skills list|show|validate|report`, `3dcv doctor --skills`.
+* Routing is automatic and gate-driven: the previous round's gate findings outrank the
+  standing sheets, which is the input no CLI's own skill loader can see.
+* `RoundRecord.skills` records what was listed, surfaced and read deep, with the index and
+  body token cost, so the price of the feature is auditable per round rather than asserted.
+
+### Native loading, proven live
+
+`pytest -m live tests/skills/test_live_discovery.py` — gemini-cli 0.53.0, codex 0.149.0,
+claude-code 2.1.245 and agy 1.1.20 each discover a materialised bundle, open `SKILL.md`,
+open `references/` and follow what they read. Two things this settled that had only been
+argued: `Skill` was **absent** from claude-code's `ALLOWED_TOOLS` (it would have denied its
+own skill tool — fixed, and `3dcv doctor --skills` now checks it), and gemini-cli's
+`activate_skill` consent does not block us under `--approval-mode yolo`.
+
+### Defects the verification tests found
+
+| # | What | Where |
+|---|---|---|
+| V-1 | Three language contracts told the agent to overlap parts by 2–4 mm / "≥ 2 mm" while `connectivity.py` WARNs above `PENETRATION_WARN_M` = 2 mm and its own `fix_hint` says "overlap by ≤ 2 mm". Two worked examples welded at 3–4 mm. | `prompts/{blender,cadquery,threejs}/contract.md` |
+| V-2 | Four bundles' `verified:` dates were YAML **dates**, not strings; the spec says metadata is string→string. `validate_bundle` now reports it instead of coercing. | 4 × `SKILL.md`, `skills/loader.py` |
+| V-3 | `cv3d-opengl-pipeline` shipped as `evidence: measured` on 5 graded runs. Now `mixed`. | `cv3d-opengl-pipeline/SKILL.md` |
+| V-4 | The api-agent index quoted whole 1024-char descriptions: **780 tokens** for a five-skill session against a 300-token budget. It quotes the first clause now (342 worst case). | `skills/prompting.py` |
+| V-5 | The live discovery smoke had never run and could not: it looked for a binary named after the agent kind, but `gemini-cli` runs `gemini` and `claude-code` runs `claude`. | `tests/skills/test_live_discovery.py` |
+| V-6 | `cv3d-cadquery-forms` still quoted the contract's old unbounded "≥ 2 mm" weld, and the cadquery worked example welded at 3 mm. | `cv3d-cadquery-forms/SKILL.md`, `prompts/cadquery/contract.md` |
+| V-7 | A body naming one of our constants was not required to pin it; `cv3d-glsl-craft` quoted `DUPLICATE_DIFF` at 1e-4 with no claim row behind it. | `cv3d-glsl-craft`, `tests/skills/test_freshness.py` |
+| **V-8** | **The read probe was measuring git, not the agent.** See below. | `skills/telemetry.py`, `skills/materialize.py` |
+| **V-9** | **An A/B launched from a worktree ran the MAIN tree's harness in both arms**, with no symptom at all. See below. | `bench/ab_plan.py`, `bench/compare_backends.py` |
+
+### V-9: the A/B rig was comparing a tree with itself
+
+`ab_plan.spawn_cell` starts each child as a **file path**, so `sys.path[0]` is `bench/` and
+the cwd is not on the path. `from codeverse._compat import UTC` sat **above** the script's
+own `sys.path` bootstrap, so that import resolved through the editable install
+(`__editable__.3dcodeverse-0.1.0.pth` pins a meta-path finder to `/home/yipeng/3dcodeverse`)
+— and every cell of every arm ran the **main tree**.
+
+The failure has no symptom. Both arms run the same foreign code, the switch under test is
+inert, the cells pass, and the report prints a verdict. It voided the plan-loop wave's first
+A/A (they found it, named the directory `invalid_attempt1_maintree_import`, and worked
+around it with `PYTHONPATH` in a launch script) and then voided this wave's first A/B: the
+variant arm ran a tree with no `codeverse/skills` package at all, materialised nothing,
+emitted no `skills.attached`, and would have reported "no effect".
+
+Three fixes, because a launch-script workaround protects whoever remembers it: the
+bootstrap moves above the first `codeverse` import in both bench scripts that have this
+shape; `ab_plan` refuses to start when `import codeverse` did not resolve inside its own
+tree, and says how to fix it; and `tests/compare_bench/test_worktree_import.py` asserts the
+ordering for every bench script that bootstraps `sys.path`.
+
+### V-8: the read probe was measuring git
+
+The design's headline differentiator was read telemetry: `atime > mtime` on
+`references/*.md` means the agent read the body, because nothing scans `references/`.
+**Measured, that is false twice over.**
+
+1. `Workspace.changed_files` runs `git add -A -N` then `git diff --numstat` after *every*
+   agent session to compute `files_changed`, and git reads each untracked file to diff it.
+   On a real git workspace that alone flips all four files of every bundle to "read", with
+   no agent involved. Reproduced in `test_git_diff_alone_trips_the_control`.
+2. A negative control — one bundle whose description does not match the task, prompt "do
+   not read any files, do not activate any skill" — had codex 0.149.0, claude-code
+   2.1.245, agy 1.1.20 and gemini-cli 0.53.0 **all** open `SKILL.md` and `references/`.
+   Each touched only the discovery root it owns, which independently confirms the mapping.
+
+Left alone, this metric would have reported 100% forever and we would have believed it.
+`materialize_skills` now writes one **never-routed, never-indexed control bundle** beside
+the real ones. Nothing should open it; when something does, `SkillsUsage.control_read` is
+set, `probe_trustworthy` is false, and `deep_read_rate` returns `None` rather than a
+confident number. `3dcv skills report` excludes those sessions and says how many it
+dropped. The control says when the probe is blind; it does not make it see.
+
+### Read rate, on an ordinary build task
+
+Five routed bundles in the workspace, an ordinary "build a dining chair in bpy" prompt,
+nothing about skills in it: codex, claude-code and agy each came back with 5 of 5 bundles
+surfaced and deep, 8,041 body tokens. Those runs predate the control, so treat the rate as
+an upper bound — but the behavioural evidence under it is not ambiguous: codex's
+`src/parts/common.py` came back with `WELD_OVERLAP = 0.001` and "1 mm weld overlap with
+the seat", which is `cv3d-part-contact`'s number, not the prompt corpus's 2–5 mm.
+
+### New standing tests
+
+`tests/skills/` — 712 tests: 650 in the default suite, 58 `slow`, 4 `live`.
+
+* **Contradiction**, library-wide, on the *pre-scale value* rather than the rendered text —
+  "1 cm" and "0.01" metres are one tolerance in two units, and failing that pair would
+  teach the next author to delete the claim.
+* **Freshness** — every tool, gate kind, rubric criterion, constant, switch, sibling skill
+  and cookbook section a bundle names must still exist in the shipped source.
+* **Contract agreement** — a skill and its language contract cannot state different
+  numbers, arbitrated by the gate constant rather than by either document.
+* **Routing properties** — the real library over 5,376 sessions per track, every corpus
+  finding kind, and 2,000 seeded random walks: determinism, the cap, ordering,
+  explainability, and junk degrading to `[]`.
+* **Spec compliance** re-derived from the raw bytes, plus the reference validator
+  (`pip install skills-ref` → `agentskills`, now in the `dev` extra): 14/14 valid, and its
+  `read-properties` agrees with our loader field for field.
+* **Budget** re-measured against the shipped descriptions; **packaging** asserts a built
+  wheel holds all 14 `SKILL.md`, all 14 `references/` and all 9 `_claims`.
+* **Corpus** recomputes each bundle's claimed evidence from `bench/out`.
+
+### The A/B, and why it ships OFF
+
+`bench/out/ab_skills`, eight `static_objects_v2` prompts (the same eight
+`bench/out/plan_loop/C0` used for its A/A), `--rounds 1`, paired, fixed judge, arms
+differing only in `CV3D_SKILLS=on`. A Gemini capacity outage held the pool at 0–4 of 6 keys
+for most of the window: **1 pair scored, 3+ cells `infra_failed`** (excluded, never scored 0;
+the run was still going when this was written — re-run with `--redo-status infra_failed`
+before quoting it as final).
+
+* mean delta **+0.002** (control 0.937, variant 0.939) · CI not computable at n=1 · sign
+  test 1/0, p = 1.000 · the rig printed `inconclusive`, `separated from noise: NO`.
+* **The read rate on that cell was 0 of 5, with ground truth.** `api-agent` owns its
+  `read_file`, so this is a log and not a probe: the agent made **52 `read_file` calls
+  across 4 sessions and none of them was a skill**, while calling `read_cookbook` twice.
+  The atime probe said 5 of 5 "deep" and its control simultaneously said `control_read:
+  true` — the probe was blind, exactly as V-8 predicts, and the calibration arm supplied
+  the number it could not.  The next variant cell repeated it: five bundles materialised,
+  `read_file` called, zero skill paths.
+
+So the two arms differed by 356 tokens of index that nobody opened, and +0.002 is what that
+is worth. **Ship OFF**, for three reasons that do not depend on more pairs: the read rate on
+the harness's own generator is 0 %; the bar it was given (mean ≥ 0, no prompt regressed past
+0.03) is one the A/A of two *identical* arms fails twice over (−0.038, −0.206); and the
+deterministic gate counts inherit the planner's spread directly (an A/A of them swings
++5.67 penetrating pairs, `bench/ab_gate_rates.py`).
+
+Next, in order: **give `api-agent` a first-class skill affordance** (a `read_skill` tool
+beside `read_cookbook`, or inline the top body) — with 0 % reads no A/B can measure the
+library at all; then pin the plan (`docs/EVAL.md` §8.1); then reconcile the prompt corpus on
+weld overlap; then re-run. The three subscription CLIs read all five bundles unprompted and
+codex's output carried the skill's number, so this is a delivery problem for one backend,
+not a verdict on the library.
+
+### Known open
+
+Listed in `docs/SKILLS.md` §9. The one that matters most: **`contract.md` was fixed but the
+wider prompt corpus still teaches 2–5 mm weld overlap** — `tracks/generate_static.j2`,
+`assemble_static.j2`, `generate_static_part.j2`, `system/harness_contract.md` and three
+cookbooks. That is a prompt-corpus change with its own measurement, and it is the most
+likely reason a contact skill would fail to move the number it targets.
+
 ---
 
-# Release notes — stability pass, 2026-08-24
+## Stability pass — 2026-08-24
 
 Sign-off for the first release intended to be called **stable**. Five parallel waves hunted
 the harness for defects, a sixth verified them, three fixed them, and this pass reconciled,
@@ -41,7 +201,7 @@ Python 3.10 clean clone with no credentials.
 
 ---
 
-## 1. What was hunted
+### 1. What was hunted
 
 Six independent sweeps over the 54 files the parallel waves changed:
 
@@ -68,7 +228,7 @@ Each was then reproduced independently before any fix was written.
   tracked as CQ-5 (the switch nothing reads); the "all six switches silently accepted"
   half is not — they are validated and rejected.
 
-### Verified defects by severity
+#### Verified defects by severity
 
 | Severity | Count | Fixed | Open |
 |---|---|---|---|
@@ -86,13 +246,13 @@ at sign-off). 8 fixed, 1 open. **50 fixed in total.**
 
 ---
 
-## 2. What was fixed
+### 2. What was fixed
 
 Every fix below landed with a regression test that was **proved to fail without it** — the
 source change stashed, the test run, the change restored. The 24 tests belonging to the wave
 that had not yet landed were re-proved against `main` at sign-off, as a batch, after rebasing.
 
-### Crashes (8)
+#### Crashes (8)
 
 | ID | Defect | Commit |
 |---|---|---|
@@ -106,14 +266,14 @@ that had not yet landed were re-proved against `main` at sign-off, as a batch, a
 
 CP-3 and RS-6 were the same defect reported twice.
 
-### Data loss (2)
+#### Data loss (2)
 
 | ID | Defect | Commit |
 |---|---|---|
 | CP-5 | one directory-shaped path in a generation envelope discarded the whole answer instead of skipping the bad block | `0884aa7` |
 | RS-1 | `write_json_atomic` shared one `.tmp` name per path: concurrent writers published truncated JSON and crashed mid-save | `ba428eb` |
 
-### Wrong results (19)
+#### Wrong results (19)
 
 The gates that decide a score, and the accounting that decides what a run cost.
 
@@ -143,14 +303,14 @@ The gates that decide a score, and the accounting that decides what a run cost.
 `CQ-3`/`SM-01` and `CP-6`/`RS-8` were each one defect found twice by different sweeps; both
 landed twice and were reconciled at sign-off (§6).
 
-### Hangs (2)
+#### Hangs (2)
 
 | ID | Defect | Commit |
 |---|---|---|
 | CP-4 | `run_subprocess` ignored its own `timeout_s` when the child left a detached descendant holding the pipes — unbounded, on every build and render path | `3ba9532` |
 | PORT-1 | the documented "pure-python subset" pytest line silently re-enabled the live tests: a command-line `-m` **replaces** `addopts`, it does not add to it | `616fa46` |
 
-### Usability (10) and style (1)
+#### Usability (10) and style (1)
 
 | ID | Defect | Commit |
 |---|---|---|
@@ -165,7 +325,7 @@ landed twice and were reconciled at sign-off (§6).
 | PORT-7 | the TL;DR install path died with "No module named pip"; pip and venv were missing from the prerequisites | `5c79e09` |
 | PORT-8 | building left an untracked `harness/build/`, and the install docs' test counts were stale | `c3612eb` |
 
-### Found by running the thing, not reading it (9)
+#### Found by running the thing, not reading it (9)
 
 | ID | Defect | Status |
 |---|---|---|
@@ -190,7 +350,7 @@ gone red on push. The threads are now held at a barrier (`7942926`); no product 
 
 ---
 
-## 3. Notable behaviour changes
+### 3. Notable behaviour changes
 
 Things an operator will notice, beyond a bug no longer happening.
 
@@ -217,11 +377,11 @@ Things an operator will notice, beyond a bug no longer happening.
 
 ---
 
-## 4. Known open
+### 4. Known open
 
 **One item. No crash, data-loss or wrong-result defect is open.**
 
-### SMOKE4 — `CodingAgent.available()` is a false green light
+#### SMOKE4 — `CodingAgent.available()` is a false green light
 
 `available()` returned `(True, "ok")` for `agy:gemini-3.7-flash`, which could not launch at
 all, and for `codex:gpt-5.1-codex`, which the ChatGPT-account backend rejects with
@@ -250,7 +410,7 @@ first-cell `HTTP 400 model is not supported` as a configuration error, not a sco
 preflight that runs one trivial turn per CLI arm and classifies a backend model rejection as
 a config error; and narrowing `available()`'s docstring to what it actually verifies.
 
-### Pre-existing flakes (not from this pass, not fixed)
+#### Pre-existing flakes (not from this pass, not fixed)
 
 `tests/orchestrator_tracks/test_cost_latency.py::test_a_model_outage_escalates_the_asset_instead_of_losing_it`
 and `tests/orchestrator_tracks/test_prompts_assets.py::test_scene_templates_render_and_asset_stage_with_blender`
@@ -260,12 +420,12 @@ run reported here. Worth a separate look at their fan-out / ordering assumptions
 
 ---
 
-## 5. The claude-code arms, and Sonnet 5
+### 5. The claude-code arms, and Sonnet 5
 
 Two defects here, both fixed, both affecting **recorded cost and model attribution** rather
 than generated artifacts.
 
-### CC-1 — every `--model` ALIAS recorded the wrong model
+#### CC-1 — every `--model` ALIAS recorded the wrong model
 
 `claude -p` bills **two** models per session: the work model, plus a small background model
 the CLI uses for its own housekeeping. claude 2.1.243 lists the **auxiliary** one first in
@@ -298,7 +458,7 @@ Verified live at sign-off:
 | `claude-code:opus` | `claude-haiku-4-5-20251001` | `claude-opus-5` | exact |
 | default (no `--model`) | `claude-haiku-4-5-20251001` | `claude-opus-5[1m]` | exact |
 
-### CC-2 — the default arm's model had no price
+#### CC-2 — the default arm's model had no price
 
 `claude-opus-5[1m]` is the 1M-context Opus 5 variant the **default** claude-code arm serves.
 `[1m]` is not a version suffix, so it cannot prefix-match `claude-opus-5`, and the id had no
@@ -318,7 +478,7 @@ Opus 5 rates with the 1h cache write at 2× input (not modelled, as for every ot
 row). A test pins that a bracketed suffix still cannot borrow a sibling's price:
 `claude-sonnet-5[1m]` stays `unknown`.
 
-### Sonnet 5 pricing — checked, and correct
+#### Sonnet 5 pricing — checked, and correct
 
 The `claude-sonnet-5` row is `$2.00 / $10.00` per 1M (cached `$0.20`, cache write `$2.50`).
 This was re-verified at sign-off against the live model documentation on 2026-08-24, because
@@ -329,14 +489,14 @@ provenance note ("the launch rate became the standard rate; the 2026-09-01 incre
 cancelled") are right, and no 1 September repricing is pending. Opus 5 confirmed at $5 / $25
 and Haiku 4.5 at $1 / $5 on the same check.
 
-### Still true about the CLI arms
+#### Still true about the CLI arms
 
 `codex:gpt-5.1-codex` is rejected by a ChatGPT-account backend; the tiers this repo runs are
 `gpt-5.6-sol` / `-terra` / `-luna`. `available()` will not warn you (§4).
 
 ---
 
-## 6. Reconciliation notes for reviewers
+### 6. Reconciliation notes for reviewers
 
 Three things worth knowing about how this landed.
 
@@ -370,9 +530,9 @@ Three things worth knowing about how this landed.
 
 ---
 
-## 7. Verification
+### 7. Verification
 
-### Test suite
+#### Test suite
 
 | Run | Interpreter | Command | Result |
 |---|---|---|---|
@@ -383,7 +543,7 @@ Three things worth knowing about how this landed.
 The deselected are `live`; **no live test was run and no provider was billed by the suite.**
 The skips are data-dependent (recorded runs a fresh clone does not have).
 
-### Clean clone
+#### Clean clone
 
 `git clone` → fresh `python3.10 -m venv` → `pip install -e harness` → `3dcv doctor` →
 offline subset. Python **3.10.21**, the `requires-python` floor.
@@ -398,7 +558,7 @@ offline subset. Python **3.10.21**, the `requires-python` floor.
 - offline subset: green, with **no credentials in the environment**, which is what a CI
   runner has (PORT-2).
 
-### Smoke matrix
+#### Smoke matrix
 
 55 cells. **47 ok, 0 failed, 8 skipped.** All four cells that failed on the hunt were
 re-run at sign-off and now pass; the remaining 43 ok cells are carried forward from the hunt
@@ -471,7 +631,7 @@ the fix or sign-off passes called a model except the four subscription-CLI probe
 Sign-off re-runs of rows 15, 19, 26 and 52 used four subscription-CLI or offline calls and
 did not touch the Gemini key pool.
 
-### House rules
+#### House rules
 
 - All work done in `git worktree`s; the main tree was never edited while a battery was
   running, and `git -C /home/yipeng/3dcodeverse status --short` is empty at this commit.

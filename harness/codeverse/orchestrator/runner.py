@@ -94,7 +94,7 @@ class StageRunner:
             # invalidates nothing either.  Both used to escape as ValidationError /
             # JSONDecodeError through BaseTrack.run, which marks the run FAILED and
             # re-raises, so every later `3dcv resume <slug>` died the same way with no way
-            # out (StageRunner.invalidate has no caller and no flag).  Re-run instead and
+            # out (there is no flag to drop a cached stage).  Re-run instead and
             # overwrite the file — the same tolerance load_ledger and _read_jsonl apply.
             try:
                 result = _revive(json.loads(path.read_text()), model, list_of)
@@ -125,13 +125,6 @@ class StageRunner:
     def is_done(self, name: str, inputs: Any = "") -> bool:
         prior = self.state.stages.get(name)
         return prior is not None and prior.inputs_hash == hash_inputs(inputs) and self.result_path(name).is_file()
-
-    def invalidate(self, name: str) -> None:
-        self.state.stages.pop(name, None)
-        p = self.result_path(name)
-        if p.exists():
-            p.unlink()
-        self.state.save(self.ws)
 
 
 def _revive(data: dict[str, Any], model: type[BaseModel] | None, list_of: type[BaseModel] | None) -> Any:

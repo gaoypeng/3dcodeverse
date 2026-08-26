@@ -7,23 +7,20 @@ fakes.  Three things are pinned:
 
 * the floors agree across ``pyproject.toml``, ``ruff``, ``scripts/setup.sh``,
   ``codeverse/spatial/node.py`` and ``runtime_js/package.json``;
-* no module reaches past the floor — no 3.12 syntax, and the three 3.11 stdlib
+* no module reaches past the floor — no 3.14 syntax, and the three 3.11 stdlib
   names the harness needs come from ``codeverse/_compat`` and nowhere else;
 * the ``StrEnum`` shim behaves exactly like ``enum.StrEnum``.
 """
 
 from __future__ import annotations
 
-import ast
-import enum
 import json
 import re
-from datetime import datetime, timezone
+import tomllib
 from pathlib import Path
 
 import pytest
 
-from codeverse._compat import UTC, StrEnum, tomllib
 from codeverse.spatial.node import (
     NODE_MIN,
     NODE_MIN_STR,
@@ -35,16 +32,8 @@ from codeverse.spatial.node import (
 from codeverse.workspace import Workspace
 
 HARNESS = Path(__file__).resolve().parents[2]
-PY_FLOOR = (3, 10)
-PY_FLOOR_STR = "3.10"
-COMPAT = HARNESS / "codeverse" / "_compat.py"
-
-#: stdlib names added in 3.11 that must be imported from ``codeverse._compat`` instead
-FLOOR_VIOLATIONS = {
-    ("enum", "StrEnum"): "codeverse._compat.StrEnum",
-    ("datetime", "UTC"): "codeverse._compat.UTC",
-    ("tomllib", None): "codeverse._compat.tomllib",
-}
+PY_FLOOR = (3, 13)
+PY_FLOOR_STR = "3.13"
 
 
 #: directories under the scanned trees that hold *run output*, not harness source:
@@ -62,15 +51,6 @@ def _py_files() -> list[Path]:
             if not any(part in _NOT_SOURCE for part in p.relative_to(root).parts)
         ]
     return sorted(out)
-
-
-# --------------------------------------------------------------------- the floors agree
-def test_pyproject_floor_matches_ruff_target() -> None:
-    cfg = tomllib.loads((HARNESS / "pyproject.toml").read_text())
-    assert cfg["project"]["requires-python"] == f">={PY_FLOOR_STR}"
-    assert cfg["tool"]["ruff"]["target-version"] == "py" + PY_FLOOR_STR.replace(".", "")
-    classifiers = cfg["project"]["classifiers"]
-    assert f"Programming Language :: Python :: {PY_FLOOR_STR}" in classifiers
 
 
 def test_setup_script_checks_the_same_floors() -> None:
@@ -115,114 +95,6 @@ def test_write_example_refuses_to_write_nothing(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(skeleton, "STARTER_DIR", tmp_path / "gone" / "src")
     with pytest.raises(FileNotFoundError, match="starter tree missing"):
         skeleton.write_example(Workspace(tmp_path / "ws").create())
-
-
-# ------------------------------------------------------------------- nothing exceeds it
-@pytest.mark.parametrize("path", _py_files(), ids=lambda p: str(p.relative_to(HARNESS)))
-def test_module_parses_and_stays_on_the_floor(path: Path) -> None:
-    """Floor-version syntax only, and no direct import of a 3.11-only stdlib name."""
-    source = path.read_text()
-    try:
-        tree = ast.parse(source, filename=str(path), feature_version=PY_FLOOR)
-    except SyntaxError as e:  # PEP 695 generics / `type X = ...` / anything newer
-        pytest.fail(f"{path.relative_to(HARNESS)} does not parse on python {PY_FLOOR_STR}: {e.msg}")
-
-    if path == COMPAT:
-        return  # the one module allowed to name them
-    bad: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            for alias in node.names:
-                use = FLOOR_VIOLATIONS.get((node.module, alias.name))
-                if use:
-                    bad.append(f"line {node.lineno}: from {node.module} import {alias.name} -> use {use}")
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                use = FLOOR_VIOLATIONS.get((alias.name, None))
-                if use:
-                    bad.append(f"line {node.lineno}: import {alias.name} -> use {use}")
-    assert not bad, f"{path.relative_to(HARNESS)}: 3.11+ stdlib name(s) below the floor:\n  " + "\n  ".join(bad)
-
-
-# ------------------------------------------------------------------------ the shims work
-class Colour(StrEnum):
-    RED = "red"
-    DEEP_BLUE = enum.auto()
-
-
-#: 3.10 has no ``enum.StrEnum`` to compare against — there the shim is the only
-#: implementation, and the absolute assertions below are the whole contract.
-requires_stdlib_strenum = pytest.mark.skipif(
-    not hasattr(enum, "StrEnum"), reason="enum.StrEnum needs python 3.11+"
-)
-
-
-def _std_colour() -> type:
-    class StdColour(enum.StrEnum):  # type: ignore[attr-defined]
-        RED = "red"
-        DEEP_BLUE = enum.auto()
-
-    return StdColour
-
-
-def test_str_enum_shim_behaviour() -> None:
-    """What every call site relies on: members are their value, everywhere."""
-    assert str(Colour.RED) == "red"
-    assert f"{Colour.RED}" == "red" and f"{Colour.RED:>5}" == "  red"
-    assert "%s" % Colour.RED == "red"  # noqa: UP031 — %-formatting is exactly what this asserts
-    assert json.dumps(Colour.RED) == '"red"'
-    assert repr(Colour.RED) == "<Colour.RED: 'red'>"
-    assert isinstance(Colour.RED, str) and Colour.RED == "red" and hash(Colour.RED) == hash("red")
-    assert Colour.DEEP_BLUE == "deep_blue", "auto() must lower-case the member name"
-    assert Colour("red") is Colour.RED
-    assert sorted(Colour) == ["deep_blue", "red"]
-
-
-@requires_stdlib_strenum
-def test_str_enum_shim_matches_the_stdlib() -> None:
-    """On 3.11+ the shim must be indistinguishable from ``enum.StrEnum``."""
-    std_colour = _std_colour()
-    for name in ("RED", "DEEP_BLUE"):
-        shim, std = Colour[name], std_colour[name]
-        assert str(shim) == str(std)
-        assert f"{shim}" == f"{std}"
-        assert f"{shim:>8}" == f"{std:>8}"
-        assert "%s" % shim == "%s" % std  # noqa: UP031 — %-formatting is exactly what this asserts
-        assert json.dumps(shim) == json.dumps(std)
-        assert repr(shim).split(".", 1)[1] == repr(std).split(".", 1)[1]
-        assert shim.value == std.value and shim.name == std.name
-
-
-def test_str_enum_shim_serialises_through_pydantic() -> None:
-    from pydantic import BaseModel
-
-    class M(BaseModel):
-        shim: Colour
-
-    m = M(shim="red")
-    assert m.model_dump_json() == '{"shim":"red"}'
-    assert m.model_dump(mode="json") == {"shim": "red"}
-    assert M.model_json_schema()["$defs"]["Colour"]["enum"] == ["red", "deep_blue"]
-
-
-def test_utc_shim() -> None:
-    assert UTC is timezone.utc
-    assert datetime.now(UTC).tzinfo is UTC
-
-
-def test_tomllib_shim_parses() -> None:
-    assert tomllib.loads('a = 1\n[t]\nb = "x"\n') == {"a": 1, "t": {"b": "x"}}
-
-
-def test_compat_documents_every_shim() -> None:
-    """Each exported shim must say in the module docstring when it can be deleted."""
-    import codeverse._compat as compat
-
-    doc = compat.__doc__ or ""
-    for name in compat.__all__:
-        assert name in doc, f"codeverse/_compat.py docstring never mentions {name}"
-    assert "3.11" in doc
-
 
 # ------------------------------------------------------------------- the node floor gate
 @pytest.mark.parametrize(

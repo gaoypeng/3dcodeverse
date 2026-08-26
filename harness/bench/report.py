@@ -2,8 +2,9 @@
 
 ``build_report(out_dir)`` reads ``results.jsonl`` (or results.json), aggregates
 mean/median/pass-rate/cost per tier and category, writes ``report.md`` and
-``report.html`` — the same self-contained gallery as ``3dcv flywheel gallery``
-(``codeverse.flywheel.gallery``) with the stats tables above the cards.
+``report.html`` — the same self-contained page as ``3dcv gallery build --embed``
+(``codeverse.gallery``), one section per tier, with the stats tables under the
+summary strip.
 """
 
 from __future__ import annotations
@@ -12,14 +13,14 @@ import html
 import json
 import statistics
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, Field
 
 from bench._jsonl import read_jsonl
 from bench.run_bench import BenchItemResult
-from codeverse.flywheel.gallery import GalleryItem, item_from_run, render_gallery
 from codeverse.flywheel.record import RecordError, load_record
+from codeverse.gallery import GalleryIndex, RootSection, RunEntry, render_static
+from codeverse.gallery.index import entry_from_record
 from codeverse.workspace import Workspace
 
 TIER_ORDER = {"easy": 0, "medium": 1, "hard": 2}
@@ -112,26 +113,26 @@ def _md_table(title: str, stats: list[GroupStats]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _item_for(r: BenchItemResult) -> GalleryItem:
+def _entry_for(r: BenchItemResult) -> RunEntry:
     """Gallery card for one bench result: the run record when the workspace has one,
-    else a card built from the result row alone (errors, never-started runs)."""
+    else a card built from the result row alone (errors, never-started runs — a
+    bare ``entry_for_dir`` would show those as pending/broken without the scores)."""
     ws_path = Path(r.workspace) if r.workspace else None
     if ws_path is not None and (ws_path / "record.json").is_file():
         try:
-            item = item_from_run(Workspace(ws_path), load_record(ws_path))
+            entry = entry_from_record(r.tier, Workspace(ws_path), load_record(ws_path))
         except RecordError:
-            item = None
-        if item is not None:
-            item.key = r.id
-            item.group = f"{r.tier} · {r.category}" if r.category else r.tier
-            item.minutes = r.minutes or item.minutes
-            item.error = item.error or r.errors
-            return item
-    return GalleryItem(
-        key=r.id, title=r.id, group=f"{r.tier} · {r.category}" if r.category else r.tier,
+            entry = None
+        if entry is not None:
+            entry.slug = r.id
+            entry.minutes = r.minutes or entry.minutes
+            entry.error = entry.error or r.errors
+            return entry
+    return RunEntry(
+        battery=r.tier, slug=r.id, path=r.workspace or "", state="ok", title=r.id,
         generator=r.generator, judge=r.judge, score=r.score_final, baseline_score=r.score_baseline,
         passed=r.passed, rounds=r.rounds, cost_usd=r.cost_usd, minutes=r.minutes, status=r.status,
-        error=r.errors, links={"workspace": r.workspace} if r.workspace else {},
+        error=r.errors,
     )
 
 
@@ -176,9 +177,8 @@ def _html_gallery(out: Path, name: str, results: list[BenchItemResult], rep: Ben
     style = "<style>table{border-collapse:collapse;margin:8px 0 12px}td,th{border:1px solid #444;padding:3px 10px;font-size:13px}</style>"
     tables = (style + "<h3>overall + by tier</h3>" + _html_table(([rep.overall] if rep.overall else []) + rep.by_tier)
               + "<h3>by category</h3>" + _html_table(rep.by_category))
-    items = [_item_for(r) for r in results]
-    return render_gallery(items, f"bench — {name}", extra_html=tables)
-
-
-def report_dict(rep: BenchReport) -> dict[str, Any]:
-    return rep.model_dump(mode="json", exclude={"markdown", "html"})
+    sections: dict[str, RootSection] = {}
+    for r in results:  # one section per tier (results are already tier-sorted)
+        sections.setdefault(r.tier, RootSection(label=r.tier, path=str(out / "runs"))).entries.append(_entry_for(r))
+    index = GalleryIndex(sections=list(sections.values()), roots=[str(out)])
+    return render_static(index, title=f"bench — {name}", embed=True, extra_html=tables)

@@ -1,0 +1,228 @@
+name: shader_v2
+version: 2
+track_hint: graphics
+pass_threshold: 0.70
+description: >
+  Rubric for the GRAPHICS track (Shadertoy-style fragment shader or raw OpenGL program), judged on
+  a contact sheet of frames sampled at t = 0, 1, 2.5, 4, 6 s plus the harness frame metrics.
+  v2 (2026-08-26) replaces "brief fidelity" with LIKENESS: does the effect look like the thing
+  the brief names — the physics of it, not the list of nouns.  Measured on 17 judged runs before
+  this revision: Spearman(judge, a curator's eye) = 0.16, judge mean 0.77 against an eye mean of
+  0.55; three aurora versions that a person would not accept as an aurora scored 0.78-0.94 with
+  empty issue lists because every noun in the brief was present.  The checklist below names the
+  ways those frames failed so that a 0.9 is once again something a person would screenshot.
+
+extra_instructions: >
+  Every view is the SAME program rendered at a different time (label t=...s); there are no camera
+  angles.  Compare the frames to judge motion: identical frames mean the effect is static; wildly
+  unrelated frames mean flicker.  The frame-metrics digest (mean luminance, colourfulness, edge
+  density, mean |Δ| between frames, NaN count) is measured by the harness — treat it as truth over
+  your impression.  You are a demanding curator, not a checklist clerk: the median competent
+  shader is 0.55-0.65; 0.85+ is reserved for frames you would screenshot and show someone; a frame
+  that ticks every noun in the brief with the wrong physics (a row of evenly spaced bars standing
+  in for aurora curtains, hard opaque discs standing in for bokeh, a lifted purple wash standing in
+  for a nebula) is 0.5 on likeness however complete its inventory.  When REAL-WORLD REFERENCE
+  photos are attached, likeness, light and detail are scored against them — the photo says what
+  the thing looks like; the brief only names it.  A consistent stylised look (ukiyo-e, pixel art,
+  flat vector) is craft when the brief allows it, never a defect.  Do not grade up for effort, for
+  the number of named elements present, or for saturation.
+
+criteria:
+  - id: likeness
+    weight: 0.26
+    floor: 0.30
+    title: Likeness to the thing named
+    description: >
+      Would someone who has seen the real thing (or the referenced style) accept these frames as
+      it?  Judge the physics: the dominant colour and where the secondary colours sit, how the
+      structure folds / layers / thins out, where the brightness concentrates and how much of the
+      frame stays dark, the texture at fine scale, the scale relations (a star field is thousands
+      of points, not twenty sparkles).  Named elements count only insofar as they look right.
+    anchors:
+      "1.0": Could pass for a still of the thing, or a well-made stylised rendition of it; nothing about its physics is wrong.
+      "0.7": Recognisable at once; one physical trait is wrong (colour balance, structure, light distribution).
+      "0.4": The nouns are all there but no one would mistake it for the thing — bars for curtains, discs for bokeh, a flat wash for a nebula, a gradient for a sky (score 0.4-0.5).
+      "0.1": Unrelated abstract pattern, noise, or nothing recognisable.
+
+  - id: depth_and_detail
+    weight: 0.16
+    title: Depth and detail
+    description: >
+      Is there structure at several scales — near / mid / far layers with real depth cues
+      (parallax, fog, size and brightness falloff), fbm or particle detail inside the large shapes,
+      highlights and shadows — rather than one texture or gradient filling the frame?  Credit only
+      what is visible in the frames.
+    anchors:
+      "1.0": Several layers at different depths, each with its own detail; the image rewards a closer look.
+      "0.7": Two or three distinct layers; some areas plain.
+      "0.4": One dominant element on a flat background; little detail.
+      "0.1": A single gradient, blob, or field of uniform noise fills the frame.
+
+  - id: light_and_tone
+    weight: 0.16
+    title: Light and tonal range
+    description: >
+      Is the exposure and palette that of the scene described — real darks where the subject is
+      night, space or dusk, highlights that glow without clipping to white, no milky haze lifting
+      the whole frame, colours with a neutral or dark counterweight rather than candy saturation
+      everywhere?  Glow, bloom and scattering should read as light, not as paint.
+    anchors:
+      "1.0": Tonal range and palette sell the mood; darks are dark, highlights bloom without clipping.
+      "0.7": Pleasant; slightly flat, slightly lifted or one colour overdone.
+      "0.4": Washed-out mid-tones with no darks, a blown region, or uniformly candy/pastel colour.
+      "0.1": Near-black, blown white, or random colours.
+
+  - id: composition
+    weight: 0.10
+    title: Composition and framing
+    description: >
+      Is the frame composed — a focal area, horizon / vanishing point placed deliberately, balance
+      between empty and busy regions, nothing important cut off or crammed into a corner, aspect
+      ratio respected (no stretched circles)?
+    anchors:
+      "1.0": Deliberate composition with a clear focal area and depth layering.
+      "0.7": Readable composition; slightly flat or off-balance.
+      "0.4": Elements stretched / off-screen / centred by accident; no focal area.
+      "0.1": Unreadable arrangement.
+
+  - id: motion_quality
+    weight: 0.14
+    floor: 0.20
+    title: Motion quality
+    description: >
+      Across the time samples, does the effect move the way the brief / plan says (rain falls,
+      curtains ripple, lights pulse, camera glides) — continuous, paced, plausible — neither frozen
+      nor strobing?  Motion that is only a texture scrolling under a fixed shape is 0.5.
+    anchors:
+      "1.0": Planned motion is visible, continuous and natural across all samples.
+      "0.7": Motion visible but subtle, uniform or partly missing.
+      "0.4": Frames nearly identical although motion was planned, or jumps/strobes between samples.
+      "0.1": Static effect (all frames identical) or incoherent flicker.
+
+  - id: technical_cleanliness
+    weight: 0.10
+    floor: 0.30
+    title: Technical cleanliness
+    description: >
+      No NaN / garbage pixels, no aliasing staircase on edges, no banding in gradients, no tiling
+      seams, no z-fighting, no flicker, no frame that is solid black or white.  The harness digest
+      lists NaN counts and gate findings — treat those as facts.
+    anchors:
+      "1.0": Clean frames; no artefacts in any sample; no gate findings.
+      "0.7": One minor artefact (slight aliasing / banding) in one area.
+      "0.4": A clearly visible artefact (seam, banding, aliasing, a black frame) or a gate warning.
+      "0.1": NaN / garbage pixels, or frames are broken.
+
+  - id: craft
+    weight: 0.08
+    title: Craft and idea
+    description: >
+      Does the effect go beyond the textbook demo with a specific look, a considered palette and a
+      detail that fits the brief?  A consistent stylised treatment counts as craft.
+    anchors:
+      "1.0": Distinctive, crafted look with a memorable idea.
+      "0.7": Competent and tasteful; some familiar ingredients.
+      "0.4": A stock demo with the brief's colours swapped in.
+      "0.1": Generic noise / gradient with no idea.
+
+caps:
+  - id: build_error
+    when: gate
+    gate: "build*"
+    severity: error
+    cap: 0.0
+    note: the shader/program did not compile or render; nothing to score
+  - id: lint_error
+    when: gate
+    gate: "lint*"
+    severity: error
+    cap: 0.6
+  - id: nan_pixels
+    when: gate
+    gate: "gl_frames"
+    severity: error
+    kinds: [nan]
+    cap: 0.0
+    note: NaN/Inf pixels detected in the float readback
+  - id: black_or_blown
+    when: gate
+    gate: "gl_frames"
+    severity: error
+    kinds: [black, blown]
+    cap: 0.5
+  - id: static_frames
+    when: gate
+    gate: "gl_frames"
+    severity: warn
+    kinds: [static]
+    cap: 0.5
+    note: motion was planned but frames do not change over time
+  - id: flicker
+    when: gate
+    gate: "gl_frames"
+    severity: warn
+    kinds: [flicker]
+    cap: 0.7
+  - id: missing_must_acceptance
+    when: acceptance
+    cap: 0.7
+    note: >
+      planner-written must items are fallible on this track (a stylised wave lost 0.25 to three of
+      them while looking better than anything else in the battery); the cap is 0.7, not 0.6
+
+defects:
+  # black_or_blown / static_frames / flicker share their id with the gl_frames cap rule above on
+  # purpose: a PASSED gate (measured motion, measured exposure) vetoes the checklist claim
+  # (judges/caps.measured_absent) — in the first calibration pass pro called four moving effects
+  # static from five stills
+  - id: wrong_subject
+    text: The frames do not depict the subject of the brief (an unrelated abstract pattern, or nothing recognisable).
+    cap: 0.40
+  - id: unlike_reference
+    text: REAL-WORLD REFERENCE photos are attached and the frames would not be taken for the same thing — wrong dominant colour, wrong structure, or light in the wrong place.  (Leave false when no reference is attached.)
+    penalty: 0.10
+    cap: 0.60
+  - id: comb_artefact
+    text: An organic structure (curtains, rays, flames, grass, waves, trees) is drawn as a row of straight, evenly spaced bars, tubes or stripes.
+    penalty: 0.10
+    cap: 0.65
+  - id: opaque_shapes_for_light
+    text: A light phenomenon (bokeh, glow, aurora, rays, fire, neon) is drawn as hard-edged opaque shapes instead of light with soft falloff.
+    penalty: 0.08
+  - id: flat_fill
+    text: One texture, gradient or noise field fills most of the frame with no structure at other scales.
+    penalty: 0.08
+  - id: no_dark_range
+    text: The subject is night, space, dusk or an interior, yet nothing in the frame is near-black — a lifted, washed-out mid-tone throughout.
+    penalty: 0.06
+  - id: white_wash
+    text: Haze, bloom or fog lifts a large region toward white (a milky frame, or a blown patch that is not a light source).
+    penalty: 0.08
+  - id: candy_saturation
+    text: Colours are uniformly candy-saturated or pastel with no neutral or dark counterweight.
+    penalty: 0.06
+  - id: black_or_blown
+    text: At least one sampled frame is essentially solid black or blown-out white.
+    penalty: 0.10
+    cap: 0.50
+  - id: static_frames
+    text: The sampled frames are visually identical although the brief implies motion.
+    penalty: 0.10
+    cap: 0.50
+  - id: flicker
+    text: Consecutive samples are unrelated (hard cuts, strobing, random per-frame colours) rather than continuous motion.
+    penalty: 0.08
+    cap: 0.70
+  - id: garbage_pixels
+    text: Visible garbage — NaN speckles, blocky corruption, uninitialised regions, magenta/error colour.  Particles, stars, sparks, film grain or noise the brief asks for are NOT garbage.
+    penalty: 0.10
+    cap: 0.30
+  - id: banding_or_aliasing
+    text: Clearly visible banding in gradients or staircase aliasing on edges / thin lines.
+    penalty: 0.05
+  - id: stretched_aspect
+    text: Circles are ellipses / the image is stretched — aspect ratio not corrected.
+    penalty: 0.06
+  - id: placeholder_look
+    text: The effect is a textbook demo (plain plasma, uv gradient, rainbow rings) with no connection to the brief beyond colour.
+    penalty: 0.10

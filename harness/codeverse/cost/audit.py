@@ -29,7 +29,7 @@ from codeverse.cost.types import CallCost, CostBucket, Role, Stage, Summary
 
 #: dimensions the audit always aggregates on
 AUDIT_DIMENSIONS = ("run", "track", "language", "stage", "role", "backend", "model", "provider",
-                    "status", "outcome", "source")
+                    "status", "outcome", "source", "key")
 
 
 @dataclass
@@ -218,10 +218,6 @@ def audit_runs(paths: Iterable[str | Path], *, recheck: bool = False) -> Audit:
     audit.runs.sort(key=lambda r: -r.ledger_usd)
     audit.waste.sort(key=lambda w: -w.usd)
     return audit
-
-
-def audit_dir(root: str | Path, *, recheck: bool = False) -> Audit:
-    return audit_runs([root], recheck=recheck)
 
 
 # --------------------------------------------------------------------------- derived views

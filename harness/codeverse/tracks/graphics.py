@@ -5,7 +5,7 @@ moderngl program).  Reuses ``BaseTrack`` (lifecycle) and ``run_round`` (steps)
 unchanged; the track-specific pieces are the planner hooks (template / example /
 acceptance in ``graphics_steps``), the prompt context (no 3D frame), the
 ``gl_frames`` gate (frame statistics from the build) and the render step (the
-sampled frames + contact sheet as the RenderSet the ``shader_v1`` judge sees).
+sampled frames + contact sheet as the RenderSet the ``shader_v2`` judge sees).
 Refinement is always one whole-program task.
 """
 
@@ -19,11 +19,12 @@ from codeverse.contracts.common import TRACK_INFO, Language, Track
 from codeverse.contracts.plan import GraphicsPlan, Plan
 from codeverse.contracts.run import RoundRecord
 from codeverse.contracts.spec import Spec
-from codeverse.languages.glsl_shader.gl_build import read_metrics
+from codeverse.languages._gl_common import read_metrics
 from codeverse.orchestrator.rounds import TaskGroup
 from codeverse.prompts import render
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationTask
+from codeverse.tracks.graphics_recipes import seed_recipes
 from codeverse.tracks.graphics_steps import (
     PLAN_MAX_OUTPUT_TOKENS,
     PLAN_TEMPERATURE,
@@ -36,8 +37,14 @@ from codeverse.tracks.graphics_steps import (
     graphics_prompt_context,
 )
 from codeverse.tracks.graphics_steps import plan_example as graphics_plan_example
-from codeverse.tracks.lifecycle import BaseTrack
-from codeverse.tracks.prompting import current_files, judge_digest, skeleton_files
+from codeverse.tracks.lifecycle import BaseTrack, StageRunner
+from codeverse.tracks.prompting import (
+    current_files,
+    judge_digest,
+    judged_sheet,
+    reference_images,
+    skeleton_files,
+)
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -98,6 +105,14 @@ class GraphicsTrack(BaseTrack):
     def plan_event_stats(self, plan_obj: Any) -> dict[str, Any]:
         return graphics_event_stats(plan_obj)
 
+    # ------------------------------------------------------------------ prepare
+    def prepare(self, ctx: RunContext, runner: StageRunner) -> None:
+        """Skeleton, then the brief's verified cookbook recipes into src/common.glsl (graphics_recipes:
+        measured, flash does not call a recipe it is only shown; it does call one that is on disk)."""
+        super().prepare(ctx, runner)
+        if seed_recipes(ctx):
+            ctx.ws.commit("recipes")
+
     # ------------------------------------------------------------------ baseline
     def system_prompt(self, ctx: RunContext) -> str:
         what = "GLSL fragment-shader artist (Shadertoy style)" if ctx.language is Language.GLSL_SHADER else "raw OpenGL (moderngl) graphics programmer"
@@ -111,7 +126,7 @@ class GraphicsTrack(BaseTrack):
             ctx, skeleton_files=skeleton_files(ctx) if ctx.single_shot else {}, previous_error=""))
         ctx.record_prompt("generate", prompt)
         return [GenerationTask(label="baseline", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=0,
-                               kind="baseline", temperature=0.6, thinking="medium")]
+                               kind="baseline", temperature=0.6, thinking="medium", images=reference_images(ctx))]
 
     def round_files_hint(self, ctx: RunContext) -> list[str]:
         return graphics_expected_files(ctx)
@@ -128,4 +143,5 @@ class GraphicsTrack(BaseTrack):
             current_files=current_files(ctx, files) if ctx.single_shot else {}))
         ctx.record_prompt("refine", prompt)
         return GenerationTask(label="refine", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
-                              kind="refine", temperature=0.5, thinking="medium")
+                              kind="refine", temperature=0.5, thinking="medium",
+                              images=reference_images(ctx) + judged_sheet(last))

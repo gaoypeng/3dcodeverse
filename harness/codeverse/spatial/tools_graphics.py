@@ -11,14 +11,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from codeverse.contracts.artifacts import BuildResult, GateReport, Severity
+from codeverse.contracts.artifacts import BuildResult, GateReport
 from codeverse.contracts.common import Language
-from codeverse.spatial.observe import (
-    rel_path,
-    sanitize_text,
-    tail_lines,
-    text_observation,
-)
+from codeverse.spatial.observe import build_failure_lines, lint_lines, rel_path, text_observation
 from codeverse.spatial.registry import Observation, ToolContext, ToolUsageError, tool
 from codeverse.spatial.tool_common import gl_metrics_summary, language_of, lazy, tool_out_dir
 
@@ -46,26 +41,7 @@ def _runtime(ctx: ToolContext):
     return get_runtime(lang)
 
 
-def _lint_block(report: GateReport, root: Path) -> tuple[list[str], list[str]]:
-    errs, warns = [], []
-    for f in report.findings:
-        if f.severity == Severity.INFO:
-            continue
-        line = f"- {sanitize_text(f.message, root)}" + (f"\n    fix: {sanitize_text(f.fix_hint, root)}" if f.fix_hint else "")
-        (errs if f.severity == Severity.ERROR else warns).append(line)
-    return errs, warns
-
-
-def _failure_text(br: BuildResult, root: Path, lint_warns: list[str]) -> str:
-    shown = br.error_file if not Path(br.error_file).is_absolute() else rel_path(br.error_file, root)
-    where = f" at {shown}:{br.error_line}" if br.error_file else ""
-    lines = [f"BUILD FAILED: {br.error_type or 'Error'}{where}", sanitize_text(br.error_message, root)]
-    tail = tail_lines(sanitize_text(br.stderr_tail, root), 25)
-    if tail and tail not in br.error_message:
-        lines.append("log tail:\n" + tail)
-    if lint_warns:
-        lines.append("lint hints:\n" + "\n".join(lint_warns[:8]))
-    return "\n".join(lines)
+_STDERR_TAIL_LINES = 25
 
 
 def _run_build(ctx: ToolContext, *, times: list[float], preview: bool, width: int = 0, height: int = 0) -> tuple[Observation | None, BuildResult | None, list[str]]:
@@ -76,7 +52,8 @@ def _run_build(ctx: ToolContext, *, times: list[float], preview: bool, width: in
     ws = ctx.workspace
     rt = _runtime(ctx)
     lint: GateReport = rt.lint(ws)
-    errs, warns = _lint_block(lint, ws.root)
+    errs = lint_lines(lint, ws.root, errors_only=True)
+    warns = lint_lines(lint, ws.root, errors_only=False)
     if errs:
         text = "LINT FAILED — fix these before rendering:\n" + "\n".join(errs)
         if warns:
@@ -88,7 +65,7 @@ def _run_build(ctx: ToolContext, *, times: list[float], preview: bool, width: in
     br: BuildResult = rt.build(ws, **kw)
     ws.write_json(ws.artifacts / "build_last.json", br)
     if not br.ok:
-        return text_observation(_failure_text(br, ws.root, warns), ok=False, limit=3000,
+        return text_observation(build_failure_lines(br, ws.root, warns, tail_n=_STDERR_TAIL_LINES), ok=False, limit=3000,
                                 numbers={"stage": "build", "error_type": br.error_type, "error_file": br.error_file,
                                          "error_line": br.error_line}), br, warns
     return None, br, warns

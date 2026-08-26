@@ -45,11 +45,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from codeverse._compat import UTC
-
+# sys.path BEFORE any `codeverse` import: this file is also run as a script, and an
+# editable install would otherwise resolve `codeverse` to the tree it was installed from
+# rather than this one.  See the same note in `bench/ab_plan.py`.
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:  # `python bench/compare_backends.py` from anywhere
     sys.path.insert(0, str(REPO))
+
+from datetime import UTC  # noqa: E402
 
 from bench._compare_report import (  # noqa: E402
     CellResult,
@@ -61,7 +64,6 @@ from bench._fixed_eval import RUBRIC, EvalOutcome, FixedEvaluator  # noqa: E402
 from bench._infra import is_budget_exhaustion, is_infra_failure  # noqa: E402
 from bench._jsonl import seal_for_append  # noqa: E402
 from bench._oneshot import (  # noqa: E402
-    MODEL_FILE,
     OneShotBackend,
     OneShotResult,
     files_for,
@@ -79,6 +81,7 @@ from bench.run_bench import (  # noqa: E402
 )
 from codeverse.config import get_settings  # noqa: E402
 from codeverse.contracts.artifacts import RenderSet  # noqa: E402
+from codeverse.contracts.common import ENTRY_FILE  # noqa: E402
 from codeverse.contracts.run import RunRecord  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402
 from codeverse.cost import run_ledger  # noqa: E402
@@ -206,11 +209,25 @@ def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts
         res.error = ""
         if attempt + 1 >= max_attempts:
             return
-        build, lint = deps.evaluator.build(eval_ws)  # repair arm: error feedback only
+        build, lint = deps.evaluator.build(eval_ws, spec.language)  # repair arm: error feedback only
         if build.ok and not lint.errors:
             return
         previous = {rel: (eval_ws.root / rel).read_text() for rel in files_for(spec.language) if (eval_ws.root / rel).is_file()}
         prompt = repair_prompt(spec, previous, build, lint, attempt + 1)
+
+
+def entry_of(spec: Spec) -> str:
+    """The file THIS spec's language delivers its code in.
+
+    ``_oneshot.MODEL_FILE`` is ``src/model.py`` because the one-shot arms are a
+    blender-only comparison (their contract prompt is literally python).  The HARNESS arm
+    is not: a glsl run delivers ``src/shader.frag``, three.js ``src/object.js``, a scene
+    ``src/scene.js``, moderngl ``src/program.py``.  Gating the harness arm on the one-shot
+    constant made every cell in those four languages ``no_code`` / **0.0** while the run
+    itself came back ``passed`` — a rig failure wearing a capability result's clothes, and
+    invisible in the summary.  ``ENTRY_FILE`` is the canonical table; consult it.
+    """
+    return ENTRY_FILE[spec.language]
 
 
 def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, res: CellResult) -> None:
@@ -229,8 +246,8 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, 
     res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), rec.final_score
     res.harness_stop_reason = str(rec.extra.get("stop_reason") or "")
     res.harness_aborted_rounds = len(rec.extra.get("aborted_rounds") or [])
-    if not (run_ws.root / MODEL_FILE).is_file():
-        res.error = f"harness run produced no {MODEL_FILE} (status {rec.status.value}: {rec.error})"
+    if not (run_ws.root / entry_of(spec)).is_file():
+        res.error = f"harness run produced no {entry_of(spec)} (status {rec.status.value}: {rec.error})"
         return
     # the whole src/ tree: agents may split helpers into src/parts/*.py (the build wrapper puts src/ on sys.path)
     shutil.copytree(run_ws.src, eval_ws.src, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
@@ -261,7 +278,7 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
             # asymmetry tests/compare_bench/test_infra_failures.py exists to end.  Drop the
             # cell instead (infra_failed); --redo-status re-runs the lost attempt only.
             truncated = arm.kind != "harness" and res.error_is_infra
-            if (eval_ws.root / MODEL_FILE).is_file() and not truncated:
+            if (eval_ws.root / entry_of(spec)).is_file() and not truncated:
                 outcome = deps.evaluator.evaluate(eval_ws, spec)
                 eval_ws.write_json(eval_ws.root / "eval.json", outcome)
                 _fill_from_outcome(res, outcome)

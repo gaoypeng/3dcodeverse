@@ -21,6 +21,13 @@ API models; this folder trains and evaluates open models on that data.
 | `env.sh` | shell env (caches, secrets file) used by all scripts |
 | `docs/REPORT.md` | full experiment report (setup, data audit, ablations, DPO, multi-dialect, scale-up, training-amount curves, qualitative checks); `docs/PROJECT_README.md` is the original working README; `docs/assets/` renders |
 
+## Data on the Hub
+
+The training data in LLaMA-Factory (ShareGPT) format is published as **[`ilabai/3dcodeverse-llamafactory`](https://huggingface.co/datasets/ilabai/3dcodeverse-llamafactory)** (private; same CC-BY-NC-SA / non-commercial terms as the parent `ilabai/3dcodeverse`): the corpus sharded by dialect (`sft/<dialect>/`), the 15.7k execution-verified bootstrapped Blender samples, seven preference-pair sets (execution feedback and geometry feedback), the held-out test sets, a drop-in `dataset_info.json`, and `mixes.json` with the exact budget spec of every training mix in the report. Rebuild/refresh it with `scripts/build_hf_dataset.py`; regenerate any mix with `scripts/sample_mix.py`.
+
+## Results
+* **[`llm_finetune_exps.md`](llm_finetune_exps.md)** — the full experiment log: every training run with its config and wall time, every 3DCodeBench and per-dialect evaluation, and a summary of which levers moved the numbers (auto-generated tables from `scripts/build_exp_log.py` + curated commentary).
+
 ## Install & background
 * **`docs/SETUP.md`** — step-by-step environment install (three conda envs with exact pins, LLaMA-Factory commit, flash-attn / fla / triton, vLLM, Blender / OpenSCAD / glslang / Playwright, caches on a network FS, smoke tests).
 * **`docs/LLAMA_FACTORY.md`** — how this project uses LLaMA-Factory (unpatched): dataset registry, template, stages (SFT / DPO), LoRA vs full + ZeRO-3, packing, launch/merge scripts, an annotated minimal YAML, and the pitfalls.

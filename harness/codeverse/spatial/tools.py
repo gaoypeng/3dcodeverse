@@ -11,26 +11,29 @@ and every tool is cheap to call repeatedly.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codeverse.config import get_settings
-from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, Severity
+from codeverse.config import fewer_turns_enabled, get_settings
+from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement
 from codeverse.spatial.connectivity import check_connectivity as _check_connectivity
 from codeverse.spatial.contract import check_contract as _check_contract
 from codeverse.spatial.measure import GlbLoadError, measure_glb, measure_summary_table
 from codeverse.spatial.observe import (
+    build_failure_lines,
+    error_file_display,
     gate_observation,
+    lint_lines,
     rel_path,
     sanitize_text,
-    tail_lines,
     text_observation,
+    truncate,
 )
-from codeverse.spatial.registry import Observation, ToolContext, ToolUsageError, tool
+from codeverse.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
 from codeverse.spatial.sections import cross_section as _cross_section
 from codeverse.spatial.tool_common import (
-    call_adaptive,
     gl_metrics_summary,
     glb_path,
     language_of,
@@ -42,27 +45,7 @@ from codeverse.spatial.tool_common import (
 _STDERR_TAIL_LINES = 30
 
 
-class NoArgs(BaseModel):
-    """This tool takes no arguments."""
-
-
 # --------------------------------------------------------------------------- build
-def _lint_lines(report: GateReport, root, *, errors_only: bool) -> list[str]:
-    out = []
-    for f in report.findings:
-        if errors_only and f.severity != Severity.ERROR:
-            continue
-        if not errors_only and f.severity == Severity.ERROR:
-            continue
-        if f.severity == Severity.INFO:
-            continue
-        loc = f" ({rel_path(f.target, root)})" if f.target else ""
-        out.append(f"- {f.severity.value.upper()}{loc}: {sanitize_text(f.message, root)}")
-        if f.fix_hint:
-            out.append(f"    fix: {sanitize_text(f.fix_hint, root)}")
-    return out
-
-
 def _measure_after_build(ctx: ToolContext, br: BuildResult) -> tuple[Measurement | None, str]:
     if not br.glb_path:
         return None, "build reported success but no GLB path"
@@ -102,32 +85,70 @@ def _no_glb_summary(ctx: ToolContext, br: BuildResult, language: str) -> tuple[b
     return True, lines, {"census": keep}
 
 
-@tool("build", NoArgs, "Lint + build the code in src/ with the language runtime, export artifacts/object.glb and measure it. Call after every edit.", cost_hint="slow")
+#: what `build` says about itself when the gates ride along (docs/COST.md §29): the agent
+#: must not spend two more round trips asking for what the build observation already holds.
+_BUILD_INCLUDES_CHECKS = ("On success it ALSO runs check_connectivity and check_contract and reports them "
+                          "under CONNECTIVITY / CONTRACT — do not call those two tools separately.")
+_FOLDED_MAX_FINDINGS = 6
+_FOLDED_SECTION_CHARS = 900   # per section, errors first — two sections + the table fit the build limit
+
+
+def _folded_checks(ctx: ToolContext, glb: Path, m: Measurement, language: str) -> tuple[list[str], dict[str, Any]]:
+    """The connectivity + contract gates as they would appear from their own tools, folded
+    into the build observation: (lines, numbers).  Each gate is a few hundred ms on a
+    built GLB; each as a separate tool call was a 4 s round trip carrying the whole
+    context (docs/COST.md §29).  Same checkers, same gate JSON files, same formatter."""
+    ws = ctx.workspace
+    lines: list[str] = []
+    numbers: dict[str, Any] = {}
+    verdicts: list[str] = []
+
+    def fold(name: str, report: GateReport) -> None:
+        ws.write_json(ws.gates_dir(ctx.round_index) / f"{name.lower()}_tool.json", report)
+        obs = gate_observation(report, title=f"{name}: {'PASS' if report.passed else 'FAIL'}",
+                               max_findings=_FOLDED_MAX_FINDINGS)
+        n_err = int(obs.numbers["errors"])
+        lines.append(truncate(obs.text, _FOLDED_SECTION_CHARS))
+        numbers[f"{name.lower()}_errors"] = n_err
+        verdicts.append(f"{name.lower()} " + ("PASS" if report.passed else f"FAIL ({n_err} error(s))"))
+
+    conn = _check_connectivity(glb, language=language)
+    fold("CONNECTIVITY", conn)
+    if ws.plan_path.is_file():
+        contract = _check_contract(m, load_plan(ws.plan_path), language=language)
+        fold("CONTRACT", contract)
+        passed = conn.passed and contract.passed
+    else:
+        lines.append("CONTRACT: skipped — no plan.json in the workspace")
+        passed = conn.passed
+    numbers["checks_passed"] = passed
+    tail = ("no separate check_connectivity / check_contract call is needed" if passed
+            else "fix the ERRORs listed under CONNECTIVITY / CONTRACT below, then build again")
+    summary = "CHECKS: " + " · ".join(verdicts) + " — " + tail
+    return [summary, *lines], numbers
+
+
+@tool("build", NoArgs, "Lint + build the code in src/ with the language runtime, export artifacts/object.glb and measure it. Call after every edit.", cost_hint="slow",
+      describe_extra=lambda: _BUILD_INCLUDES_CHECKS if fewer_turns_enabled() else "")
 def build(ctx: ToolContext, args: NoArgs) -> Observation:
     # ToolDef.call stamps Observation.duration_ms for every tool — no timing here
     ws = ctx.workspace
     language = language_of(ctx)
     rt = lazy("codeverse.languages", "get_runtime")(language)
     lint: GateReport = rt.lint(ws)
-    lint_errors = _lint_lines(lint, ws.root, errors_only=True)
-    lint_warns = _lint_lines(lint, ws.root, errors_only=False)
+    lint_errors = lint_lines(lint, ws.root, errors_only=True)
+    lint_warns = lint_lines(lint, ws.root, errors_only=False)
     if lint_errors:
         text = "LINT FAILED — fix these before building:\n" + "\n".join(lint_errors)
         if lint_warns:
             text += "\nwarnings:\n" + "\n".join(lint_warns[:10])
         return text_observation(text, ok=False, numbers={"stage": "lint", "lint_errors": len(lint_errors)})
-    br: BuildResult = call_adaptive(rt.build, ws, timeout_s=get_settings().limits.build_timeout_s)
+    br: BuildResult = rt.build(ws, timeout_s=get_settings().limits.build_timeout_s)
     ws.write_json(ws.artifacts / "build_last.json", br)
     numbers: dict[str, Any] = {"stage": "build", "ok": br.ok, "duration_ms": br.duration_ms}
     if not br.ok:
-        where = f" at {rel_path(br.error_file, ws.root)}:{br.error_line}" if br.error_file else ""
-        lines = [f"BUILD FAILED: {br.error_type or 'Error'}: {sanitize_text(br.error_message, ws.root)}{where}"]
-        tail = tail_lines(sanitize_text(br.stderr_tail, ws.root), _STDERR_TAIL_LINES)
-        if tail:
-            lines.append("stderr (tail):\n" + tail)
-        if lint_warns:
-            lines.append("lint hints:\n" + "\n".join(lint_warns[:10]))
-        numbers.update({"error_type": br.error_type, "error_file": rel_path(br.error_file, ws.root), "error_line": br.error_line})
+        lines = build_failure_lines(br, ws.root, lint_warns, tail_n=_STDERR_TAIL_LINES)
+        numbers.update({"error_type": br.error_type, "error_file": error_file_display(br.error_file, ws.root), "error_line": br.error_line})
         return text_observation(lines, ok=False, numbers=numbers, limit=3000)
     if not br.glb_path and language in _SCENE_LANGS + _GL_LANGS:
         # languages without a GLB deliverable: report the language's own artifacts
@@ -153,6 +174,15 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     census_warn = br.census.get("warnings") if isinstance(br.census, dict) else None
     if census_warn:
         lines.append("build warnings:\n" + "\n".join(f"- {sanitize_text(str(w), ws.root)}" for w in list(census_warn)[:10]))
+    if m is not None and fewer_turns_enabled():
+        try:
+            folded, folded_numbers = _folded_checks(ctx, Path(br.glb_path), m, language)
+        except (ToolUsageError, ValueError, OSError) as e:  # a broken plan.json must not hide a good build
+            folded, folded_numbers = [f"CHECKS: skipped ({type(e).__name__}: {e})"], {}
+        # errors first (house rule): the verdict and both sections right under BUILD OK, so
+        # the head/tail truncation eats the middle of the measurement table, never a gate error
+        lines[1:1] = folded
+        numbers.update(folded_numbers)
     return text_observation(lines, ok=ok, numbers=numbers, limit=3000)
 
 
