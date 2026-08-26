@@ -85,7 +85,7 @@ def make_server(ctx: ToolContext):
     defs = {t.name: t for t in mcp_tools(ctx)}
 
     async def on_list_tools(_req_ctx: Any, _params: Any) -> types.ListToolsResult:
-        tools = [types.Tool(name=t.name, description=f"({t.cost_hint}) {t.description}", input_schema=t.schema())
+        tools = [types.Tool(name=t.name, description=f"({t.cost_hint}) {t.describe()}", input_schema=t.schema())
                  for t in defs.values()]
         return types.ListToolsResult(tools=tools)
 
@@ -123,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     ctx = build_context(ws, track=ns.track, language=ns.language, round_index=ns.round_index)
     if ns.list:
-        print(json.dumps([{"name": t.name, "description": t.description, "schema": t.schema()} for t in mcp_tools(ctx)], indent=1))
+        print(json.dumps([{"name": t.name, "description": t.describe(), "schema": t.schema()} for t in mcp_tools(ctx)], indent=1))
         return 0
     asyncio.run(serve_stdio(ctx))
     return 0

@@ -53,7 +53,8 @@ GENERATION_SIDE: frozenset[str] = frozenset({CONTACTS})
 PLAN_SIDE_ENV: frozenset[str] = frozenset({"CV3D_PLAN_BRIEF", "CV3D_SCOPED_PARTS"})
 GENERATION_SIDE_ENV: frozenset[str] = frozenset({"CV3D_SKILLS", "CV3D_SKILLS_MAX", "CV3D_SKILLS_UNVERIFIED",
                                                  "CV3D_SKILLS_ONLY",
-                                                 "CV3D_DETAIL_ROUNDS", "CV3D_REFERENCE_DIFF"})
+                                                 "CV3D_DETAIL_ROUNDS", "CV3D_REFERENCE_DIFF",
+                                                 "CV3D_FEWER_TURNS"})
 
 
 def pin_plan_blockers(variant_env: dict[str, str]) -> list[str]:
@@ -89,6 +90,10 @@ LIVE_SWITCHES: dict[str, str] = {
     "CV3D_SKILLS_MAX": "codeverse/skills/config.py",
     "CV3D_SKILLS_UNVERIFIED": "codeverse/skills/config.py",
     "CV3D_SKILLS_ONLY": "codeverse/skills/config.py",
+    # fewer turns (docs/COST.md §26): build folds the gates in, write_file lints, the refine
+    # prompt inlines its files, the baseline prompt asks for every file in turn 1.  One
+    # switch, read at call time by config.fewer_turns_enabled; acts after planning.
+    "CV3D_FEWER_TURNS": "codeverse/config.py",
 }
 
 #: Switches that are DECLARED but read by no code path, with the reason.  An A/B arm that

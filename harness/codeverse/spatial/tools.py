@@ -11,11 +11,12 @@ and every tool is cheap to call repeatedly.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codeverse.config import get_settings
+from codeverse.config import fewer_turns_enabled, get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement
 from codeverse.spatial.connectivity import check_connectivity as _check_connectivity
 from codeverse.spatial.contract import check_contract as _check_contract
@@ -28,6 +29,7 @@ from codeverse.spatial.observe import (
     rel_path,
     sanitize_text,
     text_observation,
+    truncate,
 )
 from codeverse.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
 from codeverse.spatial.sections import cross_section as _cross_section
@@ -83,7 +85,51 @@ def _no_glb_summary(ctx: ToolContext, br: BuildResult, language: str) -> tuple[b
     return True, lines, {"census": keep}
 
 
-@tool("build", NoArgs, "Lint + build the code in src/ with the language runtime, export artifacts/object.glb and measure it. Call after every edit.", cost_hint="slow")
+#: what `build` says about itself when the gates ride along (docs/COST.md §26): the agent
+#: must not spend two more round trips asking for what the build observation already holds.
+_BUILD_INCLUDES_CHECKS = ("On success it ALSO runs check_connectivity and check_contract and reports them "
+                          "under CONNECTIVITY / CONTRACT — do not call those two tools separately.")
+_FOLDED_MAX_FINDINGS = 6
+_FOLDED_SECTION_CHARS = 900   # per section, errors first — two sections + the table fit the build limit
+
+
+def _folded_checks(ctx: ToolContext, glb: Path, m: Measurement, language: str) -> tuple[list[str], dict[str, Any]]:
+    """The connectivity + contract gates as they would appear from their own tools, folded
+    into the build observation: (lines, numbers).  Each gate is a few hundred ms on a
+    built GLB; each as a separate tool call was a 4 s round trip carrying the whole
+    context (docs/COST.md §26).  Same checkers, same gate JSON files, same formatter."""
+    ws = ctx.workspace
+    lines: list[str] = []
+    numbers: dict[str, Any] = {}
+    verdicts: list[str] = []
+
+    def fold(name: str, report: GateReport) -> None:
+        ws.write_json(ws.gates_dir(ctx.round_index) / f"{name.lower()}_tool.json", report)
+        obs = gate_observation(report, title=f"{name}: {'PASS' if report.passed else 'FAIL'}",
+                               max_findings=_FOLDED_MAX_FINDINGS)
+        n_err = int(obs.numbers["errors"])
+        lines.append(truncate(obs.text, _FOLDED_SECTION_CHARS))
+        numbers[f"{name.lower()}_errors"] = n_err
+        verdicts.append(f"{name.lower()} " + ("PASS" if report.passed else f"FAIL ({n_err} error(s))"))
+
+    conn = _check_connectivity(glb, language=language)
+    fold("CONNECTIVITY", conn)
+    if ws.plan_path.is_file():
+        contract = _check_contract(m, load_plan(ws.plan_path), language=language)
+        fold("CONTRACT", contract)
+        passed = conn.passed and contract.passed
+    else:
+        lines.append("CONTRACT: skipped — no plan.json in the workspace")
+        passed = conn.passed
+    numbers["checks_passed"] = passed
+    tail = ("no separate check_connectivity / check_contract call is needed" if passed
+            else "fix the ERRORs listed under CONNECTIVITY / CONTRACT below, then build again")
+    summary = "CHECKS: " + " · ".join(verdicts) + " — " + tail
+    return [summary, *lines], numbers
+
+
+@tool("build", NoArgs, "Lint + build the code in src/ with the language runtime, export artifacts/object.glb and measure it. Call after every edit.", cost_hint="slow",
+      describe_extra=lambda: _BUILD_INCLUDES_CHECKS if fewer_turns_enabled() else "")
 def build(ctx: ToolContext, args: NoArgs) -> Observation:
     # ToolDef.call stamps Observation.duration_ms for every tool — no timing here
     ws = ctx.workspace
@@ -128,6 +174,15 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     census_warn = br.census.get("warnings") if isinstance(br.census, dict) else None
     if census_warn:
         lines.append("build warnings:\n" + "\n".join(f"- {sanitize_text(str(w), ws.root)}" for w in list(census_warn)[:10]))
+    if m is not None and fewer_turns_enabled():
+        try:
+            folded, folded_numbers = _folded_checks(ctx, Path(br.glb_path), m, language)
+        except (ToolUsageError, ValueError, OSError) as e:  # a broken plan.json must not hide a good build
+            folded, folded_numbers = [f"CHECKS: skipped ({type(e).__name__}: {e})"], {}
+        # errors first (house rule): the verdict and both sections right under BUILD OK, so
+        # the head/tail truncation eats the middle of the measurement table, never a gate error
+        lines[1:1] = folded
+        numbers.update(folded_numbers)
     return text_observation(lines, ok=ok, numbers=numbers, limit=3000)
 
 

@@ -10,6 +10,7 @@ Gemini keys: ``GEMINI_API_KEYS`` (csv) or ``GEMINI_API_KEY`` or the owner's
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -88,6 +89,14 @@ class Limits(BaseModel):
         "which is what ships: a 28-turn cap cost $0.02 more and 0.205 of a score point in its "
         "own A/B — docs/COST.md §17 — so no profile sets one; name it here if you want one).",
     )
+    fewer_turns: bool = Field(
+        default=False,
+        description="fold the cheap gates into `build`, report a per-file lint verdict from "
+        "write_file / edit_file, inline the files a refine task edits, and ask the baseline "
+        "session for every file in its first turn (docs/COST.md §26).  OFF until the A/B "
+        "reads out; `CV3D_FEWER_TURNS=1` (read at call time by `fewer_turns_enabled`) is "
+        "what `bench/ab_plan.py --variant-env` flips.",
+    )
 
 
 class Rate(BaseModel):
@@ -134,6 +143,38 @@ class Judge(BaseModel):
     samples: int = Field(default=1, description="default VLM samples per verdict")
 
 
+#: The fewer-turns switch (docs/COST.md §26).  Read at CALL time by
+#: :func:`fewer_turns_enabled`, never only through the cached Settings: ``bench/ab_plan.py``
+#: differs its arms by environment alone, and a value frozen at first ``get_settings()``
+#: would hand the variant the control's behaviour (the CQ-5 lesson, tracks/plan_features.py).
+FEWER_TURNS_ENV = "CV3D_FEWER_TURNS"
+_TRUE_WORDS = frozenset({"1", "on", "true", "yes", "y"})
+_FALSE_WORDS = frozenset({"0", "off", "false", "no", "n"})
+
+
+def _env_flag(raw: str, env: str) -> bool:
+    word = raw.strip().lower()
+    if word in _TRUE_WORDS:
+        return True
+    if word in _FALSE_WORDS:
+        return False
+    raise ValueError(f"{env}={raw!r}: expected on/off (1/0, true/false, yes/no)")
+
+
+def fewer_turns_enabled() -> bool:
+    """Is the fewer-turns bundle on for THIS call?  ``$CV3D_FEWER_TURNS`` when it is set
+    (garbage counts as off, with a warning — a typo in a bench command must produce a
+    control run, not a crash mid-battery), else ``Settings.limits.fewer_turns``."""
+    raw = os.environ.get(FEWER_TURNS_ENV)
+    if raw is not None and raw.strip():
+        try:
+            return _env_flag(raw, FEWER_TURNS_ENV)
+        except ValueError as e:
+            logging.getLogger(__name__).warning("%s; treating it as off", e)
+            return False
+    return get_settings().limits.fewer_turns
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CV3D_", env_nested_delimiter="__", extra="ignore")
 
@@ -144,6 +185,7 @@ class Settings(BaseSettings):
     #: knob; both spellings now work and the doctor prints the short one.
     _FLAT_ALIASES: ClassVar[dict[str, tuple[str, str]]] = {
         "CV3D_MAX_IN_FLIGHT": ("rate", "max_in_flight"),
+        FEWER_TURNS_ENV: ("limits", "fewer_turns"),
     }
 
     @model_validator(mode="after")
@@ -152,17 +194,21 @@ class Settings(BaseSettings):
             raw = os.environ.get(env)
             if raw is None or raw.strip() == "":
                 continue
-            try:
-                value = int(raw)
-            except ValueError as e:
-                raise ValueError(f"{env}={raw!r}: expected an integer") from e
-            # plain assignment does NOT re-validate (no validate_assignment), so the target
-            # field's own bound is enforced here — and the message names the variable the
-            # operator actually typed, not the nested field they never heard of.
             sub = getattr(self, section)
-            lo = _lower_bound(type(sub), field)
-            if lo is not None and value < lo:
-                raise ValueError(f"{env}={raw!r}: must be >= {lo}")
+            value: int | bool
+            if type(sub).model_fields[field].annotation is bool:
+                value = _env_flag(raw, env)
+            else:
+                try:
+                    value = int(raw)
+                except ValueError as e:
+                    raise ValueError(f"{env}={raw!r}: expected an integer") from e
+                # plain assignment does NOT re-validate (no validate_assignment), so the target
+                # field's own bound is enforced here — and the message names the variable the
+                # operator actually typed, not the nested field they never heard of.
+                lo = _lower_bound(type(sub), field)
+                if lo is not None and value < lo:
+                    raise ValueError(f"{env}={raw!r}: must be >= {lo}")
             setattr(sub, field, value)
         return self
 

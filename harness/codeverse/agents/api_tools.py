@@ -22,8 +22,9 @@ from pathlib import Path
 from typing import Any
 
 from codeverse.agents.watchdog import run_with_watchdog
-from codeverse.config import get_settings
+from codeverse.config import fewer_turns_enabled, get_settings
 from codeverse.contracts.chat import ImagePart, ToolSpec
+from codeverse.languages.file_lint import lint_one_file
 from codeverse.workspace import Workspace
 
 READ_CAP_CHARS = 60_000
@@ -100,8 +101,12 @@ class FileTools:
         allow_shell: bool = True,
         edit_only: Collection[str] | None = None,
         always_writable: Collection[str] = (),
+        language: str = "",
     ):
         self.ws = ws
+        #: the authoring language, so write_file / edit_file can lint the ONE file they touched
+        #: (fewer_turns; "" = no per-file verdict)
+        self.language = language
         self.write_roots = [(ws.root / r).resolve() for r in write_roots]
         #: when set, an EXISTING file outside this set may not be overwritten.  New files are
         #: fine (a task may add a part) and ``always_writable`` (the entry file) is exempt.
@@ -124,6 +129,13 @@ class FileTools:
     # ------------------------------------------------------------------ specs
     def specs(self) -> list[ToolSpec]:
         roots = ", ".join(os.path.relpath(r, self.ws.root) + "/" for r in self.write_roots)
+        # fewer_turns: the write result carries the verdict the agent used to fetch with a
+        # read_file round trip (docs/COST.md §26)
+        no_readback = (
+            " The result reports the line count and a syntax/lint verdict for that file: you do NOT "
+            "need to read a file back after writing it."
+            if fewer_turns_enabled() else ""
+        )
         specs = [
             ToolSpec(
                 name="read_file",
@@ -134,14 +146,14 @@ class FileTools:
             ),
             ToolSpec(
                 name="write_file",
-                description=f"Create or overwrite a text file. Only allowed under: {roots}. Parent dirs are created.",
+                description=f"Create or overwrite a text file. Only allowed under: {roots}. Parent dirs are created.{no_readback}",
                 parameters=_schema(
                     {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"]
                 ),
             ),
             ToolSpec(
                 name="edit_file",
-                description=f"Exact-string replacement in an existing file (under {roots}). `old` must occur exactly once unless all=true.",
+                description=f"Exact-string replacement in an existing file (under {roots}). `old` must occur exactly once unless all=true.{no_readback}",
                 parameters=_schema(
                     {
                         "path": {"type": "string"},
@@ -268,9 +280,22 @@ class FileTools:
         p.write_text(content)
         rel = os.path.relpath(p, self.ws.root)
         self.writes.append(rel)
+        verb = "overwrote" if existed else "created"
+        if fewer_turns_enabled():
+            return self._written(f"{verb} {rel}", rel, content, p)
         return ToolOutcome(
-            f"{'overwrote' if existed else 'created'} {rel} ({len(content)} chars, {content.count(chr(10)) + 1} lines)"
+            f"{verb} {rel} ({len(content)} chars, {content.count(chr(10)) + 1} lines)"
         )
+
+    def _written(self, head: str, rel: str, content: str, p: Path) -> ToolOutcome:
+        """`<head> (N lines) · syntax OK` / `<head> (N lines)\n2 lint error(s) — …` — the
+        verdict that replaces the read-back (never the content itself)."""
+        n_lines = content.count("\n") + (0 if content.endswith("\n") or not content else 1)
+        text = f"{head} ({n_lines} lines)"
+        verdict = lint_one_file(self.language, rel.replace(os.sep, "/"), content, p).summary()
+        if verdict:
+            text += (" · " if verdict == "syntax OK" else "\n") + verdict
+        return ToolOutcome(text)
 
     def edit_file(self, path: str, old: str, new: str, all: bool = False) -> ToolOutcome:  # noqa: A002 - API name
         p = self._resolve(path, write=True)
@@ -298,10 +323,14 @@ class FileTools:
                 f"`old` occurs {n} times in {path}; include more context or pass all=true",
                 is_error=True,
             )
-        p.write_text(text.replace(old, new) if all else text.replace(old, new, 1))
+        new_text = text.replace(old, new) if all else text.replace(old, new, 1)
+        p.write_text(new_text)
         rel = os.path.relpath(p, self.ws.root)
         self.writes.append(rel)
-        return ToolOutcome(f"edited {rel}: replaced {n if all else 1} occurrence(s)")
+        head = f"edited {rel}: replaced {n if all else 1} occurrence(s)"
+        if fewer_turns_enabled():
+            return self._written(head, rel, new_text, p)
+        return ToolOutcome(head)
 
     def list_files(self, glob: str = "src/**/*") -> ToolOutcome:
         root = self.ws.root
@@ -434,7 +463,7 @@ class SpatialTools:
 
     def specs(self) -> list[ToolSpec]:
         return [
-            ToolSpec(name=t.name, description=t.description, parameters=t.schema())
+            ToolSpec(name=t.name, description=t.describe(), parameters=t.schema())
             for t in self.tools.values()
         ]
 

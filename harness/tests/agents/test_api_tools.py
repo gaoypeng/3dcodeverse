@@ -126,3 +126,43 @@ def test_unknown_tool_and_bad_args(tmp_ws: Workspace):
     t = _tools(tmp_ws)
     assert t.call("nope", {}).is_error
     assert t.call("read_file", {"wrong": 1}).is_error
+
+
+# --------------------------------------------------------------------------- fewer_turns: the write result replaces the read-back
+GOOD_BPY = "import bpy\n\n\ndef build_seat():\n    bpy.ops.mesh.primitive_cube_add(size=0.4)\n    o = bpy.context.object\n    o.name = 'Seat'\n    return o\n"
+BROKEN_BPY = "import bpy\n\ndef build_seat(:\n    return None\n"
+
+
+def test_write_file_reports_a_syntax_verdict_when_fewer_turns(tmp_ws: Workspace, monkeypatch):
+    """~35 read_file turns per run re-read a file the agent wrote a turn earlier (docs/COST.md
+    §26).  On: the write says `(N lines) · syntax OK` or the first errors with line numbers —
+    never the content."""
+    monkeypatch.setenv("CV3D_FEWER_TURNS", "1")
+    t = FileTools(tmp_ws, ["src", "public"], language="blender")
+    out = t.call("write_file", {"path": "src/parts/seat.py", "content": GOOD_BPY})
+    assert not out.is_error and out.text == "created src/parts/seat.py (8 lines) · syntax OK"
+    assert "primitive_cube_add" not in out.text
+    bad = t.call("write_file", {"path": "src/parts/seat.py", "content": BROKEN_BPY})
+    assert not bad.is_error                                   # the file WAS written; the verdict is in the text
+    assert bad.text.startswith("overwrote src/parts/seat.py (4 lines)\n1 lint error(s)")
+    assert "line 3: SyntaxError" in bad.text and "fix:" in bad.text
+    e = t.call("edit_file", {"path": "src/parts/seat.py", "old": "build_seat(:", "new": "build_seat():"})
+    assert e.text == "edited src/parts/seat.py: replaced 1 occurrence(s) (4 lines) · syntax OK"
+    # a file type the language has no cheap check for gets the count and no verdict
+    txt = t.call("write_file", {"path": "src/notes.txt", "content": "a\nb\n"})
+    assert txt.text == "created src/notes.txt (2 lines)"
+    # the tool cards say so
+    descs = {s.name: s.description for s in t.specs()}
+    assert "do NOT need to read a file back" in descs["write_file"] and "do NOT need to read a file back" in descs["edit_file"]
+    assert "read a file back" not in descs["read_file"]
+
+
+def test_write_file_is_byte_identical_when_fewer_turns_is_off(tmp_ws: Workspace, monkeypatch):
+    monkeypatch.delenv("CV3D_FEWER_TURNS", raising=False)
+    t = FileTools(tmp_ws, ["src", "public"], language="blender")
+    out = t.call("write_file", {"path": "src/parts/seat.py", "content": BROKEN_BPY})
+    assert out.text == f"created src/parts/seat.py ({len(BROKEN_BPY)} chars, 5 lines)"
+    assert "syntax" not in out.text and "lint" not in out.text
+    e = t.call("edit_file", {"path": "src/parts/seat.py", "old": "(:", "new": "():"})
+    assert e.text == "edited src/parts/seat.py: replaced 1 occurrence(s)"
+    assert all("read a file back" not in s.description for s in t.specs())
