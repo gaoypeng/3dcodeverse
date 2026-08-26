@@ -22,7 +22,8 @@ score-vs-complexity corpus study) before changing anything.
    place that states frames/units/naming.  Import, never restate.
 3. Deterministic gates/measurements run by the harness; VLM only for perception.
    Score is computed in code from rubric weights; caps/floors are explicit.
-4. Typed everything; no regex-on-id control flow; no god files (≤ ~400 lines).
+4. Typed everything; no regex-on-id control flow; a file may be long but not a god file —
+   hard cap **1 500 lines** per file (owner's rule, 2026-08-26; the old ~400-line guideline is gone).
 5. Cheap first: lint → build → gates → montaged views → VLM.  Budgets are hard.
 6. Every round = a git commit of `src/`; every call = a `Usage`; every run = `record.json`.
 7. No wrapper re-centres or grounds the object: export **as authored**, warn in the
@@ -30,8 +31,9 @@ score-vs-complexity corpus study) before changing anything.
 
 ## Supported versions (what other people can run this on)
 python **3.13** (one fixed version — owner's decision 2026-08-26; no floor, no matrix) ·
-node **20.6+** · Blender 4.2+ · Linux x86_64.  **CI runs one job on 3.13** that tests exactly
-what `requires-python` claims, so the claim cannot drift untested.  The version lives in
+node **20.6+** · Blender 4.2+ · Linux x86_64.  **There is no CI** (removed 2026-08-26 by the
+owner): run `ruff check codeverse bench tests` and the offline suite locally BEFORE every
+push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The version lives in
 `pyproject` `requires-python` + ruff `target-version` + `scripts/setup.sh`, and
 `spatial/node.py:NODE_MIN` + `runtime_js/package.json` `engines` for node, pinned together by
 `tests/core/test_portability.py`.  Details: `docs/INSTALL.md` §2.1.

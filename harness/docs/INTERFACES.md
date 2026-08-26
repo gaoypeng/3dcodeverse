@@ -156,7 +156,13 @@ res.files_changed (git-derived, attributed per session), res.usage, res.transcri
 `AgentJob` carries typed job context: `round`, `kind`, `language`, `track`,
 `mcp_command` (override), `files_hint` (workspace-relative files/dirs the task is
 expected to touch — used to attribute `files_changed` between concurrent sessions in
-one workspace; harness-owned paths and sibling sessions' hinted files are dropped)
+one workspace; harness-owned paths and sibling sessions' hinted files are dropped),
+`edit_only` / `always_writable` (a scoped refine may overwrite only its hinted files +
+the entry file), `read_only: list[str]` (harness-owned files INSIDE the write roots the
+session may read but never write — `contracts.common.HARNESS_OWNED_SRC[language]`, i.e.
+`src/recipes.glsl` for glsl_shader; `tracks/generation.py` sets it on every job of the
+run and `FileTools(read_only=…)` answers a `write_file` / `edit_file` on one with
+`PathDenied("… is harness-owned and read-only … call them from your own files")`)
 and `job.api: ApiAgentOptions(max_usd, temperature, thinking, allow_shell)` (api-agent
 only).  **Δ legacy lift**: the same keys passed inside `extra={...}` are lifted into
 the typed fields at validation (extra itself is left untouched), so old constructors
@@ -196,7 +202,7 @@ rt.contract_doc() -> str ; rt.cookbook_path() -> Path
 | `ThreeJsRuntime` | `src/object.js`, `src/parts/*.js` | **Δ export as authored** (`--normalise` opt-in, never passed by the runtime; census `placement_offset`/`normalised_offset`); InstancedMesh baked to `<Name>_<i>` meshes (`instanced_meshes_baked`); exported `selfcheck(THREE, root)` is called (throw → SelfCheckError); NaN geometry errors name mesh/part → routed to `src/parts/<snake>.js` |
 | `UrdfBlenderRuntime` | `src/model.py`, `src/robot.urdf` | object.glb (Y-up, node=link, joint extras), meshes/<link>.glb (raw Z-up link frames); link name `world` is reserved (lint ERROR + UrdfError); robot GLB root gets `__root` suffix on name clash |
 | `SceneThreeJsRuntime` | `src/scene.js`, `src/zones/*.js`, `src/assets/*.js`, `src/env.js`, `src/shaders/*.js` | glb_path=None; ok iff `probe_scene` + `check_shaders` pass |
-| `GlslShaderRuntime` | `src/shader.frag`, `src/common.glsl`, `src/buffer_a.frag` | harness owns `#version`/uniforms/`out` (wrap.HEADER: u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise + iTime/iChannel* aliases); build renders judge frames via GlHost; compile errors → GlslCompileError at mapped src file:line; artifacts frames/, frames_sheet.png, preview.gif, metrics.json |
+| `GlslShaderRuntime` | `src/shader.frag`, `src/common.glsl`, `src/buffer_a.frag` (+ the harness-owned `src/recipes.glsl` when seeded) | harness owns `#version`/uniforms/`out` (wrap.HEADER: u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise + iTime/iChannel* aliases); `wrap.compose(shader, common, recipes_src=…)` pastes header < recipes < common < shader; build renders judge frames via GlHost; compile errors → GlslCompileError at mapped src file:line (recipes.glsl included); lint ERROR `redefines_recipe` when an agent file defines a recipes.glsl name; artifacts frames/, frames_sheet.png, preview.gif, metrics.json |
 | `OpenGLPythonRuntime` | `src/program.py`, `src/*.glsl` | `setup(ctx,w,h)->state` + `render(ctx,state,t,frame,fbo)` run in a moderngl subprocess (`wrappers/run_gl.py`); exceptions map to src/program.py:line, in-string GLSL errors carry both line numbers |
 
 Wrappers are standalone (never import codeverse): `blender/wrappers/run_bpy.py`
@@ -350,13 +356,15 @@ from codeverse.tracks.prompting import base_prompt_context, reference_images, fi
 from codeverse.tracks.prompting import select_cookbook_chapters, select_cookbook_excerpt, is_always_chapter
     # select_cookbook_chapters(ctx, brief, *, budget=9000, always=COOKBOOK_ALWAYS) -> list[Section]: the header +
     # always-on chapters + the brief's chapters (whole, cookbook order, inside budget); the excerpt joins them
-from codeverse.tracks.graphics_recipes import seed_recipes, graphics_brief, cookbook_functions, EXTRA_KEY
-    # seed_recipes(ctx) -> list[str]: glsl_shader + seed_recipes_enabled() only.  Appends the selected chapters'
+from codeverse.tracks.graphics_recipes import seed_recipes, graphics_brief, cookbook_functions, EXTRA_KEY, RECIPES_REL
+    # seed_recipes(ctx) -> list[str]: glsl_shader + seed_recipes_enabled() only.  Writes the selected chapters'
     # function definitions (minus always-on chapters and the raymarching template) + the helpers they call to
-    # src/common.glsl under "// ---- harness-seeded verified recipes"; returns the names written THIS call;
-    # ctx.extra["seeded_recipes"] = [{name, signature, purpose}] for every seeded recipe on disk (the prompt
-    # block); emits recipes.seeded {names, present, chapters}.  GraphicsTrack.prepare() runs it after the
-    # skeleton and commits "recipes" when it wrote something.
+    # the HARNESS-OWNED src/recipes.glsl (RECIPES_REL; header "// harness-owned: … READ-ONLY …"; a resume appends
+    # only names the file lacks); returns the names written THIS call; ctx.extra["seeded_recipes"] =
+    # [{name, signature, purpose}] for every seeded recipe on disk (the prompt block); emits recipes.seeded
+    # {file, names, present, chapters, trimmed}.  Never writes src/common.glsl — except the untouched skeleton,
+    # which loses the helpers recipes.glsl now provides (trim_skeleton_common; recipes are pasted first).
+    # GraphicsTrack.prepare() runs it after the skeleton and commits "recipes" when it wrote something.
 from codeverse.tracks.common import RunContext, Services   # common.py
 from codeverse.tracks.generation import generate, run_agent_task, parse_multifile, is_single_shot
 GenerationTask.phase: int = 0   # tasks run in parallel WITHIN a phase, phases in ascending order

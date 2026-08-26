@@ -111,6 +111,7 @@ class _Loop:
             allow_shell=job.api.allow_shell,
             edit_only=job.files_hint if job.edit_only else None,
             always_writable=job.always_writable,
+            read_only=job.read_only,
             language=job.language,
         )
         self.spatial: SpatialTools | None = None

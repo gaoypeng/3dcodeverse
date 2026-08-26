@@ -60,6 +60,7 @@ class Side(BaseModel):
     glb: str = ""
     score: float | None = None
     score_std: float = 0.0
+    visual_score: float | None = None   # the same judge with NO gate findings in its context: perception only
     passed: bool | None = None
     gate_errors: list[str] = Field(default_factory=list)
     floating_parts: int = 0
@@ -84,6 +85,7 @@ class Row(BaseModel):
     theirs: Side
     ours: Side
     delta: float | None = None
+    delta_visual: float | None = None
     side_by_side: str = ""
 
 
@@ -160,6 +162,14 @@ def evaluate(side: Side, spec: Any, out_dir: Path, judge: Any) -> Side:
         j = judge.judge(JudgeInput(spec=spec, renders=renders, measurement=m, gates=[gate], acceptance=[], round_index=0))
         side.score, side.score_std, side.passed, side.summary = j.overall, j.score_std, j.passed, j.summary
         (out_dir / "judgment.json").write_text(j.model_dump_json(indent=2))
+        # Perception only: the gallery GLBs are merged, un-welded exports whose "floating"
+        # findings are export artefacts as often as defects (a microscope whose stage
+        # sits 22 mm from its arm in the mesh but looks attached), so a judge that reads
+        # the gate text in its context caps them for what the eye cannot see.  The
+        # visual number is the fair headline; the gated one is what the harness would say.
+        jv = judge.judge(JudgeInput(spec=spec, renders=renders, measurement=m, gates=[], acceptance=[], round_index=0))
+        side.visual_score = jv.overall
+        (out_dir / "judgment_visual.json").write_text(jv.model_dump_json(indent=2))
     except Exception as e:  # noqa: BLE001 — one bad GLB must not kill the battery
         side.error = f"{type(e).__name__}: {e}"
     return side
@@ -169,7 +179,7 @@ def cached_eval(side: Side, spec: Any, out_dir: Path, judge: Any, *, force: bool
     cache = out_dir / f"{side.source}.json"
     if cache.is_file() and not force:
         prev = Side.model_validate_json(cache.read_text())
-        if prev.score is not None and prev.glb == side.glb:
+        if prev.score is not None and prev.visual_score is not None and prev.glb == side.glb:
             return prev.model_copy(update={k: getattr(side, k) for k in ("rounds", "cost_usd", "minutes", "status")})
     out_dir.mkdir(parents=True, exist_ok=True)
     side = evaluate(side, spec, out_dir, judge)
@@ -207,8 +217,8 @@ def sign_test_p(deltas: list[float]) -> float | None:
     return min(1.0, 2 * min(cdf(k), 1 - cdf(k - 1)))
 
 
-def _stats(rows: list[Row]) -> str:
-    d = [r.delta for r in rows if r.delta is not None]
+def _stats(rows: list[Row], *, visual: bool = False) -> str:
+    d = [(r.delta_visual if visual else r.delta) for r in rows if (r.delta_visual if visual else r.delta) is not None]
     if not d:
         return "n=0 (no pair judged on both sides)"
     sd = statistics.stdev(d) if len(d) > 1 else 0.0
@@ -222,15 +232,17 @@ def summary_md(rows: list[Row]) -> str:
     out = ["# Objects head-to-head: 3dcodeverse vs astra3d-brilliana gallery", "",
            f"Judge: `{JUDGE_MODEL}` × {N_SAMPLES} samples, rubric `{RUBRIC}`, empty acceptance list, "
            "same renderer / views / connectivity gate on both GLBs.", "",
-           f"**All languages**: {_stats(rows)}", ""]
+           f"**All languages, visual only (no gate text in the judge's context — the fair headline)**: {_stats(rows, visual=True)}",
+           f"**All languages, gated (what the harness itself would say)**: {_stats(rows)}", ""]
     for lang in sorted({r.language for r in rows}):
-        out.append(f"- **{lang}**: {_stats([r for r in rows if r.language == lang])}")
-    out += ["", "| id | lang | theirs | ours | Δ | theirs gate errs / floating | ours gate errs / floating | ours rounds / $ / min | their gallery score (ref only) |",
-            "|---|---|---|---|---|---|---|---|---|"]
+        out.append(f"- **{lang}** visual: {_stats([r for r in rows if r.language == lang], visual=True)} · gated: {_stats([r for r in rows if r.language == lang])}")
+    out += ["", "| id | lang | theirs visual | ours visual | Δ visual | theirs gated | ours gated | Δ gated | theirs gate errs / floating | ours gate errs / floating | ours rounds / $ / min | their gallery score (ref only) |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     fmt = lambda v: "—" if v is None else f"{v:.3f}"  # noqa: E731
     for r in rows:
         t, o = r.theirs, r.ours
-        out.append(f"| {r.id} | {r.language} | {fmt(t.score)} | {fmt(o.score)} | {'—' if r.delta is None else f'{r.delta:+.3f}'} "
+        out.append(f"| {r.id} | {r.language} | {fmt(t.visual_score)} | {fmt(o.visual_score)} | {'—' if r.delta_visual is None else f'{r.delta_visual:+.3f}'} "
+                   f"| {fmt(t.score)} | {fmt(o.score)} | {'—' if r.delta is None else f'{r.delta:+.3f}'} "
                    f"| {len(t.gate_errors)} / {t.floating_parts} | {len(o.gate_errors)} / {o.floating_parts} "
                    f"| {o.rounds or '—'} / {'—' if o.cost_usd is None else f'{o.cost_usd:.2f}'} / {'—' if o.minutes is None else f'{o.minutes:.0f}'} "
                    f"| {fmt(t.gallery_score)} |")
@@ -262,6 +274,8 @@ def run(batteries: list[Path], gallery: Path, bench_out: Path, out: Path, *, ids
                 row = Row(id=item.id, slug=slug, language=str(spec.language), prompt=item.prompt, theirs=theirs, ours=ours)
                 if theirs.score is not None and ours.score is not None:
                     row.delta = round(ours.score - theirs.score, 4)
+                if ours.visual_score is not None and theirs.visual_score is not None:
+                    row.delta_visual = round(ours.visual_score - theirs.visual_score, 4)
                 if theirs.sheet or ours.sheet:
                     row.side_by_side = side_by_side(theirs, ours, out / "pairs" / f"{item.id}.png", slug)
                 rows.append(row)

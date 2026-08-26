@@ -56,9 +56,8 @@ cd harness/runtime_js && npm ci && npx puppeteer browsers install chrome && cd .
 ### 2.1 Supported versions
 
 One fixed Python version — **3.13** — by the owner's decision (2026-08-26): no floor, no
-matrix, no compatibility shims.  The harness is developed, measured and CI-tested on it
-(`.github/workflows/ci.yml`: one `offline tests (py3.13)` job on every push, so the claim in
-`requires-python` cannot drift untested).
+matrix, no compatibility shims, and — since the same day — no CI: the owner removed the
+workflow, so the offline suite and `ruff` are run locally before every push (see CLAUDE.md).
 
 | component | version | how it is enforced | notes |
 |---|---|---|---|
@@ -71,7 +70,7 @@ The offline suite on this box, 2026-08-26: **2736 passed of the 2775 selected** 
 data-dependent, 28 deselected are `live`).
 
 Moving to another Python later is the same four-line change (`requires-python`, ruff
-`target-version`, `PY_FLOOR`, `MIN_PY_MINOR`) plus the CI job's `python-version`.
+`target-version`, `PY_FLOOR`, `MIN_PY_MINOR`).
 
 ### 2.2 What you need installed
 

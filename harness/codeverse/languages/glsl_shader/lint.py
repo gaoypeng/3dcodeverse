@@ -4,13 +4,18 @@ Catches what the compiler reports confusingly (or too late): a ``#version`` line
 (the harness prepends one), redeclared harness uniforms / outputs, Shadertoy
 inputs that do not exist here (``iChannel2``, ``iDate`` …), ``texture()`` on
 undeclared samplers, GLSL 1.x syntax (``gl_FragColor`` / ``varying`` /
-``texture2D``), ``%`` on floats, a missing ``mainImage``/``main``.
-Gate name ``lint:glsl_shader``; ``data["kind"]`` names the rule.
+``texture2D``), ``%`` on floats, a missing ``mainImage``/``main``, and a function
+the harness-owned ``src/recipes.glsl`` already provides defined again in an agent
+file (``redefines_recipe`` — the compiler would say "redefinition" at the second
+copy; this says which file owns the first).  ``src/recipes.glsl`` itself is
+harness-verified and is not linted.  Gate name ``lint:glsl_shader``;
+``data["kind"]`` names the rule.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.languages.glsl_shader.wrap import (
@@ -25,6 +30,10 @@ GATE = "lint:glsl_shader"
 SHADER = "src/shader.frag"
 COMMON = "src/common.glsl"
 BUFFER_A = "src/buffer_a.frag"
+#: harness-owned (``contracts.common.HARNESS_OWNED_SRC``): seeded cookbook recipes, pasted above common.glsl
+RECIPES = "src/recipes.glsl"
+#: a top-level GLSL function definition, ``group(1)`` = its name (match per line)
+FUNC_DEF = re.compile(r"^[ \t]*(?:float|int|bool|void|[bi]?vec[234]|mat[234])\s+(\w+)\s*\(")
 SAMPLERS = {"u_prev", "u_noise", "u_buffer_a", "iChannel0", "iChannel1"}
 MAX_CHARS = 60_000
 
@@ -46,7 +55,16 @@ def _line_of(text: str, pos: int) -> int:
     return text.count("\n", 0, pos) + 1
 
 
-def _check_file(rel: str, text: str, *, role: str) -> list[GateFinding]:
+def defined_functions(text: str) -> dict[str, int]:
+    """``{name: line}`` of every top-level function definition in a GLSL text (comments blanked)."""
+    out: dict[str, int] = {}
+    for i, line in enumerate(strip_comments(text).splitlines(), 1):
+        if (m := FUNC_DEF.match(line)) and m.group(1) not in out:
+            out[m.group(1)] = i
+    return out
+
+
+def _check_file(rel: str, text: str, *, role: str, recipe_names: Collection[str] = ()) -> list[GateFinding]:
     out: list[GateFinding] = []
     raw_len = len(text)
     text = strip_comments(text)
@@ -91,6 +109,10 @@ def _check_file(rel: str, text: str, *, role: str) -> list[GateFinding]:
             add(Severity.ERROR, "legacy_glsl", f"uses `{needle.strip()}` (GLSL 1.x)", hint, _line_of(text, pos))
     for m in _FLOAT_LITERAL_MOD.finditer(text):
         add(Severity.ERROR, "float_modulo", "`%` on a float literal — GLSL `%` is integer-only", "use mod(x, y)", _line_of(text, m.start()))
+    for name, line in defined_functions(text).items():
+        if name in recipe_names:
+            add(Severity.ERROR, "redefines_recipe", f"`{name}` is already provided by {RECIPES} — call it instead of redefining it",
+                f"delete this `{name}` definition; {RECIPES} is harness-owned and pasted above your code, so its `{name}` is in scope", line)
     if role in ("shader", "buffer_a"):
         if not _MAIN_IMAGE.search(text) and not _PLAIN_MAIN.search(text):
             add(Severity.ERROR, "no_entry", "neither `void mainImage(out vec4 fragColor, in vec2 fragCoord)` nor `void main()` found",
@@ -110,21 +132,28 @@ def _check_file(rel: str, text: str, *, role: str) -> list[GateFinding]:
     return out
 
 
+def recipe_names(ws: Workspace) -> frozenset[str]:
+    """The names the harness-owned ``src/recipes.glsl`` provides (empty when nothing was seeded)."""
+    p = ws.root / RECIPES
+    return frozenset(defined_functions(p.read_text(errors="replace"))) if p.is_file() else frozenset()
+
+
 def lint_workspace(ws: Workspace) -> GateReport:
     findings: list[GateFinding] = []
+    reserved = recipe_names(ws)
     shader = ws.root / SHADER
     if not shader.is_file():
         findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=SHADER, message=f"{SHADER} is missing",
                                     fix_hint="create src/shader.frag with a mainImage(out vec4 fragColor, in vec2 fragCoord) function",
                                     data={"kind": "missing_entry", "file": SHADER}))
     else:
-        findings.extend(_check_file(SHADER, shader.read_text(errors="replace"), role="shader"))
+        findings.extend(_check_file(SHADER, shader.read_text(errors="replace"), role="shader", recipe_names=reserved))
     for rel, role in ((COMMON, "common"), (BUFFER_A, "buffer_a")):
         p = ws.root / rel
         if p.is_file():
-            findings.extend(_check_file(rel, p.read_text(errors="replace"), role=role))
+            findings.extend(_check_file(rel, p.read_text(errors="replace"), role=role, recipe_names=reserved))
     stray = [str(p.relative_to(ws.root)) for p in ws.src.rglob("*") if p.is_file()
-             and str(p.relative_to(ws.root)) not in (SHADER, COMMON, BUFFER_A) and p.suffix in (".frag", ".glsl", ".vert", ".py", ".js")]
+             and str(p.relative_to(ws.root)) not in (SHADER, COMMON, BUFFER_A, RECIPES) and p.suffix in (".frag", ".glsl", ".vert", ".py", ".js")]
     for rel in stray:
         findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=rel, message=f"{rel} is not part of the shader contract and is ignored",
                                     fix_hint="keep code in src/shader.frag (+ src/common.glsl, src/buffer_a.frag)", data={"kind": "stray_file", "file": rel}))
@@ -132,14 +161,18 @@ def lint_workspace(ws: Workspace) -> GateReport:
     return GateReport(gate=GATE, passed=passed, findings=findings)
 
 
-def lint_text(shader_src: str, common_src: str | None = None, buffer_a_src: str | None = None) -> list[GateFinding]:
-    """Lint in-memory sources (tools / tests)."""
-    out = _check_file(SHADER, shader_src, role="shader")
+def lint_text(shader_src: str, common_src: str | None = None, buffer_a_src: str | None = None, *,
+              recipes_src: str | None = None) -> list[GateFinding]:
+    """Lint in-memory sources (tools / tests); ``recipes_src`` is the harness-owned recipe file whose
+    names the agent files may not redefine (it is not linted itself)."""
+    reserved = frozenset(defined_functions(recipes_src)) if recipes_src else frozenset()
+    out = _check_file(SHADER, shader_src, role="shader", recipe_names=reserved)
     if common_src is not None:
-        out += _check_file(COMMON, common_src, role="common")
+        out += _check_file(COMMON, common_src, role="common", recipe_names=reserved)
     if buffer_a_src is not None:
-        out += _check_file(BUFFER_A, buffer_a_src, role="buffer_a")
+        out += _check_file(BUFFER_A, buffer_a_src, role="buffer_a", recipe_names=reserved)
     return out
 
 
-__all__ = ["GATE", "SHADER", "COMMON", "BUFFER_A", "lint_workspace", "lint_text", "strip_comments"]
+__all__ = ["GATE", "SHADER", "COMMON", "BUFFER_A", "RECIPES", "FUNC_DEF", "defined_functions", "recipe_names",
+           "lint_workspace", "lint_text", "strip_comments"]

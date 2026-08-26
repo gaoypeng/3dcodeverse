@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "3dcodeverse: a data-flywheel harness for LLM-written 3D code (Blender / CadQuery / Three.js / URDF / GLSL) across static objects, articulated objects and scenes."
 readme = "README.md"
 # Floor = 3.10 (the oldest interpreter the whole dependency set still resolves on and the
-# one fixed version, 3.13 (owner, 2026-08-26): developed, measured and CI-tested on it.
+# one fixed version, 3.13 (owner, 2026-08-26): developed and measured on it; no CI (tests run locally before a push).
 # Nothing in the package uses a 3.11+ stdlib name directly — the three that were used
 # (StrEnum, datetime.UTC, tomllib) live behind codeverse/_compat.py.
 requires-python = ">=3.13"
@@ -90,7 +90,7 @@ timeout = 600
 # Live tests are OPT-IN (`pytest -m live`).  Without this, a bare `pytest` on a machine
 # that happens to have API keys configured fires real requests, and during a provider
 # outage it hangs instead of failing — which is exactly what happened on 2026-08-24.
-# Everyone's default run is now the offline suite CI runs.
+# Everyone's default run is the offline suite (run locally before every push; there is no CI).
 addopts = ["-m", "not live"]
 markers = [
   "live: needs network + API keys (deselect with -m 'not live')",

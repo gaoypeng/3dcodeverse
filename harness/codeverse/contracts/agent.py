@@ -76,6 +76,12 @@ class AgentJob(BaseModel):
         default_factory=list,
         description="files exempt from edit_only (the entry file: adding a part means importing it there)",
     )
+    read_only: list[str] = Field(
+        default_factory=list,
+        description="harness-owned files inside write_roots the agent may read but never write "
+        "(src/recipes.glsl for glsl_shader: contracts.common.HARNESS_OWNED_SRC); a write_file / "
+        "edit_file on one is refused with 'harness-owned — call its functions instead'",
+    )
     mcp_command: list[str] | None = Field(
         default=None, description="override for the 3dcv MCP server command"
     )

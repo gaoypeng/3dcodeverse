@@ -24,13 +24,13 @@ Cookbook excerpt:
 {% endif %}
 {% if seeded_recipes %}
 
-## Verified helpers ALREADY in `src/common.glsl` — call them, do not rewrite them
-`src/common.glsl` already contains these VERIFIED helpers; the harness pastes that file above your shader,
-so they are in scope in `src/shader.frag` with no include.  Call them and build on them: do not rewrite an
-aurora curtain / star field / bokeh / rain layer from scratch (the from-scratch versions are the comb of bars,
-the twenty sparkles and the opaque discs the judge caps), and do not define a function with one of these
-names yourself (a redefinition fails the compile).  When you write `src/common.glsl`, keep the seeded block
-under `// ---- harness-seeded verified recipes` intact and add your own helpers below it.
+## Verified helpers in the harness-owned, read-only `src/recipes.glsl` — call them, do not redefine them
+`src/recipes.glsl` is harness-owned and READ-ONLY (a write to it is refused); the harness pastes it above
+`src/common.glsl` and `src/shader.frag` at build time, so these VERIFIED helpers are in scope everywhere with
+no include.  Call them and build on them: do not rewrite an aurora curtain / star field / bokeh / rain layer
+from scratch (the from-scratch versions are the comb of bars, the twenty sparkles and the opaque discs the
+judge caps), do not define a function with one of these names yourself (the lint rejects the redefinition),
+and do not copy them into `src/common.glsl` — `common.glsl` is yours for helpers that are NOT in this list.
 {% for r in seeded_recipes %}- `{{ r.signature }}` — {{ r.purpose }}
 {% endfor %}
 {% endif %}

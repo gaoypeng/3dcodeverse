@@ -51,7 +51,7 @@ the flywheel unit.
 5. **Evidence-based acceptance.**  Every plan carries an acceptance checklist;
    items are proved by measurements/probes/judge votes, not prose.
 6. **Typed everything.**  One contracts package; no regex-on-id control flow, no
-   stringly-typed dicts, no god files (≤ ~400 lines).
+   stringly-typed dicts, no god files (hard cap 1 500 lines per file; owner's rule 2026-08-26).
 7. **Cheap first.**  Lint → build → deterministic gates → montaged views → VLM.
 8. **Separate generator from judge.**  The judge sees spec + renders +
    measurements + acceptance list; never the generator's reasoning.
@@ -163,8 +163,9 @@ codeverse/
                       common.py (RunContext, Services), motion.py, reference.py, static_object.py,
                       articulated_object.py, scene.py, scene_assets.py, graphics.py + graphics_steps.py,
                       graphics_recipes.py (the brief's verified cookbook recipes + their helpers written into
-                      src/common.glsl before the session — measured: flash calls a recipe on disk, not one it
-                      is shown; CV3D_SEED_RECIPES, docs/GRAPHICS_LOOP.md §3),
+                      the harness-owned, read-only src/recipes.glsl before the session — measured: flash calls
+                      a recipe on disk, not one it is shown, and overwrites one seeded into its own common.glsl;
+                      AgentJob.read_only, CV3D_SEED_RECIPES, docs/GRAPHICS_LOOP.md §3),
                       brief.py (cached EngineeringBrief: one cheap call turns a one-line prompt into
                       real dimensions / sub-assemblies / signature features; never fatal, CV3D_PLAN_BRIEF),
                       plan_budget.py (plan size derived from the request, capped per language),
@@ -278,8 +279,9 @@ summary:
   `src/env.js`, `src/zones/*.js`, `src/assets/*.js`, `src/shaders/*.js`; GLBs at
   `public/assets/<name>.glb`.  The harness assembles `scene.js` deterministically.
 * **glsl_shader**: `src/shader.frag` (+ optional `src/common.glsl`,
-  `src/buffer_a.frag` for feedback) — the agent never writes `#version`, uniform
-  declarations or `out vec4`; the harness header provides
+  `src/buffer_a.frag` for feedback; the harness-owned, read-only `src/recipes.glsl`
+  is pasted above them when the track seeded recipes) — the agent never writes
+  `#version`, uniform declarations or `out vec4`; the harness header provides
   `u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise/u_buffer_a` (+ Shadertoy
   `iTime/iResolution/iChannel*` aliases).  Feedback shaders are simulated at 30 fps.
 * **opengl_python**: `src/program.py` with `setup(ctx, w, h) -> state` and
@@ -442,7 +444,7 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
 * Gemini flash 503 storms happen; dead keys and 429s rotate freely now, but a
   sustained outage can still fail a round (`3dcv resume` re-uses cached stages).
 * `ffmpeg` absent here → turntables fall back to GIF.  A few single-file wrappers
-  exceed the ~400-line guideline by design.
+  were once over the old ~400-line guideline; the rule is now a 1 500-line cap.
 
 ## 11. Flywheel
 

@@ -89,6 +89,28 @@ class FixedEvaluator:
             self._judge = VlmJudge(rubric=self.rubric, model_id=self.judge_model, n_samples=self.n_samples)
         return self._judge
 
+    def judge_for(self, spec: Spec) -> Any:
+        """The fixed judge for THIS cell's track.
+
+        The evaluator judged every cell with the object rubric on a GLB.  A graphics cell
+        has frames, not a GLB, so ``evaluate`` returned before judging and every graphics
+        cell of an ``ab_plan`` battery was recorded ``judge_error: no judgment`` — measured
+        2026-08-26 on ``seed_v1`` (both arms, three rounds of in-loop verdicts each, and
+        no pair score).  Graphics cells are judged on their frame sheet with the track's
+        rubric (``shader_v2``), through ``LikenessJudge`` when the spec carries reference
+        photos so the arms see the same photos the loop saw.
+        """
+        if spec.track is Track.GRAPHICS:
+            from codeverse.contracts.common import TRACK_INFO
+            from codeverse.judges.reference import LikenessJudge
+            from codeverse.judges.vlm_judge import VlmJudge
+
+            rubric = TRACK_INFO[Track.GRAPHICS].rubric
+            if spec.references:
+                return LikenessJudge(self.judge_model, n_samples=self.n_samples, rubric=rubric)
+            return VlmJudge(rubric=rubric, model_id=self.judge_model, n_samples=self.n_samples)
+        return self.judge
+
     def build(self, ws: Workspace, language: Language | str) -> tuple[BuildResult, GateReport]:
         rt = self.runtime(language)
         lint = rt.lint(ws)
@@ -103,6 +125,8 @@ class FixedEvaluator:
 
         build, lint = self.build(ws, spec.language)
         out = EvalOutcome(build=build, lint=lint, gates=[lint])
+        if build.ok and spec.track is Track.GRAPHICS:
+            return self._evaluate_frames(ws, spec, out)
         if not build.ok or not build.glb_path:
             return out
         try:
@@ -124,6 +148,25 @@ class FixedEvaluator:
             inp = JudgeInput(spec=spec, renders=out.renders, measurement=out.measurement, gates=out.gates,
                              acceptance=acceptance_from_spec(spec), round_index=0)
             out.judgment = self.judge.judge(inp)
+        except Exception as e:  # noqa: BLE001 — recorded per cell, never kills the matrix
+            out.error = f"{type(e).__name__}: {e}"
+        return out
+
+
+    def _evaluate_frames(self, ws: Workspace, spec: Spec, out: EvalOutcome) -> EvalOutcome:
+        """Graphics: the judged frames + the gl_frames gate + the frame metrics, as the loop does."""
+        from codeverse.judges.base import JudgeInput
+        from codeverse.languages._gl_common import read_metrics
+        from codeverse.tracks.graphics_steps import frame_stats_text, frames_render_set
+
+        try:
+            out.renders = frames_render_set(ws, out.build, 0)
+            m = read_metrics(ws)
+            if m is not None:
+                out.gates.append(m[1])
+            inp = JudgeInput(spec=spec, renders=out.renders, gates=out.gates, acceptance=acceptance_from_spec(spec),
+                             round_index=0, extra_context="FRAME METRICS (harness-measured):\n" + frame_stats_text(ws))
+            out.judgment = self.judge_for(spec).judge(inp)
         except Exception as e:  # noqa: BLE001 — recorded per cell, never kills the matrix
             out.error = f"{type(e).__name__}: {e}"
         return out

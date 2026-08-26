@@ -40,8 +40,9 @@ Key visuals:
 - Keep brightness readable (mean luminance ~0.2-0.6), aspect-correct coordinates, tonemap + gamma last.
 - A "colour/light" change = palette constants / exposure / grade only; a "motion" change = the time terms only;
   do not rewrite unrelated layers.
-{% if seeded_recipes %}- `src/common.glsl` carries harness-seeded VERIFIED helpers ({% for r in seeded_recipes %}`{{ r.name }}`{% if not loop.last %}, {% endif %}{% endfor %}):
-  call them for the light / sky / rain / bokeh layers instead of re-deriving them, and keep that block intact.
+{% if seeded_recipes %}- The harness-owned, read-only `src/recipes.glsl` (pasted above your code at build time) carries VERIFIED
+  helpers ({% for r in seeded_recipes %}`{{ r.name }}`{% if not loop.last %}, {% endif %}{% endfor %}): call these for the light / sky / rain / bokeh layers
+  instead of re-deriving them; do not redefine them, do not copy them into common.glsl.
 {% endif %}
 {% if current_files %}
 

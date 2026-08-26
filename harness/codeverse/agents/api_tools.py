@@ -101,6 +101,7 @@ class FileTools:
         allow_shell: bool = True,
         edit_only: Collection[str] | None = None,
         always_writable: Collection[str] = (),
+        read_only: Collection[str] = (),
         language: str = "",
     ):
         self.ws = ws
@@ -122,7 +123,13 @@ class FileTools:
             frozenset((ws.root / f).resolve() for f in edit_only) if edit_only is not None else None
         )
         self.always_writable = frozenset((ws.root / f).resolve() for f in always_writable)
+        #: harness-owned files inside the write roots (``src/recipes.glsl``): readable, never
+        #: writable — measured 2026-08-26 (bench/out/seed_v1), recipes seeded into the agent's own
+        #: common.glsl were overwritten by the end of the run; a file the agent can rewrite is not
+        #: a place to keep verified code.
+        self.read_only = frozenset((ws.root / f).resolve() for f in read_only)
         self.scope_denials: list[str] = []
+        self.read_only_denials: list[str] = []
         self.allow_shell = allow_shell
         self.writes: list[str] = []  # workspace-relative paths written/edited, in order
 
@@ -243,6 +250,14 @@ class FileTools:
         if write and not any(p == r or r in p.parents for r in self.write_roots):
             roots = ", ".join(os.path.relpath(r, root) + "/" for r in self.write_roots)
             raise PathDenied(f"writes are only allowed under {roots} (got {path})")
+        if write and p in self.read_only:
+            rel = os.path.relpath(p, root)
+            self.read_only_denials.append(rel)
+            raise PathDenied(
+                f"{rel} is harness-owned and read-only: the harness wrote it and pastes it above your "
+                f"code at build time, so its functions are already in scope — call them from your own "
+                f"files instead of editing, redefining or copying them (read_file on it still works)."
+            )
         if (
             write
             and self.edit_only is not None

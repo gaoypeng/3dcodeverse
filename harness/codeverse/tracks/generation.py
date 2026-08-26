@@ -430,6 +430,7 @@ def run_agent_task(
         extra=extra,
         edit_only=task.edit_only,
         always_writable=_always_writable(language),
+        read_only=_read_only(language),
         images=list(task.images),
         **({"max_turns": turns_cap} if turns_cap > 0 else {}),
     )
@@ -598,6 +599,17 @@ def _always_writable(language: str) -> list[str]:
     try:
         return [ENTRY_FILE[Language(language)]]
     except (ValueError, KeyError):
+        return []
+
+
+def _read_only(language: str) -> list[str]:
+    """The harness-owned files of the language (``src/recipes.glsl`` for glsl_shader): every session
+    of the run — baseline, refine, repair — may read them, none may write them."""
+    from codeverse.contracts.common import HARNESS_OWNED_SRC, Language
+
+    try:
+        return list(HARNESS_OWNED_SRC.get(Language(language), ()))
+    except ValueError:
         return []
 
 

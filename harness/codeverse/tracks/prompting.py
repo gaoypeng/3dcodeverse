@@ -227,7 +227,7 @@ def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,
     ``COOKBOOK_SYNONYMS`` as the strong signal, until ``budget`` is spent.  A chapter is added
     whole or not at all; the output keeps cookbook order.  The default budget is the measured
     need of a night-sky brief: always-set 4.4 k + Light phenomena 3.2 k + Gradient sky 1.3 k.
-    ``tracks/graphics_recipes.py`` seeds the SAME selection's code into ``src/common.glsl``.
+    ``tracks/graphics_recipes.py`` seeds the SAME selection's code into the harness-owned ``src/recipes.glsl``.
     """
     from codeverse.spatial.cookbook_tool import Section, find_section, split_sections
 

@@ -16,7 +16,7 @@ written) that were accepted because the code works that way and the tests pin it
   `check_contract` converts to the GLB frame (Y-up) using `LANGUAGE_FRAME`.
 * **L3 Deterministic first, VLM for perception only.**  Score is computed in code
   from rubric weights; floors and caps are explicit; degraded verdicts are glitches.
-* **L4 Typed, no regex-on-id, no god files.**  Files ≤ ~400 lines; two wrappers
+* **L4 Typed, no regex-on-id, no god files.**  Files ≤ 1 500 lines (owner, 2026-08-26 — was ~400); two wrappers
   exceed it by design (`run_bpy.py` 418, `scene_host.mjs` 426).
 * **L5 Cheap first.**  Lint → build → gates → montaged views → VLM.  `build` tool
   skips the build when lint has ERRORs.
@@ -193,10 +193,12 @@ written) that were accepted because the code works that way and the tests pin it
   provenance was never met.  Decision: `git ls-files --error-unmatch` on the module
   itself (a wheel / venv copy must not borrow an unrelated repo's sha), then
   `rev-parse HEAD`, `-dirty` appended when tracked files under `harness/` are modified.
-* **D39 CI runs every offline test directory (2026-08-25).**  Context: `ci.yml`
-  listed 7 of 24 directories, so 828 pure-python tests — every docs-vs-code drift
-  guard among them — never ran on a PR.  Decision: `pytest tests -m "not live and
-  not blender and not node"` on both python floors; `timeout-minutes` on both jobs.
+* **D39 The offline suite is run whole (2026-08-25; CI workflow removed 2026-08-26).**
+  Context: `ci.yml` listed 7 of 24 directories, so 828 pure-python tests — every
+  docs-vs-code drift guard among them — never ran on a PR.  Decision: the suite is
+  `pytest tests -m "not live and not blender and not node"`, every directory.  The owner
+  removed the GitHub workflow the next day (6ac06a9: ruff and the offline suite run locally
+  before every push), so this now names the command, not a job.
 
 * **D40 A harness cell that waited instead of iterating is flagged, not trusted
   (2026-08-25).**  Context: under a day-long gemini-3.7-flash 503 storm 37 of 40 harness

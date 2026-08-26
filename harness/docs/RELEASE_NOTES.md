@@ -15,7 +15,8 @@ score computed under an odd `n_samples` (branch `ziyao/eval-integrity`, D36–D3
   instead of a fixed direction; `ScoreBreakdown.tie_broken` names the ids.  Under
   the old rule `economy` (n=2) was strictly harsher than `balanced` (n=1) and
   `quality` (n=3).
-* CI runs the whole offline suite (was 7 of 24 test directories).
+* The offline suite is run whole — every test directory (the CI job listed 7 of 24; the
+  workflow itself was removed by the owner on 2026-08-26, the command stays).
 * `bench/paired_compare.py`: paired Δ, 95 % t-interval, exact sign test, per tier, plus a
   judge-free table (build rate, gate errors) per arm; `bench/prompts/compare_v4.yaml`
   (40 static prompts); `--judge-samples` on `compare_backends`.

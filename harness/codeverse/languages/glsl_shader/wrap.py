@@ -3,9 +3,11 @@
 The harness owns the ``#version`` line, the uniform block and the ``main``
 trampoline; the agent writes only the body (``mainImage(out vec4 fragColor,
 in vec2 fragCoord)`` or a plain ``main()`` writing the harness-declared ``fragColor``).
-``compose`` returns the full source plus a :class:`LineMap` so compiler
-messages (``0:LINE(COL)`` / ``0(LINE)`` / ``ERROR: 0:LINE:`` variants) map back
-to ``src/shader.frag`` / ``src/common.glsl`` line numbers.
+``compose`` pastes harness header < ``src/recipes.glsl`` (harness-owned seeded
+recipes, when present) < ``src/common.glsl`` < ``src/shader.frag`` (+ trailer) and
+returns the full source plus a :class:`LineMap` so compiler messages
+(``0:LINE(COL)`` / ``0(LINE)`` / ``ERROR: 0:LINE:`` variants) map back to
+``src/shader.frag`` / ``src/common.glsl`` / ``src/recipes.glsl`` line numbers.
 """
 
 from __future__ import annotations
@@ -82,16 +84,22 @@ def _count(text: str) -> int:
     return text.count("\n") + (0 if text.endswith("\n") else 1)
 
 
-def compose(shader_src: str, common_src: str | None = None, *, shader_file: str = "src/shader.frag",
-            common_file: str = "src/common.glsl") -> Composed:
-    """Header + common + shader (+ trailer) with a line map back to the agent files."""
+def _piece(text: str) -> str:
+    return text if text.endswith("\n") else text + "\n"
+
+
+def compose(shader_src: str, common_src: str | None = None, *, recipes_src: str | None = None,
+            shader_file: str = "src/shader.frag", common_file: str = "src/common.glsl",
+            recipes_file: str = "src/recipes.glsl") -> Composed:
+    """Header + recipes (harness-owned, first: self-contained, nothing in common.glsl can shadow it)
+    + common + shader (+ trailer) with a line map back to the agent files."""
     convention = detect_convention(shader_src)
     pieces: list[tuple[str, str]] = [("harness", HEADER)]
+    if recipes_src and recipes_src.strip():
+        pieces.append((recipes_file, _piece(recipes_src)))
     if common_src and common_src.strip():
-        body = common_src if common_src.endswith("\n") else common_src + "\n"
-        pieces.append((common_file, body))
-    body = shader_src if shader_src.endswith("\n") else shader_src + "\n"
-    pieces.append((shader_file, body))
+        pieces.append((common_file, _piece(common_src)))
+    pieces.append((shader_file, _piece(shader_src)))
     if convention == "mainImage":
         pieces.append(("harness", MAIN_IMAGE_TRAILER))
     segments: list[Segment] = []
@@ -103,7 +111,7 @@ def compose(shader_src: str, common_src: str | None = None, *, shader_file: str 
         cursor += n
         out.append(text)
     src = "".join(out)
-    code = strip_comments(shader_src) + "\n" + strip_comments(common_src or "")
+    code = strip_comments(shader_src) + "\n" + strip_comments(common_src or "") + "\n" + strip_comments(recipes_src or "")
     uses_feedback = "u_prev" in code or "iChannel0" in code
     return Composed(source=src, line_map=LineMap(segments), convention=convention, uses_feedback=uses_feedback)
 
