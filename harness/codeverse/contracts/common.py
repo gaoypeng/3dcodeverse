@@ -73,6 +73,15 @@ ENTRY_FILE: dict[Language, str] = {
     Language.OPENGL_PYTHON: "src/program.py",
 }
 
+#: source files the HARNESS writes under ``src/`` and owns: the agent reads them and calls what
+#: they define, never writes them (``AgentJob.read_only`` → ``FileTools`` refuses the write).
+#: Measured 2026-08-26 (bench/out/seed_v1, aurora brief, gemini-3.7-flash api-agent): recipes
+#: seeded into the agent's own ``src/common.glsl`` were gone by the end of the run — it rewrote
+#: the file with its own helpers — so a seeded file has to be one the agent cannot rewrite.
+HARNESS_OWNED_SRC: dict[Language, tuple[str, ...]] = {
+    Language.GLSL_SHADER: ("src/recipes.glsl",),
+}
+
 #: human label per language (galleries, captions, reports)
 LANGUAGE_LABEL: dict[Language, str] = {
     Language.BLENDER: "Blender Python",

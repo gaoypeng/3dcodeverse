@@ -101,11 +101,13 @@ class Limits(BaseModel):
         default=True,
         description="graphics / glsl_shader: paste the cookbook recipes the brief calls for "
         "(curtain / aurora / stars / bokehSoft / dropsLayer + the hash / noise / fbm helpers "
-        "they use) into src/common.glsl BEFORE the baseline session (tracks/graphics_recipes.py).  "
+        "they use) into the harness-owned, read-only src/recipes.glsl BEFORE the baseline session "
+        "(tracks/graphics_recipes.py; pasted above src/common.glsl at build time).  "
         "ON by default: measured 2026-08-26 (refs_v2_graphics, aurora brief, gemini-3.7-flash) "
         "the prompt carried the verified curtain() recipe five times and the agent used it zero "
-        "times — round 0 was again a comb of bars (comb_artefact, 0.33).  `CV3D_SEED_RECIPES=0` "
-        "(read at call time by `seed_recipes_enabled`) is the control arm.",
+        "times — round 0 was again a comb of bars (comb_artefact, 0.33); and (bench/out/seed_v1) "
+        "recipes seeded into the agent's own common.glsl were overwritten before the end of the run.  "
+        "`CV3D_SEED_RECIPES=0` (read at call time by `seed_recipes_enabled`) is the control arm.",
     )
 
 

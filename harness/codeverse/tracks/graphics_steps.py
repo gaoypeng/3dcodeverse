@@ -122,7 +122,7 @@ def graphics_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
     d: dict[str, Any] = {
         "track": ctx.track.value, "language": ctx.language.value, "contract": ctx.contract_text,
         "cookbook_rel": ctx.cookbook_rel, "cookbook_excerpt": select_cookbook_excerpt(ctx, graphics_brief(ctx)), "tool_cards": ctx.tool_cards,
-        # the recipes tracks/graphics_recipes.py put in src/common.glsl before the session ([] = no prompt block)
+        # the recipes tracks/graphics_recipes.py put in the harness-owned src/recipes.glsl before the session ([] = no block)
         "seeded_recipes": list((getattr(ctx, "extra", None) or {}).get(SEEDED_KEY) or []),
         "single_shot": ctx.single_shot, "output_format": SINGLE_SHOT_FORMAT if ctx.single_shot else AGENT_OUTPUT_RULES,
         "spec_prompt": ctx.spec.prompt, "constraints": constraints_text(ctx.spec),

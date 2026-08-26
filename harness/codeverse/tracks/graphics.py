@@ -107,8 +107,10 @@ class GraphicsTrack(BaseTrack):
 
     # ------------------------------------------------------------------ prepare
     def prepare(self, ctx: RunContext, runner: StageRunner) -> None:
-        """Skeleton, then the brief's verified cookbook recipes into src/common.glsl (graphics_recipes:
-        measured, flash does not call a recipe it is only shown; it does call one that is on disk)."""
+        """Skeleton, then the brief's verified cookbook recipes into the harness-owned, read-only
+        src/recipes.glsl (graphics_recipes: measured, flash does not call a recipe it is only shown — and a
+        recipe seeded into its own common.glsl was overwritten by the end of the run, so the file is one
+        the agent cannot write: AgentJob.read_only)."""
         super().prepare(ctx, runner)
         if seed_recipes(ctx):
             ctx.ws.commit("recipes")

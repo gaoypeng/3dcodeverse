@@ -93,11 +93,14 @@ def _js(path: Path, max_errors: int) -> FileVerdict:
                        errors=[(f"line {problem.line}: " if problem.line else "") + problem.message][:max_errors])
 
 
-def _glsl(rel: str, text: str, max_errors: int) -> FileVerdict:
+def _glsl(rel: str, text: str, path: Path, max_errors: int) -> FileVerdict:
     from codeverse.languages.glsl_shader import lint as gl
 
     role = {gl.SHADER: "shader", gl.COMMON: "common", gl.BUFFER_A: "buffer_a"}.get(rel, "shader")
-    return _errors(gl._check_file(rel, text, role=role), max_errors)
+    # the harness-owned recipe file beside it reserves its names (redefines_recipe)
+    recipes = path.parent / Path(gl.RECIPES).name
+    reserved = frozenset(gl.defined_functions(recipes.read_text(errors="replace"))) if recipes.is_file() else frozenset()
+    return _errors(gl._check_file(rel, text, role=role, recipe_names=reserved), max_errors)
 
 
 def _urdf(rel: str, text: str, max_errors: int) -> FileVerdict:
@@ -127,7 +130,7 @@ def lint_one_file(language: str, rel: str, text: str, path: Path, *, max_errors:
         if suffix in (".js", ".mjs") and lang in (Language.THREEJS, Language.SCENE_THREEJS):
             return _js(path, max_errors)
         if suffix in (".frag", ".glsl") and lang is Language.GLSL_SHADER:
-            return _glsl(rel, text, max_errors)
+            return _glsl(rel, text, path, max_errors)
         if suffix == ".urdf" and lang is Language.URDF_BLENDER:
             return _urdf(rel, text, max_errors)
     except Exception as e:  # noqa: BLE001 — a lint crash is not the agent's problem
