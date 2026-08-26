@@ -48,7 +48,7 @@ P = TypeVar("P", bound=BaseModel)
 
 #: re-ask budgets — a plan the SCHEMA rejects and a plan the QUALITY gate rejects are
 #: different failures and get separate chances (see ``plan_with_usage``).
-MAX_VALIDATION_REASKS = 1
+MAX_VALIDATION_REASKS = 2  # was 1: compare_art_v2 lost 5 of 14 articulated prompts at this gate (2026-08-25)
 MAX_QUALITY_REASKS = 1
 #: Output room for the plan call, sized from the plan budget.  A deep plan is much longer
 #: JSON than a flat one AND Gemini 3.x bills its thinking against the same ceiling, so the
@@ -86,7 +86,7 @@ PLAN_TEMPLATES: dict[Track, str] = {
 
 
 class PlanningError(RuntimeError):
-    """The planner could not produce a valid plan after one re-ask.
+    """The planner could not produce a valid plan after MAX_VALIDATION_REASKS re-asks.
 
     Carries the ``usage`` already spent so callers can charge the budget even
     when planning fails (a failed re-ask is still paid for)."""
@@ -214,6 +214,9 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
                             target_parts=budget.target_parts, complaint=complaint[:400])
             messages = messages + [_echo(raw, resp.text), ChatMessage.user(complaint)]
             continue
+        normalised = list(getattr(result, "normalisations", None) or [])
+        if normalised and events is not None:
+            events.emit("plan.normalised", attempt=attempt, n=len(normalised), items=normalised[:8])
         result = finalise(result) if finalise is not None else ensure_acceptance(normalise_names(result), spec)
         result = enrich_plan(result, brief, budget)
         ws.write_json(ws.plan_path, result)

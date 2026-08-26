@@ -37,6 +37,9 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
    * `lower`/`upper` realistic limits (door 0..1.57 rad, lid 0..1.9 rad, drawer 0..0.8 × depth m);
      `rest` within the limits (usually 0 = closed).
    * `motion` one line: "lid opens upward about its back edge".
+   * `parent` / `child` name top-level `parts` (links) — NEVER a sub-part: anything a joint moves must be
+     its own link (the harness promotes a referenced sub-part to a link, but plan it as a link yourself).
+     A `revolute` range stays within 2π; a part that turns freely (swivel, wheel) is `continuous`.
 6. `acceptance` — 6 to 12 items: dimensions (`measure`), ground contact, each key feature
    (`visual`), and ONE `articulation` item per joint ("drawer slides out 0.35 m without touching the
    cabinet", "door swings 90° about the left edge, no penetration through the range").
