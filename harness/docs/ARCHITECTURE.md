@@ -154,7 +154,8 @@ codeverse/
   texturing/          plan.py (VLM material plan), generate.py (+ tile.py seam fix), uv.py (world-metre
                       unwrap), apply.py, gate.py (seam + before/after judge), scene_pack.py, run.py (texture_pass),
                       maps.py (PBR map set), materials.py (named material library), normalise.py
-  orchestrator/       runner.py, state.py, rounds.py (RoundPolicy, compaction), candidates.py (best-of-N
+  orchestrator/       runner.py, state.py, rounds.py (RoundPolicy, StopPolicy, BestSelector), refine_tasks.py
+                      (RefineTask compilation + file-ownership grouping + compaction), candidates.py (best-of-N
                       + pairwise decisions), budget.py
   tracks/             base.py (get_track(track, **options)), lifecycle.py, steps.py, candidates.py,
                       generation.py, repair.py, planner.py, prompting.py (prompt helpers, split from common),
