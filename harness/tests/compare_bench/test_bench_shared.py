@@ -28,9 +28,6 @@ def test_select_prompts_ids_tiers_limit():
 
 def test_select_prompts_is_single_owner_for_both_drivers():
     """compare_backends deleted its private copy; both drivers filter identically."""
-    b = _battery()
-    opts = rb.BenchOptions(ids=[b.prompts[0].id])
-    assert rb._select(b, opts) == select_prompts(b, ids=opts.ids)
     assert cb.select_prompts is select_prompts and cb.default_run_track is rb.default_run_track
 
 

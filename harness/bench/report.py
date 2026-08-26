@@ -12,7 +12,6 @@ import html
 import json
 import statistics
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -178,7 +177,3 @@ def _html_gallery(out: Path, name: str, results: list[BenchItemResult], rep: Ben
               + "<h3>by category</h3>" + _html_table(rep.by_category))
     items = [_item_for(r) for r in results]
     return render_gallery(items, f"bench — {name}", extra_html=tables)
-
-
-def report_dict(rep: BenchReport) -> dict[str, Any]:
-    return rep.model_dump(mode="json", exclude={"markdown", "html"})

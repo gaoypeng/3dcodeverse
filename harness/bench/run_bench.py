@@ -159,11 +159,6 @@ def select_prompts(
     return items[:limit] if limit is not None else items
 
 
-def _select(battery: Battery, opts: BenchOptions) -> list[BenchPrompt]:
-    """Deprecated: use :func:`select_prompts`."""
-    return select_prompts(battery, ids=opts.ids, tiers=opts.tiers, limit=opts.limit)
-
-
 RunFn = Callable[[Spec, Workspace, bool], RunRecord]
 
 
@@ -172,10 +167,6 @@ def default_run_track(spec: Spec, ws: Workspace, resume: bool) -> RunRecord:
     from codeverse.tracks import get_track
 
     return get_track(spec.track).run(spec, ws, resume=resume)
-
-
-#: deprecated alias — use :func:`default_run_track`
-_default_run = default_run_track
 
 
 def run_battery(

@@ -15,7 +15,6 @@ import html
 import io
 import statistics
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -234,7 +233,3 @@ def write_gallery(runs_dir: Path | str, out_html: Path | str, *, title: str | No
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render_gallery(items, title or f"3dcv gallery — {Path(runs_dir).name}", thumb_px=thumb_px))
     return out, len(items)
-
-
-def gallery_dict(items: list[GalleryItem]) -> list[dict[str, Any]]:
-    return [i.model_dump(mode="json") for i in items]

@@ -52,19 +52,6 @@ def view_az_el(view: RenderView) -> tuple[float, float] | None:
     return None
 
 
-def view_label(view: RenderView, index: int, total: int) -> str:
-    """``VIEW 3/8 — front · az 0° el 8°`` (+ ``t=1.5s`` / mode when relevant)."""
-    bits = [f"VIEW {index}/{total} — {view.name}"]
-    azel = view_az_el(view)
-    if azel is not None:
-        bits.append(f"az {azel[0]:.0f}° el {azel[1]:.0f}°")
-    if view.mode and view.mode != "shaded":
-        bits.append(view.mode)
-    if view.time_s is not None:
-        bits.append(f"t={view.time_s:g}s")
-    return " · ".join(bits)
-
-
 def _cache_key(src: Path, max_px: int, label: str) -> str:
     st = src.stat()
     h = hashlib.sha1(f"{src.resolve()}|{st.st_mtime_ns}|{st.st_size}|{max_px}|{label}".encode())

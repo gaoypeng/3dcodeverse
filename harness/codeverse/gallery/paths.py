@@ -41,12 +41,3 @@ def safe_join(root: Path | str, rel: str) -> Path:
     if resolved != base and base not in resolved.parents:
         raise PathError(f"path escapes the run directory: {rel!r}")
     return resolved
-
-
-def is_inside(root: Path | str, path: Path | str) -> bool:
-    """True when ``path`` resolves inside ``root`` (used for the declared roots)."""
-    try:
-        base, p = Path(root).resolve(), Path(path).resolve()
-    except OSError:
-        return False
-    return p == base or base in p.parents

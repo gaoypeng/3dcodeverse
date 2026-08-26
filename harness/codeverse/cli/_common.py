@@ -13,7 +13,7 @@ from typing import Any
 
 import typer
 
-from codeverse.cli._fmt import console, err
+from codeverse.cli._fmt import err
 from codeverse.config import get_settings
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import slugify
@@ -116,12 +116,6 @@ def parse_kv_floats(items: list[str], flag: str) -> dict[str, float]:
         except ValueError as e:
             raise CliError(f"{flag} {k}: not a number: {v!r}") from e
     return out
-
-
-def echo_json(obj: Any) -> None:
-    import json
-
-    console.print_json(json.dumps(obj, default=str, ensure_ascii=False))
 
 
 # --------------------------------------------------------------------------- cost profile

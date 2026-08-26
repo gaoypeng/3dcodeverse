@@ -20,7 +20,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import socket
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -378,13 +377,6 @@ def _open(url: str) -> None:
 
     with contextlib.suppress(Exception):  # headless box, no browser
         webbrowser.open(url)
-
-
-def free_port(host: str = DEFAULT_HOST) -> int:
-    """An ephemeral free port (tests, and ``--port 0``)."""
-    with socket.socket() as s:
-        s.bind((host, 0))
-        return int(s.getsockname()[1])
 
 
 def started_at() -> str:
