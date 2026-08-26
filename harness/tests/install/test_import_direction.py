@@ -10,6 +10,13 @@ Nothing enforced any of this: ``test_docs`` pins the package MAP, not the import
 Measured 2026-08-26 before writing this test, the direction held exactly as stated — judges does
 import ``spatial`` (sheet, measure, silhouette, render) and ``reference``, which is legitimate and
 allowed here.  The point is to catch the next parallel wave's inversion before review has to.
+
+``workspace.py`` is a leaf too — it imports only ``contracts`` and ``proc`` — so ``judges`` using it
+(``calibration.load_run_cases`` resolving a moved run's render paths, C3 of the review) is a
+downward edge and allowed.  The first version of this test forbade it on the strength of the
+review's *observation* that judges did not import workspace; the review's *rule* was about
+tracks / flywheel / cli / orchestrator, and that is what is pinned.  workspace.py gets its own row
+so it stays a leaf.
 """
 
 from __future__ import annotations
@@ -23,7 +30,9 @@ ROOT = Path(__file__).resolve().parents[2] / "codeverse"
 
 #: leaf → the codeverse packages it must NOT import
 FORBIDDEN: dict[str, tuple[str, ...]] = {
-    "judges": ("tracks", "flywheel", "cli", "orchestrator", "agents", "workspace", "gallery", "skills", "texturing"),
+    "judges": ("tracks", "flywheel", "cli", "orchestrator", "agents", "gallery", "skills", "texturing"),
+    "workspace.py": ("tracks", "flywheel", "cli", "orchestrator", "agents", "gallery", "skills", "texturing",
+                     "spatial", "languages", "reference", "judges", "models", "cost", "config", "events"),
     "contracts": tuple(p for p in ("tracks", "flywheel", "cli", "orchestrator", "agents", "workspace", "gallery",
                                    "skills", "texturing", "spatial", "languages", "reference", "judges", "models",
                                    "cost", "config", "events", "runlock", "proc")),
