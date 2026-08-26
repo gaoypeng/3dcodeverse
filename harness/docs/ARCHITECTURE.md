@@ -107,7 +107,7 @@ codeverse/
   languages/          LanguageRuntime; blender/ (multi-file: layout.py, model.py + parts/*.py) cadquery/
                       threejs/ (+ templates.py) urdf/ scene_threejs/ glsl_shader/ (wrap.py header+line-map)
                       opengl_python/ (wrappers/run_gl.py) — each runtime.py, lint.py, skeleton.py, wrappers/;
-                      file_lint.py (one just-written file → syntax/lint verdict for write_file, COST.md §26)
+                      file_lint.py (one just-written file → syntax/lint verdict for write_file, COST.md §29)
   spatial/            node.py, render.py, tool_common.py (shared tool plumbing), cookbook_tool.py
                       (read_cookbook), render_scene.py (judge view subset, content-fitted orbit),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),

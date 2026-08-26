@@ -90,7 +90,7 @@ LIVE_SWITCHES: dict[str, str] = {
     "CV3D_SKILLS_MAX": "codeverse/skills/config.py",
     "CV3D_SKILLS_UNVERIFIED": "codeverse/skills/config.py",
     "CV3D_SKILLS_ONLY": "codeverse/skills/config.py",
-    # fewer turns (docs/COST.md §26): build folds the gates in, write_file lints, the refine
+    # fewer turns (docs/COST.md §29): build folds the gates in, write_file lints, the refine
     # prompt inlines its files, the baseline prompt asks for every file in turn 1.  One
     # switch, read at call time by config.fewer_turns_enabled; acts after planning.
     "CV3D_FEWER_TURNS": "codeverse/config.py",

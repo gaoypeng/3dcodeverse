@@ -193,7 +193,7 @@ class GeminiModel:
         #: max_attempts, so max_attempts=1 alone still retried a 503 for up to 15 min.
         self.storm_attempts = storm_attempts
         #: keys a retry is raced on after the call's first 503 (``Settings.rate.hedge``,
-        #: 2; 1 = off) — see ``rotate_with_retries`` and docs/COST.md §24
+        #: 2; 1 = off) — see ``rotate_with_retries`` and docs/COST.md §27
         self.hedge = max(1, int(_rate().hedge if hedge is None else hedge))
         keys = list(keys) if keys is not None else _default_keys()
         if pool is None and not keys:

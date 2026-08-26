@@ -1,4 +1,4 @@
-"""``CV3D_FEWER_TURNS`` (docs/COST.md §26): the refine prompt carries the files it names, the
+"""``CV3D_FEWER_TURNS`` (docs/COST.md §29): the refine prompt carries the files it names, the
 baseline prompt asks for every file in turn one, and the control arm is byte-identical."""
 
 from __future__ import annotations

@@ -85,7 +85,7 @@ def _no_glb_summary(ctx: ToolContext, br: BuildResult, language: str) -> tuple[b
     return True, lines, {"census": keep}
 
 
-#: what `build` says about itself when the gates ride along (docs/COST.md §26): the agent
+#: what `build` says about itself when the gates ride along (docs/COST.md §29): the agent
 #: must not spend two more round trips asking for what the build observation already holds.
 _BUILD_INCLUDES_CHECKS = ("On success it ALSO runs check_connectivity and check_contract and reports them "
                           "under CONNECTIVITY / CONTRACT — do not call those two tools separately.")
@@ -97,7 +97,7 @@ def _folded_checks(ctx: ToolContext, glb: Path, m: Measurement, language: str) -
     """The connectivity + contract gates as they would appear from their own tools, folded
     into the build observation: (lines, numbers).  Each gate is a few hundred ms on a
     built GLB; each as a separate tool call was a 4 s round trip carrying the whole
-    context (docs/COST.md §26).  Same checkers, same gate JSON files, same formatter."""
+    context (docs/COST.md §29).  Same checkers, same gate JSON files, same formatter."""
     ws = ctx.workspace
     lines: list[str] = []
     numbers: dict[str, Any] = {}

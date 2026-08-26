@@ -529,7 +529,7 @@ def measurement_vs_plan(
     return "\n".join(lines + gate_lines)
 
 
-#: fewer_turns (docs/COST.md §26): the baseline session hit the 60-turn cap in every measured
+#: fewer_turns (docs/COST.md §29): the baseline session hit the 60-turn cap in every measured
 #: run — 22.5 write_file + 8 build + 7.5 read_file + 4.6 check_connectivity + 4.1 check_contract
 #: per session, each a 4 s round trip re-sending a 35–70 k context.  The cap itself is NOT the
 #: lever (§17: a 28-turn cap cost 0.205 of a score point); the block asks for fewer, fuller turns.
@@ -543,7 +543,7 @@ TURN_DISCIPLINE = """## Turn discipline (every tool call is a full round trip �
 - Call `render_sheet` once before you finish; `measure` at most once."""
 
 #: the refine prompt inlines the files a scoped task edits when they are few and small, so the
-#: session's first turn is the edit, not a read_file (fewer_turns, docs/COST.md §26)
+#: session's first turn is the edit, not a read_file (fewer_turns, docs/COST.md §29)
 INLINE_MAX_FILES = 3
 INLINE_MAX_CHARS = 12_000
 

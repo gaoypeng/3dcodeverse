@@ -380,7 +380,7 @@ def _stool_plan_with_missing_backrest() -> StaticPlan:
 
 
 def test_build_folds_connectivity_and_contract_in_when_fewer_turns(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    """docs/COST.md §26: ~25 check_connectivity + ~19 check_contract calls per run, each a 4 s
+    """docs/COST.md §29: ~25 check_connectivity + ~19 check_contract calls per run, each a 4 s
     round trip for a < 0.5 s check.  With the switch on, one build observation carries both."""
     monkeypatch.setenv("CV3D_FEWER_TURNS", "1")
     ws = stool_ctx.workspace

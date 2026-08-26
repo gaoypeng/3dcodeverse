@@ -1,5 +1,5 @@
 """One file, one cheap verdict — what ``write_file`` / ``edit_file`` hand back so the agent
-never has to ``read_file`` its own output (docs/COST.md §26: ~35 read_file turns per run,
+never has to ``read_file`` its own output (docs/COST.md §29: ~35 read_file turns per run,
 each a 4 s round trip carrying the whole context, to look at a file it wrote a turn ago).
 
 This is deliberately the language's OWN per-file lint, not a new rule set: the same

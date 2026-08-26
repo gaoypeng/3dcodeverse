@@ -1202,7 +1202,7 @@ an API backend are not being held to the same ceiling, so compare them on
 `notional_usd`, never on `spent_usd`.
 
 
-## 24. A 503 is per key at any instant — rotate before you wait (2026-08-26)
+## 27. A 503 is per key at any instant — rotate before you wait (2026-08-26)
 
 The retry path treated Gemini's *"This model is currently experiencing high demand"* (503) as
 model-wide: no rotation, a ≤ 5 s sleep per storm attempt (60 of them), the 900 s per-call
@@ -1266,7 +1266,7 @@ in `raw` and `attempts` on the raised `ModelError`; `cost/instrument.py` copies 
 defaulted so old rows load); `3dcv cost` / `bench/cost_report.py` add a per-key table and a
 `tries/call` column (`CostBucket.attempts_per_call`) whenever the ledger carries them.
 
-## 25. Where the time goes — the 2026-08-26 audit (`docs/TIME_AUDIT_2026-08-26.md`)
+## 28. Where the time goes — the 2026-08-26 audit (`docs/TIME_AUDIT_2026-08-26.md`)
 
 51 storm-day runs against 52 baseline runs, every stage and every model call, scripts in
 `bench/time_audit/` (read-only over `bench/out`).  The numbers that decide what to build next:
@@ -1294,10 +1294,9 @@ remaining session / round budget (~1 430 s/run) — (2) hedge a 503 retry across
 (~900–1 400 s/run) — (3) hedge / cap the planner and judge calls (~400 s/run + the judge tail)
 — (4) plan cache on re-runs (548 s) — (5) no sleep on 503 (≤ 13 %; landed with §24) — (6) enforce
 the ceiling inside a round (837 s sooner on killed runs) — (7) flash as the loop judge (~60 s
-baseline) — (8) 30 s render cap (≤ 100 s).  (1)–(3) and the key/attempt ledger fields are in
-progress on branch `retry-budget`.
+baseline) — (8) 30 s render cap (≤ 100 s).  (1)–(3) and the key/attempt ledger fields landed the same afternoon (§27's follow-up paragraphs).
 
-## 26. Fewer turns (in measurement) — `CV3D_FEWER_TURNS`, branch `fewer-turns`
+## 29. Fewer turns (in measurement) — `CV3D_FEWER_TURNS`, branch `fewer-turns`
 
 static_v2_flash (20 blender object runs, healthy provider, api-agent gemini-3.7-flash): wall median
 1 047 s, of which 823 s (79 %) is model time = **196 flash calls per run** at 4.2 s mean (p50 2.8 s;

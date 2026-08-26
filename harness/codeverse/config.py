@@ -93,7 +93,7 @@ class Limits(BaseModel):
         default=False,
         description="fold the cheap gates into `build`, report a per-file lint verdict from "
         "write_file / edit_file, inline the files a refine task edits, and ask the baseline "
-        "session for every file in its first turn (docs/COST.md §26).  OFF until the A/B "
+        "session for every file in its first turn (docs/COST.md §29).  OFF until the A/B "
         "reads out; `CV3D_FEWER_TURNS=1` (read at call time by `fewer_turns_enabled`) is "
         "what `bench/ab_plan.py --variant-env` flips.",
     )
@@ -137,7 +137,7 @@ class Rate(BaseModel):
         description="keys a retry is raced on once a call has met its first 503 (1 = off).  Measured "
         "2026-08-26: a failed 503 costs the 21-50 s round-trip the provider holds before rejecting, "
         "storm streaks average 4.7 attempts, and a 503 bills nothing — so the hedge is free while it "
-        "storms and wastes one call only when both keys answer (docs/COST.md §24).  "
+        "storms and wastes one call only when both keys answer (docs/COST.md §27).  "
         "CV3D_RATE__HEDGE=1 for the A/B.")
 
 
@@ -150,7 +150,7 @@ class Judge(BaseModel):
     samples: int = Field(default=1, description="default VLM samples per verdict")
 
 
-#: The fewer-turns switch (docs/COST.md §26).  Read at CALL time by
+#: The fewer-turns switch (docs/COST.md §29).  Read at CALL time by
 #: :func:`fewer_turns_enabled`, never only through the cached Settings: ``bench/ab_plan.py``
 #: differs its arms by environment alone, and a value frozen at first ``get_settings()``
 #: would hand the variant the control's behaviour (the CQ-5 lesson, tracks/plan_features.py).

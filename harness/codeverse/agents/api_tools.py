@@ -130,7 +130,7 @@ class FileTools:
     def specs(self) -> list[ToolSpec]:
         roots = ", ".join(os.path.relpath(r, self.ws.root) + "/" for r in self.write_roots)
         # fewer_turns: the write result carries the verdict the agent used to fetch with a
-        # read_file round trip (docs/COST.md §26)
+        # read_file round trip (docs/COST.md §29)
         no_readback = (
             " The result reports the line count and a syntax/lint verdict for that file: you do NOT "
             "need to read a file back after writing it."
