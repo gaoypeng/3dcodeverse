@@ -25,7 +25,7 @@ from codeverse.contracts.artifacts import GateReport, RenderView
 from codeverse.contracts.common import Usage
 from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem
-from codeverse.judges.caps import CapResult, apply_caps, missing_must_items
+from codeverse.judges.caps import CapResult, apply_caps, missing_must_items, veto_measured_defects
 from codeverse.judges.output_schema import JudgeOutput
 from codeverse.judges.rubrics import Rubric
 
@@ -37,14 +37,20 @@ class ScoreBreakdown(BaseModel):
     per_criterion_mean: dict[str, float]
     per_criterion_std: dict[str, float]
     per_sample_overall: list[float]
-    overall_uncapped: float = Field(description="rubric-weighted mean of the per-criterion means, before defects/caps")
-    overall_after_defects: float = Field(default=0.0, description="overall_uncapped minus defect penalties")
+    overall_uncapped: float = Field(
+        description="rubric-weighted mean of the per-criterion means, before defects/caps"
+    )
+    overall_after_defects: float = Field(
+        default=0.0, description="overall_uncapped minus defect penalties"
+    )
     overall: float
     floors_hit: list[dict[str, Any]] = Field(default_factory=list)
     caps: CapResult
     must_missing: list[str] = Field(default_factory=list)
     acceptance_votes: dict[str, list[bool]] = Field(default_factory=dict)
-    defects: dict[str, bool] = Field(default_factory=dict, description="checklist id → present (majority vote)")
+    defects: dict[str, bool] = Field(
+        default_factory=dict, description="checklist id → present (majority vote)"
+    )
     defect_votes: dict[str, list[bool]] = Field(default_factory=dict)
     defect_penalty: float = 0.0
     n_requested: int
@@ -95,7 +101,8 @@ def aggregate_samples(
     overall_uncapped = rubric.weighted_overall(mean_scores)
 
     floors = [
-        {"criterion": cid, "score": round(sc, 4), "floor": fl} for cid, sc, fl in rubric.floors_hit(mean_scores)
+        {"criterion": cid, "score": round(sc, 4), "floor": fl}
+        for cid, sc, fl in rubric.floors_hit(mean_scores)
     ]
     votes: dict[str, list[bool]] = {}
     for s in samples:
@@ -111,17 +118,38 @@ def aggregate_samples(
         for did, flag in s.defects.items():
             d_votes.setdefault(did, []).append(bool(flag))
     defects = {did: (sum(v) * 2 >= len(v) and bool(v)) for did, v in d_votes.items()}
+    # a checklist defect that a passed gate measured as absent neither penalises nor caps
+    # (judges/caps.measured_absent); it is still named in the verdict tail
+    defects, overridden = veto_measured_defects(rubric, defects, gates)
     penalty = round(sum(rubric.defect(did).penalty for did, on in defects.items() if on), 4)
     after_defects = max(0.0, overall_uncapped - penalty)
 
-    caps = apply_caps(rubric, after_defects, gates, acceptance, acceptance_items, console_errors=console_errors,
-                      views=views, defects_present=defects)
+    caps = apply_caps(
+        rubric,
+        after_defects,
+        gates,
+        acceptance,
+        acceptance_items,
+        console_errors=console_errors,
+        views=views,
+        defects_present=defects,
+    )
     overall = caps.overall
     passed = overall >= rubric.pass_threshold and not floors and not must_missing
 
     rep = _representative(samples, overalls)
     summary = rep.summary.strip()
-    tail = _verdict_tail(rubric, overall, passed, floors, caps, must_missing, defects=defects, penalty=penalty)
+    tail = _verdict_tail(
+        rubric,
+        overall,
+        passed,
+        floors,
+        caps,
+        must_missing,
+        defects=defects,
+        penalty=penalty,
+        overridden=overridden,
+    )
     if tail:
         summary = (summary + " " if summary else "") + tail
 
@@ -164,23 +192,45 @@ def aggregate_samples(
 
 
 def _verdict_tail(
-    rubric: Rubric, overall: float, passed: bool, floors: list[dict[str, Any]], caps: CapResult, must_missing: list[str],
-    *, defects: dict[str, bool] | None = None, penalty: float = 0.0,
+    rubric: Rubric,
+    overall: float,
+    passed: bool,
+    floors: list[dict[str, Any]],
+    caps: CapResult,
+    must_missing: list[str],
+    *,
+    defects: dict[str, bool] | None = None,
+    penalty: float = 0.0,
+    overridden: list[str] | None = None,
 ) -> str:
-    bits = [f"[verdict: overall {overall:.2f} vs threshold {rubric.pass_threshold:.2f} → {'PASS' if passed else 'FAIL'}"]
+    bits = [
+        f"[verdict: overall {overall:.2f} vs threshold {rubric.pass_threshold:.2f} → {'PASS' if passed else 'FAIL'}"
+    ]
     present = [d for d, on in (defects or {}).items() if on]
     if present:
         bits.append(f"defects (-{penalty:.2f}): " + ", ".join(present))
+    if overridden:
+        bits.append(
+            "checklist claims contradicted by a passed gate (no penalty, no cap): "
+            + ", ".join(overridden)
+        )
     if caps.caps_applied:
-        bits.append("caps: " + "; ".join(f"{c.rule}≤{c.cap:.2f} ({c.evidence})" for c in caps.caps_applied))
+        bits.append(
+            "caps: " + "; ".join(f"{c.rule}≤{c.cap:.2f} ({c.evidence})" for c in caps.caps_applied)
+        )
     if floors:
-        bits.append("floors: " + "; ".join(f"{f['criterion']} {f['score']:.2f}<{f['floor']:.2f}" for f in floors))
+        bits.append(
+            "floors: "
+            + "; ".join(f"{f['criterion']} {f['score']:.2f}<{f['floor']:.2f}" for f in floors)
+        )
     if must_missing:
         bits.append("must items unverified: " + ", ".join(must_missing))
     return " | ".join(bits) + "]"
 
 
-def degraded_judgment(rubric: Rubric, error: str, *, usage: Usage, judge_backend: str, n_requested: int) -> Judgment:
+def degraded_judgment(
+    rubric: Rubric, error: str, *, usage: Usage, judge_backend: str, n_requested: int
+) -> Judgment:
     """A verdict the orchestrator must treat as a GLITCH (not a score): ``raw.status == 'degraded'``."""
     breakdown = {
         "status": "degraded",
