@@ -25,6 +25,18 @@ python bench/skill_targets.py bench/out --skill cv3d-part-contact --per-run --js
 
 ---
 
+## 0a. In flight — the first whole-library pinned A/B (2026-08-26)
+
+`bench/out/fancy_v1/{bl_a,bl_b,cq,tj}`: 16 hard, design-realistic object prompts (blender 10,
+cadquery 3, threejs 3), `CV3D_SKILLS=1` (the whole library) against OFF, plans pinned, the same
+fixed judge, on all 22 keys.  Read it out with `python bench/skill_targets.py bench/out/fancy_v1/<driver>`
+per driver, or the merged paired table.  What it can and cannot say, stated before the data
+lands: n ≤ 16 pairs against a judged-score floor of 0.202 resolves a ~0.2 mean move, not a
+per-bundle effect (§5); its value is the first paired data on the library *as shipped* and the
+first-round gate rates (`--round first`) where the bundles act.  Gemini spent the night in a
+503 storm; pairs recorded `infra_failed` / `error` / `budget`-with-no-judged-round are outages
+(EVAL §7) and are re-run with `--redo-status`, never scored.
+
 ## 0. What this wave decided (2026-08-25, curate)
 
 Three measurement waves ran: a description A/B read out on **read rate** (ground truth from
