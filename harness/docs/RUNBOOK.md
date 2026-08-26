@@ -195,6 +195,17 @@ parks until it recovers instead; `--no-preflight` skips the check.  Cells that a
 provider outage kills anyway are recorded `infra_failed`, excluded from every rate,
 and re-run with `--redo-status infra_failed` (see `docs/EVAL.md` §7).
 
+### 7.x Size `--max-minutes` to the weather
+
+`--max-minutes 60` is the right ceiling on a healthy provider.  Under a 503 storm every model
+call waits through the retry budget first, an agent session spends its wall clock on 15–23
+turns, and a hard prompt burns the whole hour without one judged round — measured 2026-08-26 on
+`fancy_v1`: the first six pairs ended `budget` with `judge.done = 0`.  When
+`codeverse.models.health.probe()` shows the generator below the 0.75 bar, launch (or redo) with
+`--max-minutes 120 --wait-for-provider 60`, and redo the storm's rows rather than reading them:
+`--redo-status error,infra_failed,budget` (add `build_failed` only when a harness defect, not the
+model, produced the zero — check `cell.json`'s `error`).
+
 ## 8. Extending (plugin paths)
 
 * **New language**: enum in `contracts/common.py::Language` (+ `TRACK_LANGUAGES`,
