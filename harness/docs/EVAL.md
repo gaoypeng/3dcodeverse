@@ -182,6 +182,23 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   part should cap via `connectivity` findings with `data["kind"]="floating"`.
 * A better recurring smoke than re-judging e2e rounds: a separation set with
   deliberately broken variants (exploded / floating / primitive-only).
+* **A checklist defect a passed gate measured absent does not cap (7a9b6d3).**  The
+  judge's binary checklist feeds a per-item penalty and, for `floating_part` /
+  `interpenetration`-class items, a hard cap (`defect:<id>` in `caps_applied`).  Those are
+  also what the connectivity gate *measures*.  Measured 2026-08-26 on a plan-pinned pair
+  (fancy_v1 `gas_street_lamp`, two lamps the eye cannot tell apart): the gate reported
+  "all 9 parts connected, gap ≤ 2 mm" and was in the judge's input; both pro samples read
+  the dark seam under the pedestal as "floating in mid-air, a clear daylight gap", and
+  `defect:floating_part` capped the run at 0.600 (uncapped 0.720) against 0.962 for its
+  sibling.  `judges/caps.measured_absent`: when a `when=gate` cap rule with the same id
+  has all its watched gates passed with no ERROR finding of its `kinds`, the checklist
+  claim is switched off before the penalty and before `apply_caps`, and named in the verdict
+  tail ("checklist claims contradicted by a passed gate").  A failed gate, a gate that did
+  not run, or a defect nothing measures (`wrong_object`, `missing_named_part`) are
+  untouched.  Re-aggregating the eleven judged fancy_v1 cells from their stored samples
+  changed exactly one score (that lamp, 0.600 → 0.720); the other 0.600s are
+  `missing_must_acceptance` / interpenetration caps the gates agree with.  0b6f52b tells the
+  judge the same thing in its prompt; this holds when the judge does not listen.
 * Never tune rubric text against the battery you report on; bump the rubric version
   (`*_v2`) instead and re-run.
 

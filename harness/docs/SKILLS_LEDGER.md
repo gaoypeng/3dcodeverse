@@ -37,6 +37,20 @@ first-round gate rates (`--round first`) where the bundles act.  Gemini spent th
 503 storm; pairs recorded `infra_failed` / `error` / `budget`-with-no-judged-round are outages
 (EVAL §7) and are re-run with `--redo-status`, never scored.
 
+**07:00 readout (5 real pairs, plan-pinned, ON − OFF):** harp +0.012, microscope +0.087,
+lamp −0.362, ships_wheel −0.256, bubbler_jukebox −0.326; mean −0.169, sd 0.204, sign 2/5.
+Three ON cells landed on exactly 0.600 — what a cap looks like from the outside.  Reading
+the raw judgments: the lamp's cap was a false `floating_part` on a passed connectivity gate
+(fixed in scoring, EVAL §6; re-aggregated 0.720 → pair −0.242), the ships_wheel's is a
+`missing_must_acceptance` cap (a must-item the ON run really lacks), the jukebox's is
+interpenetration (15–18 mm WARNs) plus flat materials.  With the lamp re-aggregated: mean
+−0.145, sd 0.182 — still inside the 0.202 floor, still 2/5 on sign; nothing here says the
+library helps, and the two large negatives are real defects in the ON runs, not judge noise.
+Skills stay OFF.  Pairs still in flight (carousel_horse, lever_espresso, smock_windmill,
+gate_valve, turbocharger, marimba, jacobs_chuck redo) land in `results.jsonl` per driver;
+merge with `python bench/skill_targets.py` or the paired readout (scratch `fancy_readout.py`
+— rows are only paired when both arms are `scored`).
+
 ## 0. What this wave decided (2026-08-25, curate)
 
 Three measurement waves ran: a description A/B read out on **read rate** (ground truth from
