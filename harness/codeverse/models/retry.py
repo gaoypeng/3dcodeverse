@@ -101,6 +101,7 @@ def rotate_with_retries[T](
     max_delay: float = MAX_WAIT_S,
     storm_attempts: int = 60,
     storm_max_delay: float = MAX_WAIT_S,
+    storm_quorum: int = 6,
     max_total_s: float = RETRY_DEADLINE_S,
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
@@ -126,8 +127,14 @@ def rotate_with_retries[T](
     * ``"429"`` → cool the key down (honouring ``retry_after``); rotation is
       FREE while an untried key remains (0.5 s courtesy pause), otherwise the
       429 counts against ``max_attempts`` with exponential backoff.
-    * a **capacity storm** (HTTP 503/529 — model-wide, key rotation cannot
-      help) gets its own patience budget: up to ``storm_attempts`` waits with
+    * a 503/529 is tried on a FRESH key first, for free (no sleep, no budget):
+      measured 2026-08-26 with one tiny request per key in parallel, three rounds
+      20 s apart, during the day's "high demand" storm — gemini-3.7-flash answered
+      on 15/22, 18/22 and 21/22 keys while 5, 4 and 1 keys said 503 at the same
+      instant.  A 503 is per key at any moment, so the next key is the cure and a
+      wait is the last resort.  Only once ``storm_quorum`` distinct keys (capped
+      at the pool size) have 503'd within this call is it a
+    * **capacity storm**: that gets its own patience budget — up to ``storm_attempts`` waits with
       backoff capped at ``storm_max_delay`` = 5 s per wait (the house rule), so
       patience comes from the NUMBER of waits (60 x <=5 s ~ 5 min) rather than
       from long sleeps that do NOT consume ``max_attempts``.  Observed 2026-08-23: a
@@ -207,8 +214,16 @@ def rotate_with_retries[T](
                 retry_after_s=retry_after(exc) if (outcome == "429" and retry_after) else None,
             )
             if err.retryable and err.status in (503, 529) and storm < storm_attempts and not out_of_time():
-                # capacity storm: model-wide, so waiting (on a rotated key) is the
-                # only cure — paid from its own budget, not max_attempts
+                failed_keys.add(key)
+                if len(failed_keys) < min(max(1, storm_quorum), len(pool)):
+                    # a 503 is per key at any instant (see the docstring): the next
+                    # key is the cure — free rotation, no sleep, no storm yet
+                    attempt -= 1
+                    log.warning("%s key …%s 503 (%s); rotating to a fresh key (%d/%d tried)",
+                                label, key[-4:], err, len(failed_keys), len(pool))
+                    continue
+                # capacity storm: enough distinct keys said 503 in this call, so
+                # waiting is the only cure — paid from its own budget, not max_attempts
                 storm += 1
                 # jitter FIRST, cap LAST: capping before a >1 jitter factor let a
                 # "<=5 s" wait land at 6.25 s in the wild (observed 2026-08-24).

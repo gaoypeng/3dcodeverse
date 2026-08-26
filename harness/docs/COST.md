@@ -1200,3 +1200,23 @@ scarce resource — the runaway is still stopped, by the ceiling that actually a
 it.  Note the corollary for benchmarking: an arm on a subscription backend and an arm on
 an API backend are not being held to the same ceiling, so compare them on
 `notional_usd`, never on `spent_usd`.
+
+
+## 24. A 503 is per key at any instant — rotate before you wait (2026-08-26)
+
+The retry path treated Gemini's *"This model is currently experiencing high demand"* (503) as
+model-wide: no rotation, a ≤ 5 s sleep per storm attempt (60 of them), the 900 s per-call
+deadline — and, when the gate was on, every worker in the process parked.  Measured with one
+tiny request per key fired in parallel, three rounds 20 s apart, in the middle of the day's
+storm: `gemini-3.7-flash` answered on **15/22, 18/22 and 21/22 keys** while **5, 4 and 1**
+keys returned 503 at the same instant (successful latencies 1.3–38 s; the slow ones were the
+same few keys).  So at any moment most keys work and the next key is the cure.
+
+`rotate_with_retries` now adds the 503'd key to the call's failed set and rotates to a fresh
+key for free (no sleep, no budget); only once `storm_quorum` (6, capped at the pool size)
+distinct keys have 503'd within one call is it a storm and the old wait budget applies.  What
+this buys per call is the whole storm wait it used to pay first (median 5 s × the storm
+streak, up to 900 s); what it costs is one more round-trip on a fresh key.  Follow-ups worth
+measuring: rank keys by recent latency (the 30 s keys are consistent), and record the key
+index in `telemetry/usage.jsonl` so the distribution of calls per key can be read instead of
+probed.

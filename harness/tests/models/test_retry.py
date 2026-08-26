@@ -236,7 +236,8 @@ def test_503_storm_has_its_own_patience_budget():
         sleep=naps.append,
     )
     assert out == "ok" and calls["n"] == 9
-    assert len(naps) == 8 and all(d <= 0.05 for d in naps)  # the cap is the cap
+    # the first 503 rotates to k2 for free (no nap); k2's 503 completes the 2-key quorum
+    assert len(naps) == 7 and all(d <= 0.05 for d in naps)  # the cap is the cap
 
 
 def test_storm_waits_never_exceed_the_house_limit_at_production_defaults():
@@ -360,3 +361,55 @@ def test_the_deadline_does_not_cut_a_call_that_is_making_progress():
         monotonic=lambda: clock["t"],
     )
     assert out == "ok" and calls["n"] == 3
+
+
+def test_503_rotates_to_a_fresh_key_before_it_is_a_storm():
+    """Measured 2026-08-26: one tiny request per key in parallel during the day's storm —
+    flash answered on 15/22, 18/22, 21/22 keys while 5/4/1 keys said 503 at the same instant.
+    A 503 is per key at any moment; the next key is the cure, the storm wait the last resort."""
+    from codeverse.models.base import ModelError
+    from codeverse.models.keypool import KeyPool
+    from codeverse.models.retry import rotate_with_retries
+    from codeverse.models.storm import StormGate
+
+    pool = KeyPool(["k1", "k2", "k3", "k4"], rpm_per_key=10_000)
+    gate = StormGate()
+    calls: list[str] = []
+    naps: list[float] = []
+
+    def call(key):
+        calls.append(key)
+        if key in ("k1", "k2"):
+            raise RuntimeError("503 high demand")
+        return "ok"
+
+    out = rotate_with_retries(pool, call, classify=lambda e: ModelError(str(e), retryable=True, status=503),
+                              outcome_of=lambda e: "5xx", max_attempts=3, storm_attempts=10, storm_max_delay=0.05,
+                              sleep=naps.append, storm_gate=gate)
+    assert out == "ok" and calls == ["k1", "k2", "k3"]
+    assert naps == [], "rotation to a fresh key costs no sleep"
+    assert gate.n_storms == 0 and not gate.storming, "two keys' 503s are not a storm for the whole process"
+
+
+def test_503_on_every_key_is_still_a_storm():
+    from codeverse.models.base import ModelError
+    from codeverse.models.keypool import KeyPool
+    from codeverse.models.retry import rotate_with_retries
+    from codeverse.models.storm import StormGate
+
+    pool = KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000)
+    gate = StormGate()
+    n = {"c": 0}
+    naps: list[float] = []
+
+    def call(key):
+        n["c"] += 1
+        if n["c"] <= 5:
+            raise RuntimeError("503 high demand")
+        return "ok"
+
+    out = rotate_with_retries(pool, call, classify=lambda e: ModelError(str(e), retryable=True, status=503),
+                              outcome_of=lambda e: "5xx", max_attempts=3, storm_attempts=10, storm_max_delay=0.05,
+                              sleep=naps.append, storm_gate=gate)
+    assert out == "ok" and n["c"] == 6
+    assert gate.n_storms == 1 and gate.n_hits == 3, "the storm is declared after all three keys failed, then waited out"

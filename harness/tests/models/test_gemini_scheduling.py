@@ -103,7 +103,9 @@ def test_shared_pool_takes_its_defaults_from_settings():
 def test_a_503_closes_the_shared_gate_and_the_call_still_succeeds():
     gate = StormGate("test", base_delay=0.0, max_wait_s=0.0)
     pool = KeyPool(["k1", "k2"], cooldown_s=0.0)
-    m, _log, _ = make_model([api_error(503, "high demand"), text_response("ok")],
+    # a 503 is per key at any instant (retry.py docstring, measured 2026-08-26): the first
+    # one rotates to k2 for free; only k2's 503 completes the 2-key quorum and closes the gate
+    m, _log, _ = make_model([api_error(503, "high demand"), api_error(503, "high demand"), text_response("ok")],
                             pool=pool, max_attempts=3)
     m.storm_gate = gate
     r = m.generate(ChatRequest(messages=[ChatMessage.user("hi")]))
