@@ -195,6 +195,18 @@ parks until it recovers instead; `--no-preflight` skips the check.  Cells that a
 provider outage kills anyway are recorded `infra_failed`, excluded from every rate,
 and re-run with `--redo-status infra_failed` (see `docs/EVAL.md` §7).
 
+### 7.w One driver per out dir — a second `bench run` re-runs what the first is still running
+
+Measured 2026-08-26 (refs_v1_graphics): a redo driver (`--redo-status budget`) started while the
+original driver was still working the same battery resumed a prompt the first driver had in
+flight, re-ran its last round in the same workspace and rewrote `rounds/r02.json` (0.600 →
+0.944 for the same sheet: judge/acceptance variance, not a new picture) and appended a second
+`results.jsonl` row.  `run_battery` decides what to run from `results.jsonl`, and a prompt with no
+row yet is fair game to both.  Rule: never start a second `3dcv bench run` on an out dir with a
+live driver; wait for the driver to exit (exact pid, `kill -0`), then redo once with
+`--redo-status infra_failed,error,budget --max-minutes 120`.  `bench run` grew `--max-minutes`
+the same day so the storm budget no longer needs `ab_plan`.
+
 ### 7.x Size `--max-minutes` to the weather
 
 `--max-minutes 60` is the right ceiling on a healthy provider.  Under a 503 storm every model
