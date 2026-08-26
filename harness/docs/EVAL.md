@@ -399,6 +399,48 @@ there is a second term of the same size in generation, and pinning does not touc
 board still needs 123 pairs.  Pinning helps most exactly where the planner had the most
 freedom, and that is the object tracks.
 
+### 8.6 codex gpt-5.6-sol vs gemini-3.7-flash, harness against harness, on graphics and scene
+
+The one-shot comparison of §4 was blender objects.  On 2026-08-26 the same prompts the flash
+teaser runs had already scored were run again through the harness with `codex:gpt-5.6-sol` as
+the only change — no prompt edit, no profile change — and judged by the same fixed judge.
+Six pairs: four graphics (three GLSL, one OpenGL), two scenes.
+
+| prompt | track | flash | codex | Δ (codex − flash) |
+|---|---|---|---|---|
+| rain_window | glsl_shader | 0.909 | 0.919 | +0.010 |
+| aurora_ridge | glsl_shader | 0.940 | 0.936 | −0.004 |
+| accretion_disc | glsl_shader | 0.753 | 0.756 | +0.003 |
+| murmuration | opengl_python | 0.865 | 0.941 | +0.076 |
+| neon_alley | scene_threejs | 0.827 | 0.735 | −0.092 |
+| boat_workshop | scene_threejs | 0.747 | 0.837 | +0.090 |
+
+Mean **+0.014**, paired sd 0.065, SE 0.027, 95 % CI **[−0.038, +0.066]**, sign 4/6,
+exact p = 0.69.  The largest single delta (0.092) is under half the 0.202 A/A floor of §8.1.
+Two reviewers who looked at the pictures blind to the scores split the picture verdicts 3–3.
+
+**What it does and does not establish.**  It cannot answer "does flash match sol" — at
+sd 0.202, n = 6 detects only a ±0.21 mean difference, larger than the usable range of these
+scores.  What it supports, weakly, is *no sign of a large gap in either direction* on these
+tracks: the harness loop, not the generator, is setting the score.  Four confounds are live and
+listed so the next run removes them: the plans were not pinned; the 0.70 pass gate stops
+whichever arm crosses first and lets the other keep refining, which censors the winner
+(neon_alley: codex 1 round vs flash 5); `--candidates` was not pinned across arms; and
+best-of-N was inert on graphics for BOTH arms at the time (fixed in 99d13c9).  With plans and
+candidates pinned and a fixed round budget, ~32 pairs detect a 0.10 difference at 80 % power.
+
+**The one read that survives the confounds** comes from the pictures, not the scores: the two
+models fail differently and consistently.  codex is the tidier renderer and the more literal
+clause-follower — flat exact ridge interiors, crisp filaments, no aliasing — and its failure is
+a clean image of something *adjacent* to the brief (no city in rain_window; a twilight where a
+black winter night was specified; a hoop where a photon ring was).  flash puts the named subject
+and the hero effect on screen more often, and fails on craft — aliasing, fringing, grain, a
+broken scale.  The judge currently rewards artefact-absence over subject-presence: on
+rain_window it scored codex's cityless frame *higher* on brief_fidelity than flash's frame with
+the inverted city visible inside every drop, and praised the refine round because "the sharp
+building silhouettes are gone".  That is a rubric decision, not a model result, and it is worth
+settling before a larger n measures the rubric's preference with more precision.
+
 ## 9. Reporting checklist
 
 battery name + git sha of prompts; judge id, rubric name + hash, `n_samples`; per-arm

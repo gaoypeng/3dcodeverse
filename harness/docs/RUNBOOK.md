@@ -223,3 +223,31 @@ and re-run with `--redo-status infra_failed` (see `docs/EVAL.md` §7).
   template for a track with its own planner and no GLB.
 * **New bench battery**: `bench/prompts/<name>.yaml` with `name, track, language,
   prompts[{id, tier, category, prompt, must_have, dimensions_m}]`.
+
+
+## Landing source changes while a wave is running
+
+Workers (`3dcv make`, `ab_plan.py cell`) are long-lived python processes that import
+`codeverse/` **lazily**: a module already in `sys.modules` stays as it was at spawn time, a
+module first touched later comes from the tree as it is *then*.  Two measured failures on
+2026-08-26:
+
+* a patch script that edited one file and aborted on the next left a two-minute window in which
+  `static_object.py` imported a name `prompting.py` did not have yet — a driver died on it;
+* a clean, fully tested refactor (`proc.read_json_or_none` replacing eight copies) landed on
+  main at 02:47 while cells spawned at 01:56 were still generating; at eval time they lazily
+  imported a rewritten module which asked their *old, cached* `proc` for the new name —
+  `ImportError`, 75 minutes of generation per cell lost, recorded `status=error`.
+
+Rules:
+
+1. Multi-file patches validate every anchor first and write only after all pass.
+2. **Do not land cross-module refactors on main under a live wave** — moved symbols, new shared
+   helpers, renamed imports.  Keep them on worktree branches and cherry-pick between waves.
+   Additive changes and dead-code deletions are safe; a moved name is not.
+3. After landing anything, check every driver's `results.jsonl` for `ImportError` rows and redo
+   them from a **fresh** driver with `--redo-status error` (the old driver's own modules are
+   stale too).
+4. Count harness processes with `codeverse.models.health.pool_budget()`, never `pgrep | grep`
+   (it counts its own shell — measured: 3 phantoms on an idle box); kill by PID, never by
+   pattern (13 unrelated runs died to one `pkill -f "3dcv make"`).
