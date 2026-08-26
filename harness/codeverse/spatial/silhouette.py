@@ -38,6 +38,15 @@ BORDER_TOL_MIN = 10.0
 BORDER_TOL_MAX = 40.0
 BORDER_TOL_K = 4.0
 _MIN_FILL = 0.002
+#: a mask whose BOUNDING BOX spans essentially the whole frame localised nothing, however
+#: much or little area it covers.  Measured 2026-08-25 over the 21 reference photos in
+#: astra3d-brilliana/references_images: 9 of them (coffee_cup, flower, flower_2, F1 car,
+#: blackberry, disney_land, ferris_wheel, micky_character, sc2_protoss) flood-filled to
+#: corner-to-corner masks — a coffee cup on a table read as 73.8 % "object" — while the
+#: area test passed every one of them, because it only rejects fills above 95 %.  Real
+#: single-view renders sit at 0.60-0.69 here and the closest surviving photo at 0.969, so
+#: the bar has room on both sides.
+_MAX_BBOX_COVER = 0.98
 
 
 def _load_rgba(path: Path | str, size: int) -> np.ndarray:
@@ -100,6 +109,20 @@ def foreground_mask(path: Path | str, size: int = MASK_SIZE, tol: float | None =
     return ~outside
 
 
+def _bbox_cover(mask: np.ndarray) -> float:
+    """Fraction of the frame the mask's BOUNDING BOX spans (1.0 = corner to corner).
+
+    Separate from fill: a photo whose background the border-colour model failed on comes
+    back as a scattered mask of 40-80 % area whose bbox is still the entire image.  Area
+    says "plausible object"; the bbox says "nothing was located".
+    """
+    ys, xs = np.nonzero(mask)
+    if ys.size == 0:
+        return 0.0
+    h, w = mask.shape
+    return float(((ys.max() - ys.min() + 1) / h) * ((xs.max() - xs.min() + 1) / w))
+
+
 def _normalise(mask: np.ndarray, size: int = MASK_SIZE) -> tuple[np.ndarray, float]:
     """Crop to the mask bbox and scale into a size² canvas; returns (canvas, aspect w/h)."""
     ys, xs = np.nonzero(mask)
@@ -135,8 +158,12 @@ def compare_silhouette(render_png: Path | str, reference_png: Path | str, *, dif
     """IoU + fills + aspect error between a render and a reference image.
 
     Returns ``{iou, ref_fill, render_fill, aspect_ratio_err, ref_aspect, render_aspect,
-    reliable, diff_png_path?}``.  ``reliable`` is False when either mask is
-    empty or fills the whole frame (background estimate failed).
+    reliable, diff_png_path?}``.  ``reliable`` is False when either mask is empty, covers
+    more than 95 % of the pixels, or has a bounding box spanning the whole frame — all
+    three mean the background estimate failed and the IoU below is arithmetic on noise.
+    The caller must honour it: :class:`~codeverse.judges.reference.ReferenceJudge` scores
+    ``silhouette_match`` NEUTRAL rather than low, because "we could not measure this" is
+    not the same as "it does not match".
     """
     ref_mask = foreground_mask(reference_png)
     ren_mask = foreground_mask(render_png)
@@ -148,7 +175,9 @@ def compare_silhouette(render_png: Path | str, reference_png: Path | str, *, dif
     union = float(np.logical_or(ref_n, ren_n).sum())
     iou = inter / union if union > 0 else 0.0
     aspect_err = abs(ren_aspect - ref_aspect) / ref_aspect if ref_aspect > 0 else 1.0
-    reliable = _MIN_FILL < ref_fill < 0.95 and _MIN_FILL < ren_fill < 0.95
+    reliable = (_MIN_FILL < ref_fill < 0.95 and _MIN_FILL < ren_fill < 0.95
+                and _bbox_cover(ref_mask) < _MAX_BBOX_COVER
+                and _bbox_cover(ren_mask) < _MAX_BBOX_COVER)
     out: dict[str, Any] = {
         "iou": round(iou, 4), "ref_fill": round(ref_fill, 4), "render_fill": round(ren_fill, 4),
         "aspect_ratio_err": round(aspect_err, 4), "ref_aspect": round(ref_aspect, 4),
