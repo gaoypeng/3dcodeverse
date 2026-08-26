@@ -31,7 +31,6 @@ from codeverse.workspace import Workspace
 
 _PKG_DIR = Path(__file__).resolve().parent
 WRAPPER = _PKG_DIR / "wrappers" / "run_bpy.py"
-RENDER_WRAPPER = _PKG_DIR / "wrappers" / "render_bpy.py"
 
 
 class BlenderNotFoundError(RuntimeError):
