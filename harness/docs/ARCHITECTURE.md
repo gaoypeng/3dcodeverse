@@ -135,7 +135,9 @@ codeverse/
                       guard.py routing.py reconstruct.py (old runs) audit.py report.py
   judges/             rubrics.py + rubrics/*.yaml (defect checklists), vlm_judge.py, montage.py,
                       prompt_builder.py, output_schema.py, scoring.py, caps.py, images.py, pairwise.py
-                      (compare_many), reference.py, calibration.py, metrics.py
+                      (compare_many), reference.py, calibration.py, metrics.py, replay_input.py
+                      (plan_digest / resolve_paths / judged_subset — the pure round-replay pieces
+                      `3dcv judge` and calibration share)
   reference/          reference GROUNDING — give the pipeline a picture of what it is building:
                       synth.py (prompt → reference image(s)), gate.py (THE plausibility gate that makes a
                       synthesized reference safe to use), attach.py (Spec attachment + honesty guards),

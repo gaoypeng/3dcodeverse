@@ -185,6 +185,25 @@ def test_judge_rubric_map_includes_graphics():
     assert rubric_for(_R, rnd, "asset_v1") == "asset_v1"
 
 
+def test_calibration_rubric_map_includes_graphics(tmp_path: Path):
+    """Same default as `3dcv judge`: a graphics round with no stored judgment used to be
+    re-judged with static_object_v1 because calibration kept its own three-track
+    TRACK_RUBRIC instead of reading TRACK_INFO."""
+    from codeverse.contracts.artifacts import RenderSet, RenderView
+    from codeverse.contracts.common import Language, Track
+    from codeverse.contracts.run import RoundRecord
+    from codeverse.judges.calibration import load_run_cases
+
+    run = tmp_path / "shader_run"
+    (run / "rounds").mkdir(parents=True)
+    spec = Spec(id="shader_run", track=Track.GRAPHICS, language=Language.GLSL_SHADER, prompt="neon rain on a window")
+    (run / "spec.json").write_text(spec.model_dump_json())
+    renders = RenderSet(views=[RenderView(name="frame_0", path=str(run / "artifacts" / "renders" / "r00" / "frame_0.png"))],
+                        renderer="fake")
+    (run / "rounds" / "r00.json").write_text(RoundRecord(index=0, kind="baseline", renders=renders).model_dump_json())
+    assert [c.rubric for c in load_run_cases(run)] == ["shader_v1"]
+
+
 # --------------------------------------------------------------------------- make --texture / status extras / render graphics
 def test_make_texture_flag_sets_spec_options(tmp_path: Path):
     runs = tmp_path / "runs"
