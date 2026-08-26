@@ -5,8 +5,7 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-from codeverse.contracts.artifacts import RenderView
-from codeverse.spatial.silhouette import compare_silhouette, foreground_mask, silhouette_series
+from codeverse.spatial.silhouette import compare_silhouette, foreground_mask
 
 
 def _disc(path: Path, size: tuple[int, int], box: tuple[int, int, int, int], bg=(240, 240, 240), fg=(30, 30, 30)) -> Path:
@@ -56,16 +55,6 @@ def test_unreliable_when_empty(tmp_path: Path) -> None:
     a = _disc(tmp_path / "a.png", (100, 100), (20, 20, 80, 80))
     r = compare_silhouette(blank, a)
     assert r["iou"] == 0.0 and not r["reliable"]
-
-
-def test_series_picks_best_view(tmp_path: Path) -> None:
-    ref = _disc(tmp_path / "ref.png", (300, 300), (50, 50, 250, 250))
-    good = _disc(tmp_path / "good.png", (300, 300), (40, 40, 260, 260))
-    bad = _disc(tmp_path / "bad.png", (300, 300), (20, 120, 280, 180))
-    views = [RenderView(name="front", path=str(bad)), RenderView(name="top", path=str(good))]
-    res = silhouette_series(views, [ref], diff_dir=tmp_path)
-    assert res[0]["best_view"] == "top" and res[0]["iou"] > 0.9
-    assert Path(res[0]["diff_png_path"]).is_file()
 
 
 def test_a_photo_the_background_model_failed_on_is_unreliable(tmp_path: Path) -> None:

@@ -252,36 +252,3 @@ def best_view_match(
         out.update(compare_silhouette(view.path, reference, diff_png=diff_png))
         out["view"] = name
     return out
-
-
-def silhouette_series(
-    renders: Sequence[RenderView],
-    reference_imgs: Sequence[Path | str],
-    *,
-    diff_dir: Path | str | None = None,
-) -> list[dict[str, Any]]:
-    """For each reference image pick the best-matching render view (by IoU).
-
-    Returns one dict per reference: ``{reference, best_view, iou, aspect_ratio_err,
-    all: {view: iou}}`` (+ ``diff_png_path`` when ``diff_dir`` is given).
-    """
-    out: list[dict[str, Any]] = []
-    for i, ref in enumerate(reference_imgs):
-        scores: dict[str, dict[str, Any]] = {}
-        for rv in renders:
-            try:
-                scores[rv.name] = compare_silhouette(rv.path, ref)
-            except Exception as e:  # unreadable image → skip that view
-                scores[rv.name] = {"iou": 0.0, "error": f"{type(e).__name__}: {e}"}
-        if not scores:
-            out.append({"reference": str(ref), "best_view": None, "iou": 0.0, "all": {}})
-            continue
-        best = max(scores, key=lambda k: scores[k].get("iou", 0.0))
-        rec: dict[str, Any] = {"reference": str(ref), "best_view": best, "iou": scores[best].get("iou", 0.0),
-                               "aspect_ratio_err": scores[best].get("aspect_ratio_err"),
-                               "all": {k: v.get("iou", 0.0) for k, v in scores.items()}}
-        if diff_dir is not None:
-            rv = next(r for r in renders if r.name == best)
-            rec.update(compare_silhouette(rv.path, ref, diff_png=Path(diff_dir) / f"silhouette_diff_ref{i}_{best}.png"))
-        out.append(rec)
-    return out

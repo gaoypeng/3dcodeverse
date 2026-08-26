@@ -71,11 +71,6 @@ export function findNonFinitePositions(root) {
   return visit(root, []);
 }
 
-/** True when any position attribute contains a non-finite value. */
-export function hasNonFinitePositions(root) {
-  return findNonFinitePositions(root) !== null;
-}
-
 function materialSummary(m) {
   const out = { name: m.name || '', type: m.type };
   if (m.color && m.color.isColor) out.color = '#' + m.color.getHexString();

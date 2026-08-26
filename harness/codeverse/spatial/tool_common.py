@@ -20,11 +20,11 @@ from pydantic import ValidationError
 from codeverse.contracts.artifacts import RenderSet, Severity
 from codeverse.contracts.plan import ArticulatedPlan, GraphicsPlan, Plan, ScenePlan, StaticPlan
 from codeverse.conventions import OBJECT_VIEWS, ViewPreset
-from codeverse.spatial.registry import Observation, ToolContext, ToolUnavailable, ToolUsageError
+from codeverse.spatial.registry import ToolContext, ToolUnavailable, ToolUsageError
 from codeverse.workspace import Workspace
 
 __all__ = [
-    "ToolUnavailable", "unavailable_obs", "lazy", "call_adaptive", "spec_dict", "language_of", "track_of",
+    "ToolUnavailable", "lazy", "call_adaptive", "spec_dict", "language_of", "track_of",
     "glb_path", "load_plan", "resolve_views", "check_mode", "tool_out_dir", "render_cache_dir",
     "cached_render_glb", "gl_metrics_summary", "VIEW_BY_NAME", "RENDER_MODES",
 ]
@@ -35,16 +35,6 @@ RENDER_MODES = ("shaded", "wire", "normals", "silhouette", "depth", "clay")
 
 #: ``ToolUnavailable`` now lives in ``registry`` (``ToolDef.call`` catches it for
 #: every tool); re-exported here because that is where tools import it from.
-
-
-def unavailable_obs(tool: str, e: BaseException) -> Observation:
-    """The Observation ``ToolDef.call`` builds for a :class:`ToolUnavailable`.
-
-    Tools no longer need it — raise/propagate ``ToolUnavailable`` instead; it
-    stays for callers that catch the exception themselves (e.g. an optional
-    reader whose absence must not fail the whole tool).
-    """
-    return Observation.error(f"tool {tool} unavailable: {type(e).__name__}: {e}")
 
 
 def lazy(module: str, attr: str) -> Callable[..., Any]:

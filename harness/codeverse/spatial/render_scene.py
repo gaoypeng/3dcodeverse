@@ -296,44 +296,6 @@ def read_metrics(out_dir: Path) -> dict[str, Any]:
     return _read_json(Path(out_dir) / "metrics.json")
 
 
-def frame_table(source: RenderSet | dict[str, Any] | Path | str) -> str:
-    """Compact per-view frame table for tools / judge context, one line per camera:
-
-        view                 mean_lum  dark%  blown%  content%  cam_in_geom
-        overview [authored]      0.34     5%      0%       48%           no
-
-    ``source`` may be a scene RenderSet (its metrics.json is located), a
-    metrics payload dict, a render directory or a metrics.json path.  Views
-    without ``camera_checks`` yield an explanatory one-liner instead.
-    """
-    if isinstance(source, RenderSet):
-        p = metrics_path_for(source)
-        metrics = _read_json(p) if p else {}
-    elif isinstance(source, dict):
-        metrics = source
-    else:
-        p = Path(source)
-        metrics = _read_json(p if p.suffix == ".json" else p / "metrics.json")
-    checks = [c for c in metrics.get("camera_checks") or [] if isinstance(c, dict)]
-    if not checks:
-        return "frame table: no camera_checks available (scene not rendered or metrics.json missing)"
-
-    def pct(v: Any) -> str:
-        return f"{float(v):.0%}" if isinstance(v, (int, float)) else "-"
-
-    def num(v: Any) -> str:
-        return f"{float(v):.2f}" if isinstance(v, (int, float)) else "-"
-
-    rows = [("view", "mean_lum", "dark%", "blown%", "content%", "cam_in_geom")]
-    for c in checks:
-        name = f"{c.get('name', '?')} [{c.get('kind', 'authored')}]"
-        in_geom = c.get("camera_in_geometry")
-        rows.append((name[:40], num(c.get("mean_lum")), pct(c.get("dark_frac")), pct(c.get("blown_frac")),
-                     pct(c.get("content_frac")), "-" if in_geom is None else ("YES" if in_geom else "no")))
-    widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
-    return "\n".join(r[0].ljust(widths[0]) + "  " + "  ".join(r[i].rjust(widths[i]) for i in range(1, len(r))) for r in rows)
-
-
 def metrics_path_for(rs: RenderSet) -> Path | None:
     """``metrics.json`` of a RenderSet: the stamped ``out_dir`` when present, else
     guessed as a sibling of the sheet / views (rounds recorded before stamping)."""
