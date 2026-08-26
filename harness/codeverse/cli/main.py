@@ -565,7 +565,7 @@ def render(
     """Render the current artifact (object.glb or the scene) with the canonical rig."""
     ws = C.open_workspace(slug, runs_dir)
     spec = C.load_spec(ws)
-    idx = round_index if round_index is not None else _latest_round(ws)
+    idx = _render_round_or_refuse(ws, round_index)
     out_dir = out or ws.renders_dir(idx) / ("cli" if mode == "shaded" else f"cli_{mode}")
     if spec.track is Track.GRAPHICS:
         _render_graphics(ws, spec, out_dir)
@@ -696,6 +696,56 @@ def _render_graphics(ws, spec: Spec, out_dir: Path) -> None:
             },
         )
     )
+
+
+def _render_round_or_refuse(ws, round_index: int | None) -> int:
+    """Which round this render is labelled as — refusing when the label would lie.
+
+    ``render`` renders the WORKING TREE, which sits at the last round the run wrote.
+    ``--round`` only chose the output folder, so `3dcv render X --round 3` wrote
+    r03-labelled images of round 4's code, and with no flag at all a run whose best round
+    was not its last silently published its worst one.
+
+    Measured 2026-08-25 on tsr_scn_neon_alley: judge by round 0.338 / 0.375 / 0.529 /
+    0.632 / 0.000 — round 4 rendered completely blank, all eight tiles empty.  The harness
+    correctly kept r3 and the deliverable is correct, but the tree was left at r4, so a
+    plain `3dcv render` re-rendered eight blank frames and was very nearly shipped.
+
+    So: no flag renders the tree only when the tree IS the best round; otherwise this
+    refuses and points at ``deliverable/``, which already holds the best round's code,
+    sheet and a manifest naming the commit.  Rendering a round other than the tree's would
+    need that round checked out, which this command does not do — hence a refusal rather
+    than a mislabelled image.
+    """
+    tree = _latest_round(ws)
+    best = _best_round_of_record(ws)
+    if round_index is not None:
+        if round_index != tree:
+            raise C.CliError(
+                f"cannot render round {round_index}: `render` renders the working tree, which is at "
+                f"round {tree}, and --round only labels the output folder.  The best round's code, "
+                f"renders and manifest are already packaged in {ws.deliverable} — read "
+                f"{ws.deliverable / 'sheet.png'}, or `3dcv resume {ws.root.name}` to keep iterating.",
+                code=2)
+        return round_index
+    if best is not None and best != tree:
+        raise C.CliError(
+            f"refusing to render: this run's BEST round is r{best} but the working tree is at "
+            f"r{tree}, so this would render the wrong round — and r{tree} may be why it was not "
+            f"chosen.  Read {ws.deliverable / 'sheet.png'} (the packaged best round), or pass "
+            f"--round {tree} to render the tree anyway.",
+            code=2)
+    return tree
+
+
+def _best_round_of_record(ws) -> int | None:
+    """``record.best_round``, or None when there is no readable record yet."""
+    try:
+        rec = json.loads(ws.record_path.read_text())
+    except (OSError, ValueError, AttributeError):
+        return None
+    best = rec.get("best_round")
+    return best if isinstance(best, int) else None
 
 
 def _latest_round(ws) -> int:
