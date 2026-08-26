@@ -19,7 +19,7 @@ from codeverse.contracts.common import TRACK_INFO, Language, Track
 from codeverse.contracts.plan import GraphicsPlan, Plan
 from codeverse.contracts.run import RoundRecord
 from codeverse.contracts.spec import Spec
-from codeverse.languages.glsl_shader.gl_build import read_metrics
+from codeverse.languages._gl_common import read_metrics
 from codeverse.orchestrator.rounds import TaskGroup
 from codeverse.prompts import render
 from codeverse.tracks.common import RunContext

@@ -18,7 +18,7 @@ from codeverse.contracts.artifacts import BuildResult, RenderSet, RenderView, Se
 from codeverse.contracts.common import Language
 from codeverse.contracts.plan import AcceptanceItem, GraphicsPlan
 from codeverse.contracts.spec import Spec
-from codeverse.languages.glsl_shader.gl_build import SHEET_NAME, read_metrics
+from codeverse.languages._gl_common import SHEET_NAME, read_metrics
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
 from codeverse.tracks.planner import add_acceptance_item, build_system_prompt
