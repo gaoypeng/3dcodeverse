@@ -51,7 +51,7 @@ the flywheel unit.
 5. **Evidence-based acceptance.**  Every plan carries an acceptance checklist;
    items are proved by measurements/probes/judge votes, not prose.
 6. **Typed everything.**  One contracts package; no regex-on-id control flow, no
-   stringly-typed dicts, no god files (≤ ~400 lines).
+   stringly-typed dicts, no god files (hard cap 1 500 lines per file; owner's rule 2026-08-26).
 7. **Cheap first.**  Lint → build → deterministic gates → montaged views → VLM.
 8. **Separate generator from judge.**  The judge sees spec + renders +
    measurements + acceptance list; never the generator's reasoning.
@@ -441,7 +441,7 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
 * Gemini flash 503 storms happen; dead keys and 429s rotate freely now, but a
   sustained outage can still fail a round (`3dcv resume` re-uses cached stages).
 * `ffmpeg` absent here → turntables fall back to GIF.  A few single-file wrappers
-  exceed the ~400-line guideline by design.
+  were once over the old ~400-line guideline; the rule is now a 1 500-line cap.
 
 ## 11. Flywheel
 

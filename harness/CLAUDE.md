@@ -22,7 +22,8 @@ score-vs-complexity corpus study) before changing anything.
    place that states frames/units/naming.  Import, never restate.
 3. Deterministic gates/measurements run by the harness; VLM only for perception.
    Score is computed in code from rubric weights; caps/floors are explicit.
-4. Typed everything; no regex-on-id control flow; no god files (≤ ~400 lines).
+4. Typed everything; no regex-on-id control flow; a file may be long but not a god file —
+   hard cap **1 500 lines** per file (owner's rule, 2026-08-26; the old ~400-line guideline is gone).
 5. Cheap first: lint → build → gates → montaged views → VLM.  Budgets are hard.
 6. Every round = a git commit of `src/`; every call = a `Usage`; every run = `record.json`.
 7. No wrapper re-centres or grounds the object: export **as authored**, warn in the
