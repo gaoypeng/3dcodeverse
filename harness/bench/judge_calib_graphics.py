@@ -32,7 +32,10 @@ from typing import Any
 from codeverse.contracts.artifacts import GateReport, RenderSet
 from codeverse.contracts.spec import Spec
 from codeverse.judges.base import JudgeInput
+from codeverse.judges.replay_input import plan_digest
 from codeverse.judges.vlm_judge import VlmJudge
+from codeverse.tracks.graphics_steps import frame_stats_text
+from codeverse.workspace import Workspace
 
 OUT_ROOT = Path(__file__).resolve().parent / "out"
 
@@ -74,7 +77,19 @@ def judge_one(run: Path, rubric: str, model: str, n: int) -> dict[str, Any]:
         return {"run": str(run), "error": "no judged round"}
     renders = RenderSet.model_validate(rnd["renders"])
     gates = [GateReport.model_validate(g) for g in rnd.get("gates") or []]
-    inp = JudgeInput(spec=spec, renders=renders, gates=gates, round_index=int(rnd.get("index", 0)))
+    # what the in-run judge also saw: the plan digest and the measured frame metrics (the metrics
+    # file is the LAST build's; it is only quoted when the best round is the last one, else the
+    # judge is told so — without it, pro called four moving effects "static" in the first pass)
+    ws = Workspace(run)
+    plan_path = run / "plan.json"
+    plan_summary = plan_digest(json.loads(plan_path.read_text())) if plan_path.is_file() else ""
+    last_index = max((int(f.stem[1:]) for f in run.glob("rounds/r*.json")), default=0)
+    if int(rnd.get("index", 0)) == last_index:
+        extra = "FRAME METRICS (harness-measured):\n" + frame_stats_text(ws)
+    else:
+        extra = "FRAME METRICS: not available for this round (an earlier round than the last build); judge motion from the frames."
+    inp = JudgeInput(spec=spec, renders=renders, gates=gates, round_index=int(rnd.get("index", 0)),
+                     plan_summary=plan_summary, extra_context=extra)
     judge = VlmJudge(rubric=rubric, model_id=model, n_samples=n)
     v = judge.judge(inp)
     raw = v.raw if isinstance(v.raw, dict) else json.loads(v.raw or "{}")

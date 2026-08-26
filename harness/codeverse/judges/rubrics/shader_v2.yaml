@@ -171,6 +171,10 @@ caps:
       them while looking better than anything else in the battery); the cap is 0.7, not 0.6
 
 defects:
+  # black_or_blown / static_frames / flicker share their id with the gl_frames cap rule above on
+  # purpose: a PASSED gate (measured motion, measured exposure) vetoes the checklist claim
+  # (judges/caps.measured_absent) — in the first calibration pass pro called four moving effects
+  # static from five stills
   - id: wrong_subject
     text: The frames do not depict the subject of the brief (an unrelated abstract pattern, or nothing recognisable).
     cap: 0.40
@@ -197,15 +201,15 @@ defects:
   - id: candy_saturation
     text: Colours are uniformly candy-saturated or pastel with no neutral or dark counterweight.
     penalty: 0.06
-  - id: black_or_blown_frame
+  - id: black_or_blown
     text: At least one sampled frame is essentially solid black or blown-out white.
     penalty: 0.10
     cap: 0.50
-  - id: static_effect
+  - id: static_frames
     text: The sampled frames are visually identical although the brief implies motion.
     penalty: 0.10
     cap: 0.50
-  - id: flicker_or_strobe
+  - id: flicker
     text: Consecutive samples are unrelated (hard cuts, strobing, random per-frame colours) rather than continuous motion.
     penalty: 0.08
     cap: 0.70
