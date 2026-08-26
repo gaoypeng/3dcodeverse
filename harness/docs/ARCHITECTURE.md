@@ -160,7 +160,10 @@ codeverse/
   flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, migrate.py (schema moves),
                       deliverable.py, telemetry.py, trajectories.py (repair-pair
                       mining), captions.py, quality.py (tiers + dedupe), gallery.py (the shared
-                      self-contained renderer bench/report.py reuses), dedupe.py, index.py
+                      self-contained renderer bench/report.py reuses), dedupe.py, index.py,
+                      code_quality.py (the delivered CODE's own vector — magic numbers per 100 LOC,
+                      function length, dead functions, duplication, docstrings → record.extra
+                      ["code_quality"].index, a flywheel filter beside score and complexity)
   gallery/            THE local run gallery (`3dcv gallery serve|build`): cards.py, labels.py,
                       compare.py (side-by-side arms), index.py (run roots →
                       typed RunEntry, tolerant of half-written records), model.py, page.py (cards +
