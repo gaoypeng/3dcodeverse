@@ -16,6 +16,7 @@ import fnmatch
 import json
 import os
 import shlex
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,16 +29,47 @@ from codeverse.workspace import Workspace
 READ_CAP_CHARS = 60_000
 SHELL_OUT_CAP = 6_000
 SHELL_TIMEOUT_S = 180.0
-SHELL_ALLOW = ("node", "python", "python3", "ls", "cat", "head", "tail", "wc", "grep", "find", "stat")
+SHELL_ALLOW = (
+    "node",
+    "python",
+    "python3",
+    "ls",
+    "cat",
+    "head",
+    "tail",
+    "wc",
+    "grep",
+    "find",
+    "stat",
+)
 _SHELL_OPERATORS = {"|", "&&", "||", ";", ">", ">>", "<", "2>", "&"}
 #: python/node short options that run inline code / a REPL (``-c CODE``, ``-e CODE``, ``-p``, ``-i``)
 #: or load code by path we cannot vet (``-r``); combined forms (``-Bc``, ``-pe``) are caught per letter.
 _INLINE_SHORT = {"python": set("cim"), "python3": set("cim"), "node": set("epir")}
-_INLINE_LONG = ("--eval", "--print", "--interactive", "--input-type", "--require", "--import", "--loader",
-                "--experimental-loader", "--experimental-default-type")
+_INLINE_LONG = (
+    "--eval",
+    "--print",
+    "--interactive",
+    "--input-type",
+    "--require",
+    "--import",
+    "--loader",
+    "--experimental-loader",
+    "--experimental-default-type",
+)
 #: ``python -m <module>`` is allowed only for these stdlib modules (syntax / JSON checks)
 PY_MODULE_ALLOW = ("py_compile", "compileall", "json.tool", "ast", "tokenize")
-_FIND_DENY = ("-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprintf", "-fls", "-fprint0")
+_FIND_DENY = (
+    "-exec",
+    "-execdir",
+    "-ok",
+    "-okdir",
+    "-delete",
+    "-fprint",
+    "-fprintf",
+    "-fls",
+    "-fprint0",
+)
 _SKIP_GLOB_DIRS = (".git", "node_modules", "__pycache__", "trajectories")
 
 
@@ -60,9 +92,32 @@ def _schema(props: dict[str, dict[str, Any]], required: list[str]) -> dict[str, 
 class FileTools:
     """read_file / write_file / edit_file / list_files / run_shell inside one workspace."""
 
-    def __init__(self, ws: Workspace, write_roots: list[str], *, allow_shell: bool = True):
+    def __init__(
+        self,
+        ws: Workspace,
+        write_roots: list[str],
+        *,
+        allow_shell: bool = True,
+        edit_only: Collection[str] | None = None,
+        always_writable: Collection[str] = (),
+    ):
         self.ws = ws
         self.write_roots = [(ws.root / r).resolve() for r in write_roots]
+        #: when set, an EXISTING file outside this set may not be overwritten.  New files are
+        #: fine (a task may add a part) and ``always_writable`` (the entry file) is exempt.
+        #:
+        #: Why a hard rule and not the prose the prompt already carries ("keep everything else
+        #: as it is"): measured 2026-08-25 over 128 judged refine rounds on static objects, the
+        #: rounds that REGRESSED the score had rewritten a median 6 of 9 part files against 4
+        #: of 8 for the rounds that improved — and their worst-dropping criterion was
+        #: structure_plausibility with zero gate errors, i.e. working geometry the task never
+        #: named was replaced and nothing deterministic could see it.  The prompt was already
+        #: asking for scope; only the tool can hold it.
+        self.edit_only = (
+            frozenset((ws.root / f).resolve() for f in edit_only) if edit_only is not None else None
+        )
+        self.always_writable = frozenset((ws.root / f).resolve() for f in always_writable)
+        self.scope_denials: list[str] = []
         self.allow_shell = allow_shell
         self.writes: list[str] = []  # workspace-relative paths written/edited, in order
 
@@ -70,26 +125,71 @@ class FileTools:
     def specs(self) -> list[ToolSpec]:
         roots = ", ".join(os.path.relpath(r, self.ws.root) + "/" for r in self.write_roots)
         specs = [
-            ToolSpec(name="read_file", description="Read a text file in the workspace (path relative to the workspace root).",
-                     parameters=_schema({"path": {"type": "string", "description": "workspace-relative path"}}, ["path"])),
-            ToolSpec(name="write_file", description=f"Create or overwrite a text file. Only allowed under: {roots}. Parent dirs are created.",
-                     parameters=_schema({"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"])),
-            ToolSpec(name="edit_file", description=f"Exact-string replacement in an existing file (under {roots}). `old` must occur exactly once unless all=true.",
-                     parameters=_schema({"path": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"},
-                                         "all": {"type": "boolean", "description": "replace every occurrence", "default": False}},
-                                        ["path", "old", "new"])),
-            ToolSpec(name="list_files", description="List workspace files matching a glob (default '**/*' under src/). Hidden/git/node_modules skipped.",
-                     parameters=_schema({"glob": {"type": "string", "description": "e.g. 'src/**/*.js'", "default": "src/**/*"}}, [])),
+            ToolSpec(
+                name="read_file",
+                description="Read a text file in the workspace (path relative to the workspace root).",
+                parameters=_schema(
+                    {"path": {"type": "string", "description": "workspace-relative path"}}, ["path"]
+                ),
+            ),
+            ToolSpec(
+                name="write_file",
+                description=f"Create or overwrite a text file. Only allowed under: {roots}. Parent dirs are created.",
+                parameters=_schema(
+                    {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"]
+                ),
+            ),
+            ToolSpec(
+                name="edit_file",
+                description=f"Exact-string replacement in an existing file (under {roots}). `old` must occur exactly once unless all=true.",
+                parameters=_schema(
+                    {
+                        "path": {"type": "string"},
+                        "old": {"type": "string"},
+                        "new": {"type": "string"},
+                        "all": {
+                            "type": "boolean",
+                            "description": "replace every occurrence",
+                            "default": False,
+                        },
+                    },
+                    ["path", "old", "new"],
+                ),
+            ),
+            ToolSpec(
+                name="list_files",
+                description="List workspace files matching a glob (default '**/*' under src/). Hidden/git/node_modules skipped.",
+                parameters=_schema(
+                    {
+                        "glob": {
+                            "type": "string",
+                            "description": "e.g. 'src/**/*.js'",
+                            "default": "src/**/*",
+                        }
+                    },
+                    [],
+                ),
+            ),
         ]
         if self.allow_shell:
-            specs.append(ToolSpec(
-                name="run_shell",
-                description=f"Run ONE command in the workspace root (no pipes/redirects/network). Allowed programs: {', '.join(SHELL_ALLOW)}. "
-                            "Use it to syntax-check (`node --check src/x.js`, `python -m py_compile src/model.py`) or inspect files. "
-                            "Inline code (`python -c`, `node -e`) and paths outside the workspace are rejected.",
-                parameters=_schema({"cmd": {"type": "string", "description": "the command line, e.g. 'node --check src/object.js'"},
-                                    "timeout_s": {"type": "integer", "default": 60}}, ["cmd"]),
-            ))
+            specs.append(
+                ToolSpec(
+                    name="run_shell",
+                    description=f"Run ONE command in the workspace root (no pipes/redirects/network). Allowed programs: {', '.join(SHELL_ALLOW)}. "
+                    "Use it to syntax-check (`node --check src/x.js`, `python -m py_compile src/model.py`) or inspect files. "
+                    "Inline code (`python -c`, `node -e`) and paths outside the workspace are rejected.",
+                    parameters=_schema(
+                        {
+                            "cmd": {
+                                "type": "string",
+                                "description": "the command line, e.g. 'node --check src/object.js'",
+                            },
+                            "timeout_s": {"type": "integer", "default": 60},
+                        },
+                        ["cmd"],
+                    ),
+                )
+            )
         return specs
 
     def names(self) -> set[str]:
@@ -97,8 +197,13 @@ class FileTools:
 
     # ------------------------------------------------------------------ dispatch
     def call(self, name: str, args: dict[str, Any]) -> ToolOutcome:
-        fn = {"read_file": self.read_file, "write_file": self.write_file, "edit_file": self.edit_file,
-              "list_files": self.list_files, "run_shell": self.run_shell}.get(name)
+        fn = {
+            "read_file": self.read_file,
+            "write_file": self.write_file,
+            "edit_file": self.edit_file,
+            "list_files": self.list_files,
+            "run_shell": self.run_shell,
+        }.get(name)
         if fn is None or (name == "run_shell" and not self.allow_shell):
             return ToolOutcome(f"unknown tool {name!r}", is_error=True)
         try:
@@ -126,6 +231,24 @@ class FileTools:
         if write and not any(p == r or r in p.parents for r in self.write_roots):
             roots = ", ".join(os.path.relpath(r, root) + "/" for r in self.write_roots)
             raise PathDenied(f"writes are only allowed under {roots} (got {path})")
+        if (
+            write
+            and self.edit_only is not None
+            and p.exists()
+            and p not in self.edit_only
+            and p not in self.always_writable
+        ):
+            rel = os.path.relpath(p, root)
+            self.scope_denials.append(rel)
+            allowed = (
+                ", ".join(sorted(os.path.relpath(f, root) for f in self.edit_only)) or "(none)"
+            )
+            raise PathDenied(
+                f"{rel} is outside this task's scope and already exists — it is another part's file "
+                f"and this round did not ask for changes to it. You may edit: {allowed}; you may also "
+                f"create NEW files and edit the entry file. If the fix genuinely needs {rel}, say so "
+                f"in your final summary instead of editing it."
+            )
         return p
 
     # ------------------------------------------------------------------ tools
@@ -145,7 +268,9 @@ class FileTools:
         p.write_text(content)
         rel = os.path.relpath(p, self.ws.root)
         self.writes.append(rel)
-        return ToolOutcome(f"{'overwrote' if existed else 'created'} {rel} ({len(content)} chars, {content.count(chr(10)) + 1} lines)")
+        return ToolOutcome(
+            f"{'overwrote' if existed else 'created'} {rel} ({len(content)} chars, {content.count(chr(10)) + 1} lines)"
+        )
 
     def edit_file(self, path: str, old: str, new: str, all: bool = False) -> ToolOutcome:  # noqa: A002 - API name
         p = self._resolve(path, write=True)
@@ -154,15 +279,25 @@ class FileTools:
         try:
             text = p.read_text(encoding="utf-8")
         except UnicodeDecodeError:
-            return ToolOutcome(f"{path} is not UTF-8 text; edit_file only works on text files (use write_file to replace it)",
-                               is_error=True)
+            return ToolOutcome(
+                f"{path} is not UTF-8 text; edit_file only works on text files (use write_file to replace it)",
+                is_error=True,
+            )
         n = text.count(old)
         if not old:
-            return ToolOutcome("`old` must be non-empty; read the file and quote the exact text to replace", is_error=True)
+            return ToolOutcome(
+                "`old` must be non-empty; read the file and quote the exact text to replace",
+                is_error=True,
+            )
         if n == 0:
-            return ToolOutcome(f"`old` not found in {path}; read_file it and copy the exact text", is_error=True)
+            return ToolOutcome(
+                f"`old` not found in {path}; read_file it and copy the exact text", is_error=True
+            )
         if n > 1 and not all:
-            return ToolOutcome(f"`old` occurs {n} times in {path}; include more context or pass all=true", is_error=True)
+            return ToolOutcome(
+                f"`old` occurs {n} times in {path}; include more context or pass all=true",
+                is_error=True,
+            )
         p.write_text(text.replace(old, new) if all else text.replace(old, new, 1))
         rel = os.path.relpath(p, self.ws.root)
         self.writes.append(rel)
@@ -175,7 +310,9 @@ class FileTools:
             if not p.is_file():
                 continue
             rel = p.relative_to(root).as_posix()
-            if any(part in _SKIP_GLOB_DIRS or part.startswith(".") for part in Path(rel).parts[:-1]):
+            if any(
+                part in _SKIP_GLOB_DIRS or part.startswith(".") for part in Path(rel).parts[:-1]
+            ):
                 continue
             if fnmatch.fnmatch(rel, glob) or fnmatch.fnmatch(rel, glob.replace("**/", "")):
                 out.append(f"{rel}  ({p.stat().st_size} B)")
@@ -232,19 +369,35 @@ class FileTools:
             argv = shlex.split(cmd)
         except ValueError as e:
             return ToolOutcome(f"cannot parse command: {e}", is_error=True)
-        if any(tok in _SHELL_OPERATORS for tok in argv):  # no shell is involved; this is just a clear message
-            return ToolOutcome("shell operators (| && ; > <) are not allowed; run ONE plain command", is_error=True)
+        if any(
+            tok in _SHELL_OPERATORS for tok in argv
+        ):  # no shell is involved; this is just a clear message
+            return ToolOutcome(
+                "shell operators (| && ; > <) are not allowed; run ONE plain command", is_error=True
+            )
         why = self._shell_policy_error(argv)
         if why:
             return ToolOutcome(why, is_error=True)
         env = {
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.ws.root), "LANG": "C.UTF-8",
-            "NODE_PATH": str(get_settings().runtime_js_dir() / "node_modules"), "PYTHONDONTWRITEBYTECODE": "1",
-            "NO_PROXY": "*", "no_proxy": "*",
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": str(self.ws.root),
+            "LANG": "C.UTF-8",
+            "NODE_PATH": str(get_settings().runtime_js_dir() / "node_modules"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "NO_PROXY": "*",
+            "no_proxy": "*",
         }
         t = float(max(5, min(_as_int(timeout_s, 60), int(SHELL_TIMEOUT_S))))
-        proc = run_with_watchdog(argv, cwd=self.ws.root, env=env, soft_timeout_s=t, idle_grace_s=5, hard_timeout_s=t + 5,
-                                 activity_dirs=[], poll_s=0.2)
+        proc = run_with_watchdog(
+            argv,
+            cwd=self.ws.root,
+            env=env,
+            soft_timeout_s=t,
+            idle_grace_s=5,
+            hard_timeout_s=t + 5,
+            activity_dirs=[],
+            poll_s=0.2,
+        )
         body = f"$ {cmd}\nrc={proc.rc}" + (" (killed: timeout)" if proc.timed_out else "")
         if proc.stdout.strip():
             body += "\n--- stdout ---\n" + _cap(proc.stdout)
@@ -274,11 +427,16 @@ class SpatialTools:
     def __init__(self, ws: Workspace, *, track: str = "", language: str = "", round_index: int = 0):
         from codeverse.spatial.registry import ToolContext, list_tools
 
-        self.ctx = ToolContext(workspace=ws, round_index=round_index, language=language, track=track)
+        self.ctx = ToolContext(
+            workspace=ws, round_index=round_index, language=language, track=track
+        )
         self.tools = {t.name: t for t in list_tools(track=track, language=language)}
 
     def specs(self) -> list[ToolSpec]:
-        return [ToolSpec(name=t.name, description=t.description, parameters=t.schema()) for t in self.tools.values()]
+        return [
+            ToolSpec(name=t.name, description=t.description, parameters=t.schema())
+            for t in self.tools.values()
+        ]
 
     def names(self) -> set[str]:
         return set(self.tools)
@@ -295,4 +453,11 @@ class SpatialTools:
         return ToolOutcome(text, images=images, is_error=not obs.ok, numbers=obs.numbers)
 
 
-__all__ = ["FileTools", "SpatialTools", "ToolOutcome", "PathDenied", "SHELL_ALLOW", "PY_MODULE_ALLOW"]
+__all__ = [
+    "FileTools",
+    "SpatialTools",
+    "ToolOutcome",
+    "PathDenied",
+    "SHELL_ALLOW",
+    "PY_MODULE_ALLOW",
+]

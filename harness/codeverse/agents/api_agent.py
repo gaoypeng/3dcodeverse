@@ -97,10 +97,18 @@ class _Loop:
     def __init__(self, agent: ApiAgent, s: Session, chat: Any):
         self.agent, self.s, self.chat = agent, s, chat
         job = s.job
-        self.files = FileTools(s.ws, job.write_roots, allow_shell=job.api.allow_shell)
+        self.files = FileTools(
+            s.ws,
+            job.write_roots,
+            allow_shell=job.api.allow_shell,
+            edit_only=job.files_hint if job.edit_only else None,
+            always_writable=job.always_writable,
+        )
         self.spatial: SpatialTools | None = None
         if job.spatial_tools:
-            self.spatial = SpatialTools(s.ws, track=job.track, language=job.language, round_index=job.round)
+            self.spatial = SpatialTools(
+                s.ws, track=job.track, language=job.language, round_index=job.round
+            )
             if not self.spatial.tools:
                 s.notes.append("spatial registry is empty; running with file tools only")
                 self.spatial = None
@@ -111,8 +119,11 @@ class _Loop:
         # a backend WITHOUT a native loader gets the routed set as a tool; the policy lives
         # in skills/delivery.py so a new backend is one row there, not a branch here
         self.skills = SkillTools(s.ws) if delivery_for(agent.kind).needs_tool else None
-        self.specs: list[ToolSpec] = (self.files.specs() + (self.skills.specs() if self.skills else [])
-                                      + (self.spatial.specs() if self.spatial else []))
+        self.specs: list[ToolSpec] = (
+            self.files.specs()
+            + (self.skills.specs() if self.skills else [])
+            + (self.spatial.specs() if self.spatial else [])
+        )
         self.usage = Usage(backend="api-agent", model=agent.model)
         self.tool_calls = 0
         self.last_write_turn = -1
@@ -139,7 +150,10 @@ class _Loop:
         ok, reason, text = False, "budget", ""
         for turn in range(job.max_turns):
             if time.monotonic() > self.t_deadline:
-                reason, self.errors = "timeout", self.errors + [f"wall clock exceeded {job.timeout_s}s"]
+                reason, self.errors = (
+                    "timeout",
+                    self.errors + [f"wall clock exceeded {job.timeout_s}s"],
+                )
                 break
             resp = self._generate(turn)
             if resp is None:
@@ -147,9 +161,16 @@ class _Loop:
                 break
             text = resp.text
             self.messages.append(_assistant_message(resp))
-            traj.append("assistant", turn=turn, text=resp.text[:20000],
-                        tool_calls=[{"id": c.id, "name": c.name, "arguments": c.arguments} for c in resp.tool_calls],
-                        usage=resp.usage.model_dump(), finish_reason=resp.finish_reason)
+            traj.append(
+                "assistant",
+                turn=turn,
+                text=resp.text[:20000],
+                tool_calls=[
+                    {"id": c.id, "name": c.name, "arguments": c.arguments} for c in resp.tool_calls
+                ],
+                usage=resp.usage.model_dump(),
+                finish_reason=resp.finish_reason,
+            )
             if not resp.tool_calls:
                 if self._needs_build_nudge():
                     self.nudged = True
@@ -160,21 +181,38 @@ class _Loop:
                 break
             self._execute(turn, resp.tool_calls)
             if self.max_usd and self.usage.cost_usd > self.max_usd:
-                reason, self.errors = "budget", self.errors + [f"cost {self.usage.cost_usd:.3f} > max_usd {self.max_usd}"]
+                reason, self.errors = (
+                    "budget",
+                    self.errors + [f"cost {self.usage.cost_usd:.3f} > max_usd {self.max_usd}"],
+                )
                 break
             if message_chars(self.messages) > COMPACT_AT_CHARS:
                 self.messages = compact_messages(self.messages, keep_recent=6, facts=self._facts())
                 traj.append("compact", turn=turn, chars=message_chars(self.messages))
         else:
             self.errors.append(f"max_turns ({job.max_turns}) reached")
-        return finish_session(self.s, ok=ok, exit_reason=reason, text=text, usage=self.usage,
-                              tool_calls=self.tool_calls, errors=self.errors, turns=len(self.messages),
-                              nudged=self.nudged, tools=[t.name for t in self.specs])
+        return finish_session(
+            self.s,
+            ok=ok,
+            exit_reason=reason,
+            text=text,
+            usage=self.usage,
+            tool_calls=self.tool_calls,
+            errors=self.errors,
+            turns=len(self.messages),
+            nudged=self.nudged,
+            tools=[t.name for t in self.specs],
+        )
 
     def _generate(self, turn: int) -> ChatResponse | None:
-        req = ChatRequest(messages=self.messages, system=self.system, tools=self.specs,
-                          temperature=self.s.job.api.temperature,
-                          thinking=self.s.job.api.thinking, label=f"api-agent:{self.s.label}:t{turn}")
+        req = ChatRequest(
+            messages=self.messages,
+            system=self.system,
+            tools=self.specs,
+            temperature=self.s.job.api.temperature,
+            thinking=self.s.job.api.thinking,
+            label=f"api-agent:{self.s.label}:t{turn}",
+        )
         delay = 2.0
         for attempt in range(MODEL_RETRIES):
             try:
@@ -183,7 +221,13 @@ class _Loop:
                 return resp
             except Exception as e:  # ModelError or provider glitch
                 retryable = bool(getattr(e, "retryable", False))
-                self.s.traj.append("model_error", turn=turn, attempt=attempt, error=str(e)[:2000], retryable=retryable)
+                self.s.traj.append(
+                    "model_error",
+                    turn=turn,
+                    attempt=attempt,
+                    error=str(e)[:2000],
+                    retryable=retryable,
+                )
                 if not retryable or attempt == MODEL_RETRIES - 1:
                     self.errors.append(f"model error on turn {turn}: {type(e).__name__}: {e}")
                     return None
@@ -204,13 +248,33 @@ class _Loop:
                 # the read tool, so it is the calibration arm for the atime probe.
                 from codeverse.skills.telemetry import record_exact_read
 
-                record_exact_read(self.s.ws.root, str((call.arguments or {}).get("path", "")),
-                                  turn=turn, label=getattr(self.s, "label", "") or "")
+                record_exact_read(
+                    self.s.ws.root,
+                    str((call.arguments or {}).get("path", "")),
+                    turn=turn,
+                    label=getattr(self.s, "label", "") or "",
+                )
             if call.name in (BUILD_TOOL, "run_build"):
                 self.last_build_turn = turn
-            parts.append(ToolResultPart(call_id=call.id, name=call.name, content=out.text, images=out.images, is_error=out.is_error))
-            self.s.traj.append("tool_result", turn=turn, name=call.name, call_id=call.id, ok=not out.is_error,
-                               content=out.text[:8000], images=[i.path for i in out.images], numbers=out.numbers)
+            parts.append(
+                ToolResultPart(
+                    call_id=call.id,
+                    name=call.name,
+                    content=out.text,
+                    images=out.images,
+                    is_error=out.is_error,
+                )
+            )
+            self.s.traj.append(
+                "tool_result",
+                turn=turn,
+                name=call.name,
+                call_id=call.id,
+                ok=not out.is_error,
+                content=out.text[:8000],
+                images=[i.path for i in out.images],
+                numbers=out.numbers,
+            )
         self.messages.append(ChatMessage(role="tool", parts=parts))
 
     def _dispatch(self, name: str, args: dict[str, Any]) -> ToolOutcome:
@@ -222,7 +286,9 @@ class _Loop:
             return self.files.call(name, args)
         if self.spatial and name in self.spatial.names():
             return self.spatial.call(name, args)
-        return ToolOutcome(f"unknown tool {name!r}; available: {sorted(t.name for t in self.specs)}", is_error=True)
+        return ToolOutcome(
+            f"unknown tool {name!r}; available: {sorted(t.name for t in self.specs)}", is_error=True
+        )
 
     def _needs_build_nudge(self) -> bool:
         has_build = bool(self.spatial and BUILD_TOOL in self.spatial.names())
@@ -230,9 +296,11 @@ class _Loop:
 
     def _facts(self) -> str:
         writes = list(dict.fromkeys(self.files.writes))
-        lines = [f"- tool calls so far: {self.tool_calls}",
-                 f"- files written/edited (in order): {', '.join(writes) if writes else 'none'}",
-                 f"- last build turn: {self.last_build_turn} (last write turn: {self.last_write_turn})"]
+        lines = [
+            f"- tool calls so far: {self.tool_calls}",
+            f"- files written/edited (in order): {', '.join(writes) if writes else 'none'}",
+            f"- last build turn: {self.last_build_turn} (last write turn: {self.last_write_turn})",
+        ]
         return "\n".join(lines)
 
 

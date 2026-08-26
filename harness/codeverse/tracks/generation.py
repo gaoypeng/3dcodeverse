@@ -116,8 +116,12 @@ class GenerationTask(BaseModel):
 
     label: str
     prompt: str
-    system: str = Field(default="", description="system prompt (single-shot) / system_append (agent)")
-    files_hint: list[str] = Field(default_factory=list, description="files this task should produce/edit")
+    system: str = Field(
+        default="", description="system prompt (single-shot) / system_append (agent)"
+    )
+    files_hint: list[str] = Field(
+        default_factory=list, description="files this task should produce/edit"
+    )
     round: int = 0
     kind: str = "generate"
     images: list[ImagePart] = Field(default_factory=list)
@@ -125,13 +129,24 @@ class GenerationTask(BaseModel):
     thinking: str = "medium"
     max_output_tokens: int = 32000
     timeout_s: int | None = None
-    max_turns: int = Field(default=0, description="model turns for an agent session (0 = the harness default)")
+    max_turns: int = Field(
+        default=0, description="model turns for an agent session (0 = the harness default)"
+    )
     write_roots: list[str] = Field(default_factory=lambda: ["src", "public"])
-    phase: int = Field(default=0, ge=0, description=(
-        "execution phase inside ONE round: tasks run in parallel WITHIN a phase and phases run "
-        "in ascending order.  Everything is phase 0 unless a track says otherwise — the only "
-        "current user is per-part scoped generation, where the assembly session (phase 1) must "
-        "see the part files the scoped sessions (phase 0) wrote."))
+    edit_only: bool = Field(
+        default=False,
+        description="enforce files_hint as the only existing files this session may overwrite",
+    )
+    phase: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "execution phase inside ONE round: tasks run in parallel WITHIN a phase and phases run "
+            "in ascending order.  Everything is phase 0 unless a track says otherwise — the only "
+            "current user is per-part scoped generation, where the assembly session (phase 1) must "
+            "see the part files the scoped sessions (phase 0) wrote."
+        ),
+    )
 
 
 class GenerationResult(BaseModel):
@@ -143,9 +158,15 @@ class GenerationResult(BaseModel):
     text: str = Field(default="", description="model/agent final text (truncated)")
     transcript_path: str = ""
     label: str = ""
-    turns: int = Field(default=0, description="turns the agent session(s) took, as the backend counts them")
-    sessions: int = Field(default=0, description="agent sessions run for this task (retry / wrap-up count)")
-    turn_capped: bool = Field(default=False, description="a session hit the turn budget and was wrapped up")
+    turns: int = Field(
+        default=0, description="turns the agent session(s) took, as the backend counts them"
+    )
+    sessions: int = Field(
+        default=0, description="agent sessions run for this task (retry / wrap-up count)"
+    )
+    turn_capped: bool = Field(
+        default=False, description="a session hit the turn budget and was wrapped up"
+    )
 
 
 # ----------------------------------------------------------------------------- git helpers
@@ -163,7 +184,9 @@ def workspace_lock(ws: Workspace) -> threading.Lock:
         return lock
 
 
-def changed_files_safe(ws: Workspace, since: str | None = None, *, retries: int = 6) -> list[FileChange]:
+def changed_files_safe(
+    ws: Workspace, since: str | None = None, *, retries: int = 6
+) -> list[FileChange]:
     """``ws.changed_files`` serialised per workspace and retried on transient git index locks."""
     with workspace_lock(ws):
         for attempt in range(retries):
@@ -185,7 +208,7 @@ def is_single_shot(agent_id: str) -> bool:
 def single_shot_model_id(agent_id: str) -> str:
     if not is_single_shot(agent_id):
         raise ValueError(f"not a single-shot id: {agent_id!r}")
-    return agent_id[len(SINGLE_SHOT_PREFIX):]
+    return agent_id[len(SINGLE_SHOT_PREFIX) :]
 
 
 def single_shot_format_text() -> str:
@@ -226,7 +249,12 @@ def generate_files(
         # cut off by max_output_tokens: the envelope is unterminated — one retry with
         # a doubled budget beats writing a half-file and burning repair attempts on it
         if events is not None:
-            events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason), retry=True)
+            events.emit(
+                "generate.truncated",
+                label=task.label,
+                finish_reason=str(resp.finish_reason),
+                retry=True,
+            )
         req = req.model_copy(update={"max_output_tokens": min(task.max_output_tokens * 2, 65536)})
         resp = model.generate(req)
         usage = usage + resp.usage
@@ -236,16 +264,33 @@ def generate_files(
     (traj / "response.md").write_text(resp.text or "")
     if _is_truncated(resp):
         if events is not None:
-            events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason), retry=False)
-        return GenerationResult(ok=False, usage=usage, notes=f"truncated: finish_reason={resp.finish_reason}",
-                                text=(resp.text or "")[:2000], transcript_path=str(traj / "response.md"), label=task.label)
+            events.emit(
+                "generate.truncated",
+                label=task.label,
+                finish_reason=str(resp.finish_reason),
+                retry=False,
+            )
+        return GenerationResult(
+            ok=False,
+            usage=usage,
+            notes=f"truncated: finish_reason={resp.finish_reason}",
+            text=(resp.text or "")[:2000],
+            transcript_path=str(traj / "response.md"),
+            label=task.label,
+        )
     try:
         files = parse_multifile(resp.text or "", expected_files=task.files_hint or None)
     except MultiFileParseError as e:
         if events is not None:
             events.emit("generate.parse_failed", label=task.label, error=str(e))
-        return GenerationResult(ok=False, usage=usage, notes=f"parse failed: {e}", text=(resp.text or "")[:2000],
-                                transcript_path=str(traj / "response.md"), label=task.label)
+        return GenerationResult(
+            ok=False,
+            usage=usage,
+            notes=f"parse failed: {e}",
+            text=(resp.text or "")[:2000],
+            transcript_path=str(traj / "response.md"),
+            label=task.label,
+        )
     skipped: list[str] = []
 
     def _skip(path: str, reason: str) -> None:
@@ -255,16 +300,34 @@ def generate_files(
 
     changes = write_files(ws, files, allowed_roots=allowed_roots, on_skip=_skip)
     if events is not None:
-        events.emit("generate.done", label=task.label, strategy="single-shot", files=[c.path for c in changes],
-                    cost_usd=round(usage.cost_usd, 4))
+        events.emit(
+            "generate.done",
+            label=task.label,
+            strategy="single-shot",
+            files=[c.path for c in changes],
+            cost_usd=round(usage.cost_usd, 4),
+        )
     notes = f"skipped out-of-root paths: {', '.join(skipped)}" if skipped else ""
-    return GenerationResult(ok=bool(changes), usage=usage, files_changed=changes, notes=notes,
-                            text=(resp.text or "")[:2000], transcript_path=str(traj / "response.md"), label=task.label)
+    return GenerationResult(
+        ok=bool(changes),
+        usage=usage,
+        files_changed=changes,
+        notes=notes,
+        text=(resp.text or "")[:2000],
+        transcript_path=str(traj / "response.md"),
+        label=task.label,
+    )
 
 
 #: task kinds whose money belongs to a differently-named stage of the cost vocabulary
-_STAGE_FOR_KIND = {"rebuild": "repair", "asset_fix": "assets", "asset": "assets",
-                   "zone": "zones", "generate": "baseline", "compose": "assemble"}
+_STAGE_FOR_KIND = {
+    "rebuild": "repair",
+    "asset_fix": "assets",
+    "asset": "assets",
+    "zone": "zones",
+    "generate": "baseline",
+    "compose": "assemble",
+}
 
 
 def task_stage(task: GenerationTask) -> str:
@@ -281,12 +344,20 @@ def task_stage(task: GenerationTask) -> str:
         return task.label or stage or "other"
 
 
-def _charge(budget: Any | None, usage: Usage, *, task: GenerationTask, label: str, outcome: str = "ok") -> None:
+def _charge(
+    budget: Any | None, usage: Usage, *, task: GenerationTask, label: str, outcome: str = "ok"
+) -> None:
     """Spend through the guard with the stage/label/round this task belongs to."""
     if budget is None:
         return
-    budget.charge(usage, stage=task_stage(task), role="generator", label=label,
-                  round_index=task.round, outcome=outcome)
+    budget.charge(
+        usage,
+        stage=task_stage(task),
+        role="generator",
+        label=label,
+        round_index=task.round,
+        outcome=outcome,
+    )
 
 
 _TRUNCATED_FINISH = {"max_tokens", "max_output_tokens", "length"}
@@ -335,14 +406,32 @@ def run_agent_task(
         except Exception:  # noqa: BLE001 — best effort context only
             pass
     # extra mirrors the typed fields until every agent backend reads job.round/… directly
-    extra: dict[str, Any] = {"round": task.round, "kind": task.kind, "files_hint": list(task.files_hint),
-                             "language": language, "track": track}
-    job = AgentJob(workspace=str(ws.root), prompt=task.prompt, system_append=task.system,
-                   model=getattr(agent, "model", ""), label=task.label, timeout_s=timeout,
-                   spatial_tools=True, write_roots=task.write_roots,
-                   round=task.round, kind=task.kind, language=language, track=track,
-                   files_hint=list(task.files_hint), extra=extra,
-                   **({"max_turns": turns_cap} if turns_cap > 0 else {}))
+    extra: dict[str, Any] = {
+        "round": task.round,
+        "kind": task.kind,
+        "files_hint": list(task.files_hint),
+        "language": language,
+        "track": track,
+    }
+    job = AgentJob(
+        workspace=str(ws.root),
+        prompt=task.prompt,
+        system_append=task.system,
+        model=getattr(agent, "model", ""),
+        label=task.label,
+        timeout_s=timeout,
+        spatial_tools=True,
+        write_roots=task.write_roots,
+        round=task.round,
+        kind=task.kind,
+        language=language,
+        track=track,
+        files_hint=list(task.files_hint),
+        extra=extra,
+        edit_only=task.edit_only,
+        always_writable=_always_writable(language),
+        **({"max_turns": turns_cap} if turns_cap > 0 else {}),
+    )
     acc = _SessionAcc(task=task, budget=budget)
     res = acc.run(agent, job)
     changes = res.files_changed or _attributed_fallback(ws, task, before)
@@ -352,19 +441,36 @@ def run_agent_task(
         if events is not None:
             # NB: not ``cost_usd`` — an event carrying that key is priced as its own
             # call by ``cost.reconstruct``, and this money is already in the session row.
-            events.emit("generate.turn_cap", label=task.label, round=task.round, max_turns=job.max_turns,
-                        turns=acc.turns, session_usd=round(acc.usage.cost_usd, 4))
-        wrap = job.model_copy(update={"prompt": WRAPUP_PROMPT + task.prompt,
-                                      "max_turns": max(2, int(wrapup_turns))})
+            events.emit(
+                "generate.turn_cap",
+                label=task.label,
+                round=task.round,
+                max_turns=job.max_turns,
+                turns=acc.turns,
+                session_usd=round(acc.usage.cost_usd, 4),
+            )
+        wrap = job.model_copy(
+            update={"prompt": WRAPUP_PROMPT + task.prompt, "max_turns": max(2, int(wrapup_turns))}
+        )
         res = acc.run(agent, wrap, wrapup=True, optional=True) or res
         changes = res.files_changed or changes or _attributed_fallback(ws, task, before)
 
-    if retry_silent_bail and not changes and not acc.wrapped and res.exit_reason not in ("timeout", "budget"):
+    if (
+        retry_silent_bail
+        and not changes
+        and not acc.wrapped
+        and res.exit_reason not in ("timeout", "budget")
+    ):
         if events is not None:
             events.emit("generate.silent_bail", label=task.label, exit_reason=res.exit_reason)
-        job2 = job.model_copy(update={"prompt": (
-            "Your previous attempt ended WITHOUT writing any file. You must create/edit the files "
-            "described below and run the build tool before finishing.\n\n" + task.prompt)})
+        job2 = job.model_copy(
+            update={
+                "prompt": (
+                    "Your previous attempt ended WITHOUT writing any file. You must create/edit the files "
+                    "described below and run the build tool before finishing.\n\n" + task.prompt
+                )
+            }
+        )
         res = acc.run(agent, job2, optional=True) or res
         changes = res.files_changed or _attributed_fallback(ws, task, before)
 
@@ -373,13 +479,30 @@ def run_agent_task(
     if acc.wrapped:
         notes += f"; turn cap {job.max_turns} reached → wrap-up session"
     if events is not None:
-        events.emit("generate.done", label=task.label, strategy=getattr(agent, "kind", "agent"),
-                    files=[c.path for c in changes], ok=bool(changes), exit_reason=res.exit_reason,
-                    turns=acc.turns, sessions=acc.sessions, turn_capped=acc.wrapped,
-                    cost_usd=round(acc.usage.cost_usd, 4))
-    return GenerationResult(ok=bool(changes), usage=acc.usage, files_changed=changes, notes=notes,
-                            text=(res.text or "")[:2000], transcript_path=res.transcript_path, label=task.label,
-                            turns=acc.turns, sessions=acc.sessions, turn_capped=acc.wrapped)
+        events.emit(
+            "generate.done",
+            label=task.label,
+            strategy=getattr(agent, "kind", "agent"),
+            files=[c.path for c in changes],
+            ok=bool(changes),
+            exit_reason=res.exit_reason,
+            turns=acc.turns,
+            sessions=acc.sessions,
+            turn_capped=acc.wrapped,
+            cost_usd=round(acc.usage.cost_usd, 4),
+        )
+    return GenerationResult(
+        ok=bool(changes),
+        usage=acc.usage,
+        files_changed=changes,
+        notes=notes,
+        text=(res.text or "")[:2000],
+        transcript_path=res.transcript_path,
+        label=task.label,
+        turns=acc.turns,
+        sessions=acc.sessions,
+        turn_capped=acc.wrapped,
+    )
 
 
 class _SessionAcc:
@@ -399,13 +522,17 @@ class _SessionAcc:
         self.wrapped = False
         self.errors: list[str] = []
 
-    def run(self, agent: Any, job: AgentJob, *, wrapup: bool = False, optional: bool = False) -> AgentResult | None:
+    def run(
+        self, agent: Any, job: AgentJob, *, wrapup: bool = False, optional: bool = False
+    ) -> AgentResult | None:
         """One session.  ``optional`` sessions (wrap-up, silent-bail retry) never
         take the task down: a crash there leaves the earlier, already charged
         session as the result instead of discarding money that was really spent."""
         self.sessions += 1
         self.wrapped = self.wrapped or wrapup
-        label = self.task.label + (".wrapup" if wrapup else (f".a{self.sessions}" if self.sessions > 1 else ""))
+        label = self.task.label + (
+            ".wrapup" if wrapup else (f".a{self.sessions}" if self.sessions > 1 else "")
+        )
         try:
             res: AgentResult = agent.run(job)
         except Exception as e:  # noqa: BLE001 — a budget stop still propagates (see below)
@@ -423,8 +550,14 @@ class _SessionAcc:
     def charge(self, usage: Usage, *, label: str, outcome: str) -> None:
         if self.budget is None or not (usage.cost_usd or usage.input_tokens or usage.output_tokens):
             return
-        self.budget.charge(usage, stage=task_stage(self.task), role="generator",
-                           label=label, round_index=self.task.round, outcome=outcome)
+        self.budget.charge(
+            usage,
+            stage=task_stage(self.task),
+            role="generator",
+            label=label,
+            round_index=self.task.round,
+            outcome=outcome,
+        )
 
 
 def _is_budget_stop(e: BaseException) -> bool:
@@ -457,6 +590,16 @@ def session_turns(res: Any) -> int:
     return 0
 
 
+def _always_writable(language: str) -> list[str]:
+    """The entry file is exempt from ``edit_only``: adding a part means importing it there."""
+    from codeverse.contracts.common import ENTRY_FILE, Language
+
+    try:
+        return [ENTRY_FILE[Language(language)]]
+    except (ValueError, KeyError):
+        return []
+
+
 def _attributed_fallback(ws: Workspace, task: GenerationTask, before: str) -> list[FileChange]:
     """Change detection when the agent did not report its own ``files_changed``.
 
@@ -468,7 +611,9 @@ def _attributed_fallback(ws: Workspace, task: GenerationTask, before: str) -> li
         from codeverse.agents.cli_common import attribute_changes
     except ImportError:  # pragma: no cover — agents package always ships with tracks
         return raw
-    return attribute_changes(raw, write_roots=list(task.write_roots), own_hints=frozenset(task.files_hint))
+    return attribute_changes(
+        raw, write_roots=list(task.write_roots), own_hints=frozenset(task.files_hint)
+    )
 
 
 def generate(
@@ -495,13 +640,27 @@ def generate(
         if model is None:
             factory = model_factory or _default_model_factory
             model = factory(single_shot_model_id(agent_id))
-        return generate_files(ws, model=model, task=task, budget=budget, events=events,
-                              allowed_roots=tuple(r.rstrip("/") + "/" for r in task.write_roots))
+        return generate_files(
+            ws,
+            model=model,
+            task=task,
+            budget=budget,
+            events=events,
+            allowed_roots=tuple(r.rstrip("/") + "/" for r in task.write_roots),
+        )
     if agent is None:
         factory = agent_factory or _default_agent_factory
         agent = factory(agent_id)
-    return run_agent_task(ws, agent=agent, task=task, settings=settings, budget=budget, events=events,
-                          max_turns=max_turns, wrapup_turns=wrapup_turns)
+    return run_agent_task(
+        ws,
+        agent=agent,
+        task=task,
+        settings=settings,
+        budget=budget,
+        events=events,
+        max_turns=max_turns,
+        wrapup_turns=wrapup_turns,
+    )
 
 
 def _default_model_factory(model_id: str) -> Any:

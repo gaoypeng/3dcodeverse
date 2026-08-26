@@ -10,7 +10,9 @@ THIS round. Make exactly these changes, keep everything else as it is, and keep 
 
 Targets: {{ targets | join(', ') }}
 {% if edit_only_these %}
-EDIT ONLY THESE FILES (other tasks edit other files in parallel — touching anything else causes conflicts):
+EDIT ONLY THESE FILES — the write tool refuses to overwrite any other existing part file this round.
+You may still create new files and edit the entry file (to import a new part). If a fix truly needs a
+file outside this list, finish without it and say so in your summary.
 {% for f in files %}- `{{ f }}`
 {% endfor %}
 {% else %}
