@@ -380,3 +380,67 @@ def test_default_motion_checks_on_real_urdf(tmp_path):
     assert "WRONG" in bad.errors[0].message and '<axis xyz="-0 -0 -1"/>' in bad.errors[0].fix_hint
     plan.joints[0].motion = "rotates"  # ambiguous → no gate
     assert default_motion_checks(robot(tmp_path / "none", 1), plan) is None
+
+
+# ------------------------------------------------- best-of-N on a track with no GLB
+def test_a_track_without_a_glb_still_gets_candidate_renders():
+    """`quick_render` hardcoded the GLB rig, so tracks that produce no GLB got None —
+    the candidate was never judged, scored None, and best-of-N fell through to index 0.
+
+    Measured 2026-08-25 across the teaser battery: static_object and articulated_object
+    candidates all carried real scores; all SIX graphics runs recorded
+    `scores: {c0: null, c1: null}` with `selected: 0`, two of them at n=3. No
+    `candidate.judge_failed` event fired anywhere — nothing errored, the judge was simply
+    never reached, and every extra candidate was generated, paid for and discarded blind.
+    """
+    from pathlib import Path
+
+    from codeverse.tracks.candidates import quick_render
+
+    class _Pipeline:
+        def __init__(self): self.calls = []
+        def render(self, ctx, round_index, build, measurement):
+            self.calls.append((round_index, build, measurement))
+            return "frames-renderset"
+
+    class _WS:
+        def renders_dir(self, i): return Path("/tmp/unused")
+
+    class _Ctx:
+        ws = _WS()
+
+    pipe = _Pipeline()
+    got = quick_render(_Ctx(), None, pipeline=pipe, build="BUILD", measurement="MEAS")
+    assert got == "frames-renderset", "no GLB must fall back to the track's own renderer"
+    assert pipe.calls == [(0, "BUILD", "MEAS")]
+
+    # and with nothing to fall back to, it still degrades quietly rather than raising
+    assert quick_render(_Ctx(), None) is None
+
+
+def test_an_object_candidate_still_uses_the_cheap_rig(tmp_path):
+    """The fallback must not make the object path more expensive: a GLB still goes through
+    the reduced-view, reduced-resolution quick rig, not pipeline.render."""
+    from codeverse.tracks.candidates import OBJECT_VIEWS_QUICK, QUICK_PX, quick_render
+
+    seen = {}
+
+    class _Services:
+        def render_object(self, glb, out_dir, *, views, width, height):
+            seen.update(glb=glb, views=views, width=width, height=height)
+            return "object-renderset"
+
+    class _WS:
+        def renders_dir(self, i): return tmp_path
+
+    class _Ctx:
+        ws = _WS()
+        services = _Services()
+
+    class _Pipeline:
+        def render(self, *a, **k):  # must not be reached
+            raise AssertionError("an object candidate must not use pipeline.render")
+
+    got = quick_render(_Ctx(), "/x/object.glb", pipeline=_Pipeline(), build="B", measurement="M")
+    assert got == "object-renderset"
+    assert seen["views"] == OBJECT_VIEWS_QUICK and seen["width"] == QUICK_PX

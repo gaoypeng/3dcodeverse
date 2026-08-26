@@ -1038,6 +1038,18 @@ plumbing through several layers and deserves its own measured change.
 
 ## 23. The key pool is per-PROCESS, so N batteries multiply the quota by N
 
+> **Count processes with `pool_budget()`, never with a hand-rolled `pgrep`.**  A gate like
+> `pgrep -af 'bin/3dcv make' | grep -c 'codex:'` **counts itself**: the pattern text is in
+> the checking shell's own command line, so it sees phantom runs.  Measured 2026-08-25 on an
+> idle box — zero `3dcv` processes running, the naive gate returned **3**, and even the
+> bracket trick `pgrep -f '[b]in/3dcv make'` returned **2**, because the wrapper shell's
+> argv also carries the string.  Used in `while [ $(gate) -ge 3 ]; do sleep 60; done` that
+> blocks forever on nothing.  `codeverse.models.health.sibling_processes()` reads `/proc`
+> and excludes its own pid; `pool_budget()` wraps it with the in-flight arithmetic:
+> ```
+> python3 -c "from codeverse.models.health import pool_budget; print(pool_budget())"
+> ```
+
 §20 measured the concurrency knee at 64 in-flight and shipped it as the default.  That
 number was measured with **one process and nothing else running**, and the limiter it
 configures is per-process by construction:
