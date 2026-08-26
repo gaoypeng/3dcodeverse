@@ -372,6 +372,33 @@ which is the right way round, and is why the protocol says decide on the target 
 report the score.  A driver that had only ever been pointed at a blender battery could not
 have told the difference.
 
+### 8.5 The effect wave's result: the target metrics are their own obstacle
+
+Four bundles were to be A/B'd on their own deterministic targets, pinned, one bundle per
+run.  **None of the four produced a readable effect, and three of them were decided before
+any battery was bought** — which is the point of measuring the floor first.
+
+| bundle | target | what decided it |
+|---|---|---|
+| `cv3d-glsl-craft` | mean_edge_density | its **own pinned A/A**: paired sd **0.128**, ±2 SE **0.180**, control mean 0.092 → **123 pairs** to resolve a 25% move.  The A/A's identical arms differed by **+0.069**, three times any effect an 8-pair A/B could claim. |
+| `cv3d-repeats-and-mirrors` | contract_instance_findings | 132 of 164 corpus runs already at 0; the pinned A/A's one completed pair tied 1.000 → 1.000 |
+| `cv3d-urdf-joints` | joint_sweep_errors | arithmetic: 20 of 23 runs at 0 with a tail of 8/50/101, paired sd ≈ 32.6 → **~1420 pairs** for 25%, ~89 merely to drive it to zero |
+| `cv3d-scene-composition` | camera_placement_findings | undeliverable (§ below) *and* 0.25 → 0.00 across the corpus → ~512 pairs |
+
+Two things are worth keeping from it.
+
+**Pinning works, and it is not enough.**  Both arms of every pair reported `stage.cached`
+on the same `inputs_hash`: one planner call per prompt, one plan, zero planner variance.
+And the repeats A/A's one completed pair still scored **0.450 against 0.654 on identical
+arms** — a 0.204 spread, indistinguishable from the 0.202 paired sd that 8.1 measured
+*without* pinning.  The planner was the dominant term for *plans*; for the judged score
+there is a second term of the same size in generation, and pinning does not touch it.
+
+**A shader has no plan to pin.**  glsl's plan is passes and effects, not parts, so the term
+`--pin-plan` removes is nearly empty there — which is why the cheapest graphics A/B on the
+board still needs 123 pairs.  Pinning helps most exactly where the planner had the most
+freedom, and that is the object tracks.
+
 ## 9. Reporting checklist
 
 battery name + git sha of prompts; judge id, rubric name + hash, `n_samples`; per-arm
