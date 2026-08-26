@@ -113,18 +113,6 @@ TARGETS: tuple[Target, ...] = (
         why="metadata.owns already names these two kinds; they are the whole claim",
     ),
     Target(
-        skill="cv3d-form-manifest",
-        metric="feature_density",
-        direction=UP,
-        unit="small sharp edges per unit surface (spatial/complexity)",
-        source=SRC_GLB,
-        languages=OBJECT_LANGS,
-        why="of the four complexity axes only feature_density correlates with geometry_detail "
-            "(+0.19); part count (-0.25) and triangles (-0.05) do not, which is the bundle's thesis",
-        caveat="a leading indicator, not the outcome: r = +0.19 against the judged criterion "
-               "(docs/COMPLEXITY.md §2.2, n=44). Recomputed from object.glb, not stored in the record.",
-    ),
-    Target(
         skill="cv3d-blender-forms",
         metric="blender_lint_findings",
         direction=DOWN,

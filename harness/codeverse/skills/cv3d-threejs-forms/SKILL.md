@@ -7,7 +7,7 @@ metadata:
   evidence: inherited-unverified
   evidence_note: "Zero graded threejs bench runs exist (bench/out/*/runs/*, checked 2026-08-25); the only recorded threejs run is runs/e2e_bench_threejs. Every API claim here is verified against codeverse/prompts/threejs/contract.md, codeverse/prompts/threejs/cookbook.md, codeverse/languages/threejs/lint.py and runtime_js/package.json, but the ADVICE has not been A/B'd on our corpus. Routed off unless CV3D_SKILLS_UNVERIFIED=on; upgrade to measured when threejs reaches 20 graded runs."
   verified: "2026-08-25"
-  pairs_with: "cv3d-form-manifest, cv3d-part-contact, cv3d-bbox-contract"
+  pairs_with: "cv3d-part-contact, cv3d-bbox-contract"
   target_metric: "missing_parts"
   target_direction: "down"
   target_unit: "findings per run"
@@ -24,8 +24,8 @@ You have a manifest (or a plan part row) and you are about to write
 
 ## The table
 
-FORM words come from `cv3d-form-manifest`; the same words key the blender and
-cadquery tables, so only this column changes when the language does.
+The FORM words in the left column key the blender and cadquery tables too, so only
+this column changes when the language does.
 
 | form | three.js | notes |
 |---|---|---|

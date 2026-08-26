@@ -172,8 +172,9 @@ ROUTES: tuple[Route, ...] = (
           why="this session owns dimensions, and the plan's numbers are the contract"),
     Route("R4", "cv3d-bbox-contract", 95, kinds=("repair", "refine", "rebuild"), findings=("contract/*",),
           why="the previous round's contract gate fired"),
-    Route("R5", "cv3d-form-manifest", 60, tracks=OBJECT_TRACKS, kinds=("baseline", "part", "detail", "rebuild"),
-          why="a session that still decides WHAT shapes to build (a repair session is not re-planning)"),
+    # R5 was cv3d-form-manifest, retired 2026-08-25: read 2/19 (11%, CI [3%,31%]) before and
+    # after its description was revised.  See docs/skills-attic/cv3d-form-manifest/.  The id is
+    # not reused — a route id is how a ledger row and a run record refer to a routing decision.
     Route("R6", "cv3d-repeats-and-mirrors", 55, tracks=OBJECT_TRACKS,
           kinds=("baseline", "part", "detail", "refine", "rebuild"),
           requires_any=("has_instances", "has_symmetry"),

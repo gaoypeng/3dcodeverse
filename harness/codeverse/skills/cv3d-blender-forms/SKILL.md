@@ -28,7 +28,7 @@ defers to rather than restating.
 
 ## Form to technique
 
-Name the form first (this is what `cv3d-form-manifest` writes), then pick the row. Never
+Name the form first — say the shape in words before you type a call — then pick the row. Never
 start from "what primitive is nearest".
 
 | form | technique | notes |

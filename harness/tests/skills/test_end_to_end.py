@@ -110,7 +110,9 @@ def test_the_baseline_round_gets_the_standing_set_and_the_next_round_gets_the_ga
     rec, _, _ = run
     baseline = rec.rounds[0].skills.listed
     refine = rec.rounds[1].skills.listed
-    assert "cv3d-form-manifest" in baseline          # R5: a baseline still decides what to build
+    # R11/R3: a threejs baseline gets the standing form + contact sheets, with no gate to react to
+    assert "cv3d-threejs-forms" in baseline
+    assert not any(x.reason.startswith("contract/") for x in rec.rounds[0].skills.reads)
     assert "cv3d-bbox-contract" in refine            # R4: the contract gate fired in round 0
     reasons = {x.name: x.reason for x in rec.rounds[1].skills.reads}
     assert "contract/" in reasons["cv3d-bbox-contract"]

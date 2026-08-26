@@ -5,6 +5,9 @@ the maintenance surface: **one row per bundle**, naming the single deterministic
 claims to move, the direction, the number it has to beat, and what it owes before it can be
 called earned.
 
+**Library: 13 bundles.** All 13 ship **OFF** (`CV3D_SKILLS` unset). Zero have a measured
+effect. §5 says why that is the honest default and what would change it.
+
 Three files hold it up:
 
 | file | what it is |
@@ -13,149 +16,270 @@ Three files hold it up:
 | `bench/skill_targets.py` | the readout — one command, battery **or** A/B |
 | `tests/skills/test_targets.py` | the pins — the rows exist, the gate kinds are still live, the frontmatter agrees, the readout counts what the row says |
 
-Each bundle carries its own row in `metadata` (`target_metric`, `target_direction`,
-`target_unit`, `target_measurable`, `target_baseline`), so the claim travels with the skill
-to any CLI that reads the bundle, and `tests/skills/test_freshness.py` fails the day the
-metric stops existing.
-
 ```
 python bench/skill_targets.py bench/out                     # every baseline, whole corpus
-python bench/skill_targets.py bench/out/static_v2_flash     # one battery
+python bench/skill_targets.py bench/out --round first       # where a bundle acts, before repair
 python bench/skill_targets.py bench/out/ab_skills           # control vs variant, paired
-python bench/skill_targets.py bench/out --language blender --round first
 python bench/skill_targets.py bench/out --skill cv3d-part-contact --per-run --json
 ```
 
 ---
 
-## 1. Why these are gate numbers and not scores
+## 0. What this wave decided (2026-08-25, curate)
 
-An 8-prompt A/A of `bench/ab_plan.py` put the paired sd of the judged score at **0.202**,
-the 2 SE band at ±0.165, and printed *~408 paired prompts to resolve +0.02*
-(`docs/EVAL.md` §8). A skills A/B read out on `score` at n=8 is a coin toss. Every row below
-is read from a gate report, a `BuildResult`, the exported GLB or the sampled frames — never
-from the judge.
+Three measurement waves ran: a description A/B read out on **read rate** (ground truth from
+api-agent's `read_skill` tool calls), and three independent **effect** A/Bs on the bundles'
+own target metrics. The results, stated plainly:
 
-That does **not** make them noiseless. The same A/A directory (`bench/out/plan_loop/C0`,
-3 pairs usable after the provider weather) reads out like this:
+* **No bundle's target moved, separated from that metric's own A/A floor.** Not one. Every
+  A/B came back `underpowered`, and for several the underpowering is structural rather than
+  a matter of n. **So nothing was promoted to `measured`, and nothing ships on.**
+* **One bundle was cut**: `cv3d-form-manifest`, read 2 of 19 times before *and* after its
+  description was rewritten. Text and numbers in `docs/skills-attic/`.
+* **Four bundles were revised by fixing their delivery, not their prose.** The scene track
+  never handed its skills to the sessions that do the work. That is now fixed (§3).
+* **`cadquery-forms` and `threejs-forms` stay `inherited-unverified`.** Their languages have
+  **4 (cadquery) and 3 (threejs) graded runs**, against the 20 the rule requires. Neither
+  moved this wave.
+
+### Two words this ledger keeps apart
+
+`metadata.evidence` is about **provenance** — where the bundle's prose came from. A row can
+say `measured` because its defect descriptions were derived from our corpus, and still have
+**no measured effect**. Those are different axes and this wave separated them everywhere:
+5 bundles are `measured` for provenance; **0** are measured for effect.
+
+---
+
+## 1. Why these are gate numbers and not scores — and why that was not enough
+
+An 8-prompt A/A of `bench/ab_plan.py` put the paired sd of the judged score at **0.202** and
+printed *~408 paired prompts to resolve +0.02* (`docs/EVAL.md` §8). Every row below is read
+from a gate report, a `BuildResult`, the exported GLB or the sampled frames — never the judge.
+
+The premise this wave was built on was that **pinning the plan** would collapse the noise,
+because `docs/EVAL.md` §8.1 showed the variance is the planner's. Pinning was built, wired
+and verified in production (one planner call per pair, both arms cache-HIT on the same
+`inputs_hash`). **The premise was half wrong, and that is the wave's most useful finding.**
+
+* Regressing `contract_findings` on `n_parts` over 198 runs gives **R² = 0.103**. Removing
+  the plan-size term moves paired sd only 2.49 → 2.36. Among the 44 runs that all planned
+  8 parts, sd is still 2.02. **The spread is generation noise at fixed plan size.**
+* Measured directly: a pinned A/A pair scored **0.450 vs 0.654** on identical, plan-pinned
+  arms — a 0.204 spread, indistinguishable from the 0.202 measured *without* pinning.
+* A shader plan has no parts, so pinning removes almost nothing on the graphics track.
+
+Pinning is still correct and still **cheaper** (one planner call per pair, not two). It is
+just not the lever. Measured A/A floors on the target metrics themselves:
 
 ```
-skill                        metric                   n   control   variant     delta  b/w/t      sd   ±2SE   n to resolve 25%
-cv3d-part-contact            interpenetrating_pairs   3     5.667    11.333    +5.667  0/2/1   8.963  10.349      160
-cv3d-bbox-contract           contract_findings        3     1.000     1.000     0.000  2/1/0   1.732   2.000      192
-cv3d-form-manifest           feature_density          3  2095.733  6000.467 +3904.733  3/0/0 3057.62 3530.63      136
+metric                      A/A delta (identical arms)  paired sd    ±2SE   n to resolve 25%
+interpenetrating_pairs                        +5.667       8.963   10.349        483
+feature_density                             +3904.7      3057.6   3530.6          92   [bundle cut]
+contract_findings                             -2.000       2.646    3.055        449
+mean_edge_density (pinned)                    +0.069      0.1275   0.1804        123
 ```
 
-Two arms that were **identical by construction** moved interpenetrating pairs by +5.7. So:
+`±2SE` on `interpenetrating_pairs` is **3.2× the entire corpus mean it is meant to measure**.
 
-* the deterministic readout is much cheaper than the judged score but still needs three
-  figures of paired prompts *unless the plan is pinned* — and `C0` predates
-  `bench/pin_plan.py`, which is exactly the term that swing is;
-* `CV3D_SKILLS*` sits in `GENERATION_SIDE_ENV`, so `pin_plan_blockers({"CV3D_SKILLS": "1"})`
-  is empty and **a skills A/B is pinnable**. Pin it. Every number in §3 assumes it;
-* n=3 makes those sd's indicative, not trustworthy. **The first job of the Measure phase is
-  to re-read this block on an A/A with ≥8 usable pairs and a pinned plan**, per metric.
+**The single highest-leverage statistical fix, unspent:** read these metrics as a **hit
+rate**, not a mean count. `P(run has ≥1 contract finding)` = 63%; halving *that* needs ~24
+pairs instead of 449. The counts are spiky (38–83% zeros, max 10–13), so a mean ± 2SE throws
+away most of the signal. 24 pairs is affordable; 449 is not.
 
 ---
 
 ## 2. The ledger
 
-Baselines are the **last gated round** of every run under `bench/out` that a gate reported
-on, recomputed 2026-08-25 (`python bench/skill_targets.py bench/out`). "graded n" is that
-language's graded-run count as `tests/skills/test_corpus.py` counts it: blender 141,
-urdf_blender 23, glsl_shader 9, opengl_python 5, scene_threejs 3, cadquery 0, threejs 0.
+Baselines are recomputed 2026-08-25 from every run under `bench/out` that a gate reported on
+(`python bench/skill_targets.py bench/out`). Both rounds are shown where they differ, because
+**several bundles act on the first round and the repair loop hides them by the last.**
 
-| bundle | evidence | target metric | dir | baseline (last round) | graded n | status | to graduate |
-|---|---|---|---|---|---|---|---|
-| **cv3d-part-contact** | measured | `interpenetrating_pairs` | down | **3.35** mean / 2.0 median, n=164 (5.07 first round; 65 runs already at 0) | 164 | **earning — measure it** | a pinned-plan A/B moving the mean down with more prompts better than worse |
-| **cv3d-bbox-contract** | measured | `contract_findings` | down | **1.51** mean / 1.0 median, n=167 (1.23 first round) | 167 | **earning — measure it** | same, on the non-instance contract kinds |
-| **cv3d-repeats-and-mirrors** | measured | `contract_instance_findings` | down | **0.32** mean / 0.0 median, n=164; **132 of 164 already at 0** | 164 | **probation — thin defect** | a battery slice where the metric is non-zero often enough to have headroom (prompts with `instances > 1`), then an A/B on that slice |
-| **cv3d-form-manifest** | measured | `feature_density` | up | **2551** median / 7946 mean, n=164 | 164 | **probation — weak link** | it is a *leading* indicator: r = +0.19 against the judged `geometry_detail` (`docs/COMPLEXITY.md` §2.2, n=44). Show the metric moves AND that the criterion follows, or the row is measuring the wrong thing |
-| **cv3d-blender-forms** | measured | `blender_lint_findings` | down | **0.87** mean / 0.0 median, n=164 (blender 1.01, urdf_blender 0.00); **133 of 164 at 0** | 164 | **probation — thin defect** | the lint already catches these, so most runs never had the defect. Either show the A/B lowers the remaining 31, or accept that the bundle's real value is the form table, which this metric does not see |
-| **cv3d-urdf-joints** | measured | `joint_sweep_errors` | down | **6.91** mean / 0.0 median ERRORs, n=23; 20 of 23 at 0, worst run 101 | 23 | **earning — measure it** | extremely heavy-tailed: three runs carry every error. Pair on prompts with >1 movable joint or the mean is noise |
-| **cv3d-cadquery-forms** | inherited-unverified | `build_failure_rate` | down | **none — n=0** | **0** | **routed OFF; unmeasurable today** | 20 graded cadquery runs. Until then no A/B can be run and the bundle stays out of routing (design §5.2 law 3) |
-| **cv3d-threejs-forms** | inherited-unverified | `missing_parts` | down | **none — n=0** | **0** | **routed OFF; unmeasurable today** | 20 graded threejs runs |
-| **cv3d-scene-composition** | mixed | `camera_placement_findings` | down | **0.00**, n=3 (0.33 on the first gated round) | 3 | **probation — no headroom** | the repair loop already clears every camera fault by the last round. Read it out on the **first** gated round (`--round first`), where the bundle is supposed to act, and get scene runs past n=3 |
-| **cv3d-scene-lighting** | mixed | `dark_or_flat_frames` | down | **1.00** mean / 1.0 median, n=3 (2.67 first round) | 3 | **probation — thin corpus** | real headroom (2 of 3 runs still fail on the last round) but n=3. Needs a scene battery of ≥8 prompts |
-| **cv3d-scene-motion** | mixed | `min_authored_changed_frac` | up | 0.006 median / 0.017 mean, n=3 (one run's establishing shot is frozen at 0.0013 and the gate still passes) | 3 | **UNMEASURABLE (`measurable=false`)** | see §4 — nothing deterministic sees this bundle's claim. Do not A/B it on this number |
-| **cv3d-threejs-shader-traps** | mixed | `shader_preflight_findings` | down | **0.00**, n=3 — every recorded scene run is clean | 3 | **probation — no headroom** | the gate has never fired here, so today this can only catch a regression. Needs a battery whose plans actually author custom GLSL. Also owes an instrumentation fix: `shader_preflight` is written to `artifacts/shader_preflight.json` and never merged per-round into `record.json`, so only a run's final state is readable |
-| **cv3d-glsl-craft** | mixed | `mean_edge_density` | up | **0.167** median / 0.203 mean, n=9 (range 0.031–0.464) | 9 | **earning — measure it** | the widest continuous spread of any row, so it is the cheapest graphics A/B we have. Confirm the judged `visual_richness` follows |
-| **cv3d-opengl-pipeline** | mixed | `gl_frame_findings` | down | **0.20** mean / 0.0 median, n=5; 4 of 5 at 0 | 5 | **probation — thin corpus** | n=5 and one finding. The bundle's headline defect (trap 1: a solver that gets five steps) shows up in the judge's words, not yet in a gate |
+Graded runs per language (a run is a sample **iff** it has a round carrying a gate report):
+**blender 145, urdf_blender 25, glsl_shader 17, scene_threejs 9, opengl_python 6,
+cadquery 4, threejs 3.** The corpus is live — sibling batteries land runs during a wave —
+so every number below carries the snapshot it was read from.
 
-**Read at a glance:** 4 bundles are ready to A/B on their own number today
-(`part-contact`, `bbox-contract`, `urdf-joints`, `glsl-craft`). 7 are on probation for a
-thin corpus or a floor-effect. 2 are routed off with zero graded runs. 1 has no honest
-deterministic proxy at all.
+| bundle | evidence (provenance) | target metric | dir | baseline — last round | first round | graded n | effect | status |
+|---|---|---|---|---|---|---|---|---|
+| **cv3d-part-contact** | measured | `interpenetrating_pairs` | down | **3.25** mean / 2.0 med, n=177; 71 at 0 | 4.91 / 3.0 | 145+25 | none — underpowered (needs ~483 pairs) | **best live candidate.** Routed, delivered, read 55%. Blocked only by the noise floor. Needs a *rate* metric (§5) |
+| **cv3d-bbox-contract** | measured | `contract_findings` | down | **1.47** mean / 1.0 med, n=186; 72 at 0 | 1.20 / 1.0 | 145+25+9 | none — underpowered (~449 pairs) | most-listed and best-read bundle (68%). Its A/B produced 0 usable pairs: the variant hit its budget cap with **zero gated rounds** while still being judged (§4) |
+| **cv3d-repeats-and-mirrors** | measured | `contract_instance_findings` | down | **0.37** mean / 0.0 med, n=177; **142 of 177 at 0** | 0.32 / 0.0 | 145+25 | none — 1 pinned A/A pair, tied | **floor effect.** Read 38%, the lowest of any delivered bundle. Needs an instanced-prompt slice *and* a read-rate re-check |
+| **cv3d-blender-forms** | measured | `blender_lint_findings` | down | **0.87** mean / 0.0 med, n=170; **137 of 170 at 0** | 0.60 / 0.0 | 145+25 | none — structural (~230 pairs to halve) | 81% of runs are already clean and sd (2.31) is 2.7× the mean. The metric also cannot see the form-to-technique table, which is half the bundle |
+| **cv3d-urdf-joints** | measured | `joint_sweep_errors` | down | **6.96** mean / 0.0 med, n=25; 21 at 0, worst 101 | 9.72 / 0.0 | 25 | none — **~1420 pairs**, not bought | heavily tailed: three runs carry every error. Do not A/B this metric. Read 4/4 |
+| **cv3d-glsl-craft** | mixed | `mean_edge_density` | up | **0.221** mean / 0.186 med, n=17 (0.031–0.464) | 0.220 / 0.192 | 17 | none — pinned A/A gave ±0.180 on identical arms | corpus nearly doubled (9→17). Still needs ~123 pairs; **its own A/A is the evidence against this metric** |
+| **cv3d-opengl-pipeline** | mixed | `gl_frame_findings` | down | **0.167** mean, n=6; 5 of 6 at 0 | same | 6 | none — floor effect | one finding in the whole corpus. Cannot go down much. Read 4/4 |
+| **cv3d-scene-lighting** | mixed | `dark_or_flat_frames` | down | **2.89** mean / 3.0 med, n=9 | **4.89 / 4.0 — 0 of 9 runs clean** | 9 | **never delivered until now** (§3) | **revised.** The largest untouched headroom in the library, in the exact stage that was skipped. Gate semantics changed today (§4) — re-baseline before pairing |
+| **cv3d-scene-composition** | mixed | `camera_placement_findings` | down | **0.56** mean, n=9; 7 at 0 | 0.44 / 0.0 | 9 | **never delivered until now** (§3) | **revised.** But the metric **under-counts by ~2×** — see §4. True first-round rate is 1.44/run, not 0.44 |
+| **cv3d-scene-motion** | mixed | `min_authored_changed_frac` | up | 0.038 mean / 0.027 med, n=9 | 0.024 / 0.019 | 9 | **UNMEASURABLE** (`measurable=false`) — see §6 | **revised (delivery).** Kept: its read demand has never been measurable either, so the cut rule's *and* is not satisfied |
+| **cv3d-threejs-shader-traps** | mixed | `shader_preflight_findings` | down | **0.00**, n=9 | 0.00, n=9 | 9 | **NOT INSTRUMENTED** — see §4 | **revised (delivery).** Every listing it has ever had was in a scene session that was never offered the read tool, so it is *unmeasured*, not unread |
+| **cv3d-cadquery-forms** | inherited-unverified | `build_failure_rate` | down | 0.00, n=4 (all 4 built) | same | **4** | no variance to move | **routed OFF.** Needs 20 graded cadquery runs; has **4**. Read 2/2 when forced on |
+| **cv3d-threejs-forms** | inherited-unverified | `missing_parts` | down | 0.00, n=3 | same | **3** | no variance to move | **routed OFF.** Needs 20 graded threejs runs; has 3. Read 2/2 when forced on |
+
+**Cut this wave:** `cv3d-form-manifest` → `docs/skills-attic/cv3d-form-manifest/`.
+
+### Read rate — the cheap filter, and the only thing that resolved
+
+Ground truth is api-agent's `read_skill` tool calls, extracted from trajectories. The atime
+probe behind `3dcv skills report` **cannot** measure this and its own control says so: the
+control bundle came back "opened" in 27 of 33 sessions.
+
+| bundle | opened / listed (pooled) | 95% CI |
+|---|---|---|
+| `cv3d-cadquery-forms`, `cv3d-threejs-forms`, `cv3d-urdf-joints`, `cv3d-glsl-craft`, `cv3d-opengl-pipeline` | 4/4 – 5/5 = **100%** | wide; 1-skill sets flatter |
+| `cv3d-bbox-contract` | 13/19 = **68%** | [46%, 85%] |
+| `cv3d-blender-forms` | 6/10 = **60%** | — |
+| `cv3d-part-contact` | 6/11 = **55%** | [28%, 79%] |
+| `cv3d-repeats-and-mirrors` | 3/8 = **38%** | [14%, 69%] |
+| ~~`cv3d-form-manifest`~~ | 2/19 = **11%** | **[3%, 31%] — excludes every other bundle. Cut.** |
+| the 4 scene bundles | 0/30 — **never delivered**, see §3 | not a read failure |
+
+Overall, restricted to sessions actually offered the tool: **58% (51/88)** against the
+design's 80% target. **Confound to respect:** read rate tracks how many bundles are listed —
+every 1-skill session read its bundle 4/4 while 5-skill sessions averaged ~55%. Any future
+wording A/B must hold the routed set size fixed or it measures the cap, not the copy.
 
 ---
 
-## 3. What "graduate" means
+## 3. The revision this wave shipped: the scene track never delivered its skills
 
-A bundle is **earning** when all four hold:
+The read loop saw `cv3d-scene-composition` / `-lighting` / `-motion` / `-threejs-shader-traps`
+at **0 opens across 30 listings** and revised their descriptions. That was the wrong fix, and
+two effect owners independently found the right one in the code:
 
-1. **Routable** — its language has ≥20 graded runs, so `metadata.evidence` may say
-   `measured` (the rule `tests/skills/test_corpus.py` already enforces).
-2. **Read** — the backend actually opens it. `read_skill` (`agents/api_skills.py`) records
-   exactly which bundles were opened; measured 2026-08-25 api-agent opened 2 of 3 routed
-   bundles, against 0 of 5 before the tool existed, and the three CLI backends read 5 of 5.
-   **A bundle nobody opens cannot have an effect — check the read rate before spending on an
-   effect A/B.**
-3. **Headroom** — its target metric is non-zero on enough of the battery to move. A row
-   where most runs already read 0 fails here, and the fix is a prompt slice, not a bigger n.
-4. **Moved** — a pinned-plan A/B (`bench/pin_plan.py`) on ≥ the row's `n to resolve` pairs
-   moves the metric in the stated direction, with more prompts better than worse.
+* `SceneTrack.prepare()` generates the **entire** scene baseline — `_env_stage`,
+  `_zones_stage`, `_assemble_stage` each call `tracks.generation.generate` directly.
+* `skills_hook.attach_for_round` was reached from **exactly one place**, `steps.run_round`.
+* `SceneTrack.baseline_tasks` returns `[]`, so round 0 listed the bundles to a round with no
+  generation task to consume them — which is precisely "listed 3, opened 0".
+* The router had `kinds=("env", "zone", "compose")` rows for these bundles all along
+  (registry R14–R21). **They were selected for the stages that need them and delivered to
+  nobody.** `cv3d-scene-lighting` routes for `kind="env"` — the stage where a scene's
+  lighting is authored.
 
-A bundle that fails (3) or (4) after a fair A/B **gets cut**. Cutting a skill that does not
-earn its tokens is a win for the wave, not a failure — the plan-loop's C1 was reverted and
-the whole skills A/B shipped OFF on the same reasoning.
+**Fixed.** `_env_stage` / `_zones_stage` / `_assemble_stage` now go through
+`_deliver_skills` (attach + inline) and `_record_skills` (telemetry), attaching with their
+own kind so the router's rows fire as written. The zone fan-out attaches **once**, outside
+the worker, because three parallel sessions share one workspace and would race the same
+`AGENTS.md`. `tests/skills/test_delivery_reaches_the_session.py` now holds every
+agent-driving module to the hook, pins the per-stage kinds, and pins the fan-out placement.
+
+**What I expect it to do.** `dark_or_flat_frames` is **4.38 per run on the first gated
+round with 0 of 8 runs clean** — the largest untouched headroom in the library, sitting in
+the one stage that was being skipped. If `cv3d-scene-lighting` does anything at all, this is
+where it shows up. **This is a prediction, not a result** — no scene run has yet been made
+with delivery working. The read-rate re-measurement is the next wave's first job, and until
+it lands these four rows stay `mixed`, not `measured`.
 
 ---
 
-## 4. The one bundle with no honest proxy
+## 4. Instrumentation gaps — nine, and five would have produced confident wrong answers
+
+* **`camera_placement_findings` sees less than half its own defect class.** The classifier
+  matches the *message*, and `scene_frames` emits four camera faults under three wordings.
+  Counted today: `camera_in_geometry` (17 findings) and `camera_underground` (3). **Not
+  counted: `camera_below_high_ground` (21) and `camera_low` (3)** — both plainly camera
+  placement, both invisible to `cv3d-scene-composition`'s target. True first-round rate is
+  **1.44 findings/run against the 0.44 the row reports**, and 5 of 9 runs that read as clean
+  are not. The gate already emits a structured `data["kind"]`; `finding_kind` regexes the
+  prose instead. **Not fixed here on purpose** — widening the classifier also widens
+  *routing*, which is an effect claim needing its own evidence (same reason
+  `scene_frames/content_*` is left alone). Fix it as its own change, with a re-baseline.
+* **The `dark_or_flat` gate changed semantics today** (`fcf2afe`, "a night scene is not a
+  broken render"). A dim frame with real contrast (`lum_std ≥ LOWKEY_MIN_STD`) is now a WARN
+  reading *"frame is dim but lit … low-key by design"*, and **that message classifies as
+  `None`** — so it counts nowhere. No historical run carries it, so the baselines above are
+  intact; but any A/B straddling this commit compares two different metrics.
+  `cv3d-scene-lighting` must be re-baselined against the new gate before it is paired.
+* **`shader_preflight` is not a gate at all.** It appears in **zero** `record.json` files
+  corpus-wide: `check_shaders` is an agent-invocable tool (`spatial/tools_scene.py`), never a
+  pipeline gate, so no round appends its report. The only evidence is 8 per-run
+  `artifacts/shader_preflight.json` files, all clean. "Not instrumented" and "measured,
+  always clean" must not print the same number — the readout now returns `None` when the
+  artefact is absent, so the row's denominator is 8 and not 198. Rule of three puts the 95%
+  upper bound on the base rate at 0.43/run.
+* **A run is a sample iff it has a round carrying a gate report.** `RunRecord.status` says
+  how the round loop *ended* (`passed`/`plateau`/`budget`/`failed`), not whether gates ran.
+  Filtering on status dropped every `budget` run — about half the corpus — and would have
+  admitted a `passed` run with no gated round as a clean 0.
+* **A budget cap tuned for the judged score starves the gate readout.** The `bbox-contract`
+  A/B's variant produced a *scored* artefact with **zero gated rounds**, so the primary
+  metric lost the cell while the secondary kept it. Raise `--max-usd`/`--max-minutes` for
+  any A/B whose readout is a gate.
+* **The A/B rig scored four of seven languages 0.0.** `compare_backends._run_harness` gated
+  the harness arm on `src/model.py`; a glsl run that finished `passed` having written
+  `src/shader.frag` was recorded `no_code`. Both arms would have scored 0.0 and the rig would
+  have reported "no effect" for a switch it never tested. **Fixed** (`entry_of(spec)` reads
+  `contracts.common.ENTRY_FILE`). This is why no graphics or three.js bundle has ever had a
+  readable A/B.
+* **`bench/_fixed_eval.FixedEvaluator` is blender-only.** It pins `get_runtime(BLENDER)` and
+  runs only lint and connectivity — never contract, joint_sweep, scene_frames or gl_frames.
+  Not fixed; it does not sink the primary readout, because `bench/skill_targets.py` reads
+  each arm's own harness record. Know that the *judged* column of any non-blender A/B is
+  meaningless.
+* **`telemetry.record_exact_read` is wired to `read_file` only** (`agents/api_agent.py`), so
+  `read_skill` — api-agent's actual read channel — never reaches `skill_reads.jsonl`. One
+  line in `SkillTools.read_skill` makes `3dcv skills report` truthful without atime.
+* **`scene_frames/content_*` has no classified kind.** Frame coverage is half of what
+  `cv3d-scene-composition` teaches; it neither routes nor counts. Left alone deliberately:
+  adding a kind widens routing, which is an effect claim needing its own evidence.
+
+---
+
+## 5. What ships, and why the answer is "nothing"
+
+The library does **not** have to share one switch. `CV3D_SKILLS_ONLY` restricts the library
+*before* routing, so shipping a subset is one env var:
+
+```
+CV3D_SKILLS=1 CV3D_SKILLS_ONLY=cv3d-part-contact,cv3d-bbox-contract   # the vehicle
+```
+
+**Today that list is empty, and all 13 bundles default OFF.** Not for lack of a mechanism,
+and not because the wave ran out of time — because **zero bundles have a measured effect**,
+and every candidate default-on is a token cost per session against an unmeasured benefit.
+
+Read rate is a *leading* indicator, not an outcome. `cv3d-bbox-contract` being opened 68% of
+the time is evidence it is discoverable; it is not evidence it helps.
+
+**What flips a bundle to default-on:** a pinned A/B on a metric with enough headroom to
+resolve at an affordable n — which today means a **hit-rate** readout (§1) rather than a mean
+count — moving in the stated direction with more prompts better than worse. `24` pairs is the
+realistic bar for `contract_findings`; `449` is what the mean costs. Get the metric right
+first, then buy the pairs.
+
+### When a bundle is cut
+
+A bundle is cut when **any** of these holds, and cutting is a win for the wave:
+
+1. it is **unread after a revision** — `cv3d-form-manifest`, 2/19 pooled, CI [3%, 31%];
+2. its target did not move and it has **no understood failure mode**;
+3. it has **no honest deterministic proxy AND no read demand**.
+
+`cv3d-scene-motion` satisfies the first half of (3) and **not** the second: it has never been
+delivered, so its read demand has never been measurable. It is kept, and it is now delivered.
+The distinction matters — cutting on an instrument that was never pointed at the thing is how
+a library loses the bundles that were fine.
+
+---
+
+## 6. The one bundle with no honest proxy
 
 `cv3d-scene-motion` is marked `measurable=false`, and its own body is the evidence.
 
 * The deterministic instrument is `spatial/frame_motion.py`: a camera counts as moving when
-  ≥0.4 % of its pixels change between t=0 s and t=1.5 s, and `scene_frames` emits a
-  `no_motion` ERROR when no authored camera does.
+  ≥0.4% of its pixels change between t=0 s and t=1.5 s.
 * `scene_moves` is an **any**, not an **all**: one authored camera over the bar clears the
-  gate for the whole scene. Re-measured 2026-08-25, `scn_easy_desert_canyon` ships an
-  establishing shot frozen at **0.13 %** — well under the bar — in both of its rounds, and
-  the gate passes anyway because two other cameras move. The bundle's own body reports the
-  matching fact from the other side: the *best* authored camera cleared the bar by 5–12× in
-  all 8 recorded rounds while `animation_life` averaged **0.431 — the lowest criterion of
-  any language in the corpus.**
-* The judge's reasons are per item: *"the planned animations for water and falling leaves
-  are completely static"*. `tracks/scene.py::judge_context` hands the judge the plan's
-  `animation` list verbatim and it is scored **item by item**.
+  gate for the whole scene. `scn_easy_desert_canyon` ships an establishing shot frozen at
+  **0.13%** in both rounds and passes anyway, because two other cameras move.
+* The judge scores animation **item by item** — *"the planned animations for water and
+  falling leaves are completely static"* — and `animation_life` averages **0.431, the lowest
+  criterion in the corpus**.
 
-No deterministic instrument attributes motion to a *named plan item*, so any number we could
-put here would be a proxy we invented to have one. Raising `min_authored_changed_frac` is not
-evidence the bundle worked. It is still printed, and still worth watching: a drop below the
-0.4 % bar is a regression the gate would fire on.
+No deterministic instrument attributes motion to a *named plan item*, so any number here
+would be a proxy invented to fill the row. `min_authored_changed_frac` is printed as a
+**regression guard only**: a drop below the 0.4% bar is a fault the gate would fire on.
+Raising it is not evidence the bundle worked.
 
-Building the honest instrument — per-item motion, by masking the plan's animated objects and
-diffing only those pixels — is the way this bundle becomes measurable, and it is a harness
-change, not a skill change.
-
----
-
-## 5. Instrumentation gaps this wave found
-
-* **`gl_frames` classified only 2 of its 7 actionable messages.** `R19`/`R24` say *"the frame
-  gate saw no motion or no detail"*, but `registry.py` matched only `frame-to-frame` and
-  `visual detail` — a shader that came out **static**, **black**, **blown out**, **NaN** or
-  that rendered **no frames** classified as `None` and routed nothing. Widened, with a
-  parametrised pin in `tests/skills/test_targets.py`. No baseline moves: the four recorded
-  `gl_frames` findings were all flicker/low-detail already.
-* **`shader_preflight` never reaches the record.** It is written to
-  `artifacts/shader_preflight.json` beside the run, so the readout can only see a run's final
-  state, not per-round. It should be merged into `rounds[].gates` like every other gate.
-* **`scene_frames/content_*` has no classified kind.** Frame coverage (`content_frac`) is
-  half of what `cv3d-scene-composition` teaches and `registry.finding_kind` returns `None`
-  for it, so it neither routes nor counts. Deliberately left alone here — adding a kind
-  widens routing, which is an effect claim and needs its own evidence.
-* **`connectivity` and `contract` carry no `data["kind"]`**, unlike every gate written since.
-  `registry.finding_kind()` is the classifier that fills the gap, which is why the readout
-  goes through it rather than reading `data` — but the two oldest and busiest gates are the
-  ones relying on message regexes.
+Building the honest instrument — mask the plan's animated objects, diff only those pixels —
+is a harness change, not a skill change.

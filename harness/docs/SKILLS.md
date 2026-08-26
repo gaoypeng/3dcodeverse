@@ -106,45 +106,52 @@ This is the difference between a metric and a number that would have read 100% f
 
 ## 2. The library
 
-Fourteen bundles. `lines`/`tokens` are the body, against caps of 350 and 2,500.
+**Thirteen bundles.** `lines`/`tokens` are the body, against caps of 350 and 2,500.
 
 | skill | track | language | evidence | lines | tokens | routes |
 |---|---|---|---|---|---|---|
 | `cv3d-part-contact` | object tracks | any | measured | 125 | 1,707 | R1, R2 |
 | `cv3d-bbox-contract` | object + scene | any | measured | 75 | 1,081 | R3, R4 |
-| `cv3d-form-manifest` | object tracks | any | measured | 155 | 1,917 | R5 |
 | `cv3d-repeats-and-mirrors` | object tracks | any | measured | 112 | 1,527 | R6, R7 |
-| `cv3d-blender-forms` | any | blender, urdf_blender | measured | 97 | 1,809 | R8, R9 |
+| `cv3d-blender-forms` | any | blender, urdf_blender | measured | 97 | 1,811 | R8, R9 |
 | `cv3d-urdf-joints` | articulated_object | urdf_blender | measured | 139 | 1,989 | R12, R13 |
 | `cv3d-scene-composition` | scene | scene_threejs | mixed | 118 | 1,691 | R14, R15 |
-| `cv3d-scene-lighting` | scene | scene_threejs | mixed | 86 | 1,210 | R16, R17 |
+| `cv3d-scene-lighting` | scene | scene_threejs | mixed | 126 | 1,959 | R16, R17 |
 | `cv3d-scene-motion` | scene | scene_threejs | mixed | 178 | 2,223 | R18, R19 |
 | `cv3d-threejs-shader-traps` | scene + static | threejs both | mixed | 112 | 1,734 | R20, R21 |
 | `cv3d-glsl-craft` | graphics | glsl_shader | mixed | 140 | 1,958 | R22, R24-glsl |
 | `cv3d-opengl-pipeline` | graphics | opengl_python | mixed | 98 | 1,497 | R23, R24-opengl |
-| `cv3d-cadquery-forms` | any | cadquery | **inherited-unverified** | 82 | 1,470 | R10 |
-| `cv3d-threejs-forms` | static_object | threejs | **inherited-unverified** | 120 | 1,934 | R11 |
+| `cv3d-cadquery-forms` | any | cadquery | **inherited-unverified** | 82 | 1,482 | R10 |
+| `cv3d-threejs-forms` | static_object | threejs | **inherited-unverified** | 120 | 1,929 | R11 |
 
-Every bundle also declares **one deterministic quantity it claims to move**, in its own
-frontmatter (`target_metric`, `target_direction`, `target_baseline`) and in
-`codeverse/skills/targets.py`. `python bench/skill_targets.py bench/out` prints them all —
-per battery or paired across an A/B's two arms — and **`docs/SKILLS_LEDGER.md` is the row-by-row
-maintenance surface**: baseline, graded-run count, and what each bundle owes before it can be
-called earned. `evidence` says where the prose came from; the target says what the bundle is
-for.
+**All thirteen ship OFF** (`CV3D_SKILLS` unset). Zero have a measured effect; see
+`docs/SKILLS_LEDGER.md` §5 for why that is the honest default and what flips one on.
+Shipping a subset needs no new machinery — `CV3D_SKILLS_ONLY` restricts the library before
+routing, so `CV3D_SKILLS=1 CV3D_SKILLS_ONLY=<names>` is the vehicle when a bundle earns it.
 
-`evidence` is a claim about **n**, and `tests/skills/test_corpus.py` recomputes it from
-`bench/out`:
+### Retired
 
-* `measured` — the routed language has ≥ 20 graded runs behind it (blender 139,
-  urdf_blender 23 as of 2026-08-25).
-* `mixed` — real data, thin (glsl_shader 9, opengl_python 5, scene_threejs 3). Owes an
-  `evidence_note` saying so.
-* `inherited-unverified` — **zero** graded runs (cadquery, threejs). **Not routed** unless
-  `CV3D_SKILLS_UNVERIFIED=on`. The rule that produced this label caught a real over-claim:
-  `cv3d-opengl-pipeline` shipped as `measured` on n=5 and is now `mixed`.
+| skill | cut | why |
+|---|---|---|
+| `cv3d-form-manifest` | 2026-08-25 | opened **2 of 19** times (11%, CI [3%, 31%]) — unread before *and* after its description was rewritten to lead with the trigger. The only bundle whose read-rate interval excluded every other's, and it cost ~1,917 tokens in 19 of the 27 sessions that could have read it. Text and full numbers: `docs/skills-attic/cv3d-form-manifest/` |
 
----
+An attic bundle is not loaded: `all_skills()` reads `codeverse/skills/*/SKILL.md` only, so it
+costs no index line and no tokens. Its route id (**R5**) is retired and never reused — a run
+record refers to a routing decision by id, so recycling it would silently relabel history.
+`tests/skills/test_registry.py::RETIRED_RULES` pins that.
+
+### Two words this doc keeps apart
+
+`evidence` is about **provenance** — where the bundle's prose came from. A bundle can be
+`measured` for provenance and have **no measured effect**; five are. Every bundle also
+declares **one deterministic quantity it claims to move**, in its own frontmatter
+(`target_metric`, `target_direction`, `target_baseline`) and in `codeverse/skills/targets.py`.
+`python bench/skill_targets.py bench/out` prints them all — per battery or paired across an
+A/B's two arms — and **`docs/SKILLS_LEDGER.md` is the row-by-row maintenance surface**.
+
+`cadquery-forms` and `threejs-forms` stay `inherited-unverified` and routed off: their
+languages have **4 (cadquery) and 3 (threejs) graded runs** against the 20 the rule
+requires (design §5.2 law 3).
 
 ## 3. Routing
 
@@ -400,7 +407,7 @@ line in a long markdown file plus a generic `read_file`.
    — **cannot be cleared by anything on this rig at n = 8**: the A/A of two identical arms
    fails it, twice over (−0.038, −0.206).
 3. The deterministic readouts are not an escape hatch either (below).
-4. Two of fourteen bundles have no graded runs behind them at all and are already routed off.
+4. Two of thirteen bundles have no graded runs behind them at all and are already routed off.
 
 Nothing here says the library is wrong. The CLI evidence says the opposite. It says the
 delivery mechanism for `api-agent` is a pointer nobody follows, and that is fixable.
@@ -528,40 +535,84 @@ its battery, its n and its date.
 
 ## 9. Known open
 
-* **`api-agent` has no skill affordance, and does not read them.** 0 of 5, ground truth,
-  §6. It has `read_cookbook` as a tool and skills only as a line of markdown. Until that
-  changes, the switch is a no-op for the backend the whole bench runs on.
-* **Corpus percentages are checked for provenance, not recomputed.** A body's "47 graded
-  blender runs" is a *slice* (one battery, one track, one round kind) and `bench/out` holds
-  139 blender runs overall; without each claim declaring the query that produced it, a
-  tight recomputation compares two different populations. The fix is to declare corpus
-  queries the way `_claims/*.toml` declares constants. What is enforced today: a claim may
-  not exceed what `bench/out` holds, `measured` needs n ≥ 20, and every rate names its
-  battery / n / date.
+Updated 2026-08-25 (curate wave). Items the three measurement waves **closed** are marked
+so; the rest are live.
+
+### Closed this wave
+
+* ~~**The scene track never delivered its skills.**~~ **FIXED.** `SceneTrack.prepare()`
+  generated the whole baseline (`_env_stage`, `_zones_stage`, `_assemble_stage`) without ever
+  reaching `skills_hook.attach_for_round`, which lived only in `steps.run_round`; and
+  `baseline_tasks` returned `[]`, so round 0 listed four bundles to a session that did not
+  exist. Measured at **0 opens / 30 listings**. The three stages now attach and record with
+  their own kind. `tests/skills/test_delivery_reaches_the_session.py` holds every
+  agent-driving module to the hook. **The scene bundles' read rate against working delivery
+  is UNMEASURED — that is the next wave's first experiment.**
+* ~~**`api-agent` has no skill affordance.**~~ **FIXED earlier**, and re-measured here: with
+  `read_skill` it opens **58%** of listed bundles (51/88) across sessions that are offered
+  the tool, against 0/5 before the tool existed.
+* ~~**The A/B rig scored four of seven languages 0.0.**~~ **FIXED.**
+  `compare_backends._run_harness` gated on `src/model.py`, so a glsl/threejs/scene/opengl run
+  that finished successfully was recorded `no_code`. Both arms scored 0.0 and the rig would
+  have reported "no effect" for a switch it never tested.
+
+### Live
+
+* **The mean-count readout is the wrong statistic, and it is what everything was measured
+  on.** Target metrics are spiky (38–83% of runs at 0). `P(run has ≥1 contract finding)` is
+  63% and halving *that* needs ~24 pairs; halving the *mean* needs ~449. **Converting the
+  readout to a hit rate is the single highest-value cheap change available** and it is what
+  makes any effect A/B affordable. Not done.
+* **Pinning the plan does not collapse the gate-metric noise.** Verified in production (one
+  planner call per pair, both arms cache-HIT), and it is still cheaper than not pinning — but
+  `contract_findings` regressed on `n_parts` gives R² = 0.103, and a pinned A/A pair scored
+  0.450 vs 0.654 on identical arms. The spread is *generation* noise at fixed plan size.
+  Do not budget an A/B on the assumption that pinning buys power.
+* **`shader_preflight` is not a gate.** `check_shaders` is an agent-invocable tool, never a
+  pipeline step, so it reaches no `record.json`. `cv3d-threejs-shader-traps` is therefore
+  **not instrumented**, which is a stronger statement than "always clean". Merge it into
+  `rounds[].gates` before spending anything on that bundle.
+* **`bench/_fixed_eval.FixedEvaluator` is blender-only.** It pins `get_runtime(BLENDER)` and
+  runs only lint and connectivity — never contract, joint_sweep, scene_frames or gl_frames.
+  The *judged* column of any non-blender A/B is meaningless. The primary readout is safe:
+  `bench/skill_targets.py` reads each arm's own harness record.
+* **`telemetry.record_exact_read` is wired to `read_file` only** (`agents/api_agent.py`), so
+  `read_skill` never reaches `skill_reads.jsonl`. One line in `SkillTools.read_skill` makes
+  `3dcv skills report` truthful for api-agent without depending on atime at all.
+* **The atime probe is blind in any git workspace, and its control proves it.** The control
+  bundle came back "opened" in 27 of 33 sessions; the only 6 sessions where it stayed clean
+  were the 6 scene sessions, where nothing was delivered. So the shipped report is honest
+  only where there was nothing to see. Use trajectory `read_skill` calls as ground truth.
+* **CLI backends' read rate is UNMEASURED — not 5/5.** `claude_code.py` uses
+  `--output-format json`, which returns only the final result and no tool stream; the logs
+  contain zero occurrences of any `cv3d-` name. Switching to `--output-format stream-json`
+  would give the CLI arm the same exact ground truth api-agent has. The earlier "5 of 5"
+  claim rested on the atime probe and should not be repeated.
+* **`codex` can drop a round from the denominator.** It emitted `skills.attached` with no
+  `skills.read` and no `skills.jsonl` row, so an attached round can silently vanish from
+  `3dcv skills report`.
+* **Read rate confounds with routed-set size.** Every 1-skill session (glsl, opengl) read its
+  bundle 4/4 while 5-skill object sessions averaged ~55%. Any wording A/B must hold the
+  routed set size fixed or it measures the cap, not the copy.
 * **The wider prompt corpus still contradicts the connectivity gate on weld overlap.**
   `contract.md` was fixed for all three languages, but `tracks/generate_static.j2`
-  ("overlap neighbours by ≥ 0.002 m (push a leg 2-5 mm into the seat)"),
-  `tracks/assemble_static.j2`, `generate_static_part.j2`, `system/harness_contract.md`
-  ("seams overlap by ≥ 2 mm") and three cookbooks still teach 2–5 mm, which is at or above
-  `PENETRATION_WARN_M`. That is a prompt-corpus change with its own measurement, not a
-  skills change, and it is the single most likely reason a contact skill would fail to move
-  the number it targets. **Do this before re-running the A/B.**
-* **`ENV_RECIPES` / `ZONE_RECIPES` inlining in `tracks/scene.py` is untouched.** It is the
-  control arm for the scene track's version of this question — up to 6,000 unconditional
-  tokens per env/zone session — and has not been A/B'd against a routed skill.
-* **api-agent read calibration is unmeasured.** Signal 3 (exact reads) exists and is unit
-  tested, but no real battery has yet produced a session where it can be compared against
-  the atime probe's answer. That comparison is now the only route to a *quantified* read
-  rate: the control (§1) can say when the atime probe is blind, but only api-agent's own
-  `read_file` log can say what was actually read when it is.
-* **The atime probe is blind in any git workspace.** `Workspace.changed_files` trips the
-  control on every real run, so until either that call stops reading file contents (`git
-  diff --numstat --no-index` on a copy, or `git status --porcelain` plus mtimes) or the
-  probe is sampled *before* it, the reported rate for the CLI backends will be "blind" in
-  every session. The control makes that visible instead of silent; it does not fix it.
-* **`cadquery` and `threejs` bundles are routed off.** They stay off until each language
-  reaches 20 graded runs.
-* **Router PRECISION is not reported.** The read rate says how often a listed skill was
-  read; nothing yet says how often a skill was read whose defect class never fired in that
-  run. That number decides whether the cap of 5 is too generous, and it needs a battery
-  with `CV3D_SKILLS=on` and gate reports on both sides to compute.
+  ("overlap neighbours by ≥ 0.002 m"), `tracks/assemble_static.j2`,
+  `generate_static_part.j2`, `system/harness_contract.md` ("seams overlap by ≥ 2 mm") and
+  three cookbooks still teach 2–5 mm, at or above `PENETRATION_WARN_M`. **This is the single
+  most likely reason `cv3d-part-contact` would fail to move the number it targets, and it is
+  a prompt-corpus change with its own measurement. Do it before re-running that A/B.**
+* **`ENV_RECIPES` / `ZONE_RECIPES` inlining in `tracks/scene.py` is untouched** — up to 6,000
+  unconditional tokens per env/zone session, never A/B'd against a routed skill. Now that the
+  scene stages deliver skills, this is the obvious comparison.
+* **Corpus percentages are checked for provenance, not recomputed.** A body's "47 graded
+  blender runs" is a *slice*; without each claim declaring its query, a tight recomputation
+  compares two different populations. Enforced today: a claim may not exceed what `bench/out`
+  holds, `measured` needs n ≥ 20, every rate names its battery / n / date.
+* **`cadquery` and `threejs` bundles are routed off** until each language reaches 20 graded
+  runs. As of this wave: cadquery **4**, threejs **3**.
+* **Router PRECISION is not reported.** The read rate says how often a listed skill was read;
+  nothing says how often a skill was read whose defect class never fired in that run. That
+  number decides whether the cap of 5 is too generous.
+* **`scene_frames/content_*` has no classified kind**, so frame coverage — half of what
+  `cv3d-scene-composition` teaches — neither routes nor counts. Adding a kind widens routing,
+  which is an effect claim and needs its own evidence.

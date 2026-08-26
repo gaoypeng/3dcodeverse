@@ -67,12 +67,32 @@ def test_finding_kinds_accepts_reports_findings_and_strings():
 
 
 # --------------------------------------------------------------------------- the table
+#: route ids deliberately absent, and why.  A retired id is NEVER reused: a run record and
+#: a ledger row both refer to a routing decision by its id, so recycling R5 would silently
+#: relabel every historical "R5 fired" as a different skill.
+RETIRED_RULES = {"R5": "cv3d-form-manifest, cut 2026-08-25 (read 2/19); docs/skills-attic/"}
+
+
 def test_rule_ids_are_unique_and_the_design_numbers_are_all_present():
     ids = [r.rule for r in ROUTES]
     assert len(ids) == len(set(ids))
+    assert not (set(ids) & set(RETIRED_RULES)), (
+        f"a retired route id is back in the table: {set(ids) & set(RETIRED_RULES)}")
     for n in range(1, 24):
+        if f"R{n}" in RETIRED_RULES:
+            continue
         assert any(r.rule == f"R{n}" for r in ROUTES), f"R{n} is missing from the table"
     assert [r for r in ROUTES if r.rule.startswith("R24")], "R24 (the graphics gate row) is missing"
+
+
+def test_every_routed_skill_is_actually_in_the_library():
+    """The cut's real invariant: retiring a bundle must retire its rows in the same commit.
+
+    A route naming an absent bundle is silently skipped by the router, so this would not
+    crash a run — it would just make the ledger describe routing that never happens."""
+    from codeverse.skills import all_skills
+
+    assert not (set(r.skill for r in ROUTES) - set(all_skills()))
 
 
 def test_gate_fired_rows_always_outrank_standing_rows():

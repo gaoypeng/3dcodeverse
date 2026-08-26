@@ -1,3 +1,46 @@
+<!--
+RETIRED 2026-08-25 (curate wave).  Not loaded; kept for the record.
+
+WHY IT WAS CUT — read rate, not prose quality.
+  api-agent `read_skill` ground truth, both arms of the description A/B:
+    baseline   1 open / 10 listings
+    revised    1 open /  9 listings   (first sentence rewritten to lead with the trigger)
+    pooled     2 opens / 19 listings = 11%, 95% CI [3%, 31%]
+  That interval excludes every other bundle's.  The next-lowest, cv3d-repeats-and-mirrors,
+  pooled 3/8 = 38%; the most-listed bundle, cv3d-bbox-contract, pooled 13/19 = 68%.
+  It was listed in 19 of the 27 sessions that were actually offered the read tool — more
+  than any bundle except bbox-contract — and cost ~1,917 body tokens plus an index line
+  every one of those times.
+
+  The standing rule is: a bundle that is unread AFTER a revision is cut.  It was revised
+  once, deliberately, on the cut that api-agent actually sees (`prompting.index_summary`
+  takes the first sentence; `api_skills.SPEC_SUMMARY_CHARS` takes the first 150 chars),
+  and it did not move.
+
+  Plausible mechanism, recorded so the next attempt does not repeat it: the bundle asks
+  the agent to do planning work BEFORE the geometry it was just told to write.  That is
+  the one instruction an eager coder skips, and no wording makes it cheaper to accept.
+
+WHAT ITS TARGET METRIC SAID — a second, independent reason.
+  target: feature_density (spatial/complexity, recomputed from object.glb), direction UP
+  corpus baseline: 2561.7 median / 8564.4 mean, n=175 graded object runs (2026-08-25)
+  A/A floor on identical arms: delta +3904.7 (2095.7 -> 6000.5, a 2.9x swing),
+    paired sd 3057.6, 2 SE +/-3530.6 — a noise band 1.4x the corpus median it measures.
+  the one skills-on datapoint moved it the WRONG WAY: -1001.8 (direction is up).
+  n needed to resolve a 25% move: ~92 paired prompts.
+  And the metric is only a LEADING indicator: r = +0.19 against the judged
+  geometry_detail (docs/COMPLEXITY.md 2.2, n=44).  It was on ledger probation for that.
+
+WHAT WOULD BRING IT BACK.
+  Either a read channel that makes pre-geometry planning cheap for an agent to accept, or
+  evidence that feature_density tracks geometry_detail well enough to be worth 1,917
+  tokens a session.  Neither is a rewrite of the text below, which is why the text below
+  is unchanged.
+
+Its FORM vocabulary outlived it: cv3d-blender-forms and cv3d-threejs-forms still key
+their technique tables on the same words, and those tables are self-contained.
+-->
+
 ---
 name: cv3d-form-manifest
 description: "Use before calling any geometry API on a baseline, part, detail or rebuild session: name every shape, its dimensions and placement in FORM words. For the static_object and articulated_object tracks - whenever you are about to write geometry for a part you have not built yet. Turns the ENGINEERING BRIEF and the plan's part rows into a written element list the language skill's table then implements one line at a time, each with one countable refinement. Skip it on a repair round: a repair is not re-planning."
