@@ -204,6 +204,14 @@ undefined`, four prompts recorded `error` at 0 min.  Rule: every new template va
 guarded `{% if name is defined and name %}` for at least one wave, and the "Landing source
 changes while a wave is running" rule covers `codeverse/prompts/**` as well as moved names.
 
+### 7.u `bench run --redo-status` starts the redo fresh (since c828637)
+
+Before it, a redo resumed the old workspace — old `spec.json` (the old `max_minutes`) and the
+old clock — so a `budget` row redone with `--max-minutes 120` was over budget before its first
+round (clock_q4, lighthouse_1: `budget`, 0 rounds, "60.3 / 76.7 min elapsed").  Now the old
+tree is archived as `runs/<id>.attempt<N>` and the prompt runs from scratch with the new
+options, the way `ab_plan` has done since the skills wave.
+
 ### 7.w One driver per out dir — a second `bench run` re-runs what the first is still running
 
 Measured 2026-08-26 (refs_v1_graphics): a redo driver (`--redo-status budget`) started while the
