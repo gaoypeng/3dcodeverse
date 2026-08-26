@@ -37,7 +37,13 @@ from codeverse.tracks.graphics_steps import (
 )
 from codeverse.tracks.graphics_steps import plan_example as graphics_plan_example
 from codeverse.tracks.lifecycle import BaseTrack
-from codeverse.tracks.prompting import current_files, judge_digest, skeleton_files
+from codeverse.tracks.prompting import (
+    current_files,
+    judge_digest,
+    judged_sheet,
+    reference_images,
+    skeleton_files,
+)
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -111,7 +117,7 @@ class GraphicsTrack(BaseTrack):
             ctx, skeleton_files=skeleton_files(ctx) if ctx.single_shot else {}, previous_error=""))
         ctx.record_prompt("generate", prompt)
         return [GenerationTask(label="baseline", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=0,
-                               kind="baseline", temperature=0.6, thinking="medium")]
+                               kind="baseline", temperature=0.6, thinking="medium", images=reference_images(ctx))]
 
     def round_files_hint(self, ctx: RunContext) -> list[str]:
         return graphics_expected_files(ctx)
@@ -128,4 +134,5 @@ class GraphicsTrack(BaseTrack):
             current_files=current_files(ctx, files) if ctx.single_shot else {}))
         ctx.record_prompt("refine", prompt)
         return GenerationTask(label="refine", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
-                              kind="refine", temperature=0.5, thinking="medium")
+                              kind="refine", temperature=0.5, thinking="medium",
+                              images=reference_images(ctx) + judged_sheet(last))

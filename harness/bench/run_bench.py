@@ -37,7 +37,7 @@ from bench._jsonl import read_jsonl, seal_for_append
 from codeverse.config import get_settings
 from codeverse.contracts.common import Backends, Budget, Language, Track
 from codeverse.contracts.run import RunRecord
-from codeverse.contracts.spec import Constraints, Spec
+from codeverse.contracts.spec import Constraints, ReferenceImage, Spec
 from codeverse.cost import run_ledger
 from codeverse.workspace import Workspace
 
@@ -56,6 +56,9 @@ class BenchPrompt(BaseModel):
     language: Language | None = Field(
         default=None, description="per-prompt override of the battery language "
         "(e.g. the opengl_python rows of a glsl_shader battery)")
+    references: list[str] = Field(
+        default_factory=list,
+        description="reference image paths (relative to the battery file); bench/refs/<id>/*.png|jpg are added automatically")
 
 
 class Battery(BaseModel):
@@ -64,11 +67,12 @@ class Battery(BaseModel):
     language: Language
     description: str = ""
     prompts: list[BenchPrompt] = Field(min_length=1)
+    source_dir: Path | None = Field(default=None, exclude=True, description="directory of the yaml this battery was loaded from")
 
     @classmethod
     def load(cls, path: Path | str) -> Battery:
         data = yaml.safe_load(Path(path).read_text())
-        return cls.model_validate(data)
+        return cls.model_validate(data).model_copy(update={"source_dir": Path(path).resolve().parent})
 
 
 class BenchItemResult(BaseModel):
@@ -108,6 +112,38 @@ class BenchOptions(BaseModel):
                                                "(the point of `infra_failed`: retry what the weather lost)")
 
 
+REFS_DIR = Path(__file__).resolve().parent / "refs"
+REF_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def discover_references(item: BenchPrompt, track: Track, *, battery_dir: Path | None = None, refs_dir: Path = REFS_DIR) -> list[ReferenceImage]:
+    """The prompt's reference images: its explicit ``references`` plus ``bench/refs/<id>/*``.
+
+    One folder per prompt id, maintained by hand (photos of the real thing), so an A/B of
+    "with references" against "without" is the same battery with the folder present or
+    absent — nothing else changes.  Object tracks get role ``target`` for the first image
+    and ``detail`` for the rest (the silhouette judge matches the target); graphics and
+    scene get ``likeness`` (what the real thing looks like — LikenessJudge, no silhouette).
+    The note is the file stem with underscores as spaces, so a name like
+    ``aurora_green_spiral_sea.png`` tells the agent what it is looking at.
+    """
+    paths: list[Path] = []
+    base = battery_dir or Path.cwd()
+    for rel in item.references:
+        p = Path(rel) if Path(rel).is_absolute() else base / rel
+        if p.is_file():
+            paths.append(p.resolve())
+    folder = refs_dir / item.id
+    if folder.is_dir():
+        paths.extend(sorted(p.resolve() for p in folder.iterdir() if p.suffix.lower() in REF_SUFFIXES and p.is_file()))
+    likeness = track in (Track.GRAPHICS, Track.SCENE)
+    out: list[ReferenceImage] = []
+    for i, p in enumerate(paths):
+        role = "likeness" if likeness else ("target" if i == 0 else "detail")
+        out.append(ReferenceImage(path=str(p), role=role, note=p.stem.replace("_", " ")))
+    return out
+
+
 def build_spec(
     battery: Battery, item: BenchPrompt, *, backends: Backends, rounds: int, max_usd: float,
     max_minutes: float, tag0: str, extra_tags: Sequence[str] = (),
@@ -117,6 +153,7 @@ def build_spec(
     return Spec(
         id=f"{battery.name}/{item.id}", track=battery.track, language=item.language or battery.language, prompt=item.prompt,
         constraints=Constraints(must_have=list(item.must_have), dimensions_m=item.dimensions_m),
+        references=discover_references(item, battery.track, battery_dir=battery.source_dir),
         budget=Budget(max_rounds=rounds, max_usd=max_usd, max_minutes=max_minutes),
         backends=backends, tags=[tag0, battery.name, item.tier, item.category, *extra_tags, *item.tags],
     )

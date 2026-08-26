@@ -383,11 +383,13 @@ class BaseTrack:
         return n
 
     def make_judge(self, ctx: RunContext, *, n_samples: int | None = None) -> Any:
-        """The main judge: injected → reference judge when the spec has images → rubric VLM judge."""
+        """The main judge: injected → reference / likeness judge when the spec has images → rubric VLM judge."""
         if self._judge is not None:
             return self._judge
         n_samples = ctx.policy.judge_samples if n_samples is None else n_samples
         if ctx.spec.references:
+            if ctx.track in (Track.GRAPHICS, Track.SCENE):  # nothing to silhouette-match: likeness only
+                return self.services.likeness_judge(ctx.spec.backends.judge, n_samples=n_samples, rubric=ctx.rubric)
             return self.services.reference_judge(ctx.spec.backends.judge, n_samples=n_samples, rubric=ctx.rubric)
         return self.services.judge(ctx.rubric, ctx.spec.backends.judge, n_samples=n_samples)
 

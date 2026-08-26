@@ -56,6 +56,7 @@ from codeverse.tracks.prompting import (
     current_files,
     file_for_target_factory,
     judge_digest,
+    reference_images,
 )
 from codeverse.tracks.repair import format_error_report
 from codeverse.tracks.scene_asset_gen import select_assets, single_shot_ctx
@@ -250,7 +251,8 @@ class SceneTrack(BaseTrack):
         prompt = render("tracks/scene_env.j2", **self._ctx(gen, recipes=cookbook_sections(gen, ENV_RECIPES)))
         ctx.record_prompt("scene_env", prompt)
         task = GenerationTask(label="env", prompt=prompt, system=self.system_prompt(ctx), files_hint=["src/env.js"], round=0, kind="env",
-                              temperature=0.5, timeout_s=ctx.budget.timeout_s(ENV_TIMEOUT_S, floor_s=120))
+                              temperature=0.5, timeout_s=ctx.budget.timeout_s(ENV_TIMEOUT_S, floor_s=120),
+                              images=reference_images(ctx))
         task = self._deliver_skills(gen, "env", [task])[0]
         res = generate(ctx.ws, agent_id=gen.agent_id, task=task, agent=gen.agent, model=gen.model, settings=ctx.settings,
                        budget=ctx.budget, events=ctx.events)
@@ -343,7 +345,7 @@ class SceneTrack(BaseTrack):
         prompt = render("tracks/scene_compose.j2", **self._ctx(ctx))
         ctx.record_prompt("scene_compose", prompt)
         task = GenerationTask(label="compose", prompt=prompt, system=self.system_prompt(ctx), files_hint=["src/scene.js"], round=0,
-                              kind="compose", temperature=0.4)
+                              kind="compose", temperature=0.4, images=reference_images(ctx))
         task = self._deliver_skills(ctx, "compose", [task])[0]
         res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
                        budget=ctx.budget, events=ctx.events)

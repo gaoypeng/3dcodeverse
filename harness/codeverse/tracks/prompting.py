@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from codeverse.contracts.chat import ImagePart
-from codeverse.contracts.common import Language
+from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import LANGUAGE_FRAME, Frame, frame_doc, to_snake
@@ -275,11 +275,37 @@ def judged_sheet(last: Any) -> list[ImagePart]:
     ]
 
 
+def _likeness_note(ctx: RunContext, refs: list[Any]) -> str:
+    """Graphics / scene: the photos say what the REAL thing looks like, not what to compose.
+
+    The object-track note asks for a silhouette match and an IoU tool; a shader has no
+    silhouette.  What an aurora / a harbour / a nebula needs from a photo is its physics —
+    dominant colour, how the structure folds and thins, where the light sits, how much of
+    the frame stays dark — and the judge sees the same photos beside the frames.
+    """
+    lines = [
+        f"REFERENCE PHOTOS ({len(refs)}) of the REAL thing are attached.  They are not a composition to copy; "
+        "they show what the brief's subject actually looks like: its dominant colour and where the secondary "
+        "colours sit, how its structure folds / layers / thins out, where the brightness concentrates and how "
+        "much of the frame stays dark, its texture at fine scale.  Match THAT — it outranks the brief's "
+        "adjectives when the two disagree, and the judge scores your frames beside the same photos.  A row of "
+        "evenly spaced bars is not a curtain; a flat band is not a glow; cartoon saturation is not a night sky.  "
+        "Take the physics from the photo, not the postcard: foreground, framing and landscape stay as the brief says."
+    ]
+    for i, r in enumerate(refs, 1):
+        lines.append(f"- reference {i}: `{r.path}`" + (f" — {r.note}" if r.note else ""))
+    lines.append("The photos are attached to this message." if ctx.single_shot else
+                 "The photos are attached to your first message; look at them again before every `gl_frames` / `scene_views` comparison.")
+    return "\n".join(lines)
+
+
 def reference_note(ctx: RunContext) -> str:
     """Prompt paragraph telling the generator how to use the reference images (empty when none)."""
     refs = [r for r in ctx.spec.references if Path(r.path).is_file()]
     if not refs:
         return ""
+    if ctx.track in (Track.GRAPHICS, Track.SCENE):
+        return _likeness_note(ctx, refs)
     lines = [
         f"REFERENCE IMAGES ({len(refs)}): match their silhouette, proportions and visible details — they "
         "outrank the text when the two disagree.  A harness measures the front-view outline IoU against the "

@@ -310,5 +310,49 @@ def _plan_part_names(inp: JudgeInput) -> list[str]:
     return seen[:40]
 
 
+
+LIKENESS_NOTE = (
+    "REAL-WORLD REFERENCE PHOTOS are attached (labelled REAL-WORLD REFERENCE n/N).  They are not a "
+    "composition to copy; they are what the thing the brief names ACTUALLY looks like.  Score "
+    "brief fidelity, colour/light and richness against them: dominant colour and where the "
+    "secondary colours sit, how the structure folds / layers / thins out, where the brightness "
+    "concentrates and how much of the frame stays dark, what the real texture is at fine scale.  A "
+    "frame that ticks every noun in the brief but would never be mistaken for the photographed "
+    "thing (a row of evenly spaced bars standing in for curtains, a flat band standing in for a "
+    "gradient of light, cartoon-saturated colour where the photo is subtle) is a 0.4-0.5 on brief "
+    "fidelity, not a 1.0.  Foreground, framing and landscape in the photos are incidental unless "
+    "the brief asks for them."
+)
+
+
+class LikenessJudge(VlmJudge):
+    """``VlmJudge`` + the reference photos of the REAL thing — for tracks with no silhouette.
+
+    ``ReferenceJudge`` is built for objects: it measures a front-view silhouette IoU against
+    the target photo and runs a part-inventory mismatch pass.  Neither means anything for a
+    fragment shader or a scene, where a reference photo answers a different question — does
+    this LOOK like the thing?  Measured 2026-08-26 (teaser aurora, three versions, flash and
+    codex): every version scored 0.78-0.94 with an empty issues list while none resembled an
+    aurora (a comb of straight teal bars; pink cotton-wool lobes), because the brief is a
+    checklist of nouns and the rubric had nothing to say about likeness.  This judge attaches
+    up to three photos beside the frames with :data:`LIKENESS_NOTE` and leaves the rubric alone.
+    """
+
+    name = "likeness"
+
+    def __init__(self, model_id: str | None = None, n_samples: int = 1, temperature: float = 0.2, *,
+                 rubric: str | Rubric = "shader_v1", max_refs: int = 3, **kwargs: Any):
+        super().__init__(rubric, model_id, n_samples, temperature, **kwargs)
+        self.max_refs = max(1, int(max_refs))
+
+    def context(self, inp: JudgeInput) -> JudgeContext:
+        if self.rubric.measured_criteria():
+            raise ValueError(f"rubric {self.rubric.name} has measured criteria; LikenessJudge measures nothing")
+        refs = [r for r in inp.spec.references if Path(r.path).is_file()][: self.max_refs]
+        images = [(f"REAL-WORLD REFERENCE {i}/{len(refs)}" + (f" — {r.note}" if r.note else ""), r.path)
+                  for i, r in enumerate(refs, 1)]
+        return JudgeContext(extra_text=LIKENESS_NOTE if refs else "", extra_images=images)
+
+
 class ReferenceJudgeError(RuntimeError):
     """The reference judge cannot compute its measured criteria."""

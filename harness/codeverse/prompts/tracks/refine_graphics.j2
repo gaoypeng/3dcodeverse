@@ -13,6 +13,9 @@ Files in scope: {% for f in files %}`{{ f }}`{% if not loop.last %}, {% endif %}
 
 ## What the judge saw
 {{ judge_summary }}
+{% if reference_note %}
+{{ reference_note }}
+{% endif %}
 
 ## Frame metrics measured by the harness (t = {{ judge_times }})
 {{ frame_notes }}
