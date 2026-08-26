@@ -90,11 +90,33 @@ luminance **>= 0.15** so you are not sitting on the threshold. If the frame is b
 instead: key <= 3, hemisphere <= 1.0, sky below 0.9 white, `emissiveIntensity` <= 4 on
 large surfaces.
 
-Do **not** carry that ">= 0.15" over to a scene lit from its PRACTICALS. There the target
-is contrast, not average: `lum_std` **>= 0.12** with the lit areas reading clearly, mean
-luminance wherever it lands (0.06-0.15 is normal and fine), one dim moon/sky key at
-**<= 0.2** if you want shape in the shadows, and no AmbientLight or HemisphereLight at
-all. Chasing the 0.15 average in a night scene is exactly how you get a grey wash.
+For a scene lit from its PRACTICALS the target is contrast, not average — but it is a
+BAND, not a floor you can fall through. Aim at `lum_std` **>= 0.12** with mean luminance
+**0.15-0.28** and under 10 % pure black on every authored camera. One dim moon/sky key at
+**<= 0.2** for shape in the shadows, at most one low ambient **0.06-0.12**, and no
+HemisphereLight and no second DirectionalLight.
+
+Both ends of that band are measured failures, one week apart in the same wave:
+* Over the top: chasing the sky-lit ">= 0.15 mean" in a lantern-lit courtyard produced a
+  flat grey wash whose granite paving read as snow and whose working water shader was
+  invisible.
+* Through the floor: "remove the AmbientLight and the HemisphereLight" applied on its own
+  to a neon alley produced mean luminance **0.001-0.022** and an 89 % black frame. The
+  reason is the rule three bullets up — **emissive illuminates nothing**. A glowing sign
+  with no PointLight beside it lights the frame exactly as much as an unlit one does.
+
+One run managed both ends at once, which is the clearest sign that "darker" is not the
+instruction: in the same temple scene, the CenserDetail frame was a near-black silhouette
+where only the censer's glowing interior was legible, while the overview cameras looked
+across a pale washed-out ground plane. Under-lit where it was art-directed, over-lit where
+it was not. Check the band on EVERY camera, including the harness rig views nobody wrote
+a shot for — that is where a scene quietly keeps the failure you thought you had fixed.
+
+So removing fill is only half the instruction and is destructive alone. Every lantern,
+lamp, sign, window or fire needs its OWN `PointLight` next to its emissive surface —
+`decay: 2`, `distance` 12-18 m, `intensity` 6-14, and enough of them (10-16 in a courtyard
+or a street) that the lit pools overlap into a readable picture. The practicals are the
+lighting rig; the emissive is only what the fixture looks like.
 
 For a flat frame, add contrast rather than light: a shadow-casting key, materials with
 genuinely different albedos, and a camera aimed at content rather than at sky.
