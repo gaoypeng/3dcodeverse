@@ -186,7 +186,8 @@ codeverse/
                       server.py (stdlib http.server, loopback-only), static_site.py, theme.py, scripts.py
   prompts/            system/*, <lang>/{contract,cookbook}.md (incl. glsl_shader/, opengl_python/),
                       texturing/*.md, tracks/*.j2 (incl. plan/generate/refine_graphics.j2)
-  cli/                main.py, tools_cmd.py, flywheel_cmd.py, gallery_cmd.py, bench_cmd.py,
+  cli/                main.py (app wiring, make/resume/mcp), inspect_cmd.py (status/render/judge
+                      on one existing run), tools_cmd.py, flywheel_cmd.py, gallery_cmd.py, bench_cmd.py,
                       texture_cmd.py, cost_cmd.py (`3dcv cost`), layout_cmd.py, doctor.py
                       (`--skills` checks the library + its discovery wiring),
                       skills_cmd.py (`3dcv skills list|show|validate|report` — the read-rate report)
