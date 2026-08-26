@@ -65,7 +65,7 @@ class Services:
         """Image-conditioned judge (spec has reference images): renders + references + silhouette IoU."""
         return _import("codeverse.judges.reference", "ReferenceJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
 
-    def likeness_judge(self, model_id: str, n_samples: int = 1, rubric: str = "shader_v1") -> Any:
+    def likeness_judge(self, model_id: str, n_samples: int = 1, rubric: str = "shader_v2") -> Any:
         """Reference photos beside the frames, no silhouette (graphics / scene with images)."""
         return _import("codeverse.judges.reference", "LikenessJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
 

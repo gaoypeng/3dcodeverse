@@ -27,7 +27,7 @@ def test_track_info_covers_every_track_and_is_frozen():
     assert TRACK_INFO[Track.STATIC_OBJECT].rubric == "static_object_v1"
     assert TRACK_INFO[Track.ARTICULATED_OBJECT].rubric == "articulated_v1"
     assert TRACK_INFO[Track.SCENE].rubric == "scene_v1"
-    assert TRACK_INFO[Track.GRAPHICS].rubric == "shader_v1"
+    assert TRACK_INFO[Track.GRAPHICS].rubric == "shader_v2"
     with pytest.raises(ValidationError):
         TRACK_INFO[Track.SCENE].rubric = "other"  # frozen
 

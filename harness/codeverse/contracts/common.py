@@ -58,7 +58,7 @@ TRACK_INFO: dict[Track, TrackInfo] = {
     Track.STATIC_OBJECT: TrackInfo(rubric="static_object_v1", label="3D Objects"),
     Track.ARTICULATED_OBJECT: TrackInfo(rubric="articulated_v1", label="Articulated Objects"),
     Track.SCENE: TrackInfo(rubric="scene_v1", label="3D Scenes"),
-    Track.GRAPHICS: TrackInfo(rubric="shader_v1", label="Procedural Graphics"),
+    Track.GRAPHICS: TrackInfo(rubric="shader_v2", label="Procedural Graphics"),
 }
 
 #: entry file inside the workspace per language — the file a build starts from.

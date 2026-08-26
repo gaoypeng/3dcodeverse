@@ -5,7 +5,7 @@ moderngl program).  Reuses ``BaseTrack`` (lifecycle) and ``run_round`` (steps)
 unchanged; the track-specific pieces are the planner hooks (template / example /
 acceptance in ``graphics_steps``), the prompt context (no 3D frame), the
 ``gl_frames`` gate (frame statistics from the build) and the render step (the
-sampled frames + contact sheet as the RenderSet the ``shader_v1`` judge sees).
+sampled frames + contact sheet as the RenderSet the ``shader_v2`` judge sees).
 Refinement is always one whole-program task.
 """
 

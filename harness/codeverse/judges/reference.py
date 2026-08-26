@@ -341,7 +341,7 @@ class LikenessJudge(VlmJudge):
     name = "likeness"
 
     def __init__(self, model_id: str | None = None, n_samples: int = 1, temperature: float = 0.2, *,
-                 rubric: str | Rubric = "shader_v1", max_refs: int = 3, **kwargs: Any):
+                 rubric: str | Rubric = "shader_v2", max_refs: int = 3, **kwargs: Any):
         super().__init__(rubric, model_id, n_samples, temperature, **kwargs)
         self.max_refs = max(1, int(max_refs))
 

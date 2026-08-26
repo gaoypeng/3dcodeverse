@@ -119,7 +119,7 @@ def test_graphics_track_end_to_end(tmp_path, settings):
     rec = track.run(spec, ws)
     assert rec.status is RunStatus.PASSED and [r.kind for r in rec.rounds] == ["baseline", "refine", "refine"]
     assert rec.baseline_score == pytest.approx(0.55) and rec.final_score == pytest.approx(0.9) and rec.best_round == 2
-    assert rec.extra["rubric"] == "shader_v1"
+    assert rec.extra["rubric"] == "shader_v2"
     plan = GraphicsPlan.model_validate(json.loads(ws.plan_path.read_text()))
     assert any(a.text.startswith("Includes: bokeh") for a in plan.acceptance)
     # renders are the frames (views named t=<s>s) + a sheet, per round
@@ -211,8 +211,8 @@ def test_planner_reask_and_acceptance(tmp_ws):
 
 
 def test_templates_render_and_rubric_loads(tmp_path, settings):
-    rubric = load_rubric("shader_v1")
-    assert rubric.track_hint == "graphics" and {c.id for c in rubric.criteria} >= {"brief_fidelity", "motion_quality", "technical_cleanliness"}
+    rubric = load_rubric("shader_v2")
+    assert rubric.track_hint == "graphics" and {c.id for c in rubric.criteria} >= {"likeness", "motion_quality", "technical_cleanliness"}
     assert {c.id for c in rubric.caps} >= {"nan_pixels", "static_frames", "black_or_blown", "build_error"}
     spec = make_spec(language=Language.OPENGL_PYTHON, generator="single-shot:fake:fake-model")
     ws = Workspace(tmp_path / "runs" / "tpl").create()

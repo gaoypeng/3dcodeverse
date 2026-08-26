@@ -174,14 +174,14 @@ def test_judge_rubric_map_includes_graphics():
     from codeverse.contracts.common import TRACK_INFO, Track
     from codeverse.contracts.run import RoundRecord
 
-    assert TRACK_INFO[Track.GRAPHICS].rubric == "shader_v1"
+    assert TRACK_INFO[Track.GRAPHICS].rubric == "shader_v2"
 
     class _R:  # minimal record stub
         class spec:
             track = Track.GRAPHICS
 
     rnd = RoundRecord(index=0, kind="baseline")
-    assert rubric_for(_R, rnd, None) == "shader_v1"
+    assert rubric_for(_R, rnd, None) == "shader_v2"
     assert rubric_for(_R, rnd, "asset_v1") == "asset_v1"
 
 
@@ -201,7 +201,7 @@ def test_calibration_rubric_map_includes_graphics(tmp_path: Path):
     renders = RenderSet(views=[RenderView(name="frame_0", path=str(run / "artifacts" / "renders" / "r00" / "frame_0.png"))],
                         renderer="fake")
     (run / "rounds" / "r00.json").write_text(RoundRecord(index=0, kind="baseline", renders=renders).model_dump_json())
-    assert [c.rubric for c in load_run_cases(run)] == ["shader_v1"]
+    assert [c.rubric for c in load_run_cases(run)] == ["shader_v2"]
 
 
 # --------------------------------------------------------------------------- make --texture / status extras / render graphics
