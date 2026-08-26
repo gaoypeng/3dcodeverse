@@ -32,17 +32,16 @@ from codeverse.agents.cli_common import (
     failed,
     finish_session,
     hardened_env,
+    invoke,
     tail,
+    watchdog_error,
 )
-from codeverse.agents.watchdog import run_with_watchdog
 from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Usage
 from codeverse.proc import run_subprocess
 
 log = logging.getLogger(__name__)
-
-IDLE_GRACE_S = 300.0
 
 #: reasoning efforts agy exposes for the models that have them
 EFFORTS = ("low", "medium", "high")
@@ -161,15 +160,7 @@ class AntigravityAgent:
         if not ok:
             return failed(s, "error", why)
         prompt = deliver_prompt(s, _compose_prompt(s))
-        argv = self.build_argv(s, prompt)
-        s.traj.append("invoke", argv=[a if a != prompt else f"<prompt {len(prompt)} chars>" for a in argv])
-        proc = run_with_watchdog(
-            argv, cwd=s.ws.root, env=self.build_env(s), soft_timeout_s=job.timeout_s, idle_grace_s=IDLE_GRACE_S,
-            on_line=lambda stream, line: s.traj.append("line", stream=stream, text=line[:4000]),
-            activity_dirs=[s.ws.src, s.ws.public],
-        )
-        s.traj.write_text("stdout.json", proc.stdout)
-        s.traj.write_text("stderr.log", proc.stderr)
+        proc = invoke(s, self.build_argv(s, prompt), self.build_env(s), prompt=prompt)
         env = parse_agy_json(proc.stdout)
         served = self.served_model()
         usage = usage_from_agy(env, served) if env else Usage(backend=self.kind, model=served)
@@ -181,7 +172,7 @@ class AntigravityAgent:
         s.notes.append("agy is subscription-billed: cost_usd=0")
         if proc.timed_out:
             ok, reason = False, "timeout"
-            errors.append(f"killed by watchdog ({proc.killed_reason}) after {proc.duration_s:.0f}s")
+            errors.append(watchdog_error(proc))
         elif proc.rc != 0 or (env is not None and str(env.get("status", "SUCCESS")).upper() not in ("SUCCESS", "OK")):
             ok, reason = False, "error"
             errors.append(f"rc={proc.rc}; status={(env or {}).get('status')}; error={(env or {}).get('error', '')}; "
