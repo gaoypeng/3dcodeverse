@@ -39,7 +39,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from codeverse.skills.config import skills_max, skills_unverified
+from codeverse.skills.config import SKILLS_ONLY_ENV, skills_max, skills_only, skills_unverified
 from codeverse.skills.model import Selection, Skill, SkillsMaterialized
 from codeverse.skills.prompting import (
     AGENTS_SKILL_ROOT,
@@ -178,12 +178,28 @@ def attach_skills(
     library: dict[str, Skill] | None = None,
     max_skills: int | None = None,
     allow_unverified: bool | None = None,
+    only: frozenset[str] | None = None,
 ) -> SkillsMaterialized:
     """Route → write → return what a session will see.  The one entry point tracks call.
 
     The caller decides whether the feature is on (``config.skills_enabled``); this
     function assumes it is, so a test can attach without setting the environment.
+
+    ``only`` (env ``CV3D_SKILLS_ONLY``) restricts the LIBRARY before routing, which is
+    what an effect A/B needs: the delta then belongs to one bundle instead of to whatever
+    set of five the router happened to pick.  Restricting the library — rather than
+    filtering ``sel`` afterwards — also stops the cap from spending a slot on a bundle
+    that is not under test and then dropping the one that is.
     """
+    picked = skills_only() if only is None else only
+    if picked:
+        from codeverse.skills import all_skills
+
+        lib = dict(all_skills() if library is None else library)
+        library = {n: s for n, s in lib.items() if n in picked}
+        if not library:
+            log.warning("%s=%s matches no bundle in the library; this session attaches nothing",
+                        SKILLS_ONLY_ENV, ",".join(sorted(picked)))
     sel: list[Selection] = select(
         track, language, kind,
         signals=plan_signals(plan), findings=findings, library=library,

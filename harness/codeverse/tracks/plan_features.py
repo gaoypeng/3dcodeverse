@@ -52,6 +52,7 @@ GENERATION_SIDE: frozenset[str] = frozenset({CONTACTS})
 #: env switches outside CV3D_PLAN_FEATURES, same rule
 PLAN_SIDE_ENV: frozenset[str] = frozenset({"CV3D_PLAN_BRIEF", "CV3D_SCOPED_PARTS"})
 GENERATION_SIDE_ENV: frozenset[str] = frozenset({"CV3D_SKILLS", "CV3D_SKILLS_MAX", "CV3D_SKILLS_UNVERIFIED",
+                                                 "CV3D_SKILLS_ONLY",
                                                  "CV3D_DETAIL_ROUNDS", "CV3D_REFERENCE_DIFF"})
 
 
@@ -87,6 +88,7 @@ LIVE_SWITCHES: dict[str, str] = {
     "CV3D_SKILLS": "codeverse/skills/config.py",
     "CV3D_SKILLS_MAX": "codeverse/skills/config.py",
     "CV3D_SKILLS_UNVERIFIED": "codeverse/skills/config.py",
+    "CV3D_SKILLS_ONLY": "codeverse/skills/config.py",
 }
 
 #: Switches that are DECLARED but read by no code path, with the reason.  An A/B arm that
