@@ -25,7 +25,7 @@ import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
 from codeverse.contracts.common import Usage
@@ -479,8 +479,3 @@ def sum_usage(rounds: Sequence[RoundRecord], *extra: Usage) -> Usage:
     for u in extra:
         total = total + u
     return total
-
-
-def describe_round(rec: RoundRecord) -> dict[str, Any]:
-    return {"index": rec.index, "kind": rec.kind, "score": rec.score, "build_ok": bool(rec.build and rec.build.ok),
-            "gate_errors": sum(len(g.errors) for g in rec.gates), "commit": rec.commit[:10]}

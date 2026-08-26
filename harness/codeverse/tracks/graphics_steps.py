@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 import shutil
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -175,7 +174,3 @@ def frame_stats_text(ws: Workspace) -> str:
     for f in gate.findings:
         lines.append(f"- GATE gl_frames {f.as_line(with_severity=True, with_hint=f.severity is not Severity.INFO)}")
     return "\n".join(lines)
-
-
-def refine_lines(tasks: Sequence[Any]) -> list[str]:
-    return [t.line() for t in tasks]

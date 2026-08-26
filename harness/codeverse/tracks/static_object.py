@@ -443,8 +443,3 @@ class StaticObjectTrack(BaseTrack):
             f"compares every part's bounding box against the previous round and fails the round if one moved. "
             f"Everything you add lives inside or on an existing part's surface."
         )
-
-
-# ----------------------------------------------------------------------------- helpers
-def refine_task_lines(tasks: Sequence[RefineTask]) -> list[str]:
-    return [t.line() for t in tasks]

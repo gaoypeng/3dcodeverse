@@ -51,7 +51,7 @@ from codeverse.tracks.common import (
     language_contract,
     load_prompt_or,
 )
-from codeverse.tracks.generation import GenerationTask, is_single_shot, single_shot_model_id
+from codeverse.tracks.generation import GenerationTask, single_shot_model_id
 from codeverse.tracks.planner import default_event_stats, ensure_acceptance, normalise_names
 from codeverse.tracks.planner import plan as run_planner
 from codeverse.tracks.planner import plan_example as default_plan_example
@@ -708,7 +708,3 @@ def rewrite_task(last: RoundRecord, best: float | None) -> RefineTask:
                      "way forward. Do NOT repeat them part by part: re-read the plan and the failures below, then "
                      "rewrite the whole artifact coherently, keeping only what the evidence shows was already right."),
     )
-
-
-def generator_label(agent_id: str) -> str:
-    return "single-shot" if is_single_shot(agent_id) else agent_id.split(":", 1)[0]
