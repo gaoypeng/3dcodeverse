@@ -155,6 +155,19 @@ def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: i
             lines.append(f"- … {len(warns) - max_warns} more warnings")
     if not errs and not warns:
         lines.append("no errors or warnings — parts are connected and contracts hold.")
+    if any(g.gate == "connectivity" and g.passed for g in gates):
+        # The connectivity gate MEASURES mesh-to-mesh contact; a VLM reads shading.  Measured
+        # 2026-08-26 (fancy_v1 gas_street_lamp, plan-pinned pair): on a lamp whose gate said
+        # "all 9 parts connected, gap <= 2 mm", the judge called the dark seam under the
+        # pedestal "floating in mid-air, a clear daylight gap" — CRITICAL — and scored
+        # structure_plausibility 0.4 against 1.0 for the near-identical sibling.  A measured
+        # contact outranks a shadow (CLAUDE.md law 3); the seam is at most a craftsmanship note.
+        lines.append(
+            "CONNECTIVITY PASSED: every part is in measured contact with its neighbour (gap <= 2 mm). "
+            "A dark seam or shadow line where two parts meet is contact, not daylight. Do NOT report any "
+            "part as floating, hovering or disconnected, and do not mark the floating-part defect present; "
+            "if a joint looks visually ugly, say so under craftsmanship."
+        )
     return "\n".join(lines)
 
 

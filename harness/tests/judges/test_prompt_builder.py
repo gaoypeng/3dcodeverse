@@ -155,3 +155,22 @@ def test_prepare_image_label_and_cache(tmp_path):
     with Image.open(out) as im:
         assert im.size[0] == 768 and im.size[1] > 768  # strip added below label
     assert prepare_image(src, label="VIEW 1/1 — front", max_px=768, cache_dir=tmp_path / "c") == out
+
+
+def test_a_passed_connectivity_gate_tells_the_judge_a_seam_is_not_daylight():
+    """Measured 2026-08-26 (fancy_v1 gas_street_lamp, plan-pinned pair): the connectivity gate
+    said 'all 9 parts connected, gap <= 2 mm'; the judge read the dark seam under the pedestal
+    as 'floating in mid-air, a clear daylight gap' (CRITICAL) and scored structure_plausibility
+    0.4 against 1.0 for the near-identical sibling.  A measured contact outranks a shadow."""
+    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+    from codeverse.judges.prompt_builder import gates_section
+
+    ok = GateReport(gate="connectivity", passed=True, findings=[
+        GateFinding(gate="connectivity", severity=Severity.INFO, target="", message="all 9 parts are connected")])
+    text = gates_section([ok])
+    assert "CONNECTIVITY PASSED" in text and "not daylight" in text and "Do NOT report any part as floating" in text
+
+    failed = GateReport(gate="connectivity", passed=False, findings=[
+        GateFinding(gate="connectivity", severity=Severity.ERROR, target="Seat", message="part 'Seat' floats 12 mm above 'Leg'")])
+    assert "CONNECTIVITY PASSED" not in gates_section([failed]), "a real floating part is still reported as one"
+    assert "CONNECTIVITY PASSED" not in gates_section([GateReport(gate="contract", passed=True)]), "only the contact gate earns it"
