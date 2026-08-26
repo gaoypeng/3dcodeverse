@@ -147,3 +147,31 @@ def test_welded_child_overlap_is_structural_not_motion(tmp_path):
     rep2 = sweep_collisions(r, [{"hinge": 1.0}, {"hinge": 1.5}])
     assert [len(pr.overlaps) for pr in rep2.per_pose] == [1, 0] and rep2.summary.rest_max_penetration_m > 0.0025
     assert sweep_findings(rep2)[0].severity == Severity.WARN and "rigidly joined" in sweep_findings(rep2)[0].fix_hint
+
+
+# ------------------------------------------------- joints= narrows the RENDER, not the sweep
+def test_joints_argument_narrows_the_render_to_those_joints(monkeypatch, tmp_path):
+    """The tool accepted joints=[...] from the start and nothing consumed it: every call
+    rendered every joint's limit poses (three views each). Measured 2026-08-25: articulated
+    rounds ran a median 1007 s vs 497 s for static objects, agents calling the sweep 3-8
+    times a round on 10-joint objects (~63 renders a call)."""
+    from codeverse.spatial import joints_export as je
+
+    class _J:
+        def __init__(self, name, lo, hi, type="revolute"): self.name, self.lower, self.upper, self.type = name, lo, hi, type
+    class _Robot:
+        joints = {n: _J(n, -1.0, 1.0) for n in ("hinge", "slide", "knob")}
+        def movable_joints(self): return list(self.joints.values())
+
+    seen = {}
+    monkeypatch.setattr(je, "render_poses", lambda robot, d, poses=None: seen.setdefault("poses", poses))
+    monkeypatch.setattr(je, "load_urdf", lambda *a, **k: _Robot(), raising=False)
+
+    full = je._poses_for(_Robot(), None)
+    assert full is None, "no filter = the full articulation sheet, unchanged"
+    narrowed = je._poses_for(_Robot(), ["hinge"])
+    labels = [lbl for lbl, _ in narrowed]
+    assert labels[0] == "rest" and all(x == "rest" or x.startswith("hinge@") for x in labels)
+    assert len(narrowed) == 3, "rest + hinge@lower + hinge@upper, nothing from slide or knob"
+    typo = je._poses_for(_Robot(), ["hinge_typo"])
+    assert [lbl for lbl, _ in typo] == ["rest"], "an unknown joint yields a visibly wrong sheet, not the full one"

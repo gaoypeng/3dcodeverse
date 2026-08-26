@@ -171,11 +171,33 @@ def render_poses(
     return results
 
 
+def _poses_for(robot, joints: list[str] | None) -> list[tuple[str, dict[str, float]]] | None:
+    """``limit_poses`` narrowed to ``joints`` (rest kept); ``None`` = the full sheet.
+
+    An unknown joint name narrows to nothing but rest, which is a wrong-but-visible sheet
+    rather than a silent fallback to everything — the agent sees one tile and its typo.
+    """
+    if not joints:
+        return None
+    want = set(joints)
+    return [(label, q) for label, q in limit_poses(robot) if label == "rest" or label.split("@")[0] in want]
+
+
 # ------------------------------------------------------------------ tool-shaped entry point
 def joint_sweep_observation(ws, *, n_random: int = 8, seed: int = 0, render: bool = True, out_dir: Path | None = None,
-                            joint: str | None = None, expected_direction: str | None = None):
+                            joint: str | None = None, expected_direction: str | None = None,
+                            joints: list[str] | None = None):
     """Run the pose sweep on ``ws.artifacts/robot.urdf`` (+ ``meshes/``) and return an
-    ``Observation`` (package F wraps this as the ``joint_sweep`` tool)."""
+    ``Observation`` (package F wraps this as the ``joint_sweep`` tool).
+
+    ``joints`` narrows the RENDER to those joints' limit poses (plus rest).  The collision
+    sweep still covers every joint — a change to one joint can collide with another, and
+    that check is cheap.  Rendering is not: every pose is a GLB export plus three views, so
+    a 10-joint object renders ~63 images per call, and agents call this 3-8 times a round.
+    Measured 2026-08-25: articulated rounds ran a median 1007 s against 497 s for static
+    objects, with the agent session — mostly waiting on sweeps — as the whole difference.
+    The tool has accepted ``joints`` since it was written; nothing consumed it.
+    """
     from codeverse.spatial.joints_model import load_urdf
     from codeverse.spatial.joints_poses import pose_samples
     from codeverse.spatial.joints_sweep import (
@@ -203,7 +225,7 @@ def joint_sweep_observation(ws, *, n_random: int = 8, seed: int = 0, render: boo
     images: list[str] = []
     if render:
         d = Path(out_dir) if out_dir else Path(ws.artifacts) / "tool_scratch" / "joint_sweep"
-        render_poses(robot, d)
+        render_poses(robot, d, poses=_poses_for(robot, joints))
         images.append(str(d / ARTICULATION_SHEET_NAME))
     ok = report.summary.max_penetration_m <= report.tol_m and not report.summary.floating_links
     return Observation(ok=ok, text=text, numbers=numbers, images=images)

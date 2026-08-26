@@ -44,7 +44,9 @@ class JointSweepArgs(BaseModel):
     n_samples: int = Field(default=8, ge=2, le=32, description="poses per joint across its range")
 
 
-@tool("joint_sweep", JointSweepArgs, "Sweep URDF joints through their ranges: pose renders + self-collision / limit findings.",
+@tool("joint_sweep", JointSweepArgs, "Sweep URDF joints through their ranges: self-collision / limit findings for ALL joints, "
+      "plus pose renders. Pass joints=[...] for the joints you changed — rendering every joint's poses is the slow part "
+      "(three views per pose); the collision check always covers the whole robot.",
       tracks=(Track.ARTICULATED_OBJECT.value,), cost_hint="slow")
 def joint_sweep(ctx: ToolContext, args: JointSweepArgs) -> Observation:
     fn = lazy("codeverse.spatial.joints", "joint_sweep_observation")
