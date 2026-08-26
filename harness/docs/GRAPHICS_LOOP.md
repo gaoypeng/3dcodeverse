@@ -78,6 +78,20 @@ Eye scores: `scratchpad/gfx_eye.json` → copied to `bench/out/judge_calib_graph
   _likeness_note`); the judge becomes `judges/reference.py::LikenessJudge` — the same photos
   beside the frames, no silhouette IoU (that is an object-track measurement).  Same battery with
   the folder present vs absent is the A/B (`bench/prompts/refs_v1_graphics.yaml`, in flight).
+* **Seeded recipes** (`tracks/graphics_recipes.py`, `Settings.limits.seed_recipes` / `CV3D_SEED_RECIPES`,
+  default ON) — measured 2026-08-26 on `refs_v2_graphics` (aurora brief, flash api-agent, shader_v2): the
+  baseline prompt carried the cookbook's Light chapter with `curtain()` five times and `src/shader.frag` called
+  it zero times in both finished runs — round 0 a comb of bars (0.33), a later round a wash (0.12).  Showing
+  flash a recipe is not flash using it, so the harness now writes the recipes the brief selects (the same
+  chapters `select_cookbook_chapters` puts in the prompt, minus the always-on helper chapters and the
+  raymarching template) into `src/common.glsl` before the session — function definitions only, plus exactly
+  the `hash / noise / fbm` helpers they call, under `// ---- harness-seeded verified recipes` — and the
+  baseline prompt names them ("call them, do not rewrite them"); the refine prompt carries a one-line
+  reminder; a resume appends only names the file does not define.  The aurora brief seeds `skyGrad, sun,
+  stars, waterHeight, curtain, auroraCol, aurora` on top of the skeleton's helpers; the neon-rain brief
+  `dropsLayer, bokehSoft`; a brief matching no chapter seeds nothing and the prompt has no block.  The event
+  is `recipes.seeded`; `CV3D_SEED_RECIPES=0` is the control arm.  The number to watch stays the
+  `comb_artefact` firing rate — and now also `grep -c "curtain(" src/shader.frag`.
 * **Measuring the turn** — `bench/judge_calib_graphics.py` re-judges the corpus under v1 and v2
   (pro, n=2, no planner acceptance so the rubric is measured on its own) and prints
   Spearman(judge, eye), means, defect firing rates and the biggest disagreements.  The result of

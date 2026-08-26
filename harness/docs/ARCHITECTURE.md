@@ -162,6 +162,9 @@ codeverse/
                       generation.py, repair.py, planner.py, prompting.py (prompt helpers, split from common),
                       common.py (RunContext, Services), motion.py, reference.py, static_object.py,
                       articulated_object.py, scene.py, scene_assets.py, graphics.py + graphics_steps.py,
+                      graphics_recipes.py (the brief's verified cookbook recipes + their helpers written into
+                      src/common.glsl before the session — measured: flash calls a recipe on disk, not one it
+                      is shown; CV3D_SEED_RECIPES, docs/GRAPHICS_LOOP.md §3),
                       brief.py (cached EngineeringBrief: one cheap call turns a one-line prompt into
                       real dimensions / sub-assemblies / signature features; never fatal, CV3D_PLAN_BRIEF),
                       plan_budget.py (plan size derived from the request, capped per language),

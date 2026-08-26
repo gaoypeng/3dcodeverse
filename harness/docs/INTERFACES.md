@@ -346,6 +346,16 @@ from codeverse.tracks.detailing import drift_gate, detail_instructions, DRIFT_GA
     # ERROR when a detail round moved/resized/removed a part or changed the overall extents (tol from policy)
 from codeverse.tracks.prompting import base_prompt_context, reference_images, file_for_target_factory, \
     scope_context, budget_for, detail_budget_text      # Δ split out of
+from codeverse.tracks.prompting import select_cookbook_chapters, select_cookbook_excerpt, is_always_chapter
+    # select_cookbook_chapters(ctx, brief, *, budget=9000, always=COOKBOOK_ALWAYS) -> list[Section]: the header +
+    # always-on chapters + the brief's chapters (whole, cookbook order, inside budget); the excerpt joins them
+from codeverse.tracks.graphics_recipes import seed_recipes, graphics_brief, cookbook_functions, EXTRA_KEY
+    # seed_recipes(ctx) -> list[str]: glsl_shader + seed_recipes_enabled() only.  Appends the selected chapters'
+    # function definitions (minus always-on chapters and the raymarching template) + the helpers they call to
+    # src/common.glsl under "// ---- harness-seeded verified recipes"; returns the names written THIS call;
+    # ctx.extra["seeded_recipes"] = [{name, signature, purpose}] for every seeded recipe on disk (the prompt
+    # block); emits recipes.seeded {names, present, chapters}.  GraphicsTrack.prepare() runs it after the
+    # skeleton and commits "recipes" when it wrote something.
 from codeverse.tracks.common import RunContext, Services   # common.py
 from codeverse.tracks.generation import generate, run_agent_task, parse_multifile, is_single_shot
 GenerationTask.phase: int = 0   # tasks run in parallel WITHIN a phase, phases in ascending order
@@ -430,7 +440,7 @@ from codeverse.flywheel.index import build_index, query, summary   # sqlite + pa
 `EventLog.emit(event, **data)` writes `{"t", "event", ...}` (**Δ** key is `event`).
 Event names: `run.start`, `stage.start/done`, `plan.done`, `workspace.materialized`,
 `round.start`, `generate.done`, `build.done`, `gates.done`, `judge.done`,
-`round.done`, `best.updated`, `refine.planned`, `asset.judged`, `assets.done`,
+`round.done`, `best.updated`, `refine.planned`, `recipes.seeded` (graphics: names written this call, present on disk, chapters), `asset.judged`, `assets.done`,
 `zones.done`, `assemble.done`, `round.no_change`, `candidates.start`,
 `candidate.start/done/failed/retry/selected`, `pairwise.done`,
 `texture.start/plan/generated/applied/gate/done`, `budget.exceeded`,
