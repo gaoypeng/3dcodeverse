@@ -1,0 +1,25 @@
+name: h2h_brilliana_v1_threejs
+track: static_object
+language: threejs
+description: >
+  Head-to-head vs the astra3d-brilliana curated gallery (showcase_tier=confirmed,
+  template=react_threejs / threejs).  Prompts verbatim, must_have empty on purpose.
+prompts:
+  - id: h2h_desk_lamp_q2
+    tier: medium
+    category: lighting
+    prompt: a vintage brass desk lamp with an articulated arm and a green glass shade
+    must_have: []
+    tags: [h2h, brilliana, desk-lamp-q2]
+  - id: h2h_clock_q4
+    tier: medium
+    category: furniture
+    prompt: an antique grandfather clock with a brass pendulum and glass door
+    must_have: []
+    tags: [h2h, brilliana, clock-q4]
+  - id: h2h_lighthouse_1
+    tier: medium
+    category: buildings
+    prompt: a red-and-white striped lighthouse with a lantern room and gallery railing
+    must_have: []
+    tags: [h2h, brilliana, lighthouse-1]

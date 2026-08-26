@@ -1,0 +1,97 @@
+# fancy_v1 — cadquery slice (3 prompts).  Machined, turned and cast objects that suit a
+# B-rep kernel: fillets, bores, bolt circles, gear teeth, knurls and threads.  Every prompt
+# names the real construction of the object; must_have items are single falsifiable
+# clauses with counts.  All hard tier; ids fancy_cq_<snake>.
+# Sibling files: fancy_v1_blender.yaml, fancy_v1_threejs.yaml.
+name: fancy_v1_cadquery
+track: static_object
+language: cadquery
+description: >
+  fancy_v1 cadquery slice: 3 hard machined/cast objects (Jacobs chuck on an arbor, a
+  cast-iron handwheel gate valve, a turbocharger housing) with bores, bolt circles, knurls
+  and fillets that a CAD kernel can express exactly.
+prompts:
+  # Jacobs chuck: three jaws on a scroll in a tapered body, a knurled sleeve, a key with a
+  # pinion, the arbor behind — turned parts with a knurl and radial repeats at 120 degrees.
+  - id: fancy_cq_jacobs_chuck
+    tier: hard
+    category: tools
+    tags: [fancy_v1, hard]
+    prompt: >
+      a keyed Jacobs drill chuck on a Morse-taper arbor, as a machined assembly: a steel
+      chuck body about 0.045 m in diameter and 0.075 m long, turned with a shallow taper
+      toward the nose; over its middle a rotating knurled sleeve about 0.052 m in diameter
+      with straight knurling of at least 60 ribs and a chamfered front edge; at the nose,
+      three hardened jaws set at 120 degrees in angled slots, each jaw a rectangular bar
+      with a ground gripping face, protruding about 0.012 m and open around a 0.008 m gap
+      holding a twist drill bit about 0.09 m long with two helical flutes; on the rear
+      of the sleeve a ring of bevel gear teeth, at least 24 teeth, into which a chuck key
+      with a matching bevel pinion and a T-bar handle is engaged in one of three key holes
+      drilled into the body at 120 degrees; behind the body a tapered arbor about 0.10 m
+      long with a flat tang at its end; fillets at every shoulder.
+    must_have:
+      - "a turned chuck body with a knurled sleeve of at least 60 straight ribs around it"
+      - "exactly 3 jaws at 120 degree spacing at the nose, angled inward toward the axis"
+      - "a drill bit with two helical flutes gripped between the three jaws, coaxial with the body"
+      - "a ring of at least 24 bevel gear teeth on the rear face of the sleeve"
+      - "a chuck key with a bevel pinion engaged into a hole in the body, its T-bar handle outside"
+      - "a tapered arbor behind the body ending in a flat tang"
+      - "body, sleeve and arbor are all coaxial"
+      - "visible fillets at the shoulders between arbor and body"
+    dimensions_m: {width: 0.11, depth: 0.09, height: 0.27}
+  # Cast-iron gate valve: flanged body with bolt circles, a bonnet with its own bolt ring,
+  # a yoke, a rising stem with thread, a spoked handwheel; castings plus machined faces.
+  - id: fancy_cq_gate_valve
+    tier: hard
+    category: architecture
+    tags: [fancy_v1, hard]
+    prompt: >
+      a DN100 cast-iron rising-stem gate valve as installed in a pipe run: a bulbous cast
+      body with a horizontal bore, a raised-face flange at each end about 0.22 m in
+      diameter and 0.024 m thick with eight bolt holes on a 0.18 m pitch circle, each hole
+      fitted with a hex bolt and nut;
+      a bonnet flange on top about 0.16 m across with six bolts on its own circle, the
+      bonnet rising as a domed casting into a yoke of two curved arms that meet at a
+      threaded stem nut boss; a rising stem about 0.025 m in diameter passing up through
+      the yoke, its upper part visibly threaded with at least 10 turns showing above the
+      handwheel; a cast handwheel about 0.30 m in diameter with five curved spokes, a
+      dished rim of round section and a hub with a square drive and a retaining nut; a gland with two studs where the stem enters the bonnet; castings dark blue-grey,
+      flange faces bright, handwheel red.
+    must_have:
+      - "a horizontal through-bore body with a flange at each end"
+      - "exactly 8 bolt holes on each end flange, each fitted with a bolt and nut"
+      - "a bonnet flange on top with exactly 6 bolts on its own circle"
+      - "a two-armed yoke rising from the bonnet meeting at a central boss"
+      - "a vertical stem passing through the boss with at least 10 thread turns visible above the handwheel"
+      - "a handwheel about 0.30 m in diameter with exactly 5 spokes"
+      - "the handwheel red, the flange faces bright metal, the body a dark cast colour"
+      - "the body, bonnet, yoke, stem and handwheel share one vertical axis"
+    dimensions_m: {width: 0.35, depth: 0.32, height: 0.62}
+  # Turbocharger: two cast volutes, a machined centre bearing housing, a finned compressor
+  # wheel and turbine wheel visible in their inlets, V-band and bolt flanges, an actuator.
+  - id: fancy_cq_turbocharger
+    tier: hard
+    category: vehicles
+    tags: [fancy_v1, hard]
+    prompt: >
+      an automotive turbocharger as a machined and cast assembly: a snail-shaped aluminium
+      compressor volute about 0.16 m across whose scroll grows in section around the axis
+      to a tangential outlet spigot, and
+      an axial inlet bore about 0.055 m across in which the compressor wheel is visible: a hub with 12 thin curved blades; a
+      turbine housing on the other side, a cast-iron volute about 0.14 m across with a
+      square inlet flange carrying four bolt holes, and a round outlet with a V-band
+      flange; between the volutes a cylindrical centre bearing housing about 0.07 m in
+      diameter with a boss for the oil feed banjo bolt on top and a drain flange with two
+      studs underneath, joined to each housing by a ring of six clamp bolts; a wastegate
+      actuator can on a bracket on the compressor housing, its rod running to a lever on the
+      turbine housing; fillets at every casting junction.
+    must_have:
+      - "two snail-shaped volutes on a common axis with a cylindrical bearing housing between them"
+      - "the compressor volute has a tangential outlet spigot whose scroll grows in section around the axis"
+      - "a compressor wheel with at least 10 curved blades visible inside the axial inlet bore"
+      - "a square inlet flange on the turbine housing with exactly 4 bolt holes"
+      - "a V-band flange on the turbine outlet"
+      - "a ring of at least 6 bolts where each volute meets the centre housing"
+      - "a round actuator can on a bracket with a rod running to a lever on the turbine housing"
+      - "aluminium-coloured compressor housing distinct from the dark iron turbine housing"
+    dimensions_m: {width: 0.28, depth: 0.22, height: 0.2}
