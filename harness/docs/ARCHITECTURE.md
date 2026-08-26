@@ -85,7 +85,11 @@ codeverse/
   proc.py             stdlib-only subprocess + atomic-JSON primitives (run_subprocess w/ group kill +
                       preexec_fn, kill_group, tail, write_json_atomic) and the tolerant readers/writer
                       (read_json_or_none, iter_jsonl_lines, read_jsonl_lenient, append_jsonl_line) —
-                      shared by languages/spatial/cli/cost/flywheel/gallery/bench
+                      shared by languages/spatial/cli/cost/flywheel/gallery/bench.  RULE: any
+                      stdlib-only file / JSON / JSONL helper lives HERE; grep proc.py before writing a
+                      try/except read (the 2026-08-26 review found the same tolerant read written
+                      eight times because this module had not grown it), and keep it under ~250
+                      lines so it stays a leaf
   fanout.py           bounded parallel fan-out (fan_out, split_results, FanOutReport) — shared by
                       tracks/judges/texturing/bench
   models/             ChatModel; gemini_convert.py anthropic_convert.py openai_convert.py
