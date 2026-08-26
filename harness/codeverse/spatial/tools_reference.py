@@ -13,8 +13,6 @@ Registered from ``spatial/tools.py`` (one appended import) so
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from pydantic import BaseModel, Field
 
 from codeverse.spatial.observe import fmt_numbers, image_budget
@@ -25,8 +23,8 @@ from codeverse.spatial.tool_common import (
     VIEW_BY_NAME,
     cached_render_glb,
     glb_path,
+    reference_path,
     render_cache_dir,
-    spec_dict,
 )
 
 #: what the agent should compare, in the order that decides whether the object
@@ -50,27 +48,12 @@ class CompareReferenceArgs(BaseModel):
     size: int = Field(default=512, ge=256, le=1024, description="render size in px (square)")
 
 
-def _reference_path(ctx: ToolContext, index: int) -> tuple[Path, dict]:
-    refs = spec_dict(ctx).get("references") or []
-    if not refs:
-        raise ToolUsageError("the spec has no reference images — nothing to compare against")
-    if index >= len(refs):
-        raise ToolUsageError(f"reference_index {index} out of range (have {len(refs)})",
-                             "compare_reference(reference_index=0)")
-    ref = refs[index]
-    ref = ref if isinstance(ref, dict) else {"path": ref.path, "role": ref.role, "note": ref.note}
-    p = Path(ref["path"])
-    if not p.is_absolute():
-        p = ctx.workspace.root / p
-    return p, ref
-
-
 @tool("compare_reference", CompareReferenceArgs,
       "Put the REFERENCE image and a render of your object side by side (+ outline diff and IoU). Use it to check "
       "you built the right thing: part inventory, counts, proportions, profiles.", cost_hint="slow")
 def compare_reference(ctx: ToolContext, args: CompareReferenceArgs) -> Observation:
     glb = glb_path(ctx)
-    ref_path, ref = _reference_path(ctx, args.reference_index)
+    ref_path, ref = reference_path(ctx, args.reference_index, tool="compare_reference")
     if not ref_path.is_file():
         return Observation.error(f"reference image {ref_path.name} not found")
     if args.view not in VIEW_BY_NAME:

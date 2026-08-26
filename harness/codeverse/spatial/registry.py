@@ -29,6 +29,10 @@ from pydantic import BaseModel, Field
 from codeverse.workspace import Workspace
 
 
+class NoArgs(BaseModel):
+    """This tool takes no arguments."""
+
+
 class Observation(BaseModel):
     ok: bool = True
     text: str = Field(description="human/LLM-readable summary (≤ ~2k chars)")

@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.contracts.artifacts import GateFinding, GateReport, RenderSet, RenderView, Severity
+from codeverse.contracts.artifacts import (
+    BuildResult,
+    GateFinding,
+    GateReport,
+    RenderSet,
+    RenderView,
+    Severity,
+)
 from codeverse.spatial.observe import (
+    build_failure_lines,
     fmt_numbers,
     gate_observation,
     image_budget,
+    lint_lines,
     rel_path,
     render_observation,
     sanitize_text,
@@ -62,3 +71,26 @@ def test_render_observation(tmp_path: Path) -> None:
     assert obs.ok and obs.images[0].endswith("sheet.png") and len(obs.images) == 2
     assert "a/view_front.png" in obs.text and str(tmp_path) not in obs.text
     assert "cam=(0, 1, 2)" in obs.text
+
+
+def test_lint_lines_split_by_severity(tmp_path: Path) -> None:
+    rep = GateReport(gate="lint:x", passed=False, findings=[
+        GateFinding(gate="lint:x", severity=Severity.ERROR, target=str(tmp_path / "src" / "a.py"), message="bad", fix_hint="fix it"),
+        GateFinding(gate="lint:x", severity=Severity.WARN, message="meh"),
+        GateFinding(gate="lint:x", severity=Severity.INFO, message="fyi"),
+    ])
+    assert lint_lines(rep, tmp_path, errors_only=True) == ["- ERROR (src/a.py): bad", "    fix: fix it"]
+    assert lint_lines(rep, tmp_path, errors_only=False) == ["- WARN: meh"]
+
+
+def test_build_failure_lines_relative_file_and_tail_dedupe(tmp_path: Path) -> None:
+    # (ii) an already-relative error_file is shown as-is from any cwd (rel_path would give the bare name)
+    # (iii) a stderr tail that is already part of the message is not repeated
+    log = "0:4: 'nope' undeclared"
+    br = BuildResult(ok=False, language="glsl_shader", error_type="GlslCompileError", error_file="src/shader.frag",
+                     error_line=4, error_message="GLSL compile error:\n" + log, stderr_tail=log)
+    lines = build_failure_lines(br, tmp_path, ["- WARN: w"], tail_n=25)
+    assert lines == ["BUILD FAILED: GlslCompileError: GLSL compile error: at src/shader.frag:4", log, "lint hints:\n- WARN: w"]
+    br2 = br.model_copy(update={"error_file": str(tmp_path / "src" / "a.py"), "error_message": "boom", "stderr_tail": "l1\nl2"})
+    lines = build_failure_lines(br2, tmp_path, [], tail_n=1)
+    assert lines == ["BUILD FAILED: GlslCompileError: boom at src/a.py:4", "stderr (tail):\nl2"]

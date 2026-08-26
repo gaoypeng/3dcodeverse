@@ -16,18 +16,20 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse.config import get_settings
-from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, Severity
+from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement
 from codeverse.spatial.connectivity import check_connectivity as _check_connectivity
 from codeverse.spatial.contract import check_contract as _check_contract
 from codeverse.spatial.measure import GlbLoadError, measure_glb, measure_summary_table
 from codeverse.spatial.observe import (
+    build_failure_lines,
+    error_file_display,
     gate_observation,
+    lint_lines,
     rel_path,
     sanitize_text,
-    tail_lines,
     text_observation,
 )
-from codeverse.spatial.registry import Observation, ToolContext, ToolUsageError, tool
+from codeverse.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
 from codeverse.spatial.sections import cross_section as _cross_section
 from codeverse.spatial.tool_common import (
     gl_metrics_summary,
@@ -41,27 +43,7 @@ from codeverse.spatial.tool_common import (
 _STDERR_TAIL_LINES = 30
 
 
-class NoArgs(BaseModel):
-    """This tool takes no arguments."""
-
-
 # --------------------------------------------------------------------------- build
-def _lint_lines(report: GateReport, root, *, errors_only: bool) -> list[str]:
-    out = []
-    for f in report.findings:
-        if errors_only and f.severity != Severity.ERROR:
-            continue
-        if not errors_only and f.severity == Severity.ERROR:
-            continue
-        if f.severity == Severity.INFO:
-            continue
-        loc = f" ({rel_path(f.target, root)})" if f.target else ""
-        out.append(f"- {f.severity.value.upper()}{loc}: {sanitize_text(f.message, root)}")
-        if f.fix_hint:
-            out.append(f"    fix: {sanitize_text(f.fix_hint, root)}")
-    return out
-
-
 def _measure_after_build(ctx: ToolContext, br: BuildResult) -> tuple[Measurement | None, str]:
     if not br.glb_path:
         return None, "build reported success but no GLB path"
@@ -108,8 +90,8 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     language = language_of(ctx)
     rt = lazy("codeverse.languages", "get_runtime")(language)
     lint: GateReport = rt.lint(ws)
-    lint_errors = _lint_lines(lint, ws.root, errors_only=True)
-    lint_warns = _lint_lines(lint, ws.root, errors_only=False)
+    lint_errors = lint_lines(lint, ws.root, errors_only=True)
+    lint_warns = lint_lines(lint, ws.root, errors_only=False)
     if lint_errors:
         text = "LINT FAILED — fix these before building:\n" + "\n".join(lint_errors)
         if lint_warns:
@@ -119,14 +101,8 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     ws.write_json(ws.artifacts / "build_last.json", br)
     numbers: dict[str, Any] = {"stage": "build", "ok": br.ok, "duration_ms": br.duration_ms}
     if not br.ok:
-        where = f" at {rel_path(br.error_file, ws.root)}:{br.error_line}" if br.error_file else ""
-        lines = [f"BUILD FAILED: {br.error_type or 'Error'}: {sanitize_text(br.error_message, ws.root)}{where}"]
-        tail = tail_lines(sanitize_text(br.stderr_tail, ws.root), _STDERR_TAIL_LINES)
-        if tail:
-            lines.append("stderr (tail):\n" + tail)
-        if lint_warns:
-            lines.append("lint hints:\n" + "\n".join(lint_warns[:10]))
-        numbers.update({"error_type": br.error_type, "error_file": rel_path(br.error_file, ws.root), "error_line": br.error_line})
+        lines = build_failure_lines(br, ws.root, lint_warns, tail_n=_STDERR_TAIL_LINES)
+        numbers.update({"error_type": br.error_type, "error_file": error_file_display(br.error_file, ws.root), "error_line": br.error_line})
         return text_observation(lines, ok=False, numbers=numbers, limit=3000)
     if not br.glb_path and language in _SCENE_LANGS + _GL_LANGS:
         # languages without a GLB deliverable: report the language's own artifacts

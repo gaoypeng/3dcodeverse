@@ -24,7 +24,7 @@ from codeverse.workspace import Workspace
 
 __all__ = [
     "ToolUnavailable", "lazy", "spec_dict", "language_of", "track_of",
-    "glb_path", "load_plan", "resolve_views", "check_mode", "tool_out_dir", "render_cache_dir",
+    "glb_path", "reference_path", "load_plan", "resolve_views", "check_mode", "tool_out_dir", "render_cache_dir",
     "cached_render_glb", "gl_metrics_summary", "VIEW_BY_NAME", "RENDER_MODES",
 ]
 
@@ -71,6 +71,26 @@ def language_of(ctx: ToolContext) -> str:
 
 def track_of(ctx: ToolContext) -> str:
     return ctx.track or str(spec_dict(ctx).get("track", ""))
+
+
+def reference_path(ctx: ToolContext, index: int, *, tool: str) -> tuple[Path, dict]:
+    """``spec.references[index]`` as ``(absolute path, reference dict)``.
+
+    Usage errors name ``tool`` in their example call (``compare_silhouette`` /
+    ``compare_reference`` share this lookup).
+    """
+    refs = spec_dict(ctx).get("references") or []
+    if not refs:
+        raise ToolUsageError("the spec has no reference images — nothing to compare against")
+    if index >= len(refs):
+        raise ToolUsageError(f"reference_index {index} out of range (have {len(refs)})",
+                             f"{tool}(reference_index=0)")
+    ref = refs[index]
+    ref = ref if isinstance(ref, dict) else {"path": ref.path, "role": ref.role, "note": ref.note}
+    p = Path(ref["path"])
+    if not p.is_absolute():
+        p = ctx.workspace.root / p
+    return p, ref
 
 
 def glb_path(ctx: ToolContext) -> Path:

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from codeverse.contracts.artifacts import GateReport, RenderSet
 from codeverse.contracts.common import Language, Track
 from codeverse.spatial.observe import fmt_numbers, gate_observation, render_observation, truncate
-from codeverse.spatial.registry import Observation, ToolContext, ToolUsageError, tool
+from codeverse.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
 from codeverse.spatial.tool_common import lazy, load_plan, tool_out_dir
 
 
@@ -57,10 +57,6 @@ def joint_sweep(ctx: ToolContext, args: JointSweepArgs) -> Observation:
 
 
 # --------------------------------------------------------------------------- scenes
-class NoArgs(BaseModel):
-    """This tool takes no arguments."""
-
-
 @tool("shader_probe", NoArgs, "Compile every GLSL/ShaderMaterial in the scene headlessly and report shader errors with line numbers.",
       languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
 def shader_probe(ctx: ToolContext, args: NoArgs) -> Observation:
