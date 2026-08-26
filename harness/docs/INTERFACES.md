@@ -238,6 +238,11 @@ complexity_of_glb(glb) -> ComplexityVector     # part_count, assembly_depth, tri
 from codeverse.spatial.connectivity import check_connectivity   # (glb, *, gap_m=…, …, language="") — Δ language selects the
 from codeverse.spatial.contract import check_contract           # frame of fix hints; both gates emit hints in the AUTHORING frame
                                                                 # (labelled "blender frame: Z-up, -Y front" etc.), GLB vectors in data
+from codeverse.spatial.scene_placement import check_placement, placement_findings, placement_gate_safe, placement_census, placement_table_text
+check_placement(ws, *, indoor=None, force_probe=False) -> GateReport   # gate "scene_placement"; data.kind ∈ floating | sunken |
+    # unsupported | interpenetration | summary | probe_failed; target "Zone/Asset" (routes to src/zones/<zone>.js);
+    # messages carry the scene_v1 floating_part cap words; reads artifacts/census.json["placement"] (host_placement.mjs)
+placement_gate_safe(census, *, plan=None) -> GateReport | None       # round gate: None without a table, WARN on failure, never raises
 from codeverse.spatial.silhouette import compare_silhouette
 from codeverse.spatial.joints import load_urdf, fk, sweep_collisions, urdf_to_glb, render_poses   # RESERVED_LINK_NAMES={'world'}
 # joints_collide.py: deterministic penetration (oriented islands + fixed-direction parity ray test; python-fcl is a
@@ -251,7 +256,7 @@ from codeverse.spatial.frame_stats import sequence_stats, frame_gate    # gate "
 from codeverse.spatial.registry import tool, get_tool, list_tools, tool_cards, ToolContext, Observation
 import codeverse.spatial.tools   # registers: build, measure, render_views, render_sheet, isolate, cross_section,
     # check_connectivity, check_contract, compare_silhouette, joint_sweep [articulated], shader_probe, scene_probe,
-    # scene_views [scene], read_cookbook, gl_probe + gl_frames [graphics], texture_pass + texture_preview [object tracks]
+    # scene_views + check_placement [scene], read_cookbook, gl_probe + gl_frames [graphics], texture_pass + texture_preview [object tracks]
 python -m codeverse.spatial.mcp_server --workspace <ws> [--track X] [--language Y] [--round N] [--list]   # MCP name: 3dcv
 ```
 

@@ -28,7 +28,8 @@ def test_batteries_are_valid(path: Path):
     assert len(ids) == len(set(ids))
     tiers = {p.tier for p in b.prompts}
     assert tiers <= {"easy", "medium", "hard"}
-    assert all(p.must_have for p in b.prompts)
+    # head-to-head batteries keep the other side's brief verbatim: no must items by design (bench/h2h_*.py)
+    assert all(p.must_have for p in b.prompts) or b.name.startswith("h2h_")
     expected = {"static_objects_v1": 24, "articulated_v1": 12, "scenes_v1": 12}
     if b.name in expected:  # other batteries (compare_*, *_v2) are owned elsewhere; only the schema is checked
         assert len(tiers) == 3  # v1 batteries span all three tiers; v2 drops easy (it saturated)

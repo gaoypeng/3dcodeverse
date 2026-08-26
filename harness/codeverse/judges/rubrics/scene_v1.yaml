@@ -206,6 +206,16 @@ defects:
     penalty: 0.03
 
 caps:
+  - id: floating_or_sunken_asset
+    when: gate
+    gate: "scene_placement"
+    severity: error
+    kinds: [floating, sunken, unsupported]
+    cap: 0.7
+    note: >
+      the scene_placement gate (2026-08-26) measures every placed asset's gap to what is under it;
+      an ERROR there caps at 0.7, and because this id matches the checklist defect of the same
+      name, a PASSED gate vetoes the VLM's "floating or sunken asset" claim (judges/caps.measured_absent)
   - id: build_error
     when: gate
     gate: "build*"

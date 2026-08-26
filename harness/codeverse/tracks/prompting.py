@@ -493,6 +493,12 @@ def file_for_target_factory(ctx: RunContext):
                 return ["src/scene.js"]
             if key in ("env", "environment", "lighting", "sky", "fog", "ground", "water", "light"):
                 return ["src/env.js"]
+            # "Zone/Asset" — the scene_placement gate names the asset but the fix lives in the
+            # zone's file; keeping the asset in the target keeps one refine task per asset
+            if "/" in target:
+                zone_key = to_snake(target.split("/", 1)[0])
+                if zone_key in zones:
+                    return [f"src/zones/{zone_key}.js"]
             return []
 
         return _scene

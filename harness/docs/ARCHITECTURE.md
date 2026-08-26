@@ -110,6 +110,9 @@ codeverse/
   spatial/            node.py, render.py, tool_common.py (shared tool plumbing), cookbook_tool.py
                       (read_cookbook), render_scene.py (judge view subset, content-fitted orbit),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
+                      scene_placement.py (scene_placement gate + check_placement tool: floating / sunken /
+                      unsupported / interpenetration per placed asset from the probe census's placement
+                      table, runtime_js/lib/host_placement.mjs; added 2026-08-26),
                       gl_render.py (GlHost), frame_stats.py (gl_frames),
                       sheet.py (montage_2x2, crop_region), turntable.py, measure.py, connectivity.py,
                       contract.py (authoring-frame hints), sections.py, silhouette.py, probes.py,
@@ -206,7 +209,8 @@ bench/                run_bench.py, report.py (renders through codeverse/gallery
                       prompts/{static_objects_v1 (24), articulated_v1 (12), scenes_v1 (12), compare_v1 (8)}.yaml
 runtime_js/           export_glb.mjs (placement policy, instance baking, selfcheck) render_glb.mjs
                       render_scene.mjs probe_scene.mjs check_shaders.mjs gpu_launch.cjs serve.cjs
-                      lib/{resolve_three, scene_host, host_coverage, orbit, instances, census, glsl_audit, browser/…}
+                      lib/{resolve_three, scene_host, host_coverage, host_census, host_placement, orbit, instances,
+                      census, glsl_audit, browser/…}
 tests/                core models agents blender_cadquery threejs_render urdf_joints scene_runtime scene_gates
                       spatial_tools judges orchestrator_tracks flywheel_cli graphics texturing prompts (~860 offline)
 ```
@@ -356,7 +360,12 @@ finalise: restore best commit, rebuild so artifacts match delivered code, finali
 ```
 Track-specific gates: static `connectivity` + `contract` (+ `reference_silhouette`),
 articulated + `joint_sweep` + `motion_direction` (URDF axis vs plan motion text),
-scene `render_console` + `scene_frames` (`spatial/frame_metrics.py`, wired in
+scene `scene_placement` (`spatial/scene_placement.py`, appended after the census gate in
+`ScenePipeline.gates`: per placed asset, foot-column gap to the surface beneath, burial depth,
+water, contacts and 3-D interpenetration pairs from `runtime_js/lib/host_placement.mjs` — the
+first deterministic placement check on the track; before 2026-08-26 the scene_v1
+`floating_part` cap could never fire and floating/sunken was left to the VLM) +
+`render_console` + `scene_frames` (`spatial/frame_metrics.py`, wired in
 `ScenePipeline.post_render_gates`: dark/blown/flat frames, camera in geometry, content
 too small, and **`no_motion`** — the frames of one camera at the first and last animation
 time are diffed in `spatial/frame_motion.py` and the per-camera "% of pixels changed"

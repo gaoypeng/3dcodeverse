@@ -108,6 +108,20 @@ class ScenePipeline:
         census_gate = census_gate_report(build)
         if census_gate is not None:
             out.append(census_gate)
+        # scene_placement (2026-08-26): floating / sunken / unsupported / interpenetrating assets from
+        # the probe census's placement table — the first deterministic placement gate on this track
+        # (before it, the scene_v1 floating_part cap could never fire).  Advisory instrumentation:
+        # a failure is a WARN finding, never an exception, so it cannot kill a round.
+        try:
+            from codeverse.spatial.scene_placement import placement_gate_safe
+
+            placement = placement_gate_safe(build.census, plan=ctx.plan)
+        except Exception as e:  # noqa: BLE001
+            log.warning("scene placement gate unavailable: %s", e)
+            placement = GateReport(gate="scene_placement", passed=True, findings=[GateFinding(
+                gate="scene_placement", severity=Severity.WARN, target="scene", message=f"placement probe failed: {e}"[:400])])
+        if placement is not None:
+            out.append(placement)
         return out
 
     def render(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> RenderSet:

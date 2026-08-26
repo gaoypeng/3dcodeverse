@@ -42,6 +42,9 @@ Always `build` after an edit; never reason about stale renders.
   pairs per pose; "child does not move" or "penetrates parent at q=1.2" is the finding.
 * `scene_probe()` — census (draw calls, tris, instanced meshes), cameras inside geometry,
   console errors, fps, black/blown frames.
+* `check_placement()` — (scene) every placed asset's gap to what is under it, burial depth,
+  water, contacts and 3-D interpenetrations; "floating / sunken / unsupported /
+  interpenetration" findings with the exact move to make.  Run it after every `build`.
 * `shader_probe()` — compiles every ShaderMaterial / onBeforeCompile patch with the real
   renderer; reports GLSL errors with the author's line number.
 * `read_cookbook(section="Booleans")` — fetch one cookbook chapter by its heading.

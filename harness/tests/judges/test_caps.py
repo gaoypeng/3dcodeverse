@@ -94,3 +94,22 @@ def test_a_real_floating_part_still_caps():
     assert not measured_absent(rubric, "floating_part", failed)
     assert not measured_absent(rubric, "floating_part", []), "a gate that did not run measured nothing"
     assert not measured_absent(rubric, "wrong_object", [_connectivity(True)]), "no gate measures 'wrong object'"
+
+
+def test_scene_placement_gate_measures_the_floating_asset_claim():
+    """scene_v1 (2026-08-26): the placement gate and the checklist defect share an id, so a passed
+    gate vetoes the VLM's floating/sunken claim and an ERROR there caps the round at 0.7."""
+    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+    from codeverse.judges.caps import apply_caps, measured_absent
+    from codeverse.judges.rubrics import load_rubric
+
+    rubric = load_rubric("scene_v1")
+    passed = [GateReport(gate="scene_placement", passed=True, findings=[GateFinding(
+        gate="scene_placement", severity=Severity.INFO, target="scene", message="13 assets checked: 0 floating, 0 sunken")])]
+    assert measured_absent(rubric, "floating_or_sunken_asset", passed)
+    failed = [GateReport(gate="scene_placement", passed=False, findings=[GateFinding(
+        gate="scene_placement", severity=Severity.ERROR, target="Pondside/Lantern", message="Pondside/Lantern is floating 0.30 m above PondWater")])]
+    assert not measured_absent(rubric, "floating_or_sunken_asset", failed)
+    res = apply_caps(rubric, 0.9, failed, {}, [], defects_present={})
+    assert res.overall == 0.6, "the older floating_part rule (gate *, cap 0.6) fires too; the tighter cap wins"
+    assert any(c.rule == "floating_or_sunken_asset" for c in res.caps_applied)

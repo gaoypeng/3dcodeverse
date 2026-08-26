@@ -80,7 +80,10 @@ The recipes for all five points below are printed in full at the end of this bri
 
 ## Tools
 {{ tool_cards }}
-After editing run `build`, then `scene_views` and LOOK at the frames: count the silhouettes, look
+After editing run `build` → `check_placement` (it names every asset that floats, is sunken,
+touches nothing or interpenetrates another, with the exact "lower X by 0.23 m onto Terrain"
+fix; a deliberately airborne thing gets `obj.userData.placement = 'free'`) → fix → `build`
+again, then `scene_views` and LOOK at the frames: count the silhouettes, look
 for a flat colour under your props, and read the MEASURED MOTION line it prints — if your zone's
 motion is under 0.4 % of the frame, double the amplitude and render again.
 {% endif %}

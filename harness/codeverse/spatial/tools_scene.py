@@ -117,3 +117,33 @@ def _frame_table(out_dir) -> str:
         return frame_summary_text(metrics) if metrics else ""
     except Exception:  # noqa: BLE001 — a tool observation must never fail on instrumentation
         return ""
+
+
+class CheckPlacementArgs(BaseModel):
+    rebuild: bool = Field(default=False, description="re-run the scene probe first (slow) instead of reading the census of the last build")
+
+
+@tool("check_placement", CheckPlacementArgs,
+      "Deterministic placement check of the last build (scene only): per placed asset the gap from its feet to what is "
+      "under them, burial depth, water, contacts, plus 3-D interpenetrations between assets — findings read "
+      "'floating / sunken / unsupported / interpenetration' with 'lower X by 0.23 m onto Terrain' hints. Reads the "
+      "census of the last build/scene_probe; rebuild=true probes again. Tag a deliberately airborne thing with "
+      "obj.userData.placement = 'free'.",
+      languages=(Language.SCENE_THREEJS.value,), cost_hint="fast")
+def check_placement(ctx: ToolContext, args: CheckPlacementArgs) -> Observation:
+    census_of = lazy("codeverse.spatial.scene_placement", "placement_census")
+    findings_of = lazy("codeverse.spatial.scene_placement", "placement_findings")
+    table_of = lazy("codeverse.spatial.scene_placement", "placement_table_text")
+    infer_indoor = lazy("codeverse.spatial.scene_placement", "infer_indoor")
+    census = census_of(ctx.workspace, force_probe=args.rebuild)
+    indoor = False
+    if ctx.workspace.plan_path.is_file():
+        try:
+            plan = load_plan(ctx.workspace.plan_path)
+            indoor = infer_indoor(" ".join(str(getattr(plan, k, "") or "") for k in ("setting", "environment", "title")))
+        except ToolUsageError:
+            indoor = False
+    table = census.get("placement") or {}
+    report = findings_of(table, indoor=indoor)
+    obs = gate_observation(report, title="placement check")
+    return obs.model_copy(update={"text": truncate(obs.text + "\n\n" + table_of(table))})

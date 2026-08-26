@@ -15,6 +15,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { sceneCensus } from './host_census.mjs';
+import { placementTable } from './host_placement.mjs';
 import { frameStats, nearGeometry } from './host_metrics.mjs';
 import { frameCoverage } from './host_coverage.mjs';
 import { installShaderErrorHook } from './host_shader_errors.mjs';
@@ -388,6 +389,16 @@ function fps(seconds, spec) {
   return { fps: frames / Math.max(elapsed, 1e-3), frames, seconds: elapsed, draw_calls: r.calls, triangles: r.triangles };
 }
 
+/** Per-asset placement table (host_placement.mjs) — never throws: a failure is `{error}`. */
+function placement() {
+  try {
+    const c = sceneCensus(state.scene, THREE);
+    return placementTable(state.scene, THREE, { groundY: c.ground_y, contentBox: c.content_bbox });
+  } catch (e) {
+    return { error: String((e && e.message) || e).slice(0, 400) };
+  }
+}
+
 function census() {
   const c = sceneCensus(state.scene, THREE);
   c.glb_assets = glbUsage(state.scene);
@@ -404,6 +415,7 @@ window.__c3v = {
   cameraChecks,
   compileAll,
   census,
+  placement,
   fps,
   setViewport(w, h) { state.width = w; state.height = h; state.renderer.setSize(w, h, false); },
   shaderErrors: () => state.shaderErrors.slice(),

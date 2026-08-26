@@ -78,7 +78,9 @@ timid: double the amplitude / the count / the contrast this time.
 
 ## Tools
 {{ tool_cards }}
-Run `build` (and `scene_probe`) after editing; finish only when clean.  `scene_views` prints the
+Run `build` → `check_placement` → fix → `build` after editing (and `scene_probe` for the census);
+finish only when both are clean.  `check_placement` measures floating / sunken / unsupported /
+interpenetrating assets deterministically — its numbers, not your impression.  `scene_views` prints the
 frame table and the MEASURED MOTION per camera — use those numbers, not your impression.
 {% endif %}
 {% if recipes is defined and recipes %}
