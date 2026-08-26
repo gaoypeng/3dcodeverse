@@ -28,6 +28,7 @@ from codeverse.contracts.artifacts import GateReport, RenderSet
 from codeverse.contracts.common import Usage
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import OBJECT_VIEWS_QUICK
+from codeverse.fanout import fan_out
 from codeverse.orchestrator.budget import BudgetExceeded
 from codeverse.orchestrator.candidates import (
     CandidateRecord,
@@ -35,7 +36,6 @@ from codeverse.orchestrator.candidates import (
     decide_best,
     rank_candidates,
 )
-from codeverse.orchestrator.fanout import fan_out
 from codeverse.orchestrator.rounds import BestSelector
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationTask

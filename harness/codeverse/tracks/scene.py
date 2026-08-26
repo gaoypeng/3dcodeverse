@@ -38,7 +38,7 @@ from codeverse.contracts.common import TRACK_INFO, Track
 from codeverse.contracts.plan import Plan, ScenePlan, ZonePlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import to_snake
-from codeverse.orchestrator.fanout import fan_out
+from codeverse.fanout import fan_out
 from codeverse.orchestrator.rounds import TaskGroup, compact_instructions
 from codeverse.orchestrator.runner import StageRunner
 from codeverse.prompts import render

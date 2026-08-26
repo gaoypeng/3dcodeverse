@@ -30,7 +30,6 @@ from codeverse.tracks.detailing import detail_instructions, drift_gate
 from codeverse.tracks.generation import GenerationTask
 from codeverse.tracks.lifecycle import BaseTrack
 from codeverse.tracks.prompting import (
-    MAX_SKELETON_CHARS,  # noqa: F401 — re-exported: this was their import path
     base_prompt_context,
     budget_for,
     current_files,

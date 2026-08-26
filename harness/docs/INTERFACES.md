@@ -331,7 +331,7 @@ from codeverse.tracks.detailing import drift_gate, detail_instructions, DRIFT_GA
     # ERROR when a detail round moved/resized/removed a part or changed the overall extents (tol from policy)
 from codeverse.tracks.prompting import base_prompt_context, reference_images, file_for_target_factory, \
     scope_context, budget_for, detail_budget_text      # Δ split out of
-from codeverse.tracks.common import RunContext, Services   # common.py (lazy re-exports keep old imports working)
+from codeverse.tracks.common import RunContext, Services   # common.py
 from codeverse.tracks.generation import generate, run_agent_task, parse_multifile, is_single_shot
 GenerationTask.phase: int = 0   # tasks run in parallel WITHIN a phase, phases in ascending order
     # (tracks.steps.run_generation_tasks).  Only user: the scoped baseline — phase 0 = one session per

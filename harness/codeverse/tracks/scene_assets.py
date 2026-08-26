@@ -30,7 +30,7 @@ from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AssetPlan, BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
-from codeverse.orchestrator.fanout import fan_out
+from codeverse.fanout import fan_out
 from codeverse.prompts import render
 from codeverse.tracks.common import RunContext, language_contract, load_prompt_or
 from codeverse.tracks.generation import GenerationTask, generate

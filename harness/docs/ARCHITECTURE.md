@@ -84,6 +84,8 @@ codeverse/
                       human can kill that one run and not every run on the box
   proc.py             stdlib-only subprocess + atomic-JSON primitives (run_subprocess w/ group kill +
                       preexec_fn, kill_group, tail, write_json_atomic) — shared by languages/spatial/cli
+  fanout.py           bounded parallel fan-out (fan_out, split_results, FanOutReport) — shared by
+                      tracks/judges/texturing/bench
   models/             ChatModel; gemini_convert.py anthropic_convert.py openai_convert.py
                       (request/response shapes per provider), parts.py; gemini.py (dead-key + free 429 rotation), gemini_image.py (ImageModel),
                       anthropic.py openai.py, keypool.py ('dead' outcome + TPM reservation/reconcile),
@@ -142,7 +144,7 @@ codeverse/
                       unwrap), apply.py, gate.py (seam + before/after judge), scene_pack.py, run.py (texture_pass),
                       maps.py (PBR map set), materials.py (named material library), normalise.py
   orchestrator/       runner.py, state.py, rounds.py (RoundPolicy, compaction), candidates.py (best-of-N
-                      + pairwise decisions), fanout.py, budget.py
+                      + pairwise decisions), budget.py
   tracks/             base.py (get_track(track, **options)), lifecycle.py, steps.py, candidates.py,
                       generation.py, repair.py, planner.py, prompting.py (prompt helpers, split from common),
                       common.py (RunContext, Services), motion.py, reference.py, static_object.py,

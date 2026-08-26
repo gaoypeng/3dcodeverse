@@ -32,8 +32,8 @@ from codeverse.contracts.common import Usage
 from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord
+from codeverse.fanout import fan_out
 from codeverse.orchestrator.budget import usage_delta
-from codeverse.orchestrator.fanout import fan_out
 from codeverse.tracks import skills_hook
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationResult, GenerationTask, generate

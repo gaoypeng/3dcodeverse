@@ -245,16 +245,3 @@ _MINIMAL_CONTRACT: dict[Language, str] = {
 def cookbook_rel_for(language: Language) -> str:
     return f"{language.value}/cookbook.md"
 
-
-_PROMPTING = {"parts_table", "part_details", "joints_table", "acceptance_lines", "bbox_line", "glb_to_plan_frame",
-              "constraints_text", "base_prompt_context", "reference_images", "reference_note", "AGENT_OUTPUT_RULES",
-              "file_for_target_factory"}
-
-
-def __getattr__(name: str) -> Any:
-    """Prompt-context helpers moved to ``tracks/prompting.py``; keep old import paths working."""
-    if name in _PROMPTING:
-        import importlib
-
-        return getattr(importlib.import_module("codeverse.tracks.prompting"), name)
-    raise AttributeError(name)
