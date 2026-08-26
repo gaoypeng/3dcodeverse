@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import threading
-from collections import OrderedDict
 from typing import Any
 
 from google.genai import types
@@ -24,7 +23,7 @@ from codeverse.contracts.chat import (
 )
 from codeverse.contracts.common import Usage
 from codeverse.models.base import ModelError
-from codeverse.models.parts import image_bytes
+from codeverse.models.parts import BoundedCache, image_bytes
 from codeverse.models.schema_utils import to_gemini_schema
 
 #: INTERFACES.md mapping; ``off`` → 0 where the model allows it
@@ -36,31 +35,10 @@ RETRYABLE_FINISH = {"RECITATION", "MALFORMED_FUNCTION_CALL", "OTHER", "UNEXPECTE
 FATAL_FINISH = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY"}
 
 
-class _SignatureCache:
-    """Gemini 3 function calls carry an opaque ``thought_signature`` that MUST be
-    echoed back with the call on the next turn.  ``ToolCallPart`` has no slot for
-    it, so we remember signatures by our synthetic call id (bounded LRU)."""
-
-    def __init__(self, capacity: int = 4096) -> None:
-        self._d: OrderedDict[str, bytes] = OrderedDict()
-        self._cap = capacity
-        self._lock = threading.Lock()
-
-    def put(self, call_id: str, sig: bytes | None) -> None:
-        if not sig:
-            return
-        with self._lock:
-            self._d[call_id] = sig
-            self._d.move_to_end(call_id)
-            while len(self._d) > self._cap:
-                self._d.popitem(last=False)
-
-    def get(self, call_id: str) -> bytes | None:
-        with self._lock:
-            return self._d.get(call_id)
-
-
-SIGNATURES = _SignatureCache()
+#: Gemini 3 function calls carry an opaque ``thought_signature`` that MUST be
+#: echoed back with the call on the next turn.  ``ToolCallPart`` has no slot for
+#: it, so we remember signatures by our synthetic call id (bounded LRU).
+SIGNATURES: BoundedCache[bytes] = BoundedCache(4096)
 _call_counter = [0]
 _call_lock = threading.Lock()
 
