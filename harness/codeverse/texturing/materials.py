@@ -15,15 +15,13 @@ almost always one of two sentences:
 The numbers below are the ones a materials artist would type — measured
 dielectric IORs, the metallic/roughness pairs the glTF and Disney/Substance
 guides publish, and the clear-coat that separates lacquered wood from raw
-timber.  They are used three ways:
+timber.  They are used two ways:
 
-1. as **cookbook text** for the agent (:func:`cookbook_block`) — concrete beats
-   abstract (design law 2), so the agent gets a copyable table, not an adjective;
-2. as the target of the **post-build normaliser**
+1. as the target of the **post-build normaliser**
    (:mod:`codeverse.texturing.normalise`), which fixes a material whose numbers
    are an untouched framework default or are impossible for the finish its own
    name claims;
-3. as the PBR factors the **texture pass** writes next to a generated albedo
+2. as the PBR factors the **texture pass** writes next to a generated albedo
    (:mod:`codeverse.texturing.apply`).
 
 Everything here is data + pure functions; nothing imports a model or touches a file.
@@ -333,69 +331,6 @@ def out_of_band(pbr: Pbr, metallic: float | None, roughness: float | None) -> li
     return bad
 
 
-# --------------------------------------------------------------------------- cookbook
-_HEAD = (
-    "### Material families — copy these numbers\n\n"
-    "A Principled BSDF / MeshPhysicalMaterial left on its defaults renders as grey mud, and\n"
-    "the judge says so (`materials` is the weakest object criterion: mean 0.70).  Pick the row\n"
-    "your part is made of and copy the numbers.  Two rules that carry most of the realism:\n\n"
-    "* **Paint, glaze and varnish are DIELECTRIC.**  A painted machine body is `metallic 0.0`\n"
-    "  with a clear coat — not `metallic 0.8`.  Only bare metal is metallic.\n"
-    "* **Nothing in the real world has one uniform roughness.**  Vary it across a part\n"
-    "  (grain, wear on edges, casting pebble) even when the colour stays flat.\n"
-)
-
-
-def cookbook_row(p: Pbr) -> str:
-    extras = []
-    if p.clearcoat:
-        extras.append(f"coat {p.clearcoat:.2f}/{p.clearcoat_roughness:.2f}")
-    if p.sheen:
-        extras.append(f"sheen {p.sheen:.2f}")
-    if p.transmission:
-        extras.append(f"transmission {p.transmission:.2f}")
-    base = ", ".join(f"{c:.2f}" for c in p.base_hint)
-    return (f"| {p.family} | {p.metallic:.2f} | {p.roughness:.2f} | {p.ior:.2f} | "
-            f"{', '.join(extras) or '—'} | {base} | {p.note} |")
-
-
-def cookbook_block() -> str:
-    """The whole table as cookbook markdown (see ``not_done`` for the cookbook patch)."""
-    rows = [
-        _HEAD,
-        "| family | metallic | roughness | IOR | extras | base colour (linear sRGB) | notes |",
-        "|---|---|---|---|---|---|---|",
-        *[cookbook_row(p) for p in MATERIALS.values()],
-        "",
-        "**Blender (bpy)**",
-        "```python",
-        "bsdf = mat.node_tree.nodes['Principled BSDF']",
-        "bsdf.inputs['Base Color'].default_value = (0.11, 0.11, 0.12, 1.0)   # cast_iron",
-        "bsdf.inputs['Metallic'].default_value = 1.0",
-        "bsdf.inputs['Roughness'].default_value = 0.62",
-        "bsdf.inputs['IOR'].default_value = 1.5",
-        "bsdf.inputs['Coat Weight'].default_value = 0.0        # 0.35 for painted_metal",
-        "bsdf.inputs['Coat Roughness'].default_value = 0.10",
-        "```",
-        "",
-        "**three.js**",
-        "```js",
-        "new THREE.MeshPhysicalMaterial({",
-        "  color: 0x1c1c1e, metalness: 1.0, roughness: 0.62, ior: 1.5,",
-        "  clearcoat: 0.0, clearcoatRoughness: 0.10,   // 0.35 / 0.10 for painted_metal",
-        "});",
-        "```",
-        "",
-        "**Roughness variation without a texture file.**  GLB export keeps only base colour,",
-        "metallic, roughness, emission, alpha and normal *textures* — a Blender noise node tree",
-        "does NOT survive it.  What does survive: give one part 2-3 materials that differ only in",
-        "roughness and assign them per face group (a worn edge strip at -0.15, a recessed panel at",
-        "+0.12, the underside at +0.20).  Two materials on one part is the cheapest thing that",
-        "stops a surface reading as plastic.",
-    ]
-    return "\n".join(rows) + "\n"
-
-
 #: families that describe BARE metal.  A strongly chromatic base colour contradicts
 #: them — real cast iron, steel and chrome are neutral (or warm, for brass/copper);
 #: "DarkGreenCastIron" is cast iron with PAINT on it, and paint is a dielectric.
@@ -430,7 +365,7 @@ def looks_painted(family: str, rgb: tuple[float, float, float] | None) -> bool:
 __all__ = [
     "COARSE_TO_FINE", "FINISH_KEYWORDS", "FRAMEWORK_DEFAULTS", "MATERIALS", "SUBSTRATE_KEYWORDS",
     "FamilyMatch", "Pbr",
-    "BARE_METAL_FAMILIES", "cookbook_block", "cookbook_row", "family_for", "is_framework_default",
+    "BARE_METAL_FAMILIES", "family_for", "is_framework_default",
     "is_warm_metal_hue",
     "looks_painted", "out_of_band", "pbr_for", "saturation",
 ]

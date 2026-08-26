@@ -20,8 +20,9 @@ Everything else is left alone.  Base colour is **never** changed — that is the
 agent's design decision and the judge grades intent on it.
 
 Like the texture pass this is a *derived asset*: ``artifacts/object.glb`` and
-``src/`` are untouched; the result is ``artifacts/object_materials.glb``, shipped
-only if the same do-no-harm judge gate the texture pass uses says it helped.
+``src/`` are untouched.  It runs as the first step of
+:func:`codeverse.texturing.run.texture_pass`, which writes the result to
+``textures/object_normalised.glb`` and textures on top of it.
 """
 
 from __future__ import annotations
@@ -29,14 +30,14 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
-import trimesh
 from pydantic import BaseModel, Field
 
 from codeverse.contracts.plan import StaticPlan
 from codeverse.conventions import to_snake
 from codeverse.spatial.measure import load_scene
+from codeverse.texturing.apply import verify_textured_glb
 from codeverse.texturing.materials import (
     FamilyMatch,
     family_for,
@@ -226,103 +227,7 @@ def normalise_materials(
 
 def _verify(glb_in: Path, glb_out: Path) -> list[str]:
     """Same nodes, same triangles — this pass may only move two floats per material."""
-    warnings: list[str] = []
-    a, b = load_scene(glb_in), load_scene(glb_out)
-    na, nb = set(a.graph.nodes_geometry), set(b.graph.nodes_geometry)
-    if na != nb:
-        warnings.append(f"node set changed: missing={sorted(na - nb)[:5]} extra={sorted(nb - na)[:5]}")
-    fa = sum(len(g.faces) for g in a.geometry.values() if isinstance(g, trimesh.Trimesh))
-    fb = sum(len(g.faces) for g in b.geometry.values() if isinstance(g, trimesh.Trimesh))
-    if fa != fb:
-        warnings.append(f"face count changed {fa} → {fb}")
-    return warnings
+    return verify_textured_glb(glb_in, glb_out, expected_textured=0)
 
 
-MATERIALS_GLB = "object_materials.glb"
-
-
-class MaterialPassReport(BaseModel):
-    """What :func:`material_pass` did, and whether it shipped."""
-
-    normalise: NormaliseReport
-    gate: Any | None = None
-    glb_out: str = ""
-    shipped: bool = False
-    delta: float | None = None
-    materials_delta: float | None = None
-    reason: str = ""
-    duration_s: float = 0.0
-
-    def summary(self) -> dict[str, Any]:
-        return {
-            "shipped": self.shipped, "delta": self.delta, "materials_delta": self.materials_delta,
-            "changed": len(self.normalise.changes), "materials": self.normalise.n_materials,
-            "families": sorted({c.family for c in self.normalise.changes}),
-            "glb_out": self.glb_out, "reason": self.reason, "duration_s": self.duration_s,
-        }
-
-
-def material_pass(
-    ws: Any,
-    spec: Any,
-    plan: StaticPlan | None,
-    *,
-    glb_in: Path | None = None,
-    judge: bool = True,
-    judge_obj: Any | None = None,
-    judge_model_id: str | None = None,
-    rubric: str | None = None,
-    render: Any | None = None,
-    events: Any | None = None,
-) -> MaterialPassReport:
-    """Normalise ``artifacts/object.glb``'s materials into ``artifacts/object_materials.glb``
-    and keep it only if the same do-no-harm gate the texture pass uses agrees.
-
-    Standalone sibling of :func:`codeverse.texturing.run.texture_pass`: no model
-    call except the two gate verdicts, and nothing is written when no material
-    needed changing.
-    """
-    from codeverse.events import EventLog
-    from codeverse.texturing.gate import judge_gate
-
-    t0 = time.time()
-    events = events or EventLog(ws.events_path)
-    glb_in = Path(glb_in) if glb_in else ws.artifacts / "object.glb"
-    if not glb_in.is_file():
-        raise FileNotFoundError(f"no GLB to normalise: {glb_in}")
-    out = ws.artifacts / MATERIALS_GLB
-    norm = normalise_materials(glb_in, out, plan=plan)
-    rep = MaterialPassReport(normalise=norm, glb_out=norm.glb_out)
-    events.emit("material.normalised", changed=len(norm.changes), materials=norm.n_materials,
-                families=sorted({c.family for c in norm.changes}))
-    if not norm.changes:
-        rep.reason = "no material needed normalising"
-        rep.duration_s = round(time.time() - t0, 2)
-        return rep
-    if not judge:
-        rep.shipped = True
-        rep.reason = "judge gate skipped: shipped on the deterministic rules alone"
-        rep.duration_s = round(time.time() - t0, 2)
-        return rep
-    gate = judge_gate(spec, plan, glb_in, out, ws.artifacts / "materials_gate",
-                      judge=judge_obj if judge_obj is not None else _gate_judge(spec, rubric, judge_model_id),
-                      render=render)
-    rep.gate, rep.shipped, rep.delta = gate, gate.shipped, gate.delta
-    rep.materials_delta, rep.reason = gate.materials_delta, gate.reason
-    rep.duration_s = round(time.time() - t0, 2)
-    events.emit("material.gate", **rep.summary())
-    return rep
-
-
-def _gate_judge(spec: Any, rubric: str | None, judge_model_id: str | None) -> Any:
-    from codeverse.contracts.common import TRACK_INFO
-    from codeverse.judges.vlm_judge import VlmJudge
-
-    info = TRACK_INFO.get(spec.track)
-    name = rubric or (info.rubric if info is not None else "static_object_v1")
-    return VlmJudge(rubric=name, model_id=judge_model_id or spec.backends.judge, n_samples=1,
-                    label="material_gate")
-
-
-__all__ = ["MaterialChange", "MaterialPassReport", "NormaliseReport", "Verdict", "classify",
-           "material_pass", "normalise_materials"]
+__all__ = ["MaterialChange", "NormaliseReport", "Verdict", "classify", "normalise_materials"]
