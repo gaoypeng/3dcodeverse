@@ -28,6 +28,7 @@ from codeverse.tracks.prompting import (
     acceptance_lines,
     constraints_text,
     reference_note,
+    select_cookbook_excerpt,
 )
 from codeverse.workspace import Workspace
 
@@ -116,9 +117,10 @@ def graphics_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
     """Every variable the graphics templates may reference (StrictUndefined)."""
     plan = ctx.plan if isinstance(ctx.plan, GraphicsPlan) else None
     res = plan.resolution if plan else (1280, 720)
+    brief = ctx.spec.prompt + " " + " ".join(plan.key_visuals if plan else [])
     d: dict[str, Any] = {
         "track": ctx.track.value, "language": ctx.language.value, "contract": ctx.contract_text,
-        "cookbook_rel": ctx.cookbook_rel, "cookbook_excerpt": ctx.cookbook_text[:7000], "tool_cards": ctx.tool_cards,
+        "cookbook_rel": ctx.cookbook_rel, "cookbook_excerpt": select_cookbook_excerpt(ctx, brief), "tool_cards": ctx.tool_cards,
         "single_shot": ctx.single_shot, "output_format": SINGLE_SHOT_FORMAT if ctx.single_shot else AGENT_OUTPUT_RULES,
         "spec_prompt": ctx.spec.prompt, "constraints": constraints_text(ctx.spec),
         "title": plan.title if plan else "Untitled effect", "plan_summary": plan.summary if plan else "",

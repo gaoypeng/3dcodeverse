@@ -171,6 +171,82 @@ def cookbook_sections(ctx: RunContext, names: Sequence[str], *, max_chars: int =
     return text
 
 
+#: brief words → cookbook chapter titles (case-insensitive substrings of a ``## `` heading) they call for
+COOKBOOK_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "aurora": ("Light phenomena",), "curtain": ("Light phenomena",), "curtains": ("Light phenomena",),
+    "northern": ("Light phenomena",), "glow": ("Light phenomena",),
+    "star": ("Gradient sky", "Light phenomena"), "stars": ("Gradient sky", "Light phenomena"),
+    "night": ("Gradient sky", "Light phenomena"), "space": ("Gradient sky", "Light phenomena"),
+    "galaxy": ("Gradient sky", "Light phenomena"), "nebula": ("Gradient sky", "Light phenomena"),
+    "bokeh": ("Bokeh",), "city": ("Bokeh",), "neon": ("Bokeh",), "lights": ("Bokeh",),
+    "rain": ("Rain",), "drops": ("Rain",), "glass": ("Rain",),
+    "cloud": ("Domain warping",), "clouds": ("Domain warping",), "smoke": ("Domain warping",),
+    "marble": ("Domain warping",),
+    "tunnel": ("Raymarching",), "temple": ("Raymarching",), "corridor": ("Raymarching",), "3d": ("Raymarching",),
+    "trail": ("Feedback",), "trails": ("Feedback",), "feedback": ("Feedback",),
+}
+COOKBOOK_ALWAYS: tuple[str, ...] = ("Hash / noise / fbm", "Palettes, tonemapping, grading", "PITFALLS")
+_STOP = frozenset(("the", "and", "with", "for", "from", "into", "over", "that", "this", "are", "its", "one", "two",
+                   "not", "but", "then", "than", "out", "each", "all", "any", "per", "via", "use", "like", "look",
+                   "looks", "very", "some", "more", "most"))
+
+
+def _words(text: str) -> set[str]:
+    import re
+
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if (len(w) >= 3 or w in COOKBOOK_SYNONYMS) and w not in _STOP}
+
+
+def select_cookbook_excerpt(ctx: RunContext, brief: str, *, budget: int = 9000,
+                            always: Sequence[str] = COOKBOOK_ALWAYS) -> str:
+    """Whole cookbook chapters chosen for ``brief``, never a blind prefix.
+
+    Measured 2026-08-26: the graphics prompt carried ``cookbook_text[:7000]`` of an 11,298-char
+    cookbook, so everything after the raymarching template (sky / stars, rain, bokeh, feedback,
+    PITFALLS) never reached the agent unless it called ``read_cookbook`` — and flash draws
+    what it was handed (an aurora as a comb of bars, twenty sparkles for a star field).
+    Here the header + ``always`` chapters go in first (4.4 k chars), then chapters ranked by
+    keyword overlap between the brief (+ plan key visuals) and the chapter heading / body, with
+    ``COOKBOOK_SYNONYMS`` as the strong signal, until ``budget`` is spent.  A chapter is added
+    whole or not at all; the output keeps cookbook order.  The default budget is the measured
+    need of a night-sky brief: always-set 4.4 k + Light phenomena 3.2 k + Gradient sky 1.3 k.
+    """
+    from codeverse.spatial.cookbook_tool import Section, find_section, split_sections
+
+    md = ctx.cookbook_text or ""
+    if not md.strip():
+        return ""
+    chapters: list[Section] = []
+    for s in split_sections(md):        # fold ### sub-headings into their ## chapter
+        if s.level >= 3 and chapters:
+            chapters[-1] = Section(chapters[-1].level, chapters[-1].title, chapters[-1].body + s.body)
+        else:
+            chapters.append(s)
+    chosen: set[int] = {i for i, s in enumerate(chapters) if s.level < 2}    # title / conventions header
+    for name in always:
+        sec = find_section(chapters, name)
+        if sec is not None:
+            chosen.add(chapters.index(sec))
+    brief_words = _words(brief)
+    wanted = {t.lower() for w in brief_words for t in COOKBOOK_SYNONYMS.get(w, ())}
+    scored: list[tuple[int, int]] = []
+    for i, s in enumerate(chapters):
+        if i in chosen:
+            continue
+        title = s.title.lower()
+        score = 4 * sum(1 for t in wanted if t in title)
+        score += 3 * len(brief_words & _words(s.title)) + len(brief_words & _words(s.body))
+        if score > 0:
+            scored.append((-score, i))
+    used = sum(len(chapters[i].body.rstrip()) + 2 for i in chosen)
+    for _, i in sorted(scored):
+        size = len(chapters[i].body.rstrip()) + 2
+        if used + size <= budget:
+            chosen.add(i)
+            used += size
+    return "\n\n".join(chapters[i].body.rstrip() for i in sorted(chosen))
+
+
 def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
     """Variables every tracks/*.j2 template may use (StrictUndefined → all present)."""
     plan = ctx.plan
