@@ -214,7 +214,7 @@ defects:
     penalty: 0.08
     cap: 0.70
   - id: garbage_pixels
-    text: Visible garbage — NaN speckles, blocky corruption, uninitialised regions, magenta/error colour.
+    text: Visible garbage — NaN speckles, blocky corruption, uninitialised regions, magenta/error colour.  Particles, stars, sparks, film grain or noise the brief asks for are NOT garbage.
     penalty: 0.10
     cap: 0.30
   - id: banding_or_aliasing
