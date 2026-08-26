@@ -430,6 +430,7 @@ def run_agent_task(
         extra=extra,
         edit_only=task.edit_only,
         always_writable=_always_writable(language),
+        images=list(task.images),
         **({"max_turns": turns_cap} if turns_cap > 0 else {}),
     )
     acc = _SessionAcc(task=task, budget=budget)

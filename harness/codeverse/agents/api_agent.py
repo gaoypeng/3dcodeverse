@@ -130,7 +130,12 @@ class _Loop:
         self.last_build_turn = -1
         self.nudged = False
         self.errors: list[str] = []
-        self.messages: list[ChatMessage] = [ChatMessage.user(job.prompt)]
+        # the images ride on the first message only: reference photos, and for a refine
+        # session the contact sheet the judge scored.  Until 2026-08-26 no image reached an
+        # agent session at all — GenerationTask.images fed the single-shot path only, so a
+        # `--image` reference was seen by the planner and the judge and never by the code
+        # writer, which had to infer it back from compare_reference's IoU number.
+        self.messages: list[ChatMessage] = [ChatMessage.user(job.prompt, images=job.images or None)]
         self.system = self._system_prompt()
         self.max_usd = job.api.max_usd
         self.t_deadline = time.monotonic() + job.timeout_s

@@ -38,6 +38,7 @@ from codeverse.tracks.prompting import (
     file_for_target_factory,
     glb_to_plan_frame,
     judge_digest,
+    judged_sheet,
     measurement_vs_plan,
     reference_images,
     scope_context,
@@ -348,7 +349,7 @@ class StaticObjectTrack(BaseTrack):
             kind="refine",
             temperature=0.4,
             thinking="medium",
-            images=reference_images(ctx),
+            images=reference_images(ctx) + judged_sheet(last),
             edit_only=scoped,
         )
 

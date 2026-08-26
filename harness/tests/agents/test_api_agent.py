@@ -208,3 +208,22 @@ def test_live_api_agent_gemini(tmp_ws):
     assert res.ok, res.errors
     assert (tmp_ws.src / "hello.txt").read_text().strip() == "hi"
     assert res.usage.input_tokens > 0 and res.tool_calls >= 1
+
+
+def test_job_images_ride_on_the_first_user_message(tmp_ws, tmp_path):
+    """Until 2026-08-26 no image reached an agent session: GenerationTask.images fed the
+    single-shot path only, so a `--image` reference was seen by the planner and the judge
+    and never by the code writer, and a refine session got "what the judge saw" as prose
+    without the sheet the prose was written about."""
+    from codeverse.contracts.chat import ImagePart
+
+    png = tmp_path / "sheet.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+    fake = FakeChatModel([resp("Done")])
+    job = _job(tmp_ws)
+    job = job.model_copy(update={"images": [ImagePart(path=str(png), label="the contact sheet the judge scored (round 0)")]})
+    ApiAgent("fake:fake-1", chat_model=fake).run(job)
+    first = fake.requests[0].messages[0]
+    imgs = [pt for pt in first.parts if isinstance(pt, ImagePart)]
+    assert imgs and imgs[0].path == str(png), "the image must be a part of the FIRST user message"
+    assert "judge scored" in (imgs[0].label or "")

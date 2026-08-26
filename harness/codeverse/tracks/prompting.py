@@ -39,12 +39,16 @@ def parts_table_for(parts: Sequence[Any]) -> str:
     """``parts_table`` for an explicit part subset (one scoped session's parts)."""
     if not parts:
         return "(no parts)"
-    rows = ["| part | role | bbox centre (x,y,z) m | extents (x,y,z) m | attach_to | inst | material |",
-            "|---|---|---|---|---|---|---|"]
+    rows = [
+        "| part | role | bbox centre (x,y,z) m | extents (x,y,z) m | attach_to | inst | material |",
+        "|---|---|---|---|---|---|---|",
+    ]
     for p in parts:
         c = ", ".join(f"{v:.3f}" for v in p.bbox.center)
         e = ", ".join(f"{v:.3f}" for v in p.bbox.extents)
-        rows.append(f"| {p.name} | {p.role} | ({c}) | ({e}) | {p.attach_to or '-'} | {p.instances} | {p.material or '-'} |")
+        rows.append(
+            f"| {p.name} | {p.role} | ({c}) | ({e}) | {p.attach_to or '-'} | {p.instances} | {p.material or '-'} |"
+        )
     return "\n".join(rows)
 
 
@@ -71,7 +75,9 @@ def part_details_for(parts: Sequence[Any]) -> str:
             ce = ", ".join(f"{v:.3f}" for v in c.bbox.extents)
             inst = f" ×{c.instances}" if getattr(c, "instances", 1) > 1 else ""
             mat = f" [{c.material}]" if getattr(c, "material", "") else ""
-            out.append(f"    - sub-part **{c.name}**{inst}{mat} — centre ({cc}) extents ({ce}) m: {c.description}")
+            out.append(
+                f"    - sub-part **{c.name}**{inst}{mat} — centre ({cc}) extents ({ce}) m: {c.description}"
+            )
     return "\n".join(out)
 
 
@@ -79,12 +85,16 @@ def joints_table(plan: Plan) -> str:
     joints = getattr(plan, "joints", None)
     if not joints:
         return "(no joints)"
-    rows = ["| joint | type | parent | child | axis | pivot (world, m) | lower | upper | rest | motion |",
-            "|---|---|---|---|---|---|---|---|---|---|"]
+    rows = [
+        "| joint | type | parent | child | axis | pivot (world, m) | lower | upper | rest | motion |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
     for j in joints:
         ax = ", ".join(f"{v:.3f}" for v in j.axis)
         pv = ", ".join(f"{v:.3f}" for v in j.pivot)
-        rows.append(f"| {j.name} | {j.type} | {j.parent} | {j.child} | ({ax}) | ({pv}) | {j.lower:.3f} | {j.upper:.3f} | {j.rest:.3f} | {j.motion} |")
+        rows.append(
+            f"| {j.name} | {j.type} | {j.parent} | {j.child} | ({ax}) | ({pv}) | {j.lower:.3f} | {j.upper:.3f} | {j.rest:.3f} | {j.motion} |"
+        )
     return "\n".join(rows)
 
 
@@ -101,7 +111,9 @@ def bbox_line(bbox: Any) -> str:
     return f"centre ({c}) m, extents ({e}) m"
 
 
-def glb_to_plan_frame(v: Sequence[float], language: Language, *, extents: bool = False) -> tuple[float, float, float]:
+def glb_to_plan_frame(
+    v: Sequence[float], language: Language, *, extents: bool = False
+) -> tuple[float, float, float]:
     """Map a GLB-frame (Y-up, +Z front) vector into the language's authoring frame.
     Blender/CadQuery/URDF plans are Z-up with -Y front: glb (x, y, z) → (x, -z, y)."""
     x, y, z = float(v[0]), float(v[1]), float(v[2])
@@ -114,7 +126,9 @@ def constraints_text(spec: Any) -> str:
     c = spec.constraints
     lines = []
     if c.dimensions_m:
-        lines.append("Dimensions (m): " + ", ".join(f"{k}={v:.3f}" for k, v in c.dimensions_m.items()))
+        lines.append(
+            "Dimensions (m): " + ", ".join(f"{k}={v:.3f}" for k, v in c.dimensions_m.items())
+        )
     if c.max_triangles:
         lines.append(f"Max triangles: {c.max_triangles}")
     if c.style:
@@ -151,7 +165,9 @@ def cookbook_sections(ctx: RunContext, names: Sequence[str], *, max_chars: int =
         out.append(sec.body.rstrip())
     text = "\n\n".join(out)
     if len(text) > max_chars:
-        text = text[:max_chars].rstrip() + "\n\n…[chapters clipped — call read_cookbook for the rest]"
+        text = (
+            text[:max_chars].rstrip() + "\n\n…[chapters clipped — call read_cookbook for the rest]"
+        )
     return text
 
 
@@ -212,14 +228,16 @@ def scope_context(ctx: RunContext, scope: PartScope, **extra: Any) -> dict[str, 
     """Template context for ONE scoped part session: only its parts, plus the exact
     numbers of the neighbours it must weld to but may not write."""
     d = base_prompt_context(ctx, **extra)
-    d.update({
-        "scope_label": scope.label,
-        "scope_names": ", ".join(scope.names),
-        "parts_table": parts_table_for(scope.parts),
-        "part_details": part_details_for(scope.parts),
-        "interfaces": interfaces_text(ctx.plan, scope),
-        "n_scope_parts": len(scope.parts),
-    })
+    d.update(
+        {
+            "scope_label": scope.label,
+            "scope_names": ", ".join(scope.names),
+            "parts_table": parts_table_for(scope.parts),
+            "part_details": part_details_for(scope.parts),
+            "interfaces": interfaces_text(ctx.plan, scope),
+            "n_scope_parts": len(scope.parts),
+        }
+    )
     d.update(extra)
     return d
 
@@ -229,8 +247,32 @@ def reference_images(ctx: RunContext, limit: int = 3) -> list[ImagePart]:
     out: list[ImagePart] = []
     for r in list(ctx.spec.references)[:limit]:
         if Path(r.path).is_file():
-            out.append(ImagePart(path=r.path, label=f"reference ({r.role}){': ' + r.note if r.note else ''}"))
+            out.append(
+                ImagePart(
+                    path=r.path, label=f"reference ({r.role}){': ' + r.note if r.note else ''}"
+                )
+            )
     return out
+
+
+def judged_sheet(last: Any) -> list[ImagePart]:
+    """The contact sheet the judge scored last round, as ONE inline image for the refine session.
+
+    "What the judge saw" reached the refine agent as a paragraph of text; the picture it
+    was written about did not.  A session told "the horn intersects the case" then had to
+    re-render to find out which view showed it.  One image is cheap next to a session of
+    30 tool turns, and it is the same file the score came from, so the agent and the judge
+    are finally looking at the same thing.
+    """
+    sheet = getattr(getattr(last, "renders", None), "contact_sheet", None)
+    if not sheet or not Path(sheet).is_file():
+        return []
+    return [
+        ImagePart(
+            path=str(sheet),
+            label=f"the contact sheet the judge scored (round {getattr(last, 'index', '?')})",
+        )
+    ]
 
 
 def reference_note(ctx: RunContext) -> str:
@@ -238,17 +280,21 @@ def reference_note(ctx: RunContext) -> str:
     refs = [r for r in ctx.spec.references if Path(r.path).is_file()]
     if not refs:
         return ""
-    lines = [f"REFERENCE IMAGES ({len(refs)}): match their silhouette, proportions and visible details — they "
-             "outrank the text when the two disagree.  A harness measures the front-view outline IoU against the "
-             "target reference; aim for IoU ≥ 0.6."]
+    lines = [
+        f"REFERENCE IMAGES ({len(refs)}): match their silhouette, proportions and visible details — they "
+        "outrank the text when the two disagree.  A harness measures the front-view outline IoU against the "
+        "target reference; aim for IoU ≥ 0.6."
+    ]
     for i, r in enumerate(refs, 1):
         lines.append(f"- reference {i} ({r.role}): `{r.path}`" + (f" — {r.note}" if r.note else ""))
     if ctx.single_shot:
         lines.append("The images are attached to this message.")
     else:
         tgt = next((r.path for r in refs if r.role == "target"), refs[0].path)
-        lines.append(f"Use the `compare_silhouette` tool (render_png=<your front render>, reference_png=`{tgt}`) "
-                     "after building to check the outline, and `render_views` to look at your model.")
+        lines.append(
+            f"Use the `compare_silhouette` tool (render_png=<your front render>, reference_png=`{tgt}`) "
+            "after building to check the outline, and `render_views` to look at your model."
+        )
     return "\n".join(lines)
 
 
@@ -277,10 +323,16 @@ def expected_files(ctx: RunContext) -> list[str]:
 
 def skeleton_files(ctx: RunContext, max_chars: int = MAX_SKELETON_CHARS) -> dict[str, str]:
     """Current src/ files (the skeleton), trimmed, for single-shot prompts."""
-    return current_files(ctx, [str(p.relative_to(ctx.ws.root)) for p in sorted(ctx.ws.src.rglob("*")) if p.is_file()], max_chars)
+    return current_files(
+        ctx,
+        [str(p.relative_to(ctx.ws.root)) for p in sorted(ctx.ws.src.rglob("*")) if p.is_file()],
+        max_chars,
+    )
 
 
-def current_files(ctx: RunContext, rels: Sequence[str], max_chars: int = MAX_SKELETON_CHARS) -> dict[str, str]:
+def current_files(
+    ctx: RunContext, rels: Sequence[str], max_chars: int = MAX_SKELETON_CHARS
+) -> dict[str, str]:
     out: dict[str, str] = {}
     total = 0
     for rel in rels:
@@ -302,34 +354,49 @@ def judge_digest(last: RoundRecord, max_issues: int = 8) -> str:
     j = last.judgment
     if j is None:
         return "(no judgment for the previous round)"
-    lines = [f"Previous score {j.overall:.2f} ({'passed' if j.passed else 'not passed'}). {j.summary}".strip()]
+    lines = [
+        f"Previous score {j.overall:.2f} ({'passed' if j.passed else 'not passed'}). {j.summary}".strip()
+    ]
     for k, v in sorted(j.scores.items(), key=lambda kv: kv[1])[:6]:
         lines.append(f"- {k}: {v:.2f}")
     for i in j.issues[:max_issues]:
-        lines.append(f"- [{i.severity}/{i.kind}] {i.target}: {i.detail}" + (f" (seen in {i.evidence})" if i.evidence else ""))
+        lines.append(
+            f"- [{i.severity}/{i.kind}] {i.target}: {i.detail}"
+            + (f" (seen in {i.evidence})" if i.evidence else "")
+        )
     return "\n".join(lines)
 
 
-def measurement_vs_plan(last: RoundRecord, plan: Plan | None, language: Language = Language.THREEJS) -> str:
+def measurement_vs_plan(
+    last: RoundRecord, plan: Plan | None, language: Language = Language.THREEJS
+) -> str:
     """Exact numbers (in the plan's frame): measured overall/part bboxes vs planned ones."""
     m = last.measurement
     if m is None or plan is None or not hasattr(plan, "overall_bbox"):
         return ""
     pe = plan.overall_bbox.extents
     me = glb_to_plan_frame(m.extents, language, extents=True)
-    lines = [f"Measured overall extents {me[0]:.3f}×{me[1]:.3f}×{me[2]:.3f} m vs plan "
-             f"{pe[0]:.3f}×{pe[1]:.3f}×{pe[2]:.3f} m; ground gap {m.ground_gap_m:+.3f} m; footprint offset {m.footprint_offset_m:.3f} m; "
-             f"{m.tri_count} tris, {m.n_meshes} meshes, {m.n_islands} islands."]
+    lines = [
+        f"Measured overall extents {me[0]:.3f}×{me[1]:.3f}×{me[2]:.3f} m vs plan "
+        f"{pe[0]:.3f}×{pe[1]:.3f}×{pe[2]:.3f} m; ground gap {m.ground_gap_m:+.3f} m; footprint offset {m.footprint_offset_m:.3f} m; "
+        f"{m.tri_count} tris, {m.n_meshes} meshes, {m.n_islands} islands."
+    ]
     planned = {to_snake(p.name): p for p in getattr(plan, "parts", [])}
     for pm in m.parts[:24]:
         p = planned.get(to_snake(pm.name))
         if p is None:
             continue
-        ext = glb_to_plan_frame([b - a for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language, extents=True)
-        cen = glb_to_plan_frame([(a + b) / 2 for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language)
-        lines.append(f"- {p.name}: measured centre ({cen[0]:.3f}, {cen[1]:.3f}, {cen[2]:.3f}) extents ({ext[0]:.3f}, {ext[1]:.3f}, {ext[2]:.3f})"
-                     f" | plan centre ({p.bbox.center[0]:.3f}, {p.bbox.center[1]:.3f}, {p.bbox.center[2]:.3f}) extents "
-                     f"({p.bbox.extents[0]:.3f}, {p.bbox.extents[1]:.3f}, {p.bbox.extents[2]:.3f})")
+        ext = glb_to_plan_frame(
+            [b - a for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language, extents=True
+        )
+        cen = glb_to_plan_frame(
+            [(a + b) / 2 for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language
+        )
+        lines.append(
+            f"- {p.name}: measured centre ({cen[0]:.3f}, {cen[1]:.3f}, {cen[2]:.3f}) extents ({ext[0]:.3f}, {ext[1]:.3f}, {ext[2]:.3f})"
+            f" | plan centre ({p.bbox.center[0]:.3f}, {p.bbox.center[1]:.3f}, {p.bbox.center[2]:.3f}) extents "
+            f"({p.bbox.extents[0]:.3f}, {p.bbox.extents[1]:.3f}, {p.bbox.extents[2]:.3f})"
+        )
     gate_lines = [f"- {f.as_line(with_gate=True)}" for g in last.gates for f in g.errors][:12]
     return "\n".join(lines + gate_lines)
 
@@ -359,7 +426,11 @@ def file_for_target_factory(ctx: RunContext):
                     try:
                         out = custom(part_names[key])
                         if out:
-                            return [str(out)] if isinstance(out, (str, Path)) else [str(p) for p in out]
+                            return (
+                                [str(out)]
+                                if isinstance(out, (str, Path))
+                                else [str(p) for p in out]
+                            )
                     except Exception as e:  # noqa: BLE001
                         log.warning("runtime.file_for_part failed for %s: %s", target, e)
                 return [f"src/parts/{key}.js"] if lang is Language.THREEJS else [entry]
@@ -369,11 +440,16 @@ def file_for_target_factory(ctx: RunContext):
                     try:
                         out = whole(target)
                         if out:
-                            return [str(out)] if isinstance(out, (str, Path)) else [str(p) for p in out]
+                            return (
+                                [str(out)]
+                                if isinstance(out, (str, Path))
+                                else [str(p) for p in out]
+                            )
                     except Exception as e:  # noqa: BLE001
                         log.warning("runtime.file_for_target failed for %s: %s", target, e)
                 return [entry]
             return []
+
         return _per_part
 
     if lang is Language.SCENE_THREEJS:
@@ -392,5 +468,6 @@ def file_for_target_factory(ctx: RunContext):
             if key in ("env", "environment", "lighting", "sky", "fog", "ground", "water", "light"):
                 return ["src/env.js"]
             return []
+
         return _scene
     return None

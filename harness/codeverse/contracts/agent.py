@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from codeverse.contracts.chat import ImagePart
 from codeverse.contracts.common import Usage
 
 
@@ -65,6 +66,11 @@ class AgentJob(BaseModel):
         description="ENFORCE files_hint: an existing file outside it cannot be overwritten (new files "
         "and the language entry file stay allowed). Refine tasks set this so a session fixing one "
         "part cannot rewrite its neighbours.",
+    )
+    images: list[ImagePart] = Field(
+        default_factory=list,
+        description="inline images for the FIRST user message (reference photos; the contact sheet the "
+        "judge scored). Backends without an image channel ignore them; the prompt names the files too.",
     )
     always_writable: list[str] = Field(
         default_factory=list,
