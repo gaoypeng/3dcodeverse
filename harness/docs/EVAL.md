@@ -337,6 +337,41 @@ recorded corpus, before spending anything:
 Two of those three are answered by arithmetic, not by a battery.  Running them anyway and
 reporting "no effect" would be the rig lying about what it can see.
 
+### 8.4 What `ab_plan` can and cannot evaluate — and why the primary readout survives it
+
+Running the rig on a non-blender battery for the first time found two layers of the same
+assumption, one fixed here and one only documented:
+
+1. **Fixed.** `compare_backends._run_harness` gated the harness arm on
+   `bench/_oneshot.MODEL_FILE` (`src/model.py`).  A glsl_shader control that finished
+   `status: passed` having written `src/shader.frag` was recorded `no_code`, **score 0.0**.
+   Four of seven languages were affected — threejs, scene_threejs, glsl_shader,
+   opengl_python.  `entry_of(spec)` now reads `ENTRY_FILE`, the canonical table.
+2. **Not fixed, and it is structural.**  `bench/_fixed_eval.FixedEvaluator` pins
+   `get_runtime(Language.BLENDER)` and its `evaluate` is GLB-centric — build → `measure_glb`
+   → `check_connectivity` → `render_glb` → VLM judge.  So on any language that does not
+   deliver a GLB from a blender script, every cell still comes back `build_failed` / 0.0,
+   and **the only gates it runs are lint and connectivity** — never contract, joint_sweep,
+   scene_frames or gl_frames.
+
+The second one sounds fatal for a skills A/B and is not, because of where the numbers come
+from.  **`bench/skill_targets.py` reads each arm's harness run** (`<cell>/run/record.json`
+and its rendered frames), not the fixed evaluation — and the harness run is the real track,
+with all of its own gates.  Verified on the glsl A/A above: every cell was `build_failed`
+with `MissingEntryFile`, and the paired target metric still read out
+(`mean_edge_density` 0.073 → 0.052 on the first pair).
+
+So for a skills A/B the split is:
+
+| readout | source | works on |
+|---|---|---|
+| the bundle's target metric (**primary**) | the arms' own harness records + frames | every language |
+| the judged score (**secondary**) | `FixedEvaluator` | blender / cadquery only |
+
+which is the right way round, and is why the protocol says decide on the target and merely
+report the score.  A driver that had only ever been pointed at a blender battery could not
+have told the difference.
+
 ## 9. Reporting checklist
 
 battery name + git sha of prompts; judge id, rubric name + hash, `n_samples`; per-arm
