@@ -195,6 +195,15 @@ parks until it recovers instead; `--no-preflight` skips the check.  Cells that a
 provider outage kills anyway are recorded `infra_failed`, excluded from every rate,
 and re-run with `--redo-status infra_failed` (see `docs/EVAL.md` §7).
 
+### 7.v Templates are read at render time — a new required variable breaks live workers like a moved name
+
+Measured 2026-08-26 13:45: the fewer-turns landing added `{{ turn_discipline }}` to four static
+templates; the four h2h drivers started 50 minutes earlier still ran the old python (no such
+context key) but rendered the NEW template from disk → `UndefinedError: 'turn_discipline' is
+undefined`, four prompts recorded `error` at 0 min.  Rule: every new template variable is
+guarded `{% if name is defined and name %}` for at least one wave, and the "Landing source
+changes while a wave is running" rule covers `codeverse/prompts/**` as well as moved names.
+
 ### 7.w One driver per out dir — a second `bench run` re-runs what the first is still running
 
 Measured 2026-08-26 (refs_v1_graphics): a redo driver (`--redo-status budget`) started while the
