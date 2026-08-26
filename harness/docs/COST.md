@@ -1252,3 +1252,21 @@ remaining session / round budget (~1 430 s/run) — (2) hedge a 503 retry across
 the ceiling inside a round (837 s sooner on killed runs) — (7) flash as the loop judge (~60 s
 baseline) — (8) 30 s render cap (≤ 100 s).  (1)–(3) and the key/attempt ledger fields are in
 progress on branch `retry-budget`.
+
+## 26. Fewer turns (in measurement) — `CV3D_FEWER_TURNS`, branch `fewer-turns`
+
+static_v2_flash (20 blender object runs, healthy provider, api-agent gemini-3.7-flash): wall median
+1 047 s, of which 823 s (79 %) is model time = **196 flash calls per run** at 4.2 s mean (p50 2.8 s;
+latency scales with prompt size — 1.3 s below 20 k tokens, 4.1 s at 80 k; prompt p50 35 k, output
+p50 **20 tokens**).  Most turns are one tiny tool call carrying a 35–70 k context; prefix caching
+already covers 84 % of input tokens, so the cost is round trips, not tokens.  The BASELINE session
+hits the 60-turn cap in every run (write_file 22.5, build 8, read_file 7.5, check_connectivity 4.6,
+check_contract 4.1 per session); REFINE sessions (5.3/run, 24 turns median) read_file 5.2, build 5.1,
+write_file 4.6, check_connectivity 3.8, check_contract 2.8.  Capping turns is NOT the lever (§17).
+So, behind one switch, default OFF: (1) `build` folds check_connectivity + check_contract into its
+observation (~44 turns/run); (2) write_file / edit_file return `(N lines) · syntax OK` or the first
+3 lint errors instead of being read back (~35 turns/run); (3) a scoped refine task ≤ 3 files /
+≤ 12 k chars gets its files inlined; (4) the baseline prompt asks for every file in turn one.
+Run: `python bench/ab_plan.py --prompts bench/prompts/turns_v1.yaml --out bench/out/turns_v1 --pin-plan --variant-env CV3D_FEWER_TURNS=1 --generator api-agent:gemini:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --rounds 3 --max-minutes 120 --max-in-flight 8 --allow-siblings`
+Read out, paired per prompt: wall (s), turns per session (baseline / refine), model calls per run,
+score (control vs variant, sign count) — and whether the baseline session still hits the cap.

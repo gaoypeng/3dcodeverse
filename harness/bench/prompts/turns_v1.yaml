@@ -1,0 +1,131 @@
+# turns_v1 — the fewer-turns A/B slice (docs/COST.md §26).  Six blender static objects copied
+# VERBATIM from static_objects_v2.yaml (2 medium controls + 4 hard), chosen because each has a
+# completed 3-round run in bench/out/static_v2_flash/runs/<id> — so a wall-clock, turns-per-
+# session and calls-per-run baseline exists for the paired read-out.  static_v2_flash minutes /
+# final score: dining_chair 15.3 / 0.60 · hand_drill 15.4 / 0.92 · coffee_grinder 11.8 / 0.60 ·
+# machinist_vise 11.4 / 0.60 · spiral_stair 20.6 / 0.60 · drafting_table 30.2 / 0.60.
+# Run with:
+#   python bench/ab_plan.py --prompts bench/prompts/turns_v1.yaml --out bench/out/turns_v1 \
+#     --pin-plan --variant-env CV3D_FEWER_TURNS=1 \
+#     --generator api-agent:gemini:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview \
+#     --rounds 3 --max-minutes 120 --max-in-flight 8 --allow-siblings
+name: turns_v1
+track: static_object
+language: blender
+description: >
+  fewer-turns A/B slice: 6 static_objects_v2 blender prompts (2 medium controls, 4 hard) with
+  static_v2_flash baselines, run paired with --pin-plan and --variant-env CV3D_FEWER_TURNS=1.
+prompts:
+  - id: ctrl_med_dining_chair
+    tier: medium
+    category: furniture
+    tags: [control, "axis:decomposition"]
+    prompt: a mid-century wooden dining chair with a slatted backrest and tapered legs
+    must_have:
+      - "four tapered legs, each thinner at the floor than at the seat"
+      - "seat slab about 0.42 m wide"
+      - "seat surface about 0.45 m above the floor"
+      - "backrest with at least 3 vertical slats"
+      - "back legs continue up into the backrest posts"
+      - "backrest top rail between 0.80 m and 0.95 m above the floor"
+      - "all four feet touch the ground plane"
+      - "no leg or slat intersects the seat slab"
+    dimensions_m: {width: 0.45, depth: 0.50, height: 0.90}
+  - id: ctrl_med_hand_drill
+    tier: medium
+    category: tools
+    tags: [control, "axis:decomposition"]
+    prompt: a cordless power drill with a pistol grip, trigger, battery pack in the base of the grip and a keyless chuck holding a drill bit
+    must_have:
+      - "pistol-grip body with the grip angled back from vertical"
+      - "trigger recessed at the top of the grip"
+      - "battery block under the grip, wider than the grip"
+      - "chuck at the front, about 0.04 m diameter"
+      - "drill bit protruding about 0.08 m from the chuck"
+      - "side vents on the motor housing"
+      - "overall length about 0.22 m from chuck tip to body rear"
+      - "overall height about 0.24 m from battery base to body top"
+    dimensions_m: {length: 0.22, height: 0.24}
+  - id: mech_hard_coffee_grinder
+    tier: hard
+    category: mechanisms
+    tags: ["axis:decomposition"]
+    prompt: >
+      a hand-crank coffee grinder: square wooden box body with a small front drawer,
+      cast-iron dome top with an open hopper funnel, a conical burr visible inside
+      the funnel throat, and a top crank arm with a wooden knob
+    must_have:
+      - "square wooden box body about 0.14 m wide and 0.12 m tall"
+      - "front drawer about 0.05 m tall with a round knob, in the lower half of the box"
+      - "drawer front sits flush in its opening with a visible seam"
+      - "metal dome top mounted on the box"
+      - "open hopper funnel about 0.08 m across at the rim"
+      - "conical burr visible inside the funnel throat"
+      - "central spindle about 0.01 m thick rising from the burr through the dome"
+      - "crank arm about 0.11 m long attached to the spindle top"
+      - "wooden knob on a short vertical pin at the crank's free end"
+      - "adjustment nut on the spindle above the crank hub"
+    dimensions_m: {width: 0.14, depth: 0.14, height: 0.30}
+  - id: mech_hard_machinist_vise
+    tier: hard
+    category: tools
+    tags: ["axis:decomposition", "axis:thin_features"]
+    prompt: >
+      a machinist bench vise with an acme lead screw showing its thread helix, twin
+      cylindrical guide rails, a swivel base with two lock handles, serrated jaw
+      plates and a sliding tommy-bar handle
+    must_have:
+      - "fixed jaw and sliding jaw with a 0.05 m open gap between them"
+      - "flat jaw plates about 0.10 m wide with serration grooves"
+      - "lead screw between the jaws with at least 6 visible thread turns"
+      - "2 cylindrical guide rails flanking the screw"
+      - "sliding jaw rides on the rails and the screw"
+      - "tommy bar about 0.16 m long through the screw head, with ball ends"
+      - "swivel base disc under the vise body"
+      - "2 lock handles on the swivel base rim"
+      - "mounting flange with 3 bolt holes"
+      - "overall body length about 0.30 m"
+    dimensions_m: {length: 0.30, width: 0.14, height: 0.18}
+  - id: arch_hard_spiral_stair
+    tier: hard
+    category: buildings
+    tags: ["axis:arch_detail", "axis:thin_features"]
+    prompt: >
+      a cast-iron spiral staircase: central column, wedge treads winding a full
+      turn, a baluster at each tread's outer edge, a continuous helical handrail
+      and a railed top landing
+    must_have:
+      - "central column about 0.10 m diameter"
+      - "at least 12 wedge-shaped treads attached to the column"
+      - "treads climb evenly through at least 360 degrees total rotation"
+      - "open risers: visible gaps between consecutive treads"
+      - "1 baluster at the outer edge of each tread"
+      - "continuous helical handrail on top of the balusters"
+      - "top landing platform with its own railing"
+      - "base plate at the bottom of the column"
+      - "each tread about 0.70 m from column to outer edge"
+      - "overall height about 2.7 m"
+    dimensions_m: {height: 2.7, width: 1.6}
+  - id: comp_hard_drafting_table
+    tier: hard
+    category: furniture
+    tags: ["axis:multi_material", "axis:decomposition"]
+    prompt: >
+      a drafting table setup: tilted drawing board on a trestle frame with quadrant
+      tilt brackets, a parallel ruler riding on side rails, a pen tray, a sheet of
+      paper held by two corner clips, a clamp-on two-arm lamp aimed at the board,
+      and a stool with a footring
+    must_have:
+      - "drawing board about 1.0 m by 0.7 m tilted about 20 degrees"
+      - "parallel ruler bar spanning the board width"
+      - "ruler rides on a rail or wire at each side edge"
+      - "pen tray along the bottom edge of the board"
+      - "trestle legs with a cross stretcher"
+      - "quadrant tilt bracket with a knob at each of the board's 2 sides"
+      - "sheet of paper on the board held by clips at 2 corners"
+      - "lamp clamped to a top corner of the board"
+      - "lamp has 2 arm segments and a shade aimed down at the board"
+      - "stool with a round seat about 0.65 m high"
+      - "stool footring between its legs"
+      - "board top edge about 1.1 m above the floor"
+    dimensions_m: {width: 1.1, depth: 0.9, height: 1.2}
