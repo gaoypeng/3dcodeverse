@@ -132,6 +132,13 @@ class Rate(BaseModel):
         "intermittent rather than a clean outage, so parking every worker starves the unlucky call "
         "(docs/COST.md §21).  The mechanism and its counters are kept so the experiment is "
         "reproducible: CV3D_RATE__STORM_GATE=1, or bench/concurrency_probe.py --storm-gate.")
+    hedge: int = Field(
+        default=2, ge=1,
+        description="keys a retry is raced on once a call has met its first 503 (1 = off).  Measured "
+        "2026-08-26: a failed 503 costs the 21-50 s round-trip the provider holds before rejecting, "
+        "storm streaks average 4.7 attempts, and a 503 bills nothing — so the hedge is free while it "
+        "storms and wastes one call only when both keys answer (docs/COST.md §24).  "
+        "CV3D_RATE__HEDGE=1 for the A/B.")
 
 
 class Judge(BaseModel):

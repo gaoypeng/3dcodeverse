@@ -9,7 +9,8 @@ Used by ``GeminiModel`` (22 keys on the owner's box) but provider-neutral.
   200 k-token judge verdict and a 2 k-token caption are scheduled differently
   (``docs/COST.md`` Part III); ``max_in_flight`` additionally caps how many calls
   may be out at once, and :meth:`KeyPool.release` (a ``finally`` in
-  ``rotate_with_retries``) hands the slot back.
+  ``rotate_with_retries``) hands the slot back.  ``try_acquire()`` is the
+  never-waiting variant a hedged retry uses for its extra keys.
 * ``report(key, outcome)`` feeds back ``ok | 429 | 5xx | error | dead`` so the
   pool can cool a key down and adjust its health score.  ``dead`` is for
   key-scoped auth/permission failures (revoked / suspended / invalid key): the
@@ -198,6 +199,32 @@ class KeyPool:
             self._slots.acquire()
         try:
             return self._acquire_key(tokens_hint, exclude, timeout_s)
+        except BaseException:
+            if self._slots is not None:
+                self._slots.release()
+            raise
+
+    def try_acquire(
+        self,
+        *,
+        tokens_hint: int = 0,
+        exclude: set[str] | frozenset[str] | None = None,
+    ) -> str | None:
+        """:meth:`acquire` that never waits: a key usable *right now* (and a free
+        ``max_in_flight`` slot), else ``None`` — nothing is reserved or counted then.
+
+        For the extra keys of a hedged retry (``rotate_with_retries(hedge=...)``): the
+        primary request is already in flight, so a partner that is not free at once
+        is not worth waiting for.  A returned key holds a slot like any other and
+        must be :meth:`release`-d."""
+        if self._slots is not None and not self._slots.acquire(blocking=False):
+            return None
+        try:
+            return self._acquire_key(tokens_hint, exclude, 0.0)
+        except KeyPoolExhausted:
+            if self._slots is not None:
+                self._slots.release()
+            return None
         except BaseException:
             if self._slots is not None:
                 self._slots.release()

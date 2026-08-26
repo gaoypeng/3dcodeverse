@@ -1241,6 +1241,21 @@ in 128 s); the planner 300 s (13.7 s p50 / 32 s p90, max 76 s; the storm-day pla
 492 s median for 39 s of model time).  Anthropic / OpenAI go through `with_retries`, which has no
 deadline (≈ 20 s of backoff at most), so the field is a no-op there.
 
+
+*The retry of a 503 is hedged across keys* (`rotate_with_retries(hedge=2)`; `Settings.rate.hedge`,
+`CV3D_RATE__HEDGE=1` for the A/B).  Logged sleep was only 645 s per cell median — **13 % of the
+wait**; `(wait − sleep) / storm lines` = **21.5 s per failed attempt** (p90 28.5, ~50 s late in a
+storm): the cost of a 503 is the round-trip the provider holds before rejecting, not the ≤ 5 s
+backoff.  Storm streaks average **4.7 attempts** (1 101 episodes / 5 143 lines).  From a call's
+first 503 on, every further attempt is issued on two distinct fresh keys at once — the extra key
+from `KeyPool.try_acquire`, never waited for, each request holding its own `max_in_flight` slot —
+and the first success is returned; a loser finishes its own round-trip, reports its outcome to
+the pool (a late success still reports its tokens) and releases its slot; when both fail it is
+ONE storm attempt.  Expected rounds per streak drop from ~4.7 to ~1.7, i.e. ~60 % of the retry
+wait: **≈ 930 s/run blender, 1 400 s threejs, 600 s cadquery, 450 s graphics**.  A 503 bills
+nothing, so the hedge is free while it storms; only a success-then-success wastes one call
+(cents for a chat turn — `GeminiImageModel` keeps `hedge=1` because an image is billed per image).
+
 ## 25. Where the time goes — the 2026-08-26 audit (`docs/TIME_AUDIT_2026-08-26.md`)
 
 51 storm-day runs against 52 baseline runs, every stage and every model call, scripts in

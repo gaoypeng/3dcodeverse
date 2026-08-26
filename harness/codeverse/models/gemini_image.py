@@ -149,11 +149,15 @@ class GeminiImageModel:
         max_attempts: int = 4,
         base_delay: float = 1.0,
         max_delay: float = MAX_WAIT_S,
+        hedge: int = 1,
         sleep: Callable[[float], None] = time.sleep,
         client_factory: Callable[[str], Any] | None = None,
     ) -> None:
         self.model = model
         self.fallback = fallback if fallback and fallback != model else None
+        #: no 503 hedge by default: an image is billed per image, so a hedge that
+        #: lands twice pays for two of them (the chat models default to 2)
+        self.hedge = max(1, int(hedge))
         keys = list(keys) if keys is not None else _default_keys()
         if pool is None and not keys:
             raise ModelError("no Gemini API keys configured (GEMINI_API_KEYS / ~/.config/astra3d/gemini_keys.env)")
@@ -260,6 +264,7 @@ class GeminiImageModel:
             max_attempts=self.max_attempts,
             base_delay=self.base_delay,
             max_delay=self.max_delay,
+            hedge=self.hedge,
             sleep=self._sleep,
             retry_after=_retry_after_s,
             tokens_of=lambda r: r[1].input_tokens,

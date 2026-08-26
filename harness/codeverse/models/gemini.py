@@ -183,6 +183,7 @@ class GeminiModel:
         tpm_per_key: int | None = None,
         storm_gate: StormGate | None = None,
         storm_attempts: int | None = None,
+        hedge: int | None = None,
         sleep: Callable[[float], None] = time.sleep,
         client_factory: Callable[[str], Any] | None = None,
     ) -> None:
@@ -191,6 +192,9 @@ class GeminiModel:
         #: whose whole point is a fast verdict — the storm branch does NOT consume
         #: max_attempts, so max_attempts=1 alone still retried a 503 for up to 15 min.
         self.storm_attempts = storm_attempts
+        #: keys a retry is raced on after the call's first 503 (``Settings.rate.hedge``,
+        #: 2; 1 = off) — see ``rotate_with_retries`` and docs/COST.md §24
+        self.hedge = max(1, int(_rate().hedge if hedge is None else hedge))
         keys = list(keys) if keys is not None else _default_keys()
         if pool is None and not keys:
             raise ModelError(
@@ -256,6 +260,7 @@ class GeminiModel:
             base_delay=self.base_delay,
             max_delay=self.max_delay,
             max_total_s=budget,
+            hedge=self.hedge,
             sleep=self._sleep,
             on_free_retry=downgrade_thinking,
             retry_after=_retry_after_s,

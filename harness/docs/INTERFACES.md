@@ -56,6 +56,7 @@ resp.parsed / resp.text / resp.tool_calls / resp.usage   # Usage always has cost
 from codeverse.models.keypool import KeyPool, KeyPoolExhausted
 KeyPool(keys, *, rpm_per_key=900, tpm_per_key=None, cooldown_s=30, dead_cooldown_s=3600)
 pool.acquire(*, tokens_hint=0, exclude=None, timeout_s=120) -> key    # raises immediately when every key is dead/cooling past the deadline
+pool.try_acquire(*, tokens_hint=0, exclude=None) -> key | None        # never waits (a hedged retry's extra key); holds a slot like acquire
 pool.report(key, "ok"|"429"|"5xx"|"error"|"dead", *, tokens=0, retry_after_s=None)   # Δ "dead": health 0, benched dead_cooldown_s, re-probed after
 from codeverse.models.pricing import estimate_cost       # (provider, model, usage) -> usd (unknown model -> 0.0 + one warning)
 from codeverse.models.schema_utils import to_gemini_schema, to_openai_strict_schema, to_anthropic_schema, parse_json_lenient

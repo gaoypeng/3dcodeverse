@@ -182,3 +182,12 @@ def test_max_wait_s_must_be_positive():
     with pytest.raises(pydantic.ValidationError):
         ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=0)
 
+
+def test_the_hedge_is_a_settings_knob_and_a_constructor_argument(monkeypatch):
+    from codeverse.config import Rate, get_settings
+
+    assert make_model([])[0].hedge == 2, "Settings.rate.hedge default"
+    assert make_model([], hedge=1)[0].hedge == 1
+    monkeypatch.setattr(get_settings(), "rate", Rate(hedge=1))
+    assert make_model([])[0].hedge == 1, "CV3D_RATE__HEDGE=1 is the A/B switch"
+
