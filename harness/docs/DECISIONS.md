@@ -169,6 +169,64 @@ written) that were accepted because the code works that way and the tests pin it
   become description hints); `pricing.lookup_price` prefix fallback matches only
   version/date/channel suffixes, so sibling models never inherit a parent's price.
 
+* **D36 Vote ties follow the representative sample (2026-08-25).**  Context: defect
+  votes were majority with ties → present and acceptance votes majority with ties →
+  False, so at `n_samples=2` ONE dissenting sample applied every penalty/cap and
+  failed every must item — n=2 was strictly harsher than n=1 and n=3, and the
+  `economy` profile (n=2) was not comparable with the others.  Decision: an exact
+  tie (even n only) takes the *representative* sample's answer (the sample whose
+  overall is closest to the mean — already the narrative source); ids decided this
+  way are listed in `ScoreBreakdown.tie_broken`; `VlmJudge` warns on an even n.
+  Consequence: P(item flagged) at n=2 equals n=1's while the continuous scores still
+  average over both samples; odd n is unchanged.
+* **D37 The judge protocol is hashed (2026-08-25).**  Context: only the rubric YAML was
+  hashed; the role prompt, the view-rig rules and the wire schema (whose field order
+  IS the observe-then-score protocol — EVAL.md §6 measured σ 0.01 → 0.08 when it
+  changed) were not, so a prompt edit left no trace in any record.  Decision:
+  `prompt_builder.judge_prompt_hash(rubric)` = hash(system prompt + rig rules +
+  wire-schema structure); stored in every `ScoreBreakdown.judge_prompt_hash` and,
+  for runs, `record.prompt_hashes["judge"]` (`BaseTrack.after_plan`).  Per-run content
+  is excluded so runs under one protocol share the hash.
+* **D38 `harness_git_sha` resolves through git, not a `.git` probe (2026-08-25).**
+  Context: `flywheel/record._harness_git_sha` looked for `harness/.git`; the repo's
+  `.git` is one level up, so every record shipped an empty sha and EVAL.md §1.7's
+  provenance was never met.  Decision: `git ls-files --error-unmatch` on the module
+  itself (a wheel / venv copy must not borrow an unrelated repo's sha), then
+  `rev-parse HEAD`, `-dirty` appended when tracked files under `harness/` are modified.
+* **D39 The offline suite is run whole (2026-08-25; CI workflow removed 2026-08-26).**
+  Context: `ci.yml` listed 7 of 24 directories, so 828 pure-python tests — every
+  docs-vs-code drift guard among them — never ran on a PR.  Decision: the suite is
+  `pytest tests -m "not live and not blender and not node"`, every directory.  The owner
+  removed the GitHub workflow the next day (6ac06a9: ruff and the offline suite run locally
+  before every push), so this now names the command, not a job.
+
+* **D40 A harness cell that waited instead of iterating is flagged, not trusted
+  (2026-08-25).**  Context: under a day-long gemini-3.7-flash 503 storm 37 of 40 harness
+  runs stopped on the 45-minute ceiling with 0–2 completed rounds while the 3 that met a
+  calm window finished 2–4 rounds and scored 0.92–0.95; the paired mean over the stormed
+  cells (0.516) measured the weather.  Decision: `compare_backends.flag_degraded` marks a
+  harness cell that stopped for budget with money left, ≤ 1 completed round, after
+  ≥ 40 min; the report counts them (`degraded` / `cut` columns, † per prompt) and
+  `paired_compare` adds an `all −degraded` row.  Scores stay — the artifact is real.
+* **D41 Failures of the arm are zeros; failures of the provider are dropped (2026-08-25).**
+  Context: a `oneshot+repair` cell whose repair call died in a 503 storm was scored 0 on
+  its pre-repair file; a harness run whose planner failed validation twice was recorded
+  `error` / score None and vanished from the mean (5 of 14 articulated prompts).  Decision:
+  a one-shot arm whose LAST attempt was lost to the provider is `infra_failed` (redone);
+  a harness `PlanningError` is `no_code` / 0.0, like a one-shot answer in the wrong
+  format; "Error creating WebGL context" (a saturated shared GPU) is an infra marker.
+* **D42 `compare_backends` follows the battery's track (2026-08-25).**  Context: the
+  fixed evaluator was static_object-only.  Decision: `FixedEvaluator(track=, language=)`
+  picks the runtime and rubric from the battery (`RUBRIC_BY_TRACK`); articulated cells add
+  the joint-sweep gate and the pose sheet read from the built URDF (no plan, every arm
+  alike); one-shot arms get a language-aware minimal contract (the D18 recipe as rules,
+  no example) and must answer with both files in the `=== FILE ===` envelope.
+* **D43 Python lints never raise on unparseable source (2026-08-25).**  Context: a
+  generated bpy file made CPython 3.11's `ast.parse` raise `SystemError` and the round died
+  in `build_once`.  Decision: `_ast_lint.safe_parse` catches SyntaxError / RecursionError /
+  SystemError / MemoryError / ValueError; every python lint reports a lint ERROR with a
+  flatten-the-literal hint instead.
+
 ## Rejected / deferred
 
 * Registering `single-shot` as a CodingAgent kind (rejected: it has no tools/session).

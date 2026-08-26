@@ -189,31 +189,74 @@ def previous_section(prev: Judgment | None, round_index: int) -> str:
     return "\n".join(lines)
 
 
+#: The fixed sentences of the view-rig paragraph (everything that is not a count or a
+#: per-run probe line).  Kept as constants so ``judge_prompt_hash`` covers them.
+RIG_RULES: dict[str, str] = {
+    "grid": (
+        "Each montage is a ≤2×2 grid; every tile carries a label under it ('name · az/el[· mode][· t=]') and the "
+        "montage's own label strip lists which view sits top-left / top-right / bottom-left / bottom-right. "
+        "Cite evidence as 'MONTAGE k <position> (<view name>)'. Detail crops are zoomed regions of a view, labelled with what to look for."
+    ),
+    "azimuth": (
+        "Azimuth 0° = looking at the FRONT of the object, increasing counter-clockwise seen from above (90° = the object's right side, 180° = back); "
+        "elevation is degrees above the horizon (negative = looking up from below the ground plane, which reveals undersides and ground contact)."
+    ),
+    "geometry": "The GEOMETRY-ONLY montage shows the same object without materials/lighting: use it for holes, inverted (black) faces, intersections and floating parts; use the SHADED montage for materials and detail.",
+    "poses": "POSE tiles show the SAME object with joints moved by the harness (tile label = joint@value or rest). Judge articulation only from them and the joint table.",
+    "scene_cams": "Views named overview_* are harness cameras fitted to the scene bounds (layout X-ray); views named cam_* are the scene's own authored cameras (grade composition/lighting on those); 't=' is the animation time.",
+    "scene_craft": "On the authored cameras also read the CRAFT of the picture, not only its contents: depth layering (is there anything within a few metres framing the shot, and anything on the horizon), ground variation (blended materials, paths, dressed edges vs one flat colour), variety among repeated natural elements, small-prop dressing, and aerial perspective (distant things hazier than near ones). The same camera at two times appears as separate tiles — compare them pixel-for-pixel before answering nothing_moves.",
+    "object": "All views show the same object. Use top + low views for symmetry, footprint and ground contact.",
+}
+
+
 def view_rig_section(renders: RenderSet, montages: list[Montage], *, scene: bool) -> str:
     n_grids = sum(1 for m in montages if not m.is_detail)
     n_detail = len(montages) - n_grids
     bits = [
         f"VIEW RIG: {n_grids} MONTAGE image(s) follow" + (f" plus {n_detail} DETAIL CROP(s)" if n_detail else "") + ". "
-        "Each montage is a ≤2×2 grid; every tile carries a label under it ('name · az/el[· mode][· t=]') and the "
-        "montage's own label strip lists which view sits top-left / top-right / bottom-left / bottom-right. "
-        "Cite evidence as 'MONTAGE k <position> (<view name>)'. Detail crops are zoomed regions of a view, labelled with what to look for.",
-        "Azimuth 0° = looking at the FRONT of the object, increasing counter-clockwise seen from above (90° = the object's right side, 180° = back); elevation is degrees above the horizon (negative = looking up from below the ground plane, which reveals undersides and ground contact).",
+        + RIG_RULES["grid"],
+        RIG_RULES["azimuth"],
     ]
     if any(m.kind == "geometry" for m in montages):
-        bits.append("The GEOMETRY-ONLY montage shows the same object without materials/lighting: use it for holes, inverted (black) faces, intersections and floating parts; use the SHADED montage for materials and detail.")
+        bits.append(RIG_RULES["geometry"])
     if any(m.kind in ("poses", "pose_sheet") for m in montages):
-        bits.append("POSE tiles show the SAME object with joints moved by the harness (tile label = joint@value or rest). Judge articulation only from them and the joint table.")
+        bits.append(RIG_RULES["poses"])
     if scene:
-        bits.append("Views named overview_* are harness cameras fitted to the scene bounds (layout X-ray); views named cam_* are the scene's own authored cameras (grade composition/lighting on those); 't=' is the animation time.")
-        bits.append("On the authored cameras also read the CRAFT of the picture, not only its contents: depth layering (is there anything within a few metres framing the shot, and anything on the horizon), ground variation (blended materials, paths, dressed edges vs one flat colour), variety among repeated natural elements, small-prop dressing, and aerial perspective (distant things hazier than near ones). The same camera at two times appears as separate tiles — compare them pixel-for-pixel before answering nothing_moves.")
+        bits.append(RIG_RULES["scene_cams"])
+        bits.append(RIG_RULES["scene_craft"])
     else:
-        bits.append("All views show the same object. Use top + low views for symmetry, footprint and ground contact.")
+        bits.append(RIG_RULES["object"])
     if renders.console_errors:
         bits.append(f"PROBE: {len(renders.console_errors)} console error(s) during rendering, first: {_clip(renders.console_errors[0], 200)}")
     if renders.fps is not None:
         bits.append(f"PROBE: measured {renders.fps:.0f} fps.")
     bits.append("Images in send order:\n" + describe_montages(montages))
     return "\n".join(bits)
+
+
+def judge_prompt_hash(rubric: Rubric) -> str:
+    """Hash of everything the judge is told that is constant for a rubric.
+
+    Covers the system prompt (``_ROLE`` + the rubric block as rendered), the fixed
+    view-rig rules and the wire schema's structure (field order is the
+    observe-then-score protocol; ``EVAL.md`` §6 records that changing it moved the
+    flash judge's σ from 0.01 to 0.08).  Per-run content (brief, plan digest,
+    measurements, acceptance ids, images) is deliberately excluded, so two runs judged
+    under the same protocol share the hash and a prompt edit is visible in every
+    ``ScoreBreakdown.judge_prompt_hash`` / ``record.prompt_hashes["judge"]`` it touched.
+    ``rubric_hash`` (the YAML alone) stays alongside for the narrower question.
+    """
+    import json
+
+    from codeverse.judges.output_schema import wire_schema
+    from codeverse.prompts import prompt_hash
+
+    payload = "\n".join([
+        build_system_prompt(rubric),
+        *(RIG_RULES[k] for k in sorted(RIG_RULES)),
+        json.dumps(wire_schema(rubric, []), sort_keys=True),
+    ])
+    return prompt_hash(payload)
 
 
 # --------------------------------------------------------------------------- images

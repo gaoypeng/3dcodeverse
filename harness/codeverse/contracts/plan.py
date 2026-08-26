@@ -192,6 +192,105 @@ class JointPlan(BaseModel):
 class ArticulatedPlan(StaticPlan):
     root_link: str
     joints: list[JointPlan] = Field(min_length=1)
+    normalisations: list[str] = Field(
+        default_factory=list,
+        description="filled by the harness, leave empty: automatic corrections applied to the planner's answer "
+                    "before validation (a sub-part promoted to a link because a joint moves it, a revolute joint "
+                    "with a > 2π range made continuous, a parent bbox grown around a sub-part)")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalise_raw(cls, data: object) -> object:
+        """Repair the three planner mistakes that failed validation twice on compare_art_v2
+        (2026-08-25: 5 of 14 articulated prompts, a third of the harness's losses) — each is
+        a schema-shaped slip a re-ask did not fix, not a design decision worth a run.
+
+        1. a joint whose ``parent`` / ``child`` names a SUB-PART: the sub-part is promoted to a
+           top-level part (``attach_to`` = its former parent) — anything a joint moves is a link;
+        2. a ``revolute`` joint whose range exceeds 2π becomes ``continuous`` (limits dropped);
+        3. a sub-part sticking out of its parent's bbox by more than the slack: the parent bbox
+           grows to enclose it (planner boxes are design intent, not measurements).
+        Every repair is recorded in ``normalisations`` so the record shows what the planner
+        actually wrote.  Anything else still fails validation and is re-asked.
+        """
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        parts = [dict(p) for p in (data.get("parts") or []) if isinstance(p, dict)]
+        joints = [dict(j) for j in (data.get("joints") or []) if isinstance(j, dict)]
+        notes: list[str] = list(data.get("normalisations") or [])
+        if not parts or not joints:
+            return data
+        by_name = {to_snake(str(p.get("name", ""))): p for p in parts}
+
+        # 1. joints that move a sub-part → promote it
+        referenced = {to_snake(str(j.get(k, ""))) for j in joints for k in ("parent", "child")}
+        for part in list(parts):
+            kept = []
+            for child in part.get("children") or []:
+                if not isinstance(child, dict):
+                    kept.append(child)
+                    continue
+                key = to_snake(str(child.get("name", "")))
+                if key in referenced and key not in by_name:
+                    promoted = {
+                        "name": child.get("name"), "role": child.get("role") or f"moving part of {part.get('name')}",
+                        "description": child.get("description", ""), "bbox": child.get("bbox"),
+                        "material": child.get("material") or part.get("material", ""),
+                        "attach_to": part.get("name"), "instances": child.get("instances", 1),
+                    }
+                    parts.append(promoted)
+                    by_name[key] = promoted
+                    notes.append(f"promoted sub-part {part.get('name')}.{child.get('name')} to a link: a joint moves it")
+                else:
+                    kept.append(child)
+            part["children"] = kept
+
+        # 2. revolute joints with a > 2π range → continuous
+        for j in joints:
+            try:
+                span = float(j.get("upper", 0.0)) - float(j.get("lower", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if j.get("type") == "revolute" and span > 2 * math.pi + 1e-6:
+                j.update(type="continuous", lower=0.0, upper=0.0, rest=0.0)
+                notes.append(f"joint {j.get('name')}: revolute range {span:.2f} rad > 2π → continuous")
+
+        # 3. sub-parts outside the parent bbox → grow the parent
+        for part in parts:
+            bbox = part.get("bbox")
+            if not (isinstance(bbox, dict) and isinstance(bbox.get("center"), (list, tuple))
+                    and isinstance(bbox.get("extents"), (list, tuple))):
+                continue
+            try:
+                lo = [float(c) - float(e) / 2 for c, e in zip(bbox["center"], bbox["extents"], strict=True)]
+                hi = [float(c) + float(e) / 2 for c, e in zip(bbox["center"], bbox["extents"], strict=True)]
+            except (TypeError, ValueError):
+                continue
+            grown = False
+            for child in part.get("children") or []:
+                cb = child.get("bbox") if isinstance(child, dict) else None
+                if not (isinstance(cb, dict) and isinstance(cb.get("center"), (list, tuple))
+                        and isinstance(cb.get("extents"), (list, tuple))):
+                    continue
+                try:
+                    clo = [float(c) - float(e) / 2 for c, e in zip(cb["center"], cb["extents"], strict=True)]
+                    chi = [float(c) + float(e) / 2 for c, e in zip(cb["center"], cb["extents"], strict=True)]
+                except (TypeError, ValueError):
+                    continue
+                for a in range(3):
+                    slack = max(SUBPART_SLACK_M, SUBPART_REL_SLACK * abs(hi[a] - lo[a]))
+                    if lo[a] - clo[a] > slack or chi[a] - hi[a] > slack:
+                        lo[a], hi[a] = min(lo[a], clo[a]), max(hi[a], chi[a])
+                        grown = True
+                        notes.append(f"part {part.get('name')}: bbox grown on {'xyz'[a]} around sub-part "
+                                     f"{child.get('name')}")
+            if grown:
+                part["bbox"] = {"center": [(lo[a] + hi[a]) / 2 for a in range(3)],
+                                "extents": [hi[a] - lo[a] for a in range(3)]}
+
+        data["parts"], data["joints"], data["normalisations"] = parts, joints, notes
+        return data
 
     @model_validator(mode="after")
     def _tree(self) -> ArticulatedPlan:

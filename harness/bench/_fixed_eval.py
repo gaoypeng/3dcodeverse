@@ -14,6 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from bench._compare_report import RUBRIC_BY_TRACK  # noqa: E402
 from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
 from codeverse.contracts.common import Language, Track
@@ -50,11 +51,16 @@ class EvalOutcome(BaseModel):
 class FixedEvaluator:
     """build → measure → connectivity → render → VlmJudge, the same for every arm."""
 
-    def __init__(self, judge_model: str, *, n_samples: int = 2, settings: Settings | None = None, rubric: str = RUBRIC):
+    def __init__(self, judge_model: str, *, n_samples: int = 2, settings: Settings | None = None, rubric: str | None = None,
+                 track: Track = Track.STATIC_OBJECT, language: Language = Language.BLENDER):
         self.judge_model = judge_model
         self.n_samples = n_samples
         self.settings = settings or get_settings()
-        self.rubric = rubric
+        self.track = track
+        self.language = language  # the battery's default; cells are built with THEIR spec's language (runtime())
+        # articulated batteries are judged on articulated_v1 (rest views + the pose sheet the
+        # joint sweep renders); the rubric follows the battery's track unless a caller pins one
+        self.rubric = rubric or RUBRIC_BY_TRACK.get(track.value, RUBRIC)
         self._runtimes: dict[Language, Any] = {}
         self._judge: Any = None
 
@@ -129,6 +135,16 @@ class FixedEvaluator:
             out.gates.append(check_connectivity(glb))
             r = self.settings.render
             out.renders = render_glb(glb, ws.renders_dir(0), views=list(OBJECT_VIEWS), width=r.width, height=r.height, sheet=True)
+            if self.track is Track.ARTICULATED_OBJECT:
+                # the same deterministic articulation evidence the track gives its judge: the
+                # joint sweep (collisions over every joint's range) and the pose sheet / pose
+                # tiles, read straight from the built URDF — no plan, so every arm is treated alike
+                from codeverse.tracks.articulated_object import default_joint_sweep
+
+                sweep, pose_views = default_joint_sweep(ws, None, ws.renders_dir(0) / "poses")
+                out.gates.append(sweep)
+                if pose_views:
+                    out.renders.views = list(out.renders.views) + pose_views
             inp = JudgeInput(spec=spec, renders=out.renders, measurement=out.measurement, gates=out.gates,
                              acceptance=acceptance_from_spec(spec), round_index=0)
             out.judgment = self.judge.judge(inp)

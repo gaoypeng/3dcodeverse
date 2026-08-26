@@ -64,13 +64,13 @@ from bench._fixed_eval import RUBRIC, EvalOutcome, FixedEvaluator  # noqa: E402
 from bench._infra import is_budget_exhaustion, is_infra_failure  # noqa: E402
 from bench._jsonl import seal_for_append  # noqa: E402
 from bench._oneshot import (  # noqa: E402
-    MODEL_FILE,
     OneShotBackend,
     OneShotResult,
+    files_for,
     get_oneshot_backend,
     oneshot_prompt,
     repair_prompt,
-    write_model_file,
+    write_answer_files,
 )
 from bench.run_bench import (  # noqa: E402
     Battery,
@@ -86,6 +86,7 @@ from codeverse.contracts.run import RunRecord  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402
 from codeverse.cost import run_ledger  # noqa: E402
 from codeverse.tracks.generation import MultiFileParseError  # noqa: E402
+from codeverse.tracks.planner import PlanningError  # noqa: E402
 from codeverse.workspace import Workspace  # noqa: E402
 
 ArmKind = Literal["harness", "oneshot", "oneshot+repair"]
@@ -136,6 +137,8 @@ class CompareOptions(BaseModel):
     repair_attempts: int = 2
     n_samples: int = 2
     pairwise: bool = True
+    degraded_min_wall_s: float = Field(default=40 * 60, description="flag_degraded: a harness run this long that never iterated waited, it did not work")
+    degraded_max_rounds: int = Field(default=1, description="flag_degraded: completed rounds at or below this count")
     redo_status: list[str] = Field(default_factory=list, description="re-run cells whose status is one of these")
 
 
@@ -199,17 +202,18 @@ def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts
             res.error_is_infra = gen.infra_failed
             return
         try:
-            write_model_file(eval_ws, gen.text)
+            write_answer_files(eval_ws, gen.text, spec.language)
         except MultiFileParseError as e:
             res.error = f"unparseable answer: {e}"
             return
         res.error = ""
         if attempt + 1 >= max_attempts:
             return
-        build, lint = deps.evaluator.build(eval_ws)  # repair arm: error feedback only
+        build, lint = deps.evaluator.build(eval_ws, spec.language)  # repair arm: error feedback only
         if build.ok and not lint.errors:
             return
-        prompt = repair_prompt(spec, (eval_ws.root / MODEL_FILE).read_text(), build, lint, attempt + 1)
+        previous = {rel: (eval_ws.root / rel).read_text() for rel in files_for(spec.language) if (eval_ws.root / rel).is_file()}
+        prompt = repair_prompt(spec, previous, build, lint, attempt + 1)
 
 
 def entry_of(spec: Spec) -> str:
@@ -240,6 +244,8 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, 
     res.gen_cost_usd = rec.total_usage.cost_usd
     res.tool_calls = rec.total_usage.tool_calls
     res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), rec.final_score
+    res.harness_stop_reason = str(rec.extra.get("stop_reason") or "")
+    res.harness_aborted_rounds = len(rec.extra.get("aborted_rounds") or [])
     if not (run_ws.root / entry_of(spec)).is_file():
         res.error = f"harness run produced no {entry_of(spec)} (status {rec.status.value}: {rec.error})"
         return
@@ -265,7 +271,14 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
                 _run_harness(spec, cell, eval_ws, deps, res)
             else:
                 _generate_oneshot(arm, spec, cell, eval_ws, opts, deps, res)
-            if (eval_ws.root / entry_of(spec)).is_file():
+            # A one-shot arm whose LAST attempt was lost to the provider has not finished
+            # its protocol: `oneshot+repair` writes attempt 0's file before the repair call,
+            # so when that call dies in a 503 storm the broken pre-repair code was being
+            # evaluated and scored 0 — a hard zero for someone else's downtime, the exact
+            # asymmetry tests/compare_bench/test_infra_failures.py exists to end.  Drop the
+            # cell instead (infra_failed); --redo-status re-runs the lost attempt only.
+            truncated = arm.kind != "harness" and res.error_is_infra
+            if (eval_ws.root / entry_of(spec)).is_file() and not truncated:
                 outcome = deps.evaluator.evaluate(eval_ws, spec)
                 eval_ws.write_json(eval_ws.root / "eval.json", outcome)
                 _fill_from_outcome(res, outcome)
@@ -279,12 +292,42 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
                 res.status, res.score, res.passed, res.build_ok = "infra_failed", None, None, False
             else:
                 res.status, res.score, res.passed, res.build_ok = "no_code", 0.0, False, False
+    except PlanningError as e:
+        # the harness's OWN planner gave up (its plan failed validation twice): no
+        # artifact, and nobody else's fault — a capability failure of the arm, scored 0
+        # like a one-shot answer in the wrong format (compare_art_v2, 2026-08-25: 5 of 14
+        # articulated prompts; dropping them as `error` hid a third of the harness's losses)
+        res.status, res.score, res.passed, res.build_ok = "no_code", 0.0, False, False
+        res.error = f"PlanningError: {e}"
     except Exception as e:  # noqa: BLE001 — one cell must never kill the matrix
         res.status = "infra_failed" if is_infra_failure(e) else "error"  # same rule as the no-code path
         res.error = (res.error + "; " if res.error else "") + f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1200:]}"
     res.wall_s = round(time.time() - t0, 1)
+    flag_degraded(res, opts)
     eval_ws.write_json(cell / "cell.json", res)
     return res
+
+
+def flag_degraded(res: CellResult, opts: CompareOptions) -> None:
+    """Mark a harness cell whose run WAITED instead of iterating (compare_v4, 2026-08-25).
+
+    Under a day-long gemini-3.7-flash 503 storm 37 of 40 harness runs stopped on the
+    45-minute wall-clock ceiling with 0–2 completed rounds while the 3 runs that met a
+    calm window finished 2–4 rounds in 27–40 min and scored 0.92–0.95.  Those cells are
+    real artifacts and stay scored, but a paired mean over them measures the weather, not
+    the loop — so the cell says so.  Rule: the harness stopped for *budget* while money
+    was left (i.e. the clock, not the dollars), completed at most ``degraded_max_rounds``
+    rounds, and the cell ran at least ``degraded_min_wall_s``.  ``harness_aborted_rounds``
+    separately counts runs the ceiling interrupted mid-round.
+    """
+    if res.kind != "harness" or res.status not in ("scored", "build_failed"):
+        return
+    money_stop = res.gen_cost_usd >= 0.9 * opts.max_usd
+    if (res.harness_stop_reason == "budget" and not money_stop and res.harness_rounds <= opts.degraded_max_rounds
+            and res.wall_s >= opts.degraded_min_wall_s):
+        res.degraded = True
+        res.degraded_reason = (f"ceiling stop after {res.harness_rounds} completed round(s) in {res.wall_s / 60:.0f} min "
+                               f"with ${opts.max_usd - res.gen_cost_usd:.2f} of the budget unspent")
 
 
 def _fill_from_outcome(res: CellResult, o: EvalOutcome) -> None:
@@ -451,6 +494,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--loop-judge", default=None, help="harness in-loop judge (default: settings default)")
     ap.add_argument("--repair-attempts", type=int, default=2)
     ap.add_argument("--gen-timeout", type=float, default=900.0)
+    ap.add_argument("--judge-samples", type=int, default=2,
+                    help="FIXED judge samples per cell (default 2 — kept for resumable batteries; use an odd "
+                         "n for a true majority on the defect checklist, see docs/DECISIONS.md D36)")
     ap.add_argument("--no-pairwise", action="store_true")
     ap.add_argument("--no-preflight", action="store_true",
                     help="skip the provider health check (see --wait-for-provider)")
@@ -471,11 +517,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                           limit=ns.limit, ids=[i for i in ns.ids.split(",") if i],
                           tiers=[t for t in ns.tiers.split(",") if t], resume=not ns.no_resume,
                           gen_timeout_s=ns.gen_timeout, repair_attempts=ns.repair_attempts, pairwise=not ns.no_pairwise,
+                          n_samples=max(1, ns.judge_samples),
                           redo_status=[x for x in ns.redo_status.split(",") if x])
     arms = parse_arms(ns.arms)
     if not ns.no_preflight and not _preflight(opts.judge, arms, opts, wait_minutes=ns.wait_for_provider):
         return 2
-    deps = CompareDeps(FixedEvaluator(opts.judge, n_samples=opts.n_samples))
+    battery = Battery.load(ns.prompts)  # the fixed evaluator follows the battery's track / language
+    deps = CompareDeps(FixedEvaluator(opts.judge, n_samples=opts.n_samples, track=battery.track, language=battery.language))
 
     def _log(r: CellResult) -> None:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {r.prompt_id:28s} {r.arm:44s} score={r.score} build_ok={r.build_ok} "

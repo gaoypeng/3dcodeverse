@@ -197,6 +197,7 @@ class FakeChatModel:
 # ----------------------------------------------------------------------------- judge
 class FakeJudge:
     name = "fake"
+    prompt_hash = "fakejudge001"  # D37: BaseTrack.after_plan records it as prompt_hashes["judge"]
 
     def __init__(self, scores: Sequence[float] = (0.55, 0.7, 0.85), *, targets: Sequence[str] = ("Seat", "FrontLeg", "Backrest", "Armrest"),
                  acceptance_fail: Sequence[str] = (), cost: float = 0.003):

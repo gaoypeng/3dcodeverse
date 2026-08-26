@@ -183,3 +183,36 @@ def test_compare_v3_extends_compare_v2_verbatim():
     assert sum(p.tier == "medium" for p in extra) >= 1
     assert sum(p.tier == "hard" for p in extra) >= 3
     assert not {p.category for p in extra} & {p.category for p in v2.values()}
+
+
+# ----------------------------------------------------------------------------- compare_v4 (2026-08-25)
+def _norm(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def test_compare_v4_is_the_union_of_the_static_batteries_by_prompt_text():
+    """compare_v4 = every static_objects_v2 prompt + every static_objects_v1 prompt whose text
+    is not already in v2, ids and must_have kept VERBATIM from the source battery (docs/report.html:
+    an 8-prompt paired battery resolves ~0.25, so the compare batteries had to grow)."""
+    v4 = _load_any("compare_v4")
+    v2 = _load("static_objects_v2")
+    v1 = _load_any("static_objects_v1")
+    assert (v4.track, v4.language) == (v2.track, v2.language)
+    assert len(v4.prompts) == 40 and len({p.id for p in v4.prompts}) == 40
+    src = {p.id: p for p in [*v2.prompts, *v1.prompts]}
+    for p in v4.prompts:
+        assert p.id in src, f"{p.id}: not from static_objects_v1/v2"
+        assert (p.prompt, p.must_have, p.dimensions_m) == (src[p.id].prompt, src[p.id].must_have, src[p.id].dimensions_m), p.id
+        assert p.must_have, f"{p.id}: the fixed judge needs must_have"
+    texts = [_norm(p.prompt) for p in v4.prompts]
+    assert len(set(texts)) == len(texts), "duplicate prompt text"
+    union = {_norm(p.prompt) for p in [*v2.prompts, *v1.prompts]}
+    assert set(texts) == union, "v4 must cover every distinct v1/v2 prompt exactly once"
+    assert {p.id for p in v2.prompts} <= {p.id for p in v4.prompts}
+    tiers = {t: sum(1 for p in v4.prompts if p.tier == t) for t in ("easy", "medium", "hard")}
+    assert tiers == {"easy": 8, "medium": 8, "hard": 24}, tiers
+
+
+def _load_any(name: str) -> Battery:
+    return _load(name) if name in V2_FILES else Battery.load(PROMPTS / f"{name}.yaml")
+

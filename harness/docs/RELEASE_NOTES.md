@@ -2,6 +2,34 @@
 
 Newest first.
 
+## Evaluation integrity — 2026-08-25/26
+
+Four changes that affect what a recorded score MEANS, none of which changes a
+score computed under an odd `n_samples` (branch `ziyao/eval-integrity`, D36–D39):
+
+* `record.environment.harness_git_sha` is populated (it was always `""`: the probe
+  looked for `harness/.git`, which does not exist).  `-dirty` marks a modified tree.
+* `judge_prompt_hash` (role prompt + rig rules + wire schema) is stored in every
+  `ScoreBreakdown` and in `record.prompt_hashes["judge"]`.
+* Exact vote ties on defects / acceptance items follow the representative sample
+  instead of a fixed direction; `ScoreBreakdown.tie_broken` names the ids.  Under
+  the old rule `economy` (n=2) was strictly harsher than `balanced` (n=1) and
+  `quality` (n=3).
+* The offline suite is run whole — every test directory (the CI job listed 7 of 24; the
+  workflow itself was removed by the owner on 2026-08-26, the command stays).
+* `bench/paired_compare.py`: paired Δ, 95 % t-interval, exact sign test, per tier, plus a
+  judge-free table (build rate, gate errors) per arm; `bench/prompts/compare_v4.yaml`
+  (40 static prompts); `--judge-samples` on `compare_backends`.
+* `compare_backends`: storm-degraded harness cells are flagged (D40); arm failures are
+  zeros and provider failures are dropped (D41); the articulated track is supported (D42).
+* Python lints survive unparseable source (D43).
+* Measured with these (2026-08-25/26, gemini-3.7-flash, judge gemini-3.1-pro-preview n=3):
+  static compare_v4, n=40 — harness 0.633 vs one-shot+repair 0.487, Δ +0.146
+  [+0.077, +0.215], sign p < 0.001; vs one-shot 0.232, Δ +0.401.  Articulated
+  articulated_v2, n=14 — harness 0.309 vs one-shot+repair 0.316, Δ −0.007 (CI crosses 0);
+  5/14 harness runs failed at planning.
+
+
 ## Skills — 2026-08-25
 
 A routed, spec-conformant skill library whose reads we can measure. Baseline `42a5457` →

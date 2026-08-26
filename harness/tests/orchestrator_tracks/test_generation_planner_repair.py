@@ -195,6 +195,19 @@ def test_planner_gives_up_after_reask(tmp_ws):
     model = FakeChatModel(lambda req: {"bad": 1})
     with pytest.raises(PlanningError):
         plan(make_spec(), "fake:planner", StaticPlan, tmp_ws, model=model)
+    from codeverse.tracks.planner import MAX_VALIDATION_REASKS
+
+    assert len(model.requests) == 1 + MAX_VALIDATION_REASKS == 3
+
+
+def test_planner_allows_two_validation_reasks(tmp_ws):
+    """compare_art_v2: 5 of 14 articulated plans failed validation twice and the run died.
+    A second validation re-ask is cheap next to the run it saves."""
+    answers = [{"object_name": "X"}, {"object_name": "Y"}, _valid_plan_dict()]
+    model = FakeChatModel(lambda req: answers.pop(0))
+    p = plan(make_spec(), "fake:planner", StaticPlan, tmp_ws, model=model, runtime=FakeRuntime(Language.THREEJS))
+    assert p.object_name == "DiningChair" and len(model.requests) == 3
+    assert all("failed validation" in r.messages[-1].text for r in model.requests[1:])
 
 
 def test_planner_scene_example_validates_and_prompts_render():

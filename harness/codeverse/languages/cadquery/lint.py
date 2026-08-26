@@ -16,7 +16,9 @@ from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.languages._ast_lint import (  # noqa: F401 — dotted re-exported
     BASE_FORBIDDEN_IMPORTS,
     check_imports,
+    describe_parse_failure,
     dotted,
+    safe_parse,
 )
 
 GATE = "lint:cadquery"
@@ -193,10 +195,10 @@ def _rules(c: _Collector, tree: ast.Module, source: str) -> list[GateFinding]:
 
 def lint_cadquery_source(source: str, *, target: str = "src/model.py") -> GateReport:
     t0 = time.monotonic()
-    try:
-        tree = ast.parse(source, filename=target)
-    except SyntaxError as e:
-        f = _f(Severity.ERROR, f"SyntaxError: {e.msg}", e.lineno, f"fix the syntax near line {e.lineno}: {(e.text or '').strip()!r}", target)
+    tree, exc = safe_parse(source, target)
+    if tree is None:
+        msg, hint, line = describe_parse_failure(exc)  # type: ignore[arg-type]
+        f = _f(Severity.ERROR, msg, line, hint, target)
         return GateReport(gate=GATE, passed=False, findings=[f], duration_ms=int((time.monotonic() - t0) * 1000))
     c = _Collector()
     c.visit(tree)

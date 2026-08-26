@@ -82,6 +82,8 @@ def test_static_track_end_to_end_agent_path(tmp_path, chair_plan, settings):
     assert all("EDIT ONLY THESE FILES" in j.prompt for j in agent.jobs if j.label.startswith("refine_"))
     # git history: one commit per round
     assert len({r.commit for r in rec.rounds}) == 3 and ws.head() == rec.rounds[2].commit
+    # provenance (D37): the judge protocol hash sits next to the generator prompt hashes
+    assert rec.prompt_hashes["judge"] == FakeJudge.prompt_hash and "generate" in rec.prompt_hashes
 
 
 def test_static_track_single_shot_with_repair_and_budget_stop(tmp_path, chair_plan, settings):

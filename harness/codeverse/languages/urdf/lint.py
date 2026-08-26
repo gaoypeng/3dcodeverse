@@ -16,6 +16,7 @@ from pathlib import Path
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.conventions import to_snake
+from codeverse.languages._ast_lint import describe_parse_failure, safe_parse
 from codeverse.spatial.joints_model import JOINT_TYPES, MOVABLE_TYPES, RESERVED_LINK_NAMES
 from codeverse.workspace import Workspace
 
@@ -324,10 +325,10 @@ class _Visitor(ast.NodeVisitor):
 
 def lint_model_text(text: str, link_names: list[str], *, label: str = MODEL_REL) -> list[GateFinding]:
     """AST lint of model.py: forbidden APIs + every URDF link name appears as a string literal."""
-    try:
-        tree = ast.parse(text, filename=label)
-    except SyntaxError as e:
-        return [_f(Severity.ERROR, f"{label}:{e.lineno}: SyntaxError: {e.msg}", target=label, fix=str(e.text or "").strip(), line=e.lineno)]
+    tree, exc = safe_parse(text, label)
+    if tree is None:
+        msg, hint, line = describe_parse_failure(exc)  # type: ignore[arg-type]
+        return [_f(Severity.ERROR, f"{label}:{line or '?'}: {msg}", target=label, fix=hint, line=line)]
     v = _Visitor()
     v.visit(tree)
     out = v.findings

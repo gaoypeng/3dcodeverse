@@ -47,17 +47,38 @@ def _cmd_first_line(cmd: list[str]) -> str:
     return out[0].strip() if out else f"exit {proc.returncode}"
 
 
-def _harness_git_sha() -> str:
-    repo = Path(__file__).resolve().parents[2]
-    if not (repo / ".git").exists():
-        return ""
+def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str] | None:
     try:
-        proc = subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10, check=False
-        )
+        return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=10, check=False)
     except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _harness_git_sha(pkg_file: Path | None = None) -> str:
+    """Commit of the harness checkout this package runs from (``""`` outside a checkout).
+
+    The repository root is wherever git finds it — ``harness/`` is a subdirectory of
+    the 3dcodeverse repo, so ``.git`` lives one level ABOVE the package (the old
+    ``parents[2] / ".git"`` probe never matched and every record shipped an empty sha).
+    Two guards keep a wheel or a venv copy from borrowing an unrelated repo's sha:
+    the file itself must be tracked by the repo git resolves to, and a modified
+    working tree is marked ``-dirty`` so a score is never attributed to a clean commit
+    it did not run on.
+    """
+    here = (pkg_file or Path(__file__)).resolve()
+    tracked = _git(["ls-files", "--error-unmatch", here.name], here.parent)
+    if tracked is None or tracked.returncode != 0:
         return ""
-    return proc.stdout.strip() if proc.returncode == 0 else ""
+    head = _git(["rev-parse", "HEAD"], here.parent)
+    if head is None or head.returncode != 0 or not head.stdout.strip():
+        return ""
+    sha = head.stdout.strip()
+    # dirty = any tracked file under the package tree (harness/) modified; untracked files ignored
+    pkg_root = here.parents[1] if here.parent.name == "flywheel" else here.parent
+    status = _git(["status", "--porcelain", "--untracked-files=no", "--", str(pkg_root)], here.parent)
+    if status is not None and status.returncode == 0 and status.stdout.strip():
+        sha += "-dirty"
+    return sha
 
 
 def _chrome_version() -> str:

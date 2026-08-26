@@ -22,6 +22,10 @@ from bench._jsonl import read_jsonl
 T = TypeVar("T", bound=BaseModel)
 
 
+#: The fixed judge's rubric per battery track (bench/_fixed_eval.py builds the evaluator from it).
+RUBRIC_BY_TRACK: dict[str, str] = {"static_object": "static_object_v1", "articulated_object": "articulated_v1"}
+
+
 class CellResult(BaseModel):
     prompt_id: str
     tier: str = ""
@@ -46,8 +50,15 @@ class CellResult(BaseModel):
     tool_calls: int = 0
     criteria: dict[str, float] = Field(default_factory=dict)
     harness_status: str = ""
-    harness_rounds: int = 0
+    harness_rounds: int = Field(default=0, description="rounds the harness run COMPLETED (baseline included)")
     harness_loop_score: float | None = None
+    harness_stop_reason: str = Field(default="", description="record.extra['stop_reason'] of the harness run")
+    harness_aborted_rounds: int = Field(default=0, description="rounds the budget / wall-clock ceiling cut mid-way (record.extra['aborted_rounds'])")
+    degraded: bool = Field(default=False, description=(
+        "harness run stopped on the wall-clock ceiling with <=1 completed round and money left: it waited "
+        "on the provider, it did not iterate.  Scored (the artifact is real) but flagged, so a storm cannot "
+        "pass as harness performance (compare_backends.flag_degraded, docs/EVAL.md)"))
+    degraded_reason: str = ""
     sheet: str = ""
     glb: str = ""
     workspace: str = ""
@@ -118,6 +129,8 @@ class ArmStats(BaseModel):
     mean_minutes: float
     tool_calls: int
     errors: int
+    degraded: int = Field(default=0, description="harness cells flagged storm-degraded (scored, but the run never iterated)")
+    ceiling_cut: int = Field(default=0, description="harness cells whose run had a round cut by the ceiling")
 
 
 class PairStats(BaseModel):
@@ -157,6 +170,7 @@ def arm_stats(rows: list[CellResult]) -> list[ArmStats]:
             mean_judge_usd=round(statistics.fmean(r.judge_cost_usd for r in ev), 4) if ev else 0.0,
             mean_minutes=round(statistics.fmean(r.wall_s for r in ev) / 60, 2) if ev else 0.0,
             tool_calls=sum(r.tool_calls for r in ev), errors=sum(1 for r in rs if r.status in ("error", "judge_error")),
+            degraded=sum(1 for r in ev if r.degraded), ceiling_cut=sum(1 for r in ev if r.harness_aborted_rounds > 0),
         ))
     return sorted(out, key=lambda s: (s.kind != "harness", -(s.mean_score or -1)))
 
@@ -199,7 +213,7 @@ def _cell_text(r: CellResult | None) -> str:
     if r.score is None:
         return f"? ({r.status})"
     flag = "" if r.build_ok else " ✗build"
-    return f"{r.score:.2f}{'✓' if r.passed else ''}{flag}"
+    return f"{r.score:.2f}{'✓' if r.passed else ''}{flag}{'†' if r.degraded else ''}"
 
 
 def compare_markdown(out: Path, rows: list[CellResult], pairs: list[PairRow], meta: dict) -> str:
@@ -208,7 +222,7 @@ def compare_markdown(out: Path, rows: list[CellResult], pairs: list[PairRow], me
     prompts = _prompt_order(rows, meta)
     cells = {(r.prompt_id, r.arm): r for r in rows}
     md = [f"# harness vs one-shot — {meta.get('battery', {}).get('name', out.name)}", "",
-          f"fixed judge: **{opts.get('judge', '?')}** (rubric static_object_v1, n_samples={opts.get('n_samples', 2)}, "
+          f"fixed judge: **{opts.get('judge', '?')}** (rubric {RUBRIC_BY_TRACK.get(str(meta.get('battery', {}).get('track', 'static_object')), 'static_object_v1')}, n_samples={opts.get('n_samples', 2)}, "
           f"acceptance = must_have list) · harness loop judge: {opts.get('loop_judge') or 'settings default'} · "
           f"harness rounds ≤ {opts.get('rounds', '?')}, ≤ ${opts.get('max_usd', '?')} · cells: {len(rows)}", "",
           "Every arm's final `src/model.py` is re-built, re-rendered and judged by the same evaluator; a failed "
@@ -217,13 +231,17 @@ def compare_markdown(out: Path, rows: list[CellResult], pairs: list[PairRow], me
           "`n` counts cells that actually ran; `dropped` counts cells lost to a provider outage "
           "(503 storm, timeout, exhausted pool) — those test nothing about the model and are excluded "
           "from every rate on this page rather than scored 0.", "",
-          "## arms", "", "| arm | kind | n | dropped | over budget | mean | median | pass | build ok | $gen | $judge | min | tool calls | errors |",
-          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+          "`degraded` counts harness cells that stopped on the wall-clock ceiling with at most one completed round "
+          "and money left — the run waited on the provider instead of iterating; they are scored (the artifact is "
+          "real) but marked † so a storm cannot pass as harness performance.  `cut` counts harness runs the "
+          "ceiling interrupted mid-round.", "",
+          "## arms", "", "| arm | kind | n | dropped | over budget | mean | median | pass | build ok | $gen | $judge | min | tool calls | errors | degraded | cut |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for s in arm_stats(rows):
         md.append(f"| {s.arm} | {s.kind} | {s.n_evaluated} | {s.infra_failed or ''} | {s.budget_exhausted or ''} | {_f(s.mean_score)} | {_f(s.median_score)} | {_f(s.pass_rate, '.0%')} | "
                   f"{s.build_ok_rate:.0%} | {s.mean_gen_usd:.2f} | {s.mean_judge_usd:.3f} | {s.mean_minutes:.1f} | "
-                  f"{s.tool_calls} | {s.errors} |")
-    md += ["", "## per prompt (score, ✓ = passed, ✗build = build failed)", "",
+                  f"{s.tool_calls} | {s.errors} | {s.degraded or ''} | {s.ceiling_cut or ''} |")
+    md += ["", "## per prompt (score, ✓ = passed, ✗build = build failed, † = storm-degraded harness run)", "",
            "| prompt | tier | " + " | ".join(arms) + " |", "|---|---|" + "---|" * len(arms)]
     for pid in prompts:
         tier = next((r.tier for r in rows if r.prompt_id == pid), "")
@@ -240,9 +258,10 @@ def compare_markdown(out: Path, rows: list[CellResult], pairs: list[PairRow], me
     hr = [r for r in rows if r.kind == "harness"]
     if hr:
         md += ["", "## harness runs (loop judge score vs fixed judge score)", "",
-               "| prompt | arm | run status | rounds | loop score | fixed score | $run | min |", "|---|---|---|---|---|---|---|---|"]
-        md += [f"| {r.prompt_id} | {r.arm} | {r.harness_status} | {r.harness_rounds} | {_f(r.harness_loop_score)} | {_f(r.score)} | "
-               f"{r.gen_cost_usd:.2f} | {r.wall_s / 60:.1f} |" for r in sorted(hr, key=lambda r: (r.prompt_id, r.arm))]
+               "| prompt | arm | run status | stop | rounds | cut | loop score | fixed score | $run | min | degraded |", "|---|---|---|---|---|---|---|---|---|---|---|"]
+        md += [f"| {r.prompt_id} | {r.arm} | {r.harness_status} | {r.harness_stop_reason} | {r.harness_rounds} | {r.harness_aborted_rounds or ''} | "
+               f"{_f(r.harness_loop_score)} | {_f(r.score)} | {r.gen_cost_usd:.2f} | {r.wall_s / 60:.1f} | {'† ' + r.degraded_reason if r.degraded else ''} |"
+               for r in sorted(hr, key=lambda r: (r.prompt_id, r.arm))]
     total_gen, total_judge, total_pw = sum(r.gen_cost_usd for r in rows), sum(r.judge_cost_usd for r in rows), sum(p.cost_usd for p in pairs)
     md += ["", f"**Total cost**: generation ${total_gen:.2f} · fixed judge ${total_judge:.2f} · pairwise ${total_pw:.2f} "
            f"(subscription CLIs report their own cost figure or 0)."]

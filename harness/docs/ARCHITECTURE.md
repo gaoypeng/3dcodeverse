@@ -308,7 +308,8 @@ labelled 2×2 montages (shaded / geometry-only clay-or-normals / poses) + ≤ 2 
 crops at ≤ 1024 px, shuffled per sample.  The wire schema is **observe-then-score**
 (summary, strengths, issues, **defect checklist**, acceptance *before* criteria) —
 criteria-first measurably compressed flash to 0.6–0.7.  Every rubric carries binary
-`defects` (id/text/penalty/cap); defect votes are majority (ties → present) and
+`defects` (id/text/penalty/cap); defect and acceptance votes are majority (an exact
+tie — even `n_samples` only — follows the representative sample, D36) and
 `overall = caps(weighted_mean − Σ penalties)`.  Floors, deterministic caps from gate
 findings (`data["kind"]`), console errors, missing must-acceptance and
 `missing_views` rules apply on top; degraded verdicts are glitches, not scores.
