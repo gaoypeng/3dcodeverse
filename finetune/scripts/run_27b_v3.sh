@@ -1,18 +1,8 @@
 #!/bin/bash
 # 27B v3: keep v2's Blender strength but restore CadQuery volume (45M tok) — can one model top both 3DCodeBench and CadQuery?
 set -uo pipefail; cd /wekafs/ict/hx_624/llm-ft
-until grep -qE "\[27bdpo\] (ALL DONE|TRAIN FAILED|EXPORT FAILED)" logs/run_27b_dpo_train.log 2>/dev/null; do sleep 180; done
-# opportunistic: take whatever GPUs are fully idle (>=2), confirmed 3 times in a row
-STABLE=0; GPUS_USE=""
-while [ $STABLE -lt 3 ]; do
-  F=$(scripts/free_gpus.sh); N=$(echo "$F" | awk -F, 'NF&&$1!=""{print NF}')
-  if [ -n "$F" ] && [ "${N:-0}" -ge 2 ]; then
-    if [ "$F" = "$GPUS_USE" ]; then STABLE=$((STABLE+1)); else GPUS_USE="$F"; STABLE=1; fi
-  else STABLE=0; GPUS_USE=""; fi
-  sleep 60
-done
-NGPU=$(echo "$GPUS_USE" | awk -F, '{print NF}')
-echo "[sched] using GPUs $GPUS_USE ($NGPU cards)"
+GPUS_USE=$(scripts/free_gpus.sh); NGPU=$(echo "$GPUS_USE" | awk -F, '{print NF}')
+echo "[27bv3] using GPUs $GPUS_USE ($NGPU cards)"
 echo "[27bv3] $(date) train"
 GPUS=$GPUS_USE scripts/lf_train.sh configs/lf/lora_27b_v3.yaml > logs/train_27b_v3.log 2>&1
 RUN=runs/lf_qwen38_27b_lora_v3
