@@ -37,6 +37,18 @@ first-round gate rates (`--round first`) where the bundles act.  Gemini spent th
 503 storm; pairs recorded `infra_failed` / `error` / `budget`-with-no-judged-round are outages
 (EVAL §7) and are re-run with `--redo-status`, never scored.
 
+**Final readout, 12:50 (wave finished; 13 pairs, plan-pinned, ON − OFF, fixed pro judge):**
+microscope +0.087, carousel −0.109, chamber_organ 0.000, harp +0.012, lamp −0.362 (−0.242
+re-aggregated), orbital_shaker −0.211, lever_espresso −0.575, ships_wheel −0.256, gate_valve
+−0.058, turbocharger +0.331 (control 0.000 was the evaluator's cadquery build defect, a303086 —
+not a result; drop it), jukebox −0.326, marimba +0.077, smock_windmill +0.260.  With
+turbocharger dropped: n=12, mean **−0.122** (re-aggregated −0.112), sd 0.24, sign 4/12 —
+inside the 0.202 floor on the mean, with the large negatives being real defects in the ON runs
+(a lever espresso that fell apart, a lamp and a wheel that lost must-items).  The whole
+library, measured as shipped, does not help flash on hard objects and may hurt; **skills stay
+OFF**.  Storm cost of this wave: 16 pairs took 12 h of wall clock across four drivers for 13
+real pairs; the redo machinery (RUNBOOK 7.x/7.w) is what produced the last seven.
+
 **07:00 readout (5 real pairs, plan-pinned, ON − OFF):** harp +0.012, microscope +0.087,
 lamp −0.362, ships_wheel −0.256, bubbler_jukebox −0.326; mean −0.169, sd 0.204, sign 2/5.
 Three ON cells landed on exactly 0.600 — what a cap looks like from the outside.  Reading
