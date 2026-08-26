@@ -473,6 +473,33 @@ the inverted city visible inside every drop, and praised the refine round becaus
 building silhouettes are gone".  That is a rubric decision, not a model result, and it is worth
 settling before a larger n measures the rubric's preference with more precision.
 
+### 8.7 Head-to-head against the previous harnesses (2026-08-26, first pass)
+
+No such comparison existed before today; their scores are their own judges'.  Protocol:
+`bench/h2h_glb.py` (objects) takes 12 confirmed entries of astra3d-brilliana's gallery (prompt
+verbatim, `must_have` empty), our runs on the same prompts (flash, ≤ 3 rounds, on a 503-storm
+day), renders BOTH GLBs with our renderer, gates both, and judges both with one fixed pro judge
+(`static_object_v1`, n=2) — twice: **visual only** (no gate text in the judge's context) and
+**gated** (the gate findings in the context, what the harness itself would say).  The gallery
+GLBs are merged, un-welded exports whose "floating" findings are export artefacts as often as
+defects, so the visual number is the fair headline.  `bench/h2h_scene.py` (scenes) does the
+same for five scene_multifile(_graphics) outputs on their authored-camera stills vs our
+best-round judge views (`scene_v1`, n=2, stills only).
+
+| | n | Δ ours−theirs (mean) | sd | wins | sign p | their min / $ per item | ours |
+|---|---|---|---|---|---|---|---|
+| objects, visual only | 11 | **+0.130** | 0.358 | 7/4 | 0.55 | — (curated gallery) | 1–4 rounds, $0.4–4, 13–300 min (storm) |
+| objects, gated | 11 | +0.235 | 0.287 | 10/1 | 0.012 | | |
+| scenes (stills, one judge) | 5 | **+0.253** | 0.229 | 4/5 | 0.375 | 87.5 min / $11.84 | 40.6 min / $3.17 |
+
+Reading: on pure perception the objects are at parity with their *curated* gallery (+0.13 is
+inside the 0.202 paired floor; per language blender −0.006, cadquery +0.11, threejs +0.34);
+with geometry measured we are ahead on 10 of 11.  The same GLB re-judged twice moved by up to
+0.12 (microscope: 0.893 → 0.771), which is the pro judge's own n=2 variance — read the sign
+counts, not the third decimal.  Scenes: ahead on 4 of 5 at less than half the minutes and a
+quarter of the dollars; the two landmark prompts (Big Ben, Colosseum) score near zero on both
+sides.  Sheets: `bench/out/h2h_brilliana_v1/pairs/`, `bench/out/h2h_scene_v1/sheets/`.
+
 ## 9. Reporting checklist
 
 battery name + git sha of prompts; judge id, rubric name + hash, `n_samples`; per-arm
