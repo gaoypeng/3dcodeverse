@@ -3,7 +3,7 @@
 PORT-2: every non-``live`` test must pass with NO credentials in the environment.
 
 A test that only goes green because this box has 22 Gemini keys is not offline —
-it is red on a fresh clone and red on the CI runner, which has none.  Guarded by
+it is red on a fresh clone (which has none).  Guarded by
 re-running the two tests that reached for ambient credentials in a subprocess whose
 environment has been stripped of every key source (the env vars AND ``$HOME``, since
 the key file lives at ``~/.config/astra3d/gemini_keys.env``).
@@ -22,7 +22,7 @@ import pytest
 HARNESS = Path(__file__).resolve().parents[2]
 KEY_ENVS = ("GEMINI_API_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY")
 
-#: the two that PORT-2 caught; both are inside the path list .github/workflows/ci.yml runs
+#: the two that PORT-2 caught; both are inside the offline (pure python) subset
 CREDENTIAL_FREE = (
     "tests/models/test_health.py::test_probe_model_treats_a_503_as_final",
     "tests/texturing/test_tools_cli.py::test_texture_pass_tool_runs_with_injected_fakes",
@@ -42,7 +42,6 @@ def test_passes_with_no_api_keys_in_the_environment(nodeid: str, tmp_path: Path)
 
 
 # --------------------------------------------------------------------------- PORT-8
-CI_YML = HARNESS.parent / ".github" / "workflows" / "ci.yml"
 INSTALL = HARNESS / "docs" / "INSTALL.md"
 #: numbers the docs quote as test counts: "N passed", "N selected", "out of the N"
 _COUNT = re.compile(r"(\d{3,6})\s+(?:passed|selected)|out of the (\d{3,6})")
@@ -57,7 +56,7 @@ def _collected() -> int:
     return int(m.group(m.lastindex))
 
 
-@pytest.mark.parametrize("doc", [CI_YML, INSTALL], ids=["ci.yml", "INSTALL.md"])
+@pytest.mark.parametrize("doc", [INSTALL], ids=["INSTALL.md"])
 def test_quoted_test_counts_are_possible(doc: Path) -> None:
     """docs/INSTALL.md §2.1 advertises the floor as 'a tested claim, not an aspiration',
     so a count no invocation can produce is worse than no count: it read as a broken

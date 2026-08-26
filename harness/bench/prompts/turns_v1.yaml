@@ -1,4 +1,4 @@
-# turns_v1 — the fewer-turns A/B slice (docs/COST.md §26).  Six blender static objects copied
+# turns_v1 — the fewer-turns A/B slice (docs/COST.md §29).  Six blender static objects copied
 # VERBATIM from static_objects_v2.yaml (2 medium controls + 4 hard), chosen because each has a
 # completed 3-round run in bench/out/static_v2_flash/runs/<id> — so a wall-clock, turns-per-
 # session and calls-per-run baseline exists for the paired read-out.  static_v2_flash minutes /
