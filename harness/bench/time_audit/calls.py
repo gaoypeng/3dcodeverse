@@ -7,7 +7,6 @@ import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
 from corpus import RunRef, cost_rows, discover, fmt, med_p90, trajectories  # noqa: E402

@@ -11,6 +11,8 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import contextlib
+
 from corpus import discover, read_jsonl  # noqa: E402
 
 KEYLIKE = re.compile(r"key|api_key|credential", re.I)
@@ -44,10 +46,8 @@ def main() -> None:
                 for row in read_jsonl(p):
                     walk(row, p.name, found)
             else:
-                try:
+                with contextlib.suppress(json.JSONDecodeError):
                     walk(json.loads(text), p.name, found)
-                except json.JSONDecodeError:
-                    pass
     print(f"scanned {files} files; '\"key\": \"…xxxx\"' occurrences: {redacted}")
     print("key-like field names found (name -> count):")
     for k, v in found.most_common(20):

@@ -10,7 +10,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from corpus import RunRef, discover, fmt, med_p90, trajectories  # noqa: E402
+from corpus import discover, fmt, med_p90, trajectories  # noqa: E402
 from turns import parse_turns  # noqa: E402
 
 STORM_RE = re.compile(r"gemini (\S+) capacity storm (\d+)/60 .*; waiting (\d+)s")

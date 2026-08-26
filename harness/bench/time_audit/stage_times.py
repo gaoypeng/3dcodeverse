@@ -91,7 +91,7 @@ def analyse(ref: RunRef) -> dict[str, Any]:
         build.append(b)
         gates.append(s["gates_t"] - s["last_build"])
         r = rd.get(s["round"], {})
-        rnd = float(((r.get("renders") or {}).get("duration_ms") or 0)) / 1000
+        rnd = float((r.get("renders") or {}).get("duration_ms") or 0) / 1000
         render.append(rnd)
         j = s.get("judge_s", 0.0)
         judge.append(j)
