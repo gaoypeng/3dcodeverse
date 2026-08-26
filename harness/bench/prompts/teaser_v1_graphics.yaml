@@ -98,3 +98,45 @@ prompts:
   - dark treeline or ridge silhouette along the bottom edge
   - the flock shape changes noticeably between the sampled frames while staying one flock
   - no bird sprites frozen or clipped at the frame edges
+
+# ===========================================================================
+# SHARPENED RE-RUNS — these are the prompts the teaser page actually ships.
+# The original id each one replaces is kept above it, so the pair stays legible;
+# see docs/TEASER.md for the picture each attempt produced.
+# NOTE: BenchPrompt (bench/run_bench.py) carries only id/prompt/tier/category/
+# must_have/dimensions_m/tags/language.  The re-runs also used --style, --must-not
+# and --candidates on the CLI; those are recorded as comments here rather than as
+# keys, because an unknown key is dropped silently.
+# ===========================================================================
+# SHIPPED. Supersedes v1 (0.780, flat magenta wash over a speckle-noise ridge) and v2 (0.527, good
+# sky but the ridge drawn as a barcode of vertical grey stripes).  The one paragraph that fixed it
+# in a single round is the LOWER THIRD spec plus the must_have below.
+
+# CLI flags used, not expressible in this schema:
+#   --candidates 3
+#   --profile quality
+- id: tsr_gfx_aurora_ridge_v3
+  tier: hard
+  category: natural_phenomena
+  tags:
+  - teaser
+  - rerun
+  - graphics
+  prompt: 'an aurora over a snowy ridge on a black winter night, painted in three clean horizontal bands.
+    TOP TWO THIRDS — the sky: near-black deep-blue, crowded with thousands of small crisp white stars, and
+    across it hang layered aurora curtains made of many thin bright vertical rays of varying height that ripple
+    slowly sideways; the curtains are saturated emerald green at their lower edge, fading up through teal
+    into violet-magenta tips, with dark gaps of empty starry sky visible between the folds, and a soft green
+    glow spilling onto the air around them. LOWER THIRD — the ridge: a single SOLID mountain silhouette, filled
+    with ONE flat near-black colour and nothing else. The ridge must be smooth and uniform inside: no vertical
+    stripes, no bars, no banding, no noise, no texture, no visible pixels or scan lines inside the silhouette
+    — only a crisp jagged outline of peaks against the sky, with a thin clean line of pale snow lying along
+    the sunlit upper edges of the peaks. BOTTOM FIFTH — the frozen lake: a smooth flat mirror below the ridge
+    that shows a softly blurred vertical reflection of the green and violet curtains and the black ridge,
+    dimmer than the sky, with a few faint horizontal shimmer lines and no hard seam where it meets the shore.
+    Strong contrast, saturated light against true darkness, edges of the frame falling off to black.
+
+    '
+  must_have:
+  - the mountain ridge is a solid flat near-black silhouette with no stripes, bars or noise inside it
+  - near-black starry sky with saturated green-to-violet curtains

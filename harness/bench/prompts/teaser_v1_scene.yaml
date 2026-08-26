@@ -103,3 +103,186 @@ prompts:
     0.15-0.40)
   - rain falling visibly through the sign light between the sampled times
   - camera dollies down the alley toward the billboard without clipping the walls, cables or props
+
+# ===========================================================================
+# SHARPENED RE-RUNS — these are the prompts the teaser page actually ships.
+# The original id each one replaces is kept above it, so the pair stays legible;
+# see docs/TEASER.md for the picture each attempt produced.
+# NOTE: BenchPrompt (bench/run_bench.py) carries only id/prompt/tier/category/
+# must_have/dimensions_m/tags/language.  The re-runs also used --style, --must-not
+# and --candidates on the CLI; those are recorded as comments here rather than as
+# keys, because an unknown key is dropped silently.
+# ===========================================================================
+# SHIPPED — round r01, NOT the harness best_round r02 (r02 scored 0.286 vs 0.273 and lost the pond
+# reflections).  Supersedes tsr_scn_temple_night, which the judge scored 0.729 on a washed-out
+# pale-blue frame with no ripples, no reflections and no koi.
+
+# CLI flags used, not expressible in this schema:
+#   --candidates 2
+#   --profile quality
+- id: tsr_scn_temple_night_v2
+  tier: hard
+  category: multi_language
+  tags:
+  - teaser
+  - rerun
+  - hero
+  - multi_language
+  - blender_glb
+  - glsl
+  - motion
+  prompt: 'a small temple courtyard on a koi pond at NIGHT — a deep indigo night (background 0x0b1026), lit
+    ONLY by warm lantern flame. LIGHTING IS THE POINT AND IT IS LOW-KEY: the ONLY lights are warm point lights
+    (colour 0xffb156, decay 2) inside the stone lanterns and paper lamps, plus one very dim cool moon fill
+    (DirectionalLight, intensity <= 0.15, colour 0x3a5a8c). Do NOT add an AmbientLight and do NOT add a HemisphereLight,
+    and use no more than that one dim directional — the courtyard must fall off into darkness away from each
+    lantern, so the frame is mostly deep blue-black with small warm pools. The stone paving is DARK wet granite
+    (base colour 0x2a2b30, roughness 0.5) that is nearly black between the lantern pools; it must NEVER read
+    as white, pale grey or snow.
+
+    TWO HERO PROPS ARE AUTHORED IN BLENDER WITH bpy AND COMPILED TO GLB (asset kind blender_glb), then loaded
+    into the three.js scene: (1) StoneLantern — a carved granite lantern about 1.7 m tall with a chamfered
+    cap, a pierced fire box, a lotus-carved plinth and moss-worn edges, in DARK weathered grey-green granite
+    (0x4a4f48), never white; place three of them along the path, each with a warm point light in its fire
+    box. (2) BronzeCenser — a three-legged bronze incense burner about 0.9 m tall with a domed pierced lid,
+    two ring handles and a relief band, in dark patinated bronze with warm specular highlights.
+
+    Everything else is procedural three.js: maple trees with deep crimson foliage (0x7d1f2b) and pines in
+    very dark green (0x16261c) — never mint or pastel — the arched wooden bridge in dark stained timber, stone
+    paving, railings and the temple hall with warm glowing shoji panels.
+
+    A custom GLSL water material is the HERO EFFECT and must be unmistakable: the pond is dark (0x081018)
+    and highly reflective, with visible travelling ripples, the warm lantern lights reflected in it as long
+    wobbling vertical streaks, and several koi visible moving under the surface. Make the ripples and the
+    reflected lantern streaks large enough to read clearly in a 1024x576 frame.
+
+    Incense smoke rises from the censer and falling maple leaves drift through the frame; the camera dollies
+    across the bridge toward the hall.
+
+    '
+  # must_have restated here from the prompt body so the battery is re-runnable;
+  # the original CLI run carried these as prose inside --prompt, not as --must clauses.
+  must_have:
+  - 'a deep indigo night: the frame is mostly near-black blue with small warm pools, and the stone paving never
+    reads as white, pale grey or snow'
+  - the only lights are warm point lights inside the lanterns and paper lamps plus one dim cool directional
+    moon fill; no AmbientLight and no HemisphereLight
+  - StoneLantern and BronzeCenser are authored in Blender bpy and loaded into the scene as blender_glb assets,
+    not rebuilt procedurally
+  - three StoneLantern instances stand along the path, each with a warm point light in its fire box
+  - the pond uses a custom GLSL material with travelling ripples, the lantern lights reflected as long vertical
+    streaks, and koi visible under the surface
+  - incense smoke rises from the censer and maple leaves fall through the frame
+# SHIPPED. Supersedes tsr_scn_boat_workshop (0.465), whose PLAN contained no walls and no roof —
+# an open truss frame in a pine forest — so refining could not make it an interior.
+
+# CLI flags used, not expressible in this schema:
+#   --candidates 2
+#   --profile quality
+- id: tsr_scn_boat_workshop_v2
+  tier: hard
+  category: multi_language
+  tags:
+  - teaser
+  - rerun
+  - multi_language
+  - blender_glb
+  - glsl
+  - motion
+  prompt: 'INSIDE a boatbuilder''s workshop at dusk — a FULLY ENCLOSED INTERIOR. THE ENCLOSURE IS THE ENVIRONMENT
+    AND MUST BE BUILT FIRST: a rectangular timber shed about 16 m x 10 m x 6 m high with FOUR SOLID WALLS
+    of dark weathered plank cladding (0x3a2e22), a plank FLOOR (0x4a3b2a), and a closed pitched ROOF of dark
+    boards carried on exposed trusses. Every camera is INSIDE this box and always sees walls and ceiling —
+    never open sky, never a horizon, and there is NO terrain, NO grass and absolutely NO trees or outdoor
+    vegetation anywhere in the scene.
+
+    The entire LONG WALL on one side is a grid of dusty single-glazed windows in a dark timber frame, and
+    a LOW ORANGE SUN outside it (0xffa64d) throws long hard light shafts diagonally across the interior. LIGHT
+    IS THE POINT AND IT MUST BE TWO-COLOURED: the sunbeams and the stove glow are WARM orange, while the shadowed
+    depths of the shed are COOL desaturated blue (0x2b3a4a) from a dim blue fill — the frame must show warm
+    light against cool shadow, never a single orange wash over everything.
+
+    TWO HERO PROPS ARE AUTHORED IN BLENDER WITH bpy AND COMPILED TO GLB (asset kind blender_glb), then loaded
+    into the three.js scene: (1) ClinkerSkiff — a lapstrake wooden skiff about 4 m long, upturned on trestles,
+    with overlapping planks, visible ribs and a bevelled stem; (2) PotbellyStove — a cast-iron potbelly stove
+    about 1.1 m tall with a bellied body, a bevelled door with a latch, claw feet and a flue collar, its door
+    glowing hot orange with a flue pipe running up to the roof.
+
+    Everything else is procedural three.js: workbenches, wall tool racks hung with saws and planes, stacked
+    timber, sawhorses, clamps, buckets, shavings on the floor, and the roof trusses.
+
+    A GLSL shader makes the window sunbeams VOLUMETRIC — visible cones of hazy light crossing the room, brightest
+    near the glass.
+
+    Sawdust motes drifting in those beams must be FINE, SMALL and SOFT: draw them as tiny additive-blended
+    sprites using a radial-gradient DataTexture with low opacity (0.15-0.35) and a size of only a few centimetres,
+    so they read as floating dust. NEVER render them as large opaque white squares or untextured Points.
+
+    The stove glow flickers, a hanging work lamp sways, and the camera cranes up from the floor along the
+    hull.
+
+    '
+  # must_have restated here from the prompt body so the battery is re-runnable;
+  # the original CLI run carried these as prose inside --prompt, not as --must clauses.
+  must_have:
+  - 'a fully enclosed interior: four solid plank walls, a plank floor and a closed pitched roof on exposed trusses,
+    with every camera inside the box'
+  - no terrain, no grass, no trees and no open sky anywhere in the scene
+  - one long wall is a grid of dusty windows with a low orange sun outside throwing long diagonal light shafts
+    across the interior
+  - 'two-coloured light: warm orange sunbeams and stove glow against cool desaturated blue shadow'
+  - ClinkerSkiff and PotbellyStove are authored in Blender bpy and loaded into the scene as blender_glb assets,
+    not rebuilt procedurally
+  - a GLSL shader makes the window sunbeams volumetric, and sawdust motes in them are fine soft additive sprites,
+    never large opaque white squares
+# SHIPPED. Supersedes tsr_scn_neon_alley (0.632), whose census showed custom_materials [''] — the
+# wet-asphalt ShaderMaterial the prompt is about never existed.
+
+# CLI flags used, not expressible in this schema:
+#   --candidates 2
+#   --profile quality
+- id: tsr_scn_neon_alley_v2
+  tier: hard
+  category: materials
+  tags:
+  - teaser
+  - rerun
+  - glsl
+  - motion
+  prompt: 'a rain-soaked neon alley at night, seen down a narrow corridor between two TALL buildings whose
+    walls fill the left and right thirds of the frame and rise out of the top of shot. MATERIALS AND LIGHTING
+    ARE THE POINT: the ground is NEAR-BLACK wet asphalt (base colour 0x0a0c10, roughness 0.08-0.15, metalness
+    0.6) that acts as a MIRROR — every sign above is reflected in it as a sharp, vertically-stretched coloured
+    streak, with darker matte patches between shallow puddles so the reflection is broken up, never a uniform
+    glossy sheet. The asphalt must stay DARK: it is lit only by the signs, so most of the ground is black
+    and the reflections are the bright part. Do NOT put a bright ambient or hemisphere light on the ground
+    and do NOT let it wash out to pale grey, white or milky cyan.
+
+    Stacked kanji and script signs in hot pink (0xff2d95) and cyan (0x00e5ff) are bolted up both walls at
+    many heights, each an emissive panel with its own small point light spilling onto the brickwork beside
+    it; a flickering holographic billboard faces the camera at the far end. Fire escapes, ladders, air-con
+    units, hanging cables and a steam grate dress the walls.
+
+    Rain is THIN BRIGHT VERTICAL STREAKS, not dots: draw it as LineSegments or as very narrow elongated quads
+    about 0.4 m long and 0.01 m wide, a few thousand of them, falling fast and re-seeding at the top, catching
+    the sign colours. NEVER render rain as square point sprites or large white squares. Steam from the grate
+    is a soft, low-opacity translucent wisp (opacity 0.12-0.25) that does not read as a solid white blob.
+
+    Keep the overall frame dark and saturated — deep blacks, hot magenta and cyan, no grey haze — and let
+    the reflections and the signage carry the exposure.
+
+    '
+
+  # must_have restated here from the prompt body so the battery is re-runnable;
+  # the original CLI run carried these as prose inside --prompt, not as --must clauses.
+  must_have:
+  - 'the ground is near-black wet asphalt acting as a mirror: every sign above is reflected as a sharp vertically-stretched
+    streak, broken by matte patches'
+  - the asphalt stays dark and never washes out to pale grey, white or milky cyan; no bright ambient or hemisphere
+    light on it
+  - tall building walls fill the left and right thirds of the frame and rise out of the top of shot
+  - stacked hot-pink and cyan emissive signs at many heights up both walls, each spilling a small point light
+    onto the brickwork
+  - rain is drawn as thin bright vertical streaks (LineSegments or narrow elongated quads), never square point
+    sprites or white squares
+  - a flickering holographic billboard faces the camera at the far end of the alley

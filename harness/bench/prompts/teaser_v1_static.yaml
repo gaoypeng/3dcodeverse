@@ -200,3 +200,107 @@ prompts:
     width: 0.9
     depth: 0.9
     height: 1.1
+
+# ===========================================================================
+# SHARPENED RE-RUNS — these are the prompts the teaser page actually ships.
+# The original id each one replaces is kept above it, so the pair stays legible;
+# see docs/TEASER.md for the picture each attempt produced.
+# NOTE: BenchPrompt (bench/run_bench.py) carries only id/prompt/tier/category/
+# must_have/dimensions_m/tags/language.  The re-runs also used --style, --must-not
+# and --candidates on the CLI; those are recorded as comments here rather than as
+# keys, because an unknown key is dropped silently.
+# ===========================================================================
+# SHIPPED. Supersedes tsr_cad_radial_engine (same judged 0.600, broken picture: one barrel
+# buried through the ground plane, exhaust stubs reading as detached sticks, no stand, all grey).
+
+# CLI flags used, not expressible in this schema:
+#   --style "clean machined-metal product shot: pale satin aluminium fins, dark grey cast steel crankcase, warm polished brass pushrod tubes and black rocker covers, crisp fillets and chamfers on every machined edge"
+#   --must-not "a cylinder barrel buried in or passing through the ground plane"
+#   --must-not "exhaust stubs or pushrods detached from the heads, floating in space, or pointing in inconsistent directions"
+#   --must-not "an all-grey untextured look with no colour separation between crankcase, barrels and pushrods"
+#   --candidates 2
+#   --profile quality
+- id: tsr_cad_radial_engine_v2
+  tier: hard
+  category: mechanisms
+  tags:
+  - teaser
+  - rerun
+  - hero
+  language: cadquery
+  prompt: 'a five-cylinder radial aero engine displayed on a low steel stand, in the correct museum orientation:
+    ONE cylinder points straight UP at top dead centre and the other four are at 72 degree steps, so there
+    is NO cylinder pointing straight down and the engine sits clear of the ground on its stand. A dark grey
+    machined steel crankcase carries a bolted circular front cover and a splined propeller hub on the axis;
+    each of the five barrels is a pale satin aluminium tube wrapped in evenly pitched square cooling fins,
+    capped by a domed head with a black rocker cover; a slim brass pushrod tube lies flush along the front
+    of each barrel from the crankcase to its rocker cover; a short polished steel exhaust stub leaves each
+    head, all five swept the same way around the ring.
+
+    '
+  must_have:
+  - one cylinder barrel pointing straight up at top dead centre, the other four at 72 degree steps around
+    the crankcase axis
+  - no cylinder barrel pointing straight down; the lowest part of the engine is the steel stand, and the stand
+    sits flat on the ground plane
+  - a low steel stand under the crankcase, welded to it, carrying the whole engine clear of the ground
+  - at least 8 cooling fins on every barrel, all the same pitch and the same outer diameter
+  - a domed head with a black rocker cover on each cylinder, sitting flush on the top of its barrel
+  - one brass pushrod tube per cylinder, lying flush along the barrel from the crankcase to its rocker cover,
+    touching both
+  - circular crankcase about 0.36 m in diameter with a front cover carrying at least 8 bolt heads on a circular
+    pattern
+  - propeller hub on the crankcase axis with at least 6 bolt holes
+  - one exhaust stub per head, each rooted flush in its head, all five angled the same way around the ring
+  - pale aluminium barrels, a darker steel crankcase, brass pushrod tubes and black rocker covers as four
+    clearly distinct part colours
+  - no barrel, pushrod or exhaust stub intersects or floats away from a neighbour
+  dimensions_m:
+    width: 0.9
+    depth: 0.42
+    height: 0.98
+# SHIPPED at a LOWER judged score than the run it replaces (0.600 vs 0.841): v1 was a clean brass
+# armature with plain white shades and ZERO hanging crystal, i.e. none of the sparkle the prompt
+# was picked for.
+
+# CLI flags used, not expressible in this schema:
+#   --style "expensive lighting-catalogue product shot: warm polished brass against clear cut crystal and frosted glass, every facet catching a highlight, strong specular sparkle, no flat matte surfaces"
+#   --must-not "a chandelier with no hanging crystal drops, or with the drops too small or too few to see"
+#   --must-not "plain white cylinder shades with no finial"
+#   --must-not "drops merged into the arms or hidden inside the tiers"
+#   --candidates 2
+#   --profile quality
+- id: tsr_tjs_deco_chandelier_v2
+  tier: hard
+  category: lighting
+  tags:
+  - teaser
+  - rerun
+  language: threejs
+  prompt: 'an art-deco brass chandelier dripping with cut crystal: a stepped brass ceiling canopy and a chain
+    drop to a fluted central stem; two tiers of curved brass arms, six above and eight below, each ending
+    in a frosted glass candle sleeve with a small tapered flame-tip finial; and hanging from the rim of BOTH
+    tiers, in even concentric rings, more than forty stepped faceted crystal drops - long slender prisms with
+    cut facets, each hanging free on its own short brass link so the whole lower half of the fixture reads
+    as a curtain of glass; a fluted clear glass bowl at the crown under the stem.
+
+    '
+  must_have:
+  - central fluted brass stem with a stepped ceiling canopy and a chain of at least 5 visible links above
+    it
+  - an upper tier of 6 curved brass arms and a lower tier of 8 curved brass arms, each tier evenly spaced
+  - a frosted glass candle sleeve with a small tapered flame-tip finial at the end of every arm
+  - MORE THAN 40 faceted crystal drops, clearly visible as separate slender prisms, hanging in even concentric
+    rings from the rims of BOTH tiers
+  - each crystal drop is at least 0.06 m long, hangs vertically on its own short brass link, and hangs free
+    below its tier
+  - the rings of drops are the dominant visual feature of the lower half of the chandelier
+  - fluted clear glass bowl at the crown under the stem
+  - overall diameter about 0.90 m and overall height about 1.10 m
+  - warm brass arms and stem clearly distinct in colour from the clear crystal drops and the frosted white
+    shades
+  - no drop intersects an arm, a shade or another drop
+  dimensions_m:
+    width: 0.9
+    depth: 0.9
+    height: 1.1
