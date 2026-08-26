@@ -26,7 +26,7 @@ Overall bbox: {{ overall_bbox }}
 2. Run `build`. Fix every build/lint error. An error inside a part file that stops the whole build
    IS yours to fix — make the smallest change that makes it build.
 3. Run `measure`. Compare each measured part box with the table above.
-4. Run `check_connectivity` and `check_contract`. Every ERROR must be gone before you finish:
+4. {% if turn_discipline %}Read the CONNECTIVITY and CONTRACT sections of the `build` result (it runs both checks for you){% else %}Run `check_connectivity` and `check_contract`{% endif %}. Every ERROR must be gone before you finish:
    - a **floating** part → move it (or its neighbour) so the surfaces overlap by 2–5 mm;
    - an **interpenetrating** pair → pull one back to its plan box;
    - a **missing** part → the builder was not called, or it built under a parent Empty
@@ -46,6 +46,10 @@ Overall bbox: {{ overall_bbox }}
 {% if tool_cards and not single_shot %}
 ## Tools
 {{ tool_cards }}
+{% endif %}
+{% if turn_discipline %}
+
+{{ turn_discipline }}
 {% endif %}
 
 ## Output
