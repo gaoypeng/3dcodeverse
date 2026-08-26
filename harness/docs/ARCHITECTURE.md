@@ -350,7 +350,10 @@ too small, and **`no_motion`** — the frames of one camera at the first and las
 time are diffed in `spatial/frame_motion.py` and the per-camera "% of pixels changed"
 goes to the judge as a fact, because two tiles in different montage images are not
 comparable by eye and every scene judged before it was told "nothing moves" while its
-water was rippling), graphics `gl_frames` (NaN/black/blown/static/flicker).
+water was rippling, and **`unused_glb_asset`** — the scene host wraps `loaders.gltf` and
+records each GLB's geometry UUIDs, so the census can say whether any of it reached the
+rendered frame; `Object3D.clone()` shares geometry, so a cloned hero still counts and only
+a discarded load does not), graphics `gl_frames` (NaN/black/blown/static/flicker).
 
 ## 8. Texturing (derived asset pack)
 

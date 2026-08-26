@@ -147,3 +147,34 @@ def test_frame_summary_text_table():
     assert lines[1].startswith("Establishing [authored]: lum 0.07 dark 41%") and lines[1].endswith("— DARK FRAME")
     assert "content 45%" in lines[2] and "—" not in lines[2]
     assert frame_summary_text({}) == "frame checks: no camera_checks in metrics"
+
+
+# ------------------------------------------------- a hero that is loaded and never placed
+def test_a_loaded_glb_that_reaches_no_frame_is_flagged():
+    """Measured 2026-08-25 on tsr_scn_boat_workshop_v2: src/scene.js loads
+    /assets/clinker_skiff.glb — a real Blender hero, authored, built, copied into
+    public/assets — while src/zones/central_bay.js calls a procedural buildClinkerSkiff().
+    The hull in every shipped frame is JavaScript. Nothing flagged it, and the check the
+    teaser wave used to verify the multi-language claim (plan.json -> assets[].kind) still
+    said blender_glb, because the plan records what was PLANNED, not what rendered."""
+    from codeverse.contracts.artifacts import Severity
+    from codeverse.spatial.frame_metrics import frame_findings
+
+    rep = frame_findings({"camera_checks": [], "census": {"glb_assets": [
+        {"url": "/assets/clinker_skiff.glb", "meshes": 7, "meshes_in_scene": 0, "in_scene": False},
+        {"url": "/assets/potbelly_stove.glb", "meshes": 5, "meshes_in_scene": 5, "in_scene": True},
+    ]}})
+    bad = [f for f in rep.findings if f.data["kind"] == "unused_glb_asset"]
+    assert len(bad) == 1, "only the unused one is a finding"
+    assert "clinker_skiff" in bad[0].message
+    assert bad[0].severity is Severity.WARN, "the picture still renders; this must not fail the run"
+    assert rep.passed, "a WARN must not fail the gate"
+
+
+def test_a_scene_with_no_glbs_says_nothing():
+    """Most scenes load no GLB at all; they must not gain a finding for it."""
+    from codeverse.spatial.frame_metrics import frame_findings
+
+    for census in ({}, {"glb_assets": []}, {"glb_assets": "not a list"}):
+        rep = frame_findings({"camera_checks": [], "census": census})
+        assert not [f for f in rep.findings if f.data["kind"] == "unused_glb_asset"]

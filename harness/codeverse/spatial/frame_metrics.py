@@ -242,6 +242,44 @@ def _motion_findings(rows: list[MotionRow]) -> list[GateFinding]:
                kind="motion", moving=[r.name for r in moving], n_moving=len(moving))]
 
 
+_UNUSED_GLB_HINT = (
+    "the GLB is fetched and then thrown away — either place it (add the loaded scene, or clone it: "
+    "`const g = await loaders.gltf.loadAsync(url); zone.add(g.scene.clone())`) or stop loading it. "
+    "If a refine round replaced the asset with a procedural rebuild, DELETE the dead load: leaving it in "
+    "makes plan.json's `assets[].kind: blender_glb` claim a Blender hero the rendered scene does not contain."
+)
+
+
+def _glb_findings(census: dict[str, Any]) -> list[GateFinding]:
+    """A GLB that was loaded and contributed no geometry to the rendered scene.
+
+    Measured 2026-08-25 on tsr_scn_boat_workshop_v2: ``src/scene.js`` loads
+    ``/assets/clinker_skiff.glb`` — a real Blender hero, authored, built and copied into
+    ``public/assets`` — while ``src/zones/central_bay.js`` calls a procedural
+    ``buildClinkerSkiff(THREE)`` that a refine round wrote over the asset slot.  The hull in
+    every shipped frame is JavaScript.  Nothing flagged it, and the check the wave was
+    using to verify the multi-language claim (``plan.json`` -> ``assets[].kind``) still
+    reported ``blender_glb``, because the plan records what was PLANNED.
+
+    WARN, not ERROR: the picture is fine, and an author who deep-copies geometry
+    (``geometry.clone()``) rather than cloning the object would read as unused here.
+    """
+    rows = census.get("glb_assets")
+    if not isinstance(rows, list):
+        return []
+    out: list[GateFinding] = []
+    for r in rows:
+        if not isinstance(r, dict) or r.get("in_scene") is not False:
+            continue
+        url = str(r.get("url", "?"))
+        out.append(_f(Severity.WARN, "overall",
+                      f"{url} is loaded but no geometry from it reaches the rendered scene "
+                      f"({r.get('meshes', 0)} mesh(es) in the file, 0 in the frame)",
+                      _UNUSED_GLB_HINT, kind="unused_glb_asset", url=url,
+                      meshes=r.get("meshes"), meshes_in_scene=r.get("meshes_in_scene")))
+    return out
+
+
 def frame_findings(metrics: dict[str, Any]) -> GateReport:
     """``scene_frames`` gate from a ``metrics.json`` payload (``camera_checks`` + ``census`` + ``motion``)."""
     checks: list[dict[str, Any]] = [c for c in metrics.get("camera_checks") or [] if isinstance(c, dict)]
@@ -261,6 +299,7 @@ def frame_findings(metrics: dict[str, Any]) -> GateReport:
         if cov is not None:
             findings.append(cov)
     findings += _motion_findings(stored_motion(metrics))
+    findings += _glb_findings(metrics.get("census") or {})
     if checks and not [f for f in findings if f.severity != Severity.INFO]:
         n = len(checks)
         findings.append(_f(Severity.INFO, "overall", f"{n} camera frame(s) checked: exposure, geometry and coverage within limits", "",

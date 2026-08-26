@@ -99,11 +99,41 @@ function validateCameras(raw) {
   return { cameras: out, problems };
 }
 
+// Every GLB the scene asked for, with the geometry it brought: {url, geometry_uuids}.
+// Reset per boot; read by census() to answer "was this asset actually USED?".
+let loadedGlbs = [];
+
 function makeLoaders(manager) {
   const gltf = new GLTFLoader(manager);
+  // Record what each GLB load delivered.  `Loader.loadAsync` is a promise wrapper around
+  // `this.load`, so wrapping load alone covers both call styles.
+  const origLoad = gltf.load.bind(gltf);
+  gltf.load = (url, onLoad, onProgress, onError) => origLoad(url, (res) => {
+    const uuids = [];
+    try { res?.scene?.traverse((o) => { if (o.geometry && o.geometry.uuid) uuids.push(o.geometry.uuid); }); } catch { /* census is best-effort */ }
+    loadedGlbs.push({ url: String(url), geometry_uuids: uuids });
+    if (onLoad) onLoad(res);
+  }, onProgress, onError);
   const texture = new THREE.TextureLoader(manager);
   const cube = new THREE.CubeTextureLoader(manager);
   return { gltf, texture, cube, manager };
+}
+
+/** Per loaded GLB: did any of its geometry reach the rendered scene?
+ *
+ * `Object3D.clone()` SHARES BufferGeometry (Mesh.copy assigns the same reference), so an
+ * asset used via clone still matches — which is how the scene track normally places a
+ * hero.  A procedural rebuild allocates its own geometry and matches nothing, which is
+ * exactly the case this exists to catch.  A deep `geometry.clone()` would read as unused;
+ * that is why the finding is a WARN and says "no geometry from it", not "not used".
+ */
+function glbUsage(scene) {
+  const used = new Set();
+  try { scene.traverse((o) => { if (o.geometry && o.geometry.uuid) used.add(o.geometry.uuid); }); } catch { return []; }
+  return loadedGlbs.map((g) => {
+    const n = g.geometry_uuids.filter((u) => used.has(u)).length;
+    return { url: g.url, meshes: g.geometry_uuids.length, meshes_in_scene: n, in_scene: n > 0 };
+  });
 }
 
 function waitForLoads(manager, timeoutMs) {
@@ -131,6 +161,7 @@ async function boot(opts) {
   const info = { ok: false, stage: 'init', error: '', cameras: [], camera_problems: [], shape: {}, timings_ms: {}, renderer: '' };
   state.bootInfo = info;
   try {
+    loadedGlbs = [];
     state.width = opts.width || 1024;
     state.height = opts.height || 576;
     window.requestAnimationFrame = () => { state.rafCalls += 1; return 0; };
@@ -359,6 +390,7 @@ function fps(seconds, spec) {
 
 function census() {
   const c = sceneCensus(state.scene, THREE);
+  c.glb_assets = glbUsage(state.scene);
   state.contentBox = c.content_bbox;
   state.fullBox = c.bbox;
   c.cameras = state.cameras.length;
