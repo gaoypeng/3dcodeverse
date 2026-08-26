@@ -188,7 +188,7 @@ def joint_sweep_observation(ws, *, n_random: int = 8, seed: int = 0, render: boo
                             joint: str | None = None, expected_direction: str | None = None,
                             joints: list[str] | None = None):
     """Run the pose sweep on ``ws.artifacts/robot.urdf`` (+ ``meshes/``) and return an
-    ``Observation`` (package F wraps this as the ``joint_sweep`` tool).
+    ``Observation`` (``spatial.tools_scene`` wraps this as the ``joint_sweep`` tool).
 
     ``joints`` narrows the RENDER to those joints' limit poses (plus rest).  The collision
     sweep still covers every joint — a change to one joint can collide with another, and

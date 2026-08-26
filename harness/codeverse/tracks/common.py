@@ -95,8 +95,8 @@ class Services:
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None, times: Sequence[float],
                      width: int, height: int) -> RenderSet:
-        return _import("codeverse.spatial.render", "render_scene")(ws, out_dir, cameras=cameras, orbit=True, times=tuple(times),
-                                                                  width=width, height=height, sheet=True)
+        return _import("codeverse.spatial.render_scene", "render_scene")(ws, out_dir, cameras=cameras, orbit=True, times=tuple(times),
+                                                                        width=width, height=height, sheet=True)
 
     def render_geometry(self, glb: Path, out_dir: Path, *, views: Sequence[ViewPreset]) -> RenderSet:
         """Clay renders (no materials/textures) exposing holes/intersections for the judge's
@@ -204,7 +204,7 @@ class RunContext:
 
 # ----------------------------------------------------------------------------- prompt helpers
 def load_prompt_or(rel: str, fallback: str) -> str:
-    """``prompts/<rel>`` if it exists (package K writes those), else ``fallback``."""
+    """``prompts/<rel>`` if it exists, else ``fallback``."""
     try:
         return load_text(rel)
     except FileNotFoundError:

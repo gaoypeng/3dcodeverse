@@ -30,7 +30,6 @@ from codeverse.spatial.observe import (
 from codeverse.spatial.registry import Observation, ToolContext, ToolUsageError, tool
 from codeverse.spatial.sections import cross_section as _cross_section
 from codeverse.spatial.tool_common import (
-    call_adaptive,
     gl_metrics_summary,
     glb_path,
     language_of,
@@ -116,7 +115,7 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
         if lint_warns:
             text += "\nwarnings:\n" + "\n".join(lint_warns[:10])
         return text_observation(text, ok=False, numbers={"stage": "lint", "lint_errors": len(lint_errors)})
-    br: BuildResult = call_adaptive(rt.build, ws, timeout_s=get_settings().limits.build_timeout_s)
+    br: BuildResult = rt.build(ws, timeout_s=get_settings().limits.build_timeout_s)
     ws.write_json(ws.artifacts / "build_last.json", br)
     numbers: dict[str, Any] = {"stage": "build", "ok": br.ok, "duration_ms": br.duration_ms}
     if not br.ok:

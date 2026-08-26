@@ -212,7 +212,7 @@ def single_shot_model_id(agent_id: str) -> str:
 
 
 def single_shot_format_text() -> str:
-    """The canonical format doc (package K's ``system/singleshot_format.md`` when present)."""
+    """The canonical format doc (``prompts/system/singleshot_format.md`` when present)."""
     try:
         from codeverse.prompts import load_text
 

@@ -576,7 +576,7 @@ def render(
     # rendering, so a CLI render did not match the one the judge saw
     r = get_settings().render
     if spec.track is Track.SCENE:
-        render_scene = C.lazy("codeverse.spatial.render", "render_scene")
+        render_scene = C.lazy("codeverse.spatial.render_scene", "render_scene")
         rs = render_scene(
             ws, out_dir, cameras=None, width=width or r.scene_width, height=height or r.scene_height
         )

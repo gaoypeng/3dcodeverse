@@ -214,10 +214,11 @@ are the pure helpers `3dcv doctor` reuses for its `node` row.
 
 ## spatial/
 ```python
-from codeverse.spatial.render import render_glb, render_scene, render_turntable
+from codeverse.spatial.render import render_glb, render_turntable
 render_glb(glb, out_dir, *, views=None, mode="shaded|wire|normals|silhouette|clay", width=768, height=768,
            isolate=None, explode=0.0, sheet=True, background=..., anim_time=None, shadow=True, gpu=None,
            timeout_s=None, use_cache=True) -> RenderSet
+from codeverse.spatial.render_scene import render_scene
 render_scene(ws, out_dir, *, cameras=None, orbit=True, times=(0.0, 1.5), width=1024, height=576, sheet=True,
              bounds=None, sheet_max_views=10) -> RenderSet
     # Δ bounds default from ws plan.json → orbit rig frustum-fits the CONTENT box (not ground/sky);

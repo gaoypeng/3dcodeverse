@@ -283,13 +283,13 @@ def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pyt
 
     calls = {}
 
-    def fake_check_shaders(ws):
+    def fake_check_shaders(ws, *, module=None, timeout_s=90.0):
         return GateReport(gate="shaders", passed=False, findings=[GateFinding(gate="shaders", severity=Severity.ERROR, target="src/shaders/water.js", message="ERROR: 0:12: 'vUv' undeclared", fix_hint="declare varying vec2 vUv")])
 
     def fake_probe_scene(ws, **kw):
         return {"census": {"meshes": 12, "lights": 2}, "fps": 58.0, "errors": []}
 
-    def fake_joint_sweep(ws, *, n_random=8, seed=0, render=True, out_dir=None, joint=None, expected_direction=None):
+    def fake_joint_sweep(ws, *, n_random=8, seed=0, render=True, out_dir=None, joint=None, expected_direction=None, joints=None):
         calls["n_random"], calls["joint"] = n_random, joint
         from codeverse.spatial.registry import Observation
         return Observation(ok=True, text="sweep ok", numbers={"poses": n_random})

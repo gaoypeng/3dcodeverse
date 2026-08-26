@@ -1,7 +1,7 @@
 """Rendering tools: render_views, render_sheet, isolate, compare_silhouette.
 
-All rendering goes through ``tool_common.cached_render_glb`` (→ ``render_glb``
-from package C1, imported lazily) so repeated calls with the same arguments are
+All rendering goes through ``tool_common.cached_render_glb`` (→ ``spatial.render.render_glb``,
+imported lazily) so repeated calls with the same arguments are
 free.  Images returned are absolute paths; text only shows workspace-relative
 paths.
 """
