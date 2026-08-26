@@ -8,7 +8,6 @@ that every planned part has a file and is assembled by ``object.js``.
 
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 import time
@@ -18,6 +17,7 @@ from codeverse.config import get_settings
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.contracts.plan import StaticPlan
 from codeverse.conventions import to_pascal, to_snake
+from codeverse.proc import read_json_or_none
 from codeverse.workspace import Workspace
 
 GATE = "lint:threejs"
@@ -152,15 +152,13 @@ def _exports(src: str) -> set[str]:
 
 
 def _load_plan(ws: Workspace) -> StaticPlan | None:
-    if not ws.plan_path.is_file():
+    data = read_json_or_none(ws.plan_path)
+    if data is None or "parts" not in data or "joints" in data:
         return None
     try:
-        data = json.loads(ws.plan_path.read_text())
-        if isinstance(data, dict) and "parts" in data and "joints" not in data:
-            return StaticPlan.model_validate(data)
-    except (ValueError, OSError):
+        return StaticPlan.model_validate(data)
+    except ValueError:
         return None
-    return None
 
 
 def lint_workspace(ws: Workspace) -> GateReport:

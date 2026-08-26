@@ -14,13 +14,13 @@ Nothing in here talks to node — see ``spatial.node.run_node`` (objects) and
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from codeverse.config import get_settings
 from codeverse.conventions import ViewPreset
+from codeverse.proc import read_json_or_none
 from codeverse.spatial.sheet import contact_sheet
 
 
@@ -42,13 +42,7 @@ def view_specs(views: Sequence[ViewPreset]) -> list[dict[str, Any]]:
 
 def read_json(path: Path | str) -> dict[str, Any]:
     """Parse a driver side-car (views.json / metrics.json); ``{}`` when absent."""
-    p = Path(path)
-    if not p.is_file():
-        return {}
-    try:
-        return json.loads(p.read_text())
-    except (OSError, ValueError):
-        return {}
+    return read_json_or_none(path) or {}
 
 
 def build_sheet(images: Sequence[tuple[str, str | Path]], out: Path | str) -> str | None:

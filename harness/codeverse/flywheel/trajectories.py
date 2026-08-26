@@ -19,7 +19,6 @@ right before the session (nearest one not after the first transcript event);
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -27,6 +26,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse.flywheel import _git
+from codeverse.proc import read_jsonl_lenient
 from codeverse.workspace import Workspace
 
 BUILD_TOOLS = frozenset({"build", "run_build"})
@@ -116,16 +116,7 @@ class _Replay:
 
 
 def read_events(transcript: Path) -> list[dict[str, Any]]:
-    out = []
-    for line in transcript.read_text(errors="replace").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            out.append(json.loads(line))
-        except ValueError:
-            continue
-    return out
+    return read_jsonl_lenient(transcript)
 
 
 def mine_trajectory(ws: Workspace, traj_dir: Path) -> list[TrajectoryRepair]:

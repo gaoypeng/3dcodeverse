@@ -10,7 +10,17 @@ import threading
 import time
 from pathlib import Path
 
-from codeverse.proc import ProcResult, kill_group, run_subprocess, tail, write_json_atomic
+from codeverse.proc import (
+    ProcResult,
+    append_jsonl_line,
+    iter_jsonl_lines,
+    kill_group,
+    read_json_or_none,
+    read_jsonl_lenient,
+    run_subprocess,
+    tail,
+    write_json_atomic,
+)
 
 
 def test_run_subprocess_captures_output(tmp_path: Path):
@@ -232,3 +242,28 @@ def test_write_json_atomic_round_trips(tmp_path: Path):
     write_json_atomic(out, {"a": 1})
     assert json.loads(out.read_text()) == {"a": 1}
     assert [p.name for p in out.parent.iterdir()] == ["x.json"]
+
+
+def test_read_json_or_none_is_none_unless_a_dict_parses(tmp_path: Path):
+    assert read_json_or_none(tmp_path / "missing.json") is None
+    (tmp_path / "bad.json").write_text("{not json")
+    assert read_json_or_none(tmp_path / "bad.json") is None
+    (tmp_path / "list.json").write_text("[1, 2]")
+    assert read_json_or_none(tmp_path / "list.json") is None
+    (tmp_path / "ok.json").write_bytes(b'{"a": "caf\xc3\xa9", "b": "\xff"}')
+    assert read_json_or_none(tmp_path / "ok.json") is None  # undecodable byte -> ValueError
+    assert read_json_or_none(tmp_path / "ok.json", errors="replace") == {"a": "café", "b": "\ufffd"}
+
+
+def test_jsonl_helpers_round_trip_and_skip_bad_lines(tmp_path: Path):
+    p = tmp_path / "log.jsonl"
+    assert list(iter_jsonl_lines(p)) == [] and read_jsonl_lenient(p) == []
+    lock = threading.Lock()
+    append_jsonl_line(p, {"k": "é", "p": tmp_path}, lock)  # default=str for the Path
+    append_jsonl_line(p, [1, 2], lock)
+    with p.open("ab") as fh:  # what a SIGKILL mid-append leaves behind
+        fh.write(b'\n{"k": "b\xff\n{"k": "tr')
+    assert [i for i, _ in iter_jsonl_lines(p)] == [1, 2, 4, 5]  # 1-based, blank line 3 skipped
+    rows = read_jsonl_lenient(p)
+    assert rows == [{"k": "é", "p": str(tmp_path)}, [1, 2]]
+    assert read_jsonl_lenient(p, dicts_only=True) == rows[:1]

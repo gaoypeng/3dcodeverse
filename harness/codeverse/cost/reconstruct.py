@@ -28,10 +28,8 @@ Double-counting rules (same order as the row sources):
 
 from __future__ import annotations
 
-import json
 import logging
 import re
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -39,6 +37,7 @@ from typing import Any
 from codeverse.contracts.common import Usage
 from codeverse.cost.ledger import price_call
 from codeverse.cost.types import CallCost, Role, Stage, role_for_stage, stage_for_label
+from codeverse.proc import read_json_or_none, read_jsonl_lenient
 
 log = logging.getLogger(__name__)
 
@@ -47,27 +46,11 @@ _AGGREGATE_EVENTS = frozenset({"round.done", "run.done", "texture.done"})
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    try:
-        data = json.loads(path.read_text(errors="replace"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return read_json_or_none(path, errors="replace") or {}
 
 
-def _read_jsonl(path: Path) -> Iterator[dict[str, Any]]:
-    try:
-        text = path.read_text(errors="replace")
-    except OSError:
-        return
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(row, dict):
-            yield row
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    return read_jsonl_lenient(path, dicts_only=True)
 
 
 def _usage(d: Any) -> Usage:

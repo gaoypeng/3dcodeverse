@@ -12,7 +12,6 @@ and the gallery must still render.  Nothing in this module raises for one bad ru
 
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 
@@ -28,6 +27,7 @@ from codeverse.flywheel.record import (
 from codeverse.flywheel.sample import gate_error_summary, telemetry_digest
 from codeverse.gallery.labels import humanize_view
 from codeverse.gallery.model import GalleryIndex, RootSection, RoundRow, RunEntry, RunLink
+from codeverse.proc import read_json_or_none
 from codeverse.workspace import Workspace
 
 #: run roots the CLI defaults to when the user names none
@@ -196,10 +196,7 @@ _CX_AXES = ("part_count", "assembly_depth", "tri_count", "materials",
 def _measurement_complexity(ws: Workspace) -> dict | None:
     """The complexity block sitting in ``artifacts/measurement.json`` — how a run
     finished before the record carried its own block (and after any re-measure)."""
-    try:
-        data = json.loads((ws.root / "artifacts" / "measurement.json").read_text())
-    except (OSError, ValueError):
-        return None
+    data = read_json_or_none(ws.root / "artifacts" / "measurement.json") or {}
     block = (data.get("extra") or {}).get("complexity")
     return block if isinstance(block, dict) else None
 
@@ -257,10 +254,7 @@ def entry_from_record(battery: str, ws: Workspace, rec: RunRecord) -> RunEntry:
 def _spec_fields(run_dir: Path) -> dict[str, str]:
     """Prompt / track / language straight from spec.json — a run with no record yet
     still deserves a readable card (and spec.json can be half-written too)."""
-    try:
-        spec = json.loads((run_dir / "spec.json").read_text())
-    except (OSError, ValueError):
-        return {}
+    spec = read_json_or_none(run_dir / "spec.json") or {}
     return {k: str(spec.get(k) or "") for k in ("prompt", "track", "language")}
 
 

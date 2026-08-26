@@ -21,6 +21,7 @@ from codeverse.contracts.artifacts import BuildResult, RenderSet, RenderView
 from codeverse.contracts.common import TRACK_INFO
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.run import RoundRecord, RunRecord
+from codeverse.proc import read_json_or_none
 from codeverse.workspace import Workspace
 
 
@@ -47,14 +48,9 @@ def rubric_for(rec: RunRecord, rnd: RoundRecord, override: str | None) -> str:
 
 def plan_summary_for(ws: Workspace) -> str:
     """Track-agnostic plan digest from plan.json (same fields the tracks summarise)."""
-    if not ws.plan_path.is_file():
-        return ""
-    try:
-        data = json.loads(ws.plan_path.read_text())
-    except ValueError:
-        return ""
+    data = read_json_or_none(ws.plan_path)
     plan_digest = C.lazy("codeverse.judges.calibration", "plan_digest")
-    return plan_digest(data)
+    return plan_digest(data) if data else ""
 
 
 def previous_judgment(ws: Workspace, rec: RunRecord, index: int) -> Any:

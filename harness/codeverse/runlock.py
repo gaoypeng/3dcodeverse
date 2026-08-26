@@ -25,6 +25,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from codeverse.proc import read_json_or_none
+
 LOCK_NAME = "run.lock"
 
 
@@ -59,9 +61,8 @@ def _holder(path: Path) -> dict | None:
     An unreadable or truncated lock is treated as stale rather than fatal: a crashed
     process must never leave a run permanently unenterable.
     """
-    try:
-        rec = json.loads(path.read_text())
-    except (OSError, ValueError):
+    rec = read_json_or_none(path)
+    if rec is None:
         return None
     pid = rec.get("pid")
     if not isinstance(pid, int) or not _alive(pid):

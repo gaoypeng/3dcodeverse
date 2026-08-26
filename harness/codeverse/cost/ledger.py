@@ -42,6 +42,7 @@ from codeverse.models.pricing import (
     price_provenance,
     unit_prices,
 )
+from codeverse.proc import iter_jsonl_lines
 
 log = logging.getLogger(__name__)
 
@@ -352,16 +353,12 @@ def load_ledger(path: str | Path) -> list[CallCost]:
         if found is None:
             return []
         p = found
-    if not p.is_file():
-        return []
     rows: list[CallCost] = []
-    for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines()):
-        if not line.strip():
-            continue
+    for i, line in iter_jsonl_lines(p):
         try:
             rows.append(CallCost.model_validate_json(line))
         except Exception as e:  # pragma: no cover - defensive
-            log.debug("cost ledger %s:%d unreadable: %s", p, i + 1, e)
+            log.debug("cost ledger %s:%d unreadable: %s", p, i, e)
     return rows
 
 

@@ -29,6 +29,7 @@ from codeverse.cli.tools_cmd import tools
 from codeverse.config import get_settings
 from codeverse.contracts.common import TRACK_LANGUAGES, Budget, Language, Track
 from codeverse.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec
+from codeverse.proc import read_json_or_none
 
 app = typer.Typer(
     name="3dcv",
@@ -740,9 +741,8 @@ def _render_round_or_refuse(ws, round_index: int | None) -> int:
 
 def _best_round_of_record(ws) -> int | None:
     """``record.best_round``, or None when there is no readable record yet."""
-    try:
-        rec = json.loads(ws.record_path.read_text())
-    except (OSError, ValueError, AttributeError):
+    rec = read_json_or_none(ws.record_path)
+    if rec is None:
         return None
     best = rec.get("best_round")
     return best if isinstance(best, int) else None

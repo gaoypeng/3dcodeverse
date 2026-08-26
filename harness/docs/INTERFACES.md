@@ -37,6 +37,11 @@ get_settings().backends(planner=..., generator=..., judge=..., captioner=...) ->
 from codeverse.proc import ProcResult, run_subprocess, kill_group, tail, write_json_atomic
 run_subprocess(cmd, *, cwd, timeout_s, env=None, stdin_text=None, preexec_fn=None) -> ProcResult
     # own session/process group, group-kill on timeout, never raises on rc != 0; stdlib-only module
+from codeverse.proc import read_json_or_none, iter_jsonl_lines, read_jsonl_lenient, append_jsonl_line
+read_json_or_none(path, *, errors=None) -> dict | None   # None when absent / unreadable / malformed / not a dict
+iter_jsonl_lines(path) -> Iterator[tuple[int, str]]       # (1-based line_no, line); missing file -> nothing; blanks skipped
+read_jsonl_lenient(path, *, log=None, dicts_only=False) -> list  # bad lines skipped (debug-logged when `log` given)
+append_jsonl_line(path, rec, lock) -> None                 # one json.dumps(ensure_ascii=False, default=str) line under `lock`
 ```
 `Spec.options` is plan-hash safe (`plan_stage_inputs` whitelists spec fields).
 `Workspace.write_json` delegates to `proc.write_json_atomic`.

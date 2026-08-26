@@ -16,6 +16,7 @@ from typing import Annotated
 import typer
 
 from codeverse.cli._fmt import console, err_console
+from codeverse.proc import read_jsonl_lenient
 
 skills_app = typer.Typer(invoke_without_command=True, help="The skill library: list / show / validate / read-rate report.")
 
@@ -129,11 +130,7 @@ def report(
 
     rows: list[dict] = []
     for p in sorted(Path(runs_dir).rglob("telemetry/skills.jsonl")):
-        for line in p.read_text().splitlines():
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
+        rows.extend(read_jsonl_lenient(p))
     if not rows:
         err_console.print(f"[yellow]no telemetry/skills.jsonl under {runs_dir}[/] (was CV3D_SKILLS on?)")
         raise typer.Exit(code=1)

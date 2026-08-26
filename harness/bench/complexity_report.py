@@ -30,6 +30,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[0].parent))
 
+from codeverse.proc import read_json_or_none  # noqa: E402
 from codeverse.spatial.complexity import COMPLEXITY_WEIGHTS, ComplexityVector, band_of  # noqa: E402
 
 CRITERIA = (
@@ -55,11 +56,7 @@ class Row(dict):
     so the CSV/JSON writers stay trivial."""
 
 
-def _read_json(p: Path) -> dict[str, Any] | None:
-    try:
-        return json.loads(p.read_text())
-    except (OSError, ValueError):
-        return None
+_read_json = read_json_or_none
 
 
 def _vector_for(run: Path, best: dict[str, Any] | None) -> ComplexityVector | None:
