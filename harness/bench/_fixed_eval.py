@@ -55,16 +55,25 @@ class FixedEvaluator:
         self.n_samples = n_samples
         self.settings = settings or get_settings()
         self.rubric = rubric
-        self._runtime: Any = None
+        self._runtimes: dict[Language, Any] = {}
         self._judge: Any = None
 
-    @property
-    def runtime(self) -> Any:
-        if self._runtime is None:
+    def runtime(self, language: Language | str) -> Any:
+        """The build runtime for THIS cell's language, cached per language.
+
+        This was hardwired to Blender.  A three.js cell whose harness run had been judged
+        0.589 on ``src/object.js`` was then evaluated by the Blender runtime, which raised
+        ``MissingEntryFile: src/model.py does not exist`` — and the cell was recorded
+        ``build_failed`` with a hard **0.0**.  Measured 2026-08-26 on
+        ``fancy_v1/tj``; every three.js cell in that battery was heading for the same
+        false zero.  Same bug class as b4ea4cc (``entry_of``), one layer further down.
+        """
+        lang = Language(language)
+        if lang not in self._runtimes:
             from codeverse.languages import get_runtime
 
-            self._runtime = get_runtime(Language.BLENDER)
-        return self._runtime
+            self._runtimes[lang] = get_runtime(lang)
+        return self._runtimes[lang]
 
     @property
     def judge(self) -> Any:
@@ -74,9 +83,10 @@ class FixedEvaluator:
             self._judge = VlmJudge(rubric=self.rubric, model_id=self.judge_model, n_samples=self.n_samples)
         return self._judge
 
-    def build(self, ws: Workspace) -> tuple[BuildResult, GateReport]:
-        lint = self.runtime.lint(ws)
-        build = self.runtime.build(ws, timeout_s=self.settings.limits.build_timeout_s)
+    def build(self, ws: Workspace, language: Language | str) -> tuple[BuildResult, GateReport]:
+        rt = self.runtime(language)
+        lint = rt.lint(ws)
+        build = rt.build(ws, timeout_s=self.settings.limits.build_timeout_s)
         return build, lint
 
     def evaluate(self, ws: Workspace, spec: Spec) -> EvalOutcome:
@@ -85,7 +95,7 @@ class FixedEvaluator:
         from codeverse.spatial.measure import measure_glb
         from codeverse.spatial.render import render_glb
 
-        build, lint = self.build(ws)
+        build, lint = self.build(ws, spec.language)
         out = EvalOutcome(build=build, lint=lint, gates=[lint])
         if not build.ok or not build.glb_path:
             return out
