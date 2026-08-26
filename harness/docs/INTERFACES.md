@@ -401,11 +401,10 @@ from codeverse.flywheel.pairs import build_pairs       # (runs_dir, out_jsonl, *
 from codeverse.flywheel.trajectories import mine_run   # in-session repair pairs from api-agent transcripts (replay-verified)
 from codeverse.flywheel.captions import caption_sample # Δ (ws, record, model_id, *, model=None, out_dir=None) -> Captions;
                                                        # out_dir → side-car <out_dir>/<slug>.json, run untouched
-from codeverse.flywheel.gallery import write_gallery, gallery_items, render_gallery   # self-contained HTML gallery (tier badges,
-                                                                                      # thumbs); bench/report.py reuses it
 from codeverse.gallery import build_index, default_roots, build_static, serve, GalleryApp   # THE local gallery
                                                        # build_index(roots) -> GalleryIndex (sections of RunEntry; never raises per run)
                                                        # build_static(roots, out_html, *, embed=False) -> (path, n, index)
+                                                       # render_static(index, *, embed=…, extra_html="") — bench/report.py's page
                                                        # GalleryApp(roots, reload=False).route(path, query) -> Response  (pure, testable)
                                                        # serve(roots, *, host=None, host_explicit=False, port=8765, reload=False)
 from codeverse.gallery.paths import safe_join          # (root, rel) -> Path inside root, else PathError

@@ -169,8 +169,7 @@ codeverse/
                       probe reads after — a no-op unless CV3D_SKILLS is on)
   flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, migrate.py (schema moves),
                       deliverable.py, telemetry.py, trajectories.py (repair-pair
-                      mining), captions.py, quality.py (tiers + dedupe), gallery.py (the shared
-                      self-contained renderer bench/report.py reuses), dedupe.py, index.py,
+                      mining), captions.py, quality.py (tiers + dedupe), dedupe.py, index.py,
                       code_quality.py (the delivered CODE's own vector — magic numbers per 100 LOC,
                       function length, dead functions, duplication, docstrings → record.extra
                       ["code_quality"].index, a flywheel filter beside score and complexity)
@@ -187,7 +186,7 @@ codeverse/
                       texture_cmd.py, cost_cmd.py (`3dcv cost`), layout_cmd.py, doctor.py
                       (`--skills` checks the library + its discovery wiring),
                       skills_cmd.py (`3dcv skills list|show|validate|report` — the read-rate report)
-bench/                run_bench.py, report.py (reuses flywheel gallery), compare_backends.py
+bench/                run_bench.py, report.py (renders through codeverse/gallery), compare_backends.py
                       (preflights every model it needs; --wait-for-provider / --no-preflight),
                       _infra.py (outage vs model failure: infra_failed / budget_exhausted, docs/EVAL.md §7),
                       ab_plan.py (the paired control/variant A/B rig, --aa calibration mode),
@@ -442,8 +441,8 @@ errors, cost, fingerprints, `duplicate_of`; `--pack` tars with byte-range locato
 repair pairs and **in-session repair pairs mined from api-agent transcripts**
 (replay-verified against the git snapshots); `flywheel caption` adds
 {detailed, instruction, factory} captions (image-grounded, brand-free, `--out` for
-side-car mode); `flywheel gallery` renders a self-contained HTML gallery (tier
-badges, thumbnails, filter/sort) that `bench/report.py` reuses.
+side-car mode); `flywheel gallery` is an alias of `3dcv gallery build --embed`
+(the flywheel package has no renderer of its own).
 
 `codeverse/gallery/` is the **local** answer to the same question: `3dcv gallery
 serve` indexes `runs/` + every `bench/out/*/runs`, serves the page **and the run

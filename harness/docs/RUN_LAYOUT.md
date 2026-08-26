@@ -170,6 +170,7 @@ runs) get the layout only.
 * `flywheel export` reads the packaged code snapshot only when git cannot answer
   (`meta.code_source == "deliverable"`), and adds a compact `meta.telemetry`
   digest when the run has one (`{}` otherwise).
-* `flywheel gallery` links `deliverable/` and `cost.json` when they exist and
-  falls back to `artifacts/` otherwise; the per-stage cost line appears only for
-  runs that carry telemetry.
+* the gallery (`3dcv gallery build` / `flywheel gallery`) links the packaged
+  `deliverable/object.glb` and `cost.json` when they exist and falls back to
+  `artifacts/` otherwise; the per-stage cost line appears only for runs that
+  carry telemetry.

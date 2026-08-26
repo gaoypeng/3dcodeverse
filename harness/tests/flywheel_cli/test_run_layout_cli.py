@@ -13,7 +13,6 @@ from codeverse.cli.main import app
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel.deliverable import build_deliverable, deliverable_path, load_deliverable
 from codeverse.flywheel.export import export_samples
-from codeverse.flywheel.gallery import item_from_run, write_gallery
 from codeverse.flywheel.migrate import MIGRATED, UP_TO_DATE, migrate_run, migrate_runs
 from codeverse.flywheel.record import load_record, package_run
 from codeverse.flywheel.telemetry import (
@@ -23,6 +22,8 @@ from codeverse.flywheel.telemetry import (
     load_telemetry,
     stage_order,
 )
+from codeverse.gallery import build_static
+from codeverse.gallery.index import entry_from_record
 from codeverse.workspace import LAYOUT_ALIASES, Workspace
 
 from .conftest import make_fake_run
@@ -254,14 +255,15 @@ def test_export_and_gallery_on_both_layouts(tmp_path: Path):
         assert meta["code_source"] == "commit" and "renders/sheet.png" in meta["renders"]
 
     out_html = tmp_path / "g.html"
-    path, n = write_gallery(runs, out_html)
+    path, n, _ = build_static([runs], out_html)
     assert n == 2 and "deliverable" in path.read_text()
-    new_item = item_from_run(ws_new, load_record(ws_new))
-    old_item = item_from_run(ws_old, load_record(ws_old))
+    new_item = entry_from_record("runs", ws_new, load_record(ws_new))
+    old_item = entry_from_record("runs", ws_old, load_record(ws_old))
     assert new_item.cost_by_stage == {} or isinstance(new_item.cost_by_stage, dict)
-    assert "deliverable/" in new_item.links and "deliverable/" not in old_item.links
-    assert old_item.links["object.glb"].endswith("artifacts/object.glb")
-    assert new_item.links["object.glb"].endswith("deliverable/object.glb")
+    new_links = {ln.label: ln.rel for ln in new_item.links}
+    old_links = {ln.label: ln.rel for ln in old_item.links}
+    assert old_links["glb"] == "artifacts/object.glb"
+    assert new_links["glb"] == "deliverable/object.glb"
 
 
 def test_export_falls_back_to_the_packaged_snapshot_without_git(tmp_path: Path):

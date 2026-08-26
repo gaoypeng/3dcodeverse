@@ -8,11 +8,18 @@ from pathlib import Path
 from codeverse.contracts.common import Language
 from codeverse.flywheel.captions import caption_sample
 from codeverse.flywheel.export import export_samples, load_captions
-from codeverse.flywheel.gallery import GalleryItem, gallery_items, render_gallery, write_gallery
 from codeverse.flywheel.pairs import build_pairs
 from codeverse.flywheel.quality import find_duplicates, mark_duplicates, prompt_hash, quality_tier
 from codeverse.flywheel.record import load_record
 from codeverse.flywheel.trajectories import mine_run, parse_trajectory_name
+from codeverse.gallery import (
+    GalleryIndex,
+    RootSection,
+    RunEntry,
+    build_index,
+    build_static,
+    render_static,
+)
 from codeverse.workspace import Workspace
 from tests.flywheel_cli.conftest import make_fake_run
 from tests.flywheel_cli.test_captions import GOOD, FakeModel
@@ -126,17 +133,21 @@ def test_caption_out_dir_leaves_run_untouched(fake_run, tmp_path: Path):
 
 
 def test_gallery_from_runs(runs_dir: Path, tmp_path: Path):
-    items = gallery_items(runs_dir)
-    assert {i.key for i in items} == {"wooden_chair_ab12cd34", "wooden_chair_codex", "lamp_three"}
-    chair = next(i for i in items if i.key == "wooden_chair_ab12cd34")
-    assert chair.score == 0.80 and chair.passed is True and chair.quality_tier == "A" and chair.sheet
-    assert "object.glb" in chair.links and "record.json" in chair.links
-    path, n = write_gallery(runs_dir, tmp_path / "g" / "gallery.html")
+    items = build_index([runs_dir]).entries()
+    assert {i.slug for i in items} == {"wooden_chair_ab12cd34", "wooden_chair_codex", "lamp_three"}
+    chair = next(i for i in items if i.slug == "wooden_chair_ab12cd34")
+    assert chair.score == 0.80 and chair.passed is True and chair.tier == "A" and chair.sheet
+    labels = {ln.label for ln in chair.links}
+    assert "glb" in labels and "record.json" in labels
+    path, n, _ = build_static([runs_dir], tmp_path / "g" / "gallery.html", embed=True)
     page = path.read_text()
-    assert n == 3 and page.count("data:image/jpeg;base64,") == 3
+    assert n == 3 and page.count("data:image/jpeg;base64,") >= 3
     assert "a desk lamp" in page and "wooden_chair_codex" in page and "file://" in page
-    # items without renders or records still render
-    html = render_gallery([GalleryItem(key="x", error="boom <b>")], "t")
+    # entries without renders or records still render
+    section = RootSection(label="t", path="", entries=[
+        RunEntry(battery="t", slug="x", path=""),
+        RunEntry(battery="t", slug="y", path="", state="broken", error="boom <b>")])
+    html = render_static(GalleryIndex(sections=[section]), title="t")
     assert "no render" in html and "boom &lt;b&gt;" in html
 
 

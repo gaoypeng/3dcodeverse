@@ -83,6 +83,9 @@ def test_run_battery_resume_and_report(tmp_path: Path):
     page = (out / "report.html").read_text()
     assert "data:image/jpeg;base64," in page and "furn_easy_stool" in page  # self-contained gallery
     assert "veh_easy_toy_car" in page and "boom" in page  # errored prompt still gets a card
+    # pin (REVIEW_2026-08-26 D1+D2): the stats tables sit in the page and every card carries its tier
+    assert "<table>" in page and "by category" in page and page.count("<h3>") == 2
+    assert page.count("easy") >= 2 and "<title>bench — " in page
 
 
 def test_every_bench_prompt_opens_its_own_run_ledger(tmp_path: Path):

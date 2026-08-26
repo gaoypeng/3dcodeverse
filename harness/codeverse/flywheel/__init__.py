@@ -10,6 +10,5 @@ Public API (see docs/INTERFACES.md):
 * ``dedupe``    ``code_fingerprint`` · ``mesh_fingerprint`` · ``near_duplicates``
 * ``quality``   ``quality_tier`` (A/B/C/D) · ``prompt_hash`` · exact (code, prompt) duplicate groups
 * ``trajectories`` in-session repair pairs mined from api-agent transcripts
-* ``gallery``   ``write_gallery(runs_dir, out_html)`` · ``render_gallery(items, title)`` (shared with bench/report.py)
 * ``index``     ``build_index(runs_dir, out_sqlite)`` + query helpers
 """
