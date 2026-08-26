@@ -154,5 +154,15 @@ brief-selected chapters (137541e), with shader_v2 in the loop (`refs_v2_graphics
 12:30; read it out with `bench/refs_ab_readout.py bench/out/refs_v2_graphics --refs
 bench/refs/tsr_gfx_aurora_ridge`).  The number to watch is the `comb_artefact` firing rate.
 
+**Second turn read out** (`refs_v2_graphics`, 14:00: same six runs, shader_v2 in the loop, the
+light chapter in the prompt, the 503 fixes; every run finished 3 rounds in 18–51 min where the
+first turn took 60–77 min for 1–2): same-judge scores with photos 0.258 / 0.279 / 0.634, without
+0.441 / 0.169 / 0.000; paired +0.187, sd 0.41, sign 2/3.  **All six still fired `comb_artefact`**:
+the prompt carried `curtain()` five times and no run called it (`grep -c "curtain(" src/shader.frag`
+= 0).  A recipe shown is not a recipe used.  Third turn: `tracks/graphics_recipes.py` seeds the
+brief's matched recipes into `src/common.glsl` before the session and the prompt says "call them,
+do not rewrite them" (`CV3D_SEED_RECIPES`, default ON; A/B `bench/out/seed_v1`, three photo
+prompts, plan-pinned, variant = seeding OFF; readout = comb_artefact rate and `curtain(` calls).
+
 **The track default is `shader_v2`** since c032700 (the switch waited for the first reference
 A/B to finish so both of its arms were judged in-loop by one rubric).
