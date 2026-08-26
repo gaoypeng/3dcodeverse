@@ -199,6 +199,17 @@ def select_prompts(
 RunFn = Callable[[Spec, Workspace, bool], RunRecord]
 
 
+
+def archive_attempt(root: Path) -> Path:
+    """Move a run workspace aside as ``<root>.attempt<N>`` (N = first free) and return the new path."""
+    n = 1
+    while (root.parent / f"{root.name}.attempt{n}").exists():
+        n += 1
+    dest = root.parent / f"{root.name}.attempt{n}"
+    root.rename(dest)
+    return dest
+
+
 def default_run_track(spec: Spec, ws: Workspace, resume: bool) -> RunRecord:
     """Run the spec's track (the real thing; tests inject a fake ``run_fn``)."""
     from codeverse.tracks import get_track
@@ -222,12 +233,20 @@ def run_battery(
     results_jsonl = out / "results.jsonl"
     done = _load_done(results_jsonl) if opts.resume else {}
     # `--redo-status infra_failed` re-runs the cells the weather lost, once it clears
-    for pid in [k for k, r in done.items() if r.status in set(opts.redo_status)]:
+    redo_ids = {k for k, r in done.items() if r.status in set(opts.redo_status)}
+    for pid in redo_ids:
         del done[pid]
     todo = [p for p in select_prompts(battery, ids=opts.ids, tiers=opts.tiers, limit=opts.limit) if p.id not in done]
 
     def _one(item: BenchPrompt) -> BenchItemResult:
         ws = Workspace(out / "runs" / item.id)
+        if item.id in redo_ids and ws.exists():
+            # A redo starts FRESH: resuming the old workspace keeps its spec (the old
+            # max_minutes) and its clock, so a `budget` row redone with --max-minutes 120
+            # was over budget before its first round (measured 2026-08-26: clock_q4 and
+            # lighthouse_1 came back `budget`, 0 rounds, 60.3 / 76.7 min "elapsed").
+            # The old tree is kept beside it as <id>.attempt<N>, the way ab_plan does.
+            archive_attempt(ws.root)
         resume = ws.exists()
         if not resume:
             ws.create()

@@ -206,3 +206,34 @@ def test_the_runner_classifies_the_outage_that_reaches_it(tmp_path: Path):
     assert calls == [], "a plain resume still skips every recorded row"
     run_battery(battery, out, BenchOptions(parallel=1, limit=1, redo_status=["infra_failed"]), run_fn=counting)
     assert len(calls) == 1, "--redo-status infra_failed re-runs what the weather lost"
+
+
+def test_a_redo_starts_from_a_fresh_workspace(tmp_path):
+    """Measured 2026-08-26: a `budget` row redone with --max-minutes 120 resumed the old
+    workspace (old spec, old clock) and came back `budget` with 0 rounds.  The old tree
+    is archived as <id>.attempt1 and the prompt runs fresh."""
+    from bench.run_bench import archive_attempt
+
+    out = tmp_path / "out"
+    b = Battery.load(Path("bench/prompts/static_objects_v1.yaml"))
+    pid = b.prompts[0].id
+    ws_root = out / "runs" / pid
+    (ws_root / "src").mkdir(parents=True)
+    (ws_root / "src" / "old.py").write_text("# stale")
+    out.mkdir(exist_ok=True)
+    (out / "results.jsonl").write_text(json.dumps({"id": pid, "tier": b.prompts[0].tier, "status": "budget", "score_final": None}) + "\n")
+    seen: list[bool] = []
+
+    def run(spec, ws, resume):
+        seen.append(resume)
+        _ws, rec = make_fake_run(ws.root.parent, ws.root.name, prompt=spec.prompt, language=spec.language, scores=(0.5, 0.7))
+        rec.spec = spec
+        ws.write_json(ws.spec_path, spec)
+        ws.write_json(ws.record_path, rec)
+        return rec
+
+    opts = BenchOptions(ids=[pid], redo_status=["budget"], parallel=1, rounds=1)
+    run_battery(Path("bench/prompts/static_objects_v1.yaml"), out, opts, run_fn=run)
+    assert seen == [False], "the redo ran fresh, not resumed"
+    assert (out / "runs" / f"{pid}.attempt1" / "src" / "old.py").exists(), "the old tree is archived beside the new one"
+    assert archive_attempt(out / "runs" / pid).name == f"{pid}.attempt2"
