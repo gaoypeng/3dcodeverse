@@ -82,16 +82,29 @@ Eye scores: `scratchpad/gfx_eye.json` → copied to `bench/out/judge_calib_graph
   default ON) — measured 2026-08-26 on `refs_v2_graphics` (aurora brief, flash api-agent, shader_v2): the
   baseline prompt carried the cookbook's Light chapter with `curtain()` five times and `src/shader.frag` called
   it zero times in both finished runs — round 0 a comb of bars (0.33), a later round a wash (0.12).  Showing
-  flash a recipe is not flash using it, so the harness now writes the recipes the brief selects (the same
+  flash a recipe is not flash using it, so the harness writes the recipes the brief selects (the same
   chapters `select_cookbook_chapters` puts in the prompt, minus the always-on helper chapters and the
-  raymarching template) into `src/common.glsl` before the session — function definitions only, plus exactly
-  the `hash / noise / fbm` helpers they call, under `// ---- harness-seeded verified recipes` — and the
-  baseline prompt names them ("call them, do not rewrite them"); the refine prompt carries a one-line
-  reminder; a resume appends only names the file does not define.  The aurora brief seeds `skyGrad, sun,
-  stars, waterHeight, curtain, auroraCol, aurora` on top of the skeleton's helpers; the neon-rain brief
-  `dropsLayer, bokehSoft`; a brief matching no chapter seeds nothing and the prompt has no block.  The event
-  is `recipes.seeded`; `CV3D_SEED_RECIPES=0` is the control arm.  The number to watch stays the
-  `comb_artefact` firing rate — and now also `grep -c "curtain(" src/shader.frag`.
+  raymarching template) to disk before the session — function definitions only, plus exactly the
+  `hash / noise / fbm` helpers they call.  **Measured again 2026-08-26 (`bench/out/seed_v1`, same brief /
+  model, seeding ON into `src/common.glsl`)**: `recipes.seeded` fired and the finished run's `common.glsl`
+  had NO seeded block and no `curtain(` — the agent overwrote the file with its own helpers — and
+  `shader.frag` called neither `aurora(` nor `curtain(` nor `stars(`.  Seeding into a file the agent owns
+  is not sticky, so the file is now the **harness-owned `src/recipes.glsl`**: `AgentJob.read_only` makes
+  `write_file` / `edit_file` refuse it ("harness-owned — call its functions instead"; `read_file` works),
+  `wrap.compose` pastes it harness header < `recipes.glsl` < `common.glsl` < `shader.frag` (a compile error
+  inside it is reported as `src/recipes.glsl:LINE`), it is self-contained (its helpers travel with it, so
+  nothing the agent does to `common.glsl` breaks a recipe), and a name it defines redefined in an agent file
+  is the lint ERROR `redefines_recipe` ("`name` is already provided by src/recipes.glsl — call it instead of
+  redefining it").  The only `common.glsl` the harness edits is the untouched skeleton, which loses the
+  helpers `recipes.glsl` now provides (else the first build fails on `hash12` twice); once the agent has
+  written it, a duplicate is its own to remove.  The baseline prompt names the recipes ("call these, do not
+  redefine them, do not copy them into common.glsl"); the refine prompt carries a one-line reminder; a resume
+  appends only names `recipes.glsl` does not define.  The aurora brief seeds `skyGrad, sun, stars,
+  waterHeight, curtain, auroraCol, aurora` + `hash12, hash22, noise, fbm`; the neon-rain brief `dropsLayer,
+  bokehSoft`; a brief matching no chapter seeds nothing, creates no file and the prompt has no block.  The
+  event is `recipes.seeded {file, names, present, chapters, trimmed}`; `CV3D_SEED_RECIPES=0` is the control
+  arm.  The number to watch stays the `comb_artefact` firing rate — and now `grep -c "aurora(\|curtain(\|stars("
+  src/shader.frag` (a call into `recipes.glsl` is the only way those names can appear in a passing build).
 * **Measuring the turn** — `bench/judge_calib_graphics.py` re-judges the corpus under v1 and v2
   (pro, n=2, no planner acceptance so the rubric is measured on its own) and prints
   Spearman(judge, eye), means, defect firing rates and the biggest disagreements.  The result of
@@ -160,9 +173,13 @@ first turn took 60–77 min for 1–2): same-judge scores with photos 0.258 / 0.
 0.441 / 0.169 / 0.000; paired +0.187, sd 0.41, sign 2/3.  **All six still fired `comb_artefact`**:
 the prompt carried `curtain()` five times and no run called it (`grep -c "curtain(" src/shader.frag`
 = 0).  A recipe shown is not a recipe used.  Third turn: `tracks/graphics_recipes.py` seeds the
-brief's matched recipes into `src/common.glsl` before the session and the prompt says "call them,
-do not rewrite them" (`CV3D_SEED_RECIPES`, default ON; A/B `bench/out/seed_v1`, three photo
-prompts, plan-pinned, variant = seeding OFF; readout = comb_artefact rate and `curtain(` calls).
+brief's matched recipes to disk before the session and the prompt says "call them, do not rewrite
+them" (`CV3D_SEED_RECIPES`, default ON; A/B `bench/out/seed_v1`, three photo prompts, plan-pinned,
+variant = seeding OFF; readout = comb_artefact rate and `curtain(` calls).  **First `seed_v1` read
+out** (aurora brief, seeding ON): the seed fired and was gone — the agent rewrote `src/common.glsl`,
+seeded block included, and called none of `aurora( / curtain( / stars(`.  A recipe the agent can
+overwrite is not a recipe kept: the seed now lives in the harness-owned, read-only `src/recipes.glsl`
+(§3 "Seeded recipes"); the same A/B re-runs against it.
 
 **The track default is `shader_v2`** since c032700 (the switch waited for the first reference
 A/B to finish so both of its arms were judged in-loop by one rubric).
