@@ -206,7 +206,7 @@ def test_candidate_count_persists_for_resume_and_settings_default(tmp_path, chai
 def test_refine_round_within_margin_needs_pairwise_win(tmp_path, chair_plan, settings):
     spec = make_spec(language=Language.BLENDER, max_rounds=2)
     ws = Workspace(tmp_path / "runs" / "tie")
-    agent = FakeAgent(lambda job, ws: {"src/model.py": f"import bpy  # {job.label} {job.extra.get('round')}\n"})
+    agent = FakeAgent(lambda job, ws: {"src/model.py": f"import bpy  # {job.label} {job.round}\n"})
     pw = FakePairwise(verdicts=[("a", 0.8), ("b", 0.9)])
     # r01 scores +0.01 (noise) → pairwise says incumbent wins → best stays r00; r02 +0.02 → pairwise b wins → best r02
     judge = FakeJudge(scores=(0.60, 0.61, 0.62))

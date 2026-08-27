@@ -94,7 +94,7 @@ class FakeGlRuntime:
 
 def _writer(job, ws):
     body = "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n  vec2 uv = fragCoord / u_resolution.xy;\n"
-    body += f"  // {job.label} r{job.extra.get('round', 0)}\n  fragColor = vec4(uv, 0.5 + 0.5 * sin(u_time), 1.0);\n}}\n"
+    body += f"  // {job.label} r{job.round}\n  fragColor = vec4(uv, 0.5 + 0.5 * sin(u_time), 1.0);\n}}\n"
     return {"src/shader.frag": body}
 
 

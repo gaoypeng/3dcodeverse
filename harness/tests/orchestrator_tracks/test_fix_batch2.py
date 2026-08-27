@@ -35,7 +35,7 @@ def _planner(plan_dict):
 
 
 def _writer(job, ws):
-    return {"src/object.js": f"// {job.label} r{job.extra.get('round', 0)}\nexport function build(THREE) {{ return new THREE.Group(); }}\n"}
+    return {"src/object.js": f"// {job.label} r{job.round}\nexport function build(THREE) {{ return new THREE.Group(); }}\n"}
 
 
 def degraded_verdict(cost: float = 0.003) -> Judgment:
@@ -177,7 +177,7 @@ def test_degraded_verdict_recovers_via_rejudge_of_same_commit(tmp_path, chair_pl
     assert rec.status is RunStatus.PASSED and rec.best_round == 1
     assert rec.rounds[1].score == pytest.approx(0.85)
     # the recovery re-judged the SAME commit: exactly 2 generation rounds ran
-    assert [j.extra.get("round") for j in agent.jobs] == [0, 1]
+    assert [j.round for j in agent.jobs] == [0, 1]
     saved = RoundRecord.model_validate(json.loads((ws.root / "rounds" / "r01.json").read_text()))
     assert saved.judgment is not None and saved.judgment.overall == pytest.approx(0.85)
     # audit f2: the recovery re-emits a CORRECTED cost.round so the audit stream stops

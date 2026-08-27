@@ -36,9 +36,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import subprocess
-import threading
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -174,37 +171,6 @@ class GenerationResult(BaseModel):
     turn_capped: bool = Field(
         default=False, description="a session hit the turn budget and was wrapped up"
     )
-
-
-# ----------------------------------------------------------------------------- git helpers
-_GIT_LOCKS: dict[str, threading.Lock] = {}
-_GIT_LOCKS_GUARD = threading.Lock()
-
-
-def workspace_lock(ws: Workspace) -> threading.Lock:
-    """One lock per workspace root: git index operations from parallel tasks must serialise."""
-    key = str(ws.root)
-    with _GIT_LOCKS_GUARD:
-        lock = _GIT_LOCKS.get(key)
-        if lock is None:
-            lock = _GIT_LOCKS[key] = threading.Lock()
-        return lock
-
-
-def changed_files_safe(
-    ws: Workspace, since: str | None = None, *, retries: int = 6
-) -> list[FileChange]:
-    """``ws.changed_files`` serialised per workspace and retried on transient git index locks."""
-    with workspace_lock(ws):
-        for attempt in range(retries):
-            try:
-                return ws.changed_files(since)
-            except subprocess.CalledProcessError as e:
-                if attempt == retries - 1:
-                    raise
-                log.warning("git diff failed (attempt %d): %s", attempt + 1, (e.stderr or "")[:200])
-                time.sleep(0.2 * (attempt + 1))
-    return []
 
 
 # ----------------------------------------------------------------------------- strategies
@@ -416,14 +382,6 @@ def run_agent_task(
     # language/track → spatial tool filtering, files_hint → per-session attribution of
     # files_changed when tasks run concurrently in ONE workspace (see agents/cli_common).
     language, track = _spec_lang_track(ws)
-    # extra mirrors the typed fields until every agent backend reads job.round/… directly
-    extra: dict[str, Any] = {
-        "round": task.round,
-        "kind": task.kind,
-        "files_hint": list(task.files_hint),
-        "language": language,
-        "track": track,
-    }
     job = AgentJob(
         workspace=str(ws.root),
         prompt=task.prompt,
@@ -438,7 +396,6 @@ def run_agent_task(
         language=language,
         track=track,
         files_hint=list(task.files_hint),
-        extra=extra,
         edit_only=task.edit_only,
         always_writable=_always_writable(language, task),
         read_only=_read_only(language),
@@ -656,7 +613,7 @@ def _attributed_fallback(ws: Workspace, task: GenerationTask, before: str) -> li
     A whole-worktree diff claims sibling tasks' files under fan_out (a task that
     wrote nothing looked ok because its neighbours wrote files); attribute the diff
     to this task instead: inside its write roots, never harness-owned paths."""
-    raw = changed_files_safe(ws, before)
+    raw = ws.changed_files(before)  # Workspace serialises + retries the git index itself
     try:
         from codeverse.agents.cli_common import attribute_changes
     except ImportError:  # pragma: no cover — agents package always ships with tracks

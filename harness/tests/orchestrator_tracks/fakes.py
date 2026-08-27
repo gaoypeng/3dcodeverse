@@ -31,7 +31,6 @@ from codeverse.contracts.plan import Plan
 from codeverse.contracts.run import RunRecord
 from codeverse.conventions import to_snake
 from codeverse.tracks.common import Services, ServiceUnavailable
-from codeverse.tracks.generation import changed_files_safe, workspace_lock
 from codeverse.workspace import Workspace
 
 FAIL_MARK = "RAISE_BUILD_ERROR"
@@ -154,7 +153,7 @@ class FakeAgent:
     def run(self, job: AgentJob) -> AgentResult:
         self.jobs.append(job)
         ws = Workspace(job.workspace)
-        with workspace_lock(ws):
+        with ws._lock:  # noqa: SLF001 — the fake mimics a real agent's serialised writes
             before = ws.head()
         files = self.writer(job, ws)
         for rel, content in (files or {}).items():
@@ -163,7 +162,7 @@ class FakeAgent:
             p.write_text(content)
         traj = ws.trajectory_dir(job.label or "job", 0)
         (traj / "transcript.jsonl").write_text(json.dumps({"prompt": job.prompt[:200]}) + "\n")
-        return AgentResult(ok=bool(files), exit_reason="completed" if files else "no_changes", files_changed=changed_files_safe(ws, before),
+        return AgentResult(ok=bool(files), exit_reason="completed" if files else "no_changes", files_changed=ws.changed_files(before),
                            transcript_path=str(traj / "transcript.jsonl"), usage=Usage(backend="fake", cost_usd=self.cost, input_tokens=100))
 
 

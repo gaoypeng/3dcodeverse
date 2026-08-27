@@ -112,7 +112,7 @@ def test_run_agent_task_passes_files_hint_and_attributes_fallback_diff(tmp_path)
     agent = NonReportingAgent({"src/parts/seat.js": "export function buildSeat(){}\n"})
     task = GenerationTask(label="refine_seat", prompt="p", files_hint=["src/parts/seat.js"], round=1, kind="refine")
     res = run_agent_task(ws, agent=agent, task=task)
-    assert agent.jobs[0].extra["files_hint"] == ["src/parts/seat.js"]  # per-session attribution key
+    assert agent.jobs[0].files_hint == ["src/parts/seat.js"]  # per-session attribution key
     assert res.ok and [c.path for c in res.files_changed] == ["src/parts/seat.js"]
 
 

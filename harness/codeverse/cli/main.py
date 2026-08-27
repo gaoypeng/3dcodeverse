@@ -498,17 +498,7 @@ def _resume_in_lock(ws, runs_dir, *, force: bool, max_usd, max_minutes, rounds, 
 
 # --------------------------------------------------------------------------- status / render / judge
 # moved to codeverse/cli/inspect_cmd.py; imported here so existing importers keep working
-from codeverse.cli.inspect_cmd import (  # noqa: E402, F401
-    _best_round_of_record,
-    _event_time,
-    _latest_round,
-    _print_candidates,
-    _render_graphics,
-    _render_round_or_refuse,
-    judge,
-    render,
-    status,
-)
+from codeverse.cli.inspect_cmd import judge, render, status  # noqa: E402
 
 app.command()(status)
 app.command()(render)

@@ -542,7 +542,7 @@ def test_render_refuses_when_the_tree_is_not_the_best_round(tmp_path: Path):
     The harness correctly kept r3, but a plain `3dcv render` re-rendered the blank r4 and
     was very nearly published."""
     from codeverse.cli._common import CliError
-    from codeverse.cli.main import _render_round_or_refuse
+    from codeverse.cli.inspect_cmd import _render_round_or_refuse
 
     ws = _round_guard_ws(tmp_path, best=3, tree=4)
     with pytest.raises(CliError) as ei:
@@ -558,7 +558,7 @@ def test_render_round_flag_cannot_mislabel_another_rounds_code(tmp_path: Path):
     """--round only chose the OUTPUT FOLDER, so `render X --round 3` wrote r03-labelled
     images of round 4's code.  Refuse rather than write a picture whose label is a lie."""
     from codeverse.cli._common import CliError
-    from codeverse.cli.main import _render_round_or_refuse
+    from codeverse.cli.inspect_cmd import _render_round_or_refuse
 
     ws = _round_guard_ws(tmp_path, best=3, tree=4)
     with pytest.raises(CliError):
@@ -568,7 +568,7 @@ def test_render_round_flag_cannot_mislabel_another_rounds_code(tmp_path: Path):
 
 def test_render_is_unaffected_when_the_best_round_is_the_last(tmp_path: Path):
     """The common case must not become noisier: no record, or best == tree, just renders."""
-    from codeverse.cli.main import _render_round_or_refuse
+    from codeverse.cli.inspect_cmd import _render_round_or_refuse
 
     assert _render_round_or_refuse(_round_guard_ws(tmp_path / "a", best=2, tree=2), None) == 2
     ws = _round_guard_ws(tmp_path / "b", best=1, tree=1)
