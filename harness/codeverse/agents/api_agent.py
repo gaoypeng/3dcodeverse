@@ -55,6 +55,19 @@ FRESHNESS_NUDGE = (
     "You edited files after your last `build`. Run the `build` tool now, read its result, fix any "
     "errors, and only then give your final summary."
 )
+#: A turn that ran out of output tokens mid-thought emits partial text and NO tool call,
+#: which is indistinguishable from "I am done" at the loop's `if not resp.tool_calls`.
+#: Measured 2026-08-27 (art_med_tool_chest): the baseline spent 15 359 thinking tokens on
+#: turn 5, was truncated at MAX_TOKENS, and the session was recorded as completed with
+#: zero files written.  Thinking is billed either way, so the cure is to ask for the call
+#: rather than the reasoning.
+TRUNCATED_NUDGE = (
+    "Your previous turn hit the output limit while thinking, so no tool call arrived. Do not "
+    "re-derive anything: make the single most useful tool call NOW (write the file you had "
+    "planned, or `build`), with no analysis before it."
+)
+#: how many truncated turns in one session get a nudge before it is called a failure
+MAX_TRUNCATED_NUDGES = 2
 
 
 class ApiAgent:
@@ -139,6 +152,7 @@ class _Loop:
         self.last_write_turn = -1
         self.last_build_turn = -1
         self.nudged = False
+        self.truncated = 0
         self.errors: list[str] = []
         # the images ride on the first message only: reference photos, and for a refine
         # session the contact sheet the judge scored.  Until 2026-08-26 no image reached an
@@ -187,6 +201,18 @@ class _Loop:
                 finish_reason=resp.finish_reason,
             )
             if not resp.tool_calls:
+                if resp.finish_reason == "MAX_TOKENS" and self.truncated < MAX_TRUNCATED_NUDGES:
+                    # cut off mid-thought, not finished: ask for the call, not more reasoning
+                    self.truncated += 1
+                    self.messages.append(ChatMessage.user(TRUNCATED_NUDGE))
+                    traj.append("nudge", turn=turn, text=TRUNCATED_NUDGE, reason="max_tokens")
+                    continue
+                if resp.finish_reason == "MAX_TOKENS":
+                    ok, reason = False, "truncated"
+                    self.errors.append(
+                        f"{self.truncated + 1} turns ran out of output tokens while thinking and "
+                        "never emitted a tool call")
+                    break
                 if self._needs_build_nudge():
                     self.nudged = True
                     self.messages.append(ChatMessage.user(FRESHNESS_NUDGE))

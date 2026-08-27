@@ -289,3 +289,35 @@ def test_a_turn_stops_retrying_once_the_session_deadline_has_passed(tmp_ws, monk
     rows = [json.loads(ln) for ln in Path(res.transcript_path).read_text().splitlines()]
     (err_row,) = [r for r in rows if r["kind"] == "model_error"]
     assert err_row["deadline_passed"] is True and err_row["retryable"] is True
+
+
+def cut(text: str = "thinking...") -> ChatResponse:
+    """A turn that ran out of output tokens mid-thought: partial text, no tool call."""
+    return ChatResponse(text=text, tool_calls=[], finish_reason="MAX_TOKENS",
+                        usage=Usage(input_tokens=10, output_tokens=637, cost_usd=0.02))
+
+
+def test_a_turn_truncated_while_thinking_is_nudged_not_treated_as_finished(tmp_ws):
+    """art_med_tool_chest, 2026-08-27: turn 5 spent 15 359 thinking tokens, hit
+    MAX_TOKENS, emitted partial text and no tool call — and `if not resp.tool_calls`
+    recorded the session as completed with zero files written."""
+    from codeverse.agents.api_agent import TRUNCATED_NUDGE
+
+    fake = FakeChatModel([
+        cut("<thought>let me work out the hinge axis and"),
+        resp("", call("write_file", path="src/model.py", content="import bpy\n")),
+        resp("done"),
+    ])
+    res = ApiAgent("fake:fake-1", chat_model=fake).run(_job(tmp_ws))
+    assert res.ok and res.files_changed, "a truncated turn must not end the session"
+    assert (tmp_ws.src / "model.py").is_file()
+    assert any(m.text == TRUNCATED_NUDGE for r in fake.requests for m in r.messages if m.role == "user")
+
+
+def test_repeated_truncation_fails_the_session_instead_of_looping(tmp_ws):
+    from codeverse.agents.api_agent import MAX_TRUNCATED_NUDGES
+
+    fake = FakeChatModel([cut()] * (MAX_TRUNCATED_NUDGES + 2))
+    res = ApiAgent("fake:fake-1", chat_model=fake).run(_job(tmp_ws))
+    assert not res.ok and res.exit_reason == "truncated"
+    assert any("output tokens" in e for e in res.errors)
