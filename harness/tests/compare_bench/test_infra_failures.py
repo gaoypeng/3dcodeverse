@@ -288,3 +288,38 @@ def test_a_harness_planning_failure_is_a_zero_not_a_dropped_cell(tmp_path):
     assert (r.status, r.score, r.passed, r.build_ok) == ("no_code", 0.0, False, False)
     assert r.error.startswith("PlanningError:")
 
+
+def test_a_cyclic_cause_chain_does_not_recurse():
+    """compare_art_v3 (2026-08-27): retry.py's `raise err from exc` closed the __cause__ chain
+    into a cycle; is_infra_failure recursed to RecursionError inside run_cell's except
+    handler, the matrix loop died, and 11 finished cells went unrecorded."""
+    class ModelError(Exception):
+        def __init__(self, msg, status=None):
+            super().__init__(msg)
+            self.status = status
+
+    a = ModelError("structured output unavailable (finish_reason=MAX_TOKENS)")
+    b = ModelError("attempt failed")
+    a.__cause__, b.__cause__ = b, a  # the cycle
+    assert is_infra_failure(a) is False
+    c = ModelError("wrapped")
+    c.__cause__ = ModelError("upstream said no", status=503)
+    c.__cause__.__cause__ = c  # cycle through an infra cause
+    assert is_infra_failure(c) is True
+
+
+def test_a_classifier_crash_still_records_the_cell(tmp_path, monkeypatch):
+    from bench import compare_backends as cb
+    from bench.run_bench import Battery
+    from tests.compare_bench.conftest import BATTERY, FakeEvaluator
+
+    def boom(spec, ws, resume):
+        raise RuntimeError("planner died")
+
+    monkeypatch.setattr(cb, "is_infra_failure", lambda e: (_ for _ in ()).throw(RecursionError("cycle")))
+    battery = Battery.load(BATTERY)
+    r = cb.run_cell(battery, battery.prompts[0], cb.parse_arm("harness:api-agent:gemini:gemini-3.7-flash"), tmp_path,
+                    cb.CompareOptions(judge="gemini:x", loop_judge="gemini:x"), cb.CompareDeps(FakeEvaluator(), run_track=boom))
+    assert r.status == "error" and "classifier failed: RecursionError" in r.error and "planner died" in r.error
+    assert (tmp_path / "cells" / battery.prompts[0].id / "harness_api-agent_gemini_gemini-3.7-flash" / "cell.json").is_file()
+

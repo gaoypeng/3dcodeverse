@@ -73,9 +73,26 @@ def is_infra_failure(err: object) -> bool:
             return True
         if isinstance(err, TimeoutError):
             return True
-        # a wrapped cause is common: `raise ModelError(...) from urllib.error.HTTPError`
-        if err.__cause__ is not None and is_infra_failure(err.__cause__):
-            return True
+        # a wrapped cause is common: `raise ModelError(...) from urllib.error.HTTPError`.
+        # Walk the chain ITERATIVELY with a visited set: retry.py's `raise err from exc`
+        # can close the chain into a cycle (compare_art_v3, 2026-08-27: a truncated plan's
+        # ModelError → RecursionError inside run_cell's except handler → the matrix loop
+        # died and 11 finished cells went unrecorded).
+        seen: set[int] = {id(err)}
+        cause = err.__cause__ if err.__cause__ is not None else err.__context__
+        while cause is not None and id(cause) not in seen and len(seen) < 32:
+            seen.add(id(cause))
+            if isinstance(cause, BaseException):
+                if type(cause).__name__ == "KeyPoolExhausted" or isinstance(cause, TimeoutError):
+                    return True
+                status = getattr(cause, "status", None)
+                if isinstance(status, int) and status in INFRA_STATUSES:
+                    return True
+                if any(marker in f"{type(cause).__name__}: {cause}".lower() for marker in INFRA_MARKERS):
+                    return True
+                cause = cause.__cause__ if cause.__cause__ is not None else cause.__context__
+            else:
+                break
         err = f"{type(err).__name__}: {err}"
     text = str(err).lower()
     return any(marker in text for marker in INFRA_MARKERS)
