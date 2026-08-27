@@ -238,7 +238,10 @@ class ArticulatedPlan(StaticPlan):
         data = dict(data)
         parts = [dict(p) for p in (data.get("parts") or []) if isinstance(p, dict)]
         joints = [dict(j) for j in (data.get("joints") or []) if isinstance(j, dict)]
-        notes: list[str] = list(data.get("normalisations") or [])
+        # harness-only: the planner is told to leave this empty, and one did not (articulated_v2
+        # scissor_mirror, 2026-08-26: two lines of design prose landed here) — a planner's text
+        # would read as a harness repair in the record, so incoming values are dropped
+        notes: list[str] = []
         if not parts or not joints:
             return data
         by_name = {to_snake(str(p.get("name", ""))): p for p in parts}

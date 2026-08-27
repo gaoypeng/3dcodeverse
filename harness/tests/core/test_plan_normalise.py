@@ -122,3 +122,14 @@ def test_unfixable_plans_still_fail():
                         "axis": [0, 0, 1], "pivot": [0, 0, 0]})
     with pytest.raises(ValidationError, match="unknown link"):
         ArticulatedPlan.model_validate(d)
+
+
+def test_planner_text_in_normalisations_is_dropped():
+    """articulated_v2 scissor_mirror (2026-08-26): the planner wrote two lines of design prose into
+    the harness-only field; they must not read as harness repairs in the record."""
+    from codeverse.contracts.plan import ArticulatedPlan
+
+    raw = ArticulatedPlan._normalise_raw({"parts": [{"name": "A", "bbox": {"center": [0, 0, 0], "extents": [1, 1, 1]}}],
+                                          "joints": [{"name": "j", "parent": "A", "child": "A", "type": "revolute", "lower": 0, "upper": 1}],
+                                          "normalisations": ["rest pose set to 0.15 m (planner prose)"]})
+    assert raw["normalisations"] == []
