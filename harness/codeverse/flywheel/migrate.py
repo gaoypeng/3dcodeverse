@@ -17,11 +17,13 @@ history.  Running it twice is a no-op (second pass reports ``up_to_date``).
 from __future__ import annotations
 
 import logging
+from contextlib import ExitStack
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from codeverse.flywheel.record import RecordError, load_record, package_run
+from codeverse.runlock import RunLocked, exclusive
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -64,43 +66,53 @@ class MigrationReport(BaseModel):
 
 
 def migrate_run(ws: Workspace, *, dry_run: bool = False) -> RunMigration:
-    """Reorganise one run in place; idempotent, additive, never destructive."""
+    """Reorganise one run in place; idempotent, additive, never destructive.
+
+    Under the run mutex unless ``dry_run`` (it relinks the layout and rewrites
+    ``record.json``); a run someone is using is reported SKIPPED, not migrated."""
     m = RunMigration(run=str(ws.root))
     if not ws.exists():
         m.status = SKIPPED
         m.reason = "no spec.json"
         return m
-    changed = False
+    stack = ExitStack()
     try:
-        m.layout = ws.ensure_layout(dry_run=dry_run)
-        m.gitignore = ws.ensure_gitignore(dry_run=dry_run)
-    except OSError as e:
-        m.status = FAILED
-        m.reason = f"{type(e).__name__}: {e}"
+        if not dry_run:
+            stack.enter_context(exclusive(ws.root, what=f"3dcv migrate-runs {ws.root.name}"))
+    except RunLocked as e:
+        m.status, m.reason = SKIPPED, str(e)
         return m
-    changed = bool(m.layout) or m.gitignore
-    try:
-        record = load_record(ws)
-    except RecordError as e:
-        m.status = MIGRATED if changed else UP_TO_DATE
-        m.reason = str(e)  # layout only: an unfinished run has no record yet
+    with stack:
+        try:
+            m.layout = ws.ensure_layout(dry_run=dry_run)
+            m.gitignore = ws.ensure_gitignore(dry_run=dry_run)
+        except OSError as e:
+            m.status = FAILED
+            m.reason = f"{type(e).__name__}: {e}"
+            return m
+        changed = bool(m.layout) or m.gitignore
+        try:
+            record = load_record(ws)
+        except RecordError as e:
+            m.status = MIGRATED if changed else UP_TO_DATE
+            m.reason = str(e)  # layout only: an unfinished run has no record yet
+            return m
+        if dry_run:
+            m.telemetry_rows = _row_count(ws, record)
+            m.deliverable_files = None
+            m.status = MIGRATED if (changed or record.telemetry is None or record.deliverable is None) else UP_TO_DATE
+            return m
+        before = ws.record_path.read_bytes()
+        package_run(ws, record)
+        if record.deliverable is not None:
+            m.deliverable_files = len(record.deliverable.files)
+            m.deliverable_bytes = record.deliverable.total_bytes
+        if record.telemetry is not None and record.telemetry.cost is not None:
+            m.telemetry_rows = record.telemetry.cost.n_calls
+        ws.write_json(ws.record_path, record)
+        m.record_updated = ws.record_path.read_bytes() != before
+        m.status = MIGRATED if (changed or m.record_updated) else UP_TO_DATE
         return m
-    if dry_run:
-        m.telemetry_rows = _row_count(ws, record)
-        m.deliverable_files = None
-        m.status = MIGRATED if (changed or record.telemetry is None or record.deliverable is None) else UP_TO_DATE
-        return m
-    before = ws.record_path.read_bytes()
-    package_run(ws, record)
-    if record.deliverable is not None:
-        m.deliverable_files = len(record.deliverable.files)
-        m.deliverable_bytes = record.deliverable.total_bytes
-    if record.telemetry is not None and record.telemetry.cost is not None:
-        m.telemetry_rows = record.telemetry.cost.n_calls
-    ws.write_json(ws.record_path, record)
-    m.record_updated = ws.record_path.read_bytes() != before
-    m.status = MIGRATED if (changed or m.record_updated) else UP_TO_DATE
-    return m
 
 
 def _row_count(ws: Workspace, record: object) -> int | None:

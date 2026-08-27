@@ -80,8 +80,8 @@ codeverse/
   workspace.py        run-dir layout + git snapshots ;  events.py  JSONL event log
   runlock.py          ONE writer per run dir: an fcntl.flock on <runs>/.locks/<slug>.lock
                       (outside the dir a --force wipe deletes; released by the kernel if
-                      the holder dies) taken at every CLI mutation boundary, plus the PID
-                      file that NAMES the holder so a human can kill that one pid
+                      the holder dies) taken at every mutation boundary; its record NAMES
+                      the holder (`holder_of`, printed by `3dcv status`) so a human can kill that pid
   proc.py             stdlib-only subprocess + atomic-JSON primitives (ManagedProcess owns every
                       child's lifecycle: group kill on ANY exception, bounded pumps, stdin writer;
                       run_subprocess, kill_group, tail, write_json_atomic, scrub_secrets) and the tolerant readers/writer
@@ -243,7 +243,7 @@ runs/<slug>/
     tool_renders/rNN_<hash>/
   trajectories/<label>_rNN/  prompt.md transcript.jsonl stdout.json stderr.log result.json
                              (a retried label lands in <label>.a2_rNN — first attempt preserved)
-  AGENTS.md GEMINI.md CLAUDE.md .mcp.json .gemini/settings.json .3dcv/cookbook.md .geminiignore .aiexclude
+  AGENTS.md GEMINI.md CLAUDE.md .gemini/settings.json .3dcv/cookbook.md .geminiignore .aiexclude
 ```
 
 ## 4. Per-language authoring contracts (raw code; the harness owns export)

@@ -39,6 +39,7 @@ def status(
     """Show spec / run_state / record / recent events of a run."""
     from codeverse.events import EventLog
     from codeverse.flywheel.record import RecordError, load_record
+    from codeverse.runlock import holder_of
 
     ws = C.open_workspace(slug, runs_dir)
     spec = C.load_spec(ws)
@@ -50,6 +51,8 @@ def status(
         "judge": spec.backends.judge,
         "prompt": spec.prompt,
     }
+    if (held := holder_of(ws.root)) is not None:  # kill THAT pid, never `pkill -f 3dcv`
+        rows["RUNNING NOW"] = f"pid {held.get('pid', '?')} ({held.get('what') or '3dcv'})"
     if ws.state_path.is_file():
         try:
             state = json.loads(ws.state_path.read_text())
@@ -150,24 +153,25 @@ def render(
     spec = C.load_spec(ws)
     idx = _render_round_or_refuse(ws, round_index)
     out_dir = out or ws.renders_dir(idx) / ("cli" if mode == "shaded" else f"cli_{mode}")
-    if spec.track is Track.GRAPHICS:
-        _render_graphics(ws, spec, out_dir)
-        return
-    # the size settings are honoured by the in-run renders (tracks/static_object.py,
-    # tracks/scene.py) and were silently dropped by the one command whose whole job is
-    # rendering, so a CLI render did not match the one the judge saw
-    r = get_settings().render
-    if spec.track is Track.SCENE:
-        render_scene = C.lazy("codeverse.spatial.render_scene", "render_scene")
-        rs = render_scene(
-            ws, out_dir, cameras=None, width=width or r.scene_width, height=height or r.scene_height
-        )
-    else:
-        glb = ws.artifacts / "object.glb"
-        if not glb.is_file():
-            raise C.CliError(f"no artifact to render: {glb} (run a build first)")
-        render_glb = C.lazy("codeverse.spatial.render", "render_glb")
-        rs = render_glb(glb, out_dir, mode=mode, width=width or r.width, height=height or r.height)
+    # writes into the run (a graphics render even rebuilds it): one writer per run dir
+    with C.mutating(ws, what=f"3dcv render {ws.root.name}", action="render"):
+        if spec.track is Track.GRAPHICS:
+            _render_graphics(ws, spec, out_dir)
+            return
+        # the size settings are honoured by the in-run renders (tracks/static_object.py,
+        # tracks/scene.py) and were silently dropped by the one command whose whole job is
+        # rendering, so a CLI render did not match the one the judge saw
+        r = get_settings().render
+        if spec.track is Track.SCENE:
+            render_scene = C.lazy("codeverse.spatial.render_scene", "render_scene")
+            rs = render_scene(ws, out_dir, cameras=None, width=width or r.scene_width,
+                              height=height or r.scene_height)
+        else:
+            glb = ws.artifacts / "object.glb"
+            if not glb.is_file():
+                raise C.CliError(f"no artifact to render: {glb} (run a build first)")
+            render_glb = C.lazy("codeverse.spatial.render", "render_glb")
+            rs = render_glb(glb, out_dir, mode=mode, width=width or r.width, height=height or r.height)
     console.print(
         kv_table(
             "renders",
@@ -214,19 +218,21 @@ def judge(
     n_images = J.count_prompt_images(inp, rubric_name)
     from codeverse.cost.instrument import run_ledger
 
-    try:
-        # a re-judge joins the run's ledger when it has one; otherwise the per-process log
-        # (a ledger holding only this verdict would be read as the whole run's cost)
-        with run_ledger(ws.root, run=ws.root.name, create=False):
-            verdict = judge_obj.judge(inp)
-    except ValueError as e:  # e.g. a measured rubric fed to a judge that computes nothing
-        raise C.CliError(f"judge failed: {e}") from e
-    except Exception as e:
-        ReferenceJudgeError = C.lazy("codeverse.judges.reference", "ReferenceJudgeError")
-        if isinstance(e, ReferenceJudgeError):
+    # writes artifacts/judge/rNN_cli.json into the run: one writer per run dir
+    with C.mutating(ws, what=f"3dcv judge {ws.root.name}", action="judge"):
+        try:
+            # a re-judge joins the run's ledger when it has one; otherwise the per-process
+            # log (a ledger holding only this verdict would be read as the whole run's cost)
+            with run_ledger(ws.root, run=ws.root.name, create=False):
+                verdict = judge_obj.judge(inp)
+        except ValueError as e:  # e.g. a measured rubric fed to a judge that computes nothing
             raise C.CliError(f"judge failed: {e}") from e
-        raise
-    ws.write_json(ws.judge_path(idx, "_cli"), verdict)
+        except Exception as e:
+            ReferenceJudgeError = C.lazy("codeverse.judges.reference", "ReferenceJudgeError")
+            if isinstance(e, ReferenceJudgeError):
+                raise C.CliError(f"judge failed: {e}") from e
+            raise
+        ws.write_json(ws.judge_path(idx, "_cli"), verdict)
     console.print(
         kv_table(
             "judgment",

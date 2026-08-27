@@ -108,6 +108,7 @@ from bench.compare_backends import (  # noqa: E402
 )
 from bench.pin_plan import PLAN_JSON, PinError, plan_once, seed_plan  # noqa: E402
 from bench.run_bench import Battery, BenchPrompt, select_prompts  # noqa: E402
+from codeverse.runlock import exclusive  # noqa: E402
 from codeverse.tracks.plan_features import pin_plan_blockers  # noqa: E402
 from codeverse.workspace import Workspace  # noqa: E402
 
@@ -423,7 +424,8 @@ def pin_pair(
     spec = spec_for(battery, item, _harness_arm(opts.generator), opts.compare_options())
     src = Workspace(out / "plans" / item.id / "run")
     if not (src.root / PLAN_JSON).is_file():
-        plan_once(spec, src.root)
+        with exclusive(src.root, what=f"ab pin {item.id}"):  # one writer per run dir
+            plan_once(spec, src.root)
     want = json.loads((src.root / "run_state.json").read_text())["stages"]["plan"]["inputs_hash"]
     for arm in arms:
         dst = Workspace(cell_dir(out, arm, item.id, opts.generator) / "run")

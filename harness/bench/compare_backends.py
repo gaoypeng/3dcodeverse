@@ -85,6 +85,7 @@ from codeverse.contracts.common import ENTRY_FILE  # noqa: E402
 from codeverse.contracts.run import RunRecord  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402
 from codeverse.cost import run_ledger  # noqa: E402
+from codeverse.runlock import exclusive  # noqa: E402
 from codeverse.tracks.generation import MultiFileParseError  # noqa: E402
 from codeverse.tracks.planner import PlanningError  # noqa: E402
 from codeverse.workspace import Workspace  # noqa: E402
@@ -236,10 +237,11 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, 
     if not resume:
         run_ws.create()
         run_ws.write_json(run_ws.spec_path, spec)
-    # the harness arm is a real run: give it its own ledger, nested inside the cell's
-    # (run_ledger restores the outer one on the way out, so the fixed evaluation that
-    # follows keeps landing in the cell ledger)
-    with run_ledger(run_ws.root, run=f"{spec.id}:{run_ws.root.parent.name}"):
+    # the harness arm is a real run: one writer per run dir (--parallel is threads of ONE
+    # process), and its own ledger nested inside the cell's (run_ledger restores the outer
+    # one on the way out, so the fixed evaluation that follows lands in the cell ledger)
+    with (exclusive(run_ws.root, what=f"compare {spec.id}:{run_ws.root.parent.name}"),
+          run_ledger(run_ws.root, run=f"{spec.id}:{run_ws.root.parent.name}")):
         rec = deps.run_track(spec, run_ws, resume)
     res.gen_cost_usd = rec.total_usage.cost_usd
     res.tool_calls = rec.total_usage.tool_calls

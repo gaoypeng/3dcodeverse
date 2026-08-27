@@ -7,6 +7,8 @@ import hashlib
 import importlib
 import shutil
 import sys
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -87,19 +89,29 @@ def make_slug(prompt: str, track: str, language: str, explicit: str | None = Non
     return f"{slugify(prompt, 40)}_{h}"
 
 
-def create_workspace(root: Path, *, force: bool) -> Workspace:
-    from codeverse.runlock import RunLocked, assert_free
+@contextmanager
+def mutating(target: Any, *, what: str, action: str = "enter") -> Iterator[None]:
+    """The run mutex (``runlock.exclusive``) around anything that writes into a run
+    directory, reported as a typed exit.  ``target`` is a Workspace or a run root."""
+    from codeverse.runlock import RunLocked, exclusive
 
+    root = target if isinstance(target, (str, Path)) else target.root  # NB: Path.root is "/"
+    stack = ExitStack()
+    try:
+        stack.enter_context(exclusive(root, what=what, action=action))
+    except RunLocked as e:
+        raise CliError(str(e), code=2) from None
+    with stack:
+        yield
+
+
+def create_workspace(root: Path, *, force: bool) -> Workspace:
+    """Create (or ``--force``-replace) a run directory.  The caller holds the run mutex —
+    the rmtree below would otherwise wipe a live holder's workspace."""
     ws = Workspace(root)
     if ws.root.exists() and any(ws.root.iterdir()):
         if not force:
             raise CliError(f"{ws.root} already exists; use --force to overwrite or --slug for a new name")
-        # --force overwrites a DEAD run, never a live one: the rmtree below would delete
-        # that process's lock file along with its workspace (codeverse/runlock.py)
-        try:
-            assert_free(ws.root)
-        except RunLocked as e:
-            raise CliError(str(e), code=2) from None
         shutil.rmtree(ws.root)
     ws.create()
     return ws

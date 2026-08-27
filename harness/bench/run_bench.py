@@ -39,6 +39,7 @@ from codeverse.contracts.common import Backends, Budget, Language, Track
 from codeverse.contracts.run import RunRecord
 from codeverse.contracts.spec import Constraints, ReferenceImage, Spec
 from codeverse.cost import run_ledger
+from codeverse.runlock import exclusive
 from codeverse.workspace import Workspace
 
 RESULT_FIELDS = ("id", "tier", "category", "score_baseline", "score_final", "passed", "rounds", "cost_usd",
@@ -255,7 +256,9 @@ def run_battery(
             ws.write_json(ws.spec_path, spec)
         t0 = time.time()
         try:
-            with run_ledger(ws.root, run=item.id):
+            # one writer per run dir: --parallel runs these in threads of ONE process, so
+            # the run mutex is what keeps two cells off the same workspace
+            with exclusive(ws.root, what=f"bench {item.id}"), run_ledger(ws.root, run=item.id):
                 rec = run_fn(spec, ws, resume)
         except Exception as e:  # one failing prompt must not kill the battery
             # A provider outage is not a result: an hour spent retrying a 503 is not model

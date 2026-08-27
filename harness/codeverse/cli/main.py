@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import os
 import sys
-from contextlib import ExitStack
 from pathlib import Path
 from typing import Annotated
 
@@ -35,7 +34,6 @@ from codeverse.cli.tools_cmd import tools
 from codeverse.config import get_settings
 from codeverse.contracts.common import TRACK_LANGUAGES, Budget, Language, Track
 from codeverse.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec
-from codeverse.runlock import RunLocked, exclusive
 
 app = typer.Typer(
     name="3dcv",
@@ -255,62 +253,44 @@ def make(
     # THE run mutex, taken BEFORE the workspace is created (or --force wipes one) and
     # held through the paid reference call and the run itself: everything below mutates
     # this run directory, and two 3dcv on one slug corrupt each other (runlock.py).
-    stack = ExitStack()
-    try:
-        stack.enter_context(exclusive(C.runs_root(runs_dir) / run_slug,
-                                      what=f"3dcv make {run_slug}", action="create"))
-    except RunLocked as e:
-        raise C.CliError(str(e), code=2) from None
-    with stack:
-        _make_in_lock(spec, run_slug, runs_dir, force=force, no_run=no_run, reference=reference,
-                      reference_views=reference_views, candidates=candidates, rounds=rounds,
-                      max_usd=max_usd, texture=texture, dial=dial, settings=settings,
-                      backends=backends, track=track, language=language)
-
-
-def _make_in_lock(spec, run_slug: str, runs_dir, *, force: bool, no_run: bool, reference: bool,
-                  reference_views: int, candidates, rounds, max_usd, texture, dial, settings,
-                  backends, track, language) -> None:
-    """The body of ``make`` that mutates the run directory — always under the run mutex
-    (``runlock.exclusive``), which is why creating, wiping, writing the spec and the paid
-    reference call can no longer race a second ``3dcv make`` on the same slug."""
-    ws = C.create_workspace(C.runs_root(runs_dir) / run_slug, force=force)
-    ws.write_json(ws.spec_path, spec)
-    ws.commit("spec")
-    console.print(
-        kv_table(
-            "run",
-            {
-                "slug": run_slug,
-                "workspace": ws.root,
-                "track": track.value,
-                "language": language.value,
-                "generator": backends.generator,
-                "profile": f"{dial.profile} ({C.active_profile(settings).expectation()})",
-                "judge": f"{backends.judge} n={dial.judge_samples} "
-                f"({dial.judge_max_px}px/{dial.judge_detail_crops}crop)",
-                "rounds": rounds,
-                "max_usd": max_usd,
-                "candidates": candidates,
-                "texture": texture,
-            },
-        )
-    )
-    if reference:
-        # --reference runs even under --no-run, because the grounded spec IS the artifact
-        # it produces (reference/run.py writes it back to spec.json) — but the combination
-        # is otherwise read as "filesystem only", so say out loud that this part spends
-        # money and can block on a degraded provider before anything is written.
-        if no_run:
-            warn(
-                f"--reference makes model calls now (1 planner call + {reference_views} image generation(s) "
-                f"+ {reference_views} vision check(s), ~$0.15 for 2 views) — --no-run stops after that"
+    with C.mutating(C.runs_root(runs_dir) / run_slug, what=f"3dcv make {run_slug}", action="create"):
+        ws = C.create_workspace(C.runs_root(runs_dir) / run_slug, force=force)
+        ws.write_json(ws.spec_path, spec)
+        ws.commit("spec")
+        console.print(
+            kv_table(
+                "run",
+                {
+                    "slug": run_slug,
+                    "workspace": ws.root,
+                    "track": track.value,
+                    "language": language.value,
+                    "generator": backends.generator,
+                    "profile": f"{dial.profile} ({C.active_profile(settings).expectation()})",
+                    "judge": f"{backends.judge} n={dial.judge_samples} "
+                    f"({dial.judge_max_px}px/{dial.judge_detail_crops}crop)",
+                    "rounds": rounds,
+                    "max_usd": max_usd,
+                    "candidates": candidates,
+                    "texture": texture,
+                },
             )
-        spec = _ground_in_reference(spec, ws, n_views=reference_views)
-    if no_run:
-        ok(f"spec written: {ws.spec_path} (not run; `3dcv resume {run_slug}` to start)")
-        return
-    _run_track(spec, ws, resume=False, candidates=candidates)
+        )
+        if reference:
+            # --reference runs even under --no-run, because the grounded spec IS the artifact
+            # it produces (reference/run.py writes it back to spec.json) — but the combination
+            # is otherwise read as "filesystem only", so say out loud that this part spends
+            # money and can block on a degraded provider before anything is written.
+            if no_run:
+                warn(
+                    f"--reference makes model calls now (1 planner call + {reference_views} image generation(s) "
+                    f"+ {reference_views} vision check(s), ~$0.15 for 2 views) — --no-run stops after that"
+                )
+            spec = _ground_in_reference(spec, ws, n_views=reference_views)
+        if no_run:
+            ok(f"spec written: {ws.spec_path} (not run; `3dcv resume {run_slug}` to start)")
+            return
+        _run_track(spec, ws, resume=False, candidates=candidates)
 
 
 def _ground_in_reference(spec: Spec, ws, *, n_views: int) -> Spec:
@@ -347,21 +327,15 @@ def _ground_in_reference(spec: Spec, ws, *, n_views: int) -> Spec:
 
 def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, force: bool = False) -> None:
     from codeverse.cost.instrument import run_ledger
-    from codeverse.runlock import RunLocked, run_lock
 
     get_track = C.lazy("codeverse.tracks", "get_track")
     options: dict = {"n_candidates": candidates} if candidates else {}
     options.update(C.round_policy_options(spec))
     try:
-        # ONE writer per run directory (codeverse/runlock.py), and every model call and
+        # already inside the run mutex (make / resume take it); every model call and
         # agent session of this run lands in telemetry/cost.jsonl
-        with (
-            run_lock(ws.root, what=f"3dcv {'resume' if resume else 'make'} {ws.root.name}"),
-            run_ledger(ws.root, run=ws.root.name),
-        ):
+        with run_ledger(ws.root, run=ws.root.name):
             record = get_track(spec.track, **options).run(spec, ws, resume=resume, force=force)
-    except RunLocked as e:
-        raise C.CliError(str(e), code=2) from None
     except KeyboardInterrupt:
         raise C.CliError(
             f"interrupted; resume with `3dcv resume {ws.root.name}`", code=130
@@ -456,44 +430,34 @@ def resume(
     reached a terminal state is refused unless ``--force``: re-entering it spends
     money and overwrites its final state."""
     ws = C.open_workspace(slug, runs_dir)
-    try:  # the run mutex, before the spec is rewritten (a budget raise is a mutation)
-        stack = ExitStack()
-        stack.enter_context(exclusive(ws.root, what=f"3dcv resume {ws.root.name}"))
-    except RunLocked as e:
-        raise C.CliError(str(e), code=2) from None
-    with stack:
-        _resume_in_lock(ws, runs_dir, force=force, max_usd=max_usd, max_minutes=max_minutes,
-                        rounds=rounds, candidates=candidates)
+    # the run mutex, before the spec is rewritten (a budget raise is a mutation)
+    with C.mutating(ws, what=f"3dcv resume {ws.root.name}"):
+        spec = C.load_spec(ws)
+        if (
+            spec.options.profile
+        ):  # the dial the run was created with (judge samples, montage px, turn cap)
+            try:
+                get_settings().apply_profile(spec.options.profile, force=True)
+            except ValueError as e:  # a spec.json naming a profile this build no longer has
+                raise C.CliError(f"{ws.spec_path}: {e}", code=2) from e
+        raised = {
+            k: v
+            for k, v in {"max_usd": max_usd, "max_minutes": max_minutes, "max_rounds": rounds}.items()
+            if v is not None
+        }
+        if not force and (why := _finished_reason(ws, raised)):
+            raise C.CliError(
+                f"run {ws.root.name} already finished ({why}); nothing to resume.  "
+                f"`3dcv status {ws.root.name}` to look at it, or --force to re-enter it "
+                f"(that re-plans, re-scores and overwrites the final state)."
+            )
+        if raised:
+            from codeverse.events import EventLog
 
-
-def _resume_in_lock(ws, runs_dir, *, force: bool, max_usd, max_minutes, rounds, candidates) -> None:
-    """The body of ``resume`` that mutates the run — always under the run mutex."""
-    spec = C.load_spec(ws)
-    if (
-        spec.options.profile
-    ):  # the dial the run was created with (judge samples, montage px, turn cap)
-        try:
-            get_settings().apply_profile(spec.options.profile, force=True)
-        except ValueError as e:  # a spec.json naming a profile this build no longer has
-            raise C.CliError(f"{ws.spec_path}: {e}", code=2) from e
-    raised = {
-        k: v
-        for k, v in {"max_usd": max_usd, "max_minutes": max_minutes, "max_rounds": rounds}.items()
-        if v is not None
-    }
-    if not force and (why := _finished_reason(ws, raised)):
-        raise C.CliError(
-            f"run {ws.root.name} already finished ({why}); nothing to resume.  "
-            f"`3dcv status {ws.root.name}` to look at it, or --force to re-enter it "
-            f"(that re-plans, re-scores and overwrites the final state)."
-        )
-    if raised:
-        from codeverse.events import EventLog
-
-        spec = spec.model_copy(update={"budget": spec.budget.model_copy(update=raised)})
-        ws.write_json(ws.spec_path, spec)
-        EventLog(ws.events_path).emit("budget.raised", **raised)
-    _run_track(spec, ws, resume=True, candidates=candidates, force=force)
+            spec = spec.model_copy(update={"budget": spec.budget.model_copy(update=raised)})
+            ws.write_json(ws.spec_path, spec)
+            EventLog(ws.events_path).emit("budget.raised", **raised)
+        _run_track(spec, ws, resume=True, candidates=candidates, force=force)
 
 
 # --------------------------------------------------------------------------- status / render / judge

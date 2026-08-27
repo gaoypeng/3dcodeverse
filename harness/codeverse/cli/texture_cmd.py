@@ -47,8 +47,10 @@ def pass_(
     texture_pass = C.lazy("codeverse.texturing.run", "texture_pass")
     from codeverse.cost.instrument import run_ledger
 
-    # a post-hoc pass joins the run's ledger when it has one, else the per-process log
-    with run_ledger(ws.root, run=ws.root.name, create=False):
+    # a post-hoc pass joins the run's ledger when it has one, else the per-process log;
+    # it rewrites the run's artifacts, so it holds the run mutex (one writer per run dir)
+    with (C.mutating(ws, what=f"3dcv texture pass {ws.root.name}", action="texture"),
+          run_ledger(ws.root, run=ws.root.name, create=False)):
         rep = texture_pass(ws, spec, plan, model_id=model or spec.backends.planner,
                            image_model=_image_model(image_model), judge=judge,
                            judge_model_id=judge_model, size=size)
@@ -105,7 +107,8 @@ def scene_pack(
     scene_texture_pack = C.lazy("codeverse.texturing.scene_pack", "scene_texture_pack")
     texture_pack_prompt = C.lazy("codeverse.texturing.scene_pack", "texture_pack_prompt")
     model_id = spec.backends.planner if model is None else model
-    pack = scene_texture_pack(plan, out or ws.public / "textures", _image_model(image_model), model_id, size=size, n_max=n)
+    with C.mutating(ws, what=f"3dcv texture scene-pack {ws.root.name}", action="texture"):
+        pack = scene_texture_pack(plan, out or ws.public / "textures", _image_model(image_model), model_id, size=size, n_max=n)
     rows = {name: f"{e.file or 'FAILED'}  tile={e.tile_size_m:.2f}m {e.material_family}/{e.role} seam={e.seam_score:.3f}"
             + (f"  {e.error}" if e.error else "") for name, e in pack.entries.items()}
     console.print(kv_table("scene texture pack", rows))

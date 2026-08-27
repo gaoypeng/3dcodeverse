@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Annotated
 
@@ -24,7 +25,7 @@ def export_cmd(
     tar_prefix: Annotated[str, typer.Option("--tar-prefix", help="repo-root-relative prefix for the tar column")] = "",
     include_unbuilt: Annotated[bool, typer.Option("--include-unbuilt", help="also export runs whose best round never built")] = False,
     captions_dir: Annotated[Path | None, typer.Option("--captions-dir", help="side-car captions written by `caption --out`")] = None,
-    drop_duplicates: Annotated[bool, typer.Option("--drop-duplicates", help="leave normalised duplicates (normalised-code fingerprint + prompt) out of the index, manifest and tars (recorded under the manifest's dropped)")] = False,
+    drop_duplicates: Annotated[bool, typer.Option("--drop-duplicates", help="leave byte-identical duplicates (raw code sha256 + prompt) out of the index, manifest and tars (recorded under the manifest's dropped); normalised ones are only marked near_duplicate_of")] = False,
 ) -> None:
     """Export runs → sample folders + dataset_manifest.json + metadata.jsonl/.parquet
     (+ optional plain tars, packed FROM the manifest)."""
@@ -87,9 +88,11 @@ def caption_cmd(
     out: Annotated[Path | None, typer.Option("--out", help="write side-car <out>/<slug>.json instead of touching the run (read-only runs)")] = None,
 ) -> None:
     """Caption run(s): {detailed, instruction, factory} via a chat model."""
+    from codeverse.cost.instrument import run_ledger
     from codeverse.flywheel.captions import CaptionError, caption_sample
     from codeverse.flywheel.export import load_captions
     from codeverse.flywheel.record import iter_runs, load_record
+    from codeverse.runlock import RunLocked, exclusive
 
     if all_runs:
         targets = [(fr.ws, fr.record, fr.run_id.slug)
@@ -102,9 +105,15 @@ def caption_cmd(
         if not force and load_captions(ws, rec, out, slug=slug).get("detailed"):
             skipped += 1
             continue
+        # PER RUN: captioning rewrites record.json (--out writes a side-car instead and
+        # touches nothing), and a locked run is skipped with a warning — one live run must
+        # not abort a --all batch of hundreds
+        lock = nullcontext() if out else exclusive(ws.root, what=f"3dcv flywheel caption {ws.root.name}")
         try:
-            caps = caption_sample(ws, rec, model, out_dir=out, slug=slug)
-        except CaptionError as e:
+            # the priced captioner call joins the run's ledger (as `3dcv judge` does)
+            with lock, run_ledger(ws.root, run=ws.root.name, create=False):
+                caps = caption_sample(ws, rec, model, out_dir=out, slug=slug)
+        except (CaptionError, RunLocked) as e:
             failed += 1
             warn(str(e))
             continue
