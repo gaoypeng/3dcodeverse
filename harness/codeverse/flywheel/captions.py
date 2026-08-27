@@ -182,7 +182,7 @@ def caption_sample(
     problems: list[str] = []
     for _attempt in range(2):
         resp = model.generate(ChatRequest(messages=messages, system=system, response_schema=schema,
-                                          temperature=0.3, thinking="low", label="captioner"))  # type: ignore[attr-defined]
+                                          temperature=0.3, thinking="low", max_wait_s=300.0, label="captioner"))  # type: ignore[attr-defined]
         cost += resp.usage.cost_usd
         data = resp.parsed if isinstance(resp.parsed, dict) else _parse_json(resp.text)
         try:

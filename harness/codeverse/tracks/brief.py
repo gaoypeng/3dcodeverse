@@ -133,7 +133,7 @@ def expand_brief(spec: Spec, model_id: str, *, model: Any | None = None, events:
         resp = model.generate(ChatRequest(
             messages=[ChatMessage.user(user, images=images or None)], system=system,
             response_schema=EngineeringBrief.model_json_schema(), temperature=0.3, thinking="low",
-            max_output_tokens=BRIEF_MAX_TOKENS, label="planner-brief"))
+            max_output_tokens=BRIEF_MAX_TOKENS, max_wait_s=300.0, label="planner-brief"))
         usage = usage + resp.usage
         # parse_json_lenient, not json.loads: it tolerates fences/prose AND strips the
         # C0 controls a model can emit, which json.loads would carry into the brief.

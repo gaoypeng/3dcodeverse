@@ -319,7 +319,7 @@ def material_plan(
         messages=[ChatMessage.user(text, images=[ImagePart(path=str(p), label=p.stem) for p in images])],
         system="You plan PBR textures for 3D assets. Answer with JSON only.",
         response_schema=PlannerOutput.model_json_schema(), temperature=temperature, thinking="low",
-        max_output_tokens=8000, label="texture_plan",
+        max_output_tokens=8000, max_wait_s=300.0, label="texture_plan",
     )
     resp = model.generate(req)
     payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)

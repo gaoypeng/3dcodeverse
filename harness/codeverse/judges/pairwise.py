@@ -231,7 +231,8 @@ class PairwiseJudge:
         parts.append(TextPart(text="Compare A and B and return the JSON object."))
         return ChatRequest(
             messages=[ChatMessage(role="user", parts=parts)], system=_SYSTEM,
-            response_schema=PairwiseReply.model_json_schema(), temperature=self.temperature, label=label,
+            response_schema=PairwiseReply.model_json_schema(), temperature=self.temperature,
+            max_wait_s=240.0, label=label,
         )
 
     def _side_images(self, tag: str, rs: RenderSet) -> list[tuple[str, ImagePart]]:

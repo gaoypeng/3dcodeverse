@@ -148,7 +148,7 @@ def scene_pack_plan(
                   environment=plan.environment, zones=zones, assets=assets)
     req = ChatRequest(messages=[ChatMessage.user(text)], system="You plan texture packs for 3D scenes. JSON only.",
                       response_schema=PackOutput.model_json_schema(), temperature=temperature, thinking="low",
-                      max_output_tokens=8000, label="scene_texture_pack")
+                      max_output_tokens=8000, max_wait_s=300.0, label="scene_texture_pack")
     resp = model.generate(req)
     payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
     try:

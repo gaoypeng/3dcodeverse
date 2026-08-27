@@ -85,7 +85,7 @@ def compare(
     images += [ImagePart(path=str(p), label=f"RENDER {i + 1} ({p.stem})") for i, p in enumerate(rens)]
     req = ChatRequest(messages=[ChatMessage.user(text, images=images)], system=DIFF_SYSTEM,
                       response_schema=DiffAnswer.model_json_schema(), temperature=temperature,
-                      thinking="low", max_output_tokens=3000, label="reference_diff")
+                      thinking="low", max_output_tokens=3000, max_wait_s=240.0, label="reference_diff")
     try:
         resp = model.generate(req)
     except ModelError as e:
