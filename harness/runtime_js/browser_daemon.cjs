@@ -63,6 +63,15 @@ async function main() {
   fs.rmSync(lockPath, { force: true });
 
   const bail = async (code) => {
+    // Never close a browser somebody is using: pages beyond the initial about:blank
+    // mean live work, and closing it kills their page mid-call.  Re-advertise instead;
+    // the HARD_REAP_MS check below is the backstop for a client that never came back.
+    try {
+      if ((await browser.pages()).length > 1) {
+        fs.writeFileSync(epPath, JSON.stringify(record, null, 2));
+        return;
+      }
+    } catch (_e) { /* browser gone: fall through and exit */ }
     const cur = (() => { try { return JSON.parse(fs.readFileSync(epPath, 'utf8')); } catch (_e) { return null; } })();
     if (cur && cur.ws === record.ws) fs.rmSync(epPath, { force: true });
     try { await browser.close(); } catch (_e) { /* already dead */ }

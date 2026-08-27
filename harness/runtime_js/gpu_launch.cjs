@@ -166,12 +166,15 @@ async function connectShared(puppeteer, backend) {
   if (!info || !info.ws) return null;
   try {
     const browser = await puppeteer.connect({ browserWSEndpoint: info.ws, protocolTimeout: PROTOCOL_TIMEOUT_MS });
-    // Health canary: a long-lived shared browser can wedge (hours of WSL GPU decay
-    // plus pages leaked by SIGKILLed clients) — then every CDP roundtrip stalls for
-    // ~100 s and every render pays it.  One bounded pages() catches both failure
-    // modes: unresponsive, or overgrown with leaked pages.  A bad verdict poisons
-    // the endpoint (the daemon sees it vanish, bails and closes the browser) and
-    // the caller spawns a fresh daemon (~1 s once, instead of minutes per render).
+    // Health canary: a long-lived shared browser can wedge (WSL GPU decay plus pages
+    // leaked by SIGKILLed clients) and then every CDP roundtrip stalls ~100 s.  One
+    // bounded pages() decides whether THIS caller uses it — nothing more.  It must not
+    // retire the browser: deleting the endpoint makes the daemon close it, and a
+    // busy box (four runs, blender pegging the CPU) answers pages() slowly, so a
+    // false verdict killed a live scene probe's page mid-call with
+    // 'Protocol error: Target closed' (measured 2026-08-27).  Only the daemon, which
+    // knows whether anyone is working, may retire the browser; a caller that does not
+    // like what it sees simply launches its own.
     let pages = null;
     try {
       let timer = null;
@@ -183,8 +186,7 @@ async function connectShared(puppeteer, backend) {
     } catch (_e) { pages = null; }
     if (!pages || pages.length > MAX_SHARED_PAGES) {
       try { await browser.disconnect(); } catch (_e) { /* ignore */ }
-      try { fs.rmSync(endpointPath(backend), { force: true }); } catch (_e2) { /* ignore */ }
-      return null;
+      return null;   // own launch for this caller; the endpoint stays for everyone else
     }
     heartbeat(backend);
     // Keep the heartbeat fresh WHILE the client works: it used to tick only on
