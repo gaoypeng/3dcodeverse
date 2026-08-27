@@ -8,7 +8,9 @@
 
 Rules enforced in code: strict JSON schema, no API/class names, no brand names,
 each field non-empty.  Captions are stored in ``record.extra["captions"]`` (with
-provenance) and ``<ws>/captions.json``; ``record.json`` is rewritten — or, with
+provenance) and ``<ws>/captions.json``; the run is re-packaged (deliverable/ +
+telemetry/ + ``record.json``, so the priced captioner call reaches the run's
+ledger and ``deliverable/captions.json`` exists) — or, with
 ``out_dir`` (read-only runs), written as a side-car ``<out_dir>/<slug>.json`` that
 ``export_samples(captions_dir=...)`` picks up.
 """
@@ -160,7 +162,8 @@ def caption_sample(
     """Caption the best round of ``record``.
 
     Default: store into ``record.extra["captions"]`` + ``<ws>/captions.json`` and
-    rewrite ``record.json``.  With ``out_dir`` the workspace is left untouched and
+    re-package the run (``package_run``: deliverable/, telemetry/, ``record.json``) —
+    a caption changes all three.  With ``out_dir`` the workspace is left untouched and
     ``<out_dir>/<slug>.json`` (captions + provenance) is written instead — ``slug``
     should be the run's :class:`~codeverse.contracts.run.RunId` slug; without one the
     side-car falls back to the directory basename (flat layouts only: every nested
@@ -208,7 +211,10 @@ def caption_sample(
         out.mkdir(parents=True, exist_ok=True)
         (out / f"{slug or ws.root.name}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False))
         return caps
+    from codeverse.flywheel.record import package_run
+
     ws.write_json(ws.root / "captions.json", payload)
+    package_run(ws, record)  # captions.json + cost.json + the manifest all go stale otherwise
     ws.write_json(ws.record_path, record)
     return caps
 

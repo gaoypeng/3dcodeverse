@@ -6,7 +6,8 @@ duplicate, a re-pack truncated the previous valid archive at open, and a planted
 ``src/meta.json`` (sample folders carry the run's LLM-written src/** tree) could
 inject a phantom row.  The manifest is now the single source of truth: pack tars
 ONLY manifest entries, verifies every byte against the recorded sha256, and
-replaces archives atomically after the whole loop succeeded.
+publishes the archives AND the index in one replace loop after the whole pack
+succeeded (a failure in either window leaves the previous dataset untouched).
 """
 
 from __future__ import annotations
@@ -70,7 +71,7 @@ def test_filtered_runs_are_recorded_as_dropped(runs_dir: Path, tmp_path: Path):
 # --------------------------------------------------------------------------- drop-duplicates → pack
 def test_drop_duplicates_then_pack_ships_no_duplicate(runs_dir: Path, tmp_path: Path):
     out = tmp_path / "ds"
-    # the codex run shares prompt + best-round code with the chair → normalised duplicate
+    # the codex run shares prompt + best-round code bytes with the chair → exact duplicate
     rep = export_samples(runs_dir, out, drop_duplicates=True)
     assert rep.n_exported == 3 and rep.n_indexed == 2 and rep.n_duplicates == 1
     m = load_manifest(out)
@@ -99,12 +100,16 @@ def test_pack_without_a_manifest_is_a_hard_error(tmp_path: Path):
         load_manifest(out)
 
 
-def test_repack_failure_leaves_the_old_tar_and_index_intact(runs_dir: Path, tmp_path: Path):
+def _packed_state(out: Path) -> dict[str, bytes]:
+    return {p.name: p.read_bytes()
+            for p in [*out.glob("samples-*.tar"), out / "metadata.jsonl", out / "metadata.parquet"]}
+
+
+def test_a_failure_inside_the_pack_loop_leaves_the_old_tar_and_index_intact(runs_dir: Path, tmp_path: Path):
     out = tmp_path / "ds"
     export_samples(runs_dir, out)
     pack_samples(out)
-    tar_path = out / "samples-000.tar"
-    before = {p.name: p.read_bytes() for p in (tar_path, out / "metadata.jsonl", out / "metadata.parquet")}
+    before = _packed_state(out)
     # corrupt the recorded hash of a file in the LAST entry: the mismatch fires
     # mid-pack, after earlier samples were already added to the new tmp archive
     m = load_manifest(out)
@@ -114,11 +119,38 @@ def test_repack_failure_leaves_the_old_tar_and_index_intact(runs_dir: Path, tmp_
     write_manifest(m, out)
     with pytest.raises(PackError, match=re.escape(rel)):
         pack_samples(out)
-    assert tar_path.read_bytes() == before["samples-000.tar"]  # old archive untouched
-    assert (out / "metadata.jsonl").read_bytes() == before["metadata.jsonl"]
-    assert (out / "metadata.parquet").read_bytes() == before["metadata.parquet"]
+    assert _packed_state(out) == before  # old archives AND index untouched
     assert not list(out.glob("*.tmp"))  # the half-written tmp tar is cleaned up
     assert verify_locators(out) == 3  # the previous pack still round-trips
+
+
+def test_a_failure_after_the_pack_loop_publishes_nothing(runs_dir: Path, tmp_path: Path, monkeypatch):
+    """The window the tar loop does NOT cover: every tar is written, then the index
+    write fails.  Publishing the tars alone left the OLD index resolving to the new
+    tars' byte offsets — six rows pointing at the wrong bytes, and verify_locators
+    happily passing a corrupt dataset."""
+    import codeverse.flywheel.pack as P
+
+    out = tmp_path / "ds"
+    export_samples(runs_dir, out)
+    pack_samples(out)
+    before = _packed_state(out)
+    monkeypatch.setattr(P, "write_parquet", lambda *a, **k: (_ for _ in ()).throw(OSError("No space left on device")))
+    with pytest.raises(OSError, match="No space left"):
+        pack_samples(out)
+    assert _packed_state(out) == before
+    assert not list(out.glob("*.tmp"))
+    assert verify_locators(out) == 3
+
+
+def test_a_repack_with_fewer_shards_leaves_no_orphan_tar(runs_dir: Path, tmp_path: Path):
+    out = tmp_path / "ds"
+    export_samples(runs_dir, out)
+    assert pack_samples(out, max_tar_bytes=1).tars == ["samples-000.tar", "samples-001.tar", "samples-002.tar"]
+    prep = pack_samples(out)  # one shard now: 001/002 are dead bytes the index never names
+    assert prep.tars == ["samples-000.tar"]
+    assert sorted(p.name for p in out.glob("samples-*.tar")) == ["samples-000.tar"]
+    assert verify_locators(out) == 3
 
 
 def test_a_tampered_sample_file_fails_fast_and_names_it(runs_dir: Path, tmp_path: Path):

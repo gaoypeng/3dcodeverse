@@ -8,8 +8,9 @@ folder can be zipped and sent on its own:
   or ``robot.urdf`` + ``meshes/*.glb``, or ``frames/*.png`` + ``preview.gif``;
 * ``sheet.png`` — the best round's contact sheet (one picture of the result);
 * ``captions.json`` when the run is captioned;
-* ``manifest.json`` — every file with its role, size and sha256 (mirrored into
-  ``record.deliverable``).
+* ``manifest.json`` — every OTHER file with its role, size and sha256 (mirrored
+  into ``record.deliverable``).  It does not list itself: a file cannot carry its
+  own hash, and the returned object must be exactly what is on disk.
 
 Renders per round, gates, judge verdicts and measurements stay in the evidence
 bucket (``artifacts/`` = ``evidence/``); tokens, prices and settings stay in
@@ -35,7 +36,6 @@ log = logging.getLogger(__name__)
 
 MAX_FILE_BYTES = 128 * 1024 * 1024
 MAX_TOTAL_BYTES = 512 * 1024 * 1024
-MANIFEST_NAME = "manifest.json"
 
 #: artifact file → role, copied when present (object tracks / articulated / graphics)
 _ARTIFACT_ROLES: tuple[tuple[str, str], ...] = (
@@ -176,8 +176,7 @@ def _stable_timestamp(previous: RunDeliverable | None, current: RunDeliverable) 
     packager (or the migration) is a no-op instead of a diff."""
     if previous is None or previous.generated_at is None:
         return current.generated_at or datetime.now(UTC)
-    same = {(f.path, f.sha256) for f in previous.files if f.role != "manifest"} == {
-        (f.path, f.sha256) for f in current.files}
+    same = {(f.path, f.sha256) for f in previous.files} == {(f.path, f.sha256) for f in current.files}
     return previous.generated_at if same else (current.generated_at or datetime.now(UTC))
 
 
@@ -209,13 +208,8 @@ def build_deliverable(ws: Workspace, record: RunRecord, *, clean: bool = True) -
         generated_at=datetime.now(UTC),
     )
     manifest.generated_at = _stable_timestamp(previous, manifest)
-    payload = manifest.model_dump(mode="json")
-    write_json_atomic(ws.deliverable_manifest_path, payload)
-    manifest.files.append(DeliverableFile(
-        path=f"deliverable/{MANIFEST_NAME}", role="manifest",
-        bytes=ws.deliverable_manifest_path.stat().st_size,
-        sha256=_sha256(ws.deliverable_manifest_path.read_bytes())))
-    return manifest
+    write_json_atomic(ws.deliverable_manifest_path, manifest.model_dump(mode="json"))
+    return manifest  # exactly what is on disk: len(files) and total_bytes == sum(f.bytes)
 
 
 def load_deliverable(ws: Workspace, record: RunRecord | None = None) -> RunDeliverable | None:

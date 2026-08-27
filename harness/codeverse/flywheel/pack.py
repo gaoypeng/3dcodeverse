@@ -5,9 +5,10 @@ the ``tar / byte_start / byte_len / n_files`` locator columns (STORAGE_RULES §3
 ``export_samples``) — no directory rescan, so a duplicate dropped at export can
 never ship and nothing outside the manifest reaches an archive.  Every file is
 sha256-verified against the manifest as it is added (fail fast, naming the file);
-each archive is written as ``samples-NNN.tar.tmp`` and moved into place only
-after the WHOLE pack loop succeeded, so a failed re-pack leaves the previous
-archives and index untouched.
+the archives AND the two index files are written as ``.tmp`` and moved into place
+in one final loop, so a failure anywhere — including in ``write_parquet`` — leaves
+the previous archives and index untouched.  Tars left over from a re-pack that
+produced fewer shards are removed after that loop.
 
 Each sample's files are written consecutively so ``byte_start..+byte_len`` is a
 valid sub-tar; ``verify_locators`` round-trips every row.
@@ -132,6 +133,10 @@ def pack_samples(out_dir: Path | str, *, tar_prefix: str = "", max_tar_bytes: in
             rep.n_samples += 1
         tar.close()
         tar = None
+        # the index is published WITH the tars: a failure here used to leave every new
+        # tar in place and the old index pointing into it (byte offsets of a re-pack)
+        tmp_to_final.append((write_parquet(rows, out / PARQUET_NAME, commit=False), out / PARQUET_NAME))
+        tmp_to_final.append((write_jsonl(rows, out / JSONL_NAME, commit=False), out / JSONL_NAME))
         done = True
     finally:
         if not done:  # leave the previous archives and index exactly as they were
@@ -141,8 +146,11 @@ def pack_samples(out_dir: Path | str, *, tar_prefix: str = "", max_tar_bytes: in
                 tmp.unlink(missing_ok=True)
     for tmp, final in tmp_to_final:
         os.replace(tmp, final)
-    rep.parquet = str(write_parquet(rows, out / PARQUET_NAME))
-    write_jsonl(rows, out / JSONL_NAME)
+    for stale in out.glob("samples-*.tar"):  # a re-pack with fewer shards must leave no dead tar
+        n = stale.name[len("samples-"):-len(".tar")]
+        if n.isdigit() and int(n) >= tar_idx:
+            stale.unlink()
+    rep.parquet = str(out / PARQUET_NAME)
     return rep
 
 

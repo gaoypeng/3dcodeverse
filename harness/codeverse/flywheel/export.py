@@ -11,9 +11,9 @@ choose can leak into the index):
   captions{detailed,instruction,factory}, meta_json, code, tar, byte_start,
   byte_len, n_files``) plus queryable extras (``track, language, score, passed,
   generator, quality_tier, complexity (+band), gate_errors, cost_usd, rounds, status,
-  code_fingerprint, prompt_hash, duplicate_of, has_captions``).  ``tar``/``byte_*``
-  are filled by ``pack.py``; ``duplicate_of`` by the (code fingerprint, prompt)
-  dedupe pass (``""`` = canonical row).
+  code_fingerprint, code_sha256, prompt_hash, duplicate_of, near_duplicate_of,
+  has_captions``).  ``tar``/``byte_*`` are filled by ``pack.py``; ``duplicate_of``
+  (raw hash) and ``near_duplicate_of`` (normalised) by the dedupe pass.
 * ``<out>/metadata.jsonl`` — same rows, one JSON object per line.
 * ``<out>/duplicates.json`` — the duplicate groups found by the last export.
 * ``<out>/dataset_manifest.json`` — the generation manifest: the filters, one
@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.run import RunId, RunRecord
 from codeverse.flywheel import sample as S
+from codeverse.flywheel._git import CODE_ROOTS
 from codeverse.flywheel.dedupe import code_sha256
 from codeverse.flywheel.manifest import (
     DatasetGenerationManifest,
@@ -180,11 +181,12 @@ def export_samples(
     API stability); the best round is chosen by ``record.best_round`` or the
     highest judged score.  Runs whose best round never built are skipped unless
     ``include_unbuilt`` (failed runs are still useful for repair pairs, not as
-    dataset samples).  Normalised duplicates (same
-    ``dedupe.code_fingerprint`` — a hash of whitespace/comment-normalised code —
-    plus the same prompt) are marked in the index (``duplicate_of``) and, with
-    ``drop_duplicates``, left out of it AND of the manifest entries, recorded
-    under ``manifest.dropped`` as ``duplicate_of:<id>`` (folders stay on disk).
+    dataset samples).  Byte-identical duplicates (same raw ``code_sha256`` + prompt)
+    are marked ``duplicate_of`` and, with ``drop_duplicates``, left out of the index
+    AND of the manifest entries, recorded under ``manifest.dropped`` as
+    ``duplicate_of:<id>`` (folders stay on disk).  Normalised duplicates are only
+    MARKED (``near_duplicate_of``) — never dropped: whitespace inside a string
+    literal is not a duplicate.
     """
     if not best_round:
         raise ValueError("export_samples: only best_round=True is supported")
@@ -324,8 +326,11 @@ def row_for_sample(sample_dir: Path) -> dict[str, Any]:
         "rounds": int(meta.get("rounds") or 0),
         "status": str(meta.get("status") or ""),
         "code_fingerprint": str(meta.get("code_fingerprint") or ""),
+        "code_sha256": code_sha256({rel: (sample_dir / rel).read_bytes()
+                                    for rel in meta.get("files", []) if rel.split("/")[0] in CODE_ROOTS}),
         "prompt_hash": str(meta.get("prompt_hash") or ""),
         "duplicate_of": "",
+        "near_duplicate_of": "",
         "has_captions": bool(caps.get("detailed")),
     }
 
@@ -372,15 +377,18 @@ def parquet_schema() -> Any:
             ("rounds", pa.int32()),
             ("status", pa.string()),
             ("code_fingerprint", pa.string()),
+            ("code_sha256", pa.string()),
             ("prompt_hash", pa.string()),
             ("duplicate_of", pa.string()),
+            ("near_duplicate_of", pa.string()),
             ("has_captions", pa.bool_()),
         ]
     )
 
 
-def write_parquet(rows: list[dict[str, Any]], path: Path) -> Path:
-    """One row per sample, in :func:`parquet_schema` order.
+def write_parquet(rows: list[dict[str, Any]], path: Path, *, commit: bool = True) -> Path:
+    """One row per sample, in :func:`parquet_schema` order.  ``commit=False`` leaves the
+    file at ``<path>.tmp`` and returns it, so a caller can publish it with other files.
 
     ``from_pylist(schema=...)`` DROPS any key the schema does not name, silently: that is
     how ``complexity`` / ``complexity_band`` — filled by :func:`row_for_sample`, kept in
@@ -400,14 +408,19 @@ def write_parquet(rows: list[dict[str, Any]], path: Path) -> Path:
     table = pa.Table.from_pylist(rows, schema=schema)
     tmp = path.with_suffix(".parquet.tmp")
     pq.write_table(table, tmp, compression="zstd")
+    if not commit:
+        return tmp
     tmp.replace(path)
     return path
 
 
-def write_jsonl(rows: list[dict[str, Any]], path: Path) -> Path:
+def write_jsonl(rows: list[dict[str, Any]], path: Path, *, commit: bool = True) -> Path:
+    """``commit=False``: leave ``<path>.tmp`` and return it (see :func:`write_parquet`)."""
     tmp = path.with_suffix(".jsonl.tmp")
     with tmp.open("w") as fh:
         for r in rows:
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+    if not commit:
+        return tmp
     tmp.replace(path)
     return path

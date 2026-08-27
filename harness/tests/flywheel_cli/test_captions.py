@@ -53,6 +53,32 @@ def test_caption_sample_stores_and_writes(fake_run):
     assert again.extra["captions"]["factory"] == GOOD["factory"]
     assert again.extra["captions"]["provenance"]["captioner"] == "fake:fake"
     assert again.extra["captions"]["provenance"]["cost_usd"] == pytest.approx(0.001)
+    # a caption changes the hand-over folder too — it used to leave deliverable/,
+    # the manifest, record.deliverable and telemetry/ describing an uncaptioned run
+    assert json.loads((ws.deliverable / "captions.json").read_text())["factory"] == GOOD["factory"]
+    assert again.deliverable is not None and again.telemetry is not None
+    assert "deliverable/captions.json" in {f.path for f in again.deliverable.files}
+
+
+def test_caption_cmd_writes_the_captioner_row_into_the_run_ledger(fake_run, monkeypatch):
+    """`3dcv flywheel caption` joins the run's ledger the way `3dcv judge` does —
+    the captioner's priced call used to go to the per-process log instead."""
+    from typer.testing import CliRunner
+
+    import codeverse.models.registry as R
+    from codeverse.cli.main import app
+    from codeverse.cost.ledger import open_run_ledger
+
+    ws, rec = fake_run
+    ledger = open_run_ledger(ws.root)  # the run already keeps one (create=False appends)
+    ledger.path.touch()
+    monkeypatch.setattr(R, "_build_chat_model", lambda _mid: FakeModel([GOOD]))
+    r = CliRunner().invoke(app, ["flywheel", "caption", ws.root.name, "--runs-dir", str(ws.root.parent),
+                                 "--model", "fake:fake"])
+    assert r.exit_code == 0, r.output
+    rows = [json.loads(ln) for ln in ledger.path.read_text().splitlines() if ln.strip()]
+    assert any(row.get("label") == "captioner" for row in rows), rows
+    assert (ws.deliverable / "captions.json").is_file()
 
 
 def test_caption_retry_then_fail(fake_run):

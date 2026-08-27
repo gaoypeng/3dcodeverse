@@ -59,7 +59,10 @@ def test_package_run_builds_deliverable_and_telemetry(fake_run):
     assert rec.deliverable is not None and rec.telemetry is not None
     d = rec.deliverable
     roles = {f.role for f in d.files}
-    assert {"code", "model", "sheet", "manifest"} <= roles
+    # the manifest does NOT list itself: no file can carry its own hash, and the
+    # returned object used to have one more file (and a smaller total) than the disk
+    assert {"code", "model", "sheet"} <= roles and "manifest" not in roles
+    assert load_deliverable(ws) == d and d.total_bytes == sum(f.bytes for f in d.files)
     assert d.best_round == 1 and d.code_source == "commit"
     assert d.entry == "deliverable/src/model.py"
     assert (ws.deliverable / "src" / "model.py").read_text().startswith("# round 1")

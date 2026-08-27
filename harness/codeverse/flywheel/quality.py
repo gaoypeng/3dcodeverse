@@ -1,4 +1,4 @@
-"""Dataset hygiene: quality tiers + normalised-duplicate detection by (code fingerprint, prompt).
+"""Dataset hygiene: quality tiers + duplicate detection by (code hash, prompt).
 
 * ``quality_tier(passed, gate_errors, score)`` → ``A | B | C | D``::
 
@@ -8,9 +8,12 @@
       D  everything else (unjudged, failed, low score)
 
 * ``find_duplicates(rows)`` groups index rows with identical
-  ``(code_fingerprint, prompt_hash)``; the canonical row of a group is the
+  ``(code_sha256, prompt_hash)`` — RAW bytes.  The canonical row of a group is the
   best (tier, score, fewest gate errors, captioned, then key order) and every other row gets
-  ``duplicate_of = canonical id``.
+  ``duplicate_of = canonical id``.  This is the only set anything may DROP.
+* ``find_near_duplicates(rows)`` groups on the NORMALISED ``code_fingerprint``
+  instead and only stamps ``near_duplicate_of``: ``x = "a b"`` and ``x="ab"``
+  normalise the same but are different programs, so they are marked, never removed.
 """
 
 from __future__ import annotations
@@ -42,7 +45,7 @@ def quality_tier(*, passed: bool | None, gate_errors: int, score: float | None) 
 
 
 class DuplicateGroup(BaseModel):
-    code_fingerprint: str
+    code_hash: str = Field(description="raw code_sha256 (find_duplicates) or normalised code_fingerprint (near)")
     prompt_hash: str
     canonical: str = Field(description="sample id kept")
     duplicates: list[str] = Field(default_factory=list, description="sample ids marked duplicate_of=canonical")
@@ -60,37 +63,43 @@ def _rank(row: dict[str, Any]) -> tuple:
     )
 
 
-def find_duplicates(rows: Iterable[dict[str, Any]]) -> list[DuplicateGroup]:
-    """Group rows by identical (code_fingerprint, prompt_hash); only groups with ≥ 2 rows are returned.
-
-    The fingerprint is of NORMALISED code (``dedupe.normalise_code`` strips comments
-    and whitespace), so these are normalised duplicates, not raw-byte-exact ones —
-    the raw hash lives in the manifest as ``code_sha256``.
-    Rows without a fingerprint are never grouped.  The rows are not modified;
-    use ``mark_duplicates`` to stamp ``duplicate_of``.
-    """
+def _group(rows: Iterable[dict[str, Any]], column: str) -> list[DuplicateGroup]:
+    """Groups of ≥ 2 rows sharing ``(row[column], prompt_hash)``; blank keys never group.
+    The rows are not modified — ``mark_duplicates`` stamps them."""
     buckets: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for r in rows:
-        fp = str(r.get("code_fingerprint") or "")
-        if not fp:
+        key = str(r.get(column) or "")
+        if not key:
             continue
-        buckets[(fp, str(r.get("prompt_hash") or ""))].append(r)
+        buckets[(key, str(r.get("prompt_hash") or ""))].append(r)
     groups = []
-    for (fp, ph), members in sorted(buckets.items()):
+    for (key, ph), members in sorted(buckets.items()):
         if len(members) < 2:
             continue
         members = sorted(members, key=_rank)
-        groups.append(DuplicateGroup(code_fingerprint=fp, prompt_hash=ph, canonical=str(members[0]["id"]),
+        groups.append(DuplicateGroup(code_hash=key, prompt_hash=ph, canonical=str(members[0]["id"]),
                                      duplicates=[str(m["id"]) for m in members[1:]]))
     return groups
 
 
+def find_duplicates(rows: Iterable[dict[str, Any]]) -> list[DuplicateGroup]:
+    """Exact duplicates: identical RAW ``(code_sha256, prompt_hash)`` — the only DROP set."""
+    return _group(rows, "code_sha256")
+
+
+def find_near_duplicates(rows: Iterable[dict[str, Any]]) -> list[DuplicateGroup]:
+    """Normalised duplicates (``code_fingerprint``) — MARKED as ``near_duplicate_of``, never dropped."""
+    return _group(rows, "code_fingerprint")
+
+
 def mark_duplicates(rows: list[dict[str, Any]]) -> list[DuplicateGroup]:
-    """Set ``row["duplicate_of"]`` ("" for canonical rows) in place; returns the groups."""
-    for r in rows:
-        r["duplicate_of"] = ""
+    """Stamp ``duplicate_of`` (raw) and ``near_duplicate_of`` (normalised) in place;
+    returns the exact groups — the only ones a caller may drop."""
     groups = find_duplicates(rows)
     dup_of = {d: g.canonical for g in groups for d in g.duplicates}
+    near_of = {d: g.canonical for g in find_near_duplicates(rows) for d in g.duplicates}
     for r in rows:
-        r["duplicate_of"] = dup_of.get(str(r.get("id")), "")
+        rid = str(r.get("id"))
+        r["duplicate_of"] = dup_of.get(rid, "")
+        r["near_duplicate_of"] = near_of.get(rid, "")
     return groups

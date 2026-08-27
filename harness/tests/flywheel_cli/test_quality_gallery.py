@@ -36,20 +36,43 @@ def test_quality_tier_rule():
     assert quality_tier(passed=None, gate_errors=5, score=None) == "D"
 
 
-def test_find_and_mark_duplicates():
+def test_only_raw_hash_duplicates_are_dropped_normalised_ones_are_only_marked():
+    """``duplicate_of`` (the DROP set) is keyed on the RAW code_sha256; the normalised
+    fingerprint only ever stamps ``near_duplicate_of`` — row c differs from a/b/e in
+    bytes alone and must survive."""
     rows = [
-        {"id": "a", "key": "a", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "B", "score": 0.8},
-        {"id": "b", "key": "b", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "A", "score": 0.8},
-        {"id": "c", "key": "c", "code_fingerprint": "X", "prompt_hash": "q", "quality_tier": "A", "score": 0.9},
-        {"id": "d", "key": "d", "code_fingerprint": "", "prompt_hash": "p", "quality_tier": "A", "score": 0.9},
-        {"id": "e", "key": "e", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "A", "score": 0.8,
+        {"id": "a", "key": "a", "code_sha256": "R", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "B", "score": 0.8},
+        {"id": "b", "key": "b", "code_sha256": "R", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "A", "score": 0.8},
+        {"id": "c", "key": "c", "code_sha256": "S", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "A", "score": 0.8},
+        {"id": "d", "key": "d", "code_sha256": "R", "code_fingerprint": "X", "prompt_hash": "q", "quality_tier": "A", "score": 0.9},
+        {"id": "e", "key": "e", "code_sha256": "R", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "A", "score": 0.8,
          "has_captions": True},
+        {"id": "f", "key": "f", "code_sha256": "", "code_fingerprint": "", "prompt_hash": "p", "quality_tier": "A", "score": 0.9},
     ]
     groups = find_duplicates(rows)
     assert len(groups) == 1 and groups[0].canonical == "e" and set(groups[0].duplicates) == {"a", "b"}
     mark_duplicates(rows)
-    assert {r["id"]: r["duplicate_of"] for r in rows} == {"a": "e", "b": "e", "c": "", "d": "", "e": ""}
+    assert {r["id"]: r["duplicate_of"] for r in rows} == {"a": "e", "b": "e", "c": "", "d": "", "e": "", "f": ""}
+    assert {r["id"]: r["near_duplicate_of"] for r in rows} == {"a": "e", "b": "e", "c": "e", "d": "", "e": "", "f": ""}
     assert prompt_hash("  a chair ") == prompt_hash("a chair") and len(prompt_hash("x")) == 16
+
+
+def test_whitespace_inside_a_string_is_a_near_duplicate_not_a_duplicate(runs_dir: Path, tmp_path: Path):
+    """``LABEL = "a b"`` and ``LABEL="ab"`` normalise identically but are different
+    programs: --drop-duplicates must keep both and only mark them, while the
+    byte-identical chair/codex pair is still dropped."""
+    common = '# round 1\nimport bpy\nLABEL={}\nbpy.ops.mesh.primitive_cube_add(size=2.0)\n'
+    make_fake_run(runs_dir, "stool_spaced", prompt="a stool", code_v2=common.format('"a b"'))
+    make_fake_run(runs_dir, "stool_tight", prompt="a stool", code_v2=common.format('"ab"'))
+    out = tmp_path / "ds"
+    rep = export_samples(runs_dir, out, drop_duplicates=True)
+    rows = {json.loads(ln)["key"]: json.loads(ln) for ln in (out / "metadata.jsonl").read_text().splitlines()}
+    assert {"stool_spaced", "stool_tight"} <= set(rows)
+    assert rows["stool_spaced"]["code_sha256"] != rows["stool_tight"]["code_sha256"]
+    assert rows["stool_spaced"]["code_fingerprint"] == rows["stool_tight"]["code_fingerprint"]
+    assert [rows[k]["duplicate_of"] for k in ("stool_spaced", "stool_tight")] == ["", ""]
+    assert rows["stool_tight"]["near_duplicate_of"] == "3dcodeverse/static_object/blender/stool_spaced"
+    assert "wooden_chair_codex" not in rows and rep.n_duplicates == 1  # byte-identical → dropped
 
 
 # --------------------------------------------------------------------------- export extras
@@ -89,8 +112,8 @@ def test_export_meta_tiers_duplicates_and_captions_sidecar(runs_dir: Path, tmp_p
     import pyarrow.parquet as pq
 
     table = pq.read_table(out / "metadata.parquet")
-    assert {"quality_tier", "gate_errors", "cost_usd", "rounds", "status", "code_fingerprint", "prompt_hash",
-            "duplicate_of", "has_captions"} <= set(table.column_names)
+    assert {"quality_tier", "gate_errors", "cost_usd", "rounds", "status", "code_fingerprint", "code_sha256",
+            "prompt_hash", "duplicate_of", "near_duplicate_of", "has_captions"} <= set(table.column_names)
     # drop duplicates from the index (folder stays)
     rep2 = export_samples(runs_dir, out, captions_dir=side, drop_duplicates=True)
     assert rep2.n_indexed == 3 and rep2.n_duplicates == 2 and rep2.tiers == {"A": 2, "C": 1}
