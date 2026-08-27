@@ -488,13 +488,13 @@ best-round judge views (`scene_v1`, n=2, stills only).
 
 | | n | Δ ours−theirs (mean) | sd | wins | sign p | their min / $ per item | ours |
 |---|---|---|---|---|---|---|---|
-| objects, visual only | 11 | **+0.130** | 0.358 | 7/4 | 0.55 | — (curated gallery) | 1–4 rounds, $0.4–4, 13–300 min (storm) |
-| objects, gated | 11 | +0.235 | 0.287 | 10/1 | 0.012 | | |
+| objects, visual only | 12 | **+0.105** | 0.352 | 7/5 | 0.77 | — (curated gallery) | 1–4 rounds, $0.4–4, 13–300 min (storm) |
+| objects, gated | 12 | +0.207 | 0.290 | 10/2 | 0.039 | | |
 | scenes (stills, one judge) | 5 | **+0.253** | 0.229 | 4/5 | 0.375 | 87.5 min / $11.84 | 40.6 min / $3.17 |
 
-Reading: on pure perception the objects are at parity with their *curated* gallery (+0.13 is
-inside the 0.202 paired floor; per language blender −0.006, cadquery +0.11, threejs +0.34);
-with geometry measured we are ahead on 10 of 11.  The same GLB re-judged twice moved by up to
+Reading: on pure perception the objects are at parity with their *curated* gallery (+0.105 is
+inside the 0.202 paired floor; blender −0.04, cadquery +0.11, threejs +0.34);
+with geometry measured we are ahead on 10 of 12 (final, all twelve prompts judged on both sides).  The same GLB re-judged twice moved by up to
 0.12 (microscope: 0.893 → 0.771), which is the pro judge's own n=2 variance — read the sign
 counts, not the third decimal.  Scenes: ahead on 4 of 5 at less than half the minutes and a
 quarter of the dollars; the two landmark prompts (Big Ben, Colosseum) score near zero on both
