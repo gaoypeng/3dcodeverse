@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -334,13 +334,14 @@ class Workspace:
         self._cfg_mtime = cfg.stat().st_mtime_ns if cfg.is_file() else 0
 
     def _git_init(self) -> None:
-        if (self.root / ".git").exists():
-            self._sanitise_git_config()  # a resumed run: the agent has had the repo since
-            return
-        self._git("init", "-q")
-        self.ensure_gitignore()
-        self._git("add", "-A")
-        self._git("commit", "-q", "-m", "init", "--allow-empty")
+        with self._lock:  # init + config + first commit are one unit
+            if (self.root / ".git").exists():
+                self._sanitise_git_config()  # a resumed run: the agent has had the repo since
+                return
+            self._git("init", "-q")
+            self.ensure_gitignore()
+            self._git("add", "-A")
+            self._git("commit", "-q", "-m", "init", "--allow-empty")
 
     def ensure_gitignore(self, *, dry_run: bool = False) -> bool:
         """Make sure every harness-owned path is ignored by the run's git repo.
@@ -357,11 +358,25 @@ class Workspace:
         return True
 
     def commit(self, message: str) -> str:
-        """Commit everything tracked (src/, public/, plan, ...) and return the sha."""
-        self._sanitise_git_config()
-        self._git("add", "-A")
-        self._git("commit", "-q", "-m", message, "--allow-empty")
-        return self._git("rev-parse", "HEAD").stdout.strip()
+        """Commit everything tracked (src/, public/, plan, ...) and return the sha.
+
+        ONE transaction: ``_git`` locks per command, so a sibling thread that committed
+        between the commit and the ``rev-parse`` made this return ITS sha — the round
+        journal then named a commit this task never made (repro'd 2026-08-27)."""
+        with self._lock:
+            self._sanitise_git_config()
+            self._git("add", "-A")
+            self._git("commit", "-q", "-m", message, "--allow-empty")
+            return self._git("rev-parse", "HEAD").stdout.strip()
+
+    @contextlib.contextmanager
+    def git_transaction(self) -> Iterator[None]:
+        """Hold this workspace's git lock across SEVERAL calls (re-entrant).
+
+        For a caller whose unit spans methods — read the diff, then restore from it —
+        where a sibling commit in between would make the second act on stale facts."""
+        with self._lock:
+            yield
 
     def head(self) -> str:
         return self._git("rev-parse", "HEAD").stdout.strip()
@@ -375,40 +390,42 @@ class Workspace:
 
     def changed_files(self, since: str | None = None) -> list[FileChange]:
         """Files changed vs ``since`` (a commit) or vs HEAD (uncommitted work)."""
-        self._sanitise_git_config()  # `add`/`diff` apply clean + textconv drivers
-        self._git("add", "-A", "-N")  # register untracked so they show up in diff
-        args = ["diff", "--numstat", "--diff-filter=ADM"] + ([since] if since else ["HEAD"])
-        out = self._git(*args).stdout
-        status = {}
-        for line in self._git("diff", "--name-status", since or "HEAD").stdout.splitlines():
-            if "\t" in line:
-                st, path = line.split("\t", 1)
-                status[path] = {"A": "added", "D": "deleted"}.get(st[0], "modified")
-        changes = []
-        for line in out.splitlines():
-            parts = line.split("\t")
-            if len(parts) != 3:
-                continue
-            add, rem, path = parts
-            changes.append(FileChange(path=path, status=status.get(path, "modified"),
-                                      lines_added=int(add) if add.isdigit() else 0,
-                                      lines_removed=int(rem) if rem.isdigit() else 0))
-        return changes
+        with self._lock:  # add -N + two diffs are one unit: a sibling commit between them mislabels a status
+            self._sanitise_git_config()  # `add`/`diff` apply clean + textconv drivers
+            self._git("add", "-A", "-N")  # register untracked so they show up in diff
+            args = ["diff", "--numstat", "--diff-filter=ADM"] + ([since] if since else ["HEAD"])
+            out = self._git(*args).stdout
+            status = {}
+            for line in self._git("diff", "--name-status", since or "HEAD").stdout.splitlines():
+                if "\t" in line:
+                    st, path = line.split("\t", 1)
+                    status[path] = {"A": "added", "D": "deleted"}.get(st[0], "modified")
+            changes = []
+            for line in out.splitlines():
+                parts = line.split("\t")
+                if len(parts) != 3:
+                    continue
+                add, rem, path = parts
+                changes.append(FileChange(path=path, status=status.get(path, "modified"),
+                                          lines_added=int(add) if add.isdigit() else 0,
+                                          lines_removed=int(rem) if rem.isdigit() else 0))
+            return changes
 
     def restore(self, commit: str) -> None:
         """Make src/ + public/ exactly match ``commit`` (artifacts untouched)."""
-        tracked = self._git("ls-tree", "--name-only", commit).stdout.split()
-        roots = [r for r in ("src", "public") if r in tracked]
-        # remove current tracked+untracked content of the roots, then check out the target
-        self._git("rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", "src", "public")
-        for r in ("src", "public"):
-            d = self.root / r
-            if d.exists():
-                shutil.rmtree(d)
-            d.mkdir(parents=True, exist_ok=True)
-        if roots:
-            self._git("checkout", "-q", commit, "--", *roots)
-        self._git("add", "-A")
+        with self._lock:  # rm + rmtree + checkout + add: a sibling must never see the half-removed tree
+            tracked = self._git("ls-tree", "--name-only", commit).stdout.split()
+            roots = [r for r in ("src", "public") if r in tracked]
+            # remove current tracked+untracked content of the roots, then check out the target
+            self._git("rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", "src", "public")
+            for r in ("src", "public"):
+                d = self.root / r
+                if d.exists():
+                    shutil.rmtree(d)
+                d.mkdir(parents=True, exist_ok=True)
+            if roots:
+                self._git("checkout", "-q", commit, "--", *roots)
+            self._git("add", "-A")
 
     def restore_paths(self, commit: str, paths: Sequence[str]) -> None:
         """Make just ``paths`` match ``commit`` (worktree + index; everything else untouched).

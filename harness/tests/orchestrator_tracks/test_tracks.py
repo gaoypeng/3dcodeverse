@@ -42,9 +42,9 @@ def _agent_writer(job, ws):
             if name:
                 from codeverse.conventions import to_snake
 
-                files[f"src/parts/{to_snake(name)}.js"] = f"export function build{name}(THREE) {{ /* {job.label} r{job.extra.get('round', 0)} */ return new THREE.Group(); }}\n"
+                files[f"src/parts/{to_snake(name)}.js"] = f"export function build{name}(THREE) {{ /* {job.label} r{job.round} */ return new THREE.Group(); }}\n"
     # every round edits something (a real refine agent changes code; identical output = plateau)
-    files["src/object.js"] = f"// {job.label} r{job.extra.get('round', 0)}\nexport function build(THREE) {{ return new THREE.Group(); }}\n"
+    files["src/object.js"] = f"// {job.label} r{job.round}\nexport function build(THREE) {{ return new THREE.Group(); }}\n"
     return files
 
 
