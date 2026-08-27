@@ -193,12 +193,13 @@ written) that were accepted because the code works that way and the tests pin it
   provenance was never met.  Decision: `git ls-files --error-unmatch` on the module
   itself (a wheel / venv copy must not borrow an unrelated repo's sha), then
   `rev-parse HEAD`, `-dirty` appended when tracked files under `harness/` are modified.
-* **D39 The offline suite is run whole (2026-08-25; CI workflow removed 2026-08-26).**
+* **D39 The offline suite is run whole, locally; there is no CI (2026-08-25/26).**
   Context: `ci.yml` listed 7 of 24 directories, so 828 pure-python tests — every
-  docs-vs-code drift guard among them — never ran on a PR.  Decision: the suite is
-  `pytest tests -m "not live and not blender and not node"`, every directory.  The owner
-  removed the GitHub workflow the next day (6ac06a9: ruff and the offline suite run locally
-  before every push), so this now names the command, not a job.
+  docs-vs-code drift guard among them — never ran on a PR.  Decision: the local pre-push
+  suite is `pytest tests -m "not live"` over every test directory (add `and not blender
+  and not node` for the pure-python subset), after `ruff check codeverse bench tests`;
+  there is no CI — the owner removed the GitHub workflow on 2026-08-26 (6ac06a9), so this
+  names a command every push is preceded by, not a job.
 
 * **D40 A harness cell that waited instead of iterating is flagged, not trusted
   (2026-08-25).**  Context: under a day-long gemini-3.7-flash 503 storm 37 of 40 harness
