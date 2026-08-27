@@ -218,7 +218,9 @@ written) that were accepted because the code works that way and the tests pin it
   format; "Error creating WebGL context" (a saturated shared GPU) is an infra marker.
 * **D42 `compare_backends` follows the battery's track (2026-08-25).**  Context: the
   fixed evaluator was static_object-only.  Decision: `FixedEvaluator(track=, language=)`
-  picks the runtime and rubric from the battery (`RUBRIC_BY_TRACK`); articulated cells add
+  picks the runtime from the battery and the rubric per cell (`_fixed_eval.rubric_for`, the
+  `TRACK_INFO` row, through `judge_for(spec)` — the PR's `RUBRIC_BY_TRACK` table was folded
+  into it on merge); articulated cells add
   the joint-sweep gate and the pose sheet read from the built URDF (no plan, every arm
   alike); one-shot arms get a language-aware minimal contract (the D18 recipe as rules,
   no example) and must answer with both files in the `=== FILE ===` envelope.

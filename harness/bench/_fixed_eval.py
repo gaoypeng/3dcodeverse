@@ -1,8 +1,10 @@
 """The fixed evaluator shared by every arm of ``bench/compare_backends.py``.
 
-``FixedEvaluator.evaluate(ws, spec)``: BlenderRuntime lint + build → ``measure_glb``
-→ connectivity gate → 8-view ``render_glb`` → ``VlmJudge(static_object_v1,
-<fixed judge>, n_samples)``.  The judge's acceptance checklist is the brief's
+``FixedEvaluator.evaluate(ws, spec)``: the cell's runtime lint + build → ``measure_glb``
+→ connectivity gate → 8-view ``render_glb`` (articulated: + joint sweep + pose sheet;
+graphics: the frame sheet) → ``judge_for(spec)`` — a ``VlmJudge`` (or ``LikenessJudge``
+for graphics with reference photos) on ``rubric_for(spec)``, the track's ``TRACK_INFO``
+rubric, the ONE track→rubric mapping of the compare bench.  The judge's acceptance checklist is the brief's
 ``must_have`` list (``acceptance_from_spec``) so harness and one-shot arms are
 scored against exactly the same checklist — never the harness's plan.
 """
@@ -14,10 +16,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from bench._compare_report import RUBRIC_BY_TRACK  # noqa: E402
 from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
-from codeverse.contracts.common import Language, Track
+from codeverse.contracts.common import TRACK_INFO, Language, Track
 from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.spec import Spec
@@ -25,6 +26,19 @@ from codeverse.conventions import OBJECT_VIEWS
 from codeverse.workspace import Workspace
 
 RUBRIC = "static_object_v1"
+
+
+def rubric_for(spec: Spec | Track) -> str:
+    """The fixed judge's rubric for a cell (or for a battery's track): the track's ``TRACK_INFO``
+    row — static_object_v1 / articulated_v1 / scene_v1 / shader_v2.
+
+    The one place the compare bench maps a track to a rubric: ``FixedEvaluator`` defaults to
+    it, ``judge_for`` picks each cell's judge with it and ``_compare_report`` names it in the
+    report header.  (PR #1 carried a second table, ``RUBRIC_BY_TRACK``, next to main's
+    ``judge_for``; folded here on merge, 2026-08-26.)
+    """
+    track = spec if isinstance(spec, Track) else Track(spec.track)
+    return TRACK_INFO[track].rubric
 
 
 def acceptance_from_spec(spec: Spec) -> list[AcceptanceItem]:
@@ -58,11 +72,12 @@ class FixedEvaluator:
         self.settings = settings or get_settings()
         self.track = track
         self.language = language  # the battery's default; cells are built with THEIR spec's language (runtime())
-        # articulated batteries are judged on articulated_v1 (rest views + the pose sheet the
-        # joint sweep renders); the rubric follows the battery's track unless a caller pins one
-        self.rubric = rubric or RUBRIC_BY_TRACK.get(track.value, RUBRIC)
+        # the rubric follows each cell's track (rubric_for, through judge_for); the battery's
+        # track sets the default and a caller may pin one rubric for every cell
+        self._pinned = rubric is not None
+        self.rubric = rubric or rubric_for(track)
         self._runtimes: dict[Language, Any] = {}
-        self._judge: Any = None
+        self._judges: dict[str, Any] = {}
 
     def runtime(self, language: Language | str) -> Any:
         """The build runtime for THIS cell's language, cached per language.
@@ -83,14 +98,20 @@ class FixedEvaluator:
 
     @property
     def judge(self) -> Any:
-        if self._judge is None:
+        """The judge on the evaluator's default rubric (the battery's track); cells use ``judge_for``."""
+        return self._vlm_judge(self.rubric)
+
+    def _vlm_judge(self, rubric: str) -> Any:
+        if rubric not in self._judges:
             from codeverse.judges.vlm_judge import VlmJudge
 
-            self._judge = VlmJudge(rubric=self.rubric, model_id=self.judge_model, n_samples=self.n_samples)
-        return self._judge
+            self._judges[rubric] = VlmJudge(rubric=rubric, model_id=self.judge_model, n_samples=self.n_samples)
+        return self._judges[rubric]
 
     def judge_for(self, spec: Spec) -> Any:
-        """The fixed judge for THIS cell's track.
+        """The fixed judge for THIS cell: ``rubric_for(spec)`` (the pinned rubric if a caller set
+        one), through ``LikenessJudge`` for a graphics cell with reference photos, ``VlmJudge``
+        (cached per rubric) otherwise.
 
         The evaluator judged every cell with the object rubric on a GLB.  A graphics cell
         has frames, not a GLB, so ``evaluate`` returned before judging and every graphics
@@ -100,16 +121,12 @@ class FixedEvaluator:
         rubric (``shader_v2``), through ``LikenessJudge`` when the spec carries reference
         photos so the arms see the same photos the loop saw.
         """
-        if spec.track is Track.GRAPHICS:
-            from codeverse.contracts.common import TRACK_INFO
+        rubric = self.rubric if self._pinned else rubric_for(spec)
+        if spec.track is Track.GRAPHICS and spec.references:
             from codeverse.judges.reference import LikenessJudge
-            from codeverse.judges.vlm_judge import VlmJudge
 
-            rubric = TRACK_INFO[Track.GRAPHICS].rubric
-            if spec.references:
-                return LikenessJudge(self.judge_model, n_samples=self.n_samples, rubric=rubric)
-            return VlmJudge(rubric=rubric, model_id=self.judge_model, n_samples=self.n_samples)
-        return self.judge
+            return LikenessJudge(self.judge_model, n_samples=self.n_samples, rubric=rubric)
+        return self._vlm_judge(rubric)
 
     def build(self, ws: Workspace, language: Language | str) -> tuple[BuildResult, GateReport]:
         rt = self.runtime(language)
@@ -135,7 +152,7 @@ class FixedEvaluator:
             out.gates.append(check_connectivity(glb))
             r = self.settings.render
             out.renders = render_glb(glb, ws.renders_dir(0), views=list(OBJECT_VIEWS), width=r.width, height=r.height, sheet=True)
-            if self.track is Track.ARTICULATED_OBJECT:
+            if spec.track is Track.ARTICULATED_OBJECT:
                 # the same deterministic articulation evidence the track gives its judge: the
                 # joint sweep (collisions over every joint's range) and the pose sheet / pose
                 # tiles, read straight from the built URDF — no plan, so every arm is treated alike
@@ -147,7 +164,7 @@ class FixedEvaluator:
                     out.renders.views = list(out.renders.views) + pose_views
             inp = JudgeInput(spec=spec, renders=out.renders, measurement=out.measurement, gates=out.gates,
                              acceptance=acceptance_from_spec(spec), round_index=0)
-            out.judgment = self.judge.judge(inp)
+            out.judgment = self.judge_for(spec).judge(inp)
         except Exception as e:  # noqa: BLE001 — recorded per cell, never kills the matrix
             out.error = f"{type(e).__name__}: {e}"
         return out
@@ -172,4 +189,4 @@ class FixedEvaluator:
         return out
 
 
-__all__ = ["RUBRIC", "EvalOutcome", "FixedEvaluator", "acceptance_from_spec"]
+__all__ = ["RUBRIC", "EvalOutcome", "FixedEvaluator", "acceptance_from_spec", "rubric_for"]
