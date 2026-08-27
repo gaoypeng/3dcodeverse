@@ -61,3 +61,17 @@ def test_three_hook_resolves_bare_three(tmp_path: Path):
     res = run_node(script, [], timeout_s=30, three_hook=True)
     assert res.last_json["rev"] == "182" and res.last_json["rb"] == "function"
     assert (runtime_js_dir() / "lib" / "resolve_three.mjs").is_file()
+
+
+@pytest.mark.node
+def test_run_node_env_is_scrubbed_of_secrets(tmp_path: Path, monkeypatch):
+    """Generated js (scene.js, agent modules) runs under run_node: no credentials."""
+    monkeypatch.setenv("GEMINI_API_KEYS", "k1,k2")
+    monkeypatch.setenv("FAKE_SERVICE_TOKEN", "t")
+    script = tmp_path / "env.mjs"
+    script.write_text(
+        "console.log(JSON.stringify({ok: true, gem: process.env.GEMINI_API_KEYS ?? null, "
+        "tok: process.env.FAKE_SERVICE_TOKEN ?? null, np: process.env.NODE_PATH ?? null}));")
+    rec = run_node(script, [], timeout_s=20).last_json
+    assert rec["gem"] is None and rec["tok"] is None
+    assert rec["np"] and rec["np"].endswith("node_modules")

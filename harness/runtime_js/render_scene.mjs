@@ -15,7 +15,7 @@
  */
 
 import path from 'node:path';
-import { armWatchdog, dataUrlToPng, ensureDir, fail, finish, parseCli, readJsonArg, writeJson } from './lib/cli.mjs';
+import { armWatchdog, dataUrlToPng, ensureDir, fail, finish, parseCli, readJsonArg, safeName, writeJson } from './lib/cli.mjs';
 import { createTimeoutMs, errorSummary, openHost } from './lib/host_page.mjs';
 import { fitOrbitCameras, framingBox } from './lib/orbit.mjs';
 
@@ -29,6 +29,13 @@ const args = parseCli({
 
 function tag(t) {
   return 't' + t.toFixed(2).replace(/0+$/, '').replace(/\.$/, '').replace('.', 'p');
+}
+
+/** outDir-contained path for a view file; refuses any name that escapes outDir. */
+function outFile(outDir, file) {
+  const p = path.resolve(outDir, file);
+  if (!p.startsWith(outDir + path.sep)) throw new Error(`unsafe output path: ${file}`);
+  return p;
 }
 
 async function main() {
@@ -72,6 +79,8 @@ async function main() {
       metrics.framing_bbox = bbox;
       cams.push(...fitOrbitCameras(bbox, views, { aspect: width / height, groundY: metrics.census.ground_y, noFog: !args['orbit-fog'] }));
     }
+    // camera names become filenames: reject path tricks before composing any output path
+    for (const c of cams) c.name = safeName(c.name, 'camera name');
     const seen = new Set();
     cams = cams.filter((c) => { const k = c.name; if (seen.has(k)) return false; seen.add(k); return true; });
     if (!cams.length) throw new Error('no cameras to render (authored list empty and no orbit views)');
@@ -94,12 +103,12 @@ async function main() {
         try {
           const r = await page.evaluate((spec, tt) => window.__c3v.renderAt(spec, tt), c, t);
           const file = `${c.name}_${tag(t)}.png`;
-          dataUrlToPng(r.dataUrl, path.join(outDir, file));
+          dataUrlToPng(r.dataUrl, outFile(outDir, file));
           metrics.views.push({ name: c.name, kind: c.kind, path: file, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: r.ms });
           if (args.counterfactual) {
             const cf = await page.evaluate((spec, tt) => window.__c3v.renderAt(spec, tt, { stripCustom: true }), c, t);
             const cfFile = `${c.name}_${tag(t)}_nocustom.png`;
-            dataUrlToPng(cf.dataUrl, path.join(outDir, cfFile));
+            dataUrlToPng(cf.dataUrl, outFile(outDir, cfFile));
             metrics.views.push({ name: `${c.name}_nocustom`, kind: 'counterfactual', path: cfFile, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: cf.ms, counterfactual_of: file });
           }
         } catch (e) { sceneErr(`render failed for '${c.name}' at t=${t}`, e); }

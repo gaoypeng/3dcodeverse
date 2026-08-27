@@ -50,6 +50,15 @@ export function dataUrlToPng(dataUrl, outPath) {
   fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
 }
 
+/** A name used as a filename component (cameras, views): [A-Za-z0-9_-]{1,64} or throw. */
+export function safeName(name, label = 'name') {
+  const s = String(name);
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(s)) {
+    throw new Error(`unsafe ${label}: ${JSON.stringify(name)} (must match [A-Za-z0-9_-]{1,64})`);
+  }
+  return s;
+}
+
 /** Wall-clock guard: kills the process if the driver exceeds its budget. */
 export function armWatchdog(ms, onFire) {
   const t = setTimeout(() => {

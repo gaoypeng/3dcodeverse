@@ -39,6 +39,18 @@ def _snake(name: str) -> str:
     return re.sub(r"_+", "_", s).strip("_").lower()
 
 
+#: link names double as ``meshes/<link>.glb`` filename stems: plain identifiers only.
+#: The lint layer states the same rule (``languages/urdf/lint._IDENT``) but only WARNs,
+#: so the wrapper enforces it — ``../evil`` must be a build error, never a file written
+#: outside ``meshes/``.
+_SAFE_LINK = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
+
+
+def _bad_links(links: list[str]) -> list[str]:
+    """Link names that are unsafe as filenames (not plain identifiers)."""
+    return [name for name in links if not _SAFE_LINK.fullmatch(name or "")]
+
+
 def _set_rlimit(gb: float) -> None:
     try:
         import resource
@@ -193,6 +205,14 @@ def main() -> None:
         links = _urdf_links(urdf)
     except ET.ParseError as e:
         build.update(error_type="UrdfParseError", error_message=str(e), error_file="src/robot.urdf")
+        finish()
+        return
+    bad = _bad_links(links)
+    if bad:
+        build.update(error_type="UnsafeLinkName", error_file="src/robot.urdf",
+                     error_message="URDF link name(s) unusable as meshes/<link>.glb filenames "
+                                   "(must match [A-Za-z][A-Za-z0-9_]*): "
+                                   + ", ".join(repr(b) for b in bad))
         finish()
         return
 

@@ -113,3 +113,27 @@ def test_script_error_and_missing_object(tmp_path, cabinet_plan):
     m.write_text(m.read_text().replace("raise RuntimeError('boom')\n", "").replace("'handle'", "'Handle'"))
     res = rt.build(ws)
     assert not res.ok and res.error_type == "MissingLinkObjects" and "Handle" in res.error_message
+
+
+@needs_blender
+def test_wrapper_unsafe_link_name_is_a_build_error(tmp_path):
+    """End-to-end: a traversal-shaped URDF link name fails the build before the agent
+    script runs; meshes/ is never created, nothing lands outside it."""
+    import json as _json
+    import subprocess
+
+    from codeverse.languages.urdf.runtime import WRAPPER
+
+    (tmp_path / "robot.urdf").write_text('<robot name="r"><link name="../evil"/></robot>')
+    (tmp_path / "model.py").write_text("import bpy\n")
+    out = tmp_path / "art"
+    blender = get_settings().resolve_blender()
+    subprocess.run(
+        [blender, "-b", "--factory-startup", "--python", str(WRAPPER), "--",
+         "--script", str(tmp_path / "model.py"), "--urdf", str(tmp_path / "robot.urdf"),
+         "--out", str(out)],
+        capture_output=True, text=True, timeout=180, check=False)
+    build = _json.loads((out / "build.json").read_text())
+    assert not build["ok"] and build["error_type"] == "UnsafeLinkName"
+    assert "../evil" in build["error_message"]
+    assert not (out / "meshes").exists() and not (tmp_path / "evil.glb").exists()

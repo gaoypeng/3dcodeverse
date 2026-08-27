@@ -56,7 +56,22 @@ function mimeFor(file) {
   return MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
 }
 
-/** Resolve a URL path inside `rootAbs`; null when it escapes the root or is not a file. */
+// realpath of each served root, cached (computed once per root per process).
+const REAL_ROOTS = new Map();
+function realRoot(rootAbs) {
+  let real = REAL_ROOTS.get(rootAbs);
+  if (!real) {
+    real = fs.realpathSync(rootAbs);
+    REAL_ROOTS.set(rootAbs, real);
+  }
+  return real;
+}
+
+/** Resolve a URL path inside `rootAbs`; null when it escapes the root or is not a file.
+ * Lexical containment first, then realpath containment: statSync follows symlinks, so a
+ * symlink inside the root pointing outside would otherwise be served (workspace content
+ * is model-authored).  In-root symlinks (workspace aliases, node_modules/.bin) still
+ * resolve inside the root and keep working. */
 function resolveInside(rootAbs, relUrlPath) {
   const abs = path.resolve(rootAbs, '.' + path.posix.normalize('/' + relUrlPath));
   if (abs !== rootAbs && !abs.startsWith(rootAbs + path.sep)) return null;
@@ -66,7 +81,15 @@ function resolveInside(rootAbs, relUrlPath) {
   } catch (_e) {
     return null;
   }
-  return st.isFile() ? abs : null;
+  if (!st.isFile()) return null;
+  try {
+    const real = fs.realpathSync(abs);
+    const rootReal = realRoot(rootAbs);
+    if (real !== rootReal && !real.startsWith(rootReal + path.sep)) return null;
+  } catch (_e) {
+    return null;
+  }
+  return abs;
 }
 
 /**

@@ -26,6 +26,7 @@ from codeverse.languages._common import (
 )
 from codeverse.languages.blender.layout import ENTRY_REL, lint_workspace, part_file_rel
 from codeverse.languages.blender.skeleton import write_blender_skeleton
+from codeverse.proc import scrub_secrets
 from codeverse.prompts import PROMPTS_DIR
 from codeverse.workspace import Workspace
 
@@ -39,8 +40,10 @@ class BlenderNotFoundError(RuntimeError):
 
 def blender_env() -> dict[str, str]:
     """Environment for a headless Blender child: keep the user's env but make sure the
-    host python (conda) cannot leak into Blender's bundled interpreter."""
-    env = dict(os.environ)
+    host python (conda) cannot leak into Blender's bundled interpreter, and strip
+    credential-shaped vars (:func:`codeverse.proc.scrub_secrets`) — the model-authored
+    ``model.py`` executes inside this process and must never see API keys."""
+    env = scrub_secrets(dict(os.environ))
     for k in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP"):
         env.pop(k, None)
     env["PYTHONNOUSERSITE"] = "1"

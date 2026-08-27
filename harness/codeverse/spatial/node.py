@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from codeverse.config import get_settings
-from codeverse.proc import run_subprocess
+from codeverse.proc import run_subprocess, scrub_secrets
 
 TAIL_CHARS = 4000
 
@@ -184,7 +184,9 @@ def run_node(
         cmd += ["--import", str(three_import_hook())]
     cmd += [str(script), *(args or [])]
 
-    env = dict(os.environ)
+    # node runs harness drivers AND model-generated code (scene.js, agent modules):
+    # credential-shaped vars are stripped; env_extra (harness-owned) is applied after.
+    env = scrub_secrets(dict(os.environ))
     env["NODE_PATH"] = str(node_modules_dir())
     env.setdefault("CV3D_CACHE_DIR", str(settings.cache_dir))
     env.setdefault("NODE_OPTIONS", "")

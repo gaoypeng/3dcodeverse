@@ -10,9 +10,10 @@ plans are re-asked with the validation errors, before any generator runs.
 from __future__ import annotations
 
 import math
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from codeverse.contracts.common import Vec3
 from codeverse.conventions import to_snake
@@ -382,12 +383,27 @@ class EffectPlan(BaseModel):
     target: str = Field(default="", description="zone / asset / scene it applies to")
 
 
+#: a camera name becomes a render FILENAME (``render_scene.mjs`` writes ``<name>_<t>.png``);
+#: the charset ``render_glb.mjs`` already enforces for view names, plus a length bound.
+CAMERA_NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
 class CameraPlan(BaseModel):
-    name: str
+    name: str = Field(description="letters/digits/_/- only; it becomes a render filename")
     position: Vec3
     look_at: Vec3
     fov: float = 50.0
     purpose: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def _filename_safe(cls, v: str) -> str:
+        """Reject (never mangle) unsafe names — the planner is re-asked with the error."""
+        if not CAMERA_NAME_RE.fullmatch(v):
+            raise ValueError(
+                f"camera name {v!r} must match [A-Za-z0-9_-]{{1,64}}: it becomes a render "
+                "filename (no spaces, dots, slashes or other path characters)")
+        return v
 
 
 class ScenePlan(BaseModel):

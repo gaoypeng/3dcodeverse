@@ -92,6 +92,15 @@ def test_scene_plan_zone_contents_must_be_assets():
     assert ok.zones[0].contents == ["Lantern"]
 
 
+def test_camera_plan_name_must_be_filename_safe():
+    """Camera names become render filenames (render_scene.mjs) — reject path tricks."""
+    ok = CameraPlan(name="pier_low-2", position=(0, 1.6, 5), look_at=(0, 0, 0))
+    assert ok.name == "pier_low-2"
+    for bad in ("x/../y", "/absolute", "a\\b", "a b", "a.png", "", "x" * 200):
+        with pytest.raises(ValidationError):
+            CameraPlan(name=bad, position=(0, 1.6, 5), look_at=(0, 0, 0))
+
+
 def test_chat_message_helpers():
     m = ChatMessage.user("hi")
     assert m.text == "hi" and m.role == "user"

@@ -18,6 +18,7 @@ from codeverse.proc import (
     read_json_or_none,
     read_jsonl_lenient,
     run_subprocess,
+    scrub_secrets,
     tail,
     write_json_atomic,
 )
@@ -267,3 +268,33 @@ def test_jsonl_helpers_round_trip_and_skip_bad_lines(tmp_path: Path):
     rows = read_jsonl_lenient(p)
     assert rows == [{"k": "é", "p": str(tmp_path)}, [1, 2]]
     assert read_jsonl_lenient(p, dicts_only=True) == rows[:1]
+
+
+# --------------------------------------------------------------------------- scrub_secrets
+def test_scrub_secrets_drops_credential_shaped_vars():
+    env = {
+        "GEMINI_API_KEYS": "k1,k2", "GEMINI_API_KEY": "k", "FOO_API_KEY": "x",
+        "MY_SERVICE_TOKEN": "t", "DB_PASSWORD": "p", "DEPLOY_PRIVATE_KEY": "s",
+        "AWS_SECRET_ACCESS_KEY": "a", "CLIENT_SECRET": "c", "X_AUTH_TOKEN": "z",
+    }
+    assert scrub_secrets(env) == {}
+
+
+def test_scrub_secrets_keeps_everything_generated_code_needs():
+    env = {"PATH": "/usr/bin", "HOME": "/home/u", "DISPLAY": ":0", "NODE_PATH": "/nm",
+           "MESA_LOADER_DRIVER_OVERRIDE": "d3d12", "GALLIUM_DRIVER": "llvmpipe",
+           "CV3D_RENDER_GPU": "off", "PYTHONUNBUFFERED": "1",
+           "TOKENIZERS_PARALLELISM": "false"}  # _TOKEN is a SUFFIX match, not a substring
+    assert scrub_secrets(dict(env)) == env
+
+
+def test_scrub_secrets_stays_in_sync_with_agents_cli_common():
+    """proc.scrub_secrets is a COPY of agents/cli_common.is_secret_env (proc.py must
+    stay stdlib-only) — this pins the two pattern sets together."""
+    from codeverse.agents.cli_common import is_secret_env
+    from codeverse.proc import _SECRET_EXACT, _SECRET_SUFFIXES
+
+    probes = (sorted(_SECRET_EXACT) + [f"X{s}" for s in _SECRET_SUFFIXES]
+              + ["PATH", "HOME", "NODE_PATH", "TOKENIZERS_PARALLELISM"])
+    for name in probes:
+        assert is_secret_env(name) == (name not in scrub_secrets({name: "v"})), name

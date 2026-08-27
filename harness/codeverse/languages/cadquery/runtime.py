@@ -18,6 +18,7 @@ from codeverse.conventions import MAX_TRIS_OBJECT
 from codeverse.languages._common import compose_build_result, remove_stale, run_subprocess
 from codeverse.languages.cadquery.lint import lint_cadquery_file
 from codeverse.languages.cadquery.skeleton import write_cadquery_skeleton
+from codeverse.proc import scrub_secrets
 from codeverse.prompts import PROMPTS_DIR
 from codeverse.workspace import Workspace
 
@@ -26,7 +27,10 @@ WRAPPER = _PKG_DIR / "wrappers" / "run_cq.py"
 
 
 def cadquery_env() -> dict[str, str]:
-    env = dict(os.environ)
+    """Environment for the wrapper subprocess that executes the model-authored
+    ``src/model.py``: the user's env minus credential-shaped vars
+    (:func:`codeverse.proc.scrub_secrets`)."""
+    env = scrub_secrets(dict(os.environ))
     env.pop("PYTHONSTARTUP", None)
     env.setdefault("OMP_NUM_THREADS", "4")
     env.setdefault("PYTHONUNBUFFERED", "1")

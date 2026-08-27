@@ -172,3 +172,44 @@ const {{ launchBrowser }} = require({json.dumps(str(runtime_js_dir() / 'gpu_laun
     off = run_node(script, [], timeout_s=120, env_extra={**env, "CV3D_BROWSER_REUSE": "off"}).last_json
     assert off["a_shared"] is False and off["b_shared"] is False
     _reap_daemons(tmp_path / "cache")
+
+
+def test_serve_refuses_symlinks_that_escape_the_root(tmp_path: Path):
+    """resolveInside is lexical + realpath: a symlink inside the workspace pointing
+    outside must 404 (workspace content is model-authored); in-root symlinks and
+    plain files keep serving."""
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "ok.txt").write_text("fine")
+    (tmp_path / "secret.txt").write_text("s3cr3t")
+    (root / "inside.txt").symlink_to(root / "ok.txt")
+    (root / "leak.txt").symlink_to(tmp_path / "secret.txt")
+    (root / "dirlink").symlink_to(tmp_path)
+    script = tmp_path / "s.cjs"
+    script.write_text(f"""
+const {{ serveDirs }} = require({json.dumps(str(runtime_js_dir() / 'serve.cjs'))});
+(async () => {{
+  const srv = await serveDirs({{ root: {json.dumps(str(root))} }});
+  const get = async (p) => (await fetch(srv.url(p))).status;
+  const out = {{ ok: await get('/ok.txt'), inside: await get('/inside.txt'),
+    leak: await get('/leak.txt'), dirleak: await get('/dirlink/secret.txt') }};
+  await srv.close();
+  console.log(JSON.stringify(out));
+}})().catch((e) => {{ console.error(e); process.exit(1); }});
+""")
+    out = run_node(script, [], timeout_s=60).last_json
+    assert out == {"ok": 200, "inside": 200, "leak": 404, "dirleak": 404}
+
+
+def test_cli_safe_name_rejects_path_tricks(tmp_path: Path):
+    """lib/cli.mjs safeName guards every filename composed from a camera/view name."""
+    script = tmp_path / "n.mjs"
+    cli = (runtime_js_dir() / "lib" / "cli.mjs").as_uri()
+    script.write_text(f"""
+const {{ safeName }} = await import({json.dumps(cli)});
+const rejects = (v) => {{ try {{ safeName(v); return false; }} catch {{ return true; }} }};
+const bad = ['x/../y', '/abs', 'a\\\\b', 'a b', 'a.png', '', 'x'.repeat(200)];
+console.log(JSON.stringify({{ ok: true, good: safeName('cam_a-1'), all_rejected: bad.every(rejects) }}));
+""")
+    out = run_node(script, [], timeout_s=30).last_json
+    assert out == {"ok": True, "good": "cam_a-1", "all_rejected": True}

@@ -117,6 +117,35 @@ def kill_group(proc: subprocess.Popen[str]) -> None:
         proc.kill()
 
 
+# ------------------------------------------------------------------ env scrubbing
+#: COPY of the credential patterns in ``agents/cli_common.is_secret_env`` (its sibling —
+#: keep the two in sync; tests/core/test_proc.py pins them together).  Duplicated because
+#: proc.py imports nothing from ``codeverse``: the agents package sits above this layer.
+_SECRET_EXACT: frozenset[str] = frozenset({
+    "GEMINI_API_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "OPENAI_ORG_ID", "HF_TOKEN", "HUGGINGFACE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN",
+    "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "SUPABASE_SERVICE_ROLE_KEY", "CODEX_API_KEY",
+})
+_SECRET_SUFFIXES: tuple[str, ...] = (
+    "_API_KEY", "_SECRET", "_SECRET_KEY", "_TOKEN", "_AUTH_TOKEN", "_PASSWORD", "_PRIVATE_KEY",
+)
+
+
+def scrub_secrets(env: dict[str, str]) -> dict[str, str]:
+    """``env`` minus credential-shaped variables (exact names + ``*_API_KEY``-style suffixes).
+
+    Model-generated code runs in subprocesses that inherit the harness environment
+    (blender, the cadquery python, node) and nothing generated ever legitimately needs
+    a credential — so the keys must not be there to leak into logs, artifacts or child
+    processes.  Everything else (PATH, HOME, DISPLAY, MESA_*/GALLIUM_* render config...)
+    passes through untouched.
+    """
+    return {
+        k: v for k, v in env.items()
+        if k not in _SECRET_EXACT and not k.endswith(_SECRET_SUFFIXES)
+    }
+
+
 def tail(text: str, *, max_lines: int = 40, max_chars: int = 4000) -> str:
     """Last ``max_lines`` lines of ``text``, capped at ``max_chars`` characters."""
     lines = text.splitlines()[-max_lines:]

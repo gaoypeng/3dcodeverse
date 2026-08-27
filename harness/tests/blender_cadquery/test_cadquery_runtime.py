@@ -15,7 +15,7 @@ import pytest
 from codeverse.languages import get_runtime
 from codeverse.languages.base import LanguageRuntime
 from codeverse.languages.cadquery.lint import lint_cadquery_source
-from codeverse.languages.cadquery.runtime import WRAPPER, CadQueryRuntime
+from codeverse.languages.cadquery.runtime import WRAPPER, CadQueryRuntime, cadquery_env
 from codeverse.languages.cadquery.skeleton import cadquery_skeleton_source
 from tests.blender_cadquery.conftest import has_cadquery
 
@@ -208,3 +208,14 @@ result.add(cq.Workplane("XY").box(0.02, 0.02, 0.02).edges("|Z"), name="Leg")
     r = rt.build(tmp_ws, timeout_s=120)
     assert r.ok and r.census["parts"][0]["n_solids"] == 0
     assert any("'Sheet'" in w and "contains no solid" in w for w in r.census["build_report"]["warnings"])
+
+
+def test_cadquery_env_scrubs_secrets(monkeypatch) -> None:
+    """src/model.py executes under this env: credential-shaped vars must not reach it."""
+    monkeypatch.setenv("GEMINI_API_KEYS", "k")
+    monkeypatch.setenv("FOO_API_KEY", "x")
+    monkeypatch.setenv("PYTHONSTARTUP", "/tmp/s")
+    env = cadquery_env()
+    assert "GEMINI_API_KEYS" not in env and "FOO_API_KEY" not in env
+    assert "PYTHONSTARTUP" not in env
+    assert env["OMP_NUM_THREADS"] == "4" and "PATH" in env

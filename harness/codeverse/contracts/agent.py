@@ -1,4 +1,10 @@
-"""CodingAgent job/result — one headless agentic session on a workspace."""
+"""CodingAgent job/result — one headless agentic session on a workspace.
+
+Trust model (cooperative, by design): generated code and agent sessions run with local
+filesystem access and no network sandbox; the mitigation is that secrets are scrubbed
+from their environment (``codeverse.proc.scrub_secrets`` for the generated-code
+runtimes, ``agents/cli_common.hardened_env`` for the coding-agent CLIs).
+"""
 
 from __future__ import annotations
 
@@ -41,7 +47,6 @@ class AgentJob(BaseModel):
     label: str = ""
     timeout_s: int = 1800
     max_turns: int = 60
-    allow_network: bool = False
     spatial_tools: bool = Field(
         default=True, description="expose the 3dcv MCP spatial tools to the agent"
     )

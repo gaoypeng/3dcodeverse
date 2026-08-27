@@ -93,7 +93,12 @@ function validateCameras(raw) {
     const fov = Number.isFinite(c.fov) ? c.fov : 50;
     if (fov < 5 || fov > 150) problems.push(`cameras[${i}] fov ${fov} outside [5,150]`);
     if (p.every((x, k) => Math.abs(x - l[k]) < 1e-6)) problems.push(`cameras[${i}] position equals lookAt`);
-    out.push({ name: String(c.name || `cam_${i}`), position: p.map(Number), lookAt: l.map(Number), fov });
+    const name = String(c.name || `cam_${i}`);
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) {
+      problems.push(`cameras[${i}] name ${JSON.stringify(name)} must match [A-Za-z0-9_-]{1,64} — it becomes a render filename`);
+      return;
+    }
+    out.push({ name, position: p.map(Number), lookAt: l.map(Number), fov });
   });
   if (out.length === 0) problems.push('no valid cameras (author 1-6 {name, position, lookAt, fov})');
   if (out.length > 6) problems.push(`too many cameras (${out.length} > 6)`);

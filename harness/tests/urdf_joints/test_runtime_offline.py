@@ -119,3 +119,23 @@ def test_build_timeout(tmp_path, cabinet_plan, fake_blender, monkeypatch):
     ws = _ws(tmp_path, cabinet_plan)
     res = UrdfBlenderRuntime().build(ws, timeout_s=1)
     assert not res.ok and res.error_type == "Timeout"
+
+
+def test_wrapper_rejects_unsafe_link_names_offline():
+    """run_bpy_links refuses link names that are not plain identifiers — ``../evil``
+    must be a build error, never a ``meshes/<link>.glb`` write outside meshes/.  The
+    wrapper needs bpy, so its pure name check is exec'd out of the source."""
+    import ast
+    import re as _re
+
+    src = rt_mod.WRAPPER.read_text()
+    assert "UnsafeLinkName" in src and "_bad_links(links)" in src  # main() wired to the check
+    tree = ast.parse(src)
+    picked = [n for n in tree.body
+              if (isinstance(n, ast.FunctionDef) and n.name == "_bad_links")
+              or (isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "_SAFE_LINK")]
+    assert len(picked) == 2
+    ns: dict = {"re": _re}
+    exec(compile(ast.Module(body=picked, type_ignores=[]), str(rt_mod.WRAPPER), "exec"), ns)
+    bad = ns["_bad_links"](["body", "door_2", "DoorHandle", "../evil", "a/b", "Door.001", "", "9lives"])
+    assert bad == ["../evil", "a/b", "Door.001", "", "9lives"]
