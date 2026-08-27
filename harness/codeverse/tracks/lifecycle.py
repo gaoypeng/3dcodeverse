@@ -95,6 +95,28 @@ def detail_round_budget(policy: RoundPolicy, supported: bool, *, explicit: bool)
     return policy.detail_rounds or DEFAULT_DETAIL_ROUNDS
 
 
+def _reconcile_billed_from_ledger(budget: BudgetGuard, ws: Workspace, events: EventLog) -> None:
+    """Adopt the run ledger's total when it exceeds the restored snapshot.
+
+    The snapshot is saved at boundaries; the ledger is appended per CALL, so a crash
+    between a round's spend and its save loses that money from the snapshot but never
+    from the ledger.  Taking the larger of the two makes resume charge for everything
+    the provider actually billed — silently under-counting is how a resumed run walks
+    past its ceiling.  Attempt rows stay excluded (the winner is already on the logical
+    row); a missing or unreadable ledger simply leaves the snapshot alone."""
+    try:
+        from codeverse.cost.ledger import load_ledger
+
+        billed = sum(float(r.cost_usd or 0.0) for r in load_ledger(ws.root))
+    except Exception as e:  # noqa: BLE001 — accounting repair must never block a resume
+        log.debug("ledger reconcile skipped: %s", e)
+        return
+    if billed > budget.billed_usd + 1e-9:
+        events.emit("resume.billed_reconciled", snapshot_usd=round(budget.billed_usd, 6),
+                    ledger_usd=round(billed, 6))
+        budget.billed_usd = billed
+
+
 def run_ledger_path(ws: Workspace) -> Any:
     """Where this run's priced per-call rows go.
 
@@ -431,12 +453,16 @@ class BaseTrack:
             state.current_round = len(journal)
         best = state.best_round
         best_invalid = best is not None and (best >= len(journal) or journal[best].commit != state.best_commit)
+        # a round the journal has but best selection never saw: the state can look
+        # perfectly consistent (completed_rounds and commits agree) and still name a
+        # stale best, which is then restored and DELIVERED over the newer paid round
+        unranked = bool(journal) and state.best_considered_through < journal[-1].index
         best_changed = False
         if not journal:
             if best is not None:
                 state.best_round, state.best_commit, state.best_score = None, "", None
                 best_changed = True
-        elif stale or best_invalid or best is None:
+        elif stale or best_invalid or unranked or best is None:
             pick = BestSelector().pick(journal)
             if pick is None:
                 best_changed = best is not None
@@ -444,10 +470,12 @@ class BaseTrack:
             elif pick != best or journal[pick].commit != state.best_commit:
                 state.update_best(pick, journal[pick].commit, journal[pick].score)
                 best_changed = True
+        if journal:
+            state.best_considered_through = journal[-1].index  # every journal round is now ranked
         state.save(ws)
         events.emit("resume.reconciled", rounds=len(journal), dropped=dropped, state_was_stale=stale,
-                    best_round=state.best_round, best_score=state.best_score, best_changed=best_changed,
-                    spec_fingerprint=fp)
+                    unranked_rounds=unranked, best_round=state.best_round, best_score=state.best_score,
+                    best_changed=best_changed, spec_fingerprint=fp)
         return journal
 
 
@@ -483,6 +511,7 @@ class BaseTrack:
             spent = state.extra.get("spent_usage")  # legacy run dirs (pre-snapshot)
             if spent:
                 budget.spent = Usage.model_validate(spent)
+        _reconcile_billed_from_ledger(budget, ws, events)
         n_cand = self._resolve_candidates(spec, state, settings)
         policy = ((self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds))
                   .with_candidates(n_cand).with_judge(spec.backends.judge))
@@ -658,11 +687,16 @@ class BaseTrack:
                 ctx.events.emit("stop", reason="no_change", rounds=len(rounds), best=ctx.state.best_round)
                 return "plateau"
             rounds.append(rec)
-            # durable BEFORE choose_best_round's possible PAID pairwise call: a crash in
-            # that window left state.json without a round the journal already had, and
-            # an immediate stop on resume then restored/delivered a stale best.
-            ctx.state.mark_round_done(index, rec.commit, ctx.ws)
+            # ONE save, AFTER the best is chosen — never a durable "round done" with a
+            # not-yet-updated best.  Saving the round first (an earlier attempt at
+            # shrinking the paid-pairwise crash window) made a crash in that window look
+            # SELF-CONSISTENT to reconcile_resume — journal and completed_rounds agreed,
+            # so it kept the stale best and delivered the worse round (r0=0.5 kept over
+            # r1=0.7).  Crashing before this save leaves state behind the journal, which
+            # reconcile detects (stale) and repairs by re-ranking; that is the safe side.
+            ctx.state.mark_round_done(index, rec.commit)
             best = choose_best_round(ctx, rounds, selector, index)
+            ctx.state.best_considered_through = index  # this round HAS been ranked
             if best is not None and ctx.state.update_best(best, rounds[best].commit, rounds[best].score):
                 ctx.events.emit("best.updated", round=best, score=rounds[best].score)
             self._save_budget(ctx)

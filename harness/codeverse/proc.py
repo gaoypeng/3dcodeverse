@@ -325,12 +325,6 @@ class ManagedProcess:
             self.proc.wait(timeout=DRAIN_TIMEOUT_S)  # reap — a zombie survives killpg
 
 
-def kill_group(proc: subprocess.Popen[str]) -> None:
-    """SIGKILL ``proc``'s whole process group (fall back to just the child)."""
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        proc.kill()
 
 
 # ------------------------------------------------------------------ env scrubbing

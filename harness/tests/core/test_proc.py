@@ -19,7 +19,6 @@ from codeverse.proc import (
     ProcResult,
     append_jsonl_line,
     iter_jsonl_lines,
-    kill_group,
     read_json_or_none,
     read_jsonl_lenient,
     run_subprocess,
@@ -101,13 +100,6 @@ def test_preexec_fn_runs_in_the_child(tmp_path: Path):
     )
     assert r.stdout.strip() == str(soft)
 
-
-def test_kill_group_is_public_and_tolerates_dead_proc(tmp_path: Path):
-    import subprocess
-
-    proc = subprocess.Popen(["sleep", "0.05"], start_new_session=True)
-    proc.wait()
-    kill_group(proc)  # must not raise on an already-reaped child
 
 
 def test_tail_caps_lines_and_chars():
@@ -293,22 +285,6 @@ def test_scrub_secrets_keeps_everything_generated_code_needs():
     assert scrub_secrets(dict(env)) == env
 
 
-def test_scrub_secrets_stays_in_sync_with_agents_cli_common():
-    """proc.scrub_secrets is a COPY of agents/cli_common.is_secret_env (proc.py must
-    stay stdlib-only) — this pins the two pattern sets together."""
-    from codeverse.agents.cli_common import is_secret_env
-    from codeverse.proc import _SECRET_EXACT, _SECRET_SUFFIXES
-
-    probes = (sorted(_SECRET_EXACT) + [f"X{s}" for s in _SECRET_SUFFIXES]
-              + ["PATH", "HOME", "NODE_PATH", "TOKENIZERS_PARALLELISM"])
-    for name in probes:
-        assert is_secret_env(name) == (name not in scrub_secrets({name: "v"})), name
-
-
-# --------------------------------------------------------------------------- ManagedProcess lifecycle
-def _raise_ki(signum: int, frame: object) -> None:
-    raise KeyboardInterrupt
-
 
 def _assert_group_gone(pgid: int, timeout_s: float = 10.0) -> None:
     deadline = time.monotonic() + timeout_s
@@ -381,6 +357,11 @@ def test_huge_output_is_bounded_head_and_tail(tmp_path: Path):
     assert "bytes dropped" in r.stdout                 # marker sits between them
     cut = r.stdout.index("bytes dropped")
     assert "x" * 1000 in r.stdout[:cut] and "x" * 1000 in r.stdout[cut:]
+
+
+# --------------------------------------------------------------------------- ManagedProcess lifecycle
+def _raise_ki(signum: int, frame: object) -> None:
+    raise KeyboardInterrupt
 
 
 def test_managed_process_reaps_on_exit_no_zombie(tmp_path: Path):

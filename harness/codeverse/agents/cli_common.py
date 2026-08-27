@@ -30,6 +30,7 @@ from codeverse.agents.transcript import Trajectory
 from codeverse.agents.watchdog import CompletedProc, run_with_watchdog
 from codeverse.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse.contracts.common import Usage
+from codeverse.proc import scrub_secrets
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -37,17 +38,12 @@ log = logging.getLogger(__name__)
 #: argv prompts above this many bytes are written to a file instead.
 MAX_ARGV_PROMPT_BYTES = 100_000
 
-_SECRET_EXACT = {
-    "GEMINI_API_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-    "OPENAI_ORG_ID", "HF_TOKEN", "HUGGINGFACE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "AWS_SECRET_ACCESS_KEY",
-    "AWS_SESSION_TOKEN", "SUPABASE_SERVICE_ROLE_KEY", "CODEX_API_KEY",
-}
-_SECRET_SUFFIXES = ("_API_KEY", "_SECRET", "_SECRET_KEY", "_TOKEN", "_AUTH_TOKEN", "_PASSWORD", "_PRIVATE_KEY")
-
-
 def is_secret_env(name: str) -> bool:
-    """True for env vars that look like credentials (stripped from agent children)."""
-    return name in _SECRET_EXACT or name.endswith(_SECRET_SUFFIXES)
+    """True for env vars that look like credentials (stripped from agent children).
+
+    One owner for the patterns: :mod:`codeverse.proc` (a stdlib-only leaf every layer
+    may import), which also scrubs the generated-code subprocesses."""
+    return name not in scrub_secrets({name: ""})
 
 
 def hardened_env(ws: Workspace, job: AgentJob, *, keep: set[str] | None = None) -> dict[str, str]:

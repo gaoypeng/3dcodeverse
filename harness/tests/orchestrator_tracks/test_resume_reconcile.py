@@ -190,3 +190,58 @@ def test_notes_survive_a_judge_crash(tmp_path, chair_plan, settings):
     assert "judge failed: RuntimeError: vlm 500" in r1.notes
     saved = json.loads((ws.root / "rounds" / "r01.json").read_text())
     assert "judge failed: RuntimeError: vlm 500" in saved["notes"]
+
+
+def test_a_self_consistent_state_with_an_unranked_round_still_re_ranks(tmp_path, chair_plan, settings):
+    """The OTHER crash shape, and the sharper one (reproduced by review, 2026-08-27).
+
+    While the round was saved BEFORE best selection, a crash in between left a state
+    that looked perfectly consistent — completed_rounds and round_commits matched the
+    journal exactly — while best_round still pointed at the older, worse round.  Nothing
+    was 'stale', so reconcile kept it and the run DELIVERED r0=0.5 over the paid r1=0.7.
+    The writer now saves once, after ranking; `best_considered_through` makes the repair
+    independent of write ordering, so even such a state (an older run dir, a partial
+    write) is re-ranked rather than believed."""
+    spec = make_spec(language=Language.BLENDER, max_rounds=1)
+    ws = Workspace(tmp_path / "runs" / "r")
+    planner = _planner(chair_plan.model_dump(mode="json"))
+    pol = RoundPolicy(max_rounds=1, target=0.9)
+    rec1 = _track(planner, settings, policy=pol).run(spec, ws)
+    assert rec1.best_round == 1 and rec1.rounds[1].score == pytest.approx(0.7)
+
+    state = json.loads(ws.state_path.read_text())      # journal-consistent, best stale
+    assert state["completed_rounds"] == [0, 1]
+    state["best_round"], state["best_commit"], state["best_score"] = 0, rec1.rounds[0].commit, 0.5
+    state["best_considered_through"] = 0               # r1 was written but never ranked
+    ws.state_path.write_text(json.dumps(state))
+    ws.restore(rec1.rounds[0].commit)
+    ws.commit("stale delivery")
+
+    rec2 = _track(planner, settings, policy=pol).run(spec, ws, resume=True)
+    assert rec2.best_round == 1 and rec2.final_score == pytest.approx(0.7)
+    ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "resume.reconciled"][-1]
+    assert ev["state_was_stale"] is False and ev["unranked_rounds"] is True and ev["best_changed"] is True
+
+
+def test_resume_charges_for_spend_the_snapshot_missed(tmp_path, chair_plan, settings):
+    """The ledger is appended per CALL; the snapshot is saved at boundaries.  A crash
+    between a round's spend and its save used to hand the resumed run that money back —
+    silently under-counting is how a resumed run walks past its ceiling."""
+    from codeverse.cost.ledger import open_run_ledger
+    from codeverse.cost.types import CallCost
+    from codeverse.orchestrator.budget import BudgetGuard, BudgetSnapshot
+    from codeverse.tracks.lifecycle import _reconcile_billed_from_ledger
+
+    ws = Workspace(tmp_path / "runs" / "r")
+    ws.create()
+    led = open_run_ledger(ws.root)
+    for cost in (0.30, 0.12):                       # what the provider actually billed
+        led.append(CallCost(run=ws.root.name, model="gemini:flash", label="planner", cost_usd=cost))
+    guard = BudgetGuard(make_spec().budget, run=ws.root.name)
+    guard.restore(BudgetSnapshot(spent=guard.spent, billed_usd=0.10,   # the boundary save missed 0.32
+                                 calls=1, by_stage={}, by_round={}, active_s=0.0))
+    _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
+    assert guard.billed_usd == pytest.approx(0.42), "resume must charge for every billed call"
+    guard.billed_usd = 5.0                           # a snapshot AHEAD of the ledger wins
+    _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
+    assert guard.billed_usd == pytest.approx(5.0), "reconcile never lowers what was already billed"

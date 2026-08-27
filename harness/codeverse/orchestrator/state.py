@@ -38,6 +38,12 @@ class RunState(BaseModel):
     best_round: int | None = None
     best_commit: str = ""
     best_score: float | None = None
+    #: highest round index that has been THROUGH best selection (choose_best_round,
+    #: including its paid pairwise comparison).  Persisted so a resume can tell
+    #: "the best was deliberately kept" from "this round was never considered" —
+    #: without it, a state that merely LOOKS consistent with the journal kept a
+    #: stale best and delivered the worse round (2026-08-27).  -1 = nothing yet.
+    best_considered_through: int = -1
     materialized_for: str = Field(default="", description="agent kind the workspace was materialised for")
     stop_reason: str = ""
     error: str = ""

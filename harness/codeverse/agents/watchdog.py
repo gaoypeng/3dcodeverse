@@ -17,10 +17,7 @@ tree (node → chrome, blender, mcp servers ...).  The process lifecycle itself
 
 from __future__ import annotations
 
-import contextlib
 import os
-import signal
-import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -83,24 +80,6 @@ def _latest_mtime(dirs: Iterable[Path]) -> float:
     return latest
 
 
-def kill_process_group(proc: subprocess.Popen, grace_s: float = 5.0) -> None:
-    """SIGTERM the child's process group, then SIGKILL after ``grace_s``.
-
-    Kept as the public utility for raw ``Popen`` holders; ``ManagedProcess.terminate``
-    implements the same contract for the managed path (``proc.py`` is stdlib-only and
-    cannot import this module)."""
-    if proc.poll() is not None:
-        return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    try:
-        proc.wait(timeout=grace_s)
-    except subprocess.TimeoutExpired:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(proc.pid, signal.SIGKILL)
-        proc.wait(timeout=5)
 
 
 def run_with_watchdog(
