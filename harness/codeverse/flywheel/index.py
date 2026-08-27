@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from codeverse.contracts.run import RoundRecord, RunRecord
+from codeverse.contracts.run import RoundRecord, RunId, RunRecord
 from codeverse.flywheel.quality import prompt_hash, quality_tier
 from codeverse.flywheel.record import effective_judgment, iter_runs
 from codeverse.workspace import Workspace
@@ -22,7 +22,8 @@ CREATE TABLE runs (
   baseline_score REAL, final_score REAL, best_round INTEGER, n_rounds INTEGER, passed INTEGER,
   cost_usd REAL, input_tokens INTEGER, output_tokens INTEGER,
   started_at TEXT, finished_at TEXT, duration_s REAL, error TEXT, has_captions INTEGER,
-  gate_errors INTEGER, quality_tier TEXT, best_commit TEXT
+  gate_errors INTEGER, quality_tier TEXT, best_commit TEXT,
+  rel TEXT, arm TEXT, cell TEXT  -- run dir relative to the scan root + battery layout segments
 );
 CREATE TABLE rounds (
   slug TEXT, round_index INTEGER, kind TEXT, commit_sha TEXT, agent_backend TEXT,
@@ -41,7 +42,7 @@ CREATE INDEX idx_rounds_slug ON rounds(slug);
 """
 
 
-def _run_row(ws: Workspace, rec: RunRecord) -> tuple:
+def _run_row(ws: Workspace, rec: RunRecord, rid: RunId) -> tuple:
     best = next((r for r in rec.rounds if r.index == rec.best_round), None)
     best_j = effective_judgment(best) if best is not None else None  # degraded → unjudged
     passed = None if best_j is None else int(best_j.passed)
@@ -50,7 +51,7 @@ def _run_row(ws: Workspace, rec: RunRecord) -> tuple:
     score = best_j.overall if best_j is not None else None
     tier = quality_tier(passed=None if passed is None else bool(passed), gate_errors=n_err, score=score)
     return (
-        ws.root.name, str(ws.root), rec.spec.track.value, rec.spec.language.value, rec.spec.prompt,
+        rid.slug, str(ws.root), rec.spec.track.value, rec.spec.language.value, rec.spec.prompt,
         prompt_hash(rec.spec.prompt), rec.spec.backends.generator, rec.spec.backends.planner,
         rec.spec.backends.judge, rec.status.value, rec.baseline_score, rec.final_score, rec.best_round,
         len(rec.rounds), passed, rec.total_usage.cost_usd, rec.total_usage.input_tokens,
@@ -58,6 +59,7 @@ def _run_row(ws: Workspace, rec: RunRecord) -> tuple:
         rec.finished_at.isoformat() if rec.finished_at else None, dur, rec.error,
         int(bool((rec.extra.get("captions") or {}).get("detailed"))),
         n_err, tier, best.commit if best is not None else "",
+        rid.rel, rid.arm, rid.cell,
     )
 
 
@@ -94,9 +96,17 @@ def build_index(runs_dir: Path | str, out_sqlite: Path | str) -> int:
     con = sqlite3.connect(tmp)
     try:
         con.executescript(_SCHEMA)
-        for ws, rec in iter_runs(runs_dir):
-            slug = ws.root.name
-            con.execute(f"INSERT INTO runs VALUES ({','.join('?' * 26)})", _run_row(ws, rec))
+        seen: dict[str, str] = {}
+        for ws, rec, rid in iter_runs(runs_dir):
+            slug = rid.slug
+            try:
+                con.execute(f"INSERT INTO runs VALUES ({','.join('?' * 29)})", _run_row(ws, rec, rid))
+            except sqlite3.IntegrityError as e:
+                # never INSERT OR REPLACE: a silent overwrite is the bug this guards
+                raise sqlite3.IntegrityError(
+                    f"duplicate run slug {slug!r}: {seen.get(slug, '<unknown>')} and {ws.root}"
+                ) from e
+            seen[slug] = str(ws.root)
             con.executemany(f"INSERT INTO rounds VALUES ({','.join('?' * 13)})", [_round_row(slug, r) for r in rec.rounds])
             con.executemany(f"INSERT INTO usage VALUES ({','.join('?' * 12)})",
                             [row for r in rec.rounds for row in _usage_rows(slug, r)])

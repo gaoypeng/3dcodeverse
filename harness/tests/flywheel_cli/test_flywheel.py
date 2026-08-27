@@ -400,14 +400,22 @@ def test_a_battery_dir_is_discovered_rather_than_reported_as_zero_runs(tmp_path)
 
 def test_a_gallery_of_a_battery_dir_is_not_a_gallery_of_zero_runs(tmp_path):
     """CP-6, the other half: gallery/index.scan_root did a single `root.iterdir()`, so
-    `3dcv gallery build bench/out/<ab battery>` printed "gallery of 0 runs" and exit 0."""
+    `3dcv gallery build bench/out/<ab battery>` printed "gallery of 0 runs" and exit 0.
+
+    A nested run is gated on record.json — the same rule as flywheel.record.is_run_dir.
+    The cell's sibling ``eval/`` judge workspace only has a spec.json and used to be
+    counted as a phantom run; it must not appear.  The entry is named by its RunId slug,
+    not the degenerate directory basename ``run``."""
     from codeverse.gallery.index import scan_root
 
     ab = tmp_path / "ab_aa_noise"
-    d = ab / "arms" / "control" / "cells" / "ctrl_med_chair" / "harness_api-agent" / "run"
-    d.mkdir(parents=True)
-    (d / "spec.json").write_text("{}")
-    assert len(scan_root(ab).entries) == 1
+    cell = ab / "arms" / "control" / "cells" / "ctrl_med_chair" / "harness_api-agent"
+    (cell / "run").mkdir(parents=True)
+    (cell / "run" / "record.json").write_text("{}")
+    (cell / "eval").mkdir()
+    (cell / "eval" / "spec.json").write_text("{}")
+    section = scan_root(ab)
+    assert [e.slug for e in section.entries] == ["control__ctrl_med_chair__harness_api-agent"]
 
 
 def test_an_empty_battery_dir_still_refuses_to_look_like_an_empty_dataset(tmp_path):

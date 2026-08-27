@@ -100,3 +100,50 @@ def test_duplicate_labels_are_disambiguated(tmp_path: Path):
     b.mkdir(parents=True)
     index = build_index([a, b])
     assert [s.label for s in index.sections] == ["runs", "runs#2"]
+
+
+# --------------------------------------------------------------------------- run identity
+def test_nested_battery_runs_get_distinct_findable_slugs(tmp_path: Path):
+    """Two compare-style runs whose dirs are BOTH named ``run`` used to collapse into
+    one gallery key; each now carries its RunId slug and both are findable."""
+    from tests.flywheel_cli.conftest import make_fake_run
+
+    root = tmp_path / "compare_v9"
+    make_fake_run(root / "cells" / "cmp_a_stool" / "armx", "run", prompt="a stool")
+    make_fake_run(root / "cells" / "cmp_b_lamp" / "armx", "run", prompt="a lamp")
+    index = build_index([root])
+    (section,) = index.sections
+    assert sorted(e.slug for e in section.entries) == ["cmp_a_stool__armx", "cmp_b_lamp__armx"]
+    a = index.find("compare_v9", "cmp_a_stool__armx")
+    b = index.find("compare_v9", "cmp_b_lamp__armx")
+    assert a is not None and a.prompt == "a stool"
+    assert b is not None and b.prompt == "a lamp"
+    assert a.key != b.key
+
+
+def test_nested_eval_workspaces_are_not_counted_as_runs(tmp_path: Path):
+    """A battery cell's ``eval/`` judge workspace has a spec.json but no record.json —
+    it is not a run (52 phantom entries per battery under the old spec-or-record rule).
+    A spec-only DIRECT child of the root is still a legitimate pending card."""
+    from tests.flywheel_cli.conftest import make_fake_run
+
+    root = tmp_path / "compare_v9"
+    make_fake_run(root / "cells" / "cmp_a_stool" / "armx", "run", prompt="a stool")
+    eval_dir = root / "cells" / "cmp_a_stool" / "armx" / "eval"
+    eval_dir.mkdir()
+    (eval_dir / "spec.json").write_text(json.dumps({"prompt": "judge ws"}))
+    (section,) = build_index([root]).sections
+    assert [e.slug for e in section.entries] == ["cmp_a_stool__armx"]
+
+
+def test_duplicate_slugs_within_a_root_are_disambiguated(tmp_path: Path):
+    """Two rels that reduce to the same slug follow the label#2 precedent — a viewer
+    must still see both runs (exporters fail loudly instead; the gallery is read-only)."""
+    from tests.flywheel_cli.conftest import make_fake_run
+
+    root = tmp_path / "mixed"
+    make_fake_run(root / "runs", "x", prompt="first")
+    make_fake_run(root / "cells" / "x", "run", prompt="second")
+    (section,) = build_index([root]).sections
+    assert [e.slug for e in section.entries] == ["x", "x#2"]  # cells/x/run sorts first
+    assert {e.prompt for e in section.entries} == {"first", "second"}

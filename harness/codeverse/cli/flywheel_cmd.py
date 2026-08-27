@@ -90,23 +90,24 @@ def caption_cmd(
     from codeverse.flywheel.record import iter_runs, load_record
 
     if all_runs:
-        targets = [(ws, rec) for ws, rec in iter_runs(target, on_error=lambda d, e: warn(f"skip {d.name}: {e}"))]
+        targets = [(fr.ws, fr.record, fr.run_id.slug)
+                   for fr in iter_runs(target, on_error=lambda d, e: warn(f"skip {d.name}: {e}"))]
     else:
         ws = C.open_workspace(target, runs_dir)
-        targets = [(ws, load_record(ws))]
+        targets = [(ws, load_record(ws), None)]  # no scan root → basename identity
     done = skipped = failed = 0
-    for ws, rec in targets:
-        if not force and load_captions(ws, rec, out).get("detailed"):
+    for ws, rec, slug in targets:
+        if not force and load_captions(ws, rec, out, slug=slug).get("detailed"):
             skipped += 1
             continue
         try:
-            caps = caption_sample(ws, rec, model, out_dir=out)
+            caps = caption_sample(ws, rec, model, out_dir=out, slug=slug)
         except CaptionError as e:
             failed += 1
             warn(str(e))
             continue
         done += 1
-        console.print(f"[bold]{ws.root.name}[/bold]: {caps.instruction}")
+        console.print(f"[bold]{slug or ws.root.name}[/bold]: {caps.instruction}")
     ok(f"captioned {done}, skipped {skipped} (already), failed {failed}")
     if failed and not done:
         raise typer.Exit(code=1)

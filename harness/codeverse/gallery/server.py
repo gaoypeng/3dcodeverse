@@ -237,7 +237,7 @@ class GalleryApp:
             return Response.html(render_broken_detail(broken, self.urls))
         from codeverse.gallery.index import entry_from_record
 
-        fresh = entry_from_record(entry.battery, ws, rec)  # newest rounds, even mid-bench
+        fresh = entry_from_record(entry.battery, ws, rec, slug=entry.slug)  # newest rounds, even mid-bench
         prev, nxt = self.neighbours(entry)
         return Response.html(render_detail(fresh, self.urls, ws, rec, prev=prev, nxt=nxt))
 

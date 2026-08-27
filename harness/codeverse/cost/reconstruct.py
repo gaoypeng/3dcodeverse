@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from codeverse.contracts.common import Usage
+from codeverse.contracts.run import RunId
 from codeverse.cost.ledger import price_call
 from codeverse.cost.types import CallCost, Role, Stage, role_for_stage, stage_for_label
 from codeverse.proc import read_json_or_none, read_jsonl_lenient
@@ -404,7 +405,7 @@ def reconstruct_cell(cell_dir: str | Path, *, recheck: bool = False) -> RunLedge
     """A ``bench/compare_backends.py`` one-shot cell (``gen/attempt*`` + ``eval/eval.json``)."""
     root = Path(cell_dir)
     cell = _read_json(root / "cell.json")
-    run = f"{root.parent.name}/{root.name}"
+    run = RunId(battery="", rel=f"{root.parent.name}/{root.name}").slug  # <prompt>__<arm>
     led = RunLedger(run=run, path=root, track="static_object", language="blender",
                     generator=str(cell.get("arm") or root.name), judge_model=str(cell.get("judge") or ""),
                     status=str(cell.get("status") or ""), passed=bool(cell.get("passed")),
@@ -467,7 +468,7 @@ def reconstruct(path: str | Path, *, recheck: bool = False) -> RunLedger:
         return reconstruct_run(p, recheck=recheck)
     if (p / "run" / "record.json").is_file():
         led = reconstruct_run(p / "run", recheck=recheck)
-        led.run = f"{p.parent.name}/{p.name}"
+        led.run = RunId(battery="", rel=f"{p.parent.name}/{p.name}").slug  # <prompt>__<arm>
         # a compare cell also spends OUTSIDE the harness run it wraps: the fixed
         # evaluator's judge, and a repair arm's extra generations.  `run_cell` opens a
         # ledger for the cell itself (nested around the run's own), and that spend is

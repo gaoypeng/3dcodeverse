@@ -126,6 +126,10 @@ class SampleMeta(BaseModel):
 
 
 def sample_key(ws: Workspace) -> str:
+    """FALLBACK key: the directory basename — correct for the flat ``runs/<id>``
+    layout only.  Exporters that scanned a root pass the collision-safe
+    :class:`~codeverse.contracts.run.RunId` slug instead (``export_one(run_id=…)``):
+    in nested battery layouts every run dir is literally named ``run``."""
     return ws.root.name
 
 

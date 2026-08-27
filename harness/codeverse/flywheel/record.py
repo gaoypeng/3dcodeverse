@@ -19,12 +19,12 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from codeverse import __version__
 from codeverse.config import get_settings
 from codeverse.contracts.common import Usage
-from codeverse.contracts.run import RoundRecord, RunRecord
+from codeverse.contracts.run import RoundRecord, RunId, RunRecord
 from codeverse.flywheel.code_quality import code_quality_block
 from codeverse.workspace import Workspace
 
@@ -316,6 +316,30 @@ def is_run_dir(p: Path) -> bool:
     return p.is_dir() and (p / "record.json").is_file()
 
 
+def battery_label(root: Path | str) -> str:
+    """Label for a scan root: the battery name for ``bench/out/<battery>/runs``,
+    else the directory's own name (the same rule the gallery sections use)."""
+    root = Path(root)
+    if root.name == "runs" and root.parent.name and root.parent.parent.name == "out":
+        return root.parent.name
+    return root.name or str(root)
+
+
+def run_id_for(root: Path | str, run_dir: Path) -> RunId:
+    """The :class:`~codeverse.contracts.run.RunId` of ``run_dir`` as found under scan
+    root ``root``.  Identity is minted HERE, at discovery time — the Workspace
+    resolves its root and forgets where the scan started, so it cannot do this."""
+    return RunId(battery=battery_label(root), rel=run_dir.relative_to(Path(root)).as_posix())
+
+
+class FoundRun(NamedTuple):
+    """One discovered run: workspace + parsed record + identity within the scan root."""
+
+    ws: Workspace
+    record: RunRecord
+    run_id: RunId
+
+
 def find_run_dirs(root: Path | str, *, predicate: Callable[[Path], bool] = is_run_dir,
                   max_depth: int = RUN_SEARCH_DEPTH) -> list[Path]:
     """Run directories under ``root``, sorted.
@@ -351,8 +375,9 @@ def find_run_dirs(root: Path | str, *, predicate: Callable[[Path], bool] = is_ru
 
 def iter_runs(
     runs_dir: Path | str, *, on_error: Callable[[Path, Exception], None] | None = None
-) -> Iterator[tuple[Workspace, RunRecord]]:
-    """Yield ``(Workspace, RunRecord)`` for every run directory holding a record.json.
+) -> Iterator[FoundRun]:
+    """Yield a :class:`FoundRun` ``(ws, record, run_id)`` for every run directory
+    holding a record.json.
 
     Invalid records raise ``RecordError`` unless ``on_error`` is given, in which
     case it is called and iteration continues (exporters collect skip reasons).
@@ -382,4 +407,4 @@ def iter_runs(
                 raise
             on_error(d, e)
             continue
-        yield ws, rec
+        yield FoundRun(ws, rec, run_id_for(root, d))

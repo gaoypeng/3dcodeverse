@@ -30,10 +30,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse.contracts.common import ENTRY_FILE, Language
-from codeverse.contracts.run import RunRecord
+from codeverse.contracts.run import RunId, RunRecord
 from codeverse.flywheel import sample as S
 from codeverse.flywheel.quality import DuplicateGroup, mark_duplicates
-from codeverse.flywheel.record import iter_runs
+from codeverse.flywheel.record import FoundRun, iter_runs
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -59,15 +59,21 @@ class ExportReport(BaseModel):
                              description="non-fatal degradations, e.g. parquet skipped for a missing extra")
 
 
-def load_captions(ws: Workspace, record: RunRecord, captions_dir: Path | None = None) -> dict[str, Any]:
+def load_captions(
+    ws: Workspace, record: RunRecord, captions_dir: Path | None = None, *, slug: str | None = None
+) -> dict[str, Any]:
     """Full captions dict (text fields + provenance) from record.extra, ``<ws>/captions.json``
-    or ``<captions_dir>/<slug>.json``; ``{}`` when the run is not captioned."""
+    or ``<captions_dir>/<slug>.json``; ``{}`` when the run is not captioned.
+
+    ``slug`` is the run's :class:`~codeverse.contracts.run.RunId` slug; without it the
+    side-car falls back to the directory basename (correct only for flat layouts —
+    every nested battery run is named ``run`` and would read a stranger's captions)."""
     caps = record.extra.get("captions") or {}
     if caps.get("detailed"):
         return dict(caps)
     candidates = [ws.root / "captions.json"]
     if captions_dir is not None:
-        candidates.append(Path(captions_dir) / f"{ws.root.name}.json")
+        candidates.append(Path(captions_dir) / f"{slug or ws.root.name}.json")
     for p in candidates:
         if p.is_file():
             try:
@@ -84,10 +90,14 @@ def _caption_texts(caps: dict[str, Any]) -> dict[str, str]:
 
 
 def export_one(
-    ws: Workspace, record: RunRecord, out_dir: Path, *, overwrite: bool = True, captions_dir: Path | None = None
+    ws: Workspace, record: RunRecord, out_dir: Path, *, overwrite: bool = True,
+    captions_dir: Path | None = None, run_id: RunId | None = None
 ) -> Path:
-    """Write the sample folder for one run; returns the sample dir."""
-    key = S.sample_key(ws)
+    """Write the sample folder for one run; returns the sample dir.
+
+    ``run_id`` carries the collision-safe identity minted at discovery time; without
+    one the key falls back to the directory basename (flat layouts only)."""
+    key = run_id.slug if run_id is not None else S.sample_key(ws)
     dest = out_dir / S.sample_rel_dir(record, key)
     rnd = S.best_round_record(record)
     files, code_source = S.code_files_for_round(ws, rnd)
@@ -104,7 +114,7 @@ def export_one(
     renders = S.copy_renders(ws, rnd, dest)
     meshes = S.copy_link_meshes(ws, dest) if record.spec.language is Language.URDF_BLENDER else []
     textured = S.copy_textured(ws, record, dest)
-    captions = load_captions(ws, record, captions_dir)
+    captions = load_captions(ws, record, captions_dir, slug=key)
     (dest / "captions.json").write_text(json.dumps(_caption_texts(captions), indent=2, ensure_ascii=False))
     all_files = sorted(written + renders + meshes + textured + ["captions.json", "meta.json"])
     meta = S.build_meta(
@@ -148,7 +158,21 @@ def export_samples(
     def _bad(d: Path, e: Exception) -> None:
         rep.skipped[str(d)] = f"invalid record: {e}"
 
-    for ws, rec in iter_runs(runs_dir, on_error=_bad):
+    # Fail FAST on identity collisions: two run dirs whose samples would land in the
+    # same folder must abort before anything is written — the rmtree-before-write in
+    # export_one is how 79 nested-battery records used to collapse into ONE sample.
+    # A dest left by an EARLIER pass stays overwritable; only same-pass duplicates raise.
+    found: list[FoundRun] = list(iter_runs(runs_dir, on_error=_bad))
+    dest_owner: dict[str, Path] = {}
+    for ws, rec, rid in found:
+        rel = str(S.sample_rel_dir(rec, rid.slug))
+        prev = dest_owner.get(rel)
+        if prev is not None:
+            raise S.SampleError(
+                f"duplicate sample id {rel!r}: {prev} and {ws.root} would export onto each other")
+        dest_owner[rel] = ws.root
+
+    for ws, rec, rid in found:
         rep.n_runs += 1
         rnd = S.best_round_record(rec)
         j = S.effective_judgment(rnd) if rnd is not None else None
@@ -167,7 +191,7 @@ def export_samples(
             continue
         try:
             dest = export_one(ws, rec, out, overwrite=overwrite,
-                              captions_dir=Path(captions_dir) if captions_dir else None)
+                              captions_dir=Path(captions_dir) if captions_dir else None, run_id=rid)
         except S.SampleError as e:
             rep.skipped[str(ws.root)] = str(e)
             continue

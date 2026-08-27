@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
 from codeverse.contracts.common import Usage
@@ -14,6 +15,81 @@ from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import ArticulatedPlan, GraphicsPlan, ScenePlan, StaticPlan
 from codeverse.contracts.skills import SkillsUsage
 from codeverse.contracts.spec import Spec
+
+# --------------------------------------------------------------------------- identity
+#: battery-layout path segments that are pure plumbing, never part of a run's identity
+RUN_PATH_NOISE = frozenset({"arms", "cells", "runs"})
+
+
+class RunId(BaseModel):
+    """Where a run directory sits inside its scan root — and the ONE name to call it.
+
+    Run identity used to be ``ws.root.name`` everywhere, which is right for the flat
+    ``runs/<id>`` layout and catastrophically wrong for nested batteries
+    (compare_backends ``cells/<id>/<arm>/run``, ab_plan
+    ``arms/<arm>/cells/<id>/<slug>/run``): hundreds of distinct runs are all named
+    ``run``, so exports rmtree'd each other, the SQLite index tripped its PRIMARY KEY
+    and the gallery collapsed whole batteries into one entry.
+
+    ``battery`` labels the scan root the run was found under; ``rel`` is the run
+    directory's posix path relative to that root.  Only the scanner still knows the
+    root, so only the scanner can mint one of these
+    (``flywheel.record.run_id_for``)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    battery: str = Field(description="label of the scan root this run was found under")
+    rel: str = Field(description="posix path of the run dir relative to the scan root")
+
+    def _parts(self) -> tuple[str, ...]:
+        return PurePosixPath(self.rel).parts
+
+    @property
+    def slug(self) -> str:
+        """The stable, filesystem-safe name of this run.
+
+        * a flat ``rel`` (no parent directories — today's ``runs/<id>`` layout) keeps
+          the basename UNCHANGED, so every existing dataset/index/side-car stays valid;
+        * a nested ``rel`` joins the meaningful path segments with ``__``, dropping the
+          structural noise (:data:`RUN_PATH_NOISE`) and a trailing ``run`` — e.g.
+          ``cells/cmp_easy_stool/harness_api/run`` → ``cmp_easy_stool__harness_api``.
+          ``.attemptN`` retry suffixes live on a kept segment and survive.
+
+        Path segments cannot contain ``/``, so the join alone makes the slug a single
+        path component; nothing else is mangled."""
+        parts = self._parts()
+        if len(parts) <= 1:
+            return parts[0] if parts else self.battery
+        meaningful = [p for p in parts if p not in RUN_PATH_NOISE]
+        if len(meaningful) > 1 and meaningful[-1] == "run":
+            meaningful.pop()  # the literal `run` dir a battery cell wraps its harness run in
+        if not meaningful:
+            meaningful = [parts[-1]]
+        return "__".join(meaningful)
+
+    @property
+    def cell(self) -> str | None:
+        """The prompt/cell id segment (``cells/<cell>/…``) when the layout has one."""
+        parts = self._parts()
+        if "cells" in parts:
+            i = parts.index("cells")
+            if i + 1 < len(parts):
+                return parts[i + 1]
+        return None
+
+    @property
+    def arm(self) -> str | None:
+        """The arm segment: ``arms/<arm>/…`` (ab_plan) or the directory between the
+        cell and its ``run`` (compare_backends), when the layout has one."""
+        parts = self._parts()
+        if "arms" in parts:
+            i = parts.index("arms")
+            return parts[i + 1] if i + 1 < len(parts) else None
+        if "cells" in parts:
+            i = parts.index("cells")
+            if i + 2 < len(parts) and parts[i + 2] != "run":
+                return parts[i + 2]
+        return None
 
 
 class RunStatus(StrEnum):

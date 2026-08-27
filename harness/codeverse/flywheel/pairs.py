@@ -69,10 +69,10 @@ def _side(ws: Workspace, rnd: RoundRecord, *, cache: dict[str, dict[str, Any]]) 
     }
 
 
-def _base(ws: Workspace, rec: RunRecord, kind: str) -> dict[str, Any]:
+def _base(ws: Workspace, rec: RunRecord, kind: str, *, slug: str | None = None) -> dict[str, Any]:
     return {
         "kind": kind,
-        "run": ws.root.name,
+        "run": slug or ws.root.name,
         "workspace": str(ws.root),
         "prompt": rec.spec.prompt,
         "prompt_hash": prompt_hash(rec.spec.prompt),
@@ -82,7 +82,8 @@ def _base(ws: Workspace, rec: RunRecord, kind: str) -> dict[str, Any]:
     }
 
 
-def preference_pairs(ws: Workspace, rec: RunRecord, *, min_delta: float) -> list[dict[str, Any]]:
+def preference_pairs(ws: Workspace, rec: RunRecord, *, min_delta: float,
+                     slug: str | None = None) -> list[dict[str, Any]]:
     cache: dict[str, dict[str, Any]] = {}
     # degraded (judge-outage) verdicts are glitches, not 0.0 scores — leave those rounds out
     judged = [r for r in rec.rounds if effective_judgment(r) is not None and r.commit]
@@ -93,7 +94,7 @@ def preference_pairs(ws: Workspace, rec: RunRecord, *, min_delta: float) -> list
             delta = hi_j.overall - lo_j.overall  # type: ignore[union-attr]
             if delta < min_delta or lo.commit == hi.commit:
                 continue
-            pair = _base(ws, rec, "preference")
+            pair = _base(ws, rec, "preference", slug=slug)
             pair.update(
                 chosen=_side(ws, hi, cache=cache),
                 rejected=_side(ws, lo, cache=cache),
@@ -120,7 +121,7 @@ def _error_of(rnd: RoundRecord) -> dict[str, Any]:
     }
 
 
-def repair_pairs(ws: Workspace, rec: RunRecord) -> list[dict[str, Any]]:
+def repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> list[dict[str, Any]]:
     """(broken round, error) → (the next round that builds).
 
     Matched structurally: the tracks never emit a ``kind='repair'`` round
@@ -135,7 +136,7 @@ def repair_pairs(ws: Workspace, rec: RunRecord) -> list[dict[str, Any]]:
         fixed = next((r for r in rounds[k + 1 :] if r.build is not None and r.build.ok and r.commit), None)
         if fixed is None or broken.commit == fixed.commit:
             continue
-        pair = _base(ws, rec, "repair")
+        pair = _base(ws, rec, "repair", slug=slug)
         pair.update(
             source="round",
             chosen=_side(ws, fixed, cache=cache),
@@ -166,7 +167,7 @@ def _round_build_errors(ws: Workspace, index: int) -> list[str]:
     return out
 
 
-def in_round_repair_pairs(ws: Workspace, rec: RunRecord) -> list[dict[str, Any]]:
+def in_round_repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> list[dict[str, Any]]:
     """Builds fixed by ``build_with_repair`` *inside* a round.
 
     ``tracks/steps.py`` commits ``rNN <kind>: generated`` right before the
@@ -191,7 +192,7 @@ def in_round_repair_pairs(ws: Workspace, rec: RunRecord) -> list[dict[str, Any]]
         if rej_files == chosen["files"]:
             continue  # the repair changed nothing under the code roots
         errors = _round_build_errors(ws, rnd.index)
-        pair = _base(ws, rec, "repair")
+        pair = _base(ws, rec, "repair", slug=slug)
         pair.update(
             source="in_round",
             chosen=chosen,
@@ -206,11 +207,11 @@ def in_round_repair_pairs(ws: Workspace, rec: RunRecord) -> list[dict[str, Any]]
     return out
 
 
-def trajectory_repair_pairs(ws: Workspace, rec: RunRecord) -> list[dict[str, Any]]:
+def trajectory_repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> list[dict[str, Any]]:
     """In-session repairs (failing build → fixing build) mined from api-agent transcripts."""
     out = []
     for tr in mine_run(ws):
-        pair = _base(ws, rec, "repair")
+        pair = _base(ws, rec, "repair", slug=slug)
         pair.update(
             source="trajectory",
             trajectory=tr.trajectory,
@@ -228,37 +229,41 @@ def trajectory_repair_pairs(ws: Workspace, rec: RunRecord) -> list[dict[str, Any
     return out
 
 
-def cross_backend_pairs(groups: dict[tuple[str, str, str], list[tuple[Workspace, RunRecord]]], *, min_delta: float) -> list[dict[str, Any]]:
+def cross_backend_pairs(
+    groups: dict[tuple[str, str, str], list[tuple[Workspace, RunRecord, str]]], *, min_delta: float
+) -> list[dict[str, Any]]:
+    """``groups`` values are ``(ws, record, slug)`` — the slug is the RunId slug the
+    scan minted (``ws.root.name`` collides across nested battery layouts)."""
     out = []
     for (_h, _t, _l), runs in groups.items():
-        gens = {r.spec.backends.generator for _, r in runs}
+        gens = {r.spec.backends.generator for _, r, _s in runs}
         if len(gens) < 2:
             continue
         cands = []
-        for ws, rec in runs:
+        for ws, rec, slug in runs:
             best = next((r for r in rec.rounds if r.index == rec.best_round), None)
             if best is None or effective_judgment(best) is None:  # unjudged or degraded verdict
                 continue
-            cands.append((ws, rec, best))
+            cands.append((ws, rec, slug, best))
         if len(cands) < 2:
             continue
-        cands.sort(key=lambda c: effective_judgment(c[2]).overall, reverse=True)  # type: ignore[union-attr]
-        w_ws, w_rec, w_rnd = cands[0]
+        cands.sort(key=lambda c: effective_judgment(c[3]).overall, reverse=True)  # type: ignore[union-attr]
+        w_ws, w_rec, w_slug, w_rnd = cands[0]
         w_side = _side(w_ws, w_rnd, cache={})
         w_side["generator"] = w_rec.spec.backends.generator
-        for ws, rec, rnd in cands[1:]:
+        for ws, rec, slug, rnd in cands[1:]:
             delta = effective_judgment(w_rnd).overall - effective_judgment(rnd).overall  # type: ignore[union-attr]
             if rec.spec.backends.generator == w_rec.spec.backends.generator or delta < min_delta:
                 continue
-            pair = _base(w_ws, w_rec, "cross_backend")
+            pair = _base(w_ws, w_rec, "cross_backend", slug=w_slug)
             l_side = _side(ws, rnd, cache={})
             l_side["generator"] = rec.spec.backends.generator
-            l_side["run"] = ws.root.name
+            l_side["run"] = slug
             pair.update(
                 chosen=w_side, rejected=l_side, delta=round(delta, 4),
                 reason=f"best-of across generators: {w_rec.spec.backends.generator} > {rec.spec.backends.generator}",
-                candidates=[{"run": c[0].root.name, "generator": c[1].spec.backends.generator,
-                             "score": effective_judgment(c[2]).overall} for c in cands],  # type: ignore[union-attr]
+                candidates=[{"run": c[2], "generator": c[1].spec.backends.generator,
+                             "score": effective_judgment(c[3]).overall} for c in cands],  # type: ignore[union-attr]
             )
             out.append(pair)
     return out
@@ -272,15 +277,17 @@ def build_pairs(
     ``trajectories`` adds in-session repair pairs mined from agent transcripts."""
     out = Path(out_jsonl)
     out.parent.mkdir(parents=True, exist_ok=True)
-    groups: dict[tuple[str, str, str], list[tuple[Workspace, RunRecord]]] = defaultdict(list)
+    groups: dict[tuple[str, str, str], list[tuple[Workspace, RunRecord, str]]] = defaultdict(list)
     n = 0
     tmp = out.with_suffix(out.suffix + ".tmp")
     with tmp.open("w") as fh:
-        for ws, rec in iter_runs(runs_dir):
-            groups[(prompt_hash(rec.spec.prompt), rec.spec.track.value, rec.spec.language.value)].append((ws, rec))
-            pairs = preference_pairs(ws, rec, min_delta=min_delta) + repair_pairs(ws, rec) + in_round_repair_pairs(ws, rec)
+        for ws, rec, rid in iter_runs(runs_dir):
+            slug = rid.slug
+            groups[(prompt_hash(rec.spec.prompt), rec.spec.track.value, rec.spec.language.value)].append((ws, rec, slug))
+            pairs = (preference_pairs(ws, rec, min_delta=min_delta, slug=slug)
+                     + repair_pairs(ws, rec, slug=slug) + in_round_repair_pairs(ws, rec, slug=slug))
             if trajectories:
-                pairs += trajectory_repair_pairs(ws, rec)
+                pairs += trajectory_repair_pairs(ws, rec, slug=slug)
             for pair in pairs:
                 fh.write(json.dumps(pair, ensure_ascii=False) + "\n")
                 n += 1

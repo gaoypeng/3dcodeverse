@@ -154,13 +154,17 @@ def validate_captions(caps: Captions, language: Language) -> list[str]:
 
 
 def caption_sample(
-    ws: Workspace, record: RunRecord, model_id: str, *, model: object | None = None, out_dir: Path | str | None = None
+    ws: Workspace, record: RunRecord, model_id: str, *, model: object | None = None,
+    out_dir: Path | str | None = None, slug: str | None = None
 ) -> Captions:
     """Caption the best round of ``record``.
 
     Default: store into ``record.extra["captions"]`` + ``<ws>/captions.json`` and
     rewrite ``record.json``.  With ``out_dir`` the workspace is left untouched and
-    ``<out_dir>/<slug>.json`` (captions + provenance) is written instead."""
+    ``<out_dir>/<slug>.json`` (captions + provenance) is written instead — ``slug``
+    should be the run's :class:`~codeverse.contracts.run.RunId` slug; without one the
+    side-car falls back to the directory basename (flat layouts only: every nested
+    battery run is named ``run`` and the side-cars would overwrite each other)."""
     if model is None:
         from codeverse.models import get_chat_model
 
@@ -202,7 +206,7 @@ def caption_sample(
     if out_dir is not None:
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
-        (out / f"{ws.root.name}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+        (out / f"{slug or ws.root.name}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False))
         return caps
     ws.write_json(ws.root / "captions.json", payload)
     ws.write_json(ws.record_path, record)

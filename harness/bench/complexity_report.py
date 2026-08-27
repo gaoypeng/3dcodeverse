@@ -30,6 +30,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[0].parent))
 
+from codeverse.contracts.run import RunId  # noqa: E402
+from codeverse.flywheel.record import find_run_dirs  # noqa: E402
 from codeverse.proc import read_json_or_none  # noqa: E402
 from codeverse.spatial.complexity import COMPLEXITY_WEIGHTS, ComplexityVector, band_of  # noqa: E402
 
@@ -102,7 +104,7 @@ def _minutes(record: dict[str, Any]) -> float:
     return round(sum(float(r.get("duration_s") or 0.0) for r in record.get("rounds") or []) / 60.0, 2)
 
 
-def row_for(run: Path, battery: str) -> Row | None:
+def row_for(run: Path, battery: str, slug: str | None = None) -> Row | None:
     record = _read_json(run / "record.json")
     if not record:
         return None
@@ -115,7 +117,7 @@ def row_for(run: Path, battery: str) -> Row | None:
     plan_parts = len((record.get("plan") or {}).get("parts") or [])
     row = Row(
         battery=battery,
-        slug=run.name,
+        slug=slug or run.name,
         track=(record.get("spec") or {}).get("track", ""),
         language=(record.get("spec") or {}).get("language", ""),
         tier=next((t for t in (record.get("spec") or {}).get("tags", []) if t in ("easy", "medium", "hard")), ""),
@@ -138,15 +140,20 @@ def row_for(run: Path, battery: str) -> Row | None:
     return row
 
 
-def iter_runs(root: Path) -> Iterable[tuple[str, Path]]:
-    """``(battery, run dir)`` for a battery dir, a runs dir or a single run."""
+def iter_runs(root: Path) -> Iterable[tuple[str, str, Path]]:
+    """``(battery, slug, run dir)`` for a battery dir, a runs dir or a single run.
+
+    Discovery and naming go through the same machinery as the flywheel
+    (``find_run_dirs`` + ``RunId``), so a nested battery (compare_backends
+    ``cells/<id>/<arm>/run``, ab_plan ``arms/…/cells/…/run``) yields one distinct
+    slug per run instead of dozens of rows all called ``run``."""
     if (root / "record.json").is_file():
-        yield root.parent.parent.name if root.parent.name == "runs" else root.parent.name, root
+        battery = root.parent.parent.name if root.parent.name == "runs" else root.parent.name
+        yield battery, root.name, root
         return
-    runs = root / "runs" if (root / "runs").is_dir() else root
-    for d in sorted(p for p in runs.iterdir() if p.is_dir()):
-        if (d / "record.json").is_file():
-            yield (root.name if runs != root else root.parent.name), d
+    battery = root.name if (root / "runs").is_dir() else (root.parent.name or root.name)
+    for d in find_run_dirs(root):
+        yield battery, RunId(battery=battery, rel=d.relative_to(root).as_posix()).slug, d
 
 
 def collect(roots: Sequence[Path], *, recursive: bool = False) -> tuple[list[Row], int]:
@@ -162,8 +169,8 @@ def collect(roots: Sequence[Path], *, recursive: bool = False) -> tuple[list[Row
     for t in targets:
         if not t.is_dir():
             continue
-        for battery, run in iter_runs(t):
-            row = row_for(run, battery)
+        for battery, slug, run in iter_runs(t):
+            row = row_for(run, battery, slug)
             if row is None:
                 skipped += 1
             else:

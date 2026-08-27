@@ -15,13 +15,15 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from codeverse.contracts.run import RunRecord
+from codeverse.contracts.run import RunId, RunRecord
 from codeverse.flywheel.quality import quality_tier
 from codeverse.flywheel.record import (
     RecordError,
+    battery_label,
     best_round_index,
     effective_judgment,
     find_run_dirs,
+    is_run_dir,
     load_record,
 )
 from codeverse.flywheel.sample import gate_error_summary, telemetry_digest
@@ -47,10 +49,7 @@ def default_roots(base: Path | str = ".") -> list[Path]:
 
 def root_label(root: Path) -> str:
     """Section label: ``runs`` for the plain runs dir, the battery name for a bench out dir."""
-    root = Path(root)
-    if root.name == "runs" and root.parent.name and root.parent.parent.name == "out":
-        return root.parent.name
-    return root.name or str(root)
+    return battery_label(Path(root))
 
 
 def _rel(run_dir: Path, path: Path | str | None) -> str:
@@ -218,8 +217,11 @@ def _complexity(ws: Workspace, rec: RunRecord) -> tuple[float | None, str, dict[
     return float(block["index"]), str(block.get("band") or ""), axes
 
 
-def entry_from_record(battery: str, ws: Workspace, rec: RunRecord) -> RunEntry:
-    """A complete card from a parsed record (never raises: every field degrades)."""
+def entry_from_record(battery: str, ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> RunEntry:
+    """A complete card from a parsed record (never raises: every field degrades).
+
+    ``slug`` is the RunId slug the scan minted; without one the directory basename is
+    used (correct for flat layouts only — nested battery runs are all named ``run``)."""
     best = best_round_index(rec)
     rnd = next((r for r in rec.rounds if r.index == best), None)
     j = effective_judgment(rnd) if rnd is not None else None
@@ -232,7 +234,7 @@ def entry_from_record(battery: str, ws: Workspace, rec: RunRecord) -> RunEntry:
     plan = rec.plan
     cx_index, cx_band, cx_axes = _complexity(ws, rec)
     return RunEntry(
-        battery=battery, slug=ws.root.name, path=str(ws.root), state="ok",
+        battery=battery, slug=slug or ws.root.name, path=str(ws.root), state="ok",
         title=(getattr(plan, "object_name", "") or getattr(plan, "title", "") or "") if plan else "",
         prompt=rec.spec.prompt, track=rec.spec.track.value, language=rec.spec.language.value,
         generator=rec.spec.backends.generator, judge=rec.spec.backends.judge,
@@ -258,38 +260,66 @@ def _spec_fields(run_dir: Path) -> dict[str, str]:
     return {k: str(spec.get(k) or "") for k in ("prompt", "track", "language")}
 
 
-def entry_for_dir(battery: str, run_dir: Path) -> RunEntry:
-    """One run directory → an entry, whatever state it is in."""
+def entry_for_dir(battery: str, run_dir: Path, *, slug: str | None = None) -> RunEntry:
+    """One run directory → an entry, whatever state it is in.
+
+    ``slug`` is the RunId slug the scan minted (default: the directory basename,
+    which is only unique in flat layouts)."""
     ws = Workspace(run_dir)
+    slug = slug or run_dir.name
     fields = _spec_fields(run_dir)
     if not (run_dir / "record.json").is_file():
-        return RunEntry(battery=battery, slug=run_dir.name, path=str(run_dir), state="pending",
+        return RunEntry(battery=battery, slug=slug, path=str(run_dir), state="pending",
                         error="no record.json yet (run in progress or never finished)",
                         links=entry_links(ws, None, None), **fields)
     try:
         rec = load_record(ws)
     except (RecordError, OSError, ValueError) as e:
-        return RunEntry(battery=battery, slug=run_dir.name, path=str(run_dir), state="broken",
+        return RunEntry(battery=battery, slug=slug, path=str(run_dir), state="broken",
                         error=str(e)[:400], links=entry_links(ws, None, None), **fields)
     try:
-        return entry_from_record(battery, ws, rec)
+        return entry_from_record(battery, ws, rec, slug=slug)
     except Exception as e:  # noqa: BLE001 - one weird record must not break the page
-        return RunEntry(battery=battery, slug=run_dir.name, path=str(run_dir), state="broken",
+        return RunEntry(battery=battery, slug=slug, path=str(run_dir), state="broken",
                         error=f"{type(e).__name__}: {e}"[:400], links=entry_links(ws, None, None), **fields)
 
 
-def is_run_dir(p: Path) -> bool:
-    return p.is_dir() and ((p / "record.json").is_file() or (p / "spec.json").is_file())
+def _pending_direct_children(root: Path, found: set[Path]) -> list[Path]:
+    """Direct children with a spec.json but no record.json yet — a bench mid-write
+    still deserves a readable (pending) card.  Only DIRECT children qualify: a run is
+    otherwise gated on record.json exactly like ``flywheel.record.is_run_dir``, because
+    accepting spec-only directories during descent counted every nested ``eval/``
+    judge workspace of a battery cell as a phantom run."""
+    if not root.is_dir():
+        return []
+    return [d for d in sorted(root.iterdir())
+            if d.is_dir() and d not in found
+            and (d / "spec.json").is_file() and not (d / "record.json").is_file()]
 
 
 def scan_root(root: Path, label: str | None = None) -> RootSection:
     """Runs under ``root``.  Uses ``find_run_dirs`` rather than a one-level
     ``iterdir()``: a compare_backends or ab_plan battery directory holds its runs four
     and five levels down, so pointing the gallery at one built a page "of 0 runs" and
-    exited 0 — the silent-empty failure, on a directory full of real runs."""
+    exited 0 — the silent-empty failure, on a directory full of real runs.
+
+    Every entry is named by its :class:`~codeverse.contracts.run.RunId` slug, so two
+    nested runs whose directories are both called ``run`` stay two entries.  A slug
+    that still repeats within the root gets ``#2``/``#3`` — the same precedent as
+    duplicate section labels in :func:`build_index`."""
+    root = Path(root)
     label = label or root_label(root)
-    entries = [entry_for_dir(label, d) for d in find_run_dirs(root, predicate=is_run_dir)]
-    return RootSection(label=label, path=str(Path(root).resolve()), entries=entries)
+    found = find_run_dirs(root, predicate=is_run_dir)
+    dirs = sorted({*found, *_pending_direct_children(root, set(found))})
+    used: dict[str, int] = {}
+    entries: list[RunEntry] = []
+    for d in dirs:
+        slug = RunId(battery=label, rel=d.relative_to(root).as_posix()).slug
+        used[slug] = used.get(slug, 0) + 1
+        if used[slug] > 1:
+            slug = f"{slug}#{used[slug]}"
+        entries.append(entry_for_dir(label, d, slug=slug))
+    return RootSection(label=label, path=str(root.resolve()), entries=entries)
 
 
 def build_index(roots: list[Path] | list[str]) -> GalleryIndex:
