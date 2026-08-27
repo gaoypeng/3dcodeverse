@@ -117,13 +117,19 @@ def glb_path(ctx: ToolContext) -> Path:
     texture tools) operate on the previous round's geometry as if it were current
     after a failed or lint-blocked build."""
     p = ctx.workspace.artifacts / "object.glb"
+    status = _latest_build_status(ctx.workspace)
+    # status FIRST: a failed build publishes nothing, so the file is missing for a
+    # reason the agent needs — it was told "run build first" right after its build
+    # failed on RestPenetration and spent the rest of its turns looking for the
+    # wrong problem (measured 2026-08-27, art_med_tool_chest).
+    if status is not None and not status.get("ok"):
+        why = str(status.get("error") or status.get("error_type") or "see the build output")
+        raise ToolUsageError(
+            f"the last build FAILED ({why[:200]}) — there is no current object.glb to read. "
+            "Fix the code for that error and build again; do not measure or render until it passes.",
+            "build()")
     if not p.is_file():
         raise ToolUsageError("artifacts/object.glb does not exist yet — run `build` first", "build()")
-    status = _latest_build_status(ctx.workspace)
-    if status is not None and not status.get("ok"):
-        raise ToolUsageError(
-            "the last build failed — artifacts/object.glb is from an earlier build; fix and build again",
-            "build()")
     return p
 
 

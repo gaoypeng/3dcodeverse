@@ -159,7 +159,7 @@ def test_build_failure_refuses_stale_glb(stool_ctx: ToolContext, monkeypatch: py
     assert (stool_ctx.workspace.artifacts / "object.glb").is_file()  # evidence stays on disk
     for name in ("measure", "render_views", "check_connectivity"):
         obs = get_tool(name).call(stool_ctx, {})
-        assert not obs.ok and "last build failed" in obs.text, name
+        assert not obs.ok and "build FAILED" in obs.text, name
 
 
 def test_build_lint_fail_refuses_stale_glb(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -173,7 +173,7 @@ def test_build_lint_fail_refuses_stale_glb(stool_ctx: ToolContext, monkeypatch: 
     last = json.loads((stool_ctx.workspace.artifacts / "build_last.json").read_text())
     assert last["ok"] is False and last["error_type"] == "LintError"
     obs = get_tool("measure").call(stool_ctx, {})
-    assert not obs.ok and "last build failed" in obs.text
+    assert not obs.ok and "build FAILED" in obs.text
 
 
 def test_hand_placed_glb_without_build_status_still_measures(stool_ctx: ToolContext) -> None:
@@ -465,3 +465,21 @@ def test_build_card_and_observation_are_unchanged_when_fewer_turns_is_off(stool_
     card_on = get_tool("build").card()
     assert "do not call those two tools separately" in card_on and card_on.startswith(card_off.splitlines()[0][:40])
     assert get_tool("build").description == get_tool("build").description   # the static text never changes
+
+
+def test_a_failed_build_tells_the_agent_WHY_not_to_build_again(tmp_ws):
+    """After a failed build the GLB is absent (staging publishes nothing), and the
+    old order reported 'does not exist yet — run `build` first' to an agent that had
+    just built: art_med_tool_chest burned its remaining turns on that (2026-08-27)."""
+    from codeverse.spatial.tool_common import ToolUsageError, glb_path
+
+    ctx = ToolContext(workspace=tmp_ws, language="urdf_blender", track="articulated_object")
+    tmp_ws.artifacts.mkdir(parents=True, exist_ok=True)
+    tmp_ws.write_json(tmp_ws.artifacts / "build_last.json",
+                      {"ok": False, "glb_path": None, "error_type": "RestPenetration",
+                       "error": "links interpenetrate by 140.0 mm at lid/base"})
+    with pytest.raises(ToolUsageError) as e:
+        glb_path(ctx)
+    msg = str(e.value)
+    assert "FAILED" in msg and "interpenetrate" in msg
+    assert "run `build` first" not in msg, "a build that ran and failed is not 'not built yet'"
