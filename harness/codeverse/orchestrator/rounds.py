@@ -153,6 +153,20 @@ class RoundPolicy:
         return self.marginal_sigma * self.sigma
 
 
+def meaningful_regression(score: float | None, before: float | None, policy: RoundPolicy) -> bool:
+    """Did ``score`` fall below ``before`` by MORE than this judge's own noise?
+
+    THE regression predicate: ``StopPolicy._regression`` (the stop gate) and
+    ``StopPolicy._regressions`` (the counter behind "a second regression stops
+    the run") both call it, so they cannot drift apart.  The scale is the
+    measured per-judge sigma table via ``policy.regression_delta`` — deliberately
+    NOT the 0.202 A/A replay floor, which measures cross-run planner variance,
+    not judge noise."""
+    if score is None or before is None:
+        return False
+    return (before - score) > policy.regression_delta
+
+
 @dataclass(frozen=True)
 class StopDecision:
     """``StopPolicy``'s answer: stop (and why), or continue (and in what shape)."""
@@ -235,11 +249,9 @@ class StopPolicy:
         is the question that outranks every other stop."""
         last = history[-1]
         score, best_before = last.score, best_score(history[:-1])
-        if score is None or best_before is None:
+        if not meaningful_regression(score, best_before, self.policy):
             return None
         drop = best_before - score
-        if drop <= self.policy.regression_delta:
-            return None
         detail = (f"r{last.index:02d} scored {score:.3f} vs best {best_before:.3f} "
                   f"({-drop:+.3f}, judge σ {self.policy.sigma:.3f})")
         if not self.policy.regression_allow_switch:
@@ -269,15 +281,14 @@ class StopPolicy:
                                        f"{self.policy.target:.2f}")
         return None
 
-    @staticmethod
-    def _regressions(history: Sequence[RoundRecord]) -> int:
-        """How many scored rounds ended below the best of everything before them."""
-        n = 0
-        for i in range(1, len(history)):
-            s, before = history[i].score, best_score(history[:i])
-            if s is not None and before is not None and s < before:
-                n += 1
-        return n
+    def _regressions(self, history: Sequence[RoundRecord]) -> int:
+        """How many scored rounds ended MEANINGFULLY below the best of everything
+        before them.  Same predicate as the gate (:func:`meaningful_regression`),
+        so a sub-noise dip can never help burn the run's single strategy switch
+        (a -0.005 blip + one real regression used to count 2 = "regression" stop
+        with the switch never offered)."""
+        return sum(1 for i in range(1, len(history))
+                   if meaningful_regression(history[i].score, best_score(history[:i]), self.policy))
 
     def _plateaued(self, history: Sequence[RoundRecord]) -> bool:
         """True when the last ``plateau_window`` scored rounds did not raise the best
@@ -388,5 +399,5 @@ __all__ = [
     "REWRITE_KIND", "RefineTask", "RoundPolicy", "StopDecision", "StopPolicy", "StopReason",
     "Strategy", "TaskGroup", "best_score", "build_refine_instructions", "compact_instructions",
     "detail_blocked", "gate_error_count", "judge_sigma", "kind_for_strategy", "last_gain",
-    "plan_parallel_groups", "plan_refine_groups",
+    "meaningful_regression", "plan_parallel_groups", "plan_refine_groups",
 ]

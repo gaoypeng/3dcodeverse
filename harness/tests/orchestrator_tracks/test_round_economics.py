@@ -94,6 +94,23 @@ def test_a_regression_buys_a_change_of_shape_then_stops():
     assert twice.reason == "regression"
 
 
+def test_a_sub_noise_dip_never_burns_the_strategy_switch():
+    """Audit (g): the regression COUNTER used to count ANY drop while the gate used
+    policy.regression_delta — a -0.02 blip (inside pro sigma 0.030) plus one real
+    regression made the counter 2 and stopped the run as "regression" without ever
+    offering the single strategy switch.  One predicate now serves both."""
+    from codeverse.orchestrator.rounds import meaningful_regression
+
+    sp = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, judge_model="gemini:gemini-3.1-pro-preview",
+                                marginal_from_round=99))
+    d = sp.evaluate([_round(0, 0.60), _round(1, 0.58), _round(2, 0.50)])
+    assert (d.reason, d.strategy) == ("continue", "switch"), "the single switch must still be offered"
+    pol = RoundPolicy(judge_model="gemini:gemini-3.1-pro-preview")
+    assert not meaningful_regression(0.58, 0.60, pol)  # sub-noise dip: not a regression
+    assert meaningful_regression(0.50, 0.60, pol)      # a real one
+    assert not meaningful_regression(None, 0.60, pol) and not meaningful_regression(0.5, None, pol)
+
+
 def test_regression_can_be_configured_to_stop_outright():
     sp = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, marginal_from_round=99, regression_allow_switch=False))
     d = sp.evaluate([_round(0, 0.60), _round(1, 0.52)])

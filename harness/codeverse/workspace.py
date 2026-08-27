@@ -332,6 +332,13 @@ class Workspace:
     def head(self) -> str:
         return self._git("rev-parse", "HEAD").stdout.strip()
 
+    def has_commit(self, commit: str) -> bool:
+        """Does this repo actually have ``commit``?  A round journal can name a commit
+        the crash never wrote (``tracks/lifecycle.reconcile_resume`` drops such rounds)."""
+        if not commit:
+            return False
+        return self._git("cat-file", "-e", f"{commit}^{{commit}}", check=False).returncode == 0
+
     def changed_files(self, since: str | None = None) -> list[FileChange]:
         """Files changed vs ``since`` (a commit) or vs HEAD (uncommitted work)."""
         self._git("add", "-A", "-N")  # register untracked so they show up in diff

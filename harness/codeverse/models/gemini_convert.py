@@ -42,11 +42,27 @@ SIGNATURES: BoundedCache[bytes] = BoundedCache(4096)
 _call_counter = [0]
 _call_lock = threading.Lock()
 
+#: prefix of the ids WE mint when the provider sent none (``extract_candidate``).
+#: A synthetic id exists only to pair ToolCallPart/ToolResultPart locally and is
+#: NEVER echoed back to the provider; a GENUINE provider id is echoed verbatim on
+#: both ``FunctionCall`` and ``FunctionResponse``.
+SYNTHETIC_CALL_ID_PREFIX = "synth-call-"
+
 
 def _next_call_id() -> str:
     with _call_lock:
         _call_counter[0] += 1
-        return f"call_{_call_counter[0]:06d}"
+        return f"{SYNTHETIC_CALL_ID_PREFIX}{_call_counter[0]:06d}"
+
+
+def is_synthetic_call_id(call_id: str | None) -> bool:
+    """True for ids minted here rather than issued by the provider."""
+    return bool(call_id) and str(call_id).startswith(SYNTHETIC_CALL_ID_PREFIX)
+
+
+def _echo_id(call_id: str | None) -> str | None:
+    """The id to send back to Gemini: the provider's own id verbatim, never a synthetic one."""
+    return None if not call_id or is_synthetic_call_id(call_id) else str(call_id)
 
 
 # ------------------------------------------------------------------ contents
@@ -68,7 +84,9 @@ def to_contents(messages: list[ChatMessage]) -> list[types.Content]:
                 parts.append(types.Part.from_bytes(data=raw, mime_type=mime))
             elif isinstance(p, ToolCallPart):
                 part = types.Part(
-                    function_call=types.FunctionCall(name=p.name, args=dict(p.arguments))
+                    function_call=types.FunctionCall(
+                        name=p.name, args=dict(p.arguments), id=_echo_id(p.id)
+                    )
                 )
                 sig = SIGNATURES.get(p.id)
                 if sig:
@@ -102,7 +120,9 @@ def _function_response_part(p: ToolResultPart) -> types.Part:
         payload = {"result": p.content}
     if p.is_error:
         payload = {"error": payload.get("result", payload)} if "error" not in payload else payload
-    return types.Part(function_response=types.FunctionResponse(name=p.name, response=payload))
+    return types.Part(
+        function_response=types.FunctionResponse(name=p.name, response=payload, id=_echo_id(p.call_id))
+    )
 
 
 # -------------------------------------------------------------------- config
@@ -203,6 +223,8 @@ def extract_candidate(resp: types.GenerateContentResponse) -> tuple[str, list[To
     for part in cand.content.parts if cand.content and cand.content.parts else []:
         if part.function_call is not None:
             fc = part.function_call
+            # a genuine provider id is kept verbatim (and echoed back later); a synthetic
+            # one is minted, marked by its prefix, only so the parts pair locally
             call_id = fc.id or _next_call_id()
             SIGNATURES.put(call_id, part.thought_signature)
             calls.append(

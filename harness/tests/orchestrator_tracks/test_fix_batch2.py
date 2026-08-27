@@ -152,6 +152,17 @@ def test_degraded_verdict_never_scores_and_run_stops_as_judge_unavailable(tmp_pa
     assert "judge.degraded" in kinds and "judge.retry" in kinds
     # the degraded summary never reaches a refine prompt
     assert len(judge.all_calls) == 3
+    # audit f1/f3: both degraded verdicts were PAID and the glitch note survives the
+    # round's notes join — money and note reach the persisted record and cost.round
+    r1 = rec.rounds[1]
+    assert "judge degraded" in r1.notes
+    assert r1.usage.cost_usd == pytest.approx(0.016, abs=1e-6)  # agent 0.01 + 2 x degraded 0.003
+    saved = json.loads((ws.root / "rounds" / "r01.json").read_text())
+    assert "judge degraded" in saved["notes"]
+    assert saved["usage"]["cost_usd"] == pytest.approx(0.016, abs=1e-6)
+    r1_cost = next(e for e in EventLog(ws.events_path).read()
+                   if e["event"] == "cost.round" and e["round"] == 1)
+    assert r1_cost["judge_usd"] == pytest.approx(0.003) and r1_cost["waste_reason"] == "unjudged"
 
 
 def test_degraded_verdict_recovers_via_rejudge_of_same_commit(tmp_path, chair_plan, settings):
@@ -169,6 +180,17 @@ def test_degraded_verdict_recovers_via_rejudge_of_same_commit(tmp_path, chair_pl
     assert [j.extra.get("round") for j in agent.jobs] == [0, 1]
     saved = RoundRecord.model_validate(json.loads((ws.root / "rounds" / "r01.json").read_text()))
     assert saved.judgment is not None and saved.judgment.overall == pytest.approx(0.85)
+    # audit f2: the recovery re-emits a CORRECTED cost.round so the audit stream stops
+    # counting r01 as wasted=unjudged; f1: every paid verdict is on the round's usage
+    r1_costs = [e for e in EventLog(ws.events_path).read()
+                if e["event"] == "cost.round" and e["round"] == 1]
+    assert len(r1_costs) == 2
+    first, corrected = r1_costs
+    assert first["wasted"] is True and first["waste_reason"] == "unjudged" and first["corrected"] is False
+    assert corrected["corrected"] is True and corrected["wasted"] is False
+    assert corrected["score"] == pytest.approx(0.85) and corrected["judge_usd"] == pytest.approx(0.003)
+    assert rec.rounds[1].usage.cost_usd == pytest.approx(0.016, abs=1e-6)  # agent + degraded + rejudge
+    assert "judge degraded" in rec.rounds[1].notes and "judge degraded" in saved.notes
 
 
 # --------------------------------------------------------------------- finding: plan stage hash covers the whole Spec

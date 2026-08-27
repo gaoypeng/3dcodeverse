@@ -40,7 +40,7 @@ from codeverse.orchestrator.rounds import (
     kind_for_strategy,
     plan_refine_groups,
 )
-from codeverse.orchestrator.runner import StageRunner
+from codeverse.orchestrator.runner import StageRunner, hash_inputs
 from codeverse.orchestrator.state import RunState
 from codeverse.prompts import render
 from codeverse.tracks.candidates import choose_best_round, run_best_of_n
@@ -61,7 +61,7 @@ from codeverse.tracks.steps import (
     RoundFailed,
     RoundPipeline,
     failed_acceptance,
-    load_round_records,
+    load_round_journal,
     rejudge_round,
     run_round,
     sum_usage,
@@ -134,6 +134,23 @@ def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
         "planner": spec.backends.planner,
         "seed": spec.seed,
     }
+
+
+def spec_fingerprint(spec: Spec) -> str:
+    """Identity of the spec THE PLAN depends on (hash of :func:`plan_stage_inputs`).
+
+    Stamped into ``state.extra["spec_fingerprint"]`` on first run and verified by
+    ``reconcile_resume``.  Budget raises — the sanctioned way to continue a
+    BUDGET-stopped run — are outside ``plan_stage_inputs`` and never change it."""
+    return hash_inputs(plan_stage_inputs(spec))
+
+
+class SpecChanged(RuntimeError):
+    """spec.json's plan inputs changed under an existing run.
+
+    Resuming would pair the recorded rounds with a new spec/plan in record.json —
+    fake prompt→code provenance.  Fork a new run, or resume with ``--force`` to
+    archive the old rounds under ``rounds/pre_force/`` and re-plan."""
 
 
 class BaseTrack:
@@ -303,17 +320,21 @@ class BaseTrack:
         return run_planner(spec, spec.backends.planner, self.plan_model, ws, model=self._planner_model,
                            events=events, runtime=runtime, **self._plan_kwargs(spec))
 
-    def run(self, spec: Spec, ws: Workspace, *, resume: bool = False) -> RunRecord:
+    def run(self, spec: Spec, ws: Workspace, *, resume: bool = False, force: bool = False) -> RunRecord:
         ws.create()
         if not ws.spec_path.is_file() or not resume:
             ws.write_json(ws.spec_path, spec)
         events = EventLog(ws.events_path)
         state = RunState.load_or_new(ws, resume=resume)
+        # BEFORE build_context (which restores the budget snapshot from state.extra):
+        # make the state agree with the durable round journal, verify spec identity,
+        # and take the reconciled rounds as the loop's initial history — so the
+        # FAILED/BUDGET handlers below serialize the real rounds, never [].
+        rounds: list[RoundRecord] = self.reconcile_resume(spec, ws, events, state, resume=resume, force=force)
         ctx = self.build_context(spec, ws, events, state)
         runner = StageRunner(ws, events, state)
         events.emit("run.start", track=self.track.value, language=spec.language.value, resume=resume,
                     agent=ctx.agent_id, planner=spec.backends.planner, judge=spec.backends.judge)
-        rounds: list[RoundRecord] = []
         stop: StopReason | str = "failed"
         error = ""
         try:
@@ -321,7 +342,6 @@ class BaseTrack:
                                     model=self.plan_model)
             self.after_plan(ctx)
             self.prepare(ctx, runner)
-            rounds = load_round_records(ctx) if resume else []
             stop = self._round_loop(ctx, rounds)
         except BudgetExceeded as e:
             events.emit("budget.exceeded", reason=e.reason, spent_usd=round(e.spent_usd, 4))
@@ -339,6 +359,114 @@ class BaseTrack:
         status = _STATUS.get(stop, RunStatus.FAILED)
         rec = self.finalise(ctx, rounds, status, stop_reason=str(stop), error=error)
         return rec
+
+    # ------------------------------------------------------------------ resume reconciliation
+    def reconcile_resume(self, spec: Spec, ws: Workspace, events: EventLog, state: RunState,
+                         *, resume: bool, force: bool) -> list[RoundRecord]:
+        """Make ``run_state.json`` agree with the on-disk round journal before anything runs.
+
+        The journal (``rounds/rNN.json`` + its git commit, written at the end of every
+        round) is the durable record; the state file is a cache of it that a crash can
+        leave stale — round persisted, ``mark_round_done``/best never saved.  On resume:
+
+        1. **Spec identity.**  ``state.extra["spec_fingerprint"]`` (hash of
+           :func:`plan_stage_inputs`, stamped on first run) must match the spec we are
+           resuming with; budget raises are outside the fingerprint by construction.
+           On a mismatch a plain resume raises :class:`SpecChanged`; ``--force``
+           emits ``resume.spec_changed`` and archives the old journal + ``record.json``
+           to ``rounds/pre_force/`` — old rounds are never paired with a new spec/plan.
+        2. **Journal integrity.**  Trailing rounds whose commit git does not have are
+           dropped (half-written journal), with a ``resume.dropped_rounds`` event.
+        3. **Rebuild.**  ``completed_rounds``/``round_commits`` come from the journal;
+           when the state disagrees with it (rounds it never promoted, a best pointing
+           at the wrong commit) the best is recomputed with ``BestSelector`` — the
+           same ranking ``choose_best_round`` starts from, with no paid pairwise call.
+           A state that already agrees keeps its best untouched (it may embody a paid
+           pairwise keep-the-incumbent decision the pure ranking lacks).
+
+        Returns the loop's initial round history.  A fresh (non-resume) run only
+        stamps the fingerprint and starts empty."""
+        fp = spec_fingerprint(spec)
+        stored = str(state.extra.get("spec_fingerprint") or "")
+        if not resume:
+            state.extra["spec_fingerprint"] = fp
+            return []
+        journal = load_round_journal(ws)
+        if stored and stored != fp:
+            if not force:
+                raise SpecChanged(
+                    f"spec.json for run {ws.root.name} no longer matches the spec its "
+                    f"{len(journal)} recorded round(s) were built from (plan-input fingerprint "
+                    f"{stored} != {fp}: prompt/track/language/constraints/references/planner/seed). "
+                    f"Resuming would record those rounds against the new spec. Fork a new run "
+                    f"(`3dcv make`), or resume with --force to archive the old rounds under "
+                    f"rounds/pre_force/ and re-plan. Raising budget caps alone never trips this."
+                )
+            events.emit("resume.spec_changed", old_fingerprint=stored, new_fingerprint=fp,
+                        archived_rounds=len(journal))
+            archived = self._archive_pre_force(ws)
+            events.emit("resume.archived", dest=str(archived))
+            journal = []
+            state.stages.pop("plan", None)  # the plan must be rebuilt from the edited spec
+            state.completed_rounds, state.round_commits, state.current_round = [], {}, 0
+            state.best_round, state.best_commit, state.best_score = None, "", None
+        state.extra["spec_fingerprint"] = fp
+        kept: list[RoundRecord] = []
+        dropped: list[int] = []
+        for rec in journal:
+            if dropped or not rec.commit or not ws.has_commit(rec.commit):
+                dropped.append(rec.index)  # half-written tail: rNN.json without its commit
+            else:
+                kept.append(rec)
+        if dropped:
+            events.emit("resume.dropped_rounds", rounds=dropped,
+                        reason="round journal names commits git does not have")
+        journal = kept
+        journal_commits = {r.index: r.commit for r in journal}
+        stale = (state.completed_rounds != [r.index for r in journal]
+                 or {int(k): v for k, v in state.round_commits.items()} != journal_commits)
+        if stale:
+            state.completed_rounds = [r.index for r in journal]
+            state.round_commits = dict(journal_commits)
+            state.current_round = len(journal)
+        best = state.best_round
+        best_invalid = best is not None and (best >= len(journal) or journal[best].commit != state.best_commit)
+        best_changed = False
+        if not journal:
+            if best is not None:
+                state.best_round, state.best_commit, state.best_score = None, "", None
+                best_changed = True
+        elif stale or best_invalid or best is None:
+            pick = BestSelector().pick(journal)
+            if pick is None:
+                best_changed = best is not None
+                state.best_round, state.best_commit, state.best_score = None, "", None
+            elif pick != best or journal[pick].commit != state.best_commit:
+                state.update_best(pick, journal[pick].commit, journal[pick].score)
+                best_changed = True
+        state.save(ws)
+        events.emit("resume.reconciled", rounds=len(journal), dropped=dropped, state_was_stale=stale,
+                    best_round=state.best_round, best_score=state.best_score, best_changed=best_changed,
+                    spec_fingerprint=fp)
+        return journal
+
+
+    @staticmethod
+    def _archive_pre_force(ws: Workspace) -> Path:
+        """Move the old journal + record.json under ``rounds/pre_force/`` (never delete
+        evidence; a second --force lands in ``pre_force_2/`` and so on)."""
+        rounds_dir = ws.root / "rounds"
+        dest, n = rounds_dir / "pre_force", 1
+        while dest.exists():
+            n += 1
+            dest = rounds_dir / f"pre_force_{n}"
+        dest.mkdir(parents=True, exist_ok=True)
+        for p in sorted(rounds_dir.iterdir()):
+            if p.is_file():
+                p.rename(dest / p.name)
+        if ws.record_path.is_file():
+            ws.record_path.rename(dest / ws.record_path.name)
+        return dest
 
     # ------------------------------------------------------------------ context
     def build_context(self, spec: Spec, ws: Workspace, events: EventLog, state: RunState) -> RunContext:
@@ -530,7 +658,10 @@ class BaseTrack:
                 ctx.events.emit("stop", reason="no_change", rounds=len(rounds), best=ctx.state.best_round)
                 return "plateau"
             rounds.append(rec)
-            ctx.state.mark_round_done(index, rec.commit)
+            # durable BEFORE choose_best_round's possible PAID pairwise call: a crash in
+            # that window left state.json without a round the journal already had, and
+            # an immediate stop on resume then restored/delivered a stale best.
+            ctx.state.mark_round_done(index, rec.commit, ctx.ws)
             best = choose_best_round(ctx, rounds, selector, index)
             if best is not None and ctx.state.update_best(best, rounds[best].commit, rounds[best].score):
                 ctx.events.emit("best.updated", round=best, score=rounds[best].score)
@@ -566,7 +697,7 @@ class BaseTrack:
             ctx.events.emit("budget.salvage_failed", error=f"{type(e).__name__}: {e}")
             return
         rounds.append(rec)
-        ctx.state.mark_round_done(0, rec.commit)
+        ctx.state.mark_round_done(0, rec.commit, ctx.ws)
         if ctx.state.update_best(0, rec.commit, rec.score):
             ctx.events.emit("best.updated", round=0, score=rec.score)
         self._save_budget(ctx)
@@ -703,15 +834,43 @@ class BaseTrack:
             # rounds the budget (or a crash) cut after the money was spent: they are not
             # in ``rounds``, so name them here and keep their dollars in total_usage.
             extra["aborted_rounds"] = ctx.extra["aborted_rounds"]
+        # A resume rewrite must not drop what earlier sessions / other packages put on
+        # the record post-hoc (flywheel captions, texturing/run.record_texturing, prior
+        # sessions' aborted_rounds, prompt hashes of stages not re-executed): seed from
+        # the prior record — unknown keys preserved, this session's values win.
+        prior_extra, prior_hashes = self._prior_record_fields(ctx.ws)
+        prior_aborted = prior_extra.get("aborted_rounds")
+        for k, v in prior_extra.items():
+            if k not in extra or extra[k] is None:
+                extra[k] = v
+        if isinstance(prior_aborted, list) and ctx.extra.get("aborted_rounds"):
+            extra["aborted_rounds"] = prior_aborted + [a for a in ctx.extra["aborted_rounds"]
+                                                       if a not in prior_aborted]
         return RunRecord(
             spec=ctx.spec, plan=ctx.plan, workspace=str(ctx.ws.root), status=status, rounds=rounds, best_round=best,
             baseline_score=baseline, final_score=final, total_usage=total,
             environment={"python": platform.python_version(), "host": platform.node(), "track": self.track.value,
                          "language": ctx.language.value, "generator": ctx.agent_id},
-            prompt_hashes=dict(ctx.prompt_hashes), started_at=ctx.state.started_at,
+            prompt_hashes={**prior_hashes, **dict(ctx.prompt_hashes)}, started_at=ctx.state.started_at,
             finished_at=datetime.now(UTC), error=error,
             extra=extra,
         )
+
+    @staticmethod
+    def _prior_record_fields(ws: Workspace) -> tuple[dict[str, Any], dict[str, str]]:
+        """``(extra, prompt_hashes)`` of the record.json a previous session wrote
+        (empty when there is none / it cannot be read — never run-fatal)."""
+        if not ws.record_path.is_file():
+            return {}, {}
+        try:
+            prior = ws.read_json(ws.record_path)
+        except Exception as e:  # noqa: BLE001 — a corrupt old record must not block finalise
+            log.warning("prior record.json unreadable; post-hoc extra keys not carried over: %s", e)
+            return {}, {}
+        extra = prior.get("extra")
+        hashes = prior.get("prompt_hashes")
+        return (dict(extra) if isinstance(extra, dict) else {},
+                {str(k): str(v) for k, v in hashes.items()} if isinstance(hashes, dict) else {})
 
 
 def rewrite_task(last: RoundRecord, best: float | None) -> RefineTask:

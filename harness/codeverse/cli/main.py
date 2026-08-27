@@ -321,7 +321,7 @@ def _ground_in_reference(spec: Spec, ws, *, n_views: int) -> Spec:
     return grounded
 
 
-def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None) -> None:
+def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, force: bool = False) -> None:
     from codeverse.cost.instrument import run_ledger
     from codeverse.runlock import RunLocked, run_lock
 
@@ -335,7 +335,7 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None) -
             run_lock(ws.root, what=f"3dcv {'resume' if resume else 'make'} {ws.root.name}"),
             run_ledger(ws.root, run=ws.root.name),
         ):
-            record = get_track(spec.track, **options).run(spec, ws, resume=resume)
+            record = get_track(spec.track, **options).run(spec, ws, resume=resume, force=force)
     except RunLocked as e:
         raise C.CliError(str(e), code=2) from None
     except KeyboardInterrupt:
@@ -343,6 +343,12 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None) -
             f"interrupted; resume with `3dcv resume {ws.root.name}`", code=130
         ) from None
     except Exception as e:  # the track failed outside its own error handling
+        from codeverse.tracks.lifecycle import SpecChanged
+
+        if isinstance(e, SpecChanged):
+            # a refusal with instructions, not a crash: no traceback, and the run
+            # itself was never entered (reconcile_resume raises before any stage)
+            raise C.CliError(str(e), code=2) from None
         err_console.print_exception(max_frames=8)
         raise C.CliError(
             f"run failed: {type(e).__name__}: {e} (workspace {ws.root}; see events.jsonl)"
@@ -413,7 +419,9 @@ def resume(
         bool,
         typer.Option(
             "--force",
-            help="re-enter a run that already finished (it will be re-planned and re-scored)",
+            help="re-enter a run that already finished (it will be re-planned and re-scored), "
+            "and allow resuming after a spec edit — the old rounds and record are archived "
+            "under rounds/pre_force/ and the run re-plans from the edited spec",
         ),
     ] = False,
 ) -> None:
@@ -449,7 +457,7 @@ def resume(
         spec = spec.model_copy(update={"budget": spec.budget.model_copy(update=raised)})
         ws.write_json(ws.spec_path, spec)
         EventLog(ws.events_path).emit("budget.raised", **raised)
-    _run_track(spec, ws, resume=True, candidates=candidates)
+    _run_track(spec, ws, resume=True, candidates=candidates, force=force)
 
 
 # --------------------------------------------------------------------------- status / render / judge

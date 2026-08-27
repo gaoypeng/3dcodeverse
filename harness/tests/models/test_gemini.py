@@ -529,3 +529,113 @@ def test_a_charged_but_invalid_reply_carries_its_usage_on_the_error():
         m.generate(ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"}))
     assert ei.value.usage.input_tokens == 100 and ei.value.usage.output_tokens == 20
     assert ei.value.usage.cost_usd > 0
+
+
+def _resp_with_calls(parts: list[types.Part]) -> types.GenerateContentResponse:
+    return types.GenerateContentResponse(
+        candidates=[
+            types.Candidate(content=types.Content(role="model", parts=parts), finish_reason="STOP")
+        ],
+        usage_metadata=types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=10, candidates_token_count=5
+        ),
+    )
+
+
+def test_provider_call_id_round_trips_verbatim():
+    """A GENUINE provider function_call.id must be echoed unchanged on BOTH the
+    function_call replay and the function_response (both used to drop it)."""
+    from codeverse.models.gemini_convert import is_synthetic_call_id
+
+    tool = ToolSpec(
+        name="measure",
+        description="m",
+        parameters={"type": "object", "properties": {"part": {"type": "string"}}},
+    )
+    part = types.Part(
+        function_call=types.FunctionCall(name="measure", args={"part": "all"}, id="prov-42")
+    )
+    part.thought_signature = b"sig-prov"
+    m, log, _ = make_model([_resp_with_calls([part]), text_response("45 cm")])
+    req = ChatRequest(messages=[ChatMessage.user("measure it")], tools=[tool])
+    r = m.generate(req)
+    call = r.tool_calls[0]
+    assert call.id == "prov-42" and not is_synthetic_call_id(call.id)
+    assert SIGNATURES.get("prov-42") == b"sig-prov"
+    msgs = [
+        *req.messages,
+        ChatMessage(role="assistant", parts=[call]),
+        ChatMessage(
+            role="tool",
+            parts=[
+                ToolResultPart(call_id=call.id, name="measure", content=json.dumps({"h": 0.45}))
+            ],
+        ),
+    ]
+    m.generate(ChatRequest(messages=msgs, tools=[tool]))
+    contents = log[1]["contents"]
+    assert contents[1].parts[0].function_call.id == "prov-42"
+    assert contents[2].parts[0].function_response.id == "prov-42"
+
+
+def test_synthetic_call_ids_are_never_echoed_to_the_provider():
+    """When the provider sent NO id we mint one for local pairing — and it must
+    never travel back to Gemini (an id the provider did not issue)."""
+    from codeverse.models.gemini_convert import is_synthetic_call_id
+
+    tool = ToolSpec(name="measure", description="m", parameters={"type": "object", "properties": {}})
+    m, log, _ = make_model([call_response("measure", {"part": "all"}), text_response("ok")])
+    req = ChatRequest(messages=[ChatMessage.user("x")], tools=[tool])
+    r = m.generate(req)
+    call = r.tool_calls[0]
+    assert is_synthetic_call_id(call.id)
+    msgs = [
+        *req.messages,
+        ChatMessage(role="assistant", parts=[call]),
+        ChatMessage(role="tool", parts=[ToolResultPart(call_id=call.id, name="measure", content="{}")]),
+    ]
+    m.generate(ChatRequest(messages=msgs, tools=[tool]))
+    contents = log[1]["contents"]
+    assert contents[1].parts[0].function_call.id is None, "an invented id must not reach Gemini"
+    assert contents[2].parts[0].function_response.id is None
+
+
+def test_two_parallel_same_name_calls_keep_their_provider_ids():
+    """Two calls to the SAME tool in one turn: only the echoed ids pair each
+    response with its call, and each call keeps its own thought_signature."""
+    parts = []
+    for cid, target in (("id-a", "seat"), ("id-b", "leg")):
+        p = types.Part(function_call=types.FunctionCall(name="measure", args={"part": target}, id=cid))
+        p.thought_signature = f"sig-{cid}".encode()
+        parts.append(p)
+    tool = ToolSpec(
+        name="measure",
+        description="m",
+        parameters={"type": "object", "properties": {"part": {"type": "string"}}},
+    )
+    m, log, _ = make_model([_resp_with_calls(parts), text_response("done")])
+    req = ChatRequest(messages=[ChatMessage.user("measure both")], tools=[tool])
+    r = m.generate(req)
+    a, b = r.tool_calls
+    assert (a.id, b.id) == ("id-a", "id-b") and a.name == b.name == "measure"
+    assert SIGNATURES.get("id-a") == b"sig-id-a" and SIGNATURES.get("id-b") == b"sig-id-b"
+    msgs = [
+        *req.messages,
+        ChatMessage(role="assistant", parts=[a, b]),
+        ChatMessage(
+            role="tool",
+            parts=[  # results deliberately out of order: the ids do the pairing
+                ToolResultPart(call_id=b.id, name="measure", content=json.dumps({"part": "leg"})),
+                ToolResultPart(call_id=a.id, name="measure", content=json.dumps({"part": "seat"})),
+            ],
+        ),
+    ]
+    m.generate(ChatRequest(messages=msgs, tools=[tool]))
+    model_parts = log[1]["contents"][1].parts
+    assert [fp.function_call.id for fp in model_parts] == ["id-a", "id-b"]
+    assert [fp.thought_signature for fp in model_parts] == [b"sig-id-a", b"sig-id-b"]
+    responses = log[1]["contents"][2].parts
+    assert [(fp.function_response.id, fp.function_response.response["part"]) for fp in responses] == [
+        ("id-b", "leg"),
+        ("id-a", "seat"),
+    ]

@@ -67,12 +67,20 @@ def round_record_path(ctx: RunContext, index: int) -> Path:
 
 def load_round_records(ctx: RunContext) -> list[RoundRecord]:
     """Rounds persisted so far (sorted by index, contiguous prefix only)."""
-    d = ctx.ws.root / "rounds"
+    return load_round_journal(ctx.ws)
+
+
+def load_round_journal(ws: Workspace) -> list[RoundRecord]:
+    """The on-disk round journal: ``rounds/r*.json`` sorted, contiguous prefix only.
+
+    Workspace-level (no ``RunContext``) because ``lifecycle.reconcile_resume``
+    reads it before the context exists; :func:`load_round_records` delegates here."""
+    d = ws.root / "rounds"
     if not d.is_dir():
         return []
     out: list[RoundRecord] = []
     for i, p in enumerate(sorted(d.glob("r*.json"))):
-        rec = RoundRecord.model_validate(ctx.ws.read_json(p))
+        rec = RoundRecord.model_validate(ws.read_json(p))
         if rec.index != i:
             break
         out.append(rec)
@@ -254,10 +262,14 @@ def _run_round(
             notes.append(f"judge skipped ({skip})")
             ctx.events.emit("judge.skipped", round=index, reason=skip)
         else:
-            rec.judgment = _judge(ctx, pipeline, index, outcome.build, gates, rec, previous)
+            rec.judgment, judge_usage = _judge(ctx, pipeline, index, outcome.build, gates, rec, previous, notes)
+            if rec.judgment is not None or judge_usage.cost_usd:
+                # a degraded/crashed verdict was still PAID: fold its usage into the
+                # round's usage and cost["judge"] so rec.usage and the cost.round event
+                # see the money even when judged=False.
+                usage = usage + judge_usage
+                cost["judge"] = round(judge_usage.cost_usd, 6)
             if rec.judgment is not None:
-                usage = usage + rec.judgment.usage
-                cost["judge"] = round(rec.judgment.usage.cost_usd, 6)
                 # add, never charge: the verdict exists and is paid for — raising here
                 # would drop a fully judged round before it is committed/recorded
                 # (the loop stops at its next budget_ok check instead, AFTER best promotion).
@@ -328,10 +340,13 @@ def emit_round_cost(
     build_ok: bool,
     judged: bool,
     aborted: str = "",
+    corrected: bool = False,
 ) -> None:
     """One ``cost.round`` event per round: ``{stage → $}``, judge $, agent turns and
     whether the money bought anything.  The ledger/audit reads this instead of
-    reconstructing the round from trajectories and events."""
+    reconstructing the round from trajectories and events.  ``corrected=True``
+    marks a re-emission after ``rejudge_round`` recovered a verdict — the LAST
+    event per round is the truth."""
     wasted, why = _waste_flag(score=score, previous_best=previous_best, build_ok=build_ok,
                               judged=judged, aborted=aborted)
     ctx.events.emit(
@@ -342,6 +357,7 @@ def emit_round_cost(
         agent_turns=turns,
         input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, cached_tokens=usage.cached_tokens,
         score=score, previous_best=previous_best, wasted=wasted, waste_reason=why, aborted=aborted,
+        corrected=corrected,
         run_usd=round(ctx.budget.spent.cost_usd, 6),
     )
 
@@ -388,7 +404,15 @@ def record_aborted_round(ctx: RunContext, *, index: int, kind: str, usage: Usage
 
 
 def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildResult, gates: list[GateReport],
-           rec: RoundRecord, previous: Judgment | None) -> Judgment | None:
+           rec: RoundRecord, previous: Judgment | None, notes: list[str]) -> tuple[Judgment | None, Usage]:
+    """Judge one round → ``(judgment, paid_usage)``.
+
+    ``judgment`` is ``None`` when the verdict is unusable (the judge crashed or
+    returned a degraded non-score); ``paid_usage`` is what the attempt cost
+    EITHER WAY, so a failed verdict's dollars still reach the round record and
+    its ``cost.round`` event.  Failure notes are appended to the CALLER's
+    ``notes`` list — ``_run_round`` joins that list into ``rec.notes`` at the
+    end of the round, so writing to ``rec.notes`` here was silently lost."""
     from codeverse.judges.base import JudgeInput
 
     renders = rec.renders
@@ -418,9 +442,16 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
         judgment: Judgment = ctx.judge.judge(inp)
     except Exception as e:  # noqa: BLE001 — a judge outage must not destroy the run's code/commits
         log.exception("judge failed in round %d", index)
-        ctx.events.emit("judge.failed", round=index, error=f"{type(e).__name__}: {e}")
-        rec.notes = (rec.notes + "; " if rec.notes else "") + f"judge failed: {type(e).__name__}: {e}"
-        return None
+        paid = getattr(e, "usage", None)
+        paid = paid if isinstance(paid, Usage) else Usage()
+        if paid.cost_usd:
+            # the provider billed the failed attempt (ModelError.usage): book it
+            ctx.budget.add(paid, stage="judge", role="judge", round_index=index,
+                           label="judge", outcome="failed")
+        ctx.events.emit("judge.failed", round=index, error=f"{type(e).__name__}: {e}",
+                        cost_usd=round(paid.cost_usd, 4))
+        notes.append(f"judge failed: {type(e).__name__}: {e}")
+        return None, paid
     ctx.ws.write_json(ctx.ws.judge_path(index), judgment)
     if _is_degraded(judgment):
         # a glitch, never a score: keep the raw verdict on disk, pay for it, but do not
@@ -429,12 +460,12 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
                        label=judgment.rubric or "judge", outcome="degraded")
         ctx.events.emit("judge.degraded", round=index, error=judgment.summary[:300],
                         cost_usd=round(judgment.usage.cost_usd, 4))
-        rec.notes = (rec.notes + "; " if rec.notes else "") + f"judge degraded: {judgment.summary[:200]}"
-        return None
+        notes.append(f"judge degraded: {judgment.summary[:200]}")
+        return None, judgment.usage
     ctx.events.emit("judge.done", round=index, overall=round(judgment.overall, 3), passed=judgment.passed,
                     n_issues=len(judgment.issues), n_plan=len(judgment.improvement_plan),
                     duration_s=round(time.time() - t0, 1), cost_usd=round(judgment.usage.cost_usd, 4))
-    return judgment
+    return judgment, judgment.usage
 
 
 def _is_degraded(judgment: Judgment) -> bool:
@@ -461,14 +492,26 @@ def rejudge_round(ctx: RunContext, pipeline: RoundPipeline, rec: RoundRecord, pr
     if judge_blocked_by_gates(ctx, rec.gates):
         return False
     ctx.events.emit("judge.retry", round=rec.index)
-    judgment = _judge(ctx, pipeline, rec.index, rec.build, list(rec.gates), rec, previous)
+    notes: list[str] = [rec.notes] if rec.notes else []
+    judgment, judge_usage = _judge(ctx, pipeline, rec.index, rec.build, list(rec.gates), rec, previous, notes)
     if judgment is None:
+        # the retry failed AGAIN — but it was still paid for: keep the money and the
+        # failure note on the persisted record so totals and resume can see them.
+        rec.usage = rec.usage + judge_usage
+        rec.notes = "; ".join(notes)
+        ctx.ws.write_json(round_record_path(ctx, rec.index), rec)
         return False
     rec.judgment = judgment
     rec.usage = rec.usage + judgment.usage
+    rec.notes = "; ".join(notes)
     ctx.budget.add(judgment.usage, stage="judge", role="judge", round_index=rec.index,
                    label=judgment.rubric or "judge", outcome="rejudge")
     ctx.ws.write_json(round_record_path(ctx, rec.index), rec)
+    # the round's original cost.round went out as wasted=unjudged; emit the corrected
+    # one so the audit stream stops counting a now-scored round as wasted.
+    emit_round_cost(ctx, index=rec.index, kind=rec.kind, cost={"judge": round(judgment.usage.cost_usd, 6)},
+                    usage=rec.usage, turns=0, score=rec.score, previous_best=None,
+                    build_ok=True, judged=True, corrected=True)
     return True
 
 
