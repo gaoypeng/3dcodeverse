@@ -500,6 +500,20 @@ counts, not the third decimal.  Scenes: ahead on 4 of 5 at less than half the mi
 quarter of the dollars; the two landmark prompts (Big Ben, Colosseum) score near zero on both
 sides.  Sheets: `bench/out/h2h_brilliana_v1/pairs/`, `bench/out/h2h_scene_v1/sheets/`.
 
+### 8.8 PR #1's articulated planner repair, verified (2026-08-26 evening)
+
+Plan-only pass over all 14 `articulated_v2` prompts with the merged planner (`bench/pin_plan.plan_once`):
+**14/14 validated, 0 PlanningError**, 7 needed a normalisation — all of them case 3 (a
+sub-part outside its parent bbox → bbox grown); cases 1 (joint on a sub-part) and 2 (degrees)
+did not occur in this sample, so they are stochastic.  Full runs of those 7 (flash, 2–3 rounds,
+pro judge, storm evening, one shared browser daemon): dutch_door 0.578, parallel_clamp 0.434→0.600,
+tool_chest 0.535→0.600, step_ladder 0.600, camera_tripod 0.503→0.600, casement_window 0.08→0.188
+— **6/7 scored** (scissor_mirror was stopped mid-run when the owner paused the batteries).  Before
+the repair these plans were `PlanningError` → no result; the repair turns a lost run into a
+0.19–0.60 run.  Side findings fixed on the way: a render timeout inside the joint sweep or the
+round render used to fail the whole run (07dda4c, 7a7a00a); the planner wrote prose into the
+harness-only `normalisations` field (2542f92).
+
 ## 9. Reporting checklist
 
 battery name + git sha of prompts; judge id, rubric name + hash, `n_samples`; per-arm
