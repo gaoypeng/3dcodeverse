@@ -9,7 +9,6 @@ skip) validated in code with deterministic defaults, cached by content hash.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -343,6 +342,3 @@ def plan_table(tp: TexturePlan) -> str:
                     f"{p.roughness:<5.2f} {p.metallic:<4.1f} {'yes' if p.skip else 'no'}{(' — ' + p.reason) if p.skip and p.reason else ''}")
     return "\n".join(rows)
 
-
-def plan_to_json(tp: TexturePlan) -> dict[str, Any]:
-    return json.loads(tp.model_dump_json())

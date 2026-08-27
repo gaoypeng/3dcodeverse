@@ -18,7 +18,7 @@ doctor_app = typer.Typer(invoke_without_command=True)
 
 Row = tuple[str, str, str]
 _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", "numpy", "trimesh", "fcl", "PIL", "pyarrow",
-            "scipy", "shapely", "networkx", "manifold3d", "playwright", "google.genai", "anthropic", "openai",
+            "scipy", "shapely", "networkx", "manifold3d", "google.genai", "anthropic", "openai",
             "yourdfpy", "mcp", "moderngl", "cadquery")
 #: modules that come from an OPTIONAL extra: missing means one track is unavailable, not a
 #: broken install, so they are a WARN naming the extra to install.  `moderngl` and `cadquery`
@@ -30,7 +30,7 @@ _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", 
 #: map was missing scipy/networkx/pyarrow, so a fresh clone installed exactly as
 #: docs/INSTALL.md §1 documents (no extras) got `python deps FAIL 14/23` — "your install
 #: is broken" for an install that is correct — and a remedy that named four of the five
-#: extras and could not clear the row.  Verified on a 3.10 clean clone, 2026-08-24.
+#: extras and could not clear the row.  Verified on a 3.13 clean clone, 2026-08-24.
 _OPTIONAL_DEPS = {"manifold3d": "mesh", "shapely": "mesh", "networkx": "mesh",
                   "yourdfpy": "urdf", "scipy": "urdf", "mcp": "mcp",
                   "moderngl": "graphics", "cadquery": "cad", "pyarrow": "flywheel"}

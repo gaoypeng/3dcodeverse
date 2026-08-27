@@ -127,7 +127,7 @@ console scripts (`3dcodeverse`, `3dcv`) point back at the checkout.
 Core dependencies (always installed): pydantic + pydantic-settings (contracts,
 settings), typer + rich (CLI), jinja2 (prompt templates), pyyaml, numpy, trimesh
 (mesh measurement), python-fcl (collision), pillow, google-genai, anthropic,
-openai, playwright.
+openai.
 
 | extra | pulls | unlocks |
 |---|---|---|

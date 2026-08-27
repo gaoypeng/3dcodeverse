@@ -39,14 +39,6 @@ class Trajectory:
     def result_path(self) -> Path:
         return self.dir / "result.json"
 
-    @property
-    def stdout_path(self) -> Path:
-        return self.dir / "stdout.log"
-
-    @property
-    def stderr_path(self) -> Path:
-        return self.dir / "stderr.log"
-
     # ------------------------------------------------------------------ writes
     def write_prompt(self, prompt: str, system: str = "") -> Path:
         body = prompt if not system else f"<!-- system -->\n{system}\n\n<!-- prompt -->\n{prompt}"

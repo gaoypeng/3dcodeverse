@@ -2,7 +2,7 @@
 
 A backend harness in which LLMs (API models or agentic CLIs) write RAW,
 executable 3D code — Blender ``bpy``, CadQuery, Three.js, URDF, GLSL — for
-three tracks (static objects, articulated objects, scenes).  Every run is
+four tracks (static objects, articulated objects, scenes, graphics).  Every run is
 planned, generated, linted, executed, measured, rendered, judged, refined and
 finally emitted as a data-flywheel record.
 
@@ -20,7 +20,7 @@ Package map (each sub-package has its own docstring):
                     slice, isolate, silhouette, joints, probes — also served as
                     an MCP server to agentic harnesses.
 - ``judges``        VLM judges + rubrics + deterministic metrics.
-- ``tracks``        static_object / articulated_object / scene pipelines.
+- ``tracks``        static_object / articulated_object / scene / graphics pipelines.
 - ``orchestrator``  stage runner, round loop, fan-out, budget, events.
 - ``flywheel``      run records → dataset samples / preference pairs.
 - ``cli``           ``3dcv`` command line.

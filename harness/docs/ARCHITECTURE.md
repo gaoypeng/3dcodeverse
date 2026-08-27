@@ -1,7 +1,7 @@
 # 3dcodeverse harness — architecture
 
 Package `codeverse`, CLI `3dcodeverse` (short alias `3dcv`), repo location
-`/home/yipeng/3dcodeverse/harness`.  Backend only.  Python 3.11+, a small Node
+`/home/yipeng/3dcodeverse/harness`.  Backend only.  Python 3.13 (one fixed version), a small Node
 runtime (`runtime_js/`) for everything Three.js / headless Chrome, and moderngl
 for the graphics track.  Reconciled against the code and the live runs on
 2026-08-23 (waves 2–3 + fix batch 1); design history and deviations are in
@@ -67,8 +67,6 @@ the flywheel unit.
 
 ```
 codeverse/
-  _compat.py          the ONLY stdlib shims for the python floor (StrEnum, UTC, tomllib — all 3.11+;
-                      floor is 3.10, see docs/INSTALL.md §2.1).  Its docstring says when each dies
   conventions.py      frames (LANGUAGE_FRAME, GLB_FRAME), units, OBJECT_VIEWS/_QUICK, SCENE_VIEWS,
                       to_snake/to_pascal/slugify, MAX_TRIS_*, BBOX_TOLERANCE_M, CONTACT_GAP_M  (THE source)
   config.py           Settings (CV3D_* env, ~/.config/codeverse/config.yaml; role defaults come from

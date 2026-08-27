@@ -39,8 +39,9 @@ written) that were accepted because the code works that way and the tests pin it
   overrides `RoundPolicy.target` when no explicit policy is injected.
 * **D4 Parallel refine only when it is safe.**  Fan out only when ≥ 3 file-disjoint
   groups exist and every task maps to a file (threejs parts, scene zones/assets/env);
-  single-file languages get one whole-object task.  Consequence: `generation.workspace_lock`
-  + retried `git diff` protect the shared git index (Workspace itself has no lock).
+  single-file languages get one whole-object task.  Consequence: `Workspace` itself
+  holds a per-root lock + index.lock retry (workspace.py); the older
+  `generation.workspace_lock` layer is redundant and queued for removal.
 * **D5 A refine round that changes no file is a plateau, not a crash.**  Emits
   `round.no_change` and stops with the best round so far.
 * **D6 Finalise restores the best commit and rebuilds.**  Artifacts always match the
@@ -58,9 +59,9 @@ written) that were accepted because the code works that way and the tests pin it
   `dynamicModelConfiguration` (else silent model substitution) + `folderTrust.enabled=false`
   (else workspace MCP servers are silently disabled even with `--skip-trust`).  Served
   model is checked; mismatch → `exit_reason=model_substituted`.
-* **D11 AgentJob.extra is the side-channel (Δ).**  Keys `round`, `kind`, `language`, `track`
-  (+ `mcp_command`, `max_usd`, `temperature`, `thinking`, `allow_shell` for api-agent)
-  rather than new AgentJob fields, to keep `contracts/agent.py` frozen.
+* **D11 AgentJob carries typed fields; `extra` is back-compat only (Δ, revised 2026-08-27).**
+  `round`, `kind`, `files_hint`, `language`, `track` are typed `AgentJob` fields;
+  `contracts/agent.py::_lift_legacy_extra` lifts old `extra` payloads into them.
 * **D12 api-agent exposes `build` under its real name; `run_build` is an alias (Δ).**
 * **D13 Node ESM resolution via an import hook (Δ).**  `NODE_PATH` cannot resolve bare ESM
   specifiers; `run_node(three_hook=True)` adds `--import runtime_js/lib/resolve_three.mjs`;
@@ -237,5 +238,5 @@ written) that were accepted because the code works that way and the tests pin it
 * Storing URDF meshes Y-up and converting on load (rejected: breaks foreign loaders).
 * Per-asset judging for threejs scene assets (deferred: needs a `render_asset` hook).
 * Proposed and not yet done (owner-level files): `ToolCallPart.extra` for provider
-  state; `Workspace._git` lock + index.lock retry; package-data globs for
-  `languages/**/starter/**` and `languages/**/*.md`; `n_samples` in Settings.
+  state; `n_samples` in Settings.  (Done since first written: `Workspace._git`
+  lock + index.lock retry; the `languages/**` package-data globs.)

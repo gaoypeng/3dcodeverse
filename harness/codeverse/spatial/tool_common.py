@@ -23,7 +23,7 @@ from codeverse.spatial.registry import ToolContext, ToolUnavailable, ToolUsageEr
 from codeverse.workspace import Workspace
 
 __all__ = [
-    "ToolUnavailable", "lazy", "spec_dict", "language_of", "track_of",
+    "ToolUnavailable", "lazy", "spec_dict", "language_of",
     "glb_path", "reference_path", "load_plan", "resolve_views", "check_mode", "tool_out_dir", "render_cache_dir",
     "cached_render_glb", "gl_metrics_summary", "VIEW_BY_NAME", "RENDER_MODES",
 ]
@@ -68,9 +68,6 @@ def language_of(ctx: ToolContext) -> str:
         raise ToolUsageError("language unknown: pass --language or put it in spec.json")
     return lang
 
-
-def track_of(ctx: ToolContext) -> str:
-    return ctx.track or str(spec_dict(ctx).get("track", ""))
 
 
 def reference_path(ctx: ToolContext, index: int, *, tool: str) -> tuple[Path, dict]:

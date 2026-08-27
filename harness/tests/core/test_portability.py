@@ -1,15 +1,12 @@
 """Guards for the supported-version floor (docs/INSTALL.md §2.1 "Supported versions").
 
-The harness is developed on python 3.13 / node 24 but must install and run on
-python 3.10 / node 20.6.  Nothing here needs either of those installed: the
-python guards read the tree, and the node guards drive the version logic with
-fakes.  Three things are pinned:
+The harness runs on exactly python 3.13 and node 20.6+ (developed on node 24).
+Nothing here needs either of those installed: the python guards read the tree,
+and the node guards drive the version logic with fakes.  Two things are pinned:
 
-* the floors agree across ``pyproject.toml``, ``ruff``, ``scripts/setup.sh``,
+* the versions agree across ``pyproject.toml``, ``ruff``, ``scripts/setup.sh``,
   ``codeverse/spatial/node.py`` and ``runtime_js/package.json``;
-* no module reaches past the floor — no 3.14 syntax, and the three 3.11 stdlib
-  names the harness needs come from ``codeverse/_compat`` and nowhere else;
-* the ``StrEnum`` shim behaves exactly like ``enum.StrEnum``.
+* no module reaches past the version — no 3.14-only syntax.
 """
 
 from __future__ import annotations
