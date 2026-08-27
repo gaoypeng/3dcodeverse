@@ -760,3 +760,29 @@ def test_a_broken_on_attempt_hook_never_breaks_the_call():
         raise RuntimeError("accounting on fire")
 
     assert _rotate(pool, lambda key: "ok", on_attempt=hook) == "ok"
+
+
+def test_a_budget_spent_at_the_storm_gate_issues_no_round_trip():
+    """A worker parked at a gate ANOTHER thread closed carries no ``last_err``, so the
+    guard at the top of the loop (which requires one) let it through: it woke past its
+    deadline and still spent a full round-trip (measured: 25 s on a 5 s budget)."""
+    now = {"t": 1000.0}
+    calls: list[str] = []
+
+    class Gate:  # parks the caller for longer than the whole budget
+        def enter(self, deadline=None):
+            now["t"] += 30.0
+            return 30.0
+
+        def hit(self, retry_after=None):
+            return 0.0
+
+        def ok(self):
+            pass
+
+    with pytest.raises(ModelError) as e:
+        _rotate(KeyPool(["k1"], rpm_per_key=10_000), lambda key: calls.append(key),
+                max_total_s=5.0, monotonic=lambda: now["t"], storm_gate=Gate(), label="t")
+    assert calls == [], "a round-trip was issued after the budget was already spent"
+    assert "capacity" in str(e.value)
+

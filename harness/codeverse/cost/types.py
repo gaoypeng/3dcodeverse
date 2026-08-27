@@ -184,7 +184,9 @@ class CallCost(BaseModel):
     cache_hit: bool = False
     outcome: str = "ok"  # ok | error | timeout | budget | degraded | discarded
     n_calls: int = 1  # >1 when a row aggregates a whole agent session
-    source: str = "live"  # live | record | events | transcript | stdout | residual | session | attempt
+    #: extra = a round-trip that was discarded yet billed (hedge loser, charged-but-invalid
+    #: reply); nothing else records it, so unlike ``attempt`` it counts in every total
+    source: str = "live"  # live | record | events | transcript | stdout | residual | session | attempt | extra
     #: which API key served the call, as its last 4 chars ("…ab12") — never the key
     #: itself; "" for a failed call, a session row, or a row older than 2026-08-26
     key: str = ""
@@ -198,8 +200,8 @@ class CallCost(BaseModel):
     #: 1-based round-trip number within its logical call (``source="attempt"`` rows)
     attempt: int = 0
     #: True when this round-trip's response was thrown away: a hedge loser, or a
-    #: failed try of a call that went on to retry.  Real money, but never part of a
-    #: total — ``ledger.load_ledger`` / ``summarise`` exclude ``source="attempt"``
+    #: failed try of a call that went on to retry.  A paid one is ``source="extra"``
+    #: and counts; a free one is ``source="attempt"`` and is filtered out
     discarded: bool = False
 
     @property

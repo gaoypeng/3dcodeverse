@@ -90,6 +90,17 @@ def run_subprocess(
 #: for every build/render path that funnels through here.
 DRAIN_TIMEOUT_S = 10.0
 _ABANDONED = "(output truncated: a detached descendant still held the pipe past the drain window)"
+_STILL_HELD = "(output truncated: a process in the group still held the pipe past the drain window)"
+
+
+def _group_alive(pgid: int) -> bool:
+    """True while ANY member of process group ``pgid`` exists (the leader may be gone)."""
+    try:
+        os.killpg(pgid, 0)
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True
+
 
 #: per-stream cap on captured output: the first ``budget // 2`` bytes and the last
 #: ``budget - budget // 2`` bytes are kept, with a truncation marker in between.
@@ -192,7 +203,7 @@ class ManagedProcess:
         self._on_line = on_line
         self._grace_s = grace_s
         self._stop = threading.Event()  # tells an abandoned pump to quit feeding
-        self._abandoned = False
+        self._abandoned = ""  # the truncation note to append, once we know which one
         self._sinks = {"stdout": _BoundedSink(stream_budget), "stderr": _BoundedSink(stream_budget)}
         self.proc: subprocess.Popen[bytes] = subprocess.Popen(
             list(cmd),
@@ -269,7 +280,7 @@ class ManagedProcess:
         """Decoded, bounded stderr (+ a note when an escaped descendant held the pipe)."""
         text = self._sinks["stderr"].text()
         if self._abandoned:
-            return f"{text}\n{_ABANDONED}" if text else _ABANDONED
+            return f"{text}\n{self._abandoned}" if text else self._abandoned
         return text
 
     # ------------------------------------------------------------- kills and teardown
@@ -285,30 +296,36 @@ class ManagedProcess:
         """SIGTERM the group, escalate to SIGKILL after ``grace_s`` (default: the
         constructor's ``grace_s`` — the old ``watchdog.kill_process_group`` contract)."""
         grace = self._grace_s if grace_s is None else grace_s
-        if self.proc.poll() is not None:
-            return
         try:
+            # killpg after the leader was reaped is a microsecond pid-reuse race the
+            # code has always taken; a live grandchild is the certain cost of not doing it
             os.killpg(self.proc.pid, signal.SIGTERM)
         except ProcessLookupError:
             return
         except PermissionError:  # cannot signal the group — go for the child itself
             self.proc.terminate()
-        try:
-            self.proc.wait(timeout=grace)
-        except subprocess.TimeoutExpired:
-            self.kill()
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                self.proc.wait(timeout=self._grace_s)
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline:
+            self.proc.poll()  # reap first: an unreaped zombie leader keeps the group "alive"
+            if not _group_alive(self.proc.pid):
+                return
+            time.sleep(0.02)
+        self.kill()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            self.proc.wait(timeout=self._grace_s)
 
     def __enter__(self) -> ManagedProcess:
         return self
 
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: object) -> None:
-        # Any in-flight exception (KeyboardInterrupt included) or a child still
-        # running at scope exit: the group dies HERE.  Ctrl-C's SIGINT never reaches
-        # a start_new_session child, so this is the only thing standing between an
-        # interrupt and an orphaned blender/node/chrome tree.  Never swallows exc.
-        if self.proc.poll() is None:
+        # Any in-flight exception (KeyboardInterrupt included) or a group still alive at
+        # scope exit: the group dies HERE.  Ctrl-C's SIGINT never reaches a
+        # start_new_session child, so this is all that stands between an interrupt and an
+        # orphaned blender/node/chrome tree.  Never swallows exc.  LEADER liveness is the
+        # wrong question — one that exits 0 leaves its same-group grandchildren running;
+        # reap it (a zombie still counts as a member), then ask if the GROUP exists.
+        self.proc.poll()
+        if _group_alive(self.proc.pid):
             self.terminate()
         self._drain_and_reap()
 
@@ -318,11 +335,11 @@ class ManagedProcess:
             self._writer.join(timeout=max(0.0, deadline - time.monotonic()))
         for t in self._pumps:
             t.join(timeout=max(0.0, deadline - time.monotonic()))
-        if any(t.is_alive() for t in self._pumps):
-            self._stop.set()  # the parked daemon pump self-cleans when its read returns
-            self._abandoned = True
         with contextlib.suppress(subprocess.TimeoutExpired):
             self.proc.wait(timeout=DRAIN_TIMEOUT_S)  # reap — a zombie survives killpg
+        if any(t.is_alive() for t in self._pumps):
+            self._stop.set()  # the parked daemon pump self-cleans when its read returns
+            self._abandoned = _STILL_HELD if _group_alive(self.proc.pid) else _ABANDONED
 
 
 

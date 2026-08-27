@@ -169,12 +169,12 @@ class OpenAIModel:
             except JsonParseError as exc:
                 raise ModelError(
                     f"structured output is not valid JSON (finish_reason={finish}): {exc}",
-                    retryable=finish != "length",
+                    retryable=finish != "length", usage=usage,  # billed like a good reply
                 ) from exc
         if not text and not calls:
             raise ModelError(
                 f"OpenAI returned no content (finish_reason={finish})",
-                retryable=finish != "content_filter",
+                retryable=finish != "content_filter", usage=usage,
             )
         raw: dict[str, Any] = {
             "finish_reason": finish,

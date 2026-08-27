@@ -639,3 +639,22 @@ def test_two_parallel_same_name_calls_keep_their_provider_ids():
         ("id-b", "leg"),
         ("id-a", "seat"),
     ]
+
+
+def test_max_output_tokens_eaten_by_thinking_carries_the_thought_tokens():
+    """The most expensive failure on Gemini 3: the reply is empty because thinking ate
+    the whole budget, and every thought token was billed.  ``extract_candidate`` read
+    ``thoughts_token_count`` only to put it in the message and dropped the usage."""
+    resp = types.GenerateContentResponse(
+        model_version="gemini-3.7-flash",
+        candidates=[types.Candidate(content=types.Content(role="model", parts=[]),
+                                    finish_reason="MAX_TOKENS")],
+        usage_metadata=types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=1000, candidates_token_count=0, thoughts_token_count=8000),
+    )
+    m, _log, _ = make_model([resp])
+    with pytest.raises(ModelError) as e:
+        m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert "exhausted by thinking" in str(e.value)
+    assert e.value.usage.thoughts_tokens == 8000 and e.value.usage.cost_usd > 0
+

@@ -216,6 +216,7 @@ class VlmJudge:
             try:
                 resp: ChatResponse = self.model.generate(req)
             except ModelError as e:
+                usage = usage + (getattr(e, "usage", None) or Usage())  # the provider billed it
                 last = f"ModelError(attempt {attempt}): {e}"
                 log.warning("judge %s: %s", req.label, last)
                 if not e.retryable and attempt >= 2:

@@ -43,20 +43,51 @@ def test_run_subprocess_stdin(tmp_path: Path):
     assert r.stdout == "hello"
 
 
+def _assert_pid_gone(pid: int, timeout_s: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return  # gone — the group kill reached it
+        time.sleep(0.05)
+    raise AssertionError(f"pid {pid} survived the group kill")
+
+
 def test_timeout_kills_the_whole_process_group(tmp_path: Path):
     """A timed-out child AND its grandchildren die (killpg on the new session)."""
     r = run_subprocess(["bash", "-c", "sleep 30 & echo $!; wait"], cwd=tmp_path, timeout_s=0.4)
     assert r.timed_out
     assert r.returncode != 0
-    grandchild = int(r.stdout.strip().splitlines()[0])
-    deadline = time.monotonic() + 3.0
-    while time.monotonic() < deadline:
-        try:
-            os.kill(grandchild, 0)
-        except ProcessLookupError:
-            return  # gone — group kill worked
-        time.sleep(0.05)
-    raise AssertionError(f"grandchild sleep (pid {grandchild}) survived the group kill")
+    _assert_pid_gone(int(r.stdout.strip().splitlines()[0]))
+
+
+def test_a_leader_that_exits_0_still_takes_its_grandchildren_down(tmp_path: Path):
+    """``__exit__`` asked "is the LEADER still running?", so a leader that exited 0 left
+    its same-group grandchildren (pgid == leader pid) alive — the exact incident this
+    module exists to end.  Detached-stdio shape: nothing holds the pipes."""
+    pid_file = tmp_path / "pid"
+    r = run_subprocess(["bash", "-c", f"sleep 300 >/dev/null 2>&1 & echo $! > {pid_file}; exit 0"],
+                       cwd=tmp_path, timeout_s=10)
+    assert r.returncode == 0 and not r.timed_out
+    _assert_pid_gone(int(pid_file.read_text()))
+
+
+def test_a_leader_that_exits_0_does_not_burn_the_drain_window(tmp_path: Path, monkeypatch):
+    """Same shape with the grandchild holding the INHERITED pipes: the drain used to
+    wait out DRAIN_TIMEOUT_S for a process nobody had signalled, then blame a
+    "detached descendant" that had never left the group."""
+    import codeverse.proc as proc_mod
+
+    monkeypatch.setattr(proc_mod, "DRAIN_TIMEOUT_S", 3.0)
+    pid_file = tmp_path / "pid"
+    t0 = time.monotonic()
+    r = run_subprocess(["bash", "-c", f"sleep 300 & echo $! > {pid_file}; echo done"],
+                       cwd=tmp_path, timeout_s=10)
+    assert r.returncode == 0 and "done" in r.stdout
+    assert time.monotonic() - t0 < 2.5, "the drain window was burned on a live group member"
+    assert "detached descendant" not in r.stderr
+    _assert_pid_gone(int(pid_file.read_text()))
 
 
 def test_a_detached_descendant_holding_the_pipes_cannot_extend_the_timeout(tmp_path: Path, monkeypatch):

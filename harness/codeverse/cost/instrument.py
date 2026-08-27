@@ -142,21 +142,25 @@ class MeteredChatModel:
         # captured NOW: a hedge loser lands after this call returned, in a thread
         # with no context, and its row must still reach THIS run's ledger
         ledger = default_ledger()
+        booked: list[int] = []  # round-trips that already billed themselves as "extra"
 
         def attempt_row(rec: AttemptRecord) -> None:
-            self._record_attempt(request, call_id, rec, ledger)
+            if self._record_attempt(request, call_id, rec, ledger):
+                booked.append(rec.attempt)
 
         t0 = time.perf_counter()
         try:
             with attempt_recording(attempt_row):
                 resp = self._inner.generate(request)
         except BaseException as exc:  # noqa: BLE001 - record the attempt, then re-raise
-            # a failed call may still have been billed: ModelError.usage carries what
-            # the provider charged (a bad-JSON reply costs like a good one)
+            # a failed call may still have been billed: ModelError.usage carries what the
+            # provider charged (a bad-JSON reply costs like a good one) — but only when
+            # the round-trips did not already book it, or the last one counts twice
             usage = getattr(exc, "usage", None)
-            self._record(usage if isinstance(usage, Usage)
-                         else Usage(backend=self.provider, model=self.model),
-                         request, outcome=_outcome(exc),
+            usage = usage if isinstance(usage, Usage) else Usage(backend=self.provider, model=self.model)
+            if booked:
+                usage = Usage(backend=usage.backend, model=usage.model, latency_ms=usage.latency_ms)
+            self._record(usage, request, outcome=_outcome(exc),
                          ms=int((time.perf_counter() - t0) * 1000),
                          attempts=getattr(exc, "attempts", 0), call_id=call_id)
             raise
@@ -180,21 +184,26 @@ class MeteredChatModel:
             log.debug("cost: could not record %s: %s", request.label, e)
 
     def _record_attempt(self, request: ChatRequest, call_id: str, rec: AttemptRecord,
-                        ledger: CostLedger | None) -> None:
-        """One ``source="attempt"`` row per round-trip.  Excluded from every total
-        (``ledger.load_ledger`` / ``summarise``); they exist so a hedge loser's or
-        a charged-but-invalid reply's tokens are visible at all (audit 2026-08-27)."""
+                        ledger: CostLedger | None) -> bool:
+        """One row per round-trip.  A round-trip that was DISCARDED and still cost money
+        (a billed-but-invalid reply, a hedge loser that landed) is money nothing else
+        records, so it goes in as ``source="extra"`` and counts in every total; the rest
+        are ``source="attempt"`` forensics, excluded because the call's logical row
+        already carries their tokens.  Returns True when it billed an ``extra``."""
+        extra = bool(rec.discarded and rec.usage.cost_usd)
         try:
             record_call(rec.usage, label=request.label,
                         backend=rec.usage.backend or self.provider,
                         model=rec.usage.model or self.model,
                         outcome="discarded" if rec.discarded else "ok",
                         latency_ms=rec.usage.latency_ms,
-                        source="attempt", key=_key_suffix(rec.key),
+                        source="extra" if extra else "attempt", key=_key_suffix(rec.key),
                         call_id=call_id, attempt=rec.attempt, discarded=rec.discarded,
                         ledger=ledger)
         except Exception as e:  # pragma: no cover - accounting must never break a call
             log.debug("cost: could not record attempt %s#%d: %s", request.label, rec.attempt, e)
+            return False
+        return extra
 
 
 def _key_suffix(key: object) -> str:

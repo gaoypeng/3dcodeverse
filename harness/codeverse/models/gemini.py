@@ -264,6 +264,7 @@ class GeminiModel:
         budget = RETRY_DEADLINE_S if request.max_wait_s is None else min(RETRY_DEADLINE_S, float(request.max_wait_s))
         deadline = time.monotonic() + budget  # mirrors rotate_with_retries' own deadline
         stats: dict[str, Any] = {}
+        wasted: list[Usage] = []  # discarded round-trips the provider still billed
         try:
             resp = rotate_with_retries(
                 self.pool,
@@ -286,7 +287,7 @@ class GeminiModel:
                 storm_gate=self.storm_gate,
                 label=f"gemini {self.model}",
                 stats=stats,
-                on_attempt=self._attempt_hook(),
+                on_attempt=self._attempt_hook(wasted),
                 **({} if self.storm_attempts is None else {"storm_attempts": self.storm_attempts}),
             )
         except ModelError as err:
@@ -295,6 +296,10 @@ class GeminiModel:
         # how hard the call was, next to which key served it (``_once``): ledger fields
         resp.raw["attempts"] = int(stats.get("attempts", 0))
         resp.raw["hedged"] = int(stats.get("hedged", 0))
+        if wasted:
+            # money the winner's usage does not include; a hedge loser that lands AFTER
+            # this returns reaches the ledger through the sink, never this field
+            resp.raw["wasted_usage"] = sum(wasted[1:], wasted[0])
         return resp
 
     def _config(self, request: ChatRequest, warnings: list[str]) -> types.GenerateContentConfig:
@@ -316,19 +321,20 @@ class GeminiModel:
         want_s = min(self.timeout_s, max(HTTP_TIMEOUT_FLOOR_S, remaining))
         return clip_timeout(config, int(want_s * 1000))
 
-    def _attempt_hook(self) -> OnAttempt | None:
-        """The per-attempt ledger recorder, when the metering layer installed one
-        (``cost.instrument.MeteredChatModel``).  Captured once per logical call so
-        a hedge loser landing later, in its own thread, still reports through it.
-        Imported lazily: the models package must not import the cost package at
-        module level (``cost.ledger`` imports ``models.pricing``)."""
+    def _attempt_hook(self, wasted: list[Usage]) -> OnAttempt:
+        """Per-round-trip observer.  It collects every DISCARDED round-trip that still
+        cost money into ``wasted`` (published on ``resp.raw["wasted_usage"]`` — the only
+        place a budget guard can see that money) and feeds the ledger's per-attempt sink
+        when the metering layer installed one (``cost.instrument.MeteredChatModel``).
+        Captured once per logical call so a hedge loser landing later, in its own thread,
+        still reports through it.  Imported lazily: the models package must not import
+        the cost package at module level (``cost.ledger`` imports ``models.pricing``)."""
         try:
             from codeverse.cost.context import AttemptRecord, attempt_sink
+
+            sink = attempt_sink()
         except Exception:  # pragma: no cover - accounting must never break a call
-            return None
-        sink = attempt_sink()
-        if sink is None:
-            return None
+            AttemptRecord = sink = None
 
         def on_attempt(t: _Try, no: int, discarded: bool) -> None:
             if t.err is None:
@@ -337,8 +343,11 @@ class GeminiModel:
             else:
                 usage = getattr(t.err, "usage", None) or Usage()
                 outcome, error = t.outcome, str(t.err)
-            sink(AttemptRecord(attempt=no, key=t.key, outcome=outcome,
-                               discarded=discarded, usage=usage, error=error))
+            if discarded and usage.cost_usd:
+                wasted.append(usage)
+            if sink is not None:
+                sink(AttemptRecord(attempt=no, key=t.key, outcome=outcome,
+                                   discarded=discarded, usage=usage, error=error))
 
         return on_attempt
 
@@ -355,11 +364,11 @@ class GeminiModel:
             resp = client.models.generate_content(
                 model=self.model, contents=contents, config=config
             )
-        text, calls, finish = extract_candidate(resp)
-        usage = parse_usage(resp, self.model)
+        usage = parse_usage(resp, self.model)  # BEFORE extract_candidate: its raises carry it
         usage.latency_ms = sw.ms
-        usage.tool_calls = len(calls)
         usage.cost_usd = estimate_cost("gemini", self.model, usage)
+        text, calls, finish = extract_candidate(resp, usage)
+        usage.tool_calls = len(calls)
         parsed: Any = None
         if request.response_schema is not None and not calls:
             try:

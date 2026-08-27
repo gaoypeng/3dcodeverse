@@ -144,7 +144,7 @@ class AnthropicModel:
         if stop == "refusal":
             raise ModelError(
                 f"Anthropic refused the request: {getattr(msg, 'stop_details', None)}",
-                retryable=False,
+                retryable=False, usage=usage,  # a refusal is billed like any other reply
             )
         parsed: Any = None
         if request.response_schema is not None:
@@ -164,10 +164,11 @@ class AnthropicModel:
                 except JsonParseError as exc:
                     raise ModelError(
                         f"structured output missing (stop_reason={stop}): {exc}",
-                        retryable=stop != "max_tokens",
+                        retryable=stop != "max_tokens", usage=usage,
                     ) from exc
         if not text and not calls and parsed is None:
-            raise ModelError(f"Anthropic returned no content (stop_reason={stop})", retryable=True)
+            raise ModelError(f"Anthropic returned no content (stop_reason={stop})",
+                             retryable=True, usage=usage)
         raw: dict[str, Any] = {"stop_reason": stop, "id": msg.id, "model": msg.model}
         return ChatResponse(
             text=text, parsed=parsed, tool_calls=calls, finish_reason=stop, usage=usage, raw=raw

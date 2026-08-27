@@ -300,6 +300,10 @@ def rotate_with_retries[T](
     def out_of_time() -> bool:
         return monotonic() >= deadline
 
+    def clip(delay: float) -> float:
+        """A sleep never outlives the budget: waking only to give up helps nobody."""
+        return delay if deadline == float("inf") else min(delay, max(0.0, deadline - monotonic()))
+
     def is_storm(err: ModelError) -> bool:
         return bool(err.retryable and err.status in (503, 529))
 
@@ -317,6 +321,13 @@ def rotate_with_retries[T](
             exclude = dead_keys | (failed_keys if len(failed_keys) < len(pool) else set())
             if storm_gate is not None:
                 storm_gate.enter(None if deadline == float("inf") else deadline)
+                if out_of_time():
+                    # the gate held us past the budget.  The check at the top of the loop
+                    # cannot cover this: a worker parked at a gate ANOTHER thread closed
+                    # has no last_err, and would go on to spend a full round-trip.
+                    log.warning("%s budget of %.0f s spent waiting at the storm gate", label, max_total_s)
+                    raise (last_err or classify(TimeoutError(
+                        f"{label}: retry budget spent waiting for capacity"))) from last_exc
             budget_left = None if deadline == float("inf") else max(0.0, deadline - monotonic())
             try:
                 # the key/slot wait must fit the remaining budget, never outlive it
@@ -394,11 +405,7 @@ def rotate_with_retries[T](
                 # jitter FIRST, cap LAST: capping before a >1 jitter factor let a
                 # "<=5 s" wait land at 6.25 s in the wild (observed 2026-08-24).
                 raw = base_delay * (2 ** min(storm, 8)) * (0.75 + 0.5 * random.random())
-                delay = min(storm_max_delay, raw)
-                if deadline != float("inf"):
-                    # clip the storm sleep to the remainder: sleeping past the
-                    # deadline only to give up on waking helps nobody
-                    delay = min(delay, max(0.0, deadline - monotonic()))
+                delay = clip(min(storm_max_delay, raw))
                 if storm_gate is not None:
                     # tell every other worker as well: the next one to arrive parks at
                     # the gate instead of spending its own round-trip to find the storm
@@ -424,7 +431,7 @@ def rotate_with_retries[T](
                     log.warning(
                         "%s key …%s throttled (%s); rotating to a fresh key", label, key[-4:], err
                     )
-                    sleep(0.5)
+                    sleep(clip(0.5))
                     continue
             if not err.retryable or attempt >= max_attempts:
                 bench()
@@ -437,7 +444,7 @@ def rotate_with_retries[T](
                 "%s attempt %d/%d failed (%s); retrying in %.1fs",
                 label, attempt, max_attempts, err, delay,
             )
-            sleep(delay)
+            sleep(clip(delay))
         assert last_err is not None
         bench()
         raise last_err

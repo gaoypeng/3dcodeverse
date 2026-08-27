@@ -205,17 +205,21 @@ def parse_usage(resp: types.GenerateContentResponse, model: str) -> Usage:
     )
 
 
-def extract_candidate(resp: types.GenerateContentResponse) -> tuple[str, list[ToolCallPart], str]:
+def extract_candidate(
+    resp: types.GenerateContentResponse, usage: Usage | None = None
+) -> tuple[str, list[ToolCallPart], str]:
     """→ ``(text, tool_calls, finish_reason)``.  Raises ``ModelError`` on blocked
-    prompts (non-retryable) or empty candidates (retryable)."""
+    prompts (non-retryable) or empty candidates (retryable); ``usage`` (what the caller
+    already parsed off ``resp``) rides on the error, because every one of these
+    failures was billed."""
     pf = resp.prompt_feedback
     if pf is not None and pf.block_reason:
         raise ModelError(
             f"prompt blocked by Gemini: {pf.block_reason} {pf.block_reason_message or ''}".strip(),
-            retryable=False,
+            retryable=False, usage=usage,
         )
     if not resp.candidates:
-        raise ModelError("Gemini returned no candidates", retryable=True)
+        raise ModelError("Gemini returned no candidates", retryable=True, usage=usage)
     cand = resp.candidates[0]
     finish = str(cand.finish_reason.value if cand.finish_reason else "") or "UNKNOWN"
     texts: list[str] = []
@@ -236,16 +240,18 @@ def extract_candidate(resp: types.GenerateContentResponse) -> tuple[str, list[To
     if not text and not calls:
         if finish in FATAL_FINISH:
             raise ModelError(
-                f"Gemini produced no content (finish_reason={finish})", retryable=False
+                f"Gemini produced no content (finish_reason={finish})", retryable=False, usage=usage
             )
         if finish == "MAX_TOKENS":
             # Gemini 3 models always think (budget 0 is accepted but ignored); a tiny
-            # max_output_tokens is eaten by thoughts.  Retrying cannot help.
+            # max_output_tokens is eaten by thoughts.  Retrying cannot help — and this is
+            # the most expensive failure on Gemini 3: every thought token was billed.
             thoughts = resp.usage_metadata.thoughts_token_count if resp.usage_metadata else None
             raise ModelError(
                 f"Gemini produced no content: max_output_tokens exhausted by thinking "
                 f"(thoughts_tokens={thoughts}); raise max_output_tokens",
-                retryable=False,
+                retryable=False, usage=usage,
             )
-        raise ModelError(f"Gemini produced no content (finish_reason={finish})", retryable=True)
+        raise ModelError(f"Gemini produced no content (finish_reason={finish})",
+                         retryable=True, usage=usage)
     return text, calls, finish

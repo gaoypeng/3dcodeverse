@@ -273,3 +273,19 @@ def test_base_url_from_settings(monkeypatch):
         assert str(c.base_url).startswith("http://localhost:8000/v1")
     finally:
         get_settings.cache_clear()
+
+
+def test_a_failed_reply_carries_what_it_was_billed():
+    """Both raise sites had ``usage`` in hand (built two lines above) and dropped it:
+    a bad-JSON or empty completion is billed exactly like a good one."""
+    for script, req in (
+        ([completion("not json", finish="length")],
+         ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"})),
+        ([completion(None, finish="content_filter")], ChatRequest(messages=[ChatMessage.user("x")])),
+    ):
+        m, _ = make(script)
+        with pytest.raises(ModelError) as e:
+            m.generate(req)
+        u = e.value.usage
+        assert u.input_tokens == 100 and u.output_tokens == 20 and u.thoughts_tokens == 10
+

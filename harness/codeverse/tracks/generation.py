@@ -216,7 +216,10 @@ def generate_files(
         label=f"{task.label}:r{task.round:02d}",
     )
     resp = model.generate(req)
-    usage = resp.usage
+    # + every paid round-trip the winner does not represent (a billed-but-invalid
+    # response, a late hedge loser): the ledger records those as source="extra";
+    # without this the guard never sees them (measured $0.18 on one call).
+    usage = resp.usage + (resp.raw.get("wasted_usage") or Usage())
     # book the money WITHOUT enforcing: the response is already paid for, and raising
     # here would discard it before transcript/parse/write_files.  The ceiling is
     # enforced at the round's phase boundary instead (steps._run_phase).

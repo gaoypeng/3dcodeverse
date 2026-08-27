@@ -349,9 +349,12 @@ def load_ledger(path: str | Path, *, include_attempts: bool = False) -> list[Cal
     debug log — a truncated last line never loses the rest of the file.
 
     ``source="attempt"`` rows (one per round-trip, ``instrument.MeteredChatModel``)
-    are left out unless ``include_attempts=True``: the winning round-trip's tokens
-    are already on the call's logical row, so every aggregate built on this reader
-    (``summarise``, ``reconstruct``, the CLI) keeps counting each call exactly once."""
+    are left out unless ``include_attempts=True``: their tokens are already on the
+    call's logical row, so every aggregate built on this reader (``summarise``,
+    ``reconstruct``, the CLI) keeps counting each call exactly once.  This is the ONLY
+    place that filter lives — ``summarise`` used to repeat it, which made
+    ``include_attempts=True`` summarise to $0.  Paid-but-discarded round-trips are
+    ``source="extra"`` instead and always count: nothing else records them."""
     p = Path(path)
     if p.is_dir():
         found = existing_ledger_path(p)
@@ -383,8 +386,6 @@ def summarise(rows: Iterable[CallCost], *, dimensions: Sequence[str] = DIMENSION
     of :class:`CallCost` (defaults to :data:`DIMENSIONS`)."""
     out = Summary()
     for row in rows:
-        if row.source == "attempt":
-            continue  # per-round-trip forensic rows; their call is already a row
         out.total.add(row)
         for dim in dimensions:
             bucket = out.by.setdefault(dim, {}).setdefault(_key(row, dim), CostBucket(key=_key(row, dim)))

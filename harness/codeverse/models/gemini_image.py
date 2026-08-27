@@ -304,11 +304,14 @@ class GeminiImageModel:
         client = self._clients._client(key)
         with Stopwatch() as sw:
             resp = client.models.generate_content(model=model, contents=contents, config=config)
+        usage = parse_usage(resp, model)  # parsed first: the raises below were billed too
+        usage.backend = "gemini-image"
+        usage.latency_ms = sw.ms
         pf = resp.prompt_feedback
         if pf is not None and pf.block_reason:
-            raise ModelError(f"image prompt blocked: {pf.block_reason}", retryable=False)
+            raise ModelError(f"image prompt blocked: {pf.block_reason}", retryable=False, usage=usage)
         if not resp.candidates:
-            raise ModelError("image model returned no candidates", retryable=True)
+            raise ModelError("image model returned no candidates", retryable=True, usage=usage)
         cand = resp.candidates[0]
         finish = str(cand.finish_reason.name if cand.finish_reason is not None else "")
         images: list[Image.Image] = []
@@ -320,11 +323,10 @@ class GeminiImageModel:
                 images.append(img.convert("RGB"))
         if not images:
             if finish in FATAL_FINISH:
-                raise ModelError(f"image generation refused (finish_reason={finish})", retryable=False)
-            raise ModelError(f"image model returned no image (finish_reason={finish or 'unknown'})", retryable=True)
-        usage = parse_usage(resp, model)
-        usage.backend = "gemini-image"
-        usage.latency_ms = sw.ms
+                raise ModelError(f"image generation refused (finish_reason={finish})",
+                                 retryable=False, usage=usage)
+            raise ModelError(f"image model returned no image (finish_reason={finish or 'unknown'})",
+                             retryable=True, usage=usage)
         usage.cost_usd = image_cost(model, usage, len(images))
         if int(size) not in (0, 1024) and images[0].size != (size, size):
             images = [im.resize((int(size), int(size)), Image.LANCZOS) for im in images]

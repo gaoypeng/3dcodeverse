@@ -153,7 +153,7 @@ class PairwiseJudge:
         try:
             resp = self.model.generate(req)
         except ModelError as e:
-            return Usage(), None, None, f"ModelError: {e}"
+            return getattr(e, "usage", None) or Usage(), None, None, f"ModelError: {e}"
         try:
             payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
             reply = PairwiseReply.model_validate(payload)

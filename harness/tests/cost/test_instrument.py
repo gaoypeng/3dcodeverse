@@ -358,10 +358,10 @@ def test_per_key_buckets_and_tries_per_call(tmp_path: Path):
     table = bucket_rows(keyed_buckets(audit), total=1.0)
     assert BUCKET_HEADERS[-1] == "tries/call" and table[0][-1] == "2.00" and table[1][-1] == "1.00"
 # ------------------------------------------------------- per-attempt rows (audit 2026-08-27)
-def test_a_bad_json_reply_reaches_the_ledger_as_a_discarded_attempt_row(tmp_path: Path):
+def test_a_billed_but_invalid_attempt_is_in_the_total_exactly_once(tmp_path: Path):
     """A charged-but-invalid reply used to vanish: the logical row carries only the
-    winner's usage.  Its tokens now land as a source="attempt" row that joins the
-    logical row by call_id — and never double-counts in any total."""
+    winner's usage and its own row was ``source="attempt"``, which every total
+    filtered out.  It is now ``source="extra"`` — counted once, joined by call_id."""
     from codeverse.cost.ledger import summarise
     from tests.models.test_gemini import make_model, text_response
 
@@ -371,23 +371,24 @@ def test_a_bad_json_reply_reaches_the_ledger_as_a_discarded_attempt_row(tmp_path
             ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"},
                         label="planner"))
     assert resp.parsed == {"ok": True}
-    (logical,) = load_ledger(tmp_path)  # attempt rows are filtered by default
+    rows = load_ledger(tmp_path)  # "attempt" forensics are filtered here; "extra" is money
+    bad, = [r for r in rows if r.source == "extra"]
+    logical, = [r for r in rows if r.source == "live"]
     assert logical.outcome == "ok" and logical.attempts == 2 and logical.call_id
-    rows = load_ledger(tmp_path, include_attempts=True)
-    attempts = sorted((r for r in rows if r.source == "attempt"), key=lambda r: r.attempt)
-    assert [r.attempt for r in attempts] == [1, 2]
-    bad, win = attempts
     assert bad.discarded and bad.outcome == "discarded" and bad.input_tokens == 100
-    assert not win.discarded and win.outcome == "ok"
-    assert bad.call_id == win.call_id == logical.call_id
-    assert summarise(rows).total.input_tokens == logical.input_tokens, \
-        "attempt rows never double-count"
+    assert bad.call_id == logical.call_id and bad.cost_usd > 0
+    total = summarise(rows).total
+    assert total.input_tokens == logical.input_tokens + bad.input_tokens
+    assert summarise(load_ledger(tmp_path, include_attempts=True)).total.input_tokens \
+        == total.input_tokens + 100, "include_attempts adds the winner's forensic row, once"
+    win, = [r for r in load_ledger(tmp_path, include_attempts=True) if r.source == "attempt"]
+    assert not win.discarded and win.attempt == 2
 
 
 def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
     """The loser of a raced 503 retry keeps running after the winner returned; when
-    it lands, its billed tokens must appear as a discarded attempt row — before,
-    that money left no trace anywhere."""
+    it lands, its billed tokens must appear in the ledger TOTAL — before, that money
+    left no trace anywhere, and then no trace in any total."""
     import threading
     import time as _time
 
@@ -420,16 +421,19 @@ def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
     deadline = _time.monotonic() + 5.0
     loser = None
     while _time.monotonic() < deadline:
-        rows = load_ledger(tmp_path, include_attempts=True)
-        loser = next((r for r in rows if r.source == "attempt" and r.key == "…k2"), None)
+        rows = load_ledger(tmp_path)
+        loser = next((r for r in rows if r.source == "extra" and r.key == "…k2"), None)
         if loser is not None:
             break
         _time.sleep(0.01)
     assert loser is not None, "the loser's row never arrived"
     assert loser.discarded and loser.input_tokens == 100, "the loser's paid tokens are on the ledger"
-    (logical,) = load_ledger(tmp_path)
+    logical, = [r for r in load_ledger(tmp_path) if r.source == "live"]
     # endswith, not ==: the 2-char fake key is shorter than the …last-4 redaction
     assert logical.key.endswith("k3") and logical.call_id == loser.call_id
+    from codeverse.cost.ledger import summarise
+    assert summarise(load_ledger(tmp_path)).total.cost_usd == pytest.approx(
+        logical.cost_usd + loser.cost_usd), "the loser is in the total exactly once"
 
 
 def test_a_failed_calls_error_row_carries_what_was_billed(tmp_path: Path):

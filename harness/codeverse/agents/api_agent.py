@@ -243,6 +243,7 @@ class _Loop:
                 self.usage = self.usage + resp.usage
                 return resp
             except Exception as e:  # ModelError or provider glitch
+                self.usage = self.usage + (getattr(e, "usage", None) or Usage())  # billed anyway
                 retryable = bool(getattr(e, "retryable", False))
                 # the session deadline used to be checked only between turns, so a turn that
                 # met it inside this loop still slept and re-entered the model's whole

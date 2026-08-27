@@ -17,6 +17,12 @@ from pydantic import BaseModel
 
 from codeverse.proc import append_jsonl_line, read_jsonl_lenient
 
+#: per-session transcript caps.  Rows are byte-capped individually but nothing capped
+#: the file: a child emitting 100k lines wrote 27 MB, ~406 MB at the per-row cap.  The
+#: unabridged (bounded) stream still lands in stdout.json.
+LINE_BUDGET_BYTES = 64 * 1024 * 1024
+LINE_BUDGET_ROWS = 200_000
+
 
 class Trajectory:
     """Append-only writer for one agent session's files."""
@@ -25,6 +31,9 @@ class Trajectory:
         self.dir = Path(directory)
         self.dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._budget = threading.Lock()  # guards the counters below, never nested in _lock
+        self._rows = self._bytes = 0
+        self._spent = False
 
     # ------------------------------------------------------------------ paths
     @property
@@ -59,8 +68,19 @@ class Trajectory:
         return p
 
     def append(self, kind: str, **data: Any) -> None:
-        """Append one JSONL turn: ``{"t": epoch, "kind": kind, **data}``."""
-        append_jsonl_line(self.transcript_path, {"t": round(time.time(), 3), "kind": kind, **data}, self._lock)
+        """Append one JSONL turn: ``{"t": epoch, "kind": kind, **data}``, until the
+        session's byte/row budget trips — then one marker row and nothing more."""
+        rec: dict[str, Any] = {"t": round(time.time(), 3), "kind": kind, **data}
+        with self._budget:
+            if self._spent:
+                return
+            self._rows += 1
+            self._bytes += len(json.dumps(rec, ensure_ascii=False, default=str))
+            self._spent = self._rows > LINE_BUDGET_ROWS or self._bytes > LINE_BUDGET_BYTES
+            if self._spent:
+                rec = {"t": rec["t"], "kind": "line_budget_exhausted",
+                       "rows": self._rows - 1, "bytes": self._bytes}
+        append_jsonl_line(self.transcript_path, rec, self._lock)
 
     def write_result(self, result: BaseModel, **extra: Any) -> Path:
         """Write ``result.json`` = AgentResult fields + any extra diagnostics."""

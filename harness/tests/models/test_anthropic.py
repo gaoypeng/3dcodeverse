@@ -299,3 +299,19 @@ def test_tool_call_part_in_user_message_ignored_but_assistant_first_gets_user_pr
         [ChatMessage(role="assistant", parts=[ToolCallPart(id="t", name="n", arguments={})])]
     )
     assert msgs[0]["role"] == "user" and msgs[1]["role"] == "assistant"
+
+
+def test_a_failed_reply_carries_what_it_was_billed():
+    """Three raise sites built a real Usage from ``msg.usage`` and threw it away, so a
+    refusal / bad-JSON / empty reply looked FREE to the ledger and to the key pool."""
+    for script, req in (
+        ([msg([], stop="refusal")], ChatRequest(messages=[ChatMessage.user("x")])),
+        ([msg([text("not json")], stop="max_tokens")],
+         ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"})),
+        ([msg([], stop="end_turn")] * 6, ChatRequest(messages=[ChatMessage.user("x")])),
+    ):
+        m, _ = make(script)
+        with pytest.raises(ModelError) as e:
+            m.generate(req)
+        assert e.value.usage.input_tokens == 100 and e.value.usage.output_tokens == 20
+
