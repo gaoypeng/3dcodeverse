@@ -38,6 +38,7 @@ from PIL import Image
 from codeverse.contracts.common import Usage
 from codeverse.models.base import ModelError
 from codeverse.models.gemini import (
+    HTTP_TIMEOUT_FLOOR_S,
     GeminiModel,
     _default_keys,
     _retry_after_s,
@@ -45,7 +46,7 @@ from codeverse.models.gemini import (
     failure_outcome,
     shared_pool,
 )
-from codeverse.models.gemini_convert import FATAL_FINISH, parse_usage
+from codeverse.models.gemini_convert import FATAL_FINISH, clip_timeout, parse_usage
 from codeverse.models.keypool import MAX_WAIT_S, KeyPool
 from codeverse.models.parts import Stopwatch
 from codeverse.models.pricing import estimate_cost
@@ -269,11 +270,20 @@ class GeminiImageModel:
             http_options=types.HttpOptions(timeout=int(self.timeout_s * 1000)),
         )
         # the caller's budget clips the retry deadline, never extends it (the same
-        # contract as GeminiModel.generate with ChatRequest.max_wait_s)
+        # contract as GeminiModel.generate with ChatRequest.max_wait_s), and each
+        # attempt's HTTP read timeout is the REMAINING budget, floored like
+        # GeminiModel._attempt_config — a 60 s image budget no longer holds a
+        # 180 s socket past its deadline.
         budget = RETRY_DEADLINE_S if max_wait_s is None else min(RETRY_DEADLINE_S, float(max_wait_s))
+        deadline = time.monotonic() + budget
+
+        def _attempt_config() -> types.GenerateContentConfig:
+            remaining = max(HTTP_TIMEOUT_FLOOR_S, deadline - time.monotonic())
+            return clip_timeout(config, int(min(self.timeout_s, remaining) * 1000))
+
         return rotate_with_retries(
             self.pool,
-            lambda key: self._call(key, model, contents, config, size),
+            lambda key: self._call(key, model, contents, _attempt_config(), size),
             classify=classify_exception,
             outcome_of=failure_outcome,
             max_attempts=self.max_attempts,

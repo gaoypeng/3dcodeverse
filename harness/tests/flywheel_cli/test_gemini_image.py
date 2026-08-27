@@ -93,3 +93,41 @@ def test_all_keys_dead_raises_the_key_error():
     with pytest.raises(ModelError) as ei:
         m.generate_with_usage("brushed steel")
     assert ei.value.status == 403 and len(set(used)) == 2
+
+
+def test_a_small_image_budget_shortens_the_per_attempt_http_timeout():
+    """max_wait_s=60 must clip the attempt's HTTP read timeout below the 180 s
+    constant (floored at HTTP_TIMEOUT_FLOOR_S) — mirrors GeminiModel._attempt_config."""
+    configs: list = []
+
+    class _Capture(_Client):
+        def _generate(self, *, model, contents, config):
+            configs.append(config)
+            return super()._generate(model=model, contents=contents, config=config)
+
+    used: list[str] = []
+    script = [_image_response()]
+    pool = KeyPool(["key_a", "key_b"])
+    m = GeminiImageModel("test-image", fallback=None, pool=pool, max_attempts=1,
+                         sleep=lambda s: None, client_factory=lambda key: _Capture(key, script, used))
+    m.generate("a red cube", size=512, max_wait_s=60.0)
+    assert len(configs) == 1
+    t_ms = configs[0].http_options.timeout
+    assert 20_000 <= t_ms <= 60_000, t_ms   # clipped to the budget, floored at 20 s
+
+
+def test_no_image_budget_keeps_the_configured_read_timeout():
+    configs: list = []
+
+    class _Capture(_Client):
+        def _generate(self, *, model, contents, config):
+            configs.append(config)
+            return super()._generate(model=model, contents=contents, config=config)
+
+    used: list[str] = []
+    script = [_image_response()]
+    pool = KeyPool(["key_a", "key_b"])
+    m = GeminiImageModel("test-image", fallback=None, pool=pool, max_attempts=1,
+                         sleep=lambda s: None, client_factory=lambda key: _Capture(key, script, used))
+    m.generate("a red cube", size=512)
+    assert configs[0].http_options.timeout == 180_000   # min(180 s, 900 s remaining) = the constant
