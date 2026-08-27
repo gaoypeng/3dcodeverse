@@ -1,9 +1,11 @@
 """Export run records → dataset sample folders + ``metadata.parquet``.
 
 ``export_samples(runs_dir, out_dir)`` writes one sample folder per run (see
-``sample.py`` for the layout) and then rebuilds the text index from *every*
-``meta.json`` under ``out_dir`` (so repeated exports into the same folder stay
-consistent):
+``sample.py`` for the layout), records every file it wrote — sha256 each — in
+``<out>/dataset_manifest.json`` (``flywheel/manifest.py``) and builds the text
+index FROM those manifest entries, never from a directory rescan (so repeated
+exports into the same folder stay consistent and nothing the selection did not
+choose can leak into the index):
 
 * ``<out>/metadata.parquet`` — STORAGE_RULES §4 columns (``id, key, name,
   captions{detailed,instruction,factory}, meta_json, code, tar, byte_start,
@@ -14,6 +16,9 @@ consistent):
   dedupe pass (``""`` = canonical row).
 * ``<out>/metadata.jsonl`` — same rows, one JSON object per line.
 * ``<out>/duplicates.json`` — the duplicate groups found by the last export.
+* ``<out>/dataset_manifest.json`` — the generation manifest: the filters, one
+  hashed entry per exported sample, and every dropped run with its reason
+  (``duplicate_of:<id>`` for de-duplicated rows).  ``pack.py`` consumes ONLY this.
 
 Captions come from ``record.extra["captions"]``, else ``<ws>/captions.json``,
 else ``<captions_dir>/<slug>.json`` (side-car written by ``3dcv flywheel caption --out``).
@@ -21,17 +26,26 @@ else ``<captions_dir>/<slug>.json`` (side-car written by ``3dcv flywheel caption
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel, Field
 
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.run import RunId, RunRecord
 from codeverse.flywheel import sample as S
+from codeverse.flywheel.dedupe import code_sha256
+from codeverse.flywheel.manifest import (
+    DatasetGenerationManifest,
+    DroppedRun,
+    ManifestEntry,
+    ManifestFilters,
+    write_manifest,
+)
 from codeverse.flywheel.quality import DuplicateGroup, mark_duplicates
 from codeverse.flywheel.record import FoundRun, iter_runs
 from codeverse.workspace import Workspace
@@ -55,6 +69,7 @@ class ExportReport(BaseModel):
     tiers: dict[str, int] = Field(default_factory=dict, description="quality tier → count (indexed rows)")
     parquet: str = ""
     jsonl: str = ""
+    manifest: str = ""
     notes: list[str] = Field(default_factory=list,
                              description="non-fatal degradations, e.g. parquet skipped for a missing extra")
 
@@ -89,11 +104,29 @@ def _caption_texts(caps: dict[str, Any]) -> dict[str, str]:
     return {k: str(caps.get(k, "") or "") for k in CAPTION_KEYS} if caps.get("detailed") else {}
 
 
+class ExportedSample(NamedTuple):
+    """What :func:`export_one` wrote: the sample dir plus the hashes the manifest needs."""
+
+    dest: Path
+    file_hashes: dict[str, str]
+    code_sha256: str
+    meta: S.SampleMeta
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def export_one(
     ws: Workspace, record: RunRecord, out_dir: Path, *, overwrite: bool = True,
     captions_dir: Path | None = None, run_id: RunId | None = None
-) -> Path:
-    """Write the sample folder for one run; returns the sample dir.
+) -> ExportedSample:
+    """Write the sample folder for one run; returns the dir plus a sha256 per file
+    written (every byte in the folder passes through here, so it is hashed here).
 
     ``run_id`` carries the collision-safe identity minted at discovery time; without
     one the key falls back to the directory basename (flat layouts only)."""
@@ -124,7 +157,9 @@ def export_one(
     tmp = dest / "meta.json.tmp"
     tmp.write_text(meta.model_dump_json(indent=2))
     tmp.replace(dest / "meta.json")
-    return dest
+    hashes = {rel: _sha256_file(dest / rel) for rel in all_files}
+    return ExportedSample(dest=dest, file_hashes=hashes,
+                          code_sha256=code_sha256(files), meta=meta)
 
 
 def export_samples(
@@ -145,9 +180,11 @@ def export_samples(
     API stability); the best round is chosen by ``record.best_round`` or the
     highest judged score.  Runs whose best round never built are skipped unless
     ``include_unbuilt`` (failed runs are still useful for repair pairs, not as
-    dataset samples).  Exact duplicates (same code fingerprint + prompt) are
-    marked in the index (``duplicate_of``) and, with ``drop_duplicates``, left
-    out of it (their folders stay on disk).
+    dataset samples).  Normalised duplicates (same
+    ``dedupe.code_fingerprint`` — a hash of whitespace/comment-normalised code —
+    plus the same prompt) are marked in the index (``duplicate_of``) and, with
+    ``drop_duplicates``, left out of it AND of the manifest entries, recorded
+    under ``manifest.dropped`` as ``duplicate_of:<id>`` (folders stay on disk).
     """
     if not best_round:
         raise ValueError("export_samples: only best_round=True is supported")
@@ -172,40 +209,68 @@ def export_samples(
                 f"duplicate sample id {rel!r}: {prev} and {ws.root} would export onto each other")
         dest_owner[rel] = ws.root
 
+    entries: list[ManifestEntry] = []
+    dropped: list[DroppedRun] = []
+
+    def _skip(ws_root: Path, rid: RunId, reason: str) -> None:
+        rep.skipped[str(ws_root)] = reason
+        dropped.append(DroppedRun(run=rid, reason=reason))
+
     for ws, rec, rid in found:
         rep.n_runs += 1
         rnd = S.best_round_record(rec)
         j = S.effective_judgment(rnd) if rnd is not None else None
         score = j.overall if j is not None else None
         if rnd is None:
-            rep.skipped[str(ws.root)] = "no rounds"
+            _skip(ws.root, rid, "no rounds")
             continue
         if not include_unbuilt and not (rnd.build is not None and rnd.build.ok):
-            rep.skipped[str(ws.root)] = "best round did not build"
+            _skip(ws.root, rid, "best round did not build")
             continue
         if only_passed and not (j is not None and j.passed):
-            rep.skipped[str(ws.root)] = "not passed"
+            _skip(ws.root, rid, "not passed")
             continue
         if min_score is not None and (score is None or score < min_score):
-            rep.skipped[str(ws.root)] = f"score {score} < min_score {min_score}"
+            _skip(ws.root, rid, f"score {score} < min_score {min_score}")
             continue
         try:
-            dest = export_one(ws, rec, out, overwrite=overwrite,
-                              captions_dir=Path(captions_dir) if captions_dir else None, run_id=rid)
+            exported = export_one(ws, rec, out, overwrite=overwrite,
+                                  captions_dir=Path(captions_dir) if captions_dir else None, run_id=rid)
         except S.SampleError as e:
-            rep.skipped[str(ws.root)] = str(e)
+            _skip(ws.root, rid, str(e))
             continue
         except Exception as e:  # git errors etc. — report, keep going
-            rep.skipped[str(ws.root)] = f"{type(e).__name__}: {e}"
+            _skip(ws.root, rid, f"{type(e).__name__}: {e}")
             continue
         rep.n_exported += 1
-        rep.exported.append(str(dest.relative_to(out)))
-    rows = collect_rows(out)
+        rel_dir = exported.dest.relative_to(out).as_posix()
+        rep.exported.append(rel_dir)
+        entries.append(ManifestEntry(
+            run=rid, sample_id=exported.meta.id, sample_rel_dir=rel_dir,
+            files=exported.file_hashes, code_fingerprint=exported.meta.code_fingerprint,
+            code_sha256=exported.code_sha256))
+    # rows come from the manifest's own selection, never a rescan — a rescan is how
+    # dropped duplicates used to ship and how a planted src/meta.json became a row
+    rows = [row_for_sample(out / e.sample_rel_dir) for e in entries]
     rep.duplicates = mark_duplicates(rows)
     rep.n_duplicates = sum(len(g.duplicates) for g in rep.duplicates)
     (out / DUPLICATES_NAME).write_text(json.dumps([g.model_dump() for g in rep.duplicates], indent=2))
     if drop_duplicates:
+        dup_of = {str(r["id"]): str(r["duplicate_of"]) for r in rows if r["duplicate_of"]}
         rows = [r for r in rows if not r["duplicate_of"]]
+        kept: list[ManifestEntry] = []
+        for e in entries:
+            canonical = dup_of.get(e.sample_id)
+            if canonical:
+                dropped.append(DroppedRun(run=e.run, reason=f"duplicate_of:{canonical}"))
+            else:
+                kept.append(e)
+        entries = kept
+    rep.manifest = str(write_manifest(DatasetGenerationManifest(
+        filters=ManifestFilters(min_score=min_score, only_passed=only_passed,
+                                include_unbuilt=include_unbuilt, drop_duplicates=drop_duplicates,
+                                best_round=best_round, captions_dir=str(captions_dir or "")),
+        entries=entries, dropped=dropped), out))
     rep.n_indexed = len(rows)
     for r in rows:
         rep.tiers[r["quality_tier"]] = rep.tiers.get(r["quality_tier"], 0) + 1
@@ -266,8 +331,12 @@ def row_for_sample(sample_dir: Path) -> dict[str, Any]:
 
 
 def collect_rows(out_dir: Path) -> list[dict[str, Any]]:
+    """Recovery/debug rescan of a dataset folder — export/pack build their rows from
+    the manifest, never from this.  Exactly three levels deep (track/language/key,
+    the shape ``sample_rel_dir`` has), so an LLM-written ``src/meta.json`` inside a
+    sample's code tree can never inject a phantom row."""
     rows = []
-    for meta in sorted(out_dir.rglob("meta.json")):
+    for meta in sorted(out_dir.glob("*/*/*/meta.json")):
         try:
             rows.append(row_for_sample(meta.parent))
         except (OSError, ValueError, KeyError) as e:

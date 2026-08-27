@@ -43,6 +43,11 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 LOOPBACK = {"127.0.0.1", "::1", "localhost", "0:0:0:0:0:0:0:1"}
 STREAM_CHUNK = 256 * 1024
+#: /file/ content types a browser would EXECUTE: served with ``CSP: sandbox`` so an
+#: LLM-authored HTML/SVG artifact never runs same-origin with the gallery.  An
+#: ``<img src=….svg>`` embed keeps rendering — image loads create no document, so
+#: the sandbox directive never applies to them.
+SANDBOXED_TYPES = frozenset({"text/html", "image/svg+xml"})
 
 
 class GalleryError(RuntimeError):
@@ -222,7 +227,11 @@ class GalleryApp:
             return Response.html(code_page.render_dir(entry, self.urls, rel))
         if not target.is_file():
             raise FileNotFoundError(f"{entry.slug}/{rel}")
-        return Response(content_type=content_type(target), path=target)
+        ctype = content_type(target)
+        headers: dict[str, str] = {}
+        if ctype.partition(";")[0].strip() in SANDBOXED_TYPES:
+            headers["Content-Security-Policy"] = "sandbox"
+        return Response(content_type=ctype, path=target, headers=headers)
 
     def _detail(self, entry: RunEntry) -> Response:
         from codeverse.flywheel.record import RecordError, load_record

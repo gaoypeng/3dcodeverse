@@ -1,6 +1,7 @@
 """Near-duplicate detection: code fingerprints + coarse mesh fingerprints.
 
 * ``code_fingerprint(files)``  sha256 of whitespace/comment-normalised code.
+* ``code_sha256(files)``       sha256 of the raw bytes (the exact-content hash).
 * ``mesh_fingerprint(glb)``    bbox extents (cm), triangle bucket and a 16³ voxel
   occupancy set computed with trimesh — compare with Jaccard.
 * ``near_duplicates(items)``   union-find groups: identical code fingerprint OR
@@ -45,6 +46,21 @@ def code_fingerprint(files: Mapping[str, str | bytes]) -> str:
         h.update(path.encode())
         h.update(b"\0")
         h.update(normalise_code(text).encode())
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def code_sha256(files: Mapping[str, str | bytes]) -> str:
+    """Order-independent sha256 over the RAW ``(path, bytes)`` pairs — the
+    exact-content counterpart of :func:`code_fingerprint` (no normalisation,
+    no lossy decode)."""
+    h = hashlib.sha256()
+    for path in sorted(files):
+        data = files[path]
+        raw = data.encode("utf-8") if isinstance(data, str) else data
+        h.update(path.encode())
+        h.update(b"\0")
+        h.update(raw)
         h.update(b"\0")
     return h.hexdigest()
 
@@ -107,7 +123,7 @@ class DedupeItem(BaseModel):
 
 
 def near_duplicates(items: Iterable[DedupeItem], *, mesh_threshold: float = 0.9) -> list[list[str]]:
-    """Groups (size ≥ 2) of ids that are exact-code duplicates or near-identical meshes."""
+    """Groups (size ≥ 2) of ids that are normalised-code duplicates or near-identical meshes."""
     items = list(items)
     parent = {it.id: it.id for it in items}
 

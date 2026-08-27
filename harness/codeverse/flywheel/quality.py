@@ -1,4 +1,4 @@
-"""Dataset hygiene: quality tiers + exact-duplicate detection by (code fingerprint, prompt).
+"""Dataset hygiene: quality tiers + normalised-duplicate detection by (code fingerprint, prompt).
 
 * ``quality_tier(passed, gate_errors, score)`` → ``A | B | C | D``::
 
@@ -61,8 +61,11 @@ def _rank(row: dict[str, Any]) -> tuple:
 
 
 def find_duplicates(rows: Iterable[dict[str, Any]]) -> list[DuplicateGroup]:
-    """Group rows by exact (code_fingerprint, prompt_hash); only groups with ≥ 2 rows are returned.
+    """Group rows by identical (code_fingerprint, prompt_hash); only groups with ≥ 2 rows are returned.
 
+    The fingerprint is of NORMALISED code (``dedupe.normalise_code`` strips comments
+    and whitespace), so these are normalised duplicates, not raw-byte-exact ones —
+    the raw hash lives in the manifest as ``code_sha256``.
     Rows without a fingerprint are never grouped.  The rows are not modified;
     use ``mark_duplicates`` to stamp ``duplicate_of``.
     """

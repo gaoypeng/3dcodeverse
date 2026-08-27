@@ -151,6 +151,18 @@ def render_compare(entries: list[RunEntry], urls: UrlMaker, *, note: str = "") -
     return page_shell("compare — 3dcv gallery", body, extra_css=COMPARE_CSS)
 
 
+#: a leading one of these makes a spreadsheet treat the cell as a formula (CSV injection)
+_FORMULA_PREFIXES = ("=", "+", "-", "@")
+
+
+def csv_safe(value: object) -> object:
+    """Neutralise spreadsheet formula injection: a string cell starting with
+    ``= + - @`` (an LLM-written prompt or title can) is prefixed with ``'``."""
+    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
+
 CSV_COLUMNS = ("battery", "slug", "title", "verdict", "tier", "track", "language", "generator",
                "judge", "score", "baseline_score", "delta", "gate_errors", "cost_usd", "minutes",
                "rounds", "best_round", "status", "state", "path", "prompt")
@@ -164,12 +176,12 @@ def export_csv(entries: list[RunEntry]) -> str:
     for e in entries:
         delta = (e.score - e.baseline_score
                  if e.score is not None and e.baseline_score is not None else None)
-        writer.writerow([
+        writer.writerow([csv_safe(v) for v in [
             e.battery, e.slug, e.title, e.verdict, e.tier, e.track, e.language, e.generator,
             e.judge, "" if e.score is None else f"{e.score:.4f}",
             "" if e.baseline_score is None else f"{e.baseline_score:.4f}",
             "" if delta is None else f"{delta:+.4f}", e.gate_errors, f"{e.cost_usd:.4f}",
             "" if e.minutes is None else f"{e.minutes:.2f}", e.rounds,
             "" if e.best_round is None else e.best_round, e.status, e.state, e.path, e.prompt,
-        ])
+        ]])
     return buf.getvalue()

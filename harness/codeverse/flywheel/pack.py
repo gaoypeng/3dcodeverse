@@ -1,5 +1,13 @@
-"""Pack exported sample folders into plain ``samples-NNN.tar`` files and fill
+"""Pack the manifest's sample folders into plain ``samples-NNN.tar`` files and fill
 the ``tar / byte_start / byte_len / n_files`` locator columns (STORAGE_RULES §3-4).
+
+``pack_samples`` consumes ONLY ``<out>/dataset_manifest.json`` (written by
+``export_samples``) — no directory rescan, so a duplicate dropped at export can
+never ship and nothing outside the manifest reaches an archive.  Every file is
+sha256-verified against the manifest as it is added (fail fast, naming the file);
+each archive is written as ``samples-NNN.tar.tmp`` and moved into place only
+after the WHOLE pack loop succeeded, so a failed re-pack leaves the previous
+archives and index untouched.
 
 Each sample's files are written consecutively so ``byte_start..+byte_len`` is a
 valid sub-tar; ``verify_locators`` round-trips every row.
@@ -7,8 +15,9 @@ valid sub-tar; ``verify_locators`` round-trips every row.
 
 from __future__ import annotations
 
+import hashlib
 import io
-import json
+import os
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -18,13 +27,16 @@ from pydantic import BaseModel, Field
 from codeverse.flywheel.export import (
     JSONL_NAME,
     PARQUET_NAME,
-    collect_rows,
+    row_for_sample,
     write_jsonl,
     write_parquet,
 )
+from codeverse.flywheel.manifest import ManifestEntry, ManifestError, load_manifest
 from codeverse.flywheel.quality import mark_duplicates
 
 MAX_TAR_BYTES = int(2.5 * 1024**3)
+#: per-member allowance for tar headers/padding in the rollover size estimate
+TAR_HEADER_SLACK = 1024
 
 
 class PackError(RuntimeError):
@@ -37,53 +49,98 @@ class PackReport(BaseModel):
     parquet: str = ""
 
 
-def _sample_dir_for(out_dir: Path, meta: dict[str, Any]) -> Path:
-    return out_dir / meta["track"] / meta["language"] / meta["key"]
+def _entry_sizes(sdir: Path, entry: ManifestEntry, rels: list[str]) -> int:
+    size = 0
+    for rel in rels:
+        try:
+            size += (sdir / rel).stat().st_size
+        except OSError as e:
+            raise PackError(f"{entry.sample_id}: missing file {rel} ({e}) — re-run export") from None
+    return size + TAR_HEADER_SLACK * (len(rels) + 1)
 
 
 def pack_samples(out_dir: Path | str, *, tar_prefix: str = "", max_tar_bytes: int = MAX_TAR_BYTES) -> PackReport:
-    """Write ``samples-NNN.tar`` under ``out_dir`` and rewrite the index with locators.
+    """Write ``samples-NNN.tar`` under ``out_dir`` from the dataset manifest and
+    rewrite the index (rows rebuilt from the manifest's sample dirs, locators filled).
 
     ``tar_prefix`` is prepended to the tar file name in the ``tar`` column so it
     can be repo-root-relative (e.g. ``"3dcodeverse/static_object/"``).
     """
     out = Path(out_dir)
-    rows = collect_rows(out)
-    if not rows:
-        raise PackError(f"no samples under {out}")
+    try:
+        manifest = load_manifest(out)
+    except ManifestError as e:
+        raise PackError(str(e)) from None
+    if not manifest.entries:
+        raise PackError(f"the manifest under {out} lists no samples (all filtered or dropped)")
+    rows: list[dict[str, Any]] = []
+    for entry in manifest.entries:
+        sdir = out / entry.sample_rel_dir
+        try:
+            rows.append(row_for_sample(sdir))
+        except (OSError, ValueError, KeyError) as e:
+            raise PackError(f"{entry.sample_id}: unreadable sample dir {sdir} ({e}) — re-run export") from e
     mark_duplicates(rows)
     rep = PackReport()
     tar_idx = 0
     tar: tarfile.TarFile | None = None
-    tar_path: Path | None = None
+    tmp_to_final: list[tuple[Path, Path]] = []
+    final_name = ""
 
     def _open_new() -> None:
-        nonlocal tar, tar_path, tar_idx
+        nonlocal tar, tar_idx, final_name
         if tar is not None:
             tar.close()
-        tar_path = out / f"samples-{tar_idx:03d}.tar"
-        tar = tarfile.open(tar_path, mode="w", format=tarfile.PAX_FORMAT)  # noqa: SIM115 - closed in _open_new/after loop
-        rep.tars.append(tar_path.name)
+        final = out / f"samples-{tar_idx:03d}.tar"
+        tmp = out / f"samples-{tar_idx:03d}.tar.tmp"
+        tar = tarfile.open(tmp, mode="w", format=tarfile.PAX_FORMAT)  # noqa: SIM115 - closed in _open_new/finally
+        tmp_to_final.append((tmp, final))
+        final_name = final.name
+        rep.tars.append(final.name)
         tar_idx += 1
 
-    _open_new()
-    assert tar is not None and tar_path is not None
-    for row in rows:
-        meta = json.loads(row["meta_json"])
-        sdir = _sample_dir_for(out, meta)
-        files = sorted(p for p in sdir.rglob("*") if p.is_file())
-        size = sum(p.stat().st_size for p in files) + 1024 * (len(files) + 1)
-        if tar.offset > 0 and tar.offset + size > max_tar_bytes:
-            _open_new()
-        start = tar.offset
-        for p in files:
-            tar.add(p, arcname=f"{meta['key']}/{p.relative_to(sdir).as_posix()}", recursive=False)
-        row["tar"] = f"{tar_prefix}{tar_path.name}"
-        row["byte_start"] = start
-        row["byte_len"] = tar.offset - start
-        row["n_files"] = len(files)
-        rep.n_samples += 1
-    tar.close()
+    done = False
+    try:
+        _open_new()
+        assert tar is not None
+        for entry, row in zip(manifest.entries, rows, strict=True):
+            sdir = out / entry.sample_rel_dir
+            rels = sorted(entry.files)
+            if tar.offset > 0 and tar.offset + _entry_sizes(sdir, entry, rels) > max_tar_bytes:
+                _open_new()
+            start = tar.offset
+            for rel in rels:
+                p = sdir / rel
+                try:
+                    data = p.read_bytes()
+                except OSError as e:
+                    raise PackError(f"{entry.sample_id}: missing file {rel} ({e}) — re-run export") from None
+                digest = hashlib.sha256(data).hexdigest()
+                if digest != entry.files[rel]:
+                    raise PackError(
+                        f"{entry.sample_id}: {rel} changed since export (sha256 {digest} != "
+                        f"manifest {entry.files[rel]}) — re-run export")
+                info = tarfile.TarInfo(name=f"{row['key']}/{rel}")
+                info.size = len(data)
+                info.mtime = int(p.stat().st_mtime)
+                info.mode = 0o644
+                tar.addfile(info, io.BytesIO(data))
+            row["tar"] = f"{tar_prefix}{final_name}"
+            row["byte_start"] = start
+            row["byte_len"] = tar.offset - start
+            row["n_files"] = len(rels)
+            rep.n_samples += 1
+        tar.close()
+        tar = None
+        done = True
+    finally:
+        if not done:  # leave the previous archives and index exactly as they were
+            if tar is not None:
+                tar.close()
+            for tmp, _final in tmp_to_final:
+                tmp.unlink(missing_ok=True)
+    for tmp, final in tmp_to_final:
+        os.replace(tmp, final)
     rep.parquet = str(write_parquet(rows, out / PARQUET_NAME))
     write_jsonl(rows, out / JSONL_NAME)
     return rep

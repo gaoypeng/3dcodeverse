@@ -24,9 +24,10 @@ def export_cmd(
     tar_prefix: Annotated[str, typer.Option("--tar-prefix", help="repo-root-relative prefix for the tar column")] = "",
     include_unbuilt: Annotated[bool, typer.Option("--include-unbuilt", help="also export runs whose best round never built")] = False,
     captions_dir: Annotated[Path | None, typer.Option("--captions-dir", help="side-car captions written by `caption --out`")] = None,
-    drop_duplicates: Annotated[bool, typer.Option("--drop-duplicates", help="leave exact duplicates (code fingerprint + prompt) out of the index")] = False,
+    drop_duplicates: Annotated[bool, typer.Option("--drop-duplicates", help="leave normalised duplicates (normalised-code fingerprint + prompt) out of the index, manifest and tars (recorded under the manifest's dropped)")] = False,
 ) -> None:
-    """Export runs → sample folders + metadata.jsonl/.parquet (+ optional plain tars)."""
+    """Export runs → sample folders + dataset_manifest.json + metadata.jsonl/.parquet
+    (+ optional plain tars, packed FROM the manifest)."""
     from codeverse.flywheel.export import export_samples
 
     if pack:
@@ -45,7 +46,8 @@ def export_cmd(
     tiers = " ".join(f"{t}:{rep.tiers.get(t, 0)}" for t in "ABCD")
     console.print(kv_table("export", {"runs": rep.n_runs, "exported": rep.n_exported, "indexed": rep.n_indexed,
                                       "duplicates": rep.n_duplicates, "tiers": tiers,
-                                      "skipped": len(rep.skipped), "jsonl": rep.jsonl,
+                                      "skipped": len(rep.skipped), "manifest": rep.manifest,
+                                      "jsonl": rep.jsonl,
                                       "parquet": rep.parquet or "(skipped: no pyarrow)"}))
     for note in rep.notes:
         warn(escape(note))
@@ -154,7 +156,9 @@ def dedupe_cmd(
     )
 
     items = []
-    for meta_path in sorted(dataset_dir.rglob("meta.json")):
+    # exactly track/language/key deep — a src/meta.json in a sample's LLM-written
+    # code tree must not become a phantom sample
+    for meta_path in sorted(dataset_dir.glob("*/*/*/meta.json")):
         sdir = meta_path.parent
         meta = json.loads(meta_path.read_text())
         files = {p.relative_to(sdir).as_posix(): p.read_bytes() for p in (sdir / "src").rglob("*") if p.is_file()}
