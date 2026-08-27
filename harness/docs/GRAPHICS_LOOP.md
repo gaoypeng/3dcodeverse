@@ -181,5 +181,15 @@ seeded block included, and called none of `aurora( / curtain( / stars(`.  A reci
 overwrite is not a recipe kept: the seed now lives in the harness-owned, read-only `src/recipes.glsl`
 (§3 "Seeded recipes"); the same A/B re-runs against it.
 
+**Third turn read out** (`seed_v2`, 17:36: the three photo prompts, plan-pinned, seeded
+`src/recipes.glsl` vs no seeding, judged by the fixed LikenessJudge(shader_v2) with the photos):
+seeded 0.198 / 0.570 / 0.329, unseeded 0.300 / 0.165 / 0.323; paired **+0.103**, sign 2/3.  Every
+seeded shader called `stars()` (twice each) and **none called `aurora()` or `curtain()`** — the
+star field is a helper flash is happy to reuse; the aurora it insists on drawing itself, and 5 of 6
+runs still fired `comb_artefact`.  A recipe on disk is used when it is a *part*, not when it is
+the *subject*.  Fourth turn (not yet built): for a brief whose subject has a recipe, the harness
+writes the baseline `src/shader.frag` itself — the verified example composition calling the
+recipes — and the session starts as a refine of a working aurora instead of a blank page.
+
 **The track default is `shader_v2`** since c032700 (the switch waited for the first reference
 A/B to finish so both of its arms were judged in-loop by one rubric).
