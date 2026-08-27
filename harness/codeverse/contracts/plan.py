@@ -48,6 +48,13 @@ class AcceptanceItem(BaseModel):
 #: entirely", never a 3 mm rounding.
 SUBPART_SLACK_M = 0.01
 SUBPART_REL_SLACK = 0.15
+#: A ``revolute`` range over 2π whose limits both sit inside ±``DEGREES_MAX_ABS`` and whose span is
+#: at least ``DEGREES_MIN_SPAN`` was written in DEGREES (door ``0..90``, lid ``-180..0``): 30 rad is
+#: nearly five turns, which no hinge is planned in.  A span between 2π and 30 (``0..4π``, ``0..6.5``,
+#: ``0..10``) is read as radians — an implausible hinge either way — and becomes ``continuous``
+#: (``ArticulatedPlan._normalise_raw``).
+DEGREES_MAX_ABS = 360.0
+DEGREES_MIN_SPAN = 30.0
 
 
 class SubPartPlan(BaseModel):
@@ -189,14 +196,20 @@ class JointPlan(BaseModel):
         return self
 
 
+def _looks_like_degrees(lower: float, upper: float) -> bool:
+    """Revolute limits the planner wrote in degrees: inside ±360 with a span of at least 30 (see the constants)."""
+    return abs(lower) <= DEGREES_MAX_ABS and abs(upper) <= DEGREES_MAX_ABS and upper - lower >= DEGREES_MIN_SPAN
+
+
 class ArticulatedPlan(StaticPlan):
     root_link: str
     joints: list[JointPlan] = Field(min_length=1)
     normalisations: list[str] = Field(
         default_factory=list,
         description="filled by the harness, leave empty: automatic corrections applied to the planner's answer "
-                    "before validation (a sub-part promoted to a link because a joint moves it, a revolute joint "
-                    "with a > 2π range made continuous, a parent bbox grown around a sub-part)")
+                    "before validation (a sub-part promoted to a link because a joint moves it, revolute limits "
+                    "written in degrees converted to radians or a > 2π radian range made continuous, a parent "
+                    "bbox grown around a sub-part)")
 
     @model_validator(mode="before")
     @classmethod
@@ -207,7 +220,14 @@ class ArticulatedPlan(StaticPlan):
 
         1. a joint whose ``parent`` / ``child`` names a SUB-PART: the sub-part is promoted to a
            top-level part (``attach_to`` = its former parent) — anything a joint moves is a link;
-        2. a ``revolute`` joint whose range exceeds 2π becomes ``continuous`` (limits dropped);
+        2. a ``revolute`` joint whose range exceeds 2π: with both limits inside ±360 and a span of
+           at least 30 the planner wrote DEGREES (door ``0..90``, lid ``-180..0`` — the template says
+           rad), so the limits and a ``rest`` inside them are converted with ``math.radians`` and the
+           joint stays ``revolute``; any other span over 2π (``0..4π``, ``-4π..4π``) becomes
+           ``continuous`` (limits dropped).  The band 2π < span < 30 (``0..6.5``, ``0..10``) is
+           ambiguous and is read as radians: a wrong ``continuous`` there is what the run got before,
+           while a wrong degrees reading would squeeze a full turn into a 6° hinge without a trace.
+           A converted range that is still over 2π (``-360..360``) falls through to ``continuous``;
         3. a sub-part sticking out of its parent's bbox by more than the slack: the parent bbox
            grows to enclose it (planner boxes are design intent, not measurements).
         Every repair is recorded in ``normalisations`` so the record shows what the planner
@@ -246,13 +266,29 @@ class ArticulatedPlan(StaticPlan):
                     kept.append(child)
             part["children"] = kept
 
-        # 2. revolute joints with a > 2π range → continuous
+        # 2. revolute joints with a > 2π range: degrees written for radians → radians; a radian
+        #    range over 2π → continuous
         for j in joints:
+            if j.get("type") != "revolute":
+                continue
             try:
-                span = float(j.get("upper", 0.0)) - float(j.get("lower", 0.0))
+                lower, upper = float(j.get("lower", 0.0)), float(j.get("upper", 0.0))
             except (TypeError, ValueError):
                 continue
-            if j.get("type") == "revolute" and span > 2 * math.pi + 1e-6:
+            if upper - lower <= 2 * math.pi + 1e-6:
+                continue
+            if _looks_like_degrees(lower, upper):
+                j.update(lower=math.radians(lower), upper=math.radians(upper))
+                try:
+                    rest = float(j.get("rest", 0.0))
+                except (TypeError, ValueError):
+                    rest = None
+                if rest is not None and lower - 1e-9 <= rest <= upper + 1e-9:
+                    j["rest"] = math.radians(rest)
+                notes.append(f"joint {j.get('name')}: limits looked like degrees ({lower:g}..{upper:g}) → radians")
+                lower, upper = float(j["lower"]), float(j["upper"])
+            span = upper - lower
+            if span > 2 * math.pi + 1e-6:
                 j.update(type="continuous", lower=0.0, upper=0.0, rest=0.0)
                 notes.append(f"joint {j.get('name')}: revolute range {span:.2f} rad > 2π → continuous")
 

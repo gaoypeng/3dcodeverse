@@ -44,14 +44,61 @@ def test_a_joint_that_moves_a_sub_part_promotes_it_to_a_link():
     assert any("promoted sub-part" in n and "UpperSash" in n for n in p.normalisations)
 
 
-def test_a_revolute_joint_over_two_pi_becomes_continuous():
-    d = _raw()
+def _revolute(d: dict, lower: float, upper: float, rest: float = 0.0) -> dict:
     j = d["joints"][0]
-    j.update(type="revolute", lower=0.0, upper=4 * math.pi, rest=0.0)
+    j.update(type="revolute", lower=lower, upper=upper, rest=rest)
+    return j
+
+
+def _joint(p: ArticulatedPlan, j: dict):
+    return next(x for x in p.joints if x.name == j["name"])
+
+
+@pytest.mark.parametrize("lower,upper", [(0.0, 4 * math.pi), (-4 * math.pi, 4 * math.pi), (0.0, 6.5), (0.0, 10.0)])
+def test_a_revolute_joint_over_two_pi_in_radians_becomes_continuous(lower: float, upper: float):
+    """A radian range over 2π — including the ambiguous 2π..30 band (0..6.5, 0..10), which is read
+    as radians (contracts/plan.py DEGREES_MIN_SPAN) — is a free axle, never a degrees conversion."""
+    d = _raw()
+    j = _revolute(d, lower, upper)
     p = ArticulatedPlan.model_validate(d)
-    fixed = next(x for x in p.joints if x.name == j["name"])
+    fixed = _joint(p, j)
     assert fixed.type == "continuous" and fixed.lower == fixed.upper == 0.0
     assert any("> 2π → continuous" in n for n in p.normalisations)
+    assert not any("degrees" in n for n in p.normalisations)
+
+
+def test_a_door_planned_in_degrees_stays_a_quarter_turn_hinge():
+    """The review's case: `0..90` is degrees for radians; the old repair made it a free 360° axle
+    and the sweep drove the door through its cabinet.  It stays revolute, 0..1.5708 rad."""
+    d = _raw()
+    j = _revolute(d, 0.0, 90.0)
+    p = ArticulatedPlan.model_validate(d)
+    fixed = _joint(p, j)
+    assert fixed.type == "revolute"
+    assert fixed.lower == 0.0 and fixed.upper == pytest.approx(1.5708, abs=1e-4) and fixed.rest == 0.0
+    assert any("looked like degrees (0..90) → radians" in n for n in p.normalisations)
+    assert not any("continuous" in n for n in p.normalisations)
+
+
+@pytest.mark.parametrize("lower,upper,rest", [(-180.0, 0.0, 0.0), (0.0, 90.0, 90.0), (-45.0, 45.0, 0.0), (0.0, 30.0, 0.0)])
+def test_degree_shaped_limits_and_rest_are_converted_together(lower: float, upper: float, rest: float):
+    d = _raw()
+    j = _revolute(d, lower, upper, rest)
+    p = ArticulatedPlan.model_validate(d)
+    fixed = _joint(p, j)
+    assert fixed.type == "revolute"
+    assert fixed.lower == pytest.approx(math.radians(lower)) and fixed.upper == pytest.approx(math.radians(upper))
+    assert fixed.rest == pytest.approx(math.radians(rest))
+    assert sum("looked like degrees" in n for n in p.normalisations) == 1
+
+
+def test_a_two_turn_degree_range_falls_through_to_continuous():
+    d = _raw()
+    j = _revolute(d, -360.0, 360.0)
+    p = ArticulatedPlan.model_validate(d)
+    fixed = _joint(p, j)
+    assert fixed.type == "continuous"
+    assert any("looked like degrees" in n for n in p.normalisations) and any("> 2π → continuous" in n for n in p.normalisations)
 
 
 def test_a_sub_part_outside_its_parent_grows_the_parent_bbox():
