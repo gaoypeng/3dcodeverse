@@ -33,6 +33,8 @@ const CACHE_PATH = path.join(CACHE_DIR, 'gpu_probe.json');
 const NEGATIVE_TTL_MS = 20 * 60 * 1000; // how long a "no GPU" verdict is trusted
 const PROTOCOL_TIMEOUT_MS = 15 * 60 * 1000; // big frame batches exceed puppeteer's 180 s default
 const DAEMON_WAIT_MS = 25000;   // max wait for a spawned daemon to advertise its endpoint
+const CANARY_TIMEOUT_MS = 6000; // a healthy browser answers pages() in ~5 ms
+const MAX_SHARED_PAGES = 12;    // more open pages than any sane moment = leaked pages piling up   // max wait for a spawned daemon to advertise its endpoint
 const SPAWN_LOCK_STALE_MS = 30000;
 
 const BASE_ARGS = ['--no-sandbox', '--disable-setuid-sandbox', '--enable-webgl', '--ignore-gpu-blocklist'];
@@ -164,6 +166,26 @@ async function connectShared(puppeteer, backend) {
   if (!info || !info.ws) return null;
   try {
     const browser = await puppeteer.connect({ browserWSEndpoint: info.ws, protocolTimeout: PROTOCOL_TIMEOUT_MS });
+    // Health canary: a long-lived shared browser can wedge (hours of WSL GPU decay
+    // plus pages leaked by SIGKILLed clients) — then every CDP roundtrip stalls for
+    // ~100 s and every render pays it.  One bounded pages() catches both failure
+    // modes: unresponsive, or overgrown with leaked pages.  A bad verdict poisons
+    // the endpoint (the daemon sees it vanish, bails and closes the browser) and
+    // the caller spawns a fresh daemon (~1 s once, instead of minutes per render).
+    let pages = null;
+    try {
+      let timer = null;
+      pages = await Promise.race([
+        browser.pages(),
+        new Promise((_res, rej) => { timer = setTimeout(() => rej(new Error('canary timeout')), CANARY_TIMEOUT_MS); if (timer.unref) timer.unref(); }),
+      ]);
+      if (timer) clearTimeout(timer);
+    } catch (_e) { pages = null; }
+    if (!pages || pages.length > MAX_SHARED_PAGES) {
+      try { await browser.disconnect(); } catch (_e) { /* ignore */ }
+      try { fs.rmSync(endpointPath(backend), { force: true }); } catch (_e2) { /* ignore */ }
+      return null;
+    }
     heartbeat(backend);
     return {
       browser,

@@ -105,10 +105,11 @@ export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto
     );
     const close = async () => {
       // page first, then release: a SHARED browser (connect-first reuse) must get
-      // its pages closed by us and be disconnected, never closed.
-      try { await page.close(); } catch (e) { /* ignore */ }
-      try { await releaseBrowser(launched); } catch (e) { /* ignore */ }
-      await srv.close();
+      // its pages closed by us and be disconnected, never closed.  Each step is
+      // time-bounded: the result is already in hand when close() runs.
+      await bounded(page.close(), 3000);
+      await bounded(releaseBrowser(launched), 3000);
+      await bounded(srv.close(), 2000);
     };
     return { page, browser: launched.browser, base: srv.base, gpu: launched.gpu, renderer: launched.renderer, errors, boot, close };
   } catch (e) {
@@ -117,6 +118,17 @@ export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto
     await srv.close();
     throw e;
   }
+}
+
+/** Await `work`, but at most `ms` — cleanup must never dominate a driver's wall time
+ * (a wedged shared browser once cost 100 s per render in page.close alone; the daemon's
+ * page reaper picks up anything a bounded close leaves behind). */
+export function bounded(work, ms) {
+  let timer = null;
+  return Promise.race([
+    Promise.resolve(work).catch(() => {}),
+    new Promise((res) => { timer = setTimeout(res, ms); if (timer.unref) timer.unref(); }),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
 }
 
 /** Release a launchBrowser handle: release() when present (shared-aware), else close(). */

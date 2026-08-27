@@ -1212,14 +1212,22 @@ storm: `gemini-3.7-flash` answered on **15/22, 18/22 and 21/22 keys** while **5,
 keys returned 503 at the same instant (successful latencies 1.3–38 s; the slow ones were the
 same few keys).  So at any moment most keys work and the next key is the cure.
 
-`rotate_with_retries` now adds the 503'd key to the call's failed set and rotates to a fresh
-key for free (no sleep, no budget); only once `storm_quorum` (6, capped at the pool size)
-distinct keys have 503'd within one call is it a storm and the old wait budget applies.  What
-this buys per call is the whole storm wait it used to pay first (median 5 s × the storm
-streak, up to 900 s); what it costs is one more round-trip on a fresh key.  Follow-ups worth
-measuring: rank keys by recent latency (the 30 s keys are consistent), and record the key
-index in `telemetry/usage.jsonl` so the distribution of calls per key can be read instead of
-probed.
+`rotate_with_retries` adds the 503'd key to the call's failed set and rotates to a fresh key
+for free (no sleep, no budget, no `max_attempts`) — **exactly the 429 rule: while an untried
+key remains, rotation is free**.  It is a storm, and the bounded wait budget applies, only
+once **every** key in the pool has 503'd inside one logical call (a 22-key pool rotates 21
+times first).  What this buys per call is the whole storm wait it used to pay first (median
+5 s × the storm streak, up to 900 s); what it costs is one more round-trip on a fresh key.
+Follow-ups worth measuring: rank keys by recent latency (the 30 s keys are consistent), and
+record the key index in `telemetry/usage.jsonl` so the distribution of calls per key can be
+read instead of probed.
+
+**Amended 2026-08-27 (owner's rule):** the first cut of this gated the rotation behind a
+`storm_quorum` of 6 distinct 503'd keys — so a 22-key pool stopped rotating and started
+sleeping with 16 keys untried.  The probes above say only **1–7 of 22 keys** are 503 at any
+instant, and the 2026-08-26 logs carry **548 "capacity storm" lines with 0 429s**: the pool
+had spare quota the whole time and the waits were pure loss.  `storm_quorum` is gone; the
+guard is now `len(failed_keys) < len(pool)`.
 
 
 
@@ -1295,6 +1303,19 @@ remaining session / round budget (~1 430 s/run) — (2) hedge a 503 retry across
 — (4) plan cache on re-runs (548 s) — (5) no sleep on 503 (≤ 13 %; landed with §24) — (6) enforce
 the ceiling inside a round (837 s sooner on killed runs) — (7) flash as the loop judge (~60 s
 baseline) — (8) 30 s render cap (≤ 100 s).  (1)–(3) and the key/attempt ledger fields landed the same afternoon (§27's follow-up paragraphs).
+
+**Addendum 2026-08-27 — the render tail's root cause.**  The 30–100 s renders (and the 330 s
+timeouts) were never rendering: node's own `timing_ms` reported ~0.55 s for the same GLBs while the
+Python wall clock read 100+ s, and 8 concurrent renders finished in 1.0 s total.  The cost was a
+**wedged shared browser**: the daemon's Chrome degrades after hours alive (WSL GPU decay + WebGL
+pages leaked by SIGKILLed clients — every render timeout leaks one), and then *every* CDP roundtrip
+(`newPage`, `page.close`) stalls ~100 s while the heartbeat keeps it alive forever.  Fixed in
+`runtime_js/`: (1) `gpu_launch.cjs` connect canary — one bounded `pages()` (6 s) per connect; an
+unresponsive or overgrown (>12 pages) browser is poisoned and a fresh daemon spawned (~1 s once,
+measured: leak 14 pages → next render 3.5 s, then 0.7 s steady); (2) `browser_daemon.cjs` reaps
+pages older than `CV3D_PAGE_TTL_MS` (default 8 min > every harness ceiling); (3) cleanup steps in
+`render_glb.mjs` / `host_page.mjs` are time-bounded (≤3 s each) — the record is on disk before
+cleanup runs.  Step-level stderr breadcrumbs (`[render_glb] <step> +ms`) stay in for the next audit.
 
 ## 29. Fewer turns — first turn read out (`CV3D_FEWER_TURNS`, `turns_v1`, 2026-08-26)
 

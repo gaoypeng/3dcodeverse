@@ -19,7 +19,7 @@ import path from 'node:path';
 
 import { ensureDir, finish, parseCli, writeJson } from './lib/cli.mjs';
 import { launchBrowser, importMapHtml, runtimeMount, serveDirs } from './lib/host_env.mjs';
-import { releaseBrowser } from './lib/host_page.mjs';
+import { bounded, releaseBrowser } from './lib/host_page.mjs';
 
 const MODES = ['shaded', 'wire', 'normals', 'silhouette', 'clay'];
 
@@ -76,6 +76,7 @@ renderGlbViews(${JSON.stringify(config_)}).then(
 
 async function main() {
   const t0 = Date.now();
+  const step = (name) => process.stderr.write(`[render_glb] ${name} +${Date.now() - t0}ms\n`);
   const cfg = config();
   if (!fs.existsSync(cfg.glb)) throw new Error(`GLB not found: ${cfg.glb}`);
   ensureDir(cfg.out);
@@ -86,16 +87,20 @@ async function main() {
   let page = null;
   let record = null;
   try {
+    step('connect');
     launched = await launchBrowser({ gpu: cfg.gpu });
     const timing = { launch_ms: Date.now() - t0 };
 
+    step('newPage');
     page = await launched.browser.newPage();
     await page.setViewport({ width: cfg.width, height: cfg.height, deviceScaleFactor: 1 });
     page.on('console', (msg) => {
       if (msg.type() === 'error' || msg.type() === 'warning') consoleErrors.push(`${msg.type()}: ${msg.text()}`);
     });
     page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`));
+    step('goto');
     await page.goto(srv.url('/__render.html'), { waitUntil: 'load', timeout: cfg.timeoutMs });
+    step('waitResult');
     await page.waitForFunction('window.__c3v_result !== null', { timeout: cfg.timeoutMs, polling: 100 });
     const result = await page.evaluate(() => window.__c3v_result);
     if (!result || !result.ok) {
@@ -125,9 +130,13 @@ async function main() {
     writeJson(path.join(cfg.out, 'views.json'), record);
   } finally {
     // page first, then release: a shared browser is disconnected, never closed
-    if (page) await page.close().catch(() => {});
-    await releaseBrowser(launched).catch(() => {});
-    await srv.close();
+    step('cleanup');
+    if (page) await bounded(page.close(), 3000);
+    step('page.closed');
+    await bounded(releaseBrowser(launched), 3000);
+    step('released');
+    await bounded(srv.close(), 2000);
+    step('srv.closed');
   }
   return finish(record, 0);
 }

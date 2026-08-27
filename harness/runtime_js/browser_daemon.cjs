@@ -19,6 +19,10 @@ const { _internal } = require('./gpu_launch.cjs');
 const IDLE_REAP_MS = 90 * 1000;
 const HARD_REAP_MS = 10 * 60 * 1000;
 const POLL_MS = 15 * 1000;
+// A page older than this belongs to nobody: every harness render/probe finishes or
+// times out well under it (ceilings <= 330 s), and a SIGKILLed client never closes
+// its page.  Leaked pages hold WebGL contexts that eventually wedge the browser.
+const PAGE_TTL_MS = Number(process.env.CV3D_PAGE_TTL_MS || 8 * 60 * 1000);
 
 function arg(name, dflt) {
   const i = process.argv.indexOf(`--${name}`);
@@ -71,6 +75,7 @@ async function main() {
     process.exit(0);
   });
 
+  const firstSeen = new Map();   // Page -> first-seen ms (puppeteer caches Page objects per target)
   setInterval(async () => {
     let st = null;
     try {
@@ -80,6 +85,16 @@ async function main() {
     }
     const cur = (() => { try { return JSON.parse(fs.readFileSync(epPath, 'utf8')); } catch (_e) { return null; } })();
     if (!cur || cur.ws !== record.ws) return bail(0);   // superseded by another daemon
+    try {   // reap pages leaked by killed clients (never the initial about:blank)
+      const open = await browser.pages();
+      const now = Date.now();
+      const live = new Set(open);
+      for (const p of open.slice(1)) if (!firstSeen.has(p)) firstSeen.set(p, now);
+      for (const [p, at] of firstSeen) {
+        if (!live.has(p)) firstSeen.delete(p);
+        else if (now - at > PAGE_TTL_MS) { firstSeen.delete(p); await p.close().catch(() => {}); }
+      }
+    } catch (_e) { /* browser mid-shutdown; the checks below handle it */ }
     const idle = Date.now() - st.mtimeMs;
     if (idle < IDLE_REAP_MS) return;
     let pages = 2;
