@@ -32,6 +32,21 @@ from codeverse.flywheel.pack import PackError, pack_samples, verify_locators
 CHAIR_ID = "3dcodeverse/static_object/blender/wooden_chair_ab12cd34"
 
 
+@pytest.fixture
+def exported_ds(runs_dir: Path, tmp_path: Path) -> Path:
+    """A freshly exported dataset: 3 samples + a hashed manifest, not packed yet."""
+    out = tmp_path / "ds"
+    export_samples(runs_dir, out)
+    return out
+
+
+@pytest.fixture
+def packed_ds(exported_ds: Path) -> Path:
+    """...and packed once — the previous GOOD dataset every failure window must leave intact."""
+    pack_samples(exported_ds)
+    return exported_ds
+
+
 def _tar_member_names(out: Path) -> list[str]:
     names: list[str] = []
     for tp in sorted(out.glob("samples-*.tar")):
@@ -105,82 +120,64 @@ def _packed_state(out: Path) -> dict[str, bytes]:
             for p in [*out.glob("samples-*.tar"), out / "metadata.jsonl", out / "metadata.parquet"]}
 
 
-def test_a_failure_inside_the_pack_loop_leaves_the_old_tar_and_index_intact(runs_dir: Path, tmp_path: Path):
-    out = tmp_path / "ds"
-    export_samples(runs_dir, out)
-    pack_samples(out)
-    before = _packed_state(out)
+def test_a_failure_inside_the_pack_loop_leaves_the_old_tar_and_index_intact(packed_ds: Path):
+    before = _packed_state(packed_ds)
     # corrupt the recorded hash of a file in the LAST entry: the mismatch fires
     # mid-pack, after earlier samples were already added to the new tmp archive
-    m = load_manifest(out)
+    m = load_manifest(packed_ds)
     victim = m.entries[-1]
     rel = sorted(victim.files)[0]
     victim.files[rel] = "0" * 64
-    write_manifest(m, out)
+    write_manifest(m, packed_ds)
     with pytest.raises(PackError, match=re.escape(rel)):
-        pack_samples(out)
-    assert _packed_state(out) == before  # old archives AND index untouched
-    assert not list(out.glob("*.tmp"))  # the half-written tmp tar is cleaned up
-    assert verify_locators(out) == 3  # the previous pack still round-trips
+        pack_samples(packed_ds)
+    assert _packed_state(packed_ds) == before  # old archives AND index untouched
+    assert not list(packed_ds.glob("*.tmp"))  # the half-written tmp tar is cleaned up
+    assert verify_locators(packed_ds) == 3  # the previous pack still round-trips
 
 
-def test_a_failure_after_the_pack_loop_publishes_nothing(runs_dir: Path, tmp_path: Path, monkeypatch):
+def test_a_failure_after_the_pack_loop_publishes_nothing(packed_ds: Path, monkeypatch):
     """The window the tar loop does NOT cover: every tar is written, then the index
     write fails.  Publishing the tars alone left the OLD index resolving to the new
     tars' byte offsets — six rows pointing at the wrong bytes, and verify_locators
     happily passing a corrupt dataset."""
     import codeverse.flywheel.pack as P
 
-    out = tmp_path / "ds"
-    export_samples(runs_dir, out)
-    pack_samples(out)
-    before = _packed_state(out)
+    before = _packed_state(packed_ds)
     monkeypatch.setattr(P, "write_parquet", lambda *a, **k: (_ for _ in ()).throw(OSError("No space left on device")))
     with pytest.raises(OSError, match="No space left"):
-        pack_samples(out)
-    assert _packed_state(out) == before
-    assert not list(out.glob("*.tmp"))
-    assert verify_locators(out) == 3
+        pack_samples(packed_ds)
+    assert _packed_state(packed_ds) == before
+    assert not list(packed_ds.glob("*.tmp"))
+    assert verify_locators(packed_ds) == 3
 
 
-def test_a_repack_with_fewer_shards_leaves_no_orphan_tar(runs_dir: Path, tmp_path: Path):
-    out = tmp_path / "ds"
-    export_samples(runs_dir, out)
-    assert pack_samples(out, max_tar_bytes=1).tars == ["samples-000.tar", "samples-001.tar", "samples-002.tar"]
-    prep = pack_samples(out)  # one shard now: 001/002 are dead bytes the index never names
-    assert prep.tars == ["samples-000.tar"]
-    assert sorted(p.name for p in out.glob("samples-*.tar")) == ["samples-000.tar"]
-    assert verify_locators(out) == 3
+def test_repacking_over_an_existing_archive_succeeds_and_leaves_no_orphan_tar(packed_ds: Path):
+    """Re-packing used to truncate the previous archive at open; and a repack into FEWER
+    shards left 001/002 on disk as dead bytes the new index never names."""
+    assert pack_samples(packed_ds, max_tar_bytes=1).tars == ["samples-000.tar", "samples-001.tar", "samples-002.tar"]
+    prep = pack_samples(packed_ds)
+    assert prep.tars == ["samples-000.tar"] and prep.n_samples == 3
+    assert sorted(p.name for p in packed_ds.glob("samples-*.tar")) == ["samples-000.tar"]
+    assert verify_locators(packed_ds) == 3
+    assert not list(packed_ds.glob("*.tmp"))
 
 
-def test_a_tampered_sample_file_fails_fast_and_names_it(runs_dir: Path, tmp_path: Path):
-    out = tmp_path / "ds"
-    export_samples(runs_dir, out)
-    (out / "static_object" / "blender" / "wooden_chair_ab12cd34" / "code.py").write_text("tampered")
+def test_a_tampered_sample_file_fails_fast_and_names_it(exported_ds: Path):
+    (exported_ds / "static_object" / "blender" / "wooden_chair_ab12cd34" / "code.py").write_text("tampered")
     with pytest.raises(PackError, match="code.py"):
-        pack_samples(out)
-    assert not list(out.glob("samples-*.tar")) and not list(out.glob("*.tmp"))
-
-
-def test_repack_over_an_existing_archive_succeeds_atomically(runs_dir: Path, tmp_path: Path):
-    out = tmp_path / "ds"
-    export_samples(runs_dir, out)
-    assert pack_samples(out).n_samples == 3
-    prep2 = pack_samples(out)  # re-pack over the existing archive (used to truncate it at open)
-    assert prep2.n_samples == 3 and verify_locators(out) == 3
-    assert not list(out.glob("*.tmp"))
+        pack_samples(exported_ds)
+    assert not list(exported_ds.glob("samples-*.tar")) and not list(exported_ds.glob("*.tmp"))
 
 
 # --------------------------------------------------------------------------- phantom rows
-def test_planted_src_meta_json_is_not_a_row_and_not_packed(runs_dir: Path, tmp_path: Path):
-    out = tmp_path / "ds"
-    export_samples(runs_dir, out)
-    sdir = out / "static_object" / "blender" / "wooden_chair_ab12cd34"
+def test_planted_src_meta_json_is_not_a_row_and_not_packed(exported_ds: Path):
+    sdir = exported_ds / "static_object" / "blender" / "wooden_chair_ab12cd34"
     (sdir / "src" / "meta.json").write_text(json.dumps({"id": "phantom", "key": "phantom"}))
-    rows = collect_rows(out)  # the recovery/debug rescan is exactly 3 levels deep
+    rows = collect_rows(exported_ds)  # the recovery/debug rescan is exactly 3 levels deep
     assert len(rows) == 3 and all(r["id"] != "phantom" for r in rows)
-    pack_samples(out)  # and pack never looks at the directory tree at all
-    assert verify_locators(out) == 3
-    assert "wooden_chair_ab12cd34/src/meta.json" not in _tar_member_names(out)
-    keys = {json.loads(ln)["key"] for ln in (out / "metadata.jsonl").read_text().splitlines()}
+    pack_samples(exported_ds)  # and pack never looks at the directory tree at all
+    assert verify_locators(exported_ds) == 3
+    assert "wooden_chair_ab12cd34/src/meta.json" not in _tar_member_names(exported_ds)
+    keys = {json.loads(ln)["key"] for ln in (exported_ds / "metadata.jsonl").read_text().splitlines()}
     assert keys == {"wooden_chair_ab12cd34", "wooden_chair_codex", "lamp_three"}

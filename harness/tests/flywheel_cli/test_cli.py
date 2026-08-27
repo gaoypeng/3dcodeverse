@@ -16,6 +16,37 @@ from codeverse.contracts.spec import Spec
 runner = CliRunner()
 
 
+@pytest.fixture
+def made_run(tmp_path: Path):
+    """`3dcv make --no-run` into a fresh runs dir → ``(runs_dir, run_dir)``."""
+    def make(*extra: str) -> tuple[Path, Path]:
+        runs = tmp_path / "runs"
+        r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", *extra])
+        assert r.exit_code == 0, r.output
+        return runs, next(d for d in runs.iterdir() if d.is_dir())
+
+    return make
+
+
+@pytest.fixture
+def stub_track(monkeypatch):
+    """Replace ``tracks.get_track`` with a stub whose ``run`` calls ``on_run(spec, resume,
+    force)`` and then raises ``exc`` — KeyboardInterrupt by default, which the CLI turns
+    into exit code 130, so the resume path is exercised without any real work."""
+    import codeverse.tracks as tracks_pkg
+
+    def install(on_run=None, exc: BaseException | None = None):
+        class _T:
+            def run(self, spec, ws_, *, resume=False, force=False):
+                if on_run is not None:
+                    on_run(spec, resume, force)
+                raise exc if exc is not None else KeyboardInterrupt
+
+        monkeypatch.setattr(tracks_pkg, "get_track", lambda track, **options: _T())
+
+    return install
+
+
 def test_help_and_version():
     r = runner.invoke(app, ["--help"])
     assert r.exit_code == 0 and "flywheel" in r.output and "doctor" in r.output
@@ -235,25 +266,10 @@ def test_make_invalid_combo_leaves_no_orphan_workspace(tmp_path: Path):
     assert not (runs / "bad").exists(), "invalid spec must not leave an orphan run dir"
 
 
-def test_resume_budget_flags_rewrite_spec_and_emit_event(tmp_path: Path, monkeypatch):
-    runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--max-usd", "1.0", "--rounds", "1"])
-    assert r.exit_code == 0, r.output
-    ws = next(d for d in runs.iterdir() if d.is_dir())
-
+def test_resume_budget_flags_rewrite_spec_and_emit_event(made_run, stub_track):
+    runs, ws = made_run("--max-usd", "1.0", "--rounds", "1")
     seen = {}
-
-    def fake_get_track(track, **options):
-        class _T:
-            def run(self, spec, ws_, *, resume=False, force=False):
-                seen["spec"] = spec
-                raise KeyboardInterrupt  # stop before any real work
-
-        return _T()
-
-    import codeverse.tracks as tracks_pkg
-
-    monkeypatch.setattr(tracks_pkg, "get_track", fake_get_track)
+    stub_track(lambda spec, resume, force: seen.__setitem__("spec", spec))
     r2 = runner.invoke(app, ["resume", ws.name, "--runs-dir", str(runs), "--max-usd", "4.5", "--rounds", "3"])
     assert r2.exit_code == 130
     spec = Spec.model_validate_json((ws / "spec.json").read_text())
@@ -264,7 +280,7 @@ def test_resume_budget_flags_rewrite_spec_and_emit_event(tmp_path: Path, monkeyp
     assert raised and raised[0]["max_usd"] == 4.5 and raised[0]["max_rounds"] == 3
 
 
-def test_resume_refuses_a_finished_run_and_never_re_enters_it(tmp_path: Path, monkeypatch):
+def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_track):
     """SMOKE1: `3dcv resume` called _run_track unconditionally, with no look at
     run_state.  On a run that had ended stop_reason='pass' it re-entered the pipeline,
     re-ran the plan stage as a real billed model call and rewrote status from 'passed'
@@ -274,25 +290,12 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(tmp_path: Path, mo
     from codeverse.orchestrator.state import RunState
     from codeverse.workspace import Workspace
 
-    runs = tmp_path / "runs"
-    assert runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run"]).exit_code == 0
-    ws = Workspace(next(d for d in runs.iterdir() if d.is_dir()))
-    state = RunState(status=RunStatus.PASSED, stop_reason="pass", best_score=0.7436)
-    state.save(ws)
+    runs, run_dir = made_run()
+    ws = Workspace(run_dir)
+    RunState(status=RunStatus.PASSED, stop_reason="pass", best_score=0.7436).save(ws)
 
     entered = []
-
-    def fake_get_track(track, **options):
-        class _T:
-            def run(self, spec, ws_, *, resume=False, force=False):
-                entered.append(resume)
-                raise KeyboardInterrupt
-
-        return _T()
-
-    import codeverse.tracks as tracks_pkg
-
-    monkeypatch.setattr(tracks_pkg, "get_track", fake_get_track)
+    stub_track(lambda spec, resume, force: entered.append(resume))
     r = runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)])
     assert r.exit_code == 1 and "already finished" in r.output
     assert entered == [], "the pipeline must not be re-entered"
@@ -311,51 +314,26 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(tmp_path: Path, mo
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)]).exit_code == 130
 
 
-def test_resume_threads_force_through_to_the_track(tmp_path: Path, monkeypatch):
+def test_resume_threads_force_through_to_the_track(made_run, stub_track):
     """reconcile_resume (tracks/lifecycle.py) needs the CLI's --force to decide between
     refusing a spec edit (SpecChanged) and archiving the old rounds under
     rounds/pre_force/ — so `3dcv resume --force` must reach BaseTrack.run(force=...)."""
-    runs = tmp_path / "runs"
-    assert runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run"]).exit_code == 0
-    ws = next(d for d in runs.iterdir() if d.is_dir())
+    runs, ws = made_run()
     seen = {}
-
-    def fake_get_track(track, **options):
-        class _T:
-            def run(self, spec, ws_, *, resume=False, force=False):
-                seen["resume"], seen["force"] = resume, force
-                raise KeyboardInterrupt
-
-        return _T()
-
-    import codeverse.tracks as tracks_pkg
-
-    monkeypatch.setattr(tracks_pkg, "get_track", fake_get_track)
+    stub_track(lambda spec, resume, force: seen.update(resume=resume, force=force))
     assert runner.invoke(app, ["resume", ws.name, "--runs-dir", str(runs)]).exit_code == 130
     assert seen == {"resume": True, "force": False}
     assert runner.invoke(app, ["resume", ws.name, "--runs-dir", str(runs), "--force"]).exit_code == 130
     assert seen == {"resume": True, "force": True}
 
 
-def test_a_spec_change_refusal_is_a_clean_cli_error(tmp_path: Path, monkeypatch):
+def test_a_spec_change_refusal_is_a_clean_cli_error(made_run, stub_track):
     """SpecChanged is a refusal with instructions (fork, or --force to archive), not a
     crash: no traceback, and the CLI's typed configuration-error exit code."""
     from codeverse.tracks.lifecycle import SpecChanged
 
-    runs = tmp_path / "runs"
-    assert runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run"]).exit_code == 0
-    ws = next(d for d in runs.iterdir() if d.is_dir())
-
-    def fake_get_track(track, **options):
-        class _T:
-            def run(self, spec, ws_, *, resume=False, force=False):
-                raise SpecChanged("spec.json changed under this run; fork a new run or resume with --force")
-
-        return _T()
-
-    import codeverse.tracks as tracks_pkg
-
-    monkeypatch.setattr(tracks_pkg, "get_track", fake_get_track)
+    runs, ws = made_run()
+    stub_track(exc=SpecChanged("spec.json changed under this run; fork a new run or resume with --force"))
     r = runner.invoke(app, ["resume", ws.name, "--runs-dir", str(runs)])
     out = r.output + str(getattr(r, "stderr", "") or "")
     assert r.exit_code == 2 and "--force" in out

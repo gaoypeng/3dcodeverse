@@ -1,9 +1,12 @@
-"""run_with_watchdog: streaming, idle kill, hard kill, process-group kill, stdin."""
+"""run_with_watchdog's CLOCKS: idle kill, activity extension, hard timeout.
+
+The process lifecycle underneath (pipes, stdin writer thread, group kill,
+KeyboardInterrupt cleanup, drain/reap) is ``proc.ManagedProcess`` and is owned by
+tests/core/test_proc.py; this module keeps one integration smoke plus the clocks.
+"""
 
 from __future__ import annotations
 
-import os
-import signal
 import sys
 import time
 from pathlib import Path
@@ -11,35 +14,45 @@ from pathlib import Path
 import pytest
 
 from codeverse.agents.watchdog import run_with_watchdog
+from tests.conftest import assert_pid_gone
 
 PY = sys.executable
 
+#: spawns a grandchild (pid to argv[1]), prints nothing, then hangs — the shape that
+#: proves a timeout kill takes the whole session, not just the leader.
+_SPAWN_THEN_HANG = (
+    "import subprocess, sys, time\n"
+    "p = subprocess.Popen(['sleep', '300'])\n"
+    "open(sys.argv[1], 'w').write(str(p.pid))\n"
+    "time.sleep(300)\n"
+)
 
-def test_normal_run_streams_lines(tmp_path: Path):
+
+def test_normal_run_streams_lines_and_delivers_stdin(tmp_path: Path):
+    """The integration smoke: stdin reaches the child, every line reaches ``on_line``
+    and the bounded texts, and stdout/stderr stay separate."""
     seen = []
     res = run_with_watchdog(
-        [PY, "-c", "import sys; print('a'); print('b', file=sys.stderr); print('c')"],
-        cwd=tmp_path, env=os.environ, soft_timeout_s=10, idle_grace_s=5, hard_timeout_s=20,
-        on_line=lambda stream, text: seen.append((stream, text)),
+        [PY, "-c", "import sys; print(sys.stdin.read().upper()); print('b', file=sys.stderr); print('c')"],
+        cwd=tmp_path, env=None, soft_timeout_s=10, idle_grace_s=5, hard_timeout_s=20,
+        stdin="hello", on_line=lambda stream, text: seen.append((stream, text)),
     )
     assert res.rc == 0 and not res.timed_out
-    assert res.stdout.splitlines() == ["a", "c"]
+    assert res.stdout.splitlines() == ["HELLO", "c"]
     assert res.stderr.strip() == "b"
-    assert ("stdout", "a") in seen and ("stderr", "b") in seen
+    assert ("stdout", "HELLO") in seen and ("stderr", "b") in seen
 
 
-def test_stdin_is_delivered(tmp_path: Path):
-    res = run_with_watchdog([PY, "-c", "import sys; print(sys.stdin.read().upper())"], cwd=tmp_path, env=None,
-                            soft_timeout_s=10, idle_grace_s=5, stdin="hello")
-    assert res.stdout.strip() == "HELLO"
-
-
-def test_idle_kill_after_soft_timeout(tmp_path: Path):
+def test_idle_kill_after_soft_timeout_takes_the_whole_group(tmp_path: Path):
+    """Silent past soft+grace → ``killed_reason="idle"``, and the grandchild dies with
+    it (``start_new_session`` means only a group kill can reach it)."""
+    marker = tmp_path / "child.pid"
     t0 = time.time()
-    res = run_with_watchdog([PY, "-c", "import time; time.sleep(60)"], cwd=tmp_path, env=None,
+    res = run_with_watchdog([PY, "-c", _SPAWN_THEN_HANG, str(marker)], cwd=tmp_path, env=None,
                             soft_timeout_s=1, idle_grace_s=1, hard_timeout_s=30, poll_s=0.2)
     assert res.timed_out and res.killed_reason == "idle"
     assert time.time() - t0 < 15
+    assert_pid_gone(int(marker.read_text()))
 
 
 def test_activity_extends_past_soft_timeout(tmp_path: Path):
@@ -59,30 +72,6 @@ def test_hard_timeout_kills_active_process(tmp_path: Path):
     assert time.time() - t0 < 15
 
 
-def test_process_group_is_killed(tmp_path: Path):
-    """A grandchild (sleep) must die with the parent on timeout."""
-    marker = tmp_path / "child.pid"
-    code = (
-        "import subprocess, time, sys\n"
-        f"p = subprocess.Popen(['sleep', '300']); open({str(marker)!r}, 'w').write(str(p.pid)); sys.stdout.flush()\n"
-        "time.sleep(300)"
-    )
-    res = run_with_watchdog([PY, "-c", code], cwd=tmp_path, env=None, soft_timeout_s=1, idle_grace_s=1,
-                            hard_timeout_s=30, poll_s=0.2)
-    assert res.timed_out
-    pid = int(marker.read_text())
-    time.sleep(0.5)
-    alive = True
-    try:
-        os.kill(pid, 0)
-        # zombie check: /proc/<pid>/status State
-        st = Path(f"/proc/{pid}/status").read_text() if Path(f"/proc/{pid}/status").exists() else "State:\tZ"
-        alive = "State:\tZ" not in st
-    except ProcessLookupError:
-        alive = False
-    assert not alive
-
-
 def test_file_mtime_counts_as_activity(tmp_path: Path):
     src = tmp_path / "src"
     src.mkdir()
@@ -97,49 +86,11 @@ def test_file_mtime_counts_as_activity(tmp_path: Path):
     assert res.rc == 0 and not res.timed_out
 
 
-def _raise_ki(signum: int, frame: object) -> None:
-    raise KeyboardInterrupt
-
-
-@pytest.mark.timeout(60, method="thread")  # thread method: the test drives SIGALRM itself
-def test_keyboard_interrupt_kills_the_group(tmp_path: Path):
-    """A KI in the poll loop used to leak the whole start_new_session tree (no
-    try/finally anywhere) — and Ctrl-C's SIGINT never reaches that tree on its own.
-    The group must die and the KI must still propagate."""
-    pid_file = tmp_path / "pid"
-    code = (
-        "import os, pathlib, sys, time\n"
-        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n"
-        "time.sleep(300)\n"
-    )
-    old = signal.signal(signal.SIGALRM, _raise_ki)
-    try:
-        signal.setitimer(signal.ITIMER_REAL, 0.8)  # lands in time.sleep(poll_s)
-        with pytest.raises(KeyboardInterrupt):
-            run_with_watchdog([PY, "-c", code, str(pid_file)], cwd=tmp_path, env=None,
-                              soft_timeout_s=120, idle_grace_s=120, hard_timeout_s=300, poll_s=0.1)
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0.0)
-        signal.signal(signal.SIGALRM, old)
-    pgid = int(pid_file.read_text())
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        try:
-            os.killpg(pgid, 0)
-        except ProcessLookupError:
-            return  # gone and reaped
-        time.sleep(0.05)
-    raise AssertionError(f"process group {pgid} survived the KeyboardInterrupt")
-
-
 @pytest.mark.timeout(60, method="thread")
 def test_child_that_never_reads_a_big_stdin_still_times_out(tmp_path: Path):
-    """The prompt used to be written SYNCHRONOUSLY in the main thread before the
-    poll loop started: a child that doesn't read >64 KiB of stdin blocked
-    proc.stdin.write() forever and BOTH timeouts were dead.  Reachable for real:
-    codex delivers prompts via stdin exactly when they exceed STDIN_PROMPT_BYTES
-    (100 kB).  1 MB of stdin into a child that never reads it must still die on
-    the clocks."""
+    """The prompt used to be written synchronously before the poll loop: a child that
+    never reads >64 KiB of stdin blocked ``stdin.write`` forever and BOTH clocks were
+    dead (codex pipes prompts over 100 kB this way).  1 MB in, must still die."""
     t0 = time.monotonic()
     res = run_with_watchdog([PY, "-c", "import time; time.sleep(300)"], cwd=tmp_path, env=None,
                             soft_timeout_s=0.5, idle_grace_s=0.5, hard_timeout_s=8, poll_s=0.2,

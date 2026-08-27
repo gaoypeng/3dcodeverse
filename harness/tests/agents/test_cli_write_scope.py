@@ -14,9 +14,6 @@ from __future__ import annotations
 import threading
 import time
 
-import pytest
-
-from codeverse.agents.api_tools import FileTools, PathDenied
 from codeverse.agents.cli_common import EXCLUSIVE_KINDS, begin_session, finish_session
 from codeverse.contracts.agent import AgentJob
 from codeverse.contracts.common import Usage
@@ -80,16 +77,8 @@ def test_same_thread_can_begin_again_without_finishing(tmp_ws: Workspace):
 
 
 # --------------------------------------------------------------------------- post-hoc scope
-def _scoped_ws(tmp_ws: Workspace) -> Workspace:
-    (tmp_ws.src / "parts").mkdir(parents=True, exist_ok=True)
-    (tmp_ws.src / "model.py").write_text("# entry\n")
-    (tmp_ws.src / "parts" / "seat.py").write_text("# seat\n")
-    (tmp_ws.src / "parts" / "leg.py").write_text("# leg\n")
-    return tmp_ws
-
-
-def test_out_of_scope_cli_write_is_restored_and_fails_the_session(tmp_ws: Workspace):
-    ws = _scoped_ws(tmp_ws)
+def test_out_of_scope_cli_write_is_restored_and_fails_the_session(scoped_ws: Workspace):
+    ws = scoped_ws
     job = _job(ws, "detail_seat", edit_only=True, files_hint=["src/parts/seat.py"])
     s = begin_session(job, "codex")
     (ws.src / "parts" / "seat.py").write_text("# new seat\n")     # hinted: kept
@@ -104,12 +93,12 @@ def test_out_of_scope_cli_write_is_restored_and_fails_the_session(tmp_ws: Worksp
     assert sorted(f.path for f in res.files_changed) == ["src/parts/bolt.py", "src/parts/seat.py"]
 
 
-def test_write_roots_are_enforced_without_edit_only(tmp_ws: Workspace):
+def test_write_roots_are_enforced_without_edit_only(scoped_ws: Workspace):
     """``write_roots`` was enforced for the api-agent (api_tools) and single-shot but NOT
     for CLI agents: ``_enforce_scope`` returned early unless edit_only+files_hint, so a
     plain codex session wrote and COMMITTED root-level evil.py / conftest.py and
     ``attribute_changes`` then hid them from files_changed (audit 2026-08-27)."""
-    ws = _scoped_ws(tmp_ws)
+    ws = scoped_ws
     (ws.root / "notes.md").write_text("original\n")
     s = begin_session(_job(ws, "baseline"), "codex")  # edit_only=False, write_roots=["src", "public"]
     (ws.src / "parts" / "leg.py").write_text("# in scope\n")
@@ -126,8 +115,8 @@ def test_write_roots_are_enforced_without_edit_only(tmp_ws: Workspace):
     assert [f.path for f in res.files_changed] == ["src/parts/leg.py"]
 
 
-def test_entry_file_writes_need_ownership(tmp_ws: Workspace):
-    ws = _scoped_ws(tmp_ws)
+def test_entry_file_writes_need_ownership(scoped_ws: Workspace):
+    ws = scoped_ws
     job = _job(ws, "part", edit_only=True, files_hint=["src/parts/seat.py"])
     s = begin_session(job, "gemini-cli")
     (ws.src / "model.py").write_text("# hijacked entry\n")
@@ -142,25 +131,9 @@ def test_entry_file_writes_need_ownership(tmp_ws: Workspace):
     assert res2.ok and (ws.src / "model.py").read_text() == "# entry + import\n"
 
 
-def test_unscoped_cli_sessions_keep_the_old_behaviour(tmp_ws: Workspace):
-    ws = _scoped_ws(tmp_ws)
+def test_unscoped_cli_sessions_keep_the_old_behaviour(scoped_ws: Workspace):
+    ws = scoped_ws
     s = begin_session(_job(ws, "baseline"), "codex")  # edit_only=False
     (ws.src / "parts" / "leg.py").write_text("# fine\n")
     res = _finish(s)
     assert res.ok and (ws.src / "parts" / "leg.py").read_text() == "# fine\n"
-
-
-# --------------------------------------------------------------------------- FileTools mirror
-def test_filetools_denies_the_entry_without_ownership(tmp_path):
-    """The api-agent side of entry ownership: no ``always_writable`` (owns_entry=False)
-    means the entry file is just another out-of-scope existing file."""
-    ws = Workspace(tmp_path / "run").create()
-    (ws.root / "src" / "parts").mkdir(parents=True, exist_ok=True)
-    (ws.root / "src" / "model.py").write_text("# entry\n")
-    (ws.root / "src" / "parts" / "seat.py").write_text("# seat\n")
-    denied = FileTools(ws, ["src", "public"], edit_only=["src/parts/seat.py"])
-    with pytest.raises(PathDenied):
-        denied.write_file("src/model.py", "# hijack\n")
-    owner = FileTools(ws, ["src", "public"], edit_only=["src/parts/seat.py"],
-                      always_writable=["src/model.py"])
-    assert not owner.write_file("src/model.py", "# entry + import\n").is_error

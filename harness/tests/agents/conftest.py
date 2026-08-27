@@ -30,6 +30,17 @@ def fake_bin(tmp_path: Path):
     return make
 
 
+@pytest.fixture
+def scoped_ws(tmp_ws):
+    """A workspace with an entry file and two part files — the tree every write-scope
+    test (CLI post-hoc restore and in-process FileTools alike) needs."""
+    (tmp_ws.src / "parts").mkdir(parents=True, exist_ok=True)
+    (tmp_ws.src / "model.py").write_text("# entry\n")
+    (tmp_ws.src / "parts" / "seat.py").write_text("# seat\n")
+    (tmp_ws.src / "parts" / "leg.py").write_text("# leg\n")
+    return tmp_ws
+
+
 @pytest.fixture(autouse=True)
 def _clean_agent_env(monkeypatch):
     """Make sure host secrets in the test process do not leak assumptions into tests."""

@@ -276,11 +276,17 @@ def _planner(payload):
     return FakeChatModel(lambda req: payload)
 
 
-def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path, settings):
+def _threejs_scene_plan() -> ScenePlan:
+    """The scene example narrowed to its three.js assets — the only kind these fakes build."""
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     plan.assets = [a for a in plan.assets if a.kind == "threejs"]
     for z in plan.zones:
         z.contents = [c for c in z.contents if c in {a.name for a in plan.assets}]
+    return plan
+
+
+def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path, settings):
+    plan = _threejs_scene_plan()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=1, max_usd=5.0)
     ws = Workspace(tmp_path / "runs" / "greenhouse")
     services = FakeServices(assemble=True)
@@ -311,10 +317,7 @@ def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path,
 
 
 def test_soft_budget_notes_land_in_the_round_record(tmp_path, settings):
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
-    for z in plan.zones:
-        z.contents = [c for c in z.contents if c in {a.name for a in plan.assets}]
+    plan = _threejs_scene_plan()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0, max_usd=5.0)
     ws = Workspace(tmp_path / "runs" / "degraded")
     services = FakeServices(assemble=True)
@@ -429,10 +432,7 @@ def test_a_scene_round_judged_at_the_ceiling_is_still_promoted(tmp_path, setting
     """The batch-2 promotion order must hold for scenes too: the verdict is paid for,
     recorded and promoted BEFORE the loop notices the budget is gone — and the salvage
     must not then run a second round 0 on top of it."""
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
-    for z in plan.zones:
-        z.contents = [c for c in z.contents if c in {a.name for a in plan.assets}]
+    plan = _threejs_scene_plan()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=2, max_usd=0.10)
     ws = Workspace(tmp_path / "runs" / "ceiling")
     judge = FakeJudge(scores=(0.61,), cost=0.5)  # the single verdict blows max_usd

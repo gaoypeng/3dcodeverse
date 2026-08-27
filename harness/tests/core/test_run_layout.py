@@ -82,6 +82,44 @@ def test_record_blocks_are_additive(tmp_path: Path):
 
 
 # --------------------------------------------------------------------------- relocation
+def _moved_run(tmp_path: Path):
+    """A run written at A/run1 with one contact sheet, then MOVED to B/run1 — the SMOKE2
+    shape.  Returns ``(old root, new root, the stored sheet path, a record naming it)``."""
+    import shutil
+
+    from codeverse.contracts.artifacts import RenderSet
+    from codeverse.contracts.common import Backends, Language, Track
+    from codeverse.contracts.run import RoundRecord, RunStatus
+
+    a = tmp_path / "A" / "run1"
+    (a / "artifacts" / "renders" / "r01").mkdir(parents=True)
+    sheet_a = a / "artifacts" / "renders" / "r01" / "sheet.png"
+    sheet_a.write_bytes(b"PNG")
+    spec = Spec(id="run1", track=Track.STATIC_OBJECT, language=Language.BLENDER,
+                prompt="a wooden chair", backends=Backends(generator="api-agent:gemini:x"))
+    rec = RunRecord(spec=spec, workspace=str(a), status=RunStatus.PASSED, best_round=0,
+                    rounds=[RoundRecord(index=0, kind="generate",
+                                        renders=RenderSet(views=[], contact_sheet=str(sheet_a)))])
+    b = tmp_path / "B" / "run1"
+    b.parent.mkdir(parents=True)
+    shutil.move(str(a), str(b))
+    return a, b, sheet_a, rec
+
+
+def _captured(render) -> str:
+    """rich's Console holds its own stream, so capsys never sees it; widen it too so the
+    panel cannot wrap the path under assertion."""
+    from codeverse.cli._fmt import console
+
+    old_width, console.width = console.width, 400
+    try:
+        with console.capture() as cap:
+            render()
+    finally:
+        console.width = old_width
+    return cap.get()
+
+
 def test_a_relocated_run_still_resolves_its_stored_paths(tmp_path):
     """SMOKE2: record.json stores ABSOLUTE host paths (29 per run — rounds[].renders[]
     .path, contact_sheet, build.glb_path, build.extra_paths, census exports — plus
@@ -94,20 +132,10 @@ def test_a_relocated_run_still_resolves_its_stored_paths(tmp_path):
     The intended repair, _judge.resolve_paths, only rebased paths for which
     ``Path(p).is_absolute()`` was False — a no-op against every record the harness itself
     writes — and _fmt, which is what show/status actually use, never called it at all."""
-    import shutil
-
     from codeverse.workspace import Workspace
 
-    a = tmp_path / "A" / "run1"
-    (a / "artifacts" / "renders" / "r01").mkdir(parents=True)
-    sheet_a = a / "artifacts" / "renders" / "r01" / "sheet.png"
-    sheet_a.write_bytes(b"PNG")
+    _a, b, sheet_a, _rec = _moved_run(tmp_path)
     stored = str(sheet_a)  # what the writer puts in record.json
-
-    b = tmp_path / "B" / "run1"
-    b.parent.mkdir(parents=True)
-    shutil.move(str(a), str(b))
-
     ws = Workspace(b)
     got = ws.rebase(stored)
     assert got.exists(), f"a moved run must still find its own sheet, got {got}"
@@ -126,39 +154,11 @@ def test_a_relocated_run_still_resolves_its_stored_paths(tmp_path):
 
 def test_show_prints_the_sheet_that_exists_after_a_move(tmp_path):
     """The user-visible half: `3dcv show` must not print a path that is not there."""
-    import shutil
-
-    from codeverse.cli._fmt import console, print_record_summary
-    from codeverse.contracts.artifacts import RenderSet
-    from codeverse.contracts.common import Backends, Language, Track
-    from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
-    from codeverse.contracts.spec import Spec
+    from codeverse.cli._fmt import print_record_summary
     from codeverse.workspace import Workspace
 
-    a = tmp_path / "A" / "run1"
-    (a / "artifacts" / "renders" / "r01").mkdir(parents=True)
-    sheet_a = a / "artifacts" / "renders" / "r01" / "sheet.png"
-    sheet_a.write_bytes(b"PNG")
-
-    spec = Spec(id="run1", track=Track.STATIC_OBJECT, language=Language.BLENDER,
-                prompt="a wooden chair", backends=Backends(generator="api-agent:gemini:x"))
-    rec = RunRecord(spec=spec, workspace=str(a), status=RunStatus.PASSED, best_round=0,
-                    rounds=[RoundRecord(index=0, kind="generate",
-                                        renders=RenderSet(views=[], contact_sheet=str(sheet_a)))])
-
-    b = tmp_path / "B" / "run1"
-    b.parent.mkdir(parents=True)
-    shutil.move(str(a), str(b))
-
-    # rich's Console holds its own stream, so capsys does not see it; widen it so the
-    # panel does not wrap the path we are asserting on
-    old_width, console.width = console.width, 400
-    try:
-        with console.capture() as cap:
-            print_record_summary(rec, Workspace(b).root)
-    finally:
-        console.width = old_width
-    printed = cap.get()
+    _a, b, _sheet, rec = _moved_run(tmp_path)
+    printed = _captured(lambda: print_record_summary(rec, Workspace(b).root))
     line = next(ln for ln in printed.splitlines() if "sheet:" in ln)
     shown = line.split("sheet:", 1)[1].strip().rstrip("│ ").strip()
     assert shown.endswith("sheet.png"), f"the panel wrapped the path: {line!r}"
@@ -236,37 +236,10 @@ def test_show_itself_prints_the_relocated_sheet_not_the_stored_one(tmp_path):
     the raw stored ABSOLUTE path, so `3dcv show` on a moved run still printed a sheet
     under the original root while ``object.glb`` beside it resolved correctly.  Verified
     on the real e2e_chair_blender run before this line existed."""
-    import shutil
-
-    from codeverse.cli._fmt import console
     from codeverse.cli.layout_cmd import print_evidence
-    from codeverse.contracts.artifacts import RenderSet
-    from codeverse.contracts.common import Backends, Language, Track
-    from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
-    from codeverse.contracts.spec import Spec
     from codeverse.workspace import Workspace
 
-    a = tmp_path / "A" / "run1"
-    (a / "artifacts" / "renders" / "r01").mkdir(parents=True)
-    sheet_a = a / "artifacts" / "renders" / "r01" / "sheet.png"
-    sheet_a.write_bytes(b"PNG")
-
-    spec = Spec(id="run1", track=Track.STATIC_OBJECT, language=Language.BLENDER,
-                prompt="a wooden chair", backends=Backends(generator="api-agent:gemini:x"))
-    rec = RunRecord(spec=spec, workspace=str(a), status=RunStatus.PASSED, best_round=0,
-                    rounds=[RoundRecord(index=0, kind="generate",
-                                        renders=RenderSet(views=[], contact_sheet=str(sheet_a)))])
-
-    b = tmp_path / "B" / "run1"
-    b.parent.mkdir(parents=True)
-    shutil.move(str(a), str(b))
-
-    old_width, console.width = console.width, 400
-    try:
-        with console.capture() as cap:
-            print_evidence(Workspace(b), rec)
-    finally:
-        console.width = old_width
-    out = cap.get()
+    a, b, _sheet, rec = _moved_run(tmp_path)
+    out = _captured(lambda: print_evidence(Workspace(b), rec))
     assert str(b / "artifacts" / "renders" / "r01" / "sheet.png") in out
     assert str(a) not in out, "`3dcv show` must not print a path under the old root"

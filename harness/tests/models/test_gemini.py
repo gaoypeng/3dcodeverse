@@ -28,6 +28,10 @@ PNG_1PX = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 )
 
+#: the one tool spec every tool-call test uses.
+MEASURE_TOOL = ToolSpec(name="measure", description="m",
+                        parameters={"type": "object", "properties": {"part": {"type": "string"}}})
+
 
 def text_response(
     text: str, *, finish: str = "STOP", thoughts: int = 3
@@ -372,11 +376,7 @@ def test_thinking_rejected_falls_back_without_thinking_config():
 
 
 def test_tool_call_roundtrip_and_signature_cache():
-    tool = ToolSpec(
-        name="measure",
-        description="m",
-        parameters={"type": "object", "properties": {"part": {"type": "string"}}},
-    )
+    tool = MEASURE_TOOL
     m, log, _ = make_model([call_response("measure", {"part": "all"}), text_response("45 cm")])
     req = ChatRequest(messages=[ChatMessage.user("measure it")], tools=[tool])
     r = m.generate(req)
@@ -542,42 +542,6 @@ def _resp_with_calls(parts: list[types.Part]) -> types.GenerateContentResponse:
     )
 
 
-def test_provider_call_id_round_trips_verbatim():
-    """A GENUINE provider function_call.id must be echoed unchanged on BOTH the
-    function_call replay and the function_response (both used to drop it)."""
-    from codeverse.models.gemini_convert import is_synthetic_call_id
-
-    tool = ToolSpec(
-        name="measure",
-        description="m",
-        parameters={"type": "object", "properties": {"part": {"type": "string"}}},
-    )
-    part = types.Part(
-        function_call=types.FunctionCall(name="measure", args={"part": "all"}, id="prov-42")
-    )
-    part.thought_signature = b"sig-prov"
-    m, log, _ = make_model([_resp_with_calls([part]), text_response("45 cm")])
-    req = ChatRequest(messages=[ChatMessage.user("measure it")], tools=[tool])
-    r = m.generate(req)
-    call = r.tool_calls[0]
-    assert call.id == "prov-42" and not is_synthetic_call_id(call.id)
-    assert SIGNATURES.get("prov-42") == b"sig-prov"
-    msgs = [
-        *req.messages,
-        ChatMessage(role="assistant", parts=[call]),
-        ChatMessage(
-            role="tool",
-            parts=[
-                ToolResultPart(call_id=call.id, name="measure", content=json.dumps({"h": 0.45}))
-            ],
-        ),
-    ]
-    m.generate(ChatRequest(messages=msgs, tools=[tool]))
-    contents = log[1]["contents"]
-    assert contents[1].parts[0].function_call.id == "prov-42"
-    assert contents[2].parts[0].function_response.id == "prov-42"
-
-
 def test_synthetic_call_ids_are_never_echoed_to_the_provider():
     """When the provider sent NO id we mint one for local pairing — and it must
     never travel back to Gemini (an id the provider did not issue)."""
@@ -601,23 +565,23 @@ def test_synthetic_call_ids_are_never_echoed_to_the_provider():
 
 
 def test_two_parallel_same_name_calls_keep_their_provider_ids():
-    """Two calls to the SAME tool in one turn: only the echoed ids pair each
-    response with its call, and each call keeps its own thought_signature."""
+    """Two calls to the SAME tool in one turn: a GENUINE provider id is echoed verbatim on
+    BOTH the function_call replay and the function_response (both used to drop it), and only
+    those ids pair a response with its call — each keeping its own thought_signature."""
+    from codeverse.models.gemini_convert import is_synthetic_call_id
+
     parts = []
     for cid, target in (("id-a", "seat"), ("id-b", "leg")):
         p = types.Part(function_call=types.FunctionCall(name="measure", args={"part": target}, id=cid))
         p.thought_signature = f"sig-{cid}".encode()
         parts.append(p)
-    tool = ToolSpec(
-        name="measure",
-        description="m",
-        parameters={"type": "object", "properties": {"part": {"type": "string"}}},
-    )
+    tool = MEASURE_TOOL
     m, log, _ = make_model([_resp_with_calls(parts), text_response("done")])
     req = ChatRequest(messages=[ChatMessage.user("measure both")], tools=[tool])
     r = m.generate(req)
     a, b = r.tool_calls
     assert (a.id, b.id) == ("id-a", "id-b") and a.name == b.name == "measure"
+    assert not is_synthetic_call_id(a.id), "a provider id must not be mistaken for a minted one"
     assert SIGNATURES.get("id-a") == b"sig-id-a" and SIGNATURES.get("id-b") == b"sig-id-b"
     msgs = [
         *req.messages,

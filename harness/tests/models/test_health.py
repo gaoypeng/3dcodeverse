@@ -184,23 +184,11 @@ def test_pool_budget_sums_caps_not_heads(monkeypatch):
     """Two siblings at 16 each leave 32 of headroom; a third at 16 fits, one at 64 does not.
     Head-counting (the first rule) would have refused both — and on 2026-08-24 it stalled
     an entire A/B wave behind two batteries that were themselves parked."""
-    health = _fake_proc(
-        monkeypatch,
-        {
-            101: (
-                ["python", "-m", "codeverse.cli.main", "bench", "run"],
-                {"CV3D_MAX_IN_FLIGHT": "16"},
-            ),
-            102: (
-                ["python", "bench/compare_backends.py", "--arms", "x"],
-                {"CV3D_RATE__MAX_IN_FLIGHT": "16"},
-            ),
-            103: (
-                ["/bin/bash", "-c", "cd /home/u/3dcodeverse && sleep 1"],
-                {},
-            ),  # not a harness process
-        },
-    )
+    health = _fake_proc(monkeypatch, {
+        101: (["python", "-m", "codeverse.cli.main", "bench", "run"], {"CV3D_MAX_IN_FLIGHT": "16"}),
+        102: (["python", "bench/compare_backends.py", "--arms", "x"], {"CV3D_RATE__MAX_IN_FLIGHT": "16"}),
+        103: (["/bin/bash", "-c", "cd /home/u/3dcodeverse && sleep 1"], {}),  # not a harness process
+    })
     pb = health.pool_budget()
     assert (pb.siblings, pb.used, pb.headroom) == (2, 32, 32), str(pb)
     assert pb.fits(16) and pb.fits(32) and not pb.fits(33) and not pb.fits(64)
@@ -208,12 +196,7 @@ def test_pool_budget_sums_caps_not_heads(monkeypatch):
 
 def test_a_sibling_that_set_no_cap_counts_at_the_default(monkeypatch):
     """An unconfigured battery runs at Rate().max_in_flight (64) and fills the whole budget."""
-    health = _fake_proc(
-        monkeypatch,
-        {
-            201: (["python", "-m", "codeverse.cli.main", "make", "a chair"], {}),
-        },
-    )
+    health = _fake_proc(monkeypatch, {201: (["python", "-m", "codeverse.cli.main", "make", "a chair"], {})})
     pb = health.pool_budget()
     assert pb.used == 64 and pb.headroom == 0 and not pb.fits(1)
 
@@ -224,42 +207,21 @@ def test_an_ab_plan_driver_is_not_charged_for_its_children(monkeypatch):
     It sets no cap on itself (``--max-in-flight`` is the CHILD cap), so charging it would
     book the 64 default — the whole knee — on top of the children that actually hold the
     traffic, and every sibling would refuse to launch."""
-    health = _fake_proc(
-        monkeypatch,
-        {
-            301: (
-                ["python", "-m", "bench.ab_plan", "--prompts", "p.yaml", "--max-in-flight", "16"],
-                {},
-            ),
-            302: (
-                ["python", "-m", "bench.ab_plan", "cell", "--arm", "control"],
-                {"CV3D_MAX_IN_FLIGHT": "16"},
-            ),
-            303: (
-                ["python", "-m", "bench.ab_plan", "cell", "--arm", "variant"],
-                {"CV3D_MAX_IN_FLIGHT": "16"},
-            ),
-        },
-    )
+    health = _fake_proc(monkeypatch, {
+        301: (["python", "-m", "bench.ab_plan", "--prompts", "p.yaml", "--max-in-flight", "16"], {}),
+        302: (["python", "-m", "bench.ab_plan", "cell", "--arm", "control"], {"CV3D_MAX_IN_FLIGHT": "16"}),
+        303: (["python", "-m", "bench.ab_plan", "cell", "--arm", "variant"], {"CV3D_MAX_IN_FLIGHT": "16"}),
+    })
     pb = health.pool_budget()
     assert (pb.siblings, pb.used, pb.headroom) == (3, 32, 32), str(pb)
     # the same three processes under the script spelling read identically
-    health = _fake_proc(
-        monkeypatch,
-        {
-            311: (["python", "bench/ab_plan.py", "--prompts", "p.yaml"], {}),
-            312: (
-                ["python", "bench/ab_plan.py", "cell", "--arm", "control"],
-                {"CV3D_MAX_IN_FLIGHT": "8"},
-            ),
-        },
-    )
+    health = _fake_proc(monkeypatch, {
+        311: (["python", "bench/ab_plan.py", "--prompts", "p.yaml"], {}),
+        312: (["python", "bench/ab_plan.py", "cell", "--arm", "control"], {"CV3D_MAX_IN_FLIGHT": "8"}),
+    })
     assert health.pool_budget().used == 8
     # a compare_backends driver runs its cells in THREADS, in itself: it is charged
-    health = _fake_proc(
-        monkeypatch,
-        {321: (["python", "-m", "bench.compare_backends"], {"CV3D_MAX_IN_FLIGHT": "16"})},
-    )
+    health = _fake_proc(monkeypatch, {321: (["python", "-m", "bench.compare_backends"], {"CV3D_MAX_IN_FLIGHT": "16"})})
     assert health.pool_budget().used == 16
 
 
@@ -268,15 +230,9 @@ def test_a_sibling_running_unlimited_is_charged_the_whole_knee(monkeypatch):
     `doctor` prints max_in_flight=off), so the one process with NO ceiling at all
     was accounted as holding NOTHING and pool_budget handed the next launcher the
     full 64 — straight past the measured knee."""
-    health = _fake_proc(
-        monkeypatch,
-        {
-            401: (
-                ["python", "-m", "codeverse.cli.main", "bench", "run"],
-                {"CV3D_MAX_IN_FLIGHT": "0"},
-            ),
-        },
-    )
+    health = _fake_proc(monkeypatch, {
+        401: (["python", "-m", "codeverse.cli.main", "bench", "run"], {"CV3D_MAX_IN_FLIGHT": "0"}),
+    })
     pb = health.pool_budget()
     assert (pb.siblings, pb.used, pb.headroom) == (1, 64, 0), str(pb)
     assert not pb.fits(1)
@@ -285,16 +241,10 @@ def test_a_sibling_running_unlimited_is_charged_the_whole_knee(monkeypatch):
 def test_a_negative_cap_does_not_grow_the_headroom(monkeypatch):
     """A negative cap used to be SUBTRACTED from `used`, so a sibling made the
     machine look emptier than with no sibling at all."""
-    health = _fake_proc(
-        monkeypatch,
-        {
-            501: (
-                ["python", "-m", "codeverse.cli.main", "bench", "run"],
-                {"CV3D_MAX_IN_FLIGHT": "16"},
-            ),
-            502: (["python", "-m", "bench.compare_backends"], {"CV3D_MAX_IN_FLIGHT": "-8"}),
-        },
-    )
+    health = _fake_proc(monkeypatch, {
+        501: (["python", "-m", "codeverse.cli.main", "bench", "run"], {"CV3D_MAX_IN_FLIGHT": "16"}),
+        502: (["python", "-m", "bench.compare_backends"], {"CV3D_MAX_IN_FLIGHT": "-8"}),
+    })
     pb = health.pool_budget()
     assert pb.used == 16 + health.POOL_KNEE and pb.headroom == 0, str(pb)
 
