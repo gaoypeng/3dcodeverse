@@ -1,7 +1,7 @@
 """Single-shot envelope: parse the ``=== FILE: ... ===`` format and write files.
 
-Split out of ``tracks/generation.py`` (kept re-exported there) so both modules
-stay under the ~400-line law.  ``MultiFileParseError``/``GenerationError`` are
+Split out of ``tracks/generation.py`` (kept re-exported there) to keep each
+module to one responsibility.  ``MultiFileParseError``/``GenerationError`` are
 defined here; ``generation`` re-exports them for its callers.
 """
 
