@@ -23,6 +23,7 @@ from codeverse.contracts.artifacts import (
 )
 from codeverse.contracts.common import TRACK_INFO, Track
 from codeverse.contracts.plan import ArticulatedPlan, Plan
+from codeverse.spatial.render import RenderError
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.motion import MOTION_GATE
 from codeverse.tracks.static_object import ObjectPipeline, StaticObjectTrack
@@ -126,10 +127,20 @@ def default_joint_sweep(ws: Workspace, plan: Plan | None, out_dir: Path) -> tupl
                       duration_ms=int((time.time() - t0) * 1000))
     views: list[RenderView] = []
     out_dir.mkdir(parents=True, exist_ok=True)
-    for label, rs in joints.render_poses(robot, out_dir):
-        if rs.views:
-            v = rs.views[0]
-            views.append(RenderView(name=f"pose_{label}", path=v.path, mode=v.mode, width=v.width, height=v.height))
+    try:
+        for label, rs in joints.render_poses(robot, out_dir):
+            if rs.views:
+                v = rs.views[0]
+                views.append(RenderView(name=f"pose_{label}", path=v.path, mode=v.mode, width=v.width, height=v.height))
+    except RenderError as e:
+        # The pose renders are the judge's evidence, not the gate's: the collision sweep
+        # above is already measured.  A render timeout here (art_verify architect_lamp,
+        # 2026-08-26: 330 s in render_glb.mjs with three articulated runs sharing the
+        # browser) used to raise out of gates() and fail the run before its first round.
+        log.warning("pose renders failed; the sweep gate stands without a sheet: %s", e)
+        gate.findings.append(GateFinding(gate=SWEEP_GATE, severity=Severity.WARN, target="poses",
+                                         message=f"pose renders failed ({str(e)[:160]}); the judge sees no articulation sheet this round",
+                                         fix_hint="nothing to fix in the code: a render timeout under load"))
     sheet = out_dir / joints.ARTICULATION_SHEET_NAME
     if sheet.is_file():
         views.insert(0, RenderView(name="articulation_sheet", path=str(sheet), mode="shaded"))
