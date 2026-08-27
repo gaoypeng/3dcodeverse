@@ -78,10 +78,13 @@ codeverse/
                       agent (typed AgentJob + ApiAgentOptions), skills.py (SkillsUsage/SkillRead on
                       RoundRecord: what was attached, what was read)
   workspace.py        run-dir layout + git snapshots ;  events.py  JSONL event log
-  runlock.py          ONE writer per run dir — a PID lock that names its holder so a
-                      human can kill that one run and not every run on the box
-  proc.py             stdlib-only subprocess + atomic-JSON primitives (run_subprocess w/ group kill +
-                      preexec_fn, kill_group, tail, write_json_atomic) and the tolerant readers/writer
+  runlock.py          ONE writer per run dir: an fcntl.flock on <runs>/.locks/<slug>.lock
+                      (outside the dir a --force wipe deletes; released by the kernel if
+                      the holder dies) taken at every CLI mutation boundary, plus the PID
+                      file that NAMES the holder so a human can kill that one pid
+  proc.py             stdlib-only subprocess + atomic-JSON primitives (ManagedProcess owns every
+                      child's lifecycle: group kill on ANY exception, bounded pumps, stdin writer;
+                      run_subprocess, kill_group, tail, write_json_atomic, scrub_secrets) and the tolerant readers/writer
                       (read_json_or_none, iter_jsonl_lines, read_jsonl_lenient, append_jsonl_line) —
                       shared by languages/spatial/cli/cost/flywheel/gallery/bench.  RULE: any
                       stdlib-only file / JSON / JSONL helper lives HERE; grep proc.py before writing a

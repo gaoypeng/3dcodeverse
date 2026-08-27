@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Annotated
 
@@ -34,6 +35,7 @@ from codeverse.cli.tools_cmd import tools
 from codeverse.config import get_settings
 from codeverse.contracts.common import TRACK_LANGUAGES, Budget, Language, Track
 from codeverse.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec
+from codeverse.runlock import RunLocked, exclusive
 
 app = typer.Typer(
     name="3dcv",
@@ -250,6 +252,28 @@ def make(
         )
     except ValueError as e:
         raise C.CliError(f"invalid run spec: {e}") from e
+    # THE run mutex, taken BEFORE the workspace is created (or --force wipes one) and
+    # held through the paid reference call and the run itself: everything below mutates
+    # this run directory, and two 3dcv on one slug corrupt each other (runlock.py).
+    stack = ExitStack()
+    try:
+        stack.enter_context(exclusive(C.runs_root(runs_dir) / run_slug,
+                                      what=f"3dcv make {run_slug}", action="create"))
+    except RunLocked as e:
+        raise C.CliError(str(e), code=2) from None
+    with stack:
+        _make_in_lock(spec, run_slug, runs_dir, force=force, no_run=no_run, reference=reference,
+                      reference_views=reference_views, candidates=candidates, rounds=rounds,
+                      max_usd=max_usd, texture=texture, dial=dial, settings=settings,
+                      backends=backends, track=track, language=language)
+
+
+def _make_in_lock(spec, run_slug: str, runs_dir, *, force: bool, no_run: bool, reference: bool,
+                  reference_views: int, candidates, rounds, max_usd, texture, dial, settings,
+                  backends, track, language) -> None:
+    """The body of ``make`` that mutates the run directory — always under the run mutex
+    (``runlock.exclusive``), which is why creating, wiping, writing the spec and the paid
+    reference call can no longer race a second ``3dcv make`` on the same slug."""
     ws = C.create_workspace(C.runs_root(runs_dir) / run_slug, force=force)
     ws.write_json(ws.spec_path, spec)
     ws.commit("spec")
@@ -432,6 +456,18 @@ def resume(
     reached a terminal state is refused unless ``--force``: re-entering it spends
     money and overwrites its final state."""
     ws = C.open_workspace(slug, runs_dir)
+    try:  # the run mutex, before the spec is rewritten (a budget raise is a mutation)
+        stack = ExitStack()
+        stack.enter_context(exclusive(ws.root, what=f"3dcv resume {ws.root.name}"))
+    except RunLocked as e:
+        raise C.CliError(str(e), code=2) from None
+    with stack:
+        _resume_in_lock(ws, runs_dir, force=force, max_usd=max_usd, max_minutes=max_minutes,
+                        rounds=rounds, candidates=candidates)
+
+
+def _resume_in_lock(ws, runs_dir, *, force: bool, max_usd, max_minutes, rounds, candidates) -> None:
+    """The body of ``resume`` that mutates the run — always under the run mutex."""
     spec = C.load_spec(ws)
     if (
         spec.options.profile

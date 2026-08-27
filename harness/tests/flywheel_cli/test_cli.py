@@ -29,7 +29,9 @@ def test_make_no_run_creates_valid_workspace(tmp_path: Path):
                             "--runs-dir", str(runs), "--no-run", "--dim", "width=0.5", "--must", "four legs",
                             "--rounds", "2", "--max-usd", "1.5", "--generator", "gemini-cli:gemini-3.7-flash"])
     assert r.exit_code == 0, r.output
-    dirs = [d for d in runs.iterdir() if d.is_dir()]
+    # `.locks/` (runlock.exclusive) lives beside the run dirs on purpose — a lock inside
+    # the directory a --force wipe deletes is no lock
+    dirs = [d for d in runs.iterdir() if d.is_dir() and not d.name.startswith(".")]
     assert len(dirs) == 1
     ws = dirs[0]
     assert ws.name.startswith("a_wooden_dining_chair_") and (ws / "spec.json").is_file() and (ws / ".git").is_dir()
