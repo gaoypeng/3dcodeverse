@@ -201,6 +201,35 @@ const {{ serveDirs }} = require({json.dumps(str(runtime_js_dir() / 'serve.cjs'))
     assert out == {"ok": 200, "inside": 200, "leak": 404, "dirleak": 404}
 
 
+def test_scene_server_only_mounts_src_public_assets(tmp_path: Path):
+    """serveWorkspace used to pass ``root: wsRoot``, so generated scene code could GET
+    /spec.json, /run_state.json, /events.jsonl, /.git/config and /artifacts/** — a scene
+    could read the previous round's judge output (audit 2026-08-27)."""
+    ws = Workspace(tmp_path / "run").create()
+    (ws.src / "scene.js").write_text("export function createScene() {}\n")
+    (ws.public / "assets").mkdir(parents=True, exist_ok=True)
+    (ws.public / "assets" / "a.glb").write_bytes(b"glTF1234")
+    (ws.public / "page.txt").write_text("public")
+    for name in ("spec.json", "run_state.json", "events.jsonl"):
+        (ws.root / name).write_text("{}\n")
+    (ws.artifacts / "judge").mkdir(parents=True, exist_ok=True)
+    (ws.artifacts / "judge" / "r00.json").write_text('{"score": 1}')
+    serve = ('/src/scene.js', '/public/page.txt', '/assets/a.glb', '/__host.html')
+    denied = ('/spec.json', '/run_state.json', '/events.jsonl', '/.git/config', '/artifacts/judge/r00.json')
+    script = tmp_path / "s.mjs"
+    script.write_text(f"""
+import {{ serveWorkspace }} from {json.dumps(str(runtime_js_dir() / 'lib' / 'host_env.mjs'))};
+const srv = await serveWorkspace({json.dumps(str(ws.root))}, {{ hostHtml: '<html>host</html>' }});
+const out = {{}};
+for (const p of {json.dumps([*serve, *denied])}) out[p] = (await fetch(srv.base + p)).status;
+await srv.close();
+console.log(JSON.stringify(out));
+""")
+    out = run_node(script, [], timeout_s=60).last_json
+    assert [out[p] for p in serve] == [200] * len(serve), out
+    assert [out[p] for p in denied] == [404] * len(denied), out
+
+
 def test_cli_safe_name_rejects_path_tricks(tmp_path: Path):
     """lib/cli.mjs safeName guards every filename composed from a camera/view name."""
     script = tmp_path / "n.mjs"

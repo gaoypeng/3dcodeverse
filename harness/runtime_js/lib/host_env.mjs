@@ -56,8 +56,13 @@ export function importMapHtml() {
 export async function serveWorkspace(wsRoot, { hostHtml = '' } = {}) {
   wsRoot = path.resolve(wsRoot);
   const srv = await serve.serveDirs({
-    root: wsRoot,
-    mounts: { '/assets/': path.join(wsRoot, 'public', 'assets') },
+    // explicit mounts, no `root`: the workspace root also holds spec.json, run_state.json,
+    // events.jsonl, .git/ and artifacts/ — generated scene code must not be able to GET them.
+    mounts: {
+      '/src/': path.join(wsRoot, 'src'),
+      '/public/': path.join(wsRoot, 'public'),
+      '/assets/': path.join(wsRoot, 'public', 'assets'),
+    },
     routes: { '/__host.html': { body: hostHtml, type: 'text/html; charset=utf-8' } },
   });
   return { server: srv.server, base: srv.base, close: srv.close };

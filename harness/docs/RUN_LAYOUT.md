@@ -28,7 +28,7 @@ runs/<slug>/
     stages -> ../stages
     trajectories -> ../trajectories
   stages/  rounds/  trajectories/            physical homes (unchanged)
-  _assets/ _cand/ AGENTS.md GEMINI.md CLAUDE.md .mcp.json …
+  _assets/ _cand/ AGENTS.md GEMINI.md CLAUDE.md .gemini/settings.json …
 ```
 
 ## Why the aliases point that way

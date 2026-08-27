@@ -5,8 +5,9 @@ One shared body is written to ``AGENTS.md`` (codex / generic), ``GEMINI.md``
 the ``3dcv`` spatial tools, where the cookbook is, and the language contract.
 MCP wiring:
 
-* gemini-cli → ``ws/.gemini/settings.json`` (merged) ``mcpServers.3dcv``
-* claude-code → ``ws/.mcp.json``
+* gemini-cli → the per-session system settings (``agents/gemini_cli.write_system_settings``);
+  ``ws/.gemini/settings.json`` is agent-writable, so it only carries the ``context`` block
+* claude-code → per-session ``trajectories/<label>_rNN/mcp.json`` (``agents/claude_code.py``)
 * codex → ``-c`` overrides returned in :class:`Materialized.codex_overrides`
 * agy (Antigravity) → no per-workspace MCP; the body documents the CLI fallback.
 
@@ -61,7 +62,6 @@ class Materialized(BaseModel):
     """What :func:`materialize_workspace` wrote and how each CLI reaches the tools."""
 
     body_files: list[str] = Field(default_factory=list)
-    mcp_files: list[str] = Field(default_factory=list)
     ignore_files: list[str] = Field(default_factory=list)
     cookbook_path: str = ""
     mcp_command: list[str] = Field(default_factory=list)
@@ -226,14 +226,12 @@ def materialize_workspace(
         (ws.root / name).write_text(body)
         out.body_files.append(str(ws.root / name))
 
+    # No MCP server is written into the workspace: every CLI gets 3dcv from a harness-owned
+    # per-session file, so an agent-planted server cannot reach the next round (audit 2026-08-27).
     gemini_settings = ws.root / ".gemini" / "settings.json"
-    claude_mcp = ws.root / ".mcp.json"
     _merge_json(gemini_settings, {"context": dict(GEMINI_CONTEXT_SETTINGS)})
+    _drop_server(gemini_settings)
     if spatial_tools:
-        server = {"command": mcp_command[0], "args": list(mcp_command[1:]), "timeout": MCP_TOOL_TIMEOUT_MS}
-        _merge_json(gemini_settings, {"mcpServers": {MCP_SERVER_NAME: server}})
-        _merge_json(claude_mcp, {"mcpServers": {MCP_SERVER_NAME: {"type": "stdio", **server}}})
-        out.mcp_files = [str(gemini_settings), str(claude_mcp)]
         out.codex_overrides = codex_mcp_overrides(list(mcp_command))
         out.agy_mcp = (
             "Antigravity CLI only supports GLOBAL MCP registration (`agy mcp add ...`), which would "
@@ -241,8 +239,6 @@ def materialize_workspace(
             "`python -m codeverse.cli.main tools <name> --json ...` shell fallback instead."
         )
     else:
-        _drop_server(gemini_settings)
-        _drop_server(claude_mcp)
         out.agy_mcp = "spatial tools disabled"
 
     ignore_text = "\n".join(IGNORE_LINES) + "\n"

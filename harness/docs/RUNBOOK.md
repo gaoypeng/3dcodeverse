@@ -77,7 +77,7 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60 --max-u
 | `api-agent:gemini:gemini-3.7-flash` (default) | in-process tool loop with file tools + every spatial tool | cheapest agentic path; the only backend whose transcripts feed repair-pair mining |
 | `single-shot:gemini:gemini-3.7-flash` | one structured-output call → multi-file envelope, no tools | fastest/cheapest; baseline for "raw model" deltas |
 | `gemini-cli:gemini-3.7-flash` | `gemini -p … --approval-mode yolo --skip-trust --output-format json` | see gotchas below |
-| `claude-code:<model>` | `claude -p … --dangerously-skip-permissions --mcp-config ws/.mcp.json …` | local subscription — test lightly |
+| `claude-code:<model>` | `claude -p … --dangerously-skip-permissions --mcp-config trajectories/<label>_rNN/mcp.json --strict-mcp-config …` | local subscription — test lightly |
 | `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high … -c mcp_servers.3dcv.…` | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id, `""` to defer to `~/.codex/config.toml`) |
 | `agy:<model>` | `agy --print … --add-dir ws` | no per-workspace MCP: tools via `3dcv tools <name> --json … --workspace .`; no served-model or cost reporting |
 | `gemini:* / anthropic:* / openai:*` | ChatModel for planner / judge / captioner / single-shot | Anthropic/OpenAI untested live here |

@@ -251,29 +251,35 @@ def begin_session(job: AgentJob, kind: str) -> Session:
 
 
 def _enforce_scope(s: Session) -> list[str]:
-    """Restore an ``edit_only`` session's out-of-scope writes; returns the restored paths.
+    """Revert a CLI session's out-of-scope writes; returns the reverted paths.
 
-    Post-hoc, because the CLI backends have no write-time file gate.  A PRE-EXISTING
-    file that changed and is neither in ``files_hint`` nor always-writable (the entry
-    file, when the task owns it) is out of scope; new files stay allowed — the exact
-    contract ``FileTools`` enforces for the api-agent.  Only safe because sessions on
-    one workspace are serialised (:data:`EXCLUSIVE_KINDS`): ``head_before`` holds no
-    sibling's in-flight work, so restoring to it cannot destroy anyone else's files."""
-    if not (s.job.edit_only and s.files_hint):
+    Post-hoc, because the CLI backends have no write-time file gate.  Two layers:
+    ``job.write_roots`` ALWAYS (what ``FileTools`` refuses outright for the api-agent —
+    a CLI session used to be able to write and commit a root-level ``conftest.py``),
+    then, for ``edit_only``, the narrowing to ``files_hint`` + ``always_writable``
+    (a pre-existing file outside it is out of scope; new files stay allowed).  Only
+    safe because sessions on one workspace are serialised (:data:`EXCLUSIVE_KINDS`):
+    ``head_before`` holds no sibling's in-flight work."""
+    roots = tuple(r.strip("/") for r in s.job.write_roots if r.strip("/"))
+    narrow = (s.files_hint | frozenset(h for h in (str(x).strip() for x in s.job.always_writable) if h)
+              if (s.job.edit_only and s.files_hint) else frozenset())
+    if not roots and not narrow:
         return []
-    allowed = s.files_hint | frozenset(
-        h for h in (str(x).strip() for x in s.job.always_writable) if h)
-    out: list[str] = []
+    restore: list[str] = []
+    remove: list[str] = []
     for f in s.ws.changed_files(s.head_before):
         parts = Path(f.path).parts
         if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in HARNESS_OWNED_FILES:
             continue
-        if f.status == "added" or _hinted(f.path, allowed):
+        if roots and not any(f.path == r or f.path.startswith(r + "/") for r in roots):
+            pass  # outside write_roots: out of scope whatever its status
+        elif not narrow or f.status == "added" or _hinted(f.path, narrow):
             continue
-        out.append(f.path)
-    if out:
-        s.ws.restore_paths(s.head_before, out)
-    return out
+        (remove if f.status == "added" else restore).append(f.path)
+    s.ws.restore_paths(s.head_before, restore)
+    for path in remove:  # added files are not in head_before; the next `git add -A` stages the delete
+        (s.ws.root / path).unlink(missing_ok=True)
+    return sorted(restore + remove)
 
 
 def finish_session(
@@ -290,17 +296,19 @@ def finish_session(
     """Commit the agent's work, compute ``files_changed`` via git (attributed to this
     session — see :func:`attribute_changes`), write result.json.
 
-    ``edit_only`` jobs are scope-checked here for the CLI backends (they have no
-    write-time gate): out-of-scope changes to pre-existing files are restored to this
-    session's own ``pre:`` commit and the session is failed (:func:`_enforce_scope`)."""
+    Write scope is enforced here for the CLI backends (they have no write-time gate):
+    writes outside ``write_roots`` (and, for ``edit_only``, outside ``files_hint``) are
+    reverted to this session's own ``pre:`` commit and the session is failed
+    (:func:`_enforce_scope`)."""
     try:
         errors = list(errors or [])
         restored = _enforce_scope(s)
         if restored:
             ok = False
-            msg = ("out-of-scope writes restored: " + ", ".join(sorted(restored))
-                   + f" — this edit_only session may only change {sorted(s.files_hint)} "
-                   "(new files, and the entry file when the task owns it, stay allowed)")
+            msg = ("out-of-scope writes reverted: " + ", ".join(restored)
+                   + f" — this session may only write under {sorted(s.job.write_roots)}"
+                   + (f", limited to {sorted(s.files_hint)} (new files, and the entry file when the "
+                      "task owns it, stay allowed)" if s.job.edit_only and s.files_hint else ""))
             errors.append(msg)
             s.notes.append(msg)
         s.ws.commit(f"agent:{s.label}")

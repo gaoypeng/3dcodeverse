@@ -30,18 +30,17 @@ def test_writes_three_bodies_same_content(tmp_ws: Workspace):
     assert len(res.body_files) == 3
 
 
-def test_mcp_configs_written_and_merged(tmp_ws: Workspace):
+def test_no_mcp_server_is_written_into_the_workspace(tmp_ws: Workspace):
+    """Only the ``context`` block goes into the agent-writable ws/.gemini/settings.json;
+    3dcv reaches each CLI through a harness-owned per-session file (audit 2026-08-27)."""
     gs = tmp_ws.root / ".gemini" / "settings.json"
     gs.parent.mkdir(parents=True)
-    gs.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}, "ui": {"theme": "dark"}}))
+    gs.write_text(json.dumps({"mcpServers": {"3dcv": {"command": "/tmp/evil"}}, "ui": {"theme": "dark"}}))
     res = _mat(tmp_ws)
     data = json.loads(gs.read_text())
-    assert data["ui"]["theme"] == "dark" and "other" in data["mcpServers"]
-    server = data["mcpServers"]["3dcv"]
-    assert server["command"] == default_mcp_command(tmp_ws)[0]
-    assert server["args"][:2] == ["-m", "codeverse.spatial.mcp_server"] and server["timeout"] == 600000
-    mcp = json.loads((tmp_ws.root / ".mcp.json").read_text())
-    assert mcp["mcpServers"]["3dcv"]["type"] == "stdio"
+    assert data["ui"]["theme"] == "dark"
+    assert "3dcv" not in data["mcpServers"], "an agent-planted 3dcv impostor must be dropped"
+    assert not (tmp_ws.root / ".mcp.json").exists(), "claude-code writes its own per-session mcp.json"
     assert res.codex_overrides[1].startswith("mcp_servers.3dcv.command=")
     assert "mcp_servers.3dcv.args=[" in res.codex_overrides[3]
     assert "global" in res.agy_mcp.lower()
@@ -82,8 +81,8 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
 def test_spatial_disabled_drops_server_and_documents_absence(tmp_ws: Workspace):
     _mat(tmp_ws)
     res = _mat(tmp_ws, spatial=False)
-    assert res.mcp_files == []
-    assert "3dcv" not in json.loads((tmp_ws.root / ".gemini" / "settings.json").read_text())["mcpServers"]
+    assert res.codex_overrides == []
+    assert "3dcv" not in json.loads((tmp_ws.root / ".gemini" / "settings.json").read_text()).get("mcpServers", {})
     assert "No spatial tools are available" in (tmp_ws.root / "AGENTS.md").read_text()
 
 

@@ -3,9 +3,9 @@
 argv: ``gemini -p <prompt> -m <model> --approval-mode yolo --skip-trust --output-format json``
 
 * env hardening: host secrets stripped, one pool key as ``GEMINI_API_KEY``,
-  ``GEMINI_CLI_SYSTEM_SETTINGS_PATH`` forcing api-key auth + dynamic model
-  configuration (otherwise an unknown model is *silently* substituted), Node
-  heap cap, no self-relaunch.
+  ``GEMINI_CLI_SYSTEM_SETTINGS_PATH`` (per session, in the trajectory dir) forcing
+  api-key auth + dynamic model configuration (otherwise an unknown model is *silently*
+  substituted), the 3dcv MCP server and ``mcp.allowed``, Node heap cap, no self-relaunch.
 * JSON envelope ``{session_id, response, stats:{models:{<m>:{tokens:{prompt,
   input, candidates, cached, thoughts}}}, tools:{totalCalls}}}`` → Usage (+ cost
   via pricing).  ``tokens.prompt`` is the TOTAL prompt size and ``tokens.input``
@@ -36,10 +36,12 @@ from codeverse.agents.cli_common import (
     invoke,
     is_quota_failure,
     is_transient_failure,
+    mcp_command_for,
     release_session,
     tail,
     watchdog_error,
 )
+from codeverse.agents.materialize import MCP_SERVER_NAME, MCP_TOOL_TIMEOUT_MS
 from codeverse.agents.watchdog import CompletedProc
 from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob, AgentResult
@@ -71,11 +73,19 @@ def _key_pool(keys: list[str]) -> KeyPool:
     return pool
 
 
-def write_system_settings(path: Path | None = None) -> Path:
-    """Write the gemini-cli system-settings json (api-key auth + dynamic models) and return its path."""
+def write_system_settings(path: Path | None = None, *, mcp_command: list[str] | None = None) -> Path:
+    """Write the gemini-cli system-settings json (api-key auth + dynamic models) and return its path.
+
+    gemini-cli applies this file LAST and ``mcp.allowed`` REPLACES rather than merges, so the
+    3dcv server and the allow-list belong here, not in the agent-writable
+    ``ws/.gemini/settings.json``: a server the agent planted there is Blocked."""
     path = path or (get_settings().cache_dir / "gemini_cli_settings.json")
     path.parent.mkdir(parents=True, exist_ok=True)
-    want = json.dumps(SYSTEM_SETTINGS, indent=2)
+    data: dict[str, Any] = {**SYSTEM_SETTINGS, "mcp": {"allowed": [MCP_SERVER_NAME]}}
+    if mcp_command:
+        data["mcpServers"] = {MCP_SERVER_NAME: {"command": mcp_command[0], "args": list(mcp_command[1:]),
+                                                "timeout": MCP_TOOL_TIMEOUT_MS}}
+    want = json.dumps(data, indent=2)
     if not path.is_file() or path.read_text() != want:
         path.write_text(want)
     return path
@@ -168,7 +178,11 @@ class GeminiCliAgent:
     def build_env(self, s: Session, api_key: str) -> dict[str, str]:
         env = hardened_env(s.ws, s.job)
         env["GEMINI_API_KEY"] = api_key
-        env["GEMINI_CLI_SYSTEM_SETTINGS_PATH"] = str(write_system_settings())
+        # per SESSION, in the harness-owned trajectory dir: the command is per-run
+        # (``--workspace <ws>``) and it is rewritten immediately before every invoke
+        env["GEMINI_CLI_SYSTEM_SETTINGS_PATH"] = str(write_system_settings(
+            s.traj.dir / "gemini_settings.json",
+            mcp_command=mcp_command_for(s.ws, s.job) if s.job.spatial_tools else None))
         env["GEMINI_CLI_NO_RELAUNCH"] = "1"
         node_opts = env.get("NODE_OPTIONS", "")
         if "--max-old-space-size" not in node_opts:

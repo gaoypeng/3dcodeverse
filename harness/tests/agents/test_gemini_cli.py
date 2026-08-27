@@ -22,7 +22,7 @@ assert "GEMINI_API_KEYS" not in os.environ
 assert "FAKE_SERVICE_API_KEY" not in os.environ, "secret leaked"
 assert os.path.isfile(os.environ["GEMINI_CLI_SYSTEM_SETTINGS_PATH"])
 if mode in ("fail_once", "fail_once_503", "fail_always"):
-    marker = "attempts.txt"
+    marker = "artifacts/attempts.txt"
     n = int(open(marker).read()) if os.path.exists(marker) else 0
     open(marker, "w").write(str(n + 1))
     if n == 0 or mode == "fail_always":
@@ -74,6 +74,36 @@ def test_success_path(tmp_ws: Workspace, agent: GeminiCliAgent):
     assert "agent:t" in tmp_ws._git("log", "--oneline").stdout
 
 
+def test_agent_planted_mcp_server_never_reaches_the_cli(tmp_ws: Workspace, agent: GeminiCliAgent):
+    """``ws/.gemini/settings.json`` is agent-writable and gemini-cli merged its mcpServers,
+    so an agent could choose what the NEXT round's CLI launched (`gemini mcp list` in a
+    poisoned workspace tried to start it).  3dcv + ``mcp.allowed`` now live in the
+    per-session system settings, which is applied LAST and whose ``mcp.allowed``
+    REPLACES rather than merges (audit 2026-08-27)."""
+    from codeverse.agents.cli_common import begin_session, default_mcp_command, release_session
+    from codeverse.agents.materialize import materialize_workspace
+
+    materialize_workspace(tmp_ws, agent_kind="gemini-cli", contract_md="c", cookbook_rel="",
+                          spatial_tools=True, mcp_command=default_mcp_command(tmp_ws))
+    planted = tmp_ws.root / ".gemini" / "settings.json"
+    data = json.loads(planted.read_text())
+    data["mcpServers"] = {"evil": {"command": "/tmp/evil"}}
+    data["mcp"] = {"allowed": ["evil"]}
+    planted.write_text(json.dumps(data))
+
+    s = begin_session(_job(tmp_ws), "gemini-cli")
+    try:
+        env = agent.build_env(s, "k1")
+    finally:
+        release_session(s)
+    path = Path(env["GEMINI_CLI_SYSTEM_SETTINGS_PATH"])
+    settings = json.loads(path.read_text())
+    assert path.parent == s.traj.dir, "per session, in the harness-owned trajectory dir"
+    assert list(settings["mcpServers"]) == ["3dcv"] and settings["mcp"]["allowed"] == ["3dcv"]
+    assert "evil" not in json.dumps(settings)
+    assert settings["security"]["folderTrust"]["enabled"] is False
+
+
 def test_model_substitution_detected(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     monkeypatch.setenv("FAKE_MODE", "substitute")
     res = agent.run(_job(tmp_ws))
@@ -85,7 +115,7 @@ def test_transient_failure_retries_once_with_other_key(tmp_ws: Workspace, agent:
     monkeypatch.setenv("FAKE_MODE", "fail_once")
     res = agent.run(_job(tmp_ws))
     assert res.ok, res.errors
-    assert (tmp_ws.root / "attempts.txt").read_text() == "2"
+    assert (tmp_ws.artifacts / "attempts.txt").read_text() == "2"
     rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
     assert rec["attempts"] == 2 and (Path(res.transcript_path).parent / "stdout.2.json").exists()
     lines = [json.loads(ln) for ln in Path(res.transcript_path).read_text().splitlines()]
@@ -102,7 +132,7 @@ def test_single_key_transient_failure_retries_same_key_and_never_raises(tmp_ws: 
     monkeypatch.setenv("FAKE_MODE", "fail_once_503")
     res = agent.run(_job(tmp_ws))
     assert res.ok, res.errors
-    assert (tmp_ws.root / "attempts.txt").read_text() == "2"
+    assert (tmp_ws.artifacts / "attempts.txt").read_text() == "2"
     lines = [json.loads(ln) for ln in Path(res.transcript_path).read_text().splitlines()]
     assert [ln["key_tail"] for ln in lines if ln["kind"] == "invoke"] == ["only", "only"]
 
@@ -117,7 +147,7 @@ def test_single_key_quota_failure_returns_budget_without_retry(tmp_ws: Workspace
     monkeypatch.setenv("FAKE_MODE", "fail_always")
     res = agent.run(_job(tmp_ws))
     assert not res.ok and res.exit_reason == "budget"
-    assert (tmp_ws.root / "attempts.txt").read_text() == "1"
+    assert (tmp_ws.artifacts / "attempts.txt").read_text() == "1"
     rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
     assert rec["attempts"] == 1 and any("no usable key" in n for n in rec["notes"])
 

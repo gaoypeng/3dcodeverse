@@ -148,8 +148,9 @@ from codeverse.agents.materialize import materialize_workspace, Materialized, co
 materialize_workspace(ws, *, agent_kind, contract_md, cookbook_rel, spatial_tools, mcp_command) -> Materialized
 # writes AGENTS.md + GEMINI.md + CLAUDE.md (same body), ws/.3dcv/cookbook.md (Δ copied in: gemini-cli cannot read
 # outside the workspace), .geminiignore/.aiexclude, and MCP wiring:
-#   gemini-cli → ws/.gemini/settings.json {"mcpServers": {"3dcv": {...}}} + context.fileFiltering.respectGitIgnore=false
-#   claude-code → ws/.mcp.json      codex → Materialized.codex_overrides:
+#   gemini-cli → ws/.gemini/settings.json only gets context.fileFiltering.respectGitIgnore=false; the 3dcv server
+#     and mcp.allowed live in the per-session system settings (Δ that file is agent-writable — audit 2026-08-27)
+#   claude-code → trajectories/<label>_rNN/mcp.json      codex → Materialized.codex_overrides:
 #     -c mcp_servers.3dcv.command=… -c mcp_servers.3dcv.args=[…] -c mcp_servers.3dcv.default_tools_approval_mode="approve"
 #     (Δ without the approval mode every MCP tool call is elicited and auto-cancelled)
 #   agy → no per-workspace MCP; body documents `3dcv tools <name> --json … --workspace .` as the fallback
@@ -177,9 +178,10 @@ stderr.log, result.json}`; **Δ** a re-run of the same label+round lands in
 `<label>.a2_rNN` (then `.a3` …) — the first attempt is never overwritten; `result.json`
 records `attempt` + `job_label`.  Each run makes two git commits (`pre:`/`agent:<label>`).
 gemini-cli specifics: system settings file via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`
-(api-key auth, `dynamicModelConfiguration=true` else silent model substitution →
-`exit_reason="model_substituted"`, `folderTrust.enabled=false` else workspace MCP
-silently dropped).  **Δ** `Usage.input_tokens` = `tokens.prompt` (TOTAL prompt incl.
+(written per session into the trajectory dir: api-key auth, `dynamicModelConfiguration=true`
+else silent model substitution → `exit_reason="model_substituted"`, `folderTrust.enabled=false`
+else workspace MCP silently dropped, plus `mcpServers.3dcv` + `mcp.allowed=["3dcv"]` — **Δ** it is
+applied LAST and `mcp.allowed` replaces, so an agent-planted server in ws/.gemini/settings.json is Blocked).  **Δ** `Usage.input_tokens` = `tokens.prompt` (TOTAL prompt incl.
 cached; `tokens.input` is the uncached count) and each served model is priced at its
 own rate.  KeyPoolExhausted never escapes `run()` (→ `exit_reason=budget`); retries
 prefer a different key (10 s wait) before re-using the same one.

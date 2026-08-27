@@ -197,6 +197,38 @@ def test_a_stale_index_lock_names_the_remedy(tmp_path):
     assert "index.lock" in (ei.value.stderr or "")
 
 
+def test_a_planted_git_hook_or_filter_never_runs_on_a_commit(tmp_path):
+    """The workspace is agent-writable, and ``_git`` used to set HOME=<ws> — so
+    ws/.gitconfig WAS git's global config.  Four repro-confirmed vectors executed with
+    harness privileges on ws.commit(): .git/hooks/pre-commit, a global core.hooksPath, a
+    global filter.*.clean + .gitattributes, and a LOCAL filter.*.clean (audit 2026-08-27)."""
+    ws = Workspace(tmp_path / "run").create()
+    fired = tmp_path / "fired"
+    shell = f"#!/bin/sh\necho x >> {fired}\n"
+    for d in (ws.root / ".git" / "hooks", ws.root / "evilhooks"):
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "pre-commit").write_text(shell)
+        (d / "pre-commit").chmod(0o755)
+    (ws.root / ".gitconfig").write_text(
+        f'[core]\n\thooksPath = {ws.root / "evilhooks"}\n'
+        f'[filter "pwn"]\n\tclean = sh -c \'echo g >> {fired}; cat\'\n')
+    (ws.root / ".gitattributes").write_text("*.py filter=pwn\n")
+    ws._git("config", "--local", "filter.pwn.clean", f"sh -c 'echo l >> {fired}; cat'")
+
+    (ws.src / "model.py").write_text("x = 1\n")
+    ws.commit("round 0")
+
+    assert not fired.exists(), f"a planted git hook/filter ran: {fired.read_text()!r}"
+    assert ws._git("config", "--local", "--get", "filter.pwn.clean", check=False).returncode != 0, \
+        "an exec-capable local key must be unset before the commit"
+
+    # finish_session reaches git through changed_files() (git add / git diff) BEFORE it commits
+    ws._git("config", "--local", "filter.pwn.clean", f"sh -c 'echo c >> {fired}; cat'")
+    (ws.src / "model.py").write_text("x = 2\n")
+    ws.changed_files()
+    assert not fired.exists(), f"a planted filter ran during changed_files(): {fired.read_text()!r}"
+
+
 def test_show_itself_prints_the_relocated_sheet_not_the_stored_one(tmp_path):
     """Sign-off follow-up to SMOKE2.  The reported command was `3dcv show`, but the fix
     landed in ``cli/_fmt.py`` (which backs `3dcv status`) — ``cli/layout_cmd.py``'s

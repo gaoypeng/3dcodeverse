@@ -372,16 +372,19 @@ npm i -g @openai/codex             # codex    (0.149.0 here)
 own `login` flows) — test lightly.  The harness handles the per-CLI quirks for
 you; the ones worth knowing:
 
-* **gemini-cli** — the harness writes a *system settings* file to
-  `~/.cache/codeverse/gemini_cli_settings.json` and passes it via
-  `GEMINI_CLI_SYSTEM_SETTINGS_PATH`, forcing three things (do not undo them):
+* **gemini-cli** — the harness writes a *system settings* file per session into that
+  session's `trajectories/<label>_rNN/` dir and passes it via
+  `GEMINI_CLI_SYSTEM_SETTINGS_PATH`, forcing four things (do not undo them):
   `security.auth.selectedType = "gemini-api-key"` (a pool key is injected as
   `GEMINI_API_KEY`, other credential env is stripped),
   `experimental.dynamicModelConfiguration = true` — without it an unknown model
   id is *silently substituted* and the run is flagged
   `exit_reason=model_substituted` — and `security.folderTrust.enabled = false`,
   without which the workspace MCP servers are silently ignored even with
-  `--skip-trust`, so the agent loses every spatial tool.  A pre-existing OAuth
+  `--skip-trust`, so the agent loses every spatial tool.  It also carries the `3dcv`
+  MCP server itself plus `mcp.allowed = ["3dcv"]`: this file is merged LAST and
+  `mcp.allowed` replaces, so a server the agent plants in the workspace's own
+  `.gemini/settings.json` is Blocked.  A pre-existing OAuth
   login of your own is overridden, not consumed.
 * **codex** — MCP tools need `default_tools_approval_mode="approve"`, which the
   harness passes on the command line.
@@ -564,7 +567,7 @@ rm -rf harness/3dcodeverse.egg-info harness/.pytest_cache harness/.ruff_cache
 `~/.cache/codeverse` (or `cache_dir` / `CV3D_CACHE_DIR`) holds only regenerable
 things: `renders/` and `judge_images/` (render + montage cache), `textures/` and
 `texture_plans/` (texture-pass cache — deleting these costs real money to
-regenerate), `gpu_probe.json`, `gemini_cli_settings.json`, `browser_*.lock` (the shared
+regenerate), `gpu_probe.json`, `browser_*.lock` (the shared
 headless-Chrome endpoint file — do not delete it while renders are running).
 
 **Your data is not in either cache.**  `runs/`, `bench/out/` and any exported

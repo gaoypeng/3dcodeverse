@@ -56,6 +56,24 @@ _GITIGNORE_LINES = (
 )
 
 
+#: prepended to every workspace git argv: an agent-planted hook / fsmonitor never runs.
+_GIT_SAFE_FLAGS = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false")
+#: local (.git/config) config that makes git EXECUTE a program.  ``-c`` cannot override a
+#: local ``filter.*`` / ``diff.*`` driver, so these are unset in place before every commit.
+_GIT_EXEC_SECTIONS = ("filter", "diff", "alias", "gpg", "credential")
+_GIT_EXEC_KEYS = ("core.hookspath", "core.fsmonitor", "core.sshcommand", "core.pager", "commit.gpgsign")
+
+
+def _git_home() -> str:
+    """HOME for workspace git: harness-owned, never the workspace (whose agent-written
+    ``.gitconfig`` git reads as its GLOBAL config).  The cache_dir DEFAULT, spelled out:
+    workspace.py may not import config (tests/install/test_import_direction)."""
+    d = Path.home() / ".cache" / "codeverse" / "githome"
+    with contextlib.suppress(OSError):  # a missing HOME is harmless; an unwritable one must not sink git
+        d.mkdir(parents=True, exist_ok=True)
+    return str(d)
+
+
 class WorkspaceGitError(subprocess.CalledProcessError):
     """A git command in a run workspace failed, carrying git's own explanation.
 
@@ -90,6 +108,7 @@ class Workspace:
 
     def __init__(self, root: Path | str):
         self.root = Path(root).resolve()
+        self._cfg_mtime: int = -1  # .git/config mtime at the last _sanitise_git_config
 
     # ----------------------------------------------------------------- paths
     def rebase(self, stored: str | Path) -> Path:
@@ -289,10 +308,11 @@ class Workspace:
         with self._lock:
             for attempt in range(4):
                 proc = subprocess.run(
-                    ["git", *args], cwd=self.root, text=True, capture_output=True, check=False,
+                    ["git", *_GIT_SAFE_FLAGS, *args], cwd=self.root, text=True, capture_output=True, check=False,
                     env={"GIT_AUTHOR_NAME": "3dcv", "GIT_AUTHOR_EMAIL": "3dcv@local",
                          "GIT_COMMITTER_NAME": "3dcv", "GIT_COMMITTER_EMAIL": "3dcv@local",
-                         "PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": str(self.root)},
+                         "PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": _git_home(),
+                         "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"},
                 )
                 if proc.returncode == 0 or "index.lock" not in (proc.stderr or ""):
                     break
@@ -301,8 +321,21 @@ class Workspace:
                 raise WorkspaceGitError(self.root, args, proc.returncode, proc.stderr or "")
             return proc
 
+    def _sanitise_git_config(self) -> None:
+        """Unset the exec-capable keys an agent may have written into ``.git/config``.
+        Cached on the file's mtime, so the common path costs one stat."""
+        cfg = self.root / ".git" / "config"
+        mtime = cfg.stat().st_mtime_ns if cfg.is_file() else 0
+        if mtime == self._cfg_mtime:
+            return
+        names = self._git("config", "--local", "--list", "--name-only", check=False).stdout.split()
+        for name in {n for n in names if n.split(".", 1)[0] in _GIT_EXEC_SECTIONS or n in _GIT_EXEC_KEYS}:
+            self._git("config", "--local", "--unset-all", name, check=False)
+        self._cfg_mtime = cfg.stat().st_mtime_ns if cfg.is_file() else 0
+
     def _git_init(self) -> None:
         if (self.root / ".git").exists():
+            self._sanitise_git_config()  # a resumed run: the agent has had the repo since
             return
         self._git("init", "-q")
         self.ensure_gitignore()
@@ -325,6 +358,7 @@ class Workspace:
 
     def commit(self, message: str) -> str:
         """Commit everything tracked (src/, public/, plan, ...) and return the sha."""
+        self._sanitise_git_config()
         self._git("add", "-A")
         self._git("commit", "-q", "-m", message, "--allow-empty")
         return self._git("rev-parse", "HEAD").stdout.strip()
@@ -341,6 +375,7 @@ class Workspace:
 
     def changed_files(self, since: str | None = None) -> list[FileChange]:
         """Files changed vs ``since`` (a commit) or vs HEAD (uncommitted work)."""
+        self._sanitise_git_config()  # `add`/`diff` apply clean + textconv drivers
         self._git("add", "-A", "-N")  # register untracked so they show up in diff
         args = ["diff", "--numstat", "--diff-filter=ADM"] + ([since] if since else ["HEAD"])
         out = self._git(*args).stdout
@@ -387,6 +422,7 @@ class Workspace:
         self._git("checkout", "-q", commit, "--", *paths)
 
     def diff(self, a: str, b: str = "HEAD") -> str:
+        self._sanitise_git_config()
         return self._git("diff", a, b, "--", "src", "public").stdout
 
     def snapshot_src(self, dest: Path) -> None:
