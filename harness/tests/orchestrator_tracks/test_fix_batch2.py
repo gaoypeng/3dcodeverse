@@ -102,8 +102,11 @@ def test_finalise_restores_best_when_aborted_round_dirtied_src(tmp_path, chair_p
     assert "baseline r0" in text and "refine" not in text  # restored, not the aborted round's edits
     assert ws.changed_files() == []  # tree clean at the delivered commit
     # finding lifecycle.py:256 — the aborted round's charges survive into run_state for resume
-    spent = RunState.load(ws).extra["spent_usage"]
+    state = RunState.load(ws)
+    spent = state.extra["spent_usage"]  # legacy mirror, kept one release
     assert spent["cost_usd"] == pytest.approx(0.025, abs=1e-6)
+    snap = state.extra["budget_snapshot"]
+    assert snap["billed_usd"] == pytest.approx(0.025, abs=1e-6) and snap["calls"] > 0
 
 
 # --------------------------------------------------------------------- finding: spent usage persisted on crash paths
@@ -126,9 +129,11 @@ def test_spent_usage_saved_when_a_round_crashes(tmp_path, chair_plan, settings):
                               runtime=FakeRuntime(Language.THREEJS))
     with pytest.raises(RuntimeError, match="gate exploded"):
         track.run(spec, ws)
-    spent = RunState.load(ws).extra["spent_usage"]
+    state = RunState.load(ws)
+    spent = state.extra["spent_usage"]  # legacy mirror, kept one release
     # planner 0.002 + r0 agent 0.01 + r0 judge 0.003 + r1 agent 0.01 — the r1 charge must not vanish
     assert spent["cost_usd"] == pytest.approx(0.025, abs=1e-6)
+    assert state.extra["budget_snapshot"]["billed_usd"] == pytest.approx(0.025, abs=1e-6)
 
 
 # --------------------------------------------------------------------- finding: degraded judge verdicts are glitches, not scores

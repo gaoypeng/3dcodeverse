@@ -126,18 +126,22 @@ def _run_phase(ctx: RunContext, tasks: Sequence[GenerationTask]) -> list[Generat
     results = fan_out(list(tasks), _one, max_workers=ctx.settings.limits.max_parallel_agents,
                       label="generate", item_name=lambda t: t.label)
     out: list[GenerationResult] = []
+    budget_stop: Exception | None = None
     for task, r in zip(tasks, results, strict=True):
         if isinstance(r, Exception):
             from codeverse.orchestrator.budget import BudgetExceeded
 
-            if isinstance(r, BudgetExceeded):
-                raise r
+            if isinstance(r, BudgetExceeded) and budget_stop is None:
+                budget_stop = r  # a failed item; the siblings' paid results still land in ``out``
             ctx.events.emit("generate.failed", label=task.label, error=f"{type(r).__name__}: {r}")
             out.append(GenerationResult(ok=False, notes=f"{type(r).__name__}: {r}", label=task.label))
         else:
             out.append(r)
     if not any(r.ok for r in out):
+        if budget_stop is not None:
+            raise budget_stop  # nothing usable survived the phase
         raise RoundFailed("; ".join(f"{r.label}: {r.notes}" for r in out) or "no generation task succeeded")
+    ctx.budget.check()  # phase boundary: single-shot money is booked non-enforcing upstream
     return out
 
 

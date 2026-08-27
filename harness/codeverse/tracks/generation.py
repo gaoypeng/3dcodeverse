@@ -251,7 +251,11 @@ def generate_files(
     )
     resp = model.generate(req)
     usage = resp.usage
-    _charge(budget, usage, task=task, label=task.label, outcome=str(resp.finish_reason or "ok"))
+    # book the money WITHOUT enforcing: the response is already paid for, and raising
+    # here would discard it before transcript/parse/write_files.  The ceiling is
+    # enforced at the round's phase boundary instead (steps._run_phase).
+    _charge(budget, usage, task=task, label=task.label, outcome=str(resp.finish_reason or "ok"),
+            enforce=False)
     if _is_truncated(resp):
         # cut off by max_output_tokens: the envelope is unterminated — one retry with
         # a doubled budget beats writing a half-file and burning repair attempts on it
@@ -265,7 +269,8 @@ def generate_files(
         req = req.model_copy(update={"max_output_tokens": min(task.max_output_tokens * 2, 65536)})
         resp = model.generate(req)
         usage = usage + resp.usage
-        _charge(budget, resp.usage, task=task, label=f"{task.label}.retry", outcome="truncated")
+        _charge(budget, resp.usage, task=task, label=f"{task.label}.retry", outcome="truncated",
+                enforce=False)
     traj = ws.trajectory_dir(task.label.replace("/", "_"), task.round)
     (traj / "prompt.md").write_text(f"# system\n{system}\n\n# user\n{task.prompt}\n")
     (traj / "response.md").write_text(resp.text or "")
@@ -353,9 +358,14 @@ def task_stage(task: GenerationTask) -> str:
 
 
 def _charge(
-    budget: Any | None, usage: Usage, *, task: GenerationTask, label: str, outcome: str = "ok"
+    budget: Any | None, usage: Usage, *, task: GenerationTask, label: str, outcome: str = "ok",
+    enforce: bool = True,
 ) -> None:
-    """Spend through the guard with the stage/label/round this task belongs to."""
+    """Spend through the guard with the stage/label/round this task belongs to.
+
+    ``enforce=False`` books the dollar without raising — the single-shot path uses it
+    so a paid response is still parsed and written to disk; the ceiling is enforced at
+    the round's phase boundary (``steps._run_phase``) after the work is persisted."""
     if budget is None:
         return
     budget.charge(
@@ -365,6 +375,7 @@ def _charge(
         label=label,
         round_index=task.round,
         outcome=outcome,
+        enforce=enforce,
     )
 
 

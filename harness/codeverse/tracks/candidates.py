@@ -81,10 +81,14 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
             results[k] = r
     records: list[CandidateRecord] = []
     renders: dict[int, RenderSet] = {}
+    budget_stop: BudgetExceeded | None = None
     for k, r in enumerate(results):
-        if isinstance(r, BudgetExceeded):
-            raise r
         if isinstance(r, Exception):
+            # a candidate that tripped the ceiling is a failed candidate, not the
+            # round's verdict: the sibling's finished work is still selected, adopted
+            # and persisted below; the guard's boundary check stops the run afterwards.
+            if isinstance(r, BudgetExceeded) and budget_stop is None:
+                budget_stop = r
             records.append(CandidateRecord(index=k, label=f"c{k}", workspace=str(subs[k].ws.root),
                                            notes=f"{type(r).__name__}: {r}"[:300]))
             ctx.events.emit("candidate.failed", candidate=k, error=f"{type(r).__name__}: {r}"[:300])
@@ -94,6 +98,8 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
         if rs is not None:
             renders[k] = rs
     if not any(r.commit for r in records):
+        if budget_stop is not None:
+            raise budget_stop  # nothing usable survived: the budget stop stands
         raise RoundFailed("; ".join(f"{r.label}: {r.notes}" for r in records) or "every candidate failed")
     best, note = select_candidate(ctx, records, renders)
     records[best].selected = True
@@ -118,6 +124,7 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
              f"(quick score {records[best].score if records[best].score is None else round(records[best].score, 3)}; others: {others or '-'})"]
     if note is not None:
         notes.append(note.line())
+    ctx.budget.check()  # boundary: the winner is adopted + persisted; a real ceiling stop lands here
     return run_round(ctx, index=0, kind="baseline", tasks=[], pipeline=pipeline, files_hint=list(files_hint),
                      extra_usage=usage, extra_notes=notes)
 

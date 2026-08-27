@@ -298,10 +298,8 @@ class SceneTrack(BaseTrack):
         out: dict[str, Any] = {}
         for batch, r in zip(batches, results, strict=True):
             if isinstance(r, Exception):
-                from codeverse.orchestrator.budget import BudgetExceeded
-
-                if isinstance(r, BudgetExceeded):
-                    raise r
+                # BudgetExceeded included: the sibling zones' paid modules are still
+                # recorded + committed; the guard's boundary check below stops the run.
                 for zone in batch:
                     out[zone.name] = {"ok": False, "notes": f"{type(r).__name__}: {r}"}
             else:
@@ -316,6 +314,7 @@ class SceneTrack(BaseTrack):
         self._record_skills(zone_gen, "zone")
         ctx.ws.commit("zones")
         ctx.events.emit("zones.done", ok=[k for k, v in out.items() if v["ok"]], failed=[k for k, v in out.items() if not v["ok"]])
+        ctx.budget.check()  # stage boundary: stop only after the finished zones are committed
         return out
 
     def _zone_task(self, ctx: RunContext, batch: list[ZonePlan]) -> GenerationTask:

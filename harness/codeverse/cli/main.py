@@ -396,7 +396,9 @@ def resume(
     max_usd: Annotated[
         float | None,
         typer.Option(
-            "--max-usd", min=0, help="raise the budget cap before resuming (rewrites spec.json)"
+            "--max-usd", min=0,
+            help="raise the budget cap before resuming (rewrites spec.json; prior spend is "
+            "restored on resume, so the run gets the new cap MINUS what it already spent)",
         ),
     ] = None,
     max_minutes: Annotated[

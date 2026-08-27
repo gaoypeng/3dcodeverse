@@ -406,8 +406,10 @@ Two helpers exist for the callers:
   but no tokens, so those rows have no token composition ($2.50 of $86.30).
   Wiring `record_call` at those call sites fixes it.
 * Wall clock per run is the sum of the stage/round clocks (the event span
-  includes hours a bench run spent queued behind other runs, and
-  `budget.elapsed_min` restarts on `3dcv resume`).
+  includes hours a bench run spent queued behind other runs).  `budget.elapsed_min`
+  is cumulative ACTIVE minutes: the budget snapshot carries `active_s` across
+  `3dcv resume`, so prior sessions' minutes still count against `max_minutes`
+  and downtime between sessions never does.
 * "Regression" waste is an upper bound: a round that scored worse still produced
   the diff that informed the next refine task.
 * The compare battery is only 2 prompts × 5 arms; its per-arm numbers are

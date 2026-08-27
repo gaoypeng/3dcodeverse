@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import TypeVar
 
 log = logging.getLogger(__name__)
 
@@ -33,13 +33,6 @@ class FanOutReport:
     n_failed: int
     durations_s: list[float] = field(default_factory=list)
     total_s: float = 0.0
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "label": self.label, "n_items": self.n_items, "n_ok": self.n_ok,
-            "n_failed": self.n_failed, "total_s": round(self.total_s, 2),
-            "max_item_s": round(max(self.durations_s), 2) if self.durations_s else 0.0,
-        }
 
 
 def _in_caller_context(snapshot: contextvars.Context, fn: Callable[[int], None], i: int) -> None:

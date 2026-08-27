@@ -26,7 +26,7 @@ from codeverse.contracts.plan import Plan
 from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse.contracts.spec import Spec
 from codeverse.events import EventLog
-from codeverse.orchestrator.budget import BudgetExceeded, BudgetGuard
+from codeverse.orchestrator.budget import BudgetExceeded, BudgetGuard, BudgetSnapshot
 from codeverse.orchestrator.rounds import (
     BestSelector,
     RefineTask,
@@ -330,7 +330,7 @@ class BaseTrack:
         except Exception as e:  # noqa: BLE001 — persist a FAILED record, then fail loud
             error = f"{type(e).__name__}: {e}"
             events.emit("run.failed", error=error, traceback=traceback.format_exc()[-3000:])
-            self._save_spent(ctx)  # mid-round charges must survive for resume
+            self._save_budget(ctx)  # mid-round charges must survive for resume
             state.status, state.error = RunStatus.FAILED, error
             state.save(ws)
             rec = self._record(ctx, rounds, RunStatus.FAILED, error=error, stop_reason="failed")
@@ -346,9 +346,15 @@ class BaseTrack:
         runtime = self._runtime or self.services.runtime(spec.language)
         budget = BudgetGuard(spec.budget, soft_fraction=self.soft_budget_fraction,
                              run=ws.root.name, ledger=run_ledger_path(ws))
-        spent = state.extra.get("spent_usage")
-        if spent:
-            budget.spent = Usage.model_validate(spent)
+        snap = state.extra.get("budget_snapshot")
+        if snap:
+            # full guard state: money, calls, buckets AND active minutes keep counting,
+            # so a raised --max-usd grants only the difference, never a fresh full cap.
+            budget.restore(BudgetSnapshot.model_validate(snap))
+        else:
+            spent = state.extra.get("spent_usage")  # legacy run dirs (pre-snapshot)
+            if spent:
+                budget.spent = Usage.model_validate(spent)
         n_cand = self._resolve_candidates(spec, state, settings)
         policy = ((self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds))
                   .with_candidates(n_cand).with_judge(spec.backends.judge))
@@ -419,7 +425,7 @@ class BaseTrack:
             plan = run_planner(ctx.spec, ctx.spec.backends.planner, self.plan_model, ctx.ws, model=self._planner_model,
                                events=ctx.events, budget=ctx.budget, runtime=ctx.runtime, **self._plan_kwargs(ctx.spec))
         finally:
-            self._save_spent(ctx)  # charged on success AND PlanningError
+            self._save_budget(ctx)  # charged on success AND PlanningError
         return plan
 
     def _plan_kwargs(self, spec: Spec) -> dict[str, Any]:
@@ -493,7 +499,7 @@ class BaseTrack:
                         best = choose_best_round(ctx, rounds, selector, last.index)
                         if best is not None and ctx.state.update_best(best, rounds[best].commit, rounds[best].score):
                             ctx.events.emit("best.updated", round=best, score=rounds[best].score)
-                        self._save_spent(ctx)
+                        self._save_budget(ctx)
                         continue  # decide() re-runs with the recovered score
                 tasks, instructions = self.refine_tasks(ctx, last, rounds, strategy=decision.strategy)
                 kind = kind_for_strategy(decision.strategy)
@@ -528,7 +534,7 @@ class BaseTrack:
             best = choose_best_round(ctx, rounds, selector, index)
             if best is not None and ctx.state.update_best(best, rounds[best].commit, rounds[best].score):
                 ctx.events.emit("best.updated", round=best, score=rounds[best].score)
-            self._save_spent(ctx)
+            self._save_budget(ctx)
 
     def _salvage_baseline(self, ctx: RunContext, rounds: list[RoundRecord]) -> None:
         """A stage tripped the budget BEFORE round 0 ever ran (the greenhouse scene:
@@ -563,15 +569,18 @@ class BaseTrack:
         ctx.state.mark_round_done(0, rec.commit)
         if ctx.state.update_best(0, rec.commit, rec.score):
             ctx.events.emit("best.updated", round=0, score=rec.score)
-        self._save_spent(ctx)
+        self._save_budget(ctx)
 
-    def _save_spent(self, ctx: RunContext) -> None:
-        ctx.state.extra["spent_usage"] = ctx.budget.spent.model_dump(mode="json")
+    def _save_budget(self, ctx: RunContext) -> None:
+        snap = ctx.budget.snapshot()
+        ctx.state.extra["budget_snapshot"] = snap.model_dump(mode="json")
+        # legacy mirror, kept for one release: older tooling/tests still read spent_usage
+        ctx.state.extra["spent_usage"] = snap.spent.model_dump(mode="json")
         ctx.state.save(ctx.ws)
 
     # ------------------------------------------------------------------ finalise
     def finalise(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, stop_reason: str, error: str = "") -> RunRecord:
-        self._save_spent(ctx)  # aborted-round / stage charges must survive for resume
+        self._save_budget(ctx)  # aborted-round / stage charges must survive for resume
         best = ctx.state.best_round
         if best is not None and best < len(rounds) and rounds[best].commit and self._needs_restore(ctx, rounds[best].commit):
             ctx.ws.restore(rounds[best].commit)

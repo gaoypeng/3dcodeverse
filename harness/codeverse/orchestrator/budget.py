@@ -32,6 +32,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 from codeverse.contracts.common import Budget, Usage
 from codeverse.cost.billing import bills_usd
 
@@ -69,6 +71,9 @@ class BudgetGuard:
     ):
         self.budget = budget
         self.start_time = time.time() if start_time is None else start_time
+        #: ACTIVE seconds carried over from previous sessions of this run (``restore``
+        #: sets it from the snapshot); downtime between sessions never counts.
+        self._active_s: float = 0.0
         self.spent = Usage()
         #: the share of ``spent.cost_usd`` that is money someone is actually charged.
         #: The ceilings enforce THIS, not ``spent.cost_usd`` — a backend on a flat-rate
@@ -186,8 +191,41 @@ class BudgetGuard:
         """``{stage: USD}`` charged against one round index (empty when none)."""
         return dict(self.by_round.get(int(round_index), {}))
 
+    # ----------------------------------------------------------------- resume snapshot
+    def snapshot(self) -> BudgetSnapshot:
+        """Point-in-time guard state for ``run_state.json`` so a resume continues the
+        SAME budget instead of a fresh one.  Grace and config are deliberately absent:
+        grace is one attempt's salvage headroom — persisting it would ratchet the hard
+        ceiling run over run, and the ceilings always come from the current spec."""
+        with self._lock:
+            return BudgetSnapshot(
+                spent=self.spent.model_copy(deep=True),
+                billed_usd=self.billed_usd,
+                calls=self.calls,
+                by_stage=dict(self.by_stage),
+                by_round={r: dict(per) for r, per in self.by_round.items()},
+                active_s=self._active_s + (time.time() - self.start_time),
+            )
+
+    def restore(self, snap: BudgetSnapshot) -> None:
+        """Adopt a snapshot: money, calls and buckets keep counting; ``start_time``
+        stays *now*, so ``elapsed_minutes`` is prior ACTIVE seconds plus this session
+        — never the downtime in between.  The ceilings come from the (possibly raised)
+        spec budget, so a raised ``--max-usd`` grants exactly the difference, never a
+        fresh full cap."""
+        with self._lock:
+            self.spent = snap.spent.model_copy(deep=True)
+            self.billed_usd = float(snap.billed_usd)
+            self.calls = int(snap.calls)
+            self.by_stage = dict(snap.by_stage)
+            self.by_round = {int(r): dict(per) for r, per in snap.by_round.items()}
+            self._active_s = float(snap.active_s)
+            self.start_time = time.time()
+
     def elapsed_minutes(self) -> float:
-        return (time.time() - self.start_time) / 60.0
+        """Cumulative ACTIVE minutes: prior sessions' seconds (restored from the
+        snapshot) plus this session's wall clock.  Downtime costs nothing."""
+        return (self._active_s + (time.time() - self.start_time)) / 60.0
 
     # ----------------------------------------------------------------- ceilings
     @property
@@ -295,6 +333,25 @@ class BudgetGuard:
     def stage_summary(self) -> dict[str, float]:
         """``{stage: USD}`` over the whole run (what the ``cost.round`` events add up to)."""
         return {k: round(v, 6) for k, v in sorted(self.by_stage.items(), key=lambda kv: -kv[1])}
+
+
+class BudgetSnapshot(BaseModel):
+    """What survives a resume (``run_state.extra["budget_snapshot"]``).
+
+    The five accumulator fields of :class:`BudgetGuard` plus cumulative ACTIVE
+    seconds.  Grace (``grace_usd``/``grace_minutes``) and config (ceilings, soft
+    fraction, run, ledger) are EXCLUDED on purpose: grace is per-attempt salvage
+    headroom — persisting it would ratchet the hard ceiling — and config always
+    comes from the current spec/settings."""
+
+    version: int = 1
+    spent: Usage
+    billed_usd: float
+    calls: int
+    by_stage: dict[str, float]
+    #: matches the ``BudgetGuard.by_round`` / ``round_costs()`` shape
+    by_round: dict[int, dict[str, float]]
+    active_s: float
 
 
 def usage_delta(after: Usage, before: Usage) -> Usage:

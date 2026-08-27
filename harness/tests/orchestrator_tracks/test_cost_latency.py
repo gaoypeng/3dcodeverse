@@ -286,14 +286,15 @@ def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path,
     services = FakeServices(assemble=True)
 
     def writer(job, ws_):
-        if job.label.startswith("zones_") or job.label.startswith("zone_"):
-            # the greenhouse hole: the zone fan-out crosses the ceiling mid-stage
-            raise BudgetExceeded("cost $9.99 exceeds max_usd $5.00", spent_usd=9.99, elapsed_min=61.0)
         if job.label == "env":
             return {"src/env.js": "export function buildEnv(){}\n"}
+        if job.label.startswith("zones_") or job.label.startswith("zone_"):
+            return {rel: "export function build(){}\n" for rel in (job.files_hint or ["src/zones/x.js"])}
         return {f"src/assets/{job.label[6:]}.js": f"export function build(){{}} // {job.label}\n"}
 
-    track = SceneTrack(services=services, judge=FakeJudge(scores=(0.58,)), agent=FakeAgent(writer),
+    # the greenhouse hole: 2 asset sessions + env stay under $5; the zone session's own
+    # (real, guard-enforced) charge crosses the ceiling mid-stage: $1.30 × 4 = $5.20
+    track = SceneTrack(services=services, judge=FakeJudge(scores=(0.58,)), agent=FakeAgent(writer, cost=1.3),
                        planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
                        runtime=FakeRuntime(Language.SCENE_THREEJS))
     rec = track.run(spec, ws)

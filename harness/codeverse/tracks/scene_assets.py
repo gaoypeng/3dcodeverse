@@ -143,10 +143,9 @@ def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, 
     out: dict[str, AssetResult] = {}
     for asset, r in zip(assets, results, strict=True):
         if isinstance(r, Exception):
-            from codeverse.orchestrator.budget import BudgetExceeded
-
-            if isinstance(r, BudgetExceeded):
-                raise r
+            # a BudgetExceeded worker is a failed asset like any other: the siblings'
+            # finished modules are still shimmed + committed below, and the guard's own
+            # boundary check stops the run AFTER the paid work is persisted.
             out[asset.name] = AssetResult(name=asset.name, kind=asset.kind, ok=False, notes=f"{type(r).__name__}: {r}")
             ctx.events.emit("asset.failed", asset=asset.name, error=f"{type(r).__name__}: {r}")
         else:
@@ -155,6 +154,7 @@ def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, 
     ctx.ws.commit("assets")
     ctx.events.emit("assets.done", ok=[n for n, r in out.items() if r.ok], failed=[n for n, r in out.items() if not r.ok],
                     strategies={n: r.strategy for n, r in out.items() if r.strategy}, variant_shims=shims)
+    ctx.budget.check()  # stage boundary: stop only after the finished assets are committed
     return out
 
 
@@ -355,9 +355,12 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
     except Exception as e:  # noqa: BLE001
         events.emit("asset.judge_failed", asset=asset.name, error=f"{type(e).__name__}: {e}")
         return result
-    ctx.budget.charge(verdict.usage)
+    # persist the verdict on the result FIRST, then book the money non-enforcing like
+    # every other judge site (steps.py, candidates.py): the verdict is already paid
+    # for, and raising here would discard it.  The stage boundary enforces the ceiling.
     result.score = verdict.overall
     result.judged = True
+    ctx.budget.add(verdict.usage, stage="judge", role="judge", label=f"asset_{to_snake(asset.name)}")
     events.emit("asset.judged", asset=asset.name, score=round(verdict.overall, 3), passed=verdict.passed)
     if verdict.passed or not verdict.improvement_plan:
         return result

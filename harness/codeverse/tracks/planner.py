@@ -120,23 +120,20 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
          event_stats: EventStats | None = None) -> P:
     """Plan and write ``ws.plan_path``.  ``model`` may be injected (tests).
 
-    The money budget is charged on success AND on ``PlanningError`` — a failed
-    re-ask (and the brief that preceded it) is still paid for."""
-    try:
-        result, usage = plan_with_usage(spec, model_id, plan_model, ws, model=model, events=events, runtime=runtime,
-                                        template=template, example=example, temperature=temperature,
-                                        max_output_tokens=max_output_tokens, finalise=finalise, event_stats=event_stats)
-    except PlanningError as e:
-        if budget is not None:
-            budget.charge(e.usage)
-        raise
+    Every attempt's money is booked inside ``plan_with_usage`` the moment it is
+    paid (brief, first call, each re-ask) — success, ``PlanningError`` and a crash
+    on a LATER attempt all leave the earlier dollars in the guard.  The ceilings
+    are enforced once here, after the plan is written."""
+    result, _ = plan_with_usage(spec, model_id, plan_model, ws, model=model, events=events, guard=budget,
+                                runtime=runtime, template=template, example=example, temperature=temperature,
+                                max_output_tokens=max_output_tokens, finalise=finalise, event_stats=event_stats)
     if budget is not None:
-        budget.charge(usage)
+        budget.check()
     return result
 
 
 def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Workspace, *, model: Any | None = None,
-                    events: Any | None = None, runtime: Any | None = None, template: str | None = None,
+                    events: Any | None = None, guard: Any | None = None, runtime: Any | None = None, template: str | None = None,
                     example: dict[str, Any] | None = None, temperature: float = 0.4, max_output_tokens: int = 24000,
                     finalise: FinalisePlan | None = None, event_stats: EventStats | None = None) -> tuple[P, Usage]:
     """Optional brief expansion → one structured planner call → up to two re-asks.
@@ -155,7 +152,14 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     Output room comes from :func:`plan_tokens` (the budget sizes it), and a
     ``finish_reason=MAX_TOKENS`` error buys ONE more attempt with half again as much room
     instead of killing the run — the deeper plan is longer JSON and Gemini bills thinking
-    against the same ceiling."""
+    against the same ceiling.
+
+    ``guard`` (a ``BudgetGuard``; named so because ``budget`` is this function's local
+    PlanBudget) is booked with a non-enforcing ``add`` the moment each call is PAID —
+    brief, first call, every re-ask — so a later attempt that raises can never erase an
+    earlier attempt's dollars.  ``PlanningError`` still carries the total usage for
+    guard-less callers; when ``guard`` is given those dollars are already booked and the
+    caller must NOT charge them again (:func:`plan` just runs one final ``check()``)."""
     if model is None:
         from codeverse.models import get_chat_model
 
@@ -163,6 +167,8 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     brief, usage = (None, Usage())
     if brief_enabled(spec):
         brief, usage = expand_brief(spec, model_id, model=model, events=events)
+        if guard is not None and (usage.cost_usd or usage.input_tokens or usage.output_tokens):
+            guard.add(usage, stage="plan", role="planner", label="planner-brief")
     budget = plan_budget(spec, brief)
     unit = "passes" if spec.track is Track.GRAPHICS else "parts"
     system = build_system_prompt(spec, plan_model, runtime=runtime, template=template, example=example, budget=budget)
@@ -188,6 +194,10 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
                 events.emit("plan.truncated", attempt=attempt, max_output_tokens=tokens)
             continue
         usage = usage + resp.usage
+        if guard is not None:
+            # booked where it is paid: a later attempt that raises cannot erase this dollar
+            guard.add(resp.usage, stage="plan", role="planner",
+                      label=f"planner{'-retry' if attempt else ''}")
         raw = resp.parsed if resp.parsed is not None else _parse_json(resp.text)
         try:
             if not isinstance(raw, dict):

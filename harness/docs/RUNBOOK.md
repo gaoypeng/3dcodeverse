@@ -144,7 +144,9 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 ## 5. Resume, re-render, re-judge, texture, export
 
 ```bash
-3dcv resume <slug> [--candidates N]     # continues from run_state + stages/*.json (input-hash cached; budget restored)
+3dcv resume <slug> [--candidates N]     # continues from run_state + stages/*.json (input-hash cached).  The budget
+                                        # SNAPSHOT is restored: money/calls/active-minutes already spent still count,
+                                        # so a raised --max-usd grants only the difference (downtime is never billed)
 3dcv render <slug> [--round N] [--mode shaded|wire|normals|clay|silhouette] [--out dir]
 3dcv judge <slug> [--round N] [--rubric static_object_v1] [--model gemini:gemini-3.1-pro-preview] [--n 3]
                                         # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json
