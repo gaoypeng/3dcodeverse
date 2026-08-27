@@ -1296,20 +1296,33 @@ remaining session / round budget (~1 430 s/run) — (2) hedge a 503 retry across
 the ceiling inside a round (837 s sooner on killed runs) — (7) flash as the loop judge (~60 s
 baseline) — (8) 30 s render cap (≤ 100 s).  (1)–(3) and the key/attempt ledger fields landed the same afternoon (§27's follow-up paragraphs).
 
-## 29. Fewer turns (in measurement) — `CV3D_FEWER_TURNS`, branch `fewer-turns`
+## 29. Fewer turns — first turn read out (`CV3D_FEWER_TURNS`, `turns_v1`, 2026-08-26)
 
-static_v2_flash (20 blender object runs, healthy provider, api-agent gemini-3.7-flash): wall median
-1 047 s, of which 823 s (79 %) is model time = **196 flash calls per run** at 4.2 s mean (p50 2.8 s;
-latency scales with prompt size — 1.3 s below 20 k tokens, 4.1 s at 80 k; prompt p50 35 k, output
-p50 **20 tokens**).  Most turns are one tiny tool call carrying a 35–70 k context; prefix caching
-already covers 84 % of input tokens, so the cost is round trips, not tokens.  The BASELINE session
-hits the 60-turn cap in every run (write_file 22.5, build 8, read_file 7.5, check_connectivity 4.6,
-check_contract 4.1 per session); REFINE sessions (5.3/run, 24 turns median) read_file 5.2, build 5.1,
-write_file 4.6, check_connectivity 3.8, check_contract 2.8.  Capping turns is NOT the lever (§17).
-So, behind one switch, default OFF: (1) `build` folds check_connectivity + check_contract into its
-observation (~44 turns/run); (2) write_file / edit_file return `(N lines) · syntax OK` or the first
-3 lint errors instead of being read back (~35 turns/run); (3) a scoped refine task ≤ 3 files /
-≤ 12 k chars gets its files inlined; (4) the baseline prompt asks for every file in turn one.
-Run: `python bench/ab_plan.py --prompts bench/prompts/turns_v1.yaml --out bench/out/turns_v1 --pin-plan --variant-env CV3D_FEWER_TURNS=1 --generator api-agent:gemini:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --rounds 3 --max-minutes 120 --max-in-flight 8 --allow-siblings`
-Read out, paired per prompt: wall (s), turns per session (baseline / refine), model calls per run,
-score (control vs variant, sign count) — and whether the baseline session still hits the cap.
+Six blender prompts, plan-pinned pairs, flash, 3 rounds, storm afternoon; variant = `build` folds
+connectivity + contract in, `write_file` returns a lint verdict, refine inlines ≤ 3 files, the
+baseline prompt asks for every file in turn one.
+
+| prompt | score off → on | sessions | flash calls | model s | wall s | $ |
+|---|---|---|---|---|---|---|
+| dining_chair | 0.946 → 0.969 | 6 → 6 | 177 → 96 | 1327 → 731 | 1459 → 1716 | 1.66 → 1.08 |
+| hand_drill | 0.600 → 0.528 | 6 → 15 | 142 → 272 | 1498 → 3343 | 1991 → 3068 | 1.82 → 3.16 |
+| coffee_grinder | 0.937 → 0.600 | 7 → 3 | 291 → 100 | 2505 → 1225 | 5190 → 3528 | 2.54 → 1.50 |
+| machinist_vise | 0.576 → 0.600 | 6 → 10 | 183 → 170 | 1427 → 1495 | 2648 → 2116 | 2.28 → 2.19 |
+| spiral_stair | 0.961 → 0.750 | 3 → 2 | 83 → 66 | 631 → 510 | 1534 → 1268 | 1.22 → 1.04 |
+| drafting_table | 0.600 → 0.928 | 7 → 3 | 223 → 77 | 1338 → 432 | 3026 → 899 | 2.51 → 1.21 |
+
+Paired, n=6: score **−0.041** (sd 0.229, sign 3/6 — inside the 0.202 floor); variant/control
+ratios **calls 0.81, model time 0.91, wall 0.89, cost 0.88**.  Per session the variant spends
+~25 % fewer turns and never calls `check_connectivity` / `check_contract` (build carries them),
+but the number of refine sessions per run is what moves the total (6 → 15 on the drill, 7 → 3 on
+the table): the fan-out is decided by how many refine targets the judge and the folded-in gate
+findings produce, not by the switch.  The two 0.6 results on the ON arm are `missing_must`
+caps — sessions that finished earlier and verified less.  `read_file` did not drop (41–47 on
+the vise / drill): the reads are of *other* part files, which the ≤ 3-file inlining does not
+cover.
+
+Verdict: stays **OFF** by default.  Keep the two mechanical pieces (checks folded into `build`,
+the write verdict) — they cost nothing and remove a class of turn; the next turn of this loop
+caps refine fan-out per round and inlines the whole part set under a size budget, and A/Bs the
+turn-discipline prompt on its own, since "finish in fewer turns" is where the must-item misses
+come from.
