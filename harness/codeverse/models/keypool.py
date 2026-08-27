@@ -39,12 +39,14 @@ class KeyPoolExhausted(RuntimeError):
     """Every key is cooling down / throttled and the wait budget ran out."""
 
 
-MAX_WAIT_S = 5.0
+MAX_WAIT_S = 3.0
 """The longest any single retry / cooldown wait may be (seconds).
 
-House rule (owner, 2026-08-24): with 22 keys there is always another key to try,
-so the harness rotates rather than sitting out a long backoff.  Patience comes
-from the NUMBER of attempts, never from the length of one sleep.
+House rule (owner, 2026-08-24, tightened 5 s -> 3 s on 2026-08-27): with 22 keys
+there is always another key to try, so the harness rotates rather than sitting
+out a long backoff.  Patience comes from the NUMBER of attempts, never from the
+length of one sleep.  This is the single source for every wait — generic
+backoff, storm sleeps, 429 cooldowns and the storm gate's park all clip to it.
 """
 
 ACQUIRE_TIMEOUT_S = 120.0
@@ -283,7 +285,7 @@ class KeyPool:
                     f"all {len(self._states)} keys throttled or dead; the earliest becomes "
                     f"available in {soonest - now:.0f}s (> {timeout_s}s wait budget)"
                 )
-            wait = max(0.01, min(soonest - now, 5.0))
+            wait = max(0.01, min(soonest - now, MAX_WAIT_S))
             if deadline is not None and self._clock() + wait > deadline:
                 raise KeyPoolExhausted(
                     f"all {len(self._states)} keys throttled; waited {timeout_s}s"

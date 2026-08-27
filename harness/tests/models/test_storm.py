@@ -38,11 +38,11 @@ def test_open_gate_never_waits():
 def test_a_hit_closes_the_gate_and_the_next_worker_parks():
     gate, clock = make(base_delay=4.0)
     closed = gate.hit()
-    assert closed == 4.0
+    assert closed == min(4.0, MAX_WAIT_S)   # the house cap clips the gate's own delay
     assert gate.storming
     waited = gate.enter()
-    assert waited >= 4.0
-    assert gate.parked_s >= 4.0
+    assert waited >= closed
+    assert gate.parked_s >= closed
 
 
 class Parked(Exception):

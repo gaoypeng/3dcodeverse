@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from codeverse.models.keypool import KeyPool, KeyPoolExhausted, TokenBucket
+from codeverse.models.keypool import MAX_WAIT_S, KeyPool, KeyPoolExhausted, TokenBucket
 
 
 class Clock:
@@ -71,12 +71,14 @@ def test_rpm_bucket_blocks_then_refills():
 
 
 def test_all_cooling_blocks_until_cooldown_ends():
+    # a cooldown longer than the house cap is clipped to it: no single wait may
+    # exceed MAX_WAIT_S, patience comes from the number of attempts
     pool, clock = make(keys=("a", "b"), cooldown_s=5)
     for k in ("a", "b"):
         pool.report(k, "429")
     t0 = clock.t
     assert pool.acquire(timeout_s=60) in ("a", "b")
-    assert clock.t - t0 >= 5 - 1e-6
+    assert MAX_WAIT_S - 1e-6 <= clock.t - t0 <= 5 + 1e-6
     with pytest.raises(KeyPoolExhausted):
         pool.report("a", "429")
         pool.report("b", "429")

@@ -97,7 +97,7 @@ codeverse/
                       (request/response shapes per provider), parts.py; gemini.py (dead-key + free 429 rotation), gemini_image.py (ImageModel),
                       anthropic.py openai.py, keypool.py ('dead' outcome + TPM reservation/reconcile),
                       tokens.py (prompt-token estimate for the TPM bucket), pricing.py (version-suffix-only
-                      fallback), retry.py (MAX_WAIT_S: no single wait > 5 s), storm.py (shared 503 gate —
+                      fallback), retry.py (MAX_WAIT_S: no single wait > 3 s), storm.py (shared 503 gate —
                       measured, ships OFF, see docs/COST.md §21), health.py (preflight probe: is the model
                       serving? no retries, no backoff), schema_utils.py (strict schema), registry.py
   agents/             CodingAgent; gemini_cli.py claude_code.py codex.py antigravity.py api_agent.py

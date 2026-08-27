@@ -994,7 +994,7 @@ per-cell latency, so a long battery run in that state wants a *bigger time budge
 (`--max-minutes 180`), not a smaller `--parallel`.
 
 What *did* make storms cheap is smaller and already in the retry loop: no single wait
-may exceed `MAX_WAIT_S` = 5 s (patience comes from the number of attempts, 60 of them),
+may exceed `MAX_WAIT_S` = 3 s (5 s until 2026-08-27; patience comes from the number of attempts, 60 of them),
 so a storm no longer blocks a worker for minutes — and with `--parallel 8` and
 `max_in_flight 64` the other seven cells keep working through it.  Deferring a
 storm-hit item to the back of the queue was **not** built: at the gate-off settings a

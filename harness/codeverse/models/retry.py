@@ -37,7 +37,7 @@ RETRY_DEADLINE_S = 900.0
 
 #: how many keys a retry is spread over once a call has met its first 503/529.
 #: Measured 2026-08-26 §5.2: a failed 503 costs the 21-50 s round-trip the provider
-#: holds before rejecting (not the <= 5 s sleep), storm streaks average 4.7 attempts,
+#: holds before rejecting (not the <= MAX_WAIT_S sleep), storm streaks average 4.7 attempts,
 #: and a 503 bills nothing — so racing the next attempt on two fresh keys is free.
 DEFAULT_HEDGE = 2
 
@@ -160,7 +160,7 @@ def rotate_with_retries[T](
       call is it a
     * **capacity storm** (the whole pool is out of capacity, the backstop): that gets
       its own patience budget — up to ``storm_attempts`` waits with
-      backoff capped at ``storm_max_delay`` = 5 s per wait (the house rule), so
+      backoff capped at ``storm_max_delay`` = ``MAX_WAIT_S`` per wait (the house rule), so
       patience comes from the NUMBER of waits (60 x <=5 s ~ 5 min) rather than
       from long sleeps that do NOT consume ``max_attempts``.  Observed 2026-08-23: a
       multi-minute gemini-3.7-flash "high demand" outage killed 8 bench runs
@@ -175,7 +175,7 @@ def rotate_with_retries[T](
     FIRST 503/529 of a call onwards, every further attempt is issued on up to ``hedge``
     distinct keys at once and the first success wins.  Why: on the 2026-08-26 storm
     day the cost of a failed 503 was the **21-50 s round-trip** the provider held
-    before rejecting, not the <= 5 s sleep (logged sleep was 13 % of the wait), and
+    before rejecting, not the <= MAX_WAIT_S sleep (logged sleep was 13 % of the wait), and
     storm streaks averaged **4.7 attempts** — racing two keys cuts the expected number
     of rounds to ~1.7.  A 503 bills nothing, so while it is storming the hedge is free;
     the price is paid only when BOTH keys answer: the second success is discarded and
