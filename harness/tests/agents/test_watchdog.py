@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+import signal
 import sys
 import time
 from pathlib import Path
+
+import pytest
 
 from codeverse.agents.watchdog import run_with_watchdog
 
@@ -92,3 +95,54 @@ def test_file_mtime_counts_as_activity(tmp_path: Path):
     res = run_with_watchdog([PY, "-c", code], cwd=tmp_path, env=None, soft_timeout_s=1, idle_grace_s=1.5,
                             hard_timeout_s=30, poll_s=0.2, scan_s=0.3, activity_dirs=[src])
     assert res.rc == 0 and not res.timed_out
+
+
+def _raise_ki(signum: int, frame: object) -> None:
+    raise KeyboardInterrupt
+
+
+@pytest.mark.timeout(60, method="thread")  # thread method: the test drives SIGALRM itself
+def test_keyboard_interrupt_kills_the_group(tmp_path: Path):
+    """A KI in the poll loop used to leak the whole start_new_session tree (no
+    try/finally anywhere) — and Ctrl-C's SIGINT never reaches that tree on its own.
+    The group must die and the KI must still propagate."""
+    pid_file = tmp_path / "pid"
+    code = (
+        "import os, pathlib, sys, time\n"
+        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n"
+        "time.sleep(300)\n"
+    )
+    old = signal.signal(signal.SIGALRM, _raise_ki)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, 0.8)  # lands in time.sleep(poll_s)
+        with pytest.raises(KeyboardInterrupt):
+            run_with_watchdog([PY, "-c", code, str(pid_file)], cwd=tmp_path, env=None,
+                              soft_timeout_s=120, idle_grace_s=120, hard_timeout_s=300, poll_s=0.1)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, old)
+    pgid = int(pid_file.read_text())
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return  # gone and reaped
+        time.sleep(0.05)
+    raise AssertionError(f"process group {pgid} survived the KeyboardInterrupt")
+
+
+@pytest.mark.timeout(60, method="thread")
+def test_child_that_never_reads_a_big_stdin_still_times_out(tmp_path: Path):
+    """The prompt used to be written SYNCHRONOUSLY in the main thread before the
+    poll loop started: a child that doesn't read >64 KiB of stdin blocked
+    proc.stdin.write() forever and BOTH timeouts were dead.  Reachable for real:
+    codex delivers prompts via stdin exactly when they exceed STDIN_PROMPT_BYTES
+    (100 kB).  1 MB of stdin into a child that never reads it must still die on
+    the clocks."""
+    t0 = time.monotonic()
+    res = run_with_watchdog([PY, "-c", "import time; time.sleep(300)"], cwd=tmp_path, env=None,
+                            soft_timeout_s=0.5, idle_grace_s=0.5, hard_timeout_s=8, poll_s=0.2,
+                            stdin="x" * 1_000_000)
+    assert res.timed_out and res.killed_reason in ("idle", "hard_timeout")
+    assert time.monotonic() - t0 < 30

@@ -10,7 +10,9 @@ Three clocks govern a run:
 * ``hard_timeout_s`` — absolute ceiling; kill regardless (``"hard_timeout"``).
 
 The child is started in its own session so ``os.killpg`` takes the whole
-tree (node → chrome, blender, mcp servers ...).
+tree (node → chrome, blender, mcp servers ...).  The process lifecycle itself
+(pipes, pump threads, stdin writer, kill-on-exception, drain, reap) lives in
+:class:`codeverse.proc.ManagedProcess`; this module owns only the clocks.
 """
 
 from __future__ import annotations
@@ -25,12 +27,20 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from codeverse.proc import ManagedProcess
+
 _SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".gemini", ".gemini_home"}
 
 
 @dataclass
 class CompletedProc:
-    """Outcome of :func:`run_with_watchdog`."""
+    """Outcome of :func:`run_with_watchdog`.
+
+    ``stdout``/``stderr`` are bounded to ``codeverse.proc.STREAM_BUDGET_BYTES`` per
+    stream (head + tail kept, truncation marker in between); the ``*_lines`` lists
+    are derived from those bounded texts — streaming consumers that must see every
+    line unconditionally use ``on_line``.
+    """
 
     rc: int
     stdout: str
@@ -73,19 +83,12 @@ def _latest_mtime(dirs: Iterable[Path]) -> float:
     return latest
 
 
-def _pump(stream, sink: list[str], tracker: ActivityTracker, on_line: Callable[[str, str], None] | None, tag: str) -> None:
-    for raw in iter(stream.readline, b""):
-        line = raw.decode("utf-8", errors="replace").rstrip("\n")
-        sink.append(line)
-        tracker.touch()
-        if on_line is not None:
-            with contextlib.suppress(Exception):  # observer bugs must not kill the pump
-                on_line(tag, line)
-    stream.close()
-
-
 def kill_process_group(proc: subprocess.Popen, grace_s: float = 5.0) -> None:
-    """SIGTERM the child's process group, then SIGKILL after ``grace_s``."""
+    """SIGTERM the child's process group, then SIGKILL after ``grace_s``.
+
+    Kept as the public utility for raw ``Popen`` holders; ``ManagedProcess.terminate``
+    implements the same contract for the managed path (``proc.py`` is stdlib-only and
+    cannot import this module)."""
     if proc.poll() is not None:
         return
     try:
@@ -119,6 +122,15 @@ def run_with_watchdog(
     ``on_line(stream, line)`` is called for every line (stream is ``"stdout"``
     or ``"stderr"``).  ``activity_dirs`` (default ``cwd/src``) are polled for
     mtime changes (every ``scan_s``) that also count as activity.
+
+    Since 2026-08-27 the process lifecycle lives in
+    :class:`codeverse.proc.ManagedProcess`; this function keeps only the clocks.
+    Fixed by that move: a KeyboardInterrupt anywhere in the poll loop kills the
+    group before propagating (it used to orphan the whole node → chrome tree —
+    SIGINT never reaches a ``start_new_session`` child); stdin is written from a
+    helper thread, so a child that never reads a >64 KiB prompt (codex pipes
+    prompts >100 kB via stdin) can no longer wedge the main thread before the
+    clocks start; captured output is bounded per stream (head+tail + marker).
     """
     if hard_timeout_s is None:
         hard_timeout_s = max(soft_timeout_s * 1.5, soft_timeout_s + 600.0)
@@ -127,52 +139,39 @@ def run_with_watchdog(
     tracker = ActivityTracker()
     t0 = time.monotonic()
     _reject_control_chars(cmd, cwd)
-    proc = subprocess.Popen(
-        list(cmd), cwd=str(cwd), env=dict(env) if env is not None else None,
-        stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
-    )
-    out: list[str] = []
-    err: list[str] = []
-    threads = [
-        threading.Thread(target=_pump, args=(proc.stdout, out, tracker, on_line, "stdout"), daemon=True),
-        threading.Thread(target=_pump, args=(proc.stderr, err, tracker, on_line, "stderr"), daemon=True),
-    ]
-    for t in threads:
-        t.start()
-    if stdin is not None:
-        try:
-            proc.stdin.write(stdin.encode("utf-8"))  # type: ignore[union-attr]
-            proc.stdin.close()  # type: ignore[union-attr]
-        except BrokenPipeError:
-            pass
+
+    def observe(stream: str, line: str) -> None:
+        tracker.touch()
+        if on_line is not None:
+            on_line(stream, line)  # ManagedProcess suppresses observer exceptions
 
     killed = ""
-    last_mtime = _latest_mtime(dirs)
-    next_scan = t0 + scan_s
-    while proc.poll() is None:
-        now = time.monotonic()
-        elapsed = now - t0
-        if now >= next_scan:
-            m = _latest_mtime(dirs)
-            if m > last_mtime:
-                last_mtime = m
-                tracker.touch()
-            next_scan = now + scan_s
-        if elapsed >= hard_timeout_s:
-            killed = "hard_timeout"
-        elif elapsed >= soft_timeout_s and tracker.idle_for() >= idle_grace_s:
-            killed = "idle"
-        if killed:
-            kill_process_group(proc)
-            break
-        time.sleep(poll_s)
-    for t in threads:
-        t.join(timeout=10)
-    rc = proc.returncode if proc.returncode is not None else -9
+    with ManagedProcess(cmd, cwd=cwd, env=env, stdin_text=stdin, on_line=observe) as mp:
+        last_mtime = _latest_mtime(dirs)
+        next_scan = t0 + scan_s
+        while mp.poll() is None:
+            now = time.monotonic()
+            elapsed = now - t0
+            if now >= next_scan:
+                m = _latest_mtime(dirs)
+                if m > last_mtime:
+                    last_mtime = m
+                    tracker.touch()
+                next_scan = now + scan_s
+            if elapsed >= hard_timeout_s:
+                killed = "hard_timeout"
+            elif elapsed >= soft_timeout_s and tracker.idle_for() >= idle_grace_s:
+                killed = "idle"
+            if killed:
+                mp.terminate()  # TERM → 5 s grace → KILL: the kill_process_group contract
+                break
+            time.sleep(poll_s)
+    rc = mp.returncode if mp.returncode is not None else -9
+    out_text, err_text = mp.stdout_text, mp.stderr_text
     return CompletedProc(
-        rc=rc, stdout="\n".join(out), stderr="\n".join(err), duration_s=time.monotonic() - t0,
-        timed_out=bool(killed), killed_reason=killed, stdout_lines=out, stderr_lines=err,
+        rc=rc, stdout=out_text, stderr=err_text, duration_s=time.monotonic() - t0,
+        timed_out=bool(killed), killed_reason=killed,
+        stdout_lines=out_text.splitlines(), stderr_lines=err_text.splitlines(),
     )
 
 

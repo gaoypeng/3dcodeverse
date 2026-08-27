@@ -5,12 +5,17 @@ from __future__ import annotations
 import json
 import os
 import resource
+import signal
 import sys
 import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from codeverse.proc import (
+    STREAM_BUDGET_BYTES,
+    ManagedProcess,
     ProcResult,
     append_jsonl_line,
     iter_jsonl_lines,
@@ -298,3 +303,90 @@ def test_scrub_secrets_stays_in_sync_with_agents_cli_common():
               + ["PATH", "HOME", "NODE_PATH", "TOKENIZERS_PARALLELISM"])
     for name in probes:
         assert is_secret_env(name) == (name not in scrub_secrets({name: "v"})), name
+
+
+# --------------------------------------------------------------------------- ManagedProcess lifecycle
+def _raise_ki(signum: int, frame: object) -> None:
+    raise KeyboardInterrupt
+
+
+def _assert_group_gone(pgid: int, timeout_s: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return  # every member is dead AND reaped
+        time.sleep(0.05)
+    raise AssertionError(f"process group {pgid} is still alive")
+
+
+#: writes its own pid to argv[1], then hangs — a child that ignores nothing.
+_PID_THEN_SLEEP = (
+    "import os, pathlib, sys, time\n"
+    "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n"
+    "time.sleep(300)\n"
+)
+
+
+@pytest.mark.timeout(60, method="thread")  # thread method: the test drives SIGALRM itself
+def test_keyboard_interrupt_kills_the_group(tmp_path: Path):
+    """``start_new_session`` puts the child outside the terminal's foreground group,
+    so Ctrl-C's SIGINT NEVER reaches it — the parent's KeyboardInterrupt must kill
+    the group itself.  Pre-fix there was no try/finally around communicate(): every
+    interrupt during a blender/node run orphaned the whole tree (the wedged-browser
+    incident).  The KI must still propagate to the caller."""
+    pid_file = tmp_path / "pid"
+    old = signal.signal(signal.SIGALRM, _raise_ki)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, 0.8)  # fires while run_subprocess blocks in wait()
+        with pytest.raises(KeyboardInterrupt):
+            run_subprocess([sys.executable, "-c", _PID_THEN_SLEEP, str(pid_file)],
+                           cwd=tmp_path, timeout_s=120)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, old)
+    _assert_group_gone(int(pid_file.read_text()))
+
+
+def test_invalid_utf8_replaces_instead_of_raising(tmp_path: Path):
+    """text=True with a strict decode raised UnicodeDecodeError out of communicate()
+    — one bad byte lost the whole result.  Now: U+FFFD, like the JSONL readers here."""
+    r = run_subprocess(
+        [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'ok \\xff\\xfe end')"],
+        cwd=tmp_path, timeout_s=30,
+    )
+    assert r.returncode == 0 and not r.timed_out
+    assert r.stdout == "ok �� end"
+
+
+@pytest.mark.timeout(120)
+def test_huge_output_is_bounded_head_and_tail(tmp_path: Path):
+    """Output used to be collected unbounded in RAM (and written whole to the
+    trajectory).  ~48 MB in → at most the budget (+ marker) out, keeping both ends."""
+    code = (
+        "import sys\n"
+        "w = sys.stdout.buffer.write\n"
+        "w(b'HEADSTART\\n')\n"
+        "chunk = b'x' * (1 << 20)\n"
+        "for _ in range(48):\n"
+        "    w(chunk)\n"
+        "w(b'\\nTAILEND\\n')\n"
+    )
+    r = run_subprocess([sys.executable, "-c", code], cwd=tmp_path, timeout_s=110)
+    assert r.returncode == 0 and not r.timed_out
+    assert len(r.stdout) <= STREAM_BUDGET_BYTES + 200  # the budget plus the truncation marker
+    assert r.stdout.startswith("HEADSTART")            # head survived
+    assert r.stdout.rstrip("\n").endswith("TAILEND")   # tail survived
+    assert "bytes dropped" in r.stdout                 # marker sits between them
+    cut = r.stdout.index("bytes dropped")
+    assert "x" * 1000 in r.stdout[:cut] and "x" * 1000 in r.stdout[cut:]
+
+
+def test_managed_process_reaps_on_exit_no_zombie(tmp_path: Path):
+    with ManagedProcess([sys.executable, "-c", "print('hi')"], cwd=tmp_path) as mp:
+        mp.wait(timeout=30)
+        pid = mp.pid
+    assert mp.stdout_text.strip() == "hi"
+    with pytest.raises(ChildProcessError):
+        os.waitpid(pid, os.WNOHANG)  # __exit__ already reaped it — no zombie left
