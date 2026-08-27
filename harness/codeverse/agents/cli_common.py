@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -78,15 +77,14 @@ def default_mcp_command(ws: Workspace, *, language: str = "", track: str = "", r
 
 
 def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
-    """The 3dcv MCP command for this job: ``.mcp.json`` (materialised) > ``job.mcp_command`` > default."""
-    mcp = ws.root / ".mcp.json"
-    if mcp.is_file():
-        try:
-            srv = (json.loads(mcp.read_text()).get("mcpServers") or {}).get("3dcv")
-        except json.JSONDecodeError:
-            srv = None
-        if srv and srv.get("command"):
-            return [srv["command"], *srv.get("args", [])]
+    """The 3dcv MCP command for this job, from the TYPED job: ``job.mcp_command`` > default.
+
+    It deliberately does NOT read the workspace's ``.mcp.json``.  That file lives where
+    the agent works and every CLI backend runs unsandboxed inside it, so an agent that
+    rewrote it in round 0 chose what executable the NEXT round's codex/claude launched —
+    with provider credentials in the environment, and (for codex) outside the
+    ``--sandbox workspace-write`` its own shell obeys.  The command is rebuilt from the
+    job every session instead; nothing on disk can redirect it (audit 2026-08-27)."""
     if job.mcp_command:
         return list(job.mcp_command)
     return default_mcp_command(ws, language=job.language, track=job.track, round_index=job.round)

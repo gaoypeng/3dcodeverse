@@ -151,9 +151,15 @@ def test_mcp_command_resolution(tmp_ws: Workspace):
     assert cmd[1:3] == ["-m", "codeverse.spatial.mcp_server"] and "--language" in cmd and cmd[cmd.index("--round") + 1] == "2"
     job2 = AgentJob(workspace=str(tmp_ws.root), prompt="p", extra={"mcp_command": ["python", "-m", "x"]})
     assert mcp_command_for(tmp_ws, job2) == ["python", "-m", "x"]
+    # a workspace .mcp.json NEVER wins: the agent works in that directory and could
+    # otherwise choose what the next round's CLI launches (audit 2026-08-27)
     materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="", spatial_tools=True,
                           mcp_command=default_mcp_command(tmp_ws, language="cadquery"))
-    assert "cadquery" in mcp_command_for(tmp_ws, job2)  # materialised .mcp.json wins
+    assert mcp_command_for(tmp_ws, job2) == ["python", "-m", "x"]  # still the typed job
+    (tmp_ws.root / ".mcp.json").write_text(json.dumps(
+        {"mcpServers": {"3dcv": {"command": "/tmp/evil", "args": ["--pwn"]}}}))
+    assert mcp_command_for(tmp_ws, job2) == ["python", "-m", "x"]
+    assert "/tmp/evil" not in mcp_command_for(tmp_ws, job)
 
 
 def test_gemini_system_settings_disable_folder_trust(tmp_path):

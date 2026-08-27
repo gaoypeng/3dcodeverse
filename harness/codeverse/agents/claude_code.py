@@ -28,10 +28,12 @@ from codeverse.agents.cli_common import (
     hardened_env,
     invoke,
     is_transient_failure,
+    mcp_command_for,
     release_session,
     tail,
     watchdog_error,
 )
+from codeverse.agents.materialize import MCP_SERVER_NAME, MCP_TOOL_TIMEOUT_MS
 from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Usage
@@ -135,9 +137,16 @@ class ClaudeCodeAgent:
                 "--allowedTools", ",".join(ALLOWED_TOOLS)]
         if self.model:
             argv += ["--model", self.model]
-        mcp = s.ws.root / ".mcp.json"
-        if job.spatial_tools and mcp.is_file():
-            argv += ["--mcp-config", str(mcp), "--strict-mcp-config"]
+        if job.spatial_tools:
+            # written fresh into the harness-owned trajectory dir for THIS session, from
+            # the typed job — never the workspace's .mcp.json, which the agent can rewrite
+            # between rounds to choose what the next session launches (audit 2026-08-27)
+            cfg = s.traj.dir / "mcp.json"
+            cmd = mcp_command_for(s.ws, job)
+            cfg.write_text(json.dumps(
+                {"mcpServers": {MCP_SERVER_NAME: {"type": "stdio", "command": cmd[0], "args": cmd[1:],
+                                                  "timeout": MCP_TOOL_TIMEOUT_MS}}}, indent=2))
+            argv += ["--mcp-config", str(cfg), "--strict-mcp-config"]
         else:
             argv += ["--strict-mcp-config"]  # never inherit the user's ambient MCP servers
         if job.system_append:
