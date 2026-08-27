@@ -345,8 +345,10 @@ class SceneTrack(BaseTrack):
                       "The recipes printed in the first brief apply to every zone in this session.\n")
             prompt = header + "\n\n---\n\n".join(briefs)
             label = "zones_" + "_".join(to_snake(n) for n in names)
+        # the batch exclusively owns its zone files; env/scene/asset files belong to other sessions
         return GenerationTask(label=label, prompt=prompt, system=self.system_prompt(ctx), files_hint=files,
-                              round=0, kind="zone", temperature=0.5, timeout_s=ctx.budget.timeout_s(ZONE_TIMEOUT_S, floor_s=180))
+                              round=0, kind="zone", temperature=0.5, edit_only=True,
+                              timeout_s=ctx.budget.timeout_s(ZONE_TIMEOUT_S, floor_s=180))
 
     def _assemble_stage(self, ctx: RunContext) -> dict[str, Any]:
         try:
@@ -359,7 +361,7 @@ class SceneTrack(BaseTrack):
         prompt = render("tracks/scene_compose.j2", **self._ctx(ctx))
         ctx.record_prompt("scene_compose", prompt)
         task = GenerationTask(label="compose", prompt=prompt, system=self.system_prompt(ctx), files_hint=["src/scene.js"], round=0,
-                              kind="compose", temperature=0.4, images=reference_images(ctx))
+                              kind="compose", temperature=0.4, owns_entry=True, images=reference_images(ctx))
         task = self._deliver_skills(ctx, "compose", [task])[0]
         res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
                        budget=ctx.budget, events=ctx.events)
@@ -403,8 +405,9 @@ class SceneTrack(BaseTrack):
                                                               judge_summary=judge_digest(last),
                                                               current_files=current_files(ctx, files) if ctx.single_shot else {}))
         ctx.record_prompt("scene_refine", prompt)
+        # parallel groups are file-disjoint by plan_refine_groups: enforce the split they promised
         return GenerationTask(label=f"refine_{group.label}" if parallel else "refine", prompt=prompt, system=self.system_prompt(ctx),
-                              files_hint=files, round=index, kind="refine", temperature=0.4,
+                              files_hint=files, round=index, kind="refine", temperature=0.4, edit_only=parallel,
                               timeout_s=ctx.budget.timeout_s(REFINE_TIMEOUT_S, floor_s=180, soft=False))
 
     def _rebuild_task(self, ctx: RunContext, last: RoundRecord, index: int) -> GenerationTask:

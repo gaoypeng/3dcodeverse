@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -356,6 +357,17 @@ class Workspace:
         if roots:
             self._git("checkout", "-q", commit, "--", *roots)
         self._git("add", "-A")
+
+    def restore_paths(self, commit: str, paths: Sequence[str]) -> None:
+        """Make just ``paths`` match ``commit`` (worktree + index; everything else untouched).
+
+        Used by the CLI post-hoc write-scope check (``agents/cli_common.finish_session``):
+        an ``edit_only`` session's out-of-scope writes are rolled back to the session's own
+        ``pre:`` commit without disturbing its in-scope work.  Every path must exist in
+        ``commit`` — the caller passes only modified/deleted paths, which by definition did."""
+        if not paths:
+            return
+        self._git("checkout", "-q", commit, "--", *paths)
 
     def diff(self, a: str, b: str = "HEAD") -> str:
         return self._git("diff", a, b, "--", "src", "public").stdout

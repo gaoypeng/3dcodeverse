@@ -28,6 +28,7 @@ from codeverse.agents.cli_common import (
     hardened_env,
     invoke,
     is_transient_failure,
+    release_session,
     tail,
     watchdog_error,
 )
@@ -150,37 +151,40 @@ class ClaudeCodeAgent:
     def run(self, job: AgentJob) -> AgentResult:
         ok, why = self.available()
         s = begin_session(job, self.kind)
-        if not ok:
-            return failed(s, "error", why)
-        prompt = deliver_prompt(s, job.prompt)
-        proc = invoke(s, self.build_argv(s, prompt), self.build_env(s), prompt=prompt)
-        env = parse_claude_json(proc.stdout)
-        usage = usage_from_envelope(env, self.model) if env else Usage(backend=self.kind, model=self.model)
-        usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
-        text = str((env or {}).get("result") or "")
-        turns = int((env or {}).get("num_turns") or 0)
-        errors: list[str] = []
-        if proc.timed_out:
-            reason, ok = "timeout", False
-            errors.append(watchdog_error(proc))
-        elif env is None or proc.rc != 0:
-            reason, ok = "error", False
-            errors.append(f"rc={proc.rc}; no result envelope; stderr tail: {tail(proc.stderr, 1500)}")
-            if is_transient_failure(proc.stderr, proc.stdout):
-                reason = "budget" if "rate" in proc.stderr.lower() else "error"
-        elif env.get("is_error") or str(env.get("subtype", "")).startswith("error"):
-            ok = False
-            sub = str(env.get("subtype", ""))
-            reason = "budget" if "max_turns" in sub else "error"
-            errors.append(f"claude reported {sub or 'is_error'}: {tail(text, 800)}")
-        else:
-            reason, ok = "completed", True
-        return finish_session(
-            s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=max(turns - 1, 0),
-            errors=errors, rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns,
-            session_id=(env or {}).get("session_id", ""), subtype=(env or {}).get("subtype", ""),
-            model_usage=(env or {}).get("modelUsage", {}),
-        )
+        try:
+            if not ok:
+                return failed(s, "error", why)
+            prompt = deliver_prompt(s, job.prompt)
+            proc = invoke(s, self.build_argv(s, prompt), self.build_env(s), prompt=prompt)
+            env = parse_claude_json(proc.stdout)
+            usage = usage_from_envelope(env, self.model) if env else Usage(backend=self.kind, model=self.model)
+            usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
+            text = str((env or {}).get("result") or "")
+            turns = int((env or {}).get("num_turns") or 0)
+            errors: list[str] = []
+            if proc.timed_out:
+                reason, ok = "timeout", False
+                errors.append(watchdog_error(proc))
+            elif env is None or proc.rc != 0:
+                reason, ok = "error", False
+                errors.append(f"rc={proc.rc}; no result envelope; stderr tail: {tail(proc.stderr, 1500)}")
+                if is_transient_failure(proc.stderr, proc.stdout):
+                    reason = "budget" if "rate" in proc.stderr.lower() else "error"
+            elif env.get("is_error") or str(env.get("subtype", "")).startswith("error"):
+                ok = False
+                sub = str(env.get("subtype", ""))
+                reason = "budget" if "max_turns" in sub else "error"
+                errors.append(f"claude reported {sub or 'is_error'}: {tail(text, 800)}")
+            else:
+                reason, ok = "completed", True
+            return finish_session(
+                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=max(turns - 1, 0),
+                errors=errors, rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns,
+                session_id=(env or {}).get("session_id", ""), subtype=(env or {}).get("subtype", ""),
+                model_usage=(env or {}).get("modelUsage", {}),
+            )
+        finally:
+            release_session(s)
 
 
 __all__ = ["ClaudeCodeAgent", "parse_claude_json", "primary_served_model", "usage_from_envelope", "ALLOWED_TOOLS"]

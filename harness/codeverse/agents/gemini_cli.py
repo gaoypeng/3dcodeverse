@@ -36,6 +36,7 @@ from codeverse.agents.cli_common import (
     invoke,
     is_quota_failure,
     is_transient_failure,
+    release_session,
     tail,
     watchdog_error,
 )
@@ -178,41 +179,44 @@ class GeminiCliAgent:
     def run(self, job: AgentJob) -> AgentResult:
         ok, why = self.available()
         s = begin_session(job, self.kind)
-        if not ok:
-            return failed(s, "error", why)
-        prompt = deliver_prompt(s, _compose_prompt(job))
-        pool = _key_pool(get_settings().gemini_api_keys)
         try:
-            key = pool.acquire()
-        except KeyPoolExhausted as e:  # every key throttled for the whole wait budget
-            return failed(s, "budget", f"Gemini key pool exhausted before the first attempt: {e}")
-        attempts = 0
-        used: set[str] = set()
-        usage_total = Usage(backend=self.kind, model=self.model)
-        while True:
-            attempts += 1
-            used.add(key)
-            proc = self._invoke(s, prompt, key, attempt=attempts)
-            outcome = self._interpret(s, proc)
-            usage_total = usage_total + outcome["usage"]
-            pool.report(key, "429" if outcome["quota"] else ("ok" if outcome["ok"] else "5xx"))
-            pool.release()  # one acquire per attempt: keep the pool's in-flight gauge honest
-            if outcome["ok"] or outcome["exit_reason"] in ("timeout", "model_substituted") or not outcome["transient"] or attempts >= 2:
-                break
-            next_key = _retry_key(pool, used)
-            if next_key is None:
-                s.notes.append(f"attempt {attempts} transient failure ({outcome['exit_reason']}); no usable key for a retry")
-                break
-            key = next_key
-            how = "rotated key" if key not in used else "same key (no alternative available)"
-            s.notes.append(f"attempt {attempts} transient failure ({outcome['exit_reason']}); retrying with {how}")
-            s.traj.append("retry", attempt=attempts, reason=outcome["errors"][:1])
-        usage_total.cost_usd = round(usage_total.cost_usd, 6)
-        return finish_session(
-            s, ok=outcome["ok"], exit_reason=outcome["exit_reason"], text=outcome["text"],
-            usage=usage_total, tool_calls=usage_total.tool_calls, errors=outcome["errors"],
-            attempts=attempts, rc=proc.rc, killed_reason=proc.killed_reason, session_id=outcome.get("session_id", ""),
-        )
+            if not ok:
+                return failed(s, "error", why)
+            prompt = deliver_prompt(s, _compose_prompt(job))
+            pool = _key_pool(get_settings().gemini_api_keys)
+            try:
+                key = pool.acquire()
+            except KeyPoolExhausted as e:  # every key throttled for the whole wait budget
+                return failed(s, "budget", f"Gemini key pool exhausted before the first attempt: {e}")
+            attempts = 0
+            used: set[str] = set()
+            usage_total = Usage(backend=self.kind, model=self.model)
+            while True:
+                attempts += 1
+                used.add(key)
+                proc = self._invoke(s, prompt, key, attempt=attempts)
+                outcome = self._interpret(s, proc)
+                usage_total = usage_total + outcome["usage"]
+                pool.report(key, "429" if outcome["quota"] else ("ok" if outcome["ok"] else "5xx"))
+                pool.release()  # one acquire per attempt: keep the pool's in-flight gauge honest
+                if outcome["ok"] or outcome["exit_reason"] in ("timeout", "model_substituted") or not outcome["transient"] or attempts >= 2:
+                    break
+                next_key = _retry_key(pool, used)
+                if next_key is None:
+                    s.notes.append(f"attempt {attempts} transient failure ({outcome['exit_reason']}); no usable key for a retry")
+                    break
+                key = next_key
+                how = "rotated key" if key not in used else "same key (no alternative available)"
+                s.notes.append(f"attempt {attempts} transient failure ({outcome['exit_reason']}); retrying with {how}")
+                s.traj.append("retry", attempt=attempts, reason=outcome["errors"][:1])
+            usage_total.cost_usd = round(usage_total.cost_usd, 6)
+            return finish_session(
+                s, ok=outcome["ok"], exit_reason=outcome["exit_reason"], text=outcome["text"],
+                usage=usage_total, tool_calls=usage_total.tool_calls, errors=outcome["errors"],
+                attempts=attempts, rc=proc.rc, killed_reason=proc.killed_reason, session_id=outcome.get("session_id", ""),
+            )
+        finally:
+            release_session(s)
 
     def _invoke(self, s: Session, prompt: str, key: str, *, attempt: int) -> CompletedProc:
         return invoke(s, self.build_argv(prompt), self.build_env(s, key), prompt=prompt, attempt=attempt,

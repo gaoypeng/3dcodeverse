@@ -137,6 +137,13 @@ class GenerationTask(BaseModel):
         default=False,
         description="enforce files_hint as the only existing files this session may overwrite",
     )
+    owns_entry: bool = Field(
+        default=False,
+        description="this task may write the language entry file even under edit_only (assembly / "
+        "whole-object / single-file tasks, and scoped refines whose prompt promises entry access). "
+        "A task whose files_hint names the entry owns it implicitly; part / zone / detail / asset "
+        "tasks default to False so parallel scoped sessions cannot race on the entry file",
+    )
     phase: int = Field(
         default=0,
         ge=0,
@@ -298,7 +305,8 @@ def generate_files(
         if events is not None:
             events.emit("generate.skipped_path", label=task.label, path=path, reason=reason[:200])
 
-    changes = write_files(ws, files, allowed_roots=allowed_roots, on_skip=_skip)
+    changes = write_files(ws, files, allowed_roots=allowed_roots,
+                          only=_scope_only(ws, task), on_skip=_skip)
     if events is not None:
         events.emit(
             "generate.done",
@@ -396,15 +404,7 @@ def run_agent_task(
     # typed job context honoured by every CodingAgent: round → trajectory dir + ToolContext,
     # language/track → spatial tool filtering, files_hint → per-session attribution of
     # files_changed when tasks run concurrently in ONE workspace (see agents/cli_common).
-    language = track = ""
-    spec_path = ws.spec_path
-    if spec_path.is_file():
-        try:
-            spec_d = ws.read_json(spec_path)
-            language = str(spec_d.get("language", ""))
-            track = str(spec_d.get("track", ""))
-        except Exception:  # noqa: BLE001 — best effort context only
-            pass
+    language, track = _spec_lang_track(ws)
     # extra mirrors the typed fields until every agent backend reads job.round/… directly
     extra: dict[str, Any] = {
         "round": task.round,
@@ -429,7 +429,7 @@ def run_agent_task(
         files_hint=list(task.files_hint),
         extra=extra,
         edit_only=task.edit_only,
-        always_writable=_always_writable(language),
+        always_writable=_always_writable(language, task),
         read_only=_read_only(language),
         images=list(task.images),
         **({"max_turns": turns_cap} if turns_cap > 0 else {}),
@@ -592,14 +592,40 @@ def session_turns(res: Any) -> int:
     return 0
 
 
-def _always_writable(language: str) -> list[str]:
-    """The entry file is exempt from ``edit_only``: adding a part means importing it there."""
+def _spec_lang_track(ws: Workspace) -> tuple[str, str]:
+    """Best-effort ``(language, track)`` from the workspace's spec.json ("" when absent)."""
+    if not ws.spec_path.is_file():
+        return "", ""
+    try:
+        spec_d = ws.read_json(ws.spec_path)
+    except Exception:  # noqa: BLE001 — best effort context only
+        return "", ""
+    return str(spec_d.get("language", "")), str(spec_d.get("track", ""))
+
+
+def _always_writable(language: str, task: GenerationTask) -> list[str]:
+    """The entry file, exempt from ``edit_only`` — but only for a task that OWNS it.
+
+    Owning tasks: ``owns_entry=True`` (assembly / whole-object / single-file tasks, and
+    scoped refines whose prompt promises entry access) or a ``files_hint`` naming the
+    entry.  Part / zone / detail / asset tasks own nothing here — under the old
+    unconditional exemption, parallel scoped sessions raced on the entry file unopposed."""
     from codeverse.contracts.common import ENTRY_FILE, Language
 
     try:
-        return [ENTRY_FILE[Language(language)]]
+        entry = ENTRY_FILE[Language(language)]
     except (ValueError, KeyError):
         return []
+    return [entry] if task.owns_entry or entry in task.files_hint else []
+
+
+def _scope_only(ws: Workspace, task: GenerationTask) -> set[str] | None:
+    """``write_files``'s scope for an ``edit_only`` single-shot task: the files_hint plus
+    the entry file when the task owns it (the envelope-path mirror of FileTools)."""
+    if not task.edit_only or not task.files_hint:
+        return None
+    language, _ = _spec_lang_track(ws)
+    return {f for f in task.files_hint if f} | set(_always_writable(language, task))
 
 
 def _read_only(language: str) -> list[str]:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 
 from codeverse.contracts.agent import FileChange
@@ -130,6 +130,7 @@ def write_files(
     files: dict[str, str],
     *,
     allowed_roots: tuple[str, ...] = ALLOWED_ROOTS,
+    only: Collection[str] | None = None,
     on_skip: Callable[[str, str], None] | None = None,
 ) -> list[FileChange]:
     """Write parsed files under the workspace; returns git-style FileChange rows.
@@ -137,7 +138,13 @@ def write_files(
     A block whose path is unsafe, outside ``allowed_roots`` (flash models love
     to add README.md / package.json despite the format rule) or unwritable is
     SKIPPED — reported via ``on_skip`` — instead of aborting the whole write:
-    the valid files were already paid for."""
+    the valid files were already paid for.
+
+    ``only`` (an ``edit_only`` task's file scope, entry included when owned) skips a
+    path that ALREADY EXISTS and is not listed — new files stay allowed, mirroring
+    ``FileTools``: the single-shot envelope has no write-time gate, so this is where a
+    scoped task is stopped from rewriting a sibling's file."""
+    scope = {_clean_path(p) for p in only} if only is not None else None
     changes: list[FileChange] = []
     for raw, content in files.items():
         try:
@@ -149,6 +156,12 @@ def write_files(
             continue
         dest = ws.root / rel
         existed = dest.exists()
+        if scope is not None and existed and rel not in scope:
+            reason = f"out of scope: {rel} already exists and is not in this task's file list"
+            if on_skip is not None:
+                on_skip(raw, reason)
+            log.warning("skipping out-of-scope file from generator: %s", rel)
+            continue
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(content if content.endswith("\n") else content + "\n")

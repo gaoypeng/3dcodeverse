@@ -74,7 +74,8 @@ class AgentJob(BaseModel):
     )
     always_writable: list[str] = Field(
         default_factory=list,
-        description="files exempt from edit_only (the entry file: adding a part means importing it there)",
+        description="files exempt from edit_only (the entry file, and only when the task OWNS it — "
+        "see GenerationTask.owns_entry: adding a part means importing it there)",
     )
     read_only: list[str] = Field(
         default_factory=list,

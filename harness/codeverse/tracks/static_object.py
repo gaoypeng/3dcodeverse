@@ -259,6 +259,8 @@ class StaticObjectTrack(BaseTrack):
                     temperature=0.5,
                     thinking="medium",
                     images=images,
+                    # scope.files is this session's whole world; the entry belongs to assemble
+                    edit_only=True,
                 )
             )
         entry = self.entry_files(ctx)
@@ -278,6 +280,7 @@ class StaticObjectTrack(BaseTrack):
                 temperature=0.3,
                 thinking="high",
                 images=images,
+                owns_entry=True,  # the assembly session is the entry file's one owner
             )
         )
         ctx.events.emit(
@@ -353,6 +356,7 @@ class StaticObjectTrack(BaseTrack):
             thinking="medium",
             images=reference_images(ctx) + judged_sheet(last),
             edit_only=scoped,
+            owns_entry=True,  # refine_object.j2 promises entry-file access even when scoped
         )
 
     # ------------------------------------------------------------------ detail round
@@ -401,6 +405,8 @@ class StaticObjectTrack(BaseTrack):
                         kind=DETAIL_KIND,
                         temperature=0.6,
                         thinking="high",
+                        # detail is file-disjoint per scope; the entry gains no surface detail
+                        edit_only=True,
                     )
                 )
         else:
@@ -426,6 +432,7 @@ class StaticObjectTrack(BaseTrack):
                     kind=DETAIL_KIND,
                     temperature=0.6,
                     thinking="high",
+                    owns_entry=True,  # whole-object pass: files_hint is the full tree
                 )
             )
         ctx.record_prompt("detail", tasks[0].prompt)

@@ -27,6 +27,7 @@ from codeverse.agents.cli_common import (
     hardened_env,
     invoke,
     mcp_command_for,
+    release_session,
     tail,
     watchdog_error,
 )
@@ -164,33 +165,36 @@ class CodexAgent:
     def run(self, job: AgentJob) -> AgentResult:
         ok, why = self.available()
         s = begin_session(job, self.kind)
-        if not ok:
-            return failed(s, "error", why)
-        prompt = _compose_prompt(job)
-        via_stdin = len(prompt.encode("utf-8")) > STDIN_PROMPT_BYTES
-        argv = self.build_argv(s, None if via_stdin else prompt)
-        events = CodexEvents()
-        proc = invoke(s, argv, self.build_env(s), prompt=prompt, stdout_name="stdout.jsonl",
-                      on_stdout=events.feed, stdin=prompt if via_stdin else None)
-        usage = events.usage(self.model)
-        usage.latency_ms = int(proc.duration_s * 1000)
-        text = "\n\n".join(m for m in events.messages if m.strip())
-        errors = list(events.errors)
-        if proc.timed_out:
-            ok, reason = False, "timeout"
-            errors.append(watchdog_error(proc))
-        elif proc.rc != 0 or events.n_events == 0:
-            ok, reason = False, "error"
-            errors.append(f"rc={proc.rc}; events={events.n_events}; stderr tail: {tail(proc.stderr, 1500)}")
-        elif events.errors and events.turns_completed == 0:
-            ok, reason = False, "error"
-        else:
-            ok, reason = True, "completed"
-        return finish_session(
-            s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=events.tool_calls, errors=errors,
-            rc=proc.rc, killed_reason=proc.killed_reason, thread_id=events.thread_id,
-            turns_completed=events.turns_completed, usage_raw=events.usage_raw,
-        )
+        try:
+            if not ok:
+                return failed(s, "error", why)
+            prompt = _compose_prompt(job)
+            via_stdin = len(prompt.encode("utf-8")) > STDIN_PROMPT_BYTES
+            argv = self.build_argv(s, None if via_stdin else prompt)
+            events = CodexEvents()
+            proc = invoke(s, argv, self.build_env(s), prompt=prompt, stdout_name="stdout.jsonl",
+                          on_stdout=events.feed, stdin=prompt if via_stdin else None)
+            usage = events.usage(self.model)
+            usage.latency_ms = int(proc.duration_s * 1000)
+            text = "\n\n".join(m for m in events.messages if m.strip())
+            errors = list(events.errors)
+            if proc.timed_out:
+                ok, reason = False, "timeout"
+                errors.append(watchdog_error(proc))
+            elif proc.rc != 0 or events.n_events == 0:
+                ok, reason = False, "error"
+                errors.append(f"rc={proc.rc}; events={events.n_events}; stderr tail: {tail(proc.stderr, 1500)}")
+            elif events.errors and events.turns_completed == 0:
+                ok, reason = False, "error"
+            else:
+                ok, reason = True, "completed"
+            return finish_session(
+                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=events.tool_calls, errors=errors,
+                rc=proc.rc, killed_reason=proc.killed_reason, thread_id=events.thread_id,
+                turns_completed=events.turns_completed, usage_raw=events.usage_raw,
+            )
+        finally:
+            release_session(s)
 
 
 def _compose_prompt(job: AgentJob) -> str:

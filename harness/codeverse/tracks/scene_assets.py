@@ -230,7 +230,10 @@ def _generate_asset(ctx: RunContext, asset: AssetPlan, rel: str, *, language: La
                           system=("You write ONE self-contained three.js ESM asset module. Raw three.js only; no DOM; no texture loading."
                                   if language is Language.SCENE_THREEJS else
                                   "You write ONE raw bpy script (src/model.py) that builds a single scene asset. No SDKs, no render/export calls."),
-                          files_hint=[rel], round=attempt, kind="asset", temperature=0.5, timeout_s=timeout_s)
+                          files_hint=[rel], round=attempt, kind="asset", temperature=0.5, timeout_s=timeout_s,
+                          # threejs assets share the scene workspace (a stray write would hit
+                          # zones/env); blender heroes own their whole sub-workspace
+                          edit_only=language is Language.SCENE_THREEJS)
     return generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
                     budget=ctx.budget, events=ctx.events)
 
@@ -364,7 +367,8 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
         asset_size=asset.approx_size_m, asset_file=files[0], asset_language=language.value, fix_instructions=instructions,
         current_code=_read(ctx.ws, files[0]) if ctx.single_shot else ""))
     task = GenerationTask(label=f"asset_{to_snake(asset.name)}_fix", prompt=prompt, files_hint=files, round=1, kind="asset_fix",
-                          temperature=0.4, timeout_s=ctx.budget.timeout_s(ASSET_AGENT_TIMEOUT_S, floor_s=120))
+                          temperature=0.4, edit_only=language is Language.SCENE_THREEJS,
+                          timeout_s=ctx.budget.timeout_s(ASSET_AGENT_TIMEOUT_S, floor_s=120))
     res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
                    budget=ctx.budget, events=ctx.events)
     if res.ok:

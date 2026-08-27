@@ -181,6 +181,38 @@ class Session:
     attempt: int = 1
     files_hint: frozenset[str] = frozenset()
     live: _LiveSession | None = None
+    ws_lock: threading.RLock | None = None
+
+
+# --------------------------------------------------------------------------- serialisation
+#: agent kinds whose sessions are EXCLUSIVE per workspace.  CLI agents have no
+#: write-time enforcement (FileTools guards only the in-process api-agent), and both
+#: session snapshots run ``git add -A`` — a late-starting session's ``pre:`` commit
+#: absorbs a sibling's in-flight writes, which makes concurrent provenance (and any
+#: per-path rollback, see :func:`_enforce_scope`) unfixable after the fact.  So CLI
+#: sessions on one workspace are serialised; the main generator (api-agent) keeps its
+#: full parallelism because its writes are scope-checked as they happen.
+EXCLUSIVE_KINDS = frozenset({"claude-code", "codex", "gemini-cli", "agy"})
+
+_WS_SESSION_LOCKS: dict[str, threading.RLock] = {}
+_WS_SESSION_LOCKS_GUARD = threading.Lock()
+
+
+def _session_lock(ws: Workspace) -> threading.RLock:
+    """One re-entrant lock per workspace root.  Re-entrant so a thread that begins a
+    session it never finishes (argv-building tests do) cannot deadlock itself; real
+    sessions begin, finish and release on their own worker thread."""
+    with _WS_SESSION_LOCKS_GUARD:
+        return _WS_SESSION_LOCKS.setdefault(str(ws.root), threading.RLock())
+
+
+def release_session(s: Session) -> None:
+    """Release ``s``'s workspace lock (idempotent).  ``finish_session`` always calls it;
+    the CLI backends also call it in a ``finally`` so a session that crashes between
+    begin and finish cannot starve every later session on the same workspace."""
+    lock, s.ws_lock = s.ws_lock, None
+    if lock is not None:
+        lock.release()
 
 
 def _session_label(ws: Workspace, label: str, round_index: int) -> tuple[str, int]:
@@ -194,7 +226,11 @@ def _session_label(ws: Workspace, label: str, round_index: int) -> tuple[str, in
 
 
 def begin_session(job: AgentJob, kind: str) -> Session:
-    """Create the trajectory dir, write prompt.md and snapshot src/ (``pre:<label>``)."""
+    """Create the trajectory dir, write prompt.md and snapshot src/ (``pre:<label>``).
+
+    For :data:`EXCLUSIVE_KINDS` the per-workspace session lock is taken BEFORE the
+    ``pre:`` commit and held until ``finish_session`` releases it — see the constant's
+    comment for why concurrent CLI sessions in one workspace are unfixable."""
     ws = Workspace(job.workspace)
     if not ws.root.is_dir():
         raise FileNotFoundError(f"workspace does not exist: {ws.root}")
@@ -205,10 +241,45 @@ def begin_session(job: AgentJob, kind: str) -> Session:
     traj = Trajectory(ws.trajectory_dir(label, round_index))
     traj.write_prompt(job.prompt, job.system_append)
     hints = frozenset(h for h in (str(x).strip() for x in job.files_hint) if h)
-    live = _register(ws, label, hints)
-    head_before = ws.commit(f"pre:{label}")
+    lock = _session_lock(ws) if kind in EXCLUSIVE_KINDS else None
+    if lock is not None:
+        lock.acquire()
+    try:
+        live = _register(ws, label, hints)
+        head_before = ws.commit(f"pre:{label}")
+    except BaseException:
+        if lock is not None:
+            lock.release()
+        raise
     return Session(ws=ws, job=job, kind=kind, label=label, round_index=round_index,
-                   traj=traj, head_before=head_before, attempt=attempt, files_hint=hints, live=live)
+                   traj=traj, head_before=head_before, attempt=attempt, files_hint=hints,
+                   live=live, ws_lock=lock)
+
+
+def _enforce_scope(s: Session) -> list[str]:
+    """Restore an ``edit_only`` session's out-of-scope writes; returns the restored paths.
+
+    Post-hoc, because the CLI backends have no write-time file gate.  A PRE-EXISTING
+    file that changed and is neither in ``files_hint`` nor always-writable (the entry
+    file, when the task owns it) is out of scope; new files stay allowed — the exact
+    contract ``FileTools`` enforces for the api-agent.  Only safe because sessions on
+    one workspace are serialised (:data:`EXCLUSIVE_KINDS`): ``head_before`` holds no
+    sibling's in-flight work, so restoring to it cannot destroy anyone else's files."""
+    if not (s.job.edit_only and s.files_hint):
+        return []
+    allowed = s.files_hint | frozenset(
+        h for h in (str(x).strip() for x in s.job.always_writable) if h)
+    out: list[str] = []
+    for f in s.ws.changed_files(s.head_before):
+        parts = Path(f.path).parts
+        if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in HARNESS_OWNED_FILES:
+            continue
+        if f.status == "added" or _hinted(f.path, allowed):
+            continue
+        out.append(f.path)
+    if out:
+        s.ws.restore_paths(s.head_before, out)
+    return out
 
 
 def finish_session(
@@ -223,20 +294,36 @@ def finish_session(
     **extra: Any,
 ) -> AgentResult:
     """Commit the agent's work, compute ``files_changed`` via git (attributed to this
-    session — see :func:`attribute_changes`), write result.json."""
-    s.ws.commit(f"agent:{s.label}")
-    siblings = _sibling_hints(s.ws, s.live) if s.live is not None else frozenset()
-    files = attribute_changes(s.ws.changed_files(s.head_before), write_roots=s.job.write_roots,
-                              own_hints=s.files_hint, sibling_hints=siblings)
-    res = AgentResult(
-        ok=ok, exit_reason=exit_reason, text=text, files_changed=files,
-        transcript_path=str(s.traj.transcript_path if s.traj.transcript_path.exists() else s.traj.dir),
-        usage=usage, duration_s=round(time.monotonic() - s.t0, 3), tool_calls=tool_calls,
-        errors=list(errors or []),
-    )
-    s.traj.write_result(res, kind=s.kind, label=s.label, round=s.round_index, attempt=s.attempt, job_label=s.job.label,
-                        head_before=s.head_before, head_after=s.ws.head(), notes=s.notes, **extra)
-    return res
+    session — see :func:`attribute_changes`), write result.json.
+
+    ``edit_only`` jobs are scope-checked here for the CLI backends (they have no
+    write-time gate): out-of-scope changes to pre-existing files are restored to this
+    session's own ``pre:`` commit and the session is failed (:func:`_enforce_scope`)."""
+    try:
+        errors = list(errors or [])
+        restored = _enforce_scope(s)
+        if restored:
+            ok = False
+            msg = ("out-of-scope writes restored: " + ", ".join(sorted(restored))
+                   + f" — this edit_only session may only change {sorted(s.files_hint)} "
+                   "(new files, and the entry file when the task owns it, stay allowed)")
+            errors.append(msg)
+            s.notes.append(msg)
+        s.ws.commit(f"agent:{s.label}")
+        siblings = _sibling_hints(s.ws, s.live) if s.live is not None else frozenset()
+        files = attribute_changes(s.ws.changed_files(s.head_before), write_roots=s.job.write_roots,
+                                  own_hints=s.files_hint, sibling_hints=siblings)
+        res = AgentResult(
+            ok=ok, exit_reason=exit_reason, text=text, files_changed=files,
+            transcript_path=str(s.traj.transcript_path if s.traj.transcript_path.exists() else s.traj.dir),
+            usage=usage, duration_s=round(time.monotonic() - s.t0, 3), tool_calls=tool_calls,
+            errors=errors,
+        )
+        s.traj.write_result(res, kind=s.kind, label=s.label, round=s.round_index, attempt=s.attempt, job_label=s.job.label,
+                            head_before=s.head_before, head_after=s.ws.head(), notes=s.notes, **extra)
+        return res
+    finally:
+        release_session(s)
 
 
 def failed(s: Session, reason: str, message: str, usage: Usage | None = None) -> AgentResult:

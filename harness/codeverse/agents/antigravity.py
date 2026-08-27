@@ -33,6 +33,7 @@ from codeverse.agents.cli_common import (
     finish_session,
     hardened_env,
     invoke,
+    release_session,
     tail,
     watchdog_error,
 )
@@ -157,36 +158,39 @@ class AntigravityAgent:
     def run(self, job: AgentJob) -> AgentResult:
         ok, why = self.available()
         s = begin_session(job, self.kind)
-        if not ok:
-            return failed(s, "error", why)
-        prompt = deliver_prompt(s, _compose_prompt(s))
-        proc = invoke(s, self.build_argv(s, prompt), self.build_env(s), prompt=prompt)
-        env = parse_agy_json(proc.stdout)
-        served = self.served_model()
-        usage = usage_from_agy(env, served) if env else Usage(backend=self.kind, model=served)
-        usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
-        text = str(env.get("response", "")) if env else proc.stdout.strip()
-        errors: list[str] = []
-        if env is None:
-            s.notes.append("no JSON envelope from agy; usage unknown (zeros), response taken from plain stdout")
-        s.notes.append("agy is subscription-billed: cost_usd=0")
-        if proc.timed_out:
-            ok, reason = False, "timeout"
-            errors.append(watchdog_error(proc))
-        elif proc.rc != 0 or (env is not None and str(env.get("status", "SUCCESS")).upper() not in ("SUCCESS", "OK")):
-            ok, reason = False, "error"
-            errors.append(f"rc={proc.rc}; status={(env or {}).get('status')}; error={(env or {}).get('error', '')}; "
-                          f"stderr tail: {tail(proc.stderr, 1500)}")
-        elif not text.strip():
-            ok, reason = False, "error"
-            errors.append("empty response")
-        else:
-            ok, reason = True, "completed"
-        return finish_session(
-            s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=0, errors=errors,
-            rc=proc.rc, killed_reason=proc.killed_reason,
-            conversation_id=(env or {}).get("conversation_id", ""), num_turns=(env or {}).get("num_turns", 0),
-        )
+        try:
+            if not ok:
+                return failed(s, "error", why)
+            prompt = deliver_prompt(s, _compose_prompt(s))
+            proc = invoke(s, self.build_argv(s, prompt), self.build_env(s), prompt=prompt)
+            env = parse_agy_json(proc.stdout)
+            served = self.served_model()
+            usage = usage_from_agy(env, served) if env else Usage(backend=self.kind, model=served)
+            usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
+            text = str(env.get("response", "")) if env else proc.stdout.strip()
+            errors: list[str] = []
+            if env is None:
+                s.notes.append("no JSON envelope from agy; usage unknown (zeros), response taken from plain stdout")
+            s.notes.append("agy is subscription-billed: cost_usd=0")
+            if proc.timed_out:
+                ok, reason = False, "timeout"
+                errors.append(watchdog_error(proc))
+            elif proc.rc != 0 or (env is not None and str(env.get("status", "SUCCESS")).upper() not in ("SUCCESS", "OK")):
+                ok, reason = False, "error"
+                errors.append(f"rc={proc.rc}; status={(env or {}).get('status')}; error={(env or {}).get('error', '')}; "
+                              f"stderr tail: {tail(proc.stderr, 1500)}")
+            elif not text.strip():
+                ok, reason = False, "error"
+                errors.append("empty response")
+            else:
+                ok, reason = True, "completed"
+            return finish_session(
+                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=0, errors=errors,
+                rc=proc.rc, killed_reason=proc.killed_reason,
+                conversation_id=(env or {}).get("conversation_id", ""), num_turns=(env or {}).get("num_turns", 0),
+            )
+        finally:
+            release_session(s)
 
 
 def _compose_prompt(s: Session) -> str:
