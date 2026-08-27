@@ -523,5 +523,37 @@
       "messages": "conversations",
       "system": "system"
     }
+  },
+  "md_27b_v5_train": {
+    "file_name": "md_27b_v5_train.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system"
+    }
+  },
+  "md_27b_v5_val": {
+    "file_name": "md_27b_v5_val.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system"
+    }
+  },
+  "md_9b_clean_train": {
+    "file_name": "md_9b_clean_train.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system"
+    }
+  },
+  "md_9b_clean_val": {
+    "file_name": "md_9b_clean_val.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system"
+    }
   }
 }

@@ -1,1 +1,2 @@
-v4_full|scripts/run_27b_v4.sh
+v5|scripts/run_27b_v5.sh
+9b_clean|scripts/run_9b_clean.sh
