@@ -129,7 +129,7 @@ def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, 
     ctx.extra["asset_alias"] = alias
     if not assets:
         return {}
-    _ignore_sub_workspaces(ctx.ws)
+    ctx.ws.ensure_gitignore()   # legacy run dirs may predate _assets/ in the standard lines
 
     def _one(asset: AssetPlan) -> AssetResult:
         if asset.kind == "blender_glb":
@@ -408,9 +408,3 @@ def _read(ws: Workspace, rel: str, limit: int = 30_000) -> str:
     p = ws.root / rel
     return p.read_text(errors="replace")[:limit] if p.is_file() else ""
 
-
-def _ignore_sub_workspaces(ws: Workspace) -> None:
-    gi = ws.root / ".gitignore"
-    text = gi.read_text() if gi.is_file() else ""
-    if "_assets/" not in text:
-        gi.write_text(text.rstrip("\n") + "\n_assets/\n")

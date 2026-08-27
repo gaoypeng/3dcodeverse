@@ -45,6 +45,11 @@ append_jsonl_line(path, rec, lock) -> None                 # one json.dumps(ensu
 ```
 `Spec.options` is plan-hash safe (`plan_stage_inputs` whitelists spec fields).
 `Workspace.write_json` delegates to `proc.write_json_atomic`.
+`Workspace.stage_artifacts(*names) -> ArtifactStage` (2026-08-27): enter invalidates the
+canonical `artifacts/` names, writes land under `artifacts/.staging/<pid-nonce>/`,
+`promote()` `os.replace`s on success, exit-without-promote discards — canonical always
+means the last OK build.  `Workspace.restore_paths(commit, paths)` = per-path
+`git checkout <commit> -- <paths>` under the per-root lock.
 
 ## models/
 ```python
@@ -223,6 +228,10 @@ in the message instead of failing obscurely; `parse_node_version` / `node_versio
 are the pure helpers `3dcv doctor` reuses for its `node` row.
 
 ## spatial/
+
+`tool_common.glb_path` refuses (`ToolUsageError`) when the newest of
+`build_last.json`/`build.json` says the last build failed — tools never measure or
+texture a stale GLB; missing/unreadable status stays permissive (hand-placed GLBs).
 ```python
 from codeverse.spatial.render import render_glb, render_turntable
 render_glb(glb, out_dir, *, views=None, mode="shaded|wire|normals|silhouette|clay", width=768, height=768,

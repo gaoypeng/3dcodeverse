@@ -61,7 +61,7 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
     """Baseline round with ``ctx.policy.n_candidates`` parallel candidates; returns the r00 record."""
     n = max(1, ctx.policy.n_candidates)
     ctx.events.emit("candidates.start", round=0, n=n, parallel=min(n, ctx.settings.limits.max_parallel_agents))
-    _ignore_candidates(ctx.ws)
+    ctx.ws.ensure_gitignore()   # legacy run dirs may predate _cand/ in the standard lines
     subs = [make_candidate_context(track, ctx, k) for k in range(n)]
 
     def _one(k: int) -> tuple[CandidateRecord, RenderSet | None]:
@@ -280,12 +280,6 @@ def adopt_candidate(ctx: RunContext, sub_ws: Workspace) -> None:
     if sub_ws.trajectories.is_dir():
         shutil.copytree(sub_ws.trajectories, ctx.ws.trajectories, dirs_exist_ok=True)
 
-
-def _ignore_candidates(ws: Workspace) -> None:
-    gi = ws.root / ".gitignore"
-    text = gi.read_text() if gi.is_file() else ""
-    if f"{CAND_DIR}/" not in text:
-        gi.write_text(text.rstrip("\n") + f"\n{CAND_DIR}/\n")
 
 
 # ----------------------------------------------------------------------------- best round (pairwise tie-break)

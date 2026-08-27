@@ -50,7 +50,7 @@ LAYOUT_ALIASES: tuple[tuple[str, str], ...] = (
 #: harness-owned paths that never belong in the code snapshot
 _GITIGNORE_LINES = (
     "# harness-owned run state is never part of the code snapshot",
-    "artifacts/", "trajectories/", "stages/", "rounds/", "_assets/", ".3dcv/", ".gemini/", ".claude/",
+    "artifacts/", "trajectories/", "stages/", "rounds/", "_assets/", "_cand/", ".3dcv/", ".gemini/", ".claude/",
     "deliverable/", "telemetry/", "evidence", "captions.json",
     "events.jsonl", "run_state.json", "record.json", "*.log", "node_modules/", "*.tmp", "__pycache__/",
 )
