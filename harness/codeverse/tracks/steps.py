@@ -34,6 +34,7 @@ from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord
 from codeverse.fanout import fan_out
 from codeverse.orchestrator.budget import usage_delta
+from codeverse.spatial.render import RenderError
 from codeverse.tracks import skills_hook
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
@@ -226,7 +227,18 @@ def _run_round(
     if outcome.build.ok:
         rec.measurement = pipeline.measure(ctx, outcome.build)
         gates.extend(pipeline.gates(ctx, index, outcome.build, rec.measurement))
-        rec.renders = pipeline.render(ctx, index, outcome.build, rec.measurement)
+        try:
+            rec.renders = pipeline.render(ctx, index, outcome.build, rec.measurement)
+        except RenderError as e:
+            # A render that times out (measured 2026-08-26, art_verify camera_tripod: the
+            # refine round built in 1.2 s, then render_glb.mjs hit its 330 s timeout with
+            # three articulated runs and two readouts sharing the browser) used to raise
+            # out of the round and record the whole run `failed` -- with a judged round 0
+            # already on disk.  The round is kept: build, measurement and gates stand, the
+            # judge is skipped (no renders), and the loop delivers the best round so far.
+            rec.renders = None
+            notes.append(f"render failed: {str(e)[:200]}")
+            ctx.events.emit("render.failed", round=index, error=str(e)[:400])
         post = getattr(pipeline, "post_render_gates", None)
         if callable(post) and rec.renders is not None:
             gates.extend(post(ctx, index, rec.renders))

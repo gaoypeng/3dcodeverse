@@ -249,3 +249,30 @@ def test_scene_track_deterministic_assembler_and_resume(tmp_path, settings):
 def test_get_track_dispatch():
     assert isinstance(get_track("static_object"), StaticObjectTrack)
     assert isinstance(get_track(Track.SCENE), SceneTrack)
+
+
+def test_a_render_timeout_degrades_the_round_instead_of_failing_the_run(tmp_path, chair_plan, settings):
+    """Measured 2026-08-26 (art_verify camera_tripod): the refine round built in 1.2 s, then
+    render_glb.mjs hit its 330 s timeout under load and the run was recorded `failed` with a
+    judged round 0 on disk.  The round keeps build/gates, skips the judge, and the run
+    delivers its best round."""
+    from codeverse.spatial.render import RenderError
+
+    class _Services(FakeServices):
+        def render_object(self, glb, out_dir, *, views, width, height):
+            if "r00" not in str(out_dir):
+                raise RenderError("render_glb failed: node script render_glb.mjs timed out after 330s")
+            return super().render_object(glb, out_dir, views=views, width=width, height=height)
+
+    spec = make_spec(max_rounds=3)
+    ws = Workspace(tmp_path / "runs" / "chair")
+    track = StaticObjectTrack(services=_Services(contract_errors=1), judge=FakeJudge(scores=(0.55, 0.7, 0.85)),
+                              agent=FakeAgent(_agent_writer), planner_model=_planner(chair_plan.model_dump(mode="json")),
+                              settings=settings, runtime=FakeRuntime(Language.THREEJS))
+    rec = track.run(spec, ws)
+    assert rec.status is not RunStatus.FAILED and rec.best_round == 0 and rec.final_score == pytest.approx(0.55)
+    r1 = rec.rounds[1]
+    assert r1.build is not None and r1.build.ok and r1.renders is None and r1.judgment is None
+    assert "render failed" in r1.notes
+    kinds = [e["event"] for e in EventLog(ws.events_path).read()]
+    assert "render.failed" in kinds and "run.done" in kinds and "run.failed" not in kinds
