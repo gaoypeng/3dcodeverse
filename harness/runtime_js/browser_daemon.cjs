@@ -85,7 +85,13 @@ async function main() {
     }
     const cur = (() => { try { return JSON.parse(fs.readFileSync(epPath, 'utf8')); } catch (_e) { return null; } })();
     if (!cur || cur.ws !== record.ws) return bail(0);   // superseded by another daemon
-    try {   // reap pages leaked by killed clients (never the initial about:blank)
+    const idle = Date.now() - st.mtimeMs;
+    // Reap leaked pages only when NOBODY is working: clients tick the heartbeat every
+    // 30 s while connected, so a fresh one means an old page belongs to live work.  It
+    // used to tick on connect/release only, and a 16-minute scene probe had its page
+    // closed under it — 'Protocol error: Target closed'.
+    try {
+      if (idle < IDLE_REAP_MS) return;
       const open = await browser.pages();
       const now = Date.now();
       const live = new Set(open);
@@ -95,7 +101,6 @@ async function main() {
         else if (now - at > PAGE_TTL_MS) { firstSeen.delete(p); await p.close().catch(() => {}); }
       }
     } catch (_e) { /* browser mid-shutdown; the checks below handle it */ }
-    const idle = Date.now() - st.mtimeMs;
     if (idle < IDLE_REAP_MS) return;
     let pages = 2;
     try {

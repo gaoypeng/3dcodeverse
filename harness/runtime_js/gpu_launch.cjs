@@ -187,12 +187,22 @@ async function connectShared(puppeteer, backend) {
       return null;
     }
     heartbeat(backend);
+    // Keep the heartbeat fresh WHILE the client works: it used to tick only on
+    // connect and release, so a scene probe holding one page for 16 minutes looked
+    // idle to the daemon, which closed its page (page TTL) or the whole browser
+    // (HARD_REAP_MS) out from under it — 'Protocol error: Target closed'.
+    const beat = setInterval(() => heartbeat(backend), 30_000);
+    if (beat.unref) beat.unref();
     return {
       browser,
       gpu: !!info.gpu,
       renderer: String(info.renderer || ''),
       shared: true,
-      release: async () => { heartbeat(backend); try { await browser.disconnect(); } catch (_e) { /* already gone */ } },
+      release: async () => {
+        clearInterval(beat);
+        heartbeat(backend);
+        try { await browser.disconnect(); } catch (_e) { /* already gone */ }
+      },
     };
   } catch (_e) {
     // poisoned: the advertised browser is gone/unresponsive — forget it
