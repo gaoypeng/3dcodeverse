@@ -91,7 +91,11 @@ def check_node() -> list[Row]:
         rows.append(("node", "FAIL", f"{v} — too old, need >= {NODE_MIN_STR} (nvm install --lts)"))
     else:
         rows.append(("node", "OK" if okk else "FAIL", v if okk else f"{v} (need >= {NODE_MIN_STR})"))
-    rj = s.runtime_js_dir()
+    try:
+        rj = s.runtime_js_dir()
+    except RuntimeError as e:   # non-editable install without CV3D_RUNTIME_JS
+        rows.append(("runtime_js", "FAIL", str(e)))
+        return rows
     three = rj / "node_modules" / "three" / "package.json"
     pup = rj / "node_modules" / "puppeteer" / "package.json"
     if three.is_file():
@@ -120,7 +124,10 @@ def check_gpu_probe(timeout_s: int = 120) -> list[Row]:
     from codeverse.proc import run_subprocess
 
     s = get_settings()
-    rj = s.runtime_js_dir()
+    try:
+        rj = s.runtime_js_dir()
+    except RuntimeError as e:
+        return [("chrome webgl", "FAIL", str(e))]
     launcher = rj / "gpu_launch.cjs"
     if not launcher.is_file():
         return [("chrome webgl", "SKIP", f"{launcher} missing (spatial render package not installed yet)")]

@@ -132,3 +132,21 @@ def test_deep_merge_overlays_per_key_at_every_depth():
     assert base == {"rate": {"tpm": 1, "rpm": 2}, "judge": {"samples": 4}, "scalar": 1}, "no mutation"
     # a non-dict overlay replaces a dict outright rather than trying to merge into it
     assert _deep_merge({"a": {"b": 1}}, {"a": 5}) == {"a": 5}
+
+
+def test_runtime_js_dir_override_and_loud_failure(tmp_path, monkeypatch):
+    """CV3D_RUNTIME_JS relocates the Node runtime; a missing dir fails loudly at
+    first use (the wheel ships no runtime_js) instead of a cryptic node crash."""
+    import pytest
+
+    from codeverse.config import Settings
+
+    good = tmp_path / "runtime_js"
+    good.mkdir()
+    monkeypatch.setenv("CV3D_RUNTIME_JS", str(good))
+    assert Settings().runtime_js_dir() == good
+    monkeypatch.setenv("CV3D_RUNTIME_JS", str(tmp_path / "nowhere"))
+    with pytest.raises(RuntimeError, match="CV3D_RUNTIME_JS"):
+        Settings().runtime_js_dir()
+    monkeypatch.delenv("CV3D_RUNTIME_JS")
+    assert Settings().runtime_js_dir().name == "runtime_js"   # editable checkout resolves

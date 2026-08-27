@@ -357,7 +357,19 @@ class Settings(BaseSettings):
         return ""
 
     def runtime_js_dir(self) -> Path:
-        return Path(__file__).resolve().parent.parent / "runtime_js"
+        """The Node runtime (runtime_js/) — repo-relative in an editable install.
+
+        ``CV3D_RUNTIME_JS`` overrides the location (the wheel does not package
+        runtime_js, so a non-editable install MUST point this at a checkout).
+        Missing dir → a loud error at first use instead of a cryptic node crash."""
+        override = os.environ.get("CV3D_RUNTIME_JS", "").strip()
+        d = Path(override).expanduser() if override else Path(__file__).resolve().parent.parent / "runtime_js"
+        if not d.is_dir():
+            raise RuntimeError(
+                f"runtime_js not found at {d} — install the harness editable (pip install -e harness) "
+                "or set CV3D_RUNTIME_JS to a 3dcodeverse/harness/runtime_js checkout (with node_modules installed)"
+            )
+        return d
 
 
 def _load_yaml(path: Path) -> dict:
