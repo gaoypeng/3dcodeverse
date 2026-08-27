@@ -483,3 +483,27 @@ def test_a_generation_session_never_outlives_the_wall_budget():
     assert 120 <= clipped <= 3 * 60, clipped
     g.start_time -= 10 * 60                                                   # ceiling already crossed
     assert g.timeout_s(1800, floor_s=120.0) == 120                            # the floor, never 1800
+
+
+def test_one_asset_cannot_eat_the_scene_run():
+    """Measured 2026-08-27 (scn_med_conservatory, 25-min cap): seven assets finished
+    inside 5.7 min while one escalation ran the full ASSET_AGENT_TIMEOUT_S and held the
+    stage to 10.9 min — the stage waits for its slowest, so round 0 started at 18.9 min
+    and the judged round only happened via the budget salvage at 25.5 min."""
+    from codeverse.contracts.spec import Budget
+    from codeverse.orchestrator.budget import BudgetGuard
+    from codeverse.tracks.scene_assets import ASSET_AGENT_TIMEOUT_S, asset_timeout_s
+
+    class Ctx:
+        budget = BudgetGuard(Budget(max_usd=10.0, max_minutes=25.0, max_rounds=4), run="t")
+
+    fresh = asset_timeout_s(Ctx, 120)
+    assert fresh < ASSET_AGENT_TIMEOUT_S, "one asset may not have the whole preparation budget"
+    assert fresh <= 25 * 60 * 0.15 + 1, "at most its share of the run"
+    Ctx.budget.start_time -= 23 * 60          # 2 minutes left
+    assert asset_timeout_s(Ctx, 120) == 120, "and never past the wall clock, floor aside"
+
+    class Long:
+        budget = BudgetGuard(Budget(max_usd=10.0, max_minutes=90.0, max_rounds=4), run="t")
+
+    assert asset_timeout_s(Long, 120) == ASSET_AGENT_TIMEOUT_S, "a long run keeps the ceiling"

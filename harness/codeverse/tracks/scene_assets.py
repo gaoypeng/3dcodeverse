@@ -56,7 +56,21 @@ DEGRADED_MAX_ASSETS = 4
 #: an asset smaller than this share of the scene bbox volume is not worth a judge call
 JUDGE_VOLUME_FRACTION = 0.05
 ASSET_AGENT_TIMEOUT_S = 420
+#: no SINGLE asset session may take more than this share of the whole run.  The stage
+#: waits for its slowest asset, and budget.timeout_s only bites near the ceiling: on a
+#: 25-minute scene (2026-08-27) seven assets finished inside 5.7 min while one escalation
+#: ran the full 420 s and held the stage to 10.9 min — 28 % of the run for one asset, and
+#: round 0 did not start until 18.9 min.
+ASSET_SESSION_SHARE = 0.15
 ASSET_RUBRIC = "asset_v1"
+
+
+def asset_timeout_s(ctx: Any, floor_s: int) -> int:
+    """``ASSET_AGENT_TIMEOUT_S`` clipped to one asset's share of the run AND to the
+    wall clock actually left (:meth:`BudgetGuard.timeout_s`)."""
+    share = float(getattr(ctx.budget.budget, "max_minutes", 0.0) or 0.0) * 60.0 * ASSET_SESSION_SHARE
+    want = min(ASSET_AGENT_TIMEOUT_S, share) if share > 0 else ASSET_AGENT_TIMEOUT_S
+    return ctx.budget.timeout_s(max(float(floor_s), want), floor_s=floor_s)
 
 
 class AssetResult(BaseModel):
@@ -202,7 +216,7 @@ def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
                            notes="generator unavailable (model outage); asset skipped")
     if not strategy:  # no chat model, or single-shot failed twice → the full agent session
         res = _generate_asset(ctx, asset, rel, language=Language.SCENE_THREEJS, attempt=0,
-                              timeout_s=ctx.budget.timeout_s(ASSET_AGENT_TIMEOUT_S, floor_s=120))
+                              timeout_s=asset_timeout_s(ctx, 120))
         notes = res.notes
         strategy = "escalated" if chk is not None else "agent"
         chk = check_threejs_asset(ctx, rel, pascal, expected_size_m=asset.approx_size_m) if res.ok else chk
@@ -260,7 +274,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
                                  spatial_tools=True,
                                  mcp_command=["python", "-m", "codeverse.spatial.mcp_server", "--workspace", str(sub_ws.root)])
     res = _generate_asset(sub, asset, "src/model.py", language=Language.BLENDER, attempt=0,
-                          timeout_s=ctx.budget.timeout_s(ASSET_AGENT_TIMEOUT_S, floor_s=180))
+                          timeout_s=asset_timeout_s(ctx, 180))
     if not res.ok:
         return AssetResult(name=asset.name, kind=asset.kind, ok=False, strategy="agent", notes=f"generation failed: {res.notes}")
     sub_ws.commit("asset generated")
@@ -371,7 +385,7 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
         current_code=_read(ctx.ws, files[0]) if ctx.single_shot else ""))
     task = GenerationTask(label=f"asset_{to_snake(asset.name)}_fix", prompt=prompt, files_hint=files, round=1, kind="asset_fix",
                           temperature=0.4, edit_only=language is Language.SCENE_THREEJS,
-                          timeout_s=ctx.budget.timeout_s(ASSET_AGENT_TIMEOUT_S, floor_s=120))
+                          timeout_s=asset_timeout_s(ctx, 120))
     res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
                    budget=ctx.budget, events=ctx.events)
     if res.ok:
