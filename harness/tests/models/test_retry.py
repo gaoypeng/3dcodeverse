@@ -248,7 +248,8 @@ def test_503_storm_has_its_own_patience_budget(hedge, want_calls, want_naps):
         sleep=naps.append, hedge=hedge,
     )
     assert out == "ok" and calls["n"] in want_calls
-    # the first 503 rotates to k2 for free (no nap); k2's 503 completes the 2-key quorum
+    # the first 503 rotates to k2 for free (no nap); k2's 503 leaves no untried key in the
+    # 2-key pool, so that one is the storm
     assert len(naps) == want_naps and all(d <= 0.05 for d in naps)  # the cap is the cap
 
 
@@ -377,40 +378,50 @@ def test_the_deadline_does_not_cut_a_call_that_is_making_progress():
     assert out == "ok" and calls["n"] == 3
 
 
-def test_503_rotates_to_a_fresh_key_before_it_is_a_storm():
-    """Measured 2026-08-26: one tiny request per key in parallel during the day's storm —
-    flash answered on 15/22, 18/22, 21/22 keys while 5/4/1 keys said 503 at the same instant.
-    A 503 is per key at any moment; the next key is the cure, the storm wait the last resort."""
+def test_503_rotates_through_every_untried_key_before_it_is_a_storm():
+    """Owner's rule (2026-08-27): a 503 on one key is simply replaced by the next key —
+    exactly like the 429 path, free while an untried key remains.  Measured 2026-08-26:
+    one tiny request per key in parallel during the day's storm — flash answered on
+    15/22, 18/22, 21/22 keys while only 5/4/1 keys said 503 at the same instant.  So with
+    a 10-key pool, NINE consecutive 503s on distinct keys still rotate: no sleep, no
+    storm, no ``max_attempts`` spent (``max_attempts=3`` here proves the budget is free)."""
     from codeverse.models.base import ModelError
     from codeverse.models.keypool import KeyPool
     from codeverse.models.retry import rotate_with_retries
     from codeverse.models.storm import StormGate
 
-    pool = KeyPool(["k1", "k2", "k3", "k4"], rpm_per_key=10_000)
+    keys = [f"k{i}" for i in range(1, 11)]
+    pool = KeyPool(keys, rpm_per_key=10_000)
     gate = StormGate()
+    lock = threading.Lock()
     calls: list[str] = []
     naps: list[float] = []
 
     def call(key):
-        calls.append(key)
-        if key in ("k1", "k2"):
+        with lock:  # hedged siblings run in threads
+            calls.append(key)
+            nth = len(set(calls))
+        if nth < len(keys):  # only the LAST untried key answers
             raise RuntimeError("503 high demand")
         return "ok"
 
     out = rotate_with_retries(pool, call, classify=lambda e: ModelError(str(e), retryable=True, status=503),
                               outcome_of=lambda e: "5xx", max_attempts=3, storm_attempts=10, storm_max_delay=0.05,
                               sleep=naps.append, storm_gate=gate)
-    # k1 alone; then, with the default hedge, k2 and k3 raced at once (either may log first)
-    assert out == "ok" and calls[0] == "k1" and sorted(calls[1:]) == ["k2", "k3"]
+    # one key per round-trip, never twice: 9 free rotations, then the 10th key lands
+    assert out == "ok" and len(calls) == len(keys) and set(calls) == set(keys)
     assert naps == [], "rotation to a fresh key costs no sleep"
-    assert gate.n_storms == 0 and not gate.storming, "two keys' 503s are not a storm for the whole process"
+    assert gate.n_storms == 0 and not gate.storming, "an untried key remains: not a storm"
 
 
 @pytest.mark.parametrize(("hedge", "want_calls", "want_hits"), [(1, {6}, 3), (2, {6, 7}, 2)])
 def test_503_on_every_key_is_still_a_storm(hedge, want_calls, want_hits):
-    """hedge=1: k1, k2, k3 fail one by one (quorum), then two storm waits, then ok.
-    hedge=2: k1 fails alone, k2+k3 fail together (quorum: storm 1), two more fail together
-    (storm 2), then the raced pair lands — one storm wait per hedged attempt, not per key."""
+    """The backstop: once EVERY key in the pool has 503'd inside this one call there is
+    no untried key left to rotate to, so the bounded storm wait engages.
+    hedge=1: k1, k2, k3 fail one by one (the whole pool), then two storm waits, then ok.
+    hedge=2: k1 fails alone, k2+k3 fail together (pool exhausted: storm 1), two more fail
+    together (storm 2), then the raced pair lands — one storm wait per hedged attempt,
+    not per key."""
     from codeverse.models.base import ModelError
     from codeverse.models.keypool import KeyPool
     from codeverse.models.retry import rotate_with_retries
@@ -434,7 +445,7 @@ def test_503_on_every_key_is_still_a_storm(hedge, want_calls, want_hits):
                               outcome_of=lambda e: "5xx", max_attempts=3, storm_attempts=10, storm_max_delay=0.05,
                               sleep=naps.append, storm_gate=gate, hedge=hedge)
     assert out == "ok" and n["c"] in want_calls
-    assert gate.n_storms == 1 and gate.n_hits == want_hits, "the storm is declared after all three keys failed, then waited out"
+    assert gate.n_storms == 1 and gate.n_hits == want_hits, "the storm is declared only after all three keys failed, then waited out"
 
 
 # --------------------------------------------------------------------------- hedging (audit 2026-08-26 §5.2)
@@ -530,7 +541,7 @@ def test_a_hedged_attempt_that_fails_on_every_key_is_one_storm_attempt():
                               storm_attempts=10, storm_max_delay=0.05, sleep=lambda d: None, storm_gate=gate,
                               stats=stats)
     assert out == "ok"
-    # k1 alone; k2+k3 (quorum of 3 → storm 1); two more (storm 2); the raced pair lands
+    # k1 alone; k2+k3 (all 3 keys 503'd → storm 1); two more (storm 2); the raced pair lands
     assert stats == {"attempts": 7, "hedged": 3, "storm": 2}
     assert gate.n_hits == 2, "two hedged failures = two storm waits, not four"
 
