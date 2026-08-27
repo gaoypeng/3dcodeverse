@@ -377,6 +377,12 @@ def run_agent_task(
     charged to ``budget`` as it ends, so nothing is lost when a later attempt raises."""
     before = ws.head()
     timeout = task.timeout_s or (settings.limits.agent_timeout_s if settings is not None else 1800)
+    # ...but never longer than the run's remaining wall clock.  The scene track has
+    # clipped this since the greenhouse incident; object/articulated/graphics did not,
+    # so a flat 30-minute session ran 9 minutes PAST a 30-minute ceiling (measured
+    # 2026-08-27: 'elapsed 39.0 min exceeds max_minutes 30.0', round 0 never finished).
+    if budget is not None and hasattr(budget, "timeout_s"):
+        timeout = budget.timeout_s(timeout, floor_s=120.0)
     turns_cap = task.max_turns or max_turns or agent_max_turns()  # 0 = leave AgentJob's own default
     # typed job context honoured by every CodingAgent: round → trajectory dir + ToolContext,
     # language/track → spatial tool filtering, files_hint → per-session attribution of

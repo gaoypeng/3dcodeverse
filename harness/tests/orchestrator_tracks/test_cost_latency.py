@@ -466,3 +466,20 @@ def test_a_model_outage_escalates_the_asset_instead_of_losing_it(tmp_path, setti
     assert [j.label for j in agent.jobs] == ["asset_bollard"]
     failed = [e for e in _events(ctx) if e["event"] == "asset.generate_failed"]
     assert failed and "503" in failed[0]["error"]
+
+
+def test_a_generation_session_never_outlives_the_wall_budget():
+    """Measured 2026-08-27: a static run with --max-minutes 30 stopped at 39.0 min with
+    round 0 unfinished, because run_agent_task handed the session a flat
+    settings.limits.agent_timeout_s (1800 s) and only checked the ceiling at the next
+    boundary.  The scene track had clipped this since the greenhouse incident."""
+    from codeverse.contracts.spec import Budget
+    from codeverse.orchestrator.budget import BudgetGuard
+
+    g = BudgetGuard(Budget(max_usd=10.0, max_minutes=30.0, max_rounds=4), run="t")
+    assert g.timeout_s(1800, floor_s=120.0) == pytest.approx(1800, abs=60)   # fresh run: full session
+    g.start_time -= 27 * 60                                                   # 3 minutes left
+    clipped = g.timeout_s(1800, floor_s=120.0)
+    assert 120 <= clipped <= 3 * 60, clipped
+    g.start_time -= 10 * 60                                                   # ceiling already crossed
+    assert g.timeout_s(1800, floor_s=120.0) == 120                            # the floor, never 1800
