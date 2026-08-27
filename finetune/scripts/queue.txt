@@ -1,2 +1,1 @@
-v3_smoke|GPUS=$(scripts/free_gpus.sh) scripts/lf_train.sh configs/lf/lora_27b_v3.yaml max_steps=6 save_steps=100000 eval_steps=100000 output_dir=/wekafs/ict/hx_624/llm-ft/runs/_smoke_v3 > logs/smoke_v3.log 2>&1; grep -q train_runtime logs/smoke_v3.log && { echo SMOKE_OK; rm -rf runs/_smoke_v3; } || { echo SMOKE_OOM; grep -o "Tried to allocate [0-9.]* GiB" logs/smoke_v3.log | tail -1; exit 1; }
-v3_full|scripts/run_27b_v3.sh
+v4_full|scripts/run_27b_v4.sh

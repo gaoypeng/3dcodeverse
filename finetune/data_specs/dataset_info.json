@@ -507,5 +507,21 @@
       "chosen": "chosen",
       "rejected": "rejected"
     }
+  },
+  "md_27b_v4_train": {
+    "file_name": "md_27b_v4_train.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system"
+    }
+  },
+  "md_27b_v4_val": {
+    "file_name": "md_27b_v4_val.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system"
+    }
   }
 }
