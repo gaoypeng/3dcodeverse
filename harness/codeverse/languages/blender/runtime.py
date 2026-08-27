@@ -20,7 +20,6 @@ from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.conventions import MAX_TRIS_OBJECT
 from codeverse.languages._common import (
     compose_build_result,
-    remove_stale,
     run_subprocess,
     strip_blender_noise,
 )
@@ -118,17 +117,21 @@ class BlenderRuntime:
         seed: int = 0, tri_limit: int = MAX_TRIS_OBJECT,
     ) -> BuildResult:
         """Run the wrapper; never raises for agent-code failures (typed BuildResult instead)."""
-        entry = self.entry_file(ws)
-        if not entry.is_file():
-            return BuildResult(ok=False, language=self.language.value, error_type="MissingEntryFile",
-                               error_message=f"{ENTRY_REL} does not exist", error_file=ENTRY_REL)
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         build_json = ws.artifacts / "build.json"
         census_json = ws.artifacts / "census.json"
         glb = ws.artifacts / "object.glb"
         stl_path = ws.artifacts / "object.stl"
         blend_path = ws.artifacts / "object.blend"
-        remove_stale(build_json, census_json, glb, stl_path, blend_path)
+        # invalidate BEFORE the missing-entry early return: a deleted model.py must not
+        # leave the previous round's object.glb + build.json (ok: true) looking current
+        ws.stage_artifacts("build.json", "census.json", "object.glb", "object.stl", "object.blend").invalidate()
+        entry = self.entry_file(ws)
+        if not entry.is_file():
+            result = BuildResult(ok=False, language=self.language.value, error_type="MissingEntryFile",
+                                 error_message=f"{ENTRY_REL} does not exist", error_file=ENTRY_REL)
+            ws.write_json(build_json, result)
+            return result
         cmd = self.build_command(ws, stl=stl, blend=blend, seed=seed, tri_limit=tri_limit)
         proc = run_subprocess(
             cmd, cwd=ws.root, env=blender_env(),

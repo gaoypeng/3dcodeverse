@@ -105,12 +105,62 @@ def test_build_fk_inconsistent(tmp_path, cabinet_plan, fake_blender):
     assert 'xyz="0.29 0.2 0"' in res.error_message and res.census["fk_check"][0]["target"] == "door"
 
 
-def test_build_rest_penetration_fails(tmp_path, cabinet_plan, fake_blender):
+def test_build_rest_penetration_fails_and_publishes_nothing(tmp_path, cabinet_plan, fake_blender):
     fake_blender["door"] = ((0, -0.19, 0.4), (0.58, 0.02, 0.78))  # authored 10 mm inside the body
     ws = _ws(tmp_path, cabinet_plan)
     res = UrdfBlenderRuntime().build(ws)
     assert not res.ok and res.error_type == "RestPenetration"
-    assert res.glb_path and res.census["articulation"]["summary"]["rest_max_penetration_m"] > 0.005
+    assert res.census["articulation"]["summary"]["rest_max_penetration_m"] > 0.005
+    # a failed build publishes NOTHING but its status: the fresh GLB stays unshipped
+    assert res.glb_path is None and res.extra_paths == {}
+    for name in ("object.glb", "robot.urdf", "articulation.json"):
+        assert not (ws.artifacts / name).exists(), name
+    assert not (ws.artifacts / "meshes").exists()
+    assert json.loads((ws.artifacts / "build.json").read_text())["ok"] is False
+
+
+def test_build_failure_invalidates_previous_success(tmp_path, cabinet_plan, fake_blender):
+    """Round N fails after round N-1 succeeded: every canonical output of the old
+    round is gone and build.json on disk agrees with the returned (failed) result."""
+    ws = _ws(tmp_path, cabinet_plan)
+    rt = UrdfBlenderRuntime()
+    assert rt.build(ws).ok
+    for name in ("object.glb", "robot.urdf", "articulation.json", "census.json", "meshes"):
+        assert (ws.artifacts / name).exists(), name
+    fake_blender["error"] = {"error_type": "NameError", "error_message": "boom",
+                             "error_file": "src/model.py", "error_line": 3}
+    res = rt.build(ws)
+    assert not res.ok and res.error_type == "NameError"
+    for name in ("object.glb", "robot.urdf", "articulation.json"):
+        assert not (ws.artifacts / name).exists(), name
+    assert not (ws.artifacts / "meshes").exists()
+    disk = json.loads((ws.artifacts / "build.json").read_text())
+    assert disk["ok"] is False and disk["error_type"] == "NameError"
+
+
+def test_post_wrapper_failure_never_leaves_ok_true_build_json(tmp_path, cabinet_plan, fake_blender):
+    """The wrapper reports ok:true, then FkInconsistent fails the build — the
+    published build.json must say what the returned BuildResult says (the old code
+    left the wrapper's ok:true on disk while the run failed)."""
+    ws = _ws(tmp_path, cabinet_plan)
+    u = ws.src / "robot.urdf"
+    u.write_text(u.read_text().replace('xyz="0.29 0.2 0"', 'xyz="-0.29 -0.2 0"'))
+    res = UrdfBlenderRuntime().build(ws)
+    assert not res.ok and res.error_type == "FkInconsistent"
+    disk = json.loads((ws.artifacts / "build.json").read_text())
+    assert disk["ok"] is False and disk["error_type"] == "FkInconsistent"
+    assert not (ws.artifacts / "object.glb").exists() and not (ws.artifacts / "meshes").exists()
+
+
+def test_lint_fail_invalidates_stale_artifacts(tmp_path, cabinet_plan, fake_blender):
+    ws = _ws(tmp_path, cabinet_plan)
+    rt = UrdfBlenderRuntime()
+    assert rt.build(ws).ok
+    (ws.src / "robot.urdf").write_text("<robot name='x'><link name='a'>")
+    res = rt.build(ws)
+    assert not res.ok and res.error_type == "LintError"
+    assert not (ws.artifacts / "object.glb").exists() and not (ws.artifacts / "meshes").exists()
+    assert json.loads((ws.artifacts / "build.json").read_text())["error_type"] == "LintError"
 
 
 def test_build_timeout(tmp_path, cabinet_plan, fake_blender, monkeypatch):

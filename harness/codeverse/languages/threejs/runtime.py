@@ -63,8 +63,9 @@ class ThreeJsRuntime:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         glb = ws.artifacts / GLB_NAME
         census = ws.artifacts / CENSUS_NAME
-        for stale in (glb, census, ws.artifacts / "export_error.json"):
-            stale.unlink(missing_ok=True)
+        # build.json is in the wipe too: the node-missing raise below returns before
+        # _write_build_json, and a stale ok:true build.json must not survive it
+        ws.stage_artifacts(GLB_NAME, CENSUS_NAME, BUILD_JSON, "export_error.json").invalidate()
         self._ensure_module_type(ws)
 
         t0 = time.time()

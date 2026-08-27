@@ -146,9 +146,13 @@ def entry_links(ws: Workspace, rec: RunRecord | None, best: int | None) -> list[
     glb = _first_file(run, "deliverable/object.glb", "artifacts/object.glb")
     if glb:
         links.append(RunLink(label="glb", rel=glb, kind="viewer"))
-    textured = _first_file(run, "deliverable/object_textured.glb", "artifacts/object_textured.glb")
-    if textured:
-        links.append(RunLink(label="textured glb", rel=textured, kind="viewer"))
+    # the textured GLB is a link only when the texture pass SHIPPED — a stray file
+    # from a rejected pass (or an older harness that leaked one) is not a deliverable
+    tex = (rec.extra.get("texturing") or {}) if rec is not None else {}
+    if tex.get("shipped"):
+        textured = _first_file(run, "deliverable/object_textured.glb", "artifacts/object_textured.glb")
+        if textured:
+            links.append(RunLink(label="textured glb", rel=textured, kind="viewer"))
     urdf = _first_file(run, "deliverable/robot.urdf", "artifacts/robot.urdf", "src/robot.urdf")
     if urdf:
         links.append(RunLink(label="robot.urdf", rel=urdf))

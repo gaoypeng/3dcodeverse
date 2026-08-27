@@ -8,6 +8,7 @@ flywheel can replay any round.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -260,6 +261,15 @@ class Workspace:
         data = model.model_dump(mode="json") if isinstance(model, BaseModel) else model
         write_json_atomic(path, data)
 
+    # ----------------------------------------------------------------- artifact staging
+    def stage_artifacts(self, *names: str) -> ArtifactStage:
+        """An :class:`ArtifactStage` over canonical ``artifacts/`` names.
+
+        Use as a context manager for the full stage-then-promote lifecycle, or
+        call ``.invalidate()`` on the returned stage for a bare wipe of the
+        canonical names (the ``remove_stale`` replacement)."""
+        return ArtifactStage(self, names)
+
     def read_json(self, path: Path) -> dict[str, Any]:
         return json.loads(path.read_text())
 
@@ -377,3 +387,138 @@ class Workspace:
         if dest.exists():
             shutil.rmtree(dest)
         shutil.copytree(self.src, dest, ignore=shutil.ignore_patterns("node_modules", "__pycache__"))
+
+
+class ArtifactStage:
+    """Stage-then-promote lifecycle for a fixed set of canonical ``artifacts/`` names.
+
+    The invariant this enforces: a canonical artifact exists on disk ONLY when the
+    build/pass that owns it finished with that artifact as its result.  Before this,
+    every runtime's early return (missing entry file, lint error, wrapper crash)
+    left the *previous* round's ``object.glb`` / ``build.json`` looking current, and
+    every downstream consumer (measure/render tools, deliverable packaging, the
+    gallery) trusted bare existence.
+
+    Lifecycle (``with ws.stage_artifacts("build.json", "object.glb") as stage:``):
+
+    * ``__enter__`` **invalidates** the canonical names immediately — before any
+      early return can leak — and claims a private staging directory under
+      ``artifacts/.staging/<pid>-<nonce>/``;
+    * ``path(name)`` is the staging location to write ``name`` to (wrappers taking
+      an ``--out`` directory can be pointed at ``staging_dir`` directly);
+    * ``promote(*names)`` publishes staged entries into ``artifacts/`` —
+      ``os.replace`` per file (atomic: staging lives on the same filesystem);
+    * exit without promote **discards** the staging directory — canonical stays absent.
+
+    ``invalidate()`` also works standalone (no ``with``) as the one-call
+    replacement for ``languages._common.remove_stale`` + ``shutil.rmtree``.
+
+    Directory promotion (``meshes/``) is NOT atomic: the old dir is renamed away
+    (parked inside the staging dir), the new one renamed in, then the parked copy
+    is removed.  A reader can observe the name missing between the two renames, and
+    a SIGKILL between them leaves the old copy parked under ``artifacts/.staging/``
+    — inert, because every consumer reads canonical paths only, and the next stage
+    of the same names starts by invalidating them.  Concurrent stages over the same
+    names (the scene track fans agents over one workspace) each use a private
+    staging dir; promotion follows the ``write_json_atomic`` precedent: last writer
+    to rename wins.
+    """
+
+    STAGING_ROOT = ".staging"
+
+    def __init__(self, ws: Workspace, names: tuple[str, ...] | Sequence[str]):
+        if not names:
+            raise ValueError("ArtifactStage needs at least one artifact name")
+        self._ws = ws
+        self.names: tuple[str, ...] = tuple(names)
+        self._dir: Path | None = None
+
+    # ------------------------------------------------------------------ lifecycle
+    def __enter__(self) -> ArtifactStage:
+        self.invalidate()
+        _ = self.staging_dir  # claim it now so wrappers can be pointed at it
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.discard()
+
+    @property
+    def staging_dir(self) -> Path:
+        """The private staging directory (created on first use)."""
+        if self._dir is None:
+            d = self._ws.artifacts / self.STAGING_ROOT / f"{os.getpid()}-{os.urandom(4).hex()}"
+            d.mkdir(parents=True, exist_ok=True)
+            self._dir = d
+        return self._dir
+
+    def path(self, name: str) -> Path:
+        """Staging location for ``name`` (parent directories created)."""
+        self._check(name)
+        p = self.staging_dir / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
+    # ------------------------------------------------------------------ operations
+    def invalidate(self, *names: str) -> None:
+        """Remove the canonical copies of ``names`` (default: every staged name)."""
+        for name in names or self.names:
+            self._check(name)
+            target = self._ws.artifacts / name
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target, ignore_errors=True)
+            else:
+                target.unlink(missing_ok=True)
+
+    def promote(self, *names: str) -> list[Path]:
+        """Publish staged entries into ``artifacts/`` and return the canonical paths.
+
+        With explicit ``names``, every named entry must exist in staging
+        (``FileNotFoundError`` otherwise — a build that claims success without its
+        outputs is a bug, not a skip).  With no arguments, every staged name that
+        was actually written is published and the rest are left invalidated."""
+        chosen = names or self.names
+        published: list[Path] = []
+        for name in chosen:
+            self._check(name)
+            src = self.staging_dir / name
+            if not src.exists():
+                if names:
+                    raise FileNotFoundError(f"promote({name!r}): nothing staged at {src}")
+                continue
+            dest = self._ws.artifacts / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if src.is_dir() and not src.is_symlink():
+                self._replace_dir(src, dest, name)
+            else:
+                os.replace(src, dest)
+            published.append(dest)
+        return published
+
+    def discard(self) -> None:
+        """Drop the staging directory (anything not promoted is gone)."""
+        if self._dir is not None:
+            shutil.rmtree(self._dir, ignore_errors=True)
+            with contextlib.suppress(OSError):  # tidy the shared .staging parent when empty
+                self._dir.parent.rmdir()
+            self._dir = None
+
+    # ------------------------------------------------------------------ internals
+    def _check(self, name: str) -> None:
+        if name not in self.names:
+            raise ValueError(f"{name!r} is not staged here (staged: {list(self.names)})")
+
+    def _replace_dir(self, src: Path, dest: Path, name: str) -> None:
+        """Replace-dir strategy: rename old away (parked in staging), rename new in,
+        remove old.  See the class docstring for the atomicity limits."""
+        parked: Path | None = None
+        if dest.exists():
+            parked = self.staging_dir / f"{name.replace('/', '_')}.old"
+            os.rename(dest, parked)
+        try:
+            os.rename(src, dest)
+        except OSError:
+            if parked is not None:  # best effort: put the old dir back
+                os.rename(parked, dest)
+            raise
+        if parked is not None:
+            shutil.rmtree(parked, ignore_errors=True)

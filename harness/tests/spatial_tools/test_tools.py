@@ -147,6 +147,42 @@ def test_build_tool_lint_blocks(stool_ctx: ToolContext, monkeypatch: pytest.Monk
     assert obs.numbers["stage"] == "lint"
 
 
+def test_build_failure_refuses_stale_glb(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failed build after a success: the old object.glb survives as evidence but
+    glb_path refuses to treat it as current (build_last.json says ok:false)."""
+    _patch_runtime(monkeypatch, _FakeRuntime(glb=stool_ctx.workspace.artifacts / "object.glb"))
+    assert get_tool("build").call(stool_ctx, {}).ok
+    assert get_tool("measure").call(stool_ctx, {}).ok  # ok:true status → still usable
+    _patch_runtime(monkeypatch, _FakeRuntime(build_ok=False))
+    assert not get_tool("build").call(stool_ctx, {}).ok
+    assert json.loads((stool_ctx.workspace.artifacts / "build_last.json").read_text())["ok"] is False
+    assert (stool_ctx.workspace.artifacts / "object.glb").is_file()  # evidence stays on disk
+    for name in ("measure", "render_views", "check_connectivity"):
+        obs = get_tool(name).call(stool_ctx, {})
+        assert not obs.ok and "last build failed" in obs.text, name
+
+
+def test_build_lint_fail_refuses_stale_glb(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lint refusal is the latest build status: the previous build_last.json
+    (ok: true) + object.glb are no longer readable as current."""
+    _patch_runtime(monkeypatch, _FakeRuntime(glb=stool_ctx.workspace.artifacts / "object.glb"))
+    assert get_tool("build").call(stool_ctx, {}).ok
+    _patch_runtime(monkeypatch, _FakeRuntime(lint_errors=True))
+    obs = get_tool("build").call(stool_ctx, {})
+    assert not obs.ok and obs.text.startswith("LINT FAILED")
+    last = json.loads((stool_ctx.workspace.artifacts / "build_last.json").read_text())
+    assert last["ok"] is False and last["error_type"] == "LintError"
+    obs = get_tool("measure").call(stool_ctx, {})
+    assert not obs.ok and "last build failed" in obs.text
+
+
+def test_hand_placed_glb_without_build_status_still_measures(stool_ctx: ToolContext) -> None:
+    """No build_last.json / build.json → glb_path stays permissive: first-measure
+    flows and hand-assembled (test/import) workspaces keep working."""
+    assert not (stool_ctx.workspace.artifacts / "build_last.json").exists()
+    assert get_tool("measure").call(stool_ctx, {}).ok
+
+
 def test_build_unavailable_runtime(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     import codeverse.spatial.tool_common as tc
 

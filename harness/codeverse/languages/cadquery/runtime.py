@@ -15,7 +15,7 @@ from codeverse.contracts.artifacts import BuildResult, GateReport
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.conventions import MAX_TRIS_OBJECT
-from codeverse.languages._common import compose_build_result, remove_stale, run_subprocess
+from codeverse.languages._common import compose_build_result, run_subprocess
 from codeverse.languages.cadquery.lint import lint_cadquery_file
 from codeverse.languages.cadquery.skeleton import write_cadquery_skeleton
 from codeverse.proc import scrub_secrets
@@ -70,14 +70,17 @@ class CadQueryRuntime:
 
     def build(self, ws: Workspace, *, timeout_s: int | None = None, seed: int = 0,
               tri_limit: int = MAX_TRIS_OBJECT) -> BuildResult:
-        entry = self.entry_file(ws)
-        if not entry.is_file():
-            return BuildResult(ok=False, language=self.language.value, error_type="MissingEntryFile",
-                               error_message="src/model.py does not exist", error_file="src/model.py")
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         build_json, census_json = ws.artifacts / "build.json", ws.artifacts / "census.json"
         glb, step, stl = ws.artifacts / "object.glb", ws.artifacts / "object.step", ws.artifacts / "object.stl"
-        remove_stale(build_json, census_json, glb, step, stl)
+        # invalidate BEFORE the missing-entry early return (same reasoning as BlenderRuntime.build)
+        ws.stage_artifacts("build.json", "census.json", "object.glb", "object.step", "object.stl").invalidate()
+        entry = self.entry_file(ws)
+        if not entry.is_file():
+            result = BuildResult(ok=False, language=self.language.value, error_type="MissingEntryFile",
+                                 error_message="src/model.py does not exist", error_file="src/model.py")
+            ws.write_json(build_json, result)
+            return result
         proc = run_subprocess(self.build_command(ws, seed=seed, tri_limit=tri_limit), cwd=ws.root, env=cadquery_env(),
                               timeout_s=timeout_s or self._settings.limits.build_timeout_s)
         return compose_build_result(language=self.language.value, proc=proc, build_json=build_json, census_json=census_json,

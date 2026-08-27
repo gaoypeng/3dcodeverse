@@ -55,6 +55,10 @@ def _run_build(ctx: ToolContext, *, times: list[float], preview: bool, width: in
     errs = lint_lines(lint, ws.root, errors_only=True)
     warns = lint_lines(lint, ws.root, errors_only=False)
     if errs:
+        # the refusal is the latest build status (same reasoning as tools.build)
+        ws.write_json(ws.artifacts / "build_last.json",
+                      BuildResult(ok=False, language=language_of(ctx), error_type="LintError",
+                                  error_message="\n".join(errs)[:4000]))
         text = "LINT FAILED — fix these before rendering:\n" + "\n".join(errs)
         if warns:
             text += "\nwarnings:\n" + "\n".join(warns[:8])

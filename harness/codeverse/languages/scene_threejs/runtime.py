@@ -42,8 +42,12 @@ class SceneThreeJsRuntime:
 
         t0 = time.time()
         tmo = min(float(timeout_s or get_settings().limits.build_timeout_s), 120.0)
-        probe, shaders, census = _probe_and_preflight(ws, timeout_s=tmo)
         ws.artifacts.mkdir(parents=True, exist_ok=True)
+        # a probe/driver crash must not leave the previous round's census or the root
+        # driver outputs (scene_probe.json / shader_preflight.json) looking current;
+        # census.json is only rewritten `if census:` below, so it MUST be wiped here
+        ws.stage_artifacts("census.json", "scene_probe.json", "shader_preflight.json", "build.json").invalidate()
+        probe, shaders, census = _probe_and_preflight(ws, timeout_s=tmo)
         if census:
             (ws.artifacts / "census.json").write_text(json.dumps(census, indent=1))
         gates_dir = ws.artifacts / "gates"

@@ -47,12 +47,16 @@ def test_texture_pass_ships_and_records(tmp_path, chair_glb, chair_spec, chair_p
     assert latest_sheet(ws) is None and (ws.artifacts / "textures" / "planner_views" / "sheet.png").is_file()
 
 
-def test_texture_pass_not_shipped_keeps_report(tmp_path, chair_glb, chair_spec, chair_plan):
+def test_texture_pass_not_shipped_keeps_report_but_no_canonical_glb(tmp_path, chair_glb, chair_spec, chair_plan):
     ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan)
+    (ws.artifacts / "object_textured.glb").write_bytes(b"stale earlier pass")  # e.g. a pass that DID ship before
     judge = FakeJudge([(0.70, {"materials": 0.6}), (0.60, {"materials": 0.6})])
     rep = texture_pass(ws, chair_spec, chair_plan, model_id="", image_model=FakeImageModel(), judge_obj=judge,
                        render=fake_render, cache_dir=tmp_path / "cache")
     assert not rep.shipped and rep.gate is not None and rep.glb_out.endswith("object_textured.glb")
+    # not shipped → NO canonical object_textured.glb, not even the earlier pass's;
+    # the report keeps all its fields (glb_out names the canonical home)
+    assert not (ws.artifacts / "object_textured.glb").exists()
     assert json.loads(ws.record_path.read_text())["extra"]["texturing"]["shipped"] is False
 
 
@@ -61,11 +65,14 @@ def test_texture_pass_no_judge_and_all_failed(tmp_path, chair_glb, chair_spec, c
     rep = texture_pass(ws, chair_spec, chair_plan, model_id="", image_model=FakeImageModel(), judge=False, render=fake_render,
                        cache_dir=tmp_path / "cache")
     assert rep.shipped and rep.gate is None and any("skipped" in n for n in rep.notes)
-    # every image fails → nothing applied, not shipped, no crash
+    # every image fails → nothing applied, not shipped, no crash — and a stray
+    # canonical file from an earlier pass is removed even on this early-return path
     ws2 = _ws(tmp_path / "b", chair_glb, chair_spec, chair_plan)
+    (ws2.artifacts / "object_textured.glb").write_bytes(b"stale earlier pass")
     rep2 = texture_pass(ws2, chair_spec, chair_plan, model_id="", image_model=FakeImageModel(fail_on=("seamless",)), judge=False,
                         render=fake_render, cache_dir=tmp_path / "cache2")
     assert not rep2.shipped and rep2.apply is None and rep2.glb_out == "" and rep2.textures.failed()
+    assert not (ws2.artifacts / "object_textured.glb").exists()
 
 
 def test_texture_services_bundle_and_deprecated_judge_object(tmp_path, chair_glb, chair_spec, chair_plan):

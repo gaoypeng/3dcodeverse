@@ -25,7 +25,14 @@ from codeverse.config import get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport
 from codeverse.contracts.plan import GraphicsPlan
 from codeverse.spatial.frame_stats import SequenceStats, frame_gate, sequence_stats
-from codeverse.spatial.gl_render import GlHost, GlResult, gif_times, write_contact_sheet, write_gif
+from codeverse.spatial.gl_render import (
+    RESULT_NAME,
+    GlHost,
+    GlResult,
+    gif_times,
+    write_contact_sheet,
+    write_gif,
+)
 from codeverse.workspace import Workspace
 
 JUDGE_TIMES: tuple[float, ...] = (0.0, 1.0, 2.5, 4.0, 6.0)
@@ -33,8 +40,25 @@ SHEET_NAME = "frames_sheet.png"
 GIF_NAME = "preview.gif"
 METRICS_NAME = "metrics.json"
 BUILD_JSON = "build.json"
+FRAMES_DIR = "frames"
 DEFAULT_RESOLUTION: tuple[int, int] = (1280, 720)
 MAX_PIXELS = 1920 * 1080
+
+
+def invalidate_stale_outputs(ws: Workspace) -> None:
+    """Wipe the previous build's GL artifacts at the TOP of ``build()``.
+
+    Hoisted from ``GlHost._run`` (which still wipes its own out_dir) so the
+    ``MissingEntry`` early returns — which never reach the host — also clear
+    ``frames/`` and ``gl_result.json``; sheet/gif/metrics/build.json were never
+    cleared anywhere, so a failed build left the previous round's sheet looking
+    current to every bare-existence reader (``read_metrics``, the gallery)."""
+    ws.stage_artifacts(BUILD_JSON, SHEET_NAME, GIF_NAME, METRICS_NAME).invalidate()
+    (ws.artifacts / RESULT_NAME).unlink(missing_ok=True)
+    frames = ws.artifacts / FRAMES_DIR
+    if frames.is_dir():
+        for p in frames.glob("*.png"):
+            p.unlink(missing_ok=True)
 
 
 def make_host(override: GlHost | None = None, timeout_s: float | None = None) -> GlHost:
@@ -110,6 +134,10 @@ def finish_build(ws: Workspace, res: GlResult, *, language: str, error_file: str
     )
     if res.ok and not res.judge_frames:
         result.error_type, result.error_message = "NoFrames", "the renderer produced no frames"
+    if not result.ok:
+        # a failed build must not leave the previous round's derived artifacts
+        # (sheet / gif / metrics are written only on ok above) looking current
+        ws.stage_artifacts(SHEET_NAME, GIF_NAME, METRICS_NAME).invalidate()
     ws.write_json(art / BUILD_JSON, result)
     return result
 

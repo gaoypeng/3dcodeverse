@@ -21,11 +21,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from codeverse.config import get_settings
+from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import ArticulatedPlan, Plan
-from codeverse.languages._common import ProcResult, read_json_file, remove_stale, run_subprocess
+from codeverse.languages._common import ProcResult, read_json_file, run_subprocess
 from codeverse.languages.urdf.consistency import check_fk_consistency
 from codeverse.languages.urdf.lint import lint_workspace
 from codeverse.languages.urdf.skeleton import write_skeleton
@@ -38,12 +38,16 @@ from codeverse.spatial.joints import (
     sweep_findings,
     urdf_to_glb,
 )
-from codeverse.workspace import Workspace
+from codeverse.workspace import ArtifactStage, Workspace
 
 WRAPPER = Path(__file__).resolve().parent / "wrappers" / "run_bpy_links.py"
 CONTRACT_MD = Path(__file__).resolve().parent / "CONTRACT.md"
 REST_PENETRATION_MAX_M = 0.005
 FK_TOL_M = 0.001
+
+#: every canonical artifact this build owns — staged together so a failed build
+#: can never leave a previous round's output looking current
+STAGED_OUTPUTS = ("build.json", "census.json", "meshes", "robot.urdf", "articulation.json", "object.glb")
 
 
 def _tail(s: str, n: int = 3000) -> str:
@@ -74,17 +78,41 @@ class UrdfBlenderRuntime:
 
     # ------------------------------------------------------------ build
     def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:
+        """All six canonical outputs go through one :class:`ArtifactStage`: entering
+        it invalidates them BEFORE any early return can leak a previous round's
+        files, everything is written to staging, and only an ``ok=True`` build
+        promotes the full set.  Every exit path publishes the FINAL BuildResult as
+        ``artifacts/build.json`` — the wrapper's own build.json used to stay on disk
+        saying ``ok: true`` while a post-wrapper check (UrdfError / FkInconsistent /
+        RestPenetration) failed the build."""
         t0 = time.time()
         settings = get_settings()
         timeout_s = timeout_s or settings.limits.build_timeout_s
+        ws.artifacts.mkdir(parents=True, exist_ok=True)
+        with ws.stage_artifacts(*STAGED_OUTPUTS) as stage:
+            return self._build_staged(ws, stage, t0=t0, settings=settings, timeout_s=timeout_s)
+
+    def _build_staged(self, ws: Workspace, stage: ArtifactStage, *, t0: float, settings: Settings,
+                      timeout_s: int) -> BuildResult:
         art = ws.artifacts
-        art.mkdir(parents=True, exist_ok=True)
+
+        def finish(res: BuildResult) -> BuildResult:
+            # disk never contradicts the returned result: build.json is ALWAYS the
+            # final BuildResult; the rest of the set is published only on ok
+            ws.write_json(stage.path("build.json"), res)
+            if res.ok:
+                stage.promote()
+            elif stage.path("census.json").is_file():
+                stage.promote("build.json", "census.json")
+            else:
+                stage.promote("build.json")
+            return res
 
         def fail(error_type: str, message: str, *, file: str = "src/robot.urdf", line: int | None = None,
                  census: dict[str, Any] | None = None, **kw: Any) -> BuildResult:
-            return BuildResult(ok=False, language=self.language.value, error_type=error_type, error_message=message,
-                               error_file=file, error_line=line, duration_ms=int((time.time() - t0) * 1000),
-                               census=census or {}, **kw)
+            return finish(BuildResult(ok=False, language=self.language.value, error_type=error_type,
+                                      error_message=message, error_file=file, error_line=line,
+                                      duration_ms=int((time.time() - t0) * 1000), census=census or {}, **kw))
 
         # 1. lint (cheap, no Blender)
         lint = self.lint(ws)
@@ -95,14 +123,12 @@ class UrdfBlenderRuntime:
             return fail("LintError", f"{len(errs)} lint error(s):\n{msg}", file=str(errs[0].target or "src/robot.urdf"),
                         line=errs[0].data.get("line"), census=census)
 
-        # 2. Blender wrapper
+        # 2. Blender wrapper (writes build.json / census.json / meshes/ into the staging dir)
         blender = settings.resolve_blender()
         if not blender:
             return fail("BlenderNotFound", "no Blender binary (set CV3D_BINARIES__BLENDER)", file="", census=census)
-        build_json, census_json = art / "build.json", art / "census.json"
-        remove_stale(build_json, census_json)
-        shutil.rmtree(art / "meshes", ignore_errors=True)
-        proc = _run_blender(blender, ws, art, timeout_s, settings.limits.bpy_rlimit_gb)
+        build_json, census_json = stage.path("build.json"), stage.path("census.json")
+        proc = _run_blender(blender, ws, stage.staging_dir, timeout_s, settings.limits.bpy_rlimit_gb)
         if proc.timed_out:
             return fail("Timeout", f"Blender build exceeded {timeout_s}s (killed)", file="src/model.py", census=census,
                         stdout_tail=_tail(proc.stdout), stderr_tail=_tail(proc.stderr))
@@ -119,30 +145,28 @@ class UrdfBlenderRuntime:
                         stdout_tail=_tail(wb.get("stdout_tail", "") or proc.stdout),
                         stderr_tail=_tail(wb.get("stderr_tail", "") or proc.stderr))
 
-        # 3. URDF copy + load
-        urdf_out = art / "robot.urdf"
-        shutil.copyfile(ws.root / "src" / "robot.urdf", urdf_out)
-        extra = {"urdf": str(urdf_out), "meshes_dir": str(art / "meshes")}
+        # 3. URDF copy + load (staged files; extra_paths name the canonical homes)
+        urdf_staged = stage.path("robot.urdf")
+        shutil.copyfile(ws.root / "src" / "robot.urdf", urdf_staged)
+        extra = {"urdf": str(art / "robot.urdf"), "meshes_dir": str(art / "meshes")}
         try:
-            robot = load_urdf(urdf_out, art / "meshes")
+            robot = load_urdf(urdf_staged, stage.path("meshes"))
         except UrdfError as e:
-            return fail("UrdfError", str(e), census=census, extra_paths=extra)
+            return fail("UrdfError", str(e), census=census)
 
         # 4. FK consistency
         fk_findings = check_fk_consistency(robot, census.get("links") or {}, tol_m=FK_TOL_M)
         census["fk_check"] = [f.model_dump(mode="json") for f in fk_findings]
         if fk_findings:
             msg = "\n".join(f"- {f.as_line()}" for f in fk_findings)
-            return fail("FkInconsistent", f"URDF frames do not reproduce the authored geometry:\n{msg}", census=census,
-                        extra_paths=extra)
+            return fail("FkInconsistent", f"URDF frames do not reproduce the authored geometry:\n{msg}", census=census)
 
         # 5. pose sweep
         report = sweep_collisions(robot, pose_samples(robot, n_random=8, seed=0))
         findings = sweep_findings(report, rest_max_m=REST_PENETRATION_MAX_M)
-        art_json = art / "articulation.json"
-        art_json.write_text(json.dumps({"report": report.model_dump(mode="json"),
-                                        "findings": [f.model_dump(mode="json") for f in findings]}, indent=1))
-        extra["articulation"] = str(art_json)
+        stage.path("articulation.json").write_text(json.dumps({"report": report.model_dump(mode="json"),
+                                                               "findings": [f.model_dump(mode="json") for f in findings]}, indent=1))
+        extra["articulation"] = str(art / "articulation.json")
         for name, n in report.summary.link_islands.items():
             census.setdefault("links", {}).setdefault(name, {})["islands"] = n
         census["articulation"] = {"summary": report.summary.model_dump(mode="json"),
@@ -150,9 +174,9 @@ class UrdfBlenderRuntime:
                                   "n_joints": len(robot.joints), "movable_joints": [j.name for j in robot.movable_joints()]}
 
         # 6. canonical GLB at rest
-        glb = urdf_to_glb(robot, art / "object.glb", None)
-        extra["object_glb"] = str(glb)
-        res = BuildResult(ok=True, language=self.language.value, glb_path=str(glb), extra_paths=extra,
+        urdf_to_glb(robot, stage.path("object.glb"), None)
+        extra["object_glb"] = str(art / "object.glb")
+        res = BuildResult(ok=True, language=self.language.value, glb_path=str(art / "object.glb"), extra_paths=extra,
                           stdout_tail=_tail(wb.get("stdout_tail", "")), duration_ms=int((time.time() - t0) * 1000), census=census)
         if report.summary.rest_max_penetration_m > REST_PENETRATION_MAX_M:
             worst = [f for f in findings if f.data.get("pose") == {} and f.severity == "error"]
@@ -162,7 +186,9 @@ class UrdfBlenderRuntime:
             res.error_message = (f"links interpenetrate by {report.summary.rest_max_penetration_m*1000:.1f} mm at the rest pose "
                                  f"(max {REST_PENETRATION_MAX_M*1000:.0f} mm):\n" +
                                  "\n".join(f"- {f.as_line()}" for f in worst[:8]))
-        return res
+            res.glb_path = None      # the fresh GLB is NOT published on a failed build
+            res.extra_paths = {}
+        return finish(res)
 
 
 def _run_blender(blender: str, ws: Workspace, art: Path, timeout_s: int, rlimit_gb: int) -> ProcResult:

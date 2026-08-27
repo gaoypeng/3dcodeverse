@@ -21,7 +21,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,11 +36,6 @@ log = logging.getLogger(__name__)
 MAX_FILE_BYTES = 128 * 1024 * 1024
 MAX_TOTAL_BYTES = 512 * 1024 * 1024
 MANIFEST_NAME = "manifest.json"
-#: big binaries (frame stacks, GLBs, GIFs) are hard-linked to the evidence copy when the
-#: filesystem allows it — same bytes, one block on disk, and `cp`/`tar`/`rsync` still
-#: produce a standalone copy.  Small files (all code) are always real copies so editing
-#: the hand-over folder can never touch the evidence.
-LINK_MIN_BYTES = 256 * 1024
 
 #: artifact file → role, copied when present (object tracks / articulated / graphics)
 _ARTIFACT_ROLES: tuple[tuple[str, str], ...] = (
@@ -105,13 +99,10 @@ class _Writer:
 
 
 def _place(src: Path, dest: Path) -> None:
-    """Hard-link big binaries, copy everything else (see ``LINK_MIN_BYTES``)."""
-    if src.stat().st_size >= LINK_MIN_BYTES:
-        try:
-            os.link(src, dest)
-            return
-        except OSError:  # cross-device, no hard links, already exists
-            pass
+    """ALWAYS a real copy, never a hard link: a user editing the delivered file
+    would otherwise mutate the canonical evidence in ``artifacts/`` and silently
+    break the sha256 recorded in the manifest.  The size caps above already bound
+    the copy cost."""
     shutil.copy2(src, dest)
 
 
@@ -140,7 +131,12 @@ def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes]
 
 
 def _copy_artifacts(ws: Workspace, record: RunRecord, w: _Writer) -> None:
+    tex = record.extra.get("texturing") or {}
     for name, role in _ARTIFACT_ROLES:
+        if name == "object_textured.glb" and not tex.get("shipped"):
+            # a texture pass that did not ship is not a deliverable, even if a stray
+            # canonical file exists (same gate flywheel/sample.copy_textured applies)
+            continue
         w.add_file(ws.artifacts / name, name, role)
     meshes = ws.artifacts / "meshes"
     if record.spec.language is Language.URDF_BLENDER and meshes.is_dir():
@@ -150,7 +146,6 @@ def _copy_artifacts(ws: Workspace, record: RunRecord, w: _Writer) -> None:
     if frames.is_dir():
         for p in sorted(frames.glob("*.png")):
             w.add_file(p, f"frames/{p.name}", "frames")
-    tex = record.extra.get("texturing") or {}
     if tex.get("shipped"):
         tex_dir = ws.root / str(tex.get("textures_dir") or "artifacts/textures")
         for p in sorted(tex_dir.glob("*.png")) if tex_dir.is_dir() else []:

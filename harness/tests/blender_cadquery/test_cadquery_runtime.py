@@ -43,6 +43,21 @@ def test_missing_entry(tmp_ws) -> None:
     assert not r.ok and r.error_type == "MissingEntryFile"
 
 
+def test_missing_entry_invalidates_previous_outputs(tmp_ws) -> None:
+    """Same invariant as BlenderRuntime: the invalidation runs BEFORE the
+    missing-entry early return and build.json agrees with the returned result."""
+    for name in ("object.glb", "object.step", "object.stl"):
+        (tmp_ws.artifacts / name).write_bytes(b"stale")
+    tmp_ws.write_json(tmp_ws.artifacts / "build.json", {"ok": True})
+    tmp_ws.write_json(tmp_ws.artifacts / "census.json", {"tri_count": 3})
+    r = CadQueryRuntime().build(tmp_ws)
+    assert not r.ok and r.error_type == "MissingEntryFile"
+    for name in ("object.glb", "object.step", "object.stl", "census.json"):
+        assert not (tmp_ws.artifacts / name).exists(), name
+    disk = json.loads((tmp_ws.artifacts / "build.json").read_text())
+    assert disk["ok"] is False and disk["error_type"] == "MissingEntryFile"
+
+
 def test_fake_python_wrapper_crash(tmp_ws, tmp_path) -> None:
     fake = tmp_path / "py"
     fake.write_text("#!/bin/sh\necho 'ImportError: no cadquery' >&2\nexit 1\n")

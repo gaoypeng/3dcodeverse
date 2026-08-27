@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from codeverse.contracts.artifacts import RenderSet, Severity
 from codeverse.contracts.plan import ArticulatedPlan, GraphicsPlan, Plan, ScenePlan, StaticPlan
 from codeverse.conventions import OBJECT_VIEWS, ViewPreset
+from codeverse.proc import read_json_or_none
 from codeverse.spatial.registry import ToolContext, ToolUnavailable, ToolUsageError
 from codeverse.workspace import Workspace
 
@@ -90,10 +91,39 @@ def reference_path(ctx: ToolContext, index: int, *, tool: str) -> tuple[Path, di
     return p, ref
 
 
+def _latest_build_status(ws: Workspace) -> dict[str, Any] | None:
+    """The newest of ``artifacts/build_last.json`` (written by the build tools) and
+    ``artifacts/build.json`` (written by the language runtimes), or None when
+    neither is readable — a workspace whose GLB was placed by hand (tests,
+    imports, first-measure flows) stays usable."""
+    newest: dict[str, Any] | None = None
+    newest_mtime = float("-inf")
+    for name in ("build_last.json", "build.json"):
+        p = ws.artifacts / name
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue
+        data = read_json_or_none(p)
+        if data is not None and mtime > newest_mtime:
+            newest, newest_mtime = data, mtime
+    return newest
+
+
 def glb_path(ctx: ToolContext) -> Path:
+    """``artifacts/object.glb``, refusing when the LATEST build did not produce it.
+
+    Bare ``is_file()`` let every consumer (measure / render_views / compare /
+    texture tools) operate on the previous round's geometry as if it were current
+    after a failed or lint-blocked build."""
     p = ctx.workspace.artifacts / "object.glb"
     if not p.is_file():
         raise ToolUsageError("artifacts/object.glb does not exist yet — run `build` first", "build()")
+    status = _latest_build_status(ctx.workspace)
+    if status is not None and not status.get("ok"):
+        raise ToolUsageError(
+            "the last build failed — artifacts/object.glb is from an earlier build; fix and build again",
+            "build()")
     return p
 
 

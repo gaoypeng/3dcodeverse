@@ -139,6 +139,11 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     lint_errors = lint_lines(lint, ws.root, errors_only=True)
     lint_warns = lint_lines(lint, ws.root, errors_only=False)
     if lint_errors:
+        # record the refusal as the LATEST build status: without this the previous
+        # round's build_last.json (ok: true) + object.glb stayed readable as current
+        ws.write_json(ws.artifacts / "build_last.json",
+                      BuildResult(ok=False, language=language, error_type="LintError",
+                                  error_message="\n".join(lint_errors)[:4000]))
         text = "LINT FAILED — fix these before building:\n" + "\n".join(lint_errors)
         if lint_warns:
             text += "\nwarnings:\n" + "\n".join(lint_warns[:10])

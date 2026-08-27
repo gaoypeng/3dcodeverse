@@ -115,3 +115,25 @@ def test_build_interprets_combined_summary_offline(ws, monkeypatch):
     assert not res2.ok
     shaders2 = _json.loads((ws.artifacts / "gates" / "shader_preflight.json").read_text())
     assert not shaders2["passed"] and shaders2["findings"] == []
+
+
+def test_probe_crash_leaves_no_stale_probe_outputs(ws, monkeypatch):
+    """A driver crash (SceneRenderError) must not leave the previous round's census
+    or the root driver outputs (scene_probe.json / shader_preflight.json) looking
+    current; build.json on disk says ok:false, never the previous round's ok:true."""
+    import codeverse.spatial.render_scene as rs_mod
+    from codeverse.spatial.render_scene import SceneRenderError
+
+    for name in ("census.json", "scene_probe.json", "shader_preflight.json"):
+        (ws.artifacts / name).write_text('{"stale": true}')
+    (ws.artifacts / "build.json").write_text('{"ok": true}')
+
+    def crash(script, args, **kw):
+        raise SceneRenderError("chrome went away")
+
+    monkeypatch.setattr(rs_mod, "run_scene_script", crash)
+    res = SceneThreeJsRuntime().build(ws)
+    assert not res.ok
+    for name in ("census.json", "scene_probe.json", "shader_preflight.json"):
+        assert not (ws.artifacts / name).exists(), name
+    assert json.loads((ws.artifacts / "build.json").read_text())["ok"] is False

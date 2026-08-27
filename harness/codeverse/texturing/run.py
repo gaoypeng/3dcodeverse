@@ -9,6 +9,9 @@
 
 Code stays the truth: ``artifacts/object.glb`` is never overwritten; the textured
 GLB and ``artifacts/textures/`` are a derived asset pack recorded with the run.
+The textured GLB is built in an :class:`~codeverse.workspace.ArtifactStage` and
+promoted to ``artifacts/object_textured.glb`` only when the pass ships — a
+rejected pass leaves no canonical file for the deliverable/gallery to pick up.
 """
 
 from __future__ import annotations
@@ -244,30 +247,36 @@ def texture_pass(
         notes.append("no usable textures (all failed or seams too strong) — nothing applied")
         return _finish(ws, report, t0, events, update_record)
 
-    # 4. apply
-    report.apply = apply_textures(texture_base, tplan, keep, glb_out)
-    report.glb_out = str(glb_out)
-    notes.extend(report.apply.warnings)
-    events.emit("texture.applied", parts=len(report.apply.parts_textured), skipped=len(report.apply.parts_skipped),
-                materials=report.apply.n_materials, warnings=len(report.apply.warnings))
-    if not report.apply.parts_textured:
-        notes.append("no part was textured")
-        return _finish(ws, report, t0, events, update_record)
+    # 4. apply — into staging: the canonical object_textured.glb exists on disk ONLY
+    # when the pass ships (entering the stage also removes any earlier pass's file)
+    with ws.stage_artifacts(TEXTURED_GLB) as stage:
+        staged_glb = stage.path(TEXTURED_GLB)
+        report.apply = apply_textures(texture_base, tplan, keep, staged_glb)
+        report.glb_out = str(glb_out)  # the canonical home; a real file iff shipped
+        notes.extend(report.apply.warnings)
+        events.emit("texture.applied", parts=len(report.apply.parts_textured), skipped=len(report.apply.parts_skipped),
+                    materials=report.apply.n_materials, warnings=len(report.apply.warnings))
+        if not report.apply.parts_textured:
+            notes.append("no part was textured")
+            return _finish(ws, report, t0, events, update_record)
 
-    # 5. gate
-    if not judge:
-        report.shipped = True
-        notes.append("judge gate skipped (--no-judge): shipped on seam gate only")
+        # 5. gate
+        if not judge:
+            report.shipped = True
+            notes.append("judge gate skipped (--no-judge): shipped on seam gate only")
+            stage.promote()
+            return _finish(ws, report, t0, events, update_record)
+        gate_judge = judge_obj if judge_obj is not None else _make_judge(spec, rubric, judge_model_id)
+        gate = judge_gate(spec, plan, glb_in, staged_glb, tex_dir / "gate", judge=gate_judge, measurement=_measure(glb_in),
+                          views=views, render=render)
+        report.gate, report.shipped, report.delta = gate, gate.shipped, gate.delta
+        report.usage = report.usage + gate.usage
+        events.emit("texture.gate", shipped=gate.shipped, delta=gate.delta, materials_delta=gate.materials_delta,
+                    before=gate.overall_before, after=gate.overall_after, reason=gate.reason,
+                    cost_usd=round(gate.usage.cost_usd, 4))
+        if report.shipped:
+            stage.promote()
         return _finish(ws, report, t0, events, update_record)
-    gate_judge = judge_obj if judge_obj is not None else _make_judge(spec, rubric, judge_model_id)
-    gate = judge_gate(spec, plan, glb_in, glb_out, tex_dir / "gate", judge=gate_judge, measurement=_measure(glb_in),
-                      views=views, render=render)
-    report.gate, report.shipped, report.delta = gate, gate.shipped, gate.delta
-    report.usage = report.usage + gate.usage
-    events.emit("texture.gate", shipped=gate.shipped, delta=gate.delta, materials_delta=gate.materials_delta,
-                before=gate.overall_before, after=gate.overall_after, reason=gate.reason,
-                cost_usd=round(gate.usage.cost_usd, 4))
-    return _finish(ws, report, t0, events, update_record)
 
 
 def _make_judge(spec: Spec, rubric: str | None, judge_model_id: str | None) -> Any:
@@ -286,6 +295,10 @@ def _make_judge(spec: Spec, rubric: str | None, judge_model_id: str | None) -> A
 
 def _finish(ws: Workspace, report: TextureReport, t0: float, events: EventLog, update_record: bool) -> TextureReport:
     report.duration_s = round(time.time() - t0, 2)
+    if not report.shipped:
+        # a pass that did not ship leaves NO canonical textured GLB — including one
+        # left behind by an earlier shipped pass (the report keeps all its fields)
+        ws.stage_artifacts(TEXTURED_GLB).invalidate()
     ws.write_json(ws.artifacts / TEXTURES_DIR / REPORT_NAME, report)
     if update_record:
         record_texturing(ws, report)

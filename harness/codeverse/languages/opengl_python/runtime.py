@@ -17,6 +17,7 @@ from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import Plan
 from codeverse.languages._gl_common import (
     finish_build,
+    invalidate_stale_outputs,
     judge_times,
     load_plan,
     make_host,
@@ -68,6 +69,7 @@ class OpenGLPythonRuntime:
     def build(self, ws: Workspace, *, timeout_s: int | None = None, times: list[float] | None = None,
               preview: bool = True, width: int | None = None, height: int | None = None) -> BuildResult:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
+        invalidate_stale_outputs(ws)  # BEFORE the MissingEntry return, so it also clears
         program = ws.root / PROGRAM
         if not program.is_file():
             res = GlResult(ok=False, mode="program", stage="lint", error_type="MissingEntry", error_message=f"{PROGRAM} is missing")

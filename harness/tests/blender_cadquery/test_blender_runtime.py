@@ -61,6 +61,22 @@ def test_missing_entry_file(tmp_ws, tmp_path) -> None:
     assert not r.ok and r.error_type == "MissingEntryFile"
 
 
+def test_missing_entry_invalidates_previous_outputs(tmp_ws, tmp_path) -> None:
+    """Deleting model.py between rounds must not leave round N-1's object.glb +
+    build.json (ok: true) looking current — the invalidation runs BEFORE the
+    missing-entry early return, and build.json on disk says what build() returned."""
+    for name in ("object.glb", "object.stl"):
+        (tmp_ws.artifacts / name).write_bytes(b"stale")
+    tmp_ws.write_json(tmp_ws.artifacts / "build.json", {"ok": True})
+    tmp_ws.write_json(tmp_ws.artifacts / "census.json", {"tri_count": 3})
+    r = BlenderRuntime(blender=_fake_blender(tmp_path)).build(tmp_ws)
+    assert not r.ok and r.error_type == "MissingEntryFile"
+    for name in ("object.glb", "object.stl", "census.json"):
+        assert not (tmp_ws.artifacts / name).exists(), name
+    disk = json.loads((tmp_ws.artifacts / "build.json").read_text())
+    assert disk["ok"] is False and disk["error_type"] == "MissingEntryFile"
+
+
 def test_build_command_and_env(tmp_ws, tmp_path, monkeypatch) -> None:
     rt = BlenderRuntime(blender=_fake_blender(tmp_path))
     cmd = rt.build_command(tmp_ws, stl=True, seed=3, tri_limit=1000)

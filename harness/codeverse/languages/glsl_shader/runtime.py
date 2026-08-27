@@ -17,6 +17,7 @@ from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import Plan
 from codeverse.languages._gl_common import (
     finish_build,
+    invalidate_stale_outputs,
     judge_times,
     load_plan,
     make_host,
@@ -80,6 +81,7 @@ class GlslShaderRuntime:
     def build(self, ws: Workspace, *, timeout_s: int | None = None, times: list[float] | None = None,
               preview: bool = True, width: int | None = None, height: int | None = None) -> BuildResult:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
+        invalidate_stale_outputs(ws)  # BEFORE the MissingEntry return, so it also clears
         if not (ws.root / SHADER).is_file():
             res = GlResult(ok=False, mode="shader", stage="lint", error_type="MissingEntry", error_message=f"{SHADER} is missing")
             return finish_build(ws, res, language=self.language.value, error_file=SHADER)

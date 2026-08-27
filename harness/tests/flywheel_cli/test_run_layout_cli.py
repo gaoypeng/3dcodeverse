@@ -137,6 +137,38 @@ def test_telemetry_degrades_when_the_cost_package_is_unavailable(fake_run, monke
     assert tele.cost.n_calls == 0 and tele.settings is not None  # settings never depend on the ledger
 
 
+def test_deliverable_files_are_real_copies_not_hardlinks(fake_run):
+    """Editing a delivered file must never mutate the canonical evidence: every
+    deliverable file is a real copy (st_nlink == 1), whatever its size — the old
+    ≥256 KiB hard-link fast path silently broke the recorded sha256."""
+    ws, rec = fake_run
+    (ws.artifacts / "object.glb").write_bytes(b"glTF" + b"\0" * (300 * 1024))  # past the old link floor
+    build_deliverable(ws, rec)
+    delivered = ws.deliverable / "object.glb"
+    assert delivered.is_file() and delivered.stat().st_nlink == 1
+    assert (ws.artifacts / "object.glb").stat().st_nlink == 1
+    delivered.write_bytes(b"user edited the hand-over copy")
+    assert (ws.artifacts / "object.glb").read_bytes().startswith(b"glTF")  # evidence untouched
+
+
+def test_rejected_texture_pass_is_not_delivered_or_linked(fake_run):
+    """Belt and braces: a stray canonical object_textured.glb from a rejected pass
+    is skipped by the deliverable AND by the gallery links (both gate on shipped)."""
+    ws, rec = fake_run
+    (ws.artifacts / "object_textured.glb").write_bytes(b"glTF\x02" + b"\0" * 16)
+    rec.extra["texturing"] = {"shipped": False, "glb_textured": "artifacts/object_textured.glb"}
+    build_deliverable(ws, rec)
+    assert not (ws.deliverable / "object_textured.glb").exists()
+    entry = entry_from_record("runs", ws, rec)
+    assert "textured glb" not in {ln.label for ln in entry.links}
+    # ... and a SHIPPED pass is delivered and linked
+    rec.extra["texturing"] = {"shipped": True, "glb_textured": "artifacts/object_textured.glb"}
+    build_deliverable(ws, rec)
+    assert (ws.deliverable / "object_textured.glb").is_file()
+    entry = entry_from_record("runs", ws, rec)
+    assert "textured glb" in {ln.label for ln in entry.links}
+
+
 # --------------------------------------------------------------------------- migration
 def test_migrate_run_is_additive_and_idempotent(tmp_path: Path):
     ws, _ = old_layout_run(tmp_path)
