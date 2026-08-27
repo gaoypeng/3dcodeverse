@@ -133,3 +133,33 @@ def test_planner_text_in_normalisations_is_dropped():
                                           "joints": [{"name": "j", "parent": "A", "child": "A", "type": "revolute", "lower": 0, "upper": 1}],
                                           "normalisations": ["rest pose set to 0.15 m (planner prose)"]})
     assert raw["normalisations"] == []
+
+
+def test_a_joint_naming_a_part_by_a_unique_fragment_is_resolved():
+    """art_med_tool_chest, 2026-08-27: the planner named parts one way and referenced
+    them another in the joints, then repeated the identical mistake through both
+    re-asks — the run died at the planner with 0 rounds in 8 min."""
+    d = _raw()
+    d["parts"][1]["name"] = "ChestDrawer"        # the plan's own name ...
+    d["joints"][0]["child"] = "Drawer"           # ... referenced by one word of it
+    part = "ChestDrawer"
+    plan = ArticulatedPlan.model_validate(d)
+    assert _joint(plan, d["joints"][0]).child == part
+    assert any("resolved to the one part it names" in n for n in plan.normalisations)
+
+
+def test_an_ambiguous_joint_reference_is_rejected_and_names_the_real_parts():
+    """Two parts match the fragment → no safe repair; the message must then tell the
+    planner what the real names are, which is what the two re-asks were missing."""
+    d = _raw()
+    d["parts"][1]["name"] = "ChestDrawer"
+    twin = dict(d["parts"][1])
+    twin["name"] = "SpareDrawer"
+    d["parts"].append(twin)
+    fragment = "Drawer"
+    d["joints"][0]["child"] = fragment
+    with pytest.raises(ValidationError) as e:
+        ArticulatedPlan.model_validate(d)
+    msg = str(e.value)
+    assert f"unknown link(s) {fragment}" in msg
+    assert "chest_drawer" in msg and "spare_drawer" in msg, "the planner must be told the real names"

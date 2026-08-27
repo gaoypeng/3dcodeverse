@@ -270,6 +270,22 @@ class ArticulatedPlan(StaticPlan):
                     kept.append(child)
             part["children"] = kept
 
+        # 1b. a joint that names a link by a UNIQUE fragment of a real part ("Lid" for
+        # "ChestLid"): a naming slip, not a design decision.  Measured 2026-08-27
+        # (art_med_tool_chest, 3.6-flash): 'joint LidHinge references unknown link(s)
+        # Carcass/Lid' three times in a row, killing the run at the planner with 0 rounds.
+        known = set(by_name)
+        for j in joints:
+            for side in ("parent", "child"):
+                raw_name = str(j.get(side, ""))
+                key = to_snake(raw_name)
+                if not key or key in known:
+                    continue
+                hits = [n for n in known if key in n.split("_") or n.endswith(f"_{key}") or n.startswith(f"{key}_")]
+                if len(hits) == 1:
+                    j[side] = by_name[hits[0]].get("name")
+                    notes.append(f"joint {j.get('name')}.{side} '{raw_name}' resolved to the one part it names: {j[side]}")
+
         # 2. revolute joints with a > 2π range: degrees written for radians → radians; a radian
         #    range over 2π → continuous
         for j in joints:
@@ -342,7 +358,10 @@ class ArticulatedPlan(StaticPlan):
         for j in self.joints:
             p, c = to_snake(j.parent), to_snake(j.child)
             if p not in links or c not in links:
-                raise ValueError(f"joint {j.name} references unknown link(s) {j.parent}/{j.child}")
+                unknown = ", ".join(n for n, k in ((j.parent, p), (j.child, c)) if k not in links)
+                raise ValueError(
+                    f"joint {j.name} references unknown link(s) {unknown} — the parts in this plan are: "
+                    f"{', '.join(sorted(links))}. Use those exact names (or add the missing part).")
             if c in parent_of:
                 raise ValueError(f"link {j.child} has two parent joints")
             if c == root:
