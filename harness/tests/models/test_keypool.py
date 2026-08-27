@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -174,3 +175,14 @@ def test_try_acquire_never_waits_for_a_key_or_a_slot():
     pool.report("k2", "429")
     assert pool.try_acquire() is None, "every key is cooling down: no wait, no key"
     assert pool.stats()["in_flight"] == 0, "a refused try_acquire holds nothing"
+def test_the_in_flight_slot_wait_is_bounded_by_timeout():
+    """acquire()'s max_in_flight semaphore used to be an unbounded wait; the same
+    timeout budget now bounds it and raises the pool's own error shape."""
+    pool = KeyPool(["a"], max_in_flight=1, rpm_per_key=10_000)
+    pool.acquire()
+    t0 = time.monotonic()
+    with pytest.raises(KeyPoolExhausted):
+        pool.acquire(timeout_s=0.05)
+    assert time.monotonic() - t0 < 2.0, "the slot wait must honour the timeout"
+    pool.release()
+    assert pool.acquire(timeout_s=0.5) == "a", "the slot came back; nothing leaked"

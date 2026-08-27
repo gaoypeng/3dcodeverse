@@ -321,8 +321,15 @@ def test_one_call_cannot_retry_for_hours():
     logical call, while the docstring claimed "~5 min".  Measured 2026-08-24: combined
     with a wall-clock ceiling that is only checked when a call is BILLED (a stalled
     call bills nothing), a run with --max-minutes 90 reached 200 minutes.
+
+    Since 2026-08-27 the deadline is threaded through every branch of the loop and
+    ``GeminiModel`` clips each attempt's HTTP read timeout to the remaining budget,
+    floored at ``HTTP_TIMEOUT_FLOOR_S`` (simulated by ``call`` below) — so ONE call
+    may overshoot by at most one floored in-flight attempt, never by a full 300 s
+    socket.
     """
     from codeverse.models.base import ModelError
+    from codeverse.models.gemini import HTTP_TIMEOUT_FLOOR_S
     from codeverse.models.keypool import KeyPool
     from codeverse.models.retry import RETRY_DEADLINE_S, rotate_with_retries
 
@@ -334,7 +341,10 @@ def test_one_call_cannot_retry_for_hours():
         clock["t"] += d
 
     def call(_key):
-        clock["t"] += 300.0  # the read timeout each doomed attempt burns
+        # the budget-clipped read timeout each doomed attempt burns
+        # (gemini.py _attempt_config: min(300 s, remaining), floored at 20 s)
+        remaining = RETRY_DEADLINE_S - clock["t"]
+        clock["t"] += min(300.0, max(HTTP_TIMEOUT_FLOOR_S, remaining))
         raise RuntimeError("503 high demand")
 
     with pytest.raises(ModelError):
@@ -345,9 +355,10 @@ def test_one_call_cannot_retry_for_hours():
             sleep=sleep, monotonic=lambda: clock["t"],
             hedge=1,  # the fake clock is serial; two hedged 300 s calls would add 600 s, not 300
         )
-    # the whole point: bounded by the clock, not by 60 x (timeout + wait)
-    assert clock["t"] <= RETRY_DEADLINE_S + 305.0, (
-        f"one call burned {clock['t'] / 3600:.1f} h; the deadline is {RETRY_DEADLINE_S / 60:.0f} min")
+    # the whole point: bounded by the clock — the ONLY legal overshoot is the one
+    # floored attempt that was already in flight when the deadline passed
+    assert clock["t"] <= RETRY_DEADLINE_S + HTTP_TIMEOUT_FLOOR_S, (
+        f"one call burned {clock['t'] / 3600:.2f} h; the deadline is {RETRY_DEADLINE_S / 60:.0f} min")
     assert clock["t"] < 5 * 3600, "this is the 5.1-hour regression"
 
 
@@ -607,3 +618,145 @@ def test_a_dead_key_among_the_hedge_is_benched_once_the_sibling_wins():
     assert _rotate(pool, call, max_attempts=3, storm_attempts=10) == "ok:k3"
     _wait_idle(pool)
     assert pool.stats()["n_dead"] == 1, "k3 proved the request fine, so k2's 403 was the key's fault"
+# --------------------------------------------------------------------------- deadline threading (2026-08-27)
+def test_the_key_wait_is_clipped_to_the_remaining_budget():
+    """pool.acquire used to be called with its own 120 s default no matter how little
+    budget the call had left; now it gets min(ACQUIRE_TIMEOUT_S, remaining)."""
+    from codeverse.models.keypool import ACQUIRE_TIMEOUT_S
+
+    seen: list[float | None] = []
+
+    class SpyPool(KeyPool):
+        def acquire(self, *, tokens_hint=0, exclude=None, timeout_s=None):
+            seen.append(timeout_s)
+            return super().acquire(tokens_hint=tokens_hint, exclude=exclude, timeout_s=timeout_s)
+
+    pool = SpyPool(["k1"], rpm_per_key=10_000)
+    assert _rotate(pool, lambda key: "ok", max_total_s=50.0) == "ok"
+    assert _rotate(pool, lambda key: "ok") == "ok"  # the default budget: the pool default caps
+    assert seen[0] == pytest.approx(50.0, abs=1.0)
+    assert seen[1] == pytest.approx(ACQUIRE_TIMEOUT_S, abs=1.0)
+
+
+def test_a_storm_wait_is_clipped_to_the_remaining_budget():
+    """Sleeping past the deadline only to give up on waking helps nobody."""
+    clock = {"t": 0.0}
+    naps: list[float] = []
+
+    def sleep(d):
+        naps.append(d)
+        clock["t"] += d
+
+    with pytest.raises(ModelError):
+        rotate_with_retries(
+            KeyPool(["k1"], rpm_per_key=10_000),
+            lambda key: (_ for _ in ()).throw(RuntimeError("503 high demand")),
+            classify=lambda e: ModelError(str(e), retryable=True, status=503),
+            outcome_of=lambda e: "5xx", max_attempts=6, storm_attempts=60,
+            base_delay=4.0, storm_max_delay=5.0, max_total_s=3.0,
+            sleep=sleep, monotonic=lambda: clock["t"], hedge=1,
+        )
+    assert naps, "expected the storm path to sleep"
+    assert clock["t"] <= 3.0 + 1e-6, f"slept past the deadline: {clock['t']}"
+
+
+def test_free_429_rotation_cannot_outlive_the_deadline():
+    """Free rotation costs no attempts but DOES cost wall clock (0.5 s per hop):
+    with many keys it used to spin long past the budget."""
+    clock = {"t": 0.0}
+    keys = [f"k{i}" for i in range(1, 11)]
+    pool = KeyPool(keys, rpm_per_key=10_000, cooldown_s=0.0,
+                   clock=lambda: clock["t"], sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
+    calls: list[str] = []
+
+    def call(key):
+        calls.append(key)
+        raise ModelError("quota", retryable=True, status=429)
+
+    def sleep(d):
+        clock["t"] += d
+
+    with pytest.raises(ModelError) as ei:
+        rotate_with_retries(
+            pool, call, classify=_classify, outcome_of=_outcome, max_attempts=6,
+            max_total_s=2.0, sleep=sleep, monotonic=lambda: clock["t"],
+        )
+    assert ei.value.status == 429
+    assert clock["t"] <= 2.5, f"free rotation outlived the deadline: {clock['t']}"
+    assert len(calls) <= 5, "ten keys would all have been tried before"
+
+
+def test_the_pool_is_not_refunded_for_a_charged_but_invalid_reply():
+    """retry.py used to report tokens=0 for a bad-JSON failure, refunding a TPM
+    reservation the provider had actually consumed — a 42k-token invalid reply
+    handed the key 42k TPM back.  ``ModelError.usage`` now carries the real bill."""
+    from codeverse.contracts.common import Usage
+
+    clock = {"t": 1000.0}
+    pool = KeyPool(["k1"], rpm_per_key=10_000, tpm_per_key=100_000,
+                   clock=lambda: clock["t"], sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
+    calls = {"n": 0}
+
+    def call(key):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ModelError("structured output is not valid JSON", retryable=True,
+                             usage=Usage(input_tokens=42_000))
+        return "ok"
+
+    out = _rotate(pool, call, max_attempts=3, tokens_hint=1_000, tokens_of=lambda r: 100)
+    assert out == "ok" and calls["n"] == 2
+    left = pool._by_key["k1"].tpm.tokens  # noqa: SLF001 - white-box on purpose
+    assert left == pytest.approx(100_000 - 42_000 - 100)
+
+
+# --------------------------------------------------------------------------- on_attempt hook (2026-08-27)
+def test_on_attempt_hears_every_round_trip_and_a_late_hedge_loser():
+    """The per-attempt hook: the winner flushes as not-discarded, every failed try
+    as discarded, and a hedge loser still in flight reports (discarded — a late
+    success included) when it lands.  That is how a loser's paid tokens reach the
+    cost ledger at all."""
+    pool = KeyPool(["k1", "k2", "k3", "k4"], rpm_per_key=10_000)
+    release_k2 = threading.Event()
+    lock = threading.Lock()
+    recs: list[tuple[int, str, str, bool]] = []  # (attempt_no, key, outcome, discarded)
+
+    def on_attempt(t, no, discarded):
+        with lock:
+            recs.append((no, t.key, t.outcome, discarded))
+
+    def call(key):
+        if key == "k1":
+            raise ModelError("503 high demand", retryable=True, status=503)
+        if key == "k2":
+            assert release_k2.wait(5.0)
+            return "late:k2"
+        return "ok:k3"
+
+    out = _rotate(pool, call, max_attempts=3, storm_attempts=10, on_attempt=on_attempt)
+    assert out == "ok:k3"
+    with lock:
+        flushed = list(recs)
+    assert (1, "k1", "5xx", True) in flushed
+    winner = next(r for r in flushed if not r[3])
+    assert winner[1] == "k3" and winner[2] == "ok"
+    release_k2.set()
+    t_end = time.monotonic() + 5.0
+    while time.monotonic() < t_end:
+        with lock:
+            if len(recs) == 3:
+                break
+        time.sleep(0.005)
+    with lock:
+        loser = next(r for r in recs if r[1] == "k2")
+    assert loser[3] is True and loser[2] == "ok", "a loser that succeeds late is still discarded"
+    _wait_idle(pool)
+
+
+def test_a_broken_on_attempt_hook_never_breaks_the_call():
+    pool = KeyPool(["k1"], rpm_per_key=10_000)
+
+    def hook(t, no, discarded):
+        raise RuntimeError("accounting on fire")
+
+    assert _rotate(pool, lambda key: "ok", on_attempt=hook) == "ok"

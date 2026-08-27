@@ -155,6 +155,21 @@ def build_config(
     return types.GenerateContentConfig(**cfg)
 
 
+def clip_timeout(
+    config: types.GenerateContentConfig, timeout_ms: int
+) -> types.GenerateContentConfig:
+    """A copy of ``config`` whose per-request HTTP timeout is ``timeout_ms`` (the
+    SAME object when it already matches — the common full-budget case allocates
+    nothing).  :func:`build_config` owns the initial ``timeout_ms``; this is the
+    one sanctioned way to shorten it for a single attempt whose remaining retry
+    budget is smaller than the configured read timeout
+    (``GeminiModel._attempt_config``)."""
+    current = config.http_options.timeout if config.http_options is not None else None
+    if current == timeout_ms:
+        return config
+    return config.model_copy(update={"http_options": types.HttpOptions(timeout=timeout_ms)})
+
+
 # ------------------------------------------------------------------ response
 def parse_usage(resp: types.GenerateContentResponse, model: str) -> Usage:
     um = resp.usage_metadata

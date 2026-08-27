@@ -31,13 +31,21 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.chat import ChatRequest, ChatResponse
 from codeverse.contracts.common import Usage
-from codeverse.cost.context import bind_run, call_context, run_binding
+from codeverse.cost.context import (
+    AttemptRecord,
+    attempt_recording,
+    bind_run,
+    call_context,
+    run_binding,
+)
 from codeverse.cost.ledger import (
     CostLedger,
+    default_ledger,
     default_ledger_path,
     existing_ledger_path,
     open_run_ledger,
@@ -130,31 +138,63 @@ class MeteredChatModel:
 
     # -- the meter --------------------------------------------------------
     def generate(self, request: ChatRequest) -> ChatResponse:
+        call_id = uuid4().hex  # joins the per-attempt rows to the call's logical row
+        # captured NOW: a hedge loser lands after this call returned, in a thread
+        # with no context, and its row must still reach THIS run's ledger
+        ledger = default_ledger()
+
+        def attempt_row(rec: AttemptRecord) -> None:
+            self._record_attempt(request, call_id, rec, ledger)
+
         t0 = time.perf_counter()
         try:
-            resp = self._inner.generate(request)
+            with attempt_recording(attempt_row):
+                resp = self._inner.generate(request)
         except BaseException as exc:  # noqa: BLE001 - record the attempt, then re-raise
-            self._record(Usage(backend=self.provider, model=self.model), request,
-                         outcome=_outcome(exc), ms=int((time.perf_counter() - t0) * 1000),
-                         attempts=getattr(exc, "attempts", 0))
+            # a failed call may still have been billed: ModelError.usage carries what
+            # the provider charged (a bad-JSON reply costs like a good one)
+            usage = getattr(exc, "usage", None)
+            self._record(usage if isinstance(usage, Usage)
+                         else Usage(backend=self.provider, model=self.model),
+                         request, outcome=_outcome(exc),
+                         ms=int((time.perf_counter() - t0) * 1000),
+                         attempts=getattr(exc, "attempts", 0), call_id=call_id)
             raise
         # which key served it and how many round-trips it took (gemini.py puts both in
         # ``raw``); until 2026-08-26 no telemetry row carried either, so the per-key
         # distribution of calls could only be probed, never read
         self._record(resp.usage, request, outcome="ok",
                      ms=int((time.perf_counter() - t0) * 1000),
-                     key=resp.raw.get("key"), attempts=resp.raw.get("attempts", 0))
+                     key=resp.raw.get("key"), attempts=resp.raw.get("attempts", 0),
+                     call_id=call_id)
         return resp
 
     def _record(self, usage: Usage, request: ChatRequest, *, outcome: str, ms: int,
-                key: object = None, attempts: object = 0) -> None:
+                key: object = None, attempts: object = 0, call_id: str = "") -> None:
         try:
             record_call(usage, label=request.label, backend=usage.backend or self.provider,
                         model=usage.model or self.model, outcome=outcome,
                         latency_ms=usage.latency_ms or ms,
-                        key=_key_suffix(key), attempts=int(attempts or 0))
+                        key=_key_suffix(key), attempts=int(attempts or 0), call_id=call_id)
         except Exception as e:  # pragma: no cover - accounting must never break a call
             log.debug("cost: could not record %s: %s", request.label, e)
+
+    def _record_attempt(self, request: ChatRequest, call_id: str, rec: AttemptRecord,
+                        ledger: CostLedger | None) -> None:
+        """One ``source="attempt"`` row per round-trip.  Excluded from every total
+        (``ledger.load_ledger`` / ``summarise``); they exist so a hedge loser's or
+        a charged-but-invalid reply's tokens are visible at all (audit 2026-08-27)."""
+        try:
+            record_call(rec.usage, label=request.label,
+                        backend=rec.usage.backend or self.provider,
+                        model=rec.usage.model or self.model,
+                        outcome="discarded" if rec.discarded else "ok",
+                        latency_ms=rec.usage.latency_ms,
+                        source="attempt", key=_key_suffix(rec.key),
+                        call_id=call_id, attempt=rec.attempt, discarded=rec.discarded,
+                        ledger=ledger)
+        except Exception as e:  # pragma: no cover - accounting must never break a call
+            log.debug("cost: could not record attempt %s#%d: %s", request.label, rec.attempt, e)
 
 
 def _key_suffix(key: object) -> str:

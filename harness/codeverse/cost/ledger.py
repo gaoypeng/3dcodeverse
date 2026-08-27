@@ -88,8 +88,8 @@ class CostLedger:
             log.warning("cost ledger append failed (%s): %s", self.path, e)
         return row
 
-    def read(self) -> list[CallCost]:
-        return load_ledger(self.path)
+    def read(self, *, include_attempts: bool = False) -> list[CallCost]:
+        return load_ledger(self.path, include_attempts=include_attempts)
 
     def summarise(self, **kw: Any) -> Summary:
         return summarise(self.read(), **kw)
@@ -343,10 +343,15 @@ def record_call(
     return row
 
 
-def load_ledger(path: str | Path) -> list[CallCost]:
+def load_ledger(path: str | Path, *, include_attempts: bool = False) -> list[CallCost]:
     """Read a ledger file (or a run directory containing one: ``telemetry/cost.jsonl``
     first, then the legacy root ``cost_ledger.jsonl``).  Bad lines are skipped with a
-    debug log — a truncated last line never loses the rest of the file."""
+    debug log — a truncated last line never loses the rest of the file.
+
+    ``source="attempt"`` rows (one per round-trip, ``instrument.MeteredChatModel``)
+    are left out unless ``include_attempts=True``: the winning round-trip's tokens
+    are already on the call's logical row, so every aggregate built on this reader
+    (``summarise``, ``reconstruct``, the CLI) keeps counting each call exactly once."""
     p = Path(path)
     if p.is_dir():
         found = existing_ledger_path(p)
@@ -356,9 +361,13 @@ def load_ledger(path: str | Path) -> list[CallCost]:
     rows: list[CallCost] = []
     for i, line in iter_jsonl_lines(p):
         try:
-            rows.append(CallCost.model_validate_json(line))
+            row = CallCost.model_validate_json(line)
         except Exception as e:  # pragma: no cover - defensive
             log.debug("cost ledger %s:%d unreadable: %s", p, i, e)
+            continue
+        if not include_attempts and row.source == "attempt":
+            continue
+        rows.append(row)
     return rows
 
 
@@ -374,6 +383,8 @@ def summarise(rows: Iterable[CallCost], *, dimensions: Sequence[str] = DIMENSION
     of :class:`CallCost` (defaults to :data:`DIMENSIONS`)."""
     out = Summary()
     for row in rows:
+        if row.source == "attempt":
+            continue  # per-round-trip forensic rows; their call is already a row
         out.total.add(row)
         for dim in dimensions:
             bucket = out.by.setdefault(dim, {}).setdefault(_key(row, dim), CostBucket(key=_key(row, dim)))

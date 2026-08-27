@@ -27,11 +27,13 @@ from google.genai import errors as genai_errors
 from google.genai import types
 
 from codeverse.contracts.chat import ChatRequest, ChatResponse
+from codeverse.contracts.common import Usage
 from codeverse.models.base import ModelError
 from codeverse.models.gemini_convert import (
     FATAL_FINISH,
     RETRYABLE_FINISH,
     build_config,
+    clip_timeout,
     extract_candidate,
     parse_usage,
     to_contents,
@@ -39,7 +41,7 @@ from codeverse.models.gemini_convert import (
 from codeverse.models.keypool import MAX_WAIT_S, KeyPool, KeyPoolExhausted, Outcome
 from codeverse.models.parts import Stopwatch
 from codeverse.models.pricing import estimate_cost
-from codeverse.models.retry import RETRY_DEADLINE_S, rotate_with_retries
+from codeverse.models.retry import RETRY_DEADLINE_S, OnAttempt, _Try, rotate_with_retries
 from codeverse.models.schema_utils import JsonParseError, parse_json_lenient
 from codeverse.models.storm import StormGate
 from codeverse.models.storm import storm_gate as storm_gate_for
@@ -48,6 +50,15 @@ from codeverse.models.tokens import request_tokens
 log = logging.getLogger(__name__)
 
 _RETRY_DELAY_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
+
+#: floor of the per-attempt HTTP read timeout derived from the remaining retry
+#: budget (``ChatRequest.max_wait_s``): a call that starts near its deadline still
+#: gets ONE real attempt instead of an instant socket timeout.  20 s matches the
+#: callers' own floors (``agents.api_agent.TURN_WAIT_MIN_S`` = 20 s,
+#: ``judges.vlm_judge.SAMPLE_MIN_WAIT_S`` = 20 s), so an in-flight attempt may
+#: overshoot the deadline by at most this floor — never by the full ``timeout_s``
+#: (300 s) read timeout, which was the dominant overshoot (audit 2026-08-27).
+HTTP_TIMEOUT_FLOOR_S = 20.0
 
 _pools: dict[tuple[str, ...], KeyPool] = {}
 _clients: dict[tuple[str, int], genai.Client] = {}
@@ -251,11 +262,15 @@ class GeminiModel:
 
         # the caller's budget clips the retry deadline, never extends it
         budget = RETRY_DEADLINE_S if request.max_wait_s is None else min(RETRY_DEADLINE_S, float(request.max_wait_s))
+        deadline = time.monotonic() + budget  # mirrors rotate_with_retries' own deadline
         stats: dict[str, Any] = {}
         try:
             resp = rotate_with_retries(
                 self.pool,
-                lambda key: self._once(key, contents, state["config"], request, warnings),
+                lambda key: self._once(
+                    key, contents, self._attempt_config(state["config"], deadline),
+                    request, warnings,
+                ),
                 classify=classify_exception,
                 outcome_of=failure_outcome,
                 max_attempts=self.max_attempts,
@@ -271,6 +286,7 @@ class GeminiModel:
                 storm_gate=self.storm_gate,
                 label=f"gemini {self.model}",
                 stats=stats,
+                on_attempt=self._attempt_hook(),
                 **({} if self.storm_attempts is None else {"storm_attempts": self.storm_attempts}),
             )
         except ModelError as err:
@@ -288,6 +304,43 @@ class GeminiModel:
             use_thinking=self._thinking_ok,
             warnings=warnings,
         )
+
+    def _attempt_config(
+        self, config: types.GenerateContentConfig, deadline: float
+    ) -> types.GenerateContentConfig:
+        """The config for ONE attempt: its HTTP read timeout is the remaining retry
+        budget, capped at ``self.timeout_s`` and floored at
+        :data:`HTTP_TIMEOUT_FLOOR_S`.  A 20 s-budget turn used to hand the provider
+        a 300 s socket — the dominant deadline overshoot (audit 2026-08-27)."""
+        remaining = deadline - time.monotonic()
+        want_s = min(self.timeout_s, max(HTTP_TIMEOUT_FLOOR_S, remaining))
+        return clip_timeout(config, int(want_s * 1000))
+
+    def _attempt_hook(self) -> OnAttempt | None:
+        """The per-attempt ledger recorder, when the metering layer installed one
+        (``cost.instrument.MeteredChatModel``).  Captured once per logical call so
+        a hedge loser landing later, in its own thread, still reports through it.
+        Imported lazily: the models package must not import the cost package at
+        module level (``cost.ledger`` imports ``models.pricing``)."""
+        try:
+            from codeverse.cost.context import AttemptRecord, attempt_sink
+        except Exception:  # pragma: no cover - accounting must never break a call
+            return None
+        sink = attempt_sink()
+        if sink is None:
+            return None
+
+        def on_attempt(t: _Try, no: int, discarded: bool) -> None:
+            if t.err is None:
+                usage: Usage = t.result.usage
+                outcome, error = "ok", ""
+            else:
+                usage = getattr(t.err, "usage", None) or Usage()
+                outcome, error = t.outcome, str(t.err)
+            sink(AttemptRecord(attempt=no, key=t.key, outcome=outcome,
+                               discarded=discarded, usage=usage, error=error))
+
+        return on_attempt
 
     def _once(
         self,
@@ -318,13 +371,15 @@ class GeminiModel:
                         f"structured output unavailable (finish_reason={finish}; "
                         f"raise max_output_tokens if truncated): {exc}",
                         retryable=False,
+                        usage=usage,  # the provider billed this reply; the ledger wants it
                     ) from exc
                 raise ModelError(
                     f"structured output is not valid JSON (finish_reason={finish}): {exc}",
                     retryable=True,
+                    usage=usage,
                 ) from exc
         elif finish in RETRYABLE_FINISH and not calls and not text.strip():
-            raise ModelError(f"Gemini finish_reason={finish}", retryable=True)
+            raise ModelError(f"Gemini finish_reason={finish}", retryable=True, usage=usage)
         raw: dict[str, Any] = {
             "finish_reason": finish,
             "model_version": resp.model_version,

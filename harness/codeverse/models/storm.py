@@ -70,14 +70,21 @@ class StormGate:
     def storming(self) -> bool:
         return self._storm
 
-    def enter(self) -> float:
-        """Block until this thread may issue a call; returns the seconds waited."""
+    def enter(self, deadline: float | None = None) -> float:
+        """Block until this thread may issue a call; returns the seconds waited.
+
+        ``deadline`` (a point on this gate's ``clock``) bounds the parking: each
+        wait is clipped to it and once it passes ``enter`` returns even though the
+        storm may still be on — the caller's own deadline machinery
+        (``retry.rotate_with_retries``), not the gate, decides to give up."""
         t0 = self._clock()
         while True:
             with self._lock:
                 now = self._clock()
                 if not self._storm:
                     return now - t0
+                if deadline is not None and now >= deadline:
+                    return now - t0  # budget exhausted: hand control back
                 if now < self._closed_until:
                     wait = min(self._max_wait, self._closed_until - now)
                 elif now >= self._probe_until:
@@ -88,6 +95,8 @@ class StormGate:
                 else:
                     wait = min(self._max_wait, self._probe_until - now)
                 wait = max(0.01, wait)
+                if deadline is not None:
+                    wait = min(wait, max(0.01, deadline - now))
                 self.parked_s += wait
             self._sleep(wait)
 

@@ -32,11 +32,12 @@ one run.
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 
+from codeverse.contracts.common import Usage
 from codeverse.cost.types import Role, Stage, role_for_stage, stage_for_label
 
 
@@ -226,5 +227,49 @@ def attribute(explicit: CallContext | None = None, *, label: str = "") -> CallCo
     return ctx.resolved()
 
 
-__all__ = ["CallContext", "attribute", "bind_run", "call_context", "context_from_label", "current",
+# --------------------------------------------------------------------------- per-attempt sink
+@dataclass(frozen=True)
+class AttemptRecord:
+    """One round-trip of one logical model call (``models.retry.rotate_with_retries``).
+
+    The metering layer (``instrument.MeteredChatModel``) installs a sink for these
+    with :func:`attempt_recording`; the backend reports every round-trip — the
+    winner included — so a hedge loser's and a charged-but-invalid reply's tokens
+    reach the ledger instead of vanishing (audit 2026-08-27).  Rows written from
+    these carry ``source="attempt"`` and are excluded from every total."""
+
+    attempt: int  #: 1-based issue order within the logical call
+    key: str  #: the full API key that served it; the ledger keeps only its last 4 chars
+    outcome: str  #: KeyPool vocabulary: ok | 429 | 5xx | error | dead
+    discarded: bool  #: True for every round-trip that is not the winning one
+    usage: Usage  #: what the provider billed for THIS round-trip
+    error: str = ""  #: str(ModelError) when the round-trip failed
+
+
+AttemptSink = Callable[[AttemptRecord], None]
+
+#: Request-scoped sink for per-attempt rows.  A ContextVar rather than a new
+#: parameter because ``ChatModel.generate(request)`` is a protocol many backends
+#: implement; the backend captures the sink ONCE at call entry, so a hedge loser
+#: that lands later in its own thread still reports through the captured callable.
+_attempt_sink: ContextVar[AttemptSink | None] = ContextVar("cv3d_cost_attempt_sink", default=None)
+
+
+def attempt_sink() -> AttemptSink | None:
+    """The sink installed for the current logical call (``None`` = nobody meters)."""
+    return _attempt_sink.get()
+
+
+@contextmanager
+def attempt_recording(sink: AttemptSink) -> Iterator[None]:
+    """Install ``sink`` for the duration of ONE logical ``generate`` call."""
+    token = _attempt_sink.set(sink)
+    try:
+        yield
+    finally:
+        _attempt_sink.reset(token)
+
+
+__all__ = ["AttemptRecord", "AttemptSink", "CallContext", "attempt_recording", "attempt_sink",
+           "attribute", "bind_run", "call_context", "context_from_label", "current",
            "run_binding"]

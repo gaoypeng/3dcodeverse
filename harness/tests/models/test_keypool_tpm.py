@@ -69,11 +69,23 @@ def test_the_bucket_may_go_negative_and_is_paid_off_by_refill():
 
 
 def test_a_call_that_never_reached_the_model_is_refunded():
-    """429 / capacity storm: nothing was spent, so the reservation comes back."""
+    """429 / capacity storm: nothing was spent, so the reservation comes back.
+    (A charged-but-invalid reply is NOT this case — retry.py reports its real
+    ``ModelError.usage`` prompt tokens; see the next test.)"""
     pool, _ = make(keys=("a",), tpm_per_key=100_000, cooldown_s=0.0)
     pool.acquire(tokens_hint=90_000)
     pool.report("a", "5xx", reserved=90_000)
     assert tpm_left(pool, "a") == pytest.approx(100_000)
+
+
+def test_a_charged_but_invalid_reply_keeps_its_consumption():
+    """A bad-JSON reply is billed like a good one: reporting its real tokens must
+    reconcile the reservation instead of refunding it (the 42k-TPM-giveback bug,
+    fixed 2026-08-27 — retry.run_one now passes ``tokens=err.usage.input_tokens``)."""
+    pool, _ = make(keys=("a",), tpm_per_key=100_000)
+    pool.acquire(tokens_hint=50_000)
+    pool.report("a", "error", tokens=42_000, reserved=50_000)
+    assert tpm_left(pool, "a") == pytest.approx(58_000)
 
 
 def test_tokens_used_counter_is_reported():

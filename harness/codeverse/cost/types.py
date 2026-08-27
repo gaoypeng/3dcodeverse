@@ -184,13 +184,23 @@ class CallCost(BaseModel):
     cache_hit: bool = False
     outcome: str = "ok"  # ok | error | timeout | budget | degraded | discarded
     n_calls: int = 1  # >1 when a row aggregates a whole agent session
-    source: str = "live"  # live | record | events | transcript | stdout | residual
+    source: str = "live"  # live | record | events | transcript | stdout | residual | session | attempt
     #: which API key served the call, as its last 4 chars ("…ab12") — never the key
     #: itself; "" for a failed call, a session row, or a row older than 2026-08-26
     key: str = ""
     #: round-trips the retry machine issued for this call (hedged siblings included);
     #: 1 = clean, 0 = not recorded
     attempts: int = 0
+    #: joins a call's per-attempt rows (``source="attempt"``) to its logical row;
+    #: minted per logical call by ``instrument.MeteredChatModel`` (uuid4 hex), ""
+    #: for rows older than 2026-08-27 and for writers that do not mint one
+    call_id: str = ""
+    #: 1-based round-trip number within its logical call (``source="attempt"`` rows)
+    attempt: int = 0
+    #: True when this round-trip's response was thrown away: a hedge loser, or a
+    #: failed try of a call that went on to retry.  Real money, but never part of a
+    #: total — ``ledger.load_ledger`` / ``summarise`` exclude ``source="attempt"``
+    discarded: bool = False
 
     @property
     def uncached_tokens(self) -> int:

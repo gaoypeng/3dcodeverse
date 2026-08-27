@@ -520,3 +520,12 @@ def test_empty_max_tokens_is_not_retried():
     with pytest.raises(ModelError) as ei:
         m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_output_tokens=50))
     assert not ei.value.retryable and len(log) == 1 and "thinking" in str(ei.value)
+def test_a_charged_but_invalid_reply_carries_its_usage_on_the_error():
+    """``ModelError.usage``: what the provider billed for the failed call — a
+    bad-JSON reply is charged like a success (mirrors tracks.planner.PlanningError),
+    so the ledger's error row and the pool's TPM accounting can see real money."""
+    m, _log, _ = make_model([text_response("nope")] * 6)
+    with pytest.raises(ModelError) as ei:
+        m.generate(ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"}))
+    assert ei.value.usage.input_tokens == 100 and ei.value.usage.output_tokens == 20
+    assert ei.value.usage.cost_usd > 0

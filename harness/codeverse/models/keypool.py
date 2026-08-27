@@ -47,6 +47,14 @@ so the harness rotates rather than sitting out a long backoff.  Patience comes
 from the NUMBER of attempts, never from the length of one sleep.
 """
 
+ACQUIRE_TIMEOUT_S = 120.0
+"""Default total wait budget of one :meth:`KeyPool.acquire` (seconds).
+
+Covers BOTH the ``max_in_flight`` slot wait and the key/cooldown wait; a caller
+with a deadline passes something smaller (``retry.rotate_with_retries`` passes
+``min(ACQUIRE_TIMEOUT_S, remaining budget)``).  ``None`` waits forever.
+"""
+
 
 @dataclass
 class TokenBucket:
@@ -184,7 +192,7 @@ class KeyPool:
         *,
         tokens_hint: int = 0,
         exclude: set[str] | frozenset[str] | None = None,
-        timeout_s: float | None = 120.0,
+        timeout_s: float | None = ACQUIRE_TIMEOUT_S,
     ) -> str:
         """Return the next usable key, blocking (bounded by ``timeout_s``) while all
         keys are throttled.  ``exclude`` skips keys that already failed this call.
@@ -194,9 +202,19 @@ class KeyPool:
         ``tokens_hint`` is the estimated prompt tokens of the pending call: they
         are reserved in the chosen key's TPM bucket now and reconciled by
         :meth:`report`.  When ``max_in_flight`` is set the call also waits for a
-        free concurrency slot; :meth:`release` hands it back."""
+        free concurrency slot; :meth:`release` hands it back.  ``timeout_s`` bounds
+        the slot wait AND the key wait together (``None`` = wait forever): the slot
+        wait used to be unbounded, so a caller 20 s from its deadline could sit on
+        the semaphore for minutes."""
         if self._slots is not None:
-            self._slots.acquire()
+            t0 = self._clock()
+            if not self._slots.acquire(timeout=timeout_s):
+                raise KeyPoolExhausted(
+                    f"all {self._max_in_flight} in-flight slots busy; waited {timeout_s}s"
+                )
+            if timeout_s is not None:
+                # the slot wait spent part of the budget; the key wait gets the rest
+                timeout_s = max(0.0, timeout_s - (self._clock() - t0))
         try:
             return self._acquire_key(tokens_hint, exclude, timeout_s)
         except BaseException:

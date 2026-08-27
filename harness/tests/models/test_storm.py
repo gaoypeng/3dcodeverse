@@ -154,3 +154,11 @@ def test_many_workers_share_one_storm_discovery():
     for t in threads:
         t.join(3)
     assert len(calls) == 12  # everybody gets through once the gate reopens
+def test_enter_returns_at_the_deadline_even_mid_storm():
+    """A parked worker with a retry deadline gets control back at that deadline
+    (rotate_with_retries then raises); the gate never holds it hostage."""
+    gate, clock = make(base_delay=4.0)
+    gate.hit()
+    waited = gate.enter(deadline=clock.t + 1.5)
+    assert waited == pytest.approx(1.5)
+    assert gate.storming, "the storm is still on; only this caller's budget ended"

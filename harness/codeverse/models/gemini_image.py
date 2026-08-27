@@ -49,7 +49,7 @@ from codeverse.models.gemini_convert import FATAL_FINISH, parse_usage
 from codeverse.models.keypool import MAX_WAIT_S, KeyPool
 from codeverse.models.parts import Stopwatch
 from codeverse.models.pricing import estimate_cost
-from codeverse.models.retry import rotate_with_retries
+from codeverse.models.retry import RETRY_DEADLINE_S, rotate_with_retries
 
 log = logging.getLogger(__name__)
 
@@ -186,8 +186,10 @@ class GeminiImageModel:
         n: int = 1,
         seed: int | None = None,
         reference_images: Sequence[Image.Image | Path | str] = (),
+        max_wait_s: float | None = None,
     ) -> list[Image.Image]:
-        images, _ = self.generate_with_usage(prompt, size=size, n=n, seed=seed, reference_images=reference_images)
+        images, _ = self.generate_with_usage(prompt, size=size, n=n, seed=seed,
+                                             reference_images=reference_images, max_wait_s=max_wait_s)
         return images
 
     def generate_with_usage(
@@ -198,7 +200,13 @@ class GeminiImageModel:
         n: int = 1,
         seed: int | None = None,
         reference_images: Sequence[Image.Image | Path | str] = (),
+        max_wait_s: float | None = None,
     ) -> tuple[list[Image.Image], Usage]:
+        """``max_wait_s`` is the caller's retry budget for ONE image (each of the
+        ``n`` images gets its own window, and a fallback model too), exactly like
+        ``ChatRequest.max_wait_s`` clips ``GeminiModel.generate``; ``None`` = the
+        full ``retry.RETRY_DEADLINE_S`` (900 s).  Kept off the ``ImageModel``
+        protocol so fakes stay conformant; callers that hold a deadline pass it."""
         if not prompt.strip():
             raise ModelError("empty image prompt")
         if n < 1:
@@ -206,7 +214,8 @@ class GeminiImageModel:
         images: list[Image.Image] = []
         usage = Usage(backend="gemini-image", model=self.model)
         for i in range(n):
-            got, u = self._one(prompt, size=size, seed=None if seed is None else seed + i, refs=reference_images)
+            got, u = self._one(prompt, size=size, seed=None if seed is None else seed + i,
+                               refs=reference_images, max_wait_s=max_wait_s)
             images.extend(got)
             usage = usage + u
         if len(images) > n:
@@ -226,12 +235,14 @@ class GeminiImageModel:
         return order
 
     def _one(
-        self, prompt: str, *, size: int, seed: int | None, refs: Sequence[Image.Image | Path | str]
+        self, prompt: str, *, size: int, seed: int | None,
+        refs: Sequence[Image.Image | Path | str], max_wait_s: float | None = None,
     ) -> tuple[list[Image.Image], Usage]:
         last: ModelError | None = None
         for model in self._models():
             try:
-                return self._attempts(model, prompt, size=size, seed=seed, refs=refs)
+                return self._attempts(model, prompt, size=size, seed=seed, refs=refs,
+                                      max_wait_s=max_wait_s)
             except ModelError as err:
                 last = err
                 if model == self.model and self.fallback and (err.retryable or _is_model_missing(err)):
@@ -245,7 +256,8 @@ class GeminiImageModel:
         raise last
 
     def _attempts(
-        self, model: str, prompt: str, *, size: int, seed: int | None, refs: Sequence[Image.Image | Path | str]
+        self, model: str, prompt: str, *, size: int, seed: int | None,
+        refs: Sequence[Image.Image | Path | str], max_wait_s: float | None = None,
     ) -> tuple[list[Image.Image], Usage]:
         parts: list[types.Part] = [_to_part(r) for r in refs]
         parts.append(types.Part.from_text(text=prompt))
@@ -256,6 +268,9 @@ class GeminiImageModel:
             seed=seed,
             http_options=types.HttpOptions(timeout=int(self.timeout_s * 1000)),
         )
+        # the caller's budget clips the retry deadline, never extends it (the same
+        # contract as GeminiModel.generate with ChatRequest.max_wait_s)
+        budget = RETRY_DEADLINE_S if max_wait_s is None else min(RETRY_DEADLINE_S, float(max_wait_s))
         return rotate_with_retries(
             self.pool,
             lambda key: self._call(key, model, contents, config, size),
@@ -264,6 +279,7 @@ class GeminiImageModel:
             max_attempts=self.max_attempts,
             base_delay=self.base_delay,
             max_delay=self.max_delay,
+            max_total_s=budget,
             hedge=self.hedge,
             sleep=self._sleep,
             retry_after=_retry_after_s,

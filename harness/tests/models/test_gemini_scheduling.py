@@ -214,3 +214,25 @@ def test_a_clean_call_reports_one_attempt_and_a_failed_call_carries_its_count():
     with pytest.raises(ModelError) as ei:
         m2.generate(ChatRequest(messages=[ChatMessage.user("x")]))
     assert ei.value.attempts == 1, "the ledger's error row gets the count too"
+# ------------------------------------------ per-attempt HTTP timeout (audit 2026-08-27)
+def test_a_small_budget_shortens_the_per_attempt_http_timeout():
+    """A 20 s-budget turn used to hand the provider a 300 s socket: the per-attempt
+    HTTP timeout is now min(timeout_s, remaining budget), floored at
+    HTTP_TIMEOUT_FLOOR_S so a nearly-expired call still gets one real attempt."""
+    from codeverse.models.gemini import HTTP_TIMEOUT_FLOOR_S
+
+    m, log, _ = make_model([text_response("a"), text_response("b"), text_response("c")],
+                           timeout_s=300.0)
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert log[0]["config"].http_options.timeout == 300_000  # plenty of budget: the full read timeout
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=60))
+    assert 55_000 <= log[1]["config"].http_options.timeout <= 60_000
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=5))
+    assert log[2]["config"].http_options.timeout == int(HTTP_TIMEOUT_FLOOR_S * 1000)
+
+
+def test_the_floor_never_raises_an_explicitly_small_read_timeout():
+    """A model built with timeout_s below the floor keeps its own ceiling."""
+    m, log, _ = make_model([text_response("a")], timeout_s=8.0)
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=5))
+    assert log[0]["config"].http_options.timeout == 8_000

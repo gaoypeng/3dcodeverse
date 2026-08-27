@@ -357,3 +357,90 @@ def test_per_key_buckets_and_tries_per_call(tmp_path: Path):
     assert [b.key for b in keyed_buckets(audit)] == ["…k1", "…k2"], "most calls first, unkeyed rows left out"
     table = bucket_rows(keyed_buckets(audit), total=1.0)
     assert BUCKET_HEADERS[-1] == "tries/call" and table[0][-1] == "2.00" and table[1][-1] == "1.00"
+# ------------------------------------------------------- per-attempt rows (audit 2026-08-27)
+def test_a_bad_json_reply_reaches_the_ledger_as_a_discarded_attempt_row(tmp_path: Path):
+    """A charged-but-invalid reply used to vanish: the logical row carries only the
+    winner's usage.  Its tokens now land as a source="attempt" row that joins the
+    logical row by call_id — and never double-counts in any total."""
+    from codeverse.cost.ledger import summarise
+    from tests.models.test_gemini import make_model, text_response
+
+    m, _log, _ = make_model([text_response("not json"), text_response('{"ok": true}')])
+    with run_ledger(tmp_path, run="r1"):
+        resp = MeteredChatModel(m).generate(
+            ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"},
+                        label="planner"))
+    assert resp.parsed == {"ok": True}
+    (logical,) = load_ledger(tmp_path)  # attempt rows are filtered by default
+    assert logical.outcome == "ok" and logical.attempts == 2 and logical.call_id
+    rows = load_ledger(tmp_path, include_attempts=True)
+    attempts = sorted((r for r in rows if r.source == "attempt"), key=lambda r: r.attempt)
+    assert [r.attempt for r in attempts] == [1, 2]
+    bad, win = attempts
+    assert bad.discarded and bad.outcome == "discarded" and bad.input_tokens == 100
+    assert not win.discarded and win.outcome == "ok"
+    assert bad.call_id == win.call_id == logical.call_id
+    assert summarise(rows).total.input_tokens == logical.input_tokens, \
+        "attempt rows never double-count"
+
+
+def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
+    """The loser of a raced 503 retry keeps running after the winner returned; when
+    it lands, its billed tokens must appear as a discarded attempt row — before,
+    that money left no trace anywhere."""
+    import threading
+    import time as _time
+
+    from codeverse.models.base import ModelError
+    from codeverse.models.gemini import GeminiModel
+    from codeverse.models.keypool import KeyPool
+    from tests.models.test_gemini import text_response
+
+    release_k2 = threading.Event()
+
+    class Client:
+        def __init__(self, key: str):
+            self.key, self.models = key, self
+
+        def generate_content(self, *, model, contents, config):
+            if self.key == "k1":
+                raise ModelError("503 high demand", retryable=True, status=503)
+            if self.key == "k2":
+                assert release_k2.wait(5.0)
+                return text_response("late loser")
+            return text_response("winner")
+
+    pool = KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000)
+    m = GeminiModel("gemini-3.7-flash", pool=pool, sleep=lambda s: None, client_factory=Client)
+    with run_ledger(tmp_path, run="r1"):
+        resp = MeteredChatModel(m).generate(
+            ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
+    assert resp.text == "winner"
+    release_k2.set()
+    deadline = _time.monotonic() + 5.0
+    loser = None
+    while _time.monotonic() < deadline:
+        rows = load_ledger(tmp_path, include_attempts=True)
+        loser = next((r for r in rows if r.source == "attempt" and r.key == "…k2"), None)
+        if loser is not None:
+            break
+        _time.sleep(0.01)
+    assert loser is not None, "the loser's row never arrived"
+    assert loser.discarded and loser.input_tokens == 100, "the loser's paid tokens are on the ledger"
+    (logical,) = load_ledger(tmp_path)
+    # endswith, not ==: the 2-char fake key is shorter than the …last-4 redaction
+    assert logical.key.endswith("k3") and logical.call_id == loser.call_id
+
+
+def test_a_failed_calls_error_row_carries_what_was_billed(tmp_path: Path):
+    """instrument's error path used to write an EMPTY Usage; it now records
+    ``ModelError.usage`` — the money a failed-after-retries call still cost."""
+    from codeverse.models.base import ModelError
+
+    err = ModelError("bad json after retries", retryable=True, attempts=6, usage=_usage())
+    with run_ledger(tmp_path, run="r1"), pytest.raises(ModelError):
+        MeteredChatModel(FakeChat(err)).generate(
+            ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
+    (row,) = load_ledger(tmp_path)
+    assert row.outcome == "error" and row.attempts == 6
+    assert row.input_tokens == 12_000 and row.cost_usd > 0, "a billed failure is no longer a $0 row"
