@@ -626,6 +626,17 @@ def plan_tokens(budget: PlanBudget, floor: int) -> int:
     return min(PLAN_TOKENS_MAX, max(floor, want))
 
 
+TRUNCATION_NOTE = ("\n\nCOMPACT ANSWER REQUIRED: your previous answer did not fit in the output budget "
+                   "({tokens} tokens). Return the same plan with every `description` at most 25 words, at most 6 "
+                   "`children` per part and nothing outside the JSON. Answer directly without long deliberation.")
+
+
+def _with_note(msg: ChatMessage, note: str) -> ChatMessage:
+    """The same user message with ``note`` appended to its text (images kept)."""
+    images = [p for p in msg.parts if isinstance(p, ImagePart)] or None
+    return ChatMessage.user(msg.text + note, images=images)
+
+
 def _truncated(exc: Exception) -> bool:
     """Did this model error mean 'the answer did not fit'?"""
     return "MAX_TOKENS" in str(exc)
@@ -731,10 +742,11 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     last_error = ""
     invalid = requeried = grown = 0
     tokens = plan_tokens(budget, max_output_tokens)
+    thinking = "medium"
     geo_reasked = 0
     for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_GEOMETRY_REASKS):
         req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=temperature,
-                          thinking="medium", max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
+                          thinking=thinking, max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
                           max_wait_s=plan_wait_s(tokens, guard))
         try:
             resp = model.generate(req)
@@ -743,8 +755,14 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
                 raise  # not a truncation, or already at the model ceiling: nothing to grow
             grown += 1
             tokens = min(PLAN_TOKENS_MAX, int(tokens * TRUNCATION_GROWTH))
+            # A bigger budget alone does not help when thinking ate the last one: with the pro
+            # planner a 55k-token retry ran ~16 min into the provider's deadline (504) and the
+            # cell was lost (compare_art_v4_pp, 2026-08-28).  Retry with low thinking and a
+            # compact-answer note on the last user turn.
+            thinking = "low"
+            messages = messages[:-1] + [_with_note(messages[-1], TRUNCATION_NOTE.format(tokens=tokens))]
             if events is not None:
-                events.emit("plan.truncated", attempt=attempt, max_output_tokens=tokens)
+                events.emit("plan.truncated", attempt=attempt, max_output_tokens=tokens, thinking=thinking)
             continue
         usage = usage + resp.usage
         if guard is not None:
