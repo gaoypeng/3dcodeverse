@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from codeverse.skills import all_skills, bundle_dirs, iter_skills, load_skill
-from codeverse.skills.loader import (
+from codeverse.skills.model import (
     BODY_MAX_LINES,
     SkillError,
     parse_skill,

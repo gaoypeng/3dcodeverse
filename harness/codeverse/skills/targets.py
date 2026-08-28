@@ -26,7 +26,13 @@ rows against the live gate vocabulary and against each bundle's own frontmatter.
 
 from __future__ import annotations
 
+import importlib
+import tomllib
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from codeverse.skills.model import Skill
 
 #: the direction that counts as an improvement
 DOWN = "down"
@@ -249,6 +255,92 @@ def gate_kinds_claimed() -> frozenset[str]:
     return frozenset(k for t in TARGETS for k in t.kinds)
 
 
-__all__ = ["BY_SKILL", "DIRECTIONS", "DOWN", "METRICS", "SOURCES", "SRC_ARTIFACT", "SRC_BUILD",
-           "SRC_FRAMES", "SRC_GATE", "SRC_GLB", "TARGETS", "UP", "Target", "gate_kinds_claimed",
-           "target_for"]
+# ===================================================================== claims
+# (merged from codeverse/skills/claims.py, 2026-08-28)
+CLAIMS_DIR = "_claims"
+
+
+def claims_path(name: str, root: Path | None = None) -> Path:
+    from codeverse.skills import skills_dir
+
+    base = Path(root) if root is not None else skills_dir()
+    return base / CLAIMS_DIR / f"{name}.toml"
+
+
+def load_claims(name: str, root: Path | None = None) -> list[dict[str, Any]]:
+    """The claim rows for one skill ([] when the bundle pins nothing)."""
+    p = claims_path(name, root)
+    if not p.is_file():
+        return []
+    data = tomllib.loads(p.read_text())
+    rows = data.get("claim") or []
+    if not isinstance(rows, list):
+        raise ValueError(f"{p}: [[claim]] must be an array of tables")
+    return [dict(r) for r in rows]
+
+
+def resolve(dotted: str) -> Any:
+    """``module:NAME`` or ``module.NAME`` → the live object."""
+    mod, _, attr = dotted.partition(":") if ":" in dotted else dotted.rpartition(".")
+    if not mod or not attr:
+        raise ValueError(f"claim python target {dotted!r} must be 'module:NAME'")
+    return getattr(importlib.import_module(mod), attr)
+
+
+def render_claim(row: dict[str, Any]) -> str:
+    """The string the live constant produces, per this row's scale/format."""
+    value = resolve(str(row["python"]))
+    scale = row.get("scale")
+    if scale is not None:
+        value = value * scale
+    fmt = row.get("format")
+    return format(value, "") if not fmt else str(fmt).format(value)
+
+
+def check_claims(skill: Skill, root: Path | None = None) -> list[str]:
+    """Every stale or missing claim in one bundle, as human lines (empty == clean)."""
+    issues: list[str] = []
+    try:
+        rows = load_claims(skill.name, root)
+    except (ValueError, OSError) as e:
+        return [f"claims file unreadable: {e}"]
+    for i, row in enumerate(rows):
+        where = f"claim[{i}] {row.get('key', '?')}"
+        for key_name in ("key", "text", "python"):
+            if not row.get(key_name):
+                issues.append(f"{where}: missing `{key_name}`")
+        if issues and issues[-1].startswith(where):
+            continue
+        try:
+            live = render_claim(row)
+        except Exception as e:  # noqa: BLE001 — a bad dotted path is a claim problem
+            issues.append(f"{where}: cannot resolve {row['python']!r}: {e}")
+            continue
+        if live != row["text"]:
+            issues.append(f"{where}: the constant now renders {live!r}, the body says {row['text']!r}")
+        elif row["text"] not in skill.body:
+            issues.append(f"{where}: {row['text']!r} no longer appears in the body")
+    return issues
+
+
+def claim_values(name: str, root: Path | None = None) -> dict[str, str]:
+    """``key -> text`` for one bundle — the rendered string, in that bundle's own units."""
+    return {str(r["key"]): str(r.get("text", "")) for r in load_claims(name, root) if r.get("key")}
+
+
+def claim_bases(name: str, root: Path | None = None) -> dict[str, tuple[str, Any]]:
+    """``key -> (dotted target, live value)`` — the agreement test's real comparison.
+
+    WHY not the rendered text: two skills may honestly quote one constant in two units.
+    ``cv3d-bbox-contract`` says "1 cm" (scale 100) and ``cv3d-repeats-and-mirrors`` says
+    "0.01" metres; both pin ``conventions:BBOX_TOLERANCE_M`` and both are right.  A
+    contradiction is two skills pointing a shared key at DIFFERENT numbers, so that is what
+    is compared — the pre-scale value, and the target it came from.
+    """
+    out: dict[str, tuple[str, Any]] = {}
+    for row in load_claims(name, root):
+        key = row.get("key")
+        if not key or not row.get("python"):
+            continue
+        out[str(key)] = (str(row["python"]), resolve(str(row["python"])))
+    return out

@@ -30,7 +30,7 @@ from codeverse.skills.prompting import (
     inline_body,
     repair_pointers,
 )
-from codeverse.skills.router import select
+from codeverse.skills.registry import select
 
 
 @pytest.fixture

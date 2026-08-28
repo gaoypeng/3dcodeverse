@@ -48,7 +48,7 @@ from codeverse.skills.prompting import (
     index_tokens,
     inline_body,
 )
-from codeverse.skills.router import plan_signals, select
+from codeverse.skills.registry import plan_signals, select
 
 log = logging.getLogger(__name__)
 

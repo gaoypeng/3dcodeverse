@@ -120,18 +120,11 @@ codeverse/
                       complexity.py (objective complexity vector -> Measurement.extra, docs/COMPLEXITY.md),
                       joints*.py + joints_collide.py (deterministic penetration), registry.py, tools*.py
                       (tools_texture.py, tools_graphics.py), mcp_server.py (MCP name: 3dcv)
-  skills/             THE skill library + its router (design: SKILL.md is an open standard, so
-                      claude-code / codex / gemini-cli / agy load our bundles natively):
-                      <name>/SKILL.md + <name>/references/*.md (the bundles, package data),
-                      loader.py (spec validation), model.py, registry.py (the R1-R24 route table +
-                      finding_kind(): the ONE place gate message text is matched), router.py
-                      (track/language/kind/plan/gate-findings -> a capped, ranked, reasoned set),
-                      materialize.py (writes into ws/.agents/skills AND ws/.claude/skills, real
-                      copies — codex refuses symlinks), delivery.py (THE per-backend policy, two
-                      bits — native loader? which root? — so a new backend is one row and nothing
-                      else re-derives it), prompting.py (per-backend index text),
-                      telemetry.py (the atime read probe: surfaced vs deep), claims.py (numbers
-                      pinned to live constants), config.py (CV3D_SKILLS, default OFF)
+  skills/             registry.py (typed ROUTES + the router that evaluates them),
+                      model.py (Skill/Selection + the SKILL.md loader), prompting.py
+                      (per-backend delivery policy + the index/mandate text),
+                      targets.py (measured targets + claims), materialize.py,
+                      telemetry.py (the read probe), config.py (call-time switches)
   cost/               types.py (CallCost/Stage/Role) ledger.py (append-only telemetry/cost.jsonl + price provenance)
                       context.py (per-call > ambient attribution) instrument.py (MeteredChatModel /
                       MeteredAgent — one row per ChatModel.generate; one session row only for a backend

@@ -19,7 +19,7 @@ import itertools
 import pytest
 
 from codeverse.skills import all_skills, bundle_dirs, select, skills_dir
-from codeverse.skills.loader import BODY_MAX_TOKENS
+from codeverse.skills.model import BODY_MAX_TOKENS
 from codeverse.skills.prompting import NATIVE_LOADERS, index_block, index_tokens
 
 pytestmark = pytest.mark.skipif(not bundle_dirs(), reason=f"no bundles in {skills_dir()} yet")

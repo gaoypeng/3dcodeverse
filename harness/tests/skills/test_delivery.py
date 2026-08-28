@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.skills.delivery import (
+from codeverse.skills.prompting import (
     AGENTS_SKILL_ROOT,
     CLAUDE_SKILL_ROOT,
     delivery_for,

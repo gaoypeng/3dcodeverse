@@ -1,39 +1,87 @@
-"""The per-backend text — deliberately the smallest thing that can work.
+"""How one shared skill library reaches each coding agent — the ONE place that differs.
 
-``docs/COST.md`` §13 measured a stable-prefix-first reordering that duplicated the shared
-head into four templates: **+2,925 tokens on the average call**, and it still never
-reached Gemini's implicit-cache floor, so it was reverted.  The lesson the skill system
-inherits: **do not invent a new prompt head.**  Everything below only adds to text that is
-already being sent, and each backend gets the least text that reaches it:
+The library itself is agent-agnostic: plain `agentskills.io` bundles under
+``codeverse/skills/<name>/SKILL.md``, routed by ``router.py`` from typed inputs.  Nothing
+in it knows what a backend is.  What genuinely differs between backends is only
+**delivery**, and only in two bits:
 
-* claude-code / codex / gemini-cli / agy discover ``SKILL.md`` themselves.  Writing our
-  own index would double-index the same bundles, so they get ONE sentence (~35 tokens).
-* a backend nobody has classified yet (``delivery.py``'s safe answer) gets a
-  one-line-per-skill index inside the AGENTS.md body, which is already message 0.
-* a single-shot call has no read loop at all: it gets ONE body inlined, so the cost is
-  explicit and bounded instead of a pointer nobody can follow.
-* on a repair round the gate-fired skills are named beside the findings they answer, in
-  the volatile tail — ``tracks/repair.py`` already picks a cookbook section by keyword,
-  this is the same idea one level up.
+* does the backend have a NATIVE skill loader (it finds and indexes bundles itself), and
+* which discovery root does it read?
 
-The mandate sentence is 化用'd from the reference block and ~90% shorter: theirs re-asserts
-a score claim in every prompt, and a score claim belongs in a measured report.
+Both were read out of the shipped binaries, not assumed: gemini-cli, codex and agy read
+``<ws>/.agents/skills/<name>/SKILL.md``; claude-code 2.1 reads ``<ws>/.claude/skills/…``
+and has no ``.agents`` skill root at all.
+
+Everything else follows from those two bits, so adding a backend is ONE row here — not a
+new module, not a branch in three files.  A backend nobody has classified gets the safe
+answer (no native loader), which means it is handed the explicit index *and* the
+``read_skill`` tool: over-delivering costs tokens, under-delivering costs the skill.
+
+WHY the tool exists at all, measured 2026-08-25: on the same library and workspace, the
+three native loaders read **5 of 5** routed bundles unprompted while api-agent read
+**0 of 5** — not from unwillingness (it made 52 ``read_file`` calls that session) but
+because the bundles sit in hidden directories its ``list_files`` skips, and the index was
+prose in a 2.3 kB system prompt rather than an affordance.  So a backend without a loader
+gets the routed set as a TOOL.  That is a general rule about loaderless backends, not a
+special case for one of them.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from codeverse.cost.guard import text_tokens
-from codeverse.skills.delivery import (
-    AGENTS_SKILL_ROOT,
-    CLAUDE_SKILL_ROOT,
-    delivery_for,
-    known_backends,
-)
 from codeverse.skills.model import Selection, Skill
 
+__all__ = ["AGENTS_SKILL_ROOT", "CLAUDE_SKILL_ROOT", "Delivery", "delivery_for", "known_backends"]
+
+#: discovery roots, relative to the workspace root
+AGENTS_SKILL_ROOT = ".agents/skills"
+CLAUDE_SKILL_ROOT = ".claude/skills"
+
+
+@dataclass(frozen=True)
+class Delivery:
+    """What one backend needs in order to see the routed bundles."""
+
+    root: str
+    """Discovery root this backend reads (bundles are written to every known root anyway,
+    so one copy is never the only copy — this is the path we NAME to it)."""
+    native_loader: bool
+    """True when the backend indexes bundles itself.  Such a backend must not be handed a
+    second index — it would list the same skills twice — and needs no tool."""
+
+    @property
+    def needs_index(self) -> bool:
+        """An explicit one-line-per-skill index in the agent body file."""
+        return not self.native_loader
+
+
+#: The whole per-backend policy.  One row per backend; anything absent is loaderless.
+_BACKENDS: dict[str, Delivery] = {
+    "claude-code": Delivery(root=CLAUDE_SKILL_ROOT, native_loader=True),
+    "codex": Delivery(root=AGENTS_SKILL_ROOT, native_loader=True),
+    "gemini-cli": Delivery(root=AGENTS_SKILL_ROOT, native_loader=True),
+    "agy": Delivery(root=AGENTS_SKILL_ROOT, native_loader=True),
+}
+
+#: the safe answer for a backend nobody has classified yet
+_UNKNOWN = Delivery(root=AGENTS_SKILL_ROOT, native_loader=False)
+
+
+def delivery_for(agent_kind: str) -> Delivery:
+    """The delivery policy for ``agent_kind``; unknown kinds get the loaderless answer."""
+    return _BACKENDS.get((agent_kind or "").split(":", 1)[0], _UNKNOWN)
+
+
+def known_backends() -> tuple[str, ...]:
+    return tuple(_BACKENDS)
+
+
+# ===================================================================== prompting
+# (merged from codeverse/skills/prompting.py, 2026-08-28)
 #: Per-backend policy lives in ONE place (``skills/delivery.py``); these are re-exported so
 #: existing importers keep working and so nothing here re-derives what a backend needs.
 NATIVE_LOADERS = tuple(k for k in known_backends() if delivery_for(k).native_loader)
@@ -126,8 +174,3 @@ def inline_body(selections: Sequence[Selection], *, max_tokens: int = 2500) -> t
         if s.skill.body_tokens <= max_tokens:
             return s.name, f"{_HEADING} — {s.name}\n\n{s.skill.description}\n\n{s.skill.body.strip()}\n"
     return "", ""
-
-
-__all__ = ["AGENTS_SKILL_ROOT", "CLAUDE_SKILL_ROOT", "INDEX_SUMMARY_CHARS", "MANDATE", "MANDATE_ROUTED",
-           "NATIVE_LOADERS", "index_block", "index_summary", "index_tokens", "inline_body",
-           "repair_pointers", "skill_path"]

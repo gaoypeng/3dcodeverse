@@ -64,7 +64,7 @@ LIVE_SWITCHES: dict[str, str] = {
     "CV3D_PLAN_BRIEF": "codeverse/tracks/planner.py",  # brief.py merged in, 2026-08-28
     "CV3D_SCOPED_PARTS": "codeverse/tracks/depth.py",
     "CV3D_DETAIL_ROUNDS": "codeverse/tracks/lifecycle.py",
-    "CV3D_REFERENCE_DIFF": "codeverse/judges/reference.py",
+    "CV3D_REFERENCE_DIFF": "codeverse/judges/vlm_judge.py",  # reference.py merged in, 2026-08-28
     # the skill system (design: scratchpad/skills/design/DESIGN.md §6.5).  All three are
     # read at call time by one module, so an A/B arm that sets them really differs.
     "CV3D_SKILLS": "codeverse/skills/config.py",

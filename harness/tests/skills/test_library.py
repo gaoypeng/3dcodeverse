@@ -16,9 +16,9 @@ from pathlib import Path
 import pytest
 
 from codeverse.skills import bundle_dirs, iter_skills, skills_dir, validate_bundle
-from codeverse.skills.claims import check_claims, claim_bases, load_claims
-from codeverse.skills.loader import BODY_MAX_LINES, BODY_MAX_TOKENS
+from codeverse.skills.model import BODY_MAX_LINES, BODY_MAX_TOKENS
 from codeverse.skills.registry import ROUTED_SKILLS, ROUTES
+from codeverse.skills.targets import check_claims, claim_bases, load_claims
 
 BUNDLES = bundle_dirs()
 SKILLS = list(iter_skills()) if BUNDLES else []

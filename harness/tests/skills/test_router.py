@@ -12,8 +12,7 @@ import pytest
 
 from codeverse.conventions import LANGUAGE_FRAME
 from codeverse.skills.model import EVIDENCE_INHERITED
-from codeverse.skills.registry import QUIET_KINDS
-from codeverse.skills.router import plan_signals, select, skills_for
+from codeverse.skills.registry import QUIET_KINDS, plan_signals, select, skills_for
 from tests.skills.conftest import write_bundle
 
 TRACK_OF = {

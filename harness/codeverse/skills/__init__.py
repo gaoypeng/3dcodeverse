@@ -27,8 +27,14 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 
-from codeverse.skills.loader import SKILL_FILE, SkillError, parse_skill, validate_bundle
-from codeverse.skills.model import Skill, SkillRef
+from codeverse.skills.model import (
+    SKILL_FILE,
+    Skill,
+    SkillError,
+    SkillRef,
+    parse_skill,
+    validate_bundle,
+)
 
 log = logging.getLogger(__name__)
 
@@ -98,10 +104,10 @@ def skill_names(root: Path | None = None) -> list[str]:
     return [p.name for p in bundle_dirs(root)]
 
 
-from codeverse.skills.claims import check_claims, claim_values  # noqa: E402
 from codeverse.skills.config import skills_enabled, skills_max, skills_unverified  # noqa: E402
 from codeverse.skills.materialize import attach_skills, materialize_skills  # noqa: E402
-from codeverse.skills.router import plan_signals, select, skills_for  # noqa: E402
+from codeverse.skills.registry import plan_signals, select, skills_for  # noqa: E402
+from codeverse.skills.targets import check_claims, claim_values  # noqa: E402
 from codeverse.skills.telemetry import probe_reads  # noqa: E402
 
 __all__ = ["SKILLS_DIR_ENV", "Skill", "SkillError", "SkillRef", "all_skills", "attach_skills", "bundle_dirs",

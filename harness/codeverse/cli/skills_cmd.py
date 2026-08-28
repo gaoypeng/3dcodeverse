@@ -67,7 +67,7 @@ def list_skills(
 def show_skill(name: Annotated[str, typer.Argument(help="skill name")]) -> None:
     """Print one bundle's frontmatter and body."""
     from codeverse.skills import load_skill
-    from codeverse.skills.loader import SkillError
+    from codeverse.skills.model import SkillError
 
     try:
         s = load_skill(name)
@@ -86,9 +86,9 @@ def validate(
 ) -> None:
     """Check every bundle against the open spec and our budget/evidence rules."""
     from codeverse.skills import bundle_dirs, validate_bundle
-    from codeverse.skills.claims import check_claims
-    from codeverse.skills.loader import SkillError, parse_skill
+    from codeverse.skills.model import SkillError, parse_skill
     from codeverse.skills.registry import ROUTED_SKILLS
+    from codeverse.skills.targets import check_claims
 
     dirs = bundle_dirs()
     bad = 0

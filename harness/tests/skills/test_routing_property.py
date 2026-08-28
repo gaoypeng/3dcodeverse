@@ -25,8 +25,7 @@ import pytest
 
 from codeverse.skills import all_skills, bundle_dirs, select, skills_dir
 from codeverse.skills.model import EVIDENCE_INHERITED
-from codeverse.skills.registry import QUIET_KINDS, ROUTED_SKILLS, ROUTES
-from codeverse.skills.router import SIGNAL_KEYS
+from codeverse.skills.registry import QUIET_KINDS, ROUTED_SKILLS, ROUTES, SIGNAL_KEYS
 
 pytestmark = pytest.mark.skipif(not bundle_dirs(), reason=f"no bundles in {skills_dir()} yet")
 

@@ -238,7 +238,7 @@ def test_a_constant_a_body_names_is_also_pinned_by_a_claim(s):
     sentence with the old value and no test to notice.  Found `DUPLICATE_DIFF` quoted at
     1e-4 in cv3d-glsl-craft with no row behind it.
     """
-    from codeverse.skills.claims import load_claims
+    from codeverse.skills.targets import load_claims
 
     pinned = {str(r["python"]).rsplit(":", 1)[-1] for r in load_claims(s.name) if r.get("python")}
     named = {c for c in _CONST.findall(_prose(s.body)) if c in LIVE_CONSTANTS}

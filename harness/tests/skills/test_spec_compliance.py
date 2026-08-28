@@ -135,7 +135,7 @@ def test_the_reference_implementation_validates_the_bundle(d: Path):
 def test_our_loader_and_the_reference_implementation_read_the_same_fields(d: Path):
     """A disagreement here is the failure mode that matters: we index one description,
     the CLI indexes another, and the read rate measures a skill nobody was offered."""
-    from codeverse.skills.loader import parse_skill
+    from codeverse.skills.model import parse_skill
 
     p = subprocess.run([REF_VALIDATOR, "read-properties", str(d)],
                        capture_output=True, text=True, check=False)

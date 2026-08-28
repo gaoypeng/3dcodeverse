@@ -38,7 +38,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from codeverse.skills.model import SkillRead, SkillsMaterialized, SkillsUsage
+from codeverse.contracts.skills import SkillRead, SkillsUsage
+from codeverse.skills.model import SkillsMaterialized
 from codeverse.skills.prompting import AGENTS_SKILL_ROOT, CLAUDE_SKILL_ROOT
 
 log = logging.getLogger(__name__)
