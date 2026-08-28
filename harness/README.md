@@ -31,6 +31,44 @@ renders, judges, refines, textures and records every run as data-flywheel materi
   in an orbit viewer, `record.json`) actually opens.  `3dcv gallery build --embed` writes
   the same page as one shareable file.
 
+## Architecture
+
+Every run is **spec → plan → skeleton → [scene stages] → baseline round (best-of-N
+optional) → refine rounds → finalise → record**, with an optional post-hoc texture
+pass.  The tree after the 2026-08-28 consolidation (172 python files):
+
+```
+codeverse/
+  contracts/       typed pydantic contracts: Track/Language/Usage/Budget/Backends,
+                   Spec, plans, artifacts, run record, AgentJob
+  conventions.py   frames, units, views, naming, tolerances (THE constants source)
+  config.py        Settings (CV3D_* env + config.yaml) · workspace.py  run-dir layout + git snapshots
+  proc.py          stdlib-only subprocess/JSON/JSONL primitives, run lock, fan-out (a leaf)
+  orchestrator.py  stage runner: resume, run state, round loop, budget
+  tracks/          the four track pipelines, the one planner loop, generation strategies
+                   (vendor-CLI agent / single-shot), repair, best-of-N, skills hook
+  languages/       one merged module per language (lint → skeleton → runtime) beside its
+                   data dirs: blender cadquery threejs urdf scene_threejs glsl_shader opengl_python
+  agents/          CodingAgent protocol + the vendor-CLI backends (gemini-cli, claude-code,
+                   codex, antigravity): sessions, watchdog clocks, transcripts
+  models/          ChatModel + gemini/anthropic/openai adapters; key-pool retry machine,
+                   streaming with stall detection, IPv4-pinned transport, pricing, health
+  spatial/         the measurement/render toolbox behind every gate and MCP tool
+  judges/          rubric VLM judge on labelled montages, pairwise/ranking/reference, calibration
+  reference.py     reference grounding: synthesis, plausibility gate, proportions, diff
+  texturing/       material plan → seamless tiles → world-metre UVs → object_textured.glb
+  cost/            append-only ledger, metering, budget guard, profiles, billing
+  skills/          typed skill routes + materialisation + read telemetry
+  flywheel/        record, export (tiers/dedupe/parquet), preference/repair pairs, sqlite index
+  gallery/         the runs browser (`3dcv gallery serve`) + one-file embed
+  cli/             the typer CLI · doctor.py  the environment checks behind `3dcv doctor`
+bench/             the evaluation harness around the harness: run_bench, compare_backends
+                   (A/B matrix), ab_plan, infra-failure classification
+runtime_js/        node side: three@0.182 + headless-Chrome render/probe hosts
+```
+
+Design laws, the full package map and what each stage does: `docs/ARCHITECTURE.md`.
+
 **Supported versions:** python **3.13** and node **20.6+** (Linux x86_64; Blender
 4.2+ optional).  Developed and measured on python 3.13 / node 24; there is no CI — the offline suite and
 `ruff` run locally before every push.  See `docs/INSTALL.md` §2.1.
@@ -49,11 +87,11 @@ pip install -e '.[all,dev]'    # entry points: 3dcodeverse, 3dcv
 python -m pytest tests -q -m "not live"
 ```
 
-Observed with `gemini-3.7-flash` end to end: chair (blender) 0.67 → 0.74 in 2 rounds,
-12 min, $0.84; cabinet (URDF) 0.68 → 0.93, 12.5 min, $0.84; park bench (threejs via
-gemini-cli) 0.64 → 0.89, 36 min, $0.68; garden scene 0.56 → 0.60 over 2 refine rounds,
-45 min, $2.90; neon-rain shader (graphics, single-shot) 0.79 first round, 2 min, $0.05;
-best-of-2 stool 0.56 → 0.61, 7.6 min, $0.24.
+Observed end to end on Gemini flash-tier models: kitchen cabinet (URDF via
+gemini-cli) 0.85 pass; park bench (threejs via gemini-cli) 0.64 → 0.89, 36 min,
+$0.68; CadQuery object (single-shot + refine) 0.39 → 0.75 pass, 10 min, $0.40;
+multi-pass OpenGL program (gemini-cli) 0.70 → 0.86 pass, $0.74; neon-rain shader
+(graphics, single-shot) 0.79 first round, 2 min, $0.05.
 
 Docs: `docs/INSTALL.md` (install / prerequisites / doctor troubleshooting) ·
 `docs/ARCHITECTURE.md` (design + what a run does) · `docs/INTERFACES.md`
