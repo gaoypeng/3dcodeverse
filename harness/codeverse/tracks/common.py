@@ -61,11 +61,11 @@ class Services:
 
     def reference_judge(self, model_id: str, n_samples: int = 1, rubric: str = "reference_v1") -> Any:
         """Image-conditioned judge (spec has reference images): renders + references + silhouette IoU."""
-        return _import("codeverse.judges.reference", "ReferenceJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
+        return _import("codeverse.judges.vlm_judge", "ReferenceJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
 
     def likeness_judge(self, model_id: str, n_samples: int = 1, rubric: str = "shader_v2") -> Any:
         """Reference photos beside the frames, no silhouette (graphics / scene with images)."""
-        return _import("codeverse.judges.reference", "LikenessJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
+        return _import("codeverse.judges.vlm_judge", "LikenessJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
 
     def pairwise(self, model_id: str) -> Any:
         """Position-swapped A/B judge: ``.compare(spec, renders_a, renders_b, rubric=...)``."""

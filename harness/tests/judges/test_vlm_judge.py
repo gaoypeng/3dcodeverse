@@ -3,8 +3,7 @@ import json
 import pytest
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.judges.rubrics import load_rubric
-from codeverse.judges.scoring import is_degraded
+from codeverse.judges.rubrics import is_degraded, load_rubric
 from codeverse.judges.vlm_judge import VlmJudge
 from codeverse.models.base import ModelError
 from tests.judges.conftest import FakeChatModel, good_reply, image_parts
@@ -151,7 +150,7 @@ def test_base_judge_rejects_measured_rubric(judge_input, cache_dir):
 
 
 def test_missing_render_is_loud(judge_input, cache_dir):
-    from codeverse.judges.images import JudgeImageError
+    from codeverse.judges.prompt_builder import JudgeImageError
     judge_input.renders.views[0].path = "/nonexistent/x.png"
     with pytest.raises(JudgeImageError):
         _judge(FakeChatModel([good_reply(R, IDS)]), cache_dir=cache_dir).judge(judge_input)
@@ -205,8 +204,8 @@ def test_judge_prompt_hash_is_recorded_in_every_verdict(judge_input, cache_dir):
 
 def test_judge_prompt_hash_tracks_the_protocol_not_the_run(monkeypatch):
     from codeverse.judges import prompt_builder as pb
-    from codeverse.judges.output_schema import wire_schema
     from codeverse.judges.prompt_builder import judge_prompt_hash
+    from codeverse.judges.rubrics import wire_schema
 
     base = judge_prompt_hash(R)
     assert judge_prompt_hash(R) == base  # deterministic

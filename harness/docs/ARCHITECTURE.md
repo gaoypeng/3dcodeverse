@@ -141,11 +141,11 @@ codeverse/
                       billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
                       so max_usd guards money and not list price; docs/COST.md §25)
                       guard.py routing.py reconstruct.py (old runs) audit.py report.py
-  judges/             base.py (Judge protocol), rubrics.py + rubrics/*.yaml (defect checklists), vlm_judge.py, montage.py,
-                      prompt_builder.py, output_schema.py, scoring.py, caps.py, images.py, pairwise.py
-                      (compare_many), reference.py, calibration.py, metrics.py, replay_input.py
-                      (plan_digest / resolve_paths / judged_subset — the pure round-replay pieces
-                      `3dcv judge` and calibration share)
+  judges/             base.py (Judge protocol + the pure round-replay pieces `3dcv judge` and
+                      calibration share), rubrics.py + rubrics/*.yaml (defect checklists, the wire
+                      schema, caps and scoring), prompt_builder.py (image prep, montages, the
+                      judge messages), vlm_judge.py (+ the reference/likeness judges),
+                      pairwise.py (compare_many), calibration.py
   reference/          reference GROUNDING — give the pipeline a picture of what it is building:
                       one module: synthesis, THE plausibility gate that makes a synthesized
                       reference safe to use, Spec attachment + honesty guards, proportions

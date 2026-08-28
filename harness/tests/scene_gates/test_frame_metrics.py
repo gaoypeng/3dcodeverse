@@ -6,8 +6,7 @@ import json
 from pathlib import Path
 
 from codeverse.contracts.artifacts import RenderSet, RenderView, Severity
-from codeverse.judges.caps import apply_caps
-from codeverse.judges.rubrics import load_rubric
+from codeverse.judges.rubrics import apply_caps, load_rubric
 from codeverse.spatial.frame_metrics import (
     FRAME_GATE,
     frame_findings,

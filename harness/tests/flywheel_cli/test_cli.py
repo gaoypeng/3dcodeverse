@@ -175,7 +175,7 @@ def test_judge_rejudges_with_in_run_inputs(runs_dir: Path, monkeypatch):
 
 
 def test_judge_uses_reference_judge_for_measured_rubrics(runs_dir: Path, monkeypatch):
-    import codeverse.judges.reference as ref
+    import codeverse.judges.vlm_judge as ref
 
     class _FakeRef(_FakeVlm):
         pass

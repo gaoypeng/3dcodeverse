@@ -228,7 +228,7 @@ def judge(
         except ValueError as e:  # e.g. a measured rubric fed to a judge that computes nothing
             raise C.CliError(f"judge failed: {e}") from e
         except Exception as e:
-            ReferenceJudgeError = C.lazy("codeverse.judges.reference", "ReferenceJudgeError")
+            ReferenceJudgeError = C.lazy("codeverse.judges.vlm_judge", "ReferenceJudgeError")
             if isinstance(e, ReferenceJudgeError):
                 raise C.CliError(f"judge failed: {e}") from e
             raise

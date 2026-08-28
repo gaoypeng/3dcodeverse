@@ -32,9 +32,8 @@ from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.run import RoundRecord
 from codeverse.contracts.spec import Spec
-from codeverse.judges.base import JudgeInput
-from codeverse.judges.replay_input import judged_subset, plan_digest, resolve_paths
-from codeverse.judges.scoring import is_degraded
+from codeverse.judges.base import JudgeInput, judged_subset, plan_digest, resolve_paths
+from codeverse.judges.rubrics import is_degraded
 from codeverse.judges.vlm_judge import VlmJudge
 from codeverse.workspace import Workspace
 

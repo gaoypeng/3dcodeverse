@@ -470,7 +470,7 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
 
 def _is_degraded(judgment: Judgment) -> bool:
     try:
-        from codeverse.judges.scoring import is_degraded
+        from codeverse.judges.rubrics import is_degraded
     except ImportError:  # pragma: no cover — judges package always ships with tracks
         return False
     return is_degraded(judgment)

@@ -67,7 +67,7 @@ def test_graphics_judge_is_the_track_rubric_with_the_photos():
     from bench._fixed_eval import FixedEvaluator
     from codeverse.contracts.common import Track
     from codeverse.contracts.spec import ReferenceImage, Spec
-    from codeverse.judges.reference import LikenessJudge
+    from codeverse.judges.vlm_judge import LikenessJudge
 
     ev = FixedEvaluator("gemini:gemini-3.1-pro-preview", n_samples=2)
     with_photos = Spec(id="g", track=Track.GRAPHICS, language=Language.GLSL_SHADER, prompt="x", references=[ReferenceImage(path="/p.png")])

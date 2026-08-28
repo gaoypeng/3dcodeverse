@@ -91,7 +91,7 @@ def _plan_summary(plan: StaticPlan | None) -> str:
 
 
 def _degraded(j: Judgment) -> bool:
-    from codeverse.judges.scoring import is_degraded
+    from codeverse.judges.rubrics import is_degraded
 
     return is_degraded(j)
 

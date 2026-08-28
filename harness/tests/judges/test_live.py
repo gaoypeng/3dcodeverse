@@ -13,7 +13,7 @@ from codeverse.config import get_settings
 from codeverse.contracts.artifacts import RenderSet
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.judges.base import JudgeInput
-from codeverse.judges.scoring import is_degraded
+from codeverse.judges.rubrics import is_degraded
 from codeverse.judges.vlm_judge import VlmJudge
 from tests.judges.conftest import make_measurement, make_renders, make_spec
 
@@ -130,7 +130,7 @@ def test_live_compare_many_ranks_stool_over_crude(tmp_path):
 
 def test_live_reference_judge(tmp_path):
     from codeverse.contracts.spec import ReferenceImage
-    from codeverse.judges.reference import ReferenceJudge
+    from codeverse.judges.vlm_judge import ReferenceJudge
 
     renders, meas, source = _renders_for_test(tmp_path / "stool")
     if "stool" not in source:

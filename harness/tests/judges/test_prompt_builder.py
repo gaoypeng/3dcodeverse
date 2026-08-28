@@ -5,12 +5,13 @@ from PIL import Image
 from codeverse.contracts.artifacts import GateFinding, GateReport, RenderSet, RenderView, Severity
 from codeverse.contracts.chat import ImagePart, TextPart
 from codeverse.contracts.judgment import ImprovementItem, Judgment
-from codeverse.judges.images import prepare_image, view_az_el
 from codeverse.judges.prompt_builder import (
     TEXT_BUDGET_CHARS,
     build_judge_messages,
     build_system_prompt,
     montage_image_parts,
+    prepare_image,
+    view_az_el,
 )
 from codeverse.judges.rubrics import load_rubric
 from tests.judges.conftest import draw_chair, make_renders

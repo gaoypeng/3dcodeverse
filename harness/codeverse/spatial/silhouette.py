@@ -161,7 +161,7 @@ def compare_silhouette(render_png: Path | str, reference_png: Path | str, *, dif
     reliable, diff_png_path?}``.  ``reliable`` is False when either mask is empty, covers
     more than 95 % of the pixels, or has a bounding box spanning the whole frame — all
     three mean the background estimate failed and the IoU below is arithmetic on noise.
-    The caller must honour it: :class:`~codeverse.judges.reference.ReferenceJudge` scores
+    The caller must honour it: :class:`~codeverse.judges.vlm_judge.ReferenceJudge` scores
     ``silhouette_match`` NEUTRAL rather than low, because "we could not measure this" is
     not the same as "it does not match".
     """

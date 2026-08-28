@@ -5,7 +5,7 @@ synthesizes a neutral studio product shot of the brief with the image model,
 **validates** it (:mod:`.gate`), and hands it to the rest of the harness as the
 fidelity anchor: the planner sees it, the generator's ``compare_reference`` tool
 sees it, the silhouette gate measures against it and the judge scores against it
-(:class:`codeverse.judges.reference.ReferenceJudge`).
+(:class:`codeverse.judges.vlm_judge.ReferenceJudge`).
 
 A synthesized reference is never ground truth and is marked as such everywhere
 (:mod:`.attach`): the user's own ``--image`` wins, the brief's dimensions win,

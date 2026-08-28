@@ -21,7 +21,7 @@ from codeverse.contracts.artifacts import BuildResult, RenderSet, RenderView
 from codeverse.contracts.common import TRACK_INFO
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.run import RoundRecord, RunRecord
-from codeverse.judges.replay_input import judged_subset, plan_digest, resolve_paths
+from codeverse.judges.base import judged_subset, plan_digest, resolve_paths
 from codeverse.proc import read_json_or_none
 from codeverse.workspace import Workspace
 
@@ -115,7 +115,7 @@ def make_judge(rec: RunRecord, rubric_name: str, model_id: str, n: int) -> Any:
         raise C.CliError(f"cannot load rubric {rubric_name!r}: {e}") from e
     measured = bool(rubric.measured_criteria())
     if measured or rec.spec.references:
-        ReferenceJudge = C.lazy("codeverse.judges.reference", "ReferenceJudge")
+        ReferenceJudge = C.lazy("codeverse.judges.vlm_judge", "ReferenceJudge")
         return ReferenceJudge(model_id=model_id, n_samples=n, rubric=rubric_name)
     VlmJudge = C.lazy("codeverse.judges.vlm_judge", "VlmJudge")
     return VlmJudge(rubric=rubric_name, model_id=model_id, n_samples=n)

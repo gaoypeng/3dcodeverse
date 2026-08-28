@@ -123,7 +123,7 @@ def test_scene_judge_views_prefers_stamped_flags():
 
 
 def test_cli_judge_reconstructs_the_judged_subset(tmp_path):
-    from codeverse.judges.replay_input import judged_subset, resolve_paths
+    from codeverse.judges.base import judged_subset, resolve_paths
 
     rs = _rs([True, False, None])
     sub = judged_subset(rs)

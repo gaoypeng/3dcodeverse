@@ -128,7 +128,7 @@ def effective_judgment(r: RoundRecord):
     j = r.judgment
     if j is None:
         return None
-    from codeverse.judges.scoring import is_degraded
+    from codeverse.judges.rubrics import is_degraded
 
     return None if is_degraded(j) else j
 

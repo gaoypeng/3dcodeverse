@@ -2,12 +2,12 @@ import json
 
 import pytest
 
-from codeverse.judges.output_schema import (
+from codeverse.judges.rubrics import (
     JudgeParseError,
+    load_rubric,
     parse_judge_output,
     wire_schema,
 )
-from codeverse.judges.rubrics import load_rubric
 from tests.judges.conftest import good_reply
 
 R = load_rubric("static_object_v1")

@@ -4,8 +4,8 @@ import pytest
 from PIL import Image
 
 from codeverse.contracts.artifacts import RenderSet, RenderView
-from codeverse.judges.images import JudgeImageError
-from codeverse.judges.montage import (
+from codeverse.judges.prompt_builder import (
+    JudgeImageError,
     describe_montages,
     montage_label,
     montage_strip,

@@ -1,7 +1,6 @@
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.contracts.plan import AcceptanceItem
-from codeverse.judges.caps import apply_caps
-from codeverse.judges.rubrics import load_rubric
+from codeverse.judges.rubrics import apply_caps, load_rubric
 
 R = load_rubric("static_object_v1")
 
@@ -73,8 +72,7 @@ def test_a_floating_claim_the_connectivity_gate_measured_absent_neither_penalise
     'all 9 parts connected, gap <= 2 mm'; the judge marked floating_part present on a dark
     seam and defect:floating_part capped the run at 0.6 (uncapped 0.72) against 0.96 for a
     sibling the eye cannot tell apart.  Gates decide geometry (law 3)."""
-    from codeverse.judges.caps import measured_absent, veto_measured_defects
-    from codeverse.judges.rubrics import load_rubric
+    from codeverse.judges.rubrics import load_rubric, measured_absent, veto_measured_defects
 
     rubric = load_rubric("static_object_v1")
     passed = [_connectivity(True, ("info", "all 9 parts are connected (9 contacts, gap <= 2 mm)"),
@@ -86,8 +84,7 @@ def test_a_floating_claim_the_connectivity_gate_measured_absent_neither_penalise
 
 
 def test_a_real_floating_part_still_caps():
-    from codeverse.judges.caps import measured_absent
-    from codeverse.judges.rubrics import load_rubric
+    from codeverse.judges.rubrics import load_rubric, measured_absent
 
     rubric = load_rubric("static_object_v1")
     failed = [_connectivity(False, ("error", "part 'Seat' is floating 12 mm above 'Leg'"))]
@@ -100,8 +97,7 @@ def test_scene_placement_gate_measures_the_floating_asset_claim():
     """scene_v1 (2026-08-26): the placement gate and the checklist defect share an id, so a passed
     gate vetoes the VLM's floating/sunken claim and an ERROR there caps the round at 0.7."""
     from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-    from codeverse.judges.caps import apply_caps, measured_absent
-    from codeverse.judges.rubrics import load_rubric
+    from codeverse.judges.rubrics import apply_caps, load_rubric, measured_absent
 
     rubric = load_rubric("scene_v1")
     passed = [GateReport(gate="scene_placement", passed=True, findings=[GateFinding(

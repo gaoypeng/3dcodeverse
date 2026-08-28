@@ -1,8 +1,8 @@
 import pytest
 
 from codeverse.contracts.spec import ReferenceImage
-from codeverse.judges.reference import ReferenceJudge, ReferenceJudgeError, iou_to_score
 from codeverse.judges.rubrics import load_rubric
+from codeverse.judges.vlm_judge import ReferenceJudge, ReferenceJudgeError, iou_to_score
 from tests.judges.conftest import FakeChatModel, draw_chair, good_reply, image_parts
 
 REF = load_rubric("reference_v1")

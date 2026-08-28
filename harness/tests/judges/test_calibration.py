@@ -5,8 +5,8 @@ import pytest
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.contracts.run import RoundRecord
+from codeverse.judges.base import plan_digest
 from codeverse.judges.calibration import calibrate, load_run_cases, pearson, spearman
-from codeverse.judges.replay_input import plan_digest
 from codeverse.judges.rubrics import load_rubric
 from tests.judges.conftest import (
     ACCEPTANCE,

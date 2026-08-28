@@ -282,19 +282,19 @@ VlmJudge(rubric="static_object_v1", model_id=None (settings.default_judge = gemi
 VlmJudge.judge(inp, *, geometry_views: RenderSet | None = None) -> Judgment   # also reads inp.geometry_views
 from codeverse.judges.base import JudgeInput   # (spec, renders, measurement=None, gates=[], acceptance=[], plan_summary="",
                                                #  round_index=0, previous=None, extra_context="", geometry_views=None)
-from codeverse.judges.montage import plan_montages, render_montage, Montage    # ≤3 2×2 montages (shaded/geometry/poses) + ≤2 detail
+from codeverse.judges.prompt_builder import plan_montages, render_montage, Montage    # ≤3 2×2 montages (shaded/geometry/poses) + ≤2 detail
     # crops @≤1024px replace sheet+9 views; clay/normals views (RenderView.mode) auto-route to the GEOMETRY montage
-from codeverse.judges.scoring import is_degraded, aggregate_samples   # ScoreBreakdown adds defects, defect_votes (majority,
+from codeverse.judges.rubrics import is_degraded, aggregate_samples   # ScoreBreakdown adds defects, defect_votes (majority,
     # ties→representative sample, D36), tie_broken, defect_penalty, overall_after_defects,
     # judge_prompt_hash (D37); overall = caps(weighted_mean − Σpenalty)
-from codeverse.judges.caps import apply_caps           # (rubric, overall, gates, acceptance_results, acceptance_items=None, *,
+from codeverse.judges.rubrics import apply_caps           # (rubric, overall, gates, acceptance_results, acceptance_items=None, *,
                                                        #  console_errors=None, views=None, defects_present=None) -> CapResult;
                                                        # cap rules add when="missing_views" and ledger lines "defect:<id>"
 from codeverse.judges.pairwise import PairwiseJudge    # .compare(spec, renders_a, renders_b, *, rubric=…) -> PairwiseResult
 PairwiseJudge.compare_many(spec, candidates: list[RenderSet], *, rubric) -> RankingResult{order, points, confidence, pairs, usage, .best}
 from codeverse.judges.calibration import calibrate, CalibrationTable   # (run_dirs, *, model_id, n_samples=3, out_dir, geometry_mode,
     # rounds, …) -> rows + pearson/spearman(errors vs score), mean_std, cost; CLI: python -m codeverse.judges.calibration RUN… --n 3
-from codeverse.judges.reference import ReferenceJudge  # image-conditioned specs
+from codeverse.judges.vlm_judge import ReferenceJudge  # image-conditioned specs
 from codeverse.judges.metrics import judge_agreement, plateau, best_index
 ```
 Rubrics: `static_object_v1` (0.72), `articulated_v1` (requires pose views via

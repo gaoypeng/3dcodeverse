@@ -12,8 +12,7 @@ from types import SimpleNamespace
 from codeverse.contracts.artifacts import BuildResult, Severity
 from codeverse.contracts.common import Language
 from codeverse.contracts.plan import BBox, CameraPlan, ScenePlan, ZonePlan
-from codeverse.judges.caps import apply_caps
-from codeverse.judges.rubrics import load_rubric
+from codeverse.judges.rubrics import apply_caps, load_rubric
 from codeverse.orchestrator import build_refine_instructions
 from codeverse.spatial.scene_placement import (
     GATE,
