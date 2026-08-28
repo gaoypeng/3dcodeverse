@@ -221,6 +221,10 @@ written) that were accepted because the code works that way and the tests pin it
   a one-shot arm whose LAST attempt was lost to the provider is `infra_failed` (redone);
   a harness `PlanningError` is `no_code` / 0.0, like a one-shot answer in the wrong
   format; "Error creating WebGL context" (a saturated shared GPU) is an infra marker.
+  Added 2026-08-28 (compare_art_v4_pp, pro planner): a Gemini stream that exceeds its
+  attempt budget, a 504 "Deadline expired", and a `finish_reason=PROHIBITED_CONTENT`
+  (the provider's content filter tripping mid-JSON on a furniture plan) are provider
+  failures too — dropped and redone, never zeros.
 * **D42 `compare_backends` follows the battery's track (2026-08-25).**  Context: the
   fixed evaluator was static_object-only.  Decision: `FixedEvaluator(track=, language=)`
   picks the runtime from the battery and the rubric per cell (`_fixed_eval.rubric_for`, the
