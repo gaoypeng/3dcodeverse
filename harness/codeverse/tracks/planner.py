@@ -610,12 +610,17 @@ PLAN_SLOW_TOKENS_PER_S = 60.0
 PLAN_WAIT_OVERHEAD_S = 60.0
 
 
-def plan_wait_s(tokens: int, guard: object | None = None) -> float:
+#: a retry after truncation may wait this much longer than the size rule says (the pro
+#: planner streams a 55k-token answer slower than PLAN_SLOW_TOKENS_PER_S, 2026-08-28)
+TRUNCATION_WAIT_SCALE = 1.5
+
+
+def plan_wait_s(tokens: int, guard: object | None = None, *, scale: float = 1.0) -> float:
     """How long one planner call may take, given the answer size it asked for.
 
     Never below :data:`PLAN_MAX_WAIT_S`, and clipped to the wall clock the run has left
     (``BudgetGuard.timeout_s``) so a big plan cannot outlive its own run."""
-    want = max(PLAN_MAX_WAIT_S, tokens / PLAN_SLOW_TOKENS_PER_S + PLAN_WAIT_OVERHEAD_S)
+    want = max(PLAN_MAX_WAIT_S, tokens / PLAN_SLOW_TOKENS_PER_S + PLAN_WAIT_OVERHEAD_S) * scale
     fn = getattr(guard, "timeout_s", None)
     return float(fn(want, floor_s=PLAN_MAX_WAIT_S)) if callable(fn) else want
 
@@ -743,11 +748,12 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     invalid = requeried = grown = 0
     tokens = plan_tokens(budget, max_output_tokens)
     thinking = "medium"
+    wait_scale = 1.0
     geo_reasked = 0
     for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_GEOMETRY_REASKS):
         req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=temperature,
                           thinking=thinking, max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
-                          max_wait_s=plan_wait_s(tokens, guard))
+                          max_wait_s=plan_wait_s(tokens, guard, scale=wait_scale))
         try:
             resp = model.generate(req)
         except Exception as e:  # noqa: BLE001 — a truncated plan is retryable; anything else is not
@@ -759,7 +765,8 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
             # planner a 55k-token retry ran ~16 min into the provider's deadline (504) and the
             # cell was lost (compare_art_v4_pp, 2026-08-28).  Retry with low thinking and a
             # compact-answer note on the last user turn.
-            thinking = "low"
+            thinking = "off"  # "low" still streamed past a 990 s attempt budget on 2 of 6 pro cells
+            wait_scale = TRUNCATION_WAIT_SCALE
             messages = messages[:-1] + [_with_note(messages[-1], TRUNCATION_NOTE.format(tokens=tokens))]
             if events is not None:
                 events.emit("plan.truncated", attempt=attempt, max_output_tokens=tokens, thinking=thinking)

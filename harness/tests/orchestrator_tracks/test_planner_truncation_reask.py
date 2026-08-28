@@ -26,8 +26,9 @@ def test_truncation_retries_compact_with_low_thinking(tmp_ws):
              runtime=FakeRuntime(Language.THREEJS))
     assert p.object_name == "DiningChair" and len(model.requests) == 2
     first, second = model.requests
-    assert first.thinking == "medium" and second.thinking == "low"
+    assert first.thinking == "medium" and second.thinking == "off"
     assert second.max_output_tokens > first.max_output_tokens
+    assert second.max_wait_s > first.max_wait_s  # the retry may run longer than the size rule alone allows
     assert second.messages[-1].text.endswith(TRUNCATION_NOTE.format(tokens=second.max_output_tokens))
     assert second.messages[-1].text.startswith(first.messages[-1].text)  # the original request is kept
     assert len(second.messages) == len(first.messages)  # no dangling user turn
