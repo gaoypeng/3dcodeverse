@@ -59,7 +59,6 @@ _BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 _LINE_COMMENT = re.compile(r"//[^\n]*")
 _MAIN_IMAGE = re.compile(r"\bvoid\s+mainImage\s*\(")
 _PLAIN_MAIN = re.compile(r"\bvoid\s+main\s*\(\s*(void)?\s*\)")
-_OUT_DECL = re.compile(r"\bout\s+vec4\s+\w+\s*;")
 
 
 @dataclass

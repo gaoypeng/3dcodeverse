@@ -49,16 +49,10 @@ from codeverse.workspace import ArtifactStage, Workspace
 
 # ===================================================================== consistency
 # (merged from codeverse/languages/urdf/consistency.py, 2026-08-28)
-GATE = "fk_consistency"
-
-
-def _fmt(v: float) -> str:
-    s = f"{v:.6f}".rstrip("0").rstrip(".")
-    return "0" if s in ("", "-0") else s
-
-
-def _vec(v) -> str:
-    return " ".join(_fmt(float(x)) for x in v)
+#: this gate's own name — a bare ``GATE`` here was shadowed by the lint section's
+#: ``GATE = "lint:urdf"`` 59 lines below when the package became one module (2026-08-28),
+#: so every FK finding went out mislabelled until 2026-08-28.
+FK_GATE = "fk_consistency"
 
 
 def check_fk_consistency(robot: Robot, census_links: dict[str, dict[str, Any]], *, tol_m: float = 0.001) -> list[GateFinding]:
@@ -73,7 +67,7 @@ def check_fk_consistency(robot: Robot, census_links: dict[str, dict[str, Any]], 
             continue
         row = census_links.get(name)
         if row is None:
-            out.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=name,
+            out.append(GateFinding(gate=FK_GATE, severity=Severity.ERROR, target=name,
                                    message=f"link '{name}' has no authored mesh in census (wrapper exported nothing for it)",
                                    fix_hint=f"Create a mesh object named exactly '{name}' in model.py."))
             continue
@@ -90,7 +84,7 @@ def check_fk_consistency(robot: Robot, census_links: dict[str, dict[str, Any]], 
         cur_rpy = matrix_to_rpy(link.visual_origin[:3, :3])
         frame_xyz = T[name][:3, 3]
         out.append(GateFinding(
-            gate=GATE, severity=Severity.ERROR, target=name,
+            gate=FK_GATE, severity=Severity.ERROR, target=name,
             message=(f"link '{name}': FK at q=0 puts the mesh at bbox [{_vec(fk_min)}]..[{_vec(fk_max)}] but model.py authored it at "
                      f"[{_vec(au_min)}]..[{_vec(au_max)}] (max error {err*1000:.1f} mm). Its link frame is at world "
                      f"[{_vec(frame_xyz)}] so the visual origin must be the inverse: xyz=\"{_vec(xyz_fix)}\" "
