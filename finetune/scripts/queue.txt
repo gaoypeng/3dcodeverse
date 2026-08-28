@@ -1,2 +1,3 @@
-v5|scripts/run_27b_v5.sh
-9b_clean|scripts/run_9b_clean.sh
+img4_views|scripts/eval_img4_views.sh
+imgmix_eval|scripts/eval_imgmix.sh
+27b_clean|scripts/run_27b_clean.sh

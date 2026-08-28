@@ -555,5 +555,21 @@
       "messages": "conversations",
       "system": "system"
     }
+  },
+  "md_9b_noleak_train": {
+    "file_name": "md_9b_noleak_train.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system"
+    }
+  },
+  "md_9b_noleak_val": {
+    "file_name": "md_9b_noleak_val.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system"
+    }
   }
 }

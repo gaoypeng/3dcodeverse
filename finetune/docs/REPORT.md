@@ -1,7 +1,7 @@
 # 3D-code LLM finetune 调研报告（dgx03 / 4×H100，2026-08-21 → 08-22）
 
 > 目标：在前 4 张 H100 上跑通「文本 → Blender Python 3D 代码」的 LLM 微调流程，评估 3DCodeVerse 数据是否适合训练，为后续 large-scale finetune 给出配置与结论。
-> 工程目录：`/wekafs/ict/hx_624/llm-ft`（README 有命令）。**所有数字见第 5 / 7 / 8 节；最近更新 2026-08-25 20:30（§11 完成：评估方法论、md_max 审计、27B 零样本/v1/v2/v3/DPO、scipy 修正、caption 增强对照；**27B v2 = 3DCodeBench 93.4% + 最佳几何**，9B+执行反馈 DPO = 96.2%；完整实验清单见 `llm_finetune_exps.md`，数据已发布到 HF `ilabai/3dcodeverse-llamafactory`）。**
+> 工程目录：`/wekafs/ict/hx_624/llm-ft`（README 有命令）。**所有数字见第 5 / 7 / 8 节；最近更新 2026-08-28 12:00（新增 §12：全量数据清洗与编译/渲染验证、URDF 恢复、泄漏探针、图像条件生成）；上一版 2026-08-25 20:30（§11 完成：评估方法论、md_max 审计、27B 零样本/v1/v2/v3/DPO、scipy 修正、caption 增强对照；**27B v2 = 3DCodeBench 93.4% + 最佳几何**，9B+执行反馈 DPO = 96.2%；完整实验清单见 `llm_finetune_exps.md`，数据已发布到 HF `ilabai/3dcodeverse-llamafactory`）。**
 
 ## 1. 环境（已 setup，可直接复用）
 | 项 | 内容 |
@@ -611,3 +611,49 @@ v2 的 CadQuery 只有 3.6 万对（86.5%），而 9B md_xl 有 13 万对（97.5
 | three.js | 27B v2 + 执行反馈 DPO | **100%** |
 | OpenSCAD（采样） | 9B md_xl / 27B v2+DPO | 90% / 82% |
 | GLSL（采样） | 27B v2 + 执行反馈 DPO | **71%** |
+
+## 12. 数据清洗、图像条件生成、泄漏探针（2026-08-26 → 08-28）
+
+### 12.1 把全部 3DCodeVerse 洗成可直接训练的 LLaMA-Factory 数据
+每个源子目录旁边生成一个 `<subdir>_llamafactory/`（`train.parquet` + `dataset_info.json` + `qc.json` + README），已上传到 HF 母数据集：**203 个目录 / 109 万行**。三个实质问题都在源头修掉，而不是绕过：
+
+| 问题 | 处理 |
+|---|---|
+| `articraft/urdf_*` 的 `code` 列全空（6,146 条） | 从 22 GB tar 里恢复**全部 6,146 个 `.urdf`（零遗漏）**，成为可训练的**第七种语言**；抽检 400 条 XML 解析 100% 通过，平均 4.4 link / 3.4 joint |
+| Shadertoy 多标签页不是单文件 | 用 `shader_json.renderpass` 按 Shadertoy 真实语义合并（Common 拼在 pass 前），**68 个子目录 / 287,679 行**，其中 23,988 个程序合并了 Common |
+| `3dcodebench/instances_*` 与基准同源 | 构造出来但**逐行标记** `benchmark_factory` / `factory_family`，并给出 factory 级切分 `benchmark_split.json`（留出 50 个 family），让这批数据可用而不污染评测 |
+
+### 12.2 GLSL：用真编译器 + 真渲染器验证，而不是静态检查
+
+| 阶段 | 可编译 |
+|---|---|
+| 原始单文件 + 粗糙静态检查 | 98,518 / 116,498 = 84.6% |
+| 合并 Common 标签页后 | 88,245 / 93,434 = 94.5% |
+| **修正验证器后（见下）+ 采纳编译验证过的修复** | **285,486 / 287,679 行 = 99.2%** |
+
+4,192 个"编译失败"里**只有 588 个真的需要改代码**（去掉非常量初始化的 `const`、重命名与内置同名的函数、补全截断语句、删除合并产生的重复声明——每条改动都重新编译验证）。其余全是**我的验证器的缺陷**：用正则猜 iChannel 是 2D 还是 cubemap（Shadertoy 里这是绑定属性，不是语法属性）、前导码漏了 `iFrameRate`、去重正则误删压缩成一行的真实代码、用了 ES 3.10 而 Shadertoy 是 WebGL2 = ES 3.00。
+
+**编译 ≠ 能画出东西**，所以又加了一层：在真实 WebGL2 里渲染每个 shader、采两帧、检查画面非均匀且随时间变化。第一版渲染器把所有 shader 判成全黑——用"必然出渐变"的对照 shader 一测就发现是截图失败吞掉了有效测量。**这是本轮第三次"先怀疑检查器、再怀疑数据"救回大批数据**（前两次：Blender 缺 scipy、three.js 的 `readPixels` 读到已清空的缓冲）。
+
+### 12.3 泄漏探针：不是所有泄漏都让分数虚高
+我自己写的 `build_md_max.py` 排除规则漏了 `Factory` 后缀（`AgaveMonocotFactory` ↔ 测试任务 `AgaveMonocot_seed0`），导致 md_max 混入 462 行、9B clean 混入 164 行基准 factory 源码（0.06–0.09%）。早期的 `build_multidialect.py` 规则是对的，**md_xl 的 90.1% 及此前全部 9B 结果不受影响**。
+
+用完全相同的配置训了一对模型来实测：
+
+| | 含 164 行泄漏 | **去泄漏** |
+|---|---|---|
+| 3DCodeBench 执行率 | 84.9% | 84.9%（一模一样） |
+| F@0.05（成功题） | 0.383 | **0.418** |
+| Chamfer | 0.201 | **0.190** |
+
+**污染没有抬高分数，去掉之后几何质量反而更好。** 原因是这些 factory 代码动辄几千行、超 8192 token 被截断，污染的是**输出风格**而不是答案。结论：泄漏要按"它到底教了模型什么"来判断，长而畸形的样本本身就是噪声；同时也说明**只用执行率一个指标会完全看不到这个差异**（84.9% vs 84.9%）。
+
+### 12.4 图像条件生成：第一次让模型"看图写代码"
+`qwen3_5` 模板本就注册了多模态插件（`qwen3_vl`，image token `<|image_pad|>`），数据加 `images` 列 + prompt 里放等量 `<image>` 即可（框架会严格校验个数）。建了 **7,997 个"渲染图→代码"样本**（bioinspired3d 6,343 + animation2code 1,051 + threejs_distill 340 + blender_distill 263），单视角和 4 视角两版。
+
+| 模型 | 输入 | 3DCodeBench 执行率 | F@0.05(成功题) |
+|---|---|---|---|
+| 9B 纯文本（md_9b_noleak） | 文字描述 | 84.9% | 0.418 |
+| **9B 图像条件（img4）** | **一张 GT 渲染图，无任何文字** | **69.3%** | 0.373 |
+
+只给一张图、不给任何文字描述就能让 147/212 的代码跑起来，说明这条路是通的。训练侧的信号也很明确：图像条件训练的 loss 0.180，远低于纯文本的 0.31–0.39——**图像提供的条件信息比 caption 强得多**。下一步（已排队）：4 视角 vs 1 视角对照、图文联合训练的双路评测。

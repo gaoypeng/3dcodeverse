@@ -191,7 +191,8 @@ def convert_one(args):
         if MEDIA.search(code) or any(MEDIA.search(v) for v in r["caps"].values() if isinstance(v, str)):
             qc["media_placeholder"] += 1
             code = MEDIA.sub(lambda m: f"<{m.group(1)} >", code)
-        if r["name"] in bench_factories or r["name"].rsplit("_", 1)[0] in bench_factories:
+        norm_name = r["name"].replace("Factory", "").replace("_geo", "").replace("_tex", "")
+        if r["name"] in bench_factories or r["name"].rsplit("_", 1)[0] in bench_factories or norm_name in bench_factories:
             qc["benchmark_overlap"] += 1   # flagged, and excluded below
             continue
         caps = normalize_caps(r["caps"])

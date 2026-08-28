@@ -79,7 +79,8 @@ def load_parquet_rows(dialect, sub, drop_names=frozenset()):
     out = []
     for r in df.itertuples():
         name = str(getattr(r, "name", "") or "")
-        if name in drop_names or name.rsplit("_", 1)[0] in drop_names:
+        norm = name.replace("Factory", "").replace("_geo", "").replace("_tex", "")
+        if name in drop_names or name.rsplit("_", 1)[0] in drop_names or norm in drop_names:
             continue
         code = getattr(r, "code", None) or ""
         if not isinstance(code, str) or len(code.strip()) < 40:
