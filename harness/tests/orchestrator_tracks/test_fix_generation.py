@@ -54,10 +54,21 @@ def test_generate_files_retries_once_on_max_tokens_then_succeeds(tmp_path):
 def test_generate_files_still_truncated_after_retry_fails_cleanly(tmp_path):
     ws = Workspace(tmp_path / "ws").create()
     model = ScriptedModel([(TRUNCATED, "MAX_TOKENS"), (TRUNCATED, "length")])
-    task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"])
+    task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"], max_output_tokens=32000)
     res = generate_files(ws, model=model, task=task, events=EventLog(tmp_path / "e.jsonl"))
     assert not res.ok and res.notes.startswith("truncated")
     assert not (ws.root / "src" / "model.py").exists()  # never write a half-file
+
+
+def test_no_identical_retry_at_the_output_ceiling(tmp_path):
+    """A task already at the 65,536 model ceiling cannot 'double the budget' — the re-ask
+    would be byte-identical at full price, so it must not be bought (review 2026-08-28)."""
+    ws = Workspace(tmp_path / "ws").create()
+    model = ScriptedModel([(TRUNCATED, "MAX_TOKENS")])
+    task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"])  # default = ceiling
+    res = generate_files(ws, model=model, task=task, events=EventLog(tmp_path / "e.jsonl"))
+    assert not res.ok and res.notes.startswith("truncated")
+    assert len(model.requests) == 1, "an identical full-price retry must not be bought"
 
 
 # --------------------------------------------------------------------- finding: out-of-root path aborted the whole write

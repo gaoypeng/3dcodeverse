@@ -160,10 +160,16 @@ function heartbeat(backend) {
   } catch (_e) { /* endpoint may be gone; connect error handling covers it */ }
 }
 
+// The ws this process last REJECTED (canary timeout / page overflow).  The endpoint
+// file stays for everyone else (only the daemon retires the browser), but re-testing
+// the same wedged ws in sharedBrowser's 50 ms wait loop costs a 6 s canary per
+// iteration — up to ~24 s of pure wait.  Skip it until a NEW ws is advertised.
+let rejectedWs = null;
+
 /** Connect to the shared browser advertised for `backend`; null when absent/poisoned. */
 async function connectShared(puppeteer, backend) {
   const info = readJson(endpointPath(backend));
-  if (!info || !info.ws) return null;
+  if (!info || !info.ws || info.ws === rejectedWs) return null;
   try {
     const browser = await puppeteer.connect({ browserWSEndpoint: info.ws, protocolTimeout: PROTOCOL_TIMEOUT_MS });
     // Health canary: a long-lived shared browser can wedge (WSL GPU decay plus pages
@@ -185,6 +191,7 @@ async function connectShared(puppeteer, backend) {
       if (timer) clearTimeout(timer);
     } catch (_e) { pages = null; }
     if (!pages || pages.length > MAX_SHARED_PAGES) {
+      rejectedWs = info.ws;
       try { await browser.disconnect(); } catch (_e) { /* ignore */ }
       return null;   // own launch for this caller; the endpoint stays for everyone else
     }
@@ -207,7 +214,10 @@ async function connectShared(puppeteer, backend) {
       },
     };
   } catch (_e) {
-    // poisoned: the advertised browser is gone/unresponsive — forget it
+    // connect itself REFUSED: nothing listens at that ws, so the daemon (the browser's
+    // parent) is gone too — clearing a DEAD advertisement does not violate "only the
+    // daemon retires the browser"; a merely-slow browser is the canary's case above,
+    // and the canary never touches the file.
     try { fs.rmSync(endpointPath(backend), { force: true }); } catch (_e2) { /* ignore */ }
     return null;
   }

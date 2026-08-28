@@ -25,7 +25,7 @@ Cookbook excerpt:
 {% if seeded_recipes %}
 
 ## Verified helpers in the harness-owned, read-only `src/recipes.glsl` — call them, do not redefine them
-`src/recipes.glsl` is harness-owned and READ-ONLY (a write to it is refused); the harness pastes it above
+`src/recipes.glsl` is harness-owned and READ-ONLY (a session that writes it is failed and the file restored); the harness pastes it above
 `src/common.glsl` and `src/shader.frag` at build time, so these VERIFIED helpers are in scope everywhere with
 no include.  Call them and build on them: do not rewrite an aurora curtain / star field / bokeh / rain layer
 from scratch (the from-scratch versions are the comb of bars, the twenty sparkles and the opaque discs the

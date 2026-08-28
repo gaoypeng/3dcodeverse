@@ -61,16 +61,15 @@ SYSTEM_SETTINGS = {
 RETRY_KEY_WAIT_S = 10.0
 
 
-_POOLS: dict[tuple[str, ...], KeyPool] = {}
-
-
 def _key_pool(keys: list[str]) -> KeyPool:
-    """Process-wide pool per key set so cooldowns persist across agent runs."""
-    tkey = tuple(keys)
-    pool = _POOLS.get(tkey)
-    if pool is None:
-        pool = _POOLS[tkey] = KeyPool(keys)
-    return pool
+    """THE process-wide pool for these keys — ``models.gemini.shared_pool``, i.e. the
+    same limiter the API path uses, with quotas from ``Settings.rate``.  This module
+    used to build its own ``KeyPool(keys)`` with library defaults (900 RPM, no TPM
+    bucket), so the CLI agent and the API path scheduled the same 22 keys under two
+    different quotas (found by review 2026-08-28)."""
+    from codeverse.models.gemini import shared_pool
+
+    return shared_pool(keys)
 
 
 def write_system_settings(path: Path | None = None, *, mcp_command: list[str] | None = None) -> Path:

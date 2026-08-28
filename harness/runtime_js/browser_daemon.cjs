@@ -62,19 +62,29 @@ async function main() {
   fs.writeFileSync(epPath, JSON.stringify(record, null, 2));
   fs.rmSync(lockPath, { force: true });
 
-  const bail = async (code) => {
+  // One CDP probe, bounded: a wedged browser answers pages() only after
+  // protocolTimeout (15 min), which must never stall the reaper or the exit path.
+  const boundedPages = () => Promise.race([
+    browser.pages(),
+    new Promise((_res, rej) => { const t = setTimeout(() => rej(new Error('pages timeout')), 5000); if (t.unref) t.unref(); }),
+  ]);
+
+  const bail = async (code, { pages = null, advertise = true } = {}) => {
     // Never close a browser somebody is using: pages beyond the initial about:blank
-    // mean live work, and closing it kills their page mid-call.  Re-advertise instead;
-    // the HARD_REAP_MS check below is the backstop for a client that never came back.
+    // mean live work, and closing it kills their page mid-call.  Re-advertise instead
+    // (never when a NEWER daemon owns the endpoint — its advertisement must not be
+    // clobbered); the hard reap in the poll loop is the backstop for a client that
+    // never came back.
     try {
-      if ((await browser.pages()).length > 1) {
-        fs.writeFileSync(epPath, JSON.stringify(record, null, 2));
+      const n = pages !== null ? pages : (await boundedPages()).length;
+      if (n > 1) {
+        if (advertise) fs.writeFileSync(epPath, JSON.stringify(record, null, 2));
         return;
       }
-    } catch (_e) { /* browser gone: fall through and exit */ }
+    } catch (_e) { /* browser gone or wedged: fall through and exit */ }
     const cur = (() => { try { return JSON.parse(fs.readFileSync(epPath, 'utf8')); } catch (_e) { return null; } })();
     if (cur && cur.ws === record.ws) fs.rmSync(epPath, { force: true });
-    try { await browser.close(); } catch (_e) { /* already dead */ }
+    try { await Promise.race([browser.close(), new Promise((res) => setTimeout(res, 5000))]); } catch (_e) { /* already dead */ }
     process.exit(code);
   };
 
@@ -93,33 +103,30 @@ async function main() {
       return bail(0);   // endpoint deleted (poisoned verdict or manual cleanup)
     }
     const cur = (() => { try { return JSON.parse(fs.readFileSync(epPath, 'utf8')); } catch (_e) { return null; } })();
-    if (!cur || cur.ws !== record.ws) return bail(0);   // superseded by another daemon
+    if (!cur || cur.ws !== record.ws) return bail(0, { advertise: false });   // superseded: never clobber the newer daemon
     const idle = Date.now() - st.mtimeMs;
     // Reap leaked pages only when NOBODY is working: clients tick the heartbeat every
-    // 30 s while connected, so a fresh one means an old page belongs to live work.  It
-    // used to tick on connect/release only, and a 16-minute scene probe had its page
-    // closed under it — 'Protocol error: Target closed'.
+    // 30 s while connected, so a fresh one means an old page belongs to live work.
+    if (idle < IDLE_REAP_MS) return;
+    let pages = 2;
     try {
-      if (idle < IDLE_REAP_MS) return;
-      const open = await browser.pages();
+      const open = await boundedPages();   // ONE probe per tick (it used to be three)
       const now = Date.now();
       const live = new Set(open);
       for (const p of open.slice(1)) if (!firstSeen.has(p)) firstSeen.set(p, now);
       for (const [p, at] of firstSeen) {
         if (!live.has(p)) firstSeen.delete(p);
-        else if (now - at > PAGE_TTL_MS) { firstSeen.delete(p); await p.close().catch(() => {}); }
+        else if (now - at > PAGE_TTL_MS) { firstSeen.delete(p); live.delete(p); await p.close().catch(() => {}); }
       }
-    } catch (_e) { /* browser mid-shutdown; the checks below handle it */ }
-    if (idle < IDLE_REAP_MS) return;
-    let pages = 2;
-    try {
-      pages = (await browser.pages()).length;
+      pages = live.size;
     } catch (_e) {
-      return bail(0);
+      return bail(0, { pages: 0 });   // wedged or mid-shutdown: nothing left to protect
     }
-    // >1 page = a client is mid-render (its heartbeat only ticks on connect/
-    // release); reap anyway once VERY stale — that is a crashed client's leak.
-    if (pages <= 1 || idle > HARD_REAP_MS) return bail(0);
+    // Very stale + still >1 page = a crashed client's leak: FORCE the exit instead of
+    // re-advertising (the old disjunct re-wrote the endpoint, reset its mtime, and so
+    // could never fire — the hard reap was unreachable).
+    if (idle > HARD_REAP_MS) return bail(0, { pages: 1 });
+    if (pages <= 1) return bail(0, { pages });
   }, POLL_MS);
 }
 

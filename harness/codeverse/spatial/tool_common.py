@@ -96,18 +96,18 @@ def _latest_build_status(ws: Workspace) -> dict[str, Any] | None:
     ``artifacts/build.json`` (written by the language runtimes), or None when
     neither is readable — a workspace whose GLB was placed by hand (tests,
     imports, first-measure flows) stays usable."""
-    newest: dict[str, Any] | None = None
-    newest_mtime = float("-inf")
+    cands: list[tuple[float, Path]] = []
     for name in ("build_last.json", "build.json"):
         p = ws.artifacts / name
         try:
-            mtime = p.stat().st_mtime
+            cands.append((p.stat().st_mtime, p))
         except OSError:
             continue
+    for _, p in sorted(cands, key=lambda c: c[0], reverse=True):
         data = read_json_or_none(p)
-        if data is not None and mtime > newest_mtime:
-            newest, newest_mtime = data, mtime
-    return newest
+        if data is not None:
+            return data
+    return None
 
 
 def glb_path(ctx: ToolContext) -> Path:
@@ -123,7 +123,9 @@ def glb_path(ctx: ToolContext) -> Path:
     # failed on RestPenetration and spent the rest of its turns looking for the
     # wrong problem (measured 2026-08-27, art_med_tool_chest).
     if status is not None and not status.get("ok"):
-        why = str(status.get("error") or status.get("error_type") or "see the build output")
+        # BuildResult serialises error_message, not "error" — reading the wrong key cost
+        # the agent the message and left only the type (found by review 2026-08-28)
+        why = str(status.get("error_message") or status.get("error_type") or "see the build output")
         raise ToolUsageError(
             f"the last build FAILED ({why[:200]}) — there is no current object.glb to read. "
             "Fix the code for that error and build again; do not measure or render until it passes.",

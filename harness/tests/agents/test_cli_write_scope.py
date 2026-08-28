@@ -1,7 +1,7 @@
 """CLI write-scope enforcement: per-workspace serialisation + post-hoc edit_only restore.
 
-CLI backends (claude-code / codex / gemini-cli / agy) have no write-time file gate —
-``FileTools`` guards only the in-process api-agent — and both session snapshots run
+No backend has a write-time file gate (the in-process one that did was deleted
+2026-08-28), and both session snapshots run
 ``git add -A``, so two concurrent CLI sessions in one workspace make provenance (and
 any per-path rollback) unfixable.  ``begin_session`` therefore serialises
 ``EXCLUSIVE_KINDS`` per workspace, and ``finish_session`` reverts writes outside
@@ -29,9 +29,9 @@ def _finish(s, *, ok: bool = True):
 
 
 # --------------------------------------------------------------------------- serialisation
-def test_the_cli_kinds_are_exclusive_and_the_api_agent_is_not():
+def test_every_vendor_cli_kind_is_exclusive():
     assert {"claude-code", "codex", "gemini-cli", "agy"} == EXCLUSIVE_KINDS
-    assert "api-agent" not in EXCLUSIVE_KINDS and "fake" not in EXCLUSIVE_KINDS
+    assert "fake" not in EXCLUSIVE_KINDS  # test doubles stay lock-free
 
 
 def test_two_cli_sessions_on_one_workspace_are_serialized(tmp_ws: Workspace):
@@ -59,10 +59,10 @@ def test_two_cli_sessions_on_one_workspace_are_serialized(tmp_ws: Workspace):
     assert a1 <= b0 or b1 <= a0, f"sessions interleaved: a={windows['a']} b={windows['b']}"
 
 
-def test_api_agent_sessions_do_not_take_the_lock(tmp_ws: Workspace):
-    s1 = begin_session(_job(tmp_ws, "s1"), "api-agent")
+def test_an_unknown_kind_takes_no_lock(tmp_ws: Workspace):
+    s1 = begin_session(_job(tmp_ws, "s1"), "fake")
     assert s1.ws_lock is None
-    s2 = begin_session(_job(tmp_ws, "s2"), "api-agent")  # would deadlock if locked
+    s2 = begin_session(_job(tmp_ws, "s2"), "fake")  # would deadlock if locked
     _finish(s2)
     _finish(s1)
 

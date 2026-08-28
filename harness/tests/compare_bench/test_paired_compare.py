@@ -13,7 +13,7 @@ if str(REPO) not in sys.path:
 from bench._compare_report import CellResult  # noqa: E402
 from bench.paired_compare import analyse, latest_cells, main, paired, t975  # noqa: E402
 
-HA, OA = "harness:api-agent:gemini:x", "oneshot:gemini:x"
+HA, OA = "harness:gemini-cli:gemini-3.6-flash", "oneshot:gemini:x"
 
 
 def _cell(pid: str, arm: str, score: float | None, *, tier: str = "hard", status: str = "scored",

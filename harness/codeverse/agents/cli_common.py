@@ -249,7 +249,12 @@ def begin_session(job: AgentJob, kind: str) -> Session:
                    live=live, ws_lock=lock)
 
 
-def _enforce_scope(s: Session) -> list[str]:
+def _clean(seq: Any) -> frozenset[str]:
+    """Normalise a path list: str(), strip, drop empties."""
+    return frozenset(p for p in (str(x).strip() for x in seq) if p)
+
+
+def _enforce_scope(s: Session) -> dict[str, str]:
     """Revert a CLI session's out-of-scope writes; returns the reverted paths.
 
     Post-hoc, because every backend is a vendor CLI and none has a write-time file gate
@@ -262,11 +267,12 @@ def _enforce_scope(s: Session) -> list[str]:
     are serialised (:data:`EXCLUSIVE_KINDS`): ``head_before`` holds no sibling's
     in-flight work."""
     roots = tuple(r.strip("/") for r in s.job.write_roots if r.strip("/"))
-    frozen = frozenset(r for r in (str(x).strip() for x in s.job.read_only) if r)
-    narrow = (s.files_hint | frozenset(h for h in (str(x).strip() for x in s.job.always_writable) if h)
+    frozen = _clean(s.job.read_only)
+    narrow = (s.files_hint | _clean(s.job.always_writable)
               if (s.job.edit_only and s.files_hint) else frozenset())
     if not roots and not narrow and not frozen:
-        return []
+        return {}
+    reverted: dict[str, str] = {}
     restore: list[str] = []
     remove: list[str] = []
     for f in s.ws.changed_files(s.head_before):
@@ -274,16 +280,19 @@ def _enforce_scope(s: Session) -> list[str]:
         if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in HARNESS_OWNED_FILES:
             continue
         if f.path in frozen:
-            pass  # harness-owned: the agent calls it, never rewrites it
+            why = "harness-owned: call its functions, never rewrite it"
         elif roots and not any(f.path == r or f.path.startswith(r + "/") for r in roots):
-            pass  # outside write_roots: out of scope whatever its status
+            why = f"outside write_roots {sorted(roots)}"
         elif not narrow or f.status == "added" or _hinted(f.path, narrow):
             continue
+        else:
+            why = "outside this task's files (new files stay allowed)"
+        reverted[f.path] = why
         (remove if f.status == "added" else restore).append(f.path)
     s.ws.restore_paths(s.head_before, restore)
     for path in remove:  # added files are not in head_before; the next `git add -A` stages the delete
         (s.ws.root / path).unlink(missing_ok=True)
-    return sorted(restore + remove)
+    return reverted
 
 
 def finish_session(
@@ -306,13 +315,13 @@ def finish_session(
     (:func:`_enforce_scope`)."""
     try:
         errors = list(errors or [])
-        restored = _enforce_scope(s)
-        if restored:
+        reverted = _enforce_scope(s)
+        if reverted:
             ok = False
-            msg = ("out-of-scope writes reverted: " + ", ".join(restored)
-                   + f" — this session may only write under {sorted(s.job.write_roots)}"
-                   + (f", limited to {sorted(s.files_hint)} (new files, and the entry file when the "
-                      "task owns it, stay allowed)" if s.job.edit_only and s.files_hint else ""))
+            # each path carries ITS reason: a read_only revert used to be blamed on
+            # write_roots ("may only write under ['src']") for a file under src/
+            msg = ("out-of-scope writes reverted: "
+                   + "; ".join(f"{p} ({why})" for p, why in sorted(reverted.items())))
             errors.append(msg)
             s.notes.append(msg)
         s.ws.commit(f"agent:{s.label}")

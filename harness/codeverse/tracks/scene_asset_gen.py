@@ -53,7 +53,10 @@ def single_shot_agent_id(agent_id: str, chat_model_id: str = "") -> str:
     that backend is gone."""
     if is_single_shot(agent_id):
         return agent_id
-    return SINGLE_SHOT_PREFIX + chat_model_id if chat_model_id.count(":") >= 1 else ""
+    # a SHAPE check only, deliberately not models.registry.parse_model_id: whether the
+    # id resolves is the SERVICES' call (tests run fake providers like "fake:planner"),
+    # and single_shot_ctx already degrades to the agent path when chat_model() raises
+    return SINGLE_SHOT_PREFIX + chat_model_id if ":" in chat_model_id else ""
 
 
 def single_shot_ctx(ctx: RunContext) -> RunContext | None:
@@ -62,7 +65,7 @@ def single_shot_ctx(ctx: RunContext) -> RunContext | None:
     cached = ctx.extra.get("_single_shot_ctx")
     if cached is not None:
         return cached or None  # False = known-unavailable
-    sid = single_shot_agent_id(ctx.agent_id, getattr(ctx.spec.backends, "planner", ""))
+    sid = single_shot_agent_id(ctx.agent_id, ctx.spec.backends.planner)
     sub: RunContext | None = None
     if sid:
         try:

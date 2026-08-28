@@ -165,7 +165,7 @@ def _envelope(rel: str, body: str) -> str:
     return f"=== FILE: {rel} ===\n{body}\n=== END FILE ===\n"
 
 
-def _scene_ctx(tmp_path, settings, *, services, agent=None, plan=None, agent_id="api-agent:gemini:x",
+def _scene_ctx(tmp_path, settings, *, services, agent=None, plan=None, agent_id="fake-agent:gemini:x",
                max_usd=5.0) -> RunContext:
     plan = plan or ScenePlan.model_validate(plan_example(Track.SCENE))
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, generator=agent_id, max_usd=max_usd)
@@ -270,7 +270,7 @@ def test_asset_check_names_the_file_that_was_never_written(tmp_path, settings):
 def test_single_shot_ctx_is_none_for_cli_backends(tmp_path, settings):
     ctx = _scene_ctx(tmp_path, settings, services=FakeServices(), agent_id="gemini-cli:gemini-3.7-flash")
     assert single_shot_ctx(ctx) is None
-    ctx2 = _scene_ctx(tmp_path, settings, services=FakeServices(), agent_id="api-agent:gemini:x")
+    ctx2 = _scene_ctx(tmp_path, settings, services=FakeServices(), agent_id="fake-agent:gemini:x")
     assert single_shot_ctx(ctx2) is None  # FakeServices has no chat model → agent path stays
 
 
@@ -495,14 +495,18 @@ def test_one_asset_cannot_eat_the_scene_run():
     and the judged round only happened via the budget salvage at 25.5 min."""
     from codeverse.contracts.spec import Budget
     from codeverse.orchestrator.budget import BudgetGuard
-    from codeverse.tracks.scene_assets import ASSET_AGENT_TIMEOUT_S, asset_timeout_s
+    from codeverse.tracks.scene_assets import (
+        ASSET_AGENT_TIMEOUT_S,
+        ASSET_SESSION_SHARE,
+        asset_timeout_s,
+    )
 
     class Ctx:
         budget = BudgetGuard(Budget(max_usd=10.0, max_minutes=25.0, max_rounds=4), run="t")
 
     fresh = asset_timeout_s(Ctx, 120)
     assert fresh < ASSET_AGENT_TIMEOUT_S, "one asset may not have the whole preparation budget"
-    assert fresh <= 25 * 60 * 0.15 + 1, "at most its share of the run"
+    assert fresh <= 25 * 60 * ASSET_SESSION_SHARE + 1, "at most its share of the run"
     Ctx.budget.start_time -= 23 * 60          # 2 minutes left
     assert asset_timeout_s(Ctx, 120) == 120, "and never past the wall clock, floor aside"
 

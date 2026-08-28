@@ -10,7 +10,7 @@ src/shader.frag     REQUIRED  the image pass (your code; no #version, no uniform
 src/common.glsl     optional  helper functions / constants, pasted ABOVE shader.frag (and buffer_a.frag) automatically
 src/buffer_a.frag   optional  ONE feedback buffer pass (Shadertoy "Buffer A"): rendered every frame before the image pass
 src/recipes.glsl    HARNESS-OWNED, READ-ONLY  verified cookbook recipes the harness seeded for this brief, pasted ABOVE
-                    common.glsl: call its functions, never edit, redefine or copy them (a write to it is refused)
+                    common.glsl: call its functions, never edit, redefine or copy them (a write is reverted and fails the session)
 ```
 Nothing else is read.  No textures, no files, no includes.
 

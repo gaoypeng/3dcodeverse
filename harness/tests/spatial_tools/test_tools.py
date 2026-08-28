@@ -476,8 +476,8 @@ def test_a_failed_build_tells_the_agent_WHY_not_to_build_again(tmp_ws):
     ctx = ToolContext(workspace=tmp_ws, language="urdf_blender", track="articulated_object")
     tmp_ws.artifacts.mkdir(parents=True, exist_ok=True)
     tmp_ws.write_json(tmp_ws.artifacts / "build_last.json",
-                      {"ok": False, "glb_path": None, "error_type": "RestPenetration",
-                       "error": "links interpenetrate by 140.0 mm at lid/base"})
+                      BuildResult(ok=False, language="urdf_blender", error_type="RestPenetration",
+                                  error_message="links interpenetrate by 140.0 mm at lid/base"))
     with pytest.raises(ToolUsageError) as e:
         glb_path(ctx)
     msg = str(e.value)

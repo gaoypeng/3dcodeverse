@@ -165,10 +165,10 @@ def test_cell_errors_are_recorded_not_raised(tmp_path: Path):
 
     deps = CompareDeps(Exploding(), run_track=failing_track, oneshot_backend=lambda t: FakeBackend([GOOD.format(score=0.5)]),
                        pairwise_judge=FakePairwise)
-    rows = run_matrix(BATTERY, tmp_path / "o", parse_arms("harness:api-agent:gemini:x,oneshot:codex"),
+    rows = run_matrix(BATTERY, tmp_path / "o", parse_arms("harness:gemini-cli:gemini-3.6-flash,oneshot:codex"),
                       CompareOptions(limit=1, parallel=1), deps)
     by = {r.arm: r for r in rows}
-    assert by["harness:api-agent:gemini:x"].status == "error" and "planner down" in by["harness:api-agent:gemini:x"].error
+    assert by["harness:gemini-cli:gemini-3.6-flash"].status == "error" and "planner down" in by["harness:gemini-cli:gemini-3.6-flash"].error
     assert by["oneshot:codex"].status == "error" and "blender missing" in by["oneshot:codex"].error
     assert (tmp_path / "o" / "report.md").is_file()
 

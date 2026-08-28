@@ -26,7 +26,7 @@ pytestmark = pytest.mark.skipif(not bundle_dirs(), reason=f"no bundles in {skill
 
 LIBRARY = all_skills()
 
-#: the api-agent index is the only index we write; five skills must fit in this
+#: the routed index (an unclassified, loaderless backend) is the only index we write
 API_INDEX_TOKENS_MAX = 400
 API_INDEX_BYTES_MAX = 2048
 #: a native loader gets one sentence — its own loader writes the real index
@@ -59,7 +59,7 @@ def test_the_api_agent_index_stays_inside_its_budget_with_the_whole_library_inst
     worst = max(_every_session(), key=lambda row: index_tokens(row[3], "api-agent"))
     tokens = index_tokens(worst[3], "api-agent")
     assert tokens <= API_INDEX_TOKENS_MAX, f"{worst[:3]} costs {tokens} tokens of message 0"
-    assert len(index_block(worst[3], "api-agent").encode()) <= API_INDEX_BYTES_MAX
+    assert len(index_block(worst[3], "unknown-backend").encode()) <= API_INDEX_BYTES_MAX
 
 
 @pytest.mark.parametrize("kind", NATIVE_LOADERS)

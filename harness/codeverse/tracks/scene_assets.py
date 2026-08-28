@@ -67,10 +67,10 @@ ASSET_RUBRIC = "asset_v1"
 
 def asset_timeout_s(ctx: Any, floor_s: int) -> int:
     """``ASSET_AGENT_TIMEOUT_S`` clipped to one asset's share of the run AND to the
-    wall clock actually left (:meth:`BudgetGuard.timeout_s`)."""
-    share = float(getattr(ctx.budget.budget, "max_minutes", 0.0) or 0.0) * 60.0 * ASSET_SESSION_SHARE
-    want = min(ASSET_AGENT_TIMEOUT_S, share) if share > 0 else ASSET_AGENT_TIMEOUT_S
-    return ctx.budget.timeout_s(max(float(floor_s), want), floor_s=floor_s)
+    wall clock actually left (:meth:`BudgetGuard.timeout_s`, which owns the floor)."""
+    share = ctx.budget.budget.max_minutes * 60.0 * ASSET_SESSION_SHARE
+    return ctx.budget.timeout_s(min(ASSET_AGENT_TIMEOUT_S, share) if share else ASSET_AGENT_TIMEOUT_S,
+                                floor_s=floor_s)
 
 
 class AssetResult(BaseModel):

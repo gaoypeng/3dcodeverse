@@ -180,9 +180,9 @@ def test_the_stop_order_is_exhausted_regression_then_marginal_then_switch_then_p
 
 # ----------------------------------------------------------------------------- turn budget
 class _TurnAgent:
-    """Burns turns; reports the api-agent's own 'max_turns (N) reached' when it runs out."""
+    """Burns turns; reports 'max_turns (N) reached' when it runs out."""
 
-    kind = "api-agent"
+    kind = "fake"
     model = "gemini:gemini-3.7-flash"
 
     def __init__(self, *, writes_on: int = 2, cost: float = 0.2):
@@ -346,7 +346,7 @@ def test_a_round_that_changed_no_file_never_reaches_the_judge_question(tmp_path,
     from codeverse.tracks.steps import RoundFailed, run_generation_tasks
 
     class _Idle:
-        kind, model = "api-agent", "m"
+        kind, model = "fake", "m"
 
         def run(self, job: AgentJob) -> AgentResult:
             return AgentResult(ok=True, exit_reason="completed", files_changed=[], usage=Usage(cost_usd=0.01))

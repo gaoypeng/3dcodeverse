@@ -226,20 +226,25 @@ def generate_files(
     _charge(budget, usage, task=task, label=task.label, outcome=str(resp.finish_reason or "ok"),
             enforce=False)
     if _is_truncated(resp):
-        # cut off by max_output_tokens: the envelope is unterminated — one retry with
-        # a doubled budget beats writing a half-file and burning repair attempts on it
+        # cut off by max_output_tokens: the envelope is unterminated — one retry with a
+        # DOUBLED budget beats writing a half-file.  Already at the 65,536 model ceiling
+        # there is nothing to grow: a re-ask would be byte-identical and full price, so
+        # it is not bought (the default task budget IS the ceiling since 2026-08-27).
+        grown = min(task.max_output_tokens * 2, 65_536)
+        retry = grown > int(req.max_output_tokens or 0)
         if events is not None:
             events.emit(
                 "generate.truncated",
                 label=task.label,
                 finish_reason=str(resp.finish_reason),
-                retry=True,
+                retry=retry,
             )
-        req = req.model_copy(update={"max_output_tokens": min(task.max_output_tokens * 2, 65536)})
-        resp = model.generate(req)
-        usage = usage + resp.usage
-        _charge(budget, resp.usage, task=task, label=f"{task.label}.retry", outcome="truncated",
-                enforce=False)
+        if retry:
+            req = req.model_copy(update={"max_output_tokens": grown})
+            resp = model.generate(req)
+            usage = usage + resp.usage
+            _charge(budget, resp.usage, task=task, label=f"{task.label}.retry", outcome="truncated",
+                    enforce=False)
     traj = ws.trajectory_dir(task.label.replace("/", "_"), task.round)
     (traj / "prompt.md").write_text(f"# system\n{system}\n\n# user\n{task.prompt}\n")
     (traj / "response.md").write_text(resp.text or "")

@@ -125,10 +125,11 @@ def test_transient_failure_retries_once_with_other_key(tmp_ws: Workspace, agent:
 
 def test_single_key_transient_failure_retries_same_key_and_never_raises(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     """Settings with ONE key: the retry must reuse it (no KeyPoolExhausted out of run())."""
-    from codeverse.agents import gemini_cli as gc
 
     monkeypatch.setattr(get_settings(), "gemini_api_keys", ["only"])
-    gc._POOLS.pop(("only",), None)
+    from codeverse.models import gemini as gm
+    for sig in [s for s in list(gm._pools) if s and s[0] == "only"]:
+        gm._pools.pop(sig, None)
     monkeypatch.setenv("FAKE_MODE", "fail_once_503")
     res = agent.run(_job(tmp_ws))
     assert res.ok, res.errors
@@ -143,7 +144,9 @@ def test_single_key_quota_failure_returns_budget_without_retry(tmp_ws: Workspace
 
     monkeypatch.setattr(get_settings(), "gemini_api_keys", ["solo"])
     monkeypatch.setattr(gc, "RETRY_KEY_WAIT_S", 0.2)
-    gc._POOLS.pop(("solo",), None)
+    from codeverse.models import gemini as gm
+    for sig in [s for s in list(gm._pools) if s and s[0] == "solo"]:
+        gm._pools.pop(sig, None)
     monkeypatch.setenv("FAKE_MODE", "fail_always")
     res = agent.run(_job(tmp_ws))
     assert not res.ok and res.exit_reason == "budget"

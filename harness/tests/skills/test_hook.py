@@ -32,7 +32,7 @@ def ctx(tmp_path: Path, library_dir: Path, monkeypatch):
     parts = [NS(name=f"P{i}", instances=1, symmetry="none", children=[]) for i in range(3)]
     hashes: dict[str, str] = {}
     return NS(ws=NS(root=root), spec=NS(track=NS(value="static_object")), language=NS(value="blender"),
-              agent_id="api-agent:gemini-3.7-flash", plan=NS(parts=parts, summary="a chair"),
+              agent_id="unknown-backend:gemini-3.7-flash", plan=NS(parts=parts, summary="a chair"),
               single_shot=False, extra={}, events=Events(), prompt_hashes=hashes,
               record_prompt=lambda name, text: hashes.__setitem__(name, str(len(text))))
 

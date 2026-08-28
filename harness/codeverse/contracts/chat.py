@@ -84,8 +84,8 @@ class ChatRequest(BaseModel):
         default=None,
         gt=0,
         description="the longest this ONE logical call may spend, retries and their waits included; "
-        "None = the model's default (models.retry.RETRY_DEADLINE_S = 900 s).  A caller clips it to "
-        "what it can still afford: an agent turn 20-120 s, a judge sample 240 s, the planner 300 s.",
+        "None = the model's default (models.retry.RETRY_DEADLINE_S).  A caller clips it to what it "
+        "can still afford (owner 2026-08-27: judge-sample and planner floors are 900 s).",
     )
 
 

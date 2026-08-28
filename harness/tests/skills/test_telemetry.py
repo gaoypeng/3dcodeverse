@@ -40,7 +40,7 @@ def _plan(n=3):
 
 def _attach(ws, library, **kw):
     return attach_skills(ws, track="static_object", language="blender", kind="baseline",
-                         agent_kind="api-agent", plan=_plan(), library=library,
+                         agent_kind="unknown-backend", plan=_plan(), library=library,
                          max_skills=5, allow_unverified=False, **kw)
 
 

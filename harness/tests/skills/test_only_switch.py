@@ -33,7 +33,7 @@ def ws(tmp_path):
 
 def _listed(ws, **kw):
     return attach_skills(ws, track="static_object", language="blender", kind="baseline",
-                         agent_kind="api-agent", plan=_Plan(), **kw).listed
+                         agent_kind="unknown-backend", plan=_Plan(), **kw).listed
 
 
 def test_unset_routes_the_whole_set(ws):

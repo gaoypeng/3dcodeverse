@@ -246,7 +246,7 @@ def test_worker_argv_carries_the_whole_option_block(tmp_path: Path):
     argv = worker_argv(BATTERY, tmp_path, "cmp_easy_stool", VARIANT, opts)
     assert argv[1].endswith("ab_plan.py") and argv[2] == "cell" and "--arm" in argv
     assert AbOptions.model_validate_json(argv[-1]) == opts
-    assert cell_dir(tmp_path, CONTROL, "x", "api-agent:gemini:g").parent.parts[-4:] == ("arms", "control", "cells", "x")
+    assert cell_dir(tmp_path, CONTROL, "x", "gemini-cli:gemini-3.6-flash").parent.parts[-4:] == ("arms", "control", "cells", "x")
 
 
 def test_a_child_that_dies_without_a_cell_is_an_error_not_a_score(tmp_path: Path):
@@ -440,7 +440,7 @@ def test_report_only_uses_the_runs_own_options_not_this_invocations_flags(tmp_pa
 
     out = tmp_path / "run"
     out.mkdir()
-    opts = AbOptions(variant_env={"CV3D_SKILLS": "on"}, rounds=1, generator="api-agent:gemini:x")
+    opts = AbOptions(variant_env={"CV3D_SKILLS": "on"}, rounds=1, generator="gemini-cli:gemini-3.6-flash")
     (out / "ab.json").write_text(json.dumps({"options": json.loads(opts.model_dump_json())}))
 
     got = _stored_options(out)
