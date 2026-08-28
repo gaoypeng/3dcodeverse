@@ -15,6 +15,10 @@ The 3dcodeverse project. Top-level layout:
   `harness/docs/INSTALL.md`.  Needs **python 3.10+** and **node 20.6+** on Linux
   (developed on 3.13 / node 24; CI runs both ends — `harness/docs/INSTALL.md` §2.1).
 
+- **`toolkits/`** — the data tooling: per-source curation scripts, and the pipeline that turns the
+  corpus into verified LLaMA-Factory datasets (per-subdir conversion, compiler/renderer verification,
+  multi-file flattening, multimodal variants, mix sampling). See `toolkits/README.md`.
+
 - **`finetune/`** — LLM finetuning recipes (LoRA / full-parameter SFT, execution-
   and geometry-feedback DPO via unpatched LLaMA-Factory) and the execution-based
   evaluation stack (3DCodeBench + per-dialect executors) used to train open
