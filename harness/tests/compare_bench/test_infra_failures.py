@@ -323,3 +323,10 @@ def test_a_classifier_crash_still_records_the_cell(tmp_path, monkeypatch):
     assert r.status == "error" and "classifier failed: RecursionError" in r.error and "planner died" in r.error
     assert (tmp_path / "cells" / battery.prompts[0].id / "harness_api-agent_gemini_gemini-3.7-flash" / "cell.json").is_file()
 
+
+
+def test_stream_attempt_budget_and_504_are_infra():
+    from bench._infra import is_infra_failure
+
+    assert is_infra_failure(RuntimeError("ModelError: Gemini stream exceeded its attempt budget after 293 chunks"))
+    assert is_infra_failure(RuntimeError("Gemini API error 504: Deadline expired before operation could complete."))
