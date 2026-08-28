@@ -8,8 +8,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from codeverse.cli.gallery_cmd import resolve_roots
-from codeverse.cli.main import app
+from codeverse.cli.main import app, resolve_roots
 
 runner = CliRunner()
 

@@ -184,9 +184,9 @@ codeverse/
                       static single-file form), theme.py (CSS + the index-page JS)
   prompts/            system/*, <lang>/{contract,cookbook}.md (incl. glsl_shader/, opengl_python/),
                       texturing/*.md, tracks/*.j2 (incl. plan/generate/refine_graphics.j2)
-  cli/                main.py (app wiring, make/resume/mcp), inspect_cmd.py (status/render/judge
-                      on one existing run), tools_cmd.py, flywheel_cmd.py, gallery_cmd.py, bench_cmd.py,
-                      texture_cmd.py, cost_cmd.py (`3dcv cost`), layout_cmd.py, doctor.py
+  cli/                main.py (app wiring, make/resume/mcp + the tools/bench/gallery
+                      commands), inspect_cmd.py (status/render/judge on one existing run),
+                      flywheel_cmd.py, texture_cmd.py, cost_cmd.py (`3dcv cost`), layout_cmd.py, doctor.py
                       (`--skills` checks the library + its discovery wiring),
                       skills_cmd.py (`3dcv skills list|show|validate|report` — the read-rate report)
 bench/                run_bench.py, report.py (renders through codeverse/gallery), compare_backends.py

@@ -13,6 +13,7 @@ sibling ``cli/inspect_cmd.py`` and are registered here, the way ``layout_cmd.py`
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -22,18 +23,210 @@ import typer
 
 from codeverse import __version__
 from codeverse.cli import _common as C
-from codeverse.cli._common import console, err_console, kv_table, ok, print_record_summary, warn
-from codeverse.cli.bench_cmd import bench_app
+from codeverse.cli._common import (
+    console,
+    err_console,
+    kv_table,
+    ok,
+    print_observation,
+    print_record_summary,
+    warn,
+)
 from codeverse.cli.cost_cmd import cost_app
 from codeverse.cli.doctor import doctor_app
 from codeverse.cli.flywheel_cmd import flywheel_app
-from codeverse.cli.gallery_cmd import gallery_app
 from codeverse.cli.skills_cmd import skills_app
 from codeverse.cli.texture_cmd import texture_app
-from codeverse.cli.tools_cmd import tools
 from codeverse.config import get_settings
 from codeverse.contracts.common import TRACK_LANGUAGES, Budget, Language, Track
 from codeverse.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec
+
+
+# ===================================================================== tools_cmd
+# (merged from codeverse/cli/tools_cmd.py, 2026-08-28 — main's registration block
+#  was its only importer)
+def tools(
+    name: Annotated[str, typer.Argument(help="'list' or a tool name")] = "list",
+    args_json: Annotated[str, typer.Option("--json", help="arguments object as JSON")] = "{}",
+    workspace: Annotated[Path | None, typer.Option("--workspace")] = None,
+    round_index: Annotated[int, typer.Option("--round")] = 0,
+    as_json: Annotated[bool, typer.Option("--json-out", help="print the Observation as JSON")] = False,
+    cards: Annotated[bool, typer.Option("--cards", help="(list) print prompt cards instead of a table")] = False,
+) -> None:
+    registry = C.lazy("codeverse.spatial.registry")
+    if name == "list":
+        defs = registry.list_tools()
+        if cards:
+            console.print(registry.tool_cards())
+            return
+        from rich.table import Table
+
+        t = Table(title="spatial tools")
+        for col in ("name", "cost", "tracks", "languages", "description"):
+            t.add_column(col)
+        for d in defs:
+            t.add_row(d.name, d.cost_hint, ",".join(d.tracks) or "*", ",".join(d.languages) or "*", d.description)
+        console.print(t)
+        return
+    try:
+        tdef = registry.get_tool(name)
+    except KeyError as e:
+        raise C.CliError(str(e)) from e
+    try:
+        arguments = json.loads(args_json)
+    except ValueError as e:
+        raise C.CliError(f"--json is not valid JSON: {e}") from e
+    ws_root = workspace or Path.cwd()
+    ws = C.open_workspace(str(ws_root))
+    spec = C.load_spec(ws)
+    ctx = registry.ToolContext(workspace=ws, round_index=round_index, language=spec.language.value, track=spec.track.value)
+    obs = tdef.call(ctx, arguments)
+    print_observation(obs, as_json=as_json)
+    if not obs.ok:
+        raise typer.Exit(code=1)
+
+
+# ===================================================================== bench_cmd
+# (merged from codeverse/cli/bench_cmd.py, 2026-08-28 — main's registration block
+#  was its only importer)
+bench_app = typer.Typer(no_args_is_help=True)
+
+
+@bench_app.command("run")
+def run_cmd(
+    battery: Annotated[Path, typer.Argument(help="bench/prompts/<name>.yaml")],
+    out: Annotated[Path | None, typer.Option("--out", help="default bench/out/<battery name>")] = None,
+    generator: Annotated[str | None, typer.Option("--generator")] = None,
+    planner: Annotated[str | None, typer.Option("--planner")] = None,
+    judge: Annotated[str | None, typer.Option("--judge", help="fixed judge model for the whole battery")] = None,
+    parallel: Annotated[int, typer.Option("--parallel", min=1)] = 4,
+    rounds: Annotated[int, typer.Option("--rounds", min=0)] = 4,
+    max_usd: Annotated[float, typer.Option("--max-usd")] = 5.0,
+    max_minutes: Annotated[float, typer.Option("--max-minutes", help="wall-clock budget per run; size it to the weather "
+                                                                   "(RUNBOOK 7.x: 120 in a 503 storm, else runs burn the hour with no judged round)")] = 60.0,
+    limit: Annotated[int | None, typer.Option("--limit")] = None,
+    ids: Annotated[list[str] | None, typer.Option("--id", help="only these prompt ids")] = None,
+    tiers: Annotated[list[str] | None, typer.Option("--tier")] = None,
+    no_resume: Annotated[bool, typer.Option("--no-resume")] = False,
+    redo_status: Annotated[str, typer.Option("--redo-status", help="comma list of recorded statuses to re-run, "
+                                                                   "e.g. infra_failed once the provider recovers")] = "",
+    report: Annotated[bool, typer.Option("--report/--no-report")] = True,
+) -> None:
+    """Run every prompt of a battery through its track (N parallel workers); resumable."""
+    if not battery.is_file():
+        raise C.CliError(f"battery not found: {battery}")
+    b = C.import_bench()
+    run_bench = C.lazy("bench.run_bench")
+    opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_usd=max_usd, max_minutes=max_minutes,
+                                 parallel=parallel, limit=limit, ids=ids or [], tiers=tiers or [], resume=not no_resume,
+                                 redo_status=[x for x in redo_status.split(",") if x])
+    out_dir = out or (C.REPO_ROOT / "bench" / "out" / battery.stem)
+    console.print(f"battery={battery} out={out_dir} generator={generator or 'default'} judge={judge or 'default'}")
+
+    def _on(res) -> None:
+        console.print(f"  [{res.status}] {res.id}: baseline={res.score_baseline} final={res.score_final} "
+                      f"rounds={res.rounds} ${res.cost_usd:.2f} {res.minutes:.1f}min" + (f" [red]{res.errors[:80]}[/red]" if res.errors else ""))
+
+    results = run_bench.run_battery(battery, out_dir, opts, on_result=_on)
+    ok(f"{len(results)} results → {out_dir / 'results.csv'}")
+    if report:
+        rep = C.lazy("bench.report").build_report(out_dir)
+        console.print(rep.markdown)
+        ok(f"report → {out_dir / 'report.md'} / report.html")
+    del b
+
+
+@bench_app.command("report")
+def report_cmd(out_dir: Annotated[Path, typer.Argument()]) -> None:
+    """Aggregate results.jsonl → report.md + report.html (gallery of contact sheets)."""
+    C.import_bench()
+    rep = C.lazy("bench.report").build_report(out_dir)
+    console.print(rep.markdown)
+    ok(f"report → {out_dir / 'report.md'} / report.html")
+
+
+# ===================================================================== gallery_cmd
+# (merged from codeverse/cli/gallery_cmd.py, 2026-08-28 — main's registration block
+#  was its only importer)
+gallery_app = typer.Typer(no_args_is_help=True)
+
+RootsArg = Annotated[list[Path] | None, typer.Argument(
+    help="run roots (default: ./runs plus every ./bench/out/*/runs that exists)")]
+
+
+def resolve_roots(roots: list[Path] | None) -> list[Path]:
+    """Explicit roots (validated) or the defaults; a clear error when there are none."""
+    from codeverse.gallery.index import default_roots
+
+    if roots:
+        missing = [r for r in roots if not Path(r).is_dir()]
+        if missing:
+            raise C.CliError("not a directory: " + ", ".join(str(m) for m in missing))
+        return [Path(r) for r in roots]
+    found = default_roots(Path.cwd())
+    if not found:
+        from codeverse.config import get_settings
+
+        fallback = Path(get_settings().runs_dir)
+        if fallback.is_dir():
+            return [fallback]
+        raise C.CliError(f"no run roots found under {Path.cwd()} (looked for runs/ and bench/out/*/runs); "
+                         f"pass one explicitly: `3dcv gallery serve path/to/runs`")
+    return found
+
+
+@gallery_app.command("serve")
+def serve_cmd(
+    roots: RootsArg = None,
+    port: Annotated[int, typer.Option("--port", min=0, max=65535, help="0 = pick a free port")] = 8765,
+    host: Annotated[str | None, typer.Option("--host", help="default 127.0.0.1; any non-loopback address must be "
+                                                            "typed here explicitly")] = None,
+    open_browser: Annotated[bool, typer.Option("--open/--no-open", help="open the page in a browser")] = True,
+    reload: Annotated[bool, typer.Option("--reload", help="re-scan the roots on every page load "
+                                                          "(cheap: records only, images stay lazy)")] = False,
+    title: Annotated[str, typer.Option("--title")] = "3dcv gallery",
+) -> None:
+    """Serve the gallery (and the run directories) on localhost."""
+    from codeverse.gallery.server import GalleryError, serve
+
+    root_paths = resolve_roots(roots)
+
+    def announce(app, url: str) -> None:
+        ix = app.index
+        console.print(kv_table("gallery", {
+            "url": url, "runs": len(ix.entries()), "roots": len(ix.sections),
+            "index built in": f"{ix.build_ms} ms", "reload": reload,
+            "sections": ", ".join(f"{s.label}({len(s.entries)})" for s in ix.sections)}))
+        console.print("[dim]Ctrl-C to stop[/dim]")
+
+    try:
+        serve(root_paths, host=host, host_explicit=host is not None, port=port, reload=reload,
+              open_browser=open_browser, title=title, on_start=announce)
+    except GalleryError as e:
+        raise C.CliError(str(e)) from e
+    ok("gallery stopped")
+
+
+@gallery_app.command("build")
+def build_cmd(
+    roots: RootsArg = None,
+    out: Annotated[Path, typer.Option("--out", help="output .html")] = Path("gallery.html"),
+    embed: Annotated[bool, typer.Option("--embed", help="inline the contact sheets as data: URIs so the page can "
+                                                        "be shared (much bigger; links still point here)")] = False,
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    thumb_px: Annotated[int, typer.Option("--thumb-px", min=128, help="embedded thumbnail long edge")] = 720,
+) -> None:
+    """Write the gallery as one self-contained HTML file."""
+    from codeverse.gallery.page import build_static
+
+    path, n, index = build_static(resolve_roots(roots), out, title=title, embed=embed, thumb_px=thumb_px)
+    broken = sum(1 for e in index.entries() if e.state != "ok")
+    if broken:
+        warn(f"{broken} run(s) have no usable record.json (shown as broken cards)")
+    ok(f"gallery of {n} runs → {path} ({path.stat().st_size // 1024} KB)")
+    if not embed:
+        console.print("[dim]file:// links; `--embed` inlines the images, `3dcv gallery serve` makes them clickable[/dim]")
+
 
 app = typer.Typer(
     name="3dcv",
