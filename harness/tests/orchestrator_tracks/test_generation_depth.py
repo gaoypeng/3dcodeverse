@@ -179,7 +179,7 @@ def test_detail_instructions_take_the_judges_detail_asks_then_the_standing_vocab
         ImprovementItem(target="Seat", kind="material", instruction="give the seat an oiled-oak colour", priority=1),
         ImprovementItem(target="FrontLeg", kind="assembly", instruction="move the leg 12 mm in", priority=1),
     ])
-    lines = detail_instructions(RoundRecord(index=1, kind="refine", judgment=j), None, max_lines=8)
+    lines = detail_instructions(RoundRecord(index=1, kind="refine", judgment=j), max_lines=8)
     assert any("oiled-oak" in ln for ln in lines)
     assert not any("move the leg" in ln for ln in lines)     # assembly work is the repair loop's
     assert any("Bevel or chamfer" in ln for ln in lines)     # the standing vocabulary is always there

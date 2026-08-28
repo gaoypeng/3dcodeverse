@@ -16,7 +16,7 @@ from codeverse.contracts.run import RunRecord
 from codeverse.flywheel.record import effective_judgment
 from codeverse.gallery.cards import gallery_figure, tier_tag, verdict_tag
 from codeverse.gallery.code import CODE_CSS, numbered, read_text, src_files
-from codeverse.gallery.index import best_sheet, hero_view
+from codeverse.gallery.index import _rel, best_sheet, hero_view
 from codeverse.gallery.model import RunEntry
 from codeverse.gallery.theme import esc, footer, page_shell, top_bar
 from codeverse.gallery.urls import UrlMaker
@@ -73,17 +73,6 @@ def _kv(key: str, value: str) -> str:
 def _panel(title: str, inner: str, *, anchor: str = "", extra_head: str = "") -> str:
     ident = f" id='{esc(anchor)}'" if anchor else ""
     return f"<div class='panel'{ident}><h2>{esc(title)}{extra_head}</h2>{inner}</div>"
-
-
-def _rel(run: Path, path: str | None) -> str:
-    if not path:
-        return ""
-    p = Path(path)
-    p = p if p.is_absolute() else run / p
-    try:
-        return p.resolve().relative_to(run.resolve()).as_posix()
-    except (ValueError, OSError):
-        return ""
 
 
 # --------------------------------------------------------------------------- sections

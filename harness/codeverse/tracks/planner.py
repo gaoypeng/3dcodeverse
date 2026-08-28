@@ -442,7 +442,7 @@ def _fold_pass(ps: Any) -> None:
     ps.description = " · ".join(bits).replace("\n", " ").replace("|", "/")
 
 
-def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None, budget: PlanBudget | None = None) -> Any:
+def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None) -> Any:
     """Fold what the BRIEF knows back into the plan's own fields, after validation.
 
     A part's own depth needs no folding: ``tracks/prompting.py`` renders
@@ -770,7 +770,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
         if normalised and events is not None:
             events.emit("plan.normalised", attempt=attempt, n=len(normalised), items=normalised[:8])
         result = finalise(result) if finalise is not None else ensure_acceptance(normalise_names(result), spec)
-        result = enrich_plan(result, brief, budget)
+        result = enrich_plan(result, brief)
         ws.write_json(ws.plan_path, result)
         if events is not None:
             stats = (event_stats or default_event_stats)(result)

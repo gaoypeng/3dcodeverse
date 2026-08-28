@@ -384,68 +384,38 @@ class StaticObjectTrack(BaseTrack):
         ``ctx.extra`` records the round index and the measurement to diff against, which
         is what ``ObjectPipeline.gates`` turns into the ``detail_drift`` gate.
         """
-        lines = detail_instructions(
-            last, ctx.plan, max_lines=ctx.policy.max_instructions_per_task + 2
-        )
+        lines = detail_instructions(last, max_lines=ctx.policy.max_instructions_per_task + 2)
         if not lines:
             return [], []
         ctx.extra["detail_round"] = index
         ctx.extra["detail_baseline"] = last.measurement
         scopes = self.scopes(ctx)
         tasks: list[GenerationTask] = []
-        if scopes:
-            for scope in scopes:
-                files = list(scope.files)
-                prompt = render(
-                    self.detail_template,
-                    **scope_context(
-                        ctx,
-                        scope,
-                        round_index=index,
-                        tasks=lines,
-                        files=files,
-                        judge_summary=judge_digest(last),
-                        current_files=current_files(ctx, files) if ctx.single_shot else {},
-                    ),
-                )
-                tasks.append(
-                    GenerationTask(
-                        label=f"detail_{scope.label}",
-                        prompt=prompt,
-                        system=self.detail_system_prompt(ctx),
-                        files_hint=files,
-                        round=index,
-                        kind=DETAIL_KIND,
-                        temperature=0.6,
-                        thinking="high",
-                        # detail is file-disjoint per scope; the entry gains no surface detail
-                        edit_only=True,
-                    )
-                )
-        else:
-            files = expected_files(ctx)
-            prompt = render(
-                self.detail_template,
-                **base_prompt_context(
-                    ctx,
-                    round_index=index,
-                    tasks=lines,
-                    files=files,
-                    judge_summary=judge_digest(last),
-                    current_files=current_files(ctx, files) if ctx.single_shot else {},
-                ),
-            )
+        # one scoped task per scope, or one whole-object task.  The two arms differed in
+        # four values — the context builder, the label, the file list, and which of
+        # edit_only / owns_entry is set (detail is file-disjoint per scope, so a scoped
+        # pass never touches the entry; the whole-object pass owns the full tree).
+        for scope in scopes or [None]:
+            files = list(scope.files) if scope is not None else expected_files(ctx)
+            context = (scope_context(ctx, scope, round_index=index, tasks=lines, files=files,
+                                     judge_summary=judge_digest(last),
+                                     current_files=current_files(ctx, files) if ctx.single_shot else {})
+                       if scope is not None else
+                       base_prompt_context(ctx, round_index=index, tasks=lines, files=files,
+                                           judge_summary=judge_digest(last),
+                                           current_files=current_files(ctx, files) if ctx.single_shot else {}))
             tasks.append(
                 GenerationTask(
-                    label="detail",
-                    prompt=prompt,
+                    label=f"detail_{scope.label}" if scope is not None else "detail",
+                    prompt=render(self.detail_template, **context),
                     system=self.detail_system_prompt(ctx),
                     files_hint=files,
                     round=index,
                     kind=DETAIL_KIND,
                     temperature=0.6,
                     thinking="high",
-                    owns_entry=True,  # whole-object pass: files_hint is the full tree
+                    edit_only=scope is not None,
+                    owns_entry=scope is None,
                 )
             )
         ctx.record_prompt("detail", tasks[0].prompt)
@@ -581,7 +551,7 @@ DEFAULT_DETAIL_LINES: tuple[str, ...] = (
 )
 
 
-def detail_instructions(last: Any, plan: Any, *, max_lines: int = 8) -> list[str]:
+def detail_instructions(last: Any, *, max_lines: int = 8) -> list[str]:
     """Instruction lines for a detail round: the measured density gap first, then the
     judge's detail-shaped asks, then the standing detail vocabulary; deduped and capped."""
     lines: list[str] = []

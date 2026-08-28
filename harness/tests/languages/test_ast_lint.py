@@ -146,3 +146,15 @@ def test_real_deeply_nested_source_does_not_escape_the_lint():
     deep = "import bpy\nx = " + " + ".join(["1"] * 40_000) + "\n"
     rep = lint_blender_source(deep)
     assert isinstance(rep.passed, bool)
+
+
+def test_the_runtime_registry_covers_every_language():
+    """get_runtime was a 7-branch if-chain whose last arm was an unreachable
+    fall-through; as a table, a missing row is a KeyError at call time instead.  This
+    is the drift guard that makes the table safe."""
+    from codeverse.contracts.common import Language
+    from codeverse.languages.base import _RUNTIMES, get_runtime
+
+    assert set(_RUNTIMES) == set(Language), "every Language needs a runtime row"
+    for lang in Language:
+        assert get_runtime(lang).language is lang

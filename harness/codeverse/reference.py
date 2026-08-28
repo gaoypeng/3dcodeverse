@@ -564,6 +564,31 @@ def decide(ans: GateAnswer, *, model_id: str = "") -> PlausibilityVerdict:
     )
 
 
+def _ask(model: Any, schema: type[BaseModel], *, system: str, text: str,
+         images: list[ImagePart] | None = None, temperature: float,
+         label: str) -> tuple[Any, Usage, str]:
+    """One structured call → ``(validated object | None, usage, error)``.
+
+    The three callers below built the same ChatRequest (thinking="low", the 65 536
+    ceiling, the 900 s wait), caught the same two failure families and parsed the same
+    two ways — each was a copy carried in from its own pre-merge file.  They differ only
+    in what they RETURN on failure, which is why this hands the error back rather than
+    raising or deciding.
+    """
+    req = ChatRequest(messages=[ChatMessage.user(text, images=images)], system=system,
+                      response_schema=schema.model_json_schema(), temperature=temperature,
+                      thinking="low", max_output_tokens=65_536, max_wait_s=900.0, label=label)
+    try:
+        resp = model.generate(req)
+    except ModelError as e:
+        return None, Usage(), f"call failed: {e}"
+    payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
+    try:
+        return schema.model_validate(payload), resp.usage, ""
+    except (ValidationError, TypeError) as e:
+        return None, resp.usage, f"answer unparsable: {e}"
+
+
 def check_plausible(
     image: Path | str,
     spec: Spec,
@@ -578,28 +603,13 @@ def check_plausible(
     if not path.is_file():
         return PlausibilityVerdict(reason=f"image missing: {path.name}", model_id=model_id), Usage()
     text = GATE_USER.format(brief=brief_text(spec), constraints=visual_constraints(spec))
-    req = ChatRequest(
-        messages=[ChatMessage.user(text, images=[ImagePart(path=str(path), label="CANDIDATE REFERENCE")])],
-        system=GATE_SYSTEM,
-        response_schema=GateAnswer.model_json_schema(),
-        temperature=temperature,
-        thinking="low",
-        max_output_tokens=65_536,
-        max_wait_s=900.0,
-        label="reference_gate",
-    )
-    try:
-        resp = model.generate(req)
-    except ModelError as e:
-        log.warning("reference gate: model error on %s: %s", path.name, e)
-        return PlausibilityVerdict(reason=f"gate call failed: {e}", model_id=model_id), Usage()
-    payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
-    try:
-        ans = GateAnswer.model_validate(payload)
-    except (ValidationError, TypeError) as e:
-        log.warning("reference gate: unparsable answer for %s: %s", path.name, e)
-        return PlausibilityVerdict(reason=f"gate answer unparsable: {e}", model_id=model_id), resp.usage
-    return decide(ans, model_id=model_id or getattr(model, "id", "")), resp.usage
+    ans, usage, err = _ask(model, GateAnswer, system=GATE_SYSTEM, text=text,
+                           images=[ImagePart(path=str(path), label="CANDIDATE REFERENCE")],
+                           temperature=temperature, label="reference_gate")
+    if err:
+        log.warning("reference gate on %s: %s", path.name, err)
+        return PlausibilityVerdict(reason=f"gate {err}", model_id=model_id), usage
+    return decide(ans, model_id=model_id or getattr(model, "id", "")), usage
 
 
 # ===================================================================== attach
@@ -696,27 +706,18 @@ def image_prompt_plan(spec: Spec, view_names: list[str], *, model: Any, temperat
     if model is None:
         return _fallback_plan(spec, view_names), Usage()
     text = IMAGE_PROMPT_USER.format(brief=brief_text(spec), n_views=len(view_names), views=", ".join(view_names))
-    req = ChatRequest(messages=[ChatMessage.user(text)], system=IMAGE_PROMPT_SYSTEM,
-                      response_schema=ImagePromptPlan.model_json_schema(), temperature=temperature,
-                      thinking="low", max_output_tokens=65_536, max_wait_s=900.0, label="reference_prompt")
-    try:
-        resp = model.generate(req)
-    except ModelError as e:
-        log.warning("reference prompt writer failed (%s); using the brief verbatim", e)
-        return _fallback_plan(spec, view_names), Usage()
-    payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
-    try:
-        plan = ImagePromptPlan.model_validate(payload)
-    except (ValidationError, TypeError) as e:
-        log.warning("reference prompt writer returned invalid JSON (%s); using the brief verbatim", e)
-        return _fallback_plan(spec, view_names), resp.usage
+    plan, usage, err = _ask(model, ImagePromptPlan, system=IMAGE_PROMPT_SYSTEM, text=text,
+                            temperature=temperature, label="reference_prompt")
+    if err:
+        log.warning("reference prompt writer %s; using the brief verbatim", err)
+        return _fallback_plan(spec, view_names), usage
     if not plan.subject.strip():
         plan.subject = brief_text(spec).replace("\n", ", ")
     by_view = {v.view.strip().lower(): v for v in plan.views}
     plan.views = [by_view.get(v, ViewPrompt(view=v)) for v in view_names]
     for v, name in zip(plan.views, view_names, strict=True):
         v.view = name
-    return plan, resp.usage
+    return plan, usage
 
 
 def synth_reference(
@@ -868,22 +869,12 @@ def compare(
     )
     images = [ImagePart(path=str(p), label=f"REFERENCE {i + 1}") for i, p in enumerate(refs)]
     images += [ImagePart(path=str(p), label=f"RENDER {i + 1} ({p.stem})") for i, p in enumerate(rens)]
-    req = ChatRequest(messages=[ChatMessage.user(text, images=images)], system=DIFF_SYSTEM,
-                      response_schema=DiffAnswer.model_json_schema(), temperature=temperature,
-                      thinking="low", max_output_tokens=65_536, max_wait_s=900.0, label="reference_diff")
-    try:
-        resp = model.generate(req)
-    except ModelError as e:
-        log.warning("reference diff failed: %s", e)
-        diff.error = f"diff call failed: {e}"
-        return diff
-    diff.usage = resp.usage
-    payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
-    try:
-        ans = DiffAnswer.model_validate(payload)
-    except (ValidationError, TypeError) as e:
-        log.warning("reference diff unparsable: %s", e)
-        diff.error = f"diff answer unparsable: {e}"
+    ans, usage, err = _ask(model, DiffAnswer, system=DIFF_SYSTEM, text=text, images=images,
+                           temperature=temperature, label="reference_diff")
+    diff.usage = usage
+    if err:
+        log.warning("reference diff %s", err)
+        diff.error = f"diff {err}"
         return diff
     diff.mismatches = ans.mismatches[:MAX_MISMATCHES]
     diff.matches = [m.strip()[:120] for m in ans.matches if m.strip()][:4]

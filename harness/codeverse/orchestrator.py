@@ -761,12 +761,9 @@ def best_index(rounds: Sequence[tuple[float, int]]) -> int:
     """Index of the best round: higher score, tie → fewer errors, tie → later round."""
     if not rounds:
         raise ValueError("best_index needs at least one round")
-    best = 0
-    for i, (score, n_err) in enumerate(rounds):
-        bs, be = rounds[best]
-        if score > bs or (score == bs and n_err < be) or (score == bs and n_err == be):
-            best = i
-    return best
+    # the three-clause running max WAS this key: greater score, then fewer errors,
+    # then later index (the third clause `score == bs and n_err == be` is the tie-break)
+    return max(range(len(rounds)), key=lambda i: (rounds[i][0], -rounds[i][1], i))
 
 
 class BestSelector:

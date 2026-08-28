@@ -454,11 +454,12 @@ class BaseTrack:
         # stale best, which is then restored and DELIVERED over the newer paid round
         unranked = bool(journal) and state.best_considered_through < journal[-1].index
         best_changed = False
-        if not journal:
-            if best is not None:
-                state.best_round, state.best_commit, state.best_score = None, "", None
-                best_changed = True
-        elif stale or best_invalid or unranked or best is None:
+        # an empty journal used to have its own arm; it is subsumed — with journal == []
+        # this condition is always true (best_invalid when a best is set, `best is None`
+        # otherwise) and BestSelector().pick([]) is None, which clears the best the same
+        # way.  The only divergence, blanking a stale best_commit while best_round is
+        # None, is unobservable: no reader touches best_commit without best_round.
+        if stale or best_invalid or unranked or best is None:
             pick = BestSelector().pick(journal)
             if pick is None:
                 best_changed = best is not None

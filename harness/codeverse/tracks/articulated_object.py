@@ -105,6 +105,10 @@ class ArticulatedObjectTrack(StaticObjectTrack):
 
 # ----------------------------------------------------------------------------- sweep adapter
 def default_joint_sweep(ws: Workspace, plan: Plan | None, out_dir: Path) -> tuple[GateReport, list[RenderView]]:
+    # ``plan`` is unread HERE — the sweep reads the built URDF off disk — but it stays in
+    # the Services.joint_sweep signature: it is the interface's information, and the test
+    # double (tests/orchestrator_tracks/fakes.py) synthesises its poses and findings from
+    # plan.joints because it has no URDF to read.
     """Adapter to ``codeverse.spatial.joints``: load → pose samples →
     ``sweep_collisions`` → ``sweep_findings`` (gate) and ``render_poses`` (pose views +
     ``articulation_sheet.png`` for the judge)."""

@@ -164,12 +164,20 @@ def _retry_key(pool: KeyPool, used: set[str]) -> str | None:
     return None
 
 
-class GeminiCliAgent:
-    kind = "gemini-cli"
+class _CliAgent:
+    """What all four vendor backends share.
 
-    def __init__(self, model: str, binary: str | None = None):
-        self.model = model
-        self.binary = binary or get_settings().binaries.gemini_cli
+    Everything that MATTERS about a CLI backend differs — argv vocabulary, JSON wire
+    format, usage/pricing shape, key handling — and stays in the subclass.  What they
+    share is their id and "is the binary there?", which was four and three verbatim
+    copies until 2026-08-28.  Subclasses set ``kind`` / ``cli_label`` and assign
+    ``model`` / ``binary`` in __init__.
+    """
+
+    kind: str
+    cli_label: str
+    model: str
+    binary: str
 
     @property
     def id(self) -> str:
@@ -177,9 +185,24 @@ class GeminiCliAgent:
 
     def available(self) -> tuple[bool, str]:
         if not exists_on_path(self.binary):
-            return False, f"gemini CLI not found: {self.binary!r}"
+            return False, f"{self.cli_label} CLI not found: {self.binary!r}"
+        return True, "ok"
+
+
+class GeminiCliAgent(_CliAgent):
+    kind = "gemini-cli"
+    cli_label = "gemini"
+
+    def __init__(self, model: str, binary: str | None = None):
+        self.model = model
+        self.binary = binary or get_settings().binaries.gemini_cli
+
+    def available(self) -> tuple[bool, str]:
+        ok, why = super().available()
+        if not ok:
+            return ok, why
         if not get_settings().gemini_api_keys:
-            return False, "no Gemini API keys configured"
+            return False, "no Gemini API keys configured"   # the only backend with a key pool
         return True, "ok"
 
     # ------------------------------------------------------------------ build
@@ -371,21 +394,13 @@ def primary_served_model(env: dict[str, Any], model: str) -> str:
     return max(served, key=lambda n: float((served[n] or {}).get("costUSD") or 0.0))
 
 
-class ClaudeCodeAgent:
+class ClaudeCodeAgent(_CliAgent):
     kind = "claude-code"
+    cli_label = "claude"
 
     def __init__(self, model: str, binary: str | None = None):
         self.model = model
         self.binary = binary or get_settings().binaries.claude_cli
-
-    @property
-    def id(self) -> str:
-        return f"{self.kind}:{self.model}"
-
-    def available(self) -> tuple[bool, str]:
-        if not exists_on_path(self.binary):
-            return False, f"claude CLI not found: {self.binary!r}"
-        return True, "ok"
 
     def build_argv(self, s: Session, prompt: str) -> list[str]:
         job = s.job
@@ -549,21 +564,13 @@ def parse_codex_jsonl(stdout: str) -> CodexEvents:
     return ev
 
 
-class CodexAgent:
+class CodexAgent(_CliAgent):
     kind = "codex"
+    cli_label = "codex"
 
     def __init__(self, model: str, binary: str | None = None, reasoning_effort: str | None = None):
         self.model, self.reasoning_effort = split_model_effort(model, reasoning_effort)
         self.binary = binary or get_settings().binaries.codex_cli
-
-    @property
-    def id(self) -> str:
-        return f"{self.kind}:{self.model}"
-
-    def available(self) -> tuple[bool, str]:
-        if not exists_on_path(self.binary):
-            return False, f"codex CLI not found: {self.binary!r}"
-        return True, "ok"
 
     def build_argv(self, s: Session, prompt: str | None) -> list[str]:
         """``prompt=None`` means 'read it from stdin' (``-`` positional)."""
@@ -698,25 +705,17 @@ def usage_from_agy(env: dict[str, Any], model: str) -> Usage:
     )
 
 
-class AntigravityAgent:
+class AntigravityAgent(_CliAgent):
     kind = "agy"
+    cli_label = "agy"
 
     def __init__(self, model: str, binary: str | None = None):
         self.model = model
         self.binary = binary or get_settings().binaries.agy_cli
 
-    @property
-    def id(self) -> str:
-        return f"{self.kind}:{self.model}"
-
     def served_model(self) -> str:
         """The id actually sent to agy (a bare one gains its effort suffix)."""
         return resolve_model(self.model, self.binary)
-
-    def available(self) -> tuple[bool, str]:
-        if not exists_on_path(self.binary):
-            return False, f"agy CLI not found: {self.binary!r}"
-        return True, "ok"
 
     def build_argv(self, s: Session, prompt: str) -> list[str]:
         minutes = max(1, int(s.job.timeout_s // 60) + 1)
