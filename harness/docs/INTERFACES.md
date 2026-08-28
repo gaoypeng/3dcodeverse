@@ -16,7 +16,7 @@ file was reconciled against it on 2026-08-23 (waves 2–3 + fix batch 1).
 * **Δ** Single-shot generation ids: `single-shot:<provider>:<model>` — handled only
   inside `tracks/generation.py` (`is_single_shot`, `single_shot_model_id`); never
   registered in `agents/`.  `Spec.backends.generator` accepts any of the three.
-* Image models: `models/gemini_image.py::GeminiImageModel` (default
+* Image models: `models/gemini.py::GeminiImageModel` (default
   `gemini-3.1-flash-image`, fallback `gemini-2.5-flash-image`) behind the
   `ImageModel` protocol (`generate`, `generate_with_usage` → `(images, Usage)`).
 
@@ -389,7 +389,7 @@ skip_judge_reason(ctx, *, gates, renders) -> str    # "" = judge it.  ONLY state
 run_round(ctx, *, index, kind, tasks, pipeline, ..., previous_best=None) -> RoundRecord
     # emits cost.round {stages{}, judge_usd, total_usd, agent_turns, wasted, waste_reason}; on ANY exception it
     # records what the round burned (rounds/aborted_rNN.json, ctx.extra["aborted_rounds"]) and re-raises
-from codeverse.tracks.planner import plan, plan_model_for, ensure_acceptance    # graphics uses tracks/graphics_steps.plan_graphics
+from codeverse.tracks.planner import plan, plan_model_for, ensure_acceptance    # graphics uses tracks/graphics.plan_graphics
 ```
 `run_round` = generate → commit → `build_with_repair` → measure → gates → render →
 post-render gates → judge → commit.  Post-render gates: static `reference_silhouette`
