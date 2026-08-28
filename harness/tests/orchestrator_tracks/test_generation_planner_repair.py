@@ -182,7 +182,13 @@ def test_planner_validates_retries_and_writes(tmp_ws):
     assert model.requests[0].response_schema is not None and "PascalCase" in model.requests[0].system
     # audit 2026-08-26 §2: the plan stage waited 492 s median per storm-day run for 39 s of
     # model time; one planner call may now retry for 300 s (~4x the worst observed call), not 900
-    assert all(r.max_wait_s == 300.0 for r in model.requests)
+    # the deadline scales with the answer size it asked for (measured: 60 tok/s p10), never
+    # below the 300 s floor — a flat 300 s guaranteed a timeout once a re-ask grew the budget
+    from codeverse.tracks.planner import plan_wait_s
+
+    # never below the 300 s floor, never more than the answer size justifies; the run's
+    # own wall clock clips it in between (plan_wait_s(tokens, guard))
+    assert all(300.0 <= r.max_wait_s <= plan_wait_s(r.max_output_tokens) for r in model.requests)
     # deterministic acceptance items from constraints were appended
     texts = " ".join(a.text for a in p.acceptance)
     assert "height = 0.820" in texts and "Includes: armrests" in texts

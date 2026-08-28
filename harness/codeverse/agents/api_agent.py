@@ -53,6 +53,15 @@ TURN_TOKENS_GROWTH = 1.5
 #: floor so a turn that starts near the deadline still gets one real attempt.
 TURN_WAIT_MIN_S = 20.0
 TURN_WAIT_MAX_S = 120.0
+#: ...but a deadline must also fit the ANSWER the turn asked for, or the tokens are billed
+#: and then discarded on a timeout.  Measured 2026-08-27: a 15 996-token turn streamed in
+#: ~90 s (178 tok/s) and planner calls run 145 tok/s p50 / 60 tok/s p10, so with the
+#: envelope at the model's 65 536 ceiling a flat 120 s would cut a long turn off — trading
+#: the token wall for a wait wall.  The derived wait is bounded by TURN_WAIT_CEILING_S and
+#: then by the session deadline, which is itself clipped to the run's wall clock.
+TURN_SLOW_TOKENS_PER_S = 145.0
+TURN_WAIT_OVERHEAD_S = 45.0
+TURN_WAIT_CEILING_S = 600.0
 DEFAULT_SYSTEM = (
     "You are an expert 3D programmer working inside a harness-managed workspace. "
     "Use the tools to read, write and verify code under src/ and public/. Write RAW code in the "
@@ -258,9 +267,12 @@ class _Loop:
         )
 
     def _turn_wait_s(self) -> float:
-        """Retry budget for one model call of this turn: what the session can still
-        afford, clipped to ``[TURN_WAIT_MIN_S, TURN_WAIT_MAX_S]``."""
-        return max(TURN_WAIT_MIN_S, min(TURN_WAIT_MAX_S, self.t_deadline - time.monotonic()))
+        """Retry budget for one model call of this turn: enough for the answer it asked
+        for, never past what the session can still afford."""
+        want = max(TURN_WAIT_MAX_S,
+                   min(TURN_WAIT_CEILING_S,
+                       self.turn_tokens / TURN_SLOW_TOKENS_PER_S + TURN_WAIT_OVERHEAD_S))
+        return max(TURN_WAIT_MIN_S, min(want, self.t_deadline - time.monotonic()))
 
     def _generate(self, turn: int) -> ChatResponse | None:
         req = ChatRequest(

@@ -248,12 +248,14 @@ class _Clock:
 def test_each_turn_gets_a_retry_budget_clipped_to_what_the_session_can_afford(tmp_ws, monkeypatch):
     """Audit 2026-08-26 §5.1: 66 give-up spans of the model's 900 s deadline (up to 3 in a row on
     one turn: median 923 s, p90 2 743 s) were 30 % of the storm day's waiting, ~1 430 s per run.
-    A turn's call may now retry for at most TURN_WAIT_MAX_S = 120 s (a storm-day call succeeds in
-    8.3 s p50 / 31 s p90) and never past the session deadline, floored at 20 s so a late turn
-    still gets one real attempt."""
+    A turn's call retries for as long as the answer it asked for plausibly needs (at least
+    TURN_WAIT_MAX_S, at most TURN_WAIT_CEILING_S) and NEVER past the session deadline,
+    floored at 20 s so a late turn still gets one real attempt."""
     import codeverse.agents.api_agent as mod
 
-    for timeout_s, want in ((600, 120.0), (60, 60.0), (5, 20.0)):
+    envelope = max(mod.TURN_WAIT_MAX_S, min(mod.TURN_WAIT_CEILING_S,
+                                            mod.TURN_TOKENS / mod.TURN_SLOW_TOKENS_PER_S + mod.TURN_WAIT_OVERHEAD_S))
+    for timeout_s, want in ((6000, envelope), (60, 60.0), (5, 20.0)):
         monkeypatch.setattr(mod, "time", _Clock())
         fake = FakeChatModel([resp("", call("list_files")), resp("done")])
         res = ApiAgent("fake:fake-1", chat_model=fake).run(_job(tmp_ws, timeout_s=timeout_s))

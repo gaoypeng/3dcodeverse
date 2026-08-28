@@ -66,6 +66,24 @@ TRUNCATION_GROWTH = 1.5
 #: storm-day plan stage waited 492 s median per run for 39 s of model time; 300 s is ~4x the
 #: worst observed call and replaces the model's 900 s default.  The re-asks are on top.
 PLAN_MAX_WAIT_S = 300.0
+#: ...but a deadline must fit the ANSWER it asked for, or the tokens are billed and then
+#: thrown away on a timeout.  Measured over 395 real planner calls (2026-08-27): output
+#: runs at 145 tok/s p50 and 60 tok/s p10, and the largest answers seen were 32 k tokens
+#: in 152-199 s.  At the p10 rate a 32 k answer needs 532 s and a 65 k one 1 089 s, so the
+#: flat 300 s guaranteed a timeout the moment a re-ask grew the budget — which is exactly
+#: how art_med_tool_chest and fancy_bl_windsor_chair died at the planner (2026-08-27).
+PLAN_SLOW_TOKENS_PER_S = 60.0
+PLAN_WAIT_OVERHEAD_S = 60.0
+
+
+def plan_wait_s(tokens: int, guard: object | None = None) -> float:
+    """How long one planner call may take, given the answer size it asked for.
+
+    Never below :data:`PLAN_MAX_WAIT_S`, and clipped to the wall clock the run has left
+    (``BudgetGuard.timeout_s``) so a big plan cannot outlive its own run."""
+    want = max(PLAN_MAX_WAIT_S, tokens / PLAN_SLOW_TOKENS_PER_S + PLAN_WAIT_OVERHEAD_S)
+    fn = getattr(guard, "timeout_s", None)
+    return float(fn(want, floor_s=PLAN_MAX_WAIT_S)) if callable(fn) else want
 
 
 def plan_tokens(budget: PlanBudget, floor: int) -> int:
@@ -182,7 +200,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS):
         req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=temperature,
                           thinking="medium", max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
-                          max_wait_s=PLAN_MAX_WAIT_S)
+                          max_wait_s=plan_wait_s(tokens, guard))
         try:
             resp = model.generate(req)
         except Exception as e:  # noqa: BLE001 — a truncated plan is retryable; anything else is not
