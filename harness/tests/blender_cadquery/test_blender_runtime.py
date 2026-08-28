@@ -12,12 +12,12 @@ import pytest
 from codeverse.contracts.artifacts import BuildResult
 from codeverse.languages import get_runtime
 from codeverse.languages.base import LanguageRuntime
-from codeverse.languages.blender.lint import lint_blender_file
-from codeverse.languages.blender.runtime import (
+from codeverse.languages.blender import (
     WRAPPER,
     BlenderNotFoundError,
     BlenderRuntime,
     blender_env,
+    lint_blender_file,
 )
 
 FAKE_BLENDER = """#!/usr/bin/env python3

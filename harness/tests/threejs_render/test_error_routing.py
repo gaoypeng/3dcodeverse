@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.languages.threejs.runtime import ThreeJsRuntime
+from codeverse.languages.threejs import ThreeJsRuntime
 from codeverse.spatial.node import NodeResult
 from codeverse.workspace import Workspace
 

@@ -58,22 +58,22 @@ def _errors(findings: list[GateFinding], max_errors: int) -> FileVerdict:
 def _python(language: Language, rel: str, text: str, max_errors: int) -> FileVerdict:
     name = Path(rel).name
     if language is Language.BLENDER:
-        from codeverse.languages.blender.lint import lint_blender_source
+        from codeverse.languages.blender import lint_blender_source
 
         # same per-file settings as blender.layout.lint_workspace: helpers (_x.py) need no bpy;
         # PascalCase-name checks are WARNs anyway and never reported here
         rep = lint_blender_source(text, target=rel, expect_names=False, expect_bpy=not name.startswith("_"))
         return _errors(rep.findings, max_errors)
     if language is Language.CADQUERY:
-        from codeverse.languages.cadquery.lint import lint_cadquery_source
+        from codeverse.languages.cadquery import lint_cadquery_source
 
         return _errors(lint_cadquery_source(text, target=rel).findings, max_errors)
     if language is Language.OPENGL_PYTHON:
-        from codeverse.languages.opengl_python.lint import lint_source
+        from codeverse.languages.opengl_python import lint_source
 
         return _errors(lint_source(text), max_errors)
     if language is Language.URDF_BLENDER:
-        from codeverse.languages.urdf.lint import lint_model_text
+        from codeverse.languages.urdf import lint_model_text
 
         # link names are the urdf's business; here only syntax + forbidden APIs + `import bpy`
         return _errors(lint_model_text(text, [], label=rel), max_errors)
@@ -94,7 +94,7 @@ def _js(path: Path, max_errors: int) -> FileVerdict:
 
 
 def _glsl(rel: str, text: str, path: Path, max_errors: int) -> FileVerdict:
-    from codeverse.languages.glsl_shader import lint as gl
+    import codeverse.languages.glsl_shader as gl
 
     role = {gl.SHADER: "shader", gl.COMMON: "common", gl.BUFFER_A: "buffer_a"}.get(rel, "shader")
     # the harness-owned recipe file beside it reserves its names (redefines_recipe)
@@ -104,7 +104,7 @@ def _glsl(rel: str, text: str, path: Path, max_errors: int) -> FileVerdict:
 
 
 def _urdf(rel: str, text: str, max_errors: int) -> FileVerdict:
-    from codeverse.languages.urdf.lint import lint_urdf_text
+    from codeverse.languages.urdf import lint_urdf_text
 
     findings, _links = lint_urdf_text(text, label=rel)
     return _errors(findings, max_errors)

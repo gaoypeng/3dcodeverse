@@ -5,12 +5,12 @@ from __future__ import annotations
 import ast
 
 from codeverse.contracts.plan import BBox
-from codeverse.languages.blender.layout import lint_workspace
-from codeverse.languages.blender.lint import lint_blender_source
-from codeverse.languages.blender.skeleton import (
+from codeverse.languages.blender import (
     blender_skeleton_source,
     finish_for,
     instance_centers,
+    lint_blender_source,
+    lint_workspace,
     model_file_source,
     part_file_source,
     write_blender_skeleton,

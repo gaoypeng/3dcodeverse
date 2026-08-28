@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 import codeverse.spatial.tools  # noqa: F401 — registers the gl_* tools
-from codeverse.languages.glsl_shader.runtime import GlslShaderRuntime
+from codeverse.languages.glsl_shader import GlslShaderRuntime
 from codeverse.spatial.gl_render import GlResult
 from codeverse.spatial.registry import ToolContext, get_tool
 from codeverse.workspace import Workspace

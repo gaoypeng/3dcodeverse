@@ -7,8 +7,8 @@ import json
 import pytest
 
 from codeverse.contracts.plan import GraphicsPlan, PassPlan
-from codeverse.languages.glsl_shader.runtime import GlslShaderRuntime
-from codeverse.languages.opengl_python.runtime import OpenGLPythonRuntime
+from codeverse.languages.glsl_shader import GlslShaderRuntime
+from codeverse.languages.opengl_python import OpenGLPythonRuntime
 from codeverse.spatial.gl_render import GlHost, GlHostError
 from codeverse.spatial.registry import ToolContext, get_tool
 
@@ -103,7 +103,7 @@ def test_program_skeleton_builds_and_errors_map(tmp_ws, host):
 def test_gl_tools_probe_and_frames(tmp_ws, host, monkeypatch):
     ws = _ws_with_plan(tmp_ws)
     GlslShaderRuntime(host=host).skeleton(ws, PLAN)
-    monkeypatch.setattr("codeverse.languages.glsl_shader.runtime.GlslShaderRuntime.host", lambda self, timeout_s=None: host)
+    monkeypatch.setattr("codeverse.languages.glsl_shader.GlslShaderRuntime.host", lambda self, timeout_s=None: host)
     ctx = ToolContext(workspace=ws, language="glsl_shader", track="graphics")
     obs = get_tool("gl_probe").call(ctx, {"t": 1.5})
     assert obs.ok and "PROBE OK" in obs.text and len(obs.images) == 1 and obs.numbers["n_frames"] == 1
@@ -122,7 +122,7 @@ def test_gl_probe_compile_error_report(tmp_ws, host, monkeypatch):
     (ws.src / "shader.frag").write_text(
         "// line 1\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord / u_resolution.xy;\n"
         "    float v = twice(nope);\n    fragColor = vec4(uv, v, 1.0);\n}\n")
-    monkeypatch.setattr("codeverse.languages.glsl_shader.runtime.GlslShaderRuntime.host", lambda self, timeout_s=None: host)
+    monkeypatch.setattr("codeverse.languages.glsl_shader.GlslShaderRuntime.host", lambda self, timeout_s=None: host)
     ctx = ToolContext(workspace=ws, language="glsl_shader", track="graphics")
     obs = get_tool("gl_probe").call(ctx, {})
     assert not obs.ok and obs.numbers["stage"] == "build"

@@ -106,9 +106,10 @@ codeverse/
                       (gemini-cli / claude-code / codex / antigravity), cli_common.py (sessions,
                       the watchdog clocks, the transcript, retry trajectory naming,
                       files_changed attribution), materialize.py
-  languages/          LanguageRuntime (base.py); blender/ (multi-file: layout.py, model.py + parts/*.py) cadquery/
-                      threejs/ (+ templates.py) urdf/ scene_threejs/ glsl_shader/ (wrap.py header+line-map)
-                      opengl_python/ (wrappers/run_gl.py) — each runtime.py, lint.py, skeleton.py, wrappers/;
+  languages/          LanguageRuntime (base.py); one merged module per language since 2026-08-28 —
+                      blender/ cadquery/ threejs/ urdf/ scene_threejs/ glsl_shader/ opengl_python/ are each
+                      a single __init__.py (lint → skeleton → runtime, in dependency order) beside their
+                      data (wrappers/, starter/, CONTRACT.md — Path(__file__) assets unchanged);
                       file_lint.py (one just-written file → syntax/lint verdict for write_file, COST.md §29)
   spatial/            node.py, render.py, tool_common.py (shared tool plumbing), cookbook_tool.py
                       (read_cookbook), render_scene.py (judge view subset, content-fitted orbit),

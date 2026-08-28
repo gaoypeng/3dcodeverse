@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from codeverse.config import get_settings
-from codeverse.languages.scene_threejs.skeleton import write_example
+from codeverse.languages.scene_threejs import write_example
 from codeverse.workspace import Workspace
 
 RUNTIME_JS = get_settings().runtime_js_dir()

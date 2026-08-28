@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
+import codeverse.languages.threejs as lint_mod
 from codeverse.contracts.artifacts import Severity
 from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse.languages.threejs import lint as lint_mod
-from codeverse.languages.threejs.lint import lint_workspace
+from codeverse.languages.threejs import lint_workspace
 from codeverse.workspace import Workspace
 
 

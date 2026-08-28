@@ -7,15 +7,15 @@ import math
 import pytest
 
 from codeverse.contracts.plan import CameraPlan
-from codeverse.languages.scene_threejs.assemble import (
+from codeverse.languages.scene_threejs import (
     ZoneProbe,
     assemble,
     cameras_from_specs,
+    lint,
     probe_zone_modules,
     render_scene_js,
     sun_azimuth,
 )
-from codeverse.languages.scene_threejs.lint import lint
 from tests.scene_runtime.conftest import needs_browser, needs_node
 
 BOX_A = {"min": [-10, 0, -10], "max": [10, 6, 10], "size": [20, 6, 20]}

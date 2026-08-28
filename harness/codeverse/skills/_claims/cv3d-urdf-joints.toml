@@ -10,9 +10,9 @@ python = "codeverse.conventions:CONTACT_GAP_M"
 [[claim]]
 key    = "fk_tol_m"
 text   = "0.001"
-python = "codeverse.languages.urdf.runtime:FK_TOL_M"
+python = "codeverse.languages.urdf:FK_TOL_M"
 
 [[claim]]
 key    = "rest_penetration_max_m"
 text   = "0.005"
-python = "codeverse.languages.urdf.runtime:REST_PENETRATION_MAX_M"
+python = "codeverse.languages.urdf:REST_PENETRATION_MAX_M"

@@ -691,3 +691,29 @@ def test_ipv4_transport_toggle(monkeypatch):
     assert isinstance(args["transport"], httpx.HTTPTransport)
     monkeypatch.setenv("CV3D_IPV4", "0")
     assert _ipv4_client_args() == {}
+
+
+def test_merge_stream_chunks_carries_tool_calls_and_signatures():
+    """Tool calls stream as function_call parts; the merge must keep them in arrival
+    order next to the text parts, and extract_candidate must still mint/pair ids and
+    stash thought signatures — the text-only tests above never exercised this."""
+    from codeverse.models.gemini import _merge_stream_chunks
+
+    fc = types.Part(function_call=types.FunctionCall(name="measure", args={"part": "Hull"}))
+    fc.thought_signature = b"sig-bytes"
+    c1 = types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(role="model", parts=[types.Part.from_text(text="checking ")]))])
+    c2 = types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(role="model", parts=[fc]), finish_reason="STOP")],
+        usage_metadata=types.GenerateContentResponseUsageMetadata(prompt_token_count=9, candidates_token_count=4))
+    merged = _merge_stream_chunks([c1, c2])
+    text, calls, finish = extract_candidate_for_test(merged)
+    assert text == "checking " and finish == "STOP"
+    assert len(calls) == 1 and calls[0].name == "measure" and calls[0].arguments == {"part": "Hull"}
+    assert SIGNATURES.get(calls[0].id) == b"sig-bytes"
+
+
+def extract_candidate_for_test(resp):
+    from codeverse.models.gemini import extract_candidate
+
+    return extract_candidate(resp)

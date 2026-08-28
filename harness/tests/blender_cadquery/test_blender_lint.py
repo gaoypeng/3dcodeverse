@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from codeverse.contracts.artifacts import Severity
-from codeverse.languages.blender.lint import lint_blender_file, lint_blender_source
+from codeverse.languages.blender import lint_blender_file, lint_blender_source
 
 GOOD = '''
 import bpy

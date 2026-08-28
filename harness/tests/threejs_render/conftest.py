@@ -103,7 +103,7 @@ def stool_glb(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Build the stool once per session (needs node); skipped when node is missing."""
     if shutil.which("node") is None:
         pytest.skip("node not available")
-    from codeverse.languages.threejs.runtime import ThreeJsRuntime
+    from codeverse.languages.threejs import ThreeJsRuntime
 
     ws = write_stool(tmp_path_factory.mktemp("stool_session"))
     res = ThreeJsRuntime().build(ws)

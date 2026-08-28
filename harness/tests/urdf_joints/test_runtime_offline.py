@@ -7,10 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
+import codeverse.languages.urdf as rt_mod
 from codeverse.contracts.common import Language
 from codeverse.languages import get_runtime
-from codeverse.languages.urdf import runtime as rt_mod
-from codeverse.languages.urdf.runtime import UrdfBlenderRuntime
+from codeverse.languages.urdf import UrdfBlenderRuntime
 from codeverse.proc import ProcResult
 from codeverse.workspace import Workspace
 from tests.urdf_joints.conftest import box_glb

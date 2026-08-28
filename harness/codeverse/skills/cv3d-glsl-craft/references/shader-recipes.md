@@ -1,7 +1,7 @@
 # Shader recipes
 
 Companion to `cv3d-glsl-craft`. Every snippet below was composed with the harness's own
-`codeverse.languages.glsl_shader.wrap.compose`, compiled on moderngl 5.12 / OpenGL 3.3 core
+`codeverse.languages.glsl_shader.compose`, compiled on moderngl 5.12 / OpenGL 3.3 core
 and linted with `lint_text` on 2026-08-25: **compiles clean, zero lint findings**. Drop the
 helpers into `src/common.glsl` and call them from `src/shader.frag`.
 

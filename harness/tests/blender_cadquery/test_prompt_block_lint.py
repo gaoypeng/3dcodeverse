@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.languages.blender.lint import lint_blender_source
-from codeverse.languages.cadquery.lint import lint_cadquery_source
+from codeverse.languages.blender import lint_blender_source
+from codeverse.languages.cadquery import lint_cadquery_source
 
 PROMPTS = Path(__file__).resolve().parents[2] / "codeverse" / "prompts"
 FENCE = re.compile(r"^```(?:py|python)\s*$(.*?)^```\s*$", re.M | re.S)

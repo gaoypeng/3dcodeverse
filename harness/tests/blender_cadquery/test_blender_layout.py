@@ -7,14 +7,14 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from codeverse.languages.blender.layout import (
+from codeverse.languages.blender import (
+    WRAPPER,
     build_fn_name,
     lint_workspace,
     part_file_rel,
     part_files,
     source_files,
 )
-from codeverse.languages.blender.runtime import WRAPPER
 
 SEAT = '''import bpy, bmesh
 

@@ -7,8 +7,7 @@ from pathlib import Path
 import pytest
 
 from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse.languages.threejs.runtime import ThreeJsRuntime
-from codeverse.languages.threejs.skeleton import write_skeleton
+from codeverse.languages.threejs import ThreeJsRuntime, write_skeleton
 from codeverse.workspace import Workspace
 
 

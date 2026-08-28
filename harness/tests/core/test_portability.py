@@ -87,7 +87,7 @@ def test_package_data_ships_every_file_a_runtime_reads() -> None:
 def test_write_example_refuses_to_write_nothing(tmp_path, monkeypatch) -> None:
     """The other half of PORT-4: an install without the starter tree must fail loudly at
     the moment it is needed, not hand back an empty scene."""
-    from codeverse.languages.scene_threejs import skeleton
+    import codeverse.languages.scene_threejs as skeleton
 
     monkeypatch.setattr(skeleton, "STARTER_DIR", tmp_path / "gone" / "src")
     with pytest.raises(FileNotFoundError, match="starter tree missing"):

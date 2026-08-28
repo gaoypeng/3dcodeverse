@@ -18,8 +18,7 @@ from codeverse.contracts.run import RunStatus
 from codeverse.contracts.spec import Constraints, Spec
 from codeverse.judges.rubrics import load_rubric
 from codeverse.languages._gl_common import finish_build, judge_times, preview_times
-from codeverse.languages.glsl_shader.lint import lint_workspace
-from codeverse.languages.glsl_shader.skeleton import write_skeleton
+from codeverse.languages.glsl_shader import lint_workspace, write_skeleton
 from codeverse.proc import EventLog
 from codeverse.prompts import render
 from codeverse.spatial.gl_render import GlFrame, GlResult

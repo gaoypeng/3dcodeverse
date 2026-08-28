@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from codeverse.contracts.artifacts import Severity
-from codeverse.languages.cadquery.lint import lint_cadquery_source
+from codeverse.languages.cadquery import lint_cadquery_source
 
 GOOD = '''
 import cadquery as cq

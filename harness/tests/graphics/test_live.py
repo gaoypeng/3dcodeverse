@@ -10,7 +10,7 @@ from codeverse.contracts.plan import GraphicsPlan
 from codeverse.contracts.spec import Spec
 from codeverse.judges.base import JudgeInput
 from codeverse.judges.vlm_judge import VlmJudge
-from codeverse.languages.glsl_shader.runtime import GlslShaderRuntime
+from codeverse.languages.glsl_shader import GlslShaderRuntime
 from codeverse.tracks.generation import generate_files
 from codeverse.tracks.graphics import (
     GraphicsTrack,

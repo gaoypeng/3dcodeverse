@@ -9,7 +9,7 @@ import pytest
 from codeverse.contracts.common import Language
 from codeverse.languages import get_runtime
 from codeverse.languages.base import LanguageRuntime
-from codeverse.languages.scene_threejs.runtime import SceneThreeJsRuntime
+from codeverse.languages.scene_threejs import SceneThreeJsRuntime
 from tests.scene_runtime.conftest import needs_browser
 
 
@@ -22,7 +22,7 @@ def test_runtime_registered_and_conforms():
     doc = rt.contract_doc()
     assert "createScene" in doc and "update(t, dt)" in doc
     # the built-in fallback contract is always available and carries the GLSL rules
-    from codeverse.languages.scene_threejs import runtime as rt_mod
+    import codeverse.languages.scene_threejs as rt_mod
     fallback = (rt_mod._HERE / "CONTRACT.md").read_text()
     assert "createScene" in fallback and "#include" in fallback
     assert rt.cookbook_path().name == "cookbook.md"
@@ -71,7 +71,7 @@ def test_build_interprets_combined_summary_offline(ws, monkeypatch):
     """The single-boot build (probe_scene.mjs --compile) still yields the SAME two
     GateReports: scene_probe from the probe summary, shader_preflight from the
     embedded shader_report; a non-booting scene keeps the failed-empty shader gate."""
-    import codeverse.languages.scene_threejs.runtime as rt_mod
+    import codeverse.languages.scene_threejs as rt_mod
     from codeverse.spatial.render_scene import NodeResult
 
     calls: list[list[str]] = []

@@ -14,9 +14,13 @@ import pytest
 
 from codeverse.languages import get_runtime
 from codeverse.languages.base import LanguageRuntime
-from codeverse.languages.cadquery.lint import lint_cadquery_source
-from codeverse.languages.cadquery.runtime import WRAPPER, CadQueryRuntime, cadquery_env
-from codeverse.languages.cadquery.skeleton import cadquery_skeleton_source
+from codeverse.languages.cadquery import (
+    WRAPPER,
+    CadQueryRuntime,
+    cadquery_env,
+    cadquery_skeleton_source,
+    lint_cadquery_source,
+)
 from tests.blender_cadquery.conftest import has_cadquery
 
 needs_cq = pytest.mark.skipif(not has_cadquery(), reason="cadquery not importable")

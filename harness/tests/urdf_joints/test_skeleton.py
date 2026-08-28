@@ -8,9 +8,10 @@ import numpy as np
 import pytest
 
 from codeverse.contracts.plan import ArticulatedPlan, BBox, JointPlan, PartPlan
-from codeverse.languages.urdf.lint import lint_model_text, lint_urdf_text
-from codeverse.languages.urdf.skeleton import (
+from codeverse.languages.urdf import (
     compute_urdf_frames,
+    lint_model_text,
+    lint_urdf_text,
     render_model_py,
     render_urdf,
     write_skeleton,
@@ -99,7 +100,7 @@ def test_write_skeleton(tmp_path, drawer_plan):
 
 def test_skeleton_rejects_static_plan(tmp_path):
     from codeverse.contracts.plan import StaticPlan
-    from codeverse.languages.urdf.runtime import UrdfBlenderRuntime
+    from codeverse.languages.urdf import UrdfBlenderRuntime
 
     sp = StaticPlan(object_name="x", summary="s", overall_bbox=BBox(center=(0, 0, 0), extents=(1, 1, 1)),
                     parts=[PartPlan(name="A", role="r", description="d", bbox=BBox(center=(0, 0, 0), extents=(1, 1, 1)))])

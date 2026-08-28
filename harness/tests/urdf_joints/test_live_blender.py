@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from codeverse.config import get_settings
-from codeverse.languages.urdf.runtime import UrdfBlenderRuntime
+from codeverse.languages.urdf import UrdfBlenderRuntime
 from codeverse.spatial.joints import (
     ARTICULATION_SHEET_NAME,
     blender_render_glb,
@@ -122,7 +122,7 @@ def test_wrapper_unsafe_link_name_is_a_build_error(tmp_path):
     import json as _json
     import subprocess
 
-    from codeverse.languages.urdf.runtime import WRAPPER
+    from codeverse.languages.urdf import WRAPPER
 
     (tmp_path / "robot.urdf").write_text('<robot name="r"><link name="../evil"/></robot>')
     (tmp_path / "model.py").write_text("import bpy\n")

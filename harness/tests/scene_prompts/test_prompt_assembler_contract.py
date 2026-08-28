@@ -14,7 +14,7 @@ import re
 import pytest
 
 from codeverse.contracts.plan import CameraPlan
-from codeverse.languages.scene_threejs.assemble import render_scene_js
+from codeverse.languages.scene_threejs import render_scene_js
 from codeverse.prompts import load_text
 
 CAMS = [CameraPlan(name="Establishing", position=(1.0, 2.0, 3.0), look_at=(0.0, 1.0, 0.0), fov=44.0)]
@@ -64,7 +64,7 @@ def test_env_prompt_teaches_ctx_signature_and_update(env_prompt: str) -> None:
 
 
 def test_env_prompt_sun_azimuth_matches_the_assembler_regex(env_prompt: str) -> None:
-    from codeverse.languages.scene_threejs.assemble import _SUN_RE
+    from codeverse.languages.scene_threejs import _SUN_RE
 
     example = re.search(r"`?export const SUN_AZIMUTH_DEG[^`\n]*", env_prompt)
     assert example, "env prompt must show the export the assembler looks for"

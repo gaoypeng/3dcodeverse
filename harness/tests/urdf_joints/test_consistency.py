@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from codeverse.contracts.artifacts import Severity
-from codeverse.languages.urdf.consistency import check_fk_consistency
+from codeverse.languages.urdf import check_fk_consistency
 from codeverse.spatial.joints import load_urdf
 from tests.urdf_joints.conftest import write_mesh_robot
 

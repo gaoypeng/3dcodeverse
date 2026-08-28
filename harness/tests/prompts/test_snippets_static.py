@@ -91,7 +91,7 @@ def test_xml_examples_follow_the_enforced_frame_recipe(rel: str, tmp_path) -> No
     consistency rule the build enforces: meshes hold WORLD coordinates, so FK(q=0) of a
     link composed with its visual origin is the identity (visual origin = −link frame).
     This is the recipe the reviewer found the docs contradicting (visual origin 0 0 0)."""
-    from codeverse.languages.urdf.lint import lint_urdf_text
+    from codeverse.languages.urdf import lint_urdf_text
     from codeverse.spatial.joints import fk, load_urdf
 
     checked = 0

@@ -13,8 +13,7 @@ import subprocess
 import pytest
 
 from codeverse.contracts.artifacts import Severity
-from codeverse.languages.blender.lint import REMOVED_BSDF_INPUTS
-from codeverse.languages.blender.runtime import BlenderRuntime, blender_env
+from codeverse.languages.blender import REMOVED_BSDF_INPUTS, BlenderRuntime, blender_env
 
 pytestmark = pytest.mark.blender
 

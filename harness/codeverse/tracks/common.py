@@ -152,7 +152,7 @@ class Services:
 
     # ---- scene assembly + record
     def assemble_scene(self, ws: Workspace, plan: Plan) -> Any:
-        fn = _import("codeverse.languages.scene_threejs.assemble", "assemble")
+        fn = _import("codeverse.languages.scene_threejs", "assemble")
         return fn(ws, plan, cameras="plan" if getattr(plan, "cameras", None) else "derive")
 
     def finalize_record(self, ws: Workspace, record: RunRecord) -> None:

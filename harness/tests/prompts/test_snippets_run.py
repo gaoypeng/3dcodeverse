@@ -91,7 +91,7 @@ def _build_urdf_example(tmp_path, tag: str, model_py: str, urdf: str):
     """Run a doc example through the REAL urdf_blender pipeline (lint → Blender export →
     FK consistency → collision sweep) — the build the agent's own files go through."""
     from codeverse.config import get_settings
-    from codeverse.languages.urdf.runtime import UrdfBlenderRuntime
+    from codeverse.languages.urdf import UrdfBlenderRuntime
     from codeverse.workspace import Workspace
 
     if not get_settings().resolve_blender():

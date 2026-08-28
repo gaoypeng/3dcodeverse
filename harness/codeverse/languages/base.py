@@ -45,29 +45,29 @@ class LanguageRuntime(Protocol):
 def get_runtime(language: Language | str) -> LanguageRuntime:
     lang = Language(language)
     if lang is Language.BLENDER:
-        from codeverse.languages.blender.runtime import BlenderRuntime
+        from codeverse.languages.blender import BlenderRuntime
 
         return BlenderRuntime()
     if lang is Language.CADQUERY:
-        from codeverse.languages.cadquery.runtime import CadQueryRuntime
+        from codeverse.languages.cadquery import CadQueryRuntime
 
         return CadQueryRuntime()
     if lang is Language.THREEJS:
-        from codeverse.languages.threejs.runtime import ThreeJsRuntime
+        from codeverse.languages.threejs import ThreeJsRuntime
 
         return ThreeJsRuntime()
     if lang is Language.URDF_BLENDER:
-        from codeverse.languages.urdf.runtime import UrdfBlenderRuntime
+        from codeverse.languages.urdf import UrdfBlenderRuntime
 
         return UrdfBlenderRuntime()
     if lang is Language.GLSL_SHADER:
-        from codeverse.languages.glsl_shader.runtime import GlslShaderRuntime
+        from codeverse.languages.glsl_shader import GlslShaderRuntime
 
         return GlslShaderRuntime()
     if lang is Language.OPENGL_PYTHON:
-        from codeverse.languages.opengl_python.runtime import OpenGLPythonRuntime
+        from codeverse.languages.opengl_python import OpenGLPythonRuntime
 
         return OpenGLPythonRuntime()
-    from codeverse.languages.scene_threejs.runtime import SceneThreeJsRuntime
+    from codeverse.languages.scene_threejs import SceneThreeJsRuntime
 
     return SceneThreeJsRuntime()

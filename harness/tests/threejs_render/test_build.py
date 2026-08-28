@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from codeverse.languages.threejs.runtime import ThreeJsRuntime
+from codeverse.languages.threejs import ThreeJsRuntime
 from codeverse.workspace import Workspace
 
 pytestmark = pytest.mark.node

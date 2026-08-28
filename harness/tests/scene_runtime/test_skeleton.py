@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from codeverse.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
-from codeverse.languages.scene_threejs.lint import lint
-from codeverse.languages.scene_threejs.skeleton import STARTER_DIR, write_example, write_skeleton
+from codeverse.languages.scene_threejs import STARTER_DIR, lint, write_example, write_skeleton
 from tests.scene_runtime.conftest import needs_node
 
 

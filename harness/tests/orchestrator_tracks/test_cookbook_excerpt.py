@@ -113,7 +113,7 @@ def test_graphics_prompt_context_uses_the_selector(monkeypatch) -> None:
 
 
 def test_aurora_example_ships_and_composes() -> None:
-    from codeverse.languages.glsl_shader.wrap import compose
+    from codeverse.languages.glsl_shader import compose
 
     assert EXAMPLE.is_file(), EXAMPLE
     src = EXAMPLE.read_text()

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import ast
 
+import codeverse.languages.blender as blender_lint
+import codeverse.languages.cadquery as cadquery_lint
+import codeverse.languages.opengl_python as opengl_lint
 from codeverse.contracts.artifacts import GateFinding, Severity
 from codeverse.languages._ast_lint import BASE_FORBIDDEN_IMPORTS, check_imports, dotted
-from codeverse.languages.blender import lint as blender_lint
-from codeverse.languages.cadquery import lint as cadquery_lint
-from codeverse.languages.opengl_python import lint as opengl_lint
 
 # ----------------------------------------------------------------- superset (drift fails here)
 
@@ -115,10 +115,10 @@ def test_every_python_lint_survives_a_parser_crash(monkeypatch):
     import ast
 
     from codeverse.contracts.artifacts import Severity
-    from codeverse.languages.blender.lint import lint_blender_source
-    from codeverse.languages.cadquery.lint import lint_cadquery_source
-    from codeverse.languages.opengl_python.lint import lint_source as lint_gl
-    from codeverse.languages.urdf.lint import lint_model_text
+    from codeverse.languages.blender import lint_blender_source
+    from codeverse.languages.cadquery import lint_cadquery_source
+    from codeverse.languages.opengl_python import lint_source as lint_gl
+    from codeverse.languages.urdf import lint_model_text
 
     real = ast.parse
 
@@ -141,7 +141,7 @@ def test_every_python_lint_survives_a_parser_crash(monkeypatch):
 def test_real_deeply_nested_source_does_not_escape_the_lint():
     """A 40 000-term binary chain: on 3.11 this is the SystemError, on 3.12+ a RecursionError,
     on some builds a plain SyntaxError — whichever, the lint returns a report."""
-    from codeverse.languages.blender.lint import lint_blender_source
+    from codeverse.languages.blender import lint_blender_source
 
     deep = "import bpy\nx = " + " + ".join(["1"] * 40_000) + "\n"
     rep = lint_blender_source(deep)

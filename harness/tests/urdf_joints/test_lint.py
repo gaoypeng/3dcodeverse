@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from codeverse.contracts.artifacts import Severity
-from codeverse.languages.urdf.lint import lint_model_text, lint_urdf_text, lint_workspace
+from codeverse.languages.urdf import lint_model_text, lint_urdf_text, lint_workspace
 from codeverse.workspace import Workspace
 
 GOOD = """<?xml version="1.0"?>

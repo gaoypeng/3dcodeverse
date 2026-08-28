@@ -32,9 +32,7 @@ from codeverse.contracts.plan import AcceptanceItem, GraphicsPlan, Plan
 from codeverse.contracts.run import RoundRecord
 from codeverse.contracts.spec import Spec
 from codeverse.languages._gl_common import SHEET_NAME, read_metrics
-from codeverse.languages.glsl_shader.lint import FUNC_DEF
-from codeverse.languages.glsl_shader.skeleton import COMMON_GLSL
-from codeverse.languages.glsl_shader.wrap import strip_comments
+from codeverse.languages.glsl_shader import COMMON_GLSL, FUNC_DEF, strip_comments
 from codeverse.orchestrator import TaskGroup
 from codeverse.prompts import render
 from codeverse.spatial.cookbook_tool import Section, split_sections

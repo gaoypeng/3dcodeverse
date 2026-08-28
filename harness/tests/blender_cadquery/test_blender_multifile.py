@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse.languages.blender.runtime import BlenderRuntime
+from codeverse.languages.blender import BlenderRuntime
 from codeverse.prompts import PROMPTS_DIR
 from codeverse.workspace import Workspace
 

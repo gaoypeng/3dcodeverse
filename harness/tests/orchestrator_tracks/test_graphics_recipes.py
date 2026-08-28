@@ -22,11 +22,17 @@ from codeverse.config import Settings, seed_recipes_enabled
 from codeverse.contracts.common import HARNESS_OWNED_SRC, Language, Track
 from codeverse.contracts.plan import GraphicsPlan
 from codeverse.languages.file_lint import lint_one_file
-from codeverse.languages.glsl_shader.lint import lint_text, lint_workspace
-from codeverse.languages.glsl_shader.runtime import GlslShaderRuntime
-from codeverse.languages.glsl_shader.skeleton import COMMON_GLSL, write_skeleton
-from codeverse.languages.glsl_shader.wrap import HEADER as WRAP_HEADER
-from codeverse.languages.glsl_shader.wrap import compose, first_error, parse_glsl_log
+from codeverse.languages.glsl_shader import (
+    COMMON_GLSL,
+    GlslShaderRuntime,
+    compose,
+    first_error,
+    lint_text,
+    lint_workspace,
+    parse_glsl_log,
+    write_skeleton,
+)
+from codeverse.languages.glsl_shader import HEADER as WRAP_HEADER
 from codeverse.proc import EventLog
 from codeverse.prompts import load_text, render
 from codeverse.tracks import graphics as gr
