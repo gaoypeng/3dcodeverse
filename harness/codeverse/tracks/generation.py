@@ -545,6 +545,13 @@ def run_agent_task(
     # clipped this since the greenhouse incident; object/articulated/graphics did not,
     # so a flat 30-minute session ran 9 minutes PAST a 30-minute ceiling (measured
     # 2026-08-27: 'elapsed 39.0 min exceeds max_minutes 30.0', round 0 never finished).
+    if budget is not None and hasattr(budget, "check"):
+        # ...and a run past its HARD ceiling must not start one at all.  A timed-out
+        # session that produced nothing bills nothing, the accounting-driven check()
+        # never fires, and the round loop treadmills on 120 s mercy floors forever
+        # (measured 2026-08-28: lamp_bl, 30-min cap, killed by hand at 57 min with
+        # round 0 unfinished — silent-bail retries kept getting floor sessions).
+        budget.check()
     if budget is not None and hasattr(budget, "timeout_s"):
         timeout = budget.timeout_s(timeout, floor_s=120.0)
     turns_cap = task.max_turns or max_turns or agent_max_turns()  # 0 = leave AgentJob's own default

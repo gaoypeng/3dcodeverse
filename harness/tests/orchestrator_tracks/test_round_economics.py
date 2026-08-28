@@ -523,3 +523,21 @@ def test_fan_out_workers_inherit_the_callers_context():
     assert set(seen) == {"run-42"}
     # the caller's own context is untouched by the workers
     assert var.get() == "run-42"
+
+
+def test_a_run_past_its_hard_ceiling_cannot_start_another_session(tmp_ws):
+    """Measured 2026-08-28 (lamp_bl, --max-minutes 30, killed by hand at 57 min with
+    round 0 unfinished): a timed-out session bills nothing, so the accounting-driven
+    check() never fired and silent-bail retries treadmilled on 120 s mercy floors
+    forever.  run_agent_task now checks the HARD ceiling before starting any session."""
+    from codeverse.contracts.spec import Budget
+    from codeverse.orchestrator import BudgetExceeded, BudgetGuard
+
+    g = BudgetGuard(Budget(max_usd=10.0, max_minutes=30.0, max_rounds=4), run="t")
+    g.start_time -= 36 * 60  # ceiling long crossed, nothing billed along the way
+    agent = _TurnAgent(writes_on=1)
+    with pytest.raises(BudgetExceeded):
+        run_agent_task(tmp_ws, agent=agent,
+                       task=GenerationTask(label="baseline", prompt="p", round=0, kind="baseline"),
+                       budget=g)
+    assert agent.jobs == []  # the treadmill ends BEFORE the agent is invoked

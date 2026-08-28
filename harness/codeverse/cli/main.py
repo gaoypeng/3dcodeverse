@@ -13,8 +13,11 @@ sibling ``cli/inspect_cmd.py`` and are registered here, the way ``layout_cmd.py`
 
 from __future__ import annotations
 
+import contextlib
+import faulthandler
 import json
 import os
+import signal
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -264,6 +267,13 @@ RunsDirOpt = Annotated[
 def _root(
     ctx: typer.Context, version: Annotated[bool, typer.Option("--version", is_eager=True)] = False
 ) -> None:
+    # `kill -USR1 <pid>` dumps every thread's stack to stderr (the run log): the
+    # 2026-08-28 scope_tj_r3 hang (futex wait, every socket CLOSE-WAIT, 41 min past
+    # its window) was undiagnosable without it — py-spy needs ptrace rights WSL denies.
+    if hasattr(signal, "SIGUSR1") and sys.__stderr__ is not None:
+        # best-effort: a captured stderr (CliRunner's StringIO) has no fileno
+        with contextlib.suppress(Exception):
+            faulthandler.register(signal.SIGUSR1, file=sys.__stderr__, all_threads=True)
     if version:
         console.print(f"3dcv {__version__}")
         raise typer.Exit()
