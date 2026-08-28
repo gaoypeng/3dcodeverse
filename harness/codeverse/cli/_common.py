@@ -222,7 +222,7 @@ def round_policy_options(spec: Spec, settings: Any | None = None) -> dict[str, A
         return {}
     from dataclasses import replace
 
-    from codeverse.orchestrator.rounds import RoundPolicy
+    from codeverse.orchestrator import RoundPolicy
 
     policy = RoundPolicy(max_rounds=spec.budget.max_rounds, judge_samples=samples)
     threshold = rubric_threshold(spec)

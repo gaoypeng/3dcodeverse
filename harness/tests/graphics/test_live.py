@@ -33,7 +33,7 @@ def keys_ok():
 def test_live_plan_generate_build_judge(tmp_path, keys_ok):
     from codeverse.events import EventLog
     from codeverse.models import get_chat_model
-    from codeverse.orchestrator.state import RunState
+    from codeverse.orchestrator import RunState
     from codeverse.prompts import render
 
     spec = Spec(id="live_gfx", track=Track.GRAPHICS, language=Language.GLSL_SHADER,

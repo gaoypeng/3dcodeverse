@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.orchestrator.rounds import best_index
+from codeverse.orchestrator import best_index
 
 
 def test_best_index():

@@ -310,7 +310,7 @@ from codeverse.tracks import get_track
 rec = get_track(spec.track, **options).run(spec, ws, resume=False) -> RunRecord   # Δ kwargs forwarded to the constructor:
 # services=, judge=, agent=, model=, runtime=, policy=RoundPolicy, settings=, planner_model=, n_candidates=
 # (CLI --candidates > run_state.extra > settings.default_candidates); StaticObject | Articulated | Scene | Graphics
-from codeverse.orchestrator.rounds import RoundPolicy, StopPolicy, StopDecision, BestSelector, judge_sigma, \
+from codeverse.orchestrator import RoundPolicy, StopPolicy, StopDecision, BestSelector, judge_sigma, \
     best_score, last_gain, REWRITE_KIND, build_refine_instructions, compact_instructions
 RoundPolicy(max_rounds=4, plateau_window=2, min_delta=0.02, target=0.8, judge_on_gate_errors=True, max_refine_tasks=6,
             max_instructions_per_task=6, parallel_min_tasks=2, n_candidates=1, pairwise_margin=0.03,
@@ -328,8 +328,8 @@ StopPolicy(policy).evaluate(history, budget_ok=True) -> StopDecision(reason, str
     # .decide(...) -> StopReason is unchanged; strategy "switch" = ONE whole-artifact rewrite round (kind REWRITE_KIND),
     # "detail" = ONE surface-detail round (kind DETAIL_KIND) — a plateau/diminishing stop is converted into it
     # only when detail_blocked(history, policy) == "" (clean gates, built, judged, within σ of best, budget left)
-from codeverse.orchestrator.rounds import DETAIL_KIND, kind_for_strategy, detail_blocked   # THE strategy → kind map
-from codeverse.orchestrator.budget import BudgetGuard, usage_delta
+from codeverse.orchestrator import DETAIL_KIND, kind_for_strategy, detail_blocked   # THE strategy → kind map
+from codeverse.orchestrator import BudgetGuard, usage_delta
 BudgetGuard(budget, *, soft_fraction=1.0, run="", ledger=None)
     .spend(usage, *, stage="other", role=None, label="", round_index=None, outcome="ok", enforce=True)
     # THE door every dollar goes through: accumulate → bucket by stage/round → one priced ledger row

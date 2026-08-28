@@ -19,7 +19,7 @@ import pytest
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Budget, Usage
 from codeverse.cost.ledger import load_ledger
-from codeverse.orchestrator.budget import BudgetExceeded, BudgetGuard, usage_delta
+from codeverse.orchestrator import BudgetExceeded, BudgetGuard, usage_delta
 from codeverse.tracks.generation import GenerationTask, _SessionAcc
 
 FIXTURES = json.loads((Path(__file__).parent / "data" / "offrecord_runs.json").read_text())["runs"]
@@ -157,7 +157,7 @@ def test_a_subscription_backend_does_not_consume_the_spend_guard():
     The run's own cost ledger said $0.00; only the guard disagreed.
     """
     from codeverse.contracts.common import Budget, Usage
-    from codeverse.orchestrator.budget import BudgetGuard
+    from codeverse.orchestrator import BudgetGuard
 
     g = BudgetGuard(Budget(max_usd=8.0, max_minutes=60.0), soft_fraction=0.55)
     g.spend(Usage(backend="codex", model="gpt-5.6-sol", cost_usd=7.712), enforce=False)
@@ -175,7 +175,7 @@ def test_the_guard_still_enforces_backends_that_really_bill():
     """The exemption must not become a hole: API backends keep both ceilings, and an
     unclassified backend is enforced rather than exempted."""
     from codeverse.contracts.common import Budget, Usage
-    from codeverse.orchestrator.budget import BudgetExceeded, BudgetGuard
+    from codeverse.orchestrator import BudgetExceeded, BudgetGuard
 
     g = BudgetGuard(Budget(max_usd=8.0, max_minutes=60.0), soft_fraction=0.55)
     g.spend(Usage(backend="codex", cost_usd=99.0), enforce=False)  # free, ignored

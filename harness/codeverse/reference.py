@@ -916,7 +916,7 @@ def _measured_block(diff: ReferenceDiff) -> str:
 def refine_tasks(diff: ReferenceDiff, *, top: int = TOP_TASKS) -> list[Any]:
     """The top mismatches as priority-1 ``RefineTask``s (``source='gate'`` so the
     round policy protects them from being trimmed as judge chatter)."""
-    from codeverse.orchestrator.rounds import RefineTask
+    from codeverse.orchestrator import RefineTask
 
     out = []
     for m in diff.top(top):

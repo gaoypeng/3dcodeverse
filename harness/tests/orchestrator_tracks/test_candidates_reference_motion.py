@@ -12,7 +12,7 @@ from codeverse.contracts.plan import ArticulatedPlan
 from codeverse.contracts.run import RunStatus
 from codeverse.contracts.spec import ReferenceImage
 from codeverse.events import EventLog
-from codeverse.orchestrator.rounds import (
+from codeverse.orchestrator import (
     RefineTask,
     RoundPolicy,
     build_refine_instructions,
@@ -188,7 +188,7 @@ def test_candidate_count_persists_for_resume_and_settings_default(tmp_path, chai
     # a resume without the flag reads the persisted width
     t2 = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5,)), agent=FakeAgent(_writer_by_candidate),
                            planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.BLENDER))
-    from codeverse.orchestrator.state import RunState
+    from codeverse.orchestrator import RunState
 
     ctx = t2.build_context(spec, ws, EventLog(ws.events_path), RunState.load(ws))
     assert ctx.policy.n_candidates == 2
@@ -310,7 +310,7 @@ def test_expected_files_and_targets_follow_runtime_file_for_part(tmp_path, chair
 
     spec = make_spec(language=Language.BLENDER, max_rounds=0)
     track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=PartsRuntime(Language.BLENDER))
-    from codeverse.orchestrator.state import RunState
+    from codeverse.orchestrator import RunState
 
     ctx = track.build_context(spec, Workspace(tmp_path / "ws").create(), EventLog(tmp_path / "e.jsonl"), RunState())
     ctx.plan = chair_plan

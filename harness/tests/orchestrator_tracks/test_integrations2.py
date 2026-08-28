@@ -11,7 +11,7 @@ from codeverse.contracts.common import Language, Track, Usage
 from codeverse.contracts.plan import ScenePlan
 from codeverse.contracts.run import RunStatus
 from codeverse.events import EventLog
-from codeverse.orchestrator.state import RunState
+from codeverse.orchestrator import RunState
 from codeverse.tracks import get_track
 from codeverse.tracks.graphics import GraphicsTrack
 from codeverse.tracks.planner import plan_example

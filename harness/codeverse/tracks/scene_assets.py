@@ -177,7 +177,7 @@ def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
                 res = _generate_asset(sub, asset, rel, language=Language.SCENE_THREEJS, attempt=attempt,
                                       feedback=repair_feedback(chk, rel) if chk is not None else "")
             except Exception as e:  # noqa: BLE001 — a bad answer escalates; a dead model does not
-                from codeverse.orchestrator.budget import BudgetExceeded
+                from codeverse.orchestrator import BudgetExceeded
 
                 if isinstance(e, BudgetExceeded):
                     raise

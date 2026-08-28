@@ -32,7 +32,7 @@ from codeverse.conventions import (
     to_pascal,
     to_snake,
 )
-from codeverse.orchestrator.rounds import DETAIL_KIND, RefineTask, TaskGroup, compact_instructions
+from codeverse.orchestrator import DETAIL_KIND, RefineTask, TaskGroup, compact_instructions
 from codeverse.prompts import render
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.depth import (

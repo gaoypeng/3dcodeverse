@@ -141,7 +141,7 @@ def test_spec_options_roundtrip_and_validation():
 
 
 def test_spec_options_do_not_change_the_plan_stage_hash():
-    from codeverse.orchestrator.runner import hash_inputs
+    from codeverse.orchestrator import hash_inputs
     from codeverse.tracks.lifecycle import plan_stage_inputs
 
     plain = Spec(id="x", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a chair")

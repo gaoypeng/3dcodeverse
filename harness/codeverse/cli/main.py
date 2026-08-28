@@ -367,7 +367,7 @@ def _finished_reason(ws, raised: dict) -> str:
     how you continue one — so it only blocks when no cap was raised.
     """
     from codeverse.contracts.run import RunStatus
-    from codeverse.orchestrator.state import RunState, StateCorrupt
+    from codeverse.orchestrator import RunState, StateCorrupt
 
     try:
         state = RunState.load(ws)

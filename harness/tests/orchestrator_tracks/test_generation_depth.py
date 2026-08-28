@@ -24,7 +24,7 @@ from codeverse.contracts.judgment import ImprovementItem, Judgment
 from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import MAX_TRIS_OBJECT, to_snake
-from codeverse.orchestrator.rounds import (
+from codeverse.orchestrator import (
     DETAIL_KIND,
     REWRITE_KIND,
     RoundPolicy,
@@ -240,7 +240,7 @@ def big_plan(n: int = 11) -> StaticPlan:
 
 def _ctx(tmp_path, plan, settings, *, language=Language.THREEJS, agent_id="fake-agent:m"):
     from codeverse.events import EventLog
-    from codeverse.orchestrator.state import RunState
+    from codeverse.orchestrator import RunState
     from codeverse.tracks.static_object import StaticObjectTrack
     from codeverse.workspace import Workspace
 

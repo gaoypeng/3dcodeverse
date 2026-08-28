@@ -287,7 +287,7 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
     back to 'planning' — a finished run left stuck mid-pipeline, and money spent, from
     one accidental or scripted resume."""
     from codeverse.contracts.run import RunStatus
-    from codeverse.orchestrator.state import RunState
+    from codeverse.orchestrator import RunState
     from codeverse.workspace import Workspace
 
     runs, run_dir = made_run()

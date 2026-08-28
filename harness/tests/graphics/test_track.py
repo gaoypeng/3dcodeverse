@@ -232,7 +232,7 @@ def test_templates_render_and_rubric_loads(tmp_path, settings):
     spec = make_spec(language=Language.OPENGL_PYTHON, generator="single-shot:fake:fake-model")
     ws = Workspace(tmp_path / "runs" / "tpl").create()
     track = GraphicsTrack(services=_services(), settings=settings, runtime=FakeGlRuntime())
-    from codeverse.orchestrator.state import RunState
+    from codeverse.orchestrator import RunState
 
     ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState.load_or_new(ws, resume=False))
     ctx.plan = GraphicsPlan.model_validate(plan_example())

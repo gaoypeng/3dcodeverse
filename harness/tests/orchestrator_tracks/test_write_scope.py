@@ -17,8 +17,7 @@ from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.events import EventLog
-from codeverse.orchestrator.rounds import RefineTask, TaskGroup
-from codeverse.orchestrator.state import RunState
+from codeverse.orchestrator import RefineTask, RunState, TaskGroup
 from codeverse.tracks.generation import (
     GenerationResult,
     GenerationTask,

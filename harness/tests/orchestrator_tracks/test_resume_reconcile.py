@@ -15,8 +15,7 @@ import pytest
 
 from codeverse.contracts.common import Language
 from codeverse.events import EventLog
-from codeverse.orchestrator.rounds import RoundPolicy
-from codeverse.orchestrator.state import RunState
+from codeverse.orchestrator import RoundPolicy, RunState
 from codeverse.tracks.lifecycle import SpecChanged
 from codeverse.tracks.static_object import StaticObjectTrack
 from codeverse.workspace import Workspace
@@ -228,7 +227,7 @@ def test_resume_charges_for_spend_the_snapshot_missed(tmp_path, chair_plan, sett
     under-counting is how a resumed run walks past its ceiling."""
     from codeverse.cost.ledger import open_run_ledger
     from codeverse.cost.types import CallCost
-    from codeverse.orchestrator.budget import BudgetGuard, BudgetSnapshot
+    from codeverse.orchestrator import BudgetGuard, BudgetSnapshot
     from codeverse.tracks.lifecycle import _reconcile_billed_from_ledger
 
     ws = Workspace(tmp_path / "runs" / "r")

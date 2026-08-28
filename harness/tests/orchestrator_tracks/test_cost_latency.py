@@ -14,9 +14,7 @@ from codeverse.contracts.common import Budget, Language, Track
 from codeverse.contracts.plan import AssetPlan, ScenePlan, ZonePlan
 from codeverse.contracts.run import RunStatus
 from codeverse.events import EventLog
-from codeverse.orchestrator.budget import BudgetExceeded, BudgetGuard
-from codeverse.orchestrator.rounds import RoundPolicy
-from codeverse.orchestrator.state import RunState
+from codeverse.orchestrator import BudgetExceeded, BudgetGuard, RoundPolicy, RunState
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.planner import plan_example
 from codeverse.tracks.scene import SceneTrack, plan_zone_batches, zone_file
@@ -478,7 +476,7 @@ def test_a_generation_session_never_outlives_the_wall_budget():
     settings.limits.agent_timeout_s (1800 s) and only checked the ceiling at the next
     boundary.  The scene track had clipped this since the greenhouse incident."""
     from codeverse.contracts.spec import Budget
-    from codeverse.orchestrator.budget import BudgetGuard
+    from codeverse.orchestrator import BudgetGuard
 
     g = BudgetGuard(Budget(max_usd=10.0, max_minutes=30.0, max_rounds=4), run="t")
     assert g.timeout_s(1800, floor_s=120.0) == pytest.approx(1800, abs=60)   # fresh run: full session
@@ -495,7 +493,7 @@ def test_one_asset_cannot_eat_the_scene_run():
     stage to 10.9 min — the stage waits for its slowest, so round 0 started at 18.9 min
     and the judged round only happened via the budget salvage at 25.5 min."""
     from codeverse.contracts.spec import Budget
-    from codeverse.orchestrator.budget import BudgetGuard
+    from codeverse.orchestrator import BudgetGuard
     from codeverse.tracks.scene_assets import (
         ASSET_AGENT_TIMEOUT_S,
         ASSET_SESSION_SHARE,

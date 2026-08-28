@@ -24,7 +24,7 @@ from codeverse.contracts.common import Language, Usage
 from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.run import RoundRecord, RunStatus
 from codeverse.events import EventLog
-from codeverse.orchestrator.rounds import (
+from codeverse.orchestrator import (
     DEFAULT_JUDGE_SIGMA,
     REWRITE_KIND,
     RoundPolicy,
@@ -99,7 +99,7 @@ def test_a_sub_noise_dip_never_burns_the_strategy_switch():
     policy.regression_delta — a -0.02 blip (inside pro sigma 0.030) plus one real
     regression made the counter 2 and stopped the run as "regression" without ever
     offering the single strategy switch.  One predicate now serves both."""
-    from codeverse.orchestrator.rounds import meaningful_regression
+    from codeverse.orchestrator import meaningful_regression
 
     sp = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, judge_model="gemini:gemini-3.1-pro-preview",
                                 marginal_from_round=99))
@@ -282,7 +282,7 @@ def _result_of(agent, i):
 
 def _guard():
     from codeverse.contracts.common import Budget
-    from codeverse.orchestrator.budget import BudgetGuard
+    from codeverse.orchestrator import BudgetGuard
 
     return BudgetGuard(Budget(max_usd=100, max_minutes=100))
 
@@ -375,7 +375,7 @@ def test_a_skipped_verdict_is_not_bought_back_by_the_rejudge_path(tmp_path, spec
 def test_a_round_that_broke_the_gates_does_not_displace_a_clean_one():
     """The unscored fallback: never promote a round that does not build, and never
     let a gate-breaking round displace the previous artifact just by being last."""
-    from codeverse.orchestrator.rounds import BestSelector
+    from codeverse.orchestrator import BestSelector
 
     def r(i, *, build_ok=True, errors=0):
         return RoundRecord(index=i, kind="refine", build=BuildResult(ok=build_ok, language="l"),
@@ -404,8 +404,7 @@ def _pipeline():
 
 def _ctx(tmp_path, spec, settings, *, policy: RoundPolicy | None = None, agent=None, name: str = "skip"):
     from codeverse.contracts.common import Budget
-    from codeverse.orchestrator.budget import BudgetGuard
-    from codeverse.orchestrator.state import RunState
+    from codeverse.orchestrator import BudgetGuard, RunState
     from codeverse.tracks.common import RunContext
 
     ws = Workspace(tmp_path / "runs" / name)

@@ -33,7 +33,7 @@ from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord
 from codeverse.fanout import fan_out
-from codeverse.orchestrator.budget import usage_delta
+from codeverse.orchestrator import usage_delta
 from codeverse.spatial.render import RenderError
 from codeverse.tracks import skills_hook
 from codeverse.tracks.common import RunContext
@@ -137,7 +137,7 @@ def _run_phase(ctx: RunContext, tasks: Sequence[GenerationTask]) -> list[Generat
     budget_stop: Exception | None = None
     for task, r in zip(tasks, results, strict=True):
         if isinstance(r, Exception):
-            from codeverse.orchestrator.budget import BudgetExceeded
+            from codeverse.orchestrator import BudgetExceeded
 
             if isinstance(r, BudgetExceeded) and budget_stop is None:
                 budget_stop = r  # a failed item; the siblings' paid results still land in ``out``

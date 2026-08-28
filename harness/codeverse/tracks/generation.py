@@ -701,7 +701,7 @@ class _SessionAcc:
 
 
 def _is_budget_stop(e: BaseException) -> bool:
-    from codeverse.orchestrator.budget import BudgetExceeded
+    from codeverse.orchestrator import BudgetExceeded
 
     return isinstance(e, BudgetExceeded)
 
