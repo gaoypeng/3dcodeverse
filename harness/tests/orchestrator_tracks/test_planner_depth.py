@@ -517,3 +517,27 @@ def test_brief_and_plan_are_one_model_and_the_events_say_so(tmp_path, monkeypatc
     assert done["brief"] is True and done["target_parts"] == 10 and done["quality_reasks"] == 0
     assert any(name == "plan.brief" for name, _ in ev.rows)
     assert [a for a in plan.acceptance if a.id.startswith("sig")]
+
+
+def test_a_model_name_leak_is_rejected_not_modelled():
+    """Measured 2026-08-28 (gear_cq_ss): the planner emitted a part literally named
+    'Gemini25FlashThinking' — a thinking model's self-reference leaked into structured
+    output — and the generator faithfully built a placeholder pillar for it (judged 0.0).
+    The contract now rejects such names so the planner is re-asked, like an unsafe
+    camera name.  Real part names that merely contain 'flash' or 'model' stay legal."""
+    import pytest as _pytest
+    from pydantic import ValidationError
+
+    from codeverse.contracts.plan import JointPlan, PartPlan, SubPartPlan
+
+    for bad in ("Gemini25FlashThinking", "GPT4Placeholder", "placeholder_arm"):
+        with _pytest.raises(ValidationError, match="leaked from"):
+            PartPlan(name=bad, role="r", description="d", bbox=_bbox())
+    with _pytest.raises(ValidationError, match="leaked from"):
+        SubPartPlan(name="ClaudePart", description="d", bbox=_bbox())
+    with _pytest.raises(ValidationError, match="leaked from"):
+        JointPlan(name="gemini_hinge", type="revolute", parent="A", child="B",
+                  axis=(0, 0, 1), pivot=(0, 0, 0))
+    # high precision: legitimate names that merely contain hot substrings stay legal
+    for ok in ("CameraFlash", "ModelStand", "GearHousing"):
+        PartPlan(name=ok, role="r", description="d", bbox=_bbox())

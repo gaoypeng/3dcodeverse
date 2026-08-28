@@ -71,6 +71,11 @@ class SubPartPlan(BaseModel):
     the only complexity metric with a positive partial correlation to geometry_detail."""
 
     name: str = Field(description="PascalCase, unique within the parent, e.g. Burr")
+
+    @field_validator("name")
+    @classmethod
+    def _no_model_leak(cls, v: str) -> str:
+        return reject_model_leak(v)
     role: str = Field(default="", description="what this sub-part is, a few words")
     description: str = Field(description="shape and construction in numbers")
     bbox: BBox = Field(description="inside the parent's bbox, same frame")
@@ -80,6 +85,11 @@ class SubPartPlan(BaseModel):
 
 class PartPlan(BaseModel):
     name: str = Field(description="PascalCase unique part name, e.g. SeatCushion")
+
+    @field_validator("name")
+    @classmethod
+    def _no_model_leak(cls, v: str) -> str:
+        return reject_model_leak(v)
     role: str = Field(description="what this part is / does, one line")
     description: str = Field(description="shape, construction and visible detail the builder must realise")
     bbox: BBox
@@ -166,6 +176,11 @@ class StaticPlan(BaseModel):
 
 class JointPlan(BaseModel):
     name: str
+
+    @field_validator("name")
+    @classmethod
+    def _no_model_leak(cls, v: str) -> str:
+        return reject_model_leak(v)
     type: Literal["revolute", "prismatic", "continuous", "fixed"]
     parent: str = Field(description="parent link (part) name")
     child: str = Field(description="child link (part) name")
@@ -405,6 +420,24 @@ class EffectPlan(BaseModel):
 #: a camera name becomes a render FILENAME (``render_scene.mjs`` writes ``<name>_<t>.png``);
 #: the charset ``render_glb.mjs`` already enforces for view names, plus a length bound.
 CAMERA_NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+#: a thinking model's self-reference leaked into structured output: measured 2026-08-28
+#: (gear_cq_ss), the PLANNER emitted a part literally named "Gemini25FlashThinking" and
+#: the generator faithfully modelled a placeholder pillar for it — judged 0.0.  High-
+#: precision patterns only: "CameraFlash" or "ModelStand" must stay legal.
+_MODEL_NAME_LEAK = re.compile(r"(?i)(gemini|gpt[-_ ]?\d|claude|llama|qwen|deepseek|placeholder)")
+
+
+def reject_model_leak(v: str) -> str:
+    """Reject (never mangle) part names that are model ids / placeholders — the planner
+    is re-asked with this error, exactly like an unsafe camera name."""
+    m = _MODEL_NAME_LEAK.search(v)
+    if m:
+        raise ValueError(
+            f"part name {v!r} contains {m.group(1)!r} — a model id or placeholder leaked from "
+            "thinking, not a component of the object.  Name the real part (e.g. GrinderWheel).")
+    return v
+
 
 
 class CameraPlan(BaseModel):
