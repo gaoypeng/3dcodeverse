@@ -240,7 +240,7 @@ def test_show_prints_three_separated_sections(fake_run):
     assert "deliverable/object.glb" in out and "deliverable/src/model.py" in out
     assert "static_object_v1" in out                       # evidence: rubric
     assert "spent / budget" in out and "models per role" in out and "price table" in out
-    assert "api-agent" in out and "generator" in out       # settings: model id per role
+    assert "gemini-cli" in out and "generator" in out      # settings: model id per role
 
 
 def test_show_sections_can_be_selected(fake_run):

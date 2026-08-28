@@ -41,7 +41,7 @@ def test_status_still_prints_the_run_when_events_are_truncated(tmp_path: Path) -
     runs = tmp_path / "runs"
     ws = Workspace(runs / "stool").create()
     spec = Spec(id="stool", track=Track.STATIC_OBJECT, language=Language.BLENDER,
-                prompt="a small wooden stool", backends=Backends(generator="api-agent:gemini:gemini-3.7-flash"))
+                prompt="a small wooden stool", backends=Backends(generator="gemini-cli:gemini-3.6-flash"))
     ws.write_json(ws.spec_path, spec)
     log = EventLog(ws.events_path)
     log.emit("run.start")

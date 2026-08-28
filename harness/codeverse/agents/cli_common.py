@@ -253,17 +253,20 @@ def begin_session(job: AgentJob, kind: str) -> Session:
 def _enforce_scope(s: Session) -> list[str]:
     """Revert a CLI session's out-of-scope writes; returns the reverted paths.
 
-    Post-hoc, because the CLI backends have no write-time file gate.  Two layers:
-    ``job.write_roots`` ALWAYS (what ``FileTools`` refuses outright for the api-agent —
-    a CLI session used to be able to write and commit a root-level ``conftest.py``),
-    then, for ``edit_only``, the narrowing to ``files_hint`` + ``always_writable``
-    (a pre-existing file outside it is out of scope; new files stay allowed).  Only
-    safe because sessions on one workspace are serialised (:data:`EXCLUSIVE_KINDS`):
-    ``head_before`` holds no sibling's in-flight work."""
+    Post-hoc, because every backend is a vendor CLI and none has a write-time file gate
+    (the in-process one that did was deleted 2026-08-28).  Three layers:
+    ``job.read_only`` ALWAYS — harness-owned source the agent must call, never rewrite
+    (``src/recipes.glsl``); ``job.write_roots`` ALWAYS — a CLI session used to be able
+    to write and commit a root-level ``conftest.py``; then, for ``edit_only``, the
+    narrowing to ``files_hint`` + ``always_writable`` (a pre-existing file outside it is
+    out of scope; new files stay allowed).  Only safe because sessions on one workspace
+    are serialised (:data:`EXCLUSIVE_KINDS`): ``head_before`` holds no sibling's
+    in-flight work."""
     roots = tuple(r.strip("/") for r in s.job.write_roots if r.strip("/"))
+    frozen = frozenset(r for r in (str(x).strip() for x in s.job.read_only) if r)
     narrow = (s.files_hint | frozenset(h for h in (str(x).strip() for x in s.job.always_writable) if h)
               if (s.job.edit_only and s.files_hint) else frozenset())
-    if not roots and not narrow:
+    if not roots and not narrow and not frozen:
         return []
     restore: list[str] = []
     remove: list[str] = []
@@ -271,7 +274,9 @@ def _enforce_scope(s: Session) -> list[str]:
         parts = Path(f.path).parts
         if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in HARNESS_OWNED_FILES:
             continue
-        if roots and not any(f.path == r or f.path.startswith(r + "/") for r in roots):
+        if f.path in frozen:
+            pass  # harness-owned: the agent calls it, never rewrites it
+        elif roots and not any(f.path == r or f.path.startswith(r + "/") for r in roots):
             pass  # outside write_roots: out of scope whatever its status
         elif not narrow or f.status == "added" or _hinted(f.path, narrow):
             continue

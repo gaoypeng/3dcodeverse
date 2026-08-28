@@ -174,7 +174,7 @@ def test_build_pairs(runs_dir: Path, tmp_path: Path):
     assert rep["error"]["type"] == "SyntaxError" and rep["chosen"]["build_ok"] is True
     assert "size=3.0" in rep["chosen"]["files"]["src/model.py"]
     xb = next(x for x in pairs if x["kind"] == "cross_backend")
-    assert xb["chosen"]["generator"].startswith("api-agent") and xb["rejected"]["generator"].startswith("codex")
+    assert xb["chosen"]["generator"].startswith("gemini-cli") and xb["rejected"]["generator"].startswith("codex")
     assert xb["delta"] == pytest.approx(0.2)
 
 

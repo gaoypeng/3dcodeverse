@@ -51,7 +51,7 @@ def _judgment(score: float, passed: bool, plan: list[str]) -> Judgment:
 
 def make_fake_run(
     runs_dir: Path, slug: str = "wooden_chair_ab12cd34", *, prompt: str = "a wooden dining chair",
-    language: Language = Language.BLENDER, generator: str = "api-agent:gemini:gemini-3.7-flash",
+    language: Language = Language.BLENDER, generator: str = "gemini-cli:gemini-3.6-flash",
     scores: tuple[float, float] = (0.55, 0.80), with_repair: bool = False, code_v2: str | None = None,
 ) -> tuple[Workspace, RunRecord]:
     ws = Workspace(runs_dir / slug).create()

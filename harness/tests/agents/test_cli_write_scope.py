@@ -137,3 +137,22 @@ def test_unscoped_cli_sessions_keep_the_old_behaviour(scoped_ws: Workspace):
     (ws.src / "parts" / "leg.py").write_text("# fine\n")
     res = _finish(s)
     assert res.ok and (ws.src / "parts" / "leg.py").read_text() == "# fine\n"
+
+
+def test_a_harness_owned_file_is_restored_when_the_agent_rewrites_it(tmp_ws, monkeypatch):
+    """src/recipes.glsl is written by the harness for the agent to CALL.  FileTools used
+    to refuse the write outright; with the in-process agent deleted (2026-08-28) the
+    post-hoc check is the only guard, and without this layer the file was unprotected."""
+    owned = "src/recipes.glsl"
+    (tmp_ws.root / owned).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_ws.root / owned).write_text("float aurora(vec2 p){return 0.0;}\n")
+    tmp_ws.commit("harness recipes")
+    job = AgentJob(workspace=str(tmp_ws.root), prompt="p", label="gfx",
+                   write_roots=["src/"], read_only=[owned])
+    s = begin_session(job, "codex")
+    (tmp_ws.root / owned).write_text("// clobbered by the agent\n")
+    (tmp_ws.src / "shader.frag").write_text("void main(){}\n")
+    res = finish_session(s, ok=True, exit_reason="completed", text="done", usage=Usage(backend="fake"))
+    assert (tmp_ws.root / owned).read_text().startswith("float aurora"), "harness file must be restored"
+    assert (tmp_ws.src / "shader.frag").is_file(), "the agent's own file survives"
+    assert not res.ok and any(owned in e for e in res.errors)

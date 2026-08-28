@@ -40,7 +40,7 @@ from tests.compare_bench.conftest import (  # noqa: E402
     fake_run_track,
 )
 
-ARMS = "harness:api-agent:gemini:gemini-3.7-flash,oneshot:claude-code,oneshot+repair:codex,oneshot:gemini:gemini-3.7-flash"
+ARMS = "harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code,oneshot+repair:codex,oneshot:gemini:gemini-3.7-flash"
 
 
 def test_battery_compare_v1_is_valid():
@@ -54,7 +54,7 @@ def test_battery_compare_v1_is_valid():
 def test_parse_arms():
     arms = parse_arms(ARMS)
     assert [a.kind for a in arms] == ["harness", "oneshot", "oneshot+repair", "oneshot"]
-    assert arms[0].target == "api-agent:gemini:gemini-3.7-flash" and arms[2].target == "codex"
+    assert arms[0].target == "gemini-cli:gemini-3.6-flash" and arms[2].target == "codex"
     assert arms[2].slug == "oneshot_plus_repair_codex"
     for bad in ("harness", "foo:bar", "oneshot:gemini-cli:x", "oneshot:nope"):
         with pytest.raises(ValueError):
@@ -101,7 +101,7 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     rows = run_matrix(BATTERY, out, parse_arms(ARMS), opts, deps)
     assert len(rows) == 8 and (out / "matrix.json").is_file()
     by = {(r.prompt_id, r.arm): r for r in rows}
-    h = by[("cmp_easy_stool", "harness:api-agent:gemini:gemini-3.7-flash")]
+    h = by[("cmp_easy_stool", "harness:gemini-cli:gemini-3.6-flash")]
     assert h.status == "scored" and h.score == pytest.approx(0.9) and h.passed and h.build_ok
     assert h.gen_cost_usd == pytest.approx(0.9) and h.harness_status == "passed" and h.harness_loop_score == pytest.approx(0.8)
     assert h.judge_cost_usd == pytest.approx(0.01) and h.tris == 900 and Path(h.sheet).is_file()
@@ -133,11 +133,11 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     # the arm row is n | dropped | over budget | mean: the two loss columns stay blank when
     # nothing was lost, but must always be PRESENT so a drop can never hide (docs/EVAL.md §7)
     assert "| arm | kind | n | dropped | over budget | mean |" in md, md
-    assert "| harness:api-agent:gemini:gemini-3.7-flash | harness | 2 |  |  | 0.900 |" in md, md
+    assert "| harness:gemini-cli:gemini-3.6-flash | harness | 2 |  |  | 0.900 |" in md, md
     assert "| cmp_easy_stool | easy | 0.90✓ | 0.60 | 0.75✓ | 0.00 ✗build |" in md
-    assert "| harness:api-agent:gemini:gemini-3.7-flash | oneshot:claude-code | 2 | 2 | 0 | 0 | 100% |" in md
+    assert "| harness:gemini-cli:gemini-3.6-flash | oneshot:claude-code | 2 | 2 | 0 | 0 | 100% |" in md
     page = (out / "report.html").read_text()
-    assert "report_assets/cmp_easy_stool__harness_api-agent_gemini_gemini-3.7-flash.png" in page
+    assert "report_assets/cmp_easy_stool__harness_gemini-cli_gemini-3.6-flash.png" in page
     assert len(list((out / "report_assets").glob("*.png"))) == 6
 
     # ---- resume: nothing re-runs, nothing re-judged, results identical
@@ -257,11 +257,11 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
     deps = _deps(ev, {"claude-code": FakeBackend(["```python\n" + GOOD.format(score=0.6) + "```"])}, run_track)
     out = tmp_path / "cmp"
     opts = CompareOptions(judge="gemini:fixed", limit=1, parallel=2, pairwise=False)
-    rows = run_matrix(BATTERY, out, parse_arms("harness:api-agent:gemini:gemini-3.7-flash,oneshot:claude-code"),
+    rows = run_matrix(BATTERY, out, parse_arms("harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code"),
                       opts, deps)
     assert len(rows) == 2
     cells = {r.arm: Path(r.workspace) for r in rows}
-    harness = cells["harness:api-agent:gemini:gemini-3.7-flash"]
+    harness = cells["harness:gemini-cli:gemini-3.6-flash"]
     assert [r.label for r in load_ledger(harness / "run")] == ["api-agent:baseline:t0"]
     assert [r.label for r in load_ledger(harness)] == ["judge:static_object_v1:r00:s0"]
     oneshot = cells["oneshot:claude-code"]

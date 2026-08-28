@@ -60,7 +60,7 @@ def _run(tmp_path: Path, language: Language, track: Track) -> Path:
     runs = tmp_path / "runs"
     ws = Workspace(runs / "r1").create()
     ws.write_json(ws.spec_path, Spec(id="r1", track=track, language=language, prompt="a stool",
-                                     backends=Backends(generator="api-agent:gemini:gemini-3.7-flash")))
+                                     backends=Backends(generator="gemini-cli:gemini-3.6-flash")))
     (ws.artifacts / "object.glb").write_bytes(b"glTF\x02\x00\x00\x00")
     return runs
 

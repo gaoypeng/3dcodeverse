@@ -55,7 +55,7 @@ def test_flag_degraded_rule(tmp_path, status, stop, rounds, cost, aborted, expec
     battery = Battery.load(BATTERY)
     opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x", max_usd=2.5, degraded_min_wall_s=0)
     deps = CompareDeps(FakeEvaluator(), run_track=_track(status, stop, rounds, cost, aborted))
-    r = run_cell(battery, battery.prompts[0], parse_arm("harness:api-agent:gemini:gemini-3.7-flash"), tmp_path, opts, deps)
+    r = run_cell(battery, battery.prompts[0], parse_arm("harness:gemini-cli:gemini-3.6-flash"), tmp_path, opts, deps)
     assert r.status == "scored" and r.score is not None
     assert (r.harness_stop_reason, r.harness_rounds, r.harness_aborted_rounds) == (stop, rounds, aborted)
     assert r.degraded is expect, r

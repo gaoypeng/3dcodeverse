@@ -113,7 +113,7 @@ def test_both_failure_paths_classify_the_same_way(tmp_path):
                            oneshot_backend=lambda t: ApiOneShot("gemini:gemini-3.7-flash", chat_model=DeadModel()))
         opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x")
         got = {}
-        for raw in ("harness:api-agent:gemini:gemini-3.7-flash", "oneshot:gemini:gemini-3.7-flash"):
+        for raw in ("harness:gemini-cli:gemini-3.6-flash", "oneshot:gemini:gemini-3.7-flash"):
             arm = parse_arm(raw)
             r = run_cell(battery, battery.prompts[0], arm, out, opts, deps)
             got[arm.kind] = (r.status, r.score)
@@ -283,7 +283,7 @@ def test_a_harness_planning_failure_is_a_zero_not_a_dropped_cell(tmp_path):
 
     battery = Battery.load(BATTERY)
     opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x")
-    r = run_cell(battery, battery.prompts[0], parse_arm("harness:api-agent:gemini:gemini-3.7-flash"), tmp_path, opts,
+    r = run_cell(battery, battery.prompts[0], parse_arm("harness:gemini-cli:gemini-3.6-flash"), tmp_path, opts,
                  CompareDeps(FakeEvaluator(), run_track=no_plan))
     assert (r.status, r.score, r.passed, r.build_ok) == ("no_code", 0.0, False, False)
     assert r.error.startswith("PlanningError:")

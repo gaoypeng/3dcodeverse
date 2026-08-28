@@ -56,7 +56,7 @@ def test_run_battery_resume_and_report(tmp_path: Path):
     battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
     out = tmp_path / "bench_out"
     scores = {"furn_easy_stool": (0.6, 0.85), "furn_med_dining_chair": (0.5, 0.7), "furn_hard_rolltop_desk": (0.4, 0.6)}
-    opts = BenchOptions(parallel=2, limit=4, judge="gemini:gemini-3.7-flash", generator="api-agent:gemini:gemini-3.7-flash")
+    opts = BenchOptions(parallel=2, limit=4, judge="gemini:gemini-3.7-flash", generator="gemini-cli:gemini-3.6-flash")
     res = run_battery(battery, out, opts, run_fn=_fake_run_fn(scores, fail_ids={"veh_easy_toy_car"}))
     assert len(res) == 4
     by_id = {r.id: r for r in res}

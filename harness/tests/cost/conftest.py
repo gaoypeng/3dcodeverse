@@ -45,7 +45,7 @@ def fake_run(tmp_path: Path) -> Path:
                    cost_usd=float(session["cost_usd"]) + float(judge_usage["cost_usd"]) + plan_cost)
     _write(ws / "record.json", {
         "spec": {"track": "static_object", "language": "blender",
-                 "backends": {"generator": "api-agent:gemini:gemini-3.7-flash",
+                 "backends": {"generator": "gemini-cli:gemini-3.6-flash",
                               "judge": "gemini:gemini-3.1-pro-preview"},
                  "budget": {"max_usd": 5.0}},
         "status": "passed", "baseline_score": 0.6, "final_score": 0.8, "best_round": 0,
