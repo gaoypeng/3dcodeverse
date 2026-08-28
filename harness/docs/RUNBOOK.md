@@ -260,7 +260,7 @@ model, produced the zero — check `cell.json`'s `error`).
   CodingAgent → `agents/<kind>.py` using `cli_common` + registry + `materialize.py`.
 * **New track**: subclass `tracks/lifecycle.py::BaseTrack` (hooks: `make_pipeline`,
   `prepare`, `baseline_tasks`, `refine_tasks`, `round_files_hint`), a `RoundPipeline`,
-  plan model in `contracts/plan.py`, `.j2` prompts, branch in `tracks/base.py`
+  plan model in `contracts/plan.py`, `.j2` prompts, branch in `tracks/__init__.py`
   (`get_track` forwards `**options` to constructors).  `tracks/graphics.py` is the
   template for a track with its own planner and no GLB.
 * **New bench battery**: `bench/prompts/<name>.yaml` with `name, track, language,

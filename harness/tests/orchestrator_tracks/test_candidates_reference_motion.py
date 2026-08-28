@@ -12,7 +12,6 @@ from codeverse.contracts.plan import ArticulatedPlan
 from codeverse.contracts.run import RunStatus
 from codeverse.contracts.spec import ReferenceImage
 from codeverse.events import EventLog
-from codeverse.orchestrator.candidates import CandidateRecord, decide_best, rank_candidates
 from codeverse.orchestrator.rounds import (
     RefineTask,
     RoundPolicy,
@@ -20,8 +19,8 @@ from codeverse.orchestrator.rounds import (
     compact_instructions,
 )
 from codeverse.tracks import get_track
-from codeverse.tracks.articulated_object import ArticulatedObjectTrack
-from codeverse.tracks.motion import expected_direction
+from codeverse.tracks.articulated_object import ArticulatedObjectTrack, expected_direction
+from codeverse.tracks.candidates import CandidateRecord, decide_best, rank_candidates
 from codeverse.tracks.planner import plan_example
 from codeverse.tracks.static_object import StaticObjectTrack
 from codeverse.workspace import Workspace
@@ -346,7 +345,7 @@ def test_default_motion_checks_on_real_urdf(tmp_path):
     import trimesh
 
     from codeverse.contracts.plan import BBox, JointPlan, PartPlan
-    from codeverse.tracks.motion import default_motion_checks
+    from codeverse.tracks.articulated_object import default_motion_checks
 
     def robot(root, axis_z):
         ws = Workspace(root).create()

@@ -93,18 +93,18 @@ codeverse/
                       lines so it stays a leaf
   fanout.py           bounded parallel fan-out (fan_out, split_results, FanOutReport) — shared by
                       tracks/judges/texturing/bench
-  models/             ChatModel; gemini_convert.py anthropic_convert.py openai_convert.py
+  models/             ChatModel (base.py); gemini_convert.py anthropic_convert.py openai_convert.py
                       (request/response shapes per provider), parts.py; gemini.py (dead-key + free 429 rotation), gemini_image.py (ImageModel),
                       anthropic.py openai.py, keypool.py ('dead' outcome + TPM reservation/reconcile),
                       tokens.py (prompt-token estimate for the TPM bucket), pricing.py (version-suffix-only
                       fallback), retry.py (MAX_WAIT_S: no single wait > 3 s), storm.py (shared 503 gate —
                       measured, ships OFF, see docs/COST.md §21), health.py (preflight probe: is the model
                       serving? no retries, no backoff), schema_utils.py (strict schema), registry.py
-  agents/             CodingAgent; gemini_cli.py claude_code.py codex.py antigravity.py
+  agents/             CodingAgent (base.py); gemini_cli.py claude_code.py codex.py antigravity.py
                       (api_agent.py + api_tools.py + api_skills.py deleted 2026-08-28 —
                       the vendors already ship the loop), materialize.py, cli_common.py (sessions, retry
                       trajectory naming, files_changed attribution), watchdog.py, transcript.py, registry.py
-  languages/          LanguageRuntime; blender/ (multi-file: layout.py, model.py + parts/*.py) cadquery/
+  languages/          LanguageRuntime (base.py); blender/ (multi-file: layout.py, model.py + parts/*.py) cadquery/
                       threejs/ (+ templates.py) urdf/ scene_threejs/ glsl_shader/ (wrap.py header+line-map)
                       opengl_python/ (wrappers/run_gl.py) — each runtime.py, lint.py, skeleton.py, wrappers/;
                       file_lint.py (one just-written file → syntax/lint verdict for write_file, COST.md §29)
@@ -141,7 +141,7 @@ codeverse/
                       billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
                       so max_usd guards money and not list price; docs/COST.md §25)
                       guard.py routing.py reconstruct.py (old runs) audit.py report.py
-  judges/             rubrics.py + rubrics/*.yaml (defect checklists), vlm_judge.py, montage.py,
+  judges/             base.py (Judge protocol), rubrics.py + rubrics/*.yaml (defect checklists), vlm_judge.py, montage.py,
                       prompt_builder.py, output_schema.py, scoring.py, caps.py, images.py, pairwise.py
                       (compare_many), reference.py, calibration.py, metrics.py, replay_input.py
                       (plan_digest / resolve_paths / judged_subset — the pure round-replay pieces
@@ -156,12 +156,15 @@ codeverse/
                       unwrap), apply.py, gate.py (seam + before/after judge), scene_pack.py, run.py (texture_pass),
                       maps.py (PBR map set), materials.py (named material library), normalise.py
   orchestrator/       runner.py, state.py, rounds.py (RoundPolicy, StopPolicy, BestSelector), refine_tasks.py
-                      (RefineTask compilation + file-ownership grouping + compaction), candidates.py (best-of-N
-                      + pairwise decisions), budget.py
-  tracks/             base.py (get_track(track, **options)), lifecycle.py, steps.py, candidates.py,
-                      generation.py, repair.py, planner.py, prompting.py (prompt helpers, split from common),
-                      common.py (RunContext, Services), motion.py, reference.py, static_object.py,
-                      articulated_object.py, scene.py, scene_assets.py, graphics.py + graphics_steps.py,
+                      (RefineTask compilation + file-ownership grouping + compaction), budget.py
+  tracks/             __init__.py (get_track(track, **options) + the TrackPipeline protocol),
+                      lifecycle.py, steps.py, candidates.py (best-of-N + the pure candidate/pairwise
+                      decision logic), generation.py (agent + single-shot strategies + the file
+                      envelope), repair.py, planner.py, prompting.py (prompt helpers, split from common),
+                      common.py (RunContext, Services), static_object.py (+ the detail round and the
+                      reference-image gates), articulated_object.py (+ the planned-motion gate),
+                      scene.py, scene_assets.py (+ cheap single-shot asset generation),
+                      graphics.py + graphics_steps.py,
                       graphics_recipes.py (the brief's verified cookbook recipes + their helpers written into
                       the harness-owned, read-only src/recipes.glsl before the session — measured: flash calls
                       a recipe on disk, not one it is shown, and overwrites one seeded into its own common.glsl;
@@ -172,8 +175,7 @@ codeverse/
                       plan_features.py (CV3D_PLAN_FEATURES: one switch per plan-loop change, so each
                       can be A/B'd alone, + pin_plan_blockers() deciding when two arms may share
                       one plan — docs/PLAN_LOOP.md, docs/EVAL.md §8.1),
-                      plan_examples.py (worked plans shown to the planner), depth.py + detailing.py
-                      (per-part detail pass), envelope.py (bbox envelope), scene_asset_gen.py,
+                      plan_examples.py (worked plans shown to the planner), depth.py,
                       skills_hook.py (the round's view of codeverse/skills: attach before generating,
                       probe reads after — a no-op unless CV3D_SKILLS is on)
   flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, migrate.py (schema moves),

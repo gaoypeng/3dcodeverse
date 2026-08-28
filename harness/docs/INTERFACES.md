@@ -2,7 +2,7 @@
 
 This file lists the signatures other packages may rely on.  Types live in
 `codeverse/contracts/`; protocols in `models/base.py`, `agents/base.py`,
-`languages/base.py`, `spatial/registry.py`, `judges/base.py`, `tracks/base.py`.
+`languages/base.py`, `spatial/registry.py`, `judges/base.py`, `tracks/__init__.py`.
 Where the build deviated from the original plan the deviation is called out as
 **Δ** — see `docs/DECISIONS.md` for the why.  When in doubt the code wins; this
 file was reconciled against it on 2026-08-23 (waves 2–3 + fix batch 1).
@@ -336,12 +336,12 @@ BudgetGuard(budget, *, soft_fraction=1.0, run="", ledger=None)
     # (skipped when cost.instrument.per_call_metering() already writes them) → enforce the ceilings.
     # charge(...) = spend(enforce=True); add(...) = spend(enforce=False) — "not enforced" never means "not seen".
     .by_stage / .by_round / .round_costs(i) / .stage_summary() / .mark()   # what a round burned, live
-from codeverse.orchestrator.candidates import CandidateRecord, rank_candidates, decide_best   # pure decision logic
+from codeverse.tracks.candidates import CandidateRecord, rank_candidates, decide_best   # pure decision logic
 from codeverse.tracks.candidates import run_best_of_n, choose_best_round   # N parallel baselines in <ws>/_cand/c<k>
 # (quick 4-view judge, crashed candidate retried once; selection by build_ok → quick score → fewer gate errors, pairwise
 # within margin); winner copied back, normal r00 pipeline follows; rounds/candidates.json + record.extra["candidates"]
-from codeverse.tracks.motion import default_motion_checks, expected_direction   # gate "motion_direction" (articulated)
-from codeverse.tracks.reference import silhouette_gate, reference_refine_tasks  # gate "reference_silhouette" (IoU<0.6 → WARN + refine task)
+from codeverse.tracks.articulated_object import default_motion_checks, expected_direction   # gate "motion_direction"
+from codeverse.tracks.static_object import silhouette_gate, reference_refine_tasks  # gate "reference_silhouette" (IoU<0.6 → WARN + refine task)
 from codeverse.tracks.depth import depth_budget, DepthBudget, scope_groups, PartScope, interfaces_text, \
     scoped_generation_enabled                          # complexity-aware budgets + per-part scoped generation
 depth_budget(plan, *, build_timeout_s=300) -> DepthBudget   # min/target/max triangles + max_build_s sized from
@@ -351,7 +351,7 @@ scope_groups(plan, *, files_for, max_groups=6, parts_per_scope=3, min_parts=8) -
     # [] = one session owns the object (small plan, no per-part file ownership, or $CV3D_SCOPED_PARTS=off);
     # otherwise attachment-subtree groups whose files are disjoint, so the sessions run in parallel
 interfaces_text(plan, scope) -> str    # the planned boxes of the neighbours this scope must weld to
-from codeverse.tracks.detailing import drift_gate, detail_instructions, DRIFT_GATE   # gate "detail_drift":
+from codeverse.tracks.static_object import drift_gate, detail_instructions, DRIFT_GATE   # gate "detail_drift":
     # ERROR when a detail round moved/resized/removed a part or changed the overall extents (tol from policy)
 from codeverse.tracks.prompting import base_prompt_context, reference_images, file_for_target_factory, \
     scope_context, budget_for, detail_budget_text      # Δ split out of

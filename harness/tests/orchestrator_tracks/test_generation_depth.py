@@ -39,7 +39,7 @@ from codeverse.tracks.depth import (
     scope_groups,
     scoped_generation_enabled,
 )
-from codeverse.tracks.detailing import DRIFT_GATE, detail_instructions, drift_gate
+from codeverse.tracks.static_object import DRIFT_GATE, detail_instructions, drift_gate
 
 from .conftest import make_spec
 from .fakes import FakeAgent, FakeRuntime, FakeServices
@@ -351,7 +351,7 @@ def test_a_full_run_spends_exactly_one_detail_round_after_the_plateau(tmp_path, 
     """End to end on fakes: flat scores → plateau → ONE round of kind 'detail', gated by
     detail_drift, and never a second one."""
     from codeverse.contracts.run import RunStatus
-    from codeverse.tracks.detailing import DRIFT_GATE as _DRIFT
+    from codeverse.tracks.static_object import DRIFT_GATE as _DRIFT
     from codeverse.tracks.static_object import StaticObjectTrack
     from codeverse.workspace import Workspace
 

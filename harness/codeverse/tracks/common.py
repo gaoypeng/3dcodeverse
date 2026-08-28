@@ -127,8 +127,8 @@ class Services:
         return _import("codeverse.spatial.silhouette", "compare_silhouette")(render_png, reference_png)
 
     def motion_checks(self, ws: Workspace, plan: Plan) -> GateReport | None:
-        """Planned joint motion text vs the built URDF's actual motion direction.  See tracks/motion.py."""
-        from codeverse.tracks.motion import default_motion_checks
+        """Planned joint motion text vs the built URDF's actual motion direction."""
+        from codeverse.tracks.articulated_object import default_motion_checks
 
         return default_motion_checks(ws, plan)
 

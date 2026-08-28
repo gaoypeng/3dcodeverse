@@ -59,12 +59,13 @@ from codeverse.tracks.prompting import (
     reference_images,
 )
 from codeverse.tracks.repair import format_error_report
-from codeverse.tracks.scene_asset_gen import select_assets, single_shot_ctx
 from codeverse.tracks.scene_assets import (
     MAX_ASSETS,
     AssetResult,
     asset_api_summary,
     run_asset_stage,
+    select_assets,
+    single_shot_ctx,
 )
 from codeverse.workspace import Workspace
 

@@ -19,13 +19,13 @@ from codeverse.contracts.run import RoundRecord
 from codeverse.events import EventLog
 from codeverse.orchestrator.rounds import RefineTask, TaskGroup
 from codeverse.orchestrator.state import RunState
-from codeverse.tracks.envelope import write_files
 from codeverse.tracks.generation import (
     GenerationResult,
     GenerationTask,
     _always_writable,
     generate_files,
     run_agent_task,
+    write_files,
 )
 from codeverse.tracks.planner import plan_example
 from codeverse.tracks.scene import SceneTrack, zone_file

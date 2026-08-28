@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
-from codeverse.tracks.scene_asset_gen import _CHECK_JS, _checker_path
+from codeverse.tracks.scene_assets import _CHECK_JS, _checker_path
 
 
 def _ctx(cache: Path) -> SimpleNamespace:

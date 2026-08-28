@@ -20,15 +20,16 @@ from codeverse.orchestrator.state import RunState
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.planner import plan_example
 from codeverse.tracks.scene import SceneTrack, plan_zone_batches, zone_file
-from codeverse.tracks.scene_asset_gen import (
+from codeverse.tracks.scene_assets import (
+    asset_api_summary,
     check_threejs_asset,
     dedupe_assets,
+    run_asset_stage,
     select_assets,
     single_shot_agent_id,
     single_shot_ctx,
     variant_index,
 )
-from codeverse.tracks.scene_assets import asset_api_summary, run_asset_stage
 from codeverse.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
