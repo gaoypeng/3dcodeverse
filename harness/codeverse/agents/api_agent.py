@@ -36,6 +36,15 @@ log = logging.getLogger(__name__)
 BUILD_TOOL = "build"
 COMPACT_AT_CHARS = 350_000
 MODEL_RETRIES = 3
+#: per-turn output envelope, and how far a TRUNCATED turn may grow it.  Measured
+#: 2026-08-27 (art_med_tool_chest, 3.6-flash): thinking escalated 13 -> 3 144 -> 15 359
+#: tokens as the problem got harder and turn 5 hit the 16 000 default at
+#: 15 359 + 637 = 15 996 — the model behaved normally, the envelope was four tokens too
+#: small.  ``tracks/planner`` has grown its budget on truncation since it hit the same
+#: wall (PLAN_TOKENS_MAX / TRUNCATION_GROWTH); the agent loop never did.
+TURN_TOKENS = 16_000
+TURN_TOKENS_MAX = 48_000
+TURN_TOKENS_GROWTH = 1.5
 #: retry budget (``ChatRequest.max_wait_s``) for ONE model call of a turn: the session's
 #: remaining time, clipped to this window.  Audit 2026-08-26 §5.1: with the model's own
 #: 900 s deadline x MODEL_RETRIES one turn could wait 2 700 s, and 66 such give-up spans
@@ -153,6 +162,7 @@ class _Loop:
         self.last_build_turn = -1
         self.nudged = False
         self.truncated = 0
+        self.turn_tokens = TURN_TOKENS
         self.errors: list[str] = []
         # the images ride on the first message only: reference photos, and for a refine
         # session the contact sheet the judge scored.  Until 2026-08-26 no image reached an
@@ -202,8 +212,10 @@ class _Loop:
             )
             if not resp.tool_calls:
                 if resp.finish_reason == "MAX_TOKENS" and self.truncated < MAX_TRUNCATED_NUDGES:
-                    # cut off mid-thought, not finished: ask for the call, not more reasoning
+                    # cut off mid-thought, not finished: widen the envelope AND ask for the
+                    # call rather than more reasoning (thinking is billed either way)
                     self.truncated += 1
+                    self.turn_tokens = min(TURN_TOKENS_MAX, int(self.turn_tokens * TURN_TOKENS_GROWTH))
                     self.messages.append(ChatMessage.user(TRUNCATED_NUDGE))
                     traj.append("nudge", turn=turn, text=TRUNCATED_NUDGE, reason="max_tokens")
                     continue
@@ -258,6 +270,7 @@ class _Loop:
             temperature=self.s.job.api.temperature,
             thinking=self.s.job.api.thinking,
             label=f"api-agent:{self.s.label}:t{turn}",
+            max_output_tokens=self.turn_tokens,
             max_wait_s=self._turn_wait_s(),
         )
         delay = 2.0

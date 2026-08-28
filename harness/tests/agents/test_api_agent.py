@@ -321,3 +321,20 @@ def test_repeated_truncation_fails_the_session_instead_of_looping(tmp_ws):
     res = ApiAgent("fake:fake-1", chat_model=fake).run(_job(tmp_ws))
     assert not res.ok and res.exit_reason == "truncated"
     assert any("output tokens" in e for e in res.errors)
+
+
+def test_a_truncated_turn_widens_the_output_envelope(tmp_ws):
+    """The model was not misbehaving: thinking grew 13 -> 3 144 -> 15 359 tokens on a hard
+    problem and 15 359 + 637 hit the 16 000 default exactly.  planner has grown its budget
+    on truncation for months; the agent loop took the default and never moved."""
+    from codeverse.agents.api_agent import TURN_TOKENS, TURN_TOKENS_GROWTH
+
+    fake = FakeChatModel([
+        cut("<thought>the hinge axis and"),
+        resp("", call("write_file", path="src/model.py", content="import bpy\n")),
+        resp("done"),
+    ])
+    ApiAgent("fake:fake-1", chat_model=fake).run(_job(tmp_ws))
+    asked = [r.max_output_tokens for r in fake.requests]
+    assert asked[0] == TURN_TOKENS
+    assert asked[1] == int(TURN_TOKENS * TURN_TOKENS_GROWTH), "the turn after a truncation gets room"
