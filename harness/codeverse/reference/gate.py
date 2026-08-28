@@ -87,7 +87,7 @@ def check_plausible(
         response_schema=GateAnswer.model_json_schema(),
         temperature=temperature,
         thinking="low",
-        max_output_tokens=2000,
+        max_output_tokens=65_536,
         max_wait_s=240.0,
         label="reference_gate",
     )

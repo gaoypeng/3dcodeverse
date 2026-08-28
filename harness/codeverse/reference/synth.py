@@ -93,7 +93,7 @@ def image_prompt_plan(spec: Spec, view_names: list[str], *, model: Any, temperat
     text = IMAGE_PROMPT_USER.format(brief=brief_text(spec), n_views=len(view_names), views=", ".join(view_names))
     req = ChatRequest(messages=[ChatMessage.user(text)], system=IMAGE_PROMPT_SYSTEM,
                       response_schema=ImagePromptPlan.model_json_schema(), temperature=temperature,
-                      thinking="low", max_output_tokens=2000, max_wait_s=300.0, label="reference_prompt")
+                      thinking="low", max_output_tokens=65_536, max_wait_s=300.0, label="reference_prompt")
     try:
         resp = model.generate(req)
     except ModelError as e:

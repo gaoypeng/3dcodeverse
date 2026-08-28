@@ -36,7 +36,7 @@ BRIEF_ENV = "CV3D_PLAN_BRIEF"
 #: tracks the object-shaped brief applies to (graphics/scene get budgets only)
 BRIEF_TRACKS = (Track.STATIC_OBJECT, Track.ARTICULATED_OBJECT)
 BRIEF_TEMPLATE = "tracks/brief_object.j2"
-BRIEF_MAX_TOKENS = 9000
+BRIEF_MAX_TOKENS = 65_536
 
 
 # ----------------------------------------------------------------------------- brief

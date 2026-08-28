@@ -124,7 +124,7 @@ class GenerationTask(BaseModel):
     images: list[ImagePart] = Field(default_factory=list)
     temperature: float = 0.6
     thinking: str = "medium"
-    max_output_tokens: int = 32000
+    max_output_tokens: int = 65_536   # the model's declared ceiling; unused tokens cost nothing
     timeout_s: int | None = None
     max_turns: int = Field(
         default=0, description="model turns for an agent session (0 = the harness default)"
