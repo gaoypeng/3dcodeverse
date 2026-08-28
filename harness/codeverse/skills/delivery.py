@@ -65,7 +65,6 @@ _BACKENDS: dict[str, Delivery] = {
     "codex": Delivery(root=AGENTS_SKILL_ROOT, native_loader=True),
     "gemini-cli": Delivery(root=AGENTS_SKILL_ROOT, native_loader=True),
     "agy": Delivery(root=AGENTS_SKILL_ROOT, native_loader=True),
-    "api-agent": Delivery(root=AGENTS_SKILL_ROOT, native_loader=False),
 }
 
 #: the safe answer for a backend nobody has classified yet

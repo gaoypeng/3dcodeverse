@@ -162,7 +162,7 @@ class CallCost(BaseModel):
     backend: str = ""
     provider: str = ""
     model: str = ""  # bare model name, canonical (no provider prefix)
-    model_id: str = ""  # as reported by the backend ("api-agent:gemini:gemini-3.7-flash")
+    model_id: str = ""  # as reported by the backend ("gemini-cli:gemini-3.6-flash")
 
     input_tokens: int = 0
     cached_tokens: int = 0

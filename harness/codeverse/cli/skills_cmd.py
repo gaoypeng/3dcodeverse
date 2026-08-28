@@ -164,7 +164,7 @@ def report(
         t.add_column(col)
     for (name, backend), (listed, surfaced, deep) in sorted(per.items()):
         rate = deep / listed if listed else 0.0
-        target = 0.80 if backend == "api-agent" else 0.60
+        target = 0.60
         verdict = "delete/merge" if (listed >= 20 and rate < 0.20) else ("ok" if rate >= target else "below target")
         t.add_row(name, backend, str(listed), str(surfaced), str(deep), f"{rate:.0%}", verdict)
     console.print(t)

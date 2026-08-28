@@ -42,17 +42,18 @@ ASSET_MAX_TRIS = 15_000
 
 
 # ----------------------------------------------------------------------------- strategy
-def single_shot_agent_id(agent_id: str) -> str:
-    """``api-agent:gemini:x`` → ``single-shot:gemini:x``; "" when not derivable.
+def single_shot_agent_id(agent_id: str, chat_model_id: str = "") -> str:
+    """The single-shot strategy id for this run, or "" when there is no chat model.
 
-    Only API backends can be single-shot: a CLI agent (gemini-cli / claude-code /
-    codex / agy) runs on a local subscription and exposes no chat model."""
+    Single-shot is ONE api call that returns the asset file — the cheap path the asset
+    stage tries before escalating to a full agent session.  It needs a chat model, and
+    the coding agent is always a vendor CLI (which exposes none), so the model comes
+    from ``chat_model_id`` — the run's planner backend, which is always an API model.
+    Until 2026-08-28 it was derived from the in-process ``api-agent`` generator id;
+    that backend is gone."""
     if is_single_shot(agent_id):
         return agent_id
-    kind, _, rest = agent_id.partition(":")
-    if kind == "api-agent" and rest.count(":") >= 1:
-        return SINGLE_SHOT_PREFIX + rest
-    return ""
+    return SINGLE_SHOT_PREFIX + chat_model_id if chat_model_id.count(":") >= 1 else ""
 
 
 def single_shot_ctx(ctx: RunContext) -> RunContext | None:
@@ -61,7 +62,7 @@ def single_shot_ctx(ctx: RunContext) -> RunContext | None:
     cached = ctx.extra.get("_single_shot_ctx")
     if cached is not None:
         return cached or None  # False = known-unavailable
-    sid = single_shot_agent_id(ctx.agent_id)
+    sid = single_shot_agent_id(ctx.agent_id, getattr(ctx.spec.backends, "planner", ""))
     sub: RunContext | None = None
     if sid:
         try:

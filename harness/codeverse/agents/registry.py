@@ -6,11 +6,11 @@ from functools import lru_cache
 
 from codeverse.agents.base import CodingAgent
 
-KINDS = ("gemini-cli", "claude-code", "codex", "agy", "api-agent")
+KINDS = ("gemini-cli", "claude-code", "codex", "agy")
 
 
 def parse_agent_id(agent_id: str) -> tuple[str, str]:
-    """``api-agent:gemini:gemini-3.7-flash`` → ('api-agent', 'gemini:gemini-3.7-flash')."""
+    """``gemini-cli:gemini-3.6-flash`` → ('gemini-cli', 'gemini-3.6-flash')."""
     if ":" not in agent_id:
         raise ValueError(f"agent id must be '<kind>:<model>', got {agent_id!r}")
     kind, model = agent_id.split(":", 1)
@@ -38,6 +38,4 @@ def get_coding_agent(agent_id: str) -> CodingAgent:
         from codeverse.agents.antigravity import AntigravityAgent
 
         return AntigravityAgent(model)
-    from codeverse.agents.api_agent import ApiAgent
-
-    return ApiAgent(model)
+    raise ValueError(f"unknown agent kind {kind!r}; known: {KINDS}")

@@ -151,11 +151,15 @@ class Backends(BaseModel):
       · ``openai:gpt-5.6-sol``
     * Coding agents:    ``gemini-cli:gemini-3.7-flash`` · ``claude-code:sonnet``
       · ``codex:gpt-5.6-sol`` · ``agy:gemini-3.6-flash-high``
-      · ``api-agent:gemini:gemini-3.7-flash`` (in-process tool loop on a ChatModel)
+
+    The coding agent is always a VENDOR agent: the harness supplies the workspace, the
+    prompt and its 3D tools (over MCP) and reads the result.  The in-process
+    ``api-agent`` tool loop was deleted 2026-08-28 — reimplementing agent plumbing the
+    vendors already ship was never this project's job (owner's call).
     """
 
     planner: str = "gemini:gemini-3.7-flash"
-    generator: str = "api-agent:gemini:gemini-3.7-flash"
+    generator: str = "gemini-cli:gemini-3.6-flash"
     # The judge drives the refine loop: the pro tier has ~3x lower sample noise than
     # flash (calibration 2026-08-23: std 0.03 vs 0.08-0.12) for ~$0.07 per verdict.
     judge: str = "gemini:gemini-3.1-pro-preview"

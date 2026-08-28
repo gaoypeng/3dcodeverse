@@ -422,7 +422,7 @@ def build() -> str:
       <pre>pip install -e harness
 cd harness
 3dcv bench run bench/prompts/teaser_v1_static.yaml \\
-  --generator api-agent:gemini:gemini-3.7-flash
+  --generator gemini-cli:gemini-3.6-flash
 3dcv render &lt;slug&gt;          # 8 canonical views
 3dcv texture pass &lt;slug&gt;     # text-to-image material pass
 python -m http.server -d . 8931   # this page: /docs/teaser.html</pre>

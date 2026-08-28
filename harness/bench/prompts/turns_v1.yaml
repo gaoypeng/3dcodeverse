@@ -7,7 +7,7 @@
 # Run with:
 #   python bench/ab_plan.py --prompts bench/prompts/turns_v1.yaml --out bench/out/turns_v1 \
 #     --pin-plan --variant-env CV3D_FEWER_TURNS=1 \
-#     --generator api-agent:gemini:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview \
+#     --generator gemini-cli:gemini-3.6-flash --judge gemini:gemini-3.1-pro-preview \
 #     --rounds 3 --max-minutes 120 --max-in-flight 8 --allow-siblings
 name: turns_v1
 track: static_object

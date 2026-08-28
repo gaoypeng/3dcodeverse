@@ -93,7 +93,7 @@ def _planner_defaults() -> dict[str, Any]:
 
 def _generator_defaults(model_id: str) -> dict[str, Any]:
     """Only the in-process ``api-agent`` exposes sampling knobs; CLI agents own theirs."""
-    if backend_kind(model_id) != "api-agent":
+    if backend_kind(model_id) != "api-agent":   # historical runs only (backend deleted 2026-08-28)
         return {}
     try:
         from codeverse.contracts.agent import ApiAgentOptions

@@ -49,8 +49,14 @@ class FakeChat:
 
 
 class FakeAgent:
-    kind = "api-agent"
-    model = "gemini:gemini-3.7-flash"
+    """A backend whose individual model calls already reach the ledger.  Until
+    2026-08-28 the in-process ``api-agent`` was the only one and the KIND decided;
+    every shipped backend is a vendor CLI now, so a self-metering backend declares
+    itself with ``meters_own_calls`` — that seam is what these tests pin."""
+
+    kind = "self-metering"
+    meters_own_calls = True
+    model = "gemini:gemini-3.6-flash"
 
     def __init__(self, chat, turns: int = 3):
         self.chat, self.turns, self.seen_turns = chat, turns, 0
@@ -74,6 +80,7 @@ class FakeAgent:
 
 class CliAgent(FakeAgent):
     kind = "gemini-cli"
+    meters_own_calls = False   # a vendor CLI bills as ONE session row
 
     def run(self, job: AgentJob) -> AgentResult:
         self.seen_turns = job.max_turns
@@ -102,7 +109,7 @@ def test_a_failed_call_is_recorded_and_re_raised(tmp_path: Path):
     assert row.outcome == "timeout" and row.stage is Stage.PLAN and row.cost_usd == 0.0
 
 
-def test_api_agent_turns_are_metered_once_each_with_the_job_round(tmp_path: Path):
+def test_self_metered_turns_are_recorded_once_each_with_the_job_round(tmp_path: Path):
     chat = MeteredChatModel(FakeChat())
     with run_ledger(tmp_path, run="r1"):
         MeteredAgent(FakeAgent(chat)).run(AgentJob(workspace=str(tmp_path), prompt="p", label="refine",
@@ -160,7 +167,7 @@ def test_the_proxy_forwards_everything_else():
     assert m.id == "gemini:gemini-3.7-flash" and m.provider == "gemini" and m.supports_vision()
     assert m.pool == "the-key-pool"
     agent = MeteredAgent(FakeAgent(chat))
-    assert agent.kind == "api-agent" and agent.available() == (True, "ok")
+    assert agent.kind == "self-metering" and agent.available() == (True, "ok")
 
 
 def test_get_chat_model_hands_out_a_metered_model(monkeypatch: pytest.MonkeyPatch):
@@ -252,7 +259,8 @@ def test_a_backend_may_declare_that_it_meters_itself(tmp_path: Path):
     from codeverse.cost.instrument import meters_own_calls
 
     cli = CliAgent(FakeChat())
-    assert meters_own_calls(cli) is False and meters_own_calls(FakeAgent(FakeChat())) is True
+    assert meters_own_calls(cli) is False            # a vendor CLI bills as one session
+    assert meters_own_calls(FakeAgent(FakeChat())) is True   # ...unless it declares otherwise
     cli.meters_own_calls = True  # type: ignore[attr-defined]
     assert meters_own_calls(cli) is True
 

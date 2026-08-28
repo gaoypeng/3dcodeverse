@@ -4,9 +4,14 @@ Backend harness (python package `codeverse`, CLI `3dcodeverse` / short alias `3d
 repo path `/home/yipeng/3dcodeverse/harness`) for LLM-written **raw** 3D code:
 Blender bpy · CadQuery · Three.js · URDF · GLSL / OpenGL, across four tracks
 (`static_object`, `articulated_object`, `scene`, `graphics`), with pluggable
-backends (Gemini/Anthropic/OpenAI APIs + gemini-cli / claude-code / codex /
-antigravity / in-process api-agent / single-shot), an optional text-to-image
-texture pass, and a data-flywheel record per run.
+backends.  **The coding agent is always a VENDOR's** — gemini-cli / claude-code /
+codex / antigravity — and the harness supplies the workspace, the prompt and its 20
+3D tools (over MCP), then reads the result.  The harness's OWN api use is planning,
+judging, single-shot file generation and the texture pass (Gemini/Anthropic/OpenAI).
+It does not implement an agent loop: the in-process `api-agent` was deleted
+2026-08-28 (owner's call — reimplementing what the vendors already ship was never
+this project's job).  Plus an optional text-to-image texture pass and a
+data-flywheel record per run.
 
 Read `docs/ARCHITECTURE.md` (design, package map, authoring contracts, what a run
 really does, known limits), `docs/INTERFACES.md` (binding cross-package signatures as
@@ -86,7 +91,7 @@ cd /home/yipeng/3dcodeverse/harness
 3dcv bench run bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview
 python -m codeverse.judges.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 python bench/complexity_report.py bench/out --recursive   # score-vs-complexity + $/complexity point (docs/COMPLEXITY.md)
-python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:api-agent:gemini:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
+python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
 python -m pytest tests -q -m "not live"            # ~860 offline tests; add "and not blender and not node" for pure python
 ```
 

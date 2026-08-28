@@ -2,7 +2,7 @@
 
     python bench/ab_plan.py --prompts bench/prompts/static_objects_v2.yaml \\
         --variant-env CV3D_PLAN_BRIEF=on --out bench/out/ab_brief \\
-        [--generator api-agent:gemini:gemini-3.7-flash] [--judge gemini:gemini-3.1-pro-preview] \\
+        [--generator gemini-cli:gemini-3.6-flash] [--judge gemini:gemini-3.1-pro-preview] \\
         [--rounds 2] [--max-usd 2.5] [--ids a,b] [--wait-for-provider 60] [--redo-status infra_failed]
 
 The only thing that differs between the arms is the ``--variant-env`` block, applied to
@@ -114,7 +114,7 @@ from codeverse.workspace import Workspace  # noqa: E402
 
 log = logging.getLogger(__name__)
 
-DEFAULT_GENERATOR = "api-agent:gemini:gemini-3.7-flash"
+DEFAULT_GENERATOR = "gemini-cli:gemini-3.6-flash"
 DEFAULT_JUDGE = "gemini:gemini-3.1-pro-preview"
 #: the per-child cap.  The flat name is a first-class alias of ``CV3D_RATE__MAX_IN_FLIGHT``
 #: since 2026-08-24 (``Settings._FLAT_ALIASES``; before that it was read by nothing) and

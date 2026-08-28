@@ -2,7 +2,7 @@
 # one track + language (bench/run_bench.py).  Cross-language prompts inside a track use
 # the per-prompt `language:` override.  These four files ARE the source; edit them here.
 # Regenerate: python /tmp/claude-1000/-home-yipeng/256e9f01-5a86-4d6d-9b4b-3d662f71921d/scratchpad/teaser/make_batteries.py
-# Heroes (run with codex:gpt-5.6-sol, everything else api-agent:gemini:gemini-3.7-flash): (none)
+# Heroes (run with codex:gpt-5.6-sol, everything else gemini-cli:gemini-3.6-flash): (none)
 name: teaser_v1_graphics
 track: graphics
 language: glsl_shader

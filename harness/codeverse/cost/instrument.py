@@ -94,7 +94,11 @@ def per_call_metering() -> bool:
 #: session whose turns ran in another thread looked unmetered and was counted
 #: twice.  The backend either meters itself or it does not; that is a property of
 #: the backend, not of what happened to run alongside it.
-IN_PROCESS_AGENT_KINDS = frozenset({"api-agent"})
+#: empty since 2026-08-28: the in-process ``api-agent`` was the only backend whose
+#: individual model calls landed on the ledger by themselves.  A vendor CLI bills as one
+#: session row.  Kept (rather than deleted) because ``meters_own_calls`` is the seam a
+#: future self-metering backend would declare itself through.
+IN_PROCESS_AGENT_KINDS: frozenset[str] = frozenset()
 
 
 def meters_own_calls(agent: Any) -> bool:

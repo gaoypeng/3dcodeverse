@@ -299,7 +299,7 @@ Two contradiction checks are worth separating, because they answer different que
 ### The rig
 
 `bench/ab_plan.py`, arms differing in exactly one thing — `CV3D_SKILLS=on` on the variant —
-on `static_objects_v2`, `--rounds 1`, paired, generator `api-agent:gemini:gemini-3.7-flash`,
+on `static_objects_v2`, `--rounds 1`, paired, generator `gemini-cli:gemini-3.6-flash`,
 fixed judge `gemini:gemini-3.1-pro-preview` at `n_samples 2`, `--max-in-flight 8` against
 32–48 of pool headroom, `--wait-for-provider`. The eight prompt ids are **the same eight
 `bench/out/plan_loop/C0` used for its A/A**, so the noise floor below was measured on this

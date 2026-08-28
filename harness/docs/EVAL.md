@@ -54,7 +54,7 @@ deterministic contract check.
 
 ```bash
 3dcv bench run bench/prompts/static_objects_v1.yaml \
-    --generator api-agent:gemini:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview \
+    --generator gemini-cli:gemini-3.6-flash --judge gemini:gemini-3.1-pro-preview \
     --rounds 2 --max-usd 2.5 --parallel 4 --out bench/out/static_v1_apiagent
 3dcv bench run bench/prompts/static_objects_v1.yaml --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
 3dcv bench report bench/out/static_v1_apiagent
@@ -80,7 +80,7 @@ cheaply.
 
 ```bash
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
-    --arms harness:api-agent:gemini:gemini-3.7-flash,harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
+    --arms harness:gemini-cli:gemini-3.6-flash,harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
     --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1 [--parallel 3] [--limit N] [--ids a,b]
     [--rounds 3] [--max-usd 2.5] [--loop-judge gemini:gemini-3.7-flash] [--repair-attempts 2] [--gen-timeout 900]
     [--no-pairwise] [--no-resume] [--report-only]
@@ -116,7 +116,7 @@ unstated effort silently changes what a codex arm measures.
 
 ### Codex tiers — results (compare_v3, verified 2026-08-24)
 
-**Incomplete: `harness:codex:gpt-5.6-sol` has 2 evaluated cells, `harness:api-agent:gemini:gemini-3.7-flash` 2, `oneshot:gemini:gemini-3.7-flash` 7; harness terra / luna have none** — flash (the planner) answered on 0/6 keys and pro (the judge) intermittently for the whole window, so only the 8 compare_v2 prompts are covered and none of compare_v3's 4 new prompts has run.  Full table, per-prompt grid and re-pricing notes: `bench/out/codex_tiers_v3/report.md`.
+**Incomplete: `harness:codex:gpt-5.6-sol` has 2 evaluated cells, `harness:gemini-cli:gemini-3.6-flash` 2, `oneshot:gemini:gemini-3.7-flash` 7; harness terra / luna have none** — flash (the planner) answered on 0/6 keys and pro (the judge) intermittently for the whole window, so only the 8 compare_v2 prompts are covered and none of compare_v3's 4 new prompts has run.  Full table, per-prompt grid and re-pricing notes: `bench/out/codex_tiers_v3/report.md`.
 
 Fixed judge `gemini:gemini-3.1-pro-preview` for every cell; `infra_failed` / outage-text cells excluded (`dropped`), not scored 0; codex USD re-priced from recorded tokens with `codeverse.models.pricing` (terra/luna price rows post-date the runs, so `results.jsonl` shows 0.00 for terra).  All 44 codex invocations (24 one-shot argv, 20 harness trajectory argv) carry `--model gpt-5.6-<tier>` and `-c model_reasoning_effort=high`; the un-tiered `oneshot:codex` arm resolves to sol@high via `~/.codex/config.toml`.
 
@@ -125,7 +125,7 @@ Fixed judge `gemini:gemini-3.1-pro-preview` for every cell; `infra_failed` / out
 | harness:codex:gpt-5.6-sol | 2 | 0 | 0.928 | 0.928 | 2/2 | 100% | 0.26 | 6.97 | 7.23 |
 | oneshot:codex (config = sol@high) | 8 | 0 | 0.637 | 0.600 | 1/8 | 100% | 0 | 0.33 | 2.60 |
 | oneshot:codex:gpt-5.6-sol | 8 | 0 | 0.627 | 0.600 | 1/8 | 100% | 0 | 0.34 | 2.74 |
-| harness:api-agent:gemini:gemini-3.7-flash | 2 | 0 | 0.600 | 0.600 | 0/2 | 100% | 0.64 | 0 | — |
+| harness:gemini-cli:gemini-3.6-flash | 2 | 0 | 0.600 | 0.600 | 0/2 | 100% | 0.64 | 0 | — |
 | oneshot:codex:gpt-5.6-terra | 8 | 0 | 0.481 | 0.551 | 2/8 | 88% | 0 | 0.14 | 0.55 |
 | oneshot:claude-code | 8 | 0 | 0.472 | 0.600 | 0/8 | 75% | 0 | 1.17 | — |
 | oneshot:codex:gpt-5.6-luna | 8 | 0 | 0.344 | 0.324 | 1/8 | 75% | 0 | 0.01 | 0.11 |
@@ -259,7 +259,7 @@ verdict rule is blunt on purpose (`bench/_ab_report.verdict_of`, stated once):
 
 **That rule is a screen, not a proof, and the numbers say by how much.**  Measured
 2026-08-24 with two A/A runs — arms identical by construction — on the *same* prompt
-`ctrl_med_dining_chair` at rounds 1, `api-agent:gemini:gemini-3.7-flash`, fixed judge
+`ctrl_med_dining_chair` at rounds 1, `gemini-cli:gemini-3.6-flash`, fixed judge
 `gemini-3.1-pro-preview` n=2:
 
 | run | control | variant | delta | verdict the rule printed |

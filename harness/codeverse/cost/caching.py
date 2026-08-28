@@ -192,7 +192,7 @@ def session_key(label: str) -> str:
     A session is what shares a prompt prefix: every turn of one agent session,
     every sample of one verdict."""
     parts = [p for p in (label or "").split(":") if p]
-    if parts and parts[0] == "api-agent":
+    if parts and parts[0] == "api-agent":   # historical ledgers only (backend deleted 2026-08-28)
         parts = parts[1:]
     while parts and len(parts[-1]) > 1 and parts[-1][0] in "tsr" and parts[-1][1:].isdigit():
         parts = parts[:-1]

@@ -290,7 +290,7 @@ expected to reach:
 
 ```
 3dcv bench run bench/prompts/complexity_v3.yaml --out bench/out/complexity_v3 \
-     --generator api-agent:gemini:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview
+     --generator gemini-cli:gemini-3.6-flash --judge gemini:gemini-3.1-pro-preview
 python bench/complexity_report.py bench/out/complexity_v3 --battery bench/prompts/complexity_v3.yaml
 ```
 
@@ -305,7 +305,7 @@ number the next wave should move.
 ## 5. Live check: three `static_objects_v2` prompts re-run (2026-08-24)
 
 Re-run on the current tree with the same generator and judge as their recorded
-baselines (`api-agent:gemini:gemini-3.7-flash` / `gemini-3.1-pro-preview`), and
+baselines (`gemini-cli:gemini-3.6-flash` / `gemini-3.1-pro-preview`), and
 scored against the recorded run of the same prompt:
 
 | run / arm | index | parts | tris | silhouette | feature density | hollow | overall | detail | fit | materials | $ | min |

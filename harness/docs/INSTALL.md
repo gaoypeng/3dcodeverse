@@ -359,7 +359,7 @@ export GEMINI_API_KEYS="key1,key2,key3"        # e.g. in ~/.bashrc
 ### 8.2 Subscription CLIs (all optional)
 
 Only needed if you want `--generator gemini-cli:… | claude-code:… | codex:… | agy:…`.
-The default generator (`api-agent:gemini:gemini-3.7-flash`) needs none of them.
+The default generator (`gemini-cli:gemini-3.6-flash`) needs none of them.
 
 ```bash
 npm i -g @google/gemini-cli        # gemini   (0.53.0 here)

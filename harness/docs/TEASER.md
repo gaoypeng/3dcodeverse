@@ -49,7 +49,7 @@ rebuilt (§5).
 | 05 graphics | Accretion disc | GLSL | flash | 0.753 | reads |
 | 05 graphics | Rain on a window | GLSL | flash | 0.909 | usable |
 
-`flash` = `api-agent:gemini:gemini-3.7-flash`.  Judge = `gemini-3.1-pro-preview`
+`flash` = `gemini-cli:gemini-3.6-flash`.  Judge = `gemini-3.1-pro-preview`
 (flash × 3 fallback).  Per card the page shows: the prompt, the language(s), the generator,
 the judged score, the round count, the wall-clock, the run slug, and an honest note.
 
@@ -117,10 +117,10 @@ suffixed `_v2` / `_v3`, with the CLI flags that are not expressible in `BenchPro
 (`--style`, `--must-not`, `--candidates`, `--profile`) recorded as comments above it.
 
 ```
-3dcv bench run bench/prompts/teaser_v1_static.yaml      --generator api-agent:gemini:gemini-3.7-flash
-3dcv bench run bench/prompts/teaser_v1_articulated.yaml --generator api-agent:gemini:gemini-3.7-flash
-3dcv bench run bench/prompts/teaser_v1_scene.yaml       --generator api-agent:gemini:gemini-3.7-flash
-3dcv bench run bench/prompts/teaser_v1_graphics.yaml    --generator api-agent:gemini:gemini-3.7-flash
+3dcv bench run bench/prompts/teaser_v1_static.yaml      --generator gemini-cli:gemini-3.6-flash
+3dcv bench run bench/prompts/teaser_v1_articulated.yaml --generator gemini-cli:gemini-3.6-flash
+3dcv bench run bench/prompts/teaser_v1_scene.yaml       --generator gemini-cli:gemini-3.6-flash
+3dcv bench run bench/prompts/teaser_v1_graphics.yaml    --generator gemini-cli:gemini-3.6-flash
 ```
 
 The three hero pieces used `--generator codex:gpt-5.6-sol` instead (penny-farthing, radial

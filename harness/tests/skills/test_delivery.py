@@ -26,10 +26,12 @@ def test_a_native_loader_is_never_handed_a_second_index():
 
 
 def test_a_loaderless_backend_gets_both_the_index_and_the_tool():
-    """Measured 2026-08-25: the three native loaders read 5 of 5 routed bundles; api-agent
-    read 0 of 5 from a MANDATORY paragraph while making 52 read_file calls.  Prose is not
-    an affordance, so a backend without a loader gets the routed set as a tool."""
-    d = delivery_for("api-agent")
+    """Measured 2026-08-25: the native loaders read 5 of 5 routed bundles while a
+    loaderless backend read 0 of 5 from a MANDATORY paragraph, making 52 read_file calls
+    instead.  Prose is not an affordance.  Every SHIPPED backend has a native loader
+    since the in-process one was deleted (2026-08-28), so this is the policy for a
+    backend nobody has classified."""
+    d = delivery_for("some-future-cli")
     assert not d.native_loader and d.needs_index and d.needs_tool
 
 
@@ -44,14 +46,14 @@ def test_an_unclassified_backend_gets_the_safe_answer():
 def test_a_qualified_kind_resolves_to_its_backend():
     """`codex:gpt-5.6-sol` is codex; the model suffix must not fall through to unknown."""
     assert delivery_for("codex:gpt-5.6-sol") == delivery_for("codex")
-    assert delivery_for("api-agent:gemini:gemini-3.7-flash") == delivery_for("api-agent")
+    assert delivery_for("gemini-cli:gemini-3.6-flash") == delivery_for("gemini-cli")
 
 
 def test_claude_code_reads_its_own_root_and_nobody_else_does():
     """Read out of the shipped binaries, not assumed: claude-code 2.1 has no `.agents`
     skill root at all, and the other three have no `.claude` one."""
     assert delivery_for("claude-code").root == CLAUDE_SKILL_ROOT
-    for kind in ("codex", "gemini-cli", "agy", "api-agent"):
+    for kind in ("codex", "gemini-cli", "agy"):
         assert delivery_for(kind).root == AGENTS_SKILL_ROOT, kind
 
 
@@ -71,7 +73,7 @@ def test_adding_a_backend_is_one_row():
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[2] / "codeverse"
-    names = ("claude-code", "gemini-cli", "api-agent")
+    names = ("claude-code", "gemini-cli", "codex")
     offenders = []
     for py in (root / "skills").rglob("*.py"):
         if py.name in ("delivery.py", "prompting.py"):
@@ -83,61 +85,9 @@ def test_adding_a_backend_is_one_row():
 
 
 # ------------------------------------------------------------------ the read_skill tool
-def _workspace_with_skills(tmp_path, agent_kind="api-agent"):
-    from codeverse.agents.materialize import materialize_workspace
-    from codeverse.skills import attach_skills
-    from codeverse.workspace import Workspace
-
-    ws = Workspace(tmp_path / "ws")
-    ws.create()
-    materialize_workspace(ws, agent_kind=agent_kind, contract_md="(contract)",
-                          cookbook_rel=".c3v/cookbook.md", spatial_tools=False, mcp_command=[])
-    attach_skills(ws.root, track="static_object", language="blender", kind="baseline",
-                  agent_kind=agent_kind)
-    return ws
 
 
-def test_the_tool_discovers_the_routed_set_off_the_workspace(tmp_path):
-    """Not threaded through AgentJob: the bundles are already on disk for this round, so
-    the tool reads what was actually written and cannot disagree with it."""
-    from codeverse.agents.api_skills import SkillTools
-
-    st = SkillTools(_workspace_with_skills(tmp_path))
-    assert st.listed, "nothing discovered"
-    spec = st.specs()[0]
-    assert spec.name == "read_skill"
-    assert spec.parameters["properties"]["name"]["enum"] == st.listed
-    for name in st.listed:
-        assert name in spec.description, "the model must be able to choose without opening one"
-
-
-def test_the_read_control_is_never_offered(tmp_path):
-    """It exists to catch a probe reporting a read nobody made; offering it would invite
-    exactly that."""
-    from codeverse.agents.api_skills import SkillTools
-    from codeverse.skills.materialize import CONTROL_NAME
-
-    assert CONTROL_NAME not in SkillTools(_workspace_with_skills(tmp_path)).listed
-
-
-def test_reading_records_ground_truth_and_rejects_an_unrouted_name(tmp_path):
-    from codeverse.agents.api_skills import SkillTools
-
-    st = SkillTools(_workspace_with_skills(tmp_path))
-    first = st.listed[0]
-    out = st.read_skill(first)
-    assert not out.is_error and len(out.text) > 200
-    assert st.reads == [first], "the read rate needs ground truth, not a probe"
-    bad = st.read_skill("cv3d-not-routed")
-    assert bad.is_error and "not routed" in bad.text
-    assert st.reads == [first], "a rejected call must not count as a read"
-
-
-def test_a_workspace_with_no_skills_advertises_no_tool(tmp_path):
-    """The feature being off must not leave a tool that always errors."""
-    from codeverse.agents.api_skills import SkillTools
-    from codeverse.workspace import Workspace
-
-    ws = Workspace(tmp_path / "bare")
-    ws.create()
-    assert SkillTools(ws).specs() == []
+# The in-process skill-reading TOOL (agents/api_skills.py) went with the api-agent on
+# 2026-08-28: every remaining backend is a vendor CLI with a native loader, so a bundle
+# is delivered as files and read by the vendor's own mechanism.  The four tests that
+# drove that tool are gone with it; delivery_for() above still pins the routing policy.

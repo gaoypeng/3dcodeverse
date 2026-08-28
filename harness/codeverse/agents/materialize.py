@@ -90,8 +90,6 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str]) 
             "`python -m codeverse.cli.main tools <name> --json '{\"arg\": \"value\"}'` "
             "(run from the workspace root; prints the observation as text + JSON)."
         )
-    elif agent_kind == "api-agent":
-        how = "Tools are native function calls with exactly the names below."
     elif agent_kind == "gemini-cli":
         how = (
             f"Tools are exposed by the MCP server `{MCP_SERVER_NAME}`; they appear in your tool list as "

@@ -164,11 +164,11 @@ def test_an_explicit_flag_beats_the_profile(tmp_path: Path):
     runs = tmp_path / "runs"
     r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run",
                             "--profile", "economy", "--rounds", "4", "--max-usd", "9",
-                            "--generator", "api-agent:gemini:gemini-3.7-flash"])
+                            "--generator", "gemini-cli:gemini-3.6-flash"])
     assert r.exit_code == 0, r.output
     spec = json.loads(next(runs.iterdir()).joinpath("spec.json").read_text())
     assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_usd"] == 9.0
-    assert spec["backends"]["generator"] == "api-agent:gemini:gemini-3.7-flash"
+    assert spec["backends"]["generator"] == "gemini-cli:gemini-3.6-flash"
     assert spec["backends"]["judge"] == "gemini:gemini-3.7-flash"  # unstated → still the profile's
 
 
@@ -235,12 +235,12 @@ def test_the_flag_and_the_env_var_resolve_to_the_same_dial(name, monkeypatch):
                      "rounds": 2, "candidates": 1, "texture": False,
                      "judge_max_px": 1024, "judge_montages": 3, "judge_detail_crops": 2,
                      "agent_max_turns": 0, "max_usd": 1.50, "max_minutes": 30.0}),
-        ("balanced", {"generator": "api-agent:gemini:gemini-3.7-flash",
+        ("balanced", {"generator": "gemini-cli:gemini-3.6-flash",
                       "judge": "gemini:gemini-3.1-pro-preview", "judge_samples": 1,
                       "rounds": 4, "candidates": 1, "texture": False,
                       "judge_max_px": 1024, "judge_montages": 3, "judge_detail_crops": 2,
                       "agent_max_turns": 0, "max_usd": 5.0, "max_minutes": 60.0}),
-        ("quality", {"generator": "api-agent:gemini:gemini-3.7-flash",
+        ("quality", {"generator": "gemini-cli:gemini-3.6-flash",
                      "judge": "gemini:gemini-3.1-pro-preview", "judge_samples": 3,
                      "rounds": 4, "candidates": 2, "texture": True,
                      "judge_max_px": 1024, "judge_montages": 3, "judge_detail_crops": 2,

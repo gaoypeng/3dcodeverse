@@ -22,7 +22,7 @@ LEAD = dict(
 
 STATIC = [
     dict(id="arcade", title="Arcade cabinet", slug="tsr_tjs_arcade_cabinet",
-         langs=["three.js"], gen="api-agent:gemini:gemini-3.7-flash", score=0.948, verdict="reads",
+         langs=["three.js"], gen="gemini-cli:gemini-3.6-flash", score=0.948, verdict="reads",
          rounds="1 round", mins="34 min",
          prompt="an upright 1980s arcade cabinet: a sloped control panel with a ball-top joystick and six "
                 "buttons, a recessed CRT screen behind a bezel, a glowing backlit marquee, a speaker grille, "
@@ -36,7 +36,7 @@ STATIC = [
          media=[("img", "arcade", "hero · low front left"), ("gif", "tt_arcade", "turntable"),
                 ("img", "arcade_sheet", "8 canonical views")]),
     dict(id="lighthouse", title="Coastal lighthouse", slug="tsr_obj_lighthouse",
-         langs=["Blender · bpy", "text-to-image texture"], gen="api-agent:gemini:gemini-3.7-flash",
+         langs=["Blender · bpy", "text-to-image texture"], gen="gemini-cli:gemini-3.6-flash",
          score=0.7277, verdict="reads", rounds="3 rounds", mins="51 min",
          prompt="a coastal lighthouse on a rock plinth: a tapered stone tower with painted bands, a corbelled "
                 "gallery with a railing, a glazed lantern room with a fresnel lens and a domed copper roof with "
@@ -50,7 +50,7 @@ STATIC = [
          media=[("img", "lighthouse", "hero · low front left"), ("gif", "tt_lighthouse", "turntable"),
                 ("img", "lighthouse_sheet", "8 canonical views")]),
     dict(id="gramophone", title="Wind-up gramophone", slug="tsr_obj_gramophone",
-         langs=["Blender · bpy"], gen="api-agent:gemini:gemini-3.7-flash", score=0.75, verdict="reads",
+         langs=["Blender · bpy"], gen="gemini-cli:gemini-3.6-flash", score=0.75, verdict="reads",
          rounds="1 round", mins="48 min",
          prompt="an antique wind-up gramophone: a big flared brass horn on an elbow, an oak case with a felted "
                 "turntable and a shellac record, a curved tonearm with a sound box, a crank handle on the side "
@@ -86,7 +86,7 @@ STATIC = [
          media=[("img", "radial", "hero · front right ¾"), ("gif", "tt_radial", "turntable"),
                 ("img", "radial_sheet", "8 canonical views")]),
     dict(id="chandelier", title="Art-deco chandelier", slug="tsr_tjs_deco_chandelier_v2",
-         langs=["three.js"], gen="api-agent:gemini:gemini-3.7-flash", score=0.60, verdict="usable",
+         langs=["three.js"], gen="gemini-cli:gemini-3.6-flash", score=0.60, verdict="usable",
          rounds="4 rounds", mins="86 min", rerun="second attempt",
          prompt="an art-deco brass chandelier dripping with cut crystal: a stepped brass ceiling canopy and a "
                 "chain drop to a fluted central stem; two tiers of curved brass arms, six above and eight below, "
@@ -108,7 +108,7 @@ STATIC = [
 
 ARTIC = [
     dict(id="rollcab", title="Rolling tool chest", slug="tsr_art_roll_cabinet",
-         langs=["URDF", "Blender · bpy"], gen="api-agent:gemini:gemini-3.7-flash", score=0.957,
+         langs=["URDF", "Blender · bpy"], gen="gemini-cli:gemini-3.6-flash", score=0.957,
          verdict="reads", rounds="1 round", mins="31 min",
          prompt="a red steel rolling tool chest: seven drawers of three different heights on slides, full-width "
                 "chrome pulls, a hinged top lid over a shallow tray, a push handle on one end and four castors",
@@ -125,7 +125,7 @@ ARTIC = [
                 ("img", "rollcab_art", "articulation sheet · every joint"),
                 ("img", "rollcab_sheet", "8 canonical views")]),
     dict(id="clock", title="Longcase clock", slug="tsr_art_grandfather_clock_v2",
-         langs=["URDF", "Blender · bpy"], gen="api-agent:gemini:gemini-3.7-flash", score=0.9469,
+         langs=["URDF", "Blender · bpy"], gen="gemini-cli:gemini-3.6-flash", score=0.9469,
          verdict="reads", rounds="2 rounds", mins="98 min", rerun="second attempt",
          prompt="a longcase grandfather clock in dark figured walnut with working articulation: a broken-arch "
                 "bonnet with two turned finials over reeded columns, a warm brass dial with a silvered chapter "
@@ -151,7 +151,7 @@ ARTIC = [
 
 SCENES = [
     dict(id="alley", title="Neon alley", slug="tsr_scn_neon_alley_v2",
-         langs=["three.js", "GLSL"], gen="api-agent:gemini:gemini-3.7-flash", score=0.8267,
+         langs=["three.js", "GLSL"], gen="gemini-cli:gemini-3.6-flash", score=0.8267,
          verdict="reads", rounds="5 rounds", mins="75 min", rerun="second attempt",
          prompt="a rain-soaked neon alley at night, seen down a narrow corridor between two TALL buildings whose "
                 "walls fill the left and right thirds of the frame and rise out of the top of shot. MATERIALS AND "
@@ -173,7 +173,7 @@ SCENES = [
                 ("alley_sign", "SignDetail · emissive signage")],
          sheet=("alley_sheet", "all authored cameras, both times")),
     dict(id="boat", title="Boatbuilder's workshop", slug="tsr_scn_boat_workshop_v2",
-         langs=["three.js", "GLSL", "Blender · bpy"], gen="api-agent:gemini:gemini-3.7-flash", score=0.747,
+         langs=["three.js", "GLSL", "Blender · bpy"], gen="gemini-cli:gemini-3.6-flash", score=0.747,
          verdict="reads", rounds="4 rounds", mins="81 min", rerun="second attempt", ml=True,
          prompt="INSIDE a boatbuilder's workshop at dusk — a FULLY ENCLOSED INTERIOR. THE ENCLOSURE IS THE "
                 "ENVIRONMENT AND MUST BE BUILT FIRST: a rectangular timber shed about 16 m x 10 m x 6 m high with "
@@ -225,7 +225,7 @@ SCENES = [
 
 GFX = [
     dict(id="aurora", title="Aurora over a ridge", slug="tsr_gfx_aurora_ridge_v3",
-         langs=["GLSL · fragment shader"], gen="api-agent:gemini:gemini-3.7-flash", score=0.94,
+         langs=["GLSL · fragment shader"], gen="gemini-cli:gemini-3.6-flash", score=0.94,
          verdict="reads", rounds="1 round", mins="14 min", rerun="third attempt",
          prompt="an aurora over a snowy ridge on a black winter night, painted in three clean horizontal bands. "
                 "TOP TWO THIRDS — the sky: near-black deep-blue, crowded with thousands of small crisp white stars, "
@@ -244,7 +244,7 @@ GFX = [
          media=[("img", "aurora", "t = 2.5 s"), ("gif", "tt_aurora", "animated preview"),
                 ("img", "aurora_strip", "frames at 0 / 1 / 2.5 / 4 / 6 s")]),
     dict(id="murmur", title="Starling murmuration", slug="tsr_ogl_murmuration",
-         langs=["Python · OpenGL", "GLSL"], gen="api-agent:gemini:gemini-3.7-flash", score=0.865,
+         langs=["Python · OpenGL", "GLSL"], gen="gemini-cli:gemini-3.6-flash", score=0.865,
          verdict="reads", rounds="4 rounds", mins="43 min",
          prompt="a starling murmuration at dusk: several thousand instanced birds flocking with cohesion, "
                 "separation and alignment around a slowly moving attractor, their dark silhouettes thickening and "
@@ -261,7 +261,7 @@ GFX = [
          media=[("img", "murmur", "t = 1 s"), ("gif", "tt_murmur", "animated preview"),
                 ("img", "murmur_strip", "frames at 0 / 1 / 2.5 / 4 / 6 s")]),
     dict(id="accretion", title="Accretion disc", slug="tsr_gfx_accretion_disc",
-         langs=["GLSL · fragment shader"], gen="api-agent:gemini:gemini-3.7-flash", score=0.753,
+         langs=["GLSL · fragment shader"], gen="gemini-cli:gemini-3.6-flash", score=0.753,
          verdict="reads", rounds="2 rounds", mins="33 min",
          prompt="a black hole with a glowing accretion disc: a pure black sphere ringed by a thin bright photon "
                 "ring, a hot orange-white disc of turbulent filaments orbiting it with the approaching side "
@@ -278,7 +278,7 @@ GFX = [
          media=[("img", "accretion", "t = 2.5 s"), ("gif", "tt_accretion", "animated preview"),
                 ("img", "accretion_strip", "frames at 0 / 1 / 2.5 / 4 / 6 s")]),
     dict(id="rain", title="Rain on a window", slug="tsr_gfx_rain_window",
-         langs=["GLSL · fragment shader"], gen="api-agent:gemini:gemini-3.7-flash", score=0.9087,
+         langs=["GLSL · fragment shader"], gen="gemini-cli:gemini-3.6-flash", score=0.9087,
          verdict="usable", rounds="1 round", mins="7 min",
          prompt="raindrops running down a dark window in front of an out-of-focus neon city: each drop refracts a "
                 "tiny inverted image of the lights behind it, drops grow until they break loose and cut clean "

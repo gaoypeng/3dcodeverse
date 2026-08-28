@@ -118,7 +118,7 @@ PROFILES: dict[str, Profile] = {
     ),
     "balanced": Profile(
         name="balanced",
-        generator="api-agent:gemini:gemini-3.7-flash",
+        generator="gemini-cli:gemini-3.6-flash",
         planner="gemini:gemini-3.7-flash",
         judge="gemini:gemini-3.1-pro-preview",
         captioner="gemini:gemini-3.7-flash",
@@ -131,7 +131,7 @@ PROFILES: dict[str, Profile] = {
     ),
     "quality": Profile(
         name="quality",
-        generator="api-agent:gemini:gemini-3.7-flash",
+        generator="gemini-cli:gemini-3.6-flash",
         planner="gemini:gemini-3.7-flash",
         judge="gemini:gemini-3.1-pro-preview",
         captioner="gemini:gemini-3.7-flash",

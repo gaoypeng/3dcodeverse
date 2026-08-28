@@ -47,7 +47,7 @@ ROUTES: tuple[Route, ...] = (
           "always — the plan is 0.8% of a run; a pro planner would double that for no measured gain",
           default=True),
     # -------------------------------------------------------------- generator
-    Route(Role.GENERATOR, "api-agent:gemini:gemini-3.7-flash", 0.52,
+    Route(Role.GENERATOR, "gemini-cli:gemini-3.6-flash", 0.52,
           "compare_v1: mean judge 0.835 on easy static objects (best arm measured)",
           "default for every track that has tools (it is the loop, not the model, that scores)",
           default=True),

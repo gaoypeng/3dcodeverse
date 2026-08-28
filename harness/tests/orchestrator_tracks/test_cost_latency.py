@@ -129,11 +129,14 @@ def test_every_zone_gets_exactly_one_owner_file():
 
 
 # ----------------------------------------------------------------------------- single-shot assets
-def test_single_shot_agent_id_only_derives_from_api_backends():
-    assert single_shot_agent_id("api-agent:gemini:gemini-3.7-flash") == "single-shot:gemini:gemini-3.7-flash"
+def test_single_shot_needs_a_chat_model_not_a_coding_agent():
+    """Single-shot is ONE api call for an asset file — the cheap path before a full agent
+    session.  The coding agent is always a vendor CLI now (2026-08-28), which exposes no
+    chat model, so the model comes from the run's planner backend."""
+    assert single_shot_agent_id("gemini-cli:gemini-3.6-flash", "gemini:gemini-3.6-flash") == "single-shot:gemini:gemini-3.6-flash"
     assert single_shot_agent_id("single-shot:gemini:x") == "single-shot:gemini:x"
-    assert single_shot_agent_id("gemini-cli:gemini-3.7-flash") == ""   # CLI subscription: no chat model
-    assert single_shot_agent_id("claude-code:opus") == "" and single_shot_agent_id("fake:x") == ""
+    assert single_shot_agent_id("gemini-cli:gemini-3.6-flash") == ""       # no chat model given
+    assert single_shot_agent_id("claude-code:opus", "not-an-id") == ""     # not '<provider>:<model>'
 
 
 class _ChatServices(FakeServices):
