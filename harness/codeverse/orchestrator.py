@@ -115,7 +115,6 @@ class StateCorrupt(RuntimeError):
 
 # ===================================================================== runner
 # (merged from codeverse/orchestrator/runner.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -219,7 +218,6 @@ def _revive(data: dict[str, Any], model: type[BaseModel] | None, list_of: type[B
 
 # ===================================================================== refine_tasks
 # (merged from codeverse/orchestrator/refine_tasks.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 
 class RefineTask(BaseModel):
@@ -801,12 +799,8 @@ def _build_failed(r: RoundRecord) -> bool:
     return r.build is not None and not r.build.ok
 
 
-# ----------------------------------------------------------------------------- refine tasks
-
-
 # ===================================================================== budget
 # (merged from codeverse/orchestrator/budget.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 #: stage label used when a caller does not say where the money went
 OTHER_STAGE = "other"

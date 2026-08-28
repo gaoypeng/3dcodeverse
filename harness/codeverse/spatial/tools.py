@@ -59,8 +59,6 @@ from codeverse.spatial.tool_common import (
     tool_out_dir,
 )
 
-_STDERR_TAIL_LINES = 30
-
 
 # --------------------------------------------------------------------------- build
 def _measure_after_build(ctx: ToolContext, br: BuildResult) -> tuple[Measurement | None, str]:

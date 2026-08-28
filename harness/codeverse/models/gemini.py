@@ -15,7 +15,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 import httpx
 from google import genai
@@ -744,7 +744,6 @@ class GeminiModel:
 
 # ===================================================================== gemini_image
 # (merged from codeverse/models/gemini_image.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
 FALLBACK_IMAGE_MODEL = "gemini-2.5-flash-image"
@@ -757,36 +756,6 @@ IMAGE_USD: dict[str, float] = {
 
 #: requested pixel size → Gemini ``image_size`` token
 _IMAGE_SIZE_TOKEN: dict[int, str] = {512: "1K", 1024: "1K", 2048: "2K", 4096: "4K"}
-
-
-@runtime_checkable
-class ImageModel(Protocol):
-    """Text-to-image backend.  Implementations must be thread-safe."""
-
-    model: str
-
-    @property
-    def id(self) -> str: ...
-
-    def generate(
-        self,
-        prompt: str,
-        *,
-        size: int = 1024,
-        n: int = 1,
-        seed: int | None = None,
-        reference_images: Sequence[Image.Image | Path | str] = (),
-    ) -> list[Image.Image]: ...
-
-    def generate_with_usage(
-        self,
-        prompt: str,
-        *,
-        size: int = 1024,
-        n: int = 1,
-        seed: int | None = None,
-        reference_images: Sequence[Image.Image | Path | str] = (),
-    ) -> tuple[list[Image.Image], Usage]: ...
 
 
 def image_cost(model: str, usage: Usage, n_images: int) -> float:

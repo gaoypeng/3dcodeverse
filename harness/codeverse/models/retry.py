@@ -34,7 +34,7 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from functools import partial
-from typing import TYPE_CHECKING, Any, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Literal
 
 from codeverse.contracts.chat import ChatRequest, ImagePart, TextPart, ToolResultPart
 
@@ -126,7 +126,6 @@ class _KeyState:
     n_dead: int = 0
     n_acquired: int = 0
     tokens_used: int = 0
-    last_used: float = 0.0
     health_ts: float = 0.0
 
     def recover(self, now: float, rate: float = 0.01) -> None:
@@ -272,7 +271,6 @@ class KeyPool:
                     if chosen.tpm is not None and tokens_hint > 0:
                         chosen.tpm.try_take(float(tokens_hint), now)
                     chosen.n_acquired += 1
-                    chosen.last_used = now
                     self._in_flight += 1
                     self._peak_in_flight = max(self._peak_in_flight, self._in_flight)
                     return chosen.key
@@ -587,11 +585,9 @@ DEFAULT_HEDGE = 2
 
 if TYPE_CHECKING:  # pragma: no cover
     from codeverse.models.base import ModelError
-    from codeverse.models.retry import KeyPool, Outcome, StormGate
 
 log = logging.getLogger(__name__)
 
-T = TypeVar("T")
 
 OnRetry = Callable[[int, BaseException, float], None]
 

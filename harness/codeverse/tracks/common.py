@@ -117,9 +117,6 @@ class Services:
             return renders
         return fn(renders, max_n=max_n)
 
-    def contact_sheet(self, images: list[tuple[str, Path]], out: Path) -> Path:
-        return _import("codeverse.spatial.sheet", "contact_sheet")(images, out)
-
     def silhouette(self, render_png: Path | str, reference_png: Path | str) -> dict[str, Any]:
         """Outline IoU of a render vs a reference image (``{iou, reliable, ...}``)."""
         return _import("codeverse.spatial.silhouette", "compare_silhouette")(render_png, reference_png)

@@ -338,13 +338,6 @@ class BaseTrack:
                               kind="rebuild", temperature=0.7, thinking="high")
 
     # ------------------------------------------------------------------ public API
-    def plan(self, spec: Spec, ws: Workspace) -> Plan:
-        ws.create()
-        events = EventLog(ws.events_path)
-        runtime = self._runtime or self.services.runtime(spec.language)
-        return run_planner(spec, spec.backends.planner, self.plan_model, ws, model=self._planner_model,
-                           events=events, runtime=runtime, **self._plan_kwargs(spec))
-
     def run(self, spec: Spec, ws: Workspace, *, resume: bool = False, force: bool = False) -> RunRecord:
         ws.create()
         if not ws.spec_path.is_file() or not resume:

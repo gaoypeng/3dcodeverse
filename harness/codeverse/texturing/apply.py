@@ -508,7 +508,6 @@ def textured_summary(glb: Path | str) -> dict[str, int]:
 
 # ===================================================================== normalise
 # (merged from codeverse/texturing/normalise.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 
 class MaterialChange(BaseModel):

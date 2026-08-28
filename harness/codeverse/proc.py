@@ -653,7 +653,6 @@ def exclusive(run_root: Path | str, *, what: str = "", action: str = "enter") ->
 
 # ===================================================================== fanout
 # (merged from codeverse/fanout.py, 2026-08-28 — same stdlib-leaf layer as proc)
-log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 R = TypeVar("R")

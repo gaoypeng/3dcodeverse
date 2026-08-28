@@ -64,11 +64,6 @@ def round_record_path(ctx: RunContext, index: int) -> Path:
     return ctx.ws.root / "rounds" / f"r{index:02d}.json"
 
 
-def load_round_records(ctx: RunContext) -> list[RoundRecord]:
-    """Rounds persisted so far (sorted by index, contiguous prefix only)."""
-    return load_round_journal(ctx.ws)
-
-
 def load_round_journal(ws: Workspace) -> list[RoundRecord]:
     """The on-disk round journal: ``rounds/r*.json`` sorted, contiguous prefix only.
 

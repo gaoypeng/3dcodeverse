@@ -386,7 +386,6 @@ Rules:
 
 # ===================================================================== cache
 # (merged from codeverse/reference/cache.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 CACHE_SUBDIR = "references"
 
@@ -445,7 +444,6 @@ def image_dir(key: str, *, cache_dir: Path | None = None) -> Path:
 
 # ===================================================================== proportions
 # (merged from codeverse/reference/proportions.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 #: relative aspect disagreement above which the picture's proportions are not a target
 ASPECT_TOL = 0.25
@@ -527,7 +525,6 @@ def conflict_note(info: dict[str, Any]) -> str:
 
 # ===================================================================== gate
 # (merged from codeverse/reference/gate.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 
 class GateAnswer(BaseModel):
@@ -658,7 +655,6 @@ def attach(spec: Spec, refset: ReferenceSet) -> tuple[Spec, str]:
 
 # ===================================================================== synth
 # (merged from codeverse/reference/synth.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 MAX_VIEWS = len(VIEW_ORDER)
 DEFAULT_SIZE = 1024
@@ -822,7 +818,6 @@ def _publish(rs: ReferenceSet, out_dir: Path | None) -> ReferenceSet:
 
 # ===================================================================== mismatch
 # (merged from codeverse/reference/mismatch.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 MAX_MISMATCHES = 6
 #: how many mismatches become refine tasks
@@ -933,7 +928,6 @@ def refine_tasks(diff: ReferenceDiff, *, top: int = TOP_TASKS) -> list[Any]:
 
 # ===================================================================== run
 # (merged from codeverse/reference/run.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 ARTIFACT_SUBDIR = "reference"
 

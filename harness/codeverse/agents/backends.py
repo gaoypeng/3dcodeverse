@@ -618,7 +618,6 @@ class CodexAgent:
 
 # ===================================================================== antigravity
 # (merged from codeverse/agents/antigravity.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 #: reasoning efforts agy exposes for the models that have them
 EFFORTS = ("low", "medium", "high")

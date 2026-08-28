@@ -336,7 +336,6 @@ def generate_textures(
 
 # ===================================================================== gate
 # (merged from codeverse/texturing/gate.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 MIN_OVERALL_DELTA = -0.01
 MIN_MATERIALS_DELTA = 0.0

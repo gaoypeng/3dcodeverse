@@ -241,7 +241,6 @@ class VlmJudge:
 
 # ===================================================================== reference
 # (merged from codeverse/judges/reference.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 SilhouetteFn = Callable[[str, str], dict[str, Any]]
 
