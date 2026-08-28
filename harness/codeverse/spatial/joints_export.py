@@ -33,7 +33,6 @@ from codeverse.spatial.sheet import contact_sheet
 ARTICULATION_SHEET_NAME = "articulation_sheet.png"
 #: URDF (Z-up, -Y front) → glTF (Y-up, +Z front):  (x, y, z) → (x, z, -y)
 ZUP_TO_YUP = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float)
-YUP_TO_ZUP = ZUP_TO_YUP.T.copy()
 #: scene-graph base frame of the exported GLB (not a glTF node; must not collide with a link name)
 SCENE_BASE_FRAME = "__scene__"
 

@@ -36,7 +36,6 @@ MaterialFamily = Literal[
 Projection = Literal["box", "cylinder", "planar_y", "planar_z", "auto"]
 
 PLAN_TEMPLATE = "texturing/material_plan.md"
-STYLE_DOC = "texturing/image_prompt_style.md"
 #: parts whose largest extent is below this keep their flat material
 TINY_PART_M = 0.03
 

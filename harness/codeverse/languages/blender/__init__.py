@@ -333,12 +333,6 @@ def part_files(ws: Workspace) -> list[Path]:
     return sorted(p for p in d.glob("*.py") if not p.name.startswith("_"))
 
 
-def helper_files(ws: Workspace) -> list[Path]:
-    """Underscore-prefixed shared modules under ``src/parts/`` (linted, not required to export)."""
-    d = ws.src / PARTS_DIR
-    return sorted(d.glob("_*.py")) if d.is_dir() else []
-
-
 def source_files(ws: Workspace) -> list[Path]:
     """Every agent-authored python file under ``src/`` (entry first), including nested dirs."""
     entry = ws.src / "model.py"

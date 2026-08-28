@@ -449,16 +449,6 @@ def lint_workspace(ws: Workspace) -> GateReport:
     return GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=int((time.time() - t0) * 1000))
 
 
-def lint_files(urdf_path: Path, model_path: Path | None = None) -> GateReport:
-    """Lint arbitrary file paths (CLI / tests)."""
-    t0 = time.time()
-    findings, links = lint_urdf_text(Path(urdf_path).read_text(), label=str(urdf_path))
-    if model_path is not None:
-        findings.extend(lint_model_text(Path(model_path).read_text(), links, label=str(model_path)))
-    return GateReport(gate=GATE, passed=not any(f.severity == Severity.ERROR for f in findings), findings=findings,
-                      duration_ms=int((time.time() - t0) * 1000))
-
-
 # ===================================================================== skeleton
 # (merged from codeverse/languages/urdf/skeleton.py, 2026-08-28)
 DEFAULT_EFFORT = 10.0
