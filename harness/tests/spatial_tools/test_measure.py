@@ -112,3 +112,12 @@ def test_load_scene_is_never_cached(stool_glb: Path) -> None:
     assert s1 is not s2
     g1 = s1.geometry[next(iter(s1.geometry))]
     assert g1 is not s2.geometry[next(iter(s2.geometry))]
+
+
+def test_instance_groups_bare_base_beside_indexed_siblings() -> None:
+    """`lens` next to `lens_1` lands in the same group (the bare name is the regex
+    non-match) — this crashed the judge input assembly with AttributeError on the
+    None match until 2026-08-28 (scope_tj_ss r1/r2 lost their judgments to it)."""
+    g = instance_groups(["lens", "lens_2", "lens_1", "tripod"])
+    assert g["lens"] == ["lens", "lens_1", "lens_2"]
+    assert g["tripod"] == ["tripod"]

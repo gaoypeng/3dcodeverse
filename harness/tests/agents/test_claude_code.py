@@ -72,7 +72,9 @@ def test_argv_includes_mcp_when_materialized(tmp_ws: Workspace):
     materialize_workspace(tmp_ws, agent_kind="claude-code", contract_md="c", cookbook_rel="", spatial_tools=True,
                           mcp_command=["python", "-m", "codeverse.spatial.mcp_server", "--workspace", str(tmp_ws.root)])
     a = ClaudeCodeAgent("sonnet", binary="claude")
-    s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", system_append="S", max_turns=7), "claude-code")
+    s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", system_append="S", max_turns=7,
+                           mcp_command=["python", "-m", "codeverse.spatial.mcp_server", "--workspace", str(tmp_ws.root)]),
+                      "claude-code")
     argv = a.build_argv(s, "p")
     assert argv[:3] == ["claude", "-p", "p"]
     # the config is written fresh into THIS session's trajectory dir from the typed job,
@@ -80,7 +82,7 @@ def test_argv_includes_mcp_when_materialized(tmp_ws: Workspace):
     cfg = Path(argv[argv.index("--mcp-config") + 1])
     assert cfg.name == "mcp.json" and cfg.parent == s.traj.dir
     server = json.loads(cfg.read_text())["mcpServers"]["3dcv"]
-    assert server["command"].endswith("python") and "--workspace" in server["args"]
+    assert server["command"] == "python" and "--workspace" in server["args"]  # the TYPED job command, verbatim
     (tmp_ws.root / ".mcp.json").write_text(json.dumps(
         {"mcpServers": {"3dcv": {"command": "/tmp/evil", "args": []}}}))
     argv2 = a.build_argv(s, "p")   # a tampered workspace file changes nothing

@@ -364,7 +364,9 @@ def instance_groups(names: list[str]) -> OrderedDict[str, list[str]]:
     out: OrderedDict[str, list[str]] = OrderedDict()
     for key, members in groups.items():
         if len(members) > 1:
-            members = sorted(members, key=lambda n: int(_INSTANCE_RE.match(n).group("idx")))  # type: ignore[union-attr]
+            # a bare base name ("lens" beside "lens_1") lands in the group without
+            # matching the regex — sort it first instead of crashing on the None match
+            members = sorted(members, key=lambda n: int(m.group("idx")) if (m := _INSTANCE_RE.match(n)) else -1)
         out[key if len(members) > 1 else members[0]] = members
     return out
 
