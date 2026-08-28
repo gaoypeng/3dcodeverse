@@ -94,7 +94,10 @@ cd /home/yipeng/3dcodeverse/harness
 python -m codeverse.judges.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 python bench/complexity_report.py bench/out --recursive   # score-vs-complexity + $/complexity point (docs/COMPLEXITY.md)
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
-python -m pytest tests -q -m "not live"            # ~860 offline tests; add "and not blender and not node" for pure python
+python -m pytest tests -q -m "not live"            # 2 905 tests, ~32 s (real Blender + headless Chrome + CadQuery)
+python -m pytest tests -q -m "not live and not blender and not node"   # pure python: 2 775 tests, ~27 s
+# both run PARALLEL by default (pytest-xdist, -n auto --dist worksteal, in pyproject addopts).
+# A nested pytest inside a test MUST pass -n0 or it forks another full set of workers.
 ```
 
 ## Reference material (ideas only — never copy code)

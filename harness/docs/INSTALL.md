@@ -151,8 +151,9 @@ Run the offline test suite to confirm the install:
 
 ```bash
 cd harness
-python -m pytest tests -q                                               # needs node + Blender for the full set
-python -m pytest tests -q -m "not live and not blender and not node"    # pure-python subset
+python -m pytest tests -q                                               # needs node + Blender for the full set (~32 s)
+python -m pytest tests -q -m "not live and not blender and not node"    # pure-python subset (~27 s)
+# Parallel by default (pytest-xdist, -n auto --dist worksteal).  Serial: add -n0.
 python -m pytest tests -q -m live                                       # OPT-IN: real API calls, needs keys
 ```
 
