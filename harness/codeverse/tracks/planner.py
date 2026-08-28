@@ -642,6 +642,25 @@ def _with_note(msg: ChatMessage, note: str) -> ChatMessage:
     return ChatMessage.user(msg.text + note, images=images)
 
 
+_PLACEHOLDERS = {"string", "str", "name", "text", "..."}
+
+
+def _schema_echo(raw: dict[str, Any]) -> str:
+    """"" or what in ``raw`` is a JSON-schema placeholder (``"name": "string"``) rather than content.
+
+    compare_art_v4_pf0 (2026-08-28): flash answered a casement-window brief with a plan
+    whose joint was ``{"name": "string", "axis": [0, 0, 0], ...}`` and failed the zero-axis
+    validator three times; the re-ask echoed 'zero axis', which was not the problem."""
+    bad: list[str] = []
+    if str(raw.get("object_name", "")).strip().lower() in _PLACEHOLDERS:
+        bad.append("object_name")
+    for key in ("parts", "joints", "zones", "assets", "passes"):
+        for i, item in enumerate(raw.get(key) or []):
+            if isinstance(item, dict) and str(item.get("name", "")).strip().lower() in _PLACEHOLDERS:
+                bad.append(f"{key}[{i}].name")
+    return ", ".join(bad[:6])
+
+
 def _thin_plan_note(raw: Any, budget: PlanBudget) -> str:
     """A second line for the validation re-ask when the invalid plan is also far too small.
 
@@ -794,6 +813,10 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
         try:
             if not isinstance(raw, dict):
                 raise ValueError(f"planner returned {type(raw).__name__}, expected a JSON object")
+            echoed = _schema_echo(raw)
+            if echoed:
+                raise ValueError(f"the plan echoes the schema's placeholders instead of describing the object: {echoed}. "
+                                 "Write the REAL plan: actual part names, real numbers, a unit axis for every joint.")
             result = plan_model.model_validate(raw)
         except (ValidationError, ValueError) as e:
             last_error = str(e)[:4000]

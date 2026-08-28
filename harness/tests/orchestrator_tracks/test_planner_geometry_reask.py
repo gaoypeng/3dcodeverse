@@ -118,3 +118,15 @@ def test_validation_reask_names_the_missing_parts_when_the_plan_is_thin(tmp_ws):
     assert isinstance(p, ArticulatedPlan) and len(model.requests) == 2
     reask = model.requests[1].messages[-1].text
     assert "failed validation" in reask and "lists only 1 part(s)" in reask and "needs about" in reask
+
+
+def test_schema_echo_is_named_in_the_reask(tmp_ws):
+    echo = _good()
+    echo["joints"][0]["name"] = "string"
+    echo["joints"][0]["axis"] = [0, 0, 0]
+    answers = [echo, _good()]
+    model = FakeChatModel(lambda req: answers.pop(0))
+    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model, runtime=FakeRuntime(Language.URDF_BLENDER))
+    assert isinstance(p, ArticulatedPlan) and len(model.requests) == 2
+    reask = model.requests[1].messages[-1].text
+    assert "echoes the schema" in reask and "joints[0].name" in reask and "zero axis" not in reask
