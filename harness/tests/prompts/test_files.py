@@ -81,8 +81,7 @@ def test_system_prompts_cover_the_laws() -> None:
     for needle in ("artifacts/", "render_sheet", "check_connectivity", "2 mm",
                    "Definition of done", "ground", "seed"):
         assert needle.lower() in hc.lower(), f"harness_contract.md must mention {needle!r}"
-    tu = read_prompt("system/tools_usage.md")
-    for tool in ("build", "measure", "render_views", "render_sheet", "isolate", "cross_section",
-                 "check_connectivity", "check_contract", "compare_silhouette", "joint_sweep",
-                 "shader_probe", "scene_probe", "read_cookbook"):
-        assert f"`{tool}" in tu, f"tools_usage.md must document {tool!r}"
+    # system/tools_usage.md was a hand-written tool list with no production reader
+    # (deleted 2026-08-28): the agent's tool section is GENERATED from the @tool
+    # registrations by agents/materialize._tool_section, so "every tool is documented"
+    # is true by construction and this assertion was checking a file nobody read.

@@ -205,10 +205,6 @@ class CallCost(BaseModel):
     discarded: bool = False
 
     @property
-    def uncached_tokens(self) -> int:
-        return max(0, self.input_tokens - min(self.cached_tokens, self.input_tokens))
-
-    @property
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens + self.thoughts_tokens
 
@@ -249,10 +245,6 @@ class CostBucket(BaseModel):
         self.latency_ms += row.latency_ms
         if row.price_approximate or row.price_source in ("unknown", "provider-reported"):
             self.approximate_usd += row.cost_usd
-
-    @property
-    def uncached_tokens(self) -> int:
-        return max(0, self.input_tokens - self.cached_tokens)
 
     @property
     def cached_fraction(self) -> float:

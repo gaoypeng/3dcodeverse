@@ -16,7 +16,6 @@ from codeverse.tracks.graphics import (
     GraphicsTrack,
     frames_render_set,
     graphics_prompt_context,
-    plan_graphics,
 )
 from codeverse.workspace import Workspace
 
@@ -41,7 +40,8 @@ def test_live_plan_generate_build_judge(tmp_path, keys_ok):
                 budget=Budget(max_rounds=1, max_usd=0.5), backends=Backends(planner=MODEL, generator=f"single-shot:{MODEL}", judge=MODEL))
     ws = Workspace(tmp_path / "live_gfx").create()
     model = get_chat_model(MODEL)
-    plan = plan_graphics(spec, MODEL, ws, model=model)
+    from codeverse.tracks.planner import plan as run_planner
+    plan = run_planner(spec, MODEL, GraphicsPlan, ws, model=model, **GraphicsTrack()._plan_kwargs(spec))
     assert isinstance(plan, GraphicsPlan) and plan.passes and plan.key_visuals and plan.motion
     rt = GlslShaderRuntime()
     rt.skeleton(ws, plan)

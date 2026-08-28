@@ -80,6 +80,10 @@ LIVE_SWITCHES: dict[str, str] = {
     # inter-chunk stall detection, and the IPv4-only transport.  Read at call time
     # by every gemini request, so a control arm can set either to 0.
     "CV3D_STREAM": "codeverse/models/gemini.py",
+    #: urdf_blender resolved its cookbook path from language.value ("urdf_blender")
+    #: while its prompts live in prompts/urdf/, so the articulated agent got NO
+    #: cookbook at all.  On = the fixed mapping; A/B before making it unconditional.
+    "CV3D_URDF_COOKBOOK": "codeverse/tracks/common.py",
     "CV3D_IPV4": "codeverse/models/gemini.py",
 }
 

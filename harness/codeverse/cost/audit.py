@@ -43,9 +43,6 @@ class WasteItem:
     detail: str = ""
     round: int | None = None
 
-    def as_row(self) -> tuple[str, str, str, float]:
-        return (self.kind, self.run, self.detail, self.usd)
-
 
 @dataclass
 class RoundCost:
@@ -74,7 +71,6 @@ class Audit:
     summary: Summary = field(default_factory=Summary)
     rounds: list[RoundCost] = field(default_factory=list)
     waste: list[WasteItem] = field(default_factory=list)
-    recheck: bool = False
 
     # ---------------------------------------------------------------- totals
     @property
@@ -200,7 +196,7 @@ def audit_runs(paths: Iterable[str | Path], *, recheck: bool = False) -> Audit:
     dirs: list[Path] = []
     for p in paths:
         dirs += find_runs(p)
-    audit = Audit(recheck=recheck)
+    audit = Audit()
     for d in dirs:
         led = reconstruct(d, recheck=recheck)
         if not led.rows:

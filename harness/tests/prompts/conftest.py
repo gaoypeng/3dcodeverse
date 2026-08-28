@@ -24,7 +24,6 @@ HELPERS = Path(__file__).resolve().parent / "helpers"
 PROMPT_FILES = [
     "system/harness_contract.md",
     "system/singleshot_format.md",
-    "system/tools_usage.md",
     "blender/contract.md",
     "blender/cookbook.md",
     "cadquery/contract.md",

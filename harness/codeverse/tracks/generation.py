@@ -809,8 +809,6 @@ def generate(
     settings: Any | None = None,
     budget: Any | None = None,
     events: Any | None = None,
-    model_factory: Callable[[str], Any] | None = None,
-    agent_factory: Callable[[str], Any] | None = None,
     max_turns: int = 0,
     wrapup_turns: int = DEFAULT_WRAPUP_TURNS,
 ) -> GenerationResult:
@@ -821,8 +819,9 @@ def generate(
     """
     if is_single_shot(agent_id):
         if model is None:
-            factory = model_factory or _default_model_factory
-            model = factory(single_shot_model_id(agent_id))
+            from codeverse.models import get_chat_model
+
+            model = get_chat_model(single_shot_model_id(agent_id))
         return generate_files(
             ws,
             model=model,
@@ -832,8 +831,9 @@ def generate(
             allowed_roots=tuple(r.rstrip("/") + "/" for r in task.write_roots),
         )
     if agent is None:
-        factory = agent_factory or _default_agent_factory
-        agent = factory(agent_id)
+        from codeverse.agents import get_coding_agent
+
+        agent = get_coding_agent(agent_id)
     return run_agent_task(
         ws,
         agent=agent,
@@ -844,15 +844,3 @@ def generate(
         max_turns=max_turns,
         wrapup_turns=wrapup_turns,
     )
-
-
-def _default_model_factory(model_id: str) -> Any:
-    from codeverse.models import get_chat_model
-
-    return get_chat_model(model_id)
-
-
-def _default_agent_factory(agent_id: str) -> Any:
-    from codeverse.agents import get_coding_agent
-
-    return get_coding_agent(agent_id)

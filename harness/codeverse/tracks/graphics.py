@@ -39,8 +39,7 @@ from codeverse.spatial.cookbook_tool import Section, split_sections
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT, GenerationTask
 from codeverse.tracks.lifecycle import BaseTrack, StageRunner
-from codeverse.tracks.planner import add_acceptance_item, build_system_prompt
-from codeverse.tracks.planner import plan as run_planner
+from codeverse.tracks.planner import add_acceptance_item
 from codeverse.tracks.prompting import (
     AGENT_OUTPUT_RULES,
     acceptance_lines,
@@ -325,12 +324,6 @@ def plan_example() -> dict[str, Any]:  # the graphics worked example (planner ho
     }
 
 
-def build_plan_system_prompt(spec: Spec, *, runtime: Any | None = None) -> str:
-    """The graphics plan system prompt = the shared builder with the graphics
-    template + worked example (``plan_graphics.j2`` references no 3D frame)."""
-    return build_system_prompt(spec, GraphicsPlan, runtime=runtime, template=PLAN_TEMPLATE, example=plan_example())
-
-
 def ensure_graphics_acceptance(plan: GraphicsPlan, spec: Spec) -> GraphicsPlan:
     """Spec must_have / must_not → visual items; planned motion → a probe item (never 'ground contact')."""
     items: list[AcceptanceItem] = list(plan.acceptance)
@@ -347,16 +340,6 @@ def ensure_graphics_acceptance(plan: GraphicsPlan, spec: Spec) -> GraphicsPlan:
 def graphics_event_stats(plan: GraphicsPlan) -> dict[str, Any]:
     """``plan.done`` payload for graphics (passes, not parts/zones)."""
     return {"n_passes": len(plan.passes), "n_acceptance": len(plan.acceptance)}
-
-
-def plan_graphics(spec: Spec, model_id: str, ws: Workspace, *, model: Any | None = None, events: Any | None = None,
-                  budget: Any | None = None, runtime: Any | None = None) -> GraphicsPlan:
-    """Structured planner call → validated GraphicsPlan: the ONE planner loop
-    (``tracks/planner.plan``) parameterised with the graphics hooks."""
-    return run_planner(spec, model_id, GraphicsPlan, ws, model=model, events=events, budget=budget, runtime=runtime,
-                       template=PLAN_TEMPLATE, example=plan_example(), temperature=PLAN_TEMPERATURE,
-                       max_output_tokens=PLAN_MAX_OUTPUT_TOKENS,
-                       finalise=lambda p: ensure_graphics_acceptance(p, spec), event_stats=graphics_event_stats)
 
 
 # ----------------------------------------------------------------------------- prompt context

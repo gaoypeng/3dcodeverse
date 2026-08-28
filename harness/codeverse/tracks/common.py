@@ -9,6 +9,7 @@ missing; tests subclass it with fakes.  Nothing here touches a network.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +21,7 @@ from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import CameraPlan, Plan
 from codeverse.contracts.run import RunRecord
 from codeverse.conventions import ViewPreset
+from codeverse.languages._docs import prompt_dir_for
 from codeverse.orchestrator import BudgetGuard, RoundPolicy, RunState
 from codeverse.proc import EventLog
 from codeverse.prompts import load_text, prompt_hash
@@ -211,8 +213,8 @@ def load_prompt_or(rel: str, fallback: str) -> str:
 
 
 def language_contract(ctx_language: Language, runtime: Any) -> str:
-    """The language authoring contract: prompts/<lang>/contract.md → runtime.contract_doc() → minimal."""
-    text = load_prompt_or(f"{ctx_language.value}/contract.md", "")
+    """The language authoring contract: prompts/<dir>/contract.md → runtime.contract_doc() → minimal."""
+    text = load_prompt_or(f"{prompt_dir_for(ctx_language)}/contract.md", "")
     if text.strip():
         return text
     doc = ""
@@ -242,5 +244,12 @@ _MINIMAL_CONTRACT: dict[Language, str] = {
 
 
 def cookbook_rel_for(language: Language) -> str:
-    return f"{language.value}/cookbook.md"
+    """prompts/<dir>/cookbook.md.  ``language.value`` is NOT always the directory:
+    urdf_blender's prompts live in prompts/urdf/, so this returned a path that does not
+    exist and the articulated agent was told "No cookbook is available in this session"
+    while its 24 063-character cookbook sat on disk.  A/B'd behind CV3D_URDF_COOKBOOK
+    before being made unconditional, because it changes the prompt."""
+    if language is Language.URDF_BLENDER and os.environ.get("CV3D_URDF_COOKBOOK", "0") == "0":
+        return f"{language.value}/cookbook.md"      # arm A: today's behaviour (misses)
+    return f"{prompt_dir_for(language)}/cookbook.md"
 

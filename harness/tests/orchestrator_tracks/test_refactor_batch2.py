@@ -151,16 +151,19 @@ def test_judge_context_needs_no_run_context(tmp_path):
 def test_graphics_planner_hooks_charge_budget_on_planning_error(tmp_ws):
     import pytest
 
+    from codeverse.contracts.plan import GraphicsPlan
     from codeverse.contracts.spec import Budget
     from codeverse.orchestrator import BudgetGuard
-    from codeverse.tracks.graphics import plan_graphics
+    from codeverse.tracks.graphics import GraphicsTrack
     from codeverse.tracks.planner import PlanningError
+    from codeverse.tracks.planner import plan as run_planner
 
     spec = make_spec(Track.GRAPHICS, Language.GLSL_SHADER)
     budget = BudgetGuard(Budget(max_usd=5.0, max_minutes=10))
     always_bad = FakeChatModel(lambda req: {"title": "x"})
     with pytest.raises(PlanningError):
-        plan_graphics(spec, "fake:planner", tmp_ws, model=always_bad, budget=budget)
+        run_planner(spec, "fake:planner", GraphicsPlan, tmp_ws, model=always_bad, budget=budget,
+                    **GraphicsTrack()._plan_kwargs(spec))
     assert budget.spent.cost_usd > 0, "a failed re-ask is still paid for"
 
 

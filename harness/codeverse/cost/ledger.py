@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from codeverse.contracts.common import Usage
-from codeverse.cost.context import CallContext, attribute
+from codeverse.cost.context import CallContext, _stage, attribute
 from codeverse.cost.types import (
     CallCost,
     CostBucket,
@@ -34,7 +34,6 @@ from codeverse.cost.types import (
     Summary,
     normalise_ids,
     role_for_stage,
-    stage_for_label,
 )
 from codeverse.models.pricing import (
     cache_write_surcharge,
@@ -205,13 +204,10 @@ def open_run_ledger(workspace: str | Path) -> CostLedger:
     return CostLedger(path)
 
 
-def _as_stage(value: Stage | str | None) -> Stage | None:
-    if value is None or isinstance(value, Stage):
-        return value
-    try:
-        return Stage(value)
-    except ValueError:
-        return stage_for_label(str(value))
+#: context._stage is the same function; ledger already imports from context.  NOT true
+#: of the neighbouring _as_role — that one returns Role.OTHER where context._role returns
+#: None, and Role.OTHER is truthy, so it survives CallContext.resolved().
+_as_stage = _stage
 
 
 def _as_role(value: Role | str | None) -> Role | None:

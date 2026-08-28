@@ -54,10 +54,6 @@ class CostEstimate:
     price_source: str = "unknown"
     approximate: bool = True
 
-    @property
-    def known(self) -> bool:
-        return self.price_source != "unknown"
-
     def line(self) -> str:
         flag = " (approx)" if self.approximate else ""
         return (f"{self.model_id}: ~{self.input_tokens:,} in ({self.cached_tokens:,} cached) "
