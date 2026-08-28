@@ -17,8 +17,13 @@ from codeverse.contracts.chat import (
     ToolResultPart,
     ToolSpec,
 )
-from codeverse.models.anthropic import AnthropicModel, classify_exception
-from codeverse.models.anthropic_convert import THINKING_BLOCKS, build_kwargs, to_messages
+from codeverse.models.anthropic import (
+    THINKING_BLOCKS,
+    AnthropicModel,
+    build_kwargs,
+    classify_exception,
+    to_messages,
+)
 from codeverse.models.base import ModelError
 
 PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="

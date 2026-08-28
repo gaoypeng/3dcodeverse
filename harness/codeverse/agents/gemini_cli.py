@@ -47,7 +47,7 @@ from codeverse.agents.watchdog import CompletedProc
 from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Usage
-from codeverse.models.keypool import KeyPool, KeyPoolExhausted
+from codeverse.models.retry import KeyPool, KeyPoolExhausted
 
 log = logging.getLogger(__name__)
 

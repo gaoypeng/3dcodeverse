@@ -239,7 +239,7 @@ def texture_pass(
 
     # 3. images
     if image_model is None:
-        from codeverse.models.gemini_image import GeminiImageModel
+        from codeverse.models.gemini import GeminiImageModel
 
         image_model = GeminiImageModel()
     tset = generate_textures(tplan, tex_dir, image_model, size=size, cache_dir=cache_dir)

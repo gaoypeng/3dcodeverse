@@ -80,8 +80,7 @@ def test_the_anthropic_submit_tool_path_is_sanitised_too():
     from types import SimpleNamespace as NS
 
     from codeverse.contracts.chat import ChatMessage, ChatRequest
-    from codeverse.models.anthropic import AnthropicModel
-    from codeverse.models.anthropic_convert import SUBMIT_TOOL
+    from codeverse.models.anthropic import SUBMIT_TOOL, AnthropicModel
 
     block = NS(type="tool_use", id="t1", name=SUBMIT_TOOL,
                input={"description": "0.078 \x00 0.300 slab"})

@@ -402,7 +402,7 @@ def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
 
     from codeverse.models.base import ModelError
     from codeverse.models.gemini import GeminiModel
-    from codeverse.models.keypool import KeyPool
+    from codeverse.models.retry import KeyPool
     from tests.models.test_gemini import text_response
 
     release_k2 = threading.Event()

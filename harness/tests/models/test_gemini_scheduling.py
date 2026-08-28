@@ -13,9 +13,7 @@ from google.genai import errors as genai_errors
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse.models.base import ModelError
 from codeverse.models.gemini import GeminiModel, shared_pool
-from codeverse.models.keypool import KeyPool
-from codeverse.models.storm import StormGate
-from codeverse.models.tokens import request_tokens
+from codeverse.models.retry import KeyPool, StormGate, request_tokens
 from tests.models.test_gemini import PNG_1PX, make_model, text_response
 
 

@@ -986,7 +986,7 @@ def _chat_model(model_id: str) -> Any:
 
 
 def _image_model(model_id: str = "") -> Any:
-    from codeverse.models.gemini_image import DEFAULT_IMAGE_MODEL, GeminiImageModel
+    from codeverse.models.gemini import DEFAULT_IMAGE_MODEL, GeminiImageModel
 
     return GeminiImageModel(model_id or DEFAULT_IMAGE_MODEL)
 

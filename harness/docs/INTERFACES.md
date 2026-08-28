@@ -59,7 +59,7 @@ resp = m.generate(ChatRequest(messages=[...], system=..., response_schema=..., t
 #   GeminiModel clips its retry deadline to it; api_agent 20-120 s per turn, VlmJudge 240 s per sample, planner 300 s
 #   resp.raw["key"] = "…ab12" (the key that answered), resp.raw["attempts"] = round-trips issued (hedged siblings included)
 resp.parsed / resp.text / resp.tool_calls / resp.usage   # Usage always has cost_usd (models.pricing)
-from codeverse.models.keypool import KeyPool, KeyPoolExhausted
+from codeverse.models.retry import KeyPool, KeyPoolExhausted
 KeyPool(keys, *, rpm_per_key=900, tpm_per_key=None, cooldown_s=30, dead_cooldown_s=3600)
 pool.acquire(*, tokens_hint=0, exclude=None, timeout_s=120) -> key    # raises immediately when every key is dead/cooling past the deadline
 pool.try_acquire(*, tokens_hint=0, exclude=None) -> key | None        # never waits (a hedged retry's extra key); holds a slot like acquire

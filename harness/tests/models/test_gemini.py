@@ -20,9 +20,15 @@ from codeverse.contracts.chat import (
 )
 from codeverse.contracts.plan import StaticPlan
 from codeverse.models.base import ModelError
-from codeverse.models.gemini import GeminiModel, classify_exception, failure_outcome
-from codeverse.models.gemini_convert import SIGNATURES, build_config, to_contents
-from codeverse.models.keypool import MAX_WAIT_S, KeyPool
+from codeverse.models.gemini import (
+    SIGNATURES,
+    GeminiModel,
+    build_config,
+    classify_exception,
+    failure_outcome,
+    to_contents,
+)
+from codeverse.models.retry import MAX_WAIT_S, KeyPool
 
 PNG_1PX = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
@@ -545,7 +551,7 @@ def _resp_with_calls(parts: list[types.Part]) -> types.GenerateContentResponse:
 def test_synthetic_call_ids_are_never_echoed_to_the_provider():
     """When the provider sent NO id we mint one for local pairing — and it must
     never travel back to Gemini (an id the provider did not issue)."""
-    from codeverse.models.gemini_convert import is_synthetic_call_id
+    from codeverse.models.gemini import is_synthetic_call_id
 
     tool = ToolSpec(name="measure", description="m", parameters={"type": "object", "properties": {}})
     m, log, _ = make_model([call_response("measure", {"part": "all"}), text_response("ok")])
@@ -568,7 +574,7 @@ def test_two_parallel_same_name_calls_keep_their_provider_ids():
     """Two calls to the SAME tool in one turn: a GENUINE provider id is echoed verbatim on
     BOTH the function_call replay and the function_response (both used to drop it), and only
     those ids pair a response with its call — each keeping its own thought_signature."""
-    from codeverse.models.gemini_convert import is_synthetic_call_id
+    from codeverse.models.gemini import is_synthetic_call_id
 
     parts = []
     for cid, target in (("id-a", "seat"), ("id-b", "leg")):

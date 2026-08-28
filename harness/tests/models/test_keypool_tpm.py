@@ -8,7 +8,7 @@ import threading
 
 import pytest
 
-from codeverse.models.keypool import KeyPool, KeyPoolExhausted
+from codeverse.models.retry import KeyPool, KeyPoolExhausted
 
 
 class Clock:

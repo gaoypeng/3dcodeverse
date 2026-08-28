@@ -11,8 +11,13 @@ import pytest
 
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart, ToolResultPart, ToolSpec
 from codeverse.models.base import ModelError
-from codeverse.models.openai import OpenAIModel, classify_exception
-from codeverse.models.openai_convert import build_kwargs, reasoning_effort, to_messages
+from codeverse.models.openai import (
+    OpenAIModel,
+    build_kwargs,
+    classify_exception,
+    reasoning_effort,
+    to_messages,
+)
 
 PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 

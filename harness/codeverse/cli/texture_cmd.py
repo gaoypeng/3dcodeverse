@@ -23,7 +23,7 @@ RunsDirOpt = Annotated[Path | None, typer.Option("--runs-dir", help="runs root (
 
 
 def _image_model(name: str | None):
-    GeminiImageModel = C.lazy("codeverse.models.gemini_image", "GeminiImageModel")
+    GeminiImageModel = C.lazy("codeverse.models.gemini", "GeminiImageModel")
     return GeminiImageModel(name) if name else GeminiImageModel()
 
 

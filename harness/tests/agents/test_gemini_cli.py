@@ -167,7 +167,7 @@ def test_single_key_quota_failure_returns_budget_without_retry(tmp_ws: Workspace
 
 def test_pool_exhausted_before_first_attempt_is_a_budget_result(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     from codeverse.agents import gemini_cli as gc
-    from codeverse.models.keypool import KeyPoolExhausted
+    from codeverse.models.retry import KeyPoolExhausted
 
     class Dead:
         def acquire(self, **kw):

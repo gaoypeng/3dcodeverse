@@ -16,8 +16,8 @@ pytest.importorskip("google.genai")
 from PIL import Image
 
 from codeverse.models.base import ModelError
-from codeverse.models.gemini_image import GeminiImageModel
-from codeverse.models.keypool import KeyPool
+from codeverse.models.gemini import GeminiImageModel
+from codeverse.models.retry import KeyPool
 
 
 def _png_bytes() -> bytes:

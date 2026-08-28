@@ -93,13 +93,14 @@ codeverse/
                       lines so it stays a leaf
   fanout.py           bounded parallel fan-out (fan_out, split_results, FanOutReport) — shared by
                       tracks/judges/texturing/bench
-  models/             ChatModel (base.py); gemini_convert.py anthropic_convert.py openai_convert.py
-                      (request/response shapes per provider), parts.py; gemini.py (dead-key + free 429 rotation), gemini_image.py (ImageModel),
-                      anthropic.py openai.py, keypool.py ('dead' outcome + TPM reservation/reconcile),
-                      tokens.py (prompt-token estimate for the TPM bucket), pricing.py (version-suffix-only
-                      fallback), retry.py (MAX_WAIT_S: no single wait > 3 s), storm.py (shared 503 gate —
-                      measured, ships OFF, see docs/COST.md §21), health.py (preflight probe: is the model
-                      serving? no retries, no backoff), schema_utils.py (strict schema), registry.py
+  models/             ChatModel (base.py), parts.py; gemini.py (the whole Gemini stack:
+                      request/response shapes, dead-key + free 429 rotation, the image model);
+                      anthropic.py openai.py (each with its own request/response shapes);
+                      retry.py (the scheduling machine: key pool with 'dead' outcome + TPM
+                      reservation/reconcile, rotation with MAX_WAIT_S ≤ 3 s single waits, the
+                      shared 503 storm gate — ships OFF, docs/COST.md §21 — and the prompt-token
+                      estimate); pricing.py (version-suffix-only fallback), health.py (preflight
+                      probe: no retries, no backoff), schema_utils.py (strict schema), registry.py
   agents/             CodingAgent (base.py); gemini_cli.py claude_code.py codex.py antigravity.py
                       (api_agent.py + api_tools.py + api_skills.py deleted 2026-08-28 —
                       the vendors already ship the loop), materialize.py, cli_common.py (sessions, retry

@@ -860,7 +860,7 @@ quota would allow 1 000 per key.  So the meaningful limiter is a *token* rate:
   `Settings.rate.tpm_per_key` (default 1 000 000) via `shared_pool`, whose registry key
   now includes the quota so two different quotas cannot silently share one set of buckets.
 * `acquire(tokens_hint=…)` **reserves** the estimated prompt tokens of the pending call.
-  The estimate is `codeverse.models.tokens.request_tokens`, a thin wrapper over
+  The estimate is `codeverse.models.retry.request_tokens`, a thin wrapper over
   `cost.guard.estimate_call` that walks the whole request (system prompt, tool schemas,
   response schema, tool results, a flat 1 290 per image).
 * `report(key, outcome, tokens=actual, reserved=hint)` **reconciles**: the bucket is

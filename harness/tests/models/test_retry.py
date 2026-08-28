@@ -11,20 +11,18 @@ import pytest
 from codeverse.contracts.common import Usage
 from codeverse.models.base import ModelError
 from codeverse.models.gemini import HTTP_TIMEOUT_FLOOR_S
-from codeverse.models.keypool import (
+from codeverse.models.retry import (
     ACQUIRE_TIMEOUT_S,
     MAX_WAIT_S,
+    RETRY_DEADLINE_S,
     KeyPool,
     KeyPoolExhausted,
     Outcome,
-)
-from codeverse.models.retry import (
-    RETRY_DEADLINE_S,
+    StormGate,
     backoff_delay,
     rotate_with_retries,
     with_retries,
 )
-from codeverse.models.storm import StormGate
 
 
 def test_backoff_grows_and_caps():

@@ -67,7 +67,7 @@ def test_image_models_have_a_per_image_price():
 
 def test_image_price_agrees_with_the_image_backend():
     """``models/gemini_image.IMAGE_USD`` and the price table must not drift apart."""
-    from codeverse.models.gemini_image import IMAGE_USD
+    from codeverse.models.gemini import IMAGE_USD
 
     for model, usd in IMAGE_USD.items():
         assert per_image_usd("gemini", model) == pytest.approx(usd), model
