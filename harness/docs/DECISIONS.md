@@ -16,7 +16,7 @@ written) that were accepted because the code works that way and the tests pin it
   `check_contract` converts to the GLB frame (Y-up) using `LANGUAGE_FRAME`.
 * **L3 Deterministic first, VLM for perception only.**  Score is computed in code
   from rubric weights; floors and caps are explicit; degraded verdicts are glitches.
-* **L4 Typed, no regex-on-id, no god files.**  Files ≤ 1 500 lines (owner, 2026-08-26 — was ~400); two wrappers
+* **L4 Typed, no regex-on-id, no god files.**  Files ≤ 2 000 lines, 3 000 absolute (owner, 2026-08-28 — was 1 500, before that ~400); two wrappers
   exceed it by design (`run_bpy.py` 418, `scene_host.mjs` 426).
 * **L5 Cheap first.**  Lint → build → gates → montaged views → VLM.  `build` tool
   skips the build when lint has ERRORs.

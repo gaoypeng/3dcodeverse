@@ -45,7 +45,7 @@ mesh = ["shapely>=2.0", "networkx>=3.2", "manifold3d>=2.3"]  # cross_section are
 mcp = ["mcp>=1.0"]                                        # `3dcv mcp` spatial-tool server for the agentic CLIs
 flywheel = ["pyarrow>=15"]                                # `3dcv flywheel export --pack` (parquet)
 all = ["3dcodeverse[cad,urdf,graphics,mesh,mcp,flywheel]"]
-dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.5", "pyarrow>=15",
+dev = ["pytest>=8", "pytest-timeout>=2.3", "pytest-xdist>=3.6", "ruff>=0.5", "pyarrow>=15",
        # the Agent Skills reference validator (CLI: `agentskills`).  Pure python,
        # click + strictyaml.  tests/skills/test_spec_compliance.py runs it over every
        # bundle and skips cleanly when it is absent, so it is dev-only on purpose:
@@ -89,7 +89,10 @@ timeout = 600
 # that happens to have API keys configured fires real requests, and during a provider
 # outage it hangs instead of failing — which is exactly what happened on 2026-08-24.
 # Everyone's default run is the offline suite (run locally before every push; there is no CI).
-addopts = ["-m", "not live"]
+# -n auto: the offline suite is ~2 800 mostly-independent tests and this box has 24
+# cores — serial it is ~3 min, parallel ~15 s.  -p no:randomly is NOT set: xdist
+# distributes by file, and every test that touches shared state already uses tmp_path.
+addopts = ["-m", "not live", "-n", "auto", "--dist", "loadfile"]
 markers = [
   "live: needs network + API keys (deselect with -m 'not live')",
   "blender: needs a Blender binary",

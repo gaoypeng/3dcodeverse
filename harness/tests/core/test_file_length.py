@@ -1,9 +1,11 @@
-"""The 1 500-line hard cap (law 4, owner's rule 2026-08-26).
+"""The 2 000-line cap (law 4, owner 2026-08-28; 3 000 is the absolute ceiling).
 
-A file may be long, but not a god file: every tracked hand-written source file
-stays under 1 500 lines.  There is no soft threshold and no ~400-line guideline
-— the owner rejected both; this single automated cap is the whole rule.
-Largest file when this landed: bench/ab_plan.py at 781 lines.
+A file may be long, but not a god file.  There is no soft threshold and no
+~400-line guideline — the owner rejected both; this single automated cap is the
+whole rule, and it was raised from 1 500 to 2 000 on 2026-08-28 along with the
+other half of the rule, which no test can check: merging files is not a goal in
+itself, so a merge has to DELETE code rather than move it.
+Largest file when the cap was raised: codeverse/orchestrator.py at 1 132 lines.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-HARD_CAP = 1500
+HARD_CAP = 2000
 SUFFIXES = {".py", ".js", ".mjs", ".cjs"}
 EXCLUDE_PARTS = {"node_modules", "vendor"}
 

@@ -101,7 +101,10 @@ def test_shared_pool_takes_its_defaults_from_settings():
 
 # ----------------------------------------------------------------- storm gate
 def test_a_503_closes_the_shared_gate_and_the_call_still_succeeds():
-    gate = StormGate("test", base_delay=0.0, max_wait_s=0.0)
+    # probe_lease_s=0: the free rotation re-enters the gate, so this thread takes the
+    # probe slot and would then park on its OWN 30 s lease until the retry deadline —
+    # 30 s of wall clock for a test about whether the call survives the storm.
+    gate = StormGate("test", base_delay=0.0, max_wait_s=0.0, probe_lease_s=0.0)
     pool = KeyPool(["k1", "k2"], cooldown_s=0.0)
     # a 503 is per key at any instant (retry.py docstring, measured 2026-08-26): the first
     # one rotates to k2 for free; only k2's 503 — no untried key left in this 2-key pool —
