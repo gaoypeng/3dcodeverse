@@ -39,7 +39,7 @@ from codeverse.contracts.common import Backends, Budget, Language, Track
 from codeverse.contracts.run import RunRecord
 from codeverse.contracts.spec import Constraints, ReferenceImage, Spec
 from codeverse.cost import run_ledger
-from codeverse.runlock import exclusive
+from codeverse.proc import exclusive
 from codeverse.workspace import Workspace
 
 RESULT_FIELDS = ("id", "tier", "category", "score_baseline", "score_final", "passed", "rounds", "cost_usd",

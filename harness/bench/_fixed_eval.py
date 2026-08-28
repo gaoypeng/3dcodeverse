@@ -17,9 +17,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse.config import Settings, get_settings
-from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
+from codeverse.contracts.artifacts import BuildResult, GateReport, Judgment, Measurement, RenderSet
 from codeverse.contracts.common import TRACK_INFO, Language, Track
-from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS
@@ -123,7 +122,7 @@ class FixedEvaluator:
         """
         rubric = self.rubric if self._pinned else rubric_for(spec)
         if spec.track is Track.GRAPHICS and spec.references:
-            from codeverse.judges.reference import LikenessJudge
+            from codeverse.judges.vlm_judge import LikenessJudge
 
             return LikenessJudge(self.judge_model, n_samples=self.n_samples, rubric=rubric)
         return self._vlm_judge(rubric)

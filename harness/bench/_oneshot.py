@@ -34,10 +34,14 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from bench._infra import is_infra_failure
-from codeverse.agents.claude_code import parse_claude_json, usage_from_envelope
-from codeverse.agents.cli_common import is_secret_env, tail
-from codeverse.agents.codex import effort_overrides, parse_codex_jsonl, split_model_effort
-from codeverse.agents.watchdog import run_with_watchdog
+from codeverse.agents.backends import (
+    effort_overrides,
+    parse_claude_json,
+    parse_codex_jsonl,
+    split_model_effort,
+    usage_from_envelope,
+)
+from codeverse.agents.cli_common import is_secret_env, run_with_watchdog, tail
 from codeverse.config import get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport
 from codeverse.contracts.chat import ChatMessage, ChatRequest

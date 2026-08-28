@@ -108,7 +108,7 @@ from bench.compare_backends import (  # noqa: E402
 )
 from bench.pin_plan import PLAN_JSON, PinError, plan_once, seed_plan  # noqa: E402
 from bench.run_bench import Battery, BenchPrompt, select_prompts  # noqa: E402
-from codeverse.runlock import exclusive  # noqa: E402
+from codeverse.proc import exclusive  # noqa: E402
 from codeverse.tracks.plan_features import pin_plan_blockers  # noqa: E402
 from codeverse.workspace import Workspace  # noqa: E402
 

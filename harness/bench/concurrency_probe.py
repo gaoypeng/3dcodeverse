@@ -8,7 +8,7 @@ knee of the throughput curve is what ``Limits.max_parallel_agents`` /
 
     python bench/concurrency_probe.py --levels 4,8,16,32,64 --calls 48 --out bench/out/concurrency
 
-Each level uses a FRESH :class:`~codeverse.models.keypool.KeyPool` over the same
+Each level uses a FRESH :class:`~codeverse.models.retry.KeyPool` over the same
 keys so the per-level ``ok / 429 / 5xx`` counters are exact deltas, and a
 prompt-size knob (``--in-tokens``) so a judge-sized call and a caption-sized call
 can be measured apart.
@@ -27,10 +27,9 @@ from pathlib import Path
 from codeverse.config import get_settings
 from codeverse.contracts.chat import ChatMessage, ChatRequest
 from codeverse.cost.guard import CHARS_PER_TOKEN
-from codeverse.fanout import fan_out
 from codeverse.models.gemini import GeminiModel
-from codeverse.models.keypool import KeyPool
-from codeverse.models.storm import StormGate
+from codeverse.models.retry import KeyPool, StormGate
+from codeverse.proc import fan_out
 
 #: filler that is cheap to build, incompressible enough not to be cached away, and
 #: shaped like the code the generator really sends

@@ -31,8 +31,7 @@ from typing import Any
 
 from codeverse.contracts.artifacts import GateReport, RenderSet
 from codeverse.contracts.spec import Spec
-from codeverse.judges.base import JudgeInput
-from codeverse.judges.replay_input import plan_digest
+from codeverse.judges.base import JudgeInput, plan_digest
 from codeverse.judges.vlm_judge import VlmJudge
 from codeverse.tracks.graphics import frame_stats_text
 from codeverse.workspace import Workspace

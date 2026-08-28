@@ -90,9 +90,8 @@ def plan_once(spec: Any, ws_root: Path) -> str:
     cache HIT); and through ``_plan_stage`` rather than the bare planner so the call is
     charged to a budget and its spend is saved, exactly as in a run.
     """
-    from codeverse.events import EventLog
-    from codeverse.orchestrator.runner import StageRunner
-    from codeverse.orchestrator.state import RunState
+    from codeverse.orchestrator import RunState, StageRunner
+    from codeverse.proc import EventLog
     from codeverse.tracks import get_track
     from codeverse.tracks.lifecycle import plan_stage_inputs
     from codeverse.workspace import Workspace

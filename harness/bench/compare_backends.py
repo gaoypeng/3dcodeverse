@@ -85,7 +85,7 @@ from codeverse.contracts.common import ENTRY_FILE  # noqa: E402
 from codeverse.contracts.run import RunRecord  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402
 from codeverse.cost import run_ledger  # noqa: E402
-from codeverse.runlock import exclusive  # noqa: E402
+from codeverse.proc import exclusive  # noqa: E402
 from codeverse.tracks.generation import MultiFileParseError  # noqa: E402
 from codeverse.tracks.planner import PlanningError  # noqa: E402
 from codeverse.workspace import Workspace  # noqa: E402
