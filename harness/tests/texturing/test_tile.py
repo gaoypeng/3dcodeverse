@@ -5,12 +5,12 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from codeverse.texturing.generate import procedural_texture
-from codeverse.texturing.tile import (
+from codeverse.texturing.generate import (
     SEAM_MAX,
     fit_size,
     make_tileable,
     offset_check,
+    procedural_texture,
     save_texture,
     seam_score,
     tile_preview,

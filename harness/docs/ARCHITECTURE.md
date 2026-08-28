@@ -151,9 +151,10 @@ codeverse/
                       reference safe to use, Spec attachment + honesty guards, proportions
                       (does the picture agree with the brief?), render-vs-reference diff,
                       the content-addressed cache and ground_spec (the one call the CLI makes)
-  texturing/          plan.py (VLM material plan), generate.py (+ tile.py seam fix), uv.py (world-metre
-                      unwrap), apply.py, gate.py (seam + before/after judge), scene_pack.py, run.py (texture_pass),
-                      maps.py (PBR map set), materials.py (named material library), normalise.py
+  texturing/          plan.py (VLM material plan + the scene texture pack), generate.py
+                      (generation + the tileable seam fix + the seam/judge gate), apply.py
+                      (world-metre unwrap, PBR map set, application + material normalisation),
+                      materials.py (named material library), run.py (texture_pass)
   orchestrator.py     stage runner with resume, run state, round loop (RoundPolicy,
                       StopPolicy, BestSelector), refine-task compilation + grouping, budget
   tracks/             __init__.py (get_track(track, **options) + the TrackPipeline protocol),

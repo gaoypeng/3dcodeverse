@@ -104,8 +104,8 @@ def scene_pack(
     ScenePlan = C.lazy("codeverse.contracts.plan", "ScenePlan")
     if not isinstance(plan, ScenePlan):
         raise C.CliError("scene-pack needs a scene run (plan.json with zones)")
-    scene_texture_pack = C.lazy("codeverse.texturing.scene_pack", "scene_texture_pack")
-    texture_pack_prompt = C.lazy("codeverse.texturing.scene_pack", "texture_pack_prompt")
+    scene_texture_pack = C.lazy("codeverse.texturing.plan", "scene_texture_pack")
+    texture_pack_prompt = C.lazy("codeverse.texturing.plan", "texture_pack_prompt")
     model_id = spec.backends.planner if model is None else model
     with C.mutating(ws, what=f"3dcv texture scene-pack {ws.root.name}", action="texture"):
         pack = scene_texture_pack(plan, out or ws.public / "textures", _image_model(image_model), model_id, size=size, n_max=n)

@@ -10,8 +10,8 @@ from codeverse.config import get_settings
 from codeverse.contracts.plan import StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.models.gemini_image import GeminiImageModel
+from codeverse.texturing.generate import seam_score
 from codeverse.texturing.plan import compose_image_prompt, material_plan
-from codeverse.texturing.tile import seam_score
 
 pytestmark = pytest.mark.live
 RUN = Path(__file__).resolve().parents[2] / "runs" / "e2e_chair_blender"

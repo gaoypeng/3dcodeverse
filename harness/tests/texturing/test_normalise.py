@@ -9,7 +9,7 @@ from PIL import Image
 
 from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse.spatial.measure import load_scene, measure_glb
-from codeverse.texturing.normalise import classify, normalise_materials
+from codeverse.texturing.apply import classify, normalise_materials
 
 
 def _pbr(name: str, metallic, roughness, colour=(120, 120, 120, 255), **kw):

@@ -6,8 +6,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from codeverse.texturing.generate import FakeImageModel, generate_textures, prompt_key
-from codeverse.texturing.tile import SEAM_MAX
+from codeverse.texturing.generate import SEAM_MAX, FakeImageModel, generate_textures, prompt_key
 
 
 def test_generate_dedupes_caches_and_accounts(tmp_path: Path):

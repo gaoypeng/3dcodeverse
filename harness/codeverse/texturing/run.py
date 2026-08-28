@@ -32,10 +32,20 @@ from codeverse.contracts.plan import StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
 from codeverse.events import EventLog
-from codeverse.texturing.apply import ApplyReport, apply_textures
-from codeverse.texturing.gate import GateResult, SeamGateResult, judge_gate, seam_gate
-from codeverse.texturing.generate import TextureSet, generate_textures
-from codeverse.texturing.normalise import NormaliseReport, normalise_materials
+from codeverse.texturing.apply import (
+    ApplyReport,
+    NormaliseReport,
+    apply_textures,
+    normalise_materials,
+)
+from codeverse.texturing.generate import (
+    GateResult,
+    SeamGateResult,
+    TextureSet,
+    generate_textures,
+    judge_gate,
+    seam_gate,
+)
 from codeverse.texturing.plan import TexturePlan, material_plan
 from codeverse.workspace import Workspace
 
@@ -183,7 +193,7 @@ def texture_pass(
     keyword arguments win over the bundle.
 
     ``normalise=True`` first runs the deterministic material normaliser
-    (:func:`codeverse.texturing.normalise.normalise_materials`) over the input GLB,
+    (:func:`codeverse.texturing.apply.normalise_materials`) over the input GLB,
     so the parts the texture pass *skips* — chrome, glass, tiny hardware — still get
     plausible metallic/roughness numbers.  It costs no model call, and the same
     before/after judge gate (BEFORE is always the untouched ``glb_in``) decides

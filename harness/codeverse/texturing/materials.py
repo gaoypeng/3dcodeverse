@@ -18,7 +18,7 @@ guides publish, and the clear-coat that separates lacquered wood from raw
 timber.  They are used two ways:
 
 1. as the target of the **post-build normaliser**
-   (:mod:`codeverse.texturing.normalise`), which fixes a material whose numbers
+   (:mod:`codeverse.texturing.apply`), which fixes a material whose numbers
    are an untouched framework default or are impossible for the finish its own
    name claims;
 2. as the PBR factors the **texture pass** writes next to a generated albedo

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from codeverse.texturing.maps import (
+from codeverse.texturing.apply import (
     DEFAULT_VARIATION,
     VARIATION,
     is_flat,

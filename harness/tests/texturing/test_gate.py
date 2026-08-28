@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.texturing.gate import judge_gate, material_criterion, seam_gate
-from codeverse.texturing.generate import TextureAsset
+from codeverse.texturing.generate import TextureAsset, judge_gate, material_criterion, seam_gate
 from tests.texturing.conftest import FakeJudge, fake_render
 
 

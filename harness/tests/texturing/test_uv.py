@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from codeverse.texturing.uv import choose_projection, split_by_key, unwrap
+from codeverse.texturing.apply import choose_projection, split_by_key, unwrap
 
 
 def test_choose_projection_rules():

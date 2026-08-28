@@ -413,7 +413,7 @@ texture_pass(ws, spec, plan, *, model_id, image_model=None, judge=True, judge_mo
 # gate (ship iff Δoverall ≥ −0.01 AND materials criterion improved); record.extra["texturing"], events texture.*
 from codeverse.texturing.plan import material_plan, default_plan, TexturePlan
 from codeverse.texturing.generate import generate_textures, FakeImageModel
-from codeverse.texturing.scene_pack import scene_texture_pack, texture_pack_prompt   # 6–12 named tiles + manifest.json
+from codeverse.texturing.plan import scene_texture_pack, texture_pack_prompt   # 6–12 named tiles + manifest.json
 # under public/textures/ for scene prompts (URL /public/textures/<name>.png)
 ```
 

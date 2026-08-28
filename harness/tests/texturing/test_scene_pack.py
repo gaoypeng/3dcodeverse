@@ -9,7 +9,7 @@ import pytest
 
 from codeverse.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
 from codeverse.texturing.generate import FakeImageModel
-from codeverse.texturing.scene_pack import (
+from codeverse.texturing.plan import (
     default_scene_pack_plan,
     load_manifest,
     scene_pack_plan,
