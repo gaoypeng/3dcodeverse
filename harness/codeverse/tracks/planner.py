@@ -32,7 +32,7 @@ from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse.contracts.common import Language, Track, Usage
 from codeverse.contracts.plan import AcceptanceItem, EngineeringBrief
 from codeverse.contracts.spec import Spec
-from codeverse.conventions import LANGUAGE_FRAME, frame_doc, to_pascal
+from codeverse.conventions import LANGUAGE_FRAME, frame_doc, to_pascal, to_snake
 from codeverse.models.schema_utils import parse_json_lenient
 from codeverse.prompts import load_text, prompt_hash, render
 from codeverse.tracks.common import language_contract, load_prompt_or
@@ -900,8 +900,36 @@ def ensure_acceptance[P: BaseModel](plan_obj: P, spec: Spec) -> P:
         add_acceptance_item(items, "not", f"Does NOT include: {m}", "visual")
     if spec.track is not Track.SCENE and not any(a.how == "measure" for a in items):
         add_acceptance_item(items, "ground", "Object stands on the ground plane (lowest point at up=0) with its footprint centred", "measure")
+    items.extend(articulation_acceptance(plan_obj, items))
     plan_obj.acceptance = items
     return plan_obj
+
+
+def articulation_acceptance(plan_obj: Any, items: list[AcceptanceItem]) -> list[AcceptanceItem]:
+    """One ``articulation`` item per moving joint the planner's own checklist does not cover
+    (2026-08-28, phase 4 item 6): the judge reads the pose sheet — rest, lower, upper — so the
+    plan's rest-pose and motion statements become questions it answers per joint instead of
+    prose it may skip.  ``should`` priority: an unverified item steers the refine loop's
+    judge tasks but never fails the run (a *must* the judge cannot verify does)."""
+    joints = [j for j in (getattr(plan_obj, "joints", None) or []) if j.type != "fixed"]
+    if not joints:
+        return []
+    covered = " ".join(a.text.lower() for a in items if a.how == "articulation")
+    words = set(re.findall(r"[a-z0-9]+", covered.replace("_", " ")))
+    out: list[AcceptanceItem] = []
+    for j in joints:
+        # whole-word match on the joint's or the child's name ("lid" must not match "slides")
+        keys = {j.name.lower(), to_snake(j.child).replace("_", " "), j.child.lower()}
+        if any(k and all(w in words for w in re.findall(r"[a-z0-9]+", k)) for k in keys):
+            continue
+        unit = "m" if j.type == "prismatic" else "rad"
+        rest = "closed / stowed" if abs(j.rest) < 1e-9 else f"at {j.rest:.2f} {unit}"
+        rng = "turns freely" if j.type == "continuous" else f"moves over [{j.lower:.2f}, {j.upper:.2f}] {unit}"
+        out.append(AcceptanceItem(
+            id=f"art_{to_snake(j.child)}"[:40], how="articulation", priority="should",
+            text=f"Joint {j.name}: at rest {j.child} sits {rest} against {j.parent}; it {rng} — {j.motion} — "
+                 f"without passing through {j.parent} or any other link (pose_* views)"))
+    return out
 
 
 def normalise_names[P: BaseModel](plan_obj: P) -> P:
@@ -921,6 +949,6 @@ def normalise_names[P: BaseModel](plan_obj: P) -> P:
     return plan_obj
 
 
-__all__ = ["MAX_GEOMETRY_REASKS", "PLAN_GEOMETRY_ENV", "geometry_check_enabled", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS", "PLAN_TOKENS_MAX", "PlanningError", "plan",
+__all__ = ["MAX_GEOMETRY_REASKS", "articulation_acceptance", "PLAN_GEOMETRY_ENV", "geometry_check_enabled", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS", "PLAN_TOKENS_MAX", "PlanningError", "plan",
            "plan_tokens", "plan_with_usage", "plan_example", "ensure_acceptance", "add_acceptance_item",
            "default_event_stats", "normalise_names", "build_system_prompt", "build_user_prompt", "load_prompt_or"]
