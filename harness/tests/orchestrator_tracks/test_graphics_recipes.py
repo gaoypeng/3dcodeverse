@@ -29,21 +29,22 @@ from codeverse.languages.glsl_shader.skeleton import COMMON_GLSL, write_skeleton
 from codeverse.languages.glsl_shader.wrap import HEADER as WRAP_HEADER
 from codeverse.languages.glsl_shader.wrap import compose, first_error, parse_glsl_log
 from codeverse.prompts import load_text, render
-from codeverse.tracks import graphics_recipes as gr
-from codeverse.tracks.graphics_recipes import (
+from codeverse.tracks import graphics as gr
+from codeverse.tracks.graphics import (
     HEADER,
     NOT_SEEDED,
     RECIPES_REL,
     RESUME_HEADER,
     cookbook_functions,
     defined_names,
+    graphics_prompt_context,
     is_skeleton_common,
     parse_functions,
+    plan_example,
     recipe_chapters,
     seed_recipes,
     seeded_on_disk,
 )
-from codeverse.tracks.graphics_steps import graphics_prompt_context, plan_example
 from codeverse.workspace import Workspace
 
 AURORA = "Aurora borealis over a mountain ridge with a frozen lake, dense stars, green and violet curtains"

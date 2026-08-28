@@ -91,7 +91,7 @@ def test_budget_never_cuts_a_chapter() -> None:
 
 
 def test_graphics_prompt_context_uses_the_selector(monkeypatch) -> None:
-    from codeverse.tracks import graphics_steps
+    from codeverse.tracks import graphics as graphics_steps
 
     seen: dict[str, str] = {}
 

@@ -34,7 +34,7 @@ from codeverse.contracts.spec import Spec
 from codeverse.judges.base import JudgeInput
 from codeverse.judges.replay_input import plan_digest
 from codeverse.judges.vlm_judge import VlmJudge
-from codeverse.tracks.graphics_steps import frame_stats_text
+from codeverse.tracks.graphics import frame_stats_text
 from codeverse.workspace import Workspace
 
 OUT_ROOT = Path(__file__).resolve().parent / "out"

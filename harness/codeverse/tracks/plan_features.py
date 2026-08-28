@@ -61,7 +61,7 @@ def pin_plan_blockers(variant_env: dict[str, str]) -> list[str]:
 #: Plan-loop switches the tree ACTUALLY reads, name → the module that reads it.  Kept
 #: honest by tests/orchestrator_tracks/test_plan_features.py, which greps the tree.
 LIVE_SWITCHES: dict[str, str] = {
-    "CV3D_PLAN_BRIEF": "codeverse/tracks/brief.py",
+    "CV3D_PLAN_BRIEF": "codeverse/tracks/planner.py",  # brief.py merged in, 2026-08-28
     "CV3D_SCOPED_PARTS": "codeverse/tracks/depth.py",
     "CV3D_DETAIL_ROUNDS": "codeverse/tracks/lifecycle.py",
     "CV3D_REFERENCE_DIFF": "codeverse/judges/reference.py",

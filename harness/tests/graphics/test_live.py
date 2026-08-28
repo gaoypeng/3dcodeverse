@@ -12,8 +12,8 @@ from codeverse.judges.base import JudgeInput
 from codeverse.judges.vlm_judge import VlmJudge
 from codeverse.languages.glsl_shader.runtime import GlslShaderRuntime
 from codeverse.tracks.generation import generate_files
-from codeverse.tracks.graphics import GraphicsTrack
-from codeverse.tracks.graphics_steps import (
+from codeverse.tracks.graphics import (
+    GraphicsTrack,
     frames_render_set,
     graphics_prompt_context,
     plan_graphics,

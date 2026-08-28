@@ -43,7 +43,7 @@ def test_graphics_cells_are_judged_on_their_frames(monkeypatch, tmp_path):
     ev = FixedEvaluator("fake:judge", n_samples=1)
     ev._runtimes[Language.GLSL_SHADER] = SimpleNamespace(lint=lambda ws: GateReport(gate="lint", passed=True), build=lambda ws, timeout_s: build)
     import bench._fixed_eval as fe
-    import codeverse.tracks.graphics_steps as gs
+    import codeverse.tracks.graphics as gs
 
     monkeypatch.setattr(gs, "frames_render_set", lambda ws, b, i: RenderSet(views=[RenderView(name="t=0s", path=str(png))], renderer="fake"))
     monkeypatch.setattr(gs, "frame_stats_text", lambda ws: "frames=1")

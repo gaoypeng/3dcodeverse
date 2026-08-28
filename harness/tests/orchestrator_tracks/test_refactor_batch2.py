@@ -154,7 +154,7 @@ def test_graphics_planner_hooks_charge_budget_on_planning_error(tmp_ws):
 
     from codeverse.contracts.spec import Budget
     from codeverse.orchestrator.budget import BudgetGuard
-    from codeverse.tracks.graphics_steps import plan_graphics
+    from codeverse.tracks.graphics import plan_graphics
     from codeverse.tracks.planner import PlanningError
 
     spec = make_spec(Track.GRAPHICS, Language.GLSL_SHADER)

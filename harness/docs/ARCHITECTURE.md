@@ -164,18 +164,16 @@ codeverse/
                       common.py (RunContext, Services), static_object.py (+ the detail round and the
                       reference-image gates), articulated_object.py (+ the planned-motion gate),
                       scene.py, scene_assets.py (+ cheap single-shot asset generation),
-                      graphics.py + graphics_steps.py,
-                      graphics_recipes.py (the brief's verified cookbook recipes + their helpers written into
-                      the harness-owned, read-only src/recipes.glsl before the session — measured: flash calls
-                      a recipe on disk, not one it is shown, and overwrites one seeded into its own common.glsl;
-                      AgentJob.read_only, CV3D_SEED_RECIPES, docs/GRAPHICS_LOOP.md §3),
-                      brief.py (cached EngineeringBrief: one cheap call turns a one-line prompt into
-                      real dimensions / sub-assemblies / signature features; never fatal, CV3D_PLAN_BRIEF),
-                      plan_budget.py (plan size derived from the request, capped per language),
+                      graphics.py (the whole graphics track: planner hooks, prompt context, frame
+                      RenderSet, and recipe seeding into the harness-owned, read-only
+                      src/recipes.glsl — measured: flash calls a recipe on disk, not one it is
+                      shown; AgentJob.read_only, CV3D_SEED_RECIPES, docs/GRAPHICS_LOOP.md §3),
+                      planner.py (the ONE planner loop + the cached EngineeringBrief
+                      (CV3D_PLAN_BRIEF), plan budgets and the worked examples),
                       plan_features.py (CV3D_PLAN_FEATURES: one switch per plan-loop change, so each
                       can be A/B'd alone, + pin_plan_blockers() deciding when two arms may share
                       one plan — docs/PLAN_LOOP.md, docs/EVAL.md §8.1),
-                      plan_examples.py (worked plans shown to the planner), depth.py,
+                      depth.py,
                       skills_hook.py (the round's view of codeverse/skills: attach before generating,
                       probe reads after — a no-op unless CV3D_SKILLS is on)
   flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, migrate.py (schema moves),

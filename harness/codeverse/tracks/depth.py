@@ -24,7 +24,7 @@ on eight objective axes — is ``codeverse/spatial/complexity.py`` + ``docs/COMP
 This module is the *target* side: what THIS plan should be allowed and asked to spend.
 
 Hence: :func:`depth_budget` (how many triangles / how much build time this *plan*
-deserves — how many PARTS a prompt deserves is ``tracks.brief.plan_budget``,
+deserves — how many PARTS a prompt deserves is ``tracks.planner.plan_budget``,
 which also owns the thin-plan re-ask), and :func:`scope_groups` (how to split one plan into sessions small
 enough that each part gets real attention) with :func:`interfaces_text` handing
 each session the exact numbers of the parts it must touch but may not edit.

@@ -25,7 +25,7 @@ from codeverse.contracts.spec import ReferenceImage, Spec
 from codeverse.judges.base import JudgeInput
 from codeverse.judges.reference import LikenessJudge
 from codeverse.judges.replay_input import plan_digest
-from codeverse.tracks.graphics_steps import frame_stats_text
+from codeverse.tracks.graphics import frame_stats_text
 from codeverse.workspace import Workspace
 
 SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")

@@ -11,7 +11,7 @@ planner, the in-loop judge, the rounds and dollars, and the fixed judge that pro
 the reported score (``bench/_fixed_eval.py``, ``n_samples`` 2).
 
 Why each arm is a child PROCESS rather than a thread: the switches under test are read
-from the environment (``codeverse.tracks.brief.brief_enabled`` reads ``os.environ`` at
+from the environment (``codeverse.tracks.planner.brief_enabled`` reads ``os.environ`` at
 call time; anything under ``Settings`` is read once through an ``lru_cache``), so two
 threads in one interpreter cannot hold different values of them.  A child gets exactly
 the env its arm needs and nothing leaks across.  Each child owns a key pool, so the

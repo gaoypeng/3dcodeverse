@@ -174,7 +174,7 @@ class FixedEvaluator:
         """Graphics: the judged frames + the gl_frames gate + the frame metrics, as the loop does."""
         from codeverse.judges.base import JudgeInput
         from codeverse.languages._gl_common import read_metrics
-        from codeverse.tracks.graphics_steps import frame_stats_text, frames_render_set
+        from codeverse.tracks.graphics import frame_stats_text, frames_render_set
 
         try:
             out.renders = frames_render_set(ws, out.build, 0)

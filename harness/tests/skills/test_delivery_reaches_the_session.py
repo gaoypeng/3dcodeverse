@@ -125,7 +125,7 @@ def test_round_zero_of_a_scene_run_has_no_generation_task() -> None:
 @pytest.fixture
 def scene_run(tmp_path, monkeypatch):
     from codeverse.config import Settings
-    from codeverse.tracks.plan_examples import plan_example
+    from codeverse.tracks.planner import plan_example
     from codeverse.tracks.scene import SceneTrack
     from tests.orchestrator_tracks.conftest import make_spec
     from tests.orchestrator_tracks.fakes import FakeAgent, FakeJudge, FakeRuntime, FakeServices

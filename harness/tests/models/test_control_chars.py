@@ -114,7 +114,7 @@ def test_the_brief_text_fallback_is_sanitised(tmp_path):
     from codeverse.contracts.common import Language, Track, Usage
     from codeverse.contracts.plan import EngineeringBrief, RefDimension, SubAssembly
     from codeverse.contracts.spec import Spec
-    from codeverse.tracks.brief import expand_brief
+    from codeverse.tracks.planner import expand_brief
 
     clean = EngineeringBrief(
         object_name="Grinder", reference="Peugeot 1920s box grinder",

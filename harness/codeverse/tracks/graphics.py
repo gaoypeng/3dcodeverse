@@ -12,42 +12,432 @@ Refinement is always one whole-program task.
 from __future__ import annotations
 
 import logging
+import re
+import shutil
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
-from codeverse.contracts.common import TRACK_INFO, Language, Track
-from codeverse.contracts.plan import GraphicsPlan, Plan
+from codeverse.config import seed_recipes_enabled
+from codeverse.contracts.artifacts import (
+    BuildResult,
+    GateReport,
+    Measurement,
+    RenderSet,
+    RenderView,
+    Severity,
+)
+from codeverse.contracts.common import HARNESS_OWNED_SRC, TRACK_INFO, Language, Track
+from codeverse.contracts.plan import AcceptanceItem, GraphicsPlan, Plan
 from codeverse.contracts.run import RoundRecord
 from codeverse.contracts.spec import Spec
-from codeverse.languages._gl_common import read_metrics
+from codeverse.languages._gl_common import SHEET_NAME, read_metrics
+from codeverse.languages.glsl_shader.lint import FUNC_DEF
+from codeverse.languages.glsl_shader.skeleton import COMMON_GLSL
+from codeverse.languages.glsl_shader.wrap import strip_comments
 from codeverse.orchestrator.rounds import TaskGroup
 from codeverse.prompts import render
+from codeverse.spatial.cookbook_tool import Section, split_sections
 from codeverse.tracks.common import RunContext
-from codeverse.tracks.generation import GenerationTask
-from codeverse.tracks.graphics_recipes import seed_recipes
-from codeverse.tracks.graphics_steps import (
-    PLAN_MAX_OUTPUT_TOKENS,
-    PLAN_TEMPERATURE,
-    PLAN_TEMPLATE,
-    ensure_graphics_acceptance,
-    frame_stats_text,
-    frames_render_set,
-    graphics_event_stats,
-    graphics_expected_files,
-    graphics_prompt_context,
-)
-from codeverse.tracks.graphics_steps import plan_example as graphics_plan_example
+from codeverse.tracks.generation import SINGLE_SHOT_FORMAT, GenerationTask
 from codeverse.tracks.lifecycle import BaseTrack, StageRunner
+from codeverse.tracks.planner import add_acceptance_item, build_system_prompt
+from codeverse.tracks.planner import plan as run_planner
 from codeverse.tracks.prompting import (
+    AGENT_OUTPUT_RULES,
+    acceptance_lines,
+    constraints_text,
     current_files,
+    is_always_chapter,
     judge_digest,
     judged_sheet,
     reference_images,
+    reference_note,
+    select_cookbook_chapters,
+    select_cookbook_excerpt,
     skeleton_files,
 )
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
+
+
+# ===================================================================== recipe seeding
+# (merged from codeverse/tracks/graphics_recipes.py, 2026-08-28 — its two importers
+#  were this track and graphics_steps.  Original module rationale:
+#  Seed the cookbook's verified GLSL recipes into the HARNESS-OWNED ``src/recipes.glsl`` BEFORE the session.
+#  
+#  Measured 2026-08-26 (refs_v2_graphics, aurora brief, gemini-3.7-flash api-agent, shader_v2 judge): the
+#  baseline prompt carried the cookbook's "Light phenomena" chapter — five mentions of ``curtain(`` in
+#  ``trajectories/baseline_r00/prompt.md`` — and the agent called none of them (``grep -c "curtain("
+#  src/shader.frag`` = 0 in both finished runs): round 0 was again a comb of bars (``comb_artefact``, 0.33).
+#  Showing flash a recipe is not the same as flash using it, so the recipes go ON DISK.
+#  ... see git history of graphics_recipes.py for the full measured writeup.)
+#: the harness-owned recipe file (``contracts.common.HARNESS_OWNED_SRC``; ``AgentJob.read_only``)
+RECIPES_REL = HARNESS_OWNED_SRC[Language.GLSL_SHADER][0]
+#: the agent's helper file — never written by this module, except :func:`trim_skeleton_common`
+COMMON_REL = "src/common.glsl"
+HEADER = ("// harness-owned: verified cookbook recipes matched to this brief — READ-ONLY (the harness pastes this "
+          "above src/common.glsl); call these functions from shader.frag")
+RESUME_HEADER = "// ---- appended on resume (recipes this file did not define yet) ----"
+TRIM_NOTE = "// {names}: provided by src/recipes.glsl (harness-owned, pasted above this file) — call them, do not redefine them"
+#: ``ctx.extra`` key → the prompt block (``[{name, signature, purpose}, …]``, every seeded recipe on disk)
+EXTRA_KEY = "seeded_recipes"
+#: chapters whose code is a TEMPLATE to adapt, not a library to call: the raymarching ``map()`` is the
+#: agent's own scene, and a seeded ``map`` / ``calcNormal`` would collide with the one it must write
+NOT_SEEDED: tuple[str, ...] = ("Raymarching",)
+
+#: what each recipe is for — one line in the header comment and in the prompt block
+PURPOSES: dict[str, str] = {
+    "curtain": "ONE organic aurora / drapery / flame-sheet ribbon (folded lower edge, rays in bundles, gaps; "
+               "k = 0 at the lower edge .. 1 at the top) — never a comb of bars",
+    "auroraCol": "green-low → violet-crown aurora colour for the k that curtain() writes",
+    "aurora": "the whole aurora: three curtains at different depths, nearest brightest "
+              "(then col += au * 1.7 + au * au * 0.5 for bloom)",
+    "stars": "dense sub-pixel star field on a grid (density 160 / 70, keep 0.2–0.3); add two layers",
+    "bokehSoft": "soft gaussian city-light discs ADDED on a dark ground, three depth layers, pulsing",
+    "dropsLayer": "rain on glass: (drop mask, trail) per grid cell scrolling down; refract the background with .x",
+    "skyGrad": "dusk sky gradient by p.y", "sun": "sun disc with a soft halo",
+    "waterHeight": "water surface height (waves + noise) for reflections / normals",
+    "warped": "domain-warped fbm: billowy clouds, smoke, marble",
+    "hash11": "1D hash 0..1", "hash12": "2D → float hash 0..1", "hash22": "2D → vec2 hash", "hash33": "3D → vec3 hash",
+    "noise": "smooth 2D value noise 0..1", "noise3": "3D value noise (volumes, time as z)",
+    "fbm": "6-octave rotated fbm", "ridged": "ridged fbm (mountains, veins)",
+    "palette": "IQ cosine palette", "tonemapACES": "ACES tonemap", "gamma": "gamma 2.2",
+    "sdCircle": "2D circle SDF", "sdBox": "2D box SDF", "sdSegment": "2D segment SDF", "sdStar": "2D star SDF",
+    "fill": "1-px anti-aliased fill of an SDF", "stroke": "anti-aliased outline of an SDF",
+    "glow": "exponential glow around an SDF", "rot2": "2D rotation matrix",
+}
+
+_FENCE = re.compile(r"```glsl[ \t]*\n(.*?)^```", re.S | re.M)
+_CALL = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
+_KEYWORDS = frozenset({"for", "if", "while", "switch", "return"})
+_DEFINE = re.compile(r"^[ \t]*#\s*define\s+(\w+)", re.M)
+#: top-level comment lines that are usage examples (``// usage: …``, ``// sunset: palette(…)``, a
+#: statement ending in ``;``), not documentation of the function that follows
+_USAGE = re.compile(r"^//\s*(?:usage|e\.g\.)\b|^//\s*[\w .-]+?:\s+\w+\(|;\s*(?://.*)?$", re.I)
+
+
+@dataclass(frozen=True)
+class Recipe:
+    name: str
+    signature: str
+    text: str  # doc comment lines + the complete definition
+    calls: frozenset[str]
+    chapter: str
+
+    @property
+    def purpose(self) -> str:
+        return PURPOSES.get(self.name, f'from the cookbook chapter "{self.chapter}"')
+
+    def entry(self) -> dict[str, str]:
+        return {"name": self.name, "signature": self.signature, "purpose": self.purpose}
+
+
+def parse_functions(code: str, chapter: str = "") -> list[Recipe]:
+    """Top-level function definitions in a GLSL text (``mainImage`` / ``main`` excluded), each with
+    the documentation comment lines directly above it; usage comments and bare statements dropped."""
+    lines = code.splitlines()
+    out: list[Recipe] = []
+    pending: list[str] = []
+    i = 0
+    while i < len(lines):
+        raw = lines[i]
+        s = raw.strip()
+        if s.startswith("//"):
+            pending = [] if _USAGE.search(s) else pending + [raw]
+            i += 1
+            continue
+        m = FUNC_DEF.match(raw)
+        if not s or not m:  # blank, #define, or a bare statement snippet
+            pending, i = [], i + 1
+            continue
+        depth, opened, j = 0, False, i
+        while j < len(lines):
+            code_only = strip_comments(lines[j])
+            depth += code_only.count("{") - code_only.count("}")
+            opened = opened or "{" in code_only
+            j += 1
+            if opened and depth <= 0:
+                break
+        body = lines[i:j]
+        head = strip_comments(body[0])
+        signature = (head[: head.index(")") + 1] if ")" in head else head).strip()
+        text = "\n".join(pending + body)
+        if m.group(1) not in ("mainImage", "main"):
+            calls = frozenset(_CALL.findall(strip_comments(text))) - _KEYWORDS - {m.group(1)}
+            out.append(Recipe(m.group(1), signature, text, calls, chapter))
+        pending, i = [], j
+    return out
+
+
+def chapter_functions(section: Section) -> list[Recipe]:
+    return [r for block in _FENCE.findall(section.body) for r in parse_functions(block, section.title)]
+
+
+def cookbook_functions(md: str) -> dict[str, Recipe]:
+    """Every function the cookbook defines, by name, in cookbook order (first definition wins)."""
+    out: dict[str, Recipe] = {}
+    for sec in split_sections(md):
+        for r in chapter_functions(sec):
+            out.setdefault(r.name, r)
+    return out
+
+
+def defined_names(glsl: str) -> set[str]:
+    """Function and ``#define`` names a GLSL file already defines (what a seed must not repeat)."""
+    names = set(_DEFINE.findall(glsl))
+    names.update(m.group(1) for line in strip_comments(glsl).splitlines() if (m := FUNC_DEF.match(line)))
+    return names
+
+
+def with_helpers(wanted: list[Recipe], known: dict[str, Recipe]) -> list[Recipe]:
+    """``wanted`` plus every cookbook function they call (transitively), callees before callers."""
+    order: list[Recipe] = []
+    seen: set[str] = set()
+
+    def visit(r: Recipe) -> None:
+        if r.name in seen:
+            return
+        seen.add(r.name)
+        for dep in (n for n in known if n in r.calls):
+            visit(known[dep])
+        order.append(r)
+
+    for r in wanted:
+        visit(known.get(r.name, r))
+    return order
+
+
+def graphics_brief(ctx: RunContext) -> str:
+    """The text the cookbook selection (prompt excerpt AND seeded recipes) is matched against."""
+    plan = ctx.plan if isinstance(ctx.plan, GraphicsPlan) else None
+    return ctx.spec.prompt + " " + " ".join(plan.key_visuals if plan else [])
+
+
+def recipe_chapters(ctx: RunContext) -> list[Section]:
+    """The brief's cookbook chapters minus the always-on ones and the templates (``NOT_SEEDED``)."""
+    return [s for s in select_cookbook_chapters(ctx, graphics_brief(ctx))
+            if s.level >= 2 and not is_always_chapter(s.title) and not is_always_chapter(s.title, NOT_SEEDED)]
+
+
+def seeded_on_disk(glsl: str, known: dict[str, Recipe]) -> list[Recipe]:
+    """The cookbook recipes a ``src/recipes.glsl`` carries, in file order (a file without the harness
+    header is not a seed; only cookbook names count)."""
+    if HEADER not in glsl:
+        return []
+    return [known[r.name] for r in parse_functions(glsl) if r.name in known]
+
+
+def is_skeleton_common(text: str) -> bool:
+    """Is this ``src/common.glsl`` still the harness skeleton — untouched, or only ever trimmed by
+    :func:`trim_skeleton_common`?  (Every function it defines is the skeleton's own, verbatim.)"""
+    if text == COMMON_GLSL:
+        return True
+    skeleton = {r.name: r.text for r in parse_functions(COMMON_GLSL)}
+    return (text.startswith(COMMON_GLSL.splitlines()[0])
+            and defined_names(text) <= defined_names(COMMON_GLSL)
+            and all(skeleton.get(r.name) == r.text for r in parse_functions(text)))
+
+
+def trim_skeleton_common(path: Path, provided: set[str]) -> list[str]:
+    """Drop from the SKELETON's ``src/common.glsl`` the helpers ``src/recipes.glsl`` now provides — it is
+    pasted first, so a second ``hash12`` in common.glsl is a redefinition and the first build would fail
+    before the agent wrote a line.  Acts only while the file is still the harness's own skeleton text
+    (the agent has not seen it yet); once the agent owns common.glsl a duplicate is its own to remove,
+    and the lint names it.  Returns the names dropped."""
+    if not path.is_file():
+        return []
+    text = path.read_text(errors="replace")
+    if not is_skeleton_common(text):
+        return []
+    dropped = [r for r in parse_functions(text) if r.name in provided]
+    if not dropped:
+        return []
+    for r in dropped:
+        text = text.replace(r.text + "\n", "", 1)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    first, rest = text.split("\n", 1)
+    note = TRIM_NOTE.format(names=", ".join(r.name for r in dropped))
+    path.write_text(f"{first}\n{note}\n{rest}")
+    return [r.name for r in dropped]
+
+
+def seed_recipes(ctx: RunContext) -> list[str]:
+    """Write the brief's verified recipes (+ their helpers) to the harness-owned ``src/recipes.glsl``
+    (a resume appends only names the file does not define yet); return the names written THIS call.
+    ``ctx.extra["seeded_recipes"]`` lists every seeded recipe on disk (for the prompt block);
+    ``recipes.seeded`` is emitted with both.  No-op unless glsl_shader and enabled."""
+    if ctx.language is not Language.GLSL_SHADER or not seed_recipes_enabled():
+        return []
+    known = cookbook_functions(ctx.cookbook_text or "")
+    chapters = recipe_chapters(ctx)
+    wanted = [r for s in chapters for r in chapter_functions(s)]
+    path: Path = ctx.ws.root / RECIPES_REL
+    existing = path.read_text(errors="replace") if path.is_file() else ""
+    have = defined_names(existing)
+    new = [r for r in with_helpers(wanted, known) if r.name not in have]
+    trimmed: list[str] = []
+    if new:
+        head = [HEADER] if not existing else [RESUME_HEADER]
+        block = [*head, *(f"//   {r.signature} — {r.purpose}" for r in new), "", *(r.text for r in new)]
+        lead = "" if not existing else ("" if existing.endswith("\n") else "\n") + "\n"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(existing + lead + "\n".join(block) + "\n")
+        existing = path.read_text(errors="replace")
+        trimmed = trim_skeleton_common(ctx.ws.root / COMMON_REL, defined_names(existing))
+    present = seeded_on_disk(existing, known)
+    ctx.extra[EXTRA_KEY] = [r.entry() for r in present]
+    ctx.events.emit("recipes.seeded", file=RECIPES_REL, names=[r.name for r in new], present=[r.name for r in present],
+                    chapters=[s.title for s in chapters], trimmed=trimmed)
+    return [r.name for r in new]
+
+
+# ===================================================================== planner hooks + prompt context + frames
+# (merged from codeverse/tracks/graphics_steps.py, 2026-08-28 — single production importer)
+PLAN_TEMPLATE = "tracks/plan_graphics.j2"
+PLAN_TEMPERATURE = 0.5
+PLAN_MAX_OUTPUT_TOKENS = 65_536   # the model's declared output ceiling; unused tokens cost nothing
+EXPECTED_FILES: dict[Language, list[str]] = {
+    Language.GLSL_SHADER: ["src/shader.frag", "src/common.glsl"],
+    Language.OPENGL_PYTHON: ["src/program.py"],
+}
+
+
+# ----------------------------------------------------------------------------- planner
+def plan_example() -> dict[str, Any]:  # the graphics worked example (planner hook)
+    return {
+        "title": "Neon rain on a window", "summary": "Looking through a rain-streaked window at a neon-lit street at night; "
+        "drops run down the glass, city lights turn into coloured bokeh discs that pulse.",
+        "style": "cyberpunk night: deep indigo/black base, magenta + cyan neon accents, warm sodium highlights; soft, filmic",
+        "resolution": [1280, 720], "duration_s": 8.0,
+        "passes": [
+            {"name": "CityBokeh", "kind": "fullscreen", "description": "background: 40-60 blurred bokeh discs (hash-placed, 3 depth layers, cyan/magenta/amber), slow horizontal parallax, pulsing brightness"},
+            {"name": "RainDrops", "kind": "fullscreen", "description": "grid-cell drops with hash offsets, running trails (fract(t) per cell), refraction offset applied when sampling the background"},
+            {"name": "Grade", "kind": "postprocess", "description": "vignette, slight chromatic aberration, tonemap + gamma"},
+        ],
+        "uniforms": ["u_time", "u_resolution"],
+        "motion": "drops slide down with gravity and wobble; bokeh drifts left 0.02/s and pulses at 0.5-1 Hz; no hard cuts",
+        "key_visuals": ["rain drops with trails on glass", "blurred neon bokeh discs", "dark night street behind", "magenta/cyan palette"],
+        "acceptance": [
+            {"id": "a1", "text": "Raindrops with trails visibly run down the glass (compare t=0 and t=1)", "how": "visual", "priority": "must"},
+            {"id": "a2", "text": "Blurred coloured bokeh lights are visible in the background", "how": "visual", "priority": "must"},
+            {"id": "a3", "text": "Frames change over time (no static image)", "how": "probe", "priority": "must"},
+        ],
+    }
+
+
+def build_plan_system_prompt(spec: Spec, *, runtime: Any | None = None) -> str:
+    """The graphics plan system prompt = the shared builder with the graphics
+    template + worked example (``plan_graphics.j2`` references no 3D frame)."""
+    return build_system_prompt(spec, GraphicsPlan, runtime=runtime, template=PLAN_TEMPLATE, example=plan_example())
+
+
+def ensure_graphics_acceptance(plan: GraphicsPlan, spec: Spec) -> GraphicsPlan:
+    """Spec must_have / must_not → visual items; planned motion → a probe item (never 'ground contact')."""
+    items: list[AcceptanceItem] = list(plan.acceptance)
+    for m in spec.constraints.must_have:
+        add_acceptance_item(items, "must", f"Includes: {m}", "visual")
+    for m in spec.constraints.must_not:
+        add_acceptance_item(items, "not", f"Does NOT include: {m}", "visual")
+    if plan.motion.strip() and not any("static" in a.text.lower() or "motion" in a.text.lower() or "change over time" in a.text.lower() for a in items):
+        add_acceptance_item(items, "motion", "Frames change over time as planned (not a static image)", "probe")
+    plan.acceptance = items
+    return plan
+
+
+def graphics_event_stats(plan: GraphicsPlan) -> dict[str, Any]:
+    """``plan.done`` payload for graphics (passes, not parts/zones)."""
+    return {"n_passes": len(plan.passes), "n_acceptance": len(plan.acceptance)}
+
+
+def plan_graphics(spec: Spec, model_id: str, ws: Workspace, *, model: Any | None = None, events: Any | None = None,
+                  budget: Any | None = None, runtime: Any | None = None) -> GraphicsPlan:
+    """Structured planner call → validated GraphicsPlan: the ONE planner loop
+    (``tracks/planner.plan``) parameterised with the graphics hooks."""
+    return run_planner(spec, model_id, GraphicsPlan, ws, model=model, events=events, budget=budget, runtime=runtime,
+                       template=PLAN_TEMPLATE, example=plan_example(), temperature=PLAN_TEMPERATURE,
+                       max_output_tokens=PLAN_MAX_OUTPUT_TOKENS,
+                       finalise=lambda p: ensure_graphics_acceptance(p, spec), event_stats=graphics_event_stats)
+
+
+# ----------------------------------------------------------------------------- prompt context
+def graphics_expected_files(ctx: RunContext) -> list[str]:
+    return list(EXPECTED_FILES.get(ctx.language, ["src/shader.frag"]))
+
+
+def passes_table(plan: GraphicsPlan | None) -> str:
+    if plan is None or not plan.passes:
+        return "(no passes)"
+    rows = ["| pass | kind | what it draws / computes |", "|---|---|---|"]
+    rows += [f"| {p.name} | {p.kind} | {p.description} |" for p in plan.passes]
+    return "\n".join(rows)
+
+
+def graphics_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
+    """Every variable the graphics templates may reference (StrictUndefined)."""
+    plan = ctx.plan if isinstance(ctx.plan, GraphicsPlan) else None
+    res = plan.resolution if plan else (1280, 720)
+    d: dict[str, Any] = {
+        "track": ctx.track.value, "language": ctx.language.value, "contract": ctx.contract_text,
+        "cookbook_rel": ctx.cookbook_rel, "cookbook_excerpt": select_cookbook_excerpt(ctx, graphics_brief(ctx)), "tool_cards": ctx.tool_cards,
+        # the recipes tracks/graphics_recipes.py put in the harness-owned src/recipes.glsl before the session ([] = no block)
+        "seeded_recipes": list((getattr(ctx, "extra", None) or {}).get(EXTRA_KEY) or []),
+        "single_shot": ctx.single_shot, "output_format": SINGLE_SHOT_FORMAT if ctx.single_shot else AGENT_OUTPUT_RULES,
+        "spec_prompt": ctx.spec.prompt, "constraints": constraints_text(ctx.spec),
+        "title": plan.title if plan else "Untitled effect", "plan_summary": plan.summary if plan else "",
+        "style": plan.style if plan else "", "resolution": f"{res[0]}x{res[1]}", "duration": f"{plan.duration_s:g}" if plan else "8",
+        "passes_table": passes_table(plan), "motion": plan.motion if plan else "", "key_visuals": list(plan.key_visuals) if plan else [],
+        "uniforms": ", ".join(plan.uniforms) if plan and plan.uniforms else "u_time, u_resolution",
+        "acceptance": acceptance_lines(plan), "entry_files": ", ".join(getattr(ctx.runtime, "entry_globs", ()) or ()),
+        "expected_files": graphics_expected_files(ctx), "reference_note": reference_note(ctx),
+        "judge_times": "0, 1, 2.5, 4, 6 s",
+    }
+    d.update(extra)
+    return d
+
+
+# ----------------------------------------------------------------------------- renders / gates
+def frames_render_set(ws: Workspace, build: BuildResult, round_index: int) -> RenderSet:
+    """Copy the judged frames + sheet into renders/rNN and describe them as a RenderSet (views ``t=<s>s``)."""
+    out = ws.renders_dir(round_index)
+    out.mkdir(parents=True, exist_ok=True)
+    frames_dir = Path(build.extra_paths.get("frames", ws.artifacts / "frames"))
+    metrics = read_metrics(ws)
+    stats = metrics[0] if metrics else None
+    views: list[RenderView] = []
+    frames = stats.frames if stats else []
+    for f in frames:
+        src = Path(f.path)
+        if not src.is_file():
+            continue
+        dst = out / f"frame_t{f.time:05.2f}.png"
+        shutil.copy2(src, dst)
+        views.append(RenderView(name=f"t={f.time:g}s", path=str(dst), time_s=f.time))
+    if not views and frames_dir.is_dir():  # metrics missing: fall back to the raw frame files
+        for p in sorted(frames_dir.glob("f*_t*.png")):
+            dst = out / p.name
+            shutil.copy2(p, dst)
+            views.append(RenderView(name=p.stem.split("_t", 1)[-1] + "s", path=str(dst)))
+    sheet_src = Path(build.extra_paths.get("sheet", ws.artifacts / SHEET_NAME))
+    sheet = None
+    if sheet_src.is_file():
+        sheet = out / "sheet.png"
+        shutil.copy2(sheet_src, sheet)
+    renderer = str(build.census.get("renderer", "")) if isinstance(build.census, dict) else ""
+    return RenderSet(views=views, contact_sheet=str(sheet) if sheet else None, renderer=renderer or "moderngl",
+                     duration_ms=build.duration_ms)
+
+
+def frame_stats_text(ws: Workspace) -> str:
+    m = read_metrics(ws)
+    if m is None:
+        return "(no frame metrics)"
+    stats, gate = m
+    lines = stats.summary_lines()
+    for f in gate.findings:
+        lines.append(f"- GATE gl_frames {f.as_line(with_severity=True, with_hint=f.severity is not Severity.INFO)}")
+    return "\n".join(lines)
 
 
 class GraphicsPipeline:
@@ -97,7 +487,7 @@ class GraphicsTrack(BaseTrack):
 
     # ------------------------------------------------------------------ planner hooks
     def plan_example(self, spec: Spec) -> dict[str, Any]:
-        return graphics_plan_example()
+        return plan_example()
 
     def finalise_plan(self, plan_obj: Any, spec: Spec) -> Any:
         return ensure_graphics_acceptance(plan_obj, spec)

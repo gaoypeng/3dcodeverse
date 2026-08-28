@@ -24,8 +24,8 @@ from codeverse.contracts.plan import (
     SubPartPlan,
 )
 from codeverse.contracts.spec import Constraints, ReferenceImage, Spec
-from codeverse.tracks import brief as BR
-from codeverse.tracks import plan_budget as B
+from codeverse.tracks import planner as B
+from codeverse.tracks import planner as BR
 from codeverse.tracks.planner import (
     MAX_QUALITY_REASKS,
     build_system_prompt,
@@ -370,7 +370,7 @@ def test_graphics_pass_elements_are_folded_into_the_one_markdown_row_that_render
     """``graphics_steps.passes_table`` prints only ``description`` — and it is a markdown
     table row, so the fold must be single-line and idempotent."""
     from codeverse.contracts.plan import PassPlan
-    from codeverse.tracks.graphics_steps import passes_table
+    from codeverse.tracks.graphics import passes_table
 
     plan = GraphicsPlan(title="T", summary="s", style="st", passes=[PassPlan(
         name="Gears", kind="fullscreen", description="meshing gear train",

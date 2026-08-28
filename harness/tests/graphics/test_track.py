@@ -24,8 +24,9 @@ from codeverse.languages.glsl_shader.skeleton import write_skeleton
 from codeverse.prompts import render
 from codeverse.spatial.gl_render import GlFrame, GlResult
 from codeverse.tracks import get_track
-from codeverse.tracks.graphics import GraphicsPipeline, GraphicsTrack
-from codeverse.tracks.graphics_steps import (
+from codeverse.tracks.graphics import (
+    GraphicsPipeline,
+    GraphicsTrack,
     build_plan_system_prompt,
     ensure_graphics_acceptance,
     graphics_prompt_context,
