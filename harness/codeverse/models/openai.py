@@ -26,9 +26,9 @@ from codeverse.contracts.chat import (
 )
 from codeverse.contracts.common import Usage
 from codeverse.models.base import ModelError
-from codeverse.models.parts import Stopwatch, image_b64
+from codeverse.models.parts import Stopwatch, classify_sdk_exception, image_b64, with_logged_retries
 from codeverse.models.pricing import estimate_cost
-from codeverse.models.retry import MAX_WAIT_S, with_retries
+from codeverse.models.retry import MAX_WAIT_S
 from codeverse.models.schema_utils import (
     JsonParseError,
     inline_refs,
@@ -201,24 +201,10 @@ log = logging.getLogger(__name__)
 
 
 def classify_exception(exc: BaseException) -> ModelError:
-    """Map openai SDK exceptions onto ``ModelError``."""
-    if isinstance(exc, ModelError):
-        return exc
+    """Map openai SDK exceptions onto ``ModelError`` (the shared ladder in parts.py)."""
     import openai
 
-    if isinstance(exc, openai.APIStatusError):
-        status = int(getattr(exc, "status_code", 0) or 0)
-        retry = status in (408, 409, 429) or status >= 500
-        return ModelError(
-            f"OpenAI API error {status}: {exc.message}", retryable=retry, status=status
-        )
-    if isinstance(exc, openai.APITimeoutError):
-        return ModelError(f"OpenAI request timed out: {exc}", retryable=True, status=408)
-    if isinstance(exc, openai.APIConnectionError):
-        return ModelError(f"OpenAI connection error: {exc}", retryable=True)
-    if isinstance(exc, openai.APIError):
-        return ModelError(f"OpenAI API error: {exc}", retryable=False)
-    return ModelError(f"OpenAI unexpected error: {type(exc).__name__}: {exc}", retryable=False)
+    return classify_sdk_exception(exc, openai, "OpenAI")
 
 
 def _is_schema_rejection(err: ModelError) -> bool:
@@ -308,27 +294,9 @@ class OpenAIModel:
                         raise classify_exception(exc2) from exc2
                 raise err from exc
 
-        def on_retry(n: int, exc: BaseException, delay: float) -> None:
-            log.warning(
-                "openai %s attempt %d/%d failed (%s); retrying in %.1fs",
-                self.model,
-                n,
-                self.max_attempts,
-                exc,
-                delay,
-            )
-
-        # ChatRequest.max_wait_s is not honoured here: with_retries has no deadline, and its
-        # 6 attempts x <= 5 s backoff bound one call to ~20 s of waiting plus the round-trips.
-        return with_retries(
-            attempt,
-            is_retryable=lambda e: isinstance(e, ModelError) and e.retryable,
-            attempts=self.max_attempts,
-            base_delay=self.base_delay,
-            max_delay=self.max_delay,
-            on_retry=on_retry,
-            sleep=self._sleep,
-        )
+        return with_logged_retries(attempt, label="openai", model=self.model,
+                                   attempts=self.max_attempts, base_delay=self.base_delay,
+                                   max_delay=self.max_delay, sleep=self._sleep, log=log)
 
     def _once(self, kwargs: dict[str, Any], request: ChatRequest) -> ChatResponse:
         client = self.client()
