@@ -20,10 +20,11 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.flywheel.export import collect_rows, export_samples
-from codeverse.flywheel.manifest import (
+from codeverse.flywheel.export import (
     MANIFEST_NAME,
     ManifestError,
+    collect_rows,
+    export_samples,
     load_manifest,
     write_manifest,
 )

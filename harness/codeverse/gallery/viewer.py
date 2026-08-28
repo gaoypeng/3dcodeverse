@@ -104,7 +104,7 @@ def vendor_path(rel: str, runtime_js: Path | str | None = None) -> Path | None:
 
     Only the two whitelisted subtrees are reachable, and :func:`safe_join` still
     checks the result — a vendor URL can never leave ``node_modules/three``."""
-    from codeverse.gallery.paths import PathError, safe_join
+    from codeverse.gallery.urls import PathError, safe_join
 
     root = three_root(runtime_js)
     if root is None:

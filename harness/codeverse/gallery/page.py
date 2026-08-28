@@ -15,20 +15,23 @@ reader has to do — and cannot.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from codeverse.gallery.cards import TABLE_HEAD, render_card, render_row
-from codeverse.gallery.labels import VERDICT_META, VERDICTS
+from codeverse.gallery.index import build_index
 from codeverse.gallery.model import (
     FILTER_KEYS,
+    VERDICT_META,
+    VERDICTS,
     GalleryIndex,
     RunEntry,
     match,
     sort_entries,
     summarize,
 )
-from codeverse.gallery.scripts import INDEX_JS
-from codeverse.gallery.theme import INDEX_CSS, esc, footer, page_shell, top_bar
-from codeverse.gallery.urls import UrlMaker
+from codeverse.gallery.theme import INDEX_CSS, INDEX_JS, esc, footer, page_shell, top_bar
+from codeverse.gallery.urls import THUMB_PX, StaticUrls, UrlMaker
+from codeverse.proc import write_text_atomic
 
 
 def _fmt(value: float | None, digits: int = 3, dash: str = "—") -> str:
@@ -180,3 +183,26 @@ def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcv gall
     data_block = f"<script type='application/json' id='gallery-data'>{data}</script>"
     return page_shell(title, body + data_block, scripts=INDEX_JS, extra_css=INDEX_CSS,
                       body_class="view-table" if view == "table" else "")
+
+
+# ===================================================================== static_site
+# (merged from codeverse/gallery/static_site.py, 2026-08-28)
+def render_static(index: GalleryIndex, *, title: str = "3dcv gallery", embed: bool = False,
+                  thumb_px: int = THUMB_PX, sort: str = "score", view: str = "cards",
+                  extra_html: str = "") -> str:
+    """The complete HTML document for ``index`` (no server involved)."""
+    note = ("images are inlined; the links open the original run directories on this machine"
+            if embed else "images and links point at the run directories with file:// — "
+                          "use `3dcv gallery serve` for a page that works anywhere")
+    return render_index(index, StaticUrls(embed=embed, thumb_px=thumb_px),
+                        title=title, sort=sort, view=view, note=note, extra_html=extra_html)
+
+
+def build_static(roots: list[Path] | list[str], out_html: Path | str, *, title: str | None = None,
+                 embed: bool = False, thumb_px: int = THUMB_PX) -> tuple[Path, int, GalleryIndex]:
+    """Scan ``roots`` and write one self-contained page; ``(path, n_runs, index)``."""
+    index = build_index(roots)
+    label = title or ("3dcv gallery — " + ", ".join(s.label for s in index.sections[:4])
+                      + ("…" if len(index.sections) > 4 else ""))
+    html = render_static(index, title=label, embed=embed, thumb_px=thumb_px)
+    return write_text_atomic(Path(out_html), html), len(index.entries()), index

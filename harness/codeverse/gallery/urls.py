@@ -11,7 +11,7 @@ from __future__ import annotations
 import base64
 import io
 import mimetypes
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
 from codeverse.gallery.model import RunEntry, RunLink
@@ -153,3 +153,32 @@ def content_type(path: Path | str) -> str:
     if guessed.startswith("text/") and "charset" not in guessed:
         return f"{guessed}; charset=utf-8"
     return guessed
+
+
+# ===================================================================== paths
+# (merged from codeverse/gallery/paths.py, 2026-08-28)
+class PathError(ValueError):
+    """A requested path is outside the run directory (or is not usable)."""
+
+
+def safe_join(root: Path | str, rel: str) -> Path:
+    """``root / rel`` when ``rel`` stays inside ``root``; :class:`PathError` otherwise.
+
+    ``rel`` is a URL path fragment that has already been percent-decoded."""
+    base = Path(root).resolve()
+    rel = (rel or "").strip()
+    if "\x00" in rel:
+        raise PathError("null byte in path")
+    if rel.startswith(("/", "\\")) or (len(rel) > 1 and rel[1] == ":"):
+        raise PathError(f"absolute path refused: {rel!r}")
+    parts = [p for p in PurePosixPath(rel.replace("\\", "/")).parts if p not in ("", ".")]
+    if any(p == ".." for p in parts):
+        raise PathError(f"parent traversal refused: {rel!r}")
+    target = base.joinpath(*parts)
+    try:
+        resolved = target.resolve()
+    except OSError as e:  # broken symlink loop, too many levels, …
+        raise PathError(f"unresolvable path: {rel!r} ({e})") from e
+    if resolved != base and base not in resolved.parents:
+        raise PathError(f"path escapes the run directory: {rel!r}")
+    return resolved

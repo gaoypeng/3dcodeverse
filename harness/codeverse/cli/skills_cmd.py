@@ -15,7 +15,7 @@ from typing import Annotated
 
 import typer
 
-from codeverse.cli._fmt import console, err_console
+from codeverse.cli._common import console, err_console
 from codeverse.proc import read_jsonl_lenient
 
 skills_app = typer.Typer(invoke_without_command=True, help="The skill library: list / show / validate / read-rate report.")

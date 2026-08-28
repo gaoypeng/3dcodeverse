@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.gallery.paths import PathError, safe_join
 from codeverse.gallery.server import (
     DEFAULT_HOST,
     GalleryApp,
@@ -21,7 +20,7 @@ from codeverse.gallery.server import (
     make_server,
     resolve_host,
 )
-from codeverse.gallery.urls import content_type
+from codeverse.gallery.urls import PathError, content_type, safe_join
 
 
 @pytest.fixture

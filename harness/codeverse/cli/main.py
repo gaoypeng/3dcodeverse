@@ -22,7 +22,7 @@ import typer
 
 from codeverse import __version__
 from codeverse.cli import _common as C
-from codeverse.cli._fmt import console, err_console, kv_table, ok, print_record_summary, warn
+from codeverse.cli._common import console, err_console, kv_table, ok, print_record_summary, warn
 from codeverse.cli.bench_cmd import bench_app
 from codeverse.cli.cost_cmd import cost_app
 from codeverse.cli.doctor import doctor_app

@@ -15,8 +15,7 @@ import csv
 import io
 
 from codeverse.gallery.cards import fmt, tier_tag, verdict_tag
-from codeverse.gallery.labels import VERDICT_META
-from codeverse.gallery.model import RunEntry
+from codeverse.gallery.model import VERDICT_META, RunEntry
 from codeverse.gallery.theme import esc, footer, page_shell, top_bar
 from codeverse.gallery.urls import UrlMaker
 

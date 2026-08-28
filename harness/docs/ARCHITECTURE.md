@@ -170,17 +170,18 @@ codeverse/
                       skills_hook.py (the round's view of codeverse/skills: attach before generating,
                       probe reads after — a no-op unless CV3D_SKILLS is on)
   flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, migrate.py (schema moves),
-                      deliverable.py, telemetry.py, captions.py, quality.py (tiers + dedupe), dedupe.py, index.py,
+                      deliverable.py, telemetry.py, captions.py, quality.py (tiers + dedupe + code/mesh fingerprints), index.py,
                       code_quality.py (the delivered CODE's own vector — magic numbers per 100 LOC,
                       function length, dead functions, duplication, docstrings → record.extra
                       ["code_quality"].index, a flywheel filter beside score and complexity)
-  gallery/            THE local run gallery (`3dcv gallery serve|build`): cards.py, labels.py,
+  gallery/            THE local run gallery (`3dcv gallery serve|build`): cards.py,
                       compare.py (side-by-side arms), index.py (run roots →
                       typed RunEntry, tolerant of half-written records), model.py, page.py (cards +
                       table + filters + per-filter summary), detail.py (/run/<battery>/<slug>),
                       code.py (src browser), viewer.py (GLB orbit viewer on the vendored three.js),
-                      paths.py (traversal guard), urls.py (server vs file:// targets + content types),
-                      server.py (stdlib http.server, loopback-only), static_site.py, theme.py, scripts.py
+                      urls.py (server vs file:// targets + content types + the traversal guard),
+                      server.py (stdlib http.server, loopback-only; page.py also renders the
+                      static single-file form), theme.py (CSS + the index-page JS)
   prompts/            system/*, <lang>/{contract,cookbook}.md (incl. glsl_shader/, opengl_python/),
                       texturing/*.md, tracks/*.j2 (incl. plan/generate/refine_graphics.j2)
   cli/                main.py (app wiring, make/resume/mcp), inspect_cmd.py (status/render/judge

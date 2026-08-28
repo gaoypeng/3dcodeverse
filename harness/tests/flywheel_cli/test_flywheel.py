@@ -12,17 +12,17 @@ import pytest
 
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel import _git
-from codeverse.flywheel.dedupe import (
+from codeverse.flywheel.export import export_samples
+from codeverse.flywheel.index import build_index, round_curve, summary, top_runs
+from codeverse.flywheel.pack import pack_samples, verify_locators
+from codeverse.flywheel.pairs import build_pairs
+from codeverse.flywheel.quality import (
     DedupeItem,
     MeshFingerprint,
     code_fingerprint,
     near_duplicates,
     normalise_code,
 )
-from codeverse.flywheel.export import export_samples
-from codeverse.flywheel.index import build_index, round_curve, summary, top_runs
-from codeverse.flywheel.pack import pack_samples, verify_locators
-from codeverse.flywheel.pairs import build_pairs
 from codeverse.flywheel.record import (
     RecordError,
     best_round_index,
@@ -200,7 +200,7 @@ def test_near_duplicates_groups():
 
 def test_mesh_fingerprint_real_glb(tmp_path: Path):
     trimesh = pytest.importorskip("trimesh")
-    from codeverse.flywheel.dedupe import mesh_fingerprint
+    from codeverse.flywheel.quality import mesh_fingerprint
 
     box = trimesh.creation.box(extents=(1.0, 0.5, 0.25))
     p = tmp_path / "box.glb"

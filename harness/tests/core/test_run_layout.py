@@ -109,7 +109,7 @@ def _moved_run(tmp_path: Path):
 def _captured(render) -> str:
     """rich's Console holds its own stream, so capsys never sees it; widen it too so the
     panel cannot wrap the path under assertion."""
-    from codeverse.cli._fmt import console
+    from codeverse.cli._common import console
 
     old_width, console.width = console.width, 400
     try:
@@ -154,7 +154,7 @@ def test_a_relocated_run_still_resolves_its_stored_paths(tmp_path):
 
 def test_show_prints_the_sheet_that_exists_after_a_move(tmp_path):
     """The user-visible half: `3dcv show` must not print a path that is not there."""
-    from codeverse.cli._fmt import print_record_summary
+    from codeverse.cli._common import print_record_summary
     from codeverse.workspace import Workspace
 
     _a, b, _sheet, rec = _moved_run(tmp_path)

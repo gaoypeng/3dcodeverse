@@ -28,11 +28,13 @@ from pydantic import BaseModel, Field
 from codeverse.flywheel.export import (
     JSONL_NAME,
     PARQUET_NAME,
+    ManifestEntry,
+    ManifestError,
+    load_manifest,
     row_for_sample,
     write_jsonl,
     write_parquet,
 )
-from codeverse.flywheel.manifest import ManifestEntry, ManifestError, load_manifest
 from codeverse.flywheel.quality import mark_duplicates
 
 MAX_TAR_BYTES = int(2.5 * 1024**3)

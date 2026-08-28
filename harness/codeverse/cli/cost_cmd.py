@@ -24,7 +24,7 @@ import click
 import typer
 from typer.core import TyperGroup
 
-from codeverse.cli._fmt import console, ok, warn
+from codeverse.cli._common import console, ok, warn
 
 #: a price row older than this needs re-checking against the provider's page
 STALE_AFTER_DAYS = 90
@@ -117,7 +117,7 @@ def _report(paths: list[Path], *, md: Path | None, recheck: bool, limit: int, pe
 
 def _single_run_lines(run: object) -> None:
     """Reconciliation for one run: the ledger against what the record was billed."""
-    from codeverse.cli._fmt import kv_table
+    from codeverse.cli._common import kv_table
 
     ledger = float(getattr(run, "ledger_usd", 0.0))
     recorded = float(getattr(run, "recorded_usd", 0.0))

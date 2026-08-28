@@ -436,7 +436,7 @@ from codeverse.gallery import build_index, default_roots, build_static, serve, G
                                                        # render_static(index, *, embed=…, extra_html="") — bench/report.py's page
                                                        # GalleryApp(roots, reload=False).route(path, query) -> Response  (pure, testable)
                                                        # serve(roots, *, host=None, host_explicit=False, port=8765, reload=False)
-from codeverse.gallery.paths import safe_join          # (root, rel) -> Path inside root, else PathError
+from codeverse.gallery.urls import safe_join          # (root, rel) -> Path inside root, else PathError
 from codeverse.gallery.urls import content_type        # .glb→model/gltf-binary, .py/.js/.frag→text/plain; charset=utf-8
 from codeverse.flywheel.index import build_index, query, summary   # sqlite + parquet: adds quality_tier, gate_errors, cost_usd,
                                                                    # rounds, status, code_fingerprint, prompt_hash, duplicate_of, has_captions

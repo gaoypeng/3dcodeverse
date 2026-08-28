@@ -35,9 +35,8 @@ from codeverse.gallery.detail import render_broken_detail, render_detail
 from codeverse.gallery.index import build_index
 from codeverse.gallery.model import FILTER_KEYS, RunEntry, match, sort_entries
 from codeverse.gallery.page import render_index
-from codeverse.gallery.paths import PathError, safe_join
 from codeverse.gallery.theme import esc, footer, page_shell, top_bar
-from codeverse.gallery.urls import UrlMaker, content_type
+from codeverse.gallery.urls import PathError, UrlMaker, content_type, safe_join
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765

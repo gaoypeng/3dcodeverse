@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 
 from codeverse.cli import _common as C
-from codeverse.cli._fmt import console, ok
+from codeverse.cli._common import console, ok
 
 bench_app = typer.Typer(no_args_is_help=True)
 

@@ -19,7 +19,7 @@ from typing import Annotated
 import typer
 
 from codeverse.cli import _common as C
-from codeverse.cli._fmt import console, kv_table, print_record_summary, warn
+from codeverse.cli._common import console, kv_table, print_record_summary, warn
 from codeverse.config import get_settings
 from codeverse.contracts.common import Track
 from codeverse.contracts.spec import Spec

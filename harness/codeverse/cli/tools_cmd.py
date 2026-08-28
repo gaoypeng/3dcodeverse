@@ -13,7 +13,7 @@ from typing import Annotated
 import typer
 
 from codeverse.cli import _common as C
-from codeverse.cli._fmt import console, print_observation
+from codeverse.cli._common import console, print_observation
 
 
 def tools(

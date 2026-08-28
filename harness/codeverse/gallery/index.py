@@ -27,8 +27,14 @@ from codeverse.flywheel.record import (
     load_record,
 )
 from codeverse.flywheel.sample import gate_error_summary, telemetry_digest
-from codeverse.gallery.labels import humanize_view
-from codeverse.gallery.model import GalleryIndex, RootSection, RoundRow, RunEntry, RunLink
+from codeverse.gallery.model import (
+    GalleryIndex,
+    RootSection,
+    RoundRow,
+    RunEntry,
+    RunLink,
+    humanize_view,
+)
 from codeverse.proc import read_json_or_none
 from codeverse.workspace import Workspace
 

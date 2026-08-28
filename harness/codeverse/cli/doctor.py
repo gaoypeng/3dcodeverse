@@ -11,7 +11,7 @@ from typing import Annotated
 
 import typer
 
-from codeverse.cli._fmt import console, doctor_table
+from codeverse.cli._common import console, doctor_table
 from codeverse.config import get_settings
 
 doctor_app = typer.Typer(invoke_without_command=True)

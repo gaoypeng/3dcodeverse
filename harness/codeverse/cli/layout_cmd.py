@@ -20,7 +20,7 @@ import typer
 from rich.table import Table
 
 from codeverse.cli import _common as C
-from codeverse.cli._fmt import console, fmt_score, fmt_usd, kv_table, ok, warn
+from codeverse.cli._common import console, fmt_score, fmt_usd, kv_table, ok, warn
 from codeverse.contracts.run import (
     CostSummary,
     DeliverableFile,

@@ -13,7 +13,7 @@ from typing import Annotated
 import typer
 
 from codeverse.cli import _common as C
-from codeverse.cli._fmt import console, kv_table, warn
+from codeverse.cli._common import console, kv_table, warn
 from codeverse.contracts.common import Track
 
 texture_app = typer.Typer(name="texture", help="Text-to-image texturing: object pass + scene texture pack.",

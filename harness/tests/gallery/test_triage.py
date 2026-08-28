@@ -21,8 +21,7 @@ from codeverse.gallery.compare import (
     render_compare,
 )
 from codeverse.gallery.index import HERO_PREFERENCE, build_index, hero_view
-from codeverse.gallery.labels import VERDICTS, humanize_view
-from codeverse.gallery.model import match, summarize, verdict_breakdown
+from codeverse.gallery.model import VERDICTS, humanize_view, match, summarize, verdict_breakdown
 from codeverse.gallery.page import render_index
 from codeverse.gallery.server import GalleryApp
 from codeverse.gallery.urls import UrlMaker
@@ -177,7 +176,7 @@ def test_compare_survives_a_run_with_no_record(gallery_tree: dict[str, Path]):
 
 
 def test_bulk_bar_is_offered_on_the_server_but_not_in_the_static_build(gallery_tree: dict[str, Path]):
-    from codeverse.gallery.static_site import render_static
+    from codeverse.gallery.page import render_static
 
     index = build_index([gallery_tree["runs"]])
     served = render_index(index, UrlMaker())

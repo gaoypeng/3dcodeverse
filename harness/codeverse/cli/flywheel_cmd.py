@@ -10,7 +10,7 @@ import typer
 from rich.markup import escape
 
 from codeverse.cli import _common as C
-from codeverse.cli._fmt import console, kv_table, ok, warn
+from codeverse.cli._common import console, kv_table, ok, warn
 
 flywheel_app = typer.Typer(no_args_is_help=True)
 
@@ -156,7 +156,7 @@ def dedupe_cmd(
     """Report near-duplicate sample groups (code fingerprint + mesh voxel Jaccard)."""
     import json
 
-    from codeverse.flywheel.dedupe import (
+    from codeverse.flywheel.quality import (
         DedupeItem,
         code_fingerprint,
         mesh_fingerprint,
@@ -193,7 +193,7 @@ def gallery_cmd(
     embed: Annotated[bool, typer.Option("--embed/--no-embed", help="inline the contact sheets as data: URIs")] = True,
 ) -> None:
     """Alias of `3dcv gallery build` (kept for scripts): one self-contained HTML page."""
-    from codeverse.gallery.static_site import build_static
+    from codeverse.gallery.page import build_static
 
     path, n, _ = build_static([runs_dir], out_html, title=title, embed=embed, thumb_px=thumb_px)
     ok(f"gallery of {n} runs → {path} ({path.stat().st_size // 1024} KB)")

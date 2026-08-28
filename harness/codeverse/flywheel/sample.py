@@ -32,9 +32,8 @@ from codeverse.contracts.common import (
 )
 from codeverse.contracts.run import RoundRecord, RunRecord
 from codeverse.flywheel import _git
-from codeverse.flywheel.dedupe import code_fingerprint
 from codeverse.flywheel.deliverable import deliverable_path
-from codeverse.flywheel.quality import QualityTier, prompt_hash, quality_tier
+from codeverse.flywheel.quality import QualityTier, code_fingerprint, prompt_hash, quality_tier
 from codeverse.flywheel.record import (
     best_round_index,
     effective_judgment,

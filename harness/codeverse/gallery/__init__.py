@@ -15,15 +15,17 @@
 
 from codeverse.gallery.compare import export_csv, render_compare
 from codeverse.gallery.index import build_index, default_roots
-from codeverse.gallery.labels import VERDICTS, humanize_view
 from codeverse.gallery.model import (
+    VERDICTS,
     GalleryIndex,
     RootSection,
     RunEntry,
     Summary,
+    humanize_view,
     summarize,
     verdict_breakdown,
 )
+from codeverse.gallery.page import build_static, render_static
 from codeverse.gallery.server import (
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -32,7 +34,6 @@ from codeverse.gallery.server import (
     resolve_host,
     serve,
 )
-from codeverse.gallery.static_site import build_static, render_static
 
 __all__ = [
     "DEFAULT_HOST", "DEFAULT_PORT", "VERDICTS", "GalleryApp", "GalleryError", "GalleryIndex",

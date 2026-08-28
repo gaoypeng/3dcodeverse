@@ -14,7 +14,7 @@ from typing import Annotated
 import typer
 
 from codeverse.cli import _common as C
-from codeverse.cli._fmt import console, kv_table, ok, warn
+from codeverse.cli._common import console, kv_table, ok, warn
 
 gallery_app = typer.Typer(no_args_is_help=True)
 
@@ -85,7 +85,7 @@ def build_cmd(
     thumb_px: Annotated[int, typer.Option("--thumb-px", min=128, help="embedded thumbnail long edge")] = 720,
 ) -> None:
     """Write the gallery as one self-contained HTML file."""
-    from codeverse.gallery.static_site import build_static
+    from codeverse.gallery.page import build_static
 
     path, n, index = build_static(resolve_roots(roots), out, title=title, embed=embed, thumb_px=thumb_px)
     broken = sum(1 for e in index.entries() if e.state != "ok")

@@ -14,8 +14,7 @@ Design rules this module exists to hold in one place:
 
 from __future__ import annotations
 
-from codeverse.gallery.labels import VERDICT_META, humanize_view
-from codeverse.gallery.model import RunEntry, RunLink
+from codeverse.gallery.model import VERDICT_META, RunEntry, RunLink, humanize_view
 from codeverse.gallery.theme import esc
 from codeverse.gallery.urls import UrlMaker
 
