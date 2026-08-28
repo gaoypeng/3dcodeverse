@@ -642,6 +642,20 @@ def _with_note(msg: ChatMessage, note: str) -> ChatMessage:
     return ChatMessage.user(msg.text + note, images=images)
 
 
+def _thin_plan_note(raw: Any, budget: PlanBudget) -> str:
+    """A second line for the validation re-ask when the invalid plan is also far too small.
+
+    compare_art_v4_pf0 (2026-08-28): flash answered an architect-lamp brief with ONE part
+    ("base") and a joint naming a link it never listed, three times in a row — the re-ask
+    only echoed the unknown-link error, so the model kept fixing the wrong thing."""
+    parts = raw.get("parts") if isinstance(raw, dict) else None
+    # only a degenerate plan (a third of the floor or less) — the quality complaint owns the rest
+    if not isinstance(parts, list) or len(parts) > max(2, budget.min_parts // 3):
+        return ""
+    return (f"\nAlso: this plan lists only {len(parts)} part(s) but the request needs about {budget.target_parts} "
+            f"({budget.reason}). Put EVERY link a joint references under `parts` with its own bbox.")
+
+
 def _truncated(exc: Exception) -> bool:
     """Did this model error mean 'the answer did not fit'?"""
     return "MAX_TOKENS" in str(exc)
@@ -791,7 +805,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
             messages = messages + [
                 _echo(raw, resp.text),
                 ChatMessage.user("Your plan failed validation. Fix EXACTLY these problems and return the full corrected "
-                                 f"plan JSON again (same schema):\n{last_error}"),
+                                 f"plan JSON again (same schema):\n{last_error}" + _thin_plan_note(raw, budget)),
             ]
             continue
         complaint = plan_quality_complaint(result, budget, unit=unit) if requeried < MAX_QUALITY_REASKS else ""
