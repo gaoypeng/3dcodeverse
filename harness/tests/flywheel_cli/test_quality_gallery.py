@@ -1,4 +1,4 @@
-"""Quality tiers, (code, prompt) dedupe, richer meta.json, captions side-car, gallery, trajectory repair mining."""
+"""Quality tiers, (code, prompt) dedupe, richer meta.json, captions side-car, gallery."""
 
 from __future__ import annotations
 
@@ -8,10 +8,8 @@ from pathlib import Path
 from codeverse.contracts.common import Language
 from codeverse.flywheel.captions import caption_sample
 from codeverse.flywheel.export import export_samples, load_captions
-from codeverse.flywheel.pairs import build_pairs
 from codeverse.flywheel.quality import find_duplicates, mark_duplicates, prompt_hash, quality_tier
 from codeverse.flywheel.record import load_record
-from codeverse.flywheel.trajectories import mine_run, parse_trajectory_name
 from codeverse.gallery import (
     GalleryIndex,
     RootSection,
@@ -20,7 +18,6 @@ from codeverse.gallery import (
     build_static,
     render_static,
 )
-from codeverse.workspace import Workspace
 from tests.flywheel_cli.conftest import make_fake_run
 from tests.flywheel_cli.test_captions import GOOD, FakeModel
 
@@ -172,75 +169,3 @@ def test_gallery_from_runs(runs_dir: Path, tmp_path: Path):
         RunEntry(battery="t", slug="y", path="", state="broken", error="boom <b>")])
     html = render_static(GalleryIndex(sections=[section]), title="t")
     assert "no render" in html and "boom &lt;b&gt;" in html
-
-
-# --------------------------------------------------------------------------- trajectory repair pairs
-
-
-def _write_transcript(ws: Workspace, label: str, rnd: int, events: list[dict]) -> Path:
-    d = ws.root / "trajectories" / f"{label}_r{rnd:02d}"
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "transcript.jsonl").write_text("\n".join(json.dumps(e) for e in events) + "\n")
-    return d
-
-
-def _call(turn: int, t: float, cid: str, name: str, **args) -> dict:
-    return {"t": t, "kind": "assistant", "turn": turn, "text": "", "tool_calls": [{"id": cid, "name": name, "arguments": args}]}
-
-
-def _result(turn: int, t: float, cid: str, name: str, ok: bool, content: str) -> dict:
-    return {"t": t, "kind": "tool_result", "turn": turn, "name": name, "call_id": cid, "ok": ok, "content": content}
-
-
-def test_trajectory_repair_mining(fake_run, tmp_path: Path):
-    ws, rec = fake_run
-    assert parse_trajectory_name("zone_koi_pond_r01") == ("zone_koi_pond", 1)
-    # the base state = the `pre:baseline` snapshot the harness takes before the session
-    (ws.src / "model.py").write_text("import bpy\nA = 1\n")
-    ws.commit("pre:baseline")
-    import time
-
-    t0 = time.time() + 5  # transcript starts after the snapshot
-    ev = [
-        {"t": t0, "kind": "system", "text": "rules"},
-        _call(0, t0 + 1, "c1", "edit_file", path="src/model.py", old="A = 1", new="A = 2)"),
-        _result(0, t0 + 1, "c1", "edit_file", True, "edited"),
-        _call(1, t0 + 2, "c2", "build"), _result(1, t0 + 2, "c2", "build", False, "build failed: SyntaxError"),
-        _call(2, t0 + 3, "c3", "write_file", path="src/model.py", content="import bpy\nA = 3\nB = 4\n"),
-        _result(2, t0 + 3, "c3", "write_file", True, "overwrote"),
-        _call(3, t0 + 4, "c4", "build"), _result(3, t0 + 4, "c4", "build", False, "build failed: NameError"),
-        _call(4, t0 + 5, "c5", "edit_file", path="src/model.py", old="B = 4", new="B = A"),
-        _result(4, t0 + 5, "c5", "edit_file", True, "edited"),
-        _call(5, t0 + 6, "c6", "build"), _result(5, t0 + 6, "c6", "build", True, "BUILD OK"),
-        _call(6, t0 + 7, "c7", "build"), _result(6, t0 + 7, "c7", "build", True, "BUILD OK"),  # no new pair
-    ]
-    _write_transcript(ws, "baseline", 0, ev)
-    pairs = mine_run(ws)
-    assert len(pairs) == 1
-    p = pairs[0]
-    assert p.trajectory == "baseline_r00" and p.stage == "baseline" and p.round_index == 0
-    assert p.broken_turn == 3 and p.fixed_turn == 5 and p.n_failures == 2 and "NameError" in p.error
-    assert p.rejected["src/model.py"] == "import bpy\nA = 3\nB = 4\n" and p.chosen["src/model.py"] == "import bpy\nA = 3\nB = A\n"
-    assert "src/parts/leg.py" in p.chosen and p.changed_files == ["src/model.py"]  # untouched files ride along
-    # a CLI-backend transcript (raw lines) yields nothing
-    _write_transcript(ws, "refine", 0, [{"t": t0, "kind": "invoke", "argv": ["gemini"]}, {"t": t0, "kind": "line", "text": "x"}])
-    assert len(mine_run(ws)) == 1
-    out = tmp_path / "pairs.jsonl"
-    n = build_pairs(ws.root.parent, out)
-    kinds = [(json.loads(line)["kind"], json.loads(line).get("source", "")) for line in out.read_text().splitlines()]
-    assert n == 2 and ("repair", "trajectory") in kinds and ("preference", "") in kinds
-    assert build_pairs(ws.root.parent, tmp_path / "p2.jsonl", trajectories=False) == 1
-
-
-def test_trajectory_inexact_base_is_skipped(fake_run):
-    """An edit on a file we never saw in full (no pre: commit, no write_file) must not produce a pair."""
-    ws, rec = fake_run
-    t0 = 1.0
-    ev = [
-        _call(0, t0, "c1", "edit_file", path="src/model.py", old="zzz", new="y"), _result(0, t0, "c1", "edit_file", True, "ok"),
-        _call(1, t0, "c2", "build"), _result(1, t0, "c2", "build", False, "fail"),
-        _call(2, t0, "c3", "edit_file", path="src/model.py", old="y", new="w"), _result(2, t0, "c3", "edit_file", True, "ok"),
-        _call(3, t0, "c4", "build"), _result(3, t0, "c4", "build", True, "ok"),
-    ]
-    _write_transcript(ws, "baseline", 0, ev)
-    assert mine_run(ws) == []

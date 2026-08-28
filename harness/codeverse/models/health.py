@@ -225,36 +225,6 @@ def _is_delegating_driver(args: list[str]) -> bool:
     return args[i + 1 : i + 2] != ["cell"]
 
 
-def sibling_processes() -> int:
-    """How many OTHER harness processes are running on this machine.
-
-    ``shared_pool`` keeps one KeyPool per PROCESS, so each sibling believes it owns the
-    whole key quota and gets its own ``max_in_flight``.  N siblings multiply the real
-    concurrency by N against a quota that is shared: on 2026-08-24 six concurrent
-    batteries took gemini-3.7-flash from 25 % success to 0 % (``docs/COST.md`` §23).
-
-    Best-effort — reads /proc and returns 0 when it cannot tell, because a wrong number
-    here must never block a run.
-    """
-    import os
-
-    me, found = os.getpid(), 0
-    try:
-        entries = list(Path("/proc").iterdir())
-    except OSError:
-        return 0
-    for entry in entries:
-        if not entry.name.isdigit() or int(entry.name) == me:
-            continue
-        try:
-            raw = (entry / "cmdline").read_bytes()
-        except OSError:
-            continue  # exited between listing and reading
-        if _is_harness_argv([a for a in raw.decode(errors="replace").split("\0") if a]):
-            found += 1
-    return found
-
-
 #: the measured per-process knee (docs/COST.md §20); the machine-wide budget is the same
 #: number, because the provider sees one machine's worth of traffic, not one process's
 POOL_KNEE = 64
@@ -321,8 +291,8 @@ def pool_budget() -> PoolBudget:
     so the SUM of ``max_in_flight`` across processes must stay at the knee, not each
     process alone.  Counting *processes* (the first version) made every agent refuse to
     launch while any sibling existed, and on 2026-08-24 that stalled a whole A/B wave
-    behind two batteries that were themselves parked.  Best-effort like
-    :func:`sibling_processes`: on any /proc trouble it reports no siblings and no usage.
+    behind two batteries that were themselves parked.  Best-effort: on any /proc
+    trouble it reports no siblings and no usage.
     """
     import os
 

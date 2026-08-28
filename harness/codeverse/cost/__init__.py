@@ -8,7 +8,7 @@ Public API::
 
     from codeverse.cost import record_call, load_ledger, summarise
     from codeverse.cost import audit_runs, markdown          # the audit + its report
-    from codeverse.cost import estimate_call, CostGuard      # decide before you send
+    from codeverse.cost import estimate_call                 # estimate before you send
     from codeverse.cost import Block, order_blocks           # cache-friendly prompts
     from codeverse.cost import default_route, pro_break_even # model routing
 
@@ -28,13 +28,7 @@ from codeverse.cost.caching import (
     render_blocks,
 )
 from codeverse.cost.context import CallContext, bind_run, call_context
-from codeverse.cost.guard import (
-    CostEstimate,
-    CostGuard,
-    cheapest_affordable,
-    estimate_call,
-    text_tokens,
-)
+from codeverse.cost.guard import CostEstimate, estimate_call, text_tokens
 from codeverse.cost.instrument import (
     MeteredAgent,
     MeteredChatModel,
@@ -72,7 +66,6 @@ __all__ = [
     "CallCost",
     "CostBucket",
     "CostEstimate",
-    "CostGuard",
     "CostLedger",
     "MeteredAgent",
     "MeteredChatModel",
@@ -90,7 +83,6 @@ __all__ = [
     "bind_run",
     "cache_efficiency",
     "call_context",
-    "cheapest_affordable",
     "console",
     "default_route",
     "estimate_call",

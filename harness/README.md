@@ -8,10 +8,10 @@ renders, judges, refines, textures and records every run as data-flywheel materi
 * **Languages:** `blender` · `cadquery` · `threejs` · `urdf_blender` ·
   `scene_threejs` · `glsl_shader` · `opengl_python`
 * **Backends:** Gemini / Anthropic / OpenAI chat models; coding agents `gemini-cli`,
-  `claude-code`, `codex`, `agy` (Antigravity), the in-process `api-agent` tool loop, and
+  `claude-code`, `codex`, `agy` (Antigravity) — always a vendor's CLI — and
   `single-shot` generation on any chat model.
-* **Spatial tools** (direct, MCP server `3dcv` for agentic CLIs, native tools for
-  api-agent): build, measure, render_views/sheet, isolate, cross_section,
+* **Spatial tools** (direct, or over the MCP server `3dcv` for the agentic CLIs):
+  build, measure, render_views/sheet, isolate, cross_section,
   check_connectivity, check_contract, compare_silhouette, joint_sweep, shader_probe,
   scene_probe, scene_views, gl_probe, gl_frames, texture_pass, texture_preview,
   read_cookbook.

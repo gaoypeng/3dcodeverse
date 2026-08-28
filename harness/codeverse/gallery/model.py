@@ -24,7 +24,6 @@ RunState = Literal["ok", "pending", "broken"]
 
 #: filter names the index page and ``/api/runs`` both understand
 FILTER_KEYS = ("q", "track", "lang", "tier", "backend", "pass", "verdict", "battery")
-SORT_KEYS = ("score", "cost", "time", "complexity", "name")
 
 
 class RunLink(BaseModel):

@@ -24,11 +24,11 @@ layered on top of the language — for four **tracks**:
 …driven by **any** of these backends behind two protocols:
 
 * `ChatModel` (API): `gemini:*`, `anthropic:*`, `openai:*` — planner, judge,
-  captioner, single-shot generation, and the in-process `api-agent`.
-* `CodingAgent` (agentic session on a workspace): `gemini-cli:*`, `claude-code:*`,
-  `codex:*`, `agy:*` (Antigravity), `api-agent:<chat-model>` (our own tool loop so
-  API-only users get parity).  Plus `single-shot:<chat-model>` (one envelope of
-  files, no tools) handled inside `tracks/generation.py`.
+  captioner, single-shot generation.
+* `CodingAgent` (agentic session on a workspace): always a vendor CLI —
+  `gemini-cli:*`, `claude-code:*`, `codex:*`, `agy:*` (Antigravity); the in-process
+  `api-agent` was deleted 2026-08-28.  Plus `single-shot:<chat-model>` (one envelope
+  of files, no tools) handled inside `tracks/generation.py`.
 
 Every run is: **spec → plan → skeleton → [scene stages] → baseline round
 (optionally best-of-N candidates) → refine rounds → finalise → record**, with an
@@ -100,10 +100,9 @@ codeverse/
                       fallback), retry.py (MAX_WAIT_S: no single wait > 3 s), storm.py (shared 503 gate —
                       measured, ships OFF, see docs/COST.md §21), health.py (preflight probe: is the model
                       serving? no retries, no backoff), schema_utils.py (strict schema), registry.py
-  agents/             CodingAgent; gemini_cli.py claude_code.py codex.py antigravity.py api_agent.py
-                      (+ api_tools.py run_shell policy, api_skills.py: the read_skill tool every
-                      backend WITHOUT a native loader gets — measured, prose in a system prompt is
-                      not an affordance), materialize.py, cli_common.py (sessions, retry
+  agents/             CodingAgent; gemini_cli.py claude_code.py codex.py antigravity.py
+                      (api_agent.py + api_tools.py + api_skills.py deleted 2026-08-28 —
+                      the vendors already ship the loop), materialize.py, cli_common.py (sessions, retry
                       trajectory naming, files_changed attribution), watchdog.py, transcript.py, registry.py
   languages/          LanguageRuntime; blender/ (multi-file: layout.py, model.py + parts/*.py) cadquery/
                       threejs/ (+ templates.py) urdf/ scene_threejs/ glsl_shader/ (wrap.py header+line-map)
@@ -178,8 +177,7 @@ codeverse/
                       skills_hook.py (the round's view of codeverse/skills: attach before generating,
                       probe reads after — a no-op unless CV3D_SKILLS is on)
   flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, migrate.py (schema moves),
-                      deliverable.py, telemetry.py, trajectories.py (repair-pair
-                      mining), captions.py, quality.py (tiers + dedupe), dedupe.py, index.py,
+                      deliverable.py, telemetry.py, captions.py, quality.py (tiers + dedupe), dedupe.py, index.py,
                       code_quality.py (the delivered CODE's own vector — magic numbers per 100 LOC,
                       function length, dead functions, duplication, docstrings → record.extra
                       ["code_quality"].index, a flywheel filter beside score and complexity)
@@ -295,8 +293,8 @@ summary:
 
 `@tool(name, ArgsModel, description, *, tracks=(), languages=(), cost_hint)` registers
 `fn(ctx, args) -> Observation` → (a) direct call from tracks, (b) the stdio MCP
-server (name `3dcv`) for gemini-cli / claude-code / codex, (c) native tool schema
-for `api-agent`, (d) a prompt card.  Tools: `build`, `measure`, `render_views`,
+server (name `3dcv`) for the vendor CLIs, (c) a native tool schema for any embedder
+(`ToolDef.schema()`), (d) a prompt card.  Tools: `build`, `measure`, `render_views`,
 `render_sheet`, `isolate`, `cross_section`, `check_connectivity`, `check_contract`,
 `compare_silhouette`, `joint_sweep` (articulated), `shader_probe`, `scene_probe`,
 `scene_views` (scene), `gl_probe`, `gl_frames` (graphics), `texture_pass`,
@@ -437,8 +435,7 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
 * Scenes: fps is a relative cost; camera-in-geometry can miss open-back enclosures.
 * threejs: textures are stripped on GLB export (the texture pass re-adds them as a
   derived pack); `userData.tick` cannot survive export.
-* Trajectory repair mining only understands api-agent transcripts; CLI backends
-  produce raw stdout.  agy exposes no per-workspace MCP, cost or served model.
+* agy exposes no per-workspace MCP, cost or served model.
 * Anthropic / OpenAI backends are mock-tested only (no keys on this box).
 * Budget checks run between steps: a refine round that finishes its judge and then
   trips the budget is not promoted to best — give scenes `--max-minutes 60 --max-usd 4`.
@@ -456,9 +453,9 @@ passed, C best ≥ 0.6, D else), acceptance checklists, gate summaries and
 `(code fingerprint, prompt)` dedupe (`--drop-duplicates`; side-car captions via
 `--captions-dir`); `metadata.parquet`/`.jsonl` + sqlite index carry tier, gate
 errors, cost, fingerprints, `duplicate_of`; `--pack` tars with byte-range locators.
-`flywheel pairs` emits preference pairs (round i < j by judge Δ ≥ τ), round-level
-repair pairs and **in-session repair pairs mined from api-agent transcripts**
-(replay-verified against the git snapshots); `flywheel caption` adds
+`flywheel pairs` emits preference pairs (round i < j by judge Δ ≥ τ) and round-level
+repair pairs (in-session trajectory mining died with the api-agent, 2026-08-28 —
+vendor CLIs log raw stdout, not structured tool turns); `flywheel caption` adds
 {detailed, instruction, factory} captions (image-grounded, brand-free, `--out` for
 side-car mode); `flywheel gallery` is an alias of `3dcv gallery build --embed`
 (the flywheel package has no renderer of its own).

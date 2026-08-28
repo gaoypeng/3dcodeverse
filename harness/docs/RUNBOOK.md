@@ -155,7 +155,7 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 3dcv tools list [--cards] · 3dcv tools measure --workspace runs/<slug> · 3dcv tools gl_frames --workspace … --json '{"times":[0,1,2.5]}'
 3dcv flywheel export runs/ dataset/ [--min-score 0.7] [--only-passed] [--pack] [--include-unbuilt]
                                      [--captions-dir caps/] [--drop-duplicates]
-3dcv flywheel pairs runs/ pairs.jsonl [--min-delta 0.05] [--no-trajectories]
+3dcv flywheel pairs runs/ pairs.jsonl [--min-delta 0.05]
 3dcv flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
 3dcv flywheel gallery runs/ gallery.html [--title …]        # alias of `3dcv gallery build --embed` (§4)
 3dcv flywheel index runs/ runs_index.sqlite · 3dcv flywheel dedupe dataset/

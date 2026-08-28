@@ -102,19 +102,6 @@ def test_sibling_detection_matches_arguments_not_the_repo_path():
     assert not _is_harness_argv(["python", "-c", "print(1)", "/home/u/.local/bin/3dcv"])
 
 
-def test_sibling_count_never_raises(monkeypatch):
-    """A wrong number here must never block a run, so /proc trouble returns 0."""
-    from pathlib import Path
-
-    import codeverse.models.health as health
-
-    def boom(_self):
-        raise OSError("no /proc on this platform")
-
-    monkeypatch.setattr(Path, "iterdir", boom)
-    assert health.sibling_processes() == 0
-
-
 def test_probe_model_treats_a_503_as_final(monkeypatch):
     """ "No retries" must include the storm branch.  rotate_with_retries' capacity-storm
     branch does NOT consume max_attempts, so max_attempts=1 alone still retried a 503

@@ -49,10 +49,6 @@ _ARTIFACT_ROLES: tuple[tuple[str, str], ...] = (
 )
 
 
-class DeliverableError(RuntimeError):
-    """The run has nothing that can be handed over."""
-
-
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 

@@ -1,9 +1,8 @@
 """Estimate what a call will cost **before** sending it, and pick a tier.
 
 The budget guard in ``orchestrator/budget.py`` stops a run *after* the money is
-gone.  This is the cheap check that belongs in front of a call: how many tokens
-am I about to send, what will they cost on this model, and is there a cheaper
-model that still fits the job?
+gone.  This is the cheap estimate that belongs in front of a call: how many
+tokens am I about to send, and what will they cost on this model?
 
 Token counts are estimates (≈4 characters per token for prose/code, a flat
 per-image count for vision parts) — good to ±15% for prompt sizing, which is all
@@ -14,7 +13,7 @@ the provider returns (``codeverse.cost.record_call``).
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from codeverse.cost.types import normalise_ids
 from codeverse.models.pricing import per_image_usd, price_provenance, unit_prices
@@ -97,66 +96,3 @@ def estimate_call(
                         usd=usd, price_source=row.match if row.price else "unknown",
                         approximate=row.approximate)
 
-
-@dataclass
-class CostGuard:
-    """A per-run (or per-stage) allowance checked *before* each call.
-
-    ``spent`` is advanced by :meth:`commit` with what the call really cost, so
-    the guard converges on the truth even when the estimate was off."""
-
-    budget_usd: float
-    spent_usd: float = 0.0
-    reserve_usd: float = 0.0  # keep this much back for the judge / finalise
-    calls: int = 0
-    rejected: list[str] = field(default_factory=list)
-
-    @property
-    def remaining_usd(self) -> float:
-        return max(0.0, self.budget_usd - self.reserve_usd - self.spent_usd)
-
-    def affordable(self, estimate: CostEstimate) -> bool:
-        return estimate.usd <= self.remaining_usd
-
-    def check(self, estimate: CostEstimate) -> tuple[bool, str]:
-        """``(allow, reason)``.  An unpriced model is allowed but flagged: refusing
-        to run because we cannot price a model would be worse than running it."""
-        if not estimate.known:
-            return True, f"no price row for {estimate.model_id}: cost unknown, not blocked"
-        if self.affordable(estimate):
-            return True, ""
-        msg = (f"{estimate.model_id} would cost ${estimate.usd:.4f} but only "
-               f"${self.remaining_usd:.4f} is left of ${self.budget_usd:.2f}")
-        self.rejected.append(msg)
-        return False, msg
-
-    def commit(self, usd: float) -> None:
-        self.spent_usd += max(0.0, usd)
-        self.calls += 1
-
-
-def cheapest_affordable(
-    model_ids: Sequence[str],
-    *,
-    input_tokens: int = 0,
-    output_tokens: int = 0,
-    cached_tokens: int = 0,
-    budget_usd: float | None = None,
-) -> tuple[str, CostEstimate] | None:
-    """Pick the cheapest model in ``model_ids`` that fits ``budget_usd``.
-
-    ``model_ids`` should be ordered best-quality-first; the caller decides how
-    much quality it is prepared to trade (see :mod:`codeverse.cost.routing`)."""
-    scored: list[tuple[float, str, CostEstimate]] = []
-    for mid in model_ids:
-        est = estimate_call(mid, input_tokens=input_tokens, output_tokens=output_tokens,
-                            cached_tokens=cached_tokens)
-        if not est.known:
-            continue
-        if budget_usd is not None and est.usd > budget_usd:
-            continue
-        scored.append((est.usd, mid, est))
-    if not scored:
-        return None
-    scored.sort(key=lambda s: s[0])
-    return scored[0][1], scored[0][2]

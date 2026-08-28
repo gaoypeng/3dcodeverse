@@ -12,7 +12,7 @@ file was reconciled against it on 2026-08-23 (waves 2–3 + fix batch 1).
 * Chat models: `<provider>:<model>` — `gemini:*` · `anthropic:*` · `openai:*`
   (`models.registry.parse_model_id`).
 * Coding agents: `<kind>:<model>` — `gemini-cli:*` · `claude-code:*` · `codex:*` ·
-  `agy:*` · `api-agent:<provider>:<model>` (`agents.registry.parse_agent_id`).
+  `agy:*` (`agents.registry.parse_agent_id`).
 * **Δ** Single-shot generation ids: `single-shot:<provider>:<model>` — handled only
   inside `tracks/generation.py` (`is_single_shot`, `single_shot_model_id`); never
   registered in `agents/`.  `Spec.backends.generator` accepts any of the three.
@@ -107,7 +107,7 @@ with run_ledger(ws.root, run=slug):        # binds the run, points record_call a
     # models.get_chat_model returns a MeteredChatModel → ONE row per ChatModel.generate
     # agents.get_coding_agent returns a MeteredAgent  → ambient round/stage for the session, the
     #   profile's turn cap (only ever LOWERS job.max_turns), and — iff NOT meters_own_calls(agent),
-    #   i.e. the backend is not in IN_PROCESS_AGENT_KINDS = {"api-agent"} — one session row.
+    #   a declaration no shipped backend makes — one session row.
     #   The rule is the BACKEND, never "did a row get written while it ran": a CLI session with one
     #   in-process tool call used to be dropped entirely, an in-process session whose turns ran in
     #   another thread used to be counted twice.  A backend may declare `meters_own_calls`.
@@ -118,7 +118,7 @@ from codeverse.cost.context import CallContext, call_context, bind_run, context_
     #   texture pass that bills a model INSIDE an agent session is filed under its own stage, not the
     #   session's; a generation label yields to the session (best-of-N: kind="candidate" beats
     #   label="baseline"); Stage.OTHER means "the label said nothing" and displaces nothing.
-    # labels understood: api-agent:<job label>:t<turn> · judge:<rubric>:r<NN>:s<k> · planner · pairwise:… · texture… · caption…
+    # labels understood: judge:<rubric>:r<NN>:s<k> · planner · pairwise:… · texture… · caption… (api-agent:<label>:t<turn> in historical ledgers only)
 from codeverse.cost.caching import Block, order_blocks, prefix_report, session_cache, session_key
 session_cache(rows) -> [SessionCache]      # per session: cold first call, cached share, saved_usd, cold_usd
 from codeverse.cost.profiles import get_profile, PROFILES   # economy | balanced | quality
@@ -167,10 +167,9 @@ one workspace; harness-owned paths and sibling sessions' hinted files are droppe
 the entry file), `read_only: list[str]` (harness-owned files INSIDE the write roots the
 session may read but never write — `contracts.common.HARNESS_OWNED_SRC[language]`, i.e.
 `src/recipes.glsl` for glsl_shader; `tracks/generation.py` sets it on every job of the
-run and `FileTools(read_only=…)` answers a `write_file` / `edit_file` on one with
-`PathDenied("… is harness-owned and read-only … call them from your own files")`)
-and `job.api: ApiAgentOptions(max_usd, temperature, thinking, allow_shell)` (api-agent
-only).  **Δ legacy lift**: the same keys passed inside `extra={...}` are lifted into
+run and `agents/cli_common._enforce_scope` reverts a post-session write to one and
+fails that session).  **Δ legacy lift**: the job keys (`round`, `kind`, `language`,
+`track`, `files_hint`, `mcp_command`) passed inside `extra={...}` are lifted into
 the typed fields at validation (extra itself is left untouched), so old constructors
 and serialized jobs keep working; `extra` stays for one-off backend hints.
 Trajectories: `ws/trajectories/<label>_rNN/{prompt.md, transcript.jsonl, stdout.json,
@@ -185,14 +184,6 @@ applied LAST and `mcp.allowed` replaces, so an agent-planted server in ws/.gemin
 cached; `tokens.input` is the uncached count) and each served model is priced at its
 own rate.  KeyPoolExhausted never escapes `run()` (→ `exit_reason=budget`); retries
 prefer a different key (10 s wait) before re-using the same one.
-api-agent tools: `read_file`, `write_file`, `edit_file`, `list_files`, `run_shell`
-+ every spatial tool (`build` keeps its real name; `run_build` is an alias).
-**Δ** `run_shell` is a *policy filter*, not an OS sandbox: allow-listed programs only,
-no inline-code/REPL/loader flags (`-c/-e/-p/-i/--eval/--require/--import/…`),
-`python -m` restricted to a small allow-list, every path-like argument
-realpath-confined to the workspace (and never `.git/`).  `FileTools.call` never
-raises — bad arguments / non-UTF-8 files come back as `ToolOutcome(is_error=True)`.
-
 ## languages/
 ```python
 from codeverse.languages import get_runtime            # (Language | str) -> LanguageRuntime
@@ -436,8 +427,7 @@ from codeverse.flywheel.export import export_samples   # (runs_dir, out_dir, *, 
     # overwrite=True, include_unbuilt=False, captions_dir=None, drop_duplicates=False) -> ExportReport{…, n_duplicates, duplicates, tiers}
 from codeverse.flywheel.quality import quality_tier, prompt_hash, find_duplicates   # tiers: A passed & 0 gate errors, B passed,
                                                                                     # C best ≥ 0.6, D else; dedupe = (code fingerprint, prompt)
-from codeverse.flywheel.pairs import build_pairs       # (runs_dir, out_jsonl, *, min_delta=0.05, trajectories=True) -> n
-from codeverse.flywheel.trajectories import mine_run   # in-session repair pairs from api-agent transcripts (replay-verified)
+from codeverse.flywheel.pairs import build_pairs       # (runs_dir, out_jsonl, *, min_delta=0.05) -> n
 from codeverse.flywheel.captions import caption_sample # Δ (ws, record, model_id, *, model=None, out_dir=None) -> Captions;
                                                        # out_dir → side-car <out_dir>/<slug>.json, run untouched
 from codeverse.gallery import build_index, default_roots, build_static, serve, GalleryApp   # THE local gallery

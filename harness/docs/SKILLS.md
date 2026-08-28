@@ -10,7 +10,9 @@ names the cookbook section to fetch. Two libraries of truth would be worse than 
 
 `SKILL.md` is an open standard (agentskills.io, Dec 2025), which is why the format below is
 not ours to bend: **claude-code, codex, gemini-cli and agy discover these bundles
-themselves** — proven live, see §7. Only `api-agent` needs harness-side injection.
+themselves** — proven live, see §7.  (The in-process `api-agent`, the one backend that
+needed harness-side injection, was deleted 2026-08-28; an unclassified backend still
+gets the routed index as the safe default.)
 
 Everything is behind `CV3D_SKILLS`. **It ships OFF**, because `api-agent` read 0 of 5
 routed bundles in the measured A/B while the three subscription CLIs read all five.
@@ -32,7 +34,6 @@ one file, `skills/delivery.py`:
 |---|---|---|
 | `claude-code` | yes | `.claude/skills` |
 | `codex`, `gemini-cli`, `agy` | yes | `.agents/skills` |
-| `api-agent` | no | `.agents/skills` |
 | *anything unclassified* | **no** (safe default) | `.agents/skills` |
 
 Both bits were read out of the shipped binaries, not assumed.  Everything else is derived:
@@ -203,7 +204,7 @@ answerable. Per session, `telemetry/skills.jsonl` gets one line.
 3dcv doctor --skills                            # library + discovery wiring
 ```
 
-Targets: ≥ 60% deep-read for CLI backends, ≥ 80% for api-agent, counted only over sessions
+Targets: ≥ 60% deep-read for CLI backends (the api-agent's 80% target died with it, 2026-08-28), counted only over sessions
 the control (§1) says were measurable. **A skill under 20% over 20 such sessions is merged
 or deleted.** A library that only ever grows is how this ends as bloat.
 The read rate is the FIRST readout, before any score: `read_cookbook` was called by 0 of 16

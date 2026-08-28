@@ -56,10 +56,6 @@ def _jsonable(obj: Any) -> Any:
     return obj
 
 
-class StageError(RuntimeError):
-    """A stage function raised; the original exception is ``__cause__``."""
-
-
 class StageRunner:
     """Runs stages with resume semantics on top of ``RunState`` + ``EventLog``."""
 

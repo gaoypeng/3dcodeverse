@@ -34,7 +34,6 @@ from dataclasses import dataclass, replace
 from typing import Literal
 
 from codeverse.contracts.run import RoundRecord
-from codeverse.judges.metrics import best_index
 
 log = logging.getLogger(__name__)
 
@@ -351,10 +350,22 @@ def last_gain(history: Sequence[RoundRecord]) -> float | None:
     return float(history[-1].score) - before
 
 
+def best_index(rounds: Sequence[tuple[float, int]]) -> int:
+    """Index of the best round: higher score, tie → fewer errors, tie → later round."""
+    if not rounds:
+        raise ValueError("best_index needs at least one round")
+    best = 0
+    for i, (score, n_err) in enumerate(rounds):
+        bs, be = rounds[best]
+        if score > bs or (score == bs and n_err < be) or (score == bs and n_err == be):
+            best = i
+    return best
+
+
 class BestSelector:
     """Best round = highest score, then fewer gate errors, then later.
 
-    ``codeverse.judges.metrics.best_index`` owns the ranking rule.  A round that
+    ``best_index`` above owns the ranking rule.  A round that
     did not build is never picked (it has no score, and delivering code that does
     not run is never an improvement); when NO round has a score the fallback is
     the built round with the fewest gate errors — later on a tie — so a round that
@@ -385,7 +396,6 @@ def _build_failed(r: RoundRecord) -> bool:
 # Moved to codeverse.orchestrator.refine_tasks; imported here so existing importers
 # (tracks/*, reference/mismatch, tests) keep working unchanged.
 from codeverse.orchestrator.refine_tasks import (  # noqa: E402
-    FileForTarget,
     RefineTask,
     TaskGroup,
     build_refine_instructions,
@@ -395,7 +405,7 @@ from codeverse.orchestrator.refine_tasks import (  # noqa: E402
 )
 
 __all__ = [
-    "BestSelector", "DEFAULT_JUDGE_SIGMA", "DETAIL_KIND", "FileForTarget", "KIND_FOR_STRATEGY",
+    "BestSelector", "DEFAULT_JUDGE_SIGMA", "DETAIL_KIND", "KIND_FOR_STRATEGY",
     "REWRITE_KIND", "RefineTask", "RoundPolicy", "StopDecision", "StopPolicy", "StopReason",
     "Strategy", "TaskGroup", "best_score", "build_refine_instructions", "compact_instructions",
     "detail_blocked", "gate_error_count", "judge_sigma", "kind_for_strategy", "last_gain",

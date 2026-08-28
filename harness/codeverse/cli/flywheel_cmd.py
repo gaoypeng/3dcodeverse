@@ -69,12 +69,11 @@ def pairs_cmd(
     runs_dir: Annotated[Path, typer.Argument()],
     out_jsonl: Annotated[Path, typer.Argument()],
     min_delta: Annotated[float, typer.Option("--min-delta")] = 0.05,
-    trajectories: Annotated[bool, typer.Option("--trajectories/--no-trajectories", help="also mine in-session repair pairs from agent transcripts")] = True,
 ) -> None:
     """Preference / repair (round + in-session) / cross-backend pairs → JSONL."""
     from codeverse.flywheel.pairs import build_pairs
 
-    n = build_pairs(runs_dir, out_jsonl, min_delta=min_delta, trajectories=trajectories)
+    n = build_pairs(runs_dir, out_jsonl, min_delta=min_delta)
     ok(f"{n} pairs → {out_jsonl}")
 
 

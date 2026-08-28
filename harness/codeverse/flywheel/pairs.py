@@ -18,9 +18,6 @@ Output is JSONL, one object per pair.  All kinds share::
   (``notes`` say "repair attempts: N (fixed)"): the ``rNN <kind>: generated``
   commit is the rejected state, the round's final commit the chosen one; the
   error message comes from the round's failing ``build.done`` events.
-* ``repair`` (``source: "trajectory"``) — the same shape mined from an agent
-  session's transcript: last failing ``build`` → next successful ``build``
-  (see ``trajectories.py``); ``error`` is the build tool's message.
 * ``cross_backend`` the same (prompt, track, language) run under ≥ 2 generators;
   best vs each other candidate with Δ ≥ ``min_delta``.
 """
@@ -36,11 +33,10 @@ from codeverse.contracts.run import RoundRecord, RunRecord
 from codeverse.flywheel import _git
 from codeverse.flywheel.quality import prompt_hash
 from codeverse.flywheel.record import effective_judgment, iter_runs
-from codeverse.flywheel.trajectories import mine_run
 from codeverse.workspace import Workspace
 
 __all__ = ["build_pairs", "preference_pairs", "repair_pairs", "in_round_repair_pairs",
-           "trajectory_repair_pairs", "cross_backend_pairs", "prompt_hash"]
+           "cross_backend_pairs", "prompt_hash"]
 
 MAX_INLINE_CODE = 200_000
 
@@ -207,28 +203,6 @@ def in_round_repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = N
     return out
 
 
-def trajectory_repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> list[dict[str, Any]]:
-    """In-session repairs (failing build → fixing build) mined from api-agent transcripts."""
-    out = []
-    for tr in mine_run(ws):
-        pair = _base(ws, rec, "repair", slug=slug)
-        pair.update(
-            source="trajectory",
-            trajectory=tr.trajectory,
-            chosen={"round": tr.round_index, "kind": tr.stage, "commit": "", "turn": tr.fixed_turn, "score": None,
-                    "passed": None, "build_ok": True, "files": tr.chosen, "truncated_files": []},
-            rejected={"round": tr.round_index, "kind": tr.stage, "commit": "", "turn": tr.broken_turn, "score": None,
-                      "passed": None, "build_ok": False, "files": tr.rejected, "truncated_files": []},
-            delta=None,
-            error={"type": "", "message": tr.error, "file": "", "line": None, "stderr_tail": "", "stdout_tail": "",
-                   "gate_errors": []},
-            reason=[f"in-session fix of a failing build ({tr.n_failures} failing build(s) folded)"],
-            changed_files=tr.changed_files,
-        )
-        out.append(pair)
-    return out
-
-
 def cross_backend_pairs(
     groups: dict[tuple[str, str, str], list[tuple[Workspace, RunRecord, str]]], *, min_delta: float
 ) -> list[dict[str, Any]]:
@@ -269,12 +243,8 @@ def cross_backend_pairs(
     return out
 
 
-def build_pairs(
-    runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float = 0.05, trajectories: bool = True
-) -> int:
-    """Write all pair kinds for the runs under ``runs_dir``; returns the number written.
-
-    ``trajectories`` adds in-session repair pairs mined from agent transcripts."""
+def build_pairs(runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float = 0.05) -> int:
+    """Write all pair kinds for the runs under ``runs_dir``; returns the number written."""
     out = Path(out_jsonl)
     out.parent.mkdir(parents=True, exist_ok=True)
     groups: dict[tuple[str, str, str], list[tuple[Workspace, RunRecord, str]]] = defaultdict(list)
@@ -286,8 +256,6 @@ def build_pairs(
             groups[(prompt_hash(rec.spec.prompt), rec.spec.track.value, rec.spec.language.value)].append((ws, rec, slug))
             pairs = (preference_pairs(ws, rec, min_delta=min_delta, slug=slug)
                      + repair_pairs(ws, rec, slug=slug) + in_round_repair_pairs(ws, rec, slug=slug))
-            if trajectories:
-                pairs += trajectory_repair_pairs(ws, rec, slug=slug)
             for pair in pairs:
                 fh.write(json.dumps(pair, ensure_ascii=False) + "\n")
                 n += 1

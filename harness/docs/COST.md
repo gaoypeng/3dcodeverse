@@ -1233,7 +1233,7 @@ guard is now `len(failed_keys) < len(pool)`.
 
 
 
-**Follow-up, same day, from the time audit (51 storm-day runs vs 52 baseline; `time_audit/REPORT.md`).**
+**Follow-up, same day, from the time audit (51 storm-day runs vs 52 baseline; scripts retired 2026-08-28 — findings preserved in `docs/TIME_AUDIT_2026-08-26.md`).**
 Three accelerations, all additive and on by default:
 
 *A caller clips the retry budget to what it can afford* (`ChatRequest.max_wait_s`, None = the

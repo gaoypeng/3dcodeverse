@@ -30,11 +30,6 @@ def render_static(index: GalleryIndex, *, title: str = "3dcv gallery", embed: bo
                         title=title, sort=sort, view=view, note=note, extra_html=extra_html)
 
 
-def write_atomic(path: Path, text: str) -> Path:
-    """tmp + rename, so a reader never sees a partial gallery."""
-    return write_text_atomic(path, text)
-
-
 def build_static(roots: list[Path] | list[str], out_html: Path | str, *, title: str | None = None,
                  embed: bool = False, thumb_px: int = THUMB_PX) -> tuple[Path, int, GalleryIndex]:
     """Scan ``roots`` and write one self-contained page; ``(path, n_runs, index)``."""
@@ -42,4 +37,4 @@ def build_static(roots: list[Path] | list[str], out_html: Path | str, *, title: 
     label = title or ("3dcv gallery — " + ", ".join(s.label for s in index.sections[:4])
                       + ("…" if len(index.sections) > 4 else ""))
     html = render_static(index, title=label, embed=embed, thumb_px=thumb_px)
-    return write_atomic(Path(out_html), html), len(index.entries()), index
+    return write_text_atomic(Path(out_html), html), len(index.entries()), index

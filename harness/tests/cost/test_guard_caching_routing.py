@@ -8,9 +8,7 @@ import pytest
 from codeverse.contracts.common import Usage
 from codeverse.cost import (
     Block,
-    CostGuard,
     cache_efficiency,
-    cheapest_affordable,
     estimate_call,
     order_blocks,
     prefix_report,
@@ -41,28 +39,6 @@ def test_estimate_from_text_and_images():
 def test_estimate_of_an_image_model_uses_the_per_image_price():
     est = estimate_call("gemini:gemini-3.1-flash-image", input_tokens=500, n_images_out=2)
     assert est.usd == pytest.approx(500 * 0.5 / 1e6 + 2 * 0.067)
-
-
-def test_guard_blocks_only_what_it_can_price():
-    guard = CostGuard(budget_usd=0.10, reserve_usd=0.02)
-    cheap = estimate_call("gemini:gemini-3.7-flash", input_tokens=10_000, output_tokens=500)
-    allow, why = guard.check(cheap)
-    assert allow and not why
-    guard.commit(cheap.usd)
-    dear = estimate_call("gemini:gemini-3.1-pro-preview", input_tokens=2_000_000, output_tokens=50_000)
-    allow, why = guard.check(dear)
-    assert not allow and "left of" in why and guard.rejected
-    unknown = estimate_call("gemini:no-such-model", input_tokens=10_000_000, output_tokens=1)
-    assert guard.check(unknown)[0] is True  # unpriceable ≠ blocked
-
-
-def test_cheapest_affordable_picks_a_tier():
-    pick = cheapest_affordable(
-        ["gemini:gemini-3.1-pro-preview", "gemini:gemini-3.7-flash", "gemini:gemini-3.1-flash-lite"],
-        input_tokens=50_000, output_tokens=2_000)
-    assert pick is not None and pick[0] == "gemini:gemini-3.1-flash-lite"
-    assert cheapest_affordable(["gemini:gemini-3.1-pro-preview"], input_tokens=10_000_000,
-                               output_tokens=0, budget_usd=0.001) is None
 
 
 # ------------------------------------------------------------------ caching

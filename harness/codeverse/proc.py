@@ -431,7 +431,7 @@ def read_json_or_none(path: Path | str, *, errors: str | None = None) -> dict[st
     replaced identical ``try: json.loads(read_text()) except (OSError, ValueError)``
     copies in ``flywheel/telemetry.read_json``, ``bench/complexity_report._read_json``,
     ``gallery/index._measurement_complexity`` / ``_spec_fields``,
-    ``cli/main._best_round_of_record``, ``runlock._holder``,
+    ``cli/inspect_cmd._best_round_of_record``, ``runlock._holder``,
     ``languages/threejs/lint._load_plan``, ``cost/reconstruct._read_json``,
     ``spatial/_render_common.read_json`` and ``cli/_judge.plan_summary_for`` — all
     the same algorithm, differing only in whether they also checked ``isinstance(dict)``

@@ -9,6 +9,5 @@ Public API (see docs/INTERFACES.md):
 * ``captions``  ``caption_sample(ws, record, model_id)`` → ``Captions``
 * ``dedupe``    ``code_fingerprint`` · ``mesh_fingerprint`` · ``near_duplicates``
 * ``quality``   ``quality_tier`` (A/B/C/D) · ``prompt_hash`` · exact (code, prompt) duplicate groups
-* ``trajectories`` in-session repair pairs mined from api-agent transcripts
 * ``index``     ``build_index(runs_dir, out_sqlite)`` + query helpers
 """
