@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import shutil
 import sys
 import time
@@ -89,6 +90,8 @@ from codeverse.proc import exclusive  # noqa: E402
 from codeverse.tracks.generation import MultiFileParseError  # noqa: E402
 from codeverse.tracks.planner import PlanningError  # noqa: E402
 from codeverse.workspace import Workspace  # noqa: E402
+
+log = logging.getLogger(__name__)
 
 ArmKind = Literal["harness", "oneshot", "oneshot+repair"]
 
@@ -255,12 +258,18 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, 
     shutil.copytree(run_ws.src, eval_ws.src, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 
 
-def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: CompareOptions, deps: CompareDeps) -> CellResult:
+def _new_cell(item: BenchPrompt, arm: Arm, out: Path, opts: CompareOptions) -> tuple[Path, CellResult]:
+    """The cell's directory and its identity row.  ONE place knows what identifies a row,
+    so run_matrix's synthesized last-resort row is shaped like every real one."""
     cell = out / "cells" / item.id / arm.slug
+    return cell, CellResult(prompt_id=item.id, tier=item.tier, arm=arm.raw, kind=arm.kind,
+                            target=arm.target, judge=opts.judge, workspace=str(cell))
+
+
+def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: CompareOptions, deps: CompareDeps) -> CellResult:
+    cell, res = _new_cell(item, arm, out, opts)
     cell.mkdir(parents=True, exist_ok=True)
     spec = spec_for(battery, item, arm, opts)
-    res = CellResult(prompt_id=item.id, tier=item.tier, arm=arm.raw, kind=arm.kind, target=arm.target,
-                     judge=opts.judge, workspace=str(cell))
     t0 = time.time()
     eval_ws = _fresh_ws(cell / "eval")
     eval_ws.write_json(eval_ws.spec_path, spec)
@@ -302,19 +311,17 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
         res.status, res.score, res.passed, res.build_ok = "no_code", 0.0, False, False
         res.error = f"PlanningError: {e}"
     except Exception as e:  # noqa: BLE001 — one cell must never kill the matrix
-        try:
-            infra = is_infra_failure(e)
-        except Exception as classify_error:  # noqa: BLE001 — a classifier bug is not a reason to lose the cell
-            infra = False
-            res.error = (res.error + "; " if res.error else "") + f"[classifier failed: {type(classify_error).__name__}] "
-        res.status = "infra_failed" if infra else "error"  # same rule as the no-code path
-        res.error = (res.error + "; " if res.error else "") + f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1200:]}"
+        # is_infra_failure is total (bench/_infra.py): a classifier bug answers False and
+        # logs, it does not raise out of this handler and take the matrix loop with it.
+        res.status = "infra_failed" if is_infra_failure(e) else "error"  # same rule as the no-code path
+        res.note(f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1200:]}")
     res.wall_s = round(time.time() - t0, 1)
     try:
         flag_degraded(res, opts)
         eval_ws.write_json(cell / "cell.json", res)
     except Exception as e:  # noqa: BLE001 — the row is the record of last resort
-        res.error = (res.error + "; " if res.error else "") + f"[cell.json not written: {type(e).__name__}: {e}]"
+        log.exception("cell.json not written for %s", res.workspace)
+        res.note(f"[cell.json not written: {type(e).__name__}: {e}]")
     return res
 
 
@@ -348,12 +355,12 @@ def _fill_from_outcome(res: CellResult, o: EvalOutcome) -> None:
     res.glb = o.build.glb_path or ""
     if not o.build.ok:
         res.status, res.score, res.passed = "build_failed", 0.0, False
-        res.error = (res.error + "; " if res.error else "") + f"{o.build.error_type}: {o.build.error_message[:400]}"
+        res.note(f"{o.build.error_type}: {o.build.error_message[:400]}")
         return
     j = o.judgment
     if j is None or j.n_samples == 0:
         res.status, res.score, res.passed = "judge_error", None, None
-        res.error = (res.error + "; " if res.error else "") + (o.error or (j.summary if j else "no judgment"))[:400]
+        res.note((o.error or (j.summary if j else "no judgment"))[:400])
         return
     res.judge_cost_usd = j.usage.cost_usd
     res.score, res.passed, res.score_std, res.status = j.overall, j.passed, j.score_std, "scored"
@@ -435,8 +442,10 @@ def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm
                 r = fut.result()
             except Exception as e:  # noqa: BLE001 — run_cell must not raise; if it does, record the cell, keep the matrix
                 p, a = futs[fut]
-                r = CellResult(prompt_id=p.id, tier=p.tier, arm=a.raw, kind=a.kind, target=a.target, judge=opts.judge,
-                               status="error", error=f"run_cell raised {type(e).__name__}: {e}"[:800])
+                log.exception("run_cell raised for %s / %s", p.id, a.raw)
+                _, r = _new_cell(p, a, out, opts)
+                r.status = "error"
+                r.note(f"run_cell raised {type(e).__name__}: {e}"[:800])
             done[(r.prompt_id, r.arm)] = r
             fh.write(r.model_dump_json() + "\n")
             fh.flush()

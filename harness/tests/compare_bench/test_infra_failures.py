@@ -8,6 +8,8 @@ downtime pushed one-shot means down while leaving harness means untouched.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from bench._compare_report import CellResult, arm_stats
@@ -42,12 +44,22 @@ def test_model_failures_are_not_infra(err):
     assert is_infra_failure(err) is False
 
 
-def test_structured_exceptions_beat_string_matching():
-    class ModelError(Exception):
-        def __init__(self, msg, status):
-            super().__init__(msg)
-            self.status = status
+class ModelError(Exception):
+    """Stands in for codeverse.models.base.ModelError: the .status the classifier reads."""
+    def __init__(self, msg, status=None):
+        super().__init__(msg)
+        self.status = status
 
+
+class ClassifierTrap(Exception):
+    """.status is the first thing is_infra_failure reads — a property that raises is the
+    cheapest stand-in for any classifier bug, and getattr's default does not swallow it."""
+    @property
+    def status(self):
+        raise RecursionError("cycle")
+
+
+def test_structured_exceptions_beat_string_matching():
     # no recognisable prose at all — only the status says what happened
     assert is_infra_failure(ModelError("upstream said no", status=503)) is True
     assert is_infra_failure(ModelError("bad request: prompt too long", status=400)) is False
@@ -293,14 +305,15 @@ def test_a_cyclic_cause_chain_does_not_recurse():
     """compare_art_v3 (2026-08-27): retry.py's `raise err from exc` closed the __cause__ chain
     into a cycle; is_infra_failure recursed to RecursionError inside run_cell's except
     handler, the matrix loop died, and 11 finished cells went unrecorded."""
-    class ModelError(Exception):
-        def __init__(self, msg, status=None):
-            super().__init__(msg)
-            self.status = status
+    # the shape production actually makes: classify() returns an already-classified
+    # ModelError unchanged, so retry.py's `raise err from exc` is `raise e from e`
+    self_loop = ModelError("structured output unavailable (finish_reason=MAX_TOKENS)")
+    self_loop.__cause__ = self_loop
+    assert is_infra_failure(self_loop) is False
 
     a = ModelError("structured output unavailable (finish_reason=MAX_TOKENS)")
     b = ModelError("attempt failed")
-    a.__cause__, b.__cause__ = b, a  # the cycle
+    a.__cause__, b.__cause__ = b, a  # a two-node cycle
     assert is_infra_failure(a) is False
     c = ModelError("wrapped")
     c.__cause__ = ModelError("upstream said no", status=503)
@@ -308,18 +321,24 @@ def test_a_cyclic_cause_chain_does_not_recurse():
     assert is_infra_failure(c) is True
 
 
-def test_a_classifier_crash_still_records_the_cell(tmp_path, monkeypatch):
+def test_the_classifier_is_total_so_a_caller_never_loses_its_cell():
+    """is_infra_failure runs inside four drivers' `except` handlers, where a raise escapes
+    the handler itself.  A bug in it answers False; it does not propagate."""
+    assert is_infra_failure(ClassifierTrap("boom")) is False
+
+
+def test_a_classifier_crash_still_records_the_cell(tmp_path):
+    """End to end: a failure whose classification blows up is still a row on disk."""
     from bench import compare_backends as cb
     from bench.run_bench import Battery
     from tests.compare_bench.conftest import BATTERY, FakeEvaluator
 
     def boom(spec, ws, resume):
-        raise RuntimeError("planner died")
+        raise ClassifierTrap("planner died")
 
-    monkeypatch.setattr(cb, "is_infra_failure", lambda e: (_ for _ in ()).throw(RecursionError("cycle")))
     battery = Battery.load(BATTERY)
-    r = cb.run_cell(battery, battery.prompts[0], cb.parse_arm("harness:api-agent:gemini:gemini-3.7-flash"), tmp_path,
+    r = cb.run_cell(battery, battery.prompts[0], cb.parse_arm("harness:gemini-cli:gemini-3.6-flash"), tmp_path,
                     cb.CompareOptions(judge="gemini:x", loop_judge="gemini:x"), cb.CompareDeps(FakeEvaluator(), run_track=boom))
-    assert r.status == "error" and "classifier failed: RecursionError" in r.error and "planner died" in r.error
-    assert (tmp_path / "cells" / battery.prompts[0].id / "harness_api-agent_gemini_gemini-3.7-flash" / "cell.json").is_file()
+    assert r.status == "error" and "planner died" in r.error
+    assert (Path(r.workspace) / "cell.json").is_file()
 

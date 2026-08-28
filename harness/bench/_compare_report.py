@@ -80,6 +80,12 @@ class CellResult(BaseModel):
         a resume / ``--redo-status`` re-run appends a SECOND row for the same key."""
         return (self.prompt_id, self.arm)
 
+    def note(self, msg: str) -> None:
+        """Append to the error trail.  The row is the record of last resort: the failure,
+        classifying it and writing cell.json can each go wrong in one cell, and every one
+        of them has to survive into results.jsonl."""
+        self.error = f"{self.error}; {msg}" if self.error else msg
+
 
 class PairRow(BaseModel):
     prompt_id: str

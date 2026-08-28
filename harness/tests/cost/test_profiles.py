@@ -152,9 +152,9 @@ def test_profile_table_and_cli():
 
 def test_make_profile_writes_the_whole_shape_onto_the_spec(tmp_path: Path):
     runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--profile", "quality"])
+    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--profile", "quality", "--slug", "pot"])
     assert r.exit_code == 0, r.output
-    spec = json.loads(next(p for p in sorted(runs.iterdir()) if not p.name.startswith(".")).joinpath("spec.json").read_text())
+    spec = json.loads((runs / "pot" / "spec.json").read_text())
     assert spec["options"] == {"candidates": 2, "texture": True, "profile": "quality"}
     assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_usd"] == 8.0
     assert spec["backends"]["judge"] == "gemini:gemini-3.1-pro-preview"
@@ -162,11 +162,11 @@ def test_make_profile_writes_the_whole_shape_onto_the_spec(tmp_path: Path):
 
 def test_an_explicit_flag_beats_the_profile(tmp_path: Path):
     runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run",
+    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--slug", "pot",
                             "--profile", "economy", "--rounds", "4", "--max-usd", "9",
                             "--generator", "gemini-cli:gemini-3.6-flash"])
     assert r.exit_code == 0, r.output
-    spec = json.loads(next(p for p in sorted(runs.iterdir()) if not p.name.startswith(".")).joinpath("spec.json").read_text())
+    spec = json.loads((runs / "pot" / "spec.json").read_text())
     assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_usd"] == 9.0
     assert spec["backends"]["generator"] == "gemini-cli:gemini-3.6-flash"
     assert spec["backends"]["judge"] == "gemini:gemini-3.7-flash"  # unstated → still the profile's
@@ -174,9 +174,9 @@ def test_an_explicit_flag_beats_the_profile(tmp_path: Path):
 
 def test_no_profile_flag_leaves_the_defaults_alone(tmp_path: Path):
     runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run"])
+    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--slug", "pot"])
     assert r.exit_code == 0, r.output
-    spec = json.loads(next(p for p in sorted(runs.iterdir()) if not p.name.startswith(".")).joinpath("spec.json").read_text())
+    spec = json.loads((runs / "pot" / "spec.json").read_text())
     # the resolved dial is recorded whichever way it was named, so `3dcv resume`
     # reproduces it; with no flag and no env that dial is the default, balanced
     assert spec["options"]["profile"] == "balanced" and spec["options"]["texture"] is False
@@ -264,9 +264,9 @@ def test_the_env_var_reaches_the_spec_a_make_writes(name, tmp_path: Path, monkey
     monkeypatch.setenv("CV3D_PROFILE", name)
     get_settings.cache_clear()
     runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run"])
+    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--slug", "pot"])
     assert r.exit_code == 0, r.output
-    spec = json.loads(next(p for p in sorted(runs.iterdir()) if not p.name.startswith(".")).joinpath("spec.json").read_text())
+    spec = json.loads((runs / "pot" / "spec.json").read_text())
     assert spec["options"] == {"candidates": p.candidates, "texture": p.texture, "profile": name}
     assert spec["budget"]["max_rounds"] == p.rounds and spec["budget"]["max_usd"] == p.max_usd
     assert spec["backends"]["judge"] == p.judge and spec["backends"]["generator"] == p.generator

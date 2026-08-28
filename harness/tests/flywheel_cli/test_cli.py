@@ -23,7 +23,7 @@ def made_run(tmp_path: Path):
         runs = tmp_path / "runs"
         r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", *extra])
         assert r.exit_code == 0, r.output
-        return runs, next(d for d in runs.iterdir() if d.is_dir())
+        return runs, next(d for d in runs.iterdir() if d.is_dir() and not d.name.startswith("."))
 
     return make
 
@@ -242,7 +242,7 @@ def test_make_texture_flag_sets_spec_options(tmp_path: Path):
     runs = tmp_path / "runs"
     r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--texture", "--candidates", "3"])
     assert r.exit_code == 0, r.output
-    ws = next(d for d in runs.iterdir() if d.is_dir())
+    ws = next(d for d in runs.iterdir() if d.is_dir() and not d.name.startswith("."))
     spec = Spec.model_validate_json((ws / "spec.json").read_text())
     # run-shape options are frozen on the spec (no more magic 'texture' tag)
     assert spec.options.texture is True and spec.options.candidates == 3
@@ -253,7 +253,7 @@ def test_make_language_defaults_to_the_tracks_first(tmp_path: Path):
     runs = tmp_path / "runs"
     r = runner.invoke(app, ["make", "a harbour at night", "--track", "scene", "--runs-dir", str(runs), "--no-run"])
     assert r.exit_code == 0, r.output
-    ws = next(d for d in runs.iterdir() if d.is_dir())
+    ws = next(d for d in runs.iterdir() if d.is_dir() and not d.name.startswith("."))
     spec = Spec.model_validate_json((ws / "spec.json").read_text())
     assert spec.language.value == "scene_threejs"
 
