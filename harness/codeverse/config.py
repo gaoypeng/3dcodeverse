@@ -271,10 +271,13 @@ class Settings(BaseSettings):
     # Cost dial: one name that sets model-per-role, judge samples, rounds, candidates,
     # turn cap, montage size and the texture pass together (codeverse/cost/profiles.py).
     model_timeout_s: float = Field(
-        default=300.0,
-        description="HTTP read timeout for ONE API model call (per attempt; retries multiply it).  "
-        "Raise it when the provider is degraded and big structured calls (planner, judge) time out "
-        "before they answer: CV3D_MODEL_TIMEOUT_S=900.")
+        default=1200.0,
+        description="HTTP read timeout for ONE API model call (per attempt).  It is a CEILING: the "
+        "call ends when the answer does, and gemini.py clips each attempt to the retry budget "
+        "actually left.  300 s was the binding wall once max_output_tokens went to the model's "
+        "65 536 ceiling — measured 2026-08-27, output streams at 145 tok/s p50 and 60 tok/s p10, so "
+        "a 55 800-token plan needs ~930 s and died at the socket, its tokens billed and discarded. "
+        "Owner's rule 2026-08-27: time may be generous, errors may not.")
     profile: str = Field(default="balanced", description="economy | balanced | quality")
     cost_ledger: bool = Field(default=True, description="append one priced row per model call "
                               "to the run's telemetry/cost.jsonl (or a per-process log)")

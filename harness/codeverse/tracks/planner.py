@@ -65,7 +65,7 @@ TRUNCATION_GROWTH = 1.5
 #: call itself is 13.7 s p50 / 32 s p90 / 76 s max (23.4 / 43 / 68 under the storm), yet the
 #: storm-day plan stage waited 492 s median per run for 39 s of model time; 300 s is ~4x the
 #: worst observed call and replaces the model's 900 s default.  The re-asks are on top.
-PLAN_MAX_WAIT_S = 300.0
+PLAN_MAX_WAIT_S = 900.0   # owner's floor 2026-08-27: 15 minutes before a plan may be cut off
 #: ...but a deadline must fit the ANSWER it asked for, or the tokens are billed and then
 #: thrown away on a timeout.  Measured over 395 real planner calls (2026-08-27): output
 #: runs at 145 tok/s p50 and 60 tok/s p10, and the largest answers seen were 32 k tokens

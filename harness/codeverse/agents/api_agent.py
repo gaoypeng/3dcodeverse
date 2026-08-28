@@ -61,7 +61,7 @@ TURN_WAIT_MAX_S = 120.0
 #: then by the session deadline, which is itself clipped to the run's wall clock.
 TURN_SLOW_TOKENS_PER_S = 145.0
 TURN_WAIT_OVERHEAD_S = 45.0
-TURN_WAIT_CEILING_S = 600.0
+TURN_WAIT_CEILING_S = 900.0
 DEFAULT_SYSTEM = (
     "You are an expert 3D programmer working inside a harness-managed workspace. "
     "Use the tools to read, write and verify code under src/ and public/. Write RAW code in the "

@@ -252,15 +252,17 @@ def test_each_sample_has_a_retry_budget_and_hands_what_is_left_to_the_model(judg
     model = FakeChatModel([slow_503, slow_503, good_reply(R, IDS, 0.8)])
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
     assert j.passed and len(model.requests) == 3
-    assert SAMPLE_BUDGET_S == 240.0
-    assert [r.max_wait_s for r in model.requests] == [240.0, 140.0, 40.0]
+    # each retry gets what is LEFT of the sample budget (the fake clock burns 100 s a call)
+    assert [r.max_wait_s for r in model.requests] == [SAMPLE_BUDGET_S, SAMPLE_BUDGET_S - 100.0, SAMPLE_BUDGET_S - 200.0]
 
 
 def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeypatch):
+    from codeverse.judges.vlm_judge import SAMPLE_BUDGET_S
+
     clock = _fake_clock(monkeypatch)
 
     def spent(request):
-        clock["t"] += 250.0  # one attempt that retried inside the model for the whole budget
+        clock["t"] += SAMPLE_BUDGET_S + 10.0  # one attempt that retried for the whole budget
         return ModelError("503 high demand", retryable=True, status=503)
 
     model = FakeChatModel(default=spent)
@@ -269,21 +271,23 @@ def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeyp
     assert "sample budget" in j.summary
     # the budget is a dial: a caller that can afford more gets the attempts back
     model = FakeChatModel(default=spent)
-    j = _judge(model, cache_dir=cache_dir, sample_budget_s=600).judge(judge_input)
+    roomy = 3 * (SAMPLE_BUDGET_S + 10.0)
+    j = _judge(model, cache_dir=cache_dir, sample_budget_s=roomy).judge(judge_input)
     assert len(model.requests) == 3
-    assert [r.max_wait_s for r in model.requests] == [600.0, 350.0, 100.0]
+    burn = SAMPLE_BUDGET_S + 10.0
+    assert [r.max_wait_s for r in model.requests] == [roomy, roomy - burn, roomy - 2 * burn]
 
 
 def test_the_last_attempt_still_gets_a_real_try(judge_input, cache_dir, monkeypatch):
     """A few seconds of budget would be a deadline the model cannot use; the floor is 20 s."""
-    from codeverse.judges.vlm_judge import SAMPLE_MIN_WAIT_S
+    from codeverse.judges.vlm_judge import SAMPLE_BUDGET_S, SAMPLE_MIN_WAIT_S
 
     clock = _fake_clock(monkeypatch)
 
     def nearly_spent(request):
-        clock["t"] += 235.0
+        clock["t"] += SAMPLE_BUDGET_S - 5.0
         return ModelError("503", retryable=True, status=503)
 
     model = FakeChatModel([nearly_spent, good_reply(R, IDS, 0.8)])
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
-    assert j.passed and [r.max_wait_s for r in model.requests] == [240.0, SAMPLE_MIN_WAIT_S]
+    assert j.passed and [r.max_wait_s for r in model.requests] == [SAMPLE_BUDGET_S, SAMPLE_MIN_WAIT_S]

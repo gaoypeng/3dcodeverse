@@ -88,7 +88,7 @@ def check_plausible(
         temperature=temperature,
         thinking="low",
         max_output_tokens=65_536,
-        max_wait_s=240.0,
+        max_wait_s=900.0,
         label="reference_gate",
     )
     try:

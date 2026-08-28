@@ -232,7 +232,7 @@ class PairwiseJudge:
         return ChatRequest(
             messages=[ChatMessage(role="user", parts=parts)], system=_SYSTEM,
             response_schema=PairwiseReply.model_json_schema(), temperature=self.temperature,
-            max_wait_s=240.0, label=label,
+            max_wait_s=900.0, label=label,
         )
 
     def _side_images(self, tag: str, rs: RenderSet) -> list[tuple[str, ImagePart]]:

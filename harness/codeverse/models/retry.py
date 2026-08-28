@@ -33,7 +33,7 @@ from codeverse.models.keypool import ACQUIRE_TIMEOUT_S, MAX_WAIT_S, KeyPoolExhau
 #: This is the CEILING; a caller that cannot afford it passes a smaller ``max_total_s``
 #: (``ChatRequest.max_wait_s``) — audit 2026-08-26 §5.1: 66 give-up spans of 900 s, up to
 #: three in a row on one agent turn, were 30 % of a storm day's waiting.
-RETRY_DEADLINE_S = 900.0
+RETRY_DEADLINE_S = 1800.0   # owner 2026-08-27: generous time, zero timeouts (was 900)
 
 #: how many keys a retry is spread over once a call has met its first 503/529.
 #: Measured 2026-08-26 §5.2: a failed 503 costs the 21-50 s round-trip the provider

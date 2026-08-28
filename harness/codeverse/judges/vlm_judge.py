@@ -48,7 +48,7 @@ log = logging.getLogger(__name__)
 #: 240 s is ~2.3x the storm p90.  It replaces 3 x (a 300 s read timeout + the model's 900 s
 #: retry deadline): two storm-day rounds lost 1 162 s and 927 s that way (three 300 s
 #: timeouts each) before a second sample answered in 128 s.
-SAMPLE_BUDGET_S = 240.0
+SAMPLE_BUDGET_S = 900.0   # owner 2026-08-27: generous time, zero timeouts (was 240)
 #: the floor of one attempt's ``max_wait_s``: a last attempt still gets a real try
 SAMPLE_MIN_WAIT_S = 20.0
 
