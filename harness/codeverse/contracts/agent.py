@@ -23,20 +23,8 @@ class FileChange(BaseModel):
     lines_removed: int = 0
 
 
-class ApiAgentOptions(BaseModel):
-    """Knobs honoured only by the in-process ``api-agent`` backend."""
-
-    max_usd: float = Field(
-        default=0.0, description="stop the session when its own cost exceeds this (0 = no cap)"
-    )
-    temperature: float = 0.3
-    thinking: str = "low"
-    allow_shell: bool = True
-
-
 #: legacy ``AgentJob.extra`` keys lifted into the typed fields (values stay in extra too)
 _LEGACY_JOB_KEYS = ("round", "kind", "language", "track", "files_hint", "mcp_command")
-_LEGACY_API_KEYS = ("max_usd", "temperature", "thinking", "allow_shell")
 
 
 class AgentJob(BaseModel):
@@ -85,13 +73,12 @@ class AgentJob(BaseModel):
     read_only: list[str] = Field(
         default_factory=list,
         description="harness-owned files inside write_roots the agent may read but never write "
-        "(src/recipes.glsl for glsl_shader: contracts.common.HARNESS_OWNED_SRC); a write_file / "
-        "edit_file on one is refused with 'harness-owned — call its functions instead'",
+        "(src/recipes.glsl for glsl_shader: contracts.common.HARNESS_OWNED_SRC); enforced "
+        "post-session: a write to one is reverted and the session failed",
     )
     mcp_command: list[str] | None = Field(
         default=None, description="override for the 3dcv MCP server command"
     )
-    api: ApiAgentOptions = Field(default_factory=ApiAgentOptions)
     extra: dict[str, Any] = Field(
         default_factory=dict, description="one-off backend hints (legacy keys are lifted)"
     )
@@ -111,10 +98,6 @@ class AgentJob(BaseModel):
         for key in _LEGACY_JOB_KEYS:
             if key in extra and key not in data:
                 data[key] = extra[key]
-        if "api" not in data:
-            lifted = {k: extra[k] for k in _LEGACY_API_KEYS if k in extra}
-            if lifted:
-                data["api"] = lifted
         return data
 
 

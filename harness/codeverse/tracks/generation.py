@@ -1,7 +1,7 @@
 """Code generation: one entry point, two strategies.
 
 * **CodingAgent path** — ``agent_id`` is any id ``codeverse.agents`` knows
-  (``gemini-cli:*``, ``claude-code:*``, ``codex:*``, ``agy:*``, ``api-agent:*``):
+  (``gemini-cli:*``, ``claude-code:*``, ``codex:*``, ``agy:*``):
   the workspace is materialised once per run (AGENTS.md + MCP config), then
   ``agent.run(AgentJob)``.  Truth is on disk: ``ok`` means files changed.
 * **Single-shot path** — ``agent_id = "single-shot:<provider>:<model>"``: one
@@ -101,8 +101,8 @@ def agent_max_turns(default: int = DEFAULT_AGENT_MAX_TURNS) -> int:
 def turn_capped(res: Any) -> bool:
     """True when the agent stopped because it ran out of turns (not money/time).
 
-    api-agent says ``max_turns (N) reached``; claude-code reports the subtype
-    ``error_max_turns`` — both surface as ``exit_reason="budget"``."""
+    claude-code reports the subtype ``error_max_turns``; it surfaces as
+    ``exit_reason="budget"``."""
     if getattr(res, "exit_reason", "") != "budget":
         return False
     return any("max_turns" in str(e) for e in (getattr(res, "errors", None) or []))
@@ -550,8 +550,7 @@ def session_turns(res: Any) -> int:
     ``agents/cli_common.finish_session`` writes into ``result.json`` (0 when the
     backend does not report one).
 
-    Backends count slightly differently (the api-agent reports transcript
-    messages, roughly two per model turn), so this is a size signal for the
+    Backends count turns slightly differently, so this is a size signal for the
     ``cost.round`` event, not the number the turn cap is compared against —
     that one is enforced inside the session by ``job.max_turns``."""
     path = getattr(res, "transcript_path", "") or ""

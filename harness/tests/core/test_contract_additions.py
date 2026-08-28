@@ -11,7 +11,6 @@ from codeverse.contracts import (
     TRACK_INFO,
     TRACK_LANGUAGES,
     AgentJob,
-    ApiAgentOptions,
     Language,
     RunOptions,
     Spec,
@@ -102,26 +101,22 @@ def test_render_view_judge_flag_defaults_none():
 def test_agent_job_legacy_extra_is_lifted_and_kept():
     extra = {"round": 2, "kind": "refine", "language": "blender", "track": "static_object",
              "files_hint": ["src/a.py"], "mcp_command": ["python", "-m", "x"],
-             "max_usd": 1.5, "temperature": 0.7, "thinking": "high", "allow_shell": False}
+             "temperature": 0.7}  # unknown keys (like the old api-agent knobs) just stay put
     j = AgentJob(workspace="w", prompt="p", extra=dict(extra))
     assert (j.round, j.kind, j.language, j.track) == (2, "refine", "blender", "static_object")
     assert j.files_hint == ["src/a.py"]
     assert j.mcp_command == ["python", "-m", "x"]
-    assert j.api == ApiAgentOptions(max_usd=1.5, temperature=0.7, thinking="high", allow_shell=False)
     assert j.extra == extra  # untouched: legacy readers see what they were given
 
 
 def test_agent_job_explicit_fields_beat_extra():
-    j = AgentJob(workspace="w", prompt="p", round=5, api=ApiAgentOptions(max_usd=9.0),
-                 extra={"round": 2, "max_usd": 1.0})
+    j = AgentJob(workspace="w", prompt="p", round=5, extra={"round": 2})
     assert j.round == 5
-    assert j.api.max_usd == 9.0
 
 
 def test_agent_job_defaults_and_roundtrip():
     j = AgentJob(workspace="w", prompt="p")
     assert j.round == 0 and j.kind == "" and j.files_hint == [] and j.mcp_command is None
-    assert j.api == ApiAgentOptions()
     j2 = AgentJob(workspace="w", prompt="p", extra={"round": 3, "temperature": 0.9})
     assert AgentJob(**j2.model_dump()) == j2  # dump/construct stable
 

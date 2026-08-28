@@ -53,11 +53,6 @@ class Delivery:
         """An explicit one-line-per-skill index in the agent body file."""
         return not self.native_loader
 
-    @property
-    def needs_tool(self) -> bool:
-        """``read_skill``: the routed set as an affordance rather than as prose."""
-        return not self.native_loader
-
 
 #: The whole per-backend policy.  One row per backend; anything absent is loaderless.
 _BACKENDS: dict[str, Delivery] = {

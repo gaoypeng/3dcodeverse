@@ -119,7 +119,7 @@ def report(
 ) -> None:
     """Deep-read rate per skill and per backend — the number that replaces "0 of 16".
 
-    Targets from the design: >= 60% for CLI backends, >= 80% for api-agent.  A skill
+    Target from the design: >= 60% deep-read rate for a CLI backend.  A skill
     under 20% over 20 sessions is merged or deleted.
 
     Sessions whose CONTROL bundle was also "read" are counted separately and excluded from

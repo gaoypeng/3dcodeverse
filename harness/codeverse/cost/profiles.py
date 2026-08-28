@@ -23,10 +23,10 @@ Every number is taken from the measurements in ``docs/COST.md``:
   $4.93, r02 for $6.80, r03 for $33.49).  It does **not** shrink the judge
   payload and does **not** carry its own turn cap — both were measured and
   neither paid (see the field comments below).
-* **balanced** — exactly today's defaults (api-agent generator, pro judge at
+* **balanced** — exactly today's defaults (gemini-cli generator, pro judge at
   n=1, 4 rounds, no best-of-N, no texture): the arm every number in the audit
   was measured on.
-* **quality** — api-agent + the pro judge at ``n=3`` (σ 0.030/√3 ≈ 0.017),
+* **quality** — gemini-cli + the pro judge at ``n=3`` (σ 0.030/√3 ≈ 0.017),
   best-of-2 baselines and the texture pass behind its before/after gate.
 
 The expected $ per profile comes from the same 61 runs; see
@@ -141,7 +141,7 @@ PROFILES: dict[str, Profile] = {
         expected_usd=3.20,
         expected_score="best-of-2 lifted the stool baseline 0.563 → 0.612 and the texture pass "
                        "0.686 → 0.701; judge σ 0.017 at n=3",
-        note="api-agent + pro judge n=3 + 4 rounds + best-of-2 + texture pass",
+        note="gemini-cli + pro judge n=3 + 4 rounds + best-of-2 + texture pass",
     ),
 }
 

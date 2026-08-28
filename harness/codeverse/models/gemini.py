@@ -54,10 +54,10 @@ _RETRY_DELAY_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
 #: floor of the per-attempt HTTP read timeout derived from the remaining retry
 #: budget (``ChatRequest.max_wait_s``): a call that starts near its deadline still
 #: gets ONE real attempt instead of an instant socket timeout.  20 s matches the
-#: callers' own floors (``agents.api_agent.TURN_WAIT_MIN_S`` = 20 s,
-#: ``judges.vlm_judge.SAMPLE_MIN_WAIT_S`` = 20 s), so an in-flight attempt may
-#: overshoot the deadline by at most this floor — never by the full ``timeout_s``
-#: (300 s) read timeout, which was the dominant overshoot (audit 2026-08-27).
+#: judge's own floor (``judges.vlm_judge.SAMPLE_MIN_WAIT_S`` = 20 s), so an in-flight
+#: attempt may overshoot the deadline by at most this floor — never by the full
+#: ``timeout_s`` read timeout, which was the dominant overshoot (audit 2026-08-27,
+#: when that ceiling was 300 s).
 HTTP_TIMEOUT_FLOOR_S = 20.0
 
 _pools: dict[tuple[str, ...], KeyPool] = {}

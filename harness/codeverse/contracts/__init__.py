@@ -11,7 +11,7 @@ Modules:
 - ``agent``     CodingAgent job/result shapes.
 """
 
-from codeverse.contracts.agent import AgentJob, AgentResult, ApiAgentOptions, FileChange
+from codeverse.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse.contracts.artifacts import (
     BuildResult,
     GateFinding,
@@ -70,7 +70,6 @@ __all__ = [
     "AcceptanceItem",
     "AgentJob",
     "AgentResult",
-    "ApiAgentOptions",
     "ArticulatedPlan",
     "AssetPlan",
     "BBox",

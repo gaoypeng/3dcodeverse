@@ -1,7 +1,7 @@
 """CodingAgent backends (agentic sessions on a workspace).
 
 Ids: ``gemini-cli:<model>`` · ``claude-code:<model>`` · ``codex:<model>`` ·
-``agy:<model>`` · ``api-agent:<provider>:<model>``.
+``agy:<model>``.
 """
 
 from codeverse.agents.base import CodingAgent

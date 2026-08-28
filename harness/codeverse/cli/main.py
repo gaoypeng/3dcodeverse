@@ -104,7 +104,7 @@ def make(
     generator: Annotated[
         str | None,
         typer.Option(
-            help="api-agent:gemini:gemini-3.7-flash | gemini-cli:... | claude-code:... | codex:... | agy:..."
+            help="gemini-cli:gemini-3.6-flash | claude-code:... | codex:... | agy:... | single-shot:gemini:..."
         ),
     ] = None,
     planner: Annotated[str | None, typer.Option()] = None,

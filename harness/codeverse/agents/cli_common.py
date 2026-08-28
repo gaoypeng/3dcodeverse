@@ -179,13 +179,12 @@ class Session:
 
 
 # --------------------------------------------------------------------------- serialisation
-#: agent kinds whose sessions are EXCLUSIVE per workspace.  CLI agents have no
-#: write-time enforcement (FileTools guards only the in-process api-agent), and both
-#: session snapshots run ``git add -A`` — a late-starting session's ``pre:`` commit
-#: absorbs a sibling's in-flight writes, which makes concurrent provenance (and any
-#: per-path rollback, see :func:`_enforce_scope`) unfixable after the fact.  So CLI
-#: sessions on one workspace are serialised; the main generator (api-agent) keeps its
-#: full parallelism because its writes are scope-checked as they happen.
+#: agent kinds whose sessions are EXCLUSIVE per workspace — today, every kind.  No
+#: backend has write-time enforcement (scope is checked post-session by
+#: :func:`_enforce_scope`), and both session snapshots run ``git add -A`` — a
+#: late-starting session's ``pre:`` commit absorbs a sibling's in-flight writes, which
+#: makes concurrent provenance (and any per-path rollback) unfixable after the fact.
+#: So agent sessions on one workspace are serialised.
 EXCLUSIVE_KINDS = frozenset({"claude-code", "codex", "gemini-cli", "agy"})
 
 _WS_SESSION_LOCKS: dict[str, threading.RLock] = {}

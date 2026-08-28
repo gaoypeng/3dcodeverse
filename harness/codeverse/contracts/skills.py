@@ -18,7 +18,7 @@ class SkillRead(BaseModel):
     deep: bool = Field(default=False, description="a references/*.md atime > mtime: the body was read and followed")
     deep_measurable: bool = Field(default=True, description="False when the bundle ships no references/ file to probe")
     body_tokens: int = 0
-    first_seen_turn: int | None = Field(default=None, description="api-agent only: exact turn of the first read")
+    first_seen_turn: int | None = Field(default=None, description="historical (pre-2026-08-28) api-agent runs only: exact turn of the first read")
     reason: str = Field(default="", description="which route attached it, and which finding")
 
 

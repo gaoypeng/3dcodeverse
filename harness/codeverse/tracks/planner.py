@@ -61,11 +61,11 @@ PLAN_TOKENS_PER_LEAF = 400
 PLAN_TOKENS_MAX = 65_536   # the model's declared output ceiling
 #: one more attempt when the model truncates anyway, with half again as much room
 TRUNCATION_GROWTH = 1.5
-#: retry budget (``ChatRequest.max_wait_s``) for one planner call.  Audit 2026-08-26 §2: the
-#: call itself is 13.7 s p50 / 32 s p90 / 76 s max (23.4 / 43 / 68 under the storm), yet the
-#: storm-day plan stage waited 492 s median per run for 39 s of model time; 300 s is ~4x the
-#: worst observed call and replaces the model's 900 s default.  The re-asks are on top.
-PLAN_MAX_WAIT_S = 900.0   # owner's floor 2026-08-27: 15 minutes before a plan may be cut off
+#: retry budget (``ChatRequest.max_wait_s``) for one planner call — the owner's floor
+#: (2026-08-27): 15 minutes before a plan may be cut off.  For scale, the call itself is
+#: 13.7 s p50 / 32 s p90 / 76 s max (audit 2026-08-26 §2); the flat 300 s that once stood
+#: here is what killed grown re-asks (see the deadline-vs-answer block below).
+PLAN_MAX_WAIT_S = 900.0
 #: ...but a deadline must fit the ANSWER it asked for, or the tokens are billed and then
 #: thrown away on a timeout.  Measured over 395 real planner calls (2026-08-27): output
 #: runs at 145 tok/s p50 and 60 tok/s p10, and the largest answers seen were 32 k tokens

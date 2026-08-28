@@ -43,12 +43,12 @@ from codeverse.models.base import ChatModel, ModelError
 
 log = logging.getLogger(__name__)
 
-#: retry budget for ONE judge sample, every attempt included.  The verdict call is 42 s
-#: p50 / 73 s p90 on a normal day and 50 / 103 s under a storm (audit 2026-08-26 §2), so
-#: 240 s is ~2.3x the storm p90.  It replaces 3 x (a 300 s read timeout + the model's 900 s
-#: retry deadline): two storm-day rounds lost 1 162 s and 927 s that way (three 300 s
-#: timeouts each) before a second sample answered in 128 s.
-SAMPLE_BUDGET_S = 900.0   # owner 2026-08-27: generous time, zero timeouts (was 240)
+#: retry budget for ONE judge sample, every attempt included — the owner's rule
+#: (2026-08-27): generous time, zero timeouts.  For scale, the verdict call is 42 s p50 /
+#: 73 s p90 on a normal day and 50 / 103 s under a storm (audit 2026-08-26 §2); the old
+#: 240 s cap, and before it 3 x (a 300 s read timeout + the model's 900 s retry deadline),
+#: lost two storm-day rounds 1 162 s and 927 s before a second sample answered in 128 s.
+SAMPLE_BUDGET_S = 900.0
 #: the floor of one attempt's ``max_wait_s``: a last attempt still gets a real try
 SAMPLE_MIN_WAIT_S = 20.0
 

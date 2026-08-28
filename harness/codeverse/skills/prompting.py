@@ -8,8 +8,8 @@ already being sent, and each backend gets the least text that reaches it:
 
 * claude-code / codex / gemini-cli / agy discover ``SKILL.md`` themselves.  Writing our
   own index would double-index the same bundles, so they get ONE sentence (~35 tokens).
-* api-agent has no loader, so it gets a one-line-per-skill index inside the AGENTS.md
-  body, which is already message 0 of the session.
+* a backend nobody has classified yet (``delivery.py``'s safe answer) gets a
+  one-line-per-skill index inside the AGENTS.md body, which is already message 0.
 * a single-shot call has no read loop at all: it gets ONE body inlined, so the cost is
   explicit and bounded instead of a pointer nobody can follow.
 * on a repair round the gate-fired skills are named beside the findings they answer, in
@@ -42,20 +42,19 @@ NATIVE_LOADERS = tuple(k for k in known_backends() if delivery_for(k).native_loa
 #: the user installed globally, so "the ones that match" is the right instruction there.
 MANDATE = ("Skills for this task are installed in this workspace. Any whose description matches "
            "your task are MANDATORY — activate and read them before writing code.")
-#: what api-agent is told.  The list under it was chosen by OUR router from the track, the
-#: language, the plan and the previous round's gate findings — inviting the agent to filter
-#: it again would only lose reads, and it cannot see what we used to pick them.
+#: what an unclassified (loaderless) backend is told.  The list under it was chosen by OUR
+#: router from the track, the language, the plan and the previous round's gate findings —
+#: inviting the agent to filter it again would only lose reads.
 MANDATE_ROUTED = ("The skills below were selected for THIS task by the harness, from your track, "
                   "your language, your plan and the gate findings of the previous round. Reading "
                   "them is MANDATORY — open each one before writing code.")
 
 _HEADING = "## Skills"
 
-#: how much of a description the api-agent index repeats.  The spec lets a description run to
-#: 1024 chars and ours use it — they are what a CLI's own matcher reads.  api-agent's index is
-#: not a matcher: OUR router already decided, so the line only has to be recognisable enough
-#: for the agent to know which file to open.  Measured on the real library, quoting the full
-#: 14 descriptions costs 780 tokens for five skills; the first clause costs 401.
+#: how much of a description the routed index repeats.  Descriptions run to 1024 chars for
+#: the CLIs' own matchers; our index is not a matcher — the router already decided — so a
+#: line only has to be recognisable enough to know which file to open.  Measured on the
+#: real library: five full descriptions cost 780 tokens; the first clause costs 401.
 INDEX_SUMMARY_CHARS = 200
 
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z`])")
@@ -77,8 +76,9 @@ def skill_path(name: str, *, agent_kind: str = "") -> str:
 def index_block(skills: Sequence[Skill | Selection], agent_kind: str) -> str:
     """The text appended to the AGENTS.md body for ``agent_kind`` ('' when nothing is added).
 
-    Native-loader backends get the mandate only; api-agent (and anything unknown, which
-    is the safe assumption) also gets the one-line-per-skill index it cannot discover.
+    Native-loader backends get the mandate only; an unclassified backend (the safe
+    assumption for anything unknown) also gets the one-line-per-skill index it cannot
+    discover itself.
     """
     items = [s.skill if isinstance(s, Selection) else s for s in skills]
     if not items:

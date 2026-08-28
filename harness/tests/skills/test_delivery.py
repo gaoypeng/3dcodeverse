@@ -22,24 +22,24 @@ def test_a_native_loader_is_never_handed_a_second_index():
     """It lists the bundles itself; ours on top would double-index the same skills."""
     for kind in ("claude-code", "codex", "gemini-cli", "agy"):
         d = delivery_for(kind)
-        assert d.native_loader and not d.needs_index and not d.needs_tool, kind
+        assert d.native_loader and not d.needs_index, kind
 
 
-def test_a_loaderless_backend_gets_both_the_index_and_the_tool():
+def test_a_loaderless_backend_gets_the_index():
     """Measured 2026-08-25: the native loaders read 5 of 5 routed bundles while a
     loaderless backend read 0 of 5 from a MANDATORY paragraph, making 52 read_file calls
     instead.  Prose is not an affordance.  Every SHIPPED backend has a native loader
     since the in-process one was deleted (2026-08-28), so this is the policy for a
     backend nobody has classified."""
     d = delivery_for("some-future-cli")
-    assert not d.native_loader and d.needs_index and d.needs_tool
+    assert not d.native_loader and d.needs_index
 
 
 def test_an_unclassified_backend_gets_the_safe_answer():
     """Over-delivering costs tokens; under-delivering costs the skill entirely."""
     for kind in ("some-future-cli", "", "typo-agent"):
         d = delivery_for(kind)
-        assert d.needs_index and d.needs_tool, kind
+        assert d.needs_index, kind
         assert d.root == AGENTS_SKILL_ROOT
 
 
@@ -83,11 +83,3 @@ def test_adding_a_backend_is_one_row():
             offenders.append(py.name)
     assert not offenders, f"per-backend knowledge leaked out of delivery.py into {offenders}"
 
-
-# ------------------------------------------------------------------ the read_skill tool
-
-
-# The in-process skill-reading TOOL (agents/api_skills.py) went with the api-agent on
-# 2026-08-28: every remaining backend is a vendor CLI with a native loader, so a bundle
-# is delivered as files and read by the vendor's own mechanism.  The four tests that
-# drove that tool are gone with it; delivery_for() above still pins the routing policy.

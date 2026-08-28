@@ -25,7 +25,7 @@ class CodingAgent(Protocol):
       process group on timeout).
     """
 
-    kind: str  # gemini-cli | claude-code | codex | agy | api-agent
+    kind: str  # gemini-cli | claude-code | codex | agy
     model: str
 
     @property

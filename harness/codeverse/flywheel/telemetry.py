@@ -92,15 +92,12 @@ def _planner_defaults() -> dict[str, Any]:
 
 
 def _generator_defaults(model_id: str) -> dict[str, Any]:
-    """Only the in-process ``api-agent`` exposes sampling knobs; CLI agents own theirs."""
-    if backend_kind(model_id) != "api-agent":   # historical runs only (backend deleted 2026-08-28)
+    """CLI agents own their sampling knobs.  Only the deleted in-process ``api-agent``
+    exposed ours — the constants below reproduce its shipped defaults so a HISTORICAL
+    run record (pre-2026-08-28) still reports what it actually ran with."""
+    if backend_kind(model_id) != "api-agent":
         return {}
-    try:
-        from codeverse.contracts.agent import ApiAgentOptions
-    except Exception:  # pragma: no cover
-        return {}
-    o = ApiAgentOptions()
-    return {"temperature": o.temperature, "thinking": o.thinking}
+    return {"temperature": 0.3, "thinking": "low"}
 
 
 def _rubric_name(record: RunRecord) -> str:

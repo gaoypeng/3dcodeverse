@@ -13,15 +13,15 @@ Package map (each sub-package has its own docstring):
 - ``contracts``     pydantic models shared by everything (Spec, Plan, Gate,
                     Judgment, Usage, RunRecord ...).  No logic lives here.
 - ``models``        ChatModel backends: Gemini / Anthropic / OpenAI (+ key pool).
-- ``agents``        CodingAgent backends: gemini-cli / claude-code / codex /
-                    antigravity / api-agent (tool loop on any ChatModel).
+- ``agents``        CodingAgent backends: the vendor CLIs — gemini-cli /
+                    claude-code / codex / antigravity.
 - ``languages``     LanguageRuntime per raw language: lint, build, export.
 - ``spatial``       language-agnostic 3D tools on GLB/scene: measure, render,
                     slice, isolate, silhouette, joints, probes — also served as
                     an MCP server to agentic harnesses.
 - ``judges``        VLM judges + rubrics + deterministic metrics.
 - ``tracks``        static_object / articulated_object / scene / graphics pipelines.
-- ``orchestrator``  stage runner, round loop, fan-out, budget, events.
+- ``orchestrator``  stage runner, round loop, budget, candidate selection.
 - ``flywheel``      run records → dataset samples / preference pairs.
 - ``cli``           ``3dcv`` command line.
 """

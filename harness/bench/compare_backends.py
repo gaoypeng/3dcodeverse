@@ -453,9 +453,8 @@ def _preflight(judge: str, arms: Sequence[Arm], opts: CompareOptions, *, wait_mi
     from codeverse.models.health import probe
 
     def api_model(target: str) -> str:
-        """'api-agent:gemini:x' -> 'gemini:x'; a subscription CLI target -> ''."""
-        inner = target.split(":", 1)[1] if target.startswith("api-agent:") else target
-        return inner if inner.startswith(("gemini:", "anthropic:", "openai:")) else ""
+        """An API-billed oneshot target ('gemini:x') as-is; a subscription CLI target -> ''."""
+        return target if target.startswith(("gemini:", "anthropic:", "openai:")) else ""
 
     models = {judge, *(api_model(a.target) for a in arms)}
     if any(a.kind.startswith("harness") for a in arms):

@@ -6,13 +6,13 @@ Two thin proxies do the whole job:
   Every ``generate`` appends one :class:`~codeverse.cost.types.CallCost` row
   (tokens, the unit prices actually used + their provenance, $, latency,
   cache hit, outcome).  Because ``models.registry.get_chat_model`` returns the
-  proxy, this covers the planner, the judges, the captioner, single-shot
-  generation **and every turn of the in-process api-agent**.
+  proxy, this covers the planner, the judges, the captioner and single-shot
+  generation.
 * :class:`MeteredAgent` wraps a :class:`~codeverse.agents.base.CodingAgent`.
   It sets the ambient attribution (round / stage / label) for the session so
   the model rows above land in the right bucket, applies the profile's turn cap
-  and, for backends whose calls we cannot see (the subscription CLIs — see
-  :data:`IN_PROCESS_AGENT_KINDS`), records one session row from
+  and, for backends whose calls we cannot see (every subscription CLI that does
+  not declare ``meters_own_calls``), records one session row from
   ``AgentResult.usage``.
 
 Accounting is never allowed to fail a run: every hook is wrapped, and an
@@ -80,36 +80,20 @@ def per_call_metering() -> bool:
         return _active_ledgers > 0
 
 
-#: Agent kinds whose model calls go through ``models.get_chat_model`` and are
-#: therefore ALREADY one ledger row each (``MeteredChatModel`` wraps that
-#: factory).  Every other kind is an opaque subscription CLI: we never see its
-#: turns, it hands back one ``AgentResult.usage`` for the whole session, and that
-#: session row is the only record of the money.
-#:
-#: This used to be decided by a thread-local "did anybody write a row while the
-#: session ran?" counter, which is wrong in both directions and was reproduced by
-#: the verifier (``adversarial.py``): a CLI session during which any in-process
-#: tool billed a model (a texture pass, a summariser) looked metered and its whole
-#: session — $1.23 in the reproduction — was silently dropped; and an in-process
-#: session whose turns ran in another thread looked unmetered and was counted
-#: twice.  The backend either meters itself or it does not; that is a property of
-#: the backend, not of what happened to run alongside it.
-#: empty since 2026-08-28: the in-process ``api-agent`` was the only backend whose
-#: individual model calls landed on the ledger by themselves.  A vendor CLI bills as one
-#: session row.  Kept (rather than deleted) because ``meters_own_calls`` is the seam a
-#: future self-metering backend would declare itself through.
-IN_PROCESS_AGENT_KINDS: frozenset[str] = frozenset()
-
-
 def meters_own_calls(agent: Any) -> bool:
     """True when this backend's individual model calls are already on the ledger.
 
-    A backend may state it with a ``meters_own_calls`` attribute; otherwise the
-    kind decides (:data:`IN_PROCESS_AGENT_KINDS`)."""
-    declared = getattr(agent, "meters_own_calls", None)
-    if declared is not None:
-        return bool(declared)
-    return str(getattr(agent, "kind", "")) in IN_PROCESS_AGENT_KINDS
+    Declared by the backend itself (a ``meters_own_calls`` attribute) — a property
+    of the backend, not of what happened to run alongside it.  The old thread-local
+    "did anybody write a row while the session ran?" counter was wrong in both
+    directions (reproduced by ``adversarial.py``): a CLI session during which an
+    in-process tool billed a model (a texture pass, a summariser) looked metered
+    and its whole session row was silently dropped, and a session whose turns ran
+    in another thread was counted twice.  Every shipped backend is a vendor CLI
+    billing as ONE session row, so the default is False; the deleted in-process
+    api-agent (2026-08-28) was the last one whose turns landed on the ledger by
+    themselves."""
+    return bool(getattr(agent, "meters_own_calls", False))
 
 
 class MeteredChatModel:
