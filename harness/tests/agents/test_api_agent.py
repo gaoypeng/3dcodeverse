@@ -327,7 +327,7 @@ def test_a_truncated_turn_widens_the_output_envelope(tmp_ws):
     """The model was not misbehaving: thinking grew 13 -> 3 144 -> 15 359 tokens on a hard
     problem and 15 359 + 637 hit the 16 000 default exactly.  planner has grown its budget
     on truncation for months; the agent loop took the default and never moved."""
-    from codeverse.agents.api_agent import TURN_TOKENS, TURN_TOKENS_GROWTH
+    from codeverse.agents.api_agent import TURN_TOKENS, TURN_TOKENS_GROWTH, TURN_TOKENS_MAX
 
     fake = FakeChatModel([
         cut("<thought>the hinge axis and"),
@@ -337,4 +337,7 @@ def test_a_truncated_turn_widens_the_output_envelope(tmp_ws):
     ApiAgent("fake:fake-1", chat_model=fake).run(_job(tmp_ws))
     asked = [r.max_output_tokens for r in fake.requests]
     assert asked[0] == TURN_TOKENS
-    assert asked[1] == int(TURN_TOKENS * TURN_TOKENS_GROWTH), "the turn after a truncation gets room"
+    # TURN_TOKENS already IS the model's declared ceiling, so growth clamps there: the
+    # invariant is "never shrink, never exceed the ceiling" — it survives the default moving
+    assert TURN_TOKENS <= asked[1] <= TURN_TOKENS_MAX
+    assert asked[1] == min(TURN_TOKENS_MAX, int(TURN_TOKENS * TURN_TOKENS_GROWTH))

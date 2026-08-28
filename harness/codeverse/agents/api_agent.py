@@ -42,8 +42,8 @@ MODEL_RETRIES = 3
 #: 15 359 + 637 = 15 996 — the model behaved normally, the envelope was four tokens too
 #: small.  ``tracks/planner`` has grown its budget on truncation since it hit the same
 #: wall (PLAN_TOKENS_MAX / TRUNCATION_GROWTH); the agent loop never did.
-TURN_TOKENS = 16_000
-TURN_TOKENS_MAX = 48_000
+TURN_TOKENS = 65_536          # the model's declared ceiling; unused tokens cost nothing
+TURN_TOKENS_MAX = 65_536
 TURN_TOKENS_GROWTH = 1.5
 #: retry budget (``ChatRequest.max_wait_s``) for ONE model call of a turn: the session's
 #: remaining time, clipped to this window.  Audit 2026-08-26 §5.1: with the model's own

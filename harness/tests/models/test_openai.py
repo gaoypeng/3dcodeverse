@@ -93,7 +93,7 @@ def test_text_reasoning_effort_usage_cost():
     assert (
         kw["reasoning_effort"] == "high"
         and "temperature" not in kw
-        and kw["max_completion_tokens"] == 16000
+        and kw["max_completion_tokens"] == ChatRequest.model_fields["max_output_tokens"].default
     )
     u = r.usage
     assert (u.input_tokens, u.cached_tokens, u.output_tokens, u.thoughts_tokens) == (

@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 
 PLAN_TEMPLATE = "tracks/plan_graphics.j2"
 PLAN_TEMPERATURE = 0.5
-PLAN_MAX_OUTPUT_TOKENS = 16000
+PLAN_MAX_OUTPUT_TOKENS = 65_536   # the model's declared output ceiling; unused tokens cost nothing
 EXPECTED_FILES: dict[Language, list[str]] = {
     Language.GLSL_SHADER: ["src/shader.frag", "src/common.glsl"],
     Language.OPENGL_PYTHON: ["src/program.py"],

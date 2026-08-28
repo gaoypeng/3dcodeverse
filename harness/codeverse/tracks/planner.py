@@ -58,7 +58,7 @@ MAX_QUALITY_REASKS = 1
 #: prompts.  Callers may raise the floor; this only ever raises it further.
 PLAN_TOKENS_PER_PART = 600
 PLAN_TOKENS_PER_LEAF = 400
-PLAN_TOKENS_MAX = 60000
+PLAN_TOKENS_MAX = 65_536   # the model's declared output ceiling
 #: one more attempt when the model truncates anyway, with half again as much room
 TRUNCATION_GROWTH = 1.5
 #: retry budget (``ChatRequest.max_wait_s``) for one planner call.  Audit 2026-08-26 §2: the
