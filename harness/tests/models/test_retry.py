@@ -681,6 +681,39 @@ def test_a_broken_on_attempt_hook_never_breaks_the_call():
     assert _rotate(pool, lambda key: "ok", on_attempt=hook) == "ok"
 
 
+def test_the_error_it_gives_up_with_is_never_its_own_cause():
+    """`classify()` returns an already-classified ModelError unchanged, so the give-up
+    `raise err from exc` was `raise e from e` — and CPython does not check `from` for a
+    cycle.  bench/_infra.py had to grow a seen-set after that chain took run_cell to a
+    RecursionError and a compare matrix lost 11 finished cells (2026-08-27)."""
+    def call(key):
+        raise ModelError("structured output unavailable (finish_reason=MAX_TOKENS)",
+                         retryable=False, status=None)
+
+    with pytest.raises(ModelError) as ei:
+        _rotate(_pool(), call, max_attempts=1)
+    err = ei.value
+    assert err.__cause__ is not err, "the classified error became its own __cause__"
+
+    # walk the whole chain: no link may repeat, whatever the branch
+    seen, node = set(), err
+    while node is not None and id(node) not in seen:
+        seen.add(id(node))
+        node = node.__cause__ if node.__cause__ is not None else node.__context__
+    assert node is None, "the cause chain closes into a cycle"
+
+
+def test_a_real_wrapped_cause_still_survives_the_self_cause_guard():
+    """The guard drops the cause only when it IS the error — a genuine wrapped cause
+    (the classifier built a NEW ModelError) must still reach the caller."""
+    def call(key):
+        raise TimeoutError("read timed out")
+
+    with pytest.raises(ModelError) as ei:
+        _rotate(_pool(), call, max_attempts=1)
+    assert isinstance(ei.value.__cause__, TimeoutError)
+
+
 def test_a_budget_spent_at_the_storm_gate_issues_no_round_trip():
     """A worker parked at a gate ANOTHER thread closed carries no ``last_err``, so the
     guard at the top of the loop (which requires one) let it through: it woke past its
