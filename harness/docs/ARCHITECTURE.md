@@ -118,8 +118,8 @@ codeverse/
                       sheet.py (montage_2x2, crop_region), turntable.py, measure.py, connectivity.py,
                       contract.py (authoring-frame hints), sections.py, silhouette.py, probes.py,
                       complexity.py (objective complexity vector -> Measurement.extra, docs/COMPLEXITY.md),
-                      joints*.py + joints_collide.py (deterministic penetration), registry.py, tools*.py
-                      (tools_texture.py, tools_graphics.py), mcp_server.py (MCP name: 3dcv)
+                      joints*.py + joints_collide.py (deterministic penetration), registry.py,
+                      tools.py (every @tool registration since 2026-08-28), mcp_server.py (MCP name: 3dcv)
   skills/             registry.py (typed ROUTES + the router that evaluates them),
                       model.py (Skill/Selection + the SKILL.md loader), prompting.py
                       (per-backend delivery policy + the index/mandate text),

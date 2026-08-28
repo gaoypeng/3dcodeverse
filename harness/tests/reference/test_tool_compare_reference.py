@@ -42,7 +42,7 @@ def ctx(tmp_ws: Workspace, tmp_path: Path, monkeypatch) -> ToolContext:
             out.append(RenderView(name=v.name, path=str(p), width=size, height=size, mode=mode))
         return RenderSet(views=out, renderer="fake")
 
-    monkeypatch.setattr("codeverse.spatial.tools_reference.cached_render_glb", fake_render)
+    monkeypatch.setattr("codeverse.spatial.tools.cached_render_glb", fake_render)
     return ToolContext(workspace=tmp_ws, language="blender", track="static_object")
 
 

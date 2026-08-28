@@ -303,7 +303,7 @@ def test_read_cookbook_falls_back_to_contract(stool_ctx: ToolContext, monkeypatc
 
 def test_scene_tools_degrade_when_unavailable(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     import codeverse.spatial.tool_common as tc
-    import codeverse.spatial.tools_scene as ts
+    import codeverse.spatial.tools as ts
 
     def boom(module, attr):
         raise tc.ToolUnavailable(f"{module} not importable")
@@ -315,7 +315,7 @@ def test_scene_tools_degrade_when_unavailable(stool_ctx: ToolContext, monkeypatc
 
 
 def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.spatial.tools_scene as ts
+    import codeverse.spatial.tools as ts
 
     calls = {}
 

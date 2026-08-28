@@ -153,9 +153,9 @@ def test_tool_unavailable_is_reported_by_the_registry(stool_ctx: ToolContext, mo
 
     monkeypatch.setattr(tc, "lazy", boom)
     monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
-    monkeypatch.setattr("codeverse.spatial.tools_scene.lazy", boom)
-    monkeypatch.setattr("codeverse.spatial.tools_graphics.lazy", boom)
-    monkeypatch.setattr("codeverse.spatial.tools_texture.lazy", boom)
+    monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
+    monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
+    monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
     ws = stool_ctx.workspace
     (ws.artifacts / "object_textured.glb").write_bytes((ws.artifacts / "object.glb").read_bytes())
     for name in ("build", "render_views", "scene_probe", "texture_preview"):
