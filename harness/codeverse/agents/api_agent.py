@@ -35,6 +35,15 @@ log = logging.getLogger(__name__)
 
 BUILD_TOOL = "build"
 COMPACT_AT_CHARS = 350_000
+#: compact once the PROVIDER says the context is this big.  The char estimate above is
+#: what the harness can see (visible text + tool arguments); it misses the model's own
+#: thoughts, which are re-sent as context every turn.  Measured 2026-08-27 on one
+#: fancy_bl_windsor_chair assemble session: message_chars said 204 732 (threshold
+#: 350 000, never tripped) while the provider was actually reading 113 956 tokens —
+#: 2.2x more than the estimate.  The conversation grew ~1 650 tokens a turn for 60
+#: turns, 49 % of it file bodies the model had already written to disk, and every turn
+#: re-processed all of it.  input_tokens is ground truth, so trigger on that.
+COMPACT_AT_INPUT_TOKENS = 60_000
 MODEL_RETRIES = 3
 #: per-turn output envelope, and how far a TRUNCATED turn may grow it.  Measured
 #: 2026-08-27 (art_med_tool_chest, 3.6-flash): thinking escalated 13 -> 3 144 -> 15 359
@@ -248,9 +257,11 @@ class _Loop:
                     self.errors + [f"cost {self.usage.cost_usd:.3f} > max_usd {self.max_usd}"],
                 )
                 break
-            if message_chars(self.messages) > COMPACT_AT_CHARS:
+            seen = int(getattr(resp.usage, "input_tokens", 0) or 0)
+            if seen > COMPACT_AT_INPUT_TOKENS or message_chars(self.messages) > COMPACT_AT_CHARS:
                 self.messages = compact_messages(self.messages, keep_recent=6, facts=self._facts())
-                traj.append("compact", turn=turn, chars=message_chars(self.messages))
+                traj.append("compact", turn=turn, chars=message_chars(self.messages),
+                            input_tokens_seen=seen)
         else:
             self.errors.append(f"max_turns ({job.max_turns}) reached")
         return finish_session(
