@@ -586,6 +586,12 @@ def deliver_prompt(s: Session, prompt: str, *, max_bytes: int = MAX_ARGV_PROMPT_
 #: read at call time by :func:`invoke` so a test can monkeypatch it here.
 IDLE_GRACE_S = 300.0
 
+#: watchdog poll period.  A real vendor CLI runs for minutes, so 1 s of latency on
+#: noticing it exited is free — but a FAKE cli in a test exits in milliseconds and then
+#: waits out the poll, which was ~1 s on every agent.run() in the suite.  Same shape as
+#: IDLE_GRACE_S: read at call time so tests can turn it down (tests/agents/conftest.py).
+POLL_S = 1.0
+
 
 def invoke(
     s: Session,
@@ -632,7 +638,7 @@ def invoke(
     soft = float(s.job.timeout_s if soft_timeout_s is None else soft_timeout_s)
     proc = run_with_watchdog(
         argv, cwd=s.ws.root, env=env, soft_timeout_s=soft, hard_timeout_s=soft + 300.0,
-        idle_grace_s=IDLE_GRACE_S if idle_grace_s is None else idle_grace_s,
+        idle_grace_s=IDLE_GRACE_S if idle_grace_s is None else idle_grace_s, poll_s=POLL_S,
         on_line=on_line, stdin=stdin, activity_dirs=[s.ws.src, s.ws.public],
     )
     suffix = "" if attempt == 1 else f".{attempt}"

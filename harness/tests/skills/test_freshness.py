@@ -105,7 +105,10 @@ def _live_vocabulary() -> set[str]:
         if not root.is_dir():
             continue
         for p in root.rglob("*"):
-            if (not p.is_file() or p.suffix not in exts
+            # bench/out is live battery output — 5 781 of the 6 128 files this used to
+            # read, 35 MB of 39 MB, and it grows with every run.  The only thing wanted
+            # from it is battery NAMES, collected by iterdir() below.
+            if (not p.is_file() or p.suffix not in exts or "out" in p.parts
                     or "node_modules" in p.parts or "__pycache__" in p.parts
                     or p.parent.name.startswith("cv3d-") or "_claims" in p.parts
                     or p.parent.parent.name.startswith("cv3d-")):

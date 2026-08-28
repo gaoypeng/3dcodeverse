@@ -287,10 +287,20 @@ def test_429_on_every_key_waits_for_cooldown_then_counts_against_budget():
 def test_no_single_wait_exceeds_the_house_limit():
     """Every backoff path — 429 cooldown, provider retryDelay, 5xx, capacity
     storm — sleeps at most MAX_WAIT_S at a time (owner rule, 2026-08-24)."""
+    # the sleep must ADVANCE the clock, like the neighbour test's: with a recording
+    # sleep and the real monotonic clock the cooldown loop never gets past "still
+    # cooling" and busy-spins — it logged 1.9 M naps over 3 s of wall time, of which
+    # 4 were real waits, so `max(naps)` was sampling the spin, not the backoff.
+    clock = {"t": 1000.0}
     naps: list[float] = []
-    pool = KeyPool(["k1", "k2"], sleep=naps.append)
+
+    def nap(s: float) -> None:
+        naps.append(s)
+        clock["t"] += s
+
+    pool = KeyPool(["k1", "k2"], clock=lambda: clock["t"], sleep=nap)
     m, _log, _ = _keyed_model(["k1", "k2"], {k: THROTTLED for k in ("k1", "k2")}, pool=pool, max_attempts=3)
-    m._sleep = naps.append
+    m._sleep = nap
     with pytest.raises(ModelError):
         m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
     assert naps, "expected the throttled path to sleep at least once"

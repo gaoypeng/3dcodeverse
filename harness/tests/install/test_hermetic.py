@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import COLLECTED
+
 HARNESS = Path(__file__).resolve().parents[2]
 KEY_ENVS = ("GEMINI_API_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY")
 
@@ -29,17 +31,18 @@ CREDENTIAL_FREE = (
 )
 
 
-@pytest.mark.parametrize("nodeid", CREDENTIAL_FREE)
-def test_passes_with_no_api_keys_in_the_environment(nodeid: str, tmp_path: Path) -> None:
+def test_passes_with_no_api_keys_in_the_environment(tmp_path: Path) -> None:
+    """ONE subprocess for both node ids — it was parametrized, which paid the ~2 s
+    interpreter + import cost twice to prove one property about the same stripped env."""
     env = {k: v for k, v in os.environ.items() if k not in KEY_ENVS}
     env["HOME"] = str(tmp_path)  # no ~/.config/astra3d/gemini_keys.env either
     env["PYTHONPATH"] = str(HARNESS)
 
     # -n0: the suite's addopts turn xdist ON, and a nested run must not fork 24 more workers
-    r = subprocess.run([sys.executable, "-m", "pytest", nodeid, "-q", "-n0", "-p", "no:cacheprovider"],
+    r = subprocess.run([sys.executable, "-m", "pytest", *CREDENTIAL_FREE, "-q", "-n0", "-p", "no:cacheprovider"],
                        cwd=HARNESS, env=env, capture_output=True, text=True, timeout=300)
 
-    assert r.returncode == 0, f"{nodeid} needs credentials:\n{r.stdout[-3000:]}\n{r.stderr[-2000:]}"
+    assert r.returncode == 0, f"needs credentials:\n{r.stdout[-3000:]}\n{r.stderr[-2000:]}"
 
 
 # --------------------------------------------------------------------------- PORT-8
@@ -48,13 +51,23 @@ INSTALL = HARNESS / "docs" / "INSTALL.md"
 _COUNT = re.compile(r"(\d{3,6})\s+(?:passed|selected)|out of the (\d{3,6})")
 
 
+#: below this, the run was narrowed (one file, -k, a single directory) and cannot bound
+#: the suite.  The full offline suite is ~2 800.
+_FULL_RUN_FLOOR = 1000
+
+
 def _collected() -> int:
-    """How many tests the suite actually has (the ceiling for any quoted count)."""
-    r = subprocess.run([sys.executable, "-m", "pytest", "tests", "--collect-only", "-q", "-n0",
-                        "-p", "no:cacheprovider"], cwd=HARNESS, capture_output=True, text=True, timeout=300)
-    m = re.search(r"(\d+)\s*/\s*(\d+) tests collected", r.stdout) or re.search(r"(\d+) tests collected", r.stdout)
-    assert m, r.stdout[-2000:]
-    return int(m.group(m.lastindex))
+    """How many tests the suite has (the ceiling for any quoted count).
+
+    This used to spawn `pytest tests --collect-only` — 8-10 s to learn a number the
+    running process already knows.  tests/conftest.py stashes it at collection; under
+    xdist every worker collects the whole suite before running its share, so the count
+    is the full one wherever this lands.
+    """
+    n = COLLECTED.get("n", 0)
+    if n < _FULL_RUN_FLOOR:
+        pytest.skip(f"only {n} tests collected — a narrowed run cannot bound the suite")
+    return n
 
 
 @pytest.mark.parametrize("doc", [INSTALL], ids=["INSTALL.md"])

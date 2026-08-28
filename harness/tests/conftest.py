@@ -36,3 +36,15 @@ def assert_pid_gone(pid: int, *, group: bool = False, timeout_s: float = 10.0) -
             return
         time.sleep(0.05)
     raise AssertionError(f"{'process group' if group else 'pid'} {pid} survived the kill")
+
+
+#: how many tests this session collected.  tests/install/test_hermetic.py needs a
+#: ceiling for the counts docs/INSTALL.md quotes, and used to get it by spawning a
+#: nested `pytest tests --collect-only` — 8-10 s of the suite's wall clock to learn a
+#: number this process already knows.  Under xdist every worker collects the whole
+#: suite before running its share, so this is the full count in each of them.
+COLLECTED: dict[str, int] = {}
+
+
+def pytest_collection_modifyitems(session, config, items):  # noqa: ARG001
+    COLLECTED["n"] = len(items)

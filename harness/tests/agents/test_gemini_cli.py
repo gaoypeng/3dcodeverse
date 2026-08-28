@@ -50,6 +50,13 @@ def agent(fake_bin, monkeypatch):
     monkeypatch.setattr(s, "gemini_api_keys", ["k1", "k2"])
     monkeypatch.setattr(s, "cache_dir", Path(binary).parent / "cache")
     monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
+    # shared_pool caches per (keys, quota) for the life of the PROCESS, so an earlier
+    # test in this worker can leave k1 spent or cooling and the next invoke starts on
+    # k2 — which broke `keys == ["k1", "k2"]` once the suite went parallel and test
+    # grouping changed.  Every test here starts from a fresh pool.
+    from codeverse.models import gemini as gm
+    for sig in [x for x in list(gm._pools) if x and x[0] in ("k1", "only")]:  # noqa: SLF001
+        gm._pools.pop(sig, None)  # noqa: SLF001
     return GeminiCliAgent("gemini-3.7-flash", binary=binary)
 
 

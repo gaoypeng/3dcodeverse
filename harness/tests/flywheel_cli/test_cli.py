@@ -118,7 +118,13 @@ def test_lazy_import_message():
         C.lazy("codeverse.definitely_missing_module")
 
 
-def test_doctor_json(tmp_path: Path):
+def test_doctor_json(tmp_path: Path, monkeypatch):
+    # run_doctor shells out to gemini/agy/codex/claude/blender/node/git for version
+    # strings — 1.6 s for `gemini --version` alone, and what they answer depends on
+    # which binaries this particular box has.  The assertion below is about the JSON's
+    # SHAPE, so the probes' answers are irrelevant; their cost is not.
+    import codeverse.doctor as doc
+    monkeypatch.setattr(doc, "_ver", lambda *a, **k: (True, "stub 0.0"))
     r = runner.invoke(app, ["doctor", "--no-gpu", "--json"])
     assert r.exit_code in (0, 1), r.output
     rows = json.loads(r.output[r.output.index("["):])
