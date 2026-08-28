@@ -302,11 +302,19 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
         res.status, res.score, res.passed, res.build_ok = "no_code", 0.0, False, False
         res.error = f"PlanningError: {e}"
     except Exception as e:  # noqa: BLE001 — one cell must never kill the matrix
-        res.status = "infra_failed" if is_infra_failure(e) else "error"  # same rule as the no-code path
+        try:
+            infra = is_infra_failure(e)
+        except Exception as classify_error:  # noqa: BLE001 — a classifier bug is not a reason to lose the cell
+            infra = False
+            res.error = (res.error + "; " if res.error else "") + f"[classifier failed: {type(classify_error).__name__}] "
+        res.status = "infra_failed" if infra else "error"  # same rule as the no-code path
         res.error = (res.error + "; " if res.error else "") + f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1200:]}"
     res.wall_s = round(time.time() - t0, 1)
-    flag_degraded(res, opts)
-    eval_ws.write_json(cell / "cell.json", res)
+    try:
+        flag_degraded(res, opts)
+        eval_ws.write_json(cell / "cell.json", res)
+    except Exception as e:  # noqa: BLE001 — the row is the record of last resort
+        res.error = (res.error + "; " if res.error else "") + f"[cell.json not written: {type(e).__name__}: {e}]"
     return res
 
 
@@ -423,7 +431,12 @@ def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm
     with ThreadPoolExecutor(max_workers=max(1, opts.parallel)) as pool, results.open("a") as fh:
         futs = {pool.submit(run_cell, battery, p, a, out, opts, deps): (p, a) for p, a in todo}
         for fut in as_completed(futs):
-            r = fut.result()
+            try:
+                r = fut.result()
+            except Exception as e:  # noqa: BLE001 — run_cell must not raise; if it does, record the cell, keep the matrix
+                p, a = futs[fut]
+                r = CellResult(prompt_id=p.id, tier=p.tier, arm=a.raw, kind=a.kind, target=a.target, judge=opts.judge,
+                               status="error", error=f"run_cell raised {type(e).__name__}: {e}"[:800])
             done[(r.prompt_id, r.arm)] = r
             fh.write(r.model_dump_json() + "\n")
             fh.flush()
