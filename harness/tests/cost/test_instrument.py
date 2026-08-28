@@ -411,6 +411,9 @@ def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
         def __init__(self, key: str):
             self.key, self.models = key, self
 
+        def generate_content_stream(self, **kw):
+            yield self.generate_content(**kw)
+
         def generate_content(self, *, model, contents, config):
             if self.key == "k1":
                 raise ModelError("503 high demand", retryable=True, status=503)

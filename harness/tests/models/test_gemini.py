@@ -85,6 +85,9 @@ class FakeModels:
             raise item
         return item
 
+    def generate_content_stream(self, *, model: str, contents, config):
+        yield self.generate_content(model=model, contents=contents, config=config)
+
 
 class FakeClient:
     def __init__(self, script, key, log):
@@ -218,6 +221,9 @@ class _KeyedClient:
         if self.key in self.fail:
             raise self.fail[self.key]
         return text_response(f"ok from {self.key}")
+
+    def generate_content_stream(self, *, model: str, contents, config):
+        yield self.generate_content(model=model, contents=contents, config=config)
 
 
 def _keyed_model(
@@ -628,3 +634,60 @@ def test_max_output_tokens_eaten_by_thinking_carries_the_thought_tokens():
     assert "exhausted by thinking" in str(e.value)
     assert e.value.usage.thoughts_tokens == 8000 and e.value.usage.cost_usd > 0
 
+
+
+# --------------------------------------------------------------------- streaming
+def test_merge_stream_chunks_reassembles_the_reply():
+    from codeverse.models.gemini import _merge_stream_chunks, extract_candidate
+
+    c1 = types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(role="model", parts=[types.Part.from_text(text="hel")]))])
+    c2 = types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(role="model", parts=[types.Part.from_text(text="lo")]),
+                                    finish_reason="STOP")],
+        usage_metadata=types.GenerateContentResponseUsageMetadata(prompt_token_count=5, candidates_token_count=2))
+    merged = _merge_stream_chunks([c1, c2])
+    text, calls, finish = extract_candidate(merged)
+    assert (text, calls, finish) == ("hello", [], "STOP")
+    assert merged.usage_metadata.prompt_token_count == 5
+
+
+def test_merge_stream_chunks_empty_stream_is_retryable():
+    from codeverse.models.gemini import _merge_stream_chunks
+
+    with pytest.raises(ModelError) as e:
+        _merge_stream_chunks([])
+    assert e.value.retryable
+
+
+def test_drain_stream_cuts_a_stream_past_its_attempt_budget():
+    """The wire timeout under streaming bounds only inter-chunk silence, so a
+    healthy-but-endless stream must be cut by the attempt deadline instead."""
+    from codeverse.models.gemini import _drain_stream
+
+    ticks = iter([1.0, 10.0, 20.0])
+    chunk = types.GenerateContentResponse(candidates=[])
+    with pytest.raises(ModelError) as e:
+        _drain_stream(iter([chunk, chunk, chunk]), deadline=5.0, clock=lambda: next(ticks))
+    assert e.value.retryable and "attempt budget" in str(e.value)
+
+
+def test_streaming_toggle(monkeypatch):
+    from codeverse.models.gemini import _streaming_enabled
+
+    monkeypatch.delenv("CV3D_STREAM", raising=False)
+    assert _streaming_enabled()
+    monkeypatch.setenv("CV3D_STREAM", "0")
+    assert not _streaming_enabled()
+
+
+def test_ipv4_transport_toggle(monkeypatch):
+    import httpx
+
+    from codeverse.models.gemini import _ipv4_client_args
+
+    monkeypatch.delenv("CV3D_IPV4", raising=False)
+    args = _ipv4_client_args()
+    assert isinstance(args["transport"], httpx.HTTPTransport)
+    monkeypatch.setenv("CV3D_IPV4", "0")
+    assert _ipv4_client_args() == {}

@@ -9,10 +9,11 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
 import re
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -297,6 +298,17 @@ _RETRY_DELAY_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
 #: when that ceiling was 300 s).
 HTTP_TIMEOUT_FLOOR_S = 20.0
 
+#: ceiling of the per-READ (inter-chunk) HTTP timeout under streaming.  Five runs
+#: died tonight (drill/vise/clamp x2, one plan hang) because a hung NON-streaming
+#: read holds the socket for the whole attempt budget — up to model_timeout_s
+#: (1200 s) — and the timeout is then terminal.  Streaming separates the two
+#: cases: a hung socket delivers no chunk and dies within this ceiling with the
+#: rest of the retry budget intact, while a legitimate 930 s plan streams tokens
+#: continuously (145 tok/s p50, audit 2026-08-27) and is bounded only by its
+#: attempt budget.  Generous vs the longest silent prefix we allow for thinking
+#: before the first chunk.  ``CV3D_STREAM=0`` restores the buffered call.
+STREAM_STALL_S = 300.0
+
 _pools: dict[tuple[str, ...], KeyPool] = {}
 _clients: dict[tuple[str, int], genai.Client] = {}
 _registry_lock = threading.Lock()
@@ -412,6 +424,78 @@ def _retry_after_s(exc: BaseException) -> float | None:
     return min(float(m.group(1)), 120.0) if m else None
 
 
+def _ipv4_client_args() -> dict[str, Any]:
+    """Bind the sync transport to IPv4.  Every one of tonight's five hung reads sat
+    on an IPv6 destination (2001:4860::/32) with the response headers never arriving
+    — the WSL2 IPv6 path drops these silently and a buffered read then holds the
+    socket for the whole attempt budget.  ``CV3D_IPV4=0`` restores the default
+    (dual-stack) resolution."""
+    if os.environ.get("CV3D_IPV4", "1") == "0":
+        return {}
+    return {"transport": httpx.HTTPTransport(local_address="0.0.0.0")}
+
+
+def _streaming_enabled() -> bool:
+    return os.environ.get("CV3D_STREAM", "1") != "0"
+
+
+def _drain_stream(
+    it: Iterable[types.GenerateContentResponse],
+    deadline: float,
+    clock: Callable[[], float] = time.monotonic,
+) -> list[types.GenerateContentResponse]:
+    """Collect every chunk, enforcing the ATTEMPT budget between chunks.  The wire
+    timeout under streaming only bounds the silence BETWEEN chunks (httpx applies
+    the read timeout per network read), so a healthy-but-endless stream is cut
+    here instead.  Tokens generated before the cut were billed but cannot be
+    counted: usage_metadata only arrives on the final chunk."""
+    chunks: list[types.GenerateContentResponse] = []
+    for ch in it:
+        chunks.append(ch)
+        if clock() > deadline:
+            raise ModelError(
+                f"Gemini stream exceeded its attempt budget after {len(chunks)} chunks",
+                retryable=True,
+            )
+    return chunks
+
+
+def _merge_stream_chunks(
+    chunks: list[types.GenerateContentResponse],
+) -> types.GenerateContentResponse:
+    """One response out of a chunk sequence: parts concatenate in arrival order;
+    finish_reason, usage_metadata and prompt_feedback come from the last chunk
+    that carries each (usage is cumulative and final-chunk-only on this API)."""
+    if not chunks:
+        raise ModelError("Gemini stream yielded no chunks", retryable=True)
+    parts: list[types.Part] = []
+    finish = None
+    usage_md = None
+    feedback = None
+    base = None
+    for ch in chunks:
+        if ch.usage_metadata is not None:
+            usage_md = ch.usage_metadata
+        if ch.prompt_feedback is not None and ch.prompt_feedback.block_reason:
+            feedback = ch.prompt_feedback
+        if ch.candidates:
+            base = ch
+            cand = ch.candidates[0]
+            if cand.content and cand.content.parts:
+                parts.extend(cand.content.parts)
+            if cand.finish_reason is not None:
+                finish = cand.finish_reason
+    if base is None:  # no chunk carried a candidate: let extract_candidate raise its way
+        base = chunks[-1]
+    else:
+        base.candidates[0].content = types.Content(role="model", parts=parts)
+        base.candidates[0].finish_reason = finish
+    base.usage_metadata = usage_md
+    if feedback is not None:
+        base.prompt_feedback = feedback
+    return base
+
+
 class GeminiModel:
     """ChatModel for ``gemini:<model>``.  See module docstring."""
 
@@ -477,7 +561,8 @@ class GeminiModel:
         with _registry_lock:
             client = _clients.get(ck)
             if client is None:
-                client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=ck[1]))
+                client = genai.Client(api_key=key, http_options=types.HttpOptions(
+                    timeout=ck[1], client_args=_ipv4_client_args() or None))
                 _clients[ck] = client
             return client
 
@@ -597,10 +682,28 @@ class GeminiModel:
         warnings: list[str],
     ) -> ChatResponse:
         client = self._client(key)
-        with Stopwatch() as sw:
-            resp = client.models.generate_content(
-                model=self.model, contents=contents, config=config
-            )
+        if not _streaming_enabled():
+            with Stopwatch() as sw:
+                resp = client.models.generate_content(
+                    model=self.model, contents=contents, config=config
+                )
+        else:
+            # the attempt budget (what _attempt_config put on the wire for the
+            # buffered call) becomes an in-loop deadline; the wire timeout drops
+            # to the stall ceiling, which under streaming bounds only the gap
+            # between chunks.  A hung socket now costs <=STREAM_STALL_S of the
+            # retry budget instead of all of it.
+            cfg_ms = config.http_options.timeout if config.http_options is not None else None
+            attempt_s = (float(cfg_ms) / 1000.0) if cfg_ms else self.timeout_s
+            wire = clip_timeout(config, int(min(attempt_s, STREAM_STALL_S) * 1000))
+            with Stopwatch() as sw:
+                chunks = _drain_stream(
+                    client.models.generate_content_stream(
+                        model=self.model, contents=contents, config=wire
+                    ),
+                    time.monotonic() + attempt_s,
+                )
+            resp = _merge_stream_chunks(chunks)
         usage = parse_usage(resp, self.model)  # BEFORE extract_candidate: its raises carry it
         usage.latency_ms = sw.ms
         usage.cost_usd = estimate_cost("gemini", self.model, usage)

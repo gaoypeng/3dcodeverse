@@ -76,6 +76,11 @@ LIVE_SWITCHES: dict[str, str] = {
     # switch, read at call time by config.fewer_turns_enabled; acts after planning.
     "CV3D_FEWER_TURNS": "codeverse/config.py",
     "CV3D_SEED_RECIPES": "codeverse/config.py",
+    # model-transport switches (2026-08-28, the hung-read waves): streaming with
+    # inter-chunk stall detection, and the IPv4-only transport.  Read at call time
+    # by every gemini request, so a control arm can set either to 0.
+    "CV3D_STREAM": "codeverse/models/gemini.py",
+    "CV3D_IPV4": "codeverse/models/gemini.py",
 }
 
 #: Switches that are DECLARED but read by no code path, with the reason.  An A/B arm that
