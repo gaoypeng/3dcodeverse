@@ -10,14 +10,13 @@
 
 from __future__ import annotations
 
-from codeverse.contracts.artifacts import BuildResult, Measurement, PartMeasure
+from codeverse.contracts.artifacts import BuildResult, Judgment, Measurement, PartMeasure
 from codeverse.contracts.chat import ChatResponse
 from codeverse.contracts.common import Language, Track, Usage
-from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse.contracts.run import RoundRecord
-from codeverse.events import EventLog
 from codeverse.orchestrator import RefineTask, RunState, TaskGroup
+from codeverse.proc import EventLog
 from codeverse.tracks.generation import (
     GenerationResult,
     GenerationTask,

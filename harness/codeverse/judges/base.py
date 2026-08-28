@@ -6,8 +6,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
-from codeverse.contracts.artifacts import GateReport, Measurement, RenderSet
-from codeverse.contracts.judgment import Judgment
+from codeverse.contracts.artifacts import GateReport, Judgment, Measurement, RenderSet
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.spec import Spec
 from codeverse.workspace import Workspace

@@ -2,9 +2,16 @@ from pathlib import Path
 
 from PIL import Image
 
-from codeverse.contracts.artifacts import GateFinding, GateReport, RenderSet, RenderView, Severity
+from codeverse.contracts.artifacts import (
+    GateFinding,
+    GateReport,
+    ImprovementItem,
+    Judgment,
+    RenderSet,
+    RenderView,
+    Severity,
+)
 from codeverse.contracts.chat import ImagePart, TextPart
-from codeverse.contracts.judgment import ImprovementItem, Judgment
 from codeverse.judges.prompt_builder import (
     TEXT_BUDGET_CHARS,
     build_judge_messages,

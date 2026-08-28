@@ -300,7 +300,7 @@ def _ground_in_reference(spec: Spec, ws, *, n_views: int) -> Spec:
     """
     from codeverse.cost import Role, Stage, call_context
     from codeverse.cost.instrument import run_ledger
-    from codeverse.events import EventLog
+    from codeverse.proc import EventLog
     from codeverse.reference import ground_spec
 
     events = EventLog(ws.events_path)
@@ -452,7 +452,7 @@ def resume(
                 f"(that re-plans, re-scores and overwrites the final state)."
             )
         if raised:
-            from codeverse.events import EventLog
+            from codeverse.proc import EventLog
 
             spec = spec.model_copy(update={"budget": spec.budget.model_copy(update=raised)})
             ws.write_json(ws.spec_path, spec)

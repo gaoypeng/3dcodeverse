@@ -15,12 +15,13 @@ from codeverse.contracts.artifacts import (
     BuildResult,
     GateFinding,
     GateReport,
+    ImprovementItem,
+    Judgment,
     Measurement,
     PartMeasure,
     Severity,
 )
 from codeverse.contracts.common import Language
-from codeverse.contracts.judgment import ImprovementItem, Judgment
 from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import MAX_TRIS_OBJECT, to_snake
@@ -239,8 +240,8 @@ def big_plan(n: int = 11) -> StaticPlan:
 
 
 def _ctx(tmp_path, plan, settings, *, language=Language.THREEJS, agent_id="fake-agent:m"):
-    from codeverse.events import EventLog
     from codeverse.orchestrator import RunState
+    from codeverse.proc import EventLog
     from codeverse.tracks.static_object import StaticObjectTrack
     from codeverse.workspace import Workspace
 

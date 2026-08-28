@@ -16,6 +16,9 @@ from codeverse.contracts.artifacts import (
     BuildResult,
     GateFinding,
     GateReport,
+    ImprovementItem,
+    JudgeIssue,
+    Judgment,
     Measurement,
     PartMeasure,
     RenderSet,
@@ -46,7 +49,6 @@ from codeverse.contracts.common import (
     Vec3,
     code_file,
 )
-from codeverse.contracts.judgment import ImprovementItem, JudgeIssue, Judgment
 from codeverse.contracts.plan import (
     AcceptanceItem,
     ArticulatedPlan,

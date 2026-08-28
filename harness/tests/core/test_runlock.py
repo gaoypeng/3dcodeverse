@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.runlock import (
+from codeverse.proc import (
     LOCKS_DIR,
     RunLocked,
     exclusive,
@@ -25,7 +25,7 @@ def _child_script(run_root: Path, ready: Path, go: Path) -> str:
     return (
         "import sys, time, pathlib\n"
         f"sys.path.insert(0, {str(HARNESS_ROOT)!r})\n"
-        "from codeverse.runlock import exclusive, RunLocked\n"
+        "from codeverse.proc import exclusive, RunLocked\n"
         f"root, ready, go = pathlib.Path({str(run_root)!r}), pathlib.Path({str(ready)!r}), pathlib.Path({str(go)!r})\n"
         "try:\n"
         "    with exclusive(root, what='child'):\n"
@@ -131,7 +131,7 @@ def test_a_failed_record_write_leaks_nothing(tmp_path: Path, monkeypatch):
     it — every process was refused for the lifetime of this one, by a message naming an
     empty holder.
     """
-    import codeverse.runlock as R
+    import codeverse.proc as R
 
     run_root = tmp_path / "runs" / "slug"
     run_root.mkdir(parents=True)

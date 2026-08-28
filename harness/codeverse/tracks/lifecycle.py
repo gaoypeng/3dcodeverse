@@ -25,7 +25,6 @@ from codeverse.contracts.common import Track, Usage
 from codeverse.contracts.plan import Plan
 from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse.contracts.spec import Spec
-from codeverse.events import EventLog
 from codeverse.orchestrator import (
     BestSelector,
     BudgetExceeded,
@@ -45,6 +44,7 @@ from codeverse.orchestrator import (
     kind_for_strategy,
     plan_refine_groups,
 )
+from codeverse.proc import EventLog
 from codeverse.prompts import render
 from codeverse.tracks.candidates import choose_best_round, run_best_of_n
 from codeverse.tracks.common import (

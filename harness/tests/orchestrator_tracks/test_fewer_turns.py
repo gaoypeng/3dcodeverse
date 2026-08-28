@@ -20,8 +20,8 @@ LEG = "import bpy\n\n\ndef build_leg():\n    return bpy.context.object  # LEG-BO
 
 
 def _ctx(tmp_path, plan, settings, *, language=Language.BLENDER, agent_id="fake-agent:m"):
-    from codeverse.events import EventLog
     from codeverse.orchestrator import RunState
+    from codeverse.proc import EventLog
     from codeverse.tracks.static_object import StaticObjectTrack
     from codeverse.workspace import Workspace
 

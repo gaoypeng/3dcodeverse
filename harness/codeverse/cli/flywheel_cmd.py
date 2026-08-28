@@ -91,7 +91,7 @@ def caption_cmd(
     from codeverse.flywheel.captions import CaptionError, caption_sample
     from codeverse.flywheel.export import load_captions
     from codeverse.flywheel.record import iter_runs, load_record
-    from codeverse.runlock import RunLocked, exclusive
+    from codeverse.proc import RunLocked, exclusive
 
     if all_runs:
         targets = [(fr.ws, fr.record, fr.run_id.slug)

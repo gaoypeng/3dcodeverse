@@ -23,7 +23,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from codeverse.flywheel.record import RecordError, load_record, package_run
-from codeverse.runlock import RunLocked, exclusive
+from codeverse.proc import RunLocked, exclusive
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)

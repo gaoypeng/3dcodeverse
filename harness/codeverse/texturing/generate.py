@@ -28,9 +28,8 @@ from PIL import Image
 from pydantic import BaseModel, Field
 
 from codeverse.config import get_settings
-from codeverse.contracts.artifacts import Measurement, RenderSet
+from codeverse.contracts.artifacts import Judgment, Measurement, RenderSet
 from codeverse.contracts.common import Usage
-from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem, StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset

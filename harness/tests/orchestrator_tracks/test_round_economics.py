@@ -19,11 +19,9 @@ import json
 import pytest
 
 from codeverse.contracts.agent import AgentJob, AgentResult
-from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
+from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Judgment, Severity
 from codeverse.contracts.common import Language, Usage
-from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.run import RoundRecord, RunStatus
-from codeverse.events import EventLog
 from codeverse.orchestrator import (
     DEFAULT_JUDGE_SIGMA,
     REWRITE_KIND,
@@ -33,6 +31,7 @@ from codeverse.orchestrator import (
     judge_sigma,
     last_gain,
 )
+from codeverse.proc import EventLog
 from codeverse.tracks.generation import (
     DEFAULT_AGENT_MAX_TURNS,
     GenerationTask,
@@ -516,7 +515,7 @@ def test_fan_out_workers_inherit_the_callers_context():
     default just because it ran on a pool thread."""
     import contextvars
 
-    from codeverse.fanout import fan_out
+    from codeverse.proc import fan_out
 
     var: contextvars.ContextVar[str] = contextvars.ContextVar("attr", default="process-default")
     var.set("run-42")

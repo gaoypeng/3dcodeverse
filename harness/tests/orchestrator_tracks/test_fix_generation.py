@@ -5,7 +5,7 @@ from __future__ import annotations
 from codeverse.contracts.agent import AgentResult
 from codeverse.contracts.chat import ChatResponse
 from codeverse.contracts.common import Usage
-from codeverse.events import EventLog
+from codeverse.proc import EventLog
 from codeverse.tracks.generation import (
     GenerationTask,
     generate_files,

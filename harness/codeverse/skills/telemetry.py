@@ -38,7 +38,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from codeverse.contracts.skills import SkillRead, SkillsUsage
+from codeverse.contracts.run import SkillRead, SkillsUsage
 from codeverse.skills.model import SkillsMaterialized
 from codeverse.skills.prompting import AGENTS_SKILL_ROOT, CLAUDE_SKILL_ROOT
 

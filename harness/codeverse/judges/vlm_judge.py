@@ -4,7 +4,7 @@ Per sample: one ``ChatRequest`` with a per-rubric JSON schema (criteria scored
 0..1 with evidence, the rubric's binary defect checklist, issues, improvement
 plan, acceptance verdicts); samples differ by montage/tile order (shuffle seed)
 so n-sample mean/std measures judge noise.  With ``n_samples > 1`` the model
-calls run in parallel (``codeverse.fanout``); results accumulate in sample order.  Score/defect penalties/floors/caps
+calls run in parallel (``codeverse.proc``); results accumulate in sample order.  Score/defect penalties/floors/caps
 /pass are computed in code (``scoring.py``).  Images are ≤2×2 montages
 (``montage.py``); tracks may pass a clay/normals ``geometry_views`` RenderSet.  Retries: up to
 ``max_attempts`` per sample on ``ModelError`` / parse failure, all of them inside one
@@ -27,11 +27,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from codeverse.config import get_settings
-from codeverse.contracts.artifacts import RenderSet, RenderView
+from codeverse.contracts.artifacts import Judgment, RenderSet, RenderView
 from codeverse.contracts.chat import ChatRequest, ChatResponse
 from codeverse.contracts.common import Usage
-from codeverse.contracts.judgment import Judgment
-from codeverse.fanout import fan_out
 from codeverse.judges.base import JudgeInput
 from codeverse.judges.prompt_builder import build_judge_messages, judge_prompt_hash
 from codeverse.judges.rubrics import (
@@ -45,6 +43,7 @@ from codeverse.judges.rubrics import (
     wire_schema,
 )
 from codeverse.models.base import ChatModel, ModelError
+from codeverse.proc import fan_out
 
 log = logging.getLogger(__name__)
 

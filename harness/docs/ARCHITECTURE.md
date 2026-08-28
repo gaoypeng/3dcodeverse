@@ -74,14 +74,10 @@ codeverse/
                       default_candidates=1)
   contracts/          pydantic: common (Track, Language, Usage, Budget, Backends, TRACK_INFO registry,
                       ENTRY_FILE/code_file/LANGUAGE_LABEL tables), spec (+ RunOptions), plan, artifacts
-                      (GateFinding.as_line, RenderView.judge, RenderSet.out_dir), judgment, run, chat,
-                      agent (typed AgentJob + ApiAgentOptions), skills.py (SkillsUsage/SkillRead on
-                      RoundRecord: what was attached, what was read)
-  workspace.py        run-dir layout + git snapshots ;  events.py  JSONL event log
-  runlock.py          ONE writer per run dir: an fcntl.flock on <runs>/.locks/<slug>.lock
-                      (outside the dir a --force wipe deletes; released by the kernel if
-                      the holder dies) taken at every mutation boundary; its record NAMES
-                      the holder (`holder_of`, printed by `3dcv status`) so a human can kill that pid
+                      (GateFinding.as_line, RenderView.judge, RenderSet.out_dir, + Judgment), run
+                      (+ SkillsUsage/SkillRead: what was attached, what was read), chat,
+                      agent (typed AgentJob)
+  workspace.py        run-dir layout + git snapshots
   proc.py             stdlib-only subprocess + atomic-JSON primitives (ManagedProcess owns every
                       child's lifecycle: group kill on ANY exception, bounded pumps, stdin writer;
                       run_subprocess, kill_group, tail, write_json_atomic, scrub_secrets) and the tolerant readers/writer
@@ -89,10 +85,12 @@ codeverse/
                       shared by languages/spatial/cli/cost/flywheel/gallery/bench.  RULE: any
                       stdlib-only file / JSON / JSONL helper lives HERE; grep proc.py before writing a
                       try/except read (the 2026-08-26 review found the same tolerant read written
-                      eight times because this module had not grown it), and keep it under ~250
-                      lines so it stays a leaf
-  fanout.py           bounded parallel fan-out (fan_out, split_results, FanOutReport) — shared by
-                      tracks/judges/texturing/bench
+                      eight times because this module had not grown it).  Also home, since
+                      2026-08-28, to the JSONL event log (Events), the run lock (ONE writer per
+                      run dir: an fcntl.flock at <runs>/.locks/<slug>.lock whose record NAMES the
+                      holder, printed by `3dcv status`) and the bounded parallel fan-out
+                      (fan_out, split_results, FanOutReport) — still a leaf: imports nothing
+                      from codeverse
   models/             ChatModel (base.py), parts.py; gemini.py (the whole Gemini stack:
                       request/response shapes, dead-key + free 429 rotation, the image model);
                       anthropic.py openai.py (each with its own request/response shapes);

@@ -14,6 +14,8 @@ callers; it will become a re-export of this module.
 from __future__ import annotations
 
 import contextlib
+import contextvars
+import fcntl
 import json
 import logging
 import os
@@ -22,10 +24,12 @@ import subprocess
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, TypeVar
 
 
 @dataclass(frozen=True)
@@ -504,3 +508,247 @@ def append_jsonl_line(path: Path | str, rec: Any, lock: threading.Lock) -> None:
     line = json.dumps(rec, ensure_ascii=False, default=str)
     with lock, Path(path).open("a", encoding="utf-8") as fh:
         fh.write(line + "\n")
+
+
+# ===================================================================== events
+# (merged from codeverse/events.py, 2026-08-28 — same stdlib-leaf layer as proc)
+log = logging.getLogger(__name__)
+
+
+class EventLog:
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self._lock = threading.Lock()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def emit(self, event: str, **data: Any) -> None:
+        """Append one event.  ``event`` is the event name (e.g. ``round.start``);
+        ``data`` may use any keys, including ``kind``."""
+        append_jsonl_line(self.path, {"t": round(time.time(), 3), "event": event, **data}, self._lock)
+
+    def read(self) -> list[dict[str, Any]]:
+        """Read the log, skipping unparseable lines with a debug log.
+
+        ``emit`` appends one buffered ``write``, so a SIGKILL / OOM kill / reboot
+        leaves a partial trailing line — and a killed run is exactly when someone
+        types ``3dcv status``.  A truncated last line must never lose the rest of
+        the file (same contract as ``cost.ledger.load_ledger``)."""
+        return read_jsonl_lenient(self.path, log=log)
+
+
+# ===================================================================== runlock
+# (merged from codeverse/runlock.py, 2026-08-28 — same stdlib-leaf layer as proc)
+#: directory (beside the run dirs, never inside one) holding the flock files
+LOCKS_DIR = ".locks"
+
+
+class RunLocked(RuntimeError):
+    """Another live holder — process or thread — is already running this run."""
+
+
+def _held_message(run_root: Path | str, held: dict, *, action: str) -> str:
+    started = time.strftime("%H:%M:%S", time.localtime(held.get("started", 0)))
+    name = Path(run_root).name
+    return (
+        f"refusing to {action} run {name}: it is being run right now by pid {held.get('pid', '?')} "
+        f"(started {started}: {held.get('what') or '3dcv'}).  Two processes on one run "
+        f"corrupt each other's state.  Look at it with `3dcv status {name}`, or stop that "
+        f"ONE process with `kill {held.get('pid', '?')}` — never `pkill -f 3dcv`, which kills every "
+        f"other run on this machine too."
+    )
+
+
+def flock_path(run_root: Path | str) -> Path:
+    """The flock file for this run: ``<runs>/.locks/<slug>.lock``."""
+    root = Path(run_root).resolve()
+    return root.parent / LOCKS_DIR / f"{root.name}.lock"
+
+
+_HELD: dict[str, list] = {}  # flock path -> [fd, owning thread ident] held by THIS process
+_HELD_GUARD = threading.Lock()
+
+
+def _record_of(fd: int) -> dict | None:
+    try:
+        os.lseek(fd, 0, os.SEEK_SET)
+        raw = os.read(fd, 4096).decode("utf-8", "replace").strip()
+        rec = json.loads(raw) if raw else None
+    except (OSError, ValueError):
+        return None
+    return rec if isinstance(rec, dict) else None
+
+
+def _write_record(fd: int, rec: dict) -> None:
+    os.ftruncate(fd, 0)
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.write(fd, json.dumps(rec).encode())
+    os.fsync(fd)
+
+
+def holder_of(run_root: Path | str) -> dict | None:
+    """The ``{pid, started, what}`` of whoever holds this run — without taking it.
+
+    ``None`` when nobody does, including after a SIGKILL: the kernel dropped the flock but
+    the record is still in the file, so a probe (shared, non-blocking, released at once)
+    tells the difference and ``3dcv status`` never names a pid that is already gone."""
+    try:
+        fd = os.open(flock_path(run_root), os.O_RDONLY)
+    except OSError:
+        return None
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except OSError:
+            return _record_of(fd)  # refused: somebody is holding it right now
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return None
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def exclusive(run_root: Path | str, *, what: str = "", action: str = "enter") -> Iterator[None]:
+    """THE mutex for one run: hold it around every mutation of the run directory.
+
+    Raises :class:`RunLocked`, naming the holder, when anyone else has it — another
+    process, or another THREAD of this one (the bench drivers run runs in a pool).  Only
+    the SAME thread re-enters, so the CLI can take it at the mutation boundary and the
+    code under it can take it again."""
+    key, me = str(flock_path(run_root)), threading.get_ident()
+    with _HELD_GUARD:
+        entry = _HELD.get(key)
+    if entry is not None:
+        if entry[1] != me:
+            raise RunLocked(_held_message(run_root, holder_of(run_root) or {}, action=action))
+        yield  # the SAME thread re-entering: the outermost `with` owns the release
+        return
+    path = Path(key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        held = _record_of(fd) or {}
+        os.close(fd)
+        raise RunLocked(_held_message(run_root, held, action=action)) from None
+    except BaseException:
+        os.close(fd)
+        raise
+    try:  # inside the try that owns the fd: a failed write must not leak an unreleasable lock
+        _write_record(fd, {"pid": os.getpid(), "started": time.time(), "what": what})
+        with _HELD_GUARD:
+            _HELD[key] = [fd, me]
+        yield
+    finally:
+        with _HELD_GUARD:
+            _HELD.pop(key, None)
+        try:
+            os.ftruncate(fd, 0)  # the file stays (unlinking it races a waiter's open)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+
+
+# ===================================================================== fanout
+# (merged from codeverse/fanout.py, 2026-08-28 — same stdlib-leaf layer as proc)
+log = logging.getLogger(__name__)
+
+T = TypeVar("T")
+R = TypeVar("R")
+
+
+@dataclass
+class FanOutReport:
+    """Timing/outcome per item, for events and logs."""
+
+    label: str
+    n_items: int
+    n_ok: int
+    n_failed: int
+    durations_s: list[float] = field(default_factory=list)
+    total_s: float = 0.0
+
+
+def _in_caller_context(snapshot: contextvars.Context, fn: Callable[[int], None], i: int) -> None:
+    """Run ``fn(i)`` with the values the caller's context held at fan-out time.
+
+    ``Context.run`` cannot be re-entered from several threads, so each worker
+    replays the snapshot's variables into its own (already fresh) context.
+    """
+    for var, value in snapshot.items():
+        var.set(value)
+    fn(i)
+
+
+def fan_out[T, R](
+    items: Sequence[T] | Iterable[T],
+    fn: Callable[[T], R],
+    max_workers: int = 8,
+    *,
+    label: str = "fanout",
+    item_name: Callable[[T], str] | None = None,
+    on_done: Callable[[int, T, R | Exception, float], None] | None = None,
+) -> list[R | Exception]:
+    """Run ``fn`` over ``items`` in a thread pool; return results in input order.
+
+    Each result is the return value or the raised ``Exception``.  ``on_done``
+    (if given) is called from the worker thread with ``(index, item, result,
+    seconds)`` — keep it cheap and thread-safe (e.g. an EventLog.emit).
+
+    ``max_workers`` is a *fallback*: every caller in the harness states its own,
+    sized from the measured ceilings in ``docs/COST.md`` Part III
+    (``Settings.limits`` for the subprocess side, ``Settings.rate.max_in_flight``
+    for model calls).  8 is the largest width that is inside both knees.
+    """
+    items = list(items)
+    # Workers inherit the caller's context so ambient state set with contextvars
+    # (the cost ledger's run/stage/role attribution) follows a parallel judge
+    # sample, best-of-N candidate or bench cell instead of falling back to the
+    # process default.
+    ctx_snapshot = contextvars.copy_context()
+    results: list[R | Exception] = [None] * len(items)  # type: ignore[list-item]
+    if not items:
+        return results
+    workers = max(1, min(max_workers, len(items)))
+    t_all = time.time()
+    durations = [0.0] * len(items)
+
+    def _run(i: int) -> None:
+        item = items[i]
+        name = item_name(item) if item_name else str(i)
+        t0 = time.time()
+        try:
+            out: R | Exception = fn(item)
+        except Exception as e:  # noqa: BLE001 — captured per item by design
+            out = e
+            log.warning("%s[%s] failed: %s: %s", label, name, type(e).__name__, e)
+        dt = time.time() - t0
+        durations[i] = dt
+        results[i] = out
+        log.info("%s[%s] done in %.1fs (%s)", label, name, dt, "error" if isinstance(out, Exception) else "ok")
+        if on_done is not None:
+            on_done(i, item, out, dt)
+
+    if workers == 1:
+        for i in range(len(items)):
+            _run(i)
+    else:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix=label) as pool:
+            list(pool.map(lambda i: contextvars.copy_context().run(_in_caller_context, ctx_snapshot, _run, i),
+                          range(len(items))))
+
+    n_failed = sum(1 for r in results if isinstance(r, Exception))
+    report = FanOutReport(label, len(items), len(items) - n_failed, n_failed, durations, time.time() - t_all)
+    log.info("%s: %d/%d ok in %.1fs", label, report.n_ok, report.n_items, report.total_s)
+    return results
+
+
+def split_results[R](results: Sequence[R | Exception]) -> tuple[list[R], list[Exception]]:
+    """Separate successes from failures (order preserved within each list)."""
+    ok: list[R] = []
+    bad: list[Exception] = []
+    for r in results:
+        (bad if isinstance(r, Exception) else ok).append(r)  # type: ignore[arg-type]
+    return ok, bad

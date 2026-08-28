@@ -14,12 +14,14 @@ from codeverse.contracts.artifacts import (
     BuildResult,
     GateFinding,
     GateReport,
+    ImprovementItem,
+    JudgeIssue,
+    Judgment,
     RenderSet,
     RenderView,
     Severity,
 )
 from codeverse.contracts.common import Backends, Language, Track, Usage
-from codeverse.contracts.judgment import ImprovementItem, JudgeIssue, Judgment
 from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse.contracts.spec import Spec
 from codeverse.workspace import Workspace

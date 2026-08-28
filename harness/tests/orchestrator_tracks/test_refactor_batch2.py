@@ -7,8 +7,8 @@ from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import ScenePlan
 from codeverse.contracts.run import RunStatus
 from codeverse.contracts.spec import RunOptions
-from codeverse.events import EventLog
 from codeverse.orchestrator import RefineTask, RunState, plan_refine_groups
+from codeverse.proc import EventLog
 from codeverse.tracks.planner import plan_example
 from codeverse.tracks.scene import ScenePipeline, SceneTrack
 from codeverse.tracks.static_object import StaticObjectTrack

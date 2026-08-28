@@ -22,9 +22,8 @@ if str(REPO) not in sys.path:
 from datetime import UTC  # noqa: E402
 
 from bench import complexity_report as CR  # noqa: E402
-from codeverse.contracts.artifacts import Measurement  # noqa: E402
+from codeverse.contracts.artifacts import Judgment, Measurement  # noqa: E402
 from codeverse.contracts.common import Backends, Language, Track, Usage  # noqa: E402
-from codeverse.contracts.judgment import Judgment  # noqa: E402
 from codeverse.contracts.plan import BBox, PartPlan, StaticPlan  # noqa: E402
 from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402

@@ -37,9 +37,16 @@ from pydantic import (
     model_validator,
 )
 
-from codeverse.contracts.artifacts import GateFinding, GateReport, RenderView, Severity
+from codeverse.contracts.artifacts import (
+    GateFinding,
+    GateReport,
+    ImprovementItem,
+    JudgeIssue,
+    Judgment,
+    RenderView,
+    Severity,
+)
 from codeverse.contracts.common import Usage
-from codeverse.contracts.judgment import ImprovementItem, JudgeIssue, Judgment
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.models.schema_utils import JsonParseError, parse_json_lenient
 

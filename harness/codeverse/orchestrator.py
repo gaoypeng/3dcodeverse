@@ -22,14 +22,13 @@ from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, Field, ValidationError
 
-from codeverse.contracts.artifacts import GateReport
+from codeverse.contracts.artifacts import GateReport, Judgment
 from codeverse.contracts.common import Budget, Usage
-from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord, RunStatus
 from codeverse.conventions import to_snake
 from codeverse.cost.billing import bills_usd
-from codeverse.events import EventLog
+from codeverse.proc import EventLog
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)

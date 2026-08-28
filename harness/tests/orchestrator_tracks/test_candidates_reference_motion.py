@@ -11,13 +11,13 @@ from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import ArticulatedPlan
 from codeverse.contracts.run import RunStatus
 from codeverse.contracts.spec import ReferenceImage
-from codeverse.events import EventLog
 from codeverse.orchestrator import (
     RefineTask,
     RoundPolicy,
     build_refine_instructions,
     compact_instructions,
 )
+from codeverse.proc import EventLog
 from codeverse.tracks import get_track
 from codeverse.tracks.articulated_object import ArticulatedObjectTrack, expected_direction
 from codeverse.tracks.candidates import CandidateRecord, decide_best, rank_candidates

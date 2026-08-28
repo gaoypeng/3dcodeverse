@@ -20,8 +20,8 @@ import pytest
 from codeverse.contracts.common import Budget, Language, Usage
 from codeverse.contracts.plan import StaticPlan
 from codeverse.contracts.run import RunStatus
-from codeverse.events import EventLog
 from codeverse.orchestrator import BudgetExceeded, BudgetGuard, BudgetSnapshot, RunState
+from codeverse.proc import EventLog
 from codeverse.tracks.generation import GenerationTask, generate_files
 from codeverse.tracks.planner import MAX_VALIDATION_REASKS, PlanningError
 from codeverse.tracks.planner import plan as run_planner

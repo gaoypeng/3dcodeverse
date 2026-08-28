@@ -9,8 +9,8 @@ import pytest
 from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import ArticulatedPlan, ScenePlan
 from codeverse.contracts.run import RunRecord, RunStatus
-from codeverse.events import EventLog
 from codeverse.orchestrator import RoundPolicy, RunState
+from codeverse.proc import EventLog
 from codeverse.tracks import get_track
 from codeverse.tracks.articulated_object import ArticulatedObjectTrack
 from codeverse.tracks.planner import plan_example

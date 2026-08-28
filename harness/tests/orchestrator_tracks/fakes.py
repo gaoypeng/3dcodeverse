@@ -18,6 +18,9 @@ from codeverse.contracts.artifacts import (
     BuildResult,
     GateFinding,
     GateReport,
+    ImprovementItem,
+    JudgeIssue,
+    Judgment,
     Measurement,
     PartMeasure,
     RenderSet,
@@ -26,7 +29,6 @@ from codeverse.contracts.artifacts import (
 )
 from codeverse.contracts.chat import ChatRequest, ChatResponse
 from codeverse.contracts.common import Language, Usage
-from codeverse.contracts.judgment import ImprovementItem, JudgeIssue, Judgment
 from codeverse.contracts.plan import Plan
 from codeverse.contracts.run import RunRecord
 from codeverse.conventions import to_snake

@@ -26,9 +26,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codeverse.contracts.artifacts import RenderSet
+from codeverse.contracts.artifacts import Judgment, RenderSet
 from codeverse.contracts.common import TRACK_INFO
-from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.run import RoundRecord
 from codeverse.contracts.spec import Spec

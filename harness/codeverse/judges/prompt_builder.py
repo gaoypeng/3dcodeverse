@@ -21,9 +21,15 @@ from typing import TYPE_CHECKING, Literal
 from PIL import Image, ImageDraw
 
 from codeverse.config import get_settings
-from codeverse.contracts.artifacts import GateReport, Measurement, RenderSet, RenderView, Severity
+from codeverse.contracts.artifacts import (
+    GateReport,
+    Judgment,
+    Measurement,
+    RenderSet,
+    RenderView,
+    Severity,
+)
 from codeverse.contracts.chat import ChatMessage, ImagePart, TextPart
-from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS, SCENE_VIEWS, ViewPreset

@@ -31,7 +31,7 @@ from codeverse.contracts.common import TRACK_INFO, Track, Usage
 from codeverse.contracts.plan import StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
-from codeverse.events import EventLog
+from codeverse.proc import EventLog
 from codeverse.texturing.apply import (
     ApplyReport,
     NormaliseReport,

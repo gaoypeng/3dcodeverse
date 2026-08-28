@@ -20,7 +20,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from codeverse.contracts.artifacts import GateReport
-from codeverse.contracts.skills import SkillsUsage
+from codeverse.contracts.run import SkillsUsage
 from codeverse.tracks.common import RunContext
 
 log = logging.getLogger(__name__)

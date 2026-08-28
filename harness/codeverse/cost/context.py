@@ -25,7 +25,7 @@ nothing and never displaces anything.
 The **run binding** (:func:`bind_run`, the run slug) is a ``ContextVar`` with a
 process-wide fallback: a nested run (a bench worker that opens its own ledger in
 its own thread) gets its own binding, while a plain worker thread that inherits
-nothing — ``codeverse.fanout`` does not copy context — still sees the process's
+nothing — ``codeverse.proc`` does not copy context — still sees the process's
 one run.
 """
 

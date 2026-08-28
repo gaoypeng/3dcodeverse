@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 from codeverse.cli.main import app
 from codeverse.contracts.common import Backends, Language, Track
 from codeverse.contracts.spec import Spec
-from codeverse.events import EventLog
+from codeverse.proc import EventLog
 from codeverse.workspace import Workspace
 
 runner = CliRunner()

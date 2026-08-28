@@ -38,8 +38,8 @@ from codeverse.contracts.common import TRACK_INFO, Track
 from codeverse.contracts.plan import Plan, ScenePlan, ZonePlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import to_snake
-from codeverse.fanout import fan_out
 from codeverse.orchestrator import StageRunner, TaskGroup, compact_instructions
+from codeverse.proc import fan_out
 from codeverse.prompts import render
 from codeverse.spatial.frame_motion import motion_text_for
 from codeverse.spatial.render_scene import JUDGE_MAX_VIEWS, perf_detail

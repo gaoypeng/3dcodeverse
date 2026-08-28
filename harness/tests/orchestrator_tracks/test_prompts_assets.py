@@ -8,8 +8,8 @@ import pytest
 
 from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import ArticulatedPlan, ScenePlan
-from codeverse.events import EventLog
 from codeverse.orchestrator import BudgetGuard, RoundPolicy, RunState
+from codeverse.proc import EventLog
 from codeverse.prompts import list_prompts, render
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT

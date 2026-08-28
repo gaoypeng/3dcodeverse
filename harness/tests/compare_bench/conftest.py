@@ -19,13 +19,13 @@ from codeverse.contracts.artifacts import (  # noqa: E402
     BuildResult,
     GateFinding,
     GateReport,
+    Judgment,  # noqa: E402
     Measurement,
     RenderSet,
     RenderView,
     Severity,
 )
 from codeverse.contracts.common import Usage  # noqa: E402
-from codeverse.contracts.judgment import Judgment  # noqa: E402
 from codeverse.contracts.run import RunRecord, RunStatus  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402
 from codeverse.workspace import Workspace  # noqa: E402

@@ -7,13 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
+from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Judgment, Severity
 from codeverse.contracts.common import Language, Track, Usage
-from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse.contracts.run import RoundRecord, RunStatus
-from codeverse.events import EventLog
 from codeverse.orchestrator import RoundPolicy, RunState
+from codeverse.proc import EventLog
 from codeverse.prompts import load_text
 from codeverse.tracks.planner import plan_example
 from codeverse.tracks.scene import SceneTrack

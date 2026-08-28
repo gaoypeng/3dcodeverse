@@ -12,10 +12,9 @@ import pytest
 import trimesh
 from PIL import Image
 
-from codeverse.contracts.artifacts import RenderSet, RenderView
+from codeverse.contracts.artifacts import Judgment, RenderSet, RenderView
 from codeverse.contracts.chat import ChatResponse
 from codeverse.contracts.common import Language, Track, Usage
-from codeverse.contracts.judgment import Judgment
 from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.texturing.generate import FakeImageModel

@@ -8,7 +8,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from codeverse.contracts.spec import ReferenceImage
-from codeverse.events import EventLog
+from codeverse.proc import EventLog
 from codeverse.reference import SYNTH_TAG, ground_spec
 from codeverse.workspace import Workspace
 from tests.reference.conftest import GOOD_GATE, PROMPT_PLAN, FakeChat, FakeImageModel, make_spec

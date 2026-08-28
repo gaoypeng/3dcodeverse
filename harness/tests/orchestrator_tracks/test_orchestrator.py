@@ -7,13 +7,17 @@ import time
 import pytest
 from pydantic import BaseModel
 
-from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
+from codeverse.contracts.artifacts import (
+    BuildResult,
+    GateFinding,
+    GateReport,
+    ImprovementItem,
+    Judgment,
+    Severity,
+)
 from codeverse.contracts.common import Budget, Usage
-from codeverse.contracts.judgment import ImprovementItem, Judgment
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.run import RoundRecord
-from codeverse.events import EventLog
-from codeverse.fanout import fan_out, split_results
 from codeverse.orchestrator import (
     BestSelector,
     BudgetExceeded,
@@ -27,6 +31,7 @@ from codeverse.orchestrator import (
     hash_inputs,
     plan_parallel_groups,
 )
+from codeverse.proc import EventLog, fan_out, split_results
 
 
 # ----------------------------------------------------------------------------- budget

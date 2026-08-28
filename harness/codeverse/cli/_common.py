@@ -196,7 +196,7 @@ def make_slug(prompt: str, track: str, language: str, explicit: str | None = Non
 def mutating(target: Any, *, what: str, action: str = "enter") -> Iterator[None]:
     """The run mutex (``runlock.exclusive``) around anything that writes into a run
     directory, reported as a typed exit.  ``target`` is a Workspace or a run root."""
-    from codeverse.runlock import RunLocked, exclusive
+    from codeverse.proc import RunLocked, exclusive
 
     root = target if isinstance(target, (str, Path)) else target.root  # NB: Path.root is "/"
     stack = ExitStack()

@@ -14,8 +14,8 @@ from types import SimpleNamespace
 import pytest
 
 from codeverse.contracts.common import Language
-from codeverse.events import EventLog
 from codeverse.orchestrator import RoundPolicy, RunState
+from codeverse.proc import EventLog
 from codeverse.tracks.lifecycle import SpecChanged
 from codeverse.tracks.static_object import StaticObjectTrack
 from codeverse.workspace import Workspace

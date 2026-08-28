@@ -1,7 +1,7 @@
 """``PairwiseJudge``: which of two candidates better satisfies the spec?
 
 Position bias is real, so the comparison runs TWICE with A/B swapped (the two
-orderings run in parallel via ``codeverse.fanout``); the winner is declared
+orderings run in parallel via ``codeverse.proc``); the winner is declared
 only when both orderings agree, otherwise ``tie``.  Each call sees the brief,
 the rubric's criteria (titles + descriptions) and ONE 2×2 montage per candidate
 (the 4 most informative views — never a big sheet: VLM judges flip with many
@@ -26,7 +26,6 @@ from codeverse.contracts.artifacts import RenderSet
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart, TextPart
 from codeverse.contracts.common import Usage
 from codeverse.contracts.spec import Spec
-from codeverse.fanout import fan_out
 from codeverse.judges.prompt_builder import (
     MONTAGE_TILE_PX,
     brief_section,
@@ -39,6 +38,7 @@ from codeverse.judges.prompt_builder import (
 from codeverse.judges.rubrics import JudgeParseError, Rubric, load_rubric
 from codeverse.models.base import ChatModel, ModelError
 from codeverse.models.schema_utils import JsonParseError, parse_json_lenient
+from codeverse.proc import fan_out
 
 log = logging.getLogger(__name__)
 

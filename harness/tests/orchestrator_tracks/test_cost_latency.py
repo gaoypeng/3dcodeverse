@@ -13,8 +13,8 @@ from codeverse.config import get_settings
 from codeverse.contracts.common import Budget, Language, Track
 from codeverse.contracts.plan import AssetPlan, ScenePlan, ZonePlan
 from codeverse.contracts.run import RunStatus
-from codeverse.events import EventLog
 from codeverse.orchestrator import BudgetExceeded, BudgetGuard, RoundPolicy, RunState
+from codeverse.proc import EventLog
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.planner import plan_example
 from codeverse.tracks.scene import SceneTrack, plan_zone_batches, zone_file

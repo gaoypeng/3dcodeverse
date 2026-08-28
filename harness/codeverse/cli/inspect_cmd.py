@@ -37,9 +37,8 @@ def status(
     events: Annotated[int, typer.Option("--events", help="tail N events")] = 8,
 ) -> None:
     """Show spec / run_state / record / recent events of a run."""
-    from codeverse.events import EventLog
     from codeverse.flywheel.record import RecordError, load_record
-    from codeverse.runlock import holder_of
+    from codeverse.proc import EventLog, holder_of
 
     ws = C.open_workspace(slug, runs_dir)
     spec = C.load_spec(ws)
