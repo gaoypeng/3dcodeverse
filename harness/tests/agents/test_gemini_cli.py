@@ -53,6 +53,16 @@ def agent(fake_bin, monkeypatch):
     return GeminiCliAgent("gemini-3.7-flash", binary=binary)
 
 
+def test_retry_window_never_restarts():
+    """The retry rule itself: what is LEFT of the window, or None when < min(120, T/4)."""
+    from codeverse.agents.gemini_cli import retry_window_left
+
+    assert retry_window_left(1800, 1700) is None          # 100s left < 120 floor
+    assert retry_window_left(1800, 900) == 900            # half the window remains
+    assert retry_window_left(20, 2) == 18                 # small test jobs keep retrying
+    assert retry_window_left(20, 16) is None              # 4s left < 5s (T/4)
+
+
 def _job(ws: Workspace, **kw) -> AgentJob:
     base = dict(workspace=str(ws.root), prompt="write hello", model="gemini-3.7-flash", timeout_s=20, label="t")
     base.update(kw)

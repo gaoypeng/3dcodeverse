@@ -378,6 +378,7 @@ def invoke(
     stdin: str | None = None,
     attempt: int = 1,
     idle_grace_s: float | None = None,
+    soft_timeout_s: float | None = None,
     **invoke_extra: Any,
 ) -> CompletedProc:
     """Run one CLI agent process under the watchdog and record it in the trajectory.
@@ -404,8 +405,13 @@ def invoke(
         if on_stdout is not None and stream == "stdout":
             on_stdout(line)
 
+    # A streaming session must not outlive its window by half of it again: the watchdog's
+    # default hard kill is max(1.5x soft, soft+600), and chair_bl (loop_w1, 2026-08-28)
+    # streamed straight past a 16-minute window for 37 minutes.  Five minutes of grace is
+    # what the budget salvage gets; the session gets the same.
+    soft = float(s.job.timeout_s if soft_timeout_s is None else soft_timeout_s)
     proc = run_with_watchdog(
-        argv, cwd=s.ws.root, env=env, soft_timeout_s=s.job.timeout_s,
+        argv, cwd=s.ws.root, env=env, soft_timeout_s=soft, hard_timeout_s=soft + 300.0,
         idle_grace_s=IDLE_GRACE_S if idle_grace_s is None else idle_grace_s,
         on_line=on_line, stdin=stdin, activity_dirs=[s.ws.src, s.ws.public],
     )

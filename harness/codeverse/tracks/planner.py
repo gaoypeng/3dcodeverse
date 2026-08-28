@@ -204,8 +204,8 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
         try:
             resp = model.generate(req)
         except Exception as e:  # noqa: BLE001 — a truncated plan is retryable; anything else is not
-            if not (_truncated(e) and not grown and tokens < PLAN_TOKENS_MAX):
-                raise
+            if not (_truncated(e) and tokens < PLAN_TOKENS_MAX):
+                raise  # not a truncation, or already at the model ceiling: nothing to grow
             grown += 1
             tokens = min(PLAN_TOKENS_MAX, int(tokens * TRUNCATION_GROWTH))
             if events is not None:

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,16 @@ SYSTEM_SETTINGS = {
 }
 #: how long a retry waits for a *different* healthy key before reusing the same one
 RETRY_KEY_WAIT_S = 10.0
+
+
+def retry_window_left(timeout_s: float, elapsed_s: float) -> float | None:
+    """Seconds of the session window a retry may still use, or ``None`` when too little
+    is left to be worth an invoke.  A retry never restarts the window: chair_bl
+    (loop_w1, 2026-08-28) got a FULL fresh window on attempt 2 and ran 32 more minutes
+    against a run wall that had expired before the retry began."""
+    min_window = min(120.0, float(timeout_s) * 0.25)
+    left = float(timeout_s) - float(elapsed_s)
+    return None if left < min_window else left
 
 
 def _key_pool(keys: list[str]) -> KeyPool:
@@ -203,16 +214,23 @@ class GeminiCliAgent:
                 return failed(s, "budget", f"Gemini key pool exhausted before the first attempt: {e}")
             attempts = 0
             used: set[str] = set()
+            t0 = time.monotonic()
+            next_soft: float | None = None  # attempt 1 uses the job's own window
             usage_total = Usage(backend=self.kind, model=self.model)
             while True:
                 attempts += 1
                 used.add(key)
-                proc = self._invoke(s, prompt, key, attempt=attempts)
+                proc = self._invoke(s, prompt, key, attempt=attempts, soft_timeout_s=next_soft)
                 outcome = self._interpret(s, proc)
                 usage_total = usage_total + outcome["usage"]
                 pool.report(key, "429" if outcome["quota"] else ("ok" if outcome["ok"] else "5xx"))
                 pool.release()  # one acquire per attempt: keep the pool's in-flight gauge honest
                 if outcome["ok"] or outcome["exit_reason"] in ("timeout", "model_substituted") or not outcome["transient"] or attempts >= 2:
+                    break
+                next_soft = retry_window_left(job.timeout_s, time.monotonic() - t0)
+                if next_soft is None:
+                    s.notes.append(f"attempt {attempts} transient failure ({outcome['exit_reason']}); "
+                                   "no session window left — not retrying past the wall")
                     break
                 next_key = _retry_key(pool, used)
                 if next_key is None:
@@ -231,9 +249,10 @@ class GeminiCliAgent:
         finally:
             release_session(s)
 
-    def _invoke(self, s: Session, prompt: str, key: str, *, attempt: int) -> CompletedProc:
+    def _invoke(self, s: Session, prompt: str, key: str, *, attempt: int,
+                soft_timeout_s: float | None = None) -> CompletedProc:
         return invoke(s, self.build_argv(prompt), self.build_env(s, key), prompt=prompt, attempt=attempt,
-                      model=self.model, key_tail=key[-4:])
+                      soft_timeout_s=soft_timeout_s, model=self.model, key_tail=key[-4:])
 
     def _interpret(self, s: Session, proc: CompletedProc) -> dict[str, Any]:
         parsed = parse_gemini_json(proc.stdout)

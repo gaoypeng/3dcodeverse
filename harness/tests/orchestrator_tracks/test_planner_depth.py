@@ -415,6 +415,28 @@ def test_a_truncated_plan_is_retried_with_more_room_instead_of_killing_the_run(t
     assert len(seen) == 2 and seen[1] > seen[0] and len(plan.parts) == 9
 
 
+def test_repeated_truncation_keeps_growing_to_the_ceiling(tmp_path, monkeypatch):
+    """chest_urdf, loop_w1 (2026-08-28): validation re-asks grew the history and
+    3.6-flash truncated AGAIN at 55,800 — the old single-growth guard killed the run
+    one step short of the 65,536 ceiling.  Truncation grows until the ceiling."""
+    monkeypatch.setenv(BR.BRIEF_ENV, "off")
+    from codeverse.models.base import ModelError
+
+    ws = Workspace(tmp_path / "run")
+    ws.create()
+    good = json.loads(_plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(9)]).model_dump_json())
+    seen: list[int] = []
+
+    def responder(req):
+        seen.append(req.max_output_tokens)
+        if len(seen) <= 2:
+            raise ModelError("structured output unavailable (finish_reason=MAX_TOKENS; raise max_output_tokens)")
+        return good
+
+    plan, _u = plan_with_usage(_spec(must=8), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
+    assert len(seen) == 3 and seen[0] < seen[1] < seen[2] and len(plan.parts) == 9
+
+
 def test_a_model_error_that_is_not_truncation_still_propagates(tmp_path, monkeypatch):
     monkeypatch.setenv(BR.BRIEF_ENV, "off")
     from codeverse.models.base import ModelError
