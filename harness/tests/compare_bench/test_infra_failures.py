@@ -330,3 +330,4 @@ def test_stream_attempt_budget_and_504_are_infra():
 
     assert is_infra_failure(RuntimeError("ModelError: Gemini stream exceeded its attempt budget after 293 chunks"))
     assert is_infra_failure(RuntimeError("Gemini API error 504: Deadline expired before operation could complete."))
+    assert is_infra_failure(RuntimeError("ModelError: structured output unavailable (finish_reason=PROHIBITED_CONTENT; raise max_output_tokens if truncated)"))
