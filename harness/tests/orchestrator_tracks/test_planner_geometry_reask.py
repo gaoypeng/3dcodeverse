@@ -91,3 +91,19 @@ def test_every_moving_joint_gets_an_articulation_acceptance_item(tmp_ws):
     p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model, runtime=FakeRuntime(Language.URDF_BLENDER))
     ids = [a.id for a in p.acceptance]
     assert ids.count("art_drawer") == 1 and ids.count("art_lid") == 1
+
+
+def test_a_crashing_geometry_check_never_costs_the_plan(tmp_ws, monkeypatch):
+    import codeverse.tracks.plan_checks as pc
+
+    def boom(plan_obj):
+        raise RuntimeError("synthetic")
+
+    monkeypatch.setattr(pc, "plan_geometry_complaint", boom)
+    model = FakeChatModel(lambda req: _bad())
+    events = EventLog(tmp_ws.events_path)
+    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model, events=events,
+             runtime=FakeRuntime(Language.URDF_BLENDER))
+    assert isinstance(p, ArticulatedPlan) and len(model.requests) == 1
+    kinds = [e["event"] for e in events.read()]
+    assert "plan.geometry_error" in kinds and "plan.done" in kinds

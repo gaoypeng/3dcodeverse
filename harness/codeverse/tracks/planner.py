@@ -780,7 +780,13 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
         if geo_reasked < MAX_GEOMETRY_REASKS and getattr(result, "joints", None) and geometry_check_enabled():
             from codeverse.tracks.plan_checks import plan_geometry_complaint
 
-            geo = plan_geometry_complaint(result)
+            try:
+                geo = plan_geometry_complaint(result)
+            except Exception as e:  # noqa: BLE001 — a pre-check must never cost the plan
+                geo = ""
+                log.warning("plan geometry check failed (%s); skipping", e)
+                if events is not None:
+                    events.emit("plan.geometry_error", attempt=attempt, error=str(e)[:300])
             if geo:
                 geo_reasked += 1
                 if events is not None:

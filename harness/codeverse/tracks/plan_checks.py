@@ -195,7 +195,7 @@ def geometry_complaints(plan: Any) -> list[str]:
         exclude = {c} | {k for k in boxes if c in _ancestors(k, parent_of)}
         if j.type == "prismatic":
             exclude.add(p)
-        min_depth = min(COLLISION_MIN_M, 0.5 * min(cb.hi[i] - cb.lo[i] for i in range(3)))
+        min_depth = max(0.001, min(COLLISION_MIN_M, 0.5 * min(cb.hi[i] - cb.lo[i] for i in range(3))))
         for other, ob in boxes.items():
             if other in exclude or cb.fraction_inside(ob) >= HOUSING_FRACTION or cb.overlap_depth(ob) >= min_depth:
                 continue
