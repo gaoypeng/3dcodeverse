@@ -123,7 +123,8 @@ def default_joint_sweep(ws: Workspace, plan: Plan | None, out_dir: Path) -> tupl
         return GateReport(gate=SWEEP_GATE, passed=False, findings=[GateFinding(
             gate=SWEEP_GATE, severity=Severity.ERROR, target="robot.urdf", message=f"URDF sweep failed: {e}",
             fix_hint="fix robot.urdf so every link has a mesh under meshes/<link>.glb and joints form one tree")]), []
-    findings = [f.model_copy(update={"gate": SWEEP_GATE}) for f in joints.sweep_findings(report)]
+    findings = [f.model_copy(update={"gate": SWEEP_GATE})
+                for f in joints.aggregate_findings(joints.sweep_findings(report))]
     gate = GateReport(gate=SWEEP_GATE, passed=not any(f.severity == Severity.ERROR for f in findings), findings=findings,
                       duration_ms=int((time.time() - t0) * 1000))
     views: list[RenderView] = []

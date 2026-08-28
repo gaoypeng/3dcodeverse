@@ -234,6 +234,33 @@ written) that were accepted because the code works that way and the tests pin it
   in `build_once`.  Decision: `_ast_lint.safe_parse` catches SyntaxError / RecursionError /
   SystemError / MemoryError / ValueError; every python lint reports a lint ERROR with a
   flatten-the-literal hint instead.
+* **D44 An articulated plan is checked for geometric self-consistency before any code
+  is written (2026-08-28).**  Context: compare_art_v3's low scorers failed on kinematics
+  the plan already contradicted — a pivot nowhere near the door it turns, a stretcher link
+  floating 40 mm off its parent, a lid whose range swings it through the box — and the
+  joint sweep only reported it after a full build round.  Decision:
+  `tracks/plan_checks.geometry_complaints` runs three box-arithmetic checks on the plan's
+  own numbers (attachment gap ≤ 15 mm; pivot within 20 mm of BOTH links; the child's box
+  posed at q=lower/upper against every link that is neither its subtree nor a housing
+  holding ≥ 80 % of it at rest, real intersection ≥ 20 mm or half the part's thickness),
+  and the planner re-asks with the numbers (`MAX_GEOMETRY_REASKS = 2`, event
+  `plan.geometry`).  After the cap the plan SHIPS — this never raises `PlanningError`
+  (the plan-loop wave's C1 `fit` re-ask, docs/PLAN_LOOP.md §2, killed 3 of 8 cells that
+  way and was reverted).  Articulated plans only; `CV3D_PLAN_GEOMETRY=0` is the control
+  arm (`plan_features.LIVE_SWITCHES`).  Retro-fired on the 14 recorded compare_art_v3
+  plans: 8 draw a complaint (mean score 0.362), 6 do not (0.610); the six lowest scorers
+  all draw one.  Its effect is read on judge-free quantities the
+  8–14-prompt batteries CAN resolve — joint_sweep error count, build rate, rounds to a
+  clean sweep — not on the judge mean (docs/EVAL.md §8.1).
+* **D45 Joint-sweep findings reach the fixer aggregated per link pair (2026-08-28).**
+  Context: one compare_art_v3 run produced 59 penetration findings for a handful of pairs
+  — one line per sampled pose — and `build_refine_instructions` de-duplicates by
+  (target, kind) keeping the FIRST pose's line, so the agent saw the shallowest instance
+  and the loop burnt its budget without converging.  Decision:
+  `spatial/joints_sweep.aggregate_findings` merges a pair's poses into one line (how many
+  poses, worst depth and at which q, rest count), ranks ERRORs by depth, keeps the
+  deepest `MAX_PAIR_FINDINGS = 8` and folds the rest into one WARN
+  `penetration_summary`; `default_joint_sweep` applies it.  The raw report is unchanged.
 
 ## Rejected / deferred
 

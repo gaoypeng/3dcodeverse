@@ -574,6 +574,16 @@ P = TypeVar("P", bound=BaseModel)
 #: different failures and get separate chances (see ``plan_with_usage``).
 MAX_VALIDATION_REASKS = 2  # was 1: compare_art_v2 lost 5 of 14 articulated prompts at this gate (2026-08-25)
 MAX_QUALITY_REASKS = 1
+#: a plan whose boxes / pivots / ranges contradict each other (tracks/plan_checks.py) is
+#: re-asked with the numbers; after this many it ships anyway and the joint sweep decides
+MAX_GEOMETRY_REASKS = 2
+#: ``CV3D_PLAN_GEOMETRY=0`` turns the geometry re-ask off (a control arm for an A/B;
+#: registered in tracks/plan_features.LIVE_SWITCHES)
+PLAN_GEOMETRY_ENV = "CV3D_PLAN_GEOMETRY"
+
+
+def geometry_check_enabled() -> bool:
+    return os.environ.get(PLAN_GEOMETRY_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
 #: Output room for the plan call, sized from the plan budget.  A deep plan is much longer
 #: JSON than a flat one AND Gemini 3.x bills its thinking against the same ceiling, so the
 #: flat 24 000 that served 8 box-parts truncates a 12-part plan with sub-parts —
@@ -721,7 +731,8 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     last_error = ""
     invalid = requeried = grown = 0
     tokens = plan_tokens(budget, max_output_tokens)
-    for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS):
+    geo_reasked = 0
+    for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_GEOMETRY_REASKS):
         req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=temperature,
                           thinking="medium", max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
                           max_wait_s=plan_wait_s(tokens, guard))
@@ -766,6 +777,16 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
                             target_parts=budget.target_parts, complaint=complaint[:400])
             messages = messages + [_echo(raw, resp.text), ChatMessage.user(complaint)]
             continue
+        if geo_reasked < MAX_GEOMETRY_REASKS and getattr(result, "joints", None) and geometry_check_enabled():
+            from codeverse.tracks.plan_checks import plan_geometry_complaint
+
+            geo = plan_geometry_complaint(result)
+            if geo:
+                geo_reasked += 1
+                if events is not None:
+                    events.emit("plan.geometry", attempt=attempt, reask=geo_reasked, complaint=geo[:600])
+                messages = messages + [_echo(raw, resp.text), ChatMessage.user(geo)]
+                continue
         normalised = list(getattr(result, "normalisations", None) or [])
         if normalised and events is not None:
             events.emit("plan.normalised", attempt=attempt, n=len(normalised), items=normalised[:8])
@@ -900,6 +921,6 @@ def normalise_names[P: BaseModel](plan_obj: P) -> P:
     return plan_obj
 
 
-__all__ = ["MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS", "PLAN_TOKENS_MAX", "PlanningError", "plan",
+__all__ = ["MAX_GEOMETRY_REASKS", "PLAN_GEOMETRY_ENV", "geometry_check_enabled", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS", "PLAN_TOKENS_MAX", "PlanningError", "plan",
            "plan_tokens", "plan_with_usage", "plan_example", "ensure_acceptance", "add_acceptance_item",
            "default_event_stats", "normalise_names", "build_system_prompt", "build_user_prompt", "load_prompt_or"]

@@ -37,6 +37,7 @@ from codeverse.spatial.joints_sweep import (
     Overlap,
     SweepReport,
     SweepSummary,
+    aggregate_findings,
     motion_direction_check,
     summary_text,
     sweep_collisions,
@@ -47,5 +48,5 @@ __all__ = [
     "ARTICULATION_SHEET_NAME", "ZUP_TO_YUP", "Joint", "Link", "MotionCheck", "Overlap", "Robot", "SweepReport",
     "SweepSummary", "UrdfError", "blender_render_glb", "fk", "joint_sweep_observation", "limit_poses",
     "link_world_meshes", "load_urdf", "motion_direction_check", "pose_label", "pose_samples", "render_poses",
-    "robot_scene", "summary_text", "sweep_collisions", "sweep_findings", "urdf_to_glb", "world_bboxes",
+    "robot_scene", "summary_text", "sweep_collisions", "aggregate_findings", "sweep_findings", "urdf_to_glb", "world_bboxes",
 ]

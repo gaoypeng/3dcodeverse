@@ -238,6 +238,57 @@ def sweep_findings(report: SweepReport, *, rest_max_m: float = 0.005, hinge_clea
     return out
 
 
+#: ERROR findings kept after aggregation (the deepest pairs); the rest fold into one WARN
+MAX_PAIR_FINDINGS = 8
+
+
+def aggregate_findings(findings: list[GateFinding]) -> list[GateFinding]:
+    """One finding per link pair (or per floating link), the worst pose first.
+
+    compare_art_v3 (2026-08-28): a run produced 59 penetration findings for a handful of
+    pairs — one per sampled pose — and the refine prompt carried them as 59 lines the
+    agent could not act on; the loop burnt its budget without converging.  Merge the
+    poses of a pair into one line that says how many poses, the worst depth and where,
+    keep the deepest ``MAX_PAIR_FINDINGS`` as ERRORs and summarise the remainder.
+    """
+    groups: dict[tuple[str, str | None], list[GateFinding]] = {}
+    order: list[tuple[str, str | None]] = []
+    for f in findings:
+        key = (f.data.get("kind", ""), f.target)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(f)
+    merged: list[GateFinding] = []
+    for key in order:
+        fs = groups[key]
+        if len(fs) == 1 or key[0] != "penetration":
+            merged.extend(fs if key[0] != "penetration" else [fs[0]])
+            continue
+        worst = max(fs, key=lambda f: float(f.data.get("depth_m") or 0.0))
+        rest = [f for f in fs if not f.data.get("pose")]
+        moved = [f for f in fs if f.data.get("pose")]
+        sev = Severity.ERROR if any(f.severity == Severity.ERROR for f in fs) else Severity.WARN
+        worst_pose = worst.data.get("pose") or {}
+        where = "at rest" if not worst_pose else "at " + ", ".join(f"{k}={v:.2f}" for k, v in worst_pose.items())
+        msg = (f"links '{key[1]}' overlap in {len(fs)} of the sampled poses (worst {float(worst.data.get('depth_m') or 0) * 1000:.1f} mm "
+               f"{where}" + (f"; {len(rest)} at rest" if rest and moved else "") + ")")
+        merged.append(GateFinding(gate=worst.gate, severity=sev, target=worst.target, message=msg, fix_hint=worst.fix_hint,
+                                  data={**worst.data, "n_poses": len(fs), "poses": [f.data.get("pose") for f in fs][:12],
+                                        "max_depth_m": float(worst.data.get("depth_m") or 0.0)}))
+    errors = sorted([f for f in merged if f.severity == Severity.ERROR],
+                    key=lambda f: -float(f.data.get("max_depth_m") or f.data.get("depth_m") or f.data.get("gap_m") or 0.0))
+    warns = [f for f in merged if f.severity != Severity.ERROR]
+    if len(errors) > MAX_PAIR_FINDINGS:
+        extra = errors[MAX_PAIR_FINDINGS:]
+        errors = errors[:MAX_PAIR_FINDINGS]
+        warns.append(GateFinding(gate=extra[0].gate, severity=Severity.WARN, target="overall",
+                                 message=f"{len(extra)} more overlapping pair(s) not listed: " + ", ".join(str(f.target) for f in extra[:10]),
+                                 fix_hint="fix the listed pairs first; the rest are re-measured after the next build",
+                                 data={"kind": "penetration_summary", "pairs": [f.target for f in extra]}))
+    return errors + warns
+
+
 # ------------------------------------------------------------------ motion direction
 _DIRS: dict[str, tuple[float, float, float]] = {
     "+x": (1, 0, 0), "-x": (-1, 0, 0), "+y": (0, 1, 0), "-y": (0, -1, 0), "+z": (0, 0, 1), "-z": (0, 0, -1),
