@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "3dcode"
+version = "0.1.0"
+description = "3DCodeVerse data toolkit — validate, dedup, and upload (code -> 3D) projects"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "boto3>=1.34",
+  "typer>=0.12",
+  "tomli>=2.0 ; python_version < '3.11'",
+]
+
+# Heavier, optional: geometry + perceptual hashing for dedup. Base install stays light.
+[project.optional-dependencies]
+dedup = ["trimesh>=4.0", "imagehash>=4.3", "Pillow>=10.0", "numpy>=1.24"]
+cadquery = ["cadquery>=2.5"]
+build123d = ["build123d>=0.5"]
+# OpenSCAD + FreeCAD are system binaries (not pip) — set their paths via `3dcode config set`.
+
+[project.scripts]
+"3dcode" = "threedcode.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["threedcode*"]
