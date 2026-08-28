@@ -92,7 +92,7 @@ timeout = 600
 # -n auto: the offline suite is ~2 800 mostly-independent tests and this box has 24
 # cores — serial it is ~3 min, parallel ~15 s.  -p no:randomly is NOT set: xdist
 # distributes by file, and every test that touches shared state already uses tmp_path.
-addopts = ["-m", "not live", "-n", "auto", "--dist", "loadfile"]
+addopts = ["-m", "not live", "-n", "auto", "--dist", "worksteal"]
 markers = [
   "live: needs network + API keys (deselect with -m 'not live')",
   "blender: needs a Blender binary",

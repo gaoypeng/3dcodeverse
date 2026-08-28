@@ -27,7 +27,7 @@ from codeverse.contracts.plan import ArticulatedPlan, JointPlan, PartPlan, Plan
 from codeverse.conventions import to_snake
 from codeverse.languages._ast_lint import describe_parse_failure, safe_parse
 from codeverse.languages._common import ProcResult, read_json_file, run_subprocess
-from codeverse.prompts import PROMPTS_DIR, load_text
+from codeverse.languages._docs import RuntimeDocs
 from codeverse.spatial.joints import (
     UrdfError,
     load_urdf,
@@ -647,7 +647,6 @@ def write_skeleton(ws: Workspace, plan: ArticulatedPlan) -> list[Path]:
 # ===================================================================== runtime
 # (merged from codeverse/languages/urdf/runtime.py, 2026-08-28)
 WRAPPER = Path(__file__).resolve().parent / "wrappers" / "run_bpy_links.py"
-CONTRACT_MD = Path(__file__).resolve().parent / "CONTRACT.md"
 REST_PENETRATION_MAX_M = 0.005
 FK_TOL_M = 0.001
 
@@ -660,7 +659,7 @@ def _tail(s: str, n: int = 3000) -> str:
     return s[-n:] if s else ""
 
 
-class UrdfBlenderRuntime:
+class UrdfBlenderRuntime(RuntimeDocs):
     language = Language.URDF_BLENDER
     entry_globs = (ENTRY_FILE[Language.URDF_BLENDER], "src/robot.urdf")
 
@@ -673,14 +672,6 @@ class UrdfBlenderRuntime:
     def lint(self, ws: Workspace) -> GateReport:
         return lint_workspace(ws)
 
-    def contract_doc(self) -> str:
-        try:
-            return load_text("urdf/contract.md")
-        except FileNotFoundError:
-            return CONTRACT_MD.read_text()
-
-    def cookbook_path(self) -> Path:
-        return PROMPTS_DIR / "urdf" / "cookbook.md"
 
     # ------------------------------------------------------------ build
     def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:

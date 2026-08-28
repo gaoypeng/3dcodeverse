@@ -14,12 +14,12 @@ from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, 
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.conventions import to_pascal, to_snake
+from codeverse.languages._docs import RuntimeDocs
 from codeverse.languages._js_lint import ImportKind, ImportVerdict, check_imports
 from codeverse.languages._js_lint import (
     node_check_syntax as check_syntax,  # module-level name: tests monkeypatch it
 )
 from codeverse.proc import read_json_or_none
-from codeverse.prompts import PROMPTS_DIR, load_text
 from codeverse.spatial.node import NodeError, NodeResult, run_node, runtime_js_dir
 from codeverse.workspace import Workspace
 
@@ -374,21 +374,13 @@ BUILD_JSON = "build.json"
 NODE_MEM_LIMIT_GB = 8.0  # RLIMIT_AS for the export process (geometry-bomb protection)
 
 
-class ThreeJsRuntime:
+class ThreeJsRuntime(RuntimeDocs):
     """LanguageRuntime for ``Language.THREEJS`` (raw ESM three.js, exported via node)."""
 
     language = Language.THREEJS
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.THREEJS], "src/parts/*.js")
 
     # ------------------------------------------------------------------ contract
-    def contract_doc(self) -> str:
-        try:
-            return load_text("threejs/contract.md")
-        except FileNotFoundError:
-            return CONTRACT_FALLBACK
-
-    def cookbook_path(self) -> Path:
-        return PROMPTS_DIR / "threejs" / "cookbook.md"
 
     # ------------------------------------------------------------------ skeleton / lint
     def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:

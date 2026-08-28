@@ -26,21 +26,23 @@ from pathlib import Path
 import pytest
 
 from codeverse.conventions import CONTACT_GAP_M
+from codeverse.languages._docs import PROMPT_DIRS
 from codeverse.skills import bundle_dirs, iter_skills, skills_dir
 from codeverse.skills.registry import ROUTES
 from codeverse.spatial.connectivity import PENETRATION_WARN_M
 
 HARNESS = Path(__file__).resolve().parents[2]
 PROMPTS = HARNESS / "codeverse" / "prompts"
-#: BOTH contract families an agent can read: the prompt-side per-language contract, and
-#: the runtime-side CONTRACT.md the language package serves through `contract_doc()`.
-CONTRACTS = sorted(PROMPTS.glob("*/contract.md")) + sorted(
-    (HARNESS / "codeverse" / "languages").glob("*/CONTRACT.md"))
+#: the per-language contract an agent reads.  There was a second family under
+#: languages/<lang>/CONTRACT.md until 2026-08-28; it was unreachable (contract_doc
+#: always read prompts/ first) and two of its numbers had drifted, so it is gone.
+CONTRACTS = sorted(PROMPTS.glob("*/contract.md"))
 BUNDLES = bundle_dirs()
 SKILLS = list(iter_skills()) if BUNDLES else []
 
-#: prompts/<dir> per language id (urdf_blender's docs live under prompts/urdf)
-_DIR_FOR_LANG = {"urdf_blender": "urdf"}
+#: prompts/<dir> per language id — codeverse.languages._docs owns the mapping now
+#: (urdf_blender's docs live under prompts/urdf)
+_DIR_FOR_LANG = {k.value: v for k, v in PROMPT_DIRS.items()}
 
 WARN_MM = PENETRATION_WARN_M * 1000
 GAP_MM = CONTACT_GAP_M * 1000

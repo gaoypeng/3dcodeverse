@@ -26,8 +26,8 @@ from codeverse.languages._common import (
     run_subprocess,
     strip_blender_noise,
 )
+from codeverse.languages._docs import RuntimeDocs
 from codeverse.proc import scrub_secrets
-from codeverse.prompts import PROMPTS_DIR
 from codeverse.workspace import Workspace
 
 # ===================================================================== lint
@@ -721,7 +721,7 @@ def blender_env() -> dict[str, str]:
     return env
 
 
-class BlenderRuntime:
+class BlenderRuntime(RuntimeDocs):
     """LanguageRuntime for ``Language.BLENDER``."""
 
     language = Language.BLENDER
@@ -814,11 +814,3 @@ class BlenderRuntime:
             glb_path=glb, extra_paths={"stl": stl_path, "blend": blend_path}, output_filter=strip_blender_noise,
         )
 
-    def contract_doc(self) -> str:
-        p = PROMPTS_DIR / "blender" / "contract.md"
-        if p.is_file():
-            return p.read_text()
-        return (_PKG_DIR / "CONTRACT.md").read_text()
-
-    def cookbook_path(self) -> Path:
-        return PROMPTS_DIR / "blender" / "cookbook.md"

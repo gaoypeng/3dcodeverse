@@ -15,6 +15,7 @@ from codeverse.languages._ast_lint import (
     describe_parse_failure,
     safe_parse,
 )
+from codeverse.languages._docs import RuntimeDocs
 from codeverse.languages._gl_common import (
     finish_build,
     invalidate_stale_outputs,
@@ -26,7 +27,6 @@ from codeverse.languages._gl_common import (
     resolution_for,
     traceback_location,
 )
-from codeverse.prompts import PROMPTS_DIR, load_text
 from codeverse.spatial.gl_render import GlHost, GlResult
 from codeverse.workspace import Workspace
 
@@ -345,7 +345,7 @@ already bound framebuffer; multi-pass via your own FBOs, finish with fbo.use()).
 no file IO (except src/*.glsl next to program.py).  Imports: moderngl, numpy, math, random, struct, array, pathlib."""
 
 
-class OpenGLPythonRuntime:
+class OpenGLPythonRuntime(RuntimeDocs):
     language = Language.OPENGL_PYTHON
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.OPENGL_PYTHON], "src/*.glsl")
 
@@ -353,14 +353,6 @@ class OpenGLPythonRuntime:
         self._host = host
 
     # ------------------------------------------------------------------ contract
-    def contract_doc(self) -> str:
-        try:
-            return load_text("opengl_python/contract.md")
-        except FileNotFoundError:
-            return CONTRACT_FALLBACK
-
-    def cookbook_path(self) -> Path:
-        return PROMPTS_DIR / "opengl_python" / "cookbook.md"
 
     # ------------------------------------------------------------------ skeleton / lint
     def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:

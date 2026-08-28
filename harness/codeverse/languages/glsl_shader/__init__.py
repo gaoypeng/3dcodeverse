@@ -10,6 +10,7 @@ from pathlib import Path
 from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import GraphicsPlan, Plan
+from codeverse.languages._docs import RuntimeDocs
 from codeverse.languages._gl_common import (  # noqa: F401 — re-exported
     GlslMessage,
     LineMap,
@@ -23,7 +24,6 @@ from codeverse.languages._gl_common import (  # noqa: F401 — re-exported
     preview_times,
     resolution_for,
 )
-from codeverse.prompts import PROMPTS_DIR, load_text
 from codeverse.spatial.gl_render import GlHost, GlResult
 from codeverse.workspace import Workspace
 
@@ -389,7 +389,7 @@ u_mouse, u_frame, u_prev (previous frame), u_noise (256² noise), u_buffer_a (sr
 Optional src/common.glsl (helpers, pasted in first) and src/buffer_a.frag (one feedback pass). Animate with u_time."""
 
 
-class GlslShaderRuntime:
+class GlslShaderRuntime(RuntimeDocs):
     language = Language.GLSL_SHADER
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.GLSL_SHADER], COMMON, BUFFER_A)
 
@@ -397,14 +397,6 @@ class GlslShaderRuntime:
         self._host = host
 
     # ------------------------------------------------------------------ contract
-    def contract_doc(self) -> str:
-        try:
-            return load_text("glsl_shader/contract.md")
-        except FileNotFoundError:
-            return CONTRACT_FALLBACK
-
-    def cookbook_path(self) -> Path:
-        return PROMPTS_DIR / "glsl_shader" / "cookbook.md"
 
     # ------------------------------------------------------------------ skeleton / lint
     def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:

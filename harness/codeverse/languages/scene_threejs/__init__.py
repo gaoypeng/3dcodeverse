@@ -15,6 +15,7 @@ from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, 
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
 from codeverse.conventions import to_pascal, to_snake
+from codeverse.languages._docs import RuntimeDocs
 from codeverse.languages._js_lint import ImportKind, ImportVerdict, check_imports, node_check_syntax
 from codeverse.workspace import Workspace
 
@@ -603,11 +604,9 @@ def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "de
 
 # ===================================================================== runtime
 # (merged from codeverse/languages/scene_threejs/runtime.py, 2026-08-28)
-_HERE = Path(__file__).resolve().parent
-_PROMPTS = _HERE.parent.parent / "prompts" / "scene_threejs"
 
 
-class SceneThreeJsRuntime:
+class SceneThreeJsRuntime(RuntimeDocs):
     language = Language.SCENE_THREEJS
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.SCENE_THREEJS], "src/zones/*.js", "src/assets/*.js", "src/env.js", "src/shaders/*.js")
 
@@ -659,14 +658,6 @@ class SceneThreeJsRuntime:
         (ws.artifacts / "build.json").write_text(json.dumps(res.model_dump(mode="json"), indent=1))
         return res
 
-    def contract_doc(self) -> str:
-        p = _PROMPTS / "contract.md"
-        if p.is_file():
-            return p.read_text()
-        return (_HERE / "CONTRACT.md").read_text()
-
-    def cookbook_path(self) -> Path:
-        return _PROMPTS / "cookbook.md"
 
 
 def _probe_and_preflight(ws: Workspace, *, timeout_s: float) -> tuple[GateReport, GateReport, dict]:

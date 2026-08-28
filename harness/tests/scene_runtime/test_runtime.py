@@ -21,10 +21,11 @@ def test_runtime_registered_and_conforms():
     assert "src/scene.js" in rt.entry_globs and "src/zones/*.js" in rt.entry_globs
     doc = rt.contract_doc()
     assert "createScene" in doc and "update(t, dt)" in doc
-    # the built-in fallback contract is always available and carries the GLSL rules
-    import codeverse.languages.scene_threejs as rt_mod
-    fallback = (rt_mod._HERE / "CONTRACT.md").read_text()
-    assert "createScene" in fallback and "#include" in fallback
+    # the GLSL chunk rules are the cookbook's job, not the contract's — this used to
+    # assert them against languages/scene_threejs/CONTRACT.md, a file contract_doc()
+    # never reached (deleted 2026-08-28); prompts/scene_threejs/glsl_cookbook.md states
+    # the same rule and IS delivered
+    assert "`#include <...>` alone on its line" in rt.cookbook_path().with_name("glsl_cookbook.md").read_text()
     assert rt.cookbook_path().name == "cookbook.md"
 
 

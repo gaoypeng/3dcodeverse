@@ -22,9 +22,9 @@ from codeverse.languages._ast_lint import (  # noqa: F401 — dotted re-exported
     safe_parse,
 )
 from codeverse.languages._common import compose_build_result, run_subprocess
+from codeverse.languages._docs import RuntimeDocs
 from codeverse.languages.blender import finish_for, instance_centers
 from codeverse.proc import scrub_secrets
-from codeverse.prompts import PROMPTS_DIR
 from codeverse.workspace import Workspace
 
 # ===================================================================== lint
@@ -336,7 +336,7 @@ def cadquery_env() -> dict[str, str]:
     return env
 
 
-class CadQueryRuntime:
+class CadQueryRuntime(RuntimeDocs):
     """LanguageRuntime for ``Language.CADQUERY``."""
 
     language = Language.CADQUERY
@@ -385,11 +385,3 @@ class CadQueryRuntime:
         return compose_build_result(language=self.language.value, proc=proc, build_json=build_json, census_json=census_json,
                                     glb_path=glb, extra_paths={"step": step, "stl": stl})
 
-    def contract_doc(self) -> str:
-        p = PROMPTS_DIR / "cadquery" / "contract.md"
-        if p.is_file():
-            return p.read_text()
-        return (_PKG_DIR / "CONTRACT.md").read_text()
-
-    def cookbook_path(self) -> Path:
-        return PROMPTS_DIR / "cadquery" / "cookbook.md"
