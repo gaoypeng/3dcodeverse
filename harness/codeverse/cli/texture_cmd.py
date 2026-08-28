@@ -79,8 +79,10 @@ def _print_report(rep, ws) -> None:
     if s.get("glb_out"):
         s["glb_out"] = str(ws.rebase(str(s["glb_out"])))  # stored absolute; see print_evidence
     if rep.gate is not None and rep.gate.overall_before is not None:
-        s.update({"before": f"{rep.gate.overall_before:.3f}", "after": f"{rep.gate.overall_after:.3f}",
-                  "materials": f"{rep.gate.materials_before:.3f} → {rep.gate.materials_after:.3f}"})
+        def _f(v: float | None) -> str:  # a judge outage leaves per-criterion fields None
+            return "—" if v is None else f"{v:.3f}"
+        s.update({"before": _f(rep.gate.overall_before), "after": _f(rep.gate.overall_after),
+                  "materials": f"{_f(rep.gate.materials_before)} → {_f(rep.gate.materials_after)}"})
     console.print(kv_table("texture pass", s))
     for n in rep.notes:
         warn(n)
