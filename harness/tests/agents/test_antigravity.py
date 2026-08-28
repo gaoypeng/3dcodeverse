@@ -7,7 +7,7 @@ import shutil
 
 import pytest
 
-from codeverse.agents.antigravity import (
+from codeverse.agents.backends import (
     AntigravityAgent,
     available_models,
     parse_agy_json,

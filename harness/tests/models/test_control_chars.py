@@ -64,7 +64,7 @@ def test_the_subprocess_backstop_names_the_offender(tmp_path):
     "embedded null byte" from Popen names no argument, offset or value."""
     import pytest
 
-    from codeverse.agents.watchdog import run_with_watchdog
+    from codeverse.agents.cli_common import run_with_watchdog
 
     poisoned = "harness_instructions: envelope is 0.078 \x00 0.300 m"
     with pytest.raises(ValueError, match=r"argv\[2\] contains a NUL at offset \d+"):

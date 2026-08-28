@@ -7,6 +7,7 @@ import os
 import threading
 
 from codeverse.agents.cli_common import (
+    Trajectory,
     attribute_changes,
     begin_session,
     deliver_prompt,
@@ -16,7 +17,6 @@ from codeverse.agents.cli_common import (
     is_secret_env,
     is_transient_failure,
 )
-from codeverse.agents.transcript import Trajectory
 from codeverse.contracts.agent import AgentJob, FileChange
 from codeverse.contracts.common import Usage
 from codeverse.workspace import Workspace
@@ -163,7 +163,7 @@ def test_mcp_command_resolution(tmp_ws: Workspace):
 
 
 def test_gemini_system_settings_disable_folder_trust(tmp_path):
-    from codeverse.agents.gemini_cli import write_system_settings
+    from codeverse.agents.backends import write_system_settings
 
     p = write_system_settings(tmp_path / "s.json")
     data = json.loads(p.read_text())

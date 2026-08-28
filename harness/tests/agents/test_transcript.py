@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.agents import transcript as tr
-from codeverse.agents.transcript import Trajectory
+from codeverse.agents import cli_common as tr
+from codeverse.agents.cli_common import Trajectory
 
 
 def test_the_transcript_stops_at_its_budget_with_a_marker_row(tmp_path: Path, monkeypatch):

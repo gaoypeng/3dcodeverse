@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.agents.claude_code import (
+from codeverse.agents.backends import (
     ClaudeCodeAgent,
     parse_claude_json,
     primary_served_model,

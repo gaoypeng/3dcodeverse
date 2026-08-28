@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.agents.gemini_cli import GeminiCliAgent, parse_gemini_json, usage_from_stats
+from codeverse.agents.backends import GeminiCliAgent, parse_gemini_json, usage_from_stats
 from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob
 from codeverse.workspace import Workspace
@@ -55,7 +55,7 @@ def agent(fake_bin, monkeypatch):
 
 def test_retry_window_never_restarts():
     """The retry rule itself: what is LEFT of the window, or None when < min(120, T/4)."""
-    from codeverse.agents.gemini_cli import retry_window_left
+    from codeverse.agents.backends import retry_window_left
 
     assert retry_window_left(1800, 1700) is None          # 100s left < 120 floor
     assert retry_window_left(1800, 900) == 900            # half the window remains
@@ -150,7 +150,7 @@ def test_single_key_transient_failure_retries_same_key_and_never_raises(tmp_ws: 
 
 def test_single_key_quota_failure_returns_budget_without_retry(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     """429 puts the only key into cooldown: no alternative → return the failed outcome (ok=False), do not raise."""
-    from codeverse.agents import gemini_cli as gc
+    from codeverse.agents import backends as gc
 
     monkeypatch.setattr(get_settings(), "gemini_api_keys", ["solo"])
     monkeypatch.setattr(gc, "RETRY_KEY_WAIT_S", 0.2)
@@ -166,7 +166,7 @@ def test_single_key_quota_failure_returns_budget_without_retry(tmp_ws: Workspace
 
 
 def test_pool_exhausted_before_first_attempt_is_a_budget_result(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
-    from codeverse.agents import gemini_cli as gc
+    from codeverse.agents import backends as gc
     from codeverse.models.retry import KeyPoolExhausted
 
     class Dead:

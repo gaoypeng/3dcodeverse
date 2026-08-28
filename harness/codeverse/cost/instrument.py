@@ -8,7 +8,7 @@ Two thin proxies do the whole job:
   cache hit, outcome).  Because ``models.registry.get_chat_model`` returns the
   proxy, this covers the planner, the judges, the captioner and single-shot
   generation.
-* :class:`MeteredAgent` wraps a :class:`~codeverse.agents.base.CodingAgent`.
+* :class:`MeteredAgent` wraps a :class:`~codeverse.agents.registry.CodingAgent`.
   It sets the ambient attribution (round / stage / label) for the session so
   the model rows above land in the right bucket, applies the profile's turn cap
   and, for backends whose calls we cannot see (every subscription CLI that does

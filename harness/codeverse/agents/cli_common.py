@@ -1,38 +1,258 @@
-"""Shared plumbing for subprocess-based CodingAgent backends.
+"""Trajectory folder helper: prompt.md, transcript.jsonl, stdout/stderr, result.json.
 
-* :func:`hardened_env` — child environment without unrelated secrets.
-* :func:`begin_session` / :func:`finish_session` — trajectory dir (a retry of
-  the same label+round gets ``<label>.a2_rNN`` instead of overwriting attempt 1),
-  git snapshot before/after, ``files_changed`` from git *attributed to this
-  session* (see :func:`attribute_changes`), ``result.json``.
-* :func:`deliver_prompt` — argv prompt or "read the prompt file" stub.
-* :func:`invoke` / :func:`watchdog_error` — one CLI process under the watchdog,
-  recorded in the trajectory (``invoke`` line, every output line, stdout/stderr
-  captures); ``IDLE_GRACE_S`` is the shared idle kill threshold.
-* :func:`estimate_cost_safe` — lazy bridge to ``codeverse.models.pricing``.
-* :func:`is_transient_failure` — 429 / 503 / empty-response detection.
+Every CodingAgent backend writes its session here
+(``ws.trajectory_dir(label, round)``) so the flywheel and ``3dcv status`` can
+read one uniform layout regardless of backend.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import sys
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from codeverse.agents.transcript import Trajectory
-from codeverse.agents.watchdog import CompletedProc, run_with_watchdog
+from pydantic import BaseModel
+
 from codeverse.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse.contracts.common import Usage
-from codeverse.proc import scrub_secrets
+from codeverse.proc import ManagedProcess, append_jsonl_line, read_jsonl_lenient, scrub_secrets
 from codeverse.workspace import Workspace
 
+#: per-session transcript caps.  Rows are byte-capped individually but nothing capped
+#: the file: a child emitting 100k lines wrote 27 MB, ~406 MB at the per-row cap.  The
+#: unabridged (bounded) stream still lands in stdout.json.
+LINE_BUDGET_BYTES = 64 * 1024 * 1024
+LINE_BUDGET_ROWS = 200_000
+
+
+class Trajectory:
+    """Append-only writer for one agent session's files."""
+
+    def __init__(self, directory: Path | str):
+        self.dir = Path(directory)
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+        self._budget = threading.Lock()  # guards the counters below, never nested in _lock
+        self._rows = self._bytes = 0
+        self._spent = False
+
+    # ------------------------------------------------------------------ paths
+    @property
+    def prompt_path(self) -> Path:
+        return self.dir / "prompt.md"
+
+    @property
+    def transcript_path(self) -> Path:
+        return self.dir / "transcript.jsonl"
+
+    @property
+    def result_path(self) -> Path:
+        return self.dir / "result.json"
+
+    # ------------------------------------------------------------------ writes
+    def write_prompt(self, prompt: str, system: str = "") -> Path:
+        body = prompt if not system else f"<!-- system -->\n{system}\n\n<!-- prompt -->\n{prompt}"
+        self.prompt_path.write_text(body)
+        return self.prompt_path
+
+    def write_text(self, name: str, text: str) -> Path:
+        p = self.dir / name
+        p.write_text(text)
+        return p
+
+    def write_json(self, name: str, data: BaseModel | dict[str, Any] | list[Any]) -> Path:
+        p = self.dir / name
+        payload = data.model_dump(mode="json") if isinstance(data, BaseModel) else data
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+        tmp.replace(p)
+        return p
+
+    def append(self, kind: str, **data: Any) -> None:
+        """Append one JSONL turn: ``{"t": epoch, "kind": kind, **data}``, until the
+        session's byte/row budget trips — then one marker row and nothing more."""
+        rec: dict[str, Any] = {"t": round(time.time(), 3), "kind": kind, **data}
+        with self._budget:
+            if self._spent:
+                return
+            self._rows += 1
+            self._bytes += len(json.dumps(rec, ensure_ascii=False, default=str))
+            self._spent = self._rows > LINE_BUDGET_ROWS or self._bytes > LINE_BUDGET_BYTES
+            if self._spent:
+                rec = {"t": rec["t"], "kind": "line_budget_exhausted",
+                       "rows": self._rows - 1, "bytes": self._bytes}
+        append_jsonl_line(self.transcript_path, rec, self._lock)
+
+    def write_result(self, result: BaseModel, **extra: Any) -> Path:
+        """Write ``result.json`` = AgentResult fields + any extra diagnostics."""
+        data = result.model_dump(mode="json")
+        data.update(extra)
+        return self.write_json("result.json", data)
+
+    def read_transcript(self) -> list[dict[str, Any]]:
+        return read_jsonl_lenient(self.transcript_path)
+
+
+# ===================================================================== watchdog
+# (merged from codeverse/agents/watchdog.py, 2026-08-28)
+_SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".gemini", ".gemini_home"}
+
+
+@dataclass
+class CompletedProc:
+    """Outcome of :func:`run_with_watchdog`.
+
+    ``stdout``/``stderr`` are bounded to ``codeverse.proc.STREAM_BUDGET_BYTES`` per
+    stream (head + tail kept, truncation marker in between); the ``*_lines`` lists
+    are derived from those bounded texts — streaming consumers that must see every
+    line unconditionally use ``on_line``.
+    """
+
+    rc: int
+    stdout: str
+    stderr: str
+    duration_s: float
+    timed_out: bool = False
+    killed_reason: str = ""  # "" | idle | hard_timeout
+    stdout_lines: list[str] = field(default_factory=list, repr=False)
+    stderr_lines: list[str] = field(default_factory=list, repr=False)
+
+
+class ActivityTracker:
+    """Thread-safe 'last time something happened' clock."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._last = time.monotonic()
+
+    def touch(self) -> None:
+        with self._lock:
+            self._last = time.monotonic()
+
+    def idle_for(self) -> float:
+        with self._lock:
+            return time.monotonic() - self._last
+
+
+def _latest_mtime(dirs: Iterable[Path]) -> float:
+    latest = 0.0
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        for root, subdirs, files in os.walk(d):
+            subdirs[:] = [s for s in subdirs if s not in _SKIP_DIRS]
+            for f in files:
+                try:
+                    latest = max(latest, os.stat(os.path.join(root, f)).st_mtime)
+                except OSError:
+                    continue
+    return latest
+
+
+
+
+def run_with_watchdog(
+    cmd: Sequence[str],
+    *,
+    cwd: Path | str,
+    env: Mapping[str, str] | None,
+    soft_timeout_s: float,
+    idle_grace_s: float = 300.0,
+    hard_timeout_s: float | None = None,
+    on_line: Callable[[str, str], None] | None = None,
+    stdin: str | None = None,
+    activity_dirs: Sequence[Path] | None = None,
+    poll_s: float = 1.0,
+    scan_s: float = 5.0,
+) -> CompletedProc:
+    """Run ``cmd`` streaming output; kill the process group on idle/hard timeout.
+
+    ``on_line(stream, line)`` is called for every line (stream is ``"stdout"``
+    or ``"stderr"``).  ``activity_dirs`` (default ``cwd/src``) are polled for
+    mtime changes (every ``scan_s``) that also count as activity.
+
+    Since 2026-08-27 the process lifecycle lives in
+    :class:`codeverse.proc.ManagedProcess`; this function keeps only the clocks.
+    Fixed by that move: a KeyboardInterrupt anywhere in the poll loop kills the
+    group before propagating (it used to orphan the whole node → chrome tree —
+    SIGINT never reaches a ``start_new_session`` child); stdin is written from a
+    helper thread, so a child that never reads a >64 KiB prompt (codex pipes
+    prompts >100 kB via stdin) can no longer wedge the main thread before the
+    clocks start; captured output is bounded per stream (head+tail + marker).
+    """
+    if hard_timeout_s is None:
+        hard_timeout_s = max(soft_timeout_s * 1.5, soft_timeout_s + 600.0)
+    cwd = Path(cwd)
+    dirs = list(activity_dirs) if activity_dirs is not None else [cwd / "src"]
+    tracker = ActivityTracker()
+    t0 = time.monotonic()
+    _reject_control_chars(cmd, cwd)
+
+    def observe(stream: str, line: str) -> None:
+        tracker.touch()
+        if on_line is not None:
+            on_line(stream, line)  # ManagedProcess suppresses observer exceptions
+
+    killed = ""
+    with ManagedProcess(cmd, cwd=cwd, env=env, stdin_text=stdin, on_line=observe) as mp:
+        last_mtime = _latest_mtime(dirs)
+        next_scan = t0 + scan_s
+        while mp.poll() is None:
+            now = time.monotonic()
+            elapsed = now - t0
+            if now >= next_scan:
+                m = _latest_mtime(dirs)
+                if m > last_mtime:
+                    last_mtime = m
+                    tracker.touch()
+                next_scan = now + scan_s
+            if elapsed >= hard_timeout_s:
+                killed = "hard_timeout"
+            elif elapsed >= soft_timeout_s and tracker.idle_for() >= idle_grace_s:
+                killed = "idle"
+            if killed:
+                mp.terminate()  # TERM → 5 s grace → KILL: the kill_process_group contract
+                break
+            time.sleep(poll_s)
+    rc = mp.returncode if mp.returncode is not None else -9
+    out_text, err_text = mp.stdout_text, mp.stderr_text
+    return CompletedProc(
+        rc=rc, stdout=out_text, stderr=err_text, duration_s=time.monotonic() - t0,
+        timed_out=bool(killed), killed_reason=killed,
+        stdout_lines=out_text.splitlines(), stderr_lines=err_text.splitlines(),
+    )
+
+
+def _reject_control_chars(cmd: Sequence[str], cwd: object) -> None:
+    """Fail with an argv position and an excerpt instead of a bare "embedded null byte".
+
+    ``subprocess.Popen`` raises ``ValueError: embedded null byte`` naming nothing at all —
+    not the argument, not the offset, not the value.  On 2026-08-24 that cost an hour to
+    trace back to five ``\\u0000`` escapes a planner had written into plan.json four stages
+    earlier (see ``schema_utils.strip_control_chars``, which is the actual cure).  This is
+    the backstop: if one ever leaks again, the error says where.
+    """
+    for i, arg in enumerate(cmd):
+        text = str(arg)
+        j = text.find("\x00")
+        if j != -1:
+            raise ValueError(
+                f"argv[{i}] contains a NUL at offset {j} of {len(text)} — a model almost "
+                f"certainly emitted \\u0000 in structured output and it was not sanitised "
+                f"(cwd={cwd}).  Context: {text[max(0, j - 60):j + 40]!r}"
+            )
+
+
+# ===================================================================== cli_common
+# (merged from codeverse/agents/cli_common.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 #: argv prompts above this many bytes are written to a file instead.

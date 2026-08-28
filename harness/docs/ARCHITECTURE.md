@@ -99,10 +99,11 @@ codeverse/
                       shared 503 storm gate — ships OFF, docs/COST.md §21 — and the prompt-token
                       estimate); pricing.py (version-suffix-only fallback), health.py (preflight
                       probe: no retries, no backoff), schema_utils.py (strict schema), registry.py
-  agents/             CodingAgent (base.py); gemini_cli.py claude_code.py codex.py antigravity.py
-                      (api_agent.py + api_tools.py + api_skills.py deleted 2026-08-28 —
-                      the vendors already ship the loop), materialize.py, cli_common.py (sessions, retry
-                      trajectory naming, files_changed attribution), watchdog.py, transcript.py, registry.py
+  agents/             registry.py (the CodingAgent protocol + dispatch — every backend is a
+                      vendor CLI; the in-process api-agent died 2026-08-28), backends.py
+                      (gemini-cli / claude-code / codex / antigravity), cli_common.py (sessions,
+                      the watchdog clocks, the transcript, retry trajectory naming,
+                      files_changed attribution), materialize.py
   languages/          LanguageRuntime (base.py); blender/ (multi-file: layout.py, model.py + parts/*.py) cadquery/
                       threejs/ (+ templates.py) urdf/ scene_threejs/ glsl_shader/ (wrap.py header+line-map)
                       opengl_python/ (wrappers/run_gl.py) — each runtime.py, lint.py, skeleton.py, wrappers/;

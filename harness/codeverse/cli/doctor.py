@@ -269,7 +269,7 @@ def check_skills() -> list[Row]:
     A CLI upgrade that moves its skills root ships an empty index and the run still
     passes — the failure is invisible except as a read rate of zero a battery later.  So
     the wiring gets a check you can run before spending money."""
-    from codeverse.agents.claude_code import ALLOWED_TOOLS
+    from codeverse.agents.backends import ALLOWED_TOOLS
     from codeverse.skills import bundle_dirs, skills_dir, validate_bundle
     from codeverse.skills.config import skills_enabled
     from codeverse.skills.materialize import SKILL_ROOTS
