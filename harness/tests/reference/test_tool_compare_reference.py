@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw
 
 import codeverse.spatial.tools  # noqa: F401  (registers every tool)
 from codeverse.contracts.artifacts import RenderSet, RenderView
-from codeverse.reference.types import SYNTH_NOTE
+from codeverse.reference import SYNTH_NOTE
 from codeverse.spatial.registry import ToolContext, get_tool
 from codeverse.workspace import Workspace
 from tests.spatial_tools.conftest import build_stool

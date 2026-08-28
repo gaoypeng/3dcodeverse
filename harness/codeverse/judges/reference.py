@@ -64,7 +64,7 @@ def _diff_enabled(flag: bool) -> bool:
 
 def _conflict_note(info: dict[str, Any]) -> str:
     try:
-        from codeverse.reference.proportions import conflict_note
+        from codeverse.reference import conflict_note
 
         return conflict_note(info)
     except ImportError:  # pragma: no cover
@@ -171,7 +171,7 @@ class ReferenceJudge(VlmJudge):
         if not targets:
             return {"conflict": False}
         try:
-            from codeverse.reference.proportions import dimension_conflict
+            from codeverse.reference import dimension_conflict
 
             return dimension_conflict(inp.spec, targets[0].path)
         except Exception as e:  # noqa: BLE001 — advisory
@@ -194,7 +194,7 @@ class ReferenceJudge(VlmJudge):
         if not _diff_enabled(self.diff):
             return None
         try:
-            from codeverse.reference.mismatch import compare
+            from codeverse.reference import compare
         except ImportError:  # pragma: no cover - the package is part of the wheel
             return None
         targets = [r.path for r in refs if r.role == "target"] or [r.path for r in refs]

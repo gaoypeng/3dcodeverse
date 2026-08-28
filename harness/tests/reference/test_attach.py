@@ -5,13 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from codeverse.contracts.spec import ReferenceImage
-from codeverse.reference.attach import attach, has_user_references, is_synthetic, reference_images
-from codeverse.reference.types import (
+from codeverse.reference import (
     SYNTH_NOTE,
     SYNTH_TAG,
     PlausibilityVerdict,
     ReferenceSet,
     ReferenceView,
+    attach,
+    has_user_references,
+    is_synthetic,
+    reference_images,
 )
 from tests.reference.conftest import make_spec
 

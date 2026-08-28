@@ -147,11 +147,10 @@ codeverse/
                       (plan_digest / resolve_paths / judged_subset — the pure round-replay pieces
                       `3dcv judge` and calibration share)
   reference/          reference GROUNDING — give the pipeline a picture of what it is building:
-                      synth.py (prompt → reference image(s)), gate.py (THE plausibility gate that makes a
-                      synthesized reference safe to use), attach.py (Spec attachment + honesty guards),
-                      proportions.py (does the picture agree with the brief?), mismatch.py (render-vs-
-                      reference IoU + a vision call that names the difference), spec_text.py, prompts.py,
-                      cache.py (content-addressed), run.py (the one call the CLI makes), types.py
+                      one module: synthesis, THE plausibility gate that makes a synthesized
+                      reference safe to use, Spec attachment + honesty guards, proportions
+                      (does the picture agree with the brief?), render-vs-reference diff,
+                      the content-addressed cache and ground_spec (the one call the CLI makes)
   texturing/          plan.py (VLM material plan), generate.py (+ tile.py seam fix), uv.py (world-metre
                       unwrap), apply.py, gate.py (seam + before/after judge), scene_pack.py, run.py (texture_pass),
                       maps.py (PBR map set), materials.py (named material library), normalise.py

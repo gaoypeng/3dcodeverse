@@ -9,8 +9,7 @@ from typer.testing import CliRunner
 
 from codeverse.contracts.spec import ReferenceImage
 from codeverse.events import EventLog
-from codeverse.reference.run import ground_spec
-from codeverse.reference.types import SYNTH_TAG
+from codeverse.reference import SYNTH_TAG, ground_spec
 from codeverse.workspace import Workspace
 from tests.reference.conftest import GOOD_GATE, PROMPT_PLAN, FakeChat, FakeImageModel, make_spec
 
@@ -51,7 +50,7 @@ def test_ground_spec_survives_a_rejected_reference(tmp_ws: Workspace, cache_dir:
 
 
 def test_ground_spec_survives_a_dead_backend(tmp_ws: Workspace, monkeypatch, cache_dir: Path):
-    monkeypatch.setattr("codeverse.reference.run._chat_model",
+    monkeypatch.setattr("codeverse.reference._chat_model",
                         lambda mid: (_ for _ in ()).throw(RuntimeError("no keys")))
     spec = make_spec()
     out, refset, why = ground_spec(spec, tmp_ws, cache_dir=cache_dir)
@@ -65,7 +64,7 @@ def test_cli_flag_calls_the_grounding_and_never_kills_the_run(tmp_path: Path, mo
 
     def fake_ground(spec, ws, *, n_views, model=None, image_model=None, image_model_id="", events=None, cache_dir=None):
         seen["n_views"] = n_views
-        return spec, __import__("codeverse.reference.types", fromlist=["ReferenceSet"]).ReferenceSet(prompt=spec.prompt), "nope"
+        return spec, __import__("codeverse.reference", fromlist=["ReferenceSet"]).ReferenceSet(prompt=spec.prompt), "nope"
 
     monkeypatch.setattr("codeverse.reference.ground_spec", fake_ground)
     res = CliRunner().invoke(app, ["make", "a stool", "--reference", "--reference-views", "1",

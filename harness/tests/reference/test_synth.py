@@ -6,9 +6,14 @@ import json
 from pathlib import Path
 
 from codeverse.models.base import ModelError
-from codeverse.reference.cache import cache_key, template_hash
-from codeverse.reference.prompts import STUDIO_SUFFIX
-from codeverse.reference.synth import compose_image_prompt, synth_reference, views_for
+from codeverse.reference import (
+    STUDIO_SUFFIX,
+    cache_key,
+    compose_image_prompt,
+    synth_reference,
+    template_hash,
+    views_for,
+)
 from tests.reference.conftest import GOOD_GATE, PROMPT_PLAN, FakeChat, FakeImageModel, make_spec
 
 

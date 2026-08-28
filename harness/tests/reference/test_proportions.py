@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-from codeverse.reference.proportions import (
+from codeverse.reference import (
     ASPECT_TOL,
     conflict_note,
     dimension_conflict,

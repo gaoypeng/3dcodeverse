@@ -9,7 +9,7 @@ from codeverse.contracts.spec import ReferenceImage
 from codeverse.judges.base import JudgeInput
 from codeverse.judges.reference import ReferenceJudge
 from codeverse.judges.rubrics import load_rubric
-from codeverse.reference.types import SYNTH_NOTE
+from codeverse.reference import SYNTH_NOTE
 from tests.judges.conftest import (
     FakeChatModel,
     draw_chair,

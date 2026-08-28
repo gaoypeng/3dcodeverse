@@ -7,8 +7,7 @@ from pathlib import Path
 from PIL import Image
 
 from codeverse.models.base import ModelError
-from codeverse.reference.mismatch import compare, refine_tasks
-from codeverse.reference.types import Mismatch, ReferenceDiff
+from codeverse.reference import Mismatch, ReferenceDiff, compare, refine_tasks
 from tests.reference.conftest import FakeChat, make_spec
 
 ANSWER = {
