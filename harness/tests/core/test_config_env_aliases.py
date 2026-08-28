@@ -46,7 +46,7 @@ def test_doctor_prints_a_name_that_is_actually_read():
     """The `pool sharing` row tells people which env var to set; it must be one that works."""
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parents[2] / "codeverse" / "cli" / "doctor.py").read_text()
+    src = (Path(__file__).resolve().parents[2] / "codeverse" / "doctor.py").read_text()  # checks moved out of cli/, 2026-08-28
     assert "CV3D_MAX_IN_FLIGHT=" in src
     assert "CV3D_MAX_IN_FLIGHT" in Settings._FLAT_ALIASES
 

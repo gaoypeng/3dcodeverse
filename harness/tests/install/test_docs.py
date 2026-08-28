@@ -210,7 +210,7 @@ def test_doctor_checks_every_module_of_every_optional_extra(monkeypatch) -> None
     missing pip package reported as a GPU/driver problem."""
     import importlib
 
-    from codeverse.cli.doctor import _OPTIONAL_DEPS, _PY_DEPS, check_python_deps
+    from codeverse.doctor import _OPTIONAL_DEPS, _PY_DEPS, check_python_deps
 
     with (HARNESS / "pyproject.toml").open("rb") as fh:
         extras = tomllib.load(fh)["project"]["optional-dependencies"]
@@ -258,7 +258,7 @@ def test_doctor_checks_every_module_of_every_optional_extra(monkeypatch) -> None
 
 def test_doctor_rows_have_troubleshooting_entries() -> None:
     """Every check `3dcv doctor` can print must appear in the INSTALL troubleshooting table."""
-    from codeverse.cli import doctor as doctor_mod
+    from codeverse import doctor as doctor_mod
 
     text = INSTALL.read_text()
     names = {"python", "python deps", "blender", "node", "three", "puppeteer", "chrome webgl",

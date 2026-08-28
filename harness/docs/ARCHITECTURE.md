@@ -78,6 +78,8 @@ codeverse/
                       (+ SkillsUsage/SkillRead: what was attached, what was read), chat,
                       agent (typed AgentJob)
   workspace.py        run-dir layout + git snapshots
+  doctor.py           the environment checks behind `3dcv doctor` (deps, Blender,
+                      node, GPU probe, keys, pool admission, vendor CLIs, MCP, skills)
   proc.py             stdlib-only subprocess + atomic-JSON primitives (ManagedProcess owns every
                       child's lifecycle: group kill on ANY exception, bounded pumps, stdin writer;
                       run_subprocess, kill_group, tail, write_json_atomic, scrub_secrets) and the tolerant readers/writer
