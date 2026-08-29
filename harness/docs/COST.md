@@ -1159,6 +1159,13 @@ burned earlier the same morning.
 
 ## 25. `max_usd` guards money, and a subscription costs none
 
+> **Since 2026-08-28 the money guard is OFF by default** (`max_usd = 0` in `Budget` and
+> in every profile, owner's call: run first, count later).  Nothing below stops being
+> true — every call is still priced into `telemetry/cost.jsonl`, `3dcv cost` and the
+> run record — but money can no longer END a run.  `--max-usd <n>` puts the ceiling
+> back, and everything in this section then applies exactly as written.  What still
+> bounds a run is `max_minutes`.
+
 `Usage.cost_usd` answers *"what would these tokens cost at list price?"*.  That is the
 right number for a report, a $/complexity point, or a flywheel record — it is comparable
 across backends and independent of who is paying.  It is the wrong number to hand a

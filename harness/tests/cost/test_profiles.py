@@ -46,7 +46,8 @@ def test_balanced_is_todays_defaults():
     s = Settings()
     assert (p.generator, p.planner, p.judge) == (s.default_generator, s.default_planner, s.default_judge)
     assert p.rounds == 4 and p.candidates == s.default_candidates and p.judge_samples == 1
-    assert p.max_usd == 5.0 and p.max_minutes == 60.0 and p.judge_max_px == 1024
+    # max_usd 0 = no money ceiling (owner, 2026-08-28); cost is still recorded on every call
+    assert p.max_usd == 0.0 and p.max_minutes == 60.0 and p.judge_max_px == 1024
 
 
 def test_economy_is_single_shot_flash_and_two_rounds_with_no_turn_cap_of_its_own():
@@ -156,7 +157,7 @@ def test_make_profile_writes_the_whole_shape_onto_the_spec(tmp_path: Path):
     assert r.exit_code == 0, r.output
     spec = json.loads((runs / "pot" / "spec.json").read_text())
     assert spec["options"] == {"candidates": 2, "texture": True, "profile": "quality"}
-    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_usd"] == 8.0
+    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_usd"] == 0.0
     assert spec["backends"]["judge"] == "gemini:gemini-3.1-pro-preview"
 
 
@@ -180,7 +181,7 @@ def test_no_profile_flag_leaves_the_defaults_alone(tmp_path: Path):
     # the resolved dial is recorded whichever way it was named, so `3dcv resume`
     # reproduces it; with no flag and no env that dial is the default, balanced
     assert spec["options"]["profile"] == "balanced" and spec["options"]["texture"] is False
-    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_usd"] == 5.0
+    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_usd"] == 0.0
 
 
 def test_judge_samples_reach_the_round_policy_only_when_a_profile_asks(tmp_path: Path):
@@ -234,17 +235,17 @@ def test_the_flag_and_the_env_var_resolve_to_the_same_dial(name, monkeypatch):
                      "judge": "gemini:gemini-3.7-flash", "judge_samples": 2,
                      "rounds": 2, "candidates": 1, "texture": False,
                      "judge_max_px": 1024, "judge_montages": 3, "judge_detail_crops": 2,
-                     "agent_max_turns": 0, "max_usd": 1.50, "max_minutes": 30.0}),
-        ("balanced", {"generator": "gemini-cli:gemini-3.6-flash",
+                     "agent_max_turns": 0, "max_usd": 0.0, "max_minutes": 30.0}),
+        ("balanced", {"generator": "gemini-cli:gemini-3.7-flash",
                       "judge": "gemini:gemini-3.1-pro-preview", "judge_samples": 1,
                       "rounds": 4, "candidates": 1, "texture": False,
                       "judge_max_px": 1024, "judge_montages": 3, "judge_detail_crops": 2,
-                      "agent_max_turns": 0, "max_usd": 5.0, "max_minutes": 60.0}),
-        ("quality", {"generator": "gemini-cli:gemini-3.6-flash",
+                      "agent_max_turns": 0, "max_usd": 0.0, "max_minutes": 60.0}),
+        ("quality", {"generator": "gemini-cli:gemini-3.7-flash",
                      "judge": "gemini:gemini-3.1-pro-preview", "judge_samples": 3,
                      "rounds": 4, "candidates": 2, "texture": True,
                      "judge_max_px": 1024, "judge_montages": 3, "judge_detail_crops": 2,
-                     "agent_max_turns": 0, "max_usd": 8.0, "max_minutes": 90.0}),
+                     "agent_max_turns": 0, "max_usd": 0.0, "max_minutes": 90.0}),
     ],
 )
 def test_each_profile_resolves_to_its_documented_dial(name, expected, monkeypatch):

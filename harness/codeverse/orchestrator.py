@@ -1008,7 +1008,9 @@ class BudgetGuard:
         """Raise ``BudgetExceeded`` if any hard ceiling has been crossed."""
         spent = self.billed_usd
         elapsed = self.elapsed_minutes()
-        if spent > self.hard_usd:
+        # max_usd == 0 means no money ceiling (the default since 2026-08-28); cost is
+        # still accumulated above, so every report and the ledger still know what it cost.
+        if self.budget.max_usd > 0 and spent > self.hard_usd:
             raise BudgetExceeded(
                 f"cost ${spent:.3f} exceeds max_usd ${self.hard_usd:.2f}",
                 spent_usd=spent,
@@ -1033,7 +1035,7 @@ class BudgetGuard:
         """Reason string when the soft sub-budget is used up, else ``""``."""
         usd, minutes = self.soft_limits()
         spent, elapsed = self.billed_usd, self.elapsed_minutes()
-        if spent > usd:
+        if self.budget.max_usd > 0 and spent > usd:
             return f"cost ${spent:.3f} exceeds soft cap ${usd:.2f} ({self.soft_fraction:.0%} of ${self.budget.max_usd:.2f})"
         if elapsed > minutes:
             return f"elapsed {elapsed:.1f} min exceeds soft cap {minutes:.1f} min ({self.soft_fraction:.0%} of {self.budget.max_minutes:.1f})"

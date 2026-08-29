@@ -104,7 +104,7 @@ def run_cmd(
     judge: Annotated[str | None, typer.Option("--judge", help="fixed judge model for the whole battery")] = None,
     parallel: Annotated[int, typer.Option("--parallel", min=1)] = 4,
     rounds: Annotated[int, typer.Option("--rounds", min=0)] = 4,
-    max_usd: Annotated[float, typer.Option("--max-usd")] = 5.0,
+    max_usd: Annotated[float, typer.Option("--max-usd", help="0 = no ceiling (cost is still recorded)")] = 0.0,
     max_minutes: Annotated[float, typer.Option("--max-minutes", help="wall-clock budget per run; size it to the weather "
                                                                    "(RUNBOOK 7.x: 120 in a 503 storm, else runs burn the hour with no judged round)")] = 60.0,
     limit: Annotated[int | None, typer.Option("--limit")] = None,

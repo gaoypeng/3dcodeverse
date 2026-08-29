@@ -133,13 +133,18 @@ class Budget(BaseModel):
 
     The ceilings are non-negative by construction.  A negative one is not a small
     budget, it is an unrunnable one: ``BudgetGuard.ok()`` is False before a single
-    token is spent, the first charge raises ``BudgetExceeded: cost $0.001 exceeds
-    max_usd $-2.50``, and ``grant_grace`` cannot lift a hard ceiling back above zero —
+    token is spent and ``grant_grace`` cannot lift a hard ceiling back above zero —
     so the workspace and the git-committed spec are created for a run that can only die.
+
+    ``max_usd = 0`` means NO MONEY CEILING, and that is the default (owner, 2026-08-28:
+    "先不计成本，就是run就好了").  Cost is still measured on every call — the ledger,
+    `3dcv cost`, the run record and the bench economics are untouched; money simply
+    stops being a thing that can end a run.  Pass ``--max-usd`` to put the ceiling back.
+    Time still bounds a run: that is ``max_minutes``, and without it nothing ends.
     """
 
     max_rounds: int = Field(default=4, ge=0)
-    max_usd: float = Field(default=5.0, ge=0)
+    max_usd: float = Field(default=0.0, ge=0, description="0 = no ceiling (cost is still recorded)")
     max_minutes: float = Field(default=60.0, ge=0)
     max_repair_attempts: int = Field(default=3, ge=0)  # per build failure before escalating
 
@@ -150,7 +155,7 @@ class Backends(BaseModel):
     * API chat models:  ``gemini:gemini-3.7-flash`` · ``anthropic:claude-sonnet-5``
       · ``openai:gpt-5.6-sol``
     * Coding agents:    ``gemini-cli:gemini-3.7-flash`` · ``claude-code:sonnet``
-      · ``codex:gpt-5.6-sol`` · ``agy:gemini-3.6-flash-high``
+      · ``codex:gpt-5.6-sol`` · ``agy:gemini-3.7-flash-high``
 
     The coding agent is always a VENDOR agent: the harness supplies the workspace, the
     prompt and its 3D tools (over MCP) and reads the result.  The in-process
@@ -159,7 +164,7 @@ class Backends(BaseModel):
     """
 
     planner: str = "gemini:gemini-3.7-flash"
-    generator: str = "gemini-cli:gemini-3.6-flash"
+    generator: str = "gemini-cli:gemini-3.7-flash"
     # The judge drives the refine loop: the pro tier has ~3x lower sample noise than
     # flash (calibration 2026-08-23: std 0.03 vs 0.08-0.12) for ~$0.07 per verdict.
     judge: str = "gemini:gemini-3.1-pro-preview"

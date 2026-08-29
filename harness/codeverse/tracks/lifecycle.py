@@ -709,9 +709,10 @@ class BaseTrack:
         already stopping on budget."""
         if rounds or ctx.state.completed_rounds or ctx.plan is None:
             return  # nothing was built yet (the PLAN itself blew the budget) → nothing to salvage
-        if not ctx.budget.ok() and ctx.budget.spent.cost_usd > ctx.budget.hard_usd * 2:
-            return  # runaway spend: do not throw good money after bad
-        grace_usd = max(0.15, ctx.spec.budget.max_usd * 0.10)
+        cap = ctx.spec.budget.max_usd
+        if cap > 0 and not ctx.budget.ok() and ctx.budget.spent.cost_usd > ctx.budget.hard_usd * 2:
+            return  # runaway spend against a real ceiling: do not throw good money after bad
+        grace_usd = max(0.15, cap * 0.10)
         grace_min = max(5.0, ctx.spec.budget.max_minutes * 0.15)
         ctx.budget.grant_grace(usd=grace_usd, minutes=grace_min)
         ctx.events.emit("budget.salvage", reason="no round completed before the budget stop",

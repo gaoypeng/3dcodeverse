@@ -63,7 +63,13 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
   drops workspace MCP servers), `codex` 0.147+ (MCP needs
   `default_tools_approval_mode="approve"`), `claude` 2.1, `agy` 1.1 — the last three run
   on local subscriptions: test lightly.  No Anthropic/OpenAI API keys here.
-- Main test model: `gemini-3.7-flash` (lenient judge; needs the defect checklist for
+- Main test model: `gemini-3.7-flash` — and since 2026-08-28 it is also the DEFAULT
+  generator (`gemini-cli:gemini-3.7-flash`), verified live through the harness on both
+  vendor paths: gemini-cli completes and is not silently substituted, and `agy` 1.1.22
+  lists and serves `gemini-3.7-flash-{high,medium,low}`.  A BARE `gemini -m ...` is
+  substituted down to 3.5-flash — the harness's per-session system settings file is
+  what prevents that, so never judge model availability with a raw CLI probe.
+  (lenient judge; needs the defect checklist for
   range).  Judge default `gemini-3.1-pro-preview` (`Settings.default_judge`; tracks use
   n_samples=1); flash + `--n 3` is the cheap fallback, pro for calibration/eval.
 - Live runs under `runs/` (`e2e_*`): read-only reference material; never modify.
@@ -79,7 +85,7 @@ cd /home/yipeng/3dcodeverse/harness
 3dcodeverse make "..." --profile economy|balanced|quality   # one dial: models, judge n, rounds, candidates, texture, ceilings (--profile == CV3D_PROFILE)
 3dcodeverse make "..." --track static_object --language threejs --generator gemini-cli:gemini-3.7-flash
 3dcodeverse make "..." --track articulated_object --language urdf_blender
-3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-usd 3
+3dcodeverse make "..." --track scene --language scene_threejs --rounds 2   # --max-usd is OFF by default (0 = no ceiling); cost is still recorded
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
 3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --texture --no-run
 3dcv resume <slug> · 3dcv status <slug> · 3dcv render <slug> [--mode wire] · 3dcv judge <slug> [--model ... --n 3]
