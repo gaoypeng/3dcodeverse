@@ -1,0 +1,13 @@
+For this task the object you are building is a PROP for a larger scene, not a standalone
+deliverable. What changes:
+
+* The asset sheet in the task below is the contract — its name, size (±5%) and description
+  outrank any instinct about what the "complete" object would have. The scene only sees it
+  at scene distance; spend detail on silhouette and the 2-3 features a person would name,
+  not on close-up hardware.
+* Stand it on the ground (lowest point at z=0) with the footprint centred on the origin —
+  the scene's zone code places it by its origin and assumes exactly this.
+* Keep it light: it will be instanced. Stay inside the triangle budget the task states;
+  prefer fewer, better-shaped parts over many small ones.
+* The GLB is loaded by a three.js scene: no lights, no cameras, no render or export calls,
+  and nothing outside the asset itself (no ground plane, no environment).

@@ -34,7 +34,7 @@ from codeverse.proc import fan_out, write_json_atomic, write_text_atomic
 from codeverse.prompts import render
 from codeverse.tracks.common import RunContext, language_contract, load_prompt_or
 from codeverse.tracks.generation import SINGLE_SHOT_PREFIX, GenerationTask, generate, is_single_shot
-from codeverse.tracks.prompting import base_prompt_context
+from codeverse.tracks.prompting import base_prompt_context, language_system_prompt
 from codeverse.tracks.repair import build_with_repair
 from codeverse.workspace import Workspace
 
@@ -231,9 +231,7 @@ def _generate_asset(ctx: RunContext, asset: AssetPlan, rel: str, *, language: La
     if feedback:
         prompt = prompt + "\n\n" + feedback + "\n## Current file (rewrite it COMPLETELY)\n```\n" + _read(ctx.ws, rel, 24_000) + "\n```\n"
     task = GenerationTask(label=label, prompt=prompt,
-                          system=("You write ONE self-contained three.js ESM asset module. Raw three.js only; no DOM; no texture loading."
-                                  if language is Language.SCENE_THREEJS else
-                                  "You write ONE raw bpy script (src/model.py) that builds a single scene asset. No SDKs, no render/export calls."),
+                          system=_asset_system(ctx, language),
                           files_hint=[rel], round=attempt, kind="asset", temperature=0.5, timeout_s=timeout_s,
                           # threejs assets share the scene workspace (a stray write would hit
                           # zones/env); blender heroes own their whole sub-workspace
@@ -384,6 +382,23 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
 
 
 # ----------------------------------------------------------------------------- helpers
+def _asset_system(ctx: RunContext, language: Language) -> str:
+    """The system prompt for one asset generation — same language, DIFFERENT task.
+
+    A blender hero runs the full static-object machinery (plan, gates, judge) in its
+    sub-workspace, so it gets the blender language base COMPOSED with the prop-for-a-scene
+    role overlay.  A three.js asset module is not a scene build at all — the scene_threejs
+    base (lighting, cameras, multi-file) would mislead it — so it gets the dedicated
+    asset-module prompt instead of that base.
+    """
+    if language is Language.SCENE_THREEJS:
+        return load_prompt_or(
+            "scene_threejs/asset.md",
+            "You write ONE self-contained three.js ESM asset module. Raw three.js only; no DOM; no texture loading.",
+        ).strip()
+    return language_system_prompt(Language.BLENDER, role="asset", tools=not is_single_shot(ctx.agent_id))
+
+
 def _asset_prompt(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language) -> str:
     prompt = render("tracks/scene_asset.j2", **base_prompt_context(
         ctx, asset_name=asset.name, asset_kind=asset.kind, asset_description=asset.description, asset_size=asset.approx_size_m,

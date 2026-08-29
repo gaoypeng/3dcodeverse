@@ -19,8 +19,19 @@ def no_brief_expansion(monkeypatch) -> None:
     A fake planner model answers one canned plan per request; the extra brief call would
     eat it and every ``FakeChatModel(lambda req: answers.pop(0))`` in here would go one
     answer out of step.  The tests that exercise the brief set ``CV3D_PLAN_BRIEF=on``
-    themselves (``test_planner_depth.py``)."""
+    themselves (``test_planner_depth.py``).
+
+    Also clear the global Settings cache around each test: ``get_settings()`` is an
+    ``lru_cache`` singleton that snapshots ``CV3D_*`` env vars at first construction, so
+    whichever test happens to touch it first bakes ITS monkeypatched env into every later
+    test in the worker — ``test_fewer_turns`` failed alone and passed in file order for
+    exactly this reason."""
+    from codeverse.config import get_settings
+
     monkeypatch.setenv("CV3D_PLAN_BRIEF", "off")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture
