@@ -522,3 +522,17 @@ rate, build-fail rate, cost, minutes); pairwise table; number of degraded verdic
 re-run; **cells dropped as `infra_failed` and `budget_exhausted`, per arm** (§7 — an
 omitted drop count is an unreadable table); links to `record.json` / `report.html`
 under `bench/out/`.
+
+## Judge experiments log
+
+**2026-08-29 — flash "named-feature sweep" prompt variant: REJECTED.**  Re-judged 9 recorded
+runs spanning stored 0.02–0.98 with `gemini-3.7-flash` n=3, base prompt vs a variant that
+inserts an explicit present/absent sweep of brief-named features before scoring.  The one
+confirmed leniency case (a violin missing its f-holes, judged ~0.43 by pro; renders eyeballed)
+did not move (0.898 → 0.888) and mean overall σ doubled (0.014 → 0.032); espresso gained an
+honest interpenetration defect, chair/penny unchanged.  Root cause of the violin miss sits in
+the PLAN (no FHoles part — see the defining-features rule added to `plan_static.j2` the same
+day), not in judge prose.  Flash stays a ranking/fallback judge; pro stays the verdict judge.
+Two calibration-tool defects found the same day (colliding `run` labels overwriting judgment
+files; old records whose stored overall contradicts their own criterion scores) are fixed in
+`judges/calibration.py` and flagged in its report.
