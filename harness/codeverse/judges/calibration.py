@@ -41,6 +41,14 @@ log = logging.getLogger(__name__)
 GEOMETRY_VIEW_NAMES = ("front_right_34", "back_left_34", "top", "low_front_left")
 
 
+def _run_label(run_dir: Path) -> str:
+    """A label that stays unique across a battery: bench cells all end in ``.../run``, so
+    ``run_dir.name`` collided for every cell and their judgment files overwrote each other."""
+    parts = run_dir.resolve().parts
+    tail = [q for q in parts[-3:] if q not in ("runs", "cells")]
+    return "_".join(tail[-2:]) if tail[-1] == "run" else tail[-1]
+
+
 # --------------------------------------------------------------------------- data
 class RoundCase(BaseModel):
     """One judgeable round reconstructed from a run directory."""
@@ -57,6 +65,17 @@ class RoundCase(BaseModel):
     glb: str | None = None
 
 
+def _stored_weighted(case: RoundCase) -> float | None:
+    from codeverse.judges.rubrics import load_rubric
+
+    if not case.stored or not case.stored.scores:
+        return None
+    try:
+        return round(load_rubric(case.rubric).weighted_overall(case.stored.scores), 3)
+    except Exception:  # noqa: BLE001 — a retired rubric name must not kill the report
+        return None
+
+
 class CalibrationRow(BaseModel):
     run: str
     round: int
@@ -64,6 +83,10 @@ class CalibrationRow(BaseModel):
     gate_errors: int
     gate_warnings: int
     stored_overall: float | None = None
+    #: the stored PER-CRITERION scores re-weighted by today's rubric — old records exist
+    #: whose overall contradicts their own scores (a violin: scores→0.428, overall 0.018),
+    #: and a correlation against such an overall measures the corruption, not the judge
+    stored_weighted: float | None = None
     stored_backend: str = ""
     mean: float
     std: float
@@ -99,6 +122,9 @@ class CalibrationTable(BaseModel):
         lines = [head]
         for r in self.rows:
             stored = f"{r.stored_overall:.3f}" if r.stored_overall is not None else "-"
+            if (r.stored_overall is not None and r.stored_weighted is not None
+                    and abs(r.stored_overall - r.stored_weighted) > 0.05):
+                stored += f" (w {r.stored_weighted:.3f}!)"
             lines.append(
                 f"| {r.run} | r{r.round:02d} | {r.kind} | {r.gate_errors}/{r.gate_warnings} | {stored} | "
                 f"{r.mean:.3f} ± {r.std:.3f} | {r.uncapped:.3f} | -{r.defect_penalty:.2f} | "
@@ -154,7 +180,7 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
             round_index=rec.index,
         )
         cases.append(RoundCase(
-            run=run_dir.name, round_index=rec.index, kind=rec.kind, rubric=rubric, inp=inp,
+            run=_run_label(run_dir), round_index=rec.index, kind=rec.kind, rubric=rubric, inp=inp,
             gate_errors=sum(len(g.errors) for g in rec.gates),
             gate_warnings=sum(1 for g in rec.gates for f in g.findings if f.severity.value == "warn"),
             stored=rec.judgment, is_best=(best == rec.index) if best is not None else False,
@@ -219,6 +245,7 @@ def _judge_case(case: RoundCase, judge: VlmJudge, geometry: RenderSet | None, ou
     return CalibrationRow(
         run=case.run, round=case.round_index, kind=case.kind, gate_errors=case.gate_errors, gate_warnings=case.gate_warnings,
         stored_overall=case.stored.overall if case.stored else None,
+        stored_weighted=_stored_weighted(case),
         stored_backend=case.stored.judge_backend if case.stored else "",
         mean=j.overall, std=j.score_std, uncapped=float(raw.get("overall_uncapped", j.overall)),
         defect_penalty=float(raw.get("defect_penalty", 0.0)),
