@@ -33,7 +33,7 @@ GENERATION_SIDE: frozenset[str] = frozenset({CONTACTS})
 #: pin costs one noisy A/B, pinning wrongly costs a confident wrong answer
 #: (docs/EVAL.md §8.1 measured it — the A/A's worst pair differed 1 part vs 10).
 GENERATION_SIDE_ENV: frozenset[str] = frozenset({"CV3D_SKILLS", "CV3D_SKILLS_MAX", "CV3D_SKILLS_UNVERIFIED",
-                                                 "CV3D_SKILLS_ONLY",
+                                                 "CV3D_SKILLS_ONLY", "CV3D_ART_REPAIRS",
                                                  "CV3D_DETAIL_ROUNDS", "CV3D_REFERENCE_DIFF",
                                                  "CV3D_FEWER_TURNS", "CV3D_SEED_RECIPES"})
 
@@ -78,6 +78,9 @@ LIVE_SWITCHES: dict[str, str] = {
     # prompt inlines its files, the baseline prompt asks for every file in turn 1.  One
     # switch, read at call time by config.fewer_turns_enabled; acts after planning.
     "CV3D_FEWER_TURNS": "codeverse/config.py",
+    # deterministic articulated repairs (axis flip on a reversed joint, buried-link check);
+    # act after planning — an A/B over it may --pin-plan
+    "CV3D_ART_REPAIRS": "codeverse/tracks/articulated_repairs.py",
     "CV3D_SEED_RECIPES": "codeverse/config.py",
     # model-transport switches (2026-08-28, the hung-read waves): streaming with
     # inter-chunk stall detection, and the IPv4-only transport.  Read at call time

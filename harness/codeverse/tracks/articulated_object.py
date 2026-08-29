@@ -26,6 +26,11 @@ from codeverse.contracts.common import TRACK_INFO, Track
 from codeverse.contracts.plan import ArticulatedPlan, Plan
 from codeverse.conventions import to_snake
 from codeverse.spatial.render import RenderError
+from codeverse.tracks.articulated_repairs import (
+    buried_links,
+    repair_motion_directions,
+    repairs_enabled,
+)
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.static_object import ObjectPipeline, StaticObjectTrack
 from codeverse.workspace import Workspace
@@ -40,11 +45,16 @@ class ArticulatedPipeline(ObjectPipeline):
 
     def gates(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> list[GateReport]:
         out = super().gates(ctx, round_index, build, measurement)
+        # motion first: with CV3D_ART_REPAIRS a reversed joint is flipped in robot.urdf
+        # before the sweep, so the pose sheet the judge sees shows the repaired motion
+        motion = self._motion_gate(ctx)
+        if motion is not None and motion.errors and repairs_enabled():
+            motion = repair_motion_directions(ctx.ws, ctx.plan, motion, recheck=ctx.services.motion_checks,
+                                              events=ctx.events)
         out_dir = ctx.ws.renders_dir(round_index) / "poses"
         report, views = ctx.services.joint_sweep(ctx.ws, ctx.plan, out_dir)
         ctx.extra["pose_views"] = views
         out.append(report)
-        motion = self._motion_gate(ctx)
         if motion is not None:
             out.append(motion)
         return out
@@ -125,6 +135,11 @@ def default_joint_sweep(ws: Workspace, plan: Plan | None, out_dir: Path) -> tupl
             fix_hint="fix robot.urdf so every link has a mesh under meshes/<link>.glb and joints form one tree")]), []
     findings = [f.model_copy(update={"gate": SWEEP_GATE})
                 for f in joints.aggregate_findings(joints.sweep_findings(report))]
+    if repairs_enabled():
+        try:
+            findings += [f.model_copy(update={"gate": SWEEP_GATE}) for f in buried_links(robot)]
+        except Exception as e:  # noqa: BLE001 — an extra check never fails the gate
+            log.warning("buried-link check failed: %s", e)
     gate = GateReport(gate=SWEEP_GATE, passed=not any(f.severity == Severity.ERROR for f in findings), findings=findings,
                       duration_ms=int((time.time() - t0) * 1000))
     views: list[RenderView] = []
