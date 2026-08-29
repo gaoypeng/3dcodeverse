@@ -279,8 +279,7 @@ def _cost_panel(entry: RunEntry, ws: Workspace, rec: RunRecord) -> str:
         for s in sorted(cost.by_stage, key=lambda s: -s.cost_usd))
     totals = "".join([
         _kv("total", f"${cost.total_usd:.4f}"),
-        _kv("budget", f"${cost.budget_usd:.2f}" + (f" ({cost.budget_used_pct:.0f}% used)"
-                                                   if cost.budget_used_pct is not None else "")),
+
         _kv("calls", str(cost.n_calls)),
         _kv("wall clock", f"{cost.wall_clock_s / 60:.1f} min"),
         _kv("unattributed", f"${cost.unattributed_usd:.4f}"),

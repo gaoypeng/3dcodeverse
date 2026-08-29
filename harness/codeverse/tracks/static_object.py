@@ -311,7 +311,7 @@ class StaticObjectTrack(BaseTrack):
                                       n_parts=len(scope.parts), names=", ".join(scope.names))
 
     def system_prompt(self, ctx: RunContext) -> str:
-        return language_system_prompt(ctx.language)
+        return language_system_prompt(ctx.language, tools=not ctx.single_shot)
 
     def round_files_hint(self, ctx: RunContext) -> list[str]:
         return expected_files(ctx)

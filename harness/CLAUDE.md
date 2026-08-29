@@ -85,7 +85,10 @@ cd /home/yipeng/3dcodeverse/harness
 3dcodeverse make "..." --profile economy|balanced|quality   # one dial: models, judge n, rounds, candidates, texture, ceilings (--profile == CV3D_PROFILE)
 3dcodeverse make "..." --track static_object --language threejs --generator gemini-cli:gemini-3.7-flash
 3dcodeverse make "..." --track articulated_object --language urdf_blender
-3dcodeverse make "..." --track scene --language scene_threejs --rounds 2   # --max-usd is OFF by default (0 = no ceiling); cost is still recorded
+3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-minutes 60
+# There is NO cost ceiling and no --max-usd (owner, 2026-08-28: run first, count later).
+# Cost is still priced onto every call — 3dcv cost, the ledger and the run record are
+# untouched; --max-minutes / --rounds are what bound a run.
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
 3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --texture --no-run
 3dcv resume <slug> · 3dcv status <slug> · 3dcv render <slug> [--mode wire] · 3dcv judge <slug> [--model ... --n 3]

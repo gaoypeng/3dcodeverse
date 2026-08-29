@@ -193,7 +193,7 @@ def test_a_spec_edit_without_force_is_refused_before_anything_runs(completed_run
     assert json.loads(ws.record_path.read_text())["status"] != "failed"
 
     # the sanctioned budget raise (outside the fingerprint) still resumes plainly
-    spec3 = make_spec(language=Language.BLENDER, max_rounds=0, max_usd=50.0)
+    spec3 = make_spec(language=Language.BLENDER, max_rounds=0)
     ws.write_json(ws.spec_path, spec3)
     rec3 = run.rerun(spec=spec3, resume=True)
     assert [r.index for r in rec3.rounds] == [0]

@@ -259,7 +259,6 @@ class ResolvedDial:
     rounds: int
     candidates: int
     texture: bool
-    max_usd: float
     max_minutes: float
 
 
@@ -269,7 +268,6 @@ def resolve_dial(
     *,
     rounds: int | None = None,
     candidates: int | None = None,
-    max_usd: float | None = None,
     max_minutes: float | None = None,
     texture: bool = False,
 ) -> ResolvedDial:
@@ -305,7 +303,6 @@ def resolve_dial(
         rounds=prof.rounds if rounds is None else int(rounds),
         candidates=int(settings.default_candidates if candidates is None else candidates),
         texture=bool(texture or prof.texture),
-        max_usd=prof.max_usd if max_usd is None else float(max_usd),
         max_minutes=prof.max_minutes if max_minutes is None else float(max_minutes),
     )
 

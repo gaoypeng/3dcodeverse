@@ -516,7 +516,7 @@ cd harness
 3dcv make "a slow rotating neon hex grid" \
     --track graphics --language glsl_shader \
     --generator single-shot:gemini:gemini-3.7-flash \
-    --rounds 0 --max-usd 0.30 --max-minutes 20 \
+    --rounds 0 --max-minutes 20 \
     --runs-dir /tmp/cv3d_smoke
 3dcv status <slug> --runs-dir /tmp/cv3d_smoke
 ```

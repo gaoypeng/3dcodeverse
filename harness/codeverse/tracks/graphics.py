@@ -488,7 +488,7 @@ class GraphicsTrack(BaseTrack):
 
     # ------------------------------------------------------------------ baseline
     def system_prompt(self, ctx: RunContext) -> str:
-        return language_system_prompt(ctx.language)
+        return language_system_prompt(ctx.language, tools=not ctx.single_shot)
 
     def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
         files = graphics_expected_files(ctx)

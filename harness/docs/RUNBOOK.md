@@ -49,7 +49,7 @@ python -m pytest tests -q -m live                      # OPT-IN: real API calls
 # articulated object — bpy links + URDF
 3dcv make "a bedside cabinet with one hinged door and one drawer" --track articulated_object --language urdf_blender
 # scene — multi-file three.js + GLSL (+ optional bpy GLB assets chosen by the planner)
-3dcv make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs --rounds 2 --max-usd 3 --max-minutes 60
+3dcv make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs --rounds 2 --max-minutes 60
 # graphics — animated shader / raw OpenGL program
 3dcv make "neon cyberpunk rain on a window with bokeh city lights" --track graphics --language glsl_shader
 3dcv make "instanced pastel cubes with bloom" --track graphics --language opengl_python
@@ -60,7 +60,7 @@ silhouette gate + IoU refine tasks), `--rounds N` (refine rounds after the basel
 `--candidates N` (best-of-N baseline: N parallel candidates in `<ws>/_cand/`,
 quick-judged, pairwise tie-break, winner kept; multiplies baseline cost ≈ N;
 default from `settings.default_candidates`), `--texture` (run the texture pass after
-finalise; see §6), `--max-usd`, `--max-minutes`, `--dim height=0.45`, `--must`,
+finalise; see §6), `--max-minutes` (there is no cost ceiling), `--dim height=0.45`, `--must`,
 `--must-not`, `--style`, `--tag`, `--seed`, `--slug`, `--runs-dir`, `--force`,
 `--no-run` (workspace + spec.json only — except that `--reference` still runs its
 paid grounding pass first, since the grounded spec is what it writes).
@@ -68,7 +68,7 @@ paid grounding pass first, since the grounded spec is what it writes).
 Expected cost/time with gemini-3.7-flash: object tracks ≈ $0.7–0.9 and 12–36 min for
 baseline + 1 refine; best-of-2 single-shot ≈ $0.25 / 8 min; graphics single-shot
 ≈ $0.05 / 2 min per judged round; scenes ≈ $2.3 and 30 min before the first judged
-round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60 --max-usd 4`).
+round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 
 ## 3. Backends
 
@@ -146,7 +146,7 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 ```bash
 3dcv resume <slug> [--candidates N]     # continues from run_state + stages/*.json (input-hash cached).  The budget
                                         # SNAPSHOT is restored: money/calls/active-minutes already spent still count,
-                                        # so a raised --max-usd grants only the difference (downtime is never billed)
+                                        # so a raised --max-minutes grants only the difference (downtime never counts)
 3dcv render <slug> [--round N] [--mode shaded|wire|normals|clay|silhouette] [--out dir]
 3dcv judge <slug> [--round N] [--rubric static_object_v1] [--model gemini:gemini-3.1-pro-preview] [--n 3]
                                         # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json

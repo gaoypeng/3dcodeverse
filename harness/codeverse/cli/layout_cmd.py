@@ -176,8 +176,7 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
     cost, settings = tele.cost, tele.settings
     if cost is not None:
         u = cost.tokens
-        budget_line = (f"{fmt_usd(cost.total_usd)} of {fmt_usd(cost.budget_usd)}"
-                       f"{'' if cost.budget_used_pct is None else f' ({cost.budget_used_pct:.0f}%)'}")
+        budget_line = fmt_usd(cost.total_usd)
         console.print(kv_table("cost", {
             "spent / budget": budget_line,
             "wall clock": f"{cost.wall_clock_s / 60:.1f} min of {cost.max_minutes:.0f} min",

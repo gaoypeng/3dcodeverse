@@ -434,7 +434,7 @@ class SceneTrack(BaseTrack):
 
     # ------------------------------------------------------------------ helpers
     def system_prompt(self, ctx: RunContext) -> str:
-        return language_system_prompt(ctx.language)
+        return language_system_prompt(ctx.language, tools=not ctx.single_shot)
 
     def _ctx(self, ctx: RunContext, **extra: Any) -> dict[str, Any]:
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]

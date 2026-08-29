@@ -153,7 +153,7 @@ def test_graphics_v2_opengl_prompts_carry_language_override():
             assert prompt.language == Language.OPENGL_PYTHON, f"{prompt.id}: missing language override"
         else:
             assert prompt.language is None, f"{prompt.id}: unexpected language override"
-        spec = build_spec(b, prompt, backends=backends, rounds=1, max_usd=1, max_minutes=1, tag0="t")
+        spec = build_spec(b, prompt, backends=backends, rounds=1, max_minutes=1, tag0="t")
         want = Language.OPENGL_PYTHON if prompt.id.startswith("ogl_") else Language.GLSL_SHADER
         assert spec.language == want, f"{prompt.id}: spec language {spec.language} != {want}"
 

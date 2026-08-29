@@ -148,7 +148,7 @@ _STATUS: dict[str, RunStatus] = {
 
 def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
     """Only the spec fields the PLAN depends on: hashing the whole Spec meant that
-    raising ``budget.max_usd`` in spec.json (the only way to continue a BUDGET-stopped
+    raising ``budget.max_minutes`` in spec.json (the only way to continue a BUDGET-stopped
     run) re-planned + re-skeletoned on resume, overwriting src/ under existing rounds."""
     return {
         "prompt": spec.prompt,
@@ -709,14 +709,10 @@ class BaseTrack:
         already stopping on budget."""
         if rounds or ctx.state.completed_rounds or ctx.plan is None:
             return  # nothing was built yet (the PLAN itself blew the budget) → nothing to salvage
-        cap = ctx.spec.budget.max_usd
-        if cap > 0 and not ctx.budget.ok() and ctx.budget.spent.cost_usd > ctx.budget.hard_usd * 2:
-            return  # runaway spend against a real ceiling: do not throw good money after bad
-        grace_usd = max(0.15, cap * 0.10)
         grace_min = max(5.0, ctx.spec.budget.max_minutes * 0.15)
-        ctx.budget.grant_grace(usd=grace_usd, minutes=grace_min)
-        ctx.events.emit("budget.salvage", reason="no round completed before the budget stop",
-                        grace_usd=round(grace_usd, 3), grace_minutes=round(grace_min, 1))
+        ctx.budget.grant_grace(minutes=grace_min)
+        ctx.events.emit("budget.salvage", reason="no round completed before the clock stop",
+                        grace_minutes=round(grace_min, 1))
         try:
             if not self.prepare_salvage(ctx):
                 ctx.events.emit("budget.salvage_skipped", reason="nothing buildable to salvage")
@@ -820,8 +816,8 @@ class BaseTrack:
             # visible, but NOT `budget.exceeded`: that event means "the loop stopped",
             # and a texture pass runs after the loop has already finished.
             ctx.events.emit("budget.overrun", stage="texture",
-                            reason=f"the texture pass took the run past its ceiling "
-                                   f"(${ctx.budget.spent.cost_usd:.3f} of ${ctx.budget.hard_usd:.2f})",
+                            reason=f"the texture pass took the run past its wall-clock ceiling "
+                                   f"(spent ${ctx.budget.spent.cost_usd:.3f})",
                             spent_usd=round(ctx.budget.spent.cost_usd, 4))
 
     @staticmethod

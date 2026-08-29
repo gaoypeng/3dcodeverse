@@ -137,7 +137,6 @@ class AbOptions(BaseModel):
         default=None, description="planner for BOTH arms (None → settings default)"
     )
     rounds: int = 2
-    max_usd: float = 2.5
     max_minutes: float = 45.0
     n_samples: int = 2
     ids: list[str] = Field(default_factory=list)
@@ -171,7 +170,6 @@ class AbOptions(BaseModel):
             loop_judge=self.loop_judge,
             planner=self.planner,
             rounds=self.rounds,
-            max_usd=self.max_usd,
             max_minutes=self.max_minutes,
             n_samples=self.n_samples,
             resume=self.resume,
@@ -655,7 +653,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         loop_judge=ns.loop_judge,
         planner=ns.planner,
         rounds=ns.rounds,
-        max_usd=ns.max_usd,
         max_minutes=ns.max_minutes,
         n_samples=ns.n_samples,
         ids=[i for i in ns.ids.split(",") if i],

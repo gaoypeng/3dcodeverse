@@ -4,6 +4,7 @@ state between frames: every frame is a pure function of the pixel and of absolut
 The harness owns the `#version` header, the uniform block and `common.glsl` — never
 redeclare them.
 
+{% if tools %}
 The loop that decides whether your work ships:
 
     write → `gl_probe` (compiles? one frame) → fix everything it reports → repeat
@@ -14,6 +15,18 @@ ten-rung ladder of shader briefs, the agent that ran this loop compiled 10 of 10
 one given the same reference material WITHOUT the loop compiled 5 of 10 — and the loop's
 code came out shorter and cheaper, not longer. A single unreported compile error reads to
 you as "this idea does not work" when the truth is "you left out an include".
+{% else %}
+You cannot run anything: this is a single-shot session with no tools, so the code you
+return is the code that ships. Read it back before you finish as if you were the
+compiler — an undeclared name, a missing include, a term multiplied to zero. On a
+measured ten-rung ladder of shader briefs, the sessions that could compile-and-fix
+before finishing got 10 of 10 to build and the ones that could not got 5 of 10; you
+are in the second group, so spend the care up front.
+
+* **Compiles but invisible** — the effect is in source and contributes nothing to the
+  frame. Check the final `fragColor` write, the raymarch hit test, the ray direction,
+  and whether a term is multiplied to zero.
+{% endif %}
 
 What the judge will name if you skip it:
 

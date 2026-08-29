@@ -379,32 +379,18 @@ def test_the_ab_viewer_refuses_to_call_a_winner_it_cannot_support():
     assert head.startswith("Inconclusive") and "1 of 1" in why
 
 
-def test_no_money_ceiling_does_not_silently_disable_the_degraded_flag():
-    """`max_usd = 0` means no ceiling — it must not read as "the ceiling is $0".
-
-    The flag exists because of compare_v4 (2026-08-25): under a day-long 503 storm 37 of
-    40 harness runs stopped on the WALL CLOCK with 0-2 rounds while the 3 that met a calm
-    window scored 0.92-0.95, so a paired mean over them measured the weather.  Its test
-    is `did we stop for the clock rather than the dollars`, written as
-    `cost >= 0.9 * max_usd` — and with max_usd 0 that is `cost >= 0`, true for every
-    cell, so every time-capped cell reads as a money stop and the flag never fires again.
+def test_a_clock_stopped_cell_is_flagged_degraded():
+    """compare_v4 (2026-08-25): under a day-long 503 storm 37 of 40 harness runs stopped
+    on the WALL CLOCK with 0-2 rounds while the 3 that met a calm window scored
+    0.92-0.95, so a paired mean over them measures the weather.  With the money ceiling
+    removed (2026-08-28) a "budget" stop is always the clock, and this is the whole test.
     """
     from bench.compare_backends import CompareOptions, flag_degraded
 
-    def timed_out_cell(cost: float = 0.9) -> CellResult:
-        return CellResult(prompt_id="p", arm="harness:x", kind="harness", status="scored",
-                          harness_stop_reason="budget", harness_rounds=1, wall_s=2400,
-                          gen_cost_usd=cost)
-
-    for cap in (0.0, 1.5):                       # no ceiling, and an explicit one
-        c = timed_out_cell()
-        flag_degraded(c, CompareOptions(judge="g:x", loop_judge="g:x", max_usd=cap))
-        assert c.degraded, f"a clock-stopped one-round cell must be flagged (max_usd={cap})"
-
-    # a cell that really did spend its ceiling is NOT degraded — it iterated, it just ran out
-    c = timed_out_cell(cost=0.99)
-    flag_degraded(c, CompareOptions(judge="g:x", loop_judge="g:x", max_usd=1.0))
-    assert not c.degraded, "a money stop is not the waited-instead-of-iterating case"
+    c = CellResult(prompt_id="p", arm="harness:x", kind="harness", status="scored",
+                   harness_stop_reason="budget", harness_rounds=1, wall_s=2400, gen_cost_usd=0.9)
+    flag_degraded(c, CompareOptions(judge="g:x", loop_judge="g:x"))
+    assert c.degraded and "0.90" in c.degraded_reason  # it says what the cell actually spent
 
 
 def test_the_default_generator_and_the_cost_router_name_the_same_model():

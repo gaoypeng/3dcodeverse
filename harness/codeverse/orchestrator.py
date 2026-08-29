@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import math
 import re
 import threading
 import time
@@ -24,7 +23,7 @@ from typing import Any, Literal, TypeVar
 from pydantic import BaseModel, Field, ValidationError
 
 from codeverse.contracts.artifacts import GateReport, Judgment
-from codeverse.contracts.common import Budget, Usage, has_money_ceiling
+from codeverse.contracts.common import Budget, Usage
 from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord, RunStatus
 from codeverse.conventions import to_snake
@@ -818,7 +817,8 @@ class BudgetGuard:
     """Thread-safe accumulator of ``Usage`` against a ``Budget``.
 
     ``charge`` adds usage and then calls ``check``; ``check`` raises
-    ``BudgetExceeded`` when ``max_usd`` or ``max_minutes`` is exceeded.
+    ``BudgetExceeded`` when ``max_minutes`` is exceeded.  Money is measured, never
+    enforced (2026-08-28): there is no cost ceiling.
     """
 
     def __init__(
@@ -845,8 +845,7 @@ class BudgetGuard:
         self.calls = 0
         #: fraction of the hard ceilings the *baseline* may use (1.0 = no soft cap)
         self.soft_fraction = min(1.0, max(0.0, float(soft_fraction)))
-        #: one-off extension of the HARD ceilings (finalise/salvage headroom)
-        self.grace_usd = 0.0
+        #: one-off extension of the HARD wall-clock ceiling (finalise/salvage headroom)
         self.grace_minutes = 0.0
         #: run slug + ledger sink for the per-call rows (None = do not write a ledger)
         self.run = run
@@ -990,33 +989,21 @@ class BudgetGuard:
 
     # ----------------------------------------------------------------- ceilings
     @property
-    def hard_usd(self) -> float:
-        return self.budget.max_usd + self.grace_usd
-
-    @property
     def hard_minutes(self) -> float:
         return self.budget.max_minutes + self.grace_minutes
 
-    def grant_grace(self, *, usd: float = 0.0, minutes: float = 0.0) -> None:
-        """Extend the HARD ceilings (never shrink them).  Used once by finalise /
-        salvage so a run that tripped the budget mid-stage can still deliver a
-        judged round instead of no score at all."""
+    def grant_grace(self, *, minutes: float = 0.0) -> None:
+        """Extend the HARD wall-clock ceiling (never shrink it).  Used once by finalise /
+        salvage so a run that tripped the clock mid-stage can still deliver a judged
+        round instead of no score at all."""
         with self._lock:
-            self.grace_usd = max(self.grace_usd, max(0.0, float(usd)))
             self.grace_minutes = max(self.grace_minutes, max(0.0, float(minutes)))
 
     def check(self) -> None:
         """Raise ``BudgetExceeded`` if any hard ceiling has been crossed."""
         spent = self.billed_usd
         elapsed = self.elapsed_minutes()
-        # max_usd == 0 means no money ceiling (the default since 2026-08-28); cost is
-        # still accumulated above, so every report and the ledger still know what it cost.
-        if has_money_ceiling(self.budget.max_usd) and spent > self.hard_usd:
-            raise BudgetExceeded(
-                f"cost ${spent:.3f} exceeds max_usd ${self.hard_usd:.2f}",
-                spent_usd=spent,
-                elapsed_min=elapsed,
-            )
+        # money is measured, never enforced (2026-08-28).  The clock is the only ceiling.
         if elapsed > self.hard_minutes:
             raise BudgetExceeded(
                 f"elapsed {elapsed:.1f} min exceeds max_minutes {self.hard_minutes:.1f}",
@@ -1025,19 +1012,14 @@ class BudgetGuard:
             )
 
     # ----------------------------------------------------------------- soft cap
-    def soft_limits(self) -> tuple[float, float]:
-        """(usd, minutes) the soft sub-budget allows (grace is hard-only)."""
-        return (
-            self.budget.max_usd * self.soft_fraction,
-            self.budget.max_minutes * self.soft_fraction,
-        )
+    def soft_minutes(self) -> float:
+        """The wall clock the soft sub-budget allows (grace is hard-only)."""
+        return self.budget.max_minutes * self.soft_fraction
 
     def soft_exceeded(self) -> str:
         """Reason string when the soft sub-budget is used up, else ``""``."""
-        usd, minutes = self.soft_limits()
-        spent, elapsed = self.billed_usd, self.elapsed_minutes()
-        if has_money_ceiling(self.budget.max_usd) and spent > usd:
-            return f"cost ${spent:.3f} exceeds soft cap ${usd:.2f} ({self.soft_fraction:.0%} of ${self.budget.max_usd:.2f})"
+        minutes = self.soft_minutes()
+        elapsed = self.elapsed_minutes()
         if elapsed > minutes:
             return f"elapsed {elapsed:.1f} min exceeds soft cap {minutes:.1f} min ({self.soft_fraction:.0%} of {self.budget.max_minutes:.1f})"
         return ""
@@ -1048,11 +1030,7 @@ class BudgetGuard:
 
     def soft_remaining(self) -> dict[str, float]:
         """Headroom left inside the soft sub-budget (never negative)."""
-        usd, minutes = self.soft_limits()
-        return {
-            "usd": max(0.0, usd - self.billed_usd),
-            "minutes": max(0.0, minutes - self.elapsed_minutes()),
-        }
+        return {"minutes": max(0.0, self.soft_minutes() - self.elapsed_minutes())}
 
     def ok(self) -> bool:
         """True when no ceiling is crossed (non-raising variant of ``check``)."""
@@ -1064,14 +1042,9 @@ class BudgetGuard:
 
     def remaining(self) -> dict[str, float]:
         """Remaining headroom: ``{"usd": ..., "minutes": ..., "fraction": ...}``."""
-        capped = has_money_ceiling(self.budget.max_usd)
-        # with no ceiling the honest answer is "unlimited", not "$0 left" — a reader
-        # (or a future caller) must not read the sentinel as an exhausted budget
-        usd = max(0.0, self.hard_usd - self.billed_usd) if capped else math.inf
         minutes = max(0.0, self.hard_minutes - self.elapsed_minutes())
-        frac_usd = (usd / self.hard_usd if self.hard_usd > 0 else 0.0) if capped else 1.0
-        frac_min = minutes / self.hard_minutes if self.hard_minutes > 0 else 0.0
-        return {"usd": usd, "minutes": minutes, "fraction": min(frac_usd, frac_min)}
+        frac = minutes / self.hard_minutes if self.hard_minutes > 0 else 0.0
+        return {"minutes": minutes, "fraction": frac}
 
     def timeout_s(self, want_s: float, *, floor_s: float = 60.0, soft: bool = True) -> int:
         """``want_s`` clipped to the wall-clock actually left (soft cap when ``soft``).
@@ -1090,7 +1063,6 @@ class BudgetGuard:
             "notional_usd": round(self.spent.cost_usd, 4),
             "elapsed_min": round(self.elapsed_minutes(), 2),
             "soft_fraction": round(self.soft_fraction, 3),
-            "grace_usd": round(self.grace_usd, 4),
             "calls": self.calls,
             "input_tokens": self.spent.input_tokens,
             "output_tokens": self.spent.output_tokens,
@@ -1105,7 +1077,7 @@ class BudgetSnapshot(BaseModel):
     """What survives a resume (``run_state.extra["budget_snapshot"]``).
 
     The five accumulator fields of :class:`BudgetGuard` plus cumulative ACTIVE
-    seconds.  Grace (``grace_usd``/``grace_minutes``) and config (ceilings, soft
+    seconds.  Grace (``grace_minutes``) and config (ceilings, soft
     fraction, run, ledger) are EXCLUDED on purpose: grace is per-attempt salvage
     headroom — persisting it would ratchet the hard ceiling — and config always
     comes from the current spec/settings."""

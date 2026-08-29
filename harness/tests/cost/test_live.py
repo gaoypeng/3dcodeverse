@@ -61,7 +61,7 @@ def test_a_metered_run_reconciles_with_its_own_record(tmp_path: Path):
     r = CliRunner().invoke(app, [
         "make", "a smooth grey ceramic bowl", "--track", "static_object", "--language", "blender",
         "--generator", "single-shot:gemini:gemini-3.7-flash", "--judge", "gemini:gemini-3.7-flash",
-        "--rounds", "0", "--max-usd", "1", "--max-minutes", "15",
+        "--rounds", "0", "--max-minutes", "15",
         "--runs-dir", str(runs), "--slug", "cost_live_bowl"])
     assert r.exit_code in (0, 1), r.output  # a failed judge/build is still a metered run
     ws = Workspace(runs / "cost_live_bowl")

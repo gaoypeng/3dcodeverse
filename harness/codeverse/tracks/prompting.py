@@ -14,6 +14,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from jinja2 import TemplateNotFound
+
 from codeverse.config import fewer_turns_enabled
 from codeverse.contracts.chat import ImagePart
 from codeverse.contracts.common import Language, Track
@@ -21,7 +23,7 @@ from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import LANGUAGE_FRAME, Frame, frame_doc, to_snake
 from codeverse.languages._docs import prompt_dir_for
-from codeverse.prompts import load_text, render
+from codeverse.prompts import render
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.depth import DepthBudget, PartScope, depth_budget, interfaces_text
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
@@ -268,7 +270,7 @@ def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,
     return [chapters[i] for i in sorted(chosen)]
 
 
-def language_system_prompt(language: Language, *, role: str = "", **vars: Any) -> str:
+def language_system_prompt(language: Language, *, role: str = "", tools: bool = True, **vars: Any) -> str:
     """The generator's system prompt: ``prompts/<dir>/system.md``, or a role template.
 
     These were f-strings inside each track class until 2026-08-28 — two sentences each,
@@ -281,10 +283,13 @@ def language_system_prompt(language: Language, *, role: str = "", **vars: Any) -
     # CV3D_SYSPROMPT=v0 serves the pre-2026-08-28 two-sentence prompt so an A/B can run
     # both arms from one tree.  Delete the v0 files and this branch once it has an answer.
     name = "system_v0.md" if os.environ.get("CV3D_SYSPROMPT") == "v0" else "system.md"
+    # rendered, not read raw: a system prompt that tells a SINGLE-SHOT session to call
+    # gl_probe is instructing something it has no tools to do, and the self-check loop is
+    # the whole point of the graphics prompt.  `tools` lets the file say so itself.
     try:
-        base = load_text(f"{d}/{name}").strip()
-    except FileNotFoundError:
-        base = load_text(f"{d}/system.md").strip()
+        base = render(f"{d}/{name}", tools=tools).strip()
+    except (FileNotFoundError, TemplateNotFound):
+        base = render(f"{d}/system.md", tools=tools).strip()
     if not role:
         return base
     # roles COMPOSE with the language base rather than replacing it.  Replacing was the

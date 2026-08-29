@@ -136,7 +136,7 @@ codeverse/
                       profiles.py (economy|balanced|quality; cli._common.resolve_dial is THE resolver)
                       caching.py (Block/order_blocks/session_cache — measurement only, docs/COST.md §13)
                       billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
-                      so max_usd guards money and not list price; docs/COST.md §25)
+                      so the ledger bills real money and not list price; docs/COST.md §25)
                       guard.py routing.py reconstruct.py (old runs) audit.py report.py
   judges/             base.py (Judge protocol + the pure round-replay pieces `3dcv judge` and
                       calibration share), rubrics.py + rubrics/*.yaml (defect checklists, the wire
@@ -445,7 +445,7 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
 * agy exposes no per-workspace MCP, cost or served model.
 * Anthropic / OpenAI backends are mock-tested only (no keys on this box).
 * Budget checks run between steps: a refine round that finishes its judge and then
-  trips the budget is not promoted to best — give scenes `--max-minutes 60 --max-usd 4`.
+  trips the budget is not promoted to best — give scenes `--max-minutes 60`.
 * Gemini flash 503 storms happen; dead keys and 429s rotate freely now, but a
   sustained outage can still fail a round (`3dcv resume` re-uses cached stages).
 * `ffmpeg` absent here → turntables fall back to GIF.  A few single-file wrappers

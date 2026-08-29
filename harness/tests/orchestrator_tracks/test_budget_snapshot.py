@@ -39,7 +39,7 @@ from tests.orchestrator_tracks.fakes import (
 
 # --------------------------------------------------------------- snapshot / restore
 def test_resume_restores_money_calls_and_active_time_but_not_downtime():
-    g1 = BudgetGuard(Budget(max_usd=1.0, max_minutes=10.0))
+    g1 = BudgetGuard(Budget(max_minutes=10.0))
     g1.charge(Usage(backend="gemini", cost_usd=0.6), stage="baseline", round_index=0, label="baseline")
     g1.add(Usage(backend="gemini", cost_usd=0.05), stage="judge", role="judge", round_index=0)
     g1.start_time -= 120  # two minutes of ACTIVE work in the first session
@@ -48,7 +48,7 @@ def test_resume_restores_money_calls_and_active_time_but_not_downtime():
 
     # the exact round-trip run_state.json takes: model_dump(mode="json") → validate
     revived = BudgetSnapshot.model_validate(json.loads(json.dumps(snap.model_dump(mode="json"))))
-    g2 = BudgetGuard(Budget(max_usd=1.0, max_minutes=10.0))
+    g2 = BudgetGuard(Budget(max_minutes=10.0))
     g2.restore(revived)
     assert g2.billed_usd == pytest.approx(0.65) and g2.calls == 2
     assert g2.by_stage == {"baseline": pytest.approx(0.6), "judge": pytest.approx(0.05)}
@@ -57,39 +57,43 @@ def test_resume_restores_money_calls_and_active_time_but_not_downtime():
     assert g2.elapsed_minutes() == pytest.approx(2.0, abs=0.1)
     g2.start_time -= 60  # one more ACTIVE minute in THIS session accumulates on top
     assert g2.elapsed_minutes() == pytest.approx(3.0, abs=0.1)
-    # prior spend still constrains new work: 0.65 + 0.5 > 1.0
-    with pytest.raises(BudgetExceeded):
-        g2.charge(Usage(backend="gemini", cost_usd=0.5), stage="refine")
+    # prior spend is still restored and still accumulates — it just is not a ceiling
+    g2.charge(Usage(backend="gemini", cost_usd=0.5), stage="refine")
+    assert g2.billed_usd == pytest.approx(1.15) and g2.calls == 3
 
     # prior ACTIVE time still constrains the wall clock immediately after a resume
-    g3 = BudgetGuard(Budget(max_usd=10.0, max_minutes=1.0))
+    g3 = BudgetGuard(Budget(max_minutes=1.0))
     g3.restore(revived)
     with pytest.raises(BudgetExceeded):
         g3.check()
 
 
 def test_a_raised_cap_grants_only_the_difference_and_grace_never_persists():
-    g1 = BudgetGuard(Budget(max_usd=1.0, max_minutes=10.0))
-    g1.charge(Usage(backend="gemini", cost_usd=0.9), stage="baseline")
-    g1.grant_grace(usd=5.0, minutes=30.0)  # per-attempt salvage headroom — must NOT survive
-    snap = g1.snapshot()
-    assert "grace_usd" not in snap.model_dump() and "soft_fraction" not in snap.model_dump()
+    """A resumed run gets the raised ceiling MINUS what it already used, not a fresh one.
+    The ceiling is the wall clock (money stopped being one on 2026-08-28); the money the
+    snapshot carries is still restored, it just cannot end the run."""
+    import time as _t
 
-    g2 = BudgetGuard(Budget(max_usd=1.5, max_minutes=10.0))  # --max-usd raised 1.0 → 1.5
+    g1 = BudgetGuard(Budget(max_minutes=10.0), start_time=_t.time())
+    g1.charge(Usage(backend="gemini", cost_usd=0.9), stage="baseline")
+    g1._active_s = 8.0 * 60                                      # noqa: SLF001 — 8 of its 10 min
+    g1.grant_grace(minutes=30.0)  # per-attempt salvage headroom — must NOT survive
+    snap = g1.snapshot()
+    assert "grace_minutes" not in snap.model_dump() and "soft_fraction" not in snap.model_dump()
+
+    g2 = BudgetGuard(Budget(max_minutes=15.0))                   # --max-minutes raised 10 → 15
     g2.restore(snap)
-    assert g2.grace_usd == 0.0 and g2.grace_minutes == 0.0
-    assert g2.remaining()["usd"] == pytest.approx(0.6)  # the difference, never a fresh $1.50
-    g2.charge(Usage(backend="gemini", cost_usd=0.5), stage="refine")  # fits
-    with pytest.raises(BudgetExceeded):
-        g2.charge(Usage(backend="gemini", cost_usd=0.2), stage="refine")
+    assert g2.grace_minutes == 0.0
+    assert g2.billed_usd == pytest.approx(0.9), "the money is restored, it just is not a ceiling"
+    assert g2.remaining()["minutes"] == pytest.approx(7.0, abs=0.1)  # 15 − 8, never a fresh 15
 
 
 def test_build_context_restores_the_snapshot_and_falls_back_to_legacy_spent(tmp_path, settings):
-    spec = make_spec(max_usd=1.0)
+    spec = make_spec()
     ws = Workspace(tmp_path / "runs" / "r").create()
     track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.THREEJS))
 
-    g = BudgetGuard(Budget(max_usd=1.0, max_minutes=10.0))
+    g = BudgetGuard(Budget(max_minutes=10.0))
     g.charge(Usage(backend="gemini", cost_usd=0.4), stage="baseline", round_index=0)
     state = RunState()
     state.extra["budget_snapshot"] = g.snapshot().model_dump(mode="json")
@@ -107,11 +111,14 @@ def test_build_context_restores_the_snapshot_and_falls_back_to_legacy_spent(tmp_
 # --------------------------------------------------------------- ordering: single-shot
 def test_a_paid_single_shot_response_is_persisted_when_the_budget_trips(tmp_path):
     ws = Workspace(tmp_path / "ws").create()
-    guard = BudgetGuard(Budget(max_usd=0.01, max_minutes=10.0))
+    # a wall-clock ceiling already crossed: the phase boundary turns this into the stop,
+    # and the point of the test is that the PAID response is on disk before it does
+    guard = BudgetGuard(Budget(max_minutes=1.0))
+    guard._active_s = 120.0                              # noqa: SLF001 — already past 1 min
     answer = ("=== FILE: src/object.js ===\n"
               "export function build(THREE) { return new THREE.Group(); }\n"
               "=== END FILE ===")
-    model = FakeChatModel(lambda req: answer, cost=0.05)  # this ONE call crosses max_usd
+    model = FakeChatModel(lambda req: answer, cost=0.05)  # paid work, booked before the stop
     task = GenerationTask(label="baseline", prompt="p", files_hint=["src/object.js"])
     res = generate_files(ws, model=model, task=task, budget=guard)  # must NOT raise
     assert res.ok and (ws.src / "object.js").is_file()
@@ -144,7 +151,7 @@ def test_a_budget_tripped_candidate_still_lets_the_sibling_be_adopted(tmp_path, 
 
 # --------------------------------------------------------------- ordering: planner attempts
 def test_planner_attempt_zero_usage_reaches_the_guard_when_attempt_one_raises(tmp_path):
-    guard = BudgetGuard(Budget(max_usd=5.0, max_minutes=10.0))
+    guard = BudgetGuard(Budget(max_minutes=10.0))
     ws = Workspace(tmp_path / "run").create()
     calls = {"n": 0}
 
@@ -163,7 +170,7 @@ def test_planner_attempt_zero_usage_reaches_the_guard_when_attempt_one_raises(tm
 
 
 def test_planning_error_dollars_are_booked_exactly_once(tmp_path):
-    guard = BudgetGuard(Budget(max_usd=5.0, max_minutes=10.0))
+    guard = BudgetGuard(Budget(max_minutes=10.0))
     ws = Workspace(tmp_path / "run").create()
 
     def responder(req):

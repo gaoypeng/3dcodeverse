@@ -98,7 +98,6 @@ class BenchOptions(BaseModel):
     planner: str | None = None
     judge: str | None = None
     rounds: int = 4
-    max_usd: float = 0.0    # 0 = no money ceiling; cost is still recorded (contracts.common)
     max_minutes: float = 60.0
     #: measured (docs/COST.md Part III): one bench cell holds ~0.9 model calls
     #: in flight, so 8 cells sit near 7 — far inside the 64-call model knee — and
@@ -146,7 +145,7 @@ def discover_references(item: BenchPrompt, track: Track, *, battery_dir: Path | 
 
 
 def build_spec(
-    battery: Battery, item: BenchPrompt, *, backends: Backends, rounds: int, max_usd: float,
+    battery: Battery, item: BenchPrompt, *, backends: Backends, rounds: int,
     max_minutes: float, tag0: str, extra_tags: Sequence[str] = (),
 ) -> Spec:
     """Shared Spec core for bench drivers (``run_bench`` / ``compare_backends``).
@@ -155,14 +154,14 @@ def build_spec(
         id=f"{battery.name}/{item.id}", track=battery.track, language=item.language or battery.language, prompt=item.prompt,
         constraints=Constraints(must_have=list(item.must_have), dimensions_m=item.dimensions_m),
         references=discover_references(item, battery.track, battery_dir=battery.source_dir),
-        budget=Budget(max_rounds=rounds, max_usd=max_usd, max_minutes=max_minutes),
+        budget=Budget(max_rounds=rounds, max_minutes=max_minutes),
         backends=backends, tags=[tag0, battery.name, item.tier, item.category, *extra_tags, *item.tags],
     )
 
 
 def spec_for(battery: Battery, item: BenchPrompt, opts: BenchOptions) -> Spec:
     backends = get_settings().backends(generator=opts.generator, planner=opts.planner, judge=opts.judge)
-    return build_spec(battery, item, backends=backends, rounds=opts.rounds, max_usd=opts.max_usd,
+    return build_spec(battery, item, backends=backends, rounds=opts.rounds,
                       max_minutes=opts.max_minutes, tag0="bench")
 
 

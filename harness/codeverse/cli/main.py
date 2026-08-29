@@ -104,7 +104,6 @@ def run_cmd(
     judge: Annotated[str | None, typer.Option("--judge", help="fixed judge model for the whole battery")] = None,
     parallel: Annotated[int, typer.Option("--parallel", min=1)] = 4,
     rounds: Annotated[int, typer.Option("--rounds", min=0)] = 4,
-    max_usd: Annotated[float, typer.Option("--max-usd", help="0 = no ceiling (cost is still recorded)")] = 0.0,
     max_minutes: Annotated[float, typer.Option("--max-minutes", help="wall-clock budget per run; size it to the weather "
                                                                    "(RUNBOOK 7.x: 120 in a 503 storm, else runs burn the hour with no judged round)")] = 60.0,
     limit: Annotated[int | None, typer.Option("--limit")] = None,
@@ -120,7 +119,7 @@ def run_cmd(
         raise C.CliError(f"battery not found: {battery}")
     b = C.import_bench()
     run_bench = C.lazy("bench.run_bench")
-    opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_usd=max_usd, max_minutes=max_minutes,
+    opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_minutes=max_minutes,
                                  parallel=parallel, limit=limit, ids=ids or [], tiers=tiers or [], resume=not no_resume,
                                  redo_status=[x for x in redo_status.split(",") if x])
     out_dir = out or (C.REPO_ROOT / "bench" / "out" / battery.stem)
@@ -349,7 +348,6 @@ def make(
             "--rounds", min=0, help="refine rounds after the baseline (default: the profile's)"
         ),
     ] = None,
-    max_usd: Annotated[float | None, typer.Option("--max-usd", min=0)] = None,
     max_minutes: Annotated[float | None, typer.Option("--max-minutes", min=0)] = None,
     candidates: Annotated[
         int | None,
@@ -406,11 +404,10 @@ def make(
         profile,
         rounds=rounds,
         candidates=candidates,
-        max_usd=max_usd,
         max_minutes=max_minutes,
         texture=texture,
     )
-    rounds, max_usd, max_minutes = dial.rounds, dial.max_usd, dial.max_minutes
+    rounds, max_minutes = dial.rounds, dial.max_minutes
     candidates, texture = dial.candidates, dial.texture
     # A run must not record and display a pass it cannot run.  `3dcv texture pass` already
     # refuses non-object tracks; `3dcv make` accepted --texture (and --profile quality,
@@ -443,7 +440,7 @@ def make(
                 must_not=must_not,
                 style=style,
             ),
-            budget=Budget(max_rounds=rounds, max_usd=max_usd, max_minutes=max_minutes),
+            budget=Budget(max_rounds=rounds, max_minutes=max_minutes),
             # options.profile records the dial this run resolved to, whichever way it was
             # named (flag, CV3D_PROFILE, config.yaml), so `3dcv resume` re-applies it
             backends=backends,
@@ -473,7 +470,6 @@ def make(
                     "judge": f"{backends.judge} n={dial.judge_samples} "
                     f"({dial.judge_max_px}px/{dial.judge_detail_crops}crop)",
                     "rounds": rounds,
-                    "max_usd": max_usd,
                     "candidates": candidates,
                     "texture": texture,
                 },
@@ -600,14 +596,6 @@ def resume(
             "--candidates", min=1, help="best-of-N baseline width (only matters before round 0 ran)"
         ),
     ] = None,
-    max_usd: Annotated[
-        float | None,
-        typer.Option(
-            "--max-usd", min=0,
-            help="raise the budget cap before resuming (rewrites spec.json; prior spend is "
-            "restored on resume, so the run gets the new cap MINUS what it already spent)",
-        ),
-    ] = None,
     max_minutes: Annotated[
         float | None,
         typer.Option("--max-minutes", min=0, help="raise the time cap before resuming"),
@@ -645,7 +633,7 @@ def resume(
                 raise C.CliError(f"{ws.spec_path}: {e}", code=2) from e
         raised = {
             k: v
-            for k, v in {"max_usd": max_usd, "max_minutes": max_minutes, "max_rounds": rounds}.items()
+            for k, v in {"max_minutes": max_minutes, "max_rounds": rounds}.items()
             if v is not None
         }
         if not force and (why := _finished_reason(ws, raised)):

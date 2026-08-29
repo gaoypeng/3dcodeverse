@@ -82,7 +82,7 @@ from bench.run_bench import (  # noqa: E402
 )
 from codeverse.config import get_settings  # noqa: E402
 from codeverse.contracts.artifacts import RenderSet  # noqa: E402
-from codeverse.contracts.common import ENTRY_FILE, has_money_ceiling  # noqa: E402
+from codeverse.contracts.common import ENTRY_FILE  # noqa: E402
 from codeverse.contracts.run import RunRecord  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402
 from codeverse.cost import run_ledger  # noqa: E402
@@ -130,7 +130,6 @@ class CompareOptions(BaseModel):
     loop_judge: str | None = Field(default=None, description="harness in-loop judge (None → settings default)")
     planner: str | None = None
     rounds: int = 3
-    max_usd: float = 2.5
     max_minutes: float = 45.0
     parallel: int = 8  # measured knee, see BenchOptions.parallel / docs/COST.md Part III
     limit: int | None = None
@@ -149,7 +148,7 @@ class CompareOptions(BaseModel):
 def spec_for(battery: Battery, item: BenchPrompt, arm: Arm, opts: CompareOptions) -> Spec:
     generator = arm.target if arm.kind == "harness" else f"single-shot:{arm.target}"
     backends = get_settings().backends(generator=generator, judge=opts.loop_judge, planner=opts.planner)
-    return build_spec(battery, item, backends=backends, rounds=opts.rounds, max_usd=opts.max_usd,
+    return build_spec(battery, item, backends=backends, rounds=opts.rounds,
                       max_minutes=opts.max_minutes, tag0="compare", extra_tags=(arm.kind,))
 
 
@@ -339,15 +338,14 @@ def flag_degraded(res: CellResult, opts: CompareOptions) -> None:
     """
     if res.kind != "harness" or res.status not in ("scored", "build_failed"):
         return
-    # ``max_usd == 0`` is "no ceiling", so there is no such thing as a money stop —
-    # without this guard the comparison is `cost >= 0`, true for every cell, and the
-    # degraded flag this function exists to raise never fires again.
-    money_stop = has_money_ceiling(opts.max_usd) and res.gen_cost_usd >= 0.9 * opts.max_usd
-    if (res.harness_stop_reason == "budget" and not money_stop and res.harness_rounds <= opts.degraded_max_rounds
+    # There is no money ceiling any more (2026-08-28), so a "budget" stop is always the
+    # clock — which is exactly the case this flag was written for.  The old money_stop
+    # test is gone with the ceiling it read.
+    if (res.harness_stop_reason == "budget" and res.harness_rounds <= opts.degraded_max_rounds
             and res.wall_s >= opts.degraded_min_wall_s):
         res.degraded = True
         res.degraded_reason = (f"ceiling stop after {res.harness_rounds} completed round(s) in {res.wall_s / 60:.0f} min "
-                               f"with ${opts.max_usd - res.gen_cost_usd:.2f} of the budget unspent")
+                               f"having spent ${res.gen_cost_usd:.2f}")
 
 
 def _fill_from_outcome(res: CellResult, o: EvalOutcome) -> None:
@@ -538,7 +536,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if ns.report_only:
         build_compare_report(Path(ns.out))
         return 0
-    opts = CompareOptions(judge=ns.judge, loop_judge=ns.loop_judge, rounds=ns.rounds, max_usd=ns.max_usd,
+    opts = CompareOptions(judge=ns.judge, loop_judge=ns.loop_judge, rounds=ns.rounds,
                           max_minutes=ns.max_minutes, parallel=ns.parallel,
                           limit=ns.limit, ids=[i for i in ns.ids.split(",") if i],
                           tiers=[t for t in ns.tiers.split(",") if t], resume=not ns.no_resume,

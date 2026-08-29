@@ -66,7 +66,6 @@ class Profile:
                                      # NOT reduced by any profile — the score effect is inside the
                                      # judge's own noise in both directions (docs/COST.md §14)
     #: budget ceilings a run of this shape should not need to exceed
-    max_usd: float = 0.0    # 0 = no ceiling; cost is still recorded
     max_minutes: float = 60.0
     #: measured expectation (docs/COST.md) — reported by ``3dcv cost profiles``
     expected_usd: float = 0.0
@@ -109,7 +108,7 @@ PROFILES: dict[str, Profile] = {
         # the instrument's noise do not license a payload cut worth a fifth of a cent, so the
         # experiment is recorded as INCONCLUSIVE in docs/COST.md §14 and the budget is unchanged.
         judge_max_px=1024, judge_montages=3, judge_detail_crops=2,
-        max_usd=0.0, max_minutes=30.0,
+        max_minutes=30.0,
         expected_usd=0.30,
         expected_score="graphics 0.81 median (5/6 passed); objects clear the gates less often "
                        "— a one-shot flash generator scored 0.14 on compare_v1's hard cells",
@@ -124,7 +123,7 @@ PROFILES: dict[str, Profile] = {
         captioner="gemini:gemini-3.7-flash",
         rounds=4, candidates=1, judge_samples=1, max_turns=0, texture=False,
         judge_max_px=1024, judge_montages=3, judge_detail_crops=2,
-        max_usd=0.0, max_minutes=60.0,
+        max_minutes=60.0,
         expected_usd=1.47,
         expected_score="0.835 mean on compare_v1, 36/61 runs passed ($2.50 per passing artifact) "
                        "— MEASURED ON gemini-cli:gemini-3.6-flash, not on this dial's generator",
@@ -141,7 +140,7 @@ PROFILES: dict[str, Profile] = {
         captioner="gemini:gemini-3.7-flash",
         rounds=4, candidates=2, judge_samples=3, max_turns=0, texture=True,
         judge_max_px=1024, judge_montages=3, judge_detail_crops=2,
-        max_usd=0.0, max_minutes=90.0,
+        max_minutes=90.0,
         expected_usd=3.20,
         expected_score="best-of-2 lifted the stool baseline 0.563 → 0.612 and the texture pass "
                        "0.686 → 0.701; judge σ 0.017 at n=3",

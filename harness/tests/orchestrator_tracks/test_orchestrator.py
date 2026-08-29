@@ -36,17 +36,19 @@ from codeverse.proc import EventLog, fan_out, split_results
 
 # ----------------------------------------------------------------------------- budget
 def test_budget_guard_charges_and_raises():
-    g = BudgetGuard(Budget(max_usd=0.05, max_minutes=60))
+    g = BudgetGuard(Budget(max_minutes=10.0))
     g.charge(Usage(cost_usd=0.02))
     g.charge(Usage(cost_usd=0.02))
-    assert g.ok() and g.remaining()["usd"] == pytest.approx(0.01)
+    assert g.ok() and "usd" not in g.remaining()  # headroom is wall clock only
+    g._active_s = 11 * 60                                        # noqa: SLF001 — past the ceiling
     with pytest.raises(BudgetExceeded) as ei:
         g.charge(Usage(cost_usd=0.02))
-    assert "max_usd" in ei.value.reason and g.spent.cost_usd == pytest.approx(0.06)
+    # the money is still counted on the call that raises; it just is not what raised
+    assert "max_minutes" in ei.value.reason and g.spent.cost_usd == pytest.approx(0.06)
 
 
 def test_budget_guard_time_ceiling():
-    g = BudgetGuard(Budget(max_usd=10, max_minutes=0.0001), start_time=time.time() - 10)
+    g = BudgetGuard(Budget(max_minutes=0.0001), start_time=time.time() - 10)
     with pytest.raises(BudgetExceeded):
         g.check()
     assert g.remaining()["minutes"] == 0.0

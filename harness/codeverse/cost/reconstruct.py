@@ -93,7 +93,6 @@ class RunLedger:
     wall_s: float = 0.0   # time the run was actually working (budget elapsed / stage+round durations)
     span_s: float = 0.0   # first to last event — includes time queued behind other runs
     model_s: float = 0.0
-    budget_usd: float = 0.0
     selected_candidate: str = ""   # "c1" when the run ran best-of-N and c1 won
     source: str = "reconstructed"  # live (the run wrote its own ledger) | reconstructed
     rows: list[CallCost] = field(default_factory=list)
@@ -273,7 +272,6 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
         status=str(record.get("status") or ""), stop_reason=str(extra.get("stop_reason") or ""),
         baseline_score=record.get("baseline_score"), final_score=record.get("final_score"),
         recorded_usd=float(total.cost_usd),
-        budget_usd=float(((spec.get("budget") or {}).get("max_usd")) or 0.0),
     )
     cands = _read_json(root / "rounds" / "candidates.json") or (extra.get("candidates") or {})
     if isinstance(cands, dict) and cands.get("selected") is not None:

@@ -280,8 +280,6 @@ def cost_summary(record: RunRecord, rows: list[dict[str, Any]]) -> CostSummary:
     budget = record.spec.budget
     return CostSummary(
         total_usd=round(total, 6),
-        budget_usd=budget.max_usd,
-        budget_used_pct=round(100.0 * total / budget.max_usd, 1) if budget.max_usd else None,
         wall_clock_s=round(wall, 1),
         max_minutes=budget.max_minutes,
         n_calls=sum(int(r.get("n_calls") or 1) for r in rows),

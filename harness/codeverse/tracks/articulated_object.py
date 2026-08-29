@@ -100,7 +100,7 @@ class ArticulatedObjectTrack(StaticObjectTrack):
         return ArticulatedPipeline()
 
     def system_prompt(self, ctx: RunContext) -> str:
-        return language_system_prompt(ctx.language)
+        return language_system_prompt(ctx.language, tools=not ctx.single_shot)
 
 
 # ----------------------------------------------------------------------------- sweep adapter

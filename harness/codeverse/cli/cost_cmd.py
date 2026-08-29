@@ -129,7 +129,6 @@ def _single_run_lines(run: object) -> None:
         "record.total_usage": f"${recorded:.4f}",
         "difference": f"${drift:+.4f} ({pct:+.2f}%)",
         "status": f"{getattr(run, 'status', '')} ({getattr(run, 'stop_reason', '')})",
-        "budget": f"${float(getattr(run, 'budget_usd', 0.0)):.2f}",
     }
     console.print("")
     console.print(kv_table("reconciliation", rows))

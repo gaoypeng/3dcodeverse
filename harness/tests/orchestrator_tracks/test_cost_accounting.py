@@ -12,6 +12,8 @@ guard, in one ledger row, and in a round bucket.
 from __future__ import annotations
 
 import json
+import time
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -48,7 +50,7 @@ class _RecordedAgent:
 def replay(name: str, ledger: Path | None, *, texture: bool = True) -> BudgetGuard:
     """Spend one recorded run's money through today's accounting path."""
     fx = FIXTURES[name]
-    guard = BudgetGuard(Budget(max_usd=10_000, max_minutes=10_000), run=name, ledger=ledger)
+    guard = BudgetGuard(Budget(max_minutes=10_000), run=name, ledger=ledger)
     tasks: dict[tuple[str, int], list[dict]] = {}
     for s in fx["sessions"]:
         tasks.setdefault((s["job_label"] or s["label"], int(s["round"] or 0)), []).append(s)
@@ -116,17 +118,23 @@ def test_post_hoc_texture_passes_are_inside_the_total_now():
 
 # ----------------------------------------------------------------------------- guard mechanics
 def test_spend_buckets_by_stage_and_round_and_only_charge_enforces():
-    g = BudgetGuard(Budget(max_usd=1.0, max_minutes=60))
-    g.charge(Usage(cost_usd=0.4), stage="baseline", round_index=0, label="baseline")
-    g.add(Usage(cost_usd=0.05), stage="judge", role="judge", round_index=0)
-    assert g.by_stage == {"baseline": pytest.approx(0.4), "judge": pytest.approx(0.05)}
-    assert g.round_costs(0)["judge"] == pytest.approx(0.05) and g.round_costs(9) == {}
-    g.add(Usage(cost_usd=0.9), stage="texture", role="image")  # over the ceiling, but never raises
-    assert not g.ok() and g.spent.cost_usd == pytest.approx(1.35)
+    # the ceiling is the clock (money stopped being one on 2026-08-28); what this test
+    # pins is unchanged — the buckets, and that only `charge` enforces while `add` books
+    g = BudgetGuard(Budget(max_minutes=1.0), start_time=time.time() - 600)
+    g.charge = partial(BudgetGuard.charge, g)  # keep the bound method after the clock trick
+    g0 = BudgetGuard(Budget(max_minutes=60))
+    g0.charge(Usage(cost_usd=0.4), stage="baseline", round_index=0, label="baseline")
+    g0.add(Usage(cost_usd=0.05), stage="judge", role="judge", round_index=0)
+    assert g0.by_stage == {"baseline": pytest.approx(0.4), "judge": pytest.approx(0.05)}
+    assert g0.round_costs(0)["judge"] == pytest.approx(0.05) and g0.round_costs(9) == {}
+    assert list(g0.stage_summary())[0] == "baseline"  # biggest bucket first
+
+    g = BudgetGuard(Budget(max_minutes=1.0), start_time=time.time() - 600)  # already past
+    g.add(Usage(cost_usd=0.9), stage="texture", role="image")  # over the ceiling, never raises
+    assert not g.ok() and g.spent.cost_usd == pytest.approx(0.9)
     with pytest.raises(BudgetExceeded):
         g.charge(Usage(cost_usd=0.01), stage="refine")
-    assert g.spent.cost_usd == pytest.approx(1.36)  # the money is counted even when it raises
-    assert list(g.stage_summary())[0] == "texture"  # biggest bucket first
+    assert g.spent.cost_usd == pytest.approx(0.91)  # the money is counted even when it raises
 
 
 def test_usage_delta_reports_what_a_round_burned():
@@ -138,10 +146,10 @@ def test_usage_delta_reports_what_a_round_burned():
 
 
 def test_the_ledger_is_optional_and_never_breaks_a_run(tmp_path):
-    g = BudgetGuard(Budget(max_usd=1.0, max_minutes=60), ledger=tmp_path / "sub" / "dir" / "l.jsonl")
+    g = BudgetGuard(Budget(max_minutes=60), ledger=tmp_path / "sub" / "dir" / "l.jsonl")
     g.charge(Usage(cost_usd=0.1), stage="plan", role="planner")
     assert len(load_ledger(tmp_path / "sub" / "dir" / "l.jsonl")) == 1
-    quiet = BudgetGuard(Budget(max_usd=1.0, max_minutes=60))  # no ledger configured
+    quiet = BudgetGuard(Budget(max_minutes=60))  # no ledger configured
     quiet.charge(Usage(cost_usd=0.1))
     assert quiet.spent.cost_usd == pytest.approx(0.1)
 
@@ -159,7 +167,7 @@ def test_a_subscription_backend_does_not_consume_the_spend_guard():
     from codeverse.contracts.common import Budget, Usage
     from codeverse.orchestrator import BudgetGuard
 
-    g = BudgetGuard(Budget(max_usd=8.0, max_minutes=60.0), soft_fraction=0.55)
+    g = BudgetGuard(Budget(max_minutes=60.0), soft_fraction=0.55)
     g.spend(Usage(backend="codex", model="gpt-5.6-sol", cost_usd=7.712), enforce=False)
 
     assert g.billed_usd == 0.0
@@ -177,13 +185,15 @@ def test_the_guard_still_enforces_backends_that_really_bill():
     from codeverse.contracts.common import Budget, Usage
     from codeverse.orchestrator import BudgetExceeded, BudgetGuard
 
-    g = BudgetGuard(Budget(max_usd=8.0, max_minutes=60.0), soft_fraction=0.55)
-    g.spend(Usage(backend="codex", cost_usd=99.0), enforce=False)  # free, ignored
-    g.spend(Usage(backend="gemini", cost_usd=5.0), enforce=False)
-    assert g.soft_exceeded()  # soft cap fires on the real $5
-    assert g.ok()  # but the hard ceiling has not
+    g = BudgetGuard(Budget(max_minutes=60.0), soft_fraction=0.55)
+    g.spend(Usage(backend="codex", cost_usd=99.0), enforce=False)  # subscription: notional
+    g.spend(Usage(backend="gemini", cost_usd=5.0), enforce=False)  # API: real dollars
+    assert g.billed_usd == pytest.approx(5.0), "a subscription must not bill"
+    assert g.ok() and not g.soft_exceeded()  # neither ceiling is money any more
 
     g.spend(Usage(backend="some-new-provider", cost_usd=4.0), enforce=False)
     assert g.billed_usd == pytest.approx(9.0), "an unknown backend must bill, not be exempt"
+    # ...and the clock is what can still end it
+    g._active_s = 3600.0                                          # noqa: SLF001
     with pytest.raises(BudgetExceeded):
         g.check()

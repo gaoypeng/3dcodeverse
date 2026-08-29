@@ -128,17 +128,6 @@ class Usage(BaseModel):
         )
 
 
-def has_money_ceiling(max_usd: float) -> bool:
-    """Is there a money ceiling at all?  ``max_usd == 0`` means no (owner, 2026-08-28).
-
-    Ask this BEFORE comparing a cost against a ceiling.  Without it the comparison
-    silently inverts: ``spent >= 0.9 * 0`` is true for every non-negative cost, so a
-    guard written as "did we stop for money?" answers yes always and the thing it
-    protects never fires.  That is exactly what happened to bench's degraded-cell flag.
-    """
-    return max_usd > 0
-
-
 class Budget(BaseModel):
     """Hard ceilings for a run.  The orchestrator stops (cleanly) when any is hit.
 
@@ -147,15 +136,14 @@ class Budget(BaseModel):
     token is spent and ``grant_grace`` cannot lift a hard ceiling back above zero —
     so the workspace and the git-committed spec are created for a run that can only die.
 
-    ``max_usd = 0`` means NO MONEY CEILING, and that is the default (owner, 2026-08-28:
-    "先不计成本，就是run就好了").  Cost is still measured on every call — the ledger,
-    `3dcv cost`, the run record and the bench economics are untouched; money simply
-    stops being a thing that can end a run.  Pass ``--max-usd`` to put the ceiling back.
-    Time still bounds a run: that is ``max_minutes``, and without it nothing ends.
+    There is NO money ceiling and no way to set one (owner, 2026-08-28: run first, count
+    later).  Cost is still measured on every call — the ledger, ``3dcv cost``, the run
+    record and the bench economics are untouched — it simply cannot end a run.  What
+    bounds a run is ``max_rounds`` and ``max_minutes``; a spec.json written before the
+    removal still loads, its money ceiling ignored (pydantic drops the unknown field).
     """
 
     max_rounds: int = Field(default=4, ge=0)
-    max_usd: float = Field(default=0.0, ge=0, description="0 = no ceiling (cost is still recorded)")
     max_minutes: float = Field(default=60.0, ge=0)
     max_repair_attempts: int = Field(default=3, ge=0)  # per build failure before escalating
 

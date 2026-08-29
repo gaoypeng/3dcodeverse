@@ -210,7 +210,7 @@ class SettingsSnapshot(BaseModel):
 
     schema_version: int = 1
     roles: list[RoleSettings] = Field(default_factory=list)
-    budget: dict[str, Any] = Field(default_factory=dict, description="max_rounds / max_usd / max_minutes / max_repair_attempts")
+    budget: dict[str, Any] = Field(default_factory=dict, description="max_rounds / max_minutes / max_repair_attempts")
     candidates: int | None = Field(default=None, description="best-of-N baseline width, resolved")
     texture: bool = False
     seed: int = 0
@@ -244,8 +244,6 @@ class CostSummary(BaseModel):
 
     schema_version: int = 1
     total_usd: float = 0.0
-    budget_usd: float = 0.0
-    budget_used_pct: float | None = None
     wall_clock_s: float = 0.0
     max_minutes: float = 0.0
     n_calls: int = 0

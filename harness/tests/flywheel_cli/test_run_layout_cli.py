@@ -72,7 +72,7 @@ def test_package_run_builds_deliverable_and_telemetry(fake_run):
     assert ws.settings_path.is_file() and ws.cost_path.is_file() and ws.usage_path.is_file()
     cost = json.loads(ws.cost_path.read_text())
     assert cost["total_usd"] == rec.total_usage.cost_usd
-    assert cost["by_round"] and cost["budget_usd"] == rec.spec.budget.max_usd
+    assert cost["by_round"] and "budget_usd" not in cost  # no money ceiling to report
     settings = json.loads(ws.settings_path.read_text())
     assert {r["role"] for r in settings["roles"]} == {"planner", "generator", "judge", "captioner"}
     assert settings["rubric"] and settings["rubric_hash"] and settings["price_table_version"]
@@ -111,7 +111,7 @@ def test_cost_summary_reconciles_with_the_record_total(fake_run):
     assert abs(cost.ledger_usd - cost.total_usd) < 1e-9
     assert cost.by_role["judge"] > 0 and cost.unattributed_usd > 0  # judge verdicts + the residual
     assert {s.stage for s in cost.by_stage} <= set(stage_order())
-    assert cost.budget_usd == rec.spec.budget.max_usd
+    assert not hasattr(cost, "budget_usd")  # the money ceiling and its report are gone
 
 
 def test_usage_rows_alias_a_live_ledger_instead_of_copying_it(fake_run):
