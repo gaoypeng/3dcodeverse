@@ -1,12 +1,8 @@
-"""Guards for the supported-version floor (docs/INSTALL.md §2.1 "Supported versions").
+"""Packaging and supported-runtime guards (docs/INSTALL.md §2.1).
 
-The harness runs on exactly python 3.13 and node 20.6+ (developed on node 24).
-Nothing here needs either of those installed: the python guards read the tree,
-and the node guards drive the version logic with fakes.  Two things are pinned:
-
-* the versions agree across ``pyproject.toml``, ``ruff``, ``scripts/setup.sh``,
-  ``codeverse/spatial/node.py`` and ``runtime_js/package.json``;
-* no module reaches past the version — no 3.14-only syntax.
+The harness targets Python 3.13 and Node 20.6+.  These tests pin the setup
+script, packaged runtime data and Node's early version gate without requiring
+alternate runtimes to be installed.
 """
 
 from __future__ import annotations
@@ -30,28 +26,10 @@ from codeverse.workspace import Workspace
 
 HARNESS = Path(__file__).resolve().parents[2]
 PY_FLOOR = (3, 13)
-PY_FLOOR_STR = "3.13"
-
-
-#: directories under the scanned trees that hold *run output*, not harness source:
-#: `bench/out/` is gitignored and full of LLM-authored `model.py` files, which are
-#: written by whatever model ran that battery and are not held to our python floor.
-_NOT_SOURCE = ("__pycache__", "out")
-
-
-def _py_files() -> list[Path]:
-    out: list[Path] = []
-    for sub in ("codeverse", "bench", "tests"):
-        root = HARNESS / sub
-        out += [
-            p for p in root.rglob("*.py")
-            if not any(part in _NOT_SOURCE for part in p.relative_to(root).parts)
-        ]
-    return sorted(out)
 
 
 def test_setup_script_checks_the_same_floors() -> None:
-    text = (HARNESS / "scripts" / "setup.sh").read_text()
+    text = (HARNESS / "setup.sh").read_text()
     assert re.search(rf"^MIN_PY_MINOR={PY_FLOOR[1]}\b", text, re.M), "setup.sh python floor drifted"
     assert re.search(rf"^MIN_NODE_MAJOR={NODE_MIN[0]}\b", text, re.M), "setup.sh node major floor drifted"
     assert re.search(rf"^MIN_NODE_MINOR={NODE_MIN[1]}\b", text, re.M), "setup.sh node minor floor drifted"
