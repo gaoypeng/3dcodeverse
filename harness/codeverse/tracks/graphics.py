@@ -60,16 +60,6 @@ log = logging.getLogger(__name__)
 
 
 # ===================================================================== recipe seeding
-# (merged from codeverse/tracks/graphics_recipes.py, 2026-08-28 — its two importers
-#  were this track and graphics_steps.  Original module rationale:
-#  Seed the cookbook's verified GLSL recipes into the HARNESS-OWNED ``src/recipes.glsl`` BEFORE the session.
-#  
-#  Measured 2026-08-26 (refs_v2_graphics, aurora brief, gemini-3.7-flash api-agent, shader_v2 judge): the
-#  baseline prompt carried the cookbook's "Light phenomena" chapter — five mentions of ``curtain(`` in
-#  ``trajectories/baseline_r00/prompt.md`` — and the agent called none of them (``grep -c "curtain("
-#  src/shader.frag`` = 0 in both finished runs): round 0 was again a comb of bars (``comb_artefact``, 0.33).
-#  Showing flash a recipe is not the same as flash using it, so the recipes go ON DISK.
-#  ... see git history of graphics_recipes.py for the full measured writeup.)
 #: the harness-owned recipe file (``contracts.common.HARNESS_OWNED_SRC``; ``AgentJob.read_only``)
 RECIPES_REL = HARNESS_OWNED_SRC[Language.GLSL_SHADER][0]
 #: the agent's helper file — never written by this module, except :func:`trim_skeleton_common`
@@ -291,7 +281,6 @@ def seed_recipes(ctx: RunContext) -> list[str]:
 
 
 # ===================================================================== planner hooks + prompt context + frames
-# (merged from codeverse/tracks/graphics_steps.py, 2026-08-28 — single production importer)
 PLAN_TEMPLATE = "tracks/plan_graphics.j2"
 PLAN_TEMPERATURE = 0.5
 PLAN_MAX_OUTPUT_TOKENS = 65_536   # the model's declared output ceiling; unused tokens cost nothing

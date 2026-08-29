@@ -31,7 +31,6 @@ from codeverse.proc import scrub_secrets
 from codeverse.workspace import Workspace
 
 # ===================================================================== lint
-# (merged from codeverse/languages/blender/lint.py, 2026-08-28)
 GATE = "lint:blender"
 
 ALLOWED_IMPORTS = {
@@ -309,7 +308,6 @@ def lint_blender_file(path: Path, *, target: str = "src/model.py") -> GateReport
 
 
 # ===================================================================== layout
-# (merged from codeverse/languages/blender/layout.py, 2026-08-28)
 ENTRY_REL = ENTRY_FILE[Language.BLENDER]  # "src/model.py"
 PARTS_DIR = "parts"
 PARTS_PKG = "parts"
@@ -436,7 +434,6 @@ def lint_workspace(ws: Workspace) -> GateReport:
 
 
 # ===================================================================== skeleton
-# (merged from codeverse/languages/blender/skeleton.py, 2026-08-28)
 # keyword → (rgb, roughness, metallic) placeholder finishes so the first render is not all-grey
 _FINISHES: tuple[tuple[tuple[str, ...], tuple[float, float, float], float, float], ...] = (
     (("wood", "oak", "walnut", "pine", "timber", "birch"), (0.55, 0.36, 0.20), 0.55, 0.0),
@@ -700,7 +697,6 @@ def write_blender_skeleton(ws: Workspace, plan: StaticPlan, *, multi_file: bool 
 
 
 # ===================================================================== runtime
-# (merged from codeverse/languages/blender/runtime.py, 2026-08-28)
 _PKG_DIR = Path(__file__).resolve().parent
 WRAPPER = _PKG_DIR / "wrappers" / "run_bpy.py"
 

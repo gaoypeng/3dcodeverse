@@ -138,7 +138,13 @@ class Budget(BaseModel):
 
     A run is bounded by ``max_rounds`` and ``max_minutes``.  Cost is accumulated per call
     for the ledger and the run record, and never gates anything.
+
+    ``extra="forbid"``: a caller still passing a retired ceiling (``max_usd``) or a typo
+    must raise, not be silently swallowed.  Old on-disk specs are migrated in ONE place:
+    ``Spec._strip_retired_budget_keys``.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     max_rounds: int = Field(default=4, ge=0)
     max_minutes: float = Field(default=60.0, ge=0)

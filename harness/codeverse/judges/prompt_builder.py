@@ -122,7 +122,6 @@ def image_part(path: Path, label: str) -> ImagePart:
 
 
 # ===================================================================== montage
-# (merged from codeverse/judges/montage.py, 2026-08-28)
 MontageKind = Literal["shaded", "geometry", "poses", "pose_sheet", "detail"]
 
 #: modes that show geometry without material/lighting noise
@@ -364,7 +363,6 @@ def describe_montages(montages: list[Montage]) -> str:
 
 
 # ===================================================================== prompt_builder
-# (merged from codeverse/judges/prompt_builder.py, 2026-08-28)
 if TYPE_CHECKING:  # pragma: no cover
     from codeverse.judges.base import JudgeInput
 

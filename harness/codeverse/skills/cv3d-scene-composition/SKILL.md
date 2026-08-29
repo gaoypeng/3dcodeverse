@@ -111,15 +111,15 @@ fog colour == the sky's horizon colour            // or the ground ends AT the s
 
 Solid shapes, never plane billboards, and never hand-tint the ring toward the fog colour —
 `scene.fog` already does that by distance, and doing it twice produces the pale cardboard
-the judge grades as a placeholder material. Code: `read_cookbook(section="Horizon: the world
-must not end")` and `read_cookbook(section="Atmosphere: time-of-day triads with numbers")`
+the judge grades as a placeholder material. Code: the cookbook section "Horizon: the world
+must not end" and the cookbook section "Atmosphere: time-of-day triads with numbers"
 for the fog row.
 
 ## What you have already been given, and what you have not
 
 `env` sessions receive the *Ground that reads real*, *Horizon*, *Atmosphere* and *Dusk /
 night lighting* chapters inlined in the prompt. **Zone, compose and refine sessions do
-not** — if you own a zone or the camera list, this skill plus `read_cookbook` is the whole
+not** — if you own a zone or the camera list, this skill plus the cookbook is the whole
 of your guidance on the horizon and on camera placement.
 
 ## Verify before you finish

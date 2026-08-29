@@ -118,7 +118,6 @@ class SkillsMaterialized(BaseModel):
 
 
 # ===================================================================== loader
-# (merged from codeverse/skills/loader.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 SKILL_FILE = "SKILL.md"

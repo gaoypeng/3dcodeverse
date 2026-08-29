@@ -317,7 +317,7 @@ tr.hl td.arm{font-weight:600}
       <tr><td class="arm">resume corrupted<br>finished runs</td><td>No terminal-state guard: resuming a completed run re-billed the plan stage and overwrote <code>passed</code> with <code>planning</code>, leaving it stuck. Separately, an unreadable cached stage bricked resume permanently.</td></tr>
       <tr><td class="arm">parquet dropped the<br>complexity columns</td><td>The flywheel's dataset silently shipped without the objective complexity vector — the metrics the whole complexity study depends on.</td></tr>
       <tr><td class="arm">one CV3D_JUDGE__* var<br>disabled the profile</td><td>Setting a single judge field discarded the profile's entire judge block.</td></tr>
-      <tr><td class="arm">a NUL from the model<br>reached an argv</td><td>A planner wrote <code> </code> where it meant <code>×</code> and <code>±</code>. Legal JSON, so it passed the parser, pydantic and <code>plan.json</code> — then killed all four generation tasks of a cell inside <code>subprocess.Popen</code> with an error naming no file, no field and no value.</td></tr>
+      <tr><td class="arm">a NUL from the model<br>reached an argv</td><td>A planner wrote <code>\x00</code> where it meant <code>×</code> and <code>±</code>. Legal JSON, so it passed the parser, pydantic and <code>plan.json</code> — then killed all four generation tasks of a cell inside <code>subprocess.Popen</code> with an error naming no file, no field and no value.</td></tr>
     </tbody>
   </table></div>
   <h4>Smoke matrix</h4>

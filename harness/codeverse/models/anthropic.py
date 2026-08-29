@@ -239,7 +239,6 @@ def parse_content(content: list[Any]) -> tuple[str, list[ToolCallPart], Any, lis
 
 
 # ===================================================================== anthropic
-# (merged from codeverse/models/anthropic.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 

@@ -47,7 +47,6 @@ log = logging.getLogger(__name__)
 
 
 # ===================================================================== types
-# (merged from codeverse/reference/types.py, 2026-08-28)
 #: The note stamped on every synthesized ``ReferenceImage``.  It travels into the
 #: planner prompt label, the generator's reference note, the judge's image label
 #: and ``spec.json`` — so nothing downstream can mistake it for ground truth.
@@ -220,7 +219,6 @@ class ReferenceDiff(BaseModel):
 
 
 # ===================================================================== spec_text
-# (merged from codeverse/reference/spec_text.py, 2026-08-28)
 def brief_text(spec: Spec) -> str:
     """Prompt + the constraints a photograph could show, as one block."""
     lines = [spec.prompt.strip()]
@@ -262,7 +260,6 @@ def visual_constraints(spec: Spec) -> str:
 
 
 # ===================================================================== prompts
-# (merged from codeverse/reference/prompts.py, 2026-08-28)
 # --------------------------------------------------------------------------- image prompt writer
 IMAGE_PROMPT_SYSTEM = (
     "You write prompts for a text-to-image model.  You are given a 3D modelling brief.  Your job is to "
@@ -385,7 +382,6 @@ Rules:
 
 
 # ===================================================================== cache
-# (merged from codeverse/reference/cache.py, 2026-08-28)
 
 CACHE_SUBDIR = "references"
 
@@ -443,7 +439,6 @@ def image_dir(key: str, *, cache_dir: Path | None = None) -> Path:
 
 
 # ===================================================================== proportions
-# (merged from codeverse/reference/proportions.py, 2026-08-28)
 
 #: relative aspect disagreement above which the picture's proportions are not a target
 ASPECT_TOL = 0.25
@@ -524,7 +519,6 @@ def conflict_note(info: dict[str, Any]) -> str:
 
 
 # ===================================================================== gate
-# (merged from codeverse/reference/gate.py, 2026-08-28)
 
 
 class GateAnswer(BaseModel):
@@ -613,7 +607,6 @@ def check_plausible(
 
 
 # ===================================================================== attach
-# (merged from codeverse/reference/attach.py, 2026-08-28)
 def has_user_references(spec: Spec) -> bool:
     """True when the user supplied their own reference image(s) (``--image``)."""
     return any(not is_synthetic(r) for r in spec.references)
@@ -664,7 +657,6 @@ def attach(spec: Spec, refset: ReferenceSet) -> tuple[Spec, str]:
 
 
 # ===================================================================== synth
-# (merged from codeverse/reference/synth.py, 2026-08-28)
 
 MAX_VIEWS = len(VIEW_ORDER)
 DEFAULT_SIZE = 1024
@@ -818,7 +810,6 @@ def _publish(rs: ReferenceSet, out_dir: Path | None) -> ReferenceSet:
 
 
 # ===================================================================== mismatch
-# (merged from codeverse/reference/mismatch.py, 2026-08-28)
 
 MAX_MISMATCHES = 6
 #: how many mismatches become refine tasks
@@ -918,7 +909,6 @@ def refine_tasks(diff: ReferenceDiff, *, top: int = TOP_TASKS) -> list[Any]:
 
 
 # ===================================================================== run
-# (merged from codeverse/reference/run.py, 2026-08-28)
 
 ARTIFACT_SUBDIR = "reference"
 

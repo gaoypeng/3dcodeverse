@@ -41,7 +41,7 @@ STATIC_MARK = "STATIC_FRAMES"
 def make_spec(language: Language = Language.GLSL_SHADER, *, generator: str = "fake:fake-model", max_rounds: int = 3) -> Spec:
     return Spec(id="g1", track=Track.GRAPHICS, language=language, prompt="animated neon rain on a window with bokeh city lights",
                 constraints=Constraints(must_have=["bokeh lights"]),
-                budget=Budget(max_rounds=max_rounds, max_usd=5.0, max_minutes=10, max_repair_attempts=2),
+                budget=Budget(max_rounds=max_rounds, max_minutes=10, max_repair_attempts=2),
                 backends=Backends(planner="fake:planner", generator=generator, judge="fake:judge"))
 
 

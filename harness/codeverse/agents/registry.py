@@ -40,7 +40,6 @@ class CodingAgent(Protocol):
 
 
 # ===================================================================== registry
-# (merged from codeverse/agents/registry.py, 2026-08-28)
 KINDS = ("gemini-cli", "claude-code", "codex", "agy")
 
 

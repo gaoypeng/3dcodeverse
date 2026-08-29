@@ -106,11 +106,15 @@ def _reconcile_billed_from_ledger(budget: BudgetGuard, ws: Workspace, events: Ev
     from the ledger.  Taking the larger of the two makes resume charge for everything
     the provider actually billed — silently under-counting is how a resumed run walks
     past its ceiling.  Attempt rows stay excluded (the winner is already on the logical
-    row); a missing or unreadable ledger simply leaves the snapshot alone."""
+    row), and so do subscription-backend rows: their ``cost_usd`` is notional, not money
+    (the same ``bills_usd`` predicate the live path uses — ``BudgetGuard.spend``), so a
+    codex/claude/agy run resumed offline keeps billed at $0.  A missing or unreadable
+    ledger simply leaves the snapshot alone."""
     try:
+        from codeverse.cost.billing import bills_usd
         from codeverse.cost.ledger import load_ledger
 
-        billed = sum(float(r.cost_usd or 0.0) for r in load_ledger(ws.root))
+        billed = sum(float(r.cost_usd or 0.0) for r in load_ledger(ws.root) if bills_usd(r.backend))
     except Exception as e:  # noqa: BLE001 — accounting repair must never block a resume
         log.debug("ledger reconcile skipped: %s", e)
         return
@@ -502,7 +506,8 @@ class BaseTrack:
         snap = state.extra.get("budget_snapshot")
         if snap:
             # full guard state: money, calls, buckets AND active minutes keep counting,
-            # so a raised --max-usd grants only the difference, never a fresh full cap.
+            # so a raised cap (--max-minutes / --rounds) grants only the difference,
+            # never a fresh full cap.
             budget.restore(BudgetSnapshot.model_validate(snap))
         else:
             spent = state.extra.get("spent_usage")  # legacy run dirs (pre-snapshot)

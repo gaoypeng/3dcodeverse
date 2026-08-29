@@ -170,11 +170,6 @@ def process_ledger_path() -> Path:
     return base / "cost" / f"p{os.getpid()}-{stamp}.jsonl"
 
 
-def ledger_path(workspace: str | Path) -> Path:
-    """The live ledger of a run workspace: ``<ws>/telemetry/cost.jsonl``."""
-    return Path(workspace) / TELEMETRY_LEDGER
-
-
 def existing_ledger_path(workspace: str | Path) -> Path | None:
     """The ledger file a run actually has — the telemetry one, else the legacy
     root file — or ``None``."""

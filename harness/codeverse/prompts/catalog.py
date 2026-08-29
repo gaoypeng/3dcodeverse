@@ -20,11 +20,7 @@ A file that tries to be both is the thing this split exists to prevent.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
-
 from codeverse.contracts.common import Language
-from codeverse.prompts import PROMPTS_DIR, load_text
 
 #: ``Language.URDF_BLENDER`` is ``"urdf_blender"``; its prompts live in ``prompts/urdf/``.
 #: THE mapping — importing this is the only supported way to ask.
@@ -34,36 +30,3 @@ PROMPT_DIRS: dict[Language, str] = {Language.URDF_BLENDER: "urdf"}
 def prompt_dir_for(language: Language) -> str:
     return PROMPT_DIRS.get(language, language.value)
 
-
-@dataclass(frozen=True)
-class LanguagePrompts:
-    """The four per-language pieces, and how each is delivered.
-
-    ``system`` and ``contract`` are sent WHOLE in every generating message; ``cookbook``
-    is sent whole in the round prompt and also copied to ``<ws>/.3dcv/cookbook.md`` so an
-    agent session can re-read it without spending a turn.  None of them is truncated —
-    delivering a byte prefix of material we wrote for the model was removed 2026-08-28.
-    """
-
-    language: Language
-    dir: str
-
-    @property
-    def root(self) -> Path:
-        return PROMPTS_DIR / self.dir
-
-    def system(self, *, variant: str = "") -> str:
-        return load_text(f"{self.dir}/system{variant}.md").strip()
-
-    def contract(self) -> str:
-        return load_text(f"{self.dir}/contract.md")
-
-    def cookbook(self) -> str:
-        return load_text(f"{self.dir}/cookbook.md")
-
-    def cookbook_rel(self) -> str:
-        return f"{self.dir}/cookbook.md"
-
-
-def prompts_for(language: Language) -> LanguagePrompts:
-    return LanguagePrompts(language=language, dir=prompt_dir_for(language))

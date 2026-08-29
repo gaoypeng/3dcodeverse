@@ -243,3 +243,25 @@ def test_resume_charges_for_spend_the_snapshot_missed(tmp_path, chair_plan, sett
     guard.billed_usd = 5.0                           # a snapshot AHEAD of the ledger wins
     _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
     assert guard.billed_usd == pytest.approx(5.0), "reconcile never lowers what was already billed"
+
+
+def test_resume_reconcile_keeps_subscription_spend_notional(tmp_path, settings):
+    """A codex/claude/agy ledger row is priced at list rates but bills $0 (bills_usd):
+    resuming a subscription-backend run offline must not flip billed from $0 to the
+    notional sum — reconcile shares the exact predicate the live spend path uses."""
+    from codeverse.cost.ledger import open_run_ledger
+    from codeverse.cost.types import CallCost
+    from codeverse.orchestrator import BudgetGuard
+    from codeverse.tracks.lifecycle import _reconcile_billed_from_ledger
+
+    ws = Workspace(tmp_path / "runs" / "sub")
+    ws.create()
+    led = open_run_ledger(ws.root)
+    led.append(CallCost(run=ws.root.name, backend="codex", model="gpt-5.6-sol", label="generator", cost_usd=7.7))
+    led.append(CallCost(run=ws.root.name, backend="claude-code", model="sonnet", cost_usd=1.1))
+    guard = BudgetGuard(make_spec().budget, run=ws.root.name)
+    _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
+    assert guard.billed_usd == 0.0, "subscription cost is notional; resume must keep billed at $0"
+    led.append(CallCost(run=ws.root.name, backend="gemini", model="gemini-3.7-flash", cost_usd=0.25))
+    _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
+    assert guard.billed_usd == pytest.approx(0.25), "the API-billed row still counts in full"

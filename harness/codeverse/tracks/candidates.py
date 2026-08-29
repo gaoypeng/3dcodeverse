@@ -276,7 +276,6 @@ def adopt_candidate(ctx: RunContext, sub_ws: Workspace) -> None:
         shutil.copytree(sub_ws.trajectories, ctx.ws.trajectories, dirs_exist_ok=True)
 
 
-
 # ----------------------------------------------------------------------------- best round (pairwise tie-break)
 def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], selector: BestSelector, new_index: int) -> int | None:
     """Index of the best round after ``rounds[new_index]`` finished.
@@ -324,8 +323,6 @@ __all__ = ["CAND_DIR", "adopt_candidate", "choose_best_round", "make_candidate_c
 
 
 # ===================================================================== decision logic
-# (merged from codeverse/orchestrator/candidates.py, 2026-08-28 — this file was its
-#  only production importer, and two candidates.py in sibling packages was a hazard)
 class CandidateRecord(BaseModel):
     """One best-of-N baseline candidate (generated in its own sub-workspace)."""
 

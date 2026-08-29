@@ -86,7 +86,6 @@ def humanize_view(name: str) -> str:
 
 
 # ===================================================================== model
-# (merged from codeverse/gallery/model.py, 2026-08-28)
 #: how an entry's link should be opened: raw bytes, a directory listing, the code
 #: viewer, the GLB viewer, or another gallery page
 LinkKind = Literal["file", "dir", "code", "viewer"]

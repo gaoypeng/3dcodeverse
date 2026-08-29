@@ -317,7 +317,6 @@ def _compose_prompt(job: AgentJob) -> str:
 
 
 # ===================================================================== claude_code
-# (merged from codeverse/agents/claude_code.py, 2026-08-28)
 #: ``--allowedTools``.  "Skill" is claude-code 2.1's model-invoked skill tool: without it
 #: the bundles the harness materialises into ``ws/.claude/skills/`` are listed at session
 #: start and then DENIED on activation, which reads in the transcript as the model
@@ -469,7 +468,6 @@ class ClaudeCodeAgent(_CliAgent):
 
 
 # ===================================================================== codex
-# (merged from codeverse/agents/codex.py, 2026-08-28)
 STDIN_PROMPT_BYTES = 100_000
 _TOOL_ITEMS = ("command_execution", "file_change", "mcp_tool_call", "web_search", "tool_call")
 
@@ -624,7 +622,6 @@ class CodexAgent(_CliAgent):
 
 
 # ===================================================================== antigravity
-# (merged from codeverse/agents/antigravity.py, 2026-08-28)
 
 #: reasoning efforts agy exposes for the models that have them
 EFFORTS = ("low", "medium", "high")

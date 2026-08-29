@@ -196,7 +196,6 @@ def parse_choice(choice: Any) -> tuple[str, list[ToolCallPart], str]:
 
 
 # ===================================================================== openai
-# (merged from codeverse/models/openai.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 

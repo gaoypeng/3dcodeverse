@@ -31,7 +31,6 @@ from codeverse.spatial.gl_render import GlHost, GlResult
 from codeverse.workspace import Workspace
 
 # ===================================================================== lint
-# (merged from codeverse/languages/opengl_python/lint.py, 2026-08-28)
 GATE = "lint:opengl_python"
 PROGRAM = "src/program.py"
 ALLOWED_MODULES: frozenset[str] = frozenset({
@@ -182,7 +181,6 @@ def lint_workspace(ws: Workspace) -> GateReport:
 
 
 # ===================================================================== skeleton
-# (merged from codeverse/languages/opengl_python/skeleton.py, 2026-08-28)
 _TEMPLATE = '''"""src/program.py — {title}
 
 CONTRACT (the harness imports this module in a headless moderngl process):
@@ -338,7 +336,6 @@ def write_skeleton(ws: Workspace, plan: Plan | None) -> list[Path]:
 
 
 # ===================================================================== runtime
-# (merged from codeverse/languages/opengl_python/runtime.py, 2026-08-28)
 CONTRACT_FALLBACK = """src/program.py — raw moderngl program: `def setup(ctx, width, height) -> state` (programs, VAOs, textures,
 FBOs; GLSL 330 core inline strings) and `def render(ctx, state, t, frame, fbo)` (draw the frame at time t into the given,
 already bound framebuffer; multi-pass via your own FBOs, finish with fbo.use()).  No window, no context creation, no clock,

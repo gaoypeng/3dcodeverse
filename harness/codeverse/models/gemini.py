@@ -284,7 +284,6 @@ def extract_candidate(
 
 
 # ===================================================================== gemini
-# (merged from codeverse/models/gemini.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 _RETRY_DELAY_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
@@ -743,7 +742,6 @@ class GeminiModel:
 
 
 # ===================================================================== gemini_image
-# (merged from codeverse/models/gemini_image.py, 2026-08-28)
 
 DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
 FALLBACK_IMAGE_MODEL = "gemini-2.5-flash-image"

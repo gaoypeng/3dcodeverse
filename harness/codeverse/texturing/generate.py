@@ -135,7 +135,6 @@ def tile_preview(img: Image.Image, reps: int = 2, size: int = 512) -> Image.Imag
 
 
 # ===================================================================== generate
-# (merged from codeverse/texturing/generate.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 #: bump when the cached raw image semantics change (prompt composition, model config)
@@ -335,7 +334,6 @@ def generate_textures(
 
 
 # ===================================================================== gate
-# (merged from codeverse/texturing/gate.py, 2026-08-28)
 
 MIN_OVERALL_DELTA = -0.01
 MIN_MATERIALS_DELTA = 0.0

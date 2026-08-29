@@ -40,21 +40,6 @@ def test_entry_file_and_labels_cover_every_language():
     assert code_file(Language.GLSL_SHADER) == "code.frag"
 
 
-def test_registries_agree_with_legacy_flywheel_tables():
-    """Drift guard while the legacy tables still exist (they adopt these later)."""
-    import codeverse.flywheel.sample as sample
-
-    legacy_entry = getattr(sample, "ENTRY_BY_LANGUAGE", None)
-    if legacy_entry is not None:
-        assert legacy_entry == ENTRY_FILE
-    legacy_code = getattr(sample, "CODE_FILE_BY_LANGUAGE", None)
-    if legacy_code is not None:
-        assert legacy_code == {lang: code_file(lang) for lang in Language}
-    legacy_label = getattr(sample, "TYPE_LABEL", None)
-    if legacy_label is not None:
-        assert legacy_label == {t: TRACK_INFO[t].label for t in Track}
-
-
 def test_language_frame_covers_every_language():
     from codeverse.conventions import LANGUAGE_FRAME, Frame
 

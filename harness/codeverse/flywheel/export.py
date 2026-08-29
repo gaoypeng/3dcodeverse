@@ -420,7 +420,6 @@ def write_jsonl(rows: list[dict[str, Any]], path: Path, *, commit: bool = True) 
 
 
 # ===================================================================== manifest
-# (merged from codeverse/flywheel/manifest.py, 2026-08-28)
 MANIFEST_NAME = "dataset_manifest.json"
 
 

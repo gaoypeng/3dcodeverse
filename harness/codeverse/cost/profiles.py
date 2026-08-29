@@ -143,8 +143,13 @@ PROFILES: dict[str, Profile] = {
         max_minutes=90.0,
         expected_usd=3.20,
         expected_score="best-of-2 lifted the stool baseline 0.563 → 0.612 and the texture pass "
-                       "0.686 → 0.701; judge σ 0.017 at n=3",
-        note="gemini-cli + pro judge n=3 + 4 rounds + best-of-2 + texture pass",
+                       "0.686 → 0.701; judge σ 0.017 at n=3 "
+                       "— MEASURED ON gemini-cli:gemini-3.6-flash, not on this dial's generator",
+        note="gemini-cli + pro judge n=3 + 4 rounds + best-of-2 + texture pass.  The generator "
+             "moved to 3.7-flash on 2026-08-28 and the $3.20 / score expectations above have NOT "
+             "been re-measured on it (same caveat as balanced: docs/COST.md §12 puts the 3.7 CLI "
+             "arm at $0.73/call vs 3.6's $0.52), so expect this dial to cost more and score about "
+             "the same until a battery says otherwise",
     ),
 }
 

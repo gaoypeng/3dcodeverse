@@ -28,7 +28,6 @@ from codeverse.proc import scrub_secrets
 from codeverse.workspace import Workspace
 
 # ===================================================================== lint
-# (merged from codeverse/languages/cadquery/lint.py, 2026-08-28)
 GATE = "lint:cadquery"
 ALLOWED_IMPORTS = {"cadquery", "cq", "math", "random", "numpy", "np", "itertools", "functools", "collections",
                    "typing", "dataclasses", "enum", "copy", "statistics", "operator", "__future__"}
@@ -224,7 +223,6 @@ def lint_cadquery_file(path: Path, *, target: str = "src/model.py") -> GateRepor
 
 
 # ===================================================================== skeleton
-# (merged from codeverse/languages/cadquery/skeleton.py, 2026-08-28)
 def _fmt(v: tuple[float, float, float]) -> str:
     return "(" + ", ".join(f"{x:.3f}" for x in v) + ")"
 
@@ -320,7 +318,6 @@ def write_cadquery_skeleton(ws: Workspace, plan: StaticPlan) -> list[Path]:
 
 
 # ===================================================================== runtime
-# (merged from codeverse/languages/cadquery/runtime.py, 2026-08-28)
 _PKG_DIR = Path(__file__).resolve().parent
 WRAPPER = _PKG_DIR / "wrappers" / "run_cq.py"
 

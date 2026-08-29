@@ -46,8 +46,6 @@ from codeverse.contracts.spec import Constraints, ReferenceImage, RunOptions, Sp
 
 
 # ===================================================================== tools_cmd
-# (merged from codeverse/cli/tools_cmd.py, 2026-08-28 — main's registration block
-#  was its only importer)
 def tools(
     name: Annotated[str, typer.Argument(help="'list' or a tool name")] = "list",
     args_json: Annotated[str, typer.Option("--json", help="arguments object as JSON")] = "{}",
@@ -90,8 +88,6 @@ def tools(
 
 
 # ===================================================================== bench_cmd
-# (merged from codeverse/cli/bench_cmd.py, 2026-08-28 — main's registration block
-#  was its only importer)
 bench_app = typer.Typer(no_args_is_help=True)
 
 
@@ -102,7 +98,8 @@ def run_cmd(
     generator: Annotated[str | None, typer.Option("--generator")] = None,
     planner: Annotated[str | None, typer.Option("--planner")] = None,
     judge: Annotated[str | None, typer.Option("--judge", help="fixed judge model for the whole battery")] = None,
-    parallel: Annotated[int, typer.Option("--parallel", min=1)] = 4,
+    parallel: Annotated[int | None, typer.Option(
+        "--parallel", min=1, help="workers (default: BenchOptions.parallel — the measured knee)")] = None,
     rounds: Annotated[int, typer.Option("--rounds", min=0)] = 4,
     max_minutes: Annotated[float, typer.Option("--max-minutes", help="wall-clock budget per run; size it to the weather "
                                                                    "(RUNBOOK 7.x: 120 in a 503 storm, else runs burn the hour with no judged round)")] = 60.0,
@@ -119,9 +116,11 @@ def run_cmd(
         raise C.CliError(f"battery not found: {battery}")
     b = C.import_bench()
     run_bench = C.lazy("bench.run_bench")
+    # one source of truth for the worker count: BenchOptions.parallel (the measured knee)
+    par = {"parallel": parallel} if parallel is not None else {}
     opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_minutes=max_minutes,
-                                 parallel=parallel, limit=limit, ids=ids or [], tiers=tiers or [], resume=not no_resume,
-                                 redo_status=[x for x in redo_status.split(",") if x])
+                                 limit=limit, ids=ids or [], tiers=tiers or [], resume=not no_resume,
+                                 redo_status=[x for x in redo_status.split(",") if x], **par)
     out_dir = out or (C.REPO_ROOT / "bench" / "out" / battery.stem)
     console.print(f"battery={battery} out={out_dir} generator={generator or 'default'} judge={judge or 'default'}")
 
@@ -148,8 +147,6 @@ def report_cmd(out_dir: Annotated[Path, typer.Argument()]) -> None:
 
 
 # ===================================================================== gallery_cmd
-# (merged from codeverse/cli/gallery_cmd.py, 2026-08-28 — main's registration block
-#  was its only importer)
 gallery_app = typer.Typer(no_args_is_help=True)
 
 RootsArg = Annotated[list[Path] | None, typer.Argument(
@@ -581,7 +578,7 @@ def _finished_reason(ws, raised: dict) -> str:
             f" stop_reason={state.stop_reason!r}" if state.stop_reason else ""
         )
         if state.status is RunStatus.BUDGET:
-            return f"{detail}: raise a cap to continue it (--max-usd / --max-minutes / --rounds)"
+            return f"{detail}: raise a cap to continue it (--max-minutes / --rounds)"
         return f"{detail} best_score={state.best_score}"
     return ""
 
@@ -616,7 +613,7 @@ def resume(
 ) -> None:
     """Resume an interrupted / partial run (or start a `--no-run` one).
 
-    ``--max-usd`` / ``--max-minutes`` / ``--rounds`` rewrite the spec's budget
+    ``--max-minutes`` / ``--rounds`` rewrite the spec's budget
     first — the only way to continue a BUDGET-stopped run.  A run that already
     reached a terminal state is refused unless ``--force``: re-entering it spends
     money and overwrites its final state."""

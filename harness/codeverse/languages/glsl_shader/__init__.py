@@ -28,7 +28,6 @@ from codeverse.spatial.gl_render import GlHost, GlResult
 from codeverse.workspace import Workspace
 
 # ===================================================================== wrap
-# (merged from codeverse/languages/glsl_shader/wrap.py, 2026-08-28)
 UNIFORM_NAMES: tuple[str, ...] = ("u_time", "u_resolution", "u_mouse", "u_frame", "u_prev", "u_noise", "u_buffer_a")
 
 HEADER = """#version 330 core
@@ -133,7 +132,6 @@ def first_error(messages: list[GlslMessage]) -> GlslMessage | None:
 
 
 # ===================================================================== lint
-# (merged from codeverse/languages/glsl_shader/lint.py, 2026-08-28)
 GATE = "lint:glsl_shader"
 SHADER = "src/shader.frag"
 COMMON = "src/common.glsl"
@@ -283,7 +281,6 @@ def lint_text(shader_src: str, common_src: str | None = None, buffer_a_src: str 
 
 
 # ===================================================================== skeleton
-# (merged from codeverse/languages/glsl_shader/skeleton.py, 2026-08-28)
 COMMON_GLSL = """// src/common.glsl — helpers pasted above shader.frag by the harness (no #include needed).
 // Keep ONLY functions / constants here; no main(), no uniforms, no #version.
 #define PI 3.14159265359
@@ -382,7 +379,6 @@ def write_skeleton(ws: Workspace, plan: Plan | None) -> list[Path]:
 
 
 # ===================================================================== runtime
-# (merged from codeverse/languages/glsl_shader/runtime.py, 2026-08-28)
 CONTRACT_FALLBACK = """src/shader.frag — GLSL 330 fragment shader body (NO #version line, NO uniform declarations):
 write `void mainImage(out vec4 fragColor, in vec2 fragCoord)` using the harness uniforms u_time, u_resolution,
 u_mouse, u_frame, u_prev (previous frame), u_noise (256² noise), u_buffer_a (src/buffer_a.frag output).

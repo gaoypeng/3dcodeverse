@@ -427,7 +427,6 @@ class StaticObjectTrack(BaseTrack):
 
 
 # ===================================================================== the DETAIL round
-# (merged from codeverse/tracks/detailing.py, 2026-08-28 — this file was its only importer)
 # --------------------------------------------------------------------------- detail-round drift gate
 DRIFT_GATE = "detail_drift"
 
@@ -572,8 +571,6 @@ def detail_instructions(last: Any, *, max_lines: int = 8) -> list[str]:
 
 
 # ===================================================================== reference images
-# (merged from codeverse/tracks/reference.py, 2026-08-28 — this file was its only importer,
-#  and nothing else, tests included, ever imported it)
 SILHOUETTE_GATE = "reference_silhouette"
 IOU_REFINE_THRESHOLD = 0.6
 FRONT_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_34", "front_left_34")

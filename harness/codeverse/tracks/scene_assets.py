@@ -429,7 +429,7 @@ def _read(ws: Workspace, rel: str, limit: int = 30_000) -> str:
 
 
 # ===================================================================== cheap asset generation
-# (merged from codeverse/tracks/scene_asset_gen.py, 2026-08-28 — single-shot + check +
+# (single-shot + check +
 #  dedupe were only ever called from this stage and from scene.py)
 #: max triangles for ONE asset instance (the scene contract's budget)
 ASSET_MAX_TRIS = 15_000

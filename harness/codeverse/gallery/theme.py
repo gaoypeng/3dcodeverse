@@ -394,7 +394,6 @@ def footer(text: str) -> str:
 
 
 # ===================================================================== scripts
-# (merged from codeverse/gallery/scripts.py, 2026-08-28)
 INDEX_JS = r"""
 (function(){
 var node=document.getElementById('gallery-data');

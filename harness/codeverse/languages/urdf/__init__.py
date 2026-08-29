@@ -48,7 +48,6 @@ from codeverse.spatial.joints_model import (
 from codeverse.workspace import ArtifactStage, Workspace
 
 # ===================================================================== consistency
-# (merged from codeverse/languages/urdf/consistency.py, 2026-08-28)
 #: this gate's own name — a bare ``GATE`` here was shadowed by the lint section's
 #: ``GATE = "lint:urdf"`` 59 lines below when the package became one module (2026-08-28),
 #: so every FK finding went out mislabelled until 2026-08-28.
@@ -101,7 +100,6 @@ def check_fk_consistency(robot: Robot, census_links: dict[str, dict[str, Any]], 
 
 
 # ===================================================================== lint
-# (merged from codeverse/languages/urdf/lint.py, 2026-08-28)
 GATE = "lint:urdf"
 URDF_REL = "src/robot.urdf"
 MODEL_REL = "src/model.py"
@@ -444,7 +442,6 @@ def lint_workspace(ws: Workspace) -> GateReport:
 
 
 # ===================================================================== skeleton
-# (merged from codeverse/languages/urdf/skeleton.py, 2026-08-28)
 DEFAULT_EFFORT = 10.0
 DEFAULT_VELOCITY = 1.0
 
@@ -645,7 +642,6 @@ def write_skeleton(ws: Workspace, plan: ArticulatedPlan) -> list[Path]:
 
 
 # ===================================================================== runtime
-# (merged from codeverse/languages/urdf/runtime.py, 2026-08-28)
 WRAPPER = Path(__file__).resolve().parent / "wrappers" / "run_bpy_links.py"
 REST_PENETRATION_MAX_M = 0.005
 FK_TOL_M = 0.001

@@ -242,7 +242,6 @@ ROUTED_SKILLS: tuple[str, ...] = tuple(dict.fromkeys(r.skill for r in ROUTES))
 
 
 # ===================================================================== router
-# (merged from codeverse/skills/router.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 #: plan-derived booleans/ints the table may test.  Kept here (not on the Plan contracts)

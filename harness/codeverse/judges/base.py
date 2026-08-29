@@ -34,7 +34,6 @@ class Judge(Protocol):
 
 
 # ===================================================================== replay_input
-# (merged from codeverse/judges/replay_input.py, 2026-08-28)
 def plan_digest(plan: dict[str, Any]) -> str:
     """A track-agnostic plan summary (parts / joints / zones / assets / cameras) from ``plan.json``."""
     bits: list[str] = []

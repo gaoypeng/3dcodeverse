@@ -240,7 +240,6 @@ class VlmJudge:
 
 
 # ===================================================================== reference
-# (merged from codeverse/judges/reference.py, 2026-08-28)
 
 SilhouetteFn = Callable[[str, str], dict[str, Any]]
 
@@ -518,7 +517,6 @@ def _plan_part_names(inp: JudgeInput) -> list[str]:
         if n and " " not in n and 2 < len(n) <= 40 and n[:1].isupper() and n not in seen:
             seen.append(n)
     return seen[:40]
-
 
 
 LIKENESS_NOTE = (

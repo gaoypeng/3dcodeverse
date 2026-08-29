@@ -81,7 +81,6 @@ def known_backends() -> tuple[str, ...]:
 
 
 # ===================================================================== prompting
-# (merged from codeverse/skills/prompting.py, 2026-08-28)
 #: Per-backend policy lives in ONE place (``skills/delivery.py``); these are re-exported so
 #: existing importers keep working and so nothing here re-derives what a backend needs.
 NATIVE_LOADERS = tuple(k for k in known_backends() if delivery_for(k).native_loader)

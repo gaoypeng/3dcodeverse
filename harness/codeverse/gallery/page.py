@@ -186,7 +186,6 @@ def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcv gall
 
 
 # ===================================================================== static_site
-# (merged from codeverse/gallery/static_site.py, 2026-08-28)
 def render_static(index: GalleryIndex, *, title: str = "3dcv gallery", embed: bool = False,
                   thumb_px: int = THUMB_PX, sort: str = "score", view: str = "cards",
                   extra_html: str = "") -> str:

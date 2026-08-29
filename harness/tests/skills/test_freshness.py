@@ -9,7 +9,7 @@ vocabulary it merely mentions, which is the part an author can forget to declare
 
 The four vocabularies are checked, not guessed at: harness tool names live in the tool
 registry, gate kinds in ``skills.registry``, cookbook sections in the language cookbook
-the ``read_cookbook`` tool actually serves, and constants in the source.  Anything from a
+the harness inlines into the prompts, and constants in the source.  Anything from a
 foreign namespace (bpy, GL, GLSL, three.js) is listed in :data:`FOREIGN` with the library
 it belongs to — an allowlist an author has to extend deliberately, so the test keeps
 meaning something.
@@ -44,7 +44,8 @@ _GATE_SLUG = re.compile(
 #: a snake_case token in backticks is CLAIMED to be a name in this harness.  Which live
 #: vocabulary it belongs to does not matter — that it belongs to one of them does.
 _HARNESS_SHAPED = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$")
-_COOKBOOK_SECTION = re.compile(r'read_cookbook\(\s*section\s*=\s*"([^"]+)"')
+#: both spellings: the historical tool call and today's prose pointer
+_COOKBOOK_SECTION = re.compile(r'(?:read_cookbook\(\s*section\s*=\s*"|cookbook sections? ")([^"]+)"')
 _ENV = re.compile(r"\bCV3D_[A-Z0-9_]+\b")
 
 #: ALL_CAPS tokens that are NOT ours, with the namespace that owns them.  Extend
@@ -129,6 +130,7 @@ FOREIGN_CALLS = {
     "abs", "max", "min", "mod", "pow", "sin", "cos", "step", "reflect", "refract",
     "transform_apply", "primitive_cube_add", "ensure_lookup_table", "hide_set", "update",
     "len", "setup", "range", "print", "float", "int",
+    "clean",  # cadquery/trimesh mesh op quoted while teaching welding
     # illustrative names inside a bundle's own worked example
     "left_wheel", "right_wheel",
     # batteries whose results are cited as evidence but whose output dir is gitignored
@@ -160,6 +162,49 @@ def test_every_harness_name_a_bundle_quotes_is_still_a_live_name(doc: Path):
     assert unknown == [], (
         f"{doc.name} quotes {unknown}, which no tool, gate, rubric, criterion, language or "
         f"contract entry point answers to today")
+
+
+_DEF_RE = re.compile(r"^\s*(?:def|function)\s+([a-z_][a-z0-9_]*)\s*\(", re.M)
+
+
+def _defined_callables() -> set[str]:
+    """Every function the harness itself defines — python source plus the cookbooks'
+    fenced snippets (a bundle may tell the agent to call ``radial_array`` by name)."""
+    out: set[str] = set()
+    for root, pattern in ((HARNESS / "codeverse", "*.py"), (HARNESS / "codeverse" / "prompts", "*.md")):
+        for p in root.rglob(pattern):
+            if "__pycache__" not in p.parts:
+                out |= set(_DEF_RE.findall(p.read_text(errors="ignore")))
+    return out
+
+
+LIVE_CALLABLES = _defined_callables()
+
+
+@pytest.mark.parametrize("doc", DOCS, ids=[str(p.relative_to(skills_dir())) for p in DOCS])
+def test_every_call_a_bundle_instructs_is_a_live_tool_or_known_callable(doc: Path):
+    """``read_cookbook(section=...)`` survived its tool's deletion in four bundles.
+
+    A call-shaped instruction in prose must name a live MCP tool (:data:`LIVE_TOOLS`),
+    a callable the harness still defines, a function the bundle's own worked examples
+    define, or a declared-foreign builtin — never a name only the skill remembers.
+    """
+    text = doc.read_text()
+    bundle = next(d for d in BUNDLES if d == doc.parent or d in doc.parents)
+    corpus = "\n".join(q.read_text() for q in sorted(bundle.rglob("*.md")))
+    fences = "\n".join(_FENCE.findall(corpus))
+    called = set()
+    for tok in _INLINE_CODE.findall(_prose(text)):
+        m = re.match(r"^([a-z][a-z0-9_]*)\(", tok.strip())
+        if m:
+            called.add(m.group(1))
+    unknown = sorted(n for n in called
+                     if n not in LIVE_TOOLS and n not in FOREIGN_CALLS
+                     and n not in LIVE_CALLABLES and f"{n}(" not in fences)
+    assert unknown == [], (
+        f"{doc.name} instructs calling {unknown} — not a live tool, not a harness "
+        f"callable, not one of its own example functions, and not declared in "
+        f"FOREIGN_CALLS")
 
 
 @pytest.mark.parametrize("doc", DOCS, ids=[str(p.relative_to(skills_dir())) for p in DOCS])

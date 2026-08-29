@@ -256,7 +256,6 @@ def gate_kinds_claimed() -> frozenset[str]:
 
 
 # ===================================================================== claims
-# (merged from codeverse/skills/claims.py, 2026-08-28)
 CLAIMS_DIR = "_claims"
 
 

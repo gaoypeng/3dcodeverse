@@ -279,8 +279,6 @@ def cross_section(ctx: ToolContext, args: CrossSectionArgs) -> Observation:
 # register the cookbook reader (the other tool modules merged in, 2026-08-28)
 
 # ===================================================================== tools_render
-# (merged from codeverse/spatial/tools_render.py, 2026-08-28 — its one importer was the
-#  registration block at the bottom of this file)
 _DEFAULT_VIEWS = [v.name for v in OBJECT_VIEWS_QUICK]
 _MAX_SIZE = 1024
 
@@ -381,8 +379,6 @@ def compare_silhouette(ctx: ToolContext, args: CompareSilhouetteArgs) -> Observa
 
 
 # ===================================================================== tools_scene
-# (merged from codeverse/spatial/tools_scene.py, 2026-08-28 — its one importer was the
-#  registration block at the bottom of this file)
 def _as_observation(result: Any, root, *, title: str) -> Observation:
     """Normalise whatever a sibling returns (Observation / GateReport / RenderSet / dict / str)."""
     if isinstance(result, Observation):
@@ -515,8 +511,6 @@ def check_placement(ctx: ToolContext, args: CheckPlacementArgs) -> Observation:
 
 
 # ===================================================================== tools_graphics
-# (merged from codeverse/spatial/tools_graphics.py, 2026-08-28 — its one importer was the
-#  registration block at the bottom of this file)
 GRAPHICS_LANGS = (Language.GLSL_SHADER.value, Language.OPENGL_PYTHON.value)
 MAX_FRAMES = 8
 
@@ -625,8 +619,6 @@ def gl_frames(ctx: ToolContext, args: GlFramesArgs) -> Observation:
 
 
 # ===================================================================== tools_texture
-# (merged from codeverse/spatial/tools_texture.py, 2026-08-28 — its one importer was the
-#  registration block at the bottom of this file)
 _OBJECT_TRACKS = (Track.STATIC_OBJECT.value, Track.ARTICULATED_OBJECT.value)
 
 
@@ -710,8 +702,6 @@ def texture_preview(ctx: ToolContext, args: TexturePreviewArgs) -> Observation:
 
 
 # ===================================================================== tools_reference
-# (merged from codeverse/spatial/tools_reference.py, 2026-08-28 — its one importer was the
-#  registration block at the bottom of this file)
 #: what the agent should compare, in the order that decides whether the object
 #: reads as the real thing (identity before polish)
 CHECKLIST = (

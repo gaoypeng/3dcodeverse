@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -55,6 +56,20 @@ class Spec(BaseModel):
     seed: int = 0
     tags: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @model_validator(mode="before")
+    @classmethod
+    def _strip_retired_budget_keys(cls, data: Any) -> Any:
+        """THE migration point for retired spec fields — nowhere else may tolerate them.
+
+        Runs recorded before 2026-08-28 carry ``budget.max_usd`` (the money ceiling
+        deleted from the harness).  ``Budget`` itself is ``extra="forbid"`` so live
+        callers and typos raise — but a spec.json / record.json written back then must
+        keep loading (resume, flywheel), so the retired key is stripped here, before
+        validation."""
+        if isinstance(data, dict) and isinstance(data.get("budget"), dict) and "max_usd" in data["budget"]:
+            data = {**data, "budget": {k: v for k, v in data["budget"].items() if k != "max_usd"}}
+        return data
 
     @model_validator(mode="after")
     def _language_fits_track(self) -> Spec:

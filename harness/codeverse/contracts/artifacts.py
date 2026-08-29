@@ -134,7 +134,6 @@ class RenderSet(BaseModel):
 
 
 # ===================================================================== judgment
-# (merged from codeverse/contracts/judgment.py, 2026-08-28)
 class JudgeIssue(BaseModel):
     target: str = Field(description="part / zone / joint / asset / 'overall'")
     kind: Literal[

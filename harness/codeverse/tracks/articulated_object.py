@@ -160,8 +160,6 @@ def _find_urdf(ws: Workspace) -> Path | None:
 
 
 # ===================================================================== planned-motion gate
-# (merged from codeverse/tracks/motion.py, 2026-08-28 — its two importers were this file
-#  and one lazy Services hook; the byte-identical _find_urdf duplicate died with it)
 MOTION_GATE = "motion_direction"
 
 #: phrase → direction key understood by ``spatial.joints.motion_direction_check``.

@@ -234,7 +234,6 @@ def load_rubric(name: str) -> Rubric:
 
 
 # ===================================================================== output_schema
-# (merged from codeverse/judges/output_schema.py, 2026-08-28)
 class JudgeParseError(ValueError):
     """The model's reply could not be turned into a complete JudgeOutput."""
 
@@ -434,7 +433,6 @@ def parse_judge_output(
 
 
 # ===================================================================== caps
-# (merged from codeverse/judges/caps.py, 2026-08-28)
 _SEV_RANK = {Severity.INFO: 0, Severity.WARN: 1, Severity.ERROR: 2}
 
 
@@ -608,7 +606,6 @@ def _rule_evidence(
 
 
 # ===================================================================== scoring
-# (merged from codeverse/judges/scoring.py, 2026-08-28)
 class ScoreBreakdown(BaseModel):
     """Everything the pass/fail decision used (serialised into ``Judgment.raw``)."""
 

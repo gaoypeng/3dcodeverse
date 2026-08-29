@@ -3,7 +3,8 @@
 Every snippet below runs as-is in `blender -b --factory-startup` (they are executed in
 order by the harness test suite).  Z-up, −Y front, meters, PascalCase object names.
 Files: `src/model.py` (entry) + `src/parts/<snake>.py` (one `build_<snake>()` per plan part) —
-see "File layout".  Use `read_cookbook(section="<heading>")` to fetch one chapter.
+see "File layout".  The harness inlines the relevant chapters into your prompts; the full
+file is at `.3dcv/cookbook.md` in your workspace.
 
 ## File layout (multi-file: model.py + parts/<snake>.py)
 

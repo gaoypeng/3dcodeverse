@@ -20,7 +20,6 @@ from codeverse.languages._js_lint import ImportKind, ImportVerdict, check_import
 from codeverse.workspace import Workspace
 
 # ===================================================================== lint
-# (merged from codeverse/languages/scene_threejs/lint.py, 2026-08-28)
 GATE = "lint:scene_threejs"
 MAX_LINES = 800
 
@@ -122,7 +121,6 @@ def lint(ws: Workspace) -> GateReport:
 
 
 # ===================================================================== skeleton
-# (merged from codeverse/languages/scene_threejs/skeleton.py, 2026-08-28)
 STARTER_DIR = Path(__file__).resolve().parent / "starter" / "src"
 #: pattern files copied verbatim in plan mode (shown as reusable examples)
 PATTERN_FILES = ("shaders/sky.js", "shaders/water.js", "assets/pine_tree.js", "assets/windmill.js")
@@ -313,7 +311,6 @@ def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
 
 
 # ===================================================================== assemble
-# (merged from codeverse/languages/scene_threejs/assemble.py, 2026-08-28)
 PROBE_REL = "src/_c3v_assemble_probe.js"
 _PREFIX = "[3dcv-assemble]"
 _SUN_RE = re.compile(r"export\s+const\s+SUN_AZIMUTH_DEG\s*=\s*(-?\d+(?:\.\d+)?)")
@@ -603,7 +600,6 @@ def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "de
 
 
 # ===================================================================== runtime
-# (merged from codeverse/languages/scene_threejs/runtime.py, 2026-08-28)
 
 
 class SceneThreeJsRuntime(RuntimeDocs):
@@ -657,7 +653,6 @@ class SceneThreeJsRuntime(RuntimeDocs):
         )
         (ws.artifacts / "build.json").write_text(json.dumps(res.model_dump(mode="json"), indent=1))
         return res
-
 
 
 def _probe_and_preflight(ws: Workspace, *, timeout_s: float) -> tuple[GateReport, GateReport, dict]:

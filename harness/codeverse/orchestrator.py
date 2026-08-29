@@ -35,7 +35,6 @@ log = logging.getLogger(__name__)
 
 
 # ===================================================================== state
-# (merged from codeverse/orchestrator/state.py, 2026-08-28)
 class StageState(BaseModel):
     """One completed stage: inputs hash + where its result JSON lives."""
 
@@ -114,7 +113,6 @@ class StateCorrupt(RuntimeError):
 
 
 # ===================================================================== runner
-# (merged from codeverse/orchestrator/runner.py, 2026-08-28)
 
 T = TypeVar("T")
 
@@ -217,7 +215,6 @@ def _revive(data: dict[str, Any], model: type[BaseModel] | None, list_of: type[B
 
 
 # ===================================================================== refine_tasks
-# (merged from codeverse/orchestrator/refine_tasks.py, 2026-08-28)
 
 
 class RefineTask(BaseModel):
@@ -443,7 +440,6 @@ def _acceptance_target(item: AcceptanceItem, known: dict[str, str]) -> str:
 
 
 # ===================================================================== rounds
-# (merged from codeverse/orchestrator/rounds.py, 2026-08-28)
 StopReason = Literal["pass", "plateau", "budget", "continue", "max_rounds", "judge_unavailable",
                      "regression", "diminishing_returns"]
 
@@ -797,7 +793,6 @@ def _build_failed(r: RoundRecord) -> bool:
 
 
 # ===================================================================== budget
-# (merged from codeverse/orchestrator/budget.py, 2026-08-28)
 
 #: stage label used when a caller does not say where the money went
 OTHER_STAGE = "other"
@@ -971,8 +966,8 @@ class BudgetGuard:
         """Adopt a snapshot: money, calls and buckets keep counting; ``start_time``
         stays *now*, so ``elapsed_minutes`` is prior ACTIVE seconds plus this session
         — never the downtime in between.  The ceilings come from the (possibly raised)
-        spec budget, so a raised ``--max-usd`` grants exactly the difference, never a
-        fresh full cap."""
+        spec budget, so a raised cap (``--max-minutes`` / ``--rounds``) grants exactly
+        the difference, never a fresh full cap."""
         with self._lock:
             self.spent = snap.spent.model_copy(deep=True)
             self.billed_usd = float(snap.billed_usd)

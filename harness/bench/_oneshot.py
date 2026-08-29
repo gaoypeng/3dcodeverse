@@ -221,15 +221,6 @@ def extract_model_file(text: str) -> str:
     return code if code.endswith("\n") else code + "\n"
 
 
-def write_model_file(ws: Workspace, text: str) -> Path:
-    """Parse the answer and write ``src/model.py`` into the workspace (raises MultiFileParseError)."""
-    code = extract_model_file(text)
-    dest = ws.root / MODEL_FILE
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(code)
-    return dest
-
-
 def extract_files(text: str, language: Language = Language.BLENDER) -> dict[str, str]:
     """Every file a one-shot answer must contain for ``language`` → ``{path: body}``.
 
@@ -433,5 +424,4 @@ def get_oneshot_backend(target: str) -> OneShotBackend:
 
 
 __all__ = ["ApiOneShot", "ClaudeOneShot", "CodexOneShot", "MODEL_FILE", "OneShotBackend", "OneShotResult",
-           "extract_model_file", "get_oneshot_backend", "minimal_contract", "oneshot_prompt", "repair_prompt",
-           "write_model_file"]
+           "extract_model_file", "get_oneshot_backend", "minimal_contract", "oneshot_prompt", "repair_prompt"]

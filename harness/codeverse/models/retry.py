@@ -433,7 +433,6 @@ class KeyPool:
 
 
 # ===================================================================== storm
-# (merged from codeverse/models/storm.py, 2026-08-28)
 class StormGate:
     """Shared 503 back-pressure for one model.  See the module docstring."""
 
@@ -564,7 +563,6 @@ def all_gates() -> list[StormGate]:
 
 
 # ===================================================================== retry
-# (merged from codeverse/models/retry.py, 2026-08-28)
 #: the longest ONE logical call may spend being retried, waits and timeouts included.
 #: The storm branch used to be bounded only in ATTEMPTS: 60 storm attempts x (a 300 s
 #: read timeout + a <=5 s wait) is **5.1 hours** for a single call, though the docstring
@@ -1062,7 +1060,6 @@ def _discard_loser(
 
 
 # ===================================================================== tokens
-# (merged from codeverse/models/tokens.py, 2026-08-28)
 #: longest edge we assume for an image part whose size we do not measure; the
 #: harness caps judge payloads at ``Settings.judge.max_px`` = 1024 (docs/COST.md §3)
 DEFAULT_IMAGE_PX = 1024

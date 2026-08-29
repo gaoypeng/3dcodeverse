@@ -345,7 +345,6 @@ def plan_table(tp: TexturePlan) -> str:
 
 
 # ===================================================================== scene_pack
-# (merged from codeverse/texturing/scene_pack.py, 2026-08-28)
 
 PACK_TEMPLATE = "texturing/scene_pack.md"
 DEFAULT_URL_PREFIX = "/public/textures"

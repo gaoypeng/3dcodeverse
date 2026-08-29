@@ -123,7 +123,6 @@ def doctor_table(rows: list[tuple[str, str, str]]) -> Table:
 
 
 # ===================================================================== _common
-# (merged from codeverse/cli/_common.py, 2026-08-28)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 

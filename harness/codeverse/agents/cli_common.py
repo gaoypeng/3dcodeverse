@@ -102,7 +102,6 @@ class Trajectory:
 
 
 # ===================================================================== watchdog
-# (merged from codeverse/agents/watchdog.py, 2026-08-28)
 _SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".gemini", ".gemini_home"}
 
 
@@ -155,8 +154,6 @@ def _latest_mtime(dirs: Iterable[Path]) -> float:
                 except OSError:
                     continue
     return latest
-
-
 
 
 def run_with_watchdog(
@@ -252,7 +249,6 @@ def _reject_control_chars(cmd: Sequence[str], cwd: object) -> None:
 
 
 # ===================================================================== cli_common
-# (merged from codeverse/agents/cli_common.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 #: argv prompts above this many bytes are written to a file instead.

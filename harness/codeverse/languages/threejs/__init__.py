@@ -24,7 +24,6 @@ from codeverse.spatial.node import NodeError, NodeResult, run_node, runtime_js_d
 from codeverse.workspace import Workspace
 
 # ===================================================================== templates
-# (merged from codeverse/languages/threejs/templates.py, 2026-08-28)
 PACKAGE_JSON = '{ "type": "module", "private": true }\n'
 
 OBJECT_HEADER = """\
@@ -89,7 +88,6 @@ PLACEHOLDER_COLORS = ("0x9aa5b1", "0xb08968", "0x7f8c8d", "0xc0a080", "0x6c7a89"
 
 
 # ===================================================================== contract
-# (merged from codeverse/languages/threejs/contract.py, 2026-08-28)
 CONTRACT_FALLBACK = """\
 # three.js static-object contract (raw ESM, no SDK)
 
@@ -127,7 +125,6 @@ automatic drop-to-ground / re-centring; off-placement is warned and gated instea
 
 
 # ===================================================================== lint
-# (merged from codeverse/languages/threejs/lint.py, 2026-08-28)
 GATE = "lint:threejs"
 
 _EXPORT_BUILD_RE = re.compile(r"\bexport\s+(?:async\s+)?function\s+(build[A-Za-z0-9_]*)\s*\(")
@@ -302,7 +299,6 @@ def lint_workspace(ws: Workspace) -> GateReport:
 
 
 # ===================================================================== skeleton
-# (merged from codeverse/languages/threejs/skeleton.py, 2026-08-28)
 def part_file(ws: Workspace, part_name: str) -> Path:
     """``src/parts/<snake>.js`` for a plan part name."""
     return ws.src / "parts" / f"{to_snake(part_name)}.js"
@@ -366,7 +362,6 @@ def write_skeleton(ws: Workspace, plan: Plan, *, overwrite: bool = False) -> lis
 
 
 # ===================================================================== runtime
-# (merged from codeverse/languages/threejs/runtime.py, 2026-08-28)
 ENTRY = "src/object.js"
 GLB_NAME = "object.glb"
 CENSUS_NAME = "census.json"

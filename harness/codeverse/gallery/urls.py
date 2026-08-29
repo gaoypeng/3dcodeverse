@@ -156,7 +156,6 @@ def content_type(path: Path | str) -> str:
 
 
 # ===================================================================== paths
-# (merged from codeverse/gallery/paths.py, 2026-08-28)
 class PathError(ValueError):
     """A requested path is outside the run directory (or is not usable)."""
 

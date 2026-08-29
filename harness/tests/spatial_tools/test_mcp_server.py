@@ -62,8 +62,10 @@ def test_stdio_roundtrip(stool_ctx: ToolContext, tmp_path: Path) -> None:
             by_name = {t.name: t for t in tools.tools}
             assert "measure" in by_name and "check_connectivity" in by_name
             assert by_name["render_views"].input_schema["properties"]["views"]["type"] == "array"
-            cb = await s.call_tool("read_cookbook", {"section": "export"})
-            assert cb.content and cb.content[0].type == "text"
+            conn = await s.call_tool("check_connectivity", {})
+            assert conn.content and conn.content[0].type == "text"
+            assert "connectivity" in conn.content[0].text          # the gate's own header
+            assert "Leg_3" in conn.content[0].text                 # the fixture's floating leg
             meas = await s.call_tool("measure", {})
             assert not meas.is_error and "Leg ×4" in meas.content[0].text
             sec = await s.call_tool("cross_section", {"axis": "y", "at": 0.5})

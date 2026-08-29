@@ -43,8 +43,6 @@ log = logging.getLogger(__name__)
 
 
 # ===================================================================== the brief
-# (merged from codeverse/tracks/brief.py, 2026-08-28 — this module was its only
-#  production importer; three files described one hand-off)
 #: env switch: ``off``/``0``/``false`` disables brief expansion for the run
 BRIEF_ENV = "CV3D_PLAN_BRIEF"
 #: tracks the object-shaped brief applies to (graphics/scene get budgets only)
@@ -211,7 +209,6 @@ def brief_block(brief: EngineeringBrief | None) -> str:
 
 
 # ===================================================================== plan budgets
-# (merged from codeverse/tracks/plan_budget.py, 2026-08-28 — same reason)
 #: practical ceiling on TOP-LEVEL plan parts per language.  Blender/three.js own one
 #: file per part so they scale; cadquery is one file; urdf links cost a joint each and
 #: the collision sweep is O(links² × poses), so depth there goes into sub-parts.
@@ -489,7 +486,6 @@ def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None) -> Any:
 
 
 # ===================================================================== worked examples
-# (merged from codeverse/tracks/plan_examples.py, 2026-08-28 — same reason)
 def plan_example(track: Track) -> dict[str, Any]:
     """Compact, valid worked example per track (concrete beats abstract)."""
     if track is Track.SCENE:

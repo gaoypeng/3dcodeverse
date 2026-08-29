@@ -154,7 +154,6 @@ def is_flat(img: Image.Image, *, tol: float = 0.01) -> bool:
 
 
 # ===================================================================== uv
-# (merged from codeverse/texturing/uv.py, 2026-08-28)
 #: long/mid extent ratio above which ``auto`` picks a cylinder projection ...
 CYLINDER_ASPECT = 2.5
 #: ... provided the cross-section is roughly round (mid/min below this); slabs → box
@@ -318,7 +317,6 @@ def unwrap(
 
 
 # ===================================================================== apply
-# (merged from codeverse/texturing/apply.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 
@@ -507,7 +505,6 @@ def textured_summary(glb: Path | str) -> dict[str, int]:
 
 
 # ===================================================================== normalise
-# (merged from codeverse/texturing/normalise.py, 2026-08-28)
 
 
 class MaterialChange(BaseModel):

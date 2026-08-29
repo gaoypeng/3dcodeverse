@@ -2,7 +2,8 @@
 
 Every `python` snippet runs as-is in `blender -b --factory-startup`; every `xml` snippet is
 valid URDF (the harness test suite checks both).  Z-up, −Y front, meters, radians.
-Use `read_cookbook(section="<heading>")` for one chapter.
+The harness inlines the relevant chapters into your prompts; the full file is at
+`.3dcv/cookbook.md` in your workspace.
 
 ## The frame recipe (memorise this, it is the whole trick)
 

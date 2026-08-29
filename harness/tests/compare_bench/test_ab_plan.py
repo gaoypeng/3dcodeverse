@@ -487,3 +487,14 @@ def test_a_pinned_plan_that_dies_in_a_storm_records_the_pair_and_continues(tmp_p
     assert {r.arm for r in first} == {CONTROL, VARIANT} and all(r.status == "infra_failed" for r in first)
     assert all("pinned plan" in r.error for r in first)
     assert [c[0] for c in fake.calls] == [ids[1], ids[1]], "no cell was spent on the dead pair; the next prompt ran"
+
+
+def test_max_usd_flag_was_deleted(capsys):
+    """The money ceiling left the harness on 2026-08-28: the flag must be rejected,
+    not silently parsed into nothing."""
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    assert "--max-usd" not in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        main(["--prompts", "p.yaml", "--out", "o", "--max-usd", "2.5"])
+    assert "error" in capsys.readouterr().err

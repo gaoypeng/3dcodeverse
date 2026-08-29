@@ -2,12 +2,12 @@
 
     python bench/ab_plan.py --prompts bench/prompts/static_objects_v2.yaml \\
         --variant-env CV3D_PLAN_BRIEF=on --out bench/out/ab_brief \\
-        [--generator gemini-cli:gemini-3.6-flash] [--judge gemini:gemini-3.1-pro-preview] \\
-        [--rounds 2] [--max-usd 2.5] [--ids a,b] [--wait-for-provider 60] [--redo-status infra_failed]
+        [--generator <backend-id>] [--judge gemini:gemini-3.1-pro-preview] \\
+        [--rounds 2] [--ids a,b] [--wait-for-provider 60] [--redo-status infra_failed]
 
 The only thing that differs between the arms is the ``--variant-env`` block, applied to
 the VARIANT arm alone.  Everything else is held fixed on both sides: the generator, the
-planner, the in-loop judge, the rounds and dollars, and the fixed judge that produces
+planner, the in-loop judge, the rounds, and the fixed judge that produces
 the reported score (``bench/_fixed_eval.py``, ``n_samples`` 2).
 
 Why each arm is a child PROCESS rather than a thread: the switches under test are read
@@ -108,13 +108,16 @@ from bench.compare_backends import (  # noqa: E402
 )
 from bench.pin_plan import PLAN_JSON, PinError, plan_once, seed_plan  # noqa: E402
 from bench.run_bench import Battery, BenchPrompt, select_prompts  # noqa: E402
+from codeverse.contracts.common import Backends  # noqa: E402
 from codeverse.proc import exclusive  # noqa: E402
 from codeverse.tracks.plan_features import pin_plan_blockers  # noqa: E402
 from codeverse.workspace import Workspace  # noqa: E402
 
 log = logging.getLogger(__name__)
 
-DEFAULT_GENERATOR = "gemini-cli:gemini-3.6-flash"
+#: derived from the canonical default (codeverse/contracts/common.py Backends.generator),
+#: never a literal: a frozen baseline arm must be named at its use site, not hidden here.
+DEFAULT_GENERATOR = Backends().generator
 DEFAULT_JUDGE = "gemini:gemini-3.1-pro-preview"
 #: the per-child cap.  The flat name is a first-class alias of ``CV3D_RATE__MAX_IN_FLIGHT``
 #: since 2026-08-24 (``Settings._FLAT_ALIASES``; before that it was read by nothing) and
@@ -566,7 +569,6 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--loop-judge", default=None)
     ap.add_argument("--planner", default=None)
     ap.add_argument("--rounds", type=int, default=2)
-    ap.add_argument("--max-usd", type=float, default=2.5)
     ap.add_argument("--max-minutes", type=float, default=45.0)
     ap.add_argument("--n-samples", type=int, default=2)
     ap.add_argument("--ids", default="")

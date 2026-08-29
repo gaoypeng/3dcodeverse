@@ -77,7 +77,6 @@ class SkillsUsage(BaseModel):
 
 
 # ===================================================================== run
-# (merged from codeverse/contracts/run.py, 2026-08-28)
 # --------------------------------------------------------------------------- identity
 #: battery-layout path segments that are pure plumbing, never part of a run's identity
 RUN_PATH_NOISE = frozenset({"arms", "cells", "runs"})

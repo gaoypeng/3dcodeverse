@@ -346,8 +346,6 @@ class ManagedProcess:
             self._abandoned = _STILL_HELD if _group_alive(self.proc.pid) else _ABANDONED
 
 
-
-
 # ------------------------------------------------------------------ env scrubbing
 #: COPY of the credential patterns in ``agents/cli_common.is_secret_env`` (its sibling —
 #: keep the two in sync; tests/core/test_proc.py pins them together).  Duplicated because
@@ -511,7 +509,6 @@ def append_jsonl_line(path: Path | str, rec: Any, lock: threading.Lock) -> None:
 
 
 # ===================================================================== events
-# (merged from codeverse/events.py, 2026-08-28 — same stdlib-leaf layer as proc)
 log = logging.getLogger(__name__)
 
 
@@ -537,7 +534,6 @@ class EventLog:
 
 
 # ===================================================================== runlock
-# (merged from codeverse/runlock.py, 2026-08-28 — same stdlib-leaf layer as proc)
 #: directory (beside the run dirs, never inside one) holding the flock files
 LOCKS_DIR = ".locks"
 
@@ -652,7 +648,6 @@ def exclusive(run_root: Path | str, *, what: str = "", action: str = "enter") ->
 
 
 # ===================================================================== fanout
-# (merged from codeverse/fanout.py, 2026-08-28 — same stdlib-leaf layer as proc)
 
 T = TypeVar("T")
 R = TypeVar("R")

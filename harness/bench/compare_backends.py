@@ -7,7 +7,7 @@ oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash \\
 
 Arms
 * ``harness:<generator-id>`` — the full static_object track (plan → generate →
-  build/repair → gates → render → judge → refine, rounds ≤ 3, ≤ $2.5).  Its
+  build/repair → gates → render → judge → refine, rounds ≤ ``--rounds``).  Its
   in-loop judge is ``--loop-judge`` (default: the settings default, flash); the
   loop's own score is NOT the reported score.
 * ``oneshot:<x>`` — ONE raw generation (prompt + minimal contract, no tools, no
@@ -510,7 +510,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--ids", default="", help="comma-separated prompt ids")
     ap.add_argument("--tiers", default="", help="comma-separated tiers (easy,medium,hard)")
     ap.add_argument("--rounds", type=int, default=3)
-    ap.add_argument("--max-usd", type=float, default=2.5)
     ap.add_argument("--max-minutes", type=float, default=45.0, help="wall-clock ceiling for ONE harness run")
     ap.add_argument("--loop-judge", default=None, help="harness in-loop judge (default: settings default)")
     ap.add_argument("--repair-attempts", type=int, default=2)
