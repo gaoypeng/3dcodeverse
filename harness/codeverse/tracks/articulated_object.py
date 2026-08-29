@@ -278,9 +278,16 @@ def default_motion_checks(ws: Workspace, plan: Plan | None) -> GateReport | None
             findings.append(GateFinding(gate=MOTION_GATE, severity=Severity.WARN, target=j.name,
                                         message=f"motion check skipped: {e}", data={"expected": expected}))
             continue
-        data = {"expected": expected, "observed_dir": list(chk.observed_dir), "motion": j.motion}
+        data = {"expected": expected, "observed_dir": list(chk.observed_dir), "motion": j.motion,
+                "cos": getattr(chk, "cos", None)}
         if chk.ok:
             findings.append(GateFinding(gate=MOTION_GATE, severity=Severity.INFO, target=j.name, message=chk.message, data=data))
+        elif getattr(chk, "partial", False):
+            findings.append(GateFinding(
+                gate=MOTION_GATE, severity=Severity.WARN, target=j.name,
+                message=f"{chk.message}. Plan says: \"{j.motion}\"",
+                fix_hint=f"refine joint {j.name}: keep the axis sign; move the pivot / axis line so '{j.child}' moves "
+                         f"squarely along {expected}", data=data))
         else:
             findings.append(GateFinding(
                 gate=MOTION_GATE, severity=Severity.ERROR, target=j.name,
