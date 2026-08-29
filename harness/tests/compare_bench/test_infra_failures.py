@@ -342,3 +342,38 @@ def test_a_classifier_crash_still_records_the_cell(tmp_path):
     assert r.status == "error" and "planner died" in r.error
     assert (Path(r.workspace) / "cell.json").is_file()
 
+
+
+def test_the_ab_viewer_refuses_to_call_a_winner_it_cannot_support():
+    """bench/ab_view.verdict is the guard against reading a two-run round as a result.
+
+    The measured reason it exists: a reference harness published, then retracted, several
+    prompt findings because a promising first replicate was noise (interpenetration −0.40
+    in replicate 1, +0.03 in replicate 2, pooled p=0.405).
+    """
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from bench.ab_view import Run, verdict
+
+    def arm(name, *scores):
+        return [Run(slug=f"{name}{i}", arm=name, final=s, status="passed") for i, s in enumerate(scores)]
+
+    head, _ = verdict(arm("a", 0.7), arm("b", 0.9))
+    assert head.startswith("Inconclusive"), "one scored run per arm is never a result"
+
+    head, _ = verdict(arm("a", 0.70, 0.72), arm("b", 0.74, 0.76))
+    assert head.startswith("Inconclusive"), "n=2 per arm is below the floor, whatever the delta"
+
+    # n is enough, but runs of one arm disagree by more than the arms disagree
+    head, _ = verdict(arm("a", 0.50, 0.70, 0.90), arm("b", 0.56, 0.76, 0.96))
+    assert head.startswith("Inconclusive"), head
+
+    head, _ = verdict(arm("a", 0.30, 0.32, 0.31), arm("b", 0.80, 0.82, 0.81))
+    assert head.startswith("B wins"), head
+
+    # a run that never scored must not be counted as an observation
+    a = arm("a", 0.5, 0.5) + [Run(slug="a9", arm="a", final=None, status="failed")]
+    head, why = verdict(a, arm("b", 0.5))
+    assert head.startswith("Inconclusive") and "1 of 1" in why
