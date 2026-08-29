@@ -301,6 +301,17 @@ class ArticulatedPlan(StaticPlan):
                     j[side] = by_name[hits[0]].get("name")
                     notes.append(f"joint {j.get('name')}.{side} '{raw_name}' resolved to the one part it names: {j[side]}")
 
+        # 1c. a root_link that names no part (compare ab_repairs grand_piano, 2026-08-29: flash
+        #     wrote a UUID string there, three times): the root is the one part no joint names
+        #     as a child — when that part is unique the repair is unambiguous
+        root_key = to_snake(str(data.get("root_link", "")))
+        if root_key and root_key not in by_name:
+            children = {to_snake(str(j.get("child", ""))) for j in joints}
+            roots = [p for k, p in by_name.items() if k not in children]
+            if len(roots) == 1:
+                notes.append(f"root_link '{data.get('root_link')}' is not a part → {roots[0].get('name')} (the one link no joint moves)")
+                data["root_link"] = roots[0].get("name")
+
         # 2. revolute joints with a > 2π range: degrees written for radians → radians; a radian
         #    range over 2π → continuous
         for j in joints:
