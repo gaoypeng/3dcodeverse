@@ -137,3 +137,22 @@ def test_a_flip_that_does_not_help_is_reverted(tmp_path, cabinet_plan):
     after = repair_motion_directions(ws, cabinet_plan, fake_report, recheck=still_wrong)
     assert not after.passed and (ws.src / "robot.urdf").read_text() == original
     assert (ws.artifacts / "robot.urdf").read_text() == original
+
+
+def test_no_flip_is_attempted_when_a_flip_would_not_satisfy_the_check(tmp_path, cabinet_plan):
+    """The door swings about z; the plan (here) says it should move UP — no sign satisfies
+    that, so the file is left alone and the fixer is told a flip would not help."""
+    from codeverse.tracks.articulated_object import default_motion_checks
+    from codeverse.tracks.articulated_repairs import repair_motion_directions
+
+    ws = _ws(tmp_path)
+    plan = cabinet_plan.model_copy(deep=True)
+    plan.joints[0].motion = "door swings up"
+    original = (ws.src / "robot.urdf").read_text()
+    before = default_motion_checks(ws, plan)
+    assert before is not None and [f.target for f in before.errors] == ["hinge"]
+    ev = _Events()
+    after = repair_motion_directions(ws, plan, before, recheck=default_motion_checks, events=ev)
+    assert not after.passed and (ws.src / "robot.urdf").read_text() == original
+    assert ev.items == []  # nothing was flipped, nothing to announce
+    assert "sign flip alone would NOT" in after.errors[0].fix_hint

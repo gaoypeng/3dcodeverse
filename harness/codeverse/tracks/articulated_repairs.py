@@ -21,6 +21,7 @@ generation-side so an A/B may ``--pin-plan``) turns both on.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -96,16 +97,25 @@ def repair_motion_directions(ws: Any, plan: Any, report: GateReport, *, recheck,
     files = _urdf_files(ws)
     if not wrong or not files:
         return report
+    # Predict first: the flipped axis moves the child exactly as the opposite probe does
+    # (measured on compare_art_v4's architect lamp: the arm pitched (0, -0.78, -0.63) for
+    # "up"; flipped it pitched (0, 0.95, 0.32) — still not "up", the pivot is the problem,
+    # and a flip would only churn the file).  Only a flip the check will accept is written.
+    predicted = _flip_predictions(ws, plan, wrong)
     originals = {p: p.read_text() for p in files}
     flipped: dict[str, str] = {}
+    unhelped: list[GateFinding] = []
     for f in wrong:
+        if not predicted.get(f.target, False):
+            unhelped.append(f)
+            continue
         for p in files:
             text, xyz = flip_joint_axis(p.read_text(), f.target)
             if xyz is not None:
                 p.write_text(text)
                 flipped[f.target] = xyz
     if not flipped:
-        return report
+        return _with_no_flip_hints(report, unhelped)
     after = recheck(ws, plan)
     ok_now = {f.target for f in (after.findings if after else []) if f.severity != Severity.ERROR}
     still_wrong = {f.target for f in (after.errors if after else [])}
@@ -125,6 +135,7 @@ def repair_motion_directions(ws: Any, plan: Any, report: GateReport, *, recheck,
     if events is not None:
         events.emit("repair.motion_flip", kept=kept, reverted=sorted(reverted))
     findings = list((after.findings if after else []) or [])
+    findings = _with_no_flip_hints(GateReport(gate=report.gate, passed=False, findings=findings), unhelped).findings
     for j, xyz in kept.items():
         findings.append(GateFinding(
             gate=report.gate, severity=Severity.WARN, target=j,
@@ -134,6 +145,57 @@ def repair_motion_directions(ws: Any, plan: Any, report: GateReport, *, recheck,
     passed = not any(f.severity == Severity.ERROR for f in findings)
     return GateReport(gate=report.gate, passed=passed, findings=findings,
                       duration_ms=(after.duration_ms if after else report.duration_ms))
+
+
+def _flip_predictions(ws: Any, plan: Any, wrong: list[GateFinding]) -> dict[str, bool]:
+    """joint → would the motion check pass with the axis sign flipped?  Measured with the
+    opposite probe on the current URDF (identical to re-running after a flip)."""
+    from codeverse.spatial import joints as sj
+    from codeverse.tracks.articulated_object import _find_urdf, expected_direction
+
+    out: dict[str, bool] = {}
+    urdf = _find_urdf(ws)
+    if urdf is None:
+        return out
+    try:
+        robot = sj.load_urdf(urdf, ws.artifacts / "meshes")
+    except sj.UrdfError:
+        return out
+    names = {to_snake(n): n for n in robot.joints}
+    plan_joints = {to_snake(j.name): j for j in (getattr(plan, "joints", None) or [])}
+    for f in wrong:
+        pj = plan_joints.get(to_snake(f.target))
+        name = names.get(to_snake(f.target))
+        expected = (f.data or {}).get("expected") or (expected_direction(pj.motion) if pj is not None else None)
+        if name is None or expected is None:
+            continue
+        j = robot.joints[name]
+        hi = j.upper if j.upper is not None else math.pi
+        lo = j.lower if j.lower is not None else -math.pi
+        probe = hi if abs(hi) >= abs(lo) else lo
+        if j.type != "prismatic":
+            probe = math.copysign(min(abs(probe), 0.35), probe) if probe else 0.35
+        try:
+            out[f.target] = bool(sj.motion_direction_check(robot, name, expected, probe=-probe).ok)
+        except sj.UrdfError:
+            out[f.target] = False
+    return out
+
+
+def _with_no_flip_hints(report: GateReport, unhelped: list[GateFinding]) -> GateReport:
+    """Tell the fixer when a sign flip would NOT have satisfied the check: the pivot or the
+    axis line is wrong, and flipping (the gate's stock hint) would waste the round."""
+    if not unhelped:
+        return report
+    targets = {f.target for f in unhelped}
+    findings = []
+    for f in report.findings:
+        if f.target in targets and f.severity == Severity.ERROR and "sign flip" not in f.fix_hint:
+            f = f.model_copy(update={"fix_hint": (f.fix_hint + " NOTE: the harness measured that a sign flip alone "
+                                                 "would NOT satisfy this; move the pivot / change the axis line so the "
+                                                 "part's motion is along the planned direction.").strip()})
+        findings.append(f)
+    return GateReport(gate=report.gate, passed=report.passed, findings=findings, duration_ms=report.duration_ms)
 
 
 # ----------------------------------------------------------------------------- buried links
