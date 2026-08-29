@@ -4,6 +4,30 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from generate import extract_code as extract_code_legacy
 from extract import extract, summarize
 
+
+def auto_gpu_mem(requested, tp=1, headroom_gib=4.0):
+    """`gpu_memory_utilization` is a fraction of the card's TOTAL memory, but this box is shared — asking for
+    0.88 of a card that another user already half fills makes vLLM refuse to start. Derive the fraction from what
+    is actually free, keeping a little headroom, and never exceed what the caller asked for."""
+    try:
+        import subprocess
+        out = subprocess.run(["nvidia-smi", "--query-gpu=memory.total,memory.used", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=30).stdout.strip().splitlines()
+        vis = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+        idx = [int(x) for x in vis.split(",") if x.strip().isdigit()] or list(range(len(out)))
+        worst = 1.0
+        for i in idx[:max(1, tp)]:
+            tot, used = (int(v) for v in out[i].split(","))
+            free_gib = (tot - used) / 1024.0
+            worst = min(worst, max(0.10, (free_gib - headroom_gib) / (tot / 1024.0)))
+        if worst < requested:
+            print(f"[gen] gpu_memory_utilization {requested} -> {worst:.2f} (the card is shared)", flush=True)
+            return round(worst, 2)
+    except Exception as e:
+        print(f"[gen] auto_gpu_mem failed ({e}); keeping {requested}", flush=True)
+    return requested
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True); ap.add_argument("--prompts", required=True); ap.add_argument("--out", required=True)
@@ -17,7 +41,7 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     rows = [json.loads(l) for l in open(a.prompts)]
     if a.limit: rows = rows[:a.limit]
-    llm = LLM(model=a.model, dtype="bfloat16", tensor_parallel_size=a.tp, max_model_len=a.max_model_len, gpu_memory_utilization=a.gpu_mem,
+    llm = LLM(model=a.model, dtype="bfloat16", tensor_parallel_size=a.tp, max_model_len=a.max_model_len, gpu_memory_utilization=auto_gpu_mem(a.gpu_mem, getattr(a, 'tp', 1)),
               enable_prefix_caching=True, limit_mm_per_prompt={"image": 0, "video": 0}, trust_remote_code=True)
     sp = SamplingParams(temperature=a.temperature, top_p=0.95 if a.temperature > 0 else 1.0, max_tokens=a.max_new_tokens, seed=a.seed)
     kw = {"chat_template_kwargs": {"enable_thinking": False}} if a.no_think else {}

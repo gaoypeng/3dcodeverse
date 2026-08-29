@@ -1,3 +1,7 @@
-img4_views|scripts/eval_img4_views.sh
-imgmix_eval|scripts/eval_imgmix.sh
-27b_clean|scripts/run_27b_clean.sh
+mm_ablation|scripts/run_mm_ablation.sh
+mm_eval_fixed|bash scripts/run_mm_eval_fixed.sh
+mm_multisuite|bash scripts/run_mm_multisuite.sh
+mmmix2|scripts/run_9b_mmmix2.sh
+mmvis|scripts/run_9b_mmvis.sh
+img_budget2|scripts/eval_img_budget.sh
+27b_mm|bash scripts/run_27b_mm.sh

@@ -11,7 +11,18 @@ while true; do
     case "$label" in \#*) continue;; esac
     grep -qx "$label" $STATE || { PENDING="$label|$cmd"; break; }
   done < $Q
-  if [ -z "$PENDING" ]; then echo "[sup] $(date) queue empty, exiting"; break; fi
+  if [ -z "$PENDING" ]; then
+    echo "[sup] $(date) queue empty — idling (add a line to $Q to continue)"
+    IDLE_MIN=0
+    while [ -z "$PENDING" ]; do
+      sleep 300; IDLE_MIN=$((IDLE_MIN+5))
+      [ $((IDLE_MIN % 30)) -eq 0 ] && echo "[sup] WARNING $(date) idle ${IDLE_MIN}m with GPUs [$(scripts/free_gpus.sh)] free"
+      while IFS='|' read -r label cmd; do
+        [ -z "${label:-}" ] && continue; case "$label" in \#*) continue;; esac
+        grep -qx "$label" $STATE || { PENDING="$label|$cmd"; break; }
+      done < $Q
+    done
+  fi
   label="${PENDING%%|*}"; cmd="${PENDING#*|}"
   # wait until no training/inference of mine is running and the GPUs are idle (3 confirmations)
   STABLE=0
