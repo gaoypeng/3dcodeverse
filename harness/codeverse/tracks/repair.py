@@ -22,7 +22,7 @@ from codeverse.prompts import render
 from codeverse.tracks import skills_hook
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
-from codeverse.tracks.prompting import base_prompt_context
+from codeverse.tracks.prompting import base_prompt_context, language_system_prompt
 
 log = logging.getLogger(__name__)
 
@@ -200,5 +200,4 @@ def make_repair_task(ctx: RunContext, build: BuildResult, lint: GateReport, *, r
 
 
 def _repair_system(ctx: RunContext) -> str:
-    return (f"You repair {ctx.language.value} code that failed to build. Fix only the reported error(s) with the smallest "
-            f"correct change; keep every part, name and dimension. {ctx.contract_text}")
+    return language_system_prompt(ctx.language, role="repair", contract=ctx.contract_text)

@@ -85,3 +85,23 @@ def test_system_prompts_cover_the_laws() -> None:
     # (deleted 2026-08-28): the agent's tool section is GENERATED from the @tool
     # registrations by agents/materialize._tool_section, so "every tool is documented"
     # is true by construction and this assertion was checking a file nobody read.
+
+
+def test_every_language_ships_a_system_prompt() -> None:
+    """The generator's system prompt is per LANGUAGE and lives in the prompt corpus.
+
+    It used to be an f-string in each track class, and the three static-object
+    languages shared one sentence with the name swapped in — bpy mesh modelling,
+    CadQuery's B-rep workplanes and three.js BufferGeometry, told the same thing.
+    A missing file here means a language silently falls back to nothing.
+    """
+    from codeverse.contracts.common import Language
+    from codeverse.languages._docs import prompt_dir_for
+    from codeverse.tracks.prompting import language_system_prompt
+
+    for lang in Language:
+        text = language_system_prompt(lang)
+        assert text.strip(), f"{lang.value}: empty system prompt"
+        assert (PROMPTS_DIR / prompt_dir_for(lang) / "system.md").is_file(), lang.value
+    for role in ("scope", "detail", "repair"):
+        assert (PROMPTS_DIR / "system" / f"role_{role}.j2").is_file(), role

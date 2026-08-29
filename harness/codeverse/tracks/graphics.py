@@ -48,6 +48,7 @@ from codeverse.tracks.prompting import (
     is_always_chapter,
     judge_digest,
     judged_sheet,
+    language_system_prompt,
     reference_images,
     reference_note,
     select_cookbook_chapters,
@@ -487,10 +488,7 @@ class GraphicsTrack(BaseTrack):
 
     # ------------------------------------------------------------------ baseline
     def system_prompt(self, ctx: RunContext) -> str:
-        what = "GLSL fragment-shader artist (Shadertoy style)" if ctx.language is Language.GLSL_SHADER else "raw OpenGL (moderngl) graphics programmer"
-        return (f"You are an expert {what} writing RAW code for a headless harness. Follow the contract exactly: "
-                f"no #version/uniform redeclarations (shader) · no window/context creation (program) · everything animates with time. "
-                f"Render and LOOK at your frames before finishing.")
+        return language_system_prompt(ctx.language)
 
     def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
         files = graphics_expected_files(ctx)

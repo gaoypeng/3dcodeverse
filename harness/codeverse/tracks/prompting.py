@@ -19,6 +19,8 @@ from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import LANGUAGE_FRAME, Frame, frame_doc, to_snake
+from codeverse.languages._docs import prompt_dir_for
+from codeverse.prompts import load_text, render
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.depth import DepthBudget, PartScope, depth_budget, interfaces_text
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
@@ -263,6 +265,20 @@ def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,
             chosen.add(i)
             used += size
     return [chapters[i] for i in sorted(chosen)]
+
+
+def language_system_prompt(language: Language, *, role: str = "", **vars: Any) -> str:
+    """The generator's system prompt: ``prompts/<dir>/system.md``, or a role template.
+
+    These were f-strings inside each track class until 2026-08-28 — two sentences each,
+    and for the three static-object languages literally the SAME two sentences with the
+    language's name substituted, though bpy mesh modelling, CadQuery's B-rep workplanes
+    and three.js BufferGeometry share almost nothing but the word "3D".  Per language, in
+    the prompt corpus, so the seven can diverge and be edited without touching code.
+    """
+    if role:
+        return render(f"system/role_{role}.j2", language=language.value, **vars).strip()
+    return load_text(f"{prompt_dir_for(language)}/system.md").strip()
 
 
 def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:

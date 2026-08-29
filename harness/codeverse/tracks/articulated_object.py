@@ -27,6 +27,7 @@ from codeverse.contracts.plan import ArticulatedPlan, Plan
 from codeverse.conventions import to_snake
 from codeverse.spatial.render import RenderError
 from codeverse.tracks.common import RunContext
+from codeverse.tracks.prompting import language_system_prompt
 from codeverse.tracks.static_object import ObjectPipeline, StaticObjectTrack
 from codeverse.workspace import Workspace
 
@@ -99,8 +100,7 @@ class ArticulatedObjectTrack(StaticObjectTrack):
         return ArticulatedPipeline()
 
     def system_prompt(self, ctx: RunContext) -> str:
-        return ("You are an expert in Blender bpy and URDF writing RAW code (no SDKs). Links are bpy objects named exactly "
-                "as the URDF links; joints are native URDF with origins/axes in the parent link frame. Exact numbers beat adjectives.")
+        return language_system_prompt(ctx.language)
 
 
 # ----------------------------------------------------------------------------- sweep adapter

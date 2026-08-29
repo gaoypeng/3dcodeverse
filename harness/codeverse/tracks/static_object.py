@@ -52,6 +52,7 @@ from codeverse.tracks.prompting import (
     glb_to_plan_frame,
     judge_digest,
     judged_sheet,
+    language_system_prompt,
     measurement_vs_plan,
     reference_images,
     refine_inline_files,
@@ -306,18 +307,11 @@ class StaticObjectTrack(BaseTrack):
         return tasks
 
     def scope_system_prompt(self, ctx: RunContext, scope: PartScope) -> str:
-        return (
-            f"You are an expert {ctx.language.value} 3D modeller writing RAW code (no SDKs, no helper libraries). "
-            f"You own {len(scope.parts)} part(s) of a larger object: {', '.join(scope.names)}. "
-            f"Other sessions own the rest — never write a file outside your list. "
-            f"Follow the contract exactly; exact numbers beat adjectives; real detail beats a correctly sized box."
-        )
+        return language_system_prompt(ctx.language, role="scope",
+                                      n_parts=len(scope.parts), names=", ".join(scope.names))
 
     def system_prompt(self, ctx: RunContext) -> str:
-        return (
-            f"You are an expert {ctx.language.value} 3D modeller writing RAW code (no SDKs, no helper libraries). "
-            f"Follow the contract exactly; exact numbers beat adjectives."
-        )
+        return language_system_prompt(ctx.language)
 
     def round_files_hint(self, ctx: RunContext) -> list[str]:
         return expected_files(ctx)
@@ -429,12 +423,7 @@ class StaticObjectTrack(BaseTrack):
         return tasks, lines
 
     def detail_system_prompt(self, ctx: RunContext) -> str:
-        return (
-            f"You are an expert {ctx.language.value} 3D modeller adding SURFACE DETAIL to a model whose structure "
-            f"is already accepted. You may not move, resize, rename, add or remove a part — a deterministic gate "
-            f"compares every part's bounding box against the previous round and fails the round if one moved. "
-            f"Everything you add lives inside or on an existing part's surface."
-        )
+        return language_system_prompt(ctx.language, role="detail")
 
 
 # ===================================================================== the DETAIL round

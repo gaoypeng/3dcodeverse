@@ -55,6 +55,7 @@ from codeverse.tracks.prompting import (
     current_files,
     file_for_target_factory,
     judge_digest,
+    language_system_prompt,
     reference_images,
 )
 from codeverse.tracks.repair import format_error_report
@@ -433,8 +434,7 @@ class SceneTrack(BaseTrack):
 
     # ------------------------------------------------------------------ helpers
     def system_prompt(self, ctx: RunContext) -> str:
-        return ("You are an expert three.js + GLSL graphics programmer writing RAW ESM modules for a multi-file scene. "
-                "No SDKs, no DOM, no fetch, no CDN imports: `import * as THREE from 'three'` only. Exact numbers beat adjectives.")
+        return language_system_prompt(ctx.language)
 
     def _ctx(self, ctx: RunContext, **extra: Any) -> dict[str, Any]:
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
