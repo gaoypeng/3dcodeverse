@@ -5,10 +5,14 @@
         --title "urdf cookbook" --a-label "no cookbook" --b-label "cookbook delivered" \
         --out /tmp/ab.html
 
-Every A/B in this repo is decided on numbers, but a score is a summary of an image and
-the owner wants the image.  This puts the two arms' contact sheets side by side at a size
-you can actually judge, with the run's numbers under each and the honest verdict — including
-"inconclusive" — at the top.  Runs are grouped by the slug prefix given to --a / --b.
+Every A/B here is decided on numbers, but a score is a summary of an image and the owner
+wants the image.  Runs are PAIRED on their brief — the only thing that makes two of them
+comparable — and each pair is shown blind: the arm labels are hidden and the side is
+swapped on a hash of the brief, so the eye is not primed by knowing which is the new one.
+Vote per pair, then reveal; the page tallies where you and the judge disagree and writes
+the whole read into a box you can paste back.  Votes live in localStorage, so a reload
+keeps them.  The verdict at the top still refuses to name a winner the sample cannot
+support.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ SHEET_W = 1100
 class Run:
     slug: str
     arm: str
+    brief: str = ""
     status: str = "?"
     final: float | None = None
     baseline: float | None = None
@@ -67,6 +72,7 @@ def load_run(run_dir: Path, arm: str) -> Run:
     if rec.is_file():
         d = json.loads(rec.read_text())
         b = (d.get("extra") or {}).get("budget") or {}
+        r.brief = str((d.get("spec") or {}).get("prompt") or "")
         r.status = str(d.get("status") or "?")
         r.final, r.baseline = d.get("final_score"), d.get("baseline_score")
         r.rounds = len(d.get("rounds") or [])
@@ -115,24 +121,61 @@ def _num(v: object) -> str:
     return "—" if v is None else (f"{v:.3f}" if isinstance(v, float) else str(v))
 
 
-def _card(r: Run) -> str:
+def _stats(rs: list[Run]) -> str:
+    sc = [x.final for x in rs if x.final is not None]
+    if not sc:
+        return "no scored run"
+    return (f"n={len(sc)}/{len(rs)} · mean {statistics.mean(sc):.3f} · "
+            f"median {statistics.median(sc):.3f} · σ {statistics.pstdev(sc):.3f} · "
+            f"worst {min(sc):.3f}")
+
+
+def _panel(r: Run | None, side: str) -> str:
+    """One arm's render for one brief.  Carries its numbers in data- attributes so the
+    page can keep them hidden until the reader has actually looked."""
+    if r is None:
+        return f'<div class="panel empty" data-side="{side}"><p>this arm has no run for this brief</p></div>'
     tone = {"passed": "good", "failed": "bad", "budget": "warn"}.get(r.status, "warn")
-    img = (f'<div class="sheet"><img src="{r.sheet}" alt="rendered views for {html.escape(r.slug)}" loading="lazy"></div>'
-           if r.sheet else '<div class="sheet empty">no render — the run died before anything was built</div>')
-    notes = "".join(f"<li>{html.escape(n)}</li>" for n in r.notes)
+    img = (f'<button class="sheet" data-full="{r.sheet}" '
+           f'aria-label="enlarge {html.escape(r.slug)}"><img src="{r.sheet}" '
+           f'alt="rendered frames for {html.escape(r.slug)}" loading="lazy"></button>'
+           if r.sheet else
+           '<div class="sheet empty">nothing rendered — the run died before it built anything</div>')
     err = f'<p class="err">{html.escape(r.error)}</p>' if r.error else ""
-    return f"""<article class="run">
-  <header><h4>{html.escape(r.slug)}</h4><span class="pill {tone}">{html.escape(r.status)}</span></header>
+    return f"""<div class="panel" data-side="{side}" data-arm="{r.arm}">
+  <div class="ptag"><span class="side">{side.upper()}</span><span class="armname">arm {r.arm}</span></div>
   {img}
-  <dl>
-    <div><dt>baseline</dt><dd>{_num(r.baseline)}</dd></div>
-    <div><dt>final</dt><dd class="lead">{_num(r.final)}</dd></div>
-    <div><dt>rounds</dt><dd>{r.rounds}</dd></div>
-    <div><dt>cost</dt><dd>${r.usd:.2f}</dd></div>
-    <div><dt>wall</dt><dd>{r.minutes} min</dd></div>
-  </dl>
-  {f'<ul class="notes">{notes}</ul>' if notes else ''}{err}
-</article>"""
+  <div class="nums">
+    <span class="pill {tone}">{html.escape(r.status)}</span>
+    <span class="n"><b>{_num(r.final)}</b> score</span>
+    <span class="n">{r.rounds} rounds</span>
+    <span class="n">${r.usd:.2f}</span>
+    <span class="n">{r.minutes} min</span>
+    <span class="slug">{html.escape(r.slug)}</span>
+  </div>{err}
+</div>"""
+
+
+def _pair(i: int, brief: str, a: Run | None, b: Run | None, flip: bool) -> str:
+    left, right = (b, a) if flip else (a, b)
+    da = "" if a is None or a.final is None else f'{a.final:.3f}'
+    db = "" if b is None or b.final is None else f'{b.final:.3f}'
+    return f"""<section class="pair" id="p{i}" data-i="{i}" data-flip="{'1' if flip else '0'}"
+         data-a="{da}" data-b="{db}">
+  <header class="pairhead">
+    <span class="idx">{i + 1:02d}</span>
+    <h3>{html.escape(brief)}</h3>
+    <span class="agree" hidden></span>
+  </header>
+  <div class="two">{_panel(left, 'left')}{_panel(right, 'right')}</div>
+  <div class="vote" role="group" aria-label="which render is better">
+    <span class="vlabel">which is better?</span>
+    <button data-v="left">◀ left</button>
+    <button data-v="tie">tie</button>
+    <button data-v="right">right ▶</button>
+    <button data-v="skip" class="ghost">can't tell</button>
+  </div>
+</section>"""
 
 
 def build(runs_dir: Path, a_prefix: str, b_prefix: str, *, title: str,
@@ -140,92 +183,281 @@ def build(runs_dir: Path, a_prefix: str, b_prefix: str, *, title: str,
     a = [load_run(d, "A") for d in sorted(runs_dir.iterdir()) if d.is_dir() and d.name.startswith(a_prefix)]
     b = [load_run(d, "B") for d in sorted(runs_dir.iterdir()) if d.is_dir() and d.name.startswith(b_prefix)]
     head, why = verdict(a, b)
+
+    # pair on the brief — the only thing that makes two runs comparable
+    by_brief: dict[str, dict[str, Run]] = {}
+    for r in a + b:
+        by_brief.setdefault(r.brief or r.slug, {})[r.arm] = r
+    pairs = []
+    for i, (brief, arms) in enumerate(by_brief.items()):
+        # deterministic side-swap so the eye is not primed, stable across reloads
+        flip = bool(sum(ord(c) for c in brief) % 2)
+        pairs.append(_pair(i, brief, arms.get("A"), arms.get("B"), flip))
+
     return TEMPLATE.format(
         title=html.escape(title), head=html.escape(head), why=html.escape(why),
         changed=html.escape(changed), a_label=html.escape(a_label), b_label=html.escape(b_label),
-        n_a=len(a), n_b=len(b),
-        a_cards="\n".join(_card(r) for r in a), b_cards="\n".join(_card(r) for r in b))
+        n_a=len(a), n_b=len(b), n_pairs=len(pairs),
+        a_stats=html.escape(_stats(a)), b_stats=html.escape(_stats(b)),
+        pairs="\n".join(pairs))
 
 
 TEMPLATE = """<title>{title}</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 :root {{
-  --ground:#f4f5f2; --panel:#fbfbf9; --line:#d9dcd4; --ink:#1b1f1a; --dim:#5d6459;
-  --accent:#2f6b74; --good:#3f6b46; --warn:#8a6520; --bad:#8c4032; --shadow:0 1px 2px rgba(27,31,26,.06);
+  --ground:#f7f6f3; --surface:#ffffff; --sunk:#efede8; --line:#dedbd4;
+  --ink:#1b1d22; --dim:#6d7079; --faint:#9a9ca3;
+  --armA:#4d7695; --armB:#b5762c; --accent:#b5762c;
+  --good:#4a8659; --warn:#a8842e; --bad:#b0534d;
+  --shadow:0 1px 2px rgba(20,22,28,.06), 0 8px 24px rgba(20,22,28,.05);
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  --cond:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;
 }}
-@media (prefers-color-scheme: dark) {{ :root:not([data-theme="light"]) {{
-  --ground:#12150f; --panel:#191d16; --line:#2c3128; --ink:#e8eae3; --dim:#9aa294;
-  --accent:#6fb3bd; --good:#7aab81; --warn:#c9a052; --bad:#cf7f6e; --shadow:none;
-}} }}
+@media (prefers-color-scheme: dark) {{
+  :root:not([data-theme="light"]) {{
+    --ground:#131519; --surface:#1a1d23; --sunk:#0f1114; --line:#2b2f37;
+    --ink:#e7e5e0; --dim:#9498a1; --faint:#6b6f78;
+    --armA:#7fa8c7; --armB:#d9963f; --accent:#d9963f;
+    --good:#6bab7b; --warn:#c9a244; --bad:#cf6f68;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+  }}
+}}
 :root[data-theme="dark"] {{
-  --ground:#12150f; --panel:#191d16; --line:#2c3128; --ink:#e8eae3; --dim:#9aa294;
-  --accent:#6fb3bd; --good:#7aab81; --warn:#c9a052; --bad:#cf7f6e; --shadow:none;
+  --ground:#131519; --surface:#1a1d23; --sunk:#0f1114; --line:#2b2f37;
+  --ink:#e7e5e0; --dim:#9498a1; --faint:#6b6f78;
+  --armA:#7fa8c7; --armB:#d9963f; --accent:#d9963f;
+  --good:#6bab7b; --warn:#c9a244; --bad:#cf6f68;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
 }}
-*{{box-sizing:border-box}}
-body{{margin:0;background:var(--ground);color:var(--ink);
-  font:16px/1.6 "IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;}}
-.wrap{{max-width:1500px;margin:0 auto;padding:40px 28px 72px;display:flex;flex-direction:column;gap:30px}}
-h1{{font-size:1.6rem;font-weight:600;margin:0;letter-spacing:-.01em;text-wrap:balance}}
-.eyebrow{{font:500 .72rem/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.13em;
-  text-transform:uppercase;color:var(--accent);margin:0 0 10px}}
-.verdict{{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--panel);
-  border-radius:3px;padding:18px 22px;box-shadow:var(--shadow)}}
-.verdict h2{{font-size:1.05rem;margin:0 0 6px;font-weight:600}}
-.verdict p{{margin:0;color:var(--dim);max-width:74ch}}
-.changed{{font:400 .88rem/1.65 "IBM Plex Mono",ui-monospace,monospace;color:var(--dim);
-  background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:14px 18px;
-  overflow-x:auto;max-width:100%}}
-.arms{{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:26px;align-items:start}}
-.arm > h3{{font-size:.95rem;font-weight:600;margin:0 0 4px;display:flex;gap:10px;align-items:baseline}}
-.arm > p{{margin:0 0 16px;color:var(--dim);font-size:.88rem}}
-.tag{{font:500 .68rem/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.1em;padding:4px 7px;
-  border:1px solid var(--line);border-radius:2px;color:var(--dim);text-transform:uppercase}}
-.run{{background:var(--panel);border:1px solid var(--line);border-radius:3px;margin-bottom:20px;
-  overflow:hidden;box-shadow:var(--shadow)}}
-.run header{{display:flex;justify-content:space-between;align-items:center;gap:12px;
-  padding:11px 15px;border-bottom:1px solid var(--line)}}
-.run h4{{margin:0;font:500 .9rem/1 "IBM Plex Mono",ui-monospace,monospace}}
-.pill{{font:500 .68rem/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.06em;
-  padding:4px 8px;border-radius:2px;text-transform:uppercase;color:var(--panel)}}
-.pill.good{{background:var(--good)}} .pill.warn{{background:var(--warn)}} .pill.bad{{background:var(--bad)}}
-.sheet{{overflow-x:auto;background:var(--ground);border-bottom:1px solid var(--line)}}
-.sheet img{{display:block;width:100%;height:auto}}
-.sheet.empty{{padding:44px 18px;text-align:center;color:var(--dim);font-size:.88rem;border-bottom:1px solid var(--line)}}
-dl{{display:flex;flex-wrap:wrap;gap:0;margin:0;padding:12px 15px}}
-dl > div{{flex:1 1 78px;border-right:1px solid var(--line);padding-right:12px;margin-right:12px}}
-dl > div:last-child{{border-right:0}}
-dt{{font:500 .66rem/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.09em;
-  text-transform:uppercase;color:var(--dim);margin-bottom:5px}}
-dd{{margin:0;font:500 .98rem/1 "IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}}
-dd.lead{{font-size:1.2rem;color:var(--accent)}}
-.notes,.err{{margin:0;padding:0 15px 13px;color:var(--dim);font-size:.83rem}}
-.notes{{list-style:none}} .notes li:before{{content:"› ";color:var(--accent)}}
-.err{{font-family:"IBM Plex Mono",ui-monospace,monospace;color:var(--bad);word-break:break-word}}
+* {{ box-sizing:border-box; }}
+body {{ margin:0; background:var(--ground); color:var(--ink); font-family:var(--sans);
+       font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased; }}
+.wrap {{ max-width:1360px; margin:0 auto; padding:0 24px 96px; }}
+h1,h2,h3 {{ font-family:var(--cond); font-weight:700; text-wrap:balance; margin:0; letter-spacing:-.01em; }}
+
+/* ── masthead ─────────────────────────────────────────── */
+header.top {{ padding:44px 0 26px; border-bottom:1px solid var(--line); }}
+header.top h1 {{ font-size:clamp(28px,3.6vw,42px); line-height:1.08; }}
+.changed {{ color:var(--dim); margin:10px 0 0; max-width:70ch; }}
+.verdict {{ margin-top:26px; padding:18px 20px; background:var(--surface); border:1px solid var(--line);
+            border-left:3px solid var(--accent); border-radius:3px; box-shadow:var(--shadow); }}
+.verdict h2 {{ font-size:17px; }}
+.verdict p {{ margin:7px 0 0; color:var(--dim); font-size:14px; max-width:82ch; }}
+.arms {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; margin-top:16px; }}
+.armbox {{ padding:13px 15px; background:var(--surface); border:1px solid var(--line); border-radius:3px; }}
+.armbox .k {{ font-family:var(--cond); font-weight:700; font-size:13px; letter-spacing:.09em;
+              text-transform:uppercase; }}
+.armbox.A .k {{ color:var(--armA); }} .armbox.B .k {{ color:var(--armB); }}
+.armbox .d {{ color:var(--ink); font-size:14px; margin-top:3px; }}
+.armbox .s {{ font-family:var(--mono); font-size:12.5px; color:var(--dim); margin-top:6px;
+              font-variant-numeric:tabular-nums; }}
+
+/* ── sticky control bar ───────────────────────────────── */
+.bar {{ position:sticky; top:0; z-index:30; display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+        padding:12px 0; margin-bottom:8px; background:color-mix(in srgb,var(--ground) 92%,transparent);
+        backdrop-filter:blur(8px); border-bottom:1px solid var(--line); }}
+button {{ font:inherit; font-size:13.5px; color:var(--ink); background:var(--surface);
+          border:1px solid var(--line); border-radius:3px; padding:7px 13px; cursor:pointer;
+          transition:border-color .12s, background .12s; }}
+button:hover {{ border-color:var(--accent); }}
+button:focus-visible {{ outline:2px solid var(--accent); outline-offset:2px; }}
+button.on {{ background:var(--accent); border-color:var(--accent); color:#12140f; font-weight:600; }}
+button.ghost {{ color:var(--faint); }}
+.bar .prog {{ margin-left:auto; font-family:var(--mono); font-size:12.5px; color:var(--dim);
+              font-variant-numeric:tabular-nums; }}
+
+/* ── a pair ───────────────────────────────────────────── */
+.pair {{ padding:30px 0; border-bottom:1px solid var(--line); scroll-margin-top:70px; }}
+.pairhead {{ display:flex; align-items:baseline; gap:14px; margin-bottom:16px; }}
+.pairhead .idx {{ font-family:var(--mono); font-size:12px; color:var(--faint);
+                  font-variant-numeric:tabular-nums; }}
+.pairhead h3 {{ font-size:19px; font-weight:600; flex:1; }}
+.agree {{ font-family:var(--mono); font-size:12px; padding:3px 9px; border-radius:2px;
+          border:1px solid var(--line); color:var(--dim); white-space:nowrap; }}
+.agree.yes {{ color:var(--good); border-color:var(--good); }}
+.agree.no {{ color:var(--bad); border-color:var(--bad); }}
+.two {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }}
+@media (max-width:860px) {{ .two {{ grid-template-columns:1fr; }} }}
+.panel {{ background:var(--surface); border:1px solid var(--line); border-radius:3px;
+          overflow:hidden; box-shadow:var(--shadow); }}
+.panel.empty {{ display:grid; place-items:center; min-height:180px; color:var(--faint); padding:20px;
+                text-align:center; }}
+.ptag {{ display:flex; align-items:center; gap:9px; padding:9px 12px; border-bottom:1px solid var(--line);
+         font-family:var(--cond); font-size:12px; letter-spacing:.1em; text-transform:uppercase; }}
+.ptag .side {{ font-weight:700; color:var(--dim); }}
+.ptag .armname {{ font-weight:700; }}
+.panel[data-arm="A"] .armname {{ color:var(--armA); }}
+.panel[data-arm="B"] .armname {{ color:var(--armB); }}
+body.blind .armname, body.blind .slug {{ visibility:hidden; }}
+body.blind .nums .n b, body.blind .pill {{ filter:blur(6px); user-select:none; }}
+.sheet {{ display:block; width:100%; padding:0; margin:0; border:0; background:var(--sunk);
+          cursor:zoom-in; border-radius:0; }}
+.sheet:hover {{ border-color:transparent; }}
+.sheet img {{ display:block; width:100%; height:auto; }}
+.sheet.empty {{ display:grid; place-items:center; min-height:170px; color:var(--faint);
+                font-size:13.5px; cursor:default; padding:20px; text-align:center; }}
+.nums {{ display:flex; flex-wrap:wrap; align-items:center; gap:7px 14px; padding:11px 12px;
+         font-family:var(--mono); font-size:12.5px; color:var(--dim);
+         font-variant-numeric:tabular-nums; }}
+.nums .n b {{ color:var(--ink); font-size:14px; }}
+.nums .slug {{ margin-left:auto; color:var(--faint); }}
+.pill {{ padding:2px 8px; border-radius:2px; border:1px solid currentColor; font-size:11px;
+         letter-spacing:.05em; text-transform:uppercase; }}
+.pill.good {{ color:var(--good); }} .pill.warn {{ color:var(--warn); }} .pill.bad {{ color:var(--bad); }}
+.err {{ margin:0; padding:0 12px 11px; color:var(--bad); font-family:var(--mono); font-size:12px; }}
+.vote {{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:14px; }}
+.vote .vlabel {{ font-family:var(--cond); font-size:12px; letter-spacing:.1em; text-transform:uppercase;
+                 color:var(--faint); margin-right:4px; }}
+
+/* ── tally ────────────────────────────────────────────── */
+.tally {{ margin-top:36px; padding:22px; background:var(--surface); border:1px solid var(--line);
+          border-radius:3px; box-shadow:var(--shadow); }}
+.tally h2 {{ font-size:18px; }}
+.tally p {{ color:var(--dim); font-size:14px; }}
+.tally textarea {{ width:100%; min-height:150px; margin-top:12px; padding:13px; background:var(--sunk);
+                   color:var(--ink); border:1px solid var(--line); border-radius:3px;
+                   font-family:var(--mono); font-size:12.5px; line-height:1.6; resize:vertical; }}
+
+/* ── lightbox ─────────────────────────────────────────── */
+.lb {{ position:fixed; inset:0; z-index:100; display:none; place-items:center; padding:24px;
+       background:rgba(8,9,12,.9); cursor:zoom-out; }}
+.lb.open {{ display:grid; }}
+.lb img {{ max-width:100%; max-height:100%; border-radius:2px; }}
+@media (prefers-reduced-motion:reduce) {{ * {{ transition:none !important; }} }}
 </style>
+
 <div class="wrap">
-  <div>
-    <p class="eyebrow">A/B round</p>
-    <h1>{title}</h1>
-  </div>
+<header class="top">
+  <h1>{title}</h1>
+  <p class="changed">{changed}</p>
+
   <div class="verdict">
     <h2>{head}</h2>
     <p>{why}</p>
   </div>
-  <div class="changed">{changed}</div>
+
   <div class="arms">
-    <section class="arm">
-      <h3>Arm A <span class="tag">{n_a} runs</span></h3>
-      <p>{a_label}</p>
-      {a_cards}
-    </section>
-    <section class="arm">
-      <h3>Arm B <span class="tag">{n_b} runs</span></h3>
-      <p>{b_label}</p>
-      {b_cards}
-    </section>
+    <div class="armbox A"><div class="k">arm A · control</div><div class="d">{a_label}</div>
+      <div class="s">{a_stats}</div></div>
+    <div class="armbox B"><div class="k">arm B · treatment</div><div class="d">{b_label}</div>
+      <div class="s">{b_stats}</div></div>
   </div>
+</header>
+
+<div class="bar">
+  <button id="blind" class="on">blind: on</button>
+  <button id="reveal">reveal scores</button>
+  <button id="clear" class="ghost">clear my votes</button>
+  <span class="prog"><span id="done">0</span>/{n_pairs} judged</span>
 </div>
+
+{pairs}
+
+<section class="tally">
+  <h2>Your read</h2>
+  <p>Judged blind, before the scores were visible. Copy this back into the session and it
+     becomes the guidance for the next round.</p>
+  <textarea id="out" readonly spellcheck="false"></textarea>
+</section>
+</div>
+
+<div class="lb" id="lb"><img alt=""></div>
+
+<script>
+const KEY = "abvote:" + document.title;
+let votes = {{}};
+try {{ votes = JSON.parse(localStorage.getItem(KEY) || "{{}}"); }} catch (e) {{ votes = {{}}; }}
+const save = () => {{ try {{ localStorage.setItem(KEY, JSON.stringify(votes)); }} catch (e) {{}} }};
+const pairs = [...document.querySelectorAll(".pair")];
+
+/* a vote is cast on a SIDE; which arm that was depends on the flip this pair was built with */
+const armOf = (p, side) => (p.dataset.flip === "1"
+  ? (side === "left" ? "B" : "A") : (side === "left" ? "A" : "B"));
+
+function paint() {{
+  let n = 0;
+  for (const p of pairs) {{
+    const v = votes[p.dataset.i];
+    if (v) n++;
+    for (const b of p.querySelectorAll(".vote button")) b.classList.toggle("on", b.dataset.v === v);
+    const tag = p.querySelector(".agree");
+    const a = parseFloat(p.dataset.a), b = parseFloat(p.dataset.b);
+    if (!document.body.classList.contains("blind") && v && v !== "skip"
+        && !isNaN(a) && !isNaN(b)) {{
+      const judge = Math.abs(b - a) < 0.02 ? "tie" : (b > a ? "B" : "A");
+      const mine = v === "tie" ? "tie" : armOf(p, v);
+      tag.hidden = false;
+      tag.textContent = mine === judge ? "you agree with the judge" : "you and the judge disagree";
+      tag.className = "agree " + (mine === judge ? "yes" : "no");
+    }} else {{ tag.hidden = true; }}
+  }}
+  document.getElementById("done").textContent = n;
+  report();
+}}
+
+function report() {{
+  let A = 0, B = 0, tie = 0, skip = 0, agree = 0, cast = 0;
+  const lines = [];
+  for (const p of pairs) {{
+    const v = votes[p.dataset.i];
+    const brief = p.querySelector("h3").textContent;
+    if (!v) {{ lines.push(`${{(+p.dataset.i + 1).toString().padStart(2, "0")}}  —        ${{brief}}`); continue; }}
+    if (v === "skip") {{ skip++; lines.push(`${{(+p.dataset.i + 1).toString().padStart(2, "0")}}  can't tell  ${{brief}}`); continue; }}
+    const mine = v === "tie" ? "tie" : armOf(p, v);
+    cast++;
+    if (mine === "A") A++; else if (mine === "B") B++; else tie++;
+    const a = parseFloat(p.dataset.a), b = parseFloat(p.dataset.b);
+    let j = "";
+    if (!isNaN(a) && !isNaN(b)) {{
+      const judge = Math.abs(b - a) < 0.02 ? "tie" : (b > a ? "B" : "A");
+      if (mine === judge) agree++;
+      j = `   judge ${{judge}} (A ${{a.toFixed(3)}} / B ${{b.toFixed(3)}})${{mine === judge ? "" : "  ← DISAGREE"}}`;
+    }} else {{ j = "   judge: no score"; }}
+    lines.push(`${{(+p.dataset.i + 1).toString().padStart(2, "0")}}  ${{mine.padEnd(9)}} ${{brief}}${{j}}`);
+  }}
+  const head = [
+    `human read of ${{pairs.length}} paired briefs`,
+    `A ${{A}}   B ${{B}}   tie ${{tie}}   can't tell ${{skip}}   unjudged ${{pairs.length - A - B - tie - skip}}`,
+    cast ? `agreed with the judge on ${{agree}}/${{cast}} of the pairs I called` : "",
+    "",
+  ].filter(Boolean);
+  document.getElementById("out").value = head.concat(lines).join("\\n");
+}}
+
+for (const p of pairs) {{
+  for (const b of p.querySelectorAll(".vote button")) {{
+    b.addEventListener("click", () => {{
+      votes[p.dataset.i] = votes[p.dataset.i] === b.dataset.v ? undefined : b.dataset.v;
+      if (!votes[p.dataset.i]) delete votes[p.dataset.i];
+      save(); paint();
+    }});
+  }}
+}}
+
+const blindBtn = document.getElementById("blind");
+const setBlind = (on) => {{
+  document.body.classList.toggle("blind", on);
+  blindBtn.classList.toggle("on", on);
+  blindBtn.textContent = "blind: " + (on ? "on" : "off");
+  paint();
+}};
+blindBtn.addEventListener("click", () => setBlind(!document.body.classList.contains("blind")));
+document.getElementById("reveal").addEventListener("click", () => setBlind(false));
+document.getElementById("clear").addEventListener("click", () => {{ votes = {{}}; save(); paint(); }});
+
+const lb = document.getElementById("lb");
+for (const s of document.querySelectorAll(".sheet[data-full]")) {{
+  s.addEventListener("click", () => {{ lb.querySelector("img").src = s.dataset.full; lb.classList.add("open"); }});
+}}
+lb.addEventListener("click", () => lb.classList.remove("open"));
+addEventListener("keydown", (e) => {{ if (e.key === "Escape") lb.classList.remove("open"); }});
+
+setBlind(true);
+</script>
 """
 
 
