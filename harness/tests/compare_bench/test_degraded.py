@@ -47,8 +47,7 @@ def _track(status: RunStatus, stop_reason: str, rounds: int, cost: float, aborte
     (RunStatus.BUDGET, "budget", 1, 1.2, 1, True),    # the storm case: clock stop after 1 round
     (RunStatus.BUDGET, "budget", 0, 0.9, 1, True),    # never completed a round
     (RunStatus.BUDGET, "budget", 2, 1.5, 1, False),   # iterated twice: cut, but not degraded
-    # the money-stop row is gone with the money ceiling (2026-08-28): a "budget" stop is
-    # now always the clock, which is exactly the case this flag exists for
+
     (RunStatus.PASSED, "pass", 1, 0.8, 0, False),     # passed after one round: fine
     (RunStatus.PLATEAU, "plateau", 1, 0.7, 0, False),
 ])

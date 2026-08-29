@@ -125,7 +125,7 @@ suffixed `_v2` / `_v3`, with the CLI flags that are not expressible in `BenchPro
 
 The three hero pieces used `--generator codex:gpt-5.6-sol` instead (penny-farthing, radial
 engine, temple courtyard).  Note that `--profile quality` prices codex subscription usage as
-API dollars and self-throttles the scene track (`DEFECTS.md` D5) — raise `--max-usd` well
+API dollars and self-throttles the scene track (`DEFECTS.md` D5) — raise `--max-minutes` well
 above the profile default for a codex scene run.
 
 Per-artefact extras used here:

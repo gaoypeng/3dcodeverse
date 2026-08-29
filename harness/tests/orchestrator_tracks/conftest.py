@@ -49,8 +49,6 @@ def chair_plan() -> StaticPlan:
 
 def make_spec(track: Track = Track.STATIC_OBJECT, language: Language = Language.THREEJS, *, generator: str = "fake:fake-model",
               max_rounds: int = 3, max_minutes: float = 10.0, prompt: str = "a mid-century wooden dining chair", **kw) -> Spec:
-    """``max_minutes`` is how a test makes a run run out: money stopped being a ceiling
-    on 2026-08-28, so a scenario that needs a budget stop sets a tight CLOCK."""
     return Spec(id="t1", track=track, language=language, prompt=prompt,
                 constraints=Constraints(dimensions_m={"height": 0.82}, must_have=["armrests"]),
                 budget=Budget(max_rounds=max_rounds, max_minutes=max_minutes, max_repair_attempts=2),
@@ -62,34 +60,20 @@ def spec() -> Spec:
     return make_spec()
 
 
-@contextlib.contextmanager
-def clock_trips_after(n_reads: int):
-    """Make the wall-clock ceiling be crossed after ``n_reads`` elapsed-time reads.
+#: minutes the fakes have "spent".  A fake answers instantly, so a scenario that needs a
+#: run to stop mid-way gives its fakes a duration: FakeAgent(..., minutes=8).
+FAKE_CLOCK = {"minutes": 0.0}
 
-    Money stopped being a ceiling on 2026-08-28, so a scenario that needs a run to stop
-    MID-RUN drives the clock.  It has to be driven rather than waited for: a fake model
-    answers instantly, so real wall time never moves and `max_minutes` alone either stops
-    the run before round 0 or never.  This lets a test say "stop after the work I care
-    about has happened" without sleeping.
-    """
+
+@contextlib.contextmanager
+def fake_clock():
+    """Point BudgetGuard's wall clock at FAKE_CLOCK for the duration of a test."""
     from codeverse.orchestrator import BudgetGuard
 
     real = BudgetGuard.elapsed_minutes
-    state = {"n": 0}
-
-    def fake(self: BudgetGuard) -> float:
-        state["n"] += 1
-        if state["n"] <= n_reads:
-            return 0.0
-        # LOCK the reading at the moment it first trips.  Salvage answers a stop by
-        # granting wall-clock grace, so a clock recomputed against the raised ceiling
-        # would stay past it for ever and the salvaged round could never run — which is
-        # the behaviour these scenarios exist to check.
-        state.setdefault("at", self.hard_minutes + 0.001)
-        return state["at"]
-
-    BudgetGuard.elapsed_minutes = fake            # type: ignore[method-assign]
+    FAKE_CLOCK["minutes"] = 0.0
+    BudgetGuard.elapsed_minutes = lambda self: FAKE_CLOCK["minutes"]   # type: ignore[method-assign]
     try:
-        yield state
+        yield FAKE_CLOCK
     finally:
-        BudgetGuard.elapsed_minutes = real        # type: ignore[method-assign]
+        BudgetGuard.elapsed_minutes = real                             # type: ignore[method-assign]

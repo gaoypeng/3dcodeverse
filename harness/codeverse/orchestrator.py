@@ -817,8 +817,8 @@ class BudgetGuard:
     """Thread-safe accumulator of ``Usage`` against a ``Budget``.
 
     ``charge`` adds usage and then calls ``check``; ``check`` raises
-    ``BudgetExceeded`` when ``max_minutes`` is exceeded.  Money is measured, never
-    enforced (2026-08-28): there is no cost ceiling.
+    ``BudgetExceeded`` when ``max_minutes`` is exceeded.  Cost is accumulated for the
+    ledger and the run record; the wall clock is the ceiling.
     """
 
     def __init__(
@@ -1003,7 +1003,6 @@ class BudgetGuard:
         """Raise ``BudgetExceeded`` if any hard ceiling has been crossed."""
         spent = self.billed_usd
         elapsed = self.elapsed_minutes()
-        # money is measured, never enforced (2026-08-28).  The clock is the only ceiling.
         if elapsed > self.hard_minutes:
             raise BudgetExceeded(
                 f"elapsed {elapsed:.1f} min exceeds max_minutes {self.hard_minutes:.1f}",

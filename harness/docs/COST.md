@@ -1157,19 +1157,12 @@ What did work, in production, on those two lost cells: they were recorded
 retry deadline (§22) stopped each at ~15 min instead of the 56-87 min the same cells
 burned earlier the same morning.
 
-## 25. `max_usd` guards money, and a subscription costs none
-
-> **Since 2026-08-28 the money guard is OFF by default** (`max_usd = 0` in `Budget` and
-> in every profile, owner's call: run first, count later).  Nothing below stops being
-> true — every call is still priced into `telemetry/cost.jsonl`, `3dcv cost` and the
-> run record — but money can no longer END a run.  `--max-usd <n>` puts the ceiling
-> back, and everything in this section then applies exactly as written.  What still
-> bounds a run is `max_minutes`.
+## 25. List price is not the bill, and a subscription costs none
 
 `Usage.cost_usd` answers *"what would these tokens cost at list price?"*.  That is the
 right number for a report, a $/complexity point, or a flywheel record — it is comparable
-across backends and independent of who is paying.  It is the wrong number to hand a
-spend guard, because a backend on a flat-rate local subscription bills no dollars.
+across backends and independent of who is paying.  It is the wrong number to call a bill,
+because a backend on a flat-rate local subscription bills no dollars.
 
 The harness had exactly one number and used it for both.
 
@@ -1193,22 +1186,16 @@ with it, and the guard is the half that changes what the run does.
 only what is billed.  `cost/billing.py` names the flat-rate backends
 (`SUBSCRIPTION_BACKENDS` = codex, claude-code, agy, antigravity — `CLAUDE.md`
 "Environment" is the source of that list), and `BudgetGuard` accumulates a second
-counter, `billed_usd`, which every ceiling now reads instead of `spent.cost_usd`.
-`summary()` reports both: `spent_usd` (billed, what the ceilings saw) and `notional_usd`
-(list price, what the reports want).
+counter, `billed_usd`, alongside `spent.cost_usd`.  `summary()` reports both:
+`spent_usd` (billed, real dollars) and `notional_usd` (list price, what the reports want).
 
 `gemini-cli` is deliberately **not** exempt: it authenticates with an API key, so its
 tokens draw on a real per-token quota even when that quota is free.  Unknown backends
 bill by default — a new provider nobody classified must be enforced, not exempted.
-Wrong in that direction costs a degraded run; wrong in the other spends real money with
-no ceiling.
+Getting it wrong the other way reports a run as free when someone was billed for it.
 
-**What still bounds a subscription run:** `max_minutes`, which `BudgetGuard.timeout_s()`
-also clips individual sessions against.  When the money is flat-rate, wall clock is the
-scarce resource — the runaway is still stopped, by the ceiling that actually applies to
-it.  Note the corollary for benchmarking: an arm on a subscription backend and an arm on
-an API backend are not being held to the same ceiling, so compare them on
-`notional_usd`, never on `spent_usd`.
+The corollary for benchmarking: an arm on a subscription backend and an arm on an API
+backend do not bill comparably, so compare them on `notional_usd`, never on `spent_usd`.
 
 
 ## 27. A 503 is per key at any instant — rotate before you wait (2026-08-26)

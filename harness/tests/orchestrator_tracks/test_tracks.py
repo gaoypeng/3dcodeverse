@@ -17,7 +17,7 @@ from codeverse.tracks.planner import plan_example
 from codeverse.tracks.scene import SceneTrack
 from codeverse.tracks.static_object import StaticObjectTrack
 from codeverse.workspace import Workspace
-from tests.orchestrator_tracks.conftest import clock_trips_after, make_spec
+from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
     FAIL_MARK,
     FakeAgent,
@@ -86,7 +86,7 @@ def test_static_track_end_to_end_agent_path(tmp_path, chair_plan, settings):
 
 
 def test_static_track_single_shot_with_repair_and_budget_stop(tmp_path, chair_plan, settings):
-    spec = make_spec(generator="single-shot:gemini:fake", max_rounds=4, max_minutes=0.0)
+    spec = make_spec(generator="single-shot:gemini:fake", max_rounds=4, max_minutes=6.0)
     ws = Workspace(tmp_path / "runs" / "chair2")
     n = {"gen": 0}
 
@@ -96,11 +96,10 @@ def test_static_track_single_shot_with_repair_and_budget_stop(tmp_path, chair_pl
             return f"=== FILE: src/object.js ===\n// {FAIL_MARK}\nexport function build(){{}}\n=== END FILE ==="
         return "=== FILE: src/object.js ===\nexport function build(THREE) { return new THREE.Group(); }\n=== END FILE ==="
 
-    model = FakeChatModel(responder, cost=0.004)
+    model = FakeChatModel(responder, cost=0.004, minutes=0.5)
     track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5, 0.55, 0.6, 0.62)), model=model,
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.THREEJS))
-    # the clock runs out mid-run: what this pins never depended on money
-    with clock_trips_after(8):
+    with fake_clock():
         rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET and rec.rounds[0].build.ok and "repair attempts: 1/2 (fixed)" in rec.rounds[0].notes
     assert rec.rounds[0].score == pytest.approx(0.5)

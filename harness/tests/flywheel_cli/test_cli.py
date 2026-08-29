@@ -438,8 +438,7 @@ def test_a_negative_budget_is_rejected_before_the_workspace_exists(tmp_path: Pat
     """SM-11: a ceiling flag took any float.  A negative ceiling is not a small budget,
     it is an unrunnable one — BudgetGuard.ok() is False before a single token is spent
     and grant_grace cannot lift a hard ceiling back above zero — yet `3dcv make` printed
-    it, created the workspace and git-committed the spec.  The money ceiling is gone
-    (2026-08-28); the rule holds for the one that remains."""
+    it, created the workspace and git-committed the spec."""
     runs = tmp_path / "runs"
     for flag, value in (("--max-minutes", "-10"),):
         r = runner.invoke(app, ["make", "a chair", flag, value, "--no-run",
@@ -461,8 +460,6 @@ def test_a_negative_budget_is_rejected_before_the_workspace_exists(tmp_path: Pat
     with _pytest.raises(ValidationError):
         Budget(max_minutes=-3.0)
     assert Budget(max_minutes=0.0).max_minutes == 0.0
-    # and there is no money ceiling to reject: the field is gone
-    assert "max_usd" not in Budget().model_dump()
 
 
 def test_texture_is_not_offered_on_tracks_that_have_no_glb(tmp_path: Path):

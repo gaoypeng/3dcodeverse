@@ -118,9 +118,8 @@ def is_infra_failure(err: object) -> bool:
 
 
 #: a run that hit its ceiling before producing anything.  Distinct from an outage: we DID
-#: ask the model, it just never delivered inside the budget.  ``max_usd`` stays in the
-#: list although the money ceiling was removed on 2026-08-28 — recorded runs from before
-#: then still carry that wording, and this classifier reads history.
+#: ask the model, it just never delivered inside the budget.  These match RECORDED runs,
+#: so the list keeps wordings the harness no longer emits.
 BUDGET_MARKERS: tuple[str, ...] = (
     "exceeds max_minutes",
     "exceeds max_usd",     # historical runs only

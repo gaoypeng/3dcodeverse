@@ -37,7 +37,7 @@ def test_build_spec_tags_and_budget():
     spec = build_spec(b, item, backends=rb.get_settings().backends(), rounds=2,
                       max_minutes=10, tag0="compare", extra_tags=("harness",))
     assert spec.tags[:4] == ["compare", b.name, item.tier, item.category] and "harness" in spec.tags
-    assert spec.budget.max_rounds == 2 and not hasattr(spec.budget, "max_usd")
+    assert spec.budget.max_rounds == 2 and spec.budget.max_minutes == 10.0
     assert spec.id == f"{b.name}/{item.id}"
 
 

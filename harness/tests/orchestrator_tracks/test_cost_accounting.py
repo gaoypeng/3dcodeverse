@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import time
-from functools import partial
 from pathlib import Path
 
 import pytest
@@ -118,10 +117,6 @@ def test_post_hoc_texture_passes_are_inside_the_total_now():
 
 # ----------------------------------------------------------------------------- guard mechanics
 def test_spend_buckets_by_stage_and_round_and_only_charge_enforces():
-    # the ceiling is the clock (money stopped being one on 2026-08-28); what this test
-    # pins is unchanged — the buckets, and that only `charge` enforces while `add` books
-    g = BudgetGuard(Budget(max_minutes=1.0), start_time=time.time() - 600)
-    g.charge = partial(BudgetGuard.charge, g)  # keep the bound method after the clock trick
     g0 = BudgetGuard(Budget(max_minutes=60))
     g0.charge(Usage(cost_usd=0.4), stage="baseline", round_index=0, label="baseline")
     g0.add(Usage(cost_usd=0.05), stage="judge", role="judge", round_index=0)
@@ -189,11 +184,10 @@ def test_the_guard_still_enforces_backends_that_really_bill():
     g.spend(Usage(backend="codex", cost_usd=99.0), enforce=False)  # subscription: notional
     g.spend(Usage(backend="gemini", cost_usd=5.0), enforce=False)  # API: real dollars
     assert g.billed_usd == pytest.approx(5.0), "a subscription must not bill"
-    assert g.ok() and not g.soft_exceeded()  # neither ceiling is money any more
+    assert g.ok() and not g.soft_exceeded()
 
     g.spend(Usage(backend="some-new-provider", cost_usd=4.0), enforce=False)
     assert g.billed_usd == pytest.approx(9.0), "an unknown backend must bill, not be exempt"
-    # ...and the clock is what can still end it
     g._active_s = 3600.0                                          # noqa: SLF001
     with pytest.raises(BudgetExceeded):
         g.check()

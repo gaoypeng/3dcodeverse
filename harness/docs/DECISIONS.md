@@ -51,7 +51,7 @@ written) that were accepted because the code works that way and the tests pin it
   restored from `run_state.extra.budget_snapshot` (`BudgetSnapshot`: spent usage, billed
   USD, call count, per-stage/per-round buckets, cumulative ACTIVE seconds — grace is
   deliberately NOT persisted).  Prior spend and active minutes still count after a
-  resume, so a raised `--max-usd` grants only the difference; `spent_usage` is mirrored
+  resume, so a raised `--max-minutes` grants only the difference; `spent_usage` is mirrored
   for one release, and old run dirs without a snapshot fall back to it (spent only).
 * **D8 Events carry `event`, not `kind` (Δ).**  `EventLog.emit(event, **data)` so payloads
   may include `kind=` (round kind).  `3dcv status` and tests follow.

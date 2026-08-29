@@ -242,7 +242,7 @@ it lands these four rows stay `mixed`, not `measured`.
   admitted a `passed` run with no gated round as a clean 0.
 * **A budget cap tuned for the judged score starves the gate readout.** The `bbox-contract`
   A/B's variant produced a *scored* artefact with **zero gated rounds**, so the primary
-  metric lost the cell while the secondary kept it. Raise `--max-usd`/`--max-minutes` for
+  metric lost the cell while the secondary kept it. Raise `--max-minutes` for
   any A/B whose readout is a gate.
 * **The A/B rig scored four of seven languages 0.0.** `compare_backends._run_harness` gated
   the harness arm on `src/model.py`; a glsl run that finished `passed` having written

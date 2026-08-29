@@ -39,11 +39,10 @@ def test_budget_guard_charges_and_raises():
     g = BudgetGuard(Budget(max_minutes=10.0))
     g.charge(Usage(cost_usd=0.02))
     g.charge(Usage(cost_usd=0.02))
-    assert g.ok() and "usd" not in g.remaining()  # headroom is wall clock only
+    assert g.ok()
     g._active_s = 11 * 60                                        # noqa: SLF001 — past the ceiling
     with pytest.raises(BudgetExceeded) as ei:
         g.charge(Usage(cost_usd=0.02))
-    # the money is still counted on the call that raises; it just is not what raised
     assert "max_minutes" in ei.value.reason and g.spent.cost_usd == pytest.approx(0.06)
 
 

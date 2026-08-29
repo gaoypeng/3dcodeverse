@@ -57,7 +57,6 @@ def test_resume_restores_money_calls_and_active_time_but_not_downtime():
     assert g2.elapsed_minutes() == pytest.approx(2.0, abs=0.1)
     g2.start_time -= 60  # one more ACTIVE minute in THIS session accumulates on top
     assert g2.elapsed_minutes() == pytest.approx(3.0, abs=0.1)
-    # prior spend is still restored and still accumulates — it just is not a ceiling
     g2.charge(Usage(backend="gemini", cost_usd=0.5), stage="refine")
     assert g2.billed_usd == pytest.approx(1.15) and g2.calls == 3
 
@@ -69,9 +68,7 @@ def test_resume_restores_money_calls_and_active_time_but_not_downtime():
 
 
 def test_a_raised_cap_grants_only_the_difference_and_grace_never_persists():
-    """A resumed run gets the raised ceiling MINUS what it already used, not a fresh one.
-    The ceiling is the wall clock (money stopped being one on 2026-08-28); the money the
-    snapshot carries is still restored, it just cannot end the run."""
+    """A resumed run gets the raised ceiling MINUS what it already used, not a fresh one."""
     import time as _t
 
     g1 = BudgetGuard(Budget(max_minutes=10.0), start_time=_t.time())
@@ -84,7 +81,7 @@ def test_a_raised_cap_grants_only_the_difference_and_grace_never_persists():
     g2 = BudgetGuard(Budget(max_minutes=15.0))                   # --max-minutes raised 10 → 15
     g2.restore(snap)
     assert g2.grace_minutes == 0.0
-    assert g2.billed_usd == pytest.approx(0.9), "the money is restored, it just is not a ceiling"
+    assert g2.billed_usd == pytest.approx(0.9), "the spend is restored, not reset"
     assert g2.remaining()["minutes"] == pytest.approx(7.0, abs=0.1)  # 15 − 8, never a fresh 15
 
 
@@ -111,8 +108,6 @@ def test_build_context_restores_the_snapshot_and_falls_back_to_legacy_spent(tmp_
 # --------------------------------------------------------------- ordering: single-shot
 def test_a_paid_single_shot_response_is_persisted_when_the_budget_trips(tmp_path):
     ws = Workspace(tmp_path / "ws").create()
-    # a wall-clock ceiling already crossed: the phase boundary turns this into the stop,
-    # and the point of the test is that the PAID response is on disk before it does
     guard = BudgetGuard(Budget(max_minutes=1.0))
     guard._active_s = 120.0                              # noqa: SLF001 — already past 1 min
     answer = ("=== FILE: src/object.js ===\n"

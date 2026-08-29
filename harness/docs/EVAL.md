@@ -55,7 +55,7 @@ deterministic contract check.
 ```bash
 3dcv bench run bench/prompts/static_objects_v1.yaml \
     --generator gemini-cli:gemini-3.6-flash --judge gemini:gemini-3.1-pro-preview \
-    --rounds 2 --max-usd 2.5 --parallel 4 --out bench/out/static_v1_apiagent
+    --rounds 2 --parallel 4 --out bench/out/static_v1_apiagent
 3dcv bench run bench/prompts/static_objects_v1.yaml --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
 3dcv bench report bench/out/static_v1_apiagent
 ```
@@ -82,11 +82,11 @@ cheaply.
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
     --arms harness:gemini-cli:gemini-3.6-flash,harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
     --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1 [--parallel 3] [--limit N] [--ids a,b]
-    [--rounds 3] [--max-usd 2.5] [--loop-judge gemini:gemini-3.7-flash] [--repair-attempts 2] [--gen-timeout 900]
+    [--rounds 3] [--loop-judge gemini:gemini-3.7-flash] [--repair-attempts 2] [--gen-timeout 900]
     [--no-pairwise] [--no-resume] [--report-only]
 ```
 Arms:
-* `harness:<generator-id>` — the full static_object track (rounds ≤ `--rounds`, ≤ `--max-usd`);
+* `harness:<generator-id>` — the full static_object track (rounds ≤ `--rounds`);
   its in-loop judge is `--loop-judge` (default: settings default); the loop's own score
   is **not** the reported score.
 * `oneshot:<x>` — ONE raw generation from prompt + minimal contract (no tools, cookbook,

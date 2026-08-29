@@ -127,10 +127,10 @@ get_settings().apply_profile(name, *, force=False) -> Profile
     # (max_px/montages/detail_crops/samples) and limits.agent_max_turns; a value the user stated in
     # config.yaml / CV3D_* survives unless force (3dcv make --profile forces).
 from codeverse.cli._common import resolve_dial, ResolvedDial   # THE resolver, one per `3dcv make`
-resolve_dial(settings, profile_flag=None, *, rounds=None, candidates=None, max_usd=None,
+resolve_dial(settings, profile_flag=None, *, rounds=None, candidates=None,
              max_minutes=None, texture=False) -> ResolvedDial
     # profile/generator/planner/judge/captioner, judge_samples/judge_max_px/judge_montages/
-    # judge_detail_crops, agent_max_turns, rounds, candidates, texture, max_usd, max_minutes.
+    # judge_detail_crops, agent_max_turns, rounds, candidates, texture, max_minutes.
     # `--profile X` and `CV3D_PROFILE=X` resolve to the SAME dial (they used to disagree on
     # candidates + texture); an explicit flag beats both.  Spec.options.profile always records the
     # resolved name so `3dcv resume` re-applies it.

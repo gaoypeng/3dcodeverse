@@ -41,7 +41,7 @@ from codeverse.tracks.generation import (
 )
 from codeverse.tracks.static_object import StaticObjectTrack
 from codeverse.workspace import Workspace
-from tests.orchestrator_tracks.conftest import clock_trips_after, make_spec
+from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
     FakeChatModel,
@@ -332,8 +332,8 @@ def test_skip_judge_reasons_are_only_states_where_the_verdict_is_never_bought(tm
     assert skip_judge_reason(strict, gates=_gates(0), renders=_renders()) == ""
     # ... the budget/clock stop: the loop's next budget_ok check ends the run, so this
     # verdict cannot promote anything (audit: 2 verdicts / $0.09 bought past the clock)
-    ctx.budget.add(Usage(cost_usd=99.0), stage="refine")   # booked, but money is not a ceiling
-    ctx.budget._active_s = (ctx.budget.budget.max_minutes + 1) * 60   # noqa: SLF001 — the clock is
+    ctx.budget.add(Usage(cost_usd=99.0), stage="refine")
+    ctx.budget._active_s = (ctx.budget.budget.max_minutes + 1) * 60   # noqa: SLF001
     assert skip_judge_reason(ctx, gates=_gates(), renders=_renders()) == "budget already exceeded"
     assert StopPolicy(ctx.policy).evaluate([_round(0, 0.5)], budget_ok=ctx.budget.ok()).reason == "budget"
     ctx.judge = None
@@ -487,19 +487,20 @@ def test_a_lint_stuck_run_keeps_every_score_instead_of_deferring_the_verdict(tmp
 
 
 def test_a_round_that_raises_still_reports_what_it_burned(tmp_path, chair_plan, settings):
-    spec = make_spec(max_rounds=2, max_minutes=0.0)
+    spec = make_spec(max_rounds=2, max_minutes=10.0)
     ws = Workspace(tmp_path / "runs" / "cut")
 
     class _Expensive(FakeAgent):
+        """A session that burns the run's clock — the round after it has none left."""
+
         def run(self, job):
             res = super().run(job)
             return res.model_copy(update={"usage": Usage(backend="fake", cost_usd=0.04, input_tokens=1000)})
 
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5, 0.6)), agent=_Expensive(_writer),
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5, 0.6)), agent=_Expensive(_writer, minutes=8.0),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                               runtime=FakeRuntime(Language.THREEJS), policy=RoundPolicy(max_rounds=2, target=0.9))
-    # the clock runs out mid-run: what this pins never depended on money
-    with clock_trips_after(10):
+    with fake_clock():
         rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET
     aborted = json.loads((ws.root / "rounds" / "aborted_r01.json").read_text())

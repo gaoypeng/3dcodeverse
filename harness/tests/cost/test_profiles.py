@@ -46,8 +46,7 @@ def test_balanced_is_todays_defaults():
     s = Settings()
     assert (p.generator, p.planner, p.judge) == (s.default_generator, s.default_planner, s.default_judge)
     assert p.rounds == 4 and p.candidates == s.default_candidates and p.judge_samples == 1
-    # a profile has no money dial at all: the ceiling was removed on 2026-08-28
-    assert not hasattr(p, "max_usd") and p.max_minutes == 60.0 and p.judge_max_px == 1024
+    assert p.max_minutes == 60.0 and p.judge_max_px == 1024
 
 
 def test_economy_is_single_shot_flash_and_two_rounds_with_no_turn_cap_of_its_own():
@@ -157,7 +156,7 @@ def test_make_profile_writes_the_whole_shape_onto_the_spec(tmp_path: Path):
     assert r.exit_code == 0, r.output
     spec = json.loads((runs / "pot" / "spec.json").read_text())
     assert spec["options"] == {"candidates": 2, "texture": True, "profile": "quality"}
-    assert spec["budget"]["max_rounds"] == 4 and "max_usd" not in spec["budget"]
+    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_minutes"] > 0
     assert spec["backends"]["judge"] == "gemini:gemini-3.1-pro-preview"
 
 
@@ -168,7 +167,7 @@ def test_an_explicit_flag_beats_the_profile(tmp_path: Path):
                             "--generator", "gemini-cli:gemini-3.6-flash"])
     assert r.exit_code == 0, r.output
     spec = json.loads((runs / "pot" / "spec.json").read_text())
-    assert spec["budget"]["max_rounds"] == 4 and "max_usd" not in spec["budget"]
+    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_minutes"] > 0
     assert spec["backends"]["generator"] == "gemini-cli:gemini-3.6-flash"
     assert spec["backends"]["judge"] == "gemini:gemini-3.7-flash"  # unstated → still the profile's
 
@@ -181,7 +180,7 @@ def test_no_profile_flag_leaves_the_defaults_alone(tmp_path: Path):
     # the resolved dial is recorded whichever way it was named, so `3dcv resume`
     # reproduces it; with no flag and no env that dial is the default, balanced
     assert spec["options"]["profile"] == "balanced" and spec["options"]["texture"] is False
-    assert spec["budget"]["max_rounds"] == 4 and "max_usd" not in spec["budget"]
+    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_minutes"] > 0
 
 
 def test_judge_samples_reach_the_round_policy_only_when_a_profile_asks(tmp_path: Path):

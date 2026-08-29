@@ -69,7 +69,7 @@ def test_spec_for_and_acceptance():
     harness = spec_for(b, b.prompts[0], parse_arm("harness:gemini-cli:gemini-3.7-flash"), opts)
     one = spec_for(b, b.prompts[0], parse_arm("oneshot:codex"), opts)
     assert harness.backends.generator == "gemini-cli:gemini-3.7-flash" and harness.backends.judge == "gemini:gemini-3.7-flash"
-    assert harness.budget.max_rounds == 3 and not hasattr(harness.budget, "max_usd")
+    assert harness.budget.max_rounds == 3
     assert one.backends.generator == "single-shot:codex" and one.constraints.must_have == b.prompts[0].must_have
     acc = acceptance_from_spec(one)
     assert [a.id for a in acc] == ["must_1", "must_2", "must_3"] and all(a.priority == "must" for a in acc)

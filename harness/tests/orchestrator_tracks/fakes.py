@@ -140,9 +140,11 @@ class FakeAgent:
     kind = "fake"
     model = "fake-model"
 
-    def __init__(self, writer: Callable[[AgentJob, Workspace], dict[str, str] | None], cost: float = 0.01):
+    def __init__(self, writer: Callable[[AgentJob, Workspace], dict[str, str] | None], cost: float = 0.01,
+                 minutes: float = 0.0):
         self.writer = writer
         self.cost = cost
+        self.minutes = minutes          # wall clock this session burns (see conftest.fake_clock)
         self.jobs: list[AgentJob] = []
 
     @property
@@ -164,6 +166,9 @@ class FakeAgent:
             p.write_text(content)
         traj = ws.trajectory_dir(job.label or "job", 0)
         (traj / "transcript.jsonl").write_text(json.dumps({"prompt": job.prompt[:200]}) + "\n")
+        from tests.orchestrator_tracks.conftest import FAKE_CLOCK
+
+        FAKE_CLOCK["minutes"] += self.minutes
         return AgentResult(ok=bool(files), exit_reason="completed" if files else "no_changes", files_changed=ws.changed_files(before),
                            transcript_path=str(traj / "transcript.jsonl"), usage=Usage(backend="fake", cost_usd=self.cost, input_tokens=100))
 
@@ -174,9 +179,10 @@ class FakeChatModel:
     provider = "fake"
     model = "fake-model"
 
-    def __init__(self, responder: Callable[[ChatRequest], Any], cost: float = 0.002):
+    def __init__(self, responder: Callable[[ChatRequest], Any], cost: float = 0.002, minutes: float = 0.0):
         self.responder = responder
         self.cost = cost
+        self.minutes = minutes          # wall clock each call burns (see conftest.fake_clock)
         self.requests: list[ChatRequest] = []
 
     @property
@@ -187,7 +193,10 @@ class FakeChatModel:
         return True
 
     def generate(self, request: ChatRequest) -> ChatResponse:
+        from tests.orchestrator_tracks.conftest import FAKE_CLOCK
+
         self.requests.append(request)
+        FAKE_CLOCK["minutes"] += self.minutes
         out = self.responder(request)
         usage = Usage(backend="fake", model="fake-model", cost_usd=self.cost, input_tokens=500, output_tokens=200)
         if isinstance(out, (dict, list)):
@@ -201,14 +210,18 @@ class FakeJudge:
     prompt_hash = "fakejudge001"  # D37: BaseTrack.after_plan records it as prompt_hashes["judge"]
 
     def __init__(self, scores: Sequence[float] = (0.55, 0.7, 0.85), *, targets: Sequence[str] = ("Seat", "FrontLeg", "Backrest", "Armrest"),
-                 acceptance_fail: Sequence[str] = (), cost: float = 0.003):
+                 acceptance_fail: Sequence[str] = (), cost: float = 0.003, minutes: float = 0.0):
         self.scores = list(scores)
         self.targets = list(targets)
         self.acceptance_fail = list(acceptance_fail)
         self.cost = cost
+        self.minutes = minutes
         self.calls: list[Any] = []
 
     def judge(self, inp: Any) -> Judgment:
+        from tests.orchestrator_tracks.conftest import FAKE_CLOCK
+
+        FAKE_CLOCK["minutes"] += self.minutes
         i = min(len(self.calls), len(self.scores) - 1)
         self.calls.append(inp)
         s = self.scores[i]

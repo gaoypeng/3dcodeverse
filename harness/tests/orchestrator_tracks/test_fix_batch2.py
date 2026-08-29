@@ -18,7 +18,7 @@ from codeverse.tracks.planner import plan_example
 from codeverse.tracks.scene import SceneTrack
 from codeverse.tracks.static_object import ObjectPipeline, StaticObjectTrack
 from codeverse.workspace import Workspace
-from tests.orchestrator_tracks.conftest import clock_trips_after, make_spec
+from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
     FakeChatModel,
@@ -68,12 +68,11 @@ def test_judged_round_survives_budget_ceiling_crossed_by_judge(tmp_path, chair_p
     was committed/recorded, throwing away a complete judged round (scene r2 case)."""
     spec = make_spec(max_rounds=3)
     ws = Workspace(tmp_path / "runs" / "r")
-    judge = FakeJudge(scores=(0.55,), cost=0.05)  # this single verdict crosses max_usd
+    judge = FakeJudge(scores=(0.55,), cost=0.05, minutes=12.0)  # this single verdict crosses max_usd
     track = StaticObjectTrack(services=FakeServices(), judge=judge, agent=FakeAgent(_writer),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                               runtime=FakeRuntime(Language.THREEJS))
-    # the clock runs out mid-run: what this pins never depended on money
-    with clock_trips_after(8):
+    with fake_clock():
         rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET and rec.extra["stop_reason"] == "budget"
     assert len(rec.rounds) == 1 and rec.rounds[0].judgment is not None
@@ -93,11 +92,10 @@ def test_finalise_restores_best_when_aborted_round_dirtied_src(tmp_path, chair_p
     ws = Workspace(tmp_path / "runs" / "r")
     # planner 0.002 + baseline agent 0.01 + judge 0.003 = 0.015 < 0.02; the refine agent's
     # 0.01 charge crosses the ceiling AFTER its files hit the disk.
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.55, 0.7), targets=("Seat",)), agent=FakeAgent(_writer),
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.55, 0.7), targets=("Seat",)), agent=FakeAgent(_writer, minutes=6.0),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                               runtime=FakeRuntime(Language.THREEJS))
-    # the clock runs out mid-run: what this pins never depended on money
-    with clock_trips_after(10):
+    with fake_clock():
         rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET and rec.best_round == 0 and len(rec.rounds) == 1
     text = (ws.src / "object.js").read_text()

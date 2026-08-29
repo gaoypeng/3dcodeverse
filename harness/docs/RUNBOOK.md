@@ -60,7 +60,7 @@ silhouette gate + IoU refine tasks), `--rounds N` (refine rounds after the basel
 `--candidates N` (best-of-N baseline: N parallel candidates in `<ws>/_cand/`,
 quick-judged, pairwise tie-break, winner kept; multiplies baseline cost ≈ N;
 default from `settings.default_candidates`), `--texture` (run the texture pass after
-finalise; see §6), `--max-minutes` (there is no cost ceiling), `--dim height=0.45`, `--must`,
+finalise; see §6), `--max-minutes`, `--dim height=0.45`, `--must`,
 `--must-not`, `--style`, `--tag`, `--seed`, `--slug`, `--runs-dir`, `--force`,
 `--no-run` (workspace + spec.json only — except that `--reference` still runs its
 paid grounding pass first, since the grounded spec is what it writes).

@@ -136,11 +136,8 @@ class Budget(BaseModel):
     token is spent and ``grant_grace`` cannot lift a hard ceiling back above zero —
     so the workspace and the git-committed spec are created for a run that can only die.
 
-    There is NO money ceiling and no way to set one (owner, 2026-08-28: run first, count
-    later).  Cost is still measured on every call — the ledger, ``3dcv cost``, the run
-    record and the bench economics are untouched — it simply cannot end a run.  What
-    bounds a run is ``max_rounds`` and ``max_minutes``; a spec.json written before the
-    removal still loads, its money ceiling ignored (pydantic drops the unknown field).
+    A run is bounded by ``max_rounds`` and ``max_minutes``.  Cost is accumulated per call
+    for the ledger and the run record, and never gates anything.
     """
 
     max_rounds: int = Field(default=4, ge=0)

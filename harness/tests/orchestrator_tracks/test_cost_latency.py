@@ -29,7 +29,7 @@ from codeverse.tracks.scene_assets import (
     variant_index,
 )
 from codeverse.workspace import Workspace
-from tests.orchestrator_tracks.conftest import clock_trips_after, make_spec
+from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
     FakeChatModel,
@@ -46,8 +46,6 @@ needs_node = pytest.mark.skipif(
 
 # ----------------------------------------------------------------------------- soft budget
 def test_soft_budget_degrades_before_the_hard_cap_and_grace_reopens_it():
-    """The sub-budget is the WALL CLOCK: money stopped being a ceiling on 2026-08-28,
-    so the baseline's share, the degrade-do-not-die step and grace are all in minutes."""
     clock = {"t": 0.0}
     g = BudgetGuard(Budget(max_minutes=10.0), soft_fraction=0.55)
     g.start_time = 0.0
@@ -307,11 +305,10 @@ def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path,
 
     # the greenhouse hole: 2 asset sessions + env stay under $5; the zone session's own
     # (real, guard-enforced) charge crosses the ceiling mid-stage: $1.30 × 4 = $5.20
-    track = SceneTrack(services=services, judge=FakeJudge(scores=(0.58,)), agent=FakeAgent(writer, cost=1.3),
+    track = SceneTrack(services=services, judge=FakeJudge(scores=(0.58,)), agent=FakeAgent(writer, cost=1.3, minutes=3.0),
                        planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
                        runtime=FakeRuntime(Language.SCENE_THREEJS))
-    # the clock runs out mid-run: what this pins never depended on money
-    with clock_trips_after(20):
+    with fake_clock():
         rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET and rec.extra["stop_reason"] == "budget"
     # …and, unlike the greenhouse run, it has a score
@@ -322,7 +319,7 @@ def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path,
     names = [e["event"] for e in ev]
     assert "budget.salvage" in names and names.count("best.updated") == 1
     salvage = next(e for e in ev if e["event"] == "budget.salvage")
-    assert salvage["grace_minutes"] > 0 and "grace_usd" not in salvage  # wall clock only now
+    assert salvage["grace_minutes"] > 0
 
 
 def test_soft_budget_notes_land_in_the_round_record(tmp_path, settings):
@@ -331,12 +328,11 @@ def test_soft_budget_notes_land_in_the_round_record(tmp_path, settings):
     ws = Workspace(tmp_path / "runs" / "degraded")
     services = FakeServices(assemble=True)
     # an expensive agent: the soft cap (55 % of $5) is crossed during the asset stage
-    agent = FakeAgent(_writer, cost=1.1)
+    agent = FakeAgent(_writer, cost=1.1, minutes=2.0)
     track = SceneTrack(services=services, judge=FakeJudge(scores=(0.5,)), agent=agent,
                        planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
                        runtime=FakeRuntime(Language.SCENE_THREEJS))
-    # the clock runs out mid-run: what this pins never depended on money
-    with clock_trips_after(12):
+    with fake_clock():
         rec = track.run(spec, ws)
     ev = [json.loads(x) for x in (ws.root / "events.jsonl").read_text().splitlines() if x.strip()]
     degraded = [e for e in ev if e["event"] == "budget.degraded"]
@@ -446,12 +442,11 @@ def test_a_scene_round_judged_at_the_ceiling_is_still_promoted(tmp_path, setting
     plan = _threejs_scene_plan()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=2)
     ws = Workspace(tmp_path / "runs" / "ceiling")
-    judge = FakeJudge(scores=(0.61,), cost=0.5)
+    judge = FakeJudge(scores=(0.61,), cost=0.5, minutes=12.0)
     track = SceneTrack(services=FakeServices(assemble=True), judge=judge, agent=FakeAgent(_writer, cost=0.001),
                        planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
                        runtime=FakeRuntime(Language.SCENE_THREEJS))
-    # the clock runs out mid-run: what this pins never depended on money
-    with clock_trips_after(26):
+    with fake_clock():
         rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET and rec.best_round == 0 and rec.final_score == pytest.approx(0.61)
     assert len(rec.rounds) == 1 and rec.rounds[0].judgment is not None

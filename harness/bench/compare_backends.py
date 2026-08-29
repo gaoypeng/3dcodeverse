@@ -338,9 +338,6 @@ def flag_degraded(res: CellResult, opts: CompareOptions) -> None:
     """
     if res.kind != "harness" or res.status not in ("scored", "build_failed"):
         return
-    # There is no money ceiling any more (2026-08-28), so a "budget" stop is always the
-    # clock — which is exactly the case this flag was written for.  The old money_stop
-    # test is gone with the ceiling it read.
     if (res.harness_stop_reason == "budget" and res.harness_rounds <= opts.degraded_max_rounds
             and res.wall_s >= opts.degraded_min_wall_s):
         res.degraded = True

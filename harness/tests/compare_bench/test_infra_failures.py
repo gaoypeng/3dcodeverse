@@ -382,8 +382,7 @@ def test_the_ab_viewer_refuses_to_call_a_winner_it_cannot_support():
 def test_a_clock_stopped_cell_is_flagged_degraded():
     """compare_v4 (2026-08-25): under a day-long 503 storm 37 of 40 harness runs stopped
     on the WALL CLOCK with 0-2 rounds while the 3 that met a calm window scored
-    0.92-0.95, so a paired mean over them measures the weather.  With the money ceiling
-    removed (2026-08-28) a "budget" stop is always the clock, and this is the whole test.
+    0.92-0.95, so a paired mean over them measures the weather.
     """
     from bench.compare_backends import CompareOptions, flag_degraded
 
