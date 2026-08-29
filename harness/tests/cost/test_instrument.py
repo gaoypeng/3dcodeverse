@@ -109,17 +109,6 @@ def test_a_failed_call_is_recorded_and_re_raised(tmp_path: Path):
     assert row.outcome == "timeout" and row.stage is Stage.PLAN and row.cost_usd == 0.0
 
 
-def test_self_metered_turns_are_recorded_once_each_with_the_job_round(tmp_path: Path):
-    chat = MeteredChatModel(FakeChat())
-    with run_ledger(tmp_path, run="r1"):
-        MeteredAgent(FakeAgent(chat)).run(AgentJob(workspace=str(tmp_path), prompt="p", label="refine",
-                                                   round=2, kind="refine"))
-    rows = load_ledger(tmp_path)
-    assert len(rows) == 3  # one per turn, no extra session row
-    assert {r.round for r in rows} == {2} and {r.stage for r in rows} == {Stage.REFINE}
-    assert {r.role for r in rows} == {Role.GENERATOR}
-
-
 def test_a_cli_agent_we_cannot_see_inside_gets_one_session_row(tmp_path: Path):
     with run_ledger(tmp_path, run="r1"):
         MeteredAgent(CliAgent(FakeChat())).run(

@@ -175,7 +175,7 @@ def cookbook_sections(ctx: RunContext, names: Sequence[str], *, max_chars: int =
     text = "\n\n".join(out)
     if len(text) > max_chars:
         text = (
-            text[:max_chars].rstrip() + "\n\n…[chapters clipped — call read_cookbook for the rest]"
+            text[:max_chars].rstrip() + "\n\n…[clipped — the whole cookbook is at .3dcv/cookbook.md]"
         )
     return text
 
@@ -210,13 +210,6 @@ def is_always_chapter(title: str, always: Sequence[str] = COOKBOOK_ALWAYS) -> bo
     """Is ``title`` one of the chapters every graphics prompt carries (helpers / grading / pitfalls)?"""
     low = title.lower()
     return any(name.lower() in low for name in always)
-
-
-def select_cookbook_excerpt(ctx: RunContext, brief: str, *, budget: int = 9000,
-                            always: Sequence[str] = COOKBOOK_ALWAYS) -> str:
-    """Whole cookbook chapters chosen for ``brief``, never a blind prefix (see
-    :func:`select_cookbook_chapters` for the selection; this joins their bodies)."""
-    return "\n\n".join(s.body.rstrip() for s in select_cookbook_chapters(ctx, brief, budget=budget, always=always))
 
 
 def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,

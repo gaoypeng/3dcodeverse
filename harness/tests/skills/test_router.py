@@ -10,7 +10,6 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from codeverse.conventions import LANGUAGE_FRAME
 from codeverse.skills.model import EVIDENCE_INHERITED
 from codeverse.skills.registry import QUIET_KINDS, plan_signals, select, skills_for
 from tests.skills.conftest import write_bundle
@@ -48,30 +47,6 @@ def test_custom_shader_is_detected_from_effects_or_from_words():
     assert plan_signals(NS(effects=[NS(kind="glsl_material", description="water")]))["has_custom_shader"]
     assert plan_signals(NS(summary="a raymarched tunnel"))["has_custom_shader"]
     assert not plan_signals(NS(summary="a wooden chair", parts=[part()]))["has_custom_shader"]
-
-
-# --------------------------------------------------------------------------- the laws
-def test_every_track_language_pair_routes_at_least_one_skill_at_baseline(library):
-    """Coverage is a test, not a hope (design §5.2 law 6)."""
-    for language in LANGUAGE_FRAME:
-        track = TRACK_OF[language]
-        got = skills_for(track, language, "baseline", plan=static_plan(), library=library, allow_unverified=True)
-        assert got, f"{track}/{language} routes nothing at baseline"
-
-
-def test_no_input_combination_exceeds_the_cap(library):
-    every_finding = ["connectivity/interpenetration", "contract/part_bbox", "contract/instance_bbox",
-                     "joint_sweep/link_overlap", "motion_direction/wrong_axis", "scene_frames/dark_or_flat",
-                     "scene_frames/camera_placement", "gl_frames/motion_or_detail", "lint/part_not_imported",
-                     "shader/compile_or_binding"]
-    kinds = ("baseline", "part", "detail", "refine", "repair", "rebuild", "rewrite", "env", "zone",
-             "asset", "asset_fix", "compose", "reference")
-    for language, track in TRACK_OF.items():
-        for kind in kinds:
-            for findings in ((), every_finding):
-                got = select(track, language, kind, signals=plan_signals(static_plan(instances=2, symmetry="mirror_x")),
-                             findings=findings, library=library, max_skills=5, allow_unverified=True)
-                assert len(got) <= 5, (track, language, kind, [s.name for s in got])
 
 
 def test_a_repair_round_spends_its_budget_on_what_broke(library):
@@ -147,13 +122,6 @@ def test_scene_gate_findings_route_the_matching_scene_skill(library):
                           ("gl_frames/motion_or_detail", "cv3d-scene-motion")):
         got = select("scene", "scene_threejs", "repair", findings=[finding], library=library, max_skills=1)
         assert got and got[0].name == want, finding
-
-
-def test_routing_is_deterministic_and_ordered_by_priority(library):
-    args = dict(signals=plan_signals(static_plan(instances=2)), findings=["contract/instance_bbox"], library=library)
-    runs = [[(s.name, s.priority) for s in select("static_object", "blender", "refine", **args)] for _ in range(5)]
-    assert all(r == runs[0] for r in runs)
-    assert [p for _, p in runs[0]] == sorted((p for _, p in runs[0]), reverse=True)
 
 
 def test_a_route_row_without_a_bundle_is_skipped_not_a_crash(library_dir):

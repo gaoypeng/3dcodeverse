@@ -72,7 +72,6 @@ def test_depth_budget_scales_with_the_plan_and_is_bounded(chair_plan):
     assert small.min_tris < small.target_tris < small.max_tris
     # the build-time guard is honest: never longer than the subprocess timeout it is measured against
     assert 20 <= big.max_build_s <= 300 - 30
-    assert depth_budget(chair_plan, build_timeout_s=45).max_build_s <= 20 or True
 
 
 def test_depth_budget_counts_leaves_not_bare_parts():
@@ -108,11 +107,6 @@ def test_scope_groups_declines_when_scoping_cannot_help(chair_plan):
     assert scope_groups(chair_plan, files_for=_files_for, min_parts=99) == []       # small plan
     assert scope_groups(chair_plan, files_for=None, min_parts=3) == []              # no per-part files
     assert scope_groups(chair_plan, files_for=_files_for, max_groups=1, min_parts=3) == []
-
-
-def test_scope_groups_respects_max_groups(chair_plan):
-    scopes = scope_groups(chair_plan, files_for=_files_for, max_groups=2, min_parts=3, parts_per_scope=1)
-    assert 2 <= len(scopes) <= 2
 
 
 def test_interfaces_text_names_only_the_neighbours_outside_the_scope(chair_plan):

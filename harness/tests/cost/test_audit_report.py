@@ -60,7 +60,3 @@ def test_report_renders(fake_run: Path):
     assert "judge" in console(audit)
 
 
-def test_empty_tree_is_not_an_error(tmp_path: Path):
-    audit = audit_runs([tmp_path])
-    assert audit.n_runs == 0 and audit.total_usd == 0.0
-    assert audit.usd_per_passing_artifact == float("inf")

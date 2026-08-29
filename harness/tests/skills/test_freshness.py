@@ -180,18 +180,6 @@ def test_every_constant_a_bundle_names_in_prose_is_ours_or_declared_foreign(doc:
 
 
 @pytest.mark.parametrize("doc", DOCS, ids=[str(p.relative_to(skills_dir())) for p in DOCS])
-def test_every_switch_a_bundle_names_is_a_live_switch(doc: Path):
-    from codeverse.tracks.plan_features import LIVE_SWITCHES
-
-    live = {s if isinstance(s, str) else getattr(s, "env", "") for s in LIVE_SWITCHES}
-    live |= {n for n in LIVE_CONSTANTS if n.startswith("CV3D_")}
-    live |= {"CV3D_SKILLS", "CV3D_SKILLS_MAX", "CV3D_SKILLS_UNVERIFIED", "CV3D_SKILLS_DIR",
-             "CV3D_MAX_IN_FLIGHT"}
-    named = set(_ENV.findall(doc.read_text()))
-    assert named <= live, f"{doc.name} names dead switch(es): {sorted(named - live)}"
-
-
-@pytest.mark.parametrize("doc", DOCS, ids=[str(p.relative_to(skills_dir())) for p in DOCS])
 def test_every_sibling_skill_a_bundle_names_exists(doc: Path):
     named = set(re.findall(r"\bcv3d-[a-z0-9-]+\b", doc.read_text()))
     have = {d.name for d in BUNDLES} | set(ROUTED_SKILLS)

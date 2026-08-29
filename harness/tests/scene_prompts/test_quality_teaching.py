@@ -161,6 +161,6 @@ def test_cookbook_sections_inlines_whole_chapters_and_clips_safely(tmp_path) -> 
     for token in ("setColorAt", "cameraMask", "foreground frame", "±0.10–0.20 rad"):
         assert token in text, token
     assert len(text) > 12_000
-    assert cookbook_sections(ctx, ZONE_RECIPES, max_chars=500).endswith("call read_cookbook for the rest]")
+    assert cookbook_sections(ctx, ZONE_RECIPES, max_chars=500).rstrip().endswith("cookbook.md]")
     assert cookbook_sections(SimpleNamespace(cookbook_text=""), ZONE_RECIPES) == ""
     assert cookbook_sections(ctx, ["zzz qqq"]) == ""                  # no match → nothing, never junk

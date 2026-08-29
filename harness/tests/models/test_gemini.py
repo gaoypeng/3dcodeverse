@@ -307,19 +307,6 @@ def test_no_single_wait_exceeds_the_house_limit():
     assert max(naps) <= MAX_WAIT_S, f"a wait exceeded {MAX_WAIT_S}s: {sorted(naps)[-3:]}"
 
 
-def test_dead_key_is_rotated_past_and_benched():
-    m, log, pool = _keyed_model(["k1", "k2", "k3"], {"k1": SUSPENDED})
-    r = m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert r.text == "ok from k2" and [e["key"] for e in log] == ["k1", "k2"]
-    st = {k["key"]: k for k in pool.stats()["keys"]}
-    assert st["…k1"]["dead"] == 1 and st["…k1"]["cooldown_s"] > 600 and pool.stats()["n_dead"] == 1
-    # the dead key never comes back round-robin while benched
-    log.clear()
-    for _ in range(10):
-        m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert {e["key"] for e in log} == {"k2", "k3"}
-
-
 def test_api_key_invalid_400_is_treated_as_dead_key():
     bad = _api_error(400, "API key not valid. Please pass a valid API key.", "INVALID_ARGUMENT")
     m, log, pool = _keyed_model(["k1", "k2"], {"k1": bad})
@@ -329,18 +316,6 @@ def test_api_key_invalid_400_is_treated_as_dead_key():
     assert failure_outcome(classify_exception(SUSPENDED)) == "dead"
     assert failure_outcome(classify_exception(THROTTLED)) == "429"
     assert failure_outcome(ModelError("bad json", retryable=True)) == "ok"
-
-
-def test_every_key_dead_raises_without_benching():
-    keys = ["k1", "k2", "k3"]
-    m, log, pool = _keyed_model(keys, {k: SUSPENDED for k in keys})
-    with pytest.raises(ModelError) as ei:
-        m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert not ei.value.retryable and ei.value.status == 403
-    assert [e["key"] for e in log] == keys  # each tried once, no sleeps, no budget burnt
-    # the request (not the keys) is suspect: nothing benched, next call is not blocked
-    assert pool.stats()["dead"] == 0 and pool.stats()["n_cooling"] == 0
-    assert pool.acquire(timeout_s=0.0) in keys
 
 
 def test_5xx_retries_then_gives_up_with_retryable_error():

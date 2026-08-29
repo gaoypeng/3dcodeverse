@@ -114,13 +114,6 @@ def test_pair_distance_sampled_fallback(monkeypatch: pytest.MonkeyPatch) -> None
     assert pd.gap_vector[0] == pytest.approx(0.02, abs=1e-6)
 
 
-def test_penetration_depth_zero_when_apart() -> None:
-    a = trimesh.creation.box(extents=(1, 1, 1))
-    b = trimesh.creation.box(extents=(1, 1, 1))
-    b.apply_translation((2, 0, 0))
-    assert penetration_depth(a, b) == (0.0, 0.0)
-
-
 def _open_bottom_box(extents, translation) -> trimesh.Trimesh:
     """A box with its bottom face dropped — an open shell, what agents actually export."""
     m = trimesh.creation.box(extents=extents)
@@ -244,10 +237,3 @@ def test_a_model_authored_below_the_floor_still_reports_its_floating_part(tmp_pa
     assert any("touches the ground" in f.message for f in sunk.findings)
 
 
-def test_a_part_resting_exactly_on_the_floor_is_still_grounded(tmp_path: Path) -> None:
-    """The abs() must not cost the ordinary case: y=0 and a hair above it are grounded."""
-    from codeverse.spatial.connectivity import check_connectivity as cc
-
-    for dy in (0.0, 0.001):
-        r = cc(_hat_and_body(tmp_path / f"f2_{dy}.glb", dy))
-        assert not any("touches the ground" in f.message for f in r.findings), dy

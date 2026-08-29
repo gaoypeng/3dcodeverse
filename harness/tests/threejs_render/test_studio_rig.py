@@ -92,17 +92,6 @@ def test_studio_render_is_reproducible_and_stamps_the_rig_version(stool_glb: Pat
         assert Path(va.path).read_bytes() == Path(vb.path).read_bytes(), f"{va.name} is not reproducible"
 
 
-@pytest.mark.node
-def test_the_render_cache_still_hits_after_the_rig_change(stool_glb: Path, tmp_path: Path):
-    render_glb(stool_glb, tmp_path / "one", views=OBJECT_VIEWS_QUICK, width=128, height=128,
-               sheet=False, use_cache=True)
-    render_glb(stool_glb, tmp_path / "two", views=OBJECT_VIEWS_QUICK, width=128, height=128,
-               sheet=False, use_cache=True)
-    meta = json.loads((tmp_path / "two" / "views.json").read_text())
-    assert meta.get("from_cache") is True
-
-
-@pytest.mark.node
 def test_orbit_views_share_one_camera_distance(stool_glb: Path, tmp_path: Path):
     """Consistent framing: views in the orbit band (|elevation| <= 60) share one camera
     distance so the object keeps its apparent size across the montage — but no view is

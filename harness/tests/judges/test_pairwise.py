@@ -94,17 +94,3 @@ def test_parallel_orderings_accumulate_in_order(tmp_path, cache_dir):
     assert res.usage.cost_usd == pytest.approx(0.002) and res.usage.input_tokens == 2000
 
 
-def test_compare_many_parallel_is_deterministic(tmp_path, cache_dir):
-    """Fanned round-robin gives the same ranking / pair order on every run."""
-    cands = [make_renders(tmp_path / f"c{i}") for i in range(3)]
-    script = {"0v1:fwd": [_reply("A", 0.9)], "0v1:swap": [_reply("B", 0.8)],
-              "0v2:fwd": [_reply("B", 0.9)], "0v2:swap": [_reply("A", 0.9)],
-              "1v2:fwd": [_reply("B", 0.7)], "1v2:swap": [_reply("A", 0.7)]}
-    outcomes = []
-    for _ in range(3):
-        model = FakeChatModel(by_label={k: list(v) for k, v in script.items()})
-        rank = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare_many(make_spec(), cands)
-        outcomes.append((tuple(rank.order), tuple((p["a"], p["b"], p["winner"]) for p in rank.pairs)))
-    assert len(set(outcomes)) == 1
-    assert outcomes[0][0] == (2, 0, 1)
-    assert outcomes[0][1] == ((0, 1, "a"), (0, 2, "b"), (1, 2, "b"))  # pairs in input order

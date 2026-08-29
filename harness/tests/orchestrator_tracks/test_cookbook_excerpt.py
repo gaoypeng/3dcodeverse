@@ -14,7 +14,6 @@ from types import SimpleNamespace
 from codeverse.contracts.common import Language, Track
 from codeverse.prompts import PROMPTS_DIR, load_text
 from codeverse.prompts.sections import split_sections
-from codeverse.tracks.prompting import COOKBOOK_ALWAYS, select_cookbook_excerpt
 
 AURORA = "Aurora borealis over a mountain ridge with a frozen lake, dense stars, green and violet curtains"
 RAIN = "rain drops running down a window at night, blurred city lights behind the glass"
@@ -40,54 +39,6 @@ def test_real_cookbook_parses_into_chapters() -> None:
     assert any(t.startswith("Light phenomena") for t in titles)
     assert any(t.startswith("Gradient sky") for t in titles)
     assert any(t.startswith("PITFALLS") for t in titles)
-
-
-def test_aurora_brief_selects_light_and_sky_within_budget() -> None:
-    ctx = _ctx()
-    text = select_cookbook_excerpt(ctx, AURORA)
-    titles = _titles(text)
-    assert any(t.startswith("Light phenomena") for t in titles), titles
-    assert any(t.startswith("Gradient sky") for t in titles), titles
-    assert len(text) <= 9000
-    assert "float curtain(vec2 p, float t, float seed, out float k)" in text
-    assert "float stars(vec2 p, float density, float keep)" in text
-    # never split: every chapter in the excerpt is the whole chapter from the cookbook
-    whole = _chapter_bodies(ctx.cookbook_text)
-    for s in split_sections(text):
-        assert s.body.rstrip() == whole[s.title], s.title
-    # deterministic, cookbook order
-    assert text == select_cookbook_excerpt(ctx, AURORA)
-    order = [t for t in whole if t in titles]
-    assert titles == order
-
-
-def test_rain_brief_selects_rain() -> None:
-    text = select_cookbook_excerpt(_ctx(), RAIN)
-    titles = _titles(text)
-    assert any(t.startswith("Rain") for t in titles), titles
-    assert any(t.startswith("Bokeh") for t in titles), titles
-    assert len(text) <= 9000
-
-
-def test_always_chapters_present_for_any_brief() -> None:
-    ctx = _ctx()
-    for brief in ("", "xyzzy plugh", AURORA, RAIN, "a raymarched temple corridor with fog"):
-        text = select_cookbook_excerpt(ctx, brief)
-        assert text.startswith("# glsl_shader cookbook"), brief          # the p / uv conventions header
-        titles = _titles(text)
-        for name in COOKBOOK_ALWAYS:
-            assert any(name.lower() in t.lower() for t in titles), (brief, name)
-    assert select_cookbook_excerpt(SimpleNamespace(cookbook_text=""), AURORA) == ""
-
-
-def test_budget_never_cuts_a_chapter() -> None:
-    ctx = _ctx()
-    small = select_cookbook_excerpt(ctx, AURORA, budget=6000)
-    whole = _chapter_bodies(ctx.cookbook_text)
-    for s in split_sections(small):
-        assert s.body.rstrip() == whole[s.title], s.title
-    assert not any(t.startswith("Light phenomena") for t in _titles(small))   # 3.2 k does not fit in 1.6 k of room
-    assert any(t.startswith("Gradient sky") for t in _titles(small))          # the 1.3 k chapter that does
 
 
 def test_every_track_sends_the_whole_cookbook(monkeypatch) -> None:

@@ -213,14 +213,6 @@ def test_parse_json_lenient_array_and_failure():
     assert json.dumps(parse_json_lenient('{"n": {"x": [1]}}')) == '{"n": {"x": [1]}}'
 
 
-def test_parse_json_lenient_extract_variants():
-    """Ported from the judges' retired ``extract_json`` (one parser, one home)."""
-    assert parse_json_lenient('{"a": 1}') == {"a": 1}
-    assert parse_json_lenient('blah {"a": {"b": 2}} trailing') == {"a": {"b": 2}}
-    with pytest.raises(JsonParseError):
-        parse_json_lenient("no json here")
-
-
 def test_parse_json_lenient_first_balanced_brace_wins_over_outer_span():
     # trailing chatter contains a second, unrelated brace pair: the depth-counted
     # first balanced candidate parses where the outermost {...} span cannot

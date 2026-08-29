@@ -115,6 +115,3 @@ def test_no_false_positives_on_legitimate_placements(table):
     assert rock["sunk_into"] == "Ground" and 0.3 < rock["sunk_m"] < 0.5 and not rock["floating"]
 
 
-def test_time_and_size_limits_are_declared():
-    src = (RUNTIME_JS / "lib" / "host_placement.mjs").read_text()
-    assert "export const MAX_ASSETS = 400;" in src and "TIME_BUDGET_MS = 4000" in src

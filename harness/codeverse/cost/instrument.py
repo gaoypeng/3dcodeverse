@@ -56,9 +56,9 @@ from codeverse.cost.types import Role, Stage, stage_for_label
 
 log = logging.getLogger(__name__)
 
-#: True while a run is metered call-by-call (:func:`run_ledger`).  Aggregate
-#: writers — ``orchestrator.budget.BudgetGuard``, which appends one row per
-#: *charge* — must not also write, or every dollar lands in the ledger twice.
+#: True while a run is metered call-by-call (:func:`run_ledger`).  Any aggregate
+#: writer that appends one row per *charge* must not also write, or every dollar
+#: lands in the ledger twice.
 #:
 #: Context-local first, with a process-wide **count** of the open run ledgers as
 #: the fallback for a worker thread that inherited no context.  A plain global

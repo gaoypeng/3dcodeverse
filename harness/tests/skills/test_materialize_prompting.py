@@ -133,12 +133,6 @@ def test_api_agent_gets_the_index_it_cannot_discover(library):
         assert f"**{s.name}**" in text and f".agents/skills/{s.name}/SKILL.md" in text
 
 
-def test_the_worst_case_api_agent_index_stays_inside_its_budget(library):
-    """Design §5.4 prices the index at ~225 tokens for five skills; 300 is the ceiling."""
-    five = list(library.values())[:5]
-    assert index_tokens(five, "api-agent") <= 300
-
-
 def test_an_empty_route_adds_no_text_at_all(library):
     assert index_block([], "api-agent") == "" and index_block([], "codex") == ""
 

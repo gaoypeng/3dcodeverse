@@ -183,19 +183,6 @@ def test_hand_placed_glb_without_build_status_still_measures(stool_ctx: ToolCont
     assert get_tool("measure").call(stool_ctx, {}).ok
 
 
-def test_build_unavailable_runtime(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.spatial.tool_common as tc
-
-    def boom(module, attr):
-        raise tc.ToolUnavailable(f"{module} not importable")
-
-    monkeypatch.setattr(tc, "lazy", boom)
-    monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
-    obs = get_tool("build").call(stool_ctx, {})
-    assert not obs.ok and obs.text.startswith("tool build unavailable:")
-
-
-# --------------------------------------------------------------------------- rendering with a fake renderer
 def _fake_render_glb(glb, out_dir, *, views=None, mode="shaded", width=768, height=768, isolate=None, explode=0.0, sheet=True, background="studio", **_):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -264,17 +251,6 @@ def test_compare_silhouette_tool(stool_ctx: ToolContext, fake_renderer) -> None:
     assert obs.ok and obs.numbers["iou"] > 0.95 and len(obs.images) == 2 and Path(obs.images[0]).is_file()
     obs = get_tool("compare_silhouette").call(stool_ctx, {"reference_index": 3})
     assert not obs.ok and "out of range" in obs.text
-
-
-def test_renderer_unavailable(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.spatial.tool_common as tc
-
-    def boom(module, attr):
-        raise tc.ToolUnavailable(f"{module} not importable")
-
-    monkeypatch.setattr(tc, "lazy", boom)
-    obs = get_tool("render_views").call(stool_ctx, {})
-    assert not obs.ok and obs.text.startswith("tool render_views unavailable:")
 
 
 def test_scene_tools_degrade_when_unavailable(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:

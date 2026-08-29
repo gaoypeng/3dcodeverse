@@ -170,10 +170,3 @@ def test_a_loaded_glb_that_reaches_no_frame_is_flagged():
     assert rep.passed, "a WARN must not fail the gate"
 
 
-def test_a_scene_with_no_glbs_says_nothing():
-    """Most scenes load no GLB at all; they must not gain a finding for it."""
-    from codeverse.spatial.frame_metrics import frame_findings
-
-    for census in ({}, {"glb_assets": []}, {"glb_assets": "not a list"}):
-        rep = frame_findings({"camera_checks": [], "census": census})
-        assert not [f for f in rep.findings if f.data["kind"] == "unused_glb_asset"]

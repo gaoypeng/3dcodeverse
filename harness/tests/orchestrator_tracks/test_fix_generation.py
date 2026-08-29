@@ -137,15 +137,6 @@ def test_run_agent_task_that_wrote_nothing_is_not_ok(tmp_path):
     assert not res.ok and res.files_changed == []
 
 
-# --------------------------------------------------------------------- guard: envelope round-trip still intact
-def test_parse_multifile_normal_envelope_unchanged():
-    text = ("=== FILE: src/object.js ===\nexport function build() {}\n=== END FILE ===\n"
-            "=== FILE: src/parts/leg.js ===\nexport function buildLeg() {}\n=== END FILE ===")
-    files = parse_multifile(text)
-    assert set(files) == {"src/object.js", "src/parts/leg.js"}
-    assert files["src/object.js"] == "export function build() {}"
-
-
 def test_generation_result_records_skip_in_events_payload(tmp_path):
     """generate.done files list contains only the files actually written."""
     ws = Workspace(tmp_path / "ws").create()

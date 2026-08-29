@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 from codeverse.skills import bundle_dirs, iter_skills, skills_dir, validate_bundle
-from codeverse.skills.model import BODY_MAX_LINES, BODY_MAX_TOKENS
 from codeverse.skills.registry import ROUTED_SKILLS, ROUTES
 from codeverse.skills.targets import check_claims, claim_bases, load_claims
 
@@ -36,12 +35,6 @@ CONTRACT_RESTATEMENTS = (
 @pytest.mark.parametrize("d", BUNDLES, ids=[d.name for d in BUNDLES])
 def test_bundle_is_spec_conformant(d: Path):
     assert validate_bundle(d) == []
-
-
-@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
-def test_body_is_inside_the_budget(s):
-    assert s.body_lines <= BODY_MAX_LINES
-    assert s.body_tokens <= BODY_MAX_TOKENS
 
 
 @pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
@@ -119,14 +112,6 @@ def _can_co_route(a: str, b: str) -> bool:
     ra, rb = reach(a), reach(b)
     return any((t1 == t2 or "*" in (t1, t2)) and (l1 == l2 or "*" in (l1, l2))
                for t1, l1 in ra for t2, l2 in rb)
-
-
-def test_every_routed_skill_has_a_bundle_once_the_library_is_complete():
-    have = {d.name for d in BUNDLES}
-    missing = [n for n in ROUTED_SKILLS if n not in have]
-    if missing and len(have) < len(ROUTED_SKILLS):
-        pytest.skip(f"library still being written: {len(have)}/{len(ROUTED_SKILLS)} bundles")
-    assert missing == []
 
 
 def test_no_bundle_exists_that_no_route_can_ever_attach():

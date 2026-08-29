@@ -102,13 +102,6 @@ def test_lint_workspace_forbidden_calls_in_part_files_and_missing_entry(tmp_ws) 
     assert any(f.target == "src/parts/seat.py" and "bpy.ops.render.render" in f.message for f in rep.errors)
 
 
-def test_lint_workspace_single_file_still_valid(tmp_ws) -> None:
-    _write(tmp_ws, "src/model.py", SEAT + "\nbuild_seat()\n")
-    rep = lint_workspace(tmp_ws)
-    assert rep.passed, [(f.target, f.message) for f in rep.errors]
-
-
-# --------------------------------------------------------------------------- wrapper error mapping (host python)
 def _load_wrapper():
     spec = importlib.util.spec_from_file_location("run_bpy_under_test", WRAPPER)
     mod = importlib.util.module_from_spec(spec)

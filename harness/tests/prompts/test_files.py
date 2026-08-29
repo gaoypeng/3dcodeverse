@@ -71,11 +71,6 @@ def test_frames_consistent_with_conventions() -> None:
         assert "+Z front" in text or "+Z is the front" in text, f"{rel}: must state +Z front"
 
 
-def test_singleshot_format_matches_parser_contract() -> None:
-    text = read_prompt("system/singleshot_format.md")
-    assert "=== FILE: " in text and "=== END FILE ===" in text
-
-
 def test_system_prompts_cover_the_laws() -> None:
     hc = read_prompt("system/harness_contract.md")
     for needle in ("artifacts/", "render_sheet", "check_connectivity", "2 mm",

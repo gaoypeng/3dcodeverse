@@ -127,11 +127,6 @@ def test_the_body_that_was_sent_is_hashed_into_the_record(run):
     assert {k.split(":", 1)[1] for k in keys} >= set(rec.rounds[0].skills.listed)
 
 
-def test_the_cap_holds_across_a_whole_run(run):
-    rec, _, _ = run
-    assert all(len(r.skills.listed) <= 5 for r in rec.rounds)
-
-
 def test_telemetry_is_on_disk_for_the_report_command(run):
     _, ws, _ = run
     rows = (ws.root / "telemetry" / "skills.jsonl").read_text().splitlines()

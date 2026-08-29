@@ -10,8 +10,7 @@ from codeverse.cost import (
     text_tokens,
 )
 from codeverse.cost.guard import image_tokens
-from codeverse.cost.routing import ROUTES, default_route, pro_break_even, samples_for_precision
-from codeverse.cost.types import Role
+from codeverse.cost.routing import pro_break_even, samples_for_precision
 
 
 # ------------------------------------------------------------------ guard
@@ -35,13 +34,6 @@ def test_estimate_of_an_image_model_uses_the_per_image_price():
 
 
 # ------------------------------------------------------------------ caching
-def test_routing_defaults_exist_for_every_role():
-    for role in (Role.PLANNER, Role.GENERATOR, Role.JUDGE, Role.IMAGE, Role.CAPTIONER):
-        route = default_route(role)
-        assert route is not None and route.model_id and route.when, role
-    assert all(r.usd_per_call > 0 for r in ROUTES)
-
-
 def test_pro_judge_pays_for_itself_at_equal_precision():
     assert samples_for_precision("gemini-3.7-flash", 0.030) == 8
     assert samples_for_precision("gemini-3.1-pro-preview", 0.030) == 1

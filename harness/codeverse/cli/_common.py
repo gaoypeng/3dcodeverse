@@ -281,8 +281,8 @@ def resolve_dial(
     is the bug this function exists to prevent: the run shape (candidates, the
     texture pass) used to be read off the flag and so applied to only one path.
 
-    An explicit CLI flag (``--rounds`` / ``--candidates`` / ``--max-usd`` /
-    ``--max-minutes`` / ``--texture``) always wins over both.
+    An explicit CLI flag (``--rounds`` / ``--candidates`` / ``--max-minutes`` /
+    ``--texture``) always wins over both.
     """
     settings = settings or get_settings()
     try:

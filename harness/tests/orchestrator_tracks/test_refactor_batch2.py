@@ -10,7 +10,7 @@ from codeverse.contracts.spec import RunOptions
 from codeverse.orchestrator import RefineTask, RunState, plan_refine_groups
 from codeverse.proc import EventLog
 from codeverse.tracks.planner import plan_example
-from codeverse.tracks.scene import ScenePipeline, SceneTrack
+from codeverse.tracks.scene import ScenePipeline
 from codeverse.tracks.static_object import StaticObjectTrack
 from codeverse.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
@@ -167,8 +167,3 @@ def test_graphics_planner_hooks_charge_budget_on_planning_error(tmp_ws):
     assert budget.spent.cost_usd > 0, "a failed re-ask is still paid for"
 
 
-def test_scene_track_uses_track_info_rubric():
-    from codeverse.contracts.common import TRACK_INFO
-
-    assert SceneTrack.rubric == TRACK_INFO[Track.SCENE].rubric == "scene_v1"
-    assert StaticObjectTrack.rubric == "static_object_v1"

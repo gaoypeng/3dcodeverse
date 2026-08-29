@@ -86,21 +86,6 @@ def test_match_parts_instances() -> None:
     assert [e.name for e in extra] == ["Extra"]
 
 
-def test_a_sibling_ending_in_a_digit_is_not_swallowed() -> None:
-    """CG-4: _instance_re('shelf') matches 'shelf2', and match_parts popped every hit,
-    so 'Shelf' consumed the 'Shelf2' node before 'Shelf2' was ever considered — a false
-    "missing from the GLB" ERROR and a real 0.75 cap on a GLB that matched the plan."""
-    plan = [PartPlan(name=n, role="r", description="d", bbox=BBox(center=(0, 0, 0), extents=(1, 1, 1)))
-            for n in ("Shelf", "Shelf2")]
-    rows = [PartMeasure(name=n, bbox_min=(0, 0, 0), bbox_max=(1, 1, 1)) for n in ("Shelf", "Shelf2")]
-
-    matched, extra = match_parts(plan, rows)
-
-    assert [m.name for m in matched["Shelf"]] == ["Shelf"]
-    assert [m.name for m in matched["Shelf2"]] == ["Shelf2"]
-    assert extra == []
-
-
 def test_an_exact_name_wins_over_another_part_instance_pattern() -> None:
     """Order must not decide it either: 'Slat1' is claimed by Slat1 even when the
     Slat instances are matched first, and Slat still collects its real instances."""

@@ -213,7 +213,7 @@ def materialize_workspace(
             f"The cookbook for this language — copyable, verified snippets and skeletons — is at "
             f"`{CV3D_DIR}/cookbook.md` (relative to the workspace root). Read the relevant sections "
             "before writing code and copy its patterns exactly."
-            + (" You may also call the `read_cookbook` tool." if spatial_tools else "")
+
         )
     else:
         out.warnings.append(f"cookbook not found: {cookbook_rel!r}")

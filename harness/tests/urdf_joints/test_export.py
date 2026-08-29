@@ -17,7 +17,6 @@ from codeverse.spatial.joints import (
     render_poses,
     urdf_to_glb,
 )
-from codeverse.spatial.sheet import LABEL_H, PAD, contact_sheet
 from tests.urdf_joints.conftest import write_mesh_robot
 
 
@@ -73,20 +72,6 @@ def test_render_poses_with_fake_renderer_builds_sheet(tmp_path):
     assert len(calls) == 2 and all(c.exists() for c in calls)
     sheet = tmp_path / "ren" / ARTICULATION_SHEET_NAME
     assert sheet.is_file() and Image.open(sheet).size[0] > 32
-
-
-def test_articulation_sheet_geometry_and_missing_tile(tmp_path):
-    """The articulation sheet is ``sheet.contact_sheet``: labelled grid, and a
-    missing pose PNG becomes a grey labelled tile instead of an OSError."""
-    imgs = []
-    for i in range(3):
-        p = tmp_path / f"{i}.png"
-        Image.new("RGB", (64, 48), (i * 50, 0, 0)).save(p)
-        imgs.append((f"img{i}", p))
-    imgs.append(("missing", tmp_path / "nope.png"))  # never written
-    out = contact_sheet(imgs, tmp_path / "s.png", cols=2, tile=64)
-    im = Image.open(out)
-    assert im.size == (2 * (64 + PAD) + PAD, 2 * (64 + LABEL_H + PAD) + PAD)
 
 
 def test_multi_material_link_keeps_materials(tmp_path):

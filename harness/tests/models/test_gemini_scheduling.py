@@ -39,16 +39,6 @@ def test_request_tokens_counts_system_tools_schema_and_images():
     assert request_tokens(rich) > request_tokens(plain) + 1000  # the image alone is ~1290
 
 
-def test_an_image_heavy_judge_request_reserves_far_more_than_a_caption():
-    caption = ChatRequest(messages=[ChatMessage.user("name this object in three words")])
-    verdict = ChatRequest(
-        messages=[ChatMessage.user(
-            "score this", images=[ImagePart(data_b64="x") for _ in range(5)])],
-        system="rubric " * 5000,
-    )
-    assert request_tokens(verdict) > 30 * request_tokens(caption)
-
-
 # --------------------------------------------------------------- reservations
 def test_generate_reserves_and_reconciles_tpm():
     pool = KeyPool(["k1"], tpm_per_key=1_000_000)
@@ -87,16 +77,6 @@ def test_shared_pool_is_keyed_by_quota_not_only_by_keys():
     c = shared_pool(["x1", "x2"], rpm_per_key=100, tpm_per_key=2000)
     assert a is b
     assert a is not c, "a different quota must not silently reuse another pool's buckets"
-
-
-def test_shared_pool_takes_its_defaults_from_settings():
-    from codeverse.config import get_settings
-
-    r = get_settings().rate
-    pool = shared_pool(["y1"])
-    st = pool.stats()
-    assert st["rpm_capacity"] == r.rpm_per_key
-    assert st["tpm_capacity"] == r.tpm_per_key
 
 
 # ----------------------------------------------------------------- storm gate

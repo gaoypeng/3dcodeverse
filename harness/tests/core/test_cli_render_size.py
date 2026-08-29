@@ -87,15 +87,6 @@ def test_explicit_flags_win_over_the_setting(tmp_path, captured):
     assert (captured.get("width"), captured.get("height")) == (320, 240)
 
 
-def test_the_default_is_still_the_settings_default(tmp_path, captured):
-    runs = _run(tmp_path, Language.BLENDER, Track.STATIC_OBJECT)
-
-    res = runner.invoke(app, ["render", "r1", "--runs-dir", str(runs)])
-
-    assert res.exit_code == 0, res.output
-    assert (captured.get("width"), captured.get("height")) == (768, 768)
-
-
 def test_scene_render_uses_the_scene_size(tmp_path, captured, monkeypatch):
     runs = _run(tmp_path, Language.SCENE_THREEJS, Track.SCENE)
     monkeypatch.setenv("CV3D_RENDER__SCENE_WIDTH", "1920")

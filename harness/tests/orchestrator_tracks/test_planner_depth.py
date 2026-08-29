@@ -102,11 +102,6 @@ def test_a_subpart_may_not_shadow_a_top_level_part_name():
                _part("Lid")])
 
 
-def test_subparts_are_depth_1_by_construction():
-    # SubPartPlan has no `children` field at all, so a cycle cannot even be expressed
-    assert "children" not in SubPartPlan.model_fields
-
-
 def test_every_recorded_plan_still_validates():
     """ADDITIVE-only contract change: plans written before sub-parts existed must load."""
     from pathlib import Path

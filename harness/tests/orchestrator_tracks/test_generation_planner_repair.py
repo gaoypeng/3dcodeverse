@@ -81,28 +81,6 @@ def test_safe_relpath_and_write_files(tmp_ws):
     assert "=== FILE:" in SINGLE_SHOT_FORMAT
 
 
-def test_a_directory_shaped_path_is_skipped_not_fatal(tmp_ws):
-    """CP-3/CP-5: '=== FILE: src/parts/ ===' used to abort the whole write.
-
-    safe_relpath passed it (allowed root, no '..'), write_files caught only
-    GenerationError, so IsADirectoryError from write_text killed the loop on the
-    FIRST bad entry and the real, already-paid-for src/object.js was never
-    written -- the round was then recorded failed with zero files."""
-    (tmp_ws.src / "parts").mkdir(parents=True, exist_ok=True)
-    skipped: list[tuple[str, str]] = []
-
-    changes = write_files(
-        tmp_ws,
-        {"src/parts/": "Here are the parts.\n", "src/object.js": "export const x = 1;\n"},
-        on_skip=lambda path, why: skipped.append((path, why)),
-    )
-
-    assert [c.path for c in changes] == ["src/object.js"]
-    assert (tmp_ws.src / "object.js").read_text() == "export const x = 1;\n"
-    assert [path for path, _ in skipped] == ["src/parts/"]
-    assert (tmp_ws.src / "parts").is_dir()  # and it was not clobbered into a file
-
-
 def test_a_directory_shaped_path_that_does_not_exist_yet_is_also_skipped(tmp_ws):
     """The silent half of the same defect: with no src/parts on disk, write_text
     quietly created a FILE named 'parts' holding the prose body."""

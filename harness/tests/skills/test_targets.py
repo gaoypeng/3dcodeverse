@@ -126,13 +126,6 @@ def test_a_baseline_names_its_n(d: Path):
     assert re.search(r"\bn\s*=\s*\d+", base), f"{d.name}: target_baseline must state n=<runs>"
 
 
-@pytest.mark.parametrize("d", BUNDLES, ids=[d.name for d in BUNDLES])
-def test_metadata_values_are_strings(d: Path):
-    meta = _frontmatter(d)
-    for k, v in meta.items():
-        assert isinstance(v, str), f"{d.name}: metadata.{k} must be a string (the spec allows string→string)"
-
-
 # --------------------------------------------------------------------------- classification
 @pytest.mark.parametrize(
     "message",

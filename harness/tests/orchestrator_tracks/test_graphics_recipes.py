@@ -131,6 +131,15 @@ def test_chapter_selection_excludes_always_on_and_templates(tmp_path) -> None:
     assert not any("Hash" in t or "Palettes" in t or "PITFALLS" in t for t in titles)
     assert recipe_chapters(_ctx(ws, "a raymarched temple corridor with fog")) == [] and NOT_SEEDED == ("Raymarching",)
     assert recipe_chapters(_ctx(ws, UNMATCHED)) == []
+
+    # a chapter arrives whole or not at all — the budget never cuts one in half
+    from codeverse.prompts.sections import split_sections
+    from codeverse.tracks.prompting import select_cookbook_chapters
+
+    ctx = _ctx(ws, AURORA)
+    whole = {s.title: s.body.rstrip() for s in split_sections(ctx.cookbook_text)}
+    for s in select_cookbook_chapters(ctx, AURORA, budget=6000):
+        assert s.body.rstrip() == whole[s.title], s.title
     assert [s.title[:10] for s in recipe_chapters(_ctx(ws, NOTHING))] == ["Instancing"]
 
 

@@ -24,19 +24,6 @@ def kinds(findings: list[dict]) -> set[str]:
     return {f["kind"] for f in findings}
 
 
-def test_clean_shader_has_no_findings():
-    src = """
-const frag = `
-uniform float uTime;
-varying vec2 vUv;
-void main() {
-  gl_FragColor = vec4(vUv, sin(uTime), 1.0);
-}`;
-export const mat = { uniforms: { uTime: { value: 0 } }, fragmentShader: frag };
-"""
-    assert audit(src) == []
-
-
 def test_include_not_alone_and_version_and_precision():
     src = """const vs = `
 #version 300 es

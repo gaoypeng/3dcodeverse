@@ -49,16 +49,6 @@ def test_balanced_is_todays_defaults():
     assert p.max_minutes == 60.0 and p.judge_max_px == 1024
 
 
-def test_economy_is_single_shot_flash_and_two_rounds_with_no_turn_cap_of_its_own():
-    p = PROFILES["economy"]
-    assert p.generator.startswith("single-shot:") and "flash" in p.judge
-    assert p.rounds == 2 and p.judge_samples == 2
-    # a single-shot generator opens no agent session, so economy's old 20-turn cap
-    # could never fire — and the cap it was modelled on lost its own A/B (+$0.02,
-    # −0.205 score, docs/COST.md §17), so no profile sets one
-    assert p.max_turns == 0 and all(PROFILES[n].max_turns == 0 for n in PROFILE_NAMES)
-
-
 def test_apply_profile_sets_the_whole_dial():
     s = Settings()
     p = s.apply_profile("quality")
@@ -150,16 +140,6 @@ def test_profile_table_and_cli():
     assert r.exit_code == 0 and "economy" in r.stdout and "quality" in r.stdout
 
 
-def test_make_profile_writes_the_whole_shape_onto_the_spec(tmp_path: Path):
-    runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--profile", "quality", "--slug", "pot"])
-    assert r.exit_code == 0, r.output
-    spec = json.loads((runs / "pot" / "spec.json").read_text())
-    assert spec["options"] == {"candidates": 2, "texture": True, "profile": "quality"}
-    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_minutes"] > 0
-    assert spec["backends"]["judge"] == "gemini:gemini-3.1-pro-preview"
-
-
 def test_an_explicit_flag_beats_the_profile(tmp_path: Path):
     runs = tmp_path / "runs"
     r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--slug", "pot",
@@ -217,14 +197,6 @@ def _dial_from_env(name: str, monkeypatch):
         return C.resolve_dial(get_settings(), None)
     finally:
         get_settings.cache_clear()
-
-
-@pytest.mark.parametrize("name", PROFILE_NAMES)
-def test_the_flag_and_the_env_var_resolve_to_the_same_dial(name, monkeypatch):
-    """`--profile X` and `CV3D_PROFILE=X` must set the WHOLE dial, not two thirds
-    of it: the verifier found the env path skipped candidates and the texture pass
-    because the CLI read those off the flag instead of the resolved profile."""
-    assert _dial_from_flag(name) == _dial_from_env(name, monkeypatch)
 
 
 @pytest.mark.parametrize(

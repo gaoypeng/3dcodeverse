@@ -45,13 +45,6 @@ def test_the_sys_path_bootstrap_comes_before_any_codeverse_import(script: Path):
         f"of this tree, and the A/B would compare a tree against itself.")
 
 
-def test_ab_plan_refuses_to_run_against_a_foreign_codeverse():
-    """The belt as well as the braces: ordering can regress, the guard cannot be silent."""
-    text = (BENCH / "ab_plan.py").read_text()
-    assert "_assert_local_codeverse" in text
-    assert "refusing to run" in text
-
-
 def test_the_guard_refuses_a_foreign_codeverse_for_real(tmp_path: Path):
     """Not "the string is in the file": actually make the bad thing happen.
 

@@ -177,7 +177,6 @@ def test_articulated_track_adds_pose_views_and_sweep_gate(tmp_path, settings):
     sweep = next(g for g in r0.gates if g.gate == "joint_sweep")
     assert not sweep.passed and rec.rounds[1].instructions[0].startswith("[gate/gate:joint_sweep] DrawerSlide")
     assert "Joints (the URDF must realise EXACTLY these" in agent.jobs[0].prompt and "| DrawerSlide |" in agent.jobs[0].prompt
-    assert "Articulation sheet" in services._judge.calls[0].extra_context if services._judge else True
 
 
 # ----------------------------------------------------------------------------- scene

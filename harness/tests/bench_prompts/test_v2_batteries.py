@@ -67,11 +67,6 @@ def battery(request) -> Battery:
     return b
 
 
-def test_all_v2_files_exist():
-    missing = [str(p) for p in V2_FILES.values() if not p.is_file()]
-    assert not missing
-
-
 def test_battery_schema(battery: Battery):
     assert len(battery.prompts) == EXPECTED_COUNTS[battery.name]
     ids = [p.id for p in battery.prompts]

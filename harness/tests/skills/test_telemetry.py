@@ -113,13 +113,6 @@ def test_deep_read_rate_aggregates_across_sessions(ws, library):
     assert rates[got.listed[1]] == (0, 2)
 
 
-def test_telemetry_never_raises_into_a_run(tmp_path):
-    from codeverse.skills.model import SkillsMaterialized
-
-    assert append_usage(tmp_path / "nope" / "nope", probe_reads(tmp_path, SkillsMaterialized())) is None or True
-
-
-# --------------------------------------------------------------- signal 4: the control
 def test_the_control_bundle_is_materialised_and_starts_unread(ws, library):
     from codeverse.skills.materialize import CONTROL_NAME, materialize_skills
 

@@ -69,11 +69,6 @@ def test_plan_montages_articulated_and_geometry(tmp_path):
     assert [m.kind for m in ms2] == ["shaded", "poses"] and len(ms2[1].tiles) == 3
 
 
-def test_missing_pose_views_leave_no_pose_montage(tmp_path):
-    rs = RenderSet(views=_views(tmp_path, OBJ[:4]))
-    assert all(m.kind in ("shaded", "detail") for m in plan_montages(rs))
-
-
 def test_shuffle_keeps_sets_and_details_last(tmp_path):
     rs = RenderSet(views=_views(tmp_path, OBJ))
     ms = plan_montages(rs)

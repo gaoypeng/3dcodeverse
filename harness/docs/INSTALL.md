@@ -66,7 +66,7 @@ workflow, so the offline suite and `ruff` are run locally before every push (see
 | **Blender** | 4.2+ (developed on 5.0.1) | runtime probe only (`Settings.resolve_blender()`) | `blender` / `urdf_blender` are the only users |
 | **OS** | Linux x86_64 (WSL2 Ubuntu here) | — | macOS should work (nothing is Linux-specific except `resource.setrlimit` guards) but is not tested |
 
-The offline suite on this box, 2026-08-26: **2736 passed of the 2775 selected** (11 skipped are
+The offline suite on this box, 2026-08-29: **2615 passed of the 2627 selected** (12 skipped are
 data-dependent, 28 deselected are `live`).
 
 Moving to another Python later is the same four-line change (`requires-python`, ruff
