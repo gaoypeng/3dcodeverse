@@ -4,7 +4,7 @@
 # budget limits the output. Probe downward from the model maximum and use the largest length that initialises;
 # report the truncation count, which must be 0 for the score to mean anything.
 set -uo pipefail; cd /wekafs/ict/hx_624/llm-ft
-G=$(scripts/free_gpus.sh | cut -d, -f1)
+G=${GPUS:-$(scripts/free_gpus.sh 40000 | cut -d, -f1)}   # an eval needs room for a 9B, not a trainer's 60 GB
 source /wekafs/ict/hx_624/anaconda3/etc/profile.d/conda.sh; conda activate vllm
 export VLLM_CACHE_ROOT=/wekafs/ict/hx_624/cache/vllm HF_HOME=/wekafs/ict/hx_624/cache/huggingface VLLM_LOGGING_LEVEL=WARNING CUDA_VISIBLE_DEVICES=$G
 
