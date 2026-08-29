@@ -152,8 +152,9 @@ cross-backend candidate pairs keyed by prompt hash).
 `codeverse.judges.calibration` re-judges recorded rounds without touching the runs:
 
 ```bash
-python -m codeverse.judges.calibration runs/e2e_chair_blender runs/e2e_cabinet_urdf \
+python -m codeverse.judges.calibration <run-dir> [<run-dir> ...] \
     --model gemini:gemini-3.1-pro-preview --n 3 --out out/calib [--geometry clay|normals|none] [--rounds 0,1]
+# run dirs: any recorded run, e.g. bench/out/<battery>/runs/<slug>
 ```
 Output: `calibration_<model>.md/.json` with per-round mean±std (capped and uncapped),
 which caps/defects fired, pearson/spearman(gate errors vs score), correlation with the

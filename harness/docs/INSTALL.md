@@ -486,6 +486,7 @@ that the keys work end to end):
 | `python deps` | WARN | only optional-extra modules missing (`manifold3d` / `shapely` / `yourdfpy` / `mcp` / `moderngl` / `cadquery`) | install the extra the row names, e.g. `pip install -e 'harness[mesh,urdf,mcp,graphics,cad]'` (§4) |
 | `blender` | FAIL | no binary found, or `--version` failed | §6 — install Blender, or `export CV3D_BINARIES__BLENDER=/path/to/blender`. If it is found but fails, run it by hand: a `libSM.so.6`/`libICE.so.6` error means you need the `LD_LIBRARY_PATH` wrapper |
 | `node` | FAIL | node missing or older than 20.6.0 (§2.1) | install a newer node (`nvm install --lts`) or point `binaries.node` / `CV3D_BINARIES__NODE` at one.  The same check fires from every node workload (`codeverse.spatial.node.run_node`), so a too-old node cannot fail obscurely mid-render |
+| `runtime_js` | FAIL | the node runtime directory cannot be resolved | use a full checkout, or set `CV3D_RUNTIME_JS=/path/to/harness/runtime_js`; then run `npm ci` there (§5) |
 | `three` | FAIL | `runtime_js/node_modules/three` missing | `cd harness/runtime_js && npm ci` (§5) |
 | `puppeteer` | FAIL | not installed in `runtime_js` | `cd harness/runtime_js && npm ci` |
 | `puppeteer` | WARN | installed, but no Chrome in `~/.cache/puppeteer` | `cd harness/runtime_js && npx puppeteer browsers install chrome` (or unset `PUPPETEER_SKIP_DOWNLOAD` / fix `PUPPETEER_CACHE_DIR`) |
@@ -500,8 +501,14 @@ that the keys work end to end):
 | `mcp` | WARN | `mcp` package or the server module missing | `pip install -e 'harness[mcp]'`; only affects the agentic CLI backends |
 | `gemini live call` (`--live`) | FAIL | key rejected / no network | check the key value and outbound access; a `503 … high demand` is transient, not an install problem |
 | `gemini quota` | OK | always informational | the per-key RPM/TPM the pool schedules against x the number of keys (`Settings.rate`, docs/COST.md Part III); tune with `CV3D_RATE__TPM_PER_KEY` / `CV3D_RATE__MAX_IN_FLIGHT` |
+| `pool sharing` | WARN | this process's configured concurrency does not fit beside sibling harness processes | wait for the siblings or set `CV3D_MAX_IN_FLIGHT` to the headroom printed in the row |
 | `gemini pool` (`--live`) | WARN | a key is benched as dead | that key 401/403'd; rotate or remove it — the pool re-probes it after an hour.  The row also shows in-flight, RPM/TPM headroom used and this process's 429/5xx counts |
 | `storm gate` (`--live`) | WARN | a capacity storm is running | provider-side (`503 high demand`), not an install problem; the gate is off by default (docs/COST.md §21) and the row only appears when something enabled it |
+| `skills switch` | WARN | skills are disabled | expected by default; set `CV3D_SKILLS=on` only when you want skill routing |
+| `skills library` | WARN / FAIL | no bundles were found, or one or more bundles are invalid | use a full checkout and validate the named bundle under `codeverse/skills/library/` |
+| `skills routing` | WARN | a routed skill has no installed bundle | restore the missing bundle from the checkout or update the stale route |
+| `skills discovery` | OK | always informational | shows the agent-native directories where bundles are materialised |
+| `claude-code Skill tool` | FAIL | the Claude backend would deny native skill activation | update/reinstall the harness so `Skill` is present in Claude Code's allowed tools |
 
 ---
 
@@ -573,8 +580,8 @@ headless-Chrome endpoint file — do not delete it while renders are running).
 
 **Your data is not in either cache.**  `runs/`, `bench/out/` and any exported
 dataset are the flywheel output — delete them deliberately, never as part of a
-cleanup.  On this machine `harness/runs/` (the `e2e_*` reference runs) and
-`harness/bench/out/` are read-only reference material.
+cleanup.  On this machine `harness/bench/out/` is read-only reference material
+(the early `e2e_*` reference runs were archived off-repo on 2026-08-29).
 
 Uninstalling does not touch `~/.config/codeverse/config.yaml`,
 `~/.config/astra3d/gemini_keys.env` or the globally installed CLIs — remove
