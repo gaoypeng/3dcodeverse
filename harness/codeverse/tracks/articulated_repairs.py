@@ -159,7 +159,7 @@ def buried_links(robot: Any, *, samples: int = BURIED_SAMPLES, fraction: float =
     meshes = link_world_meshes(robot, {})
     bodies = {n: LinkBody(n, m) for n, m in meshes.items() if not m.is_empty and m.area > 0}
     out: list[GateFinding] = []
-    for name, body in bodies.items():
+    for name in bodies:
         pts, _ = trimesh.sample.sample_surface(meshes[name], samples, seed=0)
         lo, hi = meshes[name].bounds
         for other, ob in bodies.items():
