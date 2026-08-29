@@ -2,7 +2,7 @@
 # Image-conditioned pilot: render -> code. The qwen3_5 template already carries the qwen3_vl multimodal plugin,
 # so this is the first run in the project that feeds the model what a caption cannot express — the target's shape.
 set -uo pipefail; cd /wekafs/ict/hx_624/llm-ft
-G=$(scripts/free_gpus.sh); N=$(echo "$G" | awk -F, '{print NF}')
+G=${GPUS:-$(scripts/free_gpus.sh)}; N=$(echo "$G" | awk -F, '{print NF}')
 echo "[9bmmvis] $(date) smoke on GPUs $G"
 GPUS=$G scripts/lf_train.sh configs/lf/lora_9b_mmvis.yaml max_steps=6 save_steps=100000 eval_steps=100000 \
   output_dir=/wekafs/ict/hx_624/llm-ft/runs/_smoke_mmvis4 > logs/smoke_mmvis.log 2>&1
