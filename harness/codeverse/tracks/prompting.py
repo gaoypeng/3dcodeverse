@@ -8,7 +8,9 @@ which maps a refine target (part / zone / asset) to the files that own it.
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -278,7 +280,13 @@ def language_system_prompt(language: Language, *, role: str = "", **vars: Any) -
     """
     if role:
         return render(f"system/role_{role}.j2", language=language.value, **vars).strip()
-    return load_text(f"{prompt_dir_for(language)}/system.md").strip()
+    d = prompt_dir_for(language)
+    # CV3D_SYSPROMPT=v0 serves the pre-2026-08-28 two-sentence prompt, so an A/B can run
+    # both arms from one tree.  Delete the v0 files and this branch once it has an answer.
+    if os.environ.get("CV3D_SYSPROMPT") == "v0":
+        with contextlib.suppress(FileNotFoundError):
+            return load_text(f"{d}/system_v0.md").strip()
+    return load_text(f"{d}/system.md").strip()
 
 
 def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
