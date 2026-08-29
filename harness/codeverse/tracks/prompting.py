@@ -8,7 +8,6 @@ which maps a refine target (part / zone / asset) to the files that own it.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
 from collections.abc import Sequence
@@ -278,15 +277,21 @@ def language_system_prompt(language: Language, *, role: str = "", **vars: Any) -
     and three.js BufferGeometry share almost nothing but the word "3D".  Per language, in
     the prompt corpus, so the seven can diverge and be edited without touching code.
     """
-    if role:
-        return render(f"system/role_{role}.j2", language=language.value, **vars).strip()
     d = prompt_dir_for(language)
-    # CV3D_SYSPROMPT=v0 serves the pre-2026-08-28 two-sentence prompt, so an A/B can run
+    # CV3D_SYSPROMPT=v0 serves the pre-2026-08-28 two-sentence prompt so an A/B can run
     # both arms from one tree.  Delete the v0 files and this branch once it has an answer.
-    if os.environ.get("CV3D_SYSPROMPT") == "v0":
-        with contextlib.suppress(FileNotFoundError):
-            return load_text(f"{d}/system_v0.md").strip()
-    return load_text(f"{d}/system.md").strip()
+    name = "system_v0.md" if os.environ.get("CV3D_SYSPROMPT") == "v0" else "system.md"
+    try:
+        base = load_text(f"{d}/{name}").strip()
+    except FileNotFoundError:
+        base = load_text(f"{d}/system.md").strip()
+    if not role:
+        return base
+    # roles COMPOSE with the language base rather than replacing it.  Replacing was the
+    # shape inherited from the f-strings, and it left every fatal language-specific fact —
+    # the self-check loop, the sampled-time contract — absent from exactly the stages that
+    # violate it: the repair pass and the detail pass.
+    return base + "\n\n" + render(f"system/role_{role}.j2", language=language.value, **vars).strip()
 
 
 def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
