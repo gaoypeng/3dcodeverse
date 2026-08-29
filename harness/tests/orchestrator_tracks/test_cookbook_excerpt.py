@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 from codeverse.contracts.common import Language, Track
 from codeverse.prompts import PROMPTS_DIR, load_text
-from codeverse.spatial.cookbook_tool import split_sections
+from codeverse.prompts.sections import split_sections
 from codeverse.tracks.prompting import COOKBOOK_ALWAYS, select_cookbook_excerpt
 
 AURORA = "Aurora borealis over a mountain ridge with a frozen lake, dense stars, green and violet curtains"

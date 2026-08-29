@@ -27,7 +27,7 @@ from codeverse.tracks.depth import DepthBudget, PartScope, depth_budget, interfa
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
 
 if TYPE_CHECKING:
-    from codeverse.spatial.cookbook_tool import Section
+    from codeverse.prompts.sections import Section
 
 log = logging.getLogger(__name__)
 
@@ -156,7 +156,7 @@ def cookbook_sections(ctx: RunContext, names: Sequence[str], *, max_chars: int =
     so the chapters that decide the score (ground, horizon, vegetation, rocks, dressing,
     layering, motion) travel inside the prompt instead; the tool stays for everything else.
     """
-    from codeverse.spatial.cookbook_tool import find_section, split_sections
+    from codeverse.prompts.sections import find_section, split_sections
 
     md = ctx.cookbook_text or ""
     if not md.strip():
@@ -232,7 +232,7 @@ def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,
     need of a night-sky brief: always-set 4.4 k + Light phenomena 3.2 k + Gradient sky 1.3 k.
     ``tracks/graphics_recipes.py`` seeds the SAME selection's code into the harness-owned ``src/recipes.glsl``.
     """
-    from codeverse.spatial.cookbook_tool import Section, find_section, split_sections
+    from codeverse.prompts.sections import Section, find_section, split_sections
 
     md = ctx.cookbook_text or ""
     if not md.strip():

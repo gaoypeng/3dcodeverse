@@ -40,7 +40,7 @@ def test_cookbook_has_the_quality_chapter(cookbook: str, title: str) -> None:
 
 @pytest.mark.parametrize("title", QUALITY_CHAPTERS)
 def test_cookbook_chapter_is_findable_by_read_cookbook(cookbook: str, title: str) -> None:
-    from codeverse.spatial.cookbook_tool import find_section, split_sections
+    from codeverse.prompts.sections import find_section, split_sections
 
     s = find_section(split_sections(cookbook), title)
     assert s is not None and s.title.startswith(title)
@@ -139,7 +139,7 @@ def test_the_quality_chapters_travel_INSIDE_the_zone_and_env_prompts() -> None:
     from codeverse.tracks.scene import ENV_RECIPES, ZONE_RECIPES
 
     cookbook = load_text("scene_threejs/cookbook.md")
-    from codeverse.spatial.cookbook_tool import find_section, split_sections
+    from codeverse.prompts.sections import find_section, split_sections
 
     secs = split_sections(cookbook)
     for names in (ENV_RECIPES, ZONE_RECIPES):

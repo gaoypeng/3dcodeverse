@@ -35,7 +35,7 @@ from codeverse.languages._gl_common import SHEET_NAME, read_metrics
 from codeverse.languages.glsl_shader import COMMON_GLSL, FUNC_DEF, strip_comments
 from codeverse.orchestrator import TaskGroup
 from codeverse.prompts import render
-from codeverse.spatial.cookbook_tool import Section, split_sections
+from codeverse.prompts.sections import Section, split_sections
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT, GenerationTask
 from codeverse.tracks.lifecycle import BaseTrack, StageRunner

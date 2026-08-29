@@ -41,7 +41,7 @@ def test_cli_list(stool_ctx: ToolContext, capsys: pytest.CaptureFixture[str]) ->
     assert main(["--workspace", str(stool_ctx.workspace.root), "--list"]) == 0
     data = json.loads(capsys.readouterr().out)
     names = {d["name"] for d in data}
-    assert {"build", "measure", "read_cookbook", "render_views"} <= names and "shader_probe" not in names
+    assert {"build", "measure", "render_views"} <= names and "shader_probe" not in names
     assert main(["--workspace", str(stool_ctx.workspace.root / "nope")]) == 2
 
 
@@ -60,7 +60,7 @@ def test_stdio_roundtrip(stool_ctx: ToolContext, tmp_path: Path) -> None:
             await s.initialize()
             tools = await s.list_tools()
             by_name = {t.name: t for t in tools.tools}
-            assert "read_cookbook" in by_name and "measure" in by_name and "check_connectivity" in by_name
+            assert "measure" in by_name and "check_connectivity" in by_name
             assert by_name["render_views"].input_schema["properties"]["views"]["type"] == "array"
             cb = await s.call_tool("read_cookbook", {"section": "export"})
             assert cb.content and cb.content[0].type == "text"

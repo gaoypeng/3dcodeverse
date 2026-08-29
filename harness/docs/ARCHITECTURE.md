@@ -112,8 +112,8 @@ codeverse/
                       a single __init__.py (lint → skeleton → runtime, in dependency order) beside their
                       data (wrappers/, starter/, CONTRACT.md — Path(__file__) assets unchanged);
                       file_lint.py (one just-written file → syntax/lint verdict for write_file, COST.md §29)
-  spatial/            node.py, render.py, tool_common.py (shared tool plumbing), cookbook_tool.py
-                      (read_cookbook), render_scene.py (judge view subset, content-fitted orbit),
+  spatial/            node.py, render.py, tool_common.py (shared tool plumbing),
+                      render_scene.py (judge view subset, content-fitted orbit),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
                       scene_placement.py (scene_placement gate + check_placement tool: floating / sunken /
                       unsupported / interpenetration per placed asset from the probe census's placement
@@ -186,8 +186,17 @@ codeverse/
                       urls.py (server vs file:// targets + content types + the traversal guard),
                       server.py (stdlib http.server, loopback-only; page.py also renders the
                       static single-file form), theme.py (CSS + the index-page JS)
-  prompts/            system/*, <lang>/{contract,cookbook}.md (incl. glsl_shader/, opengl_python/),
-                      texturing/*.md, tracks/*.j2 (incl. plan/generate/refine_graphics.j2)
+  prompts/            EVERY piece of prompt material the harness writes, and the only place it
+                      lives: <lang>/{system,contract,cookbook}.md (incl. glsl_shader/,
+                      opengl_python/), system/* (harness contract, single-shot envelope,
+                      role_{scope,detail,repair}.j2), texturing/*.md, tracks/*.j2.
+                      catalog.py answers "what exists and how does each piece reach the model"
+                      — including the ONE language-id → prompts/<dir> mapping, which used to be
+                      copied four times and missing in a fifth.  sections.py splits that
+                      markdown into chapters so a STAGE can name the recipes it needs.
+                      The other half of the split: codeverse/skills/ is what an AGENT chooses
+                      to read (SKILL.md + references/ + a _claims file pinning its numbers to
+                      live constants).  A file that tries to be both is the bug this prevents.
   cli/                main.py (app wiring, make/resume/mcp + the tools/bench/gallery
                       commands), inspect_cmd.py (status/render/judge on one existing run),
                       flywheel_cmd.py, texture_cmd.py, cost_cmd.py (`3dcv cost`), layout_cmd.py, doctor.py
@@ -296,7 +305,7 @@ server (name `3dcv`) for the vendor CLIs, (c) a native tool schema for any embed
 `render_sheet`, `isolate`, `cross_section`, `check_connectivity`, `check_contract`,
 `compare_silhouette`, `joint_sweep` (articulated), `shader_probe`, `scene_probe`,
 `scene_views` (scene), `gl_probe`, `gl_frames` (graphics), `texture_pass`,
-`texture_preview` (object tracks), `read_cookbook`.
+`texture_preview` (object tracks).
 
 ## 6. Judging (protocol v2)
 

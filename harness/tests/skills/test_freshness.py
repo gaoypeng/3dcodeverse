@@ -210,7 +210,12 @@ def _languages_of(skill_name: str) -> set[str]:
 def test_every_cookbook_section_a_skill_names_exists_in_that_cookbook(s):
     """T4's other half: a skill may point at the cookbook, never invent a heading."""
     from codeverse.prompts import load_text
-    from codeverse.spatial.cookbook_tool import _PROMPT_DIR, split_sections
+    from codeverse.prompts.catalog import PROMPT_DIRS
+    from codeverse.prompts.sections import split_sections
+
+    # the language-id → prompts/<dir> mapping has ONE home now (prompts/catalog.py);
+    # this test used to import the third of its copies
+    _PROMPT_DIR = {k.value: v for k, v in PROMPT_DIRS.items()}
 
     text = "\n".join([s.body] + [p.read_text() for p in sorted(s.dir.rglob("references/*.md"))])
     wanted = set(_COOKBOOK_SECTION.findall(text))

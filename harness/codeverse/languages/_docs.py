@@ -20,18 +20,18 @@ from pathlib import Path
 
 from codeverse.contracts.common import Language
 from codeverse.prompts import PROMPTS_DIR, load_text
+from codeverse.prompts.catalog import PROMPT_DIRS as _PROMPT_DIRS
+from codeverse.prompts.catalog import prompt_dir_for as _prompt_dir_for
 
-#: ``Language.URDF_BLENDER`` is ``"urdf_blender"`` but its prompts live in
-#: ``prompts/urdf/``.  ONE mapping, here — it was written out three more times
-#: across spatial/ and tests/, and silently missing in tracks/common.py.
-PROMPT_DIRS: dict[Language, str] = {Language.URDF_BLENDER: "urdf"}
+#: re-exported for the callers that already import it from here; the mapping itself
+#: now lives with the rest of the prompt-resolution policy in prompts/catalog.py.
+PROMPT_DIRS = _PROMPT_DIRS
 
 #: only reachable if the wheel shipped without its prompt data
 MINIMAL_CONTRACT = "Write raw code in the language's native frame; meters; named parts."
 
 
-def prompt_dir_for(language: Language) -> str:
-    return PROMPT_DIRS.get(language, language.value)
+prompt_dir_for = _prompt_dir_for
 
 
 class RuntimeDocs:

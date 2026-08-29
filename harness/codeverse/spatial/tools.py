@@ -1,6 +1,6 @@
 """Core spatial tools registered with ``@tool``: build, measure, check_connectivity,
 check_contract, cross_section.  Rendering tools live in ``tools_render``, scene /
-articulation tools in ``tools_scene`` and the cookbook reader in ``cookbook_tool``
+articulation tools in ``tools_scene``
 (all imported at the bottom so ``import codeverse.spatial.tools`` registers every
 tool).
 
@@ -277,7 +277,6 @@ def cross_section(ctx: ToolContext, args: CrossSectionArgs) -> Observation:
 
 
 # register the cookbook reader (the other tool modules merged in, 2026-08-28)
-import codeverse.spatial.cookbook_tool  # noqa: E402,F401
 
 # ===================================================================== tools_render
 # (merged from codeverse/spatial/tools_render.py, 2026-08-28 — its one importer was the

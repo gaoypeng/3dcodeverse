@@ -23,7 +23,7 @@ from codeverse.workspace import Workspace
 
 #: tools every workspace gets (no track/language restriction)
 CORE_TOOLS = {"build", "measure", "render_views", "render_sheet", "isolate", "cross_section", "check_connectivity",
-              "check_contract", "compare_silhouette", "compare_reference", "read_cookbook"}
+              "check_contract", "compare_silhouette", "compare_reference"}
 #: track- / language-scoped tools (documented; keep in sync when registering a new one)
 SCOPED_TOOLS = {
     "joint_sweep",  # articulated_object
@@ -275,30 +275,6 @@ def test_renderer_unavailable(stool_ctx: ToolContext, monkeypatch: pytest.Monkey
     monkeypatch.setattr(tc, "lazy", boom)
     obs = get_tool("render_views").call(stool_ctx, {})
     assert not obs.ok and obs.text.startswith("tool render_views unavailable:")
-
-
-# --------------------------------------------------------------------------- cookbook + scene tools
-def test_read_cookbook(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.prompts as prompts
-
-    md = "# Blender cookbook\n\nintro\n\n## Export\nharness exports\n\n## Pitfalls\n- no bpy.ops\n" + "x" * 7000
-    monkeypatch.setattr(prompts, "load_text", lambda rel: md if rel == "blender/cookbook.md" else (_ for _ in ()).throw(FileNotFoundError(rel)))
-    obs = get_tool("read_cookbook").call(stool_ctx, {})
-    assert obs.ok and obs.text.startswith("[prompts/blender/cookbook.md]") and obs.numbers["truncated"] and "sections: Blender cookbook | Export | Pitfalls" in obs.text
-    assert len(obs.text) < 6500
-    obs = get_tool("read_cookbook").call(stool_ctx, {"section": "pitfalls"})
-    assert obs.ok and "- no bpy.ops" in obs.text and "harness exports" not in obs.text
-    obs = get_tool("read_cookbook").call(stool_ctx, {"section": "materials"})
-    assert not obs.ok and "Export" in obs.text
-
-
-def test_read_cookbook_falls_back_to_contract(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.prompts as prompts
-
-    monkeypatch.setattr(prompts, "load_text", lambda rel: (_ for _ in ()).throw(FileNotFoundError(rel)))
-    _patch_runtime(monkeypatch, _FakeRuntime())
-    obs = get_tool("read_cookbook").call(stool_ctx, {"section": "export"})
-    assert obs.ok and "the harness exports" in obs.text and "contract_doc()" in obs.text
 
 
 def test_scene_tools_degrade_when_unavailable(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
