@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 
+import pytest
+
 from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import ArticulatedPlan
 from codeverse.proc import EventLog
@@ -25,6 +27,13 @@ def _bad() -> dict:
 
 def _spec():
     return make_spec(track=Track.ARTICULATED_OBJECT, language=Language.URDF_BLENDER, prompt="a desk drawer unit")
+
+
+@pytest.fixture(autouse=True)
+def _geometry_on(monkeypatch):
+    from codeverse.tracks.planner import PLAN_GEOMETRY_ENV
+
+    monkeypatch.setenv(PLAN_GEOMETRY_ENV, "1")
 
 
 def test_geometry_complaint_reasks_then_accepts(tmp_ws):
@@ -58,9 +67,10 @@ def test_static_plans_skip_the_geometry_check(tmp_ws):
 
 
 def test_switch_off_skips_the_geometry_reask(tmp_ws, monkeypatch):
-    from codeverse.tracks.planner import PLAN_GEOMETRY_ENV
+    from codeverse.tracks.planner import PLAN_GEOMETRY_ENV, geometry_check_enabled
 
-    monkeypatch.setenv(PLAN_GEOMETRY_ENV, "0")
+    monkeypatch.delenv(PLAN_GEOMETRY_ENV, raising=False)
+    assert not geometry_check_enabled()  # off unless asked for (A/B 2026-08-28: no measurable gain)
     model = FakeChatModel(lambda req: _bad())
     p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model, runtime=FakeRuntime(Language.URDF_BLENDER))
     assert isinstance(p, ArticulatedPlan) and len(model.requests) == 1

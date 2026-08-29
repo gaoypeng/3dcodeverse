@@ -253,7 +253,12 @@ written) that were accepted because the code works that way and the tests pin it
   way and was reverted).  Articulated plans only; `CV3D_PLAN_GEOMETRY=0` is the control
   arm (`plan_features.LIVE_SWITCHES`).  Retro-fired on the 14 recorded compare_art_v3
   plans: 8 draw a complaint (mean score 0.362), 6 do not (0.610); the six lowest scorers
-  all draw one.  Its effect is read on judge-free quantities the
+  all draw one.  **Measured 2026-08-28** (compare_art_v4, flash planner, gemini-cli
+  generator, judge pro n = 3, 14 prompts, check ON vs OFF as paired arms): score Δ
+  +0.064 [−0.188, +0.315], wins 6/6/2; final gate errors 0.00 vs 0.25; round-0 distinct
+  joint_sweep targets 0.54 vs 0.25; the re-ask fired in 7/14 cells.  No measurable gain,
+  so the switch ships OFF (`CV3D_PLAN_GEOMETRY=1` turns it on) — the plan-loop rule.
+  Its effect is read on judge-free quantities the
   8–14-prompt batteries CAN resolve — joint_sweep error count, build rate, rounds to a
   clean sweep — not on the judge mean (docs/EVAL.md §8.1).
 * **D45 Joint-sweep findings reach the fixer aggregated per link pair (2026-08-28).**

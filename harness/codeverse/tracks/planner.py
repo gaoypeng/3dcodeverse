@@ -577,13 +577,16 @@ MAX_QUALITY_REASKS = 1
 #: a plan whose boxes / pivots / ranges contradict each other (tracks/plan_checks.py) is
 #: re-asked with the numbers; after this many it ships anyway and the joint sweep decides
 MAX_GEOMETRY_REASKS = 2
-#: ``CV3D_PLAN_GEOMETRY=0`` turns the geometry re-ask off (a control arm for an A/B;
-#: registered in tracks/plan_features.LIVE_SWITCHES)
+#: ``CV3D_PLAN_GEOMETRY=1`` turns the geometry re-ask ON (registered in
+#: tracks/plan_features.LIVE_SWITCHES).  OFF by default since the 2026-08-28 A/B
+#: (compare_art_v4 pf vs pf0, n = 14): score Δ +0.064 [−0.188, +0.315], wins 6/6/2,
+#: final gate errors 0.00 vs 0.25, round-0 sweep targets 0.54 vs 0.25 — no measurable
+#: gain for 7/14 re-asks; the plan-loop rule (docs/PLAN_LOOP.md) keeps such a change off.
 PLAN_GEOMETRY_ENV = "CV3D_PLAN_GEOMETRY"
 
 
 def geometry_check_enabled() -> bool:
-    return os.environ.get(PLAN_GEOMETRY_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+    return os.environ.get(PLAN_GEOMETRY_ENV, "0").strip().lower() in ("1", "true", "on", "yes")
 #: Output room for the plan call, sized from the plan budget.  A deep plan is much longer
 #: JSON than a flat one AND Gemini 3.x bills its thinking against the same ceiling, so the
 #: flat 24 000 that served 8 box-parts truncates a 12-part plan with sub-parts —
