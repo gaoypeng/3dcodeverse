@@ -85,7 +85,7 @@ _HEADING = re.compile(r"^##+ .+$", re.M)
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
 
 
-def relevant_cookbook_section(cookbook: str, error_text: str, *, max_chars: int = 3000) -> str:
+def relevant_cookbook_section(cookbook: str, error_text: str, *, max_chars: int = 12000) -> str:
     """Pick the cookbook ``##`` section sharing the most identifiers with the error."""
     if not cookbook or not error_text:
         return ""
@@ -201,4 +201,4 @@ def make_repair_task(ctx: RunContext, build: BuildResult, lint: GateReport, *, r
 
 def _repair_system(ctx: RunContext) -> str:
     return (f"You repair {ctx.language.value} code that failed to build. Fix only the reported error(s) with the smallest "
-            f"correct change; keep every part, name and dimension. {ctx.contract_text[:4000]}")
+            f"correct change; keep every part, name and dimension. {ctx.contract_text}")

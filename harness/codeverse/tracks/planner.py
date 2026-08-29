@@ -798,7 +798,7 @@ def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, runtime: Any
         track=spec.track.value,
         language=lang.value,
         frame_doc=frame_doc(LANGUAGE_FRAME[lang.value]),
-        contract=language_contract(lang, runtime)[:6000],
+        contract=language_contract(lang, runtime),
         example_json=json.dumps(example if example is not None else plan_example(spec.track), indent=1),
         schema_fields=", ".join(plan_model.model_json_schema().get("properties", {}).keys()),
         target_parts=budget.target_parts,
