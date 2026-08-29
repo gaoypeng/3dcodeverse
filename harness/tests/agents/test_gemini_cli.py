@@ -21,11 +21,11 @@ assert os.environ.get("GEMINI_API_KEY"), "no key in env"
 assert "GEMINI_API_KEYS" not in os.environ
 assert "FAKE_SERVICE_API_KEY" not in os.environ, "secret leaked"
 assert os.path.isfile(os.environ["GEMINI_CLI_SYSTEM_SETTINGS_PATH"])
-if mode in ("fail_once", "fail_once_503", "fail_always"):
+if mode in ("fail_once", "fail_once_503", "fail_always", "fail_twice_429"):
     marker = "artifacts/attempts.txt"
     n = int(open(marker).read()) if os.path.exists(marker) else 0
     open(marker, "w").write(str(n + 1))
-    if n == 0 or mode == "fail_always":
+    if n == 0 or mode == "fail_always" or (mode == "fail_twice_429" and n < 2):
         if mode == "fail_once_503":
             print("Error when talking to Gemini API: got status: UNAVAILABLE 503", file=sys.stderr)
             sys.exit(247)
@@ -255,3 +255,20 @@ def test_live_gemini_cli_creates_file(tmp_ws: Workspace):
     assert (tmp_ws.src / "hello.txt").read_text().strip() == "hi"
     assert res.usage.input_tokens > 0 and res.usage.model == "gemini-3.7-flash"
     assert any(f.path == "src/hello.txt" for f in res.files_changed)
+
+
+def test_quota_failure_gets_a_third_rotated_attempt(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
+    """Two 429s in a row on two keys, the third key answers: the cell is not lost."""
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", ["k1", "k2", "k3"])
+    from codeverse.models import gemini as gm
+    for sig in [s for s in list(gm._pools) if s and s[0] in ("k1", "only")]:
+        gm._pools.pop(sig, None)
+    monkeypatch.setenv("FAKE_MODE", "fail_twice_429")
+    res = agent.run(_job(tmp_ws))
+    assert res.ok, res.errors
+    assert (tmp_ws.artifacts / "attempts.txt").read_text() == "3"
+    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
+    assert rec["attempts"] == 3
+    lines = [json.loads(ln) for ln in Path(res.transcript_path).read_text().splitlines()]
+    keys = [ln["key_tail"] for ln in lines if ln["kind"] == "invoke"]
+    assert len(keys) == 3 and len(set(keys)) == 3  # a fresh key each time

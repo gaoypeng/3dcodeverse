@@ -14,7 +14,7 @@ argv: ``gemini -p <prompt> -m <model> --approval-mode yolo --skip-trust --output
   priced at its own rate.  Requested model absent from ``stats.models`` →
   ``model_substituted``.
 * one retry (rotated key when the pool has one, else the same key) on transient
-  failures (429 / 503 / empty response); a throttled/empty pool never raises.
+  failures (503 / empty response), two on a quota 429; a throttled/empty pool never raises.
 """
 
 from __future__ import annotations
@@ -62,6 +62,8 @@ SYSTEM_SETTINGS = {
 }
 #: how long a retry waits for a *different* healthy key before reusing the same one
 RETRY_KEY_WAIT_S = 10.0
+#: attempts allowed when the failure is a quota 429 (transient non-quota failures keep 2)
+QUOTA_MAX_ATTEMPTS = 3
 
 
 def retry_window_left(timeout_s: float, elapsed_s: float) -> float | None:
@@ -227,7 +229,11 @@ class GeminiCliAgent:
                 usage_total = usage_total + outcome["usage"]
                 pool.report(key, "429" if outcome["quota"] else ("ok" if outcome["ok"] else "5xx"))
                 pool.release()  # one acquire per attempt: keep the pool's in-flight gauge honest
-                if outcome["ok"] or outcome["exit_reason"] in ("timeout", "model_substituted") or not outcome["transient"] or attempts >= 2:
+                # a per-minute 429 on the single key a CLI process holds clears within the
+                # rotated retry's wait; ab_fewer_turns (2026-08-29) lost 4 of 10 cells to
+                # two 429s in a row, so a quota failure gets one more rotated attempt
+                max_attempts = QUOTA_MAX_ATTEMPTS if outcome["quota"] else 2
+                if outcome["ok"] or outcome["exit_reason"] in ("timeout", "model_substituted") or not outcome["transient"] or attempts >= max_attempts:
                     break
                 next_soft = retry_window_left(job.timeout_s, time.monotonic() - t0)
                 if next_soft is None:
