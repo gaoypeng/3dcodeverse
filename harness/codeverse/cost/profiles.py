@@ -126,8 +126,12 @@ PROFILES: dict[str, Profile] = {
         judge_max_px=1024, judge_montages=3, judge_detail_crops=2,
         max_usd=0.0, max_minutes=60.0,
         expected_usd=1.47,
-        expected_score="0.835 mean on compare_v1, 36/61 runs passed ($2.50 per passing artifact)",
-        note="today's defaults — the arm every number in docs/COST.md was measured on",
+        expected_score="0.835 mean on compare_v1, 36/61 runs passed ($2.50 per passing artifact) "
+                       "— MEASURED ON gemini-cli:gemini-3.6-flash, not on this dial's generator",
+        note="today's defaults.  The generator moved to 3.7-flash on 2026-08-28 and these two "
+             "expectations have NOT been re-measured on it: docs/COST.md §12 puts the 3.7 CLI arm "
+             "at $0.73/call against 3.6's $0.52 and 0.827 against 0.835, so expect this run to "
+             "cost more and score about the same until a battery says otherwise",
     ),
     "quality": Profile(
         name="quality",

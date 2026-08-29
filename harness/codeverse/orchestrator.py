@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import threading
 import time
@@ -23,7 +24,7 @@ from typing import Any, Literal, TypeVar
 from pydantic import BaseModel, Field, ValidationError
 
 from codeverse.contracts.artifacts import GateReport, Judgment
-from codeverse.contracts.common import Budget, Usage
+from codeverse.contracts.common import Budget, Usage, has_money_ceiling
 from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord, RunStatus
 from codeverse.conventions import to_snake
@@ -1010,7 +1011,7 @@ class BudgetGuard:
         elapsed = self.elapsed_minutes()
         # max_usd == 0 means no money ceiling (the default since 2026-08-28); cost is
         # still accumulated above, so every report and the ledger still know what it cost.
-        if self.budget.max_usd > 0 and spent > self.hard_usd:
+        if has_money_ceiling(self.budget.max_usd) and spent > self.hard_usd:
             raise BudgetExceeded(
                 f"cost ${spent:.3f} exceeds max_usd ${self.hard_usd:.2f}",
                 spent_usd=spent,
@@ -1035,7 +1036,7 @@ class BudgetGuard:
         """Reason string when the soft sub-budget is used up, else ``""``."""
         usd, minutes = self.soft_limits()
         spent, elapsed = self.billed_usd, self.elapsed_minutes()
-        if self.budget.max_usd > 0 and spent > usd:
+        if has_money_ceiling(self.budget.max_usd) and spent > usd:
             return f"cost ${spent:.3f} exceeds soft cap ${usd:.2f} ({self.soft_fraction:.0%} of ${self.budget.max_usd:.2f})"
         if elapsed > minutes:
             return f"elapsed {elapsed:.1f} min exceeds soft cap {minutes:.1f} min ({self.soft_fraction:.0%} of {self.budget.max_minutes:.1f})"
@@ -1063,9 +1064,12 @@ class BudgetGuard:
 
     def remaining(self) -> dict[str, float]:
         """Remaining headroom: ``{"usd": ..., "minutes": ..., "fraction": ...}``."""
-        usd = max(0.0, self.hard_usd - self.billed_usd)
+        capped = has_money_ceiling(self.budget.max_usd)
+        # with no ceiling the honest answer is "unlimited", not "$0 left" — a reader
+        # (or a future caller) must not read the sentinel as an exhausted budget
+        usd = max(0.0, self.hard_usd - self.billed_usd) if capped else math.inf
         minutes = max(0.0, self.hard_minutes - self.elapsed_minutes())
-        frac_usd = usd / self.hard_usd if self.hard_usd > 0 else 0.0
+        frac_usd = (usd / self.hard_usd if self.hard_usd > 0 else 0.0) if capped else 1.0
         frac_min = minutes / self.hard_minutes if self.hard_minutes > 0 else 0.0
         return {"usd": usd, "minutes": minutes, "fraction": min(frac_usd, frac_min)}
 

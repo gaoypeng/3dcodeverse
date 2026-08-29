@@ -98,7 +98,7 @@ class BenchOptions(BaseModel):
     planner: str | None = None
     judge: str | None = None
     rounds: int = 4
-    max_usd: float = 5.0
+    max_usd: float = 0.0    # 0 = no money ceiling; cost is still recorded (contracts.common)
     max_minutes: float = 60.0
     #: measured (docs/COST.md Part III): one bench cell holds ~0.9 model calls
     #: in flight, so 8 cells sit near 7 — far inside the 64-call model knee — and

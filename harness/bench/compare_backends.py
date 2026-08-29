@@ -82,7 +82,7 @@ from bench.run_bench import (  # noqa: E402
 )
 from codeverse.config import get_settings  # noqa: E402
 from codeverse.contracts.artifacts import RenderSet  # noqa: E402
-from codeverse.contracts.common import ENTRY_FILE  # noqa: E402
+from codeverse.contracts.common import ENTRY_FILE, has_money_ceiling  # noqa: E402
 from codeverse.contracts.run import RunRecord  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402
 from codeverse.cost import run_ledger  # noqa: E402
@@ -339,7 +339,10 @@ def flag_degraded(res: CellResult, opts: CompareOptions) -> None:
     """
     if res.kind != "harness" or res.status not in ("scored", "build_failed"):
         return
-    money_stop = res.gen_cost_usd >= 0.9 * opts.max_usd
+    # ``max_usd == 0`` is "no ceiling", so there is no such thing as a money stop —
+    # without this guard the comparison is `cost >= 0`, true for every cell, and the
+    # degraded flag this function exists to raise never fires again.
+    money_stop = has_money_ceiling(opts.max_usd) and res.gen_cost_usd >= 0.9 * opts.max_usd
     if (res.harness_stop_reason == "budget" and not money_stop and res.harness_rounds <= opts.degraded_max_rounds
             and res.wall_s >= opts.degraded_min_wall_s):
         res.degraded = True

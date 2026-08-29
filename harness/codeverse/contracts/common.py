@@ -128,6 +128,17 @@ class Usage(BaseModel):
         )
 
 
+def has_money_ceiling(max_usd: float) -> bool:
+    """Is there a money ceiling at all?  ``max_usd == 0`` means no (owner, 2026-08-28).
+
+    Ask this BEFORE comparing a cost against a ceiling.  Without it the comparison
+    silently inverts: ``spent >= 0.9 * 0`` is true for every non-negative cost, so a
+    guard written as "did we stop for money?" answers yes always and the thing it
+    protects never fires.  That is exactly what happened to bench's degraded-cell flag.
+    """
+    return max_usd > 0
+
+
 class Budget(BaseModel):
     """Hard ceilings for a run.  The orchestrator stops (cleanly) when any is hit.
 
