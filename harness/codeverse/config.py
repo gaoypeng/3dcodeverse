@@ -45,7 +45,6 @@ class Binaries(BaseModel):
     claude_cli: str = "claude"
     codex_cli: str = "codex"
     agy_cli: str = "agy"
-    ffmpeg: str = "ffmpeg"
 
 
 class Agents(BaseModel):
@@ -102,7 +101,7 @@ class Limits(BaseModel):
         description="graphics / glsl_shader: paste the cookbook recipes the brief calls for "
         "(curtain / aurora / stars / bokehSoft / dropsLayer + the hash / noise / fbm helpers "
         "they use) into the harness-owned, read-only src/recipes.glsl BEFORE the baseline session "
-        "(tracks/graphics_recipes.py; pasted above src/common.glsl at build time).  "
+        "(tracks/graphics.py:seed_recipes; pasted above src/common.glsl at build time).  "
         "ON by default: measured 2026-08-26 (refs_v2_graphics, aurora brief, gemini-3.7-flash) "
         "the prompt carried the verified curtain() recipe five times and the agent used it zero "
         "times — round 0 was again a comb of bars (comb_artefact, 0.33); and (bench/out/seed_v1) "
@@ -182,10 +181,12 @@ def _env_flag(raw: str, env: str) -> bool:
     raise ValueError(f"{env}={raw!r}: expected on/off (1/0, true/false, yes/no)")
 
 
-def _call_time_flag(env: str, fallback: bool) -> bool:
-    """``$env`` when it is set (garbage counts as off, with a warning — a typo in a bench
-    command must produce a control run, not a crash mid-battery), else ``fallback`` (the
-    cached Settings value)."""
+def env_flag(env: str, fallback: bool) -> bool:
+    """``$env`` read NOW (never through the cached Settings — an A/B arm sets it after
+    first touch): unset or empty → ``fallback``; garbage → OFF with a warning, because a
+    typo in a bench command must produce a control run, not a crash mid-battery (and
+    not the variant: ``fallback`` may be on).  ``skills/config.py`` reads its switches
+    through this too."""
     raw = os.environ.get(env)
     if raw is not None and raw.strip():
         try:
@@ -199,13 +200,13 @@ def _call_time_flag(env: str, fallback: bool) -> bool:
 def fewer_turns_enabled() -> bool:
     """Is the fewer-turns bundle on for THIS call?  ``$CV3D_FEWER_TURNS`` when it is set,
     else ``Settings.limits.fewer_turns``."""
-    return _call_time_flag(FEWER_TURNS_ENV, get_settings().limits.fewer_turns)
+    return env_flag(FEWER_TURNS_ENV, get_settings().limits.fewer_turns)
 
 
 def seed_recipes_enabled() -> bool:
-    """Is recipe seeding (``tracks/graphics_recipes.py``) on for THIS call?  ``$CV3D_SEED_RECIPES``
+    """Is recipe seeding (``tracks/graphics.py:seed_recipes``) on for THIS call?  ``$CV3D_SEED_RECIPES``
     when it is set, else ``Settings.limits.seed_recipes`` (default ON)."""
-    return _call_time_flag(SEED_RECIPES_ENV, get_settings().limits.seed_recipes)
+    return env_flag(SEED_RECIPES_ENV, get_settings().limits.seed_recipes)
 
 
 class Settings(BaseSettings):

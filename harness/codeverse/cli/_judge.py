@@ -43,8 +43,7 @@ def rubric_for(rec: RunRecord, rnd: RoundRecord, override: str | None) -> str:
         return override
     if rnd.judgment is not None and rnd.judgment.rubric:
         return rnd.judgment.rubric
-    info = TRACK_INFO.get(rec.spec.track)
-    return info.rubric if info is not None else "static_object_v1"
+    return TRACK_INFO[rec.spec.track].rubric
 
 
 def plan_summary_for(ws: Workspace) -> str:

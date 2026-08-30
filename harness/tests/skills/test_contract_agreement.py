@@ -1,22 +1,4 @@
-"""A skill may not contradict the language contract, and neither may contradict the gate.
-
-WHY this is the sharpest of the contradiction tests: ``prompts/<lang>/contract.md`` and a
-routed SKILL.md land in the SAME session, one in the system prompt and one in a file the
-agent opens.  Two numbers for one physical quantity is strictly worse than one number,
-because the agent now has to choose and we have no idea which it picks.
-
-The arbiter is neither document.  It is the gate constant, so all three checks below are
-anchored on live code:
-
-  * weld overlap and contact gap, stated anywhere in a contract, against
-    ``PENETRATION_WARN_M`` and ``CONTACT_GAP_M``;
-  * a skill may not recommend an API its language's contract forbids;
-  * a skill may not restate a contract number with a different value.
-
-The first of these caught three shipped contracts telling the agent to overlap parts by
-2-4 mm / ">= 2 mm" while ``connectivity.py`` WARNs above 2 mm and its own ``fix_hint``
-says "overlap by <= 2 mm" — against the top defect class in the corpus.
-"""
+"""Keep skill advice, language contracts and live gate tolerances consistent."""
 
 from __future__ import annotations
 
@@ -26,29 +8,24 @@ from pathlib import Path
 import pytest
 
 from codeverse.conventions import CONTACT_GAP_M
-from codeverse.languages._docs import PROMPT_DIRS
+from codeverse.prompts.catalog import PROMPT_DIRS
 from codeverse.skills import bundle_dirs, iter_skills, skills_dir
 from codeverse.skills.registry import ROUTES
 from codeverse.spatial.connectivity import PENETRATION_WARN_M
 
 HARNESS = Path(__file__).resolve().parents[2]
 PROMPTS = HARNESS / "codeverse" / "prompts"
-#: the per-language contract an agent reads.  There was a second family under
-#: languages/<lang>/CONTRACT.md until 2026-08-28; it was unreachable (contract_doc
-#: always read prompts/ first) and two of its numbers had drifted, so it is gone.
 CONTRACTS = sorted(PROMPTS.glob("*/contract.md"))
 BUNDLES = bundle_dirs()
 SKILLS = list(iter_skills()) if BUNDLES else []
 
-#: prompts/<dir> per language id — codeverse.languages._docs owns the mapping now
+#: prompts/<dir> per language id — codeverse.prompts.catalog owns the mapping
 #: (urdf_blender's docs live under prompts/urdf)
 _DIR_FOR_LANG = {k.value: v for k, v in PROMPT_DIRS.items()}
 
 WARN_MM = PENETRATION_WARN_M * 1000
 GAP_MM = CONTACT_GAP_M * 1000
 
-#: "2-4 mm overlap", "overlap (>= 2 mm)", "reaches 4 mm into the seat (weld)",
-#: "sunk 1.5 mm into the door (weld)" — a number in mm within a sentence about welding.
 #: The sentence boundary must NOT be a decimal point: splitting "0.5-2 mm" on the dot
 #: leaves "5-2 mm" and invents a 5 mm recommendation that nobody wrote.
 _SENTENCE_SPLIT = re.compile(r"(?<!\d)\.(?!\d)|\n")
@@ -79,27 +56,25 @@ def _mm_values(sentence: str) -> list[float]:
     return out
 
 
-@pytest.mark.parametrize("contract", CONTRACTS, ids=[f"{p.parent.name}/{p.name}" for p in CONTRACTS])
-def test_no_contract_asks_for_an_overlap_the_gate_calls_interpenetration(contract: Path):
-    """`PENETRATION_WARN_M` is the ceiling on a weld, and it is 2 mm, not 4."""
-    for sentence in _weld_sentences(contract.read_text()):
-        for mm in _mm_values(sentence):
-            assert mm <= WARN_MM, (
-                f"{contract.parent.name}/{contract.name} asks for {mm} mm here, and the "
-                f"connectivity gate WARNs above {WARN_MM:.0f} mm:\n    {sentence.strip()}")
-
-
-@pytest.mark.skipif(not SKILLS, reason=f"no bundles in {skills_dir()} yet")
-@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
-def test_no_skill_asks_for_an_overlap_the_gate_calls_interpenetration(s):
-    """The same rule on the other side, so neither document can drift alone."""
-    text = "\n".join([s.body] + [p.read_text() for p in sorted(s.dir.rglob("references/*.md"))])
-    for sentence in _weld_sentences(text):
-        if _NOT_A_RECOMMENDATION.search(sentence):
-            continue        # teaching the LIMIT, quoting a gate message, or REPORTING what
-                            # the corpus measured — all of those may name a number past it
-        for mm in _mm_values(sentence):
-            assert mm <= WARN_MM, f"{s.name} recommends {mm} mm:\n    {sentence.strip()}"
+def test_contract_tolerances_match_the_live_gates():
+    for contract in CONTRACTS:
+        text = contract.read_text()
+        label = f"{contract.parent.name}/{contract.name}"
+        for sentence in _weld_sentences(text):
+            for mm in _mm_values(sentence):
+                assert mm <= WARN_MM, (
+                    f"{label} asks for {mm} mm; the gate warns above {WARN_MM:.0f} mm:\n"
+                    f"    {sentence.strip()}"
+                )
+        for sentence in (part for part in _SENTENCE_SPLIT.split(text)
+                         if re.search(r"\bgap\b", part, re.I)):
+            if not re.search(r"[<≤]=?\s*\d|within|at most|no more than", sentence, re.I):
+                continue
+            for mm in _mm_values(sentence):
+                assert mm <= GAP_MM, (
+                    f"{label} allows a {mm} mm gap; the gate joins only within "
+                    f"{GAP_MM:.0f} mm:\n    {sentence.strip()}"
+                )
 
 
 def _forbidden_apis(contract: Path) -> set[str]:
@@ -124,40 +99,38 @@ def _languages_of(skill_name: str) -> set[str]:
 
 
 @pytest.mark.skipif(not SKILLS, reason=f"no bundles in {skills_dir()} yet")
-@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
-def test_no_skill_recommends_an_api_its_language_contract_forbids(s):
-    """Naming a forbidden call to warn about it is fine; recommending it is not."""
-    text = "\n".join([s.body] + [p.read_text() for p in sorted(s.dir.rglob("references/*.md"))])
-    for lang in sorted(_languages_of(s.name)):
-        contract = PROMPTS / _DIR_FOR_LANG.get(lang, lang) / "contract.md"
-        if not contract.is_file():
-            continue
-        for api in sorted(_forbidden_apis(contract)):
-            stem = api.rstrip("*").rstrip(".")
-            if len(stem) < 5:
+def test_skill_advice_respects_gates_and_language_contracts():
+    for skill in SKILLS:
+        text = "\n".join(
+            [skill.body] + [p.read_text() for p in sorted(skill.dir.rglob("references/*.md"))]
+        )
+        for sentence in _weld_sentences(text):
+            if _NOT_A_RECOMMENDATION.search(sentence):
                 continue
-            # a BACKTICKED, whole-word mention is a claim about the API; "renders straight
-            # to the canvas" is English, and `ImageLoader` is not `Image`
-            quoted = re.compile(rf"`[^`\n]*(?<![A-Za-z0-9_]){re.escape(stem)}(?![A-Za-z0-9_])[^`\n]*`")
-            # per SENTENCE, not per line: markdown wraps, and the prohibition is often on
-            # the next line from the name it prohibits
-            for sentence in _PARAGRAPH_SPLIT.split(text):
-                if not quoted.search(sentence):
+            for mm in _mm_values(sentence):
+                assert mm <= WARN_MM, f"{skill.name} recommends {mm} mm:\n    {sentence.strip()}"
+
+        for language in sorted(_languages_of(skill.name)):
+            contract = PROMPTS / _DIR_FOR_LANG.get(language, language) / "contract.md"
+            if not contract.is_file():
+                continue
+            for api in sorted(_forbidden_apis(contract)):
+                stem = api.rstrip("*").rstrip(".")
+                if len(stem) < 5:
                     continue
-                assert re.search(r"never|not\b|forbidden|do not|don't|avoid|refuse|reject|instead of"
-                                 r"|banned|lint|fails|error|no DOM|headless", sentence, re.I), (
-                    f"{s.name} names {api!r}, which {lang}/contract.md forbids, without "
-                    f"saying so:\n    {' '.join(sentence.split())[:160]}")
-
-
-@pytest.mark.parametrize("contract", CONTRACTS, ids=[f"{p.parent.name}/{p.name}" for p in CONTRACTS])
-def test_no_contract_states_a_contact_gap_looser_than_the_gate_measures(contract: Path):
-    """"parts touch" means within CONTACT_GAP_M; a contract promising more is wrong."""
-    for sentence in (s for s in _SENTENCE_SPLIT.split(contract.read_text())
-                     if re.search(r"\bgap\b", s, re.I)):
-        if not re.search(r"[<≤]=?\s*\d|within|at most|no more than", sentence, re.I):
-            continue
-        for mm in _mm_values(sentence):
-            assert mm <= GAP_MM, (
-                f"{contract.parent.name}/{contract.name} allows a {mm} mm gap; the connectivity "
-                f"gate joins parts only within {GAP_MM:.0f} mm:\n    {sentence.strip()}")
+                quoted = re.compile(
+                    rf"`[^`\n]*(?<![A-Za-z0-9_]){re.escape(stem)}(?![A-Za-z0-9_])[^`\n]*`"
+                )
+                for paragraph in _PARAGRAPH_SPLIT.split(text):
+                    if not quoted.search(paragraph):
+                        continue
+                    refusal = re.search(
+                        r"never|not\b|forbidden|do not|don't|avoid|refuse|reject|instead of"
+                        r"|banned|lint|fails|error|no DOM|headless",
+                        paragraph,
+                        re.I,
+                    )
+                    assert refusal, (
+                        f"{skill.name} recommends {api!r}, forbidden by {language}/contract.md:\n"
+                        f"    {' '.join(paragraph.split())[:160]}"
+                    )

@@ -8,7 +8,7 @@ Owns the typer app and every registration, the run-starting commands ``make`` /
 ``resume`` (spec building, reference grounding, track dispatch, budget raising) and
 ``mcp``.  The run-inspecting commands ``status`` / ``render`` / ``judge`` live in the
 sibling ``cli/inspect_cmd.py`` and are registered here, the way ``layout_cmd.py``'s
-``show`` / ``migrate-runs`` are.
+``show`` is.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ import typer
 from codeverse import __version__
 from codeverse.cli import _common as C
 from codeverse.cli._common import (
+    RunsDirOpt,
     console,
     err_console,
     kv_table,
@@ -253,11 +254,6 @@ app.command(
     "tools",
     help="List spatial tools or run one: `3dcv tools list` | `3dcv tools <name> --json '{...}' --workspace ws`.",
 )(tools)
-
-RunsDirOpt = Annotated[
-    Path | None, typer.Option("--runs-dir", help="runs root (default: settings.runs_dir)")
-]
-
 
 @app.callback(invoke_without_command=True)
 def _root(
@@ -669,18 +665,13 @@ def mcp(workspace: Annotated[Path, typer.Option("--workspace")]) -> None:
     )
 
 
-# --------------------------------------------------------------------------- run layout (show / migrate)
+# --------------------------------------------------------------------------- run layout (show)
 # appended registration — see codeverse/cli/layout_cmd.py
-from codeverse.cli.layout_cmd import migrate_runs_cmd as _migrate_runs_cmd  # noqa: E402
 from codeverse.cli.layout_cmd import show as _show  # noqa: E402
 
 app.command(
     "show", help="One run in three sections: DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS."
 )(_show)
-app.command(
-    "migrate-runs",
-    help="Reorganise existing runs onto deliverable/ + evidence/ + telemetry/ (idempotent).",
-)(_migrate_runs_cmd)
 
 
 if __name__ == "__main__":  # pragma: no cover

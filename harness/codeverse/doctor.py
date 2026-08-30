@@ -9,10 +9,10 @@ from __future__ import annotations
 import importlib
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 from codeverse.config import get_settings
+from codeverse.proc import version_line
 
 Row = tuple[str, str, str]
 _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", "numpy", "trimesh", "fcl", "PIL", "pyarrow",
@@ -38,15 +38,10 @@ _CLI_TIMEOUT = 25
 def _ver(cmd: list[str], timeout: int = _CLI_TIMEOUT) -> tuple[bool, str]:
     if not shutil.which(cmd[0]) and not Path(cmd[0]).is_file():
         return False, "not found"
-    try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
-    except subprocess.TimeoutExpired:
-        return False, f"timed out after {timeout}s"
-    except OSError as e:
-        return False, str(e)
-    out = (p.stdout or p.stderr).strip().splitlines()
-    first = out[0].strip() if out else ""
-    return p.returncode == 0, first[:100] or f"exit {p.returncode}"
+    rc, first = version_line(cmd, timeout=timeout)
+    if rc is None:
+        return False, first
+    return rc == 0, first[:100] or f"exit {rc}"
 
 
 def check_python_deps() -> list[Row]:
@@ -244,8 +239,6 @@ def check_clis() -> list[Row]:
         rows.append((name, "OK" if okk else "WARN", v if okk else f"{v} (backend {name} unavailable)"))
     okk, v = _ver(["git", "--version"])
     rows.append(("git", "OK" if okk else "FAIL", v))
-    okk, v = _ver([s.binaries.ffmpeg, "-version"])
-    rows.append(("ffmpeg", "OK" if okk else "WARN", v if okk else "not found (turntable mp4 disabled)"))
     return rows
 
 

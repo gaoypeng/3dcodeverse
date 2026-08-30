@@ -38,6 +38,8 @@ from codeverse.contracts.run import (
     SettingsSnapshot,
     StageCost,
 )
+from codeverse.cost.ledger import LEDGER_NAME
+from codeverse.cost.types import Stage
 from codeverse.proc import read_json_or_none, write_json_atomic, write_text_atomic
 from codeverse.workspace import Workspace
 
@@ -92,9 +94,10 @@ def _planner_defaults() -> dict[str, Any]:
 
 
 def _generator_defaults(model_id: str) -> dict[str, Any]:
-    """CLI agents own their sampling knobs.  Only the deleted in-process ``api-agent``
-    exposed ours — the constants below reproduce its shipped defaults so a HISTORICAL
-    run record (pre-2026-08-28) still reports what it actually ran with."""
+    """HISTORICAL shim, read-only: CLI agents own their sampling knobs and only the
+    in-process ``api-agent`` (deleted 2026-08-28) exposed ours.  The constants reproduce
+    its shipped defaults so a pre-deletion record still reports what it ran with; they
+    configure nothing."""
     if backend_kind(model_id) != "api-agent":
         return {}
     return {"temperature": 0.3, "thinking": "low"}
@@ -193,28 +196,12 @@ _TOOL_KEYS = frozenset({"python", "platform", "host", "blender", "blender_path",
 
 
 # --------------------------------------------------------------------------- the ledger (codeverse.cost)
-#: fallback stage order when ``codeverse.cost`` is not importable
-_FALLBACK_STAGES = ("plan", "skeleton", "assets", "env", "zones", "assemble", "baseline", "candidate",
-                    "repair", "refine", "gates", "render", "judge", "pairwise", "texture", "caption", "other")
-#: the live ledger a run may already carry at its root
-_FALLBACK_LEDGER_NAME = "cost_ledger.jsonl"
-
-
 def stage_order() -> tuple[str, ...]:
-    try:
-        from codeverse.cost.types import Stage
-
-        return tuple(s.value for s in Stage)
-    except Exception:  # noqa: BLE001 - the cost package is optional here
-        return _FALLBACK_STAGES
+    return tuple(s.value for s in Stage)
 
 
 def live_ledger_path(ws: Workspace) -> Path:
     """``<run>/cost_ledger.jsonl`` — the ledger written while the run happens, when there is one."""
-    try:
-        from codeverse.cost.ledger import LEDGER_NAME
-    except Exception:  # noqa: BLE001
-        LEDGER_NAME = _FALLBACK_LEDGER_NAME  # noqa: N806
     return ws.root / LEDGER_NAME
 
 

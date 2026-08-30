@@ -19,12 +19,11 @@ from codeverse.contracts.common import Track
 texture_app = typer.Typer(name="texture", help="Text-to-image texturing: object pass + scene texture pack.",
                           no_args_is_help=True)
 
-RunsDirOpt = Annotated[Path | None, typer.Option("--runs-dir", help="runs root (default: settings.runs_dir)")]
+RunsDirOpt = C.RunsDirOpt
 
 
 def _image_model(name: str | None):
-    GeminiImageModel = C.lazy("codeverse.models.gemini", "GeminiImageModel")
-    return GeminiImageModel(name) if name else GeminiImageModel()
+    return C.lazy("codeverse.reference", "_image_model")(name or "")
 
 
 @texture_app.command("pass")

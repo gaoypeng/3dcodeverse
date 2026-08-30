@@ -1,5 +1,5 @@
-"""deliverable/ + telemetry/ packaging, `3dcv show`, `3dcv migrate-runs`, and
-export / gallery on BOTH layouts (old runs must keep working)."""
+"""deliverable/ + telemetry/ packaging, `3dcv show`, and export / gallery on BOTH
+layouts (old runs must keep working)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from codeverse.cli.main import app
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel.deliverable import build_deliverable, deliverable_path, load_deliverable
 from codeverse.flywheel.export import export_samples
-from codeverse.flywheel.migrate import MIGRATED, UP_TO_DATE, migrate_run, migrate_runs
 from codeverse.flywheel.record import load_record, package_run
 from codeverse.flywheel.telemetry import (
     build_telemetry,
@@ -53,8 +52,12 @@ def old_layout_run(tmp_path: Path, slug: str = "wooden_chair_ab12cd34") -> tuple
 
 
 # --------------------------------------------------------------------------- packaging
-def test_package_run_builds_deliverable_and_telemetry(fake_run):
+def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run):
     ws, rec = fake_run
+    assert load_telemetry(ws, rec) is None and load_deliverable(ws, rec) is None
+    assert deliverable_path(ws, "object.glb") == ws.artifacts / "object.glb"
+    # Cross the old hard-link fast-path threshold before packaging.
+    (ws.artifacts / "object.glb").write_bytes(b"glTF" + b"\0" * (300 * 1024))
     package_run(ws, rec)
     assert rec.deliverable is not None and rec.telemetry is not None
     d = rec.deliverable
@@ -76,11 +79,11 @@ def test_package_run_builds_deliverable_and_telemetry(fake_run):
     settings = json.loads(ws.settings_path.read_text())
     assert {r["role"] for r in settings["roles"]} == {"planner", "generator", "judge", "captioner"}
     assert settings["rubric"] and settings["rubric_hash"] and settings["price_table_version"]
+    assert deliverable_path(ws, "object.glb") == ws.deliverable / "object.glb"
+    assert deliverable_path(ws, "nope.glb") is None
 
-
-def test_deliverable_rebuild_is_idempotent(fake_run):
-    ws, rec = fake_run
-    first = build_deliverable(ws, rec)
+    # Rebuilding unchanged content is byte-for-byte stable.
+    first = rec.deliverable
     files_before = sorted(p.relative_to(ws.deliverable).as_posix() for p in ws.deliverable.rglob("*") if p.is_file())
     second = build_deliverable(ws, rec)
     files_after = sorted(p.relative_to(ws.deliverable).as_posix() for p in ws.deliverable.rglob("*") if p.is_file())
@@ -88,19 +91,21 @@ def test_deliverable_rebuild_is_idempotent(fake_run):
     assert first.generated_at == second.generated_at  # unchanged content → no diff
     assert [(f.path, f.sha256) for f in first.files] == [(f.path, f.sha256) for f in second.files]
 
+    # Package metadata can be recovered from files even before the caller saves rec.
+    bare = load_record(ws)
+    assert bare.telemetry is None and bare.deliverable is None
+    assert load_telemetry(ws, bare) is not None and load_deliverable(ws, bare) is not None
 
-def test_deliverable_path_prefers_deliverable_then_artifacts(fake_run):
+    # Delivered assets are copies: editing a hand-over cannot mutate evidence.
+    delivered = ws.deliverable / "object.glb"
+    assert delivered.stat().st_nlink == 1 and (ws.artifacts / "object.glb").stat().st_nlink == 1
+    delivered.write_bytes(b"user edited the hand-over copy")
+    assert (ws.artifacts / "object.glb").read_bytes().startswith(b"glTF")
+
+
+def test_telemetry_handles_reconstructed_live_and_unavailable_ledgers(fake_run, monkeypatch):
     ws, rec = fake_run
-    assert deliverable_path(ws, "object.glb") == ws.artifacts / "object.glb"
-    build_deliverable(ws, rec)
-    assert deliverable_path(ws, "object.glb") == ws.deliverable / "object.glb"
-    assert deliverable_path(ws, "nope.glb") is None
-
-
-def test_cost_summary_reconciles_with_the_record_total(fake_run):
-    """The rows come from codeverse.cost (one ledger in the harness); the summary is
-    the run-layout view of them and must always add up to record.total_usage."""
-    ws, rec = fake_run
+    # Historic records reconstruct rows and reconcile them to the recorded total.
     rows, source = ledger_rows(ws)
     assert source == "reconstructed"  # no live cost_ledger.jsonl in this run
     assert rows and all("stage" in r and "cost_usd" in r for r in rows)
@@ -112,9 +117,7 @@ def test_cost_summary_reconciles_with_the_record_total(fake_run):
     assert cost.by_role["judge"] > 0 and cost.unattributed_usd > 0  # judge verdicts + the residual
     assert {s.stage for s in cost.by_stage} <= set(stage_order())
 
-
-def test_usage_rows_alias_a_live_ledger_instead_of_copying_it(fake_run):
-    ws, rec = fake_run
+    # A live ledger is aliased, not copied.
     live = live_ledger_path(ws)
     live.write_text(json.dumps({"stage": "plan", "role": "planner", "label": "plan", "cost_usd": 0.5,
                                 "model": "gemini-3.7-flash", "n_calls": 1}) + "\n")
@@ -123,9 +126,7 @@ def test_usage_rows_alias_a_live_ledger_instead_of_copying_it(fake_run):
     assert ws.usage_path.is_symlink() and ws.usage_path.resolve() == live.resolve()
     assert tele.cost is not None and tele.cost.by_stage[0].stage == "plan"
 
-
-def test_telemetry_degrades_when_the_cost_package_is_unavailable(fake_run, monkeypatch):
-    ws, rec = fake_run
+    # A core-only install still emits settings and the record-level total.
     import codeverse.flywheel.telemetry as T
 
     def boom(*_a, **_k):
@@ -137,20 +138,6 @@ def test_telemetry_degrades_when_the_cost_package_is_unavailable(fake_run, monke
     tele = T.build_telemetry(ws, rec, write=False)
     assert tele.cost is not None and tele.cost.total_usd == rec.total_usage.cost_usd
     assert tele.cost.n_calls == 0 and tele.settings is not None  # settings never depend on the ledger
-
-
-def test_deliverable_files_are_real_copies_not_hardlinks(fake_run):
-    """Editing a delivered file must never mutate the canonical evidence: every
-    deliverable file is a real copy (st_nlink == 1), whatever its size — the old
-    ≥256 KiB hard-link fast path silently broke the recorded sha256."""
-    ws, rec = fake_run
-    (ws.artifacts / "object.glb").write_bytes(b"glTF" + b"\0" * (300 * 1024))  # past the old link floor
-    build_deliverable(ws, rec)
-    delivered = ws.deliverable / "object.glb"
-    assert delivered.is_file() and delivered.stat().st_nlink == 1
-    assert (ws.artifacts / "object.glb").stat().st_nlink == 1
-    delivered.write_bytes(b"user edited the hand-over copy")
-    assert (ws.artifacts / "object.glb").read_bytes().startswith(b"glTF")  # evidence untouched
 
 
 def test_rejected_texture_pass_is_not_delivered_or_linked(fake_run):
@@ -171,64 +158,12 @@ def test_rejected_texture_pass_is_not_delivered_or_linked(fake_run):
     assert "textured glb" in {ln.label for ln in entry.links}
 
 
-# --------------------------------------------------------------------------- migration
-def test_migrate_run_is_additive_and_idempotent(tmp_path: Path):
-    ws, _ = old_layout_run(tmp_path)
-    evidence_before = sorted(p.relative_to(ws.root).as_posix() for p in ws.artifacts.rglob("*"))
-    src_before = (ws.src / "model.py").read_bytes()
-
-    plan = migrate_run(ws, dry_run=True)
-    assert plan.status == MIGRATED and plan.layout
-    assert not ws.deliverable.exists() and not ws.telemetry.exists()
-
-    first = migrate_run(ws)
-    assert first.status == MIGRATED and first.record_updated
-    assert ws.deliverable.is_dir() and ws.cost_path.is_file() and ws.evidence.is_symlink()
-    record = load_record(ws)
-    assert record.deliverable is not None and record.telemetry is not None
-
-    before = ws.record_path.read_bytes()
-    second = migrate_run(ws)
-    assert second.status == UP_TO_DATE and not second.record_updated
-    assert ws.record_path.read_bytes() == before
-    # nothing was moved or deleted
-    assert sorted(p.relative_to(ws.root).as_posix() for p in ws.artifacts.rglob("*")) == evidence_before
-    assert (ws.src / "model.py").read_bytes() == src_before
-
-
-def test_migrate_runs_batch_and_partial_runs(tmp_path: Path):
-    runs = tmp_path / "runs"
-    ws_a, _ = make_fake_run(runs, "run_a")
-    strip_layout(ws_a)
-    ws_b, _ = make_fake_run(runs, "run_b")
-    strip_layout(ws_b)
-    ws_b.record_path.unlink()  # interrupted run: layout only, no packaging
-    (runs / "not_a_run").mkdir()
-    rep = migrate_runs(runs)
-    assert rep.n_runs == 2 and rep.n_failed == 0  # not_a_run has no spec.json
-    by_run = {Path(m.run).name: m for m in rep.runs}
-    assert by_run["run_a"].deliverable_files and by_run["run_a"].telemetry_rows is not None
-    assert by_run["run_b"].status == MIGRATED and "record.json" in by_run["run_b"].reason
-    assert (ws_b.telemetry).is_dir() and not (ws_b.deliverable / "manifest.json").exists()
-    assert migrate_runs(runs).n_migrated == 0
-
-
-def test_migrate_runs_cli(tmp_path: Path):
-    ws, _ = old_layout_run(tmp_path)
-    r = runner.invoke(app, ["migrate-runs", str(ws.root.parent), "--dry-run"])
-    assert r.exit_code == 0 and "would migrate" in r.output
-    assert not ws.deliverable.exists()
-    r = runner.invoke(app, ["migrate-runs", str(ws.root)])  # a single run directory works too
-    assert r.exit_code == 0 and "migrated" in r.output
-    assert ws.deliverable_manifest_path.is_file()
-
-
 # --------------------------------------------------------------------------- show
 def _show(slug: str, runs_dir: Path, *args: str):
     return runner.invoke(app, ["show", slug, "--runs-dir", str(runs_dir), *args])
 
 
-def test_show_prints_three_separated_sections(fake_run):
+def test_show_sections_and_status_share_the_packaged_run(fake_run):
     ws, rec = fake_run
     package_run(ws, rec)
     r = _show(ws.root.name, ws.root.parent)
@@ -241,19 +176,12 @@ def test_show_prints_three_separated_sections(fake_run):
     assert "spent / budget" in out and "models per role" in out and "price table" in out
     assert "gemini-cli" in out and "generator" in out      # settings: model id per role
 
-
-def test_show_sections_can_be_selected(fake_run):
-    ws, rec = fake_run
-    package_run(ws, rec)
+    # A selected section stays isolated, and invalid selectors fail cleanly.
     r = _show(ws.root.name, ws.root.parent, "--section", "cost")
     assert r.exit_code == 0 and "COST & SETTINGS" in r.output and "DELIVERABLE" not in r.output
     assert _show(ws.root.name, ws.root.parent, "--section", "bogus").exit_code == 1
 
-
-def test_status_still_works_and_points_at_show(fake_run):
-    """`3dcv status` keeps its own (unchanged) output and links to the new view."""
-    ws, rec = fake_run
-    package_run(ws, rec)
+    # The legacy status view stays available and points to the richer view.
     ws.write_json(ws.record_path, rec)
     r = runner.invoke(app, ["status", ws.root.name, "--runs-dir", str(ws.root.parent)])
     assert r.exit_code == 0, r.output
@@ -293,7 +221,7 @@ def test_export_and_gallery_on_both_layouts(tmp_path: Path):
     assert n == 2 and "deliverable" in path.read_text()
     new_item = entry_from_record("runs", ws_new, load_record(ws_new))
     old_item = entry_from_record("runs", ws_old, load_record(ws_old))
-    assert new_item.cost_by_stage == {} or isinstance(new_item.cost_by_stage, dict)
+    assert new_item.cost_by_stage and old_item.cost_by_stage == {}
     new_links = {ln.label: ln.rel for ln in new_item.links}
     old_links = {ln.label: ln.rel for ln in old_item.links}
     assert old_links["glb"] == "artifacts/object.glb"
@@ -311,12 +239,3 @@ def test_export_falls_back_to_the_packaged_snapshot_without_git(tmp_path: Path):
     meta = json.loads(next((tmp_path / "ds").rglob("meta.json")).read_text())
     assert meta["code_source"] == "deliverable"
     assert (next((tmp_path / "ds").rglob("meta.json")).parent / "src" / "model.py").is_file()
-
-
-def test_load_helpers_fall_back_to_files_then_none(fake_run):
-    ws, rec = fake_run
-    assert load_telemetry(ws, rec) is None and load_deliverable(ws, rec) is None
-    package_run(ws, rec)
-    bare = load_record(ws)  # record.json on disk has no blocks yet (package_run only mutates in memory)
-    assert bare.telemetry is None
-    assert load_telemetry(ws, bare) is not None and load_deliverable(ws, bare) is not None

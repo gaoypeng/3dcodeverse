@@ -251,7 +251,7 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
     inner_track = fake_run_track(0.9)
 
     def run_track(spec, ws, resume):  # the harness run spends inside its own ledger
-        bill("api-agent:baseline:t0")
+        bill("baseline")
         return inner_track(spec, ws, resume)
 
     deps = _deps(ev, {"claude-code": FakeBackend(["```python\n" + GOOD.format(score=0.6) + "```"])}, run_track)
@@ -262,7 +262,7 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
     assert len(rows) == 2
     cells = {r.arm: Path(r.workspace) for r in rows}
     harness = cells["harness:gemini-cli:gemini-3.6-flash"]
-    assert [r.label for r in load_ledger(harness / "run")] == ["api-agent:baseline:t0"]
+    assert [r.label for r in load_ledger(harness / "run")] == ["baseline"]
     assert [r.label for r in load_ledger(harness)] == ["judge:static_object_v1:r00:s0"]
     oneshot = cells["oneshot:claude-code"]
     assert not (oneshot / "run").exists()

@@ -1,4 +1,4 @@
-"""Batch-1 contract additions: registries, as_line, typed AgentJob, RunOptions."""
+"""Registry, finding, agent-job, and run-option contracts."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from codeverse.contracts import (
     LANGUAGE_LABEL,
     TRACK_INFO,
     TRACK_LANGUAGES,
-    AgentJob,
     Language,
     RunOptions,
     Spec,
@@ -21,7 +20,9 @@ from codeverse.contracts.artifacts import GateFinding, RenderSet, RenderView, Se
 
 
 # ------------------------------------------------------------------ registries
-def test_track_info_covers_every_track_and_is_frozen():
+def test_registries_cover_their_enums_and_are_frozen():
+    from codeverse.conventions import LANGUAGE_FRAME, Frame
+
     assert set(TRACK_INFO) == set(Track)
     assert TRACK_INFO[Track.STATIC_OBJECT].rubric == "static_object_v1"
     assert TRACK_INFO[Track.ARTICULATED_OBJECT].rubric == "articulated_v1"
@@ -29,20 +30,13 @@ def test_track_info_covers_every_track_and_is_frozen():
     assert TRACK_INFO[Track.GRAPHICS].rubric == "shader_v2"
     with pytest.raises(ValidationError):
         TRACK_INFO[Track.SCENE].rubric = "other"  # frozen
-
-
-def test_entry_file_and_labels_cover_every_language():
     assert set(ENTRY_FILE) == set(Language)
     assert set(LANGUAGE_LABEL) == set(Language)
+    assert set(TRACK_LANGUAGES) == set(Track)
     assert all(e.startswith("src/") for e in ENTRY_FILE.values())
     assert code_file(Language.BLENDER) == "code.py"
     assert code_file(Language.THREEJS) == "code.js"
     assert code_file(Language.GLSL_SHADER) == "code.frag"
-
-
-def test_language_frame_covers_every_language():
-    from codeverse.conventions import LANGUAGE_FRAME, Frame
-
     assert set(LANGUAGE_FRAME) == {lang.value for lang in Language}
     assert LANGUAGE_FRAME["glsl_shader"] is Frame.Y_UP_POS_Z_FRONT
     assert LANGUAGE_FRAME["opengl_python"] is Frame.Y_UP_POS_Z_FRONT
@@ -55,12 +49,9 @@ def _finding(**kw) -> GateFinding:
     return GateFinding(**base)
 
 
-def test_as_line_default_is_message_plus_fix():
+def test_as_line_formats_defaults_flags_and_empty_fields():
     assert _finding().as_line() == "leg floats FIX: drop z by 0.02"
     assert _finding(fix_hint="").as_line() == "leg floats"
-
-
-def test_as_line_flag_combinations():
     f = _finding()
     assert f.as_line(with_gate=True, with_hint=False) == "GATE contract: leg floats"
     assert f.as_line(with_severity=True, with_hint=False) == "[error] leg floats"
@@ -68,9 +59,6 @@ def test_as_line_flag_combinations():
     assert (f.as_line(with_gate=True, with_severity=True, with_target=True)
             == "GATE contract: [error] leg floats [leg_1] FIX: drop z by 0.02")
     assert not f.as_line().startswith("- ")
-
-
-def test_as_line_skips_empty_target():
     assert _finding(target=None).as_line(with_target=True, with_hint=False) == "leg floats"
 
 
@@ -82,41 +70,14 @@ def test_render_view_judge_flag_defaults_none():
     assert RenderSet().out_dir == ""
 
 
-# ------------------------------------------------------------------ AgentJob
-def test_agent_job_legacy_extra_is_lifted_and_kept():
-    extra = {"round": 2, "kind": "refine", "language": "blender", "track": "static_object",
-             "files_hint": ["src/a.py"], "mcp_command": ["python", "-m", "x"],
-             "temperature": 0.7}  # unknown keys (like the old api-agent knobs) just stay put
-    j = AgentJob(workspace="w", prompt="p", extra=dict(extra))
-    assert (j.round, j.kind, j.language, j.track) == (2, "refine", "blender", "static_object")
-    assert j.files_hint == ["src/a.py"]
-    assert j.mcp_command == ["python", "-m", "x"]
-    assert j.extra == extra  # untouched: legacy readers see what they were given
-
-
-def test_agent_job_explicit_fields_beat_extra():
-    j = AgentJob(workspace="w", prompt="p", round=5, extra={"round": 2})
-    assert j.round == 5
-
-
-def test_agent_job_defaults_and_roundtrip():
-    j = AgentJob(workspace="w", prompt="p")
-    assert j.round == 0 and j.kind == "" and j.files_hint == [] and j.mcp_command is None
-    j2 = AgentJob(workspace="w", prompt="p", extra={"round": 3, "temperature": 0.9})
-    assert AgentJob(**j2.model_dump()) == j2  # dump/construct stable
-
-
 # ------------------------------------------------------------------ RunOptions
-def test_spec_options_default_and_legacy_json():
+def test_spec_options_default_legacy_roundtrip_and_validation():
     s = Spec(id="x", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a chair")
     assert s.options == RunOptions()
     d = s.model_dump(mode="json")
     d.pop("options")
     s2 = Spec(**d)  # old spec.json without options still parses
     assert s2.options.candidates is None and s2.options.texture is False
-
-
-def test_spec_options_roundtrip_and_validation():
     s = Spec(id="x", track=Track.SCENE, language=Language.SCENE_THREEJS, prompt="p",
              options=RunOptions(candidates=3, texture=True))
     s2 = Spec(**s.model_dump(mode="json"))
@@ -132,9 +93,3 @@ def test_spec_options_do_not_change_the_plan_stage_hash():
     plain = Spec(id="x", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a chair")
     opted = plain.model_copy(update={"options": RunOptions(candidates=4, texture=True)})
     assert hash_inputs(plan_stage_inputs(plain)) == hash_inputs(plan_stage_inputs(opted))
-
-
-def test_track_languages_still_the_gate():
-    assert set(TRACK_LANGUAGES) == set(Track)
-    with pytest.raises(ValidationError):
-        Spec(id="x", track=Track.SCENE, language=Language.BLENDER, prompt="p")

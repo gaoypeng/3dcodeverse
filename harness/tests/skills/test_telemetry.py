@@ -18,7 +18,6 @@ from codeverse.skills.telemetry import (
     SKILLS_FILE,
     TELEMETRY_DIR,
     append_usage,
-    deep_read_rate,
     probe_reads,
 )
 from tests.skills.conftest import write_bundle
@@ -101,16 +100,6 @@ def test_usage_is_appended_as_one_json_line_per_session(ws, library):
     rows = [json.loads(x) for x in (ws / TELEMETRY_DIR / SKILLS_FILE).read_text().splitlines()]
     assert [r["round"] for r in rows] == [0, 1]
     assert rows[0]["listed"] == usage.listed and "index_tokens" in rows[0]
-
-
-def test_deep_read_rate_aggregates_across_sessions(ws, library):
-    got = _attach(ws, library)
-    a = probe_reads(ws, got)
-    _touch_read(ws / ".agents" / "skills" / got.listed[0] / "references" / "worked_example.md")
-    b = probe_reads(ws, got)
-    rates = deep_read_rate([a, b])
-    assert rates[got.listed[0]] == (1, 2)
-    assert rates[got.listed[1]] == (0, 2)
 
 
 def test_the_control_bundle_is_materialised_and_starts_unread(ws, library):

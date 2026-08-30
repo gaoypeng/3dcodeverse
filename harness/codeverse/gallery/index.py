@@ -21,6 +21,7 @@ from codeverse.flywheel.record import (
     RecordError,
     battery_label,
     best_round_index,
+    best_round_record,
     effective_judgment,
     find_run_dirs,
     is_run_dir,
@@ -58,14 +59,13 @@ def root_label(root: Path) -> str:
     return battery_label(Path(root))
 
 
-def _rel(run_dir: Path, path: Path | str | None) -> str:
-    """``path`` as a run-relative posix string, or ``""`` when it is outside the run."""
+def _rel(ws: Workspace, path: Path | str | None) -> str:
+    """``path`` (rebased into this workspace) as a run-relative posix string, or ``""``
+    when it is outside the run."""
     if not path:
         return ""
-    p = Path(path)
-    p = p if p.is_absolute() else run_dir / p
     try:
-        return p.resolve().relative_to(run_dir.resolve()).as_posix()
+        return ws.rebase(path).resolve().relative_to(ws.root.resolve()).as_posix()
     except (ValueError, OSError):
         return ""
 
@@ -80,7 +80,7 @@ def _first_file(run_dir: Path, *rels: str) -> str:
 def _round_sheet(ws: Workspace, rec: RunRecord, index: int) -> str:
     rnd = next((r for r in rec.rounds if r.index == index), None)
     if rnd is not None and rnd.renders is not None and rnd.renders.contact_sheet:
-        rel = _rel(ws.root, rnd.renders.contact_sheet)
+        rel = _rel(ws, rnd.renders.contact_sheet)
         if rel and (ws.root / rel).is_file():
             return rel
     return _first_file(ws.root, f"artifacts/renders/r{index:02d}/sheet.png")
@@ -105,13 +105,13 @@ def best_sheet(ws: Workspace, rec: RunRecord) -> str:
 HERO_PREFERENCE = ("front_right_34", "back_left_34", "low_front_left", "front")
 
 
-def hero_view(ws: Workspace, rec: RunRecord, best: int | None) -> tuple[str, str, int]:
+def hero_view(ws: Workspace, rec: RunRecord) -> tuple[str, str, int]:
     """``(rel, label, n_views)`` — the ONE image a card should show.
 
     A card that shows an 8-up contact sheet at 320 px shows eight unreadable
     thumbnails; one 320 px hero view is legible.  Costs a single ``is_file``
     beyond what the record already told us, so the index stays cheap."""
-    rnd = next((r for r in rec.rounds if r.index == best), None)
+    rnd = best_round_record(rec)
     if rnd is None or rnd.renders is None or not rnd.renders.views:
         return "", "", 0
     views = [v for v in rnd.renders.views if not v.name.startswith(("pose_", "articulation"))]
@@ -119,7 +119,7 @@ def hero_view(ws: Workspace, rec: RunRecord, best: int | None) -> tuple[str, str
         return "", "", 0
     by_name = {v.name: v for v in views}
     chosen = next((by_name[n] for n in HERO_PREFERENCE if n in by_name), views[0])
-    rel = _rel(ws.root, chosen.path)
+    rel = _rel(ws, chosen.path)
     if not rel or not (ws.root / rel).is_file():
         return "", "", len(views)
     return rel, humanize_view(chosen.name), len(views)
@@ -233,14 +233,14 @@ def entry_from_record(battery: str, ws: Workspace, rec: RunRecord, *, slug: str 
     ``slug`` is the RunId slug the scan minted; without one the directory basename is
     used (correct for flat layouts only — nested battery runs are all named ``run``)."""
     best = best_round_index(rec)
-    rnd = next((r for r in rec.rounds if r.index == best), None)
+    rnd = best_round_record(rec)
     j = effective_judgment(rnd) if rnd is not None else None
     gates = gate_error_summary(rnd)
     n_err = sum(gates.values())
     minutes = ((rec.finished_at - rec.started_at).total_seconds() / 60.0) if rec.finished_at else None
     digest = telemetry_digest(ws, rec)
     caps = rec.extra.get("captions") or {}
-    hero, hero_label, n_views = hero_view(ws, rec, best)
+    hero, hero_label, n_views = hero_view(ws, rec)
     plan = rec.plan
     cx_index, cx_band, cx_axes = _complexity(ws, rec)
     return RunEntry(

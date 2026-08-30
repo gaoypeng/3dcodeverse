@@ -9,7 +9,7 @@ gate reword breaks one golden test instead of silently unrouting a repair skill.
 classifies **actionable** findings only: INFO lines ("named objects: [...]") are census,
 not defects, and return ``None``.
 
-**ROUTES** — typed rows, evaluated by ``router.py``.  A row fires when ALL of its stated
+**ROUTES** — typed rows, evaluated by ``select()`` below.  A row fires when ALL of its stated
 conditions hold; ``priority`` decides who survives the cap, and every gate-fired row sits
 at >= 90 so a repair round spends its budget on what actually broke.
 

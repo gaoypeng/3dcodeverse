@@ -1,8 +1,11 @@
-"""What a round did with its skills — the record shape, kept in contracts with the rest.
+"""The run record — ``record.json`` — and everything stored inside it.
 
-Lives here rather than in ``codeverse/skills`` so ``contracts`` stays a leaf package that
-``flywheel``, ``gallery`` and the CLI can import without pulling the router in, and so a
-stored ``record.json`` can be re-read by a build that has no skill library at all.
+``RunRecord`` (rounds, totals, provenance: the flywheel unit), ``RunId`` (where a run
+sits in a runs dir or a battery), the per-round skills usage, and the packaged
+``telemetry/`` + ``deliverable/`` blocks.  The skills shapes live here rather than in
+``codeverse/skills`` so ``contracts`` stays a leaf that ``flywheel``, ``gallery`` and the
+CLI import without the router, and a stored record re-reads on a build with no skill
+library at all.
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ class SkillRead(BaseModel):
     deep: bool = Field(default=False, description="a references/*.md atime > mtime: the body was read and followed")
     deep_measurable: bool = Field(default=True, description="False when the bundle ships no references/ file to probe")
     body_tokens: int = 0
-    first_seen_turn: int | None = Field(default=None, description="historical (pre-2026-08-28) api-agent runs only: exact turn of the first read")
+    first_seen_turn: int | None = Field(default=None, description="HISTORICAL, read-only: only the api-agent (deleted 2026-08-28) knew the exact turn of the first read; CLI agents leave it None")
     reason: str = Field(default="", description="which route attached it, and which finding")
 
 
@@ -197,7 +200,7 @@ class RoleSettings(BaseModel):
 
     role: str
     model: str = ""
-    backend: str = Field(default="", description="gemini | anthropic | api-agent | gemini-cli | codex | …")
+    backend: str = Field(default="", description="gemini | anthropic | gemini-cli | codex | … (api-agent only in records written before 2026-08-28)")
     thinking: str = Field(default="", description="off | low | medium | high; '' = not recorded")
     temperature: float | None = None
     n_samples: int | None = Field(default=None, description="judge samples per verdict")

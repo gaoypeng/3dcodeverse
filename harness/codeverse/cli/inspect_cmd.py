@@ -7,7 +7,7 @@ graphics-track frame copy, and the ``judge`` re-judge that writes
 ``artifacts/judge/rNN_cli.json``.  Its sibling ``cli/main.py`` owns the typer app,
 ``make`` / ``resume`` (spec building + track dispatch), ``mcp`` and the registration
 of every command — including these three, which it registers with ``app.command``
-like ``layout_cmd.py``'s ``show`` / ``migrate-runs``.
+like ``layout_cmd.py``'s ``show``.
 """
 
 from __future__ import annotations
@@ -19,15 +19,11 @@ from typing import Annotated
 import typer
 
 from codeverse.cli import _common as C
-from codeverse.cli._common import console, kv_table, print_record_summary, warn
+from codeverse.cli._common import RunsDirOpt, console, kv_table, print_record_summary, warn
 from codeverse.config import get_settings
 from codeverse.contracts.common import Track
 from codeverse.contracts.spec import Spec
 from codeverse.proc import read_json_or_none
-
-RunsDirOpt = Annotated[
-    Path | None, typer.Option("--runs-dir", help="runs root (default: settings.runs_dir)")
-]
 
 
 # --------------------------------------------------------------------------- status

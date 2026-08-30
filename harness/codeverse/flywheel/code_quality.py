@@ -316,7 +316,8 @@ def measure(files: Mapping[str, bytes | str]) -> CodeQuality | None:
 
 def code_quality_block(ws: Any, record: Any) -> dict[str, Any] | None:
     """``record.extra["code_quality"]`` for the BEST round's code tree, or None."""
-    from codeverse.flywheel.sample import best_round_record, code_files_for_round
+    from codeverse.flywheel.record import best_round_record
+    from codeverse.flywheel.sample import code_files_for_round
 
     try:
         rnd = best_round_record(record)

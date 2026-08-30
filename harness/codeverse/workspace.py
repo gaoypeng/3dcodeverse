@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -164,11 +164,6 @@ class Workspace:
         return self.root / DELIVERABLE_DIR
 
     @property
-    def evidence(self) -> Path:
-        """(b) renders / gates / judge / measurements — the alias name for ``artifacts/``."""
-        return self.root / EVIDENCE_DIR
-
-    @property
     def telemetry(self) -> Path:
         """(c) cost ledger, per-call usage rows, resolved settings, stages, trajectories."""
         return self.root / TELEMETRY_DIR
@@ -286,7 +281,7 @@ class Workspace:
 
         Use as a context manager for the full stage-then-promote lifecycle, or
         call ``.invalidate()`` on the returned stage for a bare wipe of the
-        canonical names (the ``remove_stale`` replacement)."""
+        canonical names (a bare wipe, no staging)."""
         return ArtifactStage(self, names)
 
     def read_json(self, path: Path) -> dict[str, Any]:
@@ -369,15 +364,6 @@ class Workspace:
             self._git("commit", "-q", "-m", message, "--allow-empty")
             return self._git("rev-parse", "HEAD").stdout.strip()
 
-    @contextlib.contextmanager
-    def git_transaction(self) -> Iterator[None]:
-        """Hold this workspace's git lock across SEVERAL calls (re-entrant).
-
-        For a caller whose unit spans methods — read the diff, then restore from it —
-        where a sibling commit in between would make the second act on stale facts."""
-        with self._lock:
-            yield
-
     def head(self) -> str:
         return self._git("rev-parse", "HEAD").stdout.strip()
 
@@ -438,16 +424,6 @@ class Workspace:
             return
         self._git("checkout", "-q", commit, "--", *paths)
 
-    def diff(self, a: str, b: str = "HEAD") -> str:
-        self._sanitise_git_config()
-        return self._git("diff", a, b, "--", "src", "public").stdout
-
-    def snapshot_src(self, dest: Path) -> None:
-        """Copy src/ (raw code only) to ``dest`` — used by the flywheel exporter."""
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.copytree(self.src, dest, ignore=shutil.ignore_patterns("node_modules", "__pycache__"))
-
 
 class ArtifactStage:
     """Stage-then-promote lifecycle for a fixed set of canonical ``artifacts/`` names.
@@ -471,7 +447,7 @@ class ArtifactStage:
     * exit without promote **discards** the staging directory — canonical stays absent.
 
     ``invalidate()`` also works standalone (no ``with``) as the one-call
-    replacement for ``languages._common.remove_stale`` + ``shutil.rmtree``.
+    replacement for wiping the canonical names by hand with ``shutil.rmtree``.
 
     Directory promotion (``meshes/``) is NOT atomic: the old dir is renamed away
     (parked inside the staging dir), the new one renamed in, then the parked copy

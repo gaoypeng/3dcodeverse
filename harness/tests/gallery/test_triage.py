@@ -101,7 +101,7 @@ def test_hero_falls_back_to_the_sheet_when_a_round_has_no_views(tmp_path: Path):
     ws, rec = make_fake_run(tmp_path / "runs", "noviews")
     for rnd in rec.rounds:
         rnd.renders = None
-    assert hero_view(ws, rec, rec.best_round) == ("", "", 0)
+    assert hero_view(ws, rec) == ("", "", 0)
 
 
 # --------------------------------------------------------------------------- labels

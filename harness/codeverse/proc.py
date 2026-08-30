@@ -7,8 +7,6 @@ tolerant JSON / JSONL readers every "best effort" side-car consumer needs.  Peer
 of ``workspace.py``; stdlib-only — imports nothing from ``codeverse`` so wrappers,
 spatial helpers and agents can all use it without layering back-edges.
 
-``languages/_common.py`` currently carries the same helpers for its runtime
-callers; it will become a re-export of this module.
 """
 
 from __future__ import annotations
@@ -16,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import fcntl
+import hashlib
 import json
 import logging
 import os
@@ -27,9 +26,9 @@ from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Any, TypeVar
+from typing import IO, Any
 
 
 @dataclass(frozen=True)
@@ -169,7 +168,7 @@ class ManagedProcess:
     """A ``Popen`` in its own session whose process group cannot outlive the ``with`` block.
 
     The shared lifecycle core under :func:`run_subprocess` and
-    ``agents.watchdog.run_with_watchdog`` (which keep their public signatures):
+    ``agents/cli_common.run_with_watchdog`` (which keep their public signatures):
 
     * binary pipes + two pump threads feeding a :class:`_BoundedSink` per stream
       (:data:`STREAM_BUDGET_BYTES` each, decoded utf-8 ``errors="replace"``);
@@ -347,9 +346,8 @@ class ManagedProcess:
 
 
 # ------------------------------------------------------------------ env scrubbing
-#: COPY of the credential patterns in ``agents/cli_common.is_secret_env`` (its sibling —
-#: keep the two in sync; tests/core/test_proc.py pins them together).  Duplicated because
-#: proc.py imports nothing from ``codeverse``: the agents package sits above this layer.
+#: The ONE owner of the credential patterns: ``agents/cli_common.is_secret_env`` delegates
+#: here (tests/core/test_proc.py pins the two together).
 _SECRET_EXACT: frozenset[str] = frozenset({
     "GEMINI_API_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
     "OPENAI_ORG_ID", "HF_TOKEN", "HUGGINGFACE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN",
@@ -380,6 +378,30 @@ def tail(text: str, *, max_lines: int = 40, max_chars: int = 4000) -> str:
     lines = text.splitlines()[-max_lines:]
     s = "\n".join(lines)
     return s[-max_chars:] if len(s) > max_chars else s
+
+
+def sha256_file(path: Path | str) -> str:
+    """Chunked sha256 of one file — for manifests / caches keyed on content."""
+    h = hashlib.sha256()
+    with Path(path).open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def version_line(cmd: Sequence[str], *, timeout: float) -> tuple[int | None, str]:
+    """``(returncode, first output line)`` of a ``--version``-style probe.
+
+    ``returncode`` is None when the binary could not be run at all (missing, timed out)
+    and the line then says why; an empty line means the probe printed nothing."""
+    try:
+        p = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        return None, f"timed out after {timeout:g}s"
+    except OSError as e:
+        return None, str(e)
+    out = (p.stdout or p.stderr).strip().splitlines()
+    return p.returncode, (out[0].strip() if out else "")
 
 
 def unique_tmp(path: Path) -> Path:
@@ -434,7 +456,7 @@ def read_json_or_none(path: Path | str, *, errors: str | None = None) -> dict[st
     copies in ``flywheel/telemetry.read_json``, ``bench/complexity_report._read_json``,
     ``gallery/index._measurement_complexity`` / ``_spec_fields``,
     ``cli/inspect_cmd._best_round_of_record``, ``runlock._holder``,
-    ``languages/threejs/lint._load_plan``, ``cost/reconstruct._read_json``,
+    ``languages/threejs/__init__.py``'s plan loader, ``cost/reconstruct._read_json``,
     ``spatial/_render_common.read_json`` and ``cli/_judge.plan_summary_for`` — all
     the same algorithm, differing only in whether they also checked ``isinstance(dict)``
     (which every caller then relied on anyway).  Strict readers that must raise on
@@ -649,21 +671,6 @@ def exclusive(run_root: Path | str, *, what: str = "", action: str = "enter") ->
 
 # ===================================================================== fanout
 
-T = TypeVar("T")
-R = TypeVar("R")
-
-
-@dataclass
-class FanOutReport:
-    """Timing/outcome per item, for events and logs."""
-
-    label: str
-    n_items: int
-    n_ok: int
-    n_failed: int
-    durations_s: list[float] = field(default_factory=list)
-    total_s: float = 0.0
-
 
 def _in_caller_context(snapshot: contextvars.Context, fn: Callable[[int], None], i: int) -> None:
     """Run ``fn(i)`` with the values the caller's context held at fan-out time.
@@ -707,7 +714,6 @@ def fan_out[T, R](
         return results
     workers = max(1, min(max_workers, len(items)))
     t_all = time.time()
-    durations = [0.0] * len(items)
 
     def _run(i: int) -> None:
         item = items[i]
@@ -719,7 +725,6 @@ def fan_out[T, R](
             out = e
             log.warning("%s[%s] failed: %s: %s", label, name, type(e).__name__, e)
         dt = time.time() - t0
-        durations[i] = dt
         results[i] = out
         log.info("%s[%s] done in %.1fs (%s)", label, name, dt, "error" if isinstance(out, Exception) else "ok")
         if on_done is not None:
@@ -734,15 +739,5 @@ def fan_out[T, R](
                           range(len(items))))
 
     n_failed = sum(1 for r in results if isinstance(r, Exception))
-    report = FanOutReport(label, len(items), len(items) - n_failed, n_failed, durations, time.time() - t_all)
-    log.info("%s: %d/%d ok in %.1fs", label, report.n_ok, report.n_items, report.total_s)
+    log.info("%s: %d/%d ok in %.1fs", label, len(items) - n_failed, len(items), time.time() - t_all)
     return results
-
-
-def split_results[R](results: Sequence[R | Exception]) -> tuple[list[R], list[Exception]]:
-    """Separate successes from failures (order preserved within each list)."""
-    ok: list[R] = []
-    bad: list[Exception] = []
-    for r in results:
-        (bad if isinstance(r, Exception) else ok).append(r)  # type: ignore[arg-type]
-    return ok, bad

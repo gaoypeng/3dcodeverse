@@ -1,4 +1,6 @@
-"""Rich formatting for the CLI: run summaries, tables, observations, doctor rows."""
+"""Shared CLI plumbing: Rich formatting (run summaries, tables, observations, doctor
+rows), the run-mutation mutex, workspace opening / creation, lazy imports and the
+cost-quality dial resolution every command goes through."""
 
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
@@ -25,6 +27,8 @@ from codeverse.workspace import Workspace
 
 console = Console(emoji=False)
 err_console = Console(stderr=True, style="bold red", emoji=False)
+
+RunsDirOpt = Annotated[Path | None, typer.Option("--runs-dir", help="runs root (default: settings.runs_dir)")]
 
 
 def err(msg: str) -> None:
@@ -75,7 +79,9 @@ def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None
         lines.append(f"[red]error: {record.error}[/red]")
     if ws_root is not None:
         lines.append(f"workspace: {ws_root}")
-        best = next((r for r in record.rounds if r.index == record.best_round), None)
+        from codeverse.flywheel.record import best_round_record
+
+        best = best_round_record(record)
         if best is not None and best.renders is not None and best.renders.contact_sheet:
             # rebase, never print the stored string: record.json holds the ABSOLUTE path
             # of the host that produced the run, so a moved/archived run printed a sheet
@@ -311,37 +317,15 @@ def round_policy_options(spec: Spec, settings: Any | None = None) -> dict[str, A
 
     Only the judge sample count needs a ``RoundPolicy`` (rounds travel on
     ``spec.budget``, best-of-N on ``spec.options``), so a run at the default
-    ``n=1`` gets **no** policy and keeps the track's own — including the
-    rubric-derived stop target that ``BaseTrack.after_plan`` binds when no policy
-    was injected.  When a profile does ask for more samples we bind that target
-    here instead, from the same rubric the track will use."""
+    ``n=1`` gets **no** policy and keeps the track's own.  The rubric stop target
+    and the detail-round budget are bound by ``BaseTrack`` for an injected policy
+    too, so nothing else is set here."""
     settings = settings or get_settings()
     samples = int(getattr(settings.judge, "samples", 1) or 1)
     if samples <= 1:
         return {}
-    from dataclasses import replace
-
     from codeverse.orchestrator import RoundPolicy
 
-    policy = RoundPolicy(max_rounds=spec.budget.max_rounds, judge_samples=samples)
-    threshold = rubric_threshold(spec)
-    if threshold is not None:
-        policy = replace(policy, target=float(threshold))
-    return {"policy": policy}
+    return {"policy": RoundPolicy(max_rounds=spec.budget.max_rounds, judge_samples=samples)}
 
 
-def rubric_threshold(spec: Spec) -> float | None:
-    """Pass threshold of the rubric this spec will be judged with (``None`` when
-    the rubric cannot be loaded — the caller then keeps the policy default)."""
-    try:
-        from codeverse.contracts.common import Track
-        from codeverse.judges.rubrics import load_rubric
-        from codeverse.tracks import get_track
-        from codeverse.tracks.lifecycle import REFERENCE_RUBRIC
-
-        # same selection rule as BaseTrack.build_context
-        name = (REFERENCE_RUBRIC if spec.references and spec.track is Track.STATIC_OBJECT
-                else get_track(spec.track).rubric)
-        return float(load_rubric(name).pass_threshold)
-    except Exception:  # noqa: BLE001 - a missing rubric must not stop a run
-        return None

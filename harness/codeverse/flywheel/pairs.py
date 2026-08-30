@@ -32,7 +32,8 @@ from typing import Any
 from codeverse.contracts.run import RoundRecord, RunRecord
 from codeverse.flywheel import _git
 from codeverse.flywheel.quality import prompt_hash
-from codeverse.flywheel.record import effective_judgment, iter_runs
+from codeverse.flywheel.record import best_round_record, effective_judgment, iter_runs
+from codeverse.proc import read_jsonl_lenient
 from codeverse.workspace import Workspace
 
 __all__ = ["build_pairs", "preference_pairs", "repair_pairs", "in_round_repair_pairs",
@@ -147,15 +148,8 @@ def repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> l
 
 def _round_build_errors(ws: Workspace, index: int) -> list[str]:
     """Failing ``build.done`` error messages of one round, from events.jsonl."""
-    p = ws.events_path
-    if not p.is_file():
-        return []
     out: list[str] = []
-    for line in p.read_text(errors="replace").splitlines():
-        try:
-            ev = json.loads(line)
-        except ValueError:
-            continue
+    for ev in read_jsonl_lenient(ws.events_path, dicts_only=True):
         if ev.get("event") == "build.done" and ev.get("round") == index and ev.get("ok") is False:
             msg = str(ev.get("error") or "").strip()
             if msg:
@@ -215,7 +209,7 @@ def cross_backend_pairs(
             continue
         cands = []
         for ws, rec, slug in runs:
-            best = next((r for r in rec.rounds if r.index == rec.best_round), None)
+            best = best_round_record(rec)
             if best is None or effective_judgment(best) is None:  # unjudged or degraded verdict
                 continue
             cands.append((ws, rec, slug, best))

@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -115,20 +114,4 @@ def append_usage(ws_root: Path, usage: SkillsUsage, **context: Any) -> Path | No
         return None
 
 
-def deep_read_rate(usages: Sequence[SkillsUsage]) -> dict[str, tuple[int, int]]:
-    """skill → (deep reads, times listed) across sessions — the metric with the teeth.
-
-    Standing rule from the design: a skill under 20% over 20 sessions is merged or
-    deleted.  A library that only ever grows is how this ends as bloat."""
-    out: dict[str, list[int]] = {}
-    for u in usages:
-        for name in u.listed:
-            out.setdefault(name, [0, 0])[1] += 1
-        for r in u.reads:
-            if r.deep:
-                out.setdefault(r.name, [0, 0])[0] += 1
-    return {k: (v[0], v[1]) for k, v in sorted(out.items())}
-
-
-__all__ = ["ATIME_EPSILON_S", "SKILLS_FILE", "TELEMETRY_DIR", "append_usage",
-           "deep_read_rate", "probe_reads"]
+__all__ = ["ATIME_EPSILON_S", "SKILLS_FILE", "TELEMETRY_DIR", "append_usage", "probe_reads"]

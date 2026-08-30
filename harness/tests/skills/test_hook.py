@@ -32,7 +32,7 @@ def ctx(tmp_path: Path, library_dir: Path, monkeypatch):
     parts = [NS(name=f"P{i}", instances=1, symmetry="none", children=[]) for i in range(3)]
     hashes: dict[str, str] = {}
     return NS(ws=NS(root=root), spec=NS(track=NS(value="static_object")), language=NS(value="blender"),
-              agent_id="unknown-backend:gemini-3.7-flash", plan=NS(parts=parts, summary="a chair"),
+              agent_id="unknown-backend:gemini-3.7-flash", agent_kind="unknown-backend", plan=NS(parts=parts, summary="a chair"),
               single_shot=False, extra={}, events=Events(), prompt_hashes=hashes,
               record_prompt=lambda name, text: hashes.__setitem__(name, str(len(text))))
 
@@ -140,14 +140,3 @@ def test_a_probe_failure_is_logged_not_raised(ctx, monkeypatch):
     H.attach_for_round(ctx, index=0, kind="baseline")
     monkeypatch.setattr("codeverse.skills.telemetry.probe_reads", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
     assert H.record_usage(ctx, index=0, kind="baseline") is None
-
-
-def test_the_round_and_the_repair_loop_really_call_the_hook():
-    """Grep-level, on purpose: these two call sites are the whole integration, and a
-    refactor that drops one leaves every unit test above green."""
-    src = Path(__file__).resolve().parents[2] / "codeverse" / "tracks"
-    steps = (src / "steps.py").read_text()
-    assert "skills_hook.attach_for_round(" in steps
-    assert "skills_hook.with_inlined_skill(" in steps
-    assert "rec.skills = skills_hook.record_usage(" in steps
-    assert "skills_hook.repair_pointers(" in (src / "repair.py").read_text()

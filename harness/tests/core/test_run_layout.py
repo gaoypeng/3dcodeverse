@@ -9,15 +9,16 @@ from pathlib import Path
 
 from codeverse.contracts.run import RunDeliverable, RunRecord, RunTelemetry
 from codeverse.contracts.spec import Spec
-from codeverse.workspace import LAYOUT_ALIASES, Workspace
+from codeverse.workspace import EVIDENCE_DIR, LAYOUT_ALIASES, Workspace
 
 
 def test_create_makes_the_three_buckets(tmp_path: Path):
     ws = Workspace(tmp_path / "run").create()
     assert ws.deliverable.is_dir() and ws.telemetry.is_dir() and ws.artifacts.is_dir()
     # evidence/ is the alias, artifacts/ the physical home (see docs/RUN_LAYOUT.md)
-    assert ws.evidence.is_symlink() and os.readlink(ws.evidence) == "artifacts"
-    assert ws.evidence.resolve() == ws.artifacts.resolve()
+    evidence = ws.root / EVIDENCE_DIR
+    assert evidence.is_symlink() and os.readlink(evidence) == "artifacts"
+    assert evidence.resolve() == ws.artifacts.resolve()
     assert ws.cost_path.parent == ws.telemetry and ws.usage_path.name == "usage.jsonl"
 
 
@@ -83,8 +84,7 @@ def test_record_blocks_are_additive(tmp_path: Path):
 
 # --------------------------------------------------------------------------- relocation
 def _moved_run(tmp_path: Path):
-    """A run written at A/run1 with one contact sheet, then MOVED to B/run1 — the SMOKE2
-    shape.  Returns ``(old root, new root, the stored sheet path, a record naming it)``."""
+    """Create a record whose absolute sheet path predates a workspace move."""
     import shutil
 
     from codeverse.contracts.artifacts import RenderSet
@@ -121,17 +121,7 @@ def _captured(render) -> str:
 
 
 def test_a_relocated_run_still_resolves_its_stored_paths(tmp_path):
-    """SMOKE2: record.json stores ABSOLUTE host paths (29 per run — rounds[].renders[]
-    .path, contact_sheet, build.glb_path, build.extra_paths, census exports — plus
-    run_state.stages[].result_path), so archiving, moving or rsyncing a run silently
-    broke every consumer that trusted them.  `3dcv show` printed a contact sheet at the
-    OLD location, which did not exist, while the real one sat under the new root;
-    object.glb kept resolving because it is recomputed from the workspace, which made
-    the breakage partial and therefore silent.
-
-    The intended repair, _judge.resolve_paths, only rebased paths for which
-    ``Path(p).is_absolute()`` was False — a no-op against every record the harness itself
-    writes — and _fmt, which is what show/status actually use, never called it at all."""
+    """Stored absolute paths rebase after moving or archiving a run."""
     from codeverse.workspace import Workspace
 
     _a, b, sheet_a, _rec = _moved_run(tmp_path)
@@ -166,13 +156,7 @@ def test_show_prints_the_sheet_that_exists_after_a_move(tmp_path):
 
 
 def test_a_stale_index_lock_names_the_remedy(tmp_path):
-    """CP-7: a run killed mid-commit leaves .git/index.lock behind, and every subsequent
-    `3dcv resume <slug>` then failed with the bare line "Command '['git', 'add', '-A']'
-    returned non-zero exit status 128".  git's own explanation sat unread in e.stderr:
-    CalledProcessError.__str__ drops it and cli/main.py prints only
-    "run failed: {type(e).__name__}: {e}".  The 4-try/1.2 s retry loop is built for a
-    LIVE holder and can never clear a stale lock, so the failure repeated forever with
-    no clue and no named remedy."""
+    """A stale git index lock is surfaced with its exact safe remedy."""
     import subprocess
 
     import pytest
@@ -198,10 +182,7 @@ def test_a_stale_index_lock_names_the_remedy(tmp_path):
 
 
 def test_a_planted_git_hook_or_filter_never_runs_on_a_commit(tmp_path):
-    """The workspace is agent-writable, and ``_git`` used to set HOME=<ws> — so
-    ws/.gitconfig WAS git's global config.  Four repro-confirmed vectors executed with
-    harness privileges on ws.commit(): .git/hooks/pre-commit, a global core.hooksPath, a
-    global filter.*.clean + .gitattributes, and a LOCAL filter.*.clean (audit 2026-08-27)."""
+    """Agent-writable hooks and clean filters never execute with harness privileges."""
     ws = Workspace(tmp_path / "run").create()
     fired = tmp_path / "fired"
     shell = f"#!/bin/sh\necho x >> {fired}\n"
@@ -230,12 +211,7 @@ def test_a_planted_git_hook_or_filter_never_runs_on_a_commit(tmp_path):
 
 
 def test_show_itself_prints_the_relocated_sheet_not_the_stored_one(tmp_path):
-    """Sign-off follow-up to SMOKE2.  The reported command was `3dcv show`, but the fix
-    landed in ``cli/_fmt.py`` (which backs `3dcv status`) — ``cli/layout_cmd.py``'s
-    print_evidence still assigned ``rows["contact sheet"] = rnd.renders.contact_sheet``,
-    the raw stored ABSOLUTE path, so `3dcv show` on a moved run still printed a sheet
-    under the original root while ``object.glb`` beside it resolved correctly.  Verified
-    on the real e2e_chair_blender run before this line existed."""
+    """The actual ``show`` command also rebases its displayed contact sheet."""
     from codeverse.cli.layout_cmd import print_evidence
     from codeverse.workspace import Workspace
 

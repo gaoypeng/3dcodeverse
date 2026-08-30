@@ -13,7 +13,7 @@ import pytest
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel import _git
 from codeverse.flywheel.export import export_samples
-from codeverse.flywheel.index import build_index, round_curve, summary, top_runs
+from codeverse.flywheel.index import build_index, summary
 from codeverse.flywheel.pack import pack_samples, verify_locators
 from codeverse.flywheel.pairs import build_pairs
 from codeverse.flywheel.quality import (
@@ -225,8 +225,6 @@ def test_build_index_and_queries(runs_dir: Path, tmp_path: Path):
     con.close()
     s = summary(db)
     assert {r["language"] for r in s} == {"blender", "threejs"}
-    assert top_runs(db, 1)[0]["slug"] == "wooden_chair_ab12cd34"
-    assert [r["score"] for r in round_curve(db, "wooden_chair_ab12cd34")] == [0.55, 0.80]
     assert isinstance(load_record(Workspace(runs_dir / "lamp_three")), RunRecord)
 
 
@@ -371,42 +369,26 @@ def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
     assert not (sdir2 / "textures").exists()
 
 
-def test_a_battery_dir_is_discovered_rather_than_reported_as_zero_runs(tmp_path):
-    """CP-6: pointing an exporter at `bench/out/<battery>` used to report "runs 0,
-    exported 0" as a SUCCESS.  The old guard only fired when `<root>/runs` existed —
-    true for the run_bench layout, FALSE for compare_backends (cells/<id>/<arm>/run) and
-    ab_plan (arms/<arm>/cells/<id>/<slug>/run), i.e. exactly today's batteries.  All
-    three layouts are now discovered instead."""
-    from codeverse.flywheel.record import find_run_dirs
+def test_battery_layouts_are_discovered_by_flywheel_and_gallery(tmp_path):
+    """All three battery layouts resolve runs; eval siblings never become gallery runs."""
+    from codeverse.flywheel.record import find_run_dirs, iter_runs
+    from codeverse.gallery.index import scan_root
 
     battery = tmp_path / "static_v2_flash"          # run_bench: runs/<id>
     (battery / "runs" / "some_run").mkdir(parents=True)
     (battery / "runs" / "some_run" / "record.json").write_text("{}")
     assert [d.name for d in find_run_dirs(battery)] == ["some_run"]
 
-    cmp_bat = tmp_path / "compare_v2"               # compare_backends: cells/<id>/<arm>/run
-    cell = cmp_bat / "cells" / "cmp_med_chair" / "harness_api-agent" / "run"
-    cell.mkdir(parents=True)
-    (cell / "record.json").write_text("{}")
-    assert find_run_dirs(cmp_bat) == [cell]
-
-    ab = tmp_path / "ab_aa_noise"                   # ab_plan: arms/<arm>/cells/<id>/<slug>/run
-    for arm in ("control", "variant"):
-        d = ab / "arms" / arm / "cells" / "ctrl_med_chair" / "harness_api-agent" / "run"
-        d.mkdir(parents=True)
-        (d / "record.json").write_text("{}")
-    assert len(find_run_dirs(ab)) == 2
-
-
-def test_a_gallery_of_a_battery_dir_is_not_a_gallery_of_zero_runs(tmp_path):
-    """CP-6, the other half: gallery/index.scan_root did a single `root.iterdir()`, so
-    `3dcv gallery build bench/out/<ab battery>` printed "gallery of 0 runs" and exit 0.
-
-    A nested run is gated on record.json — the same rule as flywheel.record.is_run_dir.
-    The cell's sibling ``eval/`` judge workspace only has a spec.json and used to be
-    counted as a phantom run; it must not appear.  The entry is named by its RunId slug,
-    not the degenerate directory basename ``run``."""
-    from codeverse.gallery.index import scan_root
+    compare = tmp_path / "compare_v3"               # compare_backends: cells/<id>/<arm>/run
+    for pid in ("p0", "p1"):
+        for arm in ("harness_codex", "oneshot_gemini"):
+            run = compare / "cells" / pid / arm / "run"
+            run.mkdir(parents=True)
+            (run / "record.json").write_text("{}")
+    assert len(find_run_dirs(compare)) == 4
+    invalid: list[str] = []
+    list(iter_runs(compare, on_error=lambda d, e: invalid.append(d.name)))
+    assert len(invalid) == 4, "every cell is reached; these stub records are invalid, not absent"
 
     ab = tmp_path / "ab_aa_noise"
     cell = ab / "arms" / "control" / "cells" / "ctrl_med_chair" / "harness_api-agent"
@@ -414,15 +396,12 @@ def test_a_gallery_of_a_battery_dir_is_not_a_gallery_of_zero_runs(tmp_path):
     (cell / "run" / "record.json").write_text("{}")
     (cell / "eval").mkdir()
     (cell / "eval" / "spec.json").write_text("{}")
+    assert find_run_dirs(ab) == [cell / "run"]
     section = scan_root(ab)
     assert [e.slug for e in section.entries] == ["control__ctrl_med_chair__harness_api-agent"]
 
 
-def test_an_empty_battery_dir_still_refuses_to_look_like_an_empty_dataset(tmp_path):
-    """A battery directory with the layout but no records is the case the anti-silence
-    guard is still for — it must raise, not export nothing and exit 0."""
-    import pytest
-
+def test_empty_run_roots_distinguish_a_failed_battery_from_legitimate_empty_input(tmp_path):
     from codeverse.flywheel.record import iter_runs
 
     battery = tmp_path / "compare_empty"
@@ -430,45 +409,7 @@ def test_an_empty_battery_dir_still_refuses_to_look_like_an_empty_dataset(tmp_pa
     with pytest.raises(FileNotFoundError, match=r"looks like a battery directory"):
         list(iter_runs(battery))
 
-
-def test_a_compare_or_ab_battery_dir_is_exported_not_refused(tmp_path):
-    """RS-8 / CP-6, the two reports of one defect.  The original guard only knew the
-    runs/ layout, so for compare_backends (``cells/<prompt>/<arm>/run``) and ab_plan
-    (``arms/<arm>/cells/<prompt>/<slug>/run``) — the drivers that produced today's
-    compare_v3 and A-B batteries — pointing an exporter at the battery reported
-    n_runs=0 as a SUCCESS and wrote an empty metadata.parquet.
-
-    Sign-off note: two waves fixed this, one by raising a loud hint and one by
-    discovering the runs.  Discovery wins and subsumes the hint — every other battery
-    reader (``3dcv cost --runs-dir``) already accepts a battery root, so refusing here
-    would have been the only command that did not.  The anti-silence guard is kept for
-    the case discovery cannot rescue: a battery-SHAPED directory holding no records
-    (``test_an_empty_battery_dir_still_refuses_to_look_like_an_empty_dataset``)."""
-    from codeverse.flywheel.record import find_run_dirs, iter_runs
-
-    compare = tmp_path / "compare_v3"
-    for pid in ("p0", "p1"):
-        for arm in ("harness_codex", "oneshot_gemini"):
-            run = compare / "cells" / pid / arm / "run"
-            run.mkdir(parents=True)
-            (run / "record.json").write_text("{}")
-    assert len(find_run_dirs(compare)) == 4
-    seen: list[str] = []
-    list(iter_runs(compare, on_error=lambda d, e: seen.append(d.name)))  # must not raise
-    assert len(seen) == 4, "every cell is reached; these stub records are invalid, not absent"
-
-    ab = tmp_path / "ab_plan_v1"
-    deep = ab / "arms" / "control" / "cells" / "p0" / "stool_ab12" / "run"
-    deep.mkdir(parents=True)
-    (deep / "record.json").write_text("{}")
-    assert find_run_dirs(ab) == [deep]
-
-
-def test_a_genuinely_empty_runs_root_is_still_just_empty(tmp_path):
-    """The hint fires only when a run really does exist below — an empty runs root, and
-    a tree of directories holding no record.json at all, are legitimate empty results."""
-    from codeverse.flywheel.record import iter_runs
-
+    # Plain empty inputs are valid and stay quiet.
     empty = tmp_path / "runs"
     empty.mkdir()
     assert list(iter_runs(empty)) == []
@@ -479,11 +420,7 @@ def test_a_genuinely_empty_runs_root_is_still_just_empty(tmp_path):
 
 
 def test_parquet_keeps_the_complexity_columns_the_exporter_writes(tmp_path):
-    """RS-9: ``pa.Table.from_pylist(rows, schema=...)`` DROPS any key the schema does not
-    name, without a warning.  ``row_for_sample`` fills complexity / complexity_band,
-    metadata.jsonl keeps them and the module docstring lists them among the parquet's
-    queryable extras — but parquet_schema() had no such fields, so every query of the
-    shipped dataset (STORAGE_RULES §4) by complexity band silently returned nothing."""
+    """The fixed Arrow schema preserves exported complexity columns."""
     import pyarrow.parquet as pq
 
     from codeverse.flywheel.export import parquet_schema, write_parquet
@@ -500,12 +437,7 @@ def test_parquet_keeps_the_complexity_columns_the_exporter_writes(tmp_path):
 
 
 def test_a_core_only_install_still_gets_a_complete_dataset(runs_dir: Path, tmp_path: Path, monkeypatch):
-    """PORT-5: `3dcv flywheel export` (no --pack) called write_parquet unconditionally,
-    so on an install without the optional `flywheel` extra it died with a raw
-    ModuleNotFoundError AFTER writing every sample folder — a partial dataset with no
-    index of any kind.  docs/INSTALL.md §4 scopes pyarrow to the extra and promises the
-    harness only raises when the named feature is used, so a plain export must degrade:
-    metadata.jsonl always, metadata.parquet only when pyarrow is importable."""
+    """Core installs always export JSONL and make parquet optional."""
     import builtins
 
     real_import = builtins.__import__
@@ -528,8 +460,7 @@ def test_a_core_only_install_still_gets_a_complete_dataset(runs_dir: Path, tmp_p
 
 
 def test_pack_refuses_before_writing_anything_when_pyarrow_is_missing(runs_dir: Path, tmp_path: Path, monkeypatch):
-    """--pack genuinely needs pyarrow (pack.py reads the index back with pq.read_table),
-    so it must say so BEFORE the first sample is written, not after a few hundred."""
+    """Packing refuses before writing when its optional dependency is absent."""
     import builtins
 
     from typer.testing import CliRunner
