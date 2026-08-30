@@ -174,6 +174,7 @@ codeverse/
                       common.py (RunContext, Services), static_object.py (+ the detail round and the
                       reference-image gates), articulated_object.py (+ the planned-motion gate),
                       scene.py, scene_assets.py (+ cheap single-shot asset generation),
+                      zone_layout.py (L2 zone director: per-zone structured layout calls + deterministic validator),
                       graphics.py (the whole graphics track: planner hooks, prompt context, frame
                       RenderSet, and recipe seeding into the harness-owned, read-only
                       src/recipes.glsl — measured: flash calls a recipe on disk, not one it is
@@ -339,9 +340,20 @@ crops at ≤ 1024 px, shuffled per sample.  The wire schema is **observe-then-sc
 (summary, strengths, issues, **defect checklist**, acceptance *before* criteria) —
 criteria-first measurably compressed flash to 0.6–0.7.  Every rubric carries binary
 `defects` (id/text/penalty/cap); defect and acceptance votes are majority (an exact
-tie — even `n_samples` only — follows the representative sample, D36) and
-`overall = caps(weighted_mean − Σ penalties)`.  Floors, deterministic caps from gate
-findings (`data["kind"]`), console errors, missing must-acceptance and
+tie — even `n_samples` only — reads as absent for a defect and follows the
+representative sample for an acceptance item, D36 as amended 2026-08-30) and
+`overall = caps(weighted_mean − Σ penalties)`.  On the static track the judge's structure
+facts come from the connectivity gate's **contact ledger** (2026-08-30): `gates_section`
+renders one measured overlap line instead of the per-pair "interpenetrate by ≈d mm"
+WARN prose (1 254 such sentences on 241 stored rounds → 0), a MEASURED STRUCTURE block
+(parts / contacts / floating / deepest overlap, the plan's PLANNED JOINS as contact or
+OPEN with the gap, the lowest point above the floor) and a CONNECTIVITY PASSED paragraph
+that also forbids the interpenetration checklist claim.  It is rendered from the stored
+`GateReport`, so `3dcv judge <slug>` and calibration see exactly what the in-run judge
+saw, and a round recorded before the ledger existed renders byte-identical to before
+(`ObjectPipeline.judge_context` stays empty on purpose — one source).  Floors,
+deterministic caps from gate findings (`data["kind"]`), console errors, missing
+must-acceptance and
 `missing_views` rules apply on top; degraded verdicts are glitches, not scores.
 `PairwiseJudge` (position-swapped, tie on disagreement) also ranks N candidates via
 `compare_many`; `ReferenceJudge` for image-conditioned specs.

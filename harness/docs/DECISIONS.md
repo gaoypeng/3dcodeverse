@@ -198,7 +198,13 @@ written) that were accepted because the code works that way and the tests pin it
   overall is closest to the mean — already the narrative source); ids decided this
   way are listed in `ScoreBreakdown.tie_broken`; `VlmJudge` warns on an even n.
   Consequence: P(item flagged) at n=2 equals n=1's while the continuous scores still
-  average over both samples; odd n is unchanged.
+  average over both samples; odd n is unchanged.  **Amended 2026-08-30 for DEFECTS only:**
+  an exact defect tie now reads as ABSENT.  The representative is whichever sample's
+  overall sits nearer the mean — a float comparison, not evidence — and a 1-1 tie on a
+  defect that caps the run at 0.7 was therefore a coin flip; the rubric already puts the
+  burden on the defect ("present only when an image or a gate finding shows it").
+  Acceptance ties still follow the representative: a must-item tie decides pass/fail, and
+  that policy stays the owner's.  Moves nothing on disk (419/419 stored verdicts are n=1).
 * **D37 The judge protocol is hashed (2026-08-25).**  Context: only the rubric YAML was
   hashed; the role prompt, the view-rig rules and the wire schema (whose field order
   IS the observe-then-score protocol — EVAL.md §6 measured σ 0.01 → 0.08 when it
@@ -338,6 +344,74 @@ written) that were accepted because the code works that way and the tests pin it
   exist; 677 symlinks), and `FakeImageModel` → `tests/texturing/conftest.py`.
   Also fixed: `kind="detail"` files as `Stage.REFINE`, `Stage.ASSEMBLE` maps to the generator
   role, and pairwise books `Stage.PAIRWISE` instead of hiding in the judge bucket.
+
+* **D46 The judge is grounded in what the gates measure (2026-08-30).**  Context: a 7-study
+  audit of 420 judged static_object rounds.  The judge did not SEE interpenetration, it READ the
+  connectivity gate's text — P(flag | gate ERROR) = 69/69, 110 of 237 flags citing only WARNs the
+  rubric excuses, a coin flip (117/97) where the gate was silent; the measured-absent veto had
+  fired for it 0 times (cap rule `penetration_error`, defect `interpenetration`, matched on id)
+  and an unrelated failing gate switched it off for floating too (53/62 blocked cases, mostly
+  the invented-plan contract); one unverified must-item pinned 121/424 verdicts to a flat 0.600;
+  and the gate itself was blind where a thin member's tip is a small share of a large part's
+  surface (`PENETRATION_MIN_FRACTION`, a telescope spreader 4 mm into three legs at 0.7–1.0 % of
+  600 samples).  Decisions, each measured offline on the stored corpus before it shipped
+  (`bench/rejudge_offline.py`, 419 verdicts, $0):
+  (a) **`CapRule.measures`** names the checklist defect a gate rule is the measurement of, and the
+  object rubrics' `floating_part` / `penetration_error` watch `connectivity` only.  The veto is
+  depth-aware: a penetration WARN measured at `VETO_PENETRATION_DEPTH_M` (5 mm) or deeper is not
+  "measured absent" — of the 163 claims a WARN-blind veto switched off, 79 sat on a 5 mm+ overlap
+  (median 4.8 mm), and since (d) a stile 17 mm through a seat is a WARN too.  Replayed with (b):
+  213 verdicts move (0 down), mean +0.078, pass 15.0 % → 19.3 %, pearson(gate errors, overall)
+  −0.219 → −0.291, vetoed on replay: interpenetration 93, floating 72.  articulated_v1 keeps
+  `gate: "*"` — no single gate owns either measurement there (joint_sweep + connectivity).
+  `Rubric.content_hash` hashes what the YAML declares, not the model's defaults, so a schema field
+  (`measures`, `graded`) never re-keys recorded verdicts of an unchanged rubric.
+  (b) **The acceptance cap is graded**: `cap + (1 − cap) · verified/total` must items.  Pass/fail
+  unchanged (`must_missing` still fails).  Without it 98 of the rounds (a) frees are re-pinned to
+  0.600 by the flat cap; with it the 0.600 spike falls 130 → 19.
+  (c) **A defect vote tie is absent** (D36 amended); acceptance ties unchanged.  `SCORING_VERSION`
+  = 2 is stamped on every breakdown; the replay tool holds identity only to same-version verdicts.
+  (d) **The gate measures overlap where it is**: a dense pass on the AABB-overlap region, a
+  `local_fraction` trigger beside the global one, and a `through_ratio` (2·depth / thickness of
+  the part entered).  The ratio is MEASURED AND NAMED, never a severity: a 0.9 ERROR line was
+  tried and flipped 9 runs of designed joinery (a boom 5 mm into a mast at 0.96, arch stretchers
+  in 8 mm ribs at 0.91–0.97) because the number saturates at the container's mid-plane.  Severity
+  stays on depth — and ERROR keeps its old meaning, deep AND a visible share of the part
+  (`PENETRATION_MIN_FRACTION`): a deep overlap only the dense pass can see (a chair's rear stile
+  17 mm through its seat, 1 % of either surface) is a WARN with every number, because ERROR by
+  depth alone flipped 27 runs of such joinery pass→fail on a cap the eye cannot confirm.  Final
+  corpus re-run over 217 GLBs: 441 pairs newly WARN, 0 newly ERROR, 50 WARN→ERROR (pairs the old
+  gate already reported, now measured 9.4 → 11.3 mm), 14 runs whose gate now fails; median gate
+  time 344 → 378 ms, p90 1381 → 1085 ms.
+  (e) **The contact ledger is kept**: one INFO finding (`data.kind = "ledger"`) per report with every
+  contact's gap, every overlap down to sub-threshold welds, the ground gap per part, and the plan's
+  `attach_to` pairs measured regardless of the AABB prefilter (CONTACT / OPEN).  One resolver,
+  `spatial.contract.planned_joins`: a child is offered against EVERY parent copy its box touches
+  and the gate keeps what the exact distances say (each CONTACT row, else the nearest) — resolving
+  the tie by list order printed "OPEN: Brace_1→Leg_0" for a join the plan never meant, and
+  reducing per child hid a second, genuinely open one.  An open planned join is reported, not
+  failed — that policy is the owner's.
+  (f) **Orientation is measured** in the contract gate: an extents-permutation test in the plan
+  frame (lying / stood → ERROR, turned → WARN), 0 flags over 629 corpus measurements, fires on
+  brilliana's c-clamp and gate-valve.  Facing-away and upside-down are not visible to an AABB.
+  (g) **World frames are composed by walking the graph's edge matrices**: trimesh 4.12 left a
+  scene-root `pivot` rotation out of its descendants and re-parented a renamed duplicate node, so
+  brilliana's three THREE-exported h2h sides measured lying on their side; a GLB with
+  duplicate / unnamed nodes now lands a finding.  Our own exporters name every node uniquely
+  (0 of 14 recorded threejs GLBs differ).
+  (h) **The judge reads the ledger, not WARN prose**: `gates_section` renders one measured
+  overlap line, a MEASURED STRUCTURE block with the plan's joins as contact / OPEN, and the
+  lowest point above the floor — from the stored `GateReport`, so `3dcv judge` and calibration
+  see what the in-run judge saw, and a pre-ledger round renders byte-identical (1 254
+  "interpenetrate by ≈d mm" sentences on 241 stored rounds → 0; 171 rounds carry an OPEN
+  planned join).  It rides on the v1 `judge_prompt_hash` — per-run text is not hashed — so its
+  effect is measured by a paired re-judge, never by replay.
+  (i) **`VlmJudge(fixed_order=True)`** and `calibration --fixed-order`: the per-sample shuffle
+  measures view-order robustness; the loop's σ-keyed stops need the model's re-judge noise.
+  Measured on 53 items × 3 ($7.79): σ 0.035 mean / 0.027 median / 0.060 p90 — the magnitude
+  `JUDGE_NOISE` already tables, so the corpus's 0.072 round-to-round spread is generation, not
+  the judge.  Rejected on the way: a through-ratio ERROR line (d), and a per-part ground gap
+  for every part (a shade is legitimately 400 mm off the floor).
 
 ## Rejected / deferred
 
