@@ -636,3 +636,46 @@ day), not in judge prose.  Flash stays a ranking/fallback judge; pro stays the v
 Two calibration-tool defects found the same day (colliding `run` labels overwriting judgment
 files; old records whose stored overall contradicts their own criterion scores) are fixed in
 `judges/calibration.py` and flagged in its report.
+
+### 2026-08-30 — scene stack iteration: five levers, four batteries, one honest ledger
+
+**Cross-project baseline (renders-only, our `scene_v1`, one judge):** scene_multifile_graphics
+mean **0.433** (n=29, max 0.936, six runs ≥ 0.7) vs our pre-iteration scenes **0.272**
+(n=24, max 0.516, zero ≥ 0.7).  Every number below is the same six ToD-explicit briefs at a
+110-minute window unless noted; per-brief deltas at n=1 carry judge noise σ≈0.4 — only arm
+means and mechanism evidence are read.
+
+**Levers landed** (each commit message carries the measured motivation):
+env-skeleton lint ERROR (251d099); boot-time settle (35168da) + slope-conformal guard
+(e71221a); assets ∥ env (1ddea7f); plan-aware contract gates (1bdfd32); L2 zone layouts
+(beb6605) + camera clearance (58da6b3) + `CV3D_ZONE_LAYOUTS` switch (020316d); opt-in camera
+repair (0365fef, `CV3D_CAMERA_REPAIR=1`); opt-in auto-exposure (78d397c,
+`CV3D_AUTO_EXPOSURE=1`).
+
+**Longitudinal arms:**
+
+| arm | config | vs prior arm |
+|---|---|---|
+| t36 | 3.6-flash, new ToD prompt | mean 0.483 (its own 75-min baseline was 0.259) |
+| s37 | 3.7-flash + settle | Δ+0.029 vs t36 (n=6, 4W2L; nyc_dusk 0.718 = first `passed`) |
+| fv  | + camera-BLIND layouts + gates + ∥ | Δ−0.161 vs s37 (n=4, 0W3L1T) |
+| fv2 | camera-AWARE layouts | Δ−0.036 vs s37 (n=5, 1W4L; izakaya **0.758 passed, best scene ever**) |
+
+**Settle A/B** (re-render six finished workspaces, only variable = settle): 3W2L, mean
++0.063 — inconclusive at n=1, but the mechanism evidence is decisive: the slope guard cut
+santorini's moves 17 → 3 (six hillside stairways, once lifted +1.3..+3.3 m and judged 0.0,
+now refused), and small uniform reseats (+0.06..0.26 m) are what the wins are made of.
+
+**Layout-layer anatomy** (why fv regressed, three distinct modes): camera-blindness — the
+director placed BarCounter 0.7 m from a lens, three rounds of camera_in_geometry, FIXED by
+putting cameras in the layout prompt + validator; internal overlap — RetainingWall ×
+PrayerBench interpenetration, OPEN (a naive pairwise-distance rule false-positives on
+legitimate adjacency like stools against a counter); richness variance with no caps at all.
+Contract-gate lifecycle verified end to end on fv_nyc_dusk: r0 `missing_content: 2` → the
+refine round fixed both → final round clean, settle moved nothing, 0.724 passed.
+
+**Standing verdict:** the layout layer is net ≈ null after the camera fix and stays ON
+(one-var off-switch exists); camera repair + auto-exposure ride in `scene_px_v1`
+(vs fv2 same-brief = their isolated read, in flight).  The honest gap to the baseline
+project is no longer the mean — it is the ceiling (their 0.936 vs our 0.758) and the
+floor (their 6 runs ≥ 0.7 vs our 2).\n
