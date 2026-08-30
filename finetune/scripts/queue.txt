@@ -12,3 +12,6 @@ noise_profile|bash scripts/run_noise_profile.sh
 27b_mm_eval|bash scripts/run_27b_mm_eval.sh
 bal9b|bash scripts/run_9b_balanced.sh
 stopdpo_train|bash scripts/run_stop_dpo_train.sh
+best_dual|bash scripts/run_best_dual_decode.sh
+27b_dual|bash scripts/run_27b_dual_decode.sh
+stopdpo_r2|bash scripts/run_stop_dpo.sh
