@@ -9,11 +9,9 @@ from codeverse.texturing.generate import (
     SEAM_MAX,
     fit_size,
     make_tileable,
-    offset_check,
     procedural_texture,
     save_texture,
     seam_score,
-    tile_preview,
 )
 
 
@@ -52,5 +50,3 @@ def test_fit_size_save_and_helpers(tmp_path):
     assert p.is_file() and Image.open(p).format == "JPEG"
     p2 = save_texture(sq, tmp_path / "t.png")
     assert Image.open(p2).format == "PNG"
-    assert offset_check(sq).size == sq.size
-    assert tile_preview(sq, reps=2, size=64).size == (64, 64)

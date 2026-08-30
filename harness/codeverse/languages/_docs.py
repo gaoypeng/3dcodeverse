@@ -16,26 +16,16 @@ for a fact is a second answer, which is what law 2 exists to prevent.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from codeverse.contracts.common import Language
-from codeverse.prompts import PROMPTS_DIR, load_text
-from codeverse.prompts.catalog import PROMPT_DIRS as _PROMPT_DIRS
-from codeverse.prompts.catalog import prompt_dir_for as _prompt_dir_for
-
-#: re-exported for the callers that already import it from here; the mapping itself
-#: now lives with the rest of the prompt-resolution policy in prompts/catalog.py.
-PROMPT_DIRS = _PROMPT_DIRS
+from codeverse.prompts import load_text
+from codeverse.prompts.catalog import prompt_dir_for
 
 #: only reachable if the wheel shipped without its prompt data
 MINIMAL_CONTRACT = "Write raw code in the language's native frame; meters; named parts."
 
 
-prompt_dir_for = _prompt_dir_for
-
-
 class RuntimeDocs:
-    """``contract_doc`` / ``cookbook_path`` for every ``LanguageRuntime``."""
+    """``contract_doc`` for every ``LanguageRuntime``."""
 
     language: Language
 
@@ -48,6 +38,3 @@ class RuntimeDocs:
             return load_text(f"{self.prompt_dir}/contract.md")
         except FileNotFoundError:
             return MINIMAL_CONTRACT
-
-    def cookbook_path(self) -> Path:
-        return PROMPTS_DIR / self.prompt_dir / "cookbook.md"

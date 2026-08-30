@@ -134,6 +134,10 @@ def to_pascal(name: str) -> str:
     return "".join(w[:1].upper() + w[1:] for w in to_snake(name).split("_") if w) or "Part"
 
 
+#: a part / assembly name as the contracts require it: ``SeatCushion``, instances ``SeatCushion_3``
+PASCAL_RE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)*(?:_\d+)?$")
+
+
 def slugify(text: str, max_len: int = 48) -> str:
     """Filesystem/URL-safe slug for run directories."""
     s = to_snake(text)[:max_len].strip("_")

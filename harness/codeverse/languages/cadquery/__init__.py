@@ -13,18 +13,18 @@ from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import PartPlan, Plan, StaticPlan
-from codeverse.conventions import MAX_TRIS_OBJECT, to_pascal, to_snake
-from codeverse.languages._ast_lint import (  # noqa: F401 — dotted re-exported
+from codeverse.conventions import MAX_TRIS_OBJECT, PASCAL_RE, to_pascal, to_snake
+from codeverse.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
     check_imports,
     describe_parse_failure,
     dotted,
     safe_parse,
 )
-from codeverse.languages._common import compose_build_result, run_subprocess
+from codeverse.languages._common import MISSING_ENTRY, compose_build_result
 from codeverse.languages._docs import RuntimeDocs
 from codeverse.languages.blender import finish_for, instance_centers
-from codeverse.proc import scrub_secrets
+from codeverse.proc import run_subprocess, scrub_secrets
 from codeverse.workspace import Workspace
 
 # ===================================================================== lint
@@ -48,9 +48,6 @@ FORBIDDEN_CALLS: tuple[tuple[str, str], ...] = (
 )
 FORBIDDEN_METHODS = {"save": "no .save()/.export() on the assembly — the harness exports", "export": "no .export() — the harness exports",
                      "exportStep": "no export calls", "exportStl": "no export calls", "exportSvg": "no export calls"}
-PASCAL_RE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)*(?:_\d+)?$")
-
-
 RADIAN_CONSTS = {"pi", "tau"}
 TO_RADIANS_FUNCS = {"radians", "deg2rad"}
 TO_DEGREES_FUNCS = {"degrees", "rad2deg"}
@@ -373,7 +370,7 @@ class CadQueryRuntime(RuntimeDocs):
         ws.stage_artifacts("build.json", "census.json", "object.glb", "object.step", "object.stl").invalidate()
         entry = self.entry_file(ws)
         if not entry.is_file():
-            result = BuildResult(ok=False, language=self.language.value, error_type="MissingEntryFile",
+            result = BuildResult(ok=False, language=self.language.value, error_type=MISSING_ENTRY,
                                  error_message="src/model.py does not exist", error_file="src/model.py")
             ws.write_json(build_json, result)
             return result

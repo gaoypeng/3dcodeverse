@@ -1,4 +1,5 @@
-"""JSON-schema adapters for the three providers + a fence-tolerant JSON parser.
+"""JSON-schema adapters for the three providers, a fence-tolerant JSON parser and
+``ask_structured`` (one schema-validated call → object | None, usage, error).
 
 Pydantic v2 emits ``$defs``/``$ref``, ``title``, ``default``, ``const``,
 ``prefixItems`` (tuples), ``anyOf [.., {"type":"null"}]`` and so on.  Each
@@ -24,7 +25,14 @@ from __future__ import annotations
 import copy
 import json
 import re
+from collections.abc import Sequence
 from typing import Any
+
+from pydantic import BaseModel, ValidationError
+
+from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
+from codeverse.contracts.common import Usage
+from codeverse.models.base import ModelError
 
 # keys Gemini's Schema type rejects or ignores
 _GEMINI_DROP = {
@@ -355,3 +363,30 @@ def parse_json_lenient(text: str) -> Any:
                 except json.JSONDecodeError:
                     pass
     raise JsonParseError(f"no JSON value found: {last_err} — head={s[:120]!r}")
+
+
+def ask_structured(model: Any, schema: type[BaseModel], *, system: str, text: str,
+                   images: Sequence[ImagePart] = (), temperature: float,
+                   label: str) -> tuple[Any, Usage, str]:
+    """One structured call → ``(validated object | None, usage, error)``.
+
+    Five callers (reference gate / image-prompt plan / mismatch diff, the texture
+    material plan and the scene texture pack) built the same ChatRequest
+    (thinking="low", the 65 536 ceiling, the 900 s wait), caught the same two failure
+    families and parsed the same two ways.  They differ only in what they RETURN on
+    failure, which is why this hands the error back rather than raising or deciding.
+    Not for callers that need the failed call's own ``Usage`` or separate parse
+    errors from call errors (``judges.pairwise``, ``tracks.planner``).
+    """
+    req = ChatRequest(messages=[ChatMessage.user(text, images=list(images) or None)], system=system,
+                      response_schema=schema.model_json_schema(), temperature=temperature,
+                      thinking="low", max_output_tokens=65_536, max_wait_s=900.0, label=label)
+    try:
+        resp = model.generate(req)
+    except ModelError as e:
+        return None, Usage(), f"call failed: {e}"
+    payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
+    try:
+        return schema.model_validate(payload), resp.usage, ""
+    except (ValidationError, TypeError) as e:
+        return None, resp.usage, f"answer unparsable: {e}"

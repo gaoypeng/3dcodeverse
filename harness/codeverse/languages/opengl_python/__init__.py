@@ -15,6 +15,7 @@ from codeverse.languages._ast_lint import (
     describe_parse_failure,
     safe_parse,
 )
+from codeverse.languages._common import MISSING_ENTRY
 from codeverse.languages._docs import RuntimeDocs
 from codeverse.languages._gl_common import (
     finish_build,
@@ -336,20 +337,12 @@ def write_skeleton(ws: Workspace, plan: Plan | None) -> list[Path]:
 
 
 # ===================================================================== runtime
-CONTRACT_FALLBACK = """src/program.py — raw moderngl program: `def setup(ctx, width, height) -> state` (programs, VAOs, textures,
-FBOs; GLSL 330 core inline strings) and `def render(ctx, state, t, frame, fbo)` (draw the frame at time t into the given,
-already bound framebuffer; multi-pass via your own FBOs, finish with fbo.use()).  No window, no context creation, no clock,
-no file IO (except src/*.glsl next to program.py).  Imports: moderngl, numpy, math, random, struct, array, pathlib."""
-
-
 class OpenGLPythonRuntime(RuntimeDocs):
     language = Language.OPENGL_PYTHON
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.OPENGL_PYTHON], "src/*.glsl")
 
     def __init__(self, *, host: GlHost | None = None):
         self._host = host
-
-    # ------------------------------------------------------------------ contract
 
     # ------------------------------------------------------------------ skeleton / lint
     def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:
@@ -365,10 +358,10 @@ class OpenGLPythonRuntime(RuntimeDocs):
     def build(self, ws: Workspace, *, timeout_s: int | None = None, times: list[float] | None = None,
               preview: bool = True, width: int | None = None, height: int | None = None) -> BuildResult:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
-        invalidate_stale_outputs(ws)  # BEFORE the MissingEntry return, so it also clears
+        invalidate_stale_outputs(ws)  # BEFORE the MISSING_ENTRY return, so it also clears
         program = ws.root / PROGRAM
         if not program.is_file():
-            res = GlResult(ok=False, mode="program", stage="lint", error_type="MissingEntry", error_message=f"{PROGRAM} is missing")
+            res = GlResult(ok=False, mode="program", stage="lint", error_type=MISSING_ENTRY, error_message=f"{PROGRAM} is missing")
             return finish_build(ws, res, language=self.language.value, error_file=PROGRAM)
         plan = load_plan(ws)
         w, h = resolution_for(plan)

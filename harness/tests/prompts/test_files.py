@@ -9,26 +9,17 @@ from tests.prompts.conftest import PROMPT_FILES, PROMPTS_DIR, read_prompt
 
 
 @pytest.mark.parametrize("rel", PROMPT_FILES)
-def test_file_exists_and_nonempty(rel: str) -> None:
+def test_prompt_file_contract(rel: str) -> None:
     p = PROMPTS_DIR / rel
     assert p.is_file(), f"missing prompt file {rel}"
     assert len(p.read_text()) > 500, f"{rel} suspiciously small"
-
-
-@pytest.mark.parametrize("rel", PROMPT_FILES)
-def test_loads_and_renders(rel: str) -> None:
     raw = load_text(rel)
     assert prompt_hash(raw)
     # markdown prompts must be jinja-inert: render() with no context must be a no-op
     rendered = render(rel)
     assert rendered == raw, f"{rel} contains live jinja syntax; keep prompt .md files static"
-
-
-@pytest.mark.parametrize("rel", PROMPT_FILES)
-def test_jinja_safe(rel: str) -> None:
-    text = read_prompt(rel)
     for seq in ("{{", "{%", "{#"):
-        assert seq not in text, f"{rel} contains {seq!r} which breaks jinja rendering"
+        assert seq not in raw, f"{rel} contains {seq!r} which breaks jinja rendering"
 
 
 @pytest.mark.parametrize(
@@ -91,7 +82,7 @@ def test_every_language_ships_a_system_prompt() -> None:
     A missing file here means a language silently falls back to nothing.
     """
     from codeverse.contracts.common import Language
-    from codeverse.languages._docs import prompt_dir_for
+    from codeverse.prompts.catalog import prompt_dir_for
     from codeverse.tracks.prompting import language_system_prompt
 
     for lang in Language:

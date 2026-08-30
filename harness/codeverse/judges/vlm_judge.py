@@ -5,8 +5,8 @@ Per sample: one ``ChatRequest`` with a per-rubric JSON schema (criteria scored
 plan, acceptance verdicts); samples differ by montage/tile order (shuffle seed)
 so n-sample mean/std measures judge noise.  With ``n_samples > 1`` the model
 calls run in parallel (``codeverse.proc``); results accumulate in sample order.  Score/defect penalties/floors/caps
-/pass are computed in code (``scoring.py``).  Images are ≤2×2 montages
-(``montage.py``); tracks may pass a clay/normals ``geometry_views`` RenderSet.  Retries: up to
+/pass are computed in code (``rubrics.aggregate_samples``).  Images are ≤2×2 montages
+(``prompt_builder``); tracks may pass a clay/normals ``JudgeInput.geometry_views`` RenderSet.  Retries: up to
 ``max_attempts`` per sample on ``ModelError`` / parse failure, all of them inside one
 ``sample_budget_s`` (:data:`SAMPLE_BUDGET_S`) that also clips the model's own retry
 deadline (``ChatRequest.max_wait_s``); if no sample
@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from codeverse.config import get_settings
-from codeverse.contracts.artifacts import Judgment, RenderSet, RenderView
+from codeverse.contracts.artifacts import Judgment, RenderView
 from codeverse.contracts.chat import ChatRequest, ChatResponse
 from codeverse.contracts.common import Usage
 from codeverse.judges.base import JudgeInput
@@ -64,6 +64,9 @@ class JudgeContext:
     measured_scores: dict[str, float] = field(default_factory=dict)
     extra_text: str = ""
     extra_images: list[tuple[str, str]] = field(default_factory=list)
+    #: what building the context cost (ReferenceJudge's mismatch pass is a real model
+    #: call); folded into the verdict so BudgetGuard and record.total_usage see it
+    usage: Usage = field(default_factory=Usage)
 
 
 class VlmJudge:
@@ -93,7 +96,7 @@ class VlmJudge:
         self.n_samples = max(1, int(n_samples))
         if self.n_samples % 2 == 0:
             log.warning("judge n_samples=%d is even: exact vote ties on defects / acceptance items are decided by the "
-                        "representative sample (scoring.py); an odd n gives a true majority", self.n_samples)
+                        "representative sample (rubrics.aggregate_samples); an odd n gives a true majority", self.n_samples)
         self.temperature = temperature
         self.thinking = thinking
         self.max_attempts = max(1, int(max_attempts))
@@ -123,20 +126,15 @@ class VlmJudge:
         return self._model
 
     # ------------------------------------------------------------------ API
-    def judge(self, inp: JudgeInput, *, geometry_views: RenderSet | None = None) -> Judgment:
-        """Judge one round.
-
-        ``geometry_views``: optional clay/normals RenderSet for the geometry montage
-        (falls back to ``inp.geometry_views`` if the input model carries that field;
-        clay/normals views embedded in ``inp.renders`` by ``RenderView.mode`` are
-        always routed to the geometry montage).
-        """
-        geometry_views = geometry_views or getattr(inp, "geometry_views", None)
+    def judge(self, inp: JudgeInput) -> Judgment:
+        """Judge one round.  ``inp.geometry_views`` feeds the geometry montage (clay/normals
+        views embedded in ``inp.renders`` by ``RenderView.mode`` are always routed there too)."""
+        geometry_views = inp.geometry_views
         acceptance_ids = [a.id for a in inp.acceptance]
         schema = wire_schema(self.rubric, acceptance_ids)
         ctx = self.context(inp)
         measured, extra_text, extra_images = ctx.measured_scores, ctx.extra_text, ctx.extra_images
-        usage = Usage()
+        usage = ctx.usage
         samples: list[JudgeOutput] = []
         errors: list[str] = []
         reqs: list[ChatRequest] = []
@@ -223,7 +221,7 @@ class VlmJudge:
                 usage = usage + (getattr(e, "usage", None) or Usage())  # the provider billed it
                 last = f"ModelError(attempt {attempt}): {e}"
                 log.warning("judge %s: %s", req.label, last)
-                if not e.retryable and attempt >= 2:
+                if not e.retryable:  # same request again cannot fix a 400 / a blocked prompt
                     break
                 continue
             usage = usage + resp.usage
@@ -311,21 +309,6 @@ class ReferenceJudge(VlmJudge):
         self.diff = diff
         self._diff_model = diff_model
         self.diff_model_id = diff_model_id
-        #: the last diff computed (tests / callers that want the mismatches themselves)
-        self.last_diff: Any | None = None
-
-    # ------------------------------------------------------------------ API
-    def judge(self, inp: JudgeInput, **kwargs: Any) -> Any:
-        """``VlmJudge.judge`` plus the mismatch pass's own spend.
-
-        The diff is a real model call made from :meth:`context`; folding its
-        ``Usage`` into the verdict keeps ``BudgetGuard`` and ``record.total_usage``
-        honest (the ledger already sees it through the metered chat model)."""
-        verdict = super().judge(inp, **kwargs)
-        diff = self.last_diff
-        if diff is not None and getattr(diff, "usage", None) is not None:
-            verdict.usage = verdict.usage + diff.usage
-        return verdict
 
     # ------------------------------------------------------------------ hook
     def context(self, inp: JudgeInput) -> JudgeContext:
@@ -363,18 +346,17 @@ class ReferenceJudge(VlmJudge):
         elif refs:
             info = self.measure_silhouette(inp)
         diff = self.reference_diff(inp, refs, info, synthesized=synth) if refs else None
-        self.last_diff = diff
         if diff is not None and diff.as_text():
             blocks.append(diff.as_text())
-        return JudgeContext(measured_scores=measured_scores, extra_text="\n\n".join(blocks), extra_images=images)
+        return JudgeContext(measured_scores=measured_scores, extra_text="\n\n".join(blocks), extra_images=images,
+                            usage=diff.usage if diff is not None else Usage())
 
     # ------------------------------------------------------------------ proportion guard
     def dimension_conflict(self, inp: JudgeInput, refs: list[Any]) -> dict[str, Any]:
         """Does the target reference's own outline contradict the brief's dimensions?
 
         When it does, no numeric proportion signal derived from that picture may be
-        used against the object — the brief wins (see
-        :mod:`codeverse.reference.proportions`).
+        used against the object — the brief wins (``reference.dimension_conflict``).
         """
         targets = [r for r in refs if r.role == "target"] or refs
         if not targets:
@@ -497,7 +479,7 @@ class ReferenceJudge(VlmJudge):
 def _plan_part_names(inp: JudgeInput) -> list[str]:
     """Part names from the plan digest the judge already receives (best effort).
 
-    ``judges.replay_input.plan_digest`` writes them as one ``Parts: A, B×2, C`` segment;
+    ``judges.base.plan_digest`` writes them as one ``Parts: A, B×2, C`` segment;
     a multi-line digest lists one ``- Name · role · …`` per line.  Both are handled, and
     an unrecognised digest simply yields no names (the diff prompt then says so).
     """

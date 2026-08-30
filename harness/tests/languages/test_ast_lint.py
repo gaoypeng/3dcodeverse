@@ -7,6 +7,7 @@ import ast
 import codeverse.languages.blender as blender_lint
 import codeverse.languages.cadquery as cadquery_lint
 import codeverse.languages.opengl_python as opengl_lint
+import codeverse.languages.urdf as urdf_lint
 from codeverse.contracts.artifacts import GateFinding, Severity
 from codeverse.languages._ast_lint import BASE_FORBIDDEN_IMPORTS, check_imports, dotted
 
@@ -24,6 +25,7 @@ def test_language_forbidden_sets_are_supersets_of_base() -> None:
     assert BASE_FORBIDDEN_IMPORTS <= blender_lint.FORBIDDEN_IMPORTS
     assert BASE_FORBIDDEN_IMPORTS <= cadquery_lint.FORBIDDEN_IMPORTS
     assert BASE_FORBIDDEN_IMPORTS <= opengl_lint.DANGEROUS_MODULES
+    assert BASE_FORBIDDEN_IMPORTS <= urdf_lint.FORBIDDEN_IMPORTS  # was a hand-copied subset until 2026-08-29
 
 
 def test_language_specific_extras_survive() -> None:
@@ -50,6 +52,10 @@ def test_base_modules_error_in_every_language_lint() -> None:
         "def render(ctx, state, t, frame, fbo):\n    pass\n"
     )
     assert any(f.severity == Severity.ERROR and "webbrowser" in f.message for f in findings)
+
+    findings = urdf_lint.lint_model_text("import bpy\nimport webbrowser\nimport os\n", [])
+    assert any(f.severity == Severity.ERROR and "webbrowser" in f.message for f in findings)
+    assert any(f.severity == Severity.WARN and "'os'" in f.message for f in findings)
 
 
 # ----------------------------------------------------------------- check_imports / dotted

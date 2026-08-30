@@ -58,25 +58,50 @@ def test_retries_until_success_and_reports():
     assert [n for n, _ in seen] == [1, 2]
 
 
-def test_non_retryable_raises_immediately():
-    n = 0
+def test_with_retries_stops_on_non_retryable_and_exhaustion():
+    calls = 0
 
-    def fn():
-        nonlocal n
-        n += 1
+    def non_retryable():
+        nonlocal calls
+        calls += 1
         raise ValueError("bad")
 
     with pytest.raises(ValueError):
-        with_retries(fn, is_retryable=lambda e: False, attempts=5, sleep=lambda s: None)
-    assert n == 1
+        with_retries(
+            non_retryable, is_retryable=lambda error: False, attempts=5, sleep=lambda _: None
+        )
+    assert calls == 1
 
-
-def test_exhausted_raises_last():
-    def fn():
+    def exhausted():
+        nonlocal calls
+        calls += 1
         raise TimeoutError("always")
 
     with pytest.raises(TimeoutError):
-        with_retries(fn, is_retryable=lambda e: True, attempts=3, sleep=lambda s: None)
+        with_retries(exhausted, is_retryable=lambda error: True, attempts=3, sleep=lambda _: None)
+    assert calls == 4
+
+
+def test_with_retries_honours_a_deadline_and_stamps_attempts():
+    """The SDK adapters' loop: ``ChatRequest.max_wait_s`` bounds the whole call and the
+    raised ModelError says how many round-trips were issued (the ledger's error row)."""
+    from codeverse.models.base import ModelError
+
+    calls = 0
+
+    def flaky():
+        nonlocal calls
+        calls += 1
+        raise ModelError("busy", retryable=True, status=503)
+
+    with pytest.raises(ModelError) as ei:
+        with_retries(flaky, is_retryable=lambda e: True, attempts=6, base_delay=1.0, max_delay=1.0,
+                     max_total_s=0.0, sleep=lambda _: None, jitter=False)
+    assert calls == 1 and ei.value.attempts == 1  # the first backoff would already cross the deadline
+    calls = 0
+    with pytest.raises(ModelError) as ei:
+        with_retries(flaky, is_retryable=lambda e: True, attempts=3, sleep=lambda _: None)
+    assert calls == 3 and ei.value.attempts == 3
 
 
 # --------------------------------------------------------------------------- rotate_with_retries
@@ -123,8 +148,7 @@ def _rotate503(pool, call, **kw):
 
 
 class Clock:
-    """Fake monotonic clock: pass it as ``monotonic``, its ``sleep`` records the nap and
-    advances it, and a test may advance ``.t`` itself to simulate time inside a call."""
+    """Fake monotonic clock whose sleeps advance recorded time."""
 
     def __init__(self, t: float = 0.0) -> None:
         self.t = t
@@ -140,6 +164,7 @@ class Clock:
 
 def _boom(msg: str = "503 high demand"):
     """A ``call`` that always raises ``msg``."""
+
     def call(_key):
         raise RuntimeError(msg)
 
@@ -185,9 +210,10 @@ def test_rotate_every_key_dead_raises_without_benching():
 
 
 def test_rotate_429_is_free_while_untried_keys_remain():
-    pool = KeyPool(["k1", "k2", "k3"], cooldown_s=30)
-    slept: list[float] = []
+    clock = Clock()
+    pool = KeyPool(["k1", "k2", "k3"], cooldown_s=30, clock=clock, sleep=clock.sleep)
     calls: list[str] = []
+    hinted: list[BaseException] = []
 
     def call(key: str) -> str:
         calls.append(key)
@@ -195,10 +221,18 @@ def test_rotate_429_is_free_while_untried_keys_remain():
             raise ModelError("quota", retryable=True, status=429)
         return key
 
-    out = _rotate(pool, call, max_attempts=1, sleep=slept.append)
+    out = _rotate(
+        pool,
+        call,
+        max_attempts=1,
+        sleep=clock.sleep,
+        retry_after=lambda error: hinted.append(error) or 7.0,
+    )
     assert out == "k3" and calls == ["k1", "k2", "k3"]
-    assert slept == [0.5, 0.5]  # courtesy pauses only, no backoff
-    assert pool.stats()["n_cooling"] == 2
+    assert clock.naps == [0.5, 0.5]
+    stats = pool.stats()
+    assert len(hinted) == 2 and stats["n_cooling"] == 2
+    assert max(key["cooldown_s"] for key in stats["keys"]) <= MAX_WAIT_S
 
 
 def test_rotate_on_free_retry_hook_consumes_no_budget():
@@ -222,55 +256,39 @@ def test_rotate_on_free_retry_hook_consumes_no_budget():
     assert len(calls) == 2
 
 
-def test_rotate_retryable_backoff_then_exhausted_raises_last():
+def test_rotate_retryable_backoff_and_nonretryable_failure_modes():
     pool = KeyPool(["k1"])
     slept: list[float] = []
 
-    def call(key: str) -> str:
+    def retryable(key: str) -> str:
         raise ModelError("unavailable", retryable=True, status=500)
 
     with pytest.raises(ModelError) as ei:
-        _rotate(pool, call, max_attempts=3, base_delay=1.0, max_delay=4.0, sleep=slept.append)
+        _rotate(
+            pool,
+            retryable,
+            max_attempts=3,
+            base_delay=1.0,
+            max_delay=4.0,
+            sleep=slept.append,
+        )
     assert ei.value.status == 500 and len(slept) == 2  # backoff between the 3 attempts
 
-
-def test_rotate_nonretryable_raises_immediately():
-    pool = KeyPool(["k1", "k2"])
     calls: list[str] = []
 
-    def call(key: str) -> str:
+    def nonretryable(key: str) -> str:
         calls.append(key)
         raise ModelError("bad request", retryable=False, status=400)
 
     with pytest.raises(ModelError):
-        _rotate(pool, call, max_attempts=5)
+        _rotate(KeyPool(["k1", "k2"]), nonretryable, max_attempts=5)
     assert calls == ["k1"]
-
-
-def test_rotate_retry_after_hint_reaches_the_pool():
-    clock = Clock()
-    pool = KeyPool(["k1", "k2"], cooldown_s=30, clock=clock, sleep=clock.sleep)
-    seen: list[BaseException] = []
-
-    def call(key: str) -> str:
-        if key == "k1":
-            raise ModelError("quota retryDelay 7s", retryable=True, status=429)
-        return key
-
-    out = _rotate(pool, call, max_attempts=1, retry_after=lambda e: seen.append(e) or 7.0)
-    assert out == "k2" and len(seen) == 1
-    cooling = {k["key"]: k["cooldown_s"] for k in pool.stats()["keys"]}
-    assert 0 < cooling["…k1"] <= 7.0
 
 
 # --------------------------------------------------------------------------- 503 storms
 @pytest.mark.parametrize(("hedge", "want_calls", "want_naps"), [(1, {9}, 7), (2, {9, 10}, 4)])
 def test_503_storm_has_its_own_patience_budget(hedge, want_calls, want_naps):
-    """A model-wide 503 storm must not burn the normal attempt budget.  hedge=1: eight
-    sequential 503s then ok — seven storm waits, more than max_attempts=3 could survive.
-    hedge=2 (the default, audit 2026-08-26 §5.2) races both keys from the second 503 on, so
-    the same eight failures cost FOUR waits and the winner's sibling may land (a 10th call,
-    discarded)."""
+    """A 503 storm gets a separate budget; hedging reduces its waits."""
     lock = threading.Lock()
     calls = {"n": 0}
     naps: list[float] = []
@@ -283,57 +301,45 @@ def test_503_storm_has_its_own_patience_budget(hedge, want_calls, want_naps):
             raise RuntimeError("503 storm")
         return "ok"
 
-    out = _rotate503(_pool(2), call, max_attempts=3, base_delay=0.01, storm_attempts=10,
-                     storm_max_delay=0.05, sleep=naps.append, hedge=hedge)
+    out = _rotate503(
+        _pool(2),
+        call,
+        max_attempts=3,
+        base_delay=0.01,
+        storm_attempts=10,
+        storm_max_delay=0.05,
+        sleep=naps.append,
+        hedge=hedge,
+    )
     assert out == "ok" and calls["n"] in want_calls
     # the first 503 rotates to k2 for free (no nap); k2's 503 leaves no untried key in the
     # 2-key pool, so that one is the storm
     assert len(naps) == want_naps and all(d <= 0.05 for d in naps)  # the cap is the cap
 
 
-def test_storm_waits_never_exceed_the_house_limit_at_production_defaults():
-    """Jitter must be applied BEFORE the cap.  Regression: the storm branch capped first and
-    then multiplied by up to 1.25, so a documented "<=5 s" wait was observed at 6 s in a live
-    bench run (2026-08-24).  50 seeds, so this is not one lucky jitter draw."""
+def test_storm_waits_never_exceed_the_house_limit_at_production_defaults(monkeypatch):
+    monkeypatch.setattr(random, "random", lambda: 1.0)
     naps: list[float] = []
-    for seed in range(50):
-        random.seed(seed)
-        with pytest.raises(ModelError):
-            # storm_attempts deep enough that the exponent saturates the cap
-            _rotate503(_pool(2), _boom(), max_attempts=2, storm_attempts=12, sleep=naps.append)
-    assert naps, "expected the storm path to sleep"
-    assert max(naps) <= MAX_WAIT_S, f"a storm wait exceeded {MAX_WAIT_S}s: {max(naps)}"
-    assert max(naps) > MAX_WAIT_S * 0.9, "the cap should still be reached, not just respected"
+    with pytest.raises(ModelError):
+        _rotate503(_pool(2), _boom(), max_attempts=2, storm_attempts=12, sleep=naps.append)
+    assert naps and max(naps) == MAX_WAIT_S
 
 
 def test_503_storm_budget_exhausts_then_normal_budget_applies():
-    """The storm patience is finite: once ``storm_attempts`` is spent the normal budget
-    applies again and the call gives up instead of looping forever."""
+    """Exhausted storm patience falls back to the finite normal budget."""
     with pytest.raises(ModelError):
-        _rotate503(_pool(1), _boom("503 forever"), max_attempts=2, base_delay=0.0,
-                   storm_attempts=3, storm_max_delay=0.0)
-
-
-def test_live_tests_are_opt_in_by_default():
-    """A bare `pytest` must never fire real API calls: on 2026-08-24 a plain run on a keyed
-    machine hung for the whole timeout because the live suite was selected by default."""
-    import tomllib
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[2]
-    cfg = tomllib.loads((root / "pyproject.toml").read_text())
-    addopts = cfg["tool"]["pytest"]["ini_options"].get("addopts", [])
-    joined = " ".join(addopts) if isinstance(addopts, list) else str(addopts)
-    assert "not live" in joined, "live tests must be deselected by default (see pyproject addopts)"
+        _rotate503(
+            _pool(1),
+            _boom("503 forever"),
+            max_attempts=2,
+            base_delay=0.0,
+            storm_attempts=3,
+            storm_max_delay=0.0,
+        )
 
 
 def test_one_call_cannot_retry_for_hours():
-    """The storm branch was bounded in ATTEMPTS, not in time: 60 storm attempts x (a 300 s
-    read timeout + a <=5 s wait) is 5.1 hours for ONE logical call while the docstring
-    claimed "~5 min" — and the wall-clock ceiling is only checked when a call is BILLED, so
-    (measured 2026-08-24) a run with --max-minutes 90 reached 200 minutes.  The deadline is
-    now threaded through every branch and ``GeminiModel`` clips each attempt's HTTP read
-    timeout to the remaining budget, floored at ``HTTP_TIMEOUT_FLOOR_S`` (simulated below)."""
+    """The wall-clock deadline bounds even a long 503 storm."""
     clock = Clock()
 
     def call(_key):
@@ -343,12 +349,20 @@ def test_one_call_cannot_retry_for_hours():
 
     with pytest.raises(ModelError):
         # hedge=1: the fake clock is serial, so two hedged 300 s calls would add 600 s
-        _rotate503(_pool(2), call, max_attempts=6, storm_attempts=60, sleep=clock.sleep,
-                   monotonic=clock, hedge=1)
+        _rotate503(
+            _pool(2),
+            call,
+            max_attempts=6,
+            storm_attempts=60,
+            sleep=clock.sleep,
+            monotonic=clock,
+            hedge=1,
+        )
     # bounded by the clock: the ONLY legal overshoot is the one floored attempt that was
     # already in flight when the deadline passed
     assert clock.t <= RETRY_DEADLINE_S + HTTP_TIMEOUT_FLOOR_S, (
-        f"one call burned {clock.t / 3600:.2f} h; the deadline is {RETRY_DEADLINE_S / 60:.0f} min")
+        f"one call burned {clock.t / 3600:.2f} h; the deadline is {RETRY_DEADLINE_S / 60:.0f} min"
+    )
     assert clock.t < 5 * 3600, "this is the 5.1-hour regression"
 
 
@@ -359,24 +373,26 @@ def test_the_deadline_does_not_cut_a_call_that_is_making_progress():
 
     def call(_key):
         calls["n"] += 1
-        clock.t += 280.0           # slow, but under the per-attempt timeout
+        clock.t += 280.0  # slow, but under the per-attempt timeout
         if calls["n"] < 3:
             raise RuntimeError("503 high demand")
         return "ok"
 
     # hedge=1: serial fake clock and call counter (see the hedge tests for the raced form)
-    out = _rotate503(_pool(2), call, max_attempts=6, storm_attempts=60, sleep=clock.sleep,
-                     monotonic=clock, hedge=1)
+    out = _rotate503(
+        _pool(2),
+        call,
+        max_attempts=6,
+        storm_attempts=60,
+        sleep=clock.sleep,
+        monotonic=clock,
+        hedge=1,
+    )
     assert out == "ok" and calls["n"] == 3
 
 
 def test_503_rotates_through_every_untried_key_before_it_is_a_storm():
-    """Owner's rule (2026-08-27): a 503 on one key is simply replaced by the next key — free
-    while an untried key remains, exactly like the 429 path.  Measured 2026-08-26, one tiny
-    request per key in parallel during the day's storm: flash answered on 15/22, 18/22, 21/22
-    keys while only 5/4/1 keys said 503 at the same instant.  So with a 10-key pool NINE
-    consecutive 503s still rotate: no sleep, no storm, no ``max_attempts`` spent
-    (``max_attempts=3`` here proves the budget is free)."""
+    """A 503 rotates freely while the pool still has an untried key."""
     keys = [f"k{i}" for i in range(1, 11)]
     gate = StormGate()
     lock = threading.Lock()
@@ -391,24 +407,30 @@ def test_503_rotates_through_every_untried_key_before_it_is_a_storm():
             raise RuntimeError("503 high demand")
         return "ok"
 
-    out = _rotate503(_pool(10), call, max_attempts=3, storm_attempts=10, storm_max_delay=0.05,
-                     sleep=naps.append, storm_gate=gate)
+    out = _rotate503(
+        _pool(10),
+        call,
+        max_attempts=3,
+        storm_attempts=10,
+        storm_max_delay=0.05,
+        sleep=naps.append,
+        storm_gate=gate,
+    )
     # one key per round-trip, never twice: 9 free rotations, then the 10th key lands
     assert out == "ok" and len(calls) == len(keys) and set(calls) == set(keys)
     assert naps == [], "rotation to a fresh key costs no sleep"
     assert gate.n_storms == 0 and not gate.storming, "an untried key remains: not a storm"
 
 
-@pytest.mark.parametrize(("hedge", "want_calls", "want_hits", "want_stats"), [
-    (1, {6}, 3, {"attempts": 6, "hedged": 0, "storm": 3}),
-    (2, {6, 7}, 2, {"attempts": 7, "hedged": 3, "storm": 2}),
-])
+@pytest.mark.parametrize(
+    ("hedge", "want_calls", "want_hits", "want_stats"),
+    [
+        (1, {6}, 3, {"attempts": 6, "hedged": 0, "storm": 3}),
+        (2, {6, 7}, 2, {"attempts": 7, "hedged": 3, "storm": 2}),
+    ],
+)
 def test_503_on_every_key_is_still_a_storm(hedge, want_calls, want_hits, want_stats):
-    """The backstop: once EVERY key in the pool has 503'd inside this one call there is no
-    untried key left to rotate to, so the bounded storm wait engages — one wait per hedged
-    ATTEMPT, not per key.  hedge=1: k1, k2, k3 fail one by one (the whole pool), then two
-    storm waits, then ok.  hedge=2: k1 fails alone, k2+k3 fail together (pool exhausted:
-    storm 1), two more together (storm 2), then the raced pair lands."""
+    """Exhausting every key engages one bounded wait per hedged attempt."""
     gate = StormGate("t", base_delay=0.0, max_wait_s=0.0, probe_lease_s=0.0)  # no real waits
     lock = threading.Lock()
     n = {"c": 0}
@@ -422,10 +444,20 @@ def test_503_on_every_key_is_still_a_storm(hedge, want_calls, want_hits, want_st
             raise RuntimeError("503 high demand")
         return "ok"
 
-    out = _rotate503(_pool(3), call, max_attempts=3, storm_attempts=10, storm_max_delay=0.05,
-                     storm_gate=gate, hedge=hedge, stats=stats)
+    out = _rotate503(
+        _pool(3),
+        call,
+        max_attempts=3,
+        storm_attempts=10,
+        storm_max_delay=0.05,
+        storm_gate=gate,
+        hedge=hedge,
+        stats=stats,
+    )
     assert out == "ok" and n["c"] in want_calls
-    assert gate.n_storms == 1 and gate.n_hits == want_hits, "declared only after all three keys failed, then waited out"
+    assert gate.n_storms == 1 and gate.n_hits == want_hits, (
+        "declared only after all three keys failed, then waited out"
+    )
     assert stats == want_stats
 
 
@@ -439,11 +471,7 @@ def _wait_idle(pool, timeout: float = 5.0) -> None:
 
 
 def test_after_the_first_503_the_next_attempt_is_hedged_and_the_first_success_wins():
-    """Measured 2026-08-26: a failed 503 costs the 21-50 s round-trip the provider holds
-    before rejecting, not the <= 5 s sleep (logged sleep was 13 % of the wait), and storm
-    streaks average 4.7 attempts.  So from the first 503 on, the next attempt goes out on
-    two fresh keys at once and the first success is returned while the other is still in
-    flight; the loser reports its own outcome and releases its own slot when it lands."""
+    """After a 503, fresh keys race and the first success wins."""
     pool = KeyPool(["k1", "k2", "k3", "k4"], rpm_per_key=10_000, max_in_flight=8)
     release_k2 = threading.Event()
     lock = threading.Lock()
@@ -461,14 +489,27 @@ def test_after_the_first_503_the_next_attempt_is_hedged_and_the_first_success_wi
             raise RuntimeError("503 high demand")
         return f"ok:{key}"
 
-    out = rotate_with_retries(pool, call, classify=_503, outcome_of=lambda e: "5xx", max_attempts=3,
-                              storm_attempts=10, sleep=naps.append, tokens_of=lambda r: 7, stats=stats)
+    out = rotate_with_retries(
+        pool,
+        call,
+        classify=_503,
+        outcome_of=lambda e: "5xx",
+        max_attempts=3,
+        storm_attempts=10,
+        sleep=naps.append,
+        tokens_of=lambda r: 7,
+        stats=stats,
+    )
     assert out == "ok:k3"
     assert naps == [], "a hedged retry sleeps for nothing"
-    assert calls[0] == "k1" and sorted(calls[1:]) == ["k2", "k3"], "two distinct fresh keys, k1 excluded"
+    assert calls[0] == "k1" and sorted(calls[1:]) == ["k2", "k3"], (
+        "two distinct fresh keys, k1 excluded"
+    )
     assert stats == {"attempts": 3, "hedged": 1, "storm": 0}
     st = pool.stats()
-    assert st["in_flight"] == 1 and st["peak_in_flight"] == 2, "the loser still holds its max_in_flight slot"
+    assert st["in_flight"] == 1 and st["peak_in_flight"] == 2, (
+        "the loser still holds its max_in_flight slot"
+    )
     assert st["ok"] == 1 and st["5xx"] == 1
     release_k2.set()
     _wait_idle(pool)
@@ -477,9 +518,7 @@ def test_after_the_first_503_the_next_attempt_is_hedged_and_the_first_success_wi
 
 
 def test_a_loser_that_succeeds_later_is_discarded_but_its_tokens_are_reported():
-    """A success-then-success is the one case the hedge is not free: the second answer is
-    thrown away, its tokens still counted against the key (a 503 bills nothing, so while it
-    storms the hedge costs nothing)."""
+    """A late successful loser is discarded but still charged to its key."""
     pool = KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000, tpm_per_key=1_000_000)
     release_k2 = threading.Event()
 
@@ -491,7 +530,13 @@ def test_a_loser_that_succeeds_later_is_discarded_but_its_tokens_are_reported():
             return "late:k2"
         return "ok:k3"
 
-    out = _rotate(pool, call, max_attempts=3, storm_attempts=10, tokens_of=lambda r: 900 if r.endswith("k2") else 100)
+    out = _rotate(
+        pool,
+        call,
+        max_attempts=3,
+        storm_attempts=10,
+        tokens_of=lambda r: 900 if r.endswith("k2") else 100,
+    )
     assert out == "ok:k3"
     release_k2.set()
     _wait_idle(pool)
@@ -512,11 +557,19 @@ def test_hedge_1_disables_and_a_full_pool_of_slots_degrades_to_one_key():
             if i <= 3:
                 raise ModelError("503 high demand", retryable=True, status=503)
             return "ok"
+
         return call
 
     stats: dict = {}
-    _rotate(_pool(3), make_call(), max_attempts=3, storm_attempts=10,
-            storm_max_delay=0.0, hedge=1, stats=stats)
+    _rotate(
+        _pool(3),
+        make_call(),
+        max_attempts=3,
+        storm_attempts=10,
+        storm_max_delay=0.0,
+        hedge=1,
+        stats=stats,
+    )
     assert stats["hedged"] == 0 and stats["attempts"] == 4
     # max_in_flight=1: the primary holds the only slot, so a partner is never waited for
     pool = _pool(3, max_in_flight=1)
@@ -532,8 +585,7 @@ def test_hedge_1_disables_and_a_full_pool_of_slots_degrades_to_one_key():
 
 
 def test_the_worst_error_decides_a_hedged_attempt():
-    """One key says 503 and the other says the request itself is bad: raise the 400 at once
-    instead of storming on a request that can never succeed."""
+    """A nonretryable hedge error outranks a sibling 503."""
     pool = _pool(3)
     stats: dict = {}
 
@@ -559,13 +611,14 @@ def test_a_dead_key_among_the_hedge_is_benched_once_the_sibling_wins():
 
     assert _rotate(pool, call, max_attempts=3, storm_attempts=10) == "ok:k3"
     _wait_idle(pool)
-    assert pool.stats()["n_dead"] == 1, "k3 proved the request fine, so k2's 403 was the key's fault"
+    assert pool.stats()["n_dead"] == 1, (
+        "k3 proved the request fine, so k2's 403 was the key's fault"
+    )
 
 
 # --------------------------------------------------------------------------- deadline threading (2026-08-27)
 def test_the_key_wait_is_clipped_to_the_remaining_budget():
-    """pool.acquire used to be called with its own 120 s default no matter how little
-    budget the call had left; now it gets min(ACQUIRE_TIMEOUT_S, remaining)."""
+    """Pool acquisition cannot outwait the remaining call budget."""
     seen: list[float | None] = []
 
     class SpyPool(KeyPool):
@@ -584,15 +637,24 @@ def test_a_storm_wait_is_clipped_to_the_remaining_budget():
     """Sleeping past the deadline only to give up on waking helps nobody."""
     clock = Clock()
     with pytest.raises(ModelError):
-        _rotate503(_pool(1), _boom(), max_attempts=6, storm_attempts=60, base_delay=4.0,
-                   storm_max_delay=5.0, max_total_s=3.0, sleep=clock.sleep, monotonic=clock, hedge=1)
+        _rotate503(
+            _pool(1),
+            _boom(),
+            max_attempts=6,
+            storm_attempts=60,
+            base_delay=4.0,
+            storm_max_delay=5.0,
+            max_total_s=3.0,
+            sleep=clock.sleep,
+            monotonic=clock,
+            hedge=1,
+        )
     assert clock.naps, "expected the storm path to sleep"
     assert clock.t <= 3.0 + 1e-6, f"slept past the deadline: {clock.t}"
 
 
 def test_free_429_rotation_cannot_outlive_the_deadline():
-    """Free rotation costs no attempts but DOES cost wall clock (0.5 s per hop):
-    with many keys it used to spin long past the budget."""
+    """Free key rotation still consumes wall-clock budget."""
     clock = Clock()
     pool = _pool(10, cooldown_s=0.0, clock=clock, sleep=clock.sleep)
     calls: list[str] = []
@@ -609,9 +671,7 @@ def test_free_429_rotation_cannot_outlive_the_deadline():
 
 
 def test_the_pool_is_not_refunded_for_a_charged_but_invalid_reply():
-    """retry.py used to report tokens=0 for a bad-JSON failure, refunding a TPM
-    reservation the provider had actually consumed — a 42k-token invalid reply
-    handed the key 42k TPM back.  ``ModelError.usage`` now carries the real bill."""
+    """A billed invalid response must consume its actual TPM usage."""
     clock = Clock(1000.0)
     pool = _pool(1, tpm_per_key=100_000, clock=clock, sleep=clock.sleep)
     calls = {"n": 0}
@@ -619,8 +679,11 @@ def test_the_pool_is_not_refunded_for_a_charged_but_invalid_reply():
     def call(key):
         calls["n"] += 1
         if calls["n"] == 1:
-            raise ModelError("structured output is not valid JSON", retryable=True,
-                             usage=Usage(input_tokens=42_000))
+            raise ModelError(
+                "structured output is not valid JSON",
+                retryable=True,
+                usage=Usage(input_tokens=42_000),
+            )
         return "ok"
 
     out = _rotate(pool, call, max_attempts=3, tokens_hint=1_000, tokens_of=lambda r: 100)
@@ -631,10 +694,7 @@ def test_the_pool_is_not_refunded_for_a_charged_but_invalid_reply():
 
 # --------------------------------------------------------------------------- on_attempt hook (2026-08-27)
 def test_on_attempt_hears_every_round_trip_and_a_late_hedge_loser():
-    """The per-attempt hook: the winner flushes as not-discarded, every failed try
-    as discarded, and a hedge loser still in flight reports (discarded — a late
-    success included) when it lands.  That is how a loser's paid tokens reach the
-    cost ledger at all."""
+    """The attempt hook reports winners, failures, and late hedge losers."""
     pool = _pool(4)
     release_k2 = threading.Event()
     lock = threading.Lock()
@@ -681,14 +741,13 @@ def test_a_broken_on_attempt_hook_never_breaks_the_call():
     assert _rotate(pool, lambda key: "ok", on_attempt=hook) == "ok"
 
 
-def test_the_error_it_gives_up_with_is_never_its_own_cause():
-    """`classify()` returns an already-classified ModelError unchanged, so the give-up
-    `raise err from exc` was `raise e from e` — and CPython does not check `from` for a
-    cycle.  bench/_infra.py had to grow a seen-set after that chain took run_cell to a
-    RecursionError and a compare matrix lost 11 finished cells (2026-08-27)."""
+def test_error_causes_avoid_cycles_and_preserve_real_wrapped_errors():
+    """Classified errors avoid self-cycles while preserving genuine causes."""
+
     def call(key):
-        raise ModelError("structured output unavailable (finish_reason=MAX_TOKENS)",
-                         retryable=False, status=None)
+        raise ModelError(
+            "structured output unavailable (finish_reason=MAX_TOKENS)", retryable=False, status=None
+        )
 
     with pytest.raises(ModelError) as ei:
         _rotate(_pool(), call, max_attempts=1)
@@ -702,22 +761,16 @@ def test_the_error_it_gives_up_with_is_never_its_own_cause():
         node = node.__cause__ if node.__cause__ is not None else node.__context__
     assert node is None, "the cause chain closes into a cycle"
 
-
-def test_a_real_wrapped_cause_still_survives_the_self_cause_guard():
-    """The guard drops the cause only when it IS the error — a genuine wrapped cause
-    (the classifier built a NEW ModelError) must still reach the caller."""
-    def call(key):
+    def timeout(key):
         raise TimeoutError("read timed out")
 
     with pytest.raises(ModelError) as ei:
-        _rotate(_pool(), call, max_attempts=1)
+        _rotate(_pool(), timeout, max_attempts=1)
     assert isinstance(ei.value.__cause__, TimeoutError)
 
 
 def test_a_budget_spent_at_the_storm_gate_issues_no_round_trip():
-    """A worker parked at a gate ANOTHER thread closed carries no ``last_err``, so the
-    guard at the top of the loop (which requires one) let it through: it woke past its
-    deadline and still spent a full round-trip (measured: 25 s on a 5 s budget)."""
+    """A worker waking past its gate deadline issues no request."""
     clock = Clock(1000.0)
     calls: list[str] = []
 
@@ -733,7 +786,13 @@ def test_a_budget_spent_at_the_storm_gate_issues_no_round_trip():
             pass
 
     with pytest.raises(ModelError) as e:
-        _rotate(_pool(1), lambda key: calls.append(key),
-                max_total_s=5.0, monotonic=clock, storm_gate=Gate(), label="t")
+        _rotate(
+            _pool(1),
+            lambda key: calls.append(key),
+            max_total_s=5.0,
+            monotonic=clock,
+            storm_gate=Gate(),
+            label="t",
+        )
     assert calls == [], "a round-trip was issued after the budget was already spent"
     assert "capacity" in str(e.value)

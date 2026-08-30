@@ -7,7 +7,7 @@ the weighted mean) and a ``kind`` (``visual`` = scored by the VLM,
 ``measured`` = scored in code and merely *shown* to the VLM).
 
 ``caps`` are rules that bound the overall score from deterministic gate
-findings (build error → 0.0, floating part → ≤ 0.6 ...) — see ``caps.py``.
+findings (build error → 0.0, floating part → ≤ 0.6 ...) — see ``apply_caps`` below.
 
 ``defects`` is a fixed **binary checklist** the VLM answers (present / absent)
 — "a part floats", "lying on its back", "flat untextured" … — and the code
@@ -720,7 +720,7 @@ def aggregate_samples(
         if tied:
             tie_broken.append(did)
     # a checklist defect that a passed gate measured as absent neither penalises nor caps
-    # (judges/caps.measured_absent); it is still named in the verdict tail
+    # (``veto_measured_defects``); it is still named in the verdict tail
     defects, overridden = veto_measured_defects(rubric, defects, gates)
     penalty = round(sum(rubric.defect(did).penalty for did, on in defects.items() if on), 4)
     after_defects = max(0.0, overall_uncapped - penalty)

@@ -1,6 +1,17 @@
-"""Multi-key pool with per-key rate limiting, 429 cooldown and a health score.
+"""The scheduling machine under every model call (merged 2026-08-28, d512ccc):
 
-Used by ``GeminiModel`` (22 keys on the owner's box) but provider-neutral.
+1. ``KeyPool`` (+ ``TokenBucket``): a multi-key pool with per-key RPM/TPM buckets,
+   429 cooldown and a health score — used by ``GeminiModel`` (22 keys on the owner's
+   box) but provider-neutral;
+2. ``StormGate`` + ``storm_gate()`` / ``all_gates()``: the process-wide 503 back-pressure
+   one model's callers share (ships OFF, ``Settings.rate.storm_gate``; docs/COST.md §21);
+3. the two retry loops — ``with_retries`` (single key, SDK adapters) and
+   ``rotate_with_retries`` (the pool, the gate, hedging, the ``RETRY_DEADLINE_S`` deadline);
+4. ``request_parts`` / ``request_tokens``: the prompt-token estimate the pool reserves.
+
+Every wait anywhere in here clips to ``MAX_WAIT_S``.
+
+The pool:
 
 * ``acquire()`` picks the next healthy key round-robin, honouring per-key
   RPM / TPM token buckets and 429 cool-downs; it blocks (bounded) when every
@@ -11,8 +22,10 @@ Used by ``GeminiModel`` (22 keys on the owner's box) but provider-neutral.
   may be out at once, and :meth:`KeyPool.release` (a ``finally`` in
   ``rotate_with_retries``) hands the slot back.  ``try_acquire()`` is the
   never-waiting variant a hedged retry uses for its extra keys.
-* ``report(key, outcome)`` feeds back ``ok | 429 | 5xx | error | dead`` so the
-  pool can cool a key down and adjust its health score.  ``dead`` is for
+* ``report(key, outcome)`` feeds back ``ok | 429 | 5xx | error | dead | skip`` so the
+  pool can cool a key down and adjust its health score.  ``skip`` is a content
+  failure the key did not cause (bad JSON, empty candidates): only the token
+  reconciliation runs, health and counters are untouched.  ``dead`` is for
   key-scoped auth/permission failures (revoked / suspended / invalid key): the
   key is benched for ``dead_cooldown_s`` (default one hour) and re-probed once
   that elapses — a dead key must never keep failing its share of calls.
@@ -38,7 +51,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from codeverse.contracts.chat import ChatRequest, ImagePart, TextPart, ToolResultPart
 
-Outcome = Literal["ok", "429", "5xx", "error", "dead"]
+Outcome = Literal["ok", "429", "5xx", "error", "dead", "skip"]
 
 
 class KeyPoolExhausted(RuntimeError):
@@ -352,7 +365,7 @@ class KeyPool:
                 st.health = 0.0
                 st.dead_until = max(st.dead_until, now + self._dead_cooldown_s)
                 st.cooldown_until = max(st.cooldown_until, st.dead_until)
-            else:
+            elif outcome != "skip":
                 st.n_error += 1
                 st.health *= 0.9
             if st.tpm is not None and (tokens or reserved):
@@ -434,7 +447,7 @@ class KeyPool:
 
 # ===================================================================== storm
 class StormGate:
-    """Shared 503 back-pressure for one model.  See the module docstring."""
+    """Shared 503 back-pressure for one model (section 2 of the module docstring)."""
 
     def __init__(
         self,
@@ -590,7 +603,7 @@ log = logging.getLogger(__name__)
 OnRetry = Callable[[int, BaseException, float], None]
 
 
-def _cause(err: BaseException, exc: BaseException | None) -> BaseException | None:
+def cause_for(err: BaseException, exc: BaseException | None) -> BaseException | None:
     """The cause to raise ``err`` from — ``None`` when it would be ``err`` itself.
 
     Every adapter's ``classify()`` returns an already-classified ``ModelError``
@@ -630,29 +643,38 @@ def with_retries[T](
     attempts: int = 6,
     base_delay: float = 1.0,
     max_delay: float = MAX_WAIT_S,
+    max_total_s: float | None = None,
     on_retry: OnRetry | None = None,
     sleep: Callable[[float], None] = time.sleep,
     jitter: bool = True,
 ) -> T:
-    """Call ``fn`` up to ``attempts`` times.
+    """Call ``fn`` up to ``attempts`` times, within ``max_total_s`` when given.
 
-    Re-raises the last exception when it is not retryable (per ``is_retryable``)
-    or when attempts are exhausted.  ``on_retry(attempt, exc, delay)`` is called
-    before each sleep (attempt is the 1-based index of the attempt that failed).
+    Re-raises the last exception when it is not retryable (per ``is_retryable``),
+    when attempts are exhausted, or when the next backoff would cross the deadline
+    (``ChatRequest.max_wait_s`` on the SDK adapters).  ``on_retry(attempt, exc, delay)``
+    is called before each sleep (attempt is the 1-based index of the attempt that
+    failed).  A raised exception carrying an ``attempts`` attribute (``ModelError``)
+    is stamped with the number of round-trips issued.
     """
     if attempts < 1:
         raise ValueError("attempts must be >= 1")
+    deadline = None if max_total_s is None else time.monotonic() + max_total_s
     last: BaseException | None = None
     for attempt in range(1, attempts + 1):
         try:
             return fn()
         except BaseException as exc:  # noqa: BLE001 - classification is delegated
             last = exc
+            if hasattr(exc, "attempts"):
+                exc.attempts = attempt
             if attempt >= attempts or not is_retryable(exc):
                 raise
             delay = backoff_delay(
                 attempt, base_delay=base_delay, max_delay=max_delay, jitter=jitter
             )
+            if deadline is not None and time.monotonic() + delay >= deadline:
+                raise
             if on_retry is not None:
                 on_retry(attempt, exc, delay)
             sleep(delay)
@@ -712,12 +734,13 @@ def rotate_with_retries[T](
       call is it a
     * **capacity storm** (the whole pool is out of capacity, the backstop): that gets
       its own patience budget — up to ``storm_attempts`` waits with
-      backoff capped at ``storm_max_delay`` = ``MAX_WAIT_S`` per wait (the house rule), so
-      patience comes from the NUMBER of waits (60 x <=5 s ~ 5 min) rather than
-      from long sleeps that do NOT consume ``max_attempts``.  Observed 2026-08-23: a
+      backoff capped at ``storm_max_delay`` = ``MAX_WAIT_S`` (3 s) per wait (the house
+      rule), so patience comes from the NUMBER of waits (60 x <=3 s) rather than from
+      long sleeps that do NOT consume ``max_attempts`` — all inside the
+      ``RETRY_DEADLINE_S`` / ``max_total_s`` deadline.  Observed 2026-08-23: a
       multi-minute gemini-3.7-flash "high demand" outage killed 8 bench runs
-      under the plain 6-attempt budget.  A ``storm_gate`` (see
-      :mod:`codeverse.models.retry`) shares that discovery across the process:
+      under the plain 6-attempt budget.  A ``storm_gate`` (:class:`StormGate`
+      above) shares that discovery across the process:
       workers park at the gate instead of each spending a round-trip to learn
       the model is out of capacity, and one probe at a time reopens it.
     * other retryable errors → exponential backoff + jitter until
@@ -786,12 +809,9 @@ def rotate_with_retries[T](
                 err = classify(exc)
                 outcome = outcome_of(err)
                 # a key that looks dead is reported "error" now and benched only once a
-                # sibling proves the request itself is fine (bench())
-                # a charged-but-invalid reply (bad JSON with real usage) DID consume
-                # its prompt tokens: report them so the pool does not refund a spent
-                # reservation (a 42k-token invalid reply used to hand the key 42k TPM
-                # back).  Failures billed nothing (429 / 503 / transport) carry an
-                # empty ``ModelError.usage`` and are refunded exactly as before.
+                # sibling proves the request itself is fine (bench()).  ``tokens`` is what
+                # the failure was billed: a 42k-token invalid reply ("skip") used to be
+                # refunded as if it had never reached the model.
                 consumed = getattr(err, "usage", None)
                 pool.report(
                     key,
@@ -866,7 +886,7 @@ def rotate_with_retries[T](
                 # sleeps: a free rotation must not out-live the caller's budget
                 log.warning("%s giving up after %.0f s of retrying (%s)",
                             label, max_total_s, last_err)
-                raise last_err from _cause(last_err, last_exc)
+                raise last_err from cause_for(last_err, last_exc)
             attempt += 1
             # never go back to a key that looked dead this call; throttled keys are
             # excluded while an untried one remains, else acquire() waits for a cooldown
@@ -880,7 +900,7 @@ def rotate_with_retries[T](
                     log.warning("%s budget of %.0f s spent waiting at the storm gate", label, max_total_s)
                     gate_err = last_err or classify(TimeoutError(
                         f"{label}: retry budget spent waiting for capacity"))
-                    raise gate_err from _cause(gate_err, last_exc)
+                    raise gate_err from cause_for(gate_err, last_exc)
             budget_left = None if deadline == float("inf") else max(0.0, deadline - monotonic())
             try:
                 # the key/slot wait must fit the remaining budget, never outlive it
@@ -933,11 +953,11 @@ def rotate_with_retries[T](
                     if out_of_time():
                         log.warning("%s giving up after %.0f s of retrying (%s)",
                                     label, max_total_s, err)
-                        raise err from _cause(err, exc)
+                        raise err from cause_for(err, exc)
                     log.warning("%s key …%s looks dead (%s); rotating", label, key[-4:], err)
                     attempt -= 1
                     continue
-                raise err from _cause(err, exc)  # every key failed the same way: not the keys' fault
+                raise err from cause_for(err, exc)  # every key failed the same way: not the keys' fault
             if is_storm(err) and storm < storm_attempts and not out_of_time():
                 failed_keys.update(t.key for t in tries)
                 if len(failed_keys) < len(pool):
@@ -978,7 +998,7 @@ def rotate_with_retries[T](
                     if out_of_time():
                         log.warning("%s giving up after %.0f s of retrying (%s)",
                                     label, max_total_s, err)
-                        raise err from _cause(err, exc)
+                        raise err from cause_for(err, exc)
                     # an untried key remains: rotation is free, only a courtesy pause
                     attempt -= 1
                     log.warning(
@@ -988,10 +1008,10 @@ def rotate_with_retries[T](
                     continue
             if not err.retryable or attempt >= max_attempts:
                 bench()
-                raise err from _cause(err, exc)
+                raise err from cause_for(err, exc)
             if out_of_time():
                 log.warning("%s giving up after %.0f s of retrying (%s)", label, max_total_s, err)
-                raise err from _cause(err, exc)
+                raise err from cause_for(err, exc)
             delay = backoff_delay(attempt, base_delay=base_delay, max_delay=max_delay)
             log.warning(
                 "%s attempt %d/%d failed (%s); retrying in %.1fs",

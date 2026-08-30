@@ -34,6 +34,7 @@ from codeverse.contracts.spec import Spec
 from codeverse.judges.base import JudgeInput, judged_subset, plan_digest, resolve_paths
 from codeverse.judges.rubrics import is_degraded
 from codeverse.judges.vlm_judge import VlmJudge
+from codeverse.proc import read_json_or_none
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -150,16 +151,12 @@ class CalibrationTable(BaseModel):
 
 
 # --------------------------------------------------------------------------- loading runs
-def _read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text())
-
-
 def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[RoundCase]:
     """Rebuild judge inputs for every judgeable round of a run (rounds with renders)."""
     run_dir = Path(run_dir)
     spec = Spec.model_validate_json((run_dir / "spec.json").read_text())
-    plan = _read_json(run_dir / "plan.json") if (run_dir / "plan.json").is_file() else {}
-    record = _read_json(run_dir / "record.json") if (run_dir / "record.json").is_file() else {}
+    plan = read_json_or_none(run_dir / "plan.json") or {}
+    record = read_json_or_none(run_dir / "record.json") or {}
     best = record.get("best_round")
     acceptance = plan.get("acceptance") or []
     digest = plan_digest(plan)
@@ -237,7 +234,7 @@ def spearman(xs: list[float], ys: list[float]) -> float | None:
 # --------------------------------------------------------------------------- main entry
 def _judge_case(case: RoundCase, judge: VlmJudge, geometry: RenderSet | None, out: Path) -> CalibrationRow:
     t0 = time.time()
-    j = judge.judge(case.inp, geometry_views=geometry)
+    j = judge.judge(case.inp.model_copy(update={"geometry_views": geometry}) if geometry is not None else case.inp)
     raw = json.loads(j.raw) if j.raw else {}
     jdir = out / "judgments"
     jdir.mkdir(parents=True, exist_ok=True)

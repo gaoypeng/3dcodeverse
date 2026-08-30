@@ -8,7 +8,7 @@ import numpy as np
 import trimesh
 
 from codeverse.spatial.measure import measure_glb
-from codeverse.texturing.apply import apply_textures, node_part_lookup, textured_summary
+from codeverse.texturing.apply import apply_textures, node_part_lookup
 from codeverse.texturing.generate import FakeImageModel, generate_textures
 from codeverse.texturing.plan import default_plan
 
@@ -30,8 +30,6 @@ def test_apply_textures_end_to_end(tmp_path: Path, chair_glb: Path, chair_plan):
     assert rep.parts_skipped == ["Knob"] and rep.parts_unmatched == []
     assert rep.projections["Leg_0"] == "cylinder" and rep.projections["Seat"] == "box"
     assert rep.n_materials == 2
-    summ = textured_summary(out)
-    assert summ["textured"] == 6 and summ["geometries"] == 7 and summ["images"] == 2
     # names + geometry preserved; measurement unchanged
     a, b = measure_glb(chair_glb), measure_glb(out)
     assert {p.name for p in a.parts} == {p.name for p in b.parts}

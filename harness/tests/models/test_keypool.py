@@ -79,9 +79,9 @@ def test_all_cooling_blocks_until_cooldown_ends():
     t0 = clock.t
     assert pool.acquire(timeout_s=60) in ("a", "b")
     assert MAX_WAIT_S - 1e-6 <= clock.t - t0 <= 5 + 1e-6
+    pool.report("a", "429")
+    pool.report("b", "429")
     with pytest.raises(KeyPoolExhausted):
-        pool.report("a", "429")
-        pool.report("b", "429")
         pool.acquire(timeout_s=1.0)
 
 
@@ -188,3 +188,15 @@ def test_the_in_flight_slot_wait_is_bounded_by_timeout():
     assert time.monotonic() - t0 < 2.0, "the slot wait must honour the timeout"
     pool.release()
     assert pool.acquire(timeout_s=0.5) == "a", "the slot came back; nothing leaked"
+
+
+def test_skip_reconciles_tokens_but_leaves_health_and_counters_alone():
+    """A charged-but-invalid reply (bad JSON) is not the key's fault: it used to be
+    reported "ok", boosting health and counting as a success in doctor --live."""
+    pool, _ = make(keys=("a",), tpm_per_key=100_000)
+    pool.report("a", "429")
+    before = {k["key"]: k for k in pool.stats()["keys"]}["…a"]
+    pool.report("a", "skip", tokens=7_500, reserved=2_000)
+    after = {k["key"]: k for k in pool.stats()["keys"]}["…a"]
+    assert after["health"] == before["health"] and after["ok"] == before["ok"] and after["error"] == before["error"]
+    assert pool.stats()["tokens_used"] == 7_500

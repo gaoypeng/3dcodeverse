@@ -1,8 +1,8 @@
-"""Judge protocol + inputs."""
+"""``JudgeInput`` + the pure round-replay helpers ``3dcv judge`` and calibration share."""
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -27,13 +27,7 @@ class JudgeInput(BaseModel):
     )
 
 
-class Judge(Protocol):
-    name: str
-
-    def judge(self, inp: JudgeInput) -> Judgment: ...
-
-
-# ===================================================================== replay_input
+# ===================================================================== round replay
 def plan_digest(plan: dict[str, Any]) -> str:
     """A track-agnostic plan summary (parts / joints / zones / assets / cameras) from ``plan.json``."""
     bits: list[str] = []

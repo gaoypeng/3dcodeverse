@@ -72,7 +72,7 @@ def probe(
     sample: int = DEFAULT_SAMPLE,
     timeout_s: float = DEFAULT_TIMEOUT_S,
 ) -> Health:
-    """One tiny call per sampled key, in parallel, no retries.  Never raises."""
+    """One workload-sized call (``PROBE_TOKENS``) per sampled key, in parallel, no retries.  Never raises."""
     from codeverse.contracts.chat import ChatMessage, ChatRequest
 
     prompt = _probe_prompt()
@@ -121,9 +121,13 @@ def _bare_model(model_id: str, timeout_s: float):
         from codeverse.models.gemini import GeminiModel
 
         return GeminiModel(name, timeout_s=timeout_s, max_attempts=1, storm_attempts=0)
-    from codeverse.models import get_chat_model  # other providers: no bare constructor needed yet
+    if provider == "anthropic":
+        from codeverse.models.anthropic import AnthropicModel
 
-    return get_chat_model(model_id)
+        return AnthropicModel(name, timeout_s=timeout_s, max_attempts=1)
+    from codeverse.models.openai import OpenAIModel  # everything else, as models.registry does
+
+    return OpenAIModel(name, timeout_s=timeout_s, max_attempts=1)
 
 
 # --------------------------------------------------------------------------- siblings

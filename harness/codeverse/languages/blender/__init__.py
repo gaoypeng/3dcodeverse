@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 import math
 import os
-import re
 import time
 from pathlib import Path
 
@@ -13,21 +12,17 @@ from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import BBox, PartPlan, Plan, StaticPlan
-from codeverse.conventions import MAX_TRIS_OBJECT, to_pascal, to_snake
-from codeverse.languages._ast_lint import (  # noqa: F401 — dotted re-exported
+from codeverse.conventions import MAX_TRIS_OBJECT, PASCAL_RE, to_pascal, to_snake
+from codeverse.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
     check_imports,
     describe_parse_failure,
     dotted,
     safe_parse,
 )
-from codeverse.languages._common import (
-    compose_build_result,
-    run_subprocess,
-    strip_blender_noise,
-)
+from codeverse.languages._common import MISSING_ENTRY, compose_build_result, strip_blender_noise
 from codeverse.languages._docs import RuntimeDocs
-from codeverse.proc import scrub_secrets
+from codeverse.proc import run_subprocess, scrub_secrets
 from codeverse.workspace import Workspace
 
 # ===================================================================== lint
@@ -76,7 +71,6 @@ REMOVED_BSDF_INPUTS = {
     "Transmission Roughness": "(removed) use Roughness",
 }
 KNOWN_BINDINGS = ("Vector", "Matrix", "Euler", "Quaternion", "bmesh", "math", "random", "np", "numpy", "bpy")
-PASCAL_RE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)*(?:_\d+)?$")
 
 
 class _Collector(ast.NodeVisitor):
@@ -310,7 +304,6 @@ def lint_blender_file(path: Path, *, target: str = "src/model.py") -> GateReport
 # ===================================================================== layout
 ENTRY_REL = ENTRY_FILE[Language.BLENDER]  # "src/model.py"
 PARTS_DIR = "parts"
-PARTS_PKG = "parts"
 
 
 def part_file_rel(part_name: str) -> str:
@@ -357,7 +350,7 @@ def _imported_part_modules(tree: ast.Module) -> set[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
             dotted = node.module.split(".")
-            if dotted[0] == PARTS_PKG:
+            if dotted[0] == PARTS_DIR:
                 if len(dotted) > 1:
                     out.add(dotted[1])
                 else:  # ``from parts import seat, leg``
@@ -365,7 +358,7 @@ def _imported_part_modules(tree: ast.Module) -> set[str]:
         elif isinstance(node, ast.Import):
             for a in node.names:
                 dotted = a.name.split(".")
-                if dotted[0] == PARTS_PKG and len(dotted) > 1:
+                if dotted[0] == PARTS_DIR and len(dotted) > 1:
                     out.add(dotted[1])
     return out
 
@@ -391,7 +384,7 @@ def _layout_rules(ws: Workspace, parts: list[Path], entry_tree: ast.Module | Non
         if fn not in _exported_functions(tree):
             out.append(_finding(E, target, f"{target} does not define `def {fn}()`",
                                 f"every part file exports `def {fn}() -> bpy.types.Object` returning the named object "
-                                f"at its world pose; model.py calls it (`from {PARTS_PKG}.{stem} import {fn}`)"))
+                                f"at its world pose; model.py calls it (`from {PARTS_DIR}.{stem} import {fn}`)"))
         for node in tree.body:
             if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
                 name = getattr(node.value.func, "id", "")
@@ -401,7 +394,7 @@ def _layout_rules(ws: Workspace, parts: list[Path], entry_tree: ast.Module | Non
                                         "call here builds the part twice → auto-suffixed 'Name.001')", node.lineno))
         if entry_tree is not None and stem not in imported:
             out.append(_finding(W, target, f"{target} is never imported by src/model.py → its part is not built",
-                                f"add `from {PARTS_PKG}.{stem} import {fn}` to model.py and call `{fn}()` in main()"))
+                                f"add `from {PARTS_DIR}.{stem} import {fn}` to model.py and call `{fn}()` in main()"))
     return out
 
 
@@ -621,7 +614,7 @@ CONTRACT (the harness runs this file in an EMPTY scene with `blender -b --factor
     each TOP-LEVEL (never parented under an Empty — that merges them into ONE measured part).
 {layout}  * Materials: Principled BSDF (Base Color / Roughness / Metallic). GLB keeps flat PBR + image
     textures only (procedural node textures are NOT exported) — rely on geometry + flat PBR.
-  * Modifiers may stay unapplied (the exporter applies them). Keep < 500k triangles, < 120 s.
+  * Modifiers may stay unapplied (the exporter applies them). Keep < {MAX_TRIS_OBJECT // 1000}k triangles.
   * NEVER: cameras, lights, world, render settings, export/import, file IO, bpy.ops.wm.*.
   * Only bpy / bmesh / mathutils / math / random (seeded). No other imports.
 
@@ -655,7 +648,7 @@ def part_file_source(p: PartPlan) -> str:
 
 def model_file_source(plan: StaticPlan) -> str:
     """Complete multi-file entry ``src/model.py``: imports, ordered calls, self-check."""
-    imports = "\n".join(f"from {PARTS_PKG}.{to_snake(p.name)} import {build_fn_name(p.name)}" for p in plan.parts)
+    imports = "\n".join(f"from {PARTS_DIR}.{to_snake(p.name)} import {build_fn_name(p.name)}" for p in plan.parts)
     calls = "\n".join(f"    {build_fn_name(p.name)}()" for p in plan.parts)
     return (
         _plan_header(plan, multi_file=True)
@@ -746,14 +739,6 @@ class BlenderRuntime(RuntimeDocs):
     def part_file(self, ws: Workspace, part_name: str) -> Path:
         return ws.root / self.file_for_part(part_name)
 
-    @staticmethod
-    def file_for_target(target: str) -> list[str]:
-        """Refine target → files: whole-object targets (``overall``/``assembly``/``object``/'')
-        map to the entry ``src/model.py``; anything else is treated as a part name."""
-        if target.strip().lower() in ("", "overall", "assembly", "object", "model"):
-            return [ENTRY_REL]
-        return [part_file_rel(target)]
-
     def build_command(
         self, ws: Workspace, *, stl: bool = True, blend: bool = False, seed: int = 0,
         tri_limit: int = MAX_TRIS_OBJECT, rlimit_gb: float | None = None,
@@ -796,7 +781,7 @@ class BlenderRuntime(RuntimeDocs):
         ws.stage_artifacts("build.json", "census.json", "object.glb", "object.stl", "object.blend").invalidate()
         entry = self.entry_file(ws)
         if not entry.is_file():
-            result = BuildResult(ok=False, language=self.language.value, error_type="MissingEntryFile",
+            result = BuildResult(ok=False, language=self.language.value, error_type=MISSING_ENTRY,
                                  error_message=f"{ENTRY_REL} does not exist", error_file=ENTRY_REL)
             ws.write_json(build_json, result)
             return result

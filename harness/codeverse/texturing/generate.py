@@ -6,8 +6,6 @@
 * ``make_tileable(img, border_frac)``: cross-fades each edge band with the mirrored
   opposite band (a smoothstep ramp over ``border_frac`` of the width) so the wrap
   seam disappears; content in the middle is untouched.
-* ``offset_check(img)``: half-offset the image (seams move to the centre) — the
-  classic visual check; returns the offset image for inspection.
 * ``fit_size`` / ``save_texture``: power-of-two downscale + PNG or JPEG q90.
 """
 
@@ -33,6 +31,8 @@ from codeverse.contracts.common import Usage
 from codeverse.contracts.plan import AcceptanceItem, StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
+from codeverse.judges.base import JudgeInput, plan_digest
+from codeverse.judges.rubrics import is_degraded
 
 #: seam score above which a texture is considered NOT tileable (after make_tileable)
 SEAM_MAX = 0.08
@@ -94,14 +94,6 @@ def make_tileable(img: Image.Image, border_frac: float = 0.12) -> Image.Image:
     return Image.fromarray((np.clip(out, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8), "RGB")
 
 
-def offset_check(img: Image.Image) -> Image.Image:
-    """Roll the image by half its size so the wrap seams sit in the centre."""
-    a = _arr(img)
-    h, w = a.shape[:2]
-    rolled = np.roll(np.roll(a, w // 2, axis=1), h // 2, axis=0)
-    return Image.fromarray((rolled * 255.0 + 0.5).astype(np.uint8), "RGB")
-
-
 def fit_size(img: Image.Image, size: int) -> Image.Image:
     """Square, power-of-two-ish downscale to ``size`` (never upscales)."""
     w, h = img.size
@@ -122,16 +114,6 @@ def save_texture(img: Image.Image, path: Path, *, fmt: str | None = None, qualit
     else:
         img.convert("RGB").save(path, "PNG", optimize=True)
     return path
-
-
-def tile_preview(img: Image.Image, reps: int = 2, size: int = 512) -> Image.Image:
-    """``reps × reps`` repetition for eyeballing tileability."""
-    t = img.convert("RGB").resize((size // reps, size // reps), Image.LANCZOS)
-    out = Image.new("RGB", (t.size[0] * reps, t.size[1] * reps))
-    for i in range(reps):
-        for j in range(reps):
-            out.paste(t, (i * t.size[0], j * t.size[1]))
-    return out
 
 
 # ===================================================================== generate
@@ -194,10 +176,6 @@ class FakeImageModel:
     @property
     def id(self) -> str:
         return f"fake-image:{self.model}"
-
-    def generate(self, prompt: str, *, size: int = 1024, n: int = 1, seed: int | None = None,
-                 reference_images: Sequence[Any] = ()) -> list[Image.Image]:
-        return self.generate_with_usage(prompt, size=size, n=n, seed=seed, reference_images=reference_images)[0]
 
     def generate_with_usage(self, prompt: str, *, size: int = 1024, n: int = 1, seed: int | None = None,
                             reference_images: Sequence[Any] = ()) -> tuple[list[Image.Image], Usage]:
@@ -384,20 +362,6 @@ def material_criterion(scores: dict[str, float], rubric_hint: str = "") -> str:
     return ""
 
 
-def _plan_summary(plan: StaticPlan | None) -> str:
-    if plan is None:
-        return ""
-    parts = ", ".join(f"{p.name}×{p.instances}" if p.instances > 1 else p.name for p in plan.parts)
-    e = plan.overall_bbox.extents
-    return f"{plan.object_name}: {plan.summary} Overall {e[0]:.2f}×{e[1]:.2f}×{e[2]:.2f} m. Parts: {parts}."
-
-
-def _degraded(j: Judgment) -> bool:
-    from codeverse.judges.rubrics import is_degraded
-
-    return is_degraded(j)
-
-
 def judge_gate(
     spec: Spec,
     plan: StaticPlan | None,
@@ -415,8 +379,6 @@ def judge_gate(
 ) -> GateResult:
     """Render + judge both GLBs; decide.  ``judge`` is any object with
     ``.judge(JudgeInput) -> Judgment`` (``VlmJudge`` or a fake)."""
-    from codeverse.judges.base import JudgeInput
-
     t0 = time.time()
     if render is None:
         from codeverse.spatial.render import render_glb
@@ -426,7 +388,7 @@ def judge_gate(
     rs_before = render(glb_before, out_dir / "before", views=list(views), width=size, height=size)
     rs_after = render(glb_after, out_dir / "after", views=list(views), width=size, height=size)
     acceptance: list[AcceptanceItem] = list(getattr(plan, "acceptance", []) or [])
-    summary = _plan_summary(plan)
+    summary = plan_digest(plan.model_dump()) if plan is not None else ""
     res = GateResult(shipped=False, renders_before=rs_before, renders_after=rs_after)
     jb = judge.judge(JudgeInput(spec=spec, renders=rs_before, measurement=measurement, acceptance=acceptance,
                                 plan_summary=summary, round_index=0,
@@ -437,7 +399,7 @@ def judge_gate(
     res.judgment_before, res.judgment_after = jb, ja
     res.usage = jb.usage + ja.usage
     res.duration_s = round(time.time() - t0, 2)
-    if _degraded(jb) or _degraded(ja):
+    if is_degraded(jb) or is_degraded(ja):
         res.reason = "judge degraded on one side — not shipped"
         return res
     res.overall_before, res.overall_after = float(jb.overall), float(ja.overall)
@@ -450,8 +412,6 @@ def judge_gate(
         res.materials_delta = round(res.materials_after - res.materials_before, 4)
     ok_overall = res.delta >= min_overall_delta
     ok_mat = (res.materials_delta is None) or (res.materials_delta > min_materials_delta)
-    if crit and res.materials_delta is None:
-        ok_mat = False
     res.shipped = bool(ok_overall and ok_mat)
     if res.shipped:
         res.reason = f"Δoverall {res.delta:+.3f} ≥ {min_overall_delta:+.2f} and {crit or 'overall'} {res.materials_delta:+.3f}" if crit \

@@ -34,7 +34,7 @@ from typing import NamedTuple
 from pydantic import BaseModel, Field
 
 #: glTF/Blender/three framework defaults.  A material sitting exactly on one of
-#: these pairs was never authored — see ``normalise.is_untouched``.
+#: these pairs was never authored — see ``is_framework_default``.
 FRAMEWORK_DEFAULTS: tuple[tuple[float, float], ...] = (
     (1.0, 1.0),   # glTF 2.0 material default (metallic 1, roughness 1) — renders as dark mud
     (0.0, 1.0),   # three.js MeshStandardMaterial default

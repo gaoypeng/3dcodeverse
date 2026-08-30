@@ -138,10 +138,10 @@ def test_partial_samples_still_score(judge_input, cache_dir):
     assert raw["n_requested"] == 2 and raw["n_used"] == 1 and len(raw["sample_errors"]) == 1
 
 
-def test_non_retryable_error_stops_early(judge_input, cache_dir):
+def test_non_retryable_error_stops_at_once(judge_input, cache_dir):
     model = FakeChatModel(default=ModelError("bad request", retryable=False))
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
-    assert is_degraded(j) and len(model.requests) == 2
+    assert is_degraded(j) and len(model.requests) == 1
 
 
 def test_base_judge_rejects_measured_rubric(judge_input, cache_dir):

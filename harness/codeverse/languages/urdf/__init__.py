@@ -1,8 +1,5 @@
-"""``urdf_blender``: bpy link meshes + hand-written URDF.
-
-Modules: ``runtime`` (UrdfBlenderRuntime), ``lint``, ``skeleton``, ``consistency``
-(FK ↔ authored geometry), ``wrappers/run_bpy_links.py`` (Blender-side build),
-``wrappers/render_glb_bpy.py`` (fallback renderer).  Contract: ``CONTRACT.md``."""
+"""``urdf_blender``: bpy link meshes + hand-written URDF — lint, skeleton, FK ↔ geometry
+consistency and the ``UrdfBlenderRuntime`` around ``wrappers/run_bpy_links.py``."""
 
 from __future__ import annotations
 
@@ -25,9 +22,16 @@ from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, 
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import ArticulatedPlan, JointPlan, PartPlan, Plan
 from codeverse.conventions import to_snake
-from codeverse.languages._ast_lint import describe_parse_failure, safe_parse
-from codeverse.languages._common import ProcResult, read_json_file, run_subprocess
+from codeverse.languages._ast_lint import (
+    BASE_FORBIDDEN_IMPORTS,
+    check_imports,
+    describe_parse_failure,
+    dotted,
+    safe_parse,
+)
+from codeverse.languages._common import BUILD_TIMEOUT, ProcResult, read_json_file
 from codeverse.languages._docs import RuntimeDocs
+from codeverse.proc import run_subprocess, tail
 from codeverse.spatial.joints import (
     UrdfError,
     load_urdf,
@@ -117,7 +121,17 @@ FORBIDDEN_BPY_PREFIXES: tuple[tuple[str, str], ...] = (
     ("bpy.ops.import_scene.", "importing external files — build geometry procedurally"),
     ("bpy.ops.import_mesh.", "importing external files — build geometry procedurally"),
 )
-FORBIDDEN_MODULES: tuple[str, ...] = ("subprocess", "socket", "urllib", "requests", "http", "shutil", "ctypes", "multiprocessing")
+#: the shared floor (subprocess/network/pickle/threading/importlib …): the wrapper execs
+#: model.py inside the same Blender interpreter as the blender language, so no looser list
+FORBIDDEN_IMPORTS: frozenset[str] = frozenset(BASE_FORBIDDEN_IMPORTS)
+#: model.py runs inside the SAME Blender python as blender/model.py, so the pure-computation
+#: stdlib it allows is allowed here too; anything else is an "unexpected" WARN (os/sys stay out:
+#: a link-mesh script has no business in the filesystem, and FORBIDDEN_CALLS catches the uses)
+ALLOWED_IMPORTS: frozenset[str] = frozenset({
+    "bpy", "bmesh", "mathutils", "math", "random", "numpy", "np", "bpy_extras", "__future__",
+    "typing", "dataclasses", "itertools", "functools", "collections", "enum", "copy",
+    "colorsys", "statistics", "operator",
+})
 FORBIDDEN_CALLS: dict[str, str] = {
     "os.system": "shell access", "os.remove": "file deletion", "os.unlink": "file deletion", "os.rmdir": "file deletion",
     "sys.exit": "exits Blender before the export — just return/raise instead", "exit": "exits Blender", "quit": "exits Blender",
@@ -343,42 +357,20 @@ def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: di
 class _Visitor(ast.NodeVisitor):
     def __init__(self) -> None:
         self.findings: list[GateFinding] = []
-        self.has_bpy = False
+        self.imports: dict[str, int] = {}  # top-level module → first line
         self.strings: set[str] = set()
-
-    def _chain(self, node: ast.AST) -> str:
-        parts: list[str] = []
-        while isinstance(node, ast.Attribute):
-            parts.append(node.attr)
-            node = node.value
-        if isinstance(node, ast.Name):
-            parts.append(node.id)
-        return ".".join(reversed(parts))
 
     def visit_Import(self, node: ast.Import) -> None:
         for a in node.names:
-            top = a.name.split(".")[0]
-            if top == "bpy":
-                self.has_bpy = True
-            if top in FORBIDDEN_MODULES:
-                self.findings.append(_f(Severity.ERROR, f"line {node.lineno}: import of '{a.name}' is not allowed in model.py",
-                                        target=MODEL_REL, fix="Build geometry with bpy/bmesh/mathutils/math only.", line=node.lineno))
+            self.imports.setdefault(a.name.split(".")[0], node.lineno)
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        top = (node.module or "").split(".")[0]
-        if top == "bpy":
-            self.has_bpy = True
-        if top in FORBIDDEN_MODULES:
-            self.findings.append(_f(Severity.ERROR, f"line {node.lineno}: import from '{node.module}' is not allowed in model.py",
-                                    target=MODEL_REL, fix="Build geometry with bpy/bmesh/mathutils/math only.", line=node.lineno))
-        if top == "codeverse":
-            self.findings.append(_f(Severity.ERROR, f"line {node.lineno}: model.py must not import the harness", target=MODEL_REL,
-                                    fix="Raw bpy only.", line=node.lineno))
+        self.imports.setdefault((node.module or "").split(".")[0], node.lineno)
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        chain = self._chain(node.func)
+        chain = dotted(node.func)
         for prefix, why in FORBIDDEN_BPY_PREFIXES:
             if chain.startswith(prefix):
                 self.findings.append(_f(Severity.ERROR, f"line {node.lineno}: {chain}() is forbidden: {why}", target=MODEL_REL,
@@ -412,7 +404,18 @@ def lint_model_text(text: str, link_names: list[str], *, label: str = MODEL_REL)
     v = _Visitor()
     v.visit(tree)
     out = v.findings
-    if not v.has_bpy:
+
+    def _import_finding(kind: str, mod: str, line: int) -> GateFinding:
+        if mod == "codeverse":
+            return _f(Severity.ERROR, f"line {line}: model.py must not import the harness", target=label, fix="Raw bpy only.", line=line)
+        if kind == "forbidden":
+            return _f(Severity.ERROR, f"line {line}: import of '{mod}' is not allowed in model.py", target=label,
+                      fix="Build geometry with bpy/bmesh/mathutils/math only.", line=line)
+        return _f(Severity.WARN, f"line {line}: import of '{mod}' is unexpected in model.py (outside the contract's list)",
+                  target=label, fix="Build geometry with bpy/bmesh/mathutils/math only.", line=line)
+
+    out.extend(check_imports(v.imports, forbidden=FORBIDDEN_IMPORTS, allowed=ALLOWED_IMPORTS, make_finding=_import_finding))
+    if "bpy" not in v.imports:
         out.append(_f(Severity.ERROR, f"{label} never imports bpy", target=label, fix="import bpy"))
     for link in link_names:
         if link not in v.strings and not any(link in s for s in v.strings):
@@ -651,10 +654,6 @@ FK_TOL_M = 0.001
 STAGED_OUTPUTS = ("build.json", "census.json", "meshes", "robot.urdf", "articulation.json", "object.glb")
 
 
-def _tail(s: str, n: int = 3000) -> str:
-    return s[-n:] if s else ""
-
-
 class UrdfBlenderRuntime(RuntimeDocs):
     language = Language.URDF_BLENDER
     entry_globs = (ENTRY_FILE[Language.URDF_BLENDER], "src/robot.urdf")
@@ -723,11 +722,11 @@ class UrdfBlenderRuntime(RuntimeDocs):
         build_json, census_json = stage.path("build.json"), stage.path("census.json")
         proc = _run_blender(blender, ws, stage.staging_dir, timeout_s, settings.limits.bpy_rlimit_gb)
         if proc.timed_out:
-            return fail("Timeout", f"Blender build exceeded {timeout_s}s (killed)", file="src/model.py", census=census,
-                        stdout_tail=_tail(proc.stdout), stderr_tail=_tail(proc.stderr))
+            return fail(BUILD_TIMEOUT, f"Blender build exceeded {timeout_s}s (killed)", file="src/model.py", census=census,
+                        stdout_tail=tail(proc.stdout), stderr_tail=tail(proc.stderr))
         if not build_json.is_file():
             return fail("WrapperCrash", f"wrapper produced no build.json (exit {proc.returncode})", file="src/model.py",
-                        census=census, stdout_tail=_tail(proc.stdout), stderr_tail=_tail(proc.stderr))
+                        census=census, stdout_tail=tail(proc.stdout), stderr_tail=tail(proc.stderr))
         wb = read_json_file(build_json)
         wcensus = read_json_file(census_json) if census_json.is_file() else {}
         census.update({k: wcensus.get(k) for k in ("objects", "links", "unmatched_objects", "missing_links", "hints") if k in wcensus})
@@ -735,8 +734,8 @@ class UrdfBlenderRuntime(RuntimeDocs):
             hints = "\n".join(f"  hint: {h}" for h in (wcensus.get("hints") or {}).values())
             return fail(wb.get("error_type") or "ScriptError", (wb.get("error_message") or "") + ("\n" + hints if hints else ""),
                         file=wb.get("error_file") or "src/model.py", line=wb.get("error_line"), census=census,
-                        stdout_tail=_tail(wb.get("stdout_tail", "") or proc.stdout),
-                        stderr_tail=_tail(wb.get("stderr_tail", "") or proc.stderr))
+                        stdout_tail=tail(wb.get("stdout_tail", "") or proc.stdout),
+                        stderr_tail=tail(wb.get("stderr_tail", "") or proc.stderr))
 
         # 3. URDF copy + load (staged files; extra_paths name the canonical homes)
         urdf_staged = stage.path("robot.urdf")
@@ -770,7 +769,7 @@ class UrdfBlenderRuntime(RuntimeDocs):
         urdf_to_glb(robot, stage.path("object.glb"), None)
         extra["object_glb"] = str(art / "object.glb")
         res = BuildResult(ok=True, language=self.language.value, glb_path=str(art / "object.glb"), extra_paths=extra,
-                          stdout_tail=_tail(wb.get("stdout_tail", "")), duration_ms=int((time.time() - t0) * 1000), census=census)
+                          stdout_tail=tail(wb.get("stdout_tail", "")), duration_ms=int((time.time() - t0) * 1000), census=census)
         if report.summary.rest_max_penetration_m > REST_PENETRATION_MAX_M:
             worst = [f for f in findings if f.data.get("pose") == {} and f.severity == "error"]
             res.ok = False

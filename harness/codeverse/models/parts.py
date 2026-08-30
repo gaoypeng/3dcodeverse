@@ -65,15 +65,10 @@ class Stopwatch:
 
 
 class BoundedCache[T]:
-    """Thread-safe bounded LRU ``str -> T`` map for per-call-id provider state.
-
-    Replaces ``gemini_convert._SignatureCache`` (thought signatures, ``bytes``)
-    and ``anthropic_convert._ThinkingCache`` (thinking blocks, ``list[dict]``):
-    both had the identical ``__init__``/``put``/``get`` — an ``OrderedDict``
-    under a lock, ``put`` skipping falsy values, ``move_to_end`` then
-    ``popitem(last=False)`` until under capacity — and differed only in value
-    type and capacity.  ``get`` returns ``None`` on a miss; a caller that needs
-    the old copy/empty-default shape wraps it: ``list(cache.get(k) or [])``.
+    """Thread-safe bounded LRU ``str -> T`` map for per-call-id provider state
+    (gemini thought signatures, anthropic thinking blocks).  ``put`` skips falsy
+    values; ``get`` returns ``None`` on a miss — a caller that needs a copy /
+    empty default wraps it: ``list(cache.get(k) or [])``.
     """
 
     def __init__(self, capacity: int) -> None:
@@ -108,8 +103,6 @@ def classify_sdk_exception(exc: BaseException, sdk: Any, label: str,
     out" and "connection error" to tell a provider outage from a model failure, so the
     f"{label} …" forms below must stay byte-identical to what each adapter emitted.
     """
-    from codeverse.models.base import ModelError
-
     if isinstance(exc, ModelError):
         return exc
     if isinstance(exc, sdk.APIStatusError):
@@ -126,19 +119,21 @@ def classify_sdk_exception(exc: BaseException, sdk: Any, label: str,
 
 
 def with_logged_retries(attempt: Any, *, label: str, model: str, attempts: int,
-                        base_delay: float, max_delay: float, sleep: Any, log: Any) -> Any:
+                        base_delay: float, max_delay: float, sleep: Any, log: Any,
+                        max_wait_s: float | None = None) -> Any:
     """``with_retries`` plus the one log line both SDK adapters write.
 
-    ChatRequest.max_wait_s is not honoured here: with_retries has no deadline, and its
-    6 attempts x <= 5 s backoff bound one call to ~20 s of waiting plus the round-trips.
+    ``max_wait_s`` is the request's ``ChatRequest.max_wait_s`` deadline (retries and
+    their waits included; ``None`` = ``RETRY_DEADLINE_S``); the backoff itself is
+    ``attempts`` x <= ``MAX_WAIT_S`` (3 s), the round-trips are the real cost.
     """
-    from codeverse.models.base import ModelError
-    from codeverse.models.retry import with_retries
+    from codeverse.models.retry import RETRY_DEADLINE_S, with_retries
 
     def on_retry(n: int, exc: BaseException, delay: float) -> None:
         log.warning("%s %s attempt %d/%d failed (%s); retrying in %.1fs",
                     label, model, n, attempts, exc, delay)
 
+    budget = RETRY_DEADLINE_S if max_wait_s is None else min(RETRY_DEADLINE_S, float(max_wait_s))
     return with_retries(attempt, is_retryable=lambda e: isinstance(e, ModelError) and e.retryable,
-                        attempts=attempts, base_delay=base_delay, max_delay=max_delay,
+                        attempts=attempts, base_delay=base_delay, max_delay=max_delay, max_total_s=budget,
                         on_retry=on_retry, sleep=sleep)

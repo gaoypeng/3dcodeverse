@@ -1,7 +1,7 @@
 """GL builds must not leave the previous build's artifacts looking current (offline).
 
 frames_sheet.png / preview.gif / metrics.json are written only on ok and were never
-cleared; the MissingEntry early returns never reached GlHost._run's frames wipe.
+cleared; the MissingEntryFile early returns never reached GlHost._run's frames wipe.
 Both wipes now happen at the top of build() (``_gl_common.invalidate_stale_outputs``)
 plus a failure-path invalidation in ``finish_build``.
 """
@@ -49,11 +49,11 @@ def test_failed_build_invalidates_sheet_gif_metrics(tmp_ws: Workspace) -> None:
 
 
 def test_missing_entry_clears_frames_and_result(tmp_ws: Workspace) -> None:
-    """The MissingEntry early return never reaches the host — the hoisted wipe must
+    """The MissingEntryFile early return never reaches the host — the hoisted wipe must
     still clear frames/ + gl_result.json (and the sheet/gif/metrics trio)."""
     _seed_stale(tmp_ws)
     br = GlslShaderRuntime(host=_FailingHost()).build(tmp_ws, preview=False)
-    assert not br.ok and br.error_type == "MissingEntry"
+    assert not br.ok and br.error_type == "MissingEntryFile"
     assert not list((tmp_ws.artifacts / "frames").glob("*.png"))
     for name in ("gl_result.json", "frames_sheet.png", "preview.gif", "metrics.json"):
         assert not (tmp_ws.artifacts / name).exists(), name

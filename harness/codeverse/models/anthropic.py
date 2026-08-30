@@ -38,7 +38,7 @@ from codeverse.models.parts import (
     with_logged_retries,
 )
 from codeverse.models.pricing import cache_write_surcharge, estimate_cost
-from codeverse.models.retry import MAX_WAIT_S
+from codeverse.models.retry import MAX_WAIT_S, cause_for
 from codeverse.models.schema_utils import (
     JsonParseError,
     parse_json_lenient,
@@ -309,11 +309,13 @@ class AnthropicModel:
             try:
                 return self._once(kwargs, request)
             except Exception as exc:  # noqa: BLE001 - classified
-                raise classify_exception(exc) from exc
+                err = classify_exception(exc)
+                raise err from cause_for(err, exc)
 
         return with_logged_retries(attempt, label="anthropic", model=self.model,
                                    attempts=self.max_attempts, base_delay=self.base_delay,
-                                   max_delay=self.max_delay, sleep=self._sleep, log=log)
+                                   max_delay=self.max_delay, sleep=self._sleep, log=log,
+                                   max_wait_s=request.max_wait_s)
 
     def _once(self, kwargs: dict[str, Any], request: ChatRequest) -> ChatResponse:
         client = self.client()

@@ -28,7 +28,7 @@ from codeverse.contracts.common import Usage
 from codeverse.models.base import ModelError
 from codeverse.models.parts import Stopwatch, classify_sdk_exception, image_b64, with_logged_retries
 from codeverse.models.pricing import estimate_cost
-from codeverse.models.retry import MAX_WAIT_S
+from codeverse.models.retry import MAX_WAIT_S, cause_for
 from codeverse.models.schema_utils import (
     JsonParseError,
     inline_refs,
@@ -290,12 +290,14 @@ class OpenAIModel:
                     try:
                         return self._once(kwargs, request)
                     except Exception as exc2:  # noqa: BLE001
-                        raise classify_exception(exc2) from exc2
-                raise err from exc
+                        err2 = classify_exception(exc2)
+                        raise err2 from cause_for(err2, exc2)
+                raise err from cause_for(err, exc)
 
         return with_logged_retries(attempt, label="openai", model=self.model,
                                    attempts=self.max_attempts, base_delay=self.base_delay,
-                                   max_delay=self.max_delay, sleep=self._sleep, log=log)
+                                   max_delay=self.max_delay, sleep=self._sleep, log=log,
+                                   max_wait_s=request.max_wait_s)
 
     def _once(self, kwargs: dict[str, Any], request: ChatRequest) -> ChatResponse:
         client = self.client()

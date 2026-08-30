@@ -10,6 +10,7 @@ from pathlib import Path
 from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import GraphicsPlan, Plan
+from codeverse.languages._common import MISSING_ENTRY
 from codeverse.languages._docs import RuntimeDocs
 from codeverse.languages._gl_common import (  # noqa: F401 — re-exported
     GlslMessage,
@@ -379,20 +380,12 @@ def write_skeleton(ws: Workspace, plan: Plan | None) -> list[Path]:
 
 
 # ===================================================================== runtime
-CONTRACT_FALLBACK = """src/shader.frag — GLSL 330 fragment shader body (NO #version line, NO uniform declarations):
-write `void mainImage(out vec4 fragColor, in vec2 fragCoord)` using the harness uniforms u_time, u_resolution,
-u_mouse, u_frame, u_prev (previous frame), u_noise (256² noise), u_buffer_a (src/buffer_a.frag output).
-Optional src/common.glsl (helpers, pasted in first) and src/buffer_a.frag (one feedback pass). Animate with u_time."""
-
-
 class GlslShaderRuntime(RuntimeDocs):
     language = Language.GLSL_SHADER
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.GLSL_SHADER], COMMON, BUFFER_A)
 
     def __init__(self, *, host: GlHost | None = None):
         self._host = host
-
-    # ------------------------------------------------------------------ contract
 
     # ------------------------------------------------------------------ skeleton / lint
     def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:
@@ -420,9 +413,9 @@ class GlslShaderRuntime(RuntimeDocs):
     def build(self, ws: Workspace, *, timeout_s: int | None = None, times: list[float] | None = None,
               preview: bool = True, width: int | None = None, height: int | None = None) -> BuildResult:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
-        invalidate_stale_outputs(ws)  # BEFORE the MissingEntry return, so it also clears
+        invalidate_stale_outputs(ws)  # BEFORE the MISSING_ENTRY return, so it also clears
         if not (ws.root / SHADER).is_file():
-            res = GlResult(ok=False, mode="shader", stage="lint", error_type="MissingEntry", error_message=f"{SHADER} is missing")
+            res = GlResult(ok=False, mode="shader", stage="lint", error_type=MISSING_ENTRY, error_message=f"{SHADER} is missing")
             return finish_build(ws, res, language=self.language.value, error_file=SHADER)
         plan = load_plan(ws)
         w, h = resolution_for(plan)

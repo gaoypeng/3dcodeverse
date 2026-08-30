@@ -66,7 +66,3 @@ def render(rel_path: str, **ctx: Any) -> str:
 
 def prompt_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:12]
-
-
-def list_prompts() -> list[str]:
-    return sorted(str(p.relative_to(PROMPTS_DIR)) for p in PROMPTS_DIR.rglob("*") if p.suffix in (".md", ".j2", ".txt", ".py", ".js"))

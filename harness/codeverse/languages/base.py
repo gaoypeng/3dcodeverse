@@ -40,8 +40,6 @@ class LanguageRuntime(Protocol):
         """Prompt text: the authoring contract for this language (from prompts/<lang>/)."""
         ...
 
-    def cookbook_path(self) -> Path: ...
-
 
 #: Language → (module, class).  Adding a language is a row, and the import stays lazy
 #: (a runtime pulls in bpy / moderngl / node bindings the other six do not need).

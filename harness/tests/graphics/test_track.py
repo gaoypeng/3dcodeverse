@@ -84,10 +84,7 @@ class FakeGlRuntime:
         return finish_build(ws, res, language="glsl_shader", census={"convention": "mainImage"})
 
     def contract_doc(self) -> str:
-        return "FAKE GLSL CONTRACT"
-
-    def cookbook_path(self) -> Path:
-        return Path("/dev/null")
+        return "FAKE glsl_shader authoring contract"  # the runtime's contract_doc is what the prompt sees
 
 
 def _writer(job, ws):

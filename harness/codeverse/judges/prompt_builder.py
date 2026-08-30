@@ -1,10 +1,14 @@
-"""Judge image preparation: downscale, label strips, caching, view geometry.
+"""What the judge SEES: image prep, montage planning and message assembly.
 
-Every image sent to a judge goes through ``prepare_image`` so the token cost is
-bounded (≤ ``max_px`` on the long side) and every view carries a burnt-in label
-(``VIEW 3/8 — front · az 0° el 8°``) that the model can cite as evidence.
-Prepared files are cached under ``<cache_dir>/<sha>.png`` keyed by source path,
-mtime, size, max_px and label text.
+* image prep (``prepare_image``): every image sent to a judge is downscaled
+  (≤ ``max_px`` on the long side) and carries a burnt-in label (``VIEW 3/8 — front ·
+  az 0° el 8°``) the model can cite as evidence; prepared files are cached under
+  ``<cache_dir>/<sha>.png`` keyed by source path, mtime, size, max_px and label text.
+* montage planning (``plan_montages`` / ``render_montage``): ranked views packed into
+  ≤2×2 sheets — shaded, geometry (clay/normals), poses, detail crops.
+* message assembly (``build_judge_messages``): rubric + montages + measurements +
+  acceptance items → the ``ChatRequest`` system/messages; ``judge_prompt_hash`` is the
+  verdict's provenance stamp.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from PIL import Image, ImageDraw
 
 from codeverse.config import get_settings
 from codeverse.contracts.artifacts import (
+    RENDER_MODES,
     GateReport,
     Judgment,
     Measurement,
@@ -124,8 +129,8 @@ def image_part(path: Path, label: str) -> ImagePart:
 # ===================================================================== montage
 MontageKind = Literal["shaded", "geometry", "poses", "pose_sheet", "detail"]
 
-#: modes that show geometry without material/lighting noise
-GEOMETRY_MODES = ("clay", "normals", "wire", "silhouette", "depth")
+#: modes that show geometry without material/lighting noise: every render mode but shaded
+GEOMETRY_MODES = tuple(m for m in RENDER_MODES if m != "shaded")
 #: most-informative-first order for the object rig (names from conventions.OBJECT_VIEWS)
 OBJECT_RANK = ("front_right_34", "back_left_34", "top", "low_front_left", "front", "right", "back", "left")
 #: scene rig: authored cameras first (graded for composition), then the overview rig.
