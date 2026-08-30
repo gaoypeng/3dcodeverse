@@ -23,6 +23,7 @@ from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS, OBJECT_VIEWS_QUICK
 from codeverse.spatial.connectivity import check_connectivity as _check_connectivity
 from codeverse.spatial.contract import check_contract as _check_contract
+from codeverse.spatial.contract import planned_joins
 from codeverse.spatial.frame_metrics import frame_summary_text
 from codeverse.spatial.joints_export import ARTICULATION_SHEET_NAME, render_poses
 from codeverse.spatial.joints_model import UrdfError, load_urdf
@@ -139,10 +140,11 @@ def _folded_checks(ctx: ToolContext, glb: Path, m: Measurement, language: str) -
         numbers[f"{name.lower()}_errors"] = n_err
         verdicts.append(f"{name.lower()} " + ("PASS" if report.passed else f"FAIL ({n_err} error(s))"))
 
-    conn = _check_connectivity(glb, language=language)
+    plan = load_plan(ws.plan_path) if ws.plan_path.is_file() else None
+    conn = _check_connectivity(glb, language=language, planned_edges=planned_joins(plan, m))
     fold("CONNECTIVITY", conn)
-    if ws.plan_path.is_file():
-        contract = _check_contract(m, load_plan(ws.plan_path), language=language)
+    if plan is not None:
+        contract = _check_contract(m, plan, language=language)
         fold("CONTRACT", contract)
         passed = conn.passed and contract.passed
     else:
@@ -269,7 +271,12 @@ def measure(ctx: ToolContext, args: MeasureArgs) -> Observation:
 @tool("check_connectivity", NoArgs, "Contact graph of all parts: floating parts (with the exact gap vector to close), interpenetration, stray islands.")
 def check_connectivity(ctx: ToolContext, args: NoArgs) -> Observation:
     glb = glb_path(ctx)
-    report = _check_connectivity(glb, language=language_of(ctx))
+    plan = load_plan(ctx.workspace.plan_path) if ctx.workspace.plan_path.is_file() else None
+    try:  # the plan's attach_to pairs in the GLB's part names — the same resolver as the track's gate
+        planned = planned_joins(plan, measure_glb(glb)) if plan is not None else []
+    except GlbLoadError as e:
+        return Observation.error(f"check_connectivity: {e}")
+    report = _check_connectivity(glb, language=language_of(ctx), planned_edges=planned)
     ctx.workspace.write_json(ctx.workspace.gates_dir(ctx.round_index) / "connectivity_tool.json", report)
     return gate_observation(report)
 

@@ -270,6 +270,7 @@ class FakeServices(Services):
         self.reference_judges: list[tuple[str, int, str]] = []
         self.silhouette_calls: list[tuple[str, str]] = []
         self.connectivity_languages: list[str] = []
+        self.planned_edges: list[list[tuple[str, str]]] = []
         self.geometry_renders: list[str] = []
 
     def chat_model(self, model_id: str) -> Any:
@@ -326,8 +327,9 @@ class FakeServices(Services):
                            center=tuple(cen), tri_count=sum(p.tri_count for p in parts), n_meshes=len(parts), n_islands=len(parts),
                            parts=parts, ground_gap_m=float(bounds[0][1]), footprint_offset_m=float(np.hypot(cen[0], cen[2])))
 
-    def connectivity(self, glb: Path, language: str = "") -> GateReport:
+    def connectivity(self, glb: Path, language: str = "", planned_edges: Sequence[tuple[str, str]] = ()) -> GateReport:
         self.connectivity_languages.append(language)
+        self.planned_edges.append(list(planned_edges))
         return GateReport(gate="connectivity", passed=True)
 
     def contract(self, measurement: Measurement, plan: Plan, tol_m: float, language: str = "") -> GateReport:

@@ -395,6 +395,24 @@ def _stool_plan_with_missing_backrest() -> StaticPlan:
                              PartPlan(name="Backrest", role="r", description="d", bbox=BBox(center=(0, 0.18, 0.6), extents=(0.4, 0.03, 0.3)))])
 
 
+def test_connectivity_tool_resolves_instance_names_like_the_track_does(stool_ctx: ToolContext) -> None:
+    """The plan says ``Leg`` attaches to ``Seat``; the GLB has ``Leg_0..3``.  The tool used to
+    hand the gate the raw plan names, so the agent-facing ledger listed ``Leg`` under
+    planned_unresolved while the track's gate resolved it (965 of 2 666 raw names over 357
+    stored rounds, 2026-08-30).  One resolver now: ``spatial.contract.planned_joins``."""
+    ws = stool_ctx.workspace
+    ws.write_json(ws.plan_path, StaticPlan(
+        object_name="Stool", summary="s", overall_bbox=BBox(center=(0, 0, 0.225), extents=(0.4, 0.4, 0.45)),
+        parts=[PartPlan(name="Seat", role="r", description="d", bbox=BBox(center=(0, 0, 0.43), extents=(0.4, 0.4, 0.04))),
+               PartPlan(name="Leg", role="r", description="d", bbox=BBox(center=(0, 0, 0.205), extents=(0.04, 0.04, 0.41)), attach_to="Seat", instances=4)]))
+    get_tool("check_connectivity").call(stool_ctx, {})
+    report = json.loads((ws.gates_dir(0) / "connectivity_tool.json").read_text())
+    ledger = next(f["data"] for f in report["findings"] if "planned" in (f.get("data") or {}))
+    assert ledger["planned_unresolved"] == []
+    assert {(a, b) for a, b, *_ in ledger["planned"]} == {(f"Leg_{i}", "Seat") for i in range(4)}
+    assert {row[3] for row in ledger["planned"] if row[0] == "Leg_3"} == {"open"}   # the 5 mm floating leg
+
+
 def test_build_folds_connectivity_and_contract_in_when_fewer_turns(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     """docs/COST.md §29: ~25 check_connectivity + ~19 check_contract calls per run, each a 4 s
     round trip for a < 0.5 s check.  With the switch on, one build observation carries both."""
