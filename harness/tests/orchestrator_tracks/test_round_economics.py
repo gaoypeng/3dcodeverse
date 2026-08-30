@@ -1,16 +1,4 @@
-"""The round-level cost controls — the ones that survived measurement, and the
-proof for the ones that did not.
-
-* a round that scores below the best by more than the judge's noise does not
-  buy another round of the same shape (``regression`` / strategy switch);
-* r03+ only starts when the previous round gained more than 1.5 σ
-  (``diminishing_returns``);
-* agent sessions are **uncapped by default** — a 28-turn cap was A/B-tested and
-  rejected ($1.381 / 0.479 capped vs $1.360 / 0.684 uncapped, n=3 per arm,
-  docs/COST.md §17) — but an explicitly requested cap still lands gracefully;
-* the judge is skipped only where the verdict is provably never bought at all,
-  and every round emits one ``cost.round`` event with what it burned.
-"""
+"""Round stop economics, session limits, judge skipping, and cost attribution."""
 
 from __future__ import annotations
 
@@ -68,8 +56,6 @@ def test_judge_sigma_comes_from_the_one_measured_table():
     pol = RoundPolicy(judge_model="gemini:gemini-3.7-flash")
     assert pol.sigma == pytest.approx(0.083)
     assert pol.regression_delta == pytest.approx(0.083) and pol.marginal_delta == pytest.approx(0.1245)
-    assert RoundPolicy().with_judge("gemini:gemini-3.7-flash").sigma == pytest.approx(0.083)
-    assert RoundPolicy().with_judge("") is not None
 
 
 def test_best_score_and_last_gain():
@@ -94,10 +80,6 @@ def test_a_regression_buys_a_change_of_shape_then_stops():
 
 
 def test_a_sub_noise_dip_never_burns_the_strategy_switch():
-    """Audit (g): the regression COUNTER used to count ANY drop while the gate used
-    policy.regression_delta — a -0.02 blip (inside pro sigma 0.030) plus one real
-    regression made the counter 2 and stopped the run as "regression" without ever
-    offering the single strategy switch.  One predicate now serves both."""
     from codeverse.orchestrator import meaningful_regression
 
     sp = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, judge_model="gemini:gemini-3.1-pro-preview",
@@ -145,18 +127,12 @@ def test_r03_only_runs_when_the_last_round_paid_for_itself():
 
 
 def test_the_marginal_round_is_configurable():
-    """The audit's recommendation #1 (stop after r01) is this knob, not a new rule."""
     sp = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, marginal_from_round=2,
                                 judge_model="gemini:gemini-3.1-pro-preview"))
     assert sp.evaluate([_round(0, 0.40), _round(1, 0.42)]).reason == "diminishing_returns"
 
 
 def test_the_stop_order_is_exhausted_regression_then_marginal_then_switch_then_plateau():
-    """One case per branch, each one where the NEXT branch would answer differently —
-    the order in ``StopPolicy.evaluate`` is the economics, so it is pinned here.
-
-    (Replayed over the 107 recorded rounds this shipped default cuts 2 runs /
-    $1.14 with 0 best rounds lost — waste-and-accounting/replay_stops.py.)"""
     pro = dict(max_rounds=4, target=0.9, judge_model="gemini:gemini-3.1-pro-preview")
     sp = StopPolicy(RoundPolicy(**pro))
     # 1. the switch is already spent (a rewrite regressed again) — outranks everything,
@@ -204,9 +180,6 @@ class _TurnAgent:
 
 
 def test_agent_sessions_are_uncapped_by_default(tmp_ws, monkeypatch):
-    """Measured (docs/COST.md §17): cap 28 cost $1.381 at score 0.479, uncapped
-    $1.360 at 0.684 — n=3 per arm, same prompt/generator/judge/budget.  The cap
-    saved nothing and lost 0.205 of a score point, so nothing sets one by default."""
     monkeypatch.delenv("CV3D_AGENT_MAX_TURNS", raising=False)
     assert DEFAULT_AGENT_MAX_TURNS == 0 and RoundPolicy().agent_max_turns == 0
     agent = _TurnAgent(writes_on=1)
@@ -228,7 +201,6 @@ def test_agent_sessions_are_uncapped_by_default(tmp_ws, monkeypatch):
 
 
 def test_the_policy_cap_is_plumbed_through_the_round(tmp_path, spec, settings):
-    """A caller that DOES set one (a cost profile, a bench arm) still reaches the job."""
     from codeverse.tracks.steps import run_generation_tasks
 
     agent = _TurnAgent(writes_on=1)
@@ -251,7 +223,7 @@ def test_hitting_the_cap_asks_for_a_landing_instead_of_killing_the_session(tmp_w
     assert res.ok and res.turn_capped and res.sessions == 2
     # both sessions are paid for and both are in the guard, under their own labels
     assert res.usage.cost_usd == pytest.approx(0.4) and guard.spent.cost_usd == pytest.approx(0.4)
-    assert guard.round_costs(1)["refine"] == pytest.approx(0.4)
+    assert guard.by_round.get(1, {})["refine"] == pytest.approx(0.4)
     kinds = [e["event"] for e in events.read()]
     assert "generate.turn_cap" in kinds
     done = next(e for e in events.read() if e["event"] == "generate.done")
@@ -272,7 +244,7 @@ def test_a_crashing_second_session_never_erases_what_the_first_one_spent(tmp_ws)
                          budget=guard)
     assert len(agent.jobs) == 2 and not res.ok
     assert guard.spent.cost_usd == pytest.approx(0.2) and res.usage.cost_usd == pytest.approx(0.2)
-    assert "503 storm" in res.notes and guard.round_costs(2)["refine"] == pytest.approx(0.2)
+    assert "503 storm" in res.notes and guard.by_round.get(2, {})["refine"] == pytest.approx(0.2)
 
 
 def _result_of(agent, i):
@@ -313,11 +285,6 @@ def _gates(errors: int = 0):
 
 
 def test_skip_judge_reasons_are_only_states_where_the_verdict_is_never_bought(tmp_path, spec, settings):
-    """Every branch left in ``skip_judge_reason`` must save a REAL verdict.
-
-    The two wave-2 branches that did not are gone: "no file change" was
-    unreachable and "build not repaired within the repair budget" was bought back
-    by ``rejudge_round`` on the next loop iteration (both reproduced below)."""
     from codeverse.tracks.steps import skip_judge_reason
 
     ctx = _ctx(tmp_path, spec, settings)
@@ -341,8 +308,6 @@ def test_skip_judge_reasons_are_only_states_where_the_verdict_is_never_bought(tm
 
 
 def test_a_round_that_changed_no_file_never_reaches_the_judge_question(tmp_path, spec, settings):
-    """Proof the deleted "no file change" branch was unreachable: a task that writes
-    nothing is not ``ok``, and ``run_generation_tasks`` raises before any verdict."""
     from codeverse.tracks.steps import RoundFailed, run_generation_tasks
 
     class _Idle:
@@ -357,8 +322,6 @@ def test_a_round_that_changed_no_file_never_reaches_the_judge_question(tmp_path,
 
 
 def test_a_skipped_verdict_is_not_bought_back_by_the_rejudge_path(tmp_path, spec, settings):
-    """``rejudge_round`` exists for a judge that FAILED, not for one we chose not to
-    call: without this the "gate errors" skip is a ``judge.retry``, not a saving."""
     from codeverse.tracks.steps import rejudge_round
 
     ctx = _ctx(tmp_path, spec, settings, policy=RoundPolicy(judge_on_gate_errors=False), name="norebuy")
@@ -373,8 +336,6 @@ def test_a_skipped_verdict_is_not_bought_back_by_the_rejudge_path(tmp_path, spec
 
 
 def test_a_round_that_broke_the_gates_does_not_displace_a_clean_one():
-    """The unscored fallback: never promote a round that does not build, and never
-    let a gate-breaking round displace the previous artifact just by being last."""
     from codeverse.orchestrator import BestSelector
 
     def r(i, *, build_ok=True, errors=0):
@@ -450,22 +411,17 @@ def test_the_loop_switches_shape_after_a_regression_and_emits_cost_rounds(tmp_pa
     assert costs[1]["wasted"] is True and costs[1]["waste_reason"] == "regression"
     assert costs[2]["judge_usd"] > 0 and costs[2]["run_usd"] >= costs[1]["run_usd"]
     assert rec.extra["cost_by_stage"]["judge"] > 0 and rec.extra["cost_by_stage"]["refine"] > 0
-    # ... and the run ships its own priced ledger
+    # ... and the run opens its own priced ledger (telemetry/cost.jsonl + the root alias) even
+    # outside the CLI; the ONE writer is the metered agent/model, so the injected fakes
+    # (a bare FakeAgent, a FakeJudge with no chat model) leave it empty — see
+    # test_cost_accounting for the rows a metered session writes
     from codeverse.cost.ledger import load_ledger
 
-    rows = load_ledger(ws.root / "cost_ledger.jsonl")
-    assert {str(r.stage) for r in rows} >= {"baseline", "refine", "judge"}
-    assert sum(r.cost_usd for r in rows) == pytest.approx(rec.total_usage.cost_usd, abs=1e-6)
+    assert (ws.root / "cost_ledger.jsonl").is_symlink()  # -> telemetry/cost.jsonl, created on first row
+    assert load_ledger(ws.root) == []
 
 
 def test_a_lint_stuck_run_keeps_every_score_instead_of_deferring_the_verdict(tmp_path, chair_plan, settings):
-    """The verifier's reproduction of the removed "build not repaired" skip.
-
-    Every round here builds but leaves a lint error the repair budget cannot clear.
-    Wave 2 skipped the judge on all three rounds and then bought two of the verdicts
-    back one loop iteration later (``judge.retry``) — no money saved — while the LAST
-    round, the best one (0.7), was left without a score and could not be promoted.
-    Now each round is judged once, in the round, and r02 wins."""
     def _writer_lint(job, ws):
         return {"src/object.js": f"// {job.label} r{job.round}\nLINT_ERROR\nexport function build(THREE) {{}}\n"}
 
@@ -491,8 +447,6 @@ def test_a_round_that_raises_still_reports_what_it_burned(tmp_path, chair_plan, 
     ws = Workspace(tmp_path / "runs" / "cut")
 
     class _Expensive(FakeAgent):
-        """A session that burns the run's clock — the round after it has none left."""
-
         def run(self, job):
             res = super().run(job)
             return res.model_copy(update={"usage": Usage(backend="fake", cost_usd=0.04, input_tokens=1000)})
@@ -514,9 +468,6 @@ def test_a_round_that_raises_still_reports_what_it_burned(tmp_path, chair_plan, 
 
 
 def test_fan_out_workers_inherit_the_callers_context():
-    """Ledger attribution rides on contextvars: a parallel judge sample, a
-    best-of-N candidate or a bench cell must not fall back to the process
-    default just because it ran on a pool thread."""
     import contextvars
 
     from codeverse.proc import fan_out
@@ -530,14 +481,10 @@ def test_fan_out_workers_inherit_the_callers_context():
 
 
 def test_a_run_past_its_hard_ceiling_cannot_start_another_session(tmp_ws):
-    """Measured 2026-08-28 (lamp_bl, --max-minutes 30, killed by hand at 57 min with
-    round 0 unfinished): a timed-out session bills nothing, so the accounting-driven
-    check() never fired and silent-bail retries treadmilled on 120 s mercy floors
-    forever.  run_agent_task now checks the HARD ceiling before starting any session."""
     from codeverse.contracts.spec import Budget
     from codeverse.orchestrator import BudgetExceeded, BudgetGuard
 
-    g = BudgetGuard(Budget(max_minutes=30.0, max_rounds=4), run="t")
+    g = BudgetGuard(Budget(max_minutes=30.0, max_rounds=4))
     g.start_time -= 36 * 60  # ceiling long crossed, nothing billed along the way
     agent = _TurnAgent(writes_on=1)
     with pytest.raises(BudgetExceeded):

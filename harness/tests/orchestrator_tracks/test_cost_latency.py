@@ -1,6 +1,4 @@
-"""Cost/latency shaping of the scene baseline: soft budget, single-shot assets,
-zone batching, judge skipping, and the salvage round that stops a budget-stopped
-run from finishing with no score at all."""
+"""Scene cost/latency shaping: batching, cheap assets, and budget salvage."""
 
 from __future__ import annotations
 
@@ -73,12 +71,6 @@ def test_timeout_is_clipped_to_the_wall_clock_left():
     assert g.timeout_s(1800, floor_s=90) == 90                          # floor, never 0
 
 
-def _usage(cost: float):
-    from codeverse.contracts.common import Usage
-
-    return Usage(backend="fake", cost_usd=cost)
-
-
 # ----------------------------------------------------------------------------- dedupe
 def _asset(name: str, size: tuple[float, float, float], kind: str = "threejs") -> AssetPlan:
     return AssetPlan(name=name, kind=kind, description=f"a {name}", approx_size_m=size)
@@ -122,8 +114,6 @@ def test_small_zones_share_a_session_and_big_ones_keep_the_fan_out():
     assert plan_zone_batches(zones) == batches
     assert zone_file(zones[0]) == "src/zones/small1.js"
 
-
-def test_every_zone_gets_exactly_one_owner_file():
     zones = [_zone(f"Z{i}", i % 5) for i in range(9)]
     batches = plan_zone_batches(zones)
     files = [zone_file(z) for b in batches for z in b]
@@ -132,9 +122,6 @@ def test_every_zone_gets_exactly_one_owner_file():
 
 # ----------------------------------------------------------------------------- single-shot assets
 def test_single_shot_needs_a_chat_model_not_a_coding_agent():
-    """Single-shot is ONE api call for an asset file — the cheap path before a full agent
-    session.  The coding agent is always a vendor CLI now (2026-08-28), which exposes no
-    chat model, so the model comes from the run's planner backend."""
     assert single_shot_agent_id("gemini-cli:gemini-3.6-flash", "gemini:gemini-3.6-flash") == "single-shot:gemini:gemini-3.6-flash"
     assert single_shot_agent_id("single-shot:gemini:x") == "single-shot:gemini:x"
     assert single_shot_agent_id("gemini-cli:gemini-3.6-flash") == ""       # no chat model given
@@ -351,8 +338,6 @@ def _writer(job, ws):
 
 @needs_node
 def test_a_merged_asset_leaves_a_working_shim_not_the_placeholder_box(tmp_path, settings, monkeypatch):
-    """Over the cap, twins merge — and a zone that imports the merged name must still
-    get the real prop, not the skeleton's blockout box."""
     import codeverse.tracks.scene_assets as sa
 
     monkeypatch.setattr(sa, "MAX_ASSETS", 1)  # force the rescue path with a tiny plan
@@ -374,17 +359,13 @@ def test_a_merged_asset_leaves_a_working_shim_not_the_placeholder_box(tmp_path, 
     assert chk.ok and chk.meshes == 2, "the shim resolves to the real factory, not the blockout stub"
 
 
-def test_every_planned_asset_is_built_while_the_plan_fits_under_the_cap():
-    """Dedupe is a cap rescue: a distinct prop is worth more than a variant flag."""
+def test_asset_selection_folds_only_over_the_cap():
     twins = [_asset("PondRock", (1.1, 0.75, 0.9)), _asset("SteppingStone", (0.65, 0.12, 0.55))]
     kept, alias = select_assets(twins, cap=8)
     assert [k.name for k in kept] == ["PondRock", "SteppingStone"] and not alias
     kept, alias = select_assets(twins, cap=1)
     assert [k.name for k in kept] == ["PondRock"] and alias == {"SteppingStone": "PondRock"}
 
-
-def test_over_the_cap_folding_beats_truncation():
-    """8 planned props, cap 4: folding rescues twins that truncation would delete."""
     assets = [_asset("HeroBoulder", (2.4, 2.0, 2.2)), _asset("Bench", (1.6, 0.9, 0.6)),
               _asset("Lantern", (0.4, 1.2, 0.4)), _asset("Crate", (0.6, 0.5, 0.6)),
               _asset("TalusRock", (1.8, 1.4, 1.6)), _asset("Stool", (0.5, 0.6, 0.5)),
@@ -397,7 +378,6 @@ def test_over_the_cap_folding_beats_truncation():
 
 
 def test_a_batched_session_that_writes_only_one_file_fails_the_other_zone(tmp_path, settings):
-    """The skeleton leaves a stub at every zone path, so 'the file exists' proves nothing."""
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     plan = plan.model_copy(update={"assets": [_asset("Bollard", (0.3, 0.5, 0.3))],
                                    "zones": [_zone("Quay", 0), _zone("Water", 0)]})
@@ -422,7 +402,6 @@ def test_a_batched_session_that_writes_only_one_file_fails_the_other_zone(tmp_pa
 
 @needs_node
 def test_an_imperfect_asset_stays_available_but_a_broken_one_does_not(tmp_path, settings):
-    """Wrong size = worth one repair; won't import = zones must not reference it."""
     services = FakeServices()
     ctx = _scene_ctx(tmp_path, settings, services=services)
     (ctx.ws.src / "assets").mkdir(parents=True, exist_ok=True)
@@ -436,9 +415,6 @@ def test_an_imperfect_asset_stays_available_but_a_broken_one_does_not(tmp_path, 
 
 
 def test_a_scene_round_judged_at_the_ceiling_is_still_promoted(tmp_path, settings):
-    """The batch-2 promotion order must hold for scenes too: the verdict is paid for,
-    recorded and promoted BEFORE the loop notices the budget is gone — and the salvage
-    must not then run a second round 0 on top of it."""
     plan = _threejs_scene_plan()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=2)
     ws = Workspace(tmp_path / "runs" / "ceiling")
@@ -458,8 +434,6 @@ def test_a_scene_round_judged_at_the_ceiling_is_still_promoted(tmp_path, setting
 
 @pytest.mark.node
 def test_a_model_outage_escalates_the_asset_instead_of_losing_it(tmp_path, settings):
-    """A 503 storm that outlives the model layer's retries must fall through to the
-    agent session, not mark the asset NOT AVAILABLE for every zone."""
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     plan = plan.model_copy(update={"assets": [_asset("Bollard", (0.3, 0.5, 0.3))], "zones": []})
 
@@ -477,14 +451,10 @@ def test_a_model_outage_escalates_the_asset_instead_of_losing_it(tmp_path, setti
 
 
 def test_a_generation_session_never_outlives_the_wall_budget():
-    """Measured 2026-08-27: a static run with --max-minutes 30 stopped at 39.0 min with
-    round 0 unfinished, because run_agent_task handed the session a flat
-    settings.limits.agent_timeout_s (1800 s) and only checked the ceiling at the next
-    boundary.  The scene track had clipped this since the greenhouse incident."""
     from codeverse.contracts.spec import Budget
     from codeverse.orchestrator import BudgetGuard
 
-    g = BudgetGuard(Budget(max_minutes=30.0, max_rounds=4), run="t")
+    g = BudgetGuard(Budget(max_minutes=30.0, max_rounds=4))
     assert g.timeout_s(1800, floor_s=120.0) == pytest.approx(1800, abs=60)   # fresh run: full session
     g.start_time -= 27 * 60                                                   # 3 minutes left
     clipped = g.timeout_s(1800, floor_s=120.0)
@@ -494,10 +464,6 @@ def test_a_generation_session_never_outlives_the_wall_budget():
 
 
 def test_one_asset_cannot_eat_the_scene_run():
-    """Measured 2026-08-27 (scn_med_conservatory, 25-min cap): seven assets finished
-    inside 5.7 min while one escalation ran the full ASSET_AGENT_TIMEOUT_S and held the
-    stage to 10.9 min — the stage waits for its slowest, so round 0 started at 18.9 min
-    and the judged round only happened via the budget salvage at 25.5 min."""
     from codeverse.contracts.spec import Budget
     from codeverse.orchestrator import BudgetGuard
     from codeverse.tracks.scene_assets import (
@@ -507,7 +473,7 @@ def test_one_asset_cannot_eat_the_scene_run():
     )
 
     class Ctx:
-        budget = BudgetGuard(Budget(max_minutes=25.0, max_rounds=4), run="t")
+        budget = BudgetGuard(Budget(max_minutes=25.0, max_rounds=4))
 
     fresh = asset_timeout_s(Ctx, 120)
     assert fresh < ASSET_AGENT_TIMEOUT_S, "one asset may not have the whole preparation budget"
@@ -516,6 +482,6 @@ def test_one_asset_cannot_eat_the_scene_run():
     assert asset_timeout_s(Ctx, 120) == 120, "and never past the wall clock, floor aside"
 
     class Long:
-        budget = BudgetGuard(Budget(max_minutes=90.0, max_rounds=4), run="t")
+        budget = BudgetGuard(Budget(max_minutes=90.0, max_rounds=4))
 
     assert asset_timeout_s(Long, 120) == ASSET_AGENT_TIMEOUT_S, "a long run keeps the ceiling"

@@ -15,7 +15,7 @@ import re
 import threading
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, TypeVar
@@ -28,6 +28,7 @@ from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord, RunStatus
 from codeverse.conventions import to_snake
 from codeverse.cost.billing import bills_usd
+from codeverse.cost.routing import JUDGE_NOISE
 from codeverse.proc import EventLog
 from codeverse.workspace import Workspace
 
@@ -93,13 +94,11 @@ class RunState(BaseModel):
         ws.write_json(ws.state_path, self)
 
     # ----------------------------------------------------------------- helpers
-    def mark_round_done(self, index: int, commit: str, ws: Workspace | None = None) -> None:
+    def mark_round_done(self, index: int, commit: str) -> None:
         if index not in self.completed_rounds:
             self.completed_rounds.append(index)
         self.round_commits[index] = commit
         self.current_round = index + 1
-        if ws is not None:
-            self.save(ws)
 
     def update_best(self, index: int, commit: str, score: float | None) -> bool:
         """Record ``index`` as best; returns True when it changed."""
@@ -451,13 +450,8 @@ REWRITE_KIND = "rewrite"
 #: ``RoundRecord.kind`` of the surface-detail round (see :func:`detail_round_due`)
 DETAIL_KIND = "detail"
 
-#: ``Strategy`` → the ``RoundRecord.kind`` the loop stamps on the round it starts
+#: ``Strategy`` → the ``RoundRecord.kind`` the loop stamps on the round it starts (unknown → refine)
 KIND_FOR_STRATEGY: dict[str, str] = {"same": "refine", "switch": REWRITE_KIND, "detail": DETAIL_KIND}
-
-
-def kind_for_strategy(strategy: str) -> str:
-    """THE mapping from a stop decision's strategy to the round kind it produces."""
-    return KIND_FOR_STRATEGY.get(strategy, "refine")
 
 #: σ for a judge that is not in the measured table: the default judge's
 #: (``gemini-3.1-pro-preview``, ``Settings.default_judge``), because that is what
@@ -476,11 +470,6 @@ def judge_sigma(judge_model: str = "", *, default: float = DEFAULT_JUDGE_SIGMA) 
     backend id (``gemini:gemini-3.1-pro-preview``)."""
     name = (judge_model or "").strip().split(":")[-1]
     if not name:
-        return default
-    try:
-        from codeverse.cost.routing import JUDGE_NOISE
-    except Exception as e:  # noqa: BLE001 — the cost package is optional at import time
-        log.debug("judge noise table unavailable: %s", e)
         return default
     hit = JUDGE_NOISE.get(name)
     if hit is None:  # version suffixes: gemini-3.7-flash-002 → gemini-3.7-flash
@@ -515,29 +504,17 @@ class RoundPolicy:
     # 0.479 mean score capped, against $1.360 at 0.684 uncapped — no saving and −0.205
     # score (docs/COST.md §17).  0 = no policy cap: the session runs under the backend's
     # own AgentJob.max_turns.  Callers who want one set it explicitly (cost profiles do).
-    agent_max_turns: int = 0  # model turns one generation session may take (0 = uncapped)
+    agent_max_turns: int = 0  # 0 = the backend's own AgentJob.max_turns (claude-code 60; the other vendors have no turn cap)
     agent_wrapup_turns: int = 6  # turns granted to land a final build + summary when a cap IS set
     # ---- depth.  Measured (wave "generation-depth"): across 88 consecutive refine-round pairs the
     # built part count changed ZERO times and mean Δgeometry_detail was +0.003 — the refine loop is
     # a repair loop and never adds anything.  The rounds that DID add geometry did it while assembly
     # was still broken and lost 0.075 of assembly_fit / 0.025 of overall for it.  So detail gets its
     # own round, and it only runs once the structure gates are clean.
-    detail_rounds: int = 0  # surface-detail rounds a run may spend (0 = off; tracks that implement
-    #                         the round opt in — see lifecycle.BaseTrack.supports_detail_round)
+    detail_rounds: int | None = None  # surface-detail rounds a run may spend: 0 = off, None = the track's own
+    #                                   default (lifecycle.detail_round_budget; only tracks with the round get one)
     detail_min_score: float = 0.45  # below this the object is still wrong; detail would be polish on a mistake
     detail_bbox_tol_m: float = 0.005  # a detail round that moves a part box by more than this failed its brief
-
-    def with_candidates(self, n: int | None) -> RoundPolicy:
-        """Copy with ``n_candidates`` set (``None`` → unchanged)."""
-        if n is None or n == self.n_candidates:
-            return self
-        return replace(self, n_candidates=max(1, int(n)))
-
-    def with_judge(self, judge_model: str | None) -> RoundPolicy:
-        """Copy that knows which judge scores the rounds (its σ sizes both money stops)."""
-        if not judge_model or judge_model == self.judge_model:
-            return self
-        return replace(self, judge_model=judge_model)
 
     @property
     def sigma(self) -> float:
@@ -590,10 +567,6 @@ class StopPolicy:
 
     def __init__(self, policy: RoundPolicy):
         self.policy = policy
-
-    def decide(self, history: Sequence[RoundRecord], *, budget_ok: bool = True) -> StopReason:
-        """The stop reason only (``evaluate`` also says what shape the next round takes)."""
-        return self.evaluate(history, budget_ok=budget_ok).reason
 
     def evaluate(self, history: Sequence[RoundRecord], *, budget_ok: bool = True) -> StopDecision:
         if not budget_ok:
@@ -713,10 +686,10 @@ def detail_blocked(history: Sequence[RoundRecord], policy: RoundPolicy) -> str:
     and is within one judge σ of the best round in the run.  Anything else and the
     money belongs to repair (measured: refine rounds that added > 2000 triangles
     while assembly was still broken lost 0.075 of assembly_fit)."""
-    if policy.detail_rounds <= 0:
+    if (policy.detail_rounds or 0) <= 0:
         return "detail rounds disabled"
     spent = sum(1 for r in history if r.kind == DETAIL_KIND)
-    if spent >= policy.detail_rounds:
+    if spent >= (policy.detail_rounds or 0):
         return f"{spent} detail round(s) already spent"
     if not history:
         return "no rounds yet"
@@ -822,8 +795,6 @@ class BudgetGuard:
         start_time: float | None = None,
         *,
         soft_fraction: float = 1.0,
-        run: str = "",
-        ledger: str | Path | Any | None = None,
     ):
         self.budget = budget
         self.start_time = time.time() if start_time is None else start_time
@@ -842,15 +813,12 @@ class BudgetGuard:
         self.soft_fraction = min(1.0, max(0.0, float(soft_fraction)))
         #: one-off extension of the HARD wall-clock ceiling (finalise/salvage headroom)
         self.grace_minutes = 0.0
-        #: run slug + ledger sink for the per-call rows (None = do not write a ledger)
-        self.run = run
-        self.ledger = ledger
         #: stage -> USD and round -> {stage -> USD}, so a round can report what it burned
         self.by_stage: dict[str, float] = {}
         self.by_round: dict[int, dict[str, float]] = {}
 
     # ----------------------------------------------------------------- accounting
-    def spend(
+    def charge(
         self,
         usage: Usage | None,
         *,
@@ -861,12 +829,17 @@ class BudgetGuard:
         outcome: str = "ok",
         enforce: bool = True,
     ) -> None:
-        """THE door every dollar goes through.
+        """THE door every dollar goes through — for bucketing and enforcement only.
 
-        Accumulates ``usage``, buckets it by ``stage`` (and by round), appends a
-        priced row to the run's cost ledger, and — when ``enforce`` — raises
-        ``BudgetExceeded`` if a hard ceiling is now crossed.  Accounting never
-        fails a run: a broken ledger is logged, not propagated."""
+        Accumulates ``usage``, buckets it by ``stage`` (and by round) and — when
+        ``enforce`` — raises ``BudgetExceeded`` if a hard ceiling is now crossed.
+        The ledger row is NOT written here: ``cost.instrument`` (MeteredAgent /
+        MeteredChatModel) is the one writer, one priced row per real call.  Until
+        2026-08-29 this method kept a second, aggregate writer that fired whenever no
+        ``run_ledger()`` was active — a direct ``track.run()`` without the CLI, or any
+        run with ``CV3D_COST_LEDGER=off`` (the guard's own ledger was opened
+        unconditionally), so ledger-off runs of that era carry one unpriced row per
+        charge; a ledger-off run now writes nothing at all."""
         if usage is None:
             return
         with self._lock:
@@ -879,16 +852,8 @@ class BudgetGuard:
             if round_index is not None:
                 per = self.by_round.setdefault(int(round_index), {})
                 per[key] = per.get(key, 0.0) + float(usage.cost_usd)
-        self._ledger_row(
-            usage, stage=key, role=role, label=label, round_index=round_index, outcome=outcome
-        )
         if enforce:
             self.check()
-
-    def charge(self, usage: Usage | None, **kw: Any) -> None:
-        """Account for ``usage``, then enforce the ceilings (see :meth:`spend`)."""
-        kw.setdefault("enforce", True)
-        self.spend(usage, **kw)
 
     def add(self, usage: Usage | None, **kw: Any) -> None:
         """Account for ``usage`` WITHOUT enforcing the ceilings.
@@ -897,54 +862,14 @@ class BudgetGuard:
         a pairwise tie-break, the texture pass): the money is spent either way,
         and raising here would throw away a finished, paid-for result.  The
         round loop stops at its next ``ok()`` check instead.  The dollar is
-        still bucketed and still written to the ledger — "not enforced" never
-        means "not seen"."""
+        still bucketed — "not enforced" never means "not seen"."""
         kw["enforce"] = False
-        self.spend(usage, **kw)
-
-    def _ledger_row(
-        self,
-        usage: Usage,
-        *,
-        stage: str,
-        role: str | None,
-        label: str,
-        round_index: int | None,
-        outcome: str,
-    ) -> None:
-        if self.ledger is None:
-            return
-        try:
-            from codeverse.cost import per_call_metering, record_call
-
-            # When the run is metered call by call (codeverse.cost.instrument wraps every
-            # ChatModel / CodingAgent), those rows already ARE this dollar with per-call
-            # tokens, cache hits and latency — one aggregate row on top would double count.
-            if per_call_metering():
-                return
-            record_call(
-                usage,
-                run=self.run,
-                stage=stage,
-                role=role,
-                round=round_index,
-                label=label,
-                backend=usage.backend,
-                model=usage.model,
-                outcome=outcome,
-                ledger=self.ledger,
-            )
-        except Exception as e:  # noqa: BLE001 — accounting must never fail a run
-            log.debug("cost ledger row failed (%s): %s", self.ledger, e)
+        self.charge(usage, **kw)
 
     def mark(self) -> Usage:
         """Snapshot of the running total — diff it with :func:`usage_delta` to see
         what a round burned even when the round itself raised half-way."""
         return self.spent.model_copy(deep=True)
-
-    def round_costs(self, round_index: int) -> dict[str, float]:
-        """``{stage: USD}`` charged against one round index (empty when none)."""
-        return dict(self.by_round.get(int(round_index), {}))
 
     # ----------------------------------------------------------------- resume snapshot
     def snapshot(self) -> BudgetSnapshot:
@@ -1035,7 +960,7 @@ class BudgetGuard:
         return True
 
     def remaining(self) -> dict[str, float]:
-        """Remaining headroom: ``{"usd": ..., "minutes": ..., "fraction": ...}``."""
+        """Remaining wall clock: ``{"minutes": ..., "fraction": ...}`` (no money key since the USD ceiling went, fbf89a5)."""
         minutes = max(0.0, self.hard_minutes - self.elapsed_minutes())
         frac = minutes / self.hard_minutes if self.hard_minutes > 0 else 0.0
         return {"minutes": minutes, "fraction": frac}
@@ -1081,7 +1006,7 @@ class BudgetSnapshot(BaseModel):
     billed_usd: float
     calls: int
     by_stage: dict[str, float]
-    #: matches the ``BudgetGuard.by_round`` / ``round_costs()`` shape
+    #: matches the ``BudgetGuard.by_round`` shape
     by_round: dict[int, dict[str, float]]
     active_s: float
 

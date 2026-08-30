@@ -9,21 +9,18 @@ which maps a refine target (part / zone / asset) to the files that own it.
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from jinja2 import TemplateNotFound
-
 from codeverse.config import fewer_turns_enabled
 from codeverse.contracts.chat import ImagePart
-from codeverse.contracts.common import Language, Track
+from codeverse.contracts.common import HARNESS_OWNED_SRC, Language, Track
 from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import LANGUAGE_FRAME, Frame, frame_doc, to_snake
-from codeverse.languages._docs import prompt_dir_for
 from codeverse.prompts import render
+from codeverse.prompts.catalog import prompt_dir_for
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.depth import DepthBudget, PartScope, depth_budget, interfaces_text
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
@@ -225,7 +222,7 @@ def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,
     ``COOKBOOK_SYNONYMS`` as the strong signal, until ``budget`` is spent.  A chapter is added
     whole or not at all; the output keeps cookbook order.  The default budget is the measured
     need of a night-sky brief: always-set 4.4 k + Light phenomena 3.2 k + Gradient sky 1.3 k.
-    ``tracks/graphics_recipes.py`` seeds the SAME selection's code into the harness-owned ``src/recipes.glsl``.
+    ``tracks/graphics.py:seed_recipes`` seeds the SAME selection's code into the harness-owned ``src/recipes.glsl``.
     """
     from codeverse.prompts.sections import Section, find_section, split_sections
 
@@ -273,16 +270,12 @@ def language_system_prompt(language: Language, *, role: str = "", tools: bool = 
     the prompt corpus, so the seven can diverge and be edited without touching code.
     """
     d = prompt_dir_for(language)
-    # CV3D_SYSPROMPT=v0 serves the pre-2026-08-28 two-sentence prompt so an A/B can run
-    # both arms from one tree.  Delete the v0 files and this branch once it has an answer.
-    name = "system_v0.md" if os.environ.get("CV3D_SYSPROMPT") == "v0" else "system.md"
     # rendered, not read raw: a system prompt that tells a SINGLE-SHOT session to call
     # gl_probe is instructing something it has no tools to do, and the self-check loop is
     # the whole point of the graphics prompt.  `tools` lets the file say so itself.
-    try:
-        base = render(f"{d}/{name}", tools=tools).strip()
-    except (FileNotFoundError, TemplateNotFound):
-        base = render(f"{d}/system.md", tools=tools).strip()
+    # (The v0 two-sentence arm of the system-prompt A/B was retired 2026-08-29: a
+    # three-way null, docs/EVAL.md.)
+    base = render(f"{d}/system.md", tools=tools).strip()
     if not role:
         return base
     # roles COMPOSE with the language base rather than replacing it.  Replacing was the
@@ -413,7 +406,7 @@ def _likeness_note(ctx: RunContext, refs: list[Any]) -> str:
     the frame stays dark — and the judge sees the same photos beside the frames.
     """
     lines = [
-        f"REFERENCE PHOTOS ({len(refs)}) of the REAL thing are attached.  They are not a composition to copy; "
+        f"REFERENCE PHOTOS ({len(refs)}) of the REAL thing come with this task.  They are not a composition to copy; "
         "they show what the brief's subject actually looks like: its dominant colour and where the secondary "
         "colours sit, how its structure folds / layers / thins out, where the brightness concentrates and how "
         "much of the frame stays dark, its texture at fine scale.  Match THAT — it outranks the brief's "
@@ -424,7 +417,8 @@ def _likeness_note(ctx: RunContext, refs: list[Any]) -> str:
     for i, r in enumerate(refs, 1):
         lines.append(f"- reference {i}: `{r.path}`" + (f" — {r.note}" if r.note else ""))
     lines.append("The photos are attached to this message." if ctx.single_shot else
-                 "The photos are attached to your first message; look at them again before every `gl_frames` / `scene_views` comparison.")
+                 "Their paths are listed under 'Images for this task' at the end of this message: open them with "
+                 "your image/file-reading tool, and look again before every `gl_frames` / `scene_views` comparison.")
     return "\n".join(lines)
 
 
@@ -510,11 +504,16 @@ def refine_inline_files(ctx: RunContext, rels: Sequence[str], *, scoped: bool) -
 def current_files(
     ctx: RunContext, rels: Sequence[str], max_chars: int = MAX_SKELETON_CHARS
 ) -> dict[str, str]:
+    """``{rel: text}`` for the files that exist, trimmed to ``max_chars`` in total.  The
+    language's harness-owned files (``src/recipes.glsl``) are never inlined: the
+    single-shot prompt showed one as an editable skeleton file while every write to it
+    is refused (``generate_graphics.j2`` pastes its signatures separately)."""
+    owned = set(HARNESS_OWNED_SRC.get(ctx.language, ()))
     out: dict[str, str] = {}
     total = 0
     for rel in rels:
         p = ctx.ws.root / rel
-        if not p.is_file():
+        if not p.is_file() or rel in owned:
             continue
         text = p.read_text(errors="replace")
         room = max_chars - total
@@ -630,18 +629,6 @@ def file_for_target_factory(ctx: RunContext):
                         log.warning("runtime.file_for_part failed for %s: %s", target, e)
                 return [f"src/parts/{key}.js"] if lang is Language.THREEJS else [entry]
             if key in ("overall", "assembly", "object", ""):
-                whole = getattr(rt, "file_for_target", None)  # blender: 'overall' → src/model.py
-                if callable(whole):
-                    try:
-                        out = whole(target)
-                        if out:
-                            return (
-                                [str(out)]
-                                if isinstance(out, (str, Path))
-                                else [str(p) for p in out]
-                            )
-                    except Exception as e:  # noqa: BLE001
-                        log.warning("runtime.file_for_target failed for %s: %s", target, e)
                 return [entry]
             return []
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -128,9 +127,6 @@ class FakeRuntime:
 
     def contract_doc(self) -> str:
         return f"FAKE CONTRACT for {self.language.value}"
-
-    def cookbook_path(self) -> Path:
-        return Path("/dev/null")
 
 
 # ----------------------------------------------------------------------------- agent / model
@@ -386,7 +382,7 @@ class FakeServices(Services):
                                 fix_hint=f"shrink {j.child} by 17 mm along the axis") for j in list(getattr(plan, "joints", []))[: self.sweep_errors]]
         return GateReport(gate="joint_sweep", passed=not findings, findings=findings), views
 
-    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_rel: str, spatial_tools: bool, mcp_command: list[str]) -> None:
+    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_rel: str, spatial_tools: bool) -> None:
         (ws.root / "AGENTS.md").write_text(contract_md)
         self.materialized.append(agent_kind)
 
@@ -402,12 +398,3 @@ class FakeServices(Services):
     def finalize_record(self, ws: Workspace, record: RunRecord) -> None:
         self.records.append(record)
         ws.write_json(ws.record_path, record)
-
-
-def wait_for(pred: Callable[[], bool], timeout: float = 5.0) -> bool:
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        if pred():
-            return True
-        time.sleep(0.01)
-    return False

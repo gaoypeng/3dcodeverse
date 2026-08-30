@@ -15,21 +15,7 @@ from codeverse.contracts.common import Language, Track
 from codeverse.prompts import PROMPTS_DIR, load_text
 from codeverse.prompts.sections import split_sections
 
-AURORA = "Aurora borealis over a mountain ridge with a frozen lake, dense stars, green and violet curtains"
-RAIN = "rain drops running down a window at night, blurred city lights behind the glass"
 EXAMPLE = PROMPTS_DIR / "glsl_shader" / "examples" / "aurora_ridge.frag"
-
-
-def _ctx() -> SimpleNamespace:
-    return SimpleNamespace(cookbook_text=load_text("glsl_shader/cookbook.md"))
-
-
-def _titles(text: str) -> list[str]:
-    return [s.title for s in split_sections(text) if s.level == 2]
-
-
-def _chapter_bodies(md: str) -> dict[str, str]:
-    return {s.title: s.body.rstrip() for s in split_sections(md)}
 
 
 def test_real_cookbook_parses_into_chapters() -> None:
@@ -46,8 +32,8 @@ def test_every_track_sends_the_whole_cookbook(monkeypatch) -> None:
 
     It used to be ``ctx.cookbook_text[:6000]`` in base_prompt_context and a 9 000-char
     chapter selection in graphics — 13 % of blender's 46 623 chars, 10 % of
-    scene_threejs's 57 631, cut mid-snippet.  The read_cookbook tool was the stated
-    escape hatch and went uncalled in all 20 measured sessions, so what the prefix left
+    scene_threejs's 57 631, cut mid-snippet.  On-demand cookbook lookup was the stated
+    escape hatch and went unused in all 20 measured sessions, so what the prefix left
     out simply never reached the model.  Chapter SELECTION is still right where the
     stage knows which chapters it needs (scene's env/zone recipes, graphics' recipe
     seeding); it is not right as a way to shrink the reference itself.
@@ -60,7 +46,7 @@ def test_every_track_sends_the_whole_cookbook(monkeypatch) -> None:
                                                           dims={}, reference_images=[], reference_notes=""),
                           track=Track.GRAPHICS, language=Language.GLSL_SHADER,
                           contract_text="CONTRACT", cookbook_rel="glsl_shader/cookbook.md",
-                          cookbook_text=big, tool_cards="", single_shot=True,
+                          cookbook_text=big, tool_cards="", single_shot=True, extra={},
                           runtime=SimpleNamespace(entry_globs=()))
     monkeypatch.setattr(graphics_steps, "constraints_text", lambda spec: "")
     monkeypatch.setattr(graphics_steps, "reference_note", lambda ctx: "")

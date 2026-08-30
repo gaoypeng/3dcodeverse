@@ -25,8 +25,7 @@ GRAPH_BUDGET = "graph_budget"
 GRAPH_EXAMPLE = "graph_example"
 CONSISTENCY = "consistency"
 KNOWN_FEATURES: tuple[str, ...] = (FIT, CONTACTS, GRAPH, GRAPH_BUDGET, GRAPH_EXAMPLE, CONSISTENCY)
-#: which stage each switch would have changed — read by ``pin_plan_blockers``
-PLAN_SIDE: frozenset[str] = frozenset({FIT, GRAPH, GRAPH_BUDGET, GRAPH_EXAMPLE, CONSISTENCY})
+#: the one generation-side switch; ``pin_plan_blockers`` treats the rest as plan-side
 GENERATION_SIDE: frozenset[str] = frozenset({CONTACTS})
 #: env switches that act AFTER planning — ``--pin-plan`` may share one plan across arms
 #: that differ only by these.  Anything not listed is treated as plan-side: refusing to
@@ -80,9 +79,6 @@ LIVE_SWITCHES: dict[str, str] = {
     # inter-chunk stall detection, and the IPv4-only transport.  Read at call time
     # by every gemini request, so a control arm can set either to 0.
     "CV3D_STREAM": "codeverse/models/gemini.py",
-    #: v0 = the pre-2026-08-28 two-sentence system prompt; unset = the per-language one.
-    #: Temporary, for the A/B; remove with the system_v0.md files once it has an answer.
-    "CV3D_SYSPROMPT": "codeverse/tracks/prompting.py",
     "CV3D_IPV4": "codeverse/models/gemini.py",
 }
 
@@ -102,4 +98,4 @@ def dead_env_keys(env: dict[str, str]) -> list[str]:
 
 __all__ = ["CONSISTENCY", "CONTACTS", "DEAD_SWITCHES", "FIT", "GENERATION_SIDE",
            "GENERATION_SIDE_ENV", "GRAPH", "GRAPH_BUDGET", "GRAPH_EXAMPLE", "KNOWN_FEATURES",
-           "LIVE_SWITCHES", "PLAN_FEATURES_ENV", "PLAN_SIDE", "dead_env_keys", "pin_plan_blockers"]
+           "LIVE_SWITCHES", "PLAN_FEATURES_ENV", "dead_env_keys", "pin_plan_blockers"]

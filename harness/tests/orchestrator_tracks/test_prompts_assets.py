@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,11 +11,11 @@ from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import ArticulatedPlan, ScenePlan
 from codeverse.orchestrator import BudgetGuard, RoundPolicy, RunState
 from codeverse.proc import EventLog
-from codeverse.prompts import list_prompts, render
+from codeverse.prompts import PROMPTS_DIR, render
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
 from codeverse.tracks.planner import plan_example
-from codeverse.tracks.prompting import base_prompt_context
+from codeverse.tracks.prompting import base_prompt_context, judged_sheet
 from codeverse.tracks.scene_assets import asset_api_summary, asset_plan, run_asset_stage
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import FakeAgent, FakeJudge, FakeRuntime, FakeServices
@@ -50,8 +51,18 @@ def _ctx(tmp_ws, settings, spec, plan, *, agent_id="single-shot:gemini:x", servi
                       cookbook_rel=f"{lang.value}/cookbook.md", tool_cards="- `build`: builds")
 
 
+def test_judged_sheet_returns_one_labelled_existing_image(tmp_path):
+    png = tmp_path / "sheet.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+    images = judged_sheet(SimpleNamespace(index=2, renders=SimpleNamespace(contact_sheet=str(png))))
+    assert len(images) == 1 and images[0].path == str(png)
+    assert "round 2" in images[0].label and "judge" in images[0].label
+    for renders in (None, SimpleNamespace(contact_sheet=""), SimpleNamespace(contact_sheet=str(tmp_path / "gone.png"))):
+        assert judged_sheet(SimpleNamespace(index=0, renders=renders)) == []
+
+
 def test_all_track_templates_exist_and_render(tmp_ws, settings, chair_plan):
-    names = {p.split("/")[-1][:-3] for p in list_prompts() if p.startswith("tracks/") and p.endswith(".j2")}
+    names = {p.stem for p in (PROMPTS_DIR / "tracks").rglob("*.j2")}
     assert names >= TEMPLATES
     spec = make_spec()
     ctx = _ctx(tmp_ws, settings, spec, chair_plan)

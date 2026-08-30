@@ -100,7 +100,8 @@ def test_a_generation_side_switch_may_share_one_plan():
     from codeverse.tracks.plan_features import pin_plan_blockers
 
     assert pin_plan_blockers({"CV3D_PLAN_FEATURES": "contacts"}) == []
-    assert pin_plan_blockers({"CV3D_SKILLS": "1", "CV3D_SKILLS_MAX": "3"}) == []
+    for name in sorted(F.GENERATION_SIDE_ENV):
+        assert pin_plan_blockers({name: "1"}) == [], name
     assert pin_plan_blockers({}) == []
 
 
@@ -131,7 +132,6 @@ def test_an_unclassified_switch_defaults_to_refusing():
 def test_every_known_feature_is_classified():
     """A new feature must be put on one side or the other in the same commit; otherwise
     it silently inherits 'plan-side' and nobody notices the A/B got noisier."""
-    from codeverse.tracks.plan_features import GENERATION_SIDE, KNOWN_FEATURES, PLAN_SIDE
+    from codeverse.tracks.plan_features import GENERATION_SIDE, KNOWN_FEATURES
 
-    assert set(KNOWN_FEATURES) == PLAN_SIDE | GENERATION_SIDE
-    assert not (PLAN_SIDE & GENERATION_SIDE)
+    assert set(KNOWN_FEATURES) > GENERATION_SIDE

@@ -30,6 +30,7 @@ from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import AssetPlan, BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
+from codeverse.judges.rubrics import is_degraded
 from codeverse.proc import fan_out, write_json_atomic, write_text_atomic
 from codeverse.prompts import render
 from codeverse.tracks.common import RunContext, language_contract, load_prompt_or
@@ -59,8 +60,7 @@ def asset_timeout_s(ctx: Any, floor_s: int) -> int:
     """``ASSET_AGENT_TIMEOUT_S`` clipped to one asset's share of the run AND to the
     wall clock actually left (:meth:`BudgetGuard.timeout_s`, which owns the floor)."""
     share = ctx.budget.budget.max_minutes * 60.0 * ASSET_SESSION_SHARE
-    return ctx.budget.timeout_s(min(ASSET_AGENT_TIMEOUT_S, share) if share else ASSET_AGENT_TIMEOUT_S,
-                                floor_s=floor_s)
+    return ctx.budget.timeout_s(min(ASSET_AGENT_TIMEOUT_S, share), floor_s=floor_s)
 
 
 class AssetResult(BaseModel):
@@ -73,7 +73,7 @@ class AssetResult(BaseModel):
     fixed: bool = False
     notes: str = ""
     strategy: str = Field(default="", description="single-shot | single-shot+repair | agent | escalated")
-    judged: bool = False
+    judged: bool = Field(default=False, description="a non-degraded verdict was recorded in `score`")
 
 
 def is_model_outage(e: BaseException) -> bool:
@@ -257,10 +257,8 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     runtime.skeleton(sub_ws, sub_plan)
     sub_ws.commit("skeleton")
     if not ctx.single_shot:
-        kind = ctx.agent_id.split(":", 1)[0]
-        ctx.services.materialize(sub_ws, agent_kind=kind, contract_md=sub.contract_text, cookbook_rel=sub.cookbook_rel,
-                                 spatial_tools=True,
-                                 mcp_command=["python", "-m", "codeverse.spatial.mcp_server", "--workspace", str(sub_ws.root)])
+        ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=sub.contract_text, cookbook_rel=sub.cookbook_rel,
+                                 spatial_tools=True)
     res = _generate_asset(sub, asset, "src/model.py", language=Language.BLENDER, attempt=0,
                           timeout_s=asset_timeout_s(ctx, 180))
     if not res.ok:
@@ -357,12 +355,17 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
     except Exception as e:  # noqa: BLE001
         events.emit("asset.judge_failed", asset=asset.name, error=f"{type(e).__name__}: {e}")
         return result
-    # persist the verdict on the result FIRST, then book the money non-enforcing like
-    # every other judge site (steps.py, candidates.py): the verdict is already paid
-    # for, and raising here would discard it.  The stage boundary enforces the ceiling.
+    # book the money non-enforcing like every other judge site (steps.py, candidates.py):
+    # the verdict is already paid for, and raising here would discard it.  The stage
+    # boundary enforces the ceiling.
+    ctx.budget.add(verdict.usage, stage="judge", role="judge", label=f"asset_{to_snake(asset.name)}")
+    if is_degraded(verdict):
+        # a degraded verdict is no verdict: score stays None and `judged` False, and the
+        # fix pass is skipped (its improvement_plan is empty by construction).
+        events.emit("asset.judge_degraded", asset=asset.name)
+        return result
     result.score = verdict.overall
     result.judged = True
-    ctx.budget.add(verdict.usage, stage="judge", role="judge", label=f"asset_{to_snake(asset.name)}")
     events.emit("asset.judged", asset=asset.name, score=round(verdict.overall, 3), passed=verdict.passed)
     if verdict.passed or not verdict.improvement_plan:
         return result

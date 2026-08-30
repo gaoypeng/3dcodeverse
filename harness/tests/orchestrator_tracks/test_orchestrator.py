@@ -27,11 +27,20 @@ from codeverse.orchestrator import (
     RunState,
     StageRunner,
     StopPolicy,
+    best_index,
     build_refine_instructions,
     hash_inputs,
     plan_parallel_groups,
 )
-from codeverse.proc import EventLog, fan_out, split_results
+from codeverse.proc import EventLog, fan_out
+
+
+def test_best_index_prefers_score_then_task_count_then_recency():
+    assert best_index([(0.5, 0), (0.7, 2), (0.7, 1), (0.6, 0)]) == 2
+    assert best_index([(0.7, 1), (0.7, 1)]) == 1
+    assert best_index([(0.9, 3), (0.8, 0)]) == 0
+    with pytest.raises(ValueError):
+        best_index([])
 
 
 # ----------------------------------------------------------------------------- budget
@@ -63,17 +72,14 @@ def test_fan_out_preserves_order_and_captures_exceptions():
 
     res = fan_out([0, 1, 2, 3], fn, max_workers=4, label="t")
     assert res[0] == 0 and res[1] == 10 and res[3] == 30 and isinstance(res[2], ValueError)
-    ok, bad = split_results(res)
-    assert ok == [0, 10, 30] and len(bad) == 1
     assert fan_out([], fn, 2) == []
 
 
 # ----------------------------------------------------------------------------- state + runner
 def test_run_state_roundtrip(tmp_ws):
     st = RunState()
-    st.mark_round_done(0, "abc", tmp_ws)
+    st.mark_round_done(0, "abc")
     st.update_best(0, "abc", 0.5)
-    st.extra["spent_usage"] = Usage(cost_usd=0.1).model_dump()
     st.save(tmp_ws)
     again = RunState.load(tmp_ws)
     assert again is not None and again.best_round == 0 and again.current_round == 1 and again.round_commits[0] == "abc"
@@ -164,19 +170,19 @@ def _round(i: int, score: float | None, errors: int = 0, build_ok: bool = True) 
 
 def test_stop_policy_decisions():
     sp = StopPolicy(RoundPolicy(max_rounds=3, plateau_window=2, min_delta=0.02, target=0.8))
-    assert sp.decide([]) == "continue"
-    assert sp.decide([_round(0, 0.5)]) == "continue"
-    assert sp.decide([_round(0, 0.5)], budget_ok=False) == "budget"
-    assert sp.decide([_round(0, 0.5), _round(1, 0.85)]) == "pass"
+    assert sp.evaluate([]).reason == "continue"
+    assert sp.evaluate([_round(0, 0.5)]).reason == "continue"
+    assert sp.evaluate([_round(0, 0.5)], budget_ok=False).reason == "budget"
+    assert sp.evaluate([_round(0, 0.5), _round(1, 0.85)]).reason == "pass"
     # three flat rounds: from r03 on the marginal-value stop answers first (both stop;
     # "diminishing_returns" is the more precise reason — see test_round_economics.py)
-    assert sp.decide([_round(0, 0.5), _round(1, 0.51), _round(2, 0.515)]) == "diminishing_returns"
+    assert sp.evaluate([_round(0, 0.5), _round(1, 0.51), _round(2, 0.515)]).reason == "diminishing_returns"
     flat = StopPolicy(RoundPolicy(max_rounds=3, plateau_window=2, min_delta=0.02, target=0.8, marginal_from_round=99))
-    assert flat.decide([_round(0, 0.5), _round(1, 0.51), _round(2, 0.515)]) == "plateau"
-    assert sp.decide([_round(0, 0.5), _round(1, 0.6), _round(2, 0.7)]) == "continue"
-    assert sp.decide([_round(0, 0.5), _round(1, 0.6), _round(2, 0.7), _round(3, 0.75)]) == "max_rounds"
+    assert flat.evaluate([_round(0, 0.5), _round(1, 0.51), _round(2, 0.515)]).reason == "plateau"
+    assert sp.evaluate([_round(0, 0.5), _round(1, 0.6), _round(2, 0.7)]).reason == "continue"
+    assert sp.evaluate([_round(0, 0.5), _round(1, 0.6), _round(2, 0.7), _round(3, 0.75)]).reason == "max_rounds"
     # unscored rounds (build failed) do not count as plateau evidence
-    assert sp.decide([_round(0, 0.5), _round(1, None, build_ok=False), _round(2, None, build_ok=False)]) == "continue"
+    assert sp.evaluate([_round(0, 0.5), _round(1, None, build_ok=False), _round(2, None, build_ok=False)]).reason == "continue"
 
 
 def test_best_selector_prefers_score_then_fewer_errors():

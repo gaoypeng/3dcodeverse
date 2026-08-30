@@ -1,6 +1,6 @@
 """Planner: spec → validated Plan (StaticPlan / ArticulatedPlan / ScenePlan).
 
-An optional cheap **brief expansion** (``tracks/brief.py``) turns the one-line
+An optional cheap **brief expansion** (``expand_brief``, below) turns the one-line
 request into an engineering brief, which — together with a **plan budget derived
 from the request** — goes into one structured ``ChatRequest`` (system prompt from
 ``prompts/tracks/plan_<track>.j2``, ``response_schema`` = the plan model's JSON
@@ -34,8 +34,9 @@ from codeverse.contracts.plan import AcceptanceItem, EngineeringBrief
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import LANGUAGE_FRAME, frame_doc, to_pascal
 from codeverse.models.schema_utils import parse_json_lenient
+from codeverse.proc import sha256_file
 from codeverse.prompts import load_text, prompt_hash, render
-from codeverse.tracks.common import language_contract, load_prompt_or
+from codeverse.tracks.common import language_contract
 from codeverse.tracks.prompting import constraints_text
 from codeverse.workspace import Workspace
 
@@ -73,19 +74,11 @@ def _reference_digest(spec: Spec) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for r in spec.references:
         try:
-            digest = _sha256_file(Path(r.path))
+            digest = sha256_file(r.path)
         except OSError:
             digest = "(unreadable)"
         out.append({"path": r.path, "role": r.role, "note": r.note, "sha256": digest})
     return out
-
-
-def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def brief_cache_key(spec: Spec, model_id: str) -> str:
@@ -427,7 +420,7 @@ def plan_quality_complaint(plan_obj: Any, budget: PlanBudget, *, unit: str = "pa
 def _fold_pass(ps: Any) -> None:
     """Fold a graphics pass's ``elements`` + ``detail_hint`` into its ``description``.
 
-    ``graphics_steps.passes_table`` prints ``| name | kind | description |`` — one markdown
+    ``graphics.passes_table`` prints ``| name | kind | description |`` — one markdown
     row — so the fold must stay on a single line and must be idempotent."""
     if not (ps.elements or ps.detail_hint) or " · " in ps.description:
         return
@@ -445,7 +438,7 @@ def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None) -> Any:
     A part's own depth needs no folding: ``tracks/prompting.py`` renders
     ``PartPlan.children`` and ``PartPlan.detail_hint`` straight from the typed fields, so
     copying them into ``description`` would print every sub-part twice.  A graphics PASS is
-    the exception — ``graphics_steps.passes_table`` renders only ``description`` — so
+    the exception — ``graphics.passes_table`` renders only ``description`` — so
     ``elements`` are folded there, on ONE line because that table is markdown.
 
     * the brief's signature features become ``should`` acceptance items — ``should``, not
@@ -683,7 +676,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     The two re-asks have SEPARATE budgets and different complaints:
     ``MAX_VALIDATION_REASKS`` for a plan the schema rejects, ``MAX_QUALITY_REASKS`` for a
     plan that validates but is boxes-at-different-sizes against the derived budget
-    (:func:`codeverse.tracks.plan_budget.plan_quality_complaint`).  A quality re-ask never eats
+    (:func:`plan_quality_complaint`).  A quality re-ask never eats
     the validation re-ask, and a plan that fails quality twice is still USED — a mediocre
     plan beats no plan.
 
@@ -898,4 +891,4 @@ def normalise_names[P: BaseModel](plan_obj: P) -> P:
 
 __all__ = ["MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS", "PLAN_TOKENS_MAX", "PlanningError", "plan",
            "plan_tokens", "plan_with_usage", "plan_example", "ensure_acceptance", "add_acceptance_item",
-           "default_event_stats", "normalise_names", "build_system_prompt", "build_user_prompt", "load_prompt_or"]
+           "default_event_stats", "normalise_names", "build_system_prompt", "build_user_prompt"]

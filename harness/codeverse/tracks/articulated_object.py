@@ -27,7 +27,6 @@ from codeverse.contracts.plan import ArticulatedPlan, Plan
 from codeverse.conventions import to_snake
 from codeverse.spatial.render import RenderError
 from codeverse.tracks.common import RunContext
-from codeverse.tracks.prompting import language_system_prompt
 from codeverse.tracks.static_object import ObjectPipeline, StaticObjectTrack
 from codeverse.workspace import Workspace
 
@@ -98,9 +97,6 @@ class ArticulatedObjectTrack(StaticObjectTrack):
 
     def make_pipeline(self) -> ArticulatedPipeline:
         return ArticulatedPipeline()
-
-    def system_prompt(self, ctx: RunContext) -> str:
-        return language_system_prompt(ctx.language, tools=not ctx.single_shot)
 
 
 # ----------------------------------------------------------------------------- sweep adapter

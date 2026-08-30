@@ -235,7 +235,7 @@ def test_resume_charges_for_spend_the_snapshot_missed(tmp_path, chair_plan, sett
     led = open_run_ledger(ws.root)
     for cost in (0.30, 0.12):                       # what the provider actually billed
         led.append(CallCost(run=ws.root.name, model="gemini:flash", label="planner", cost_usd=cost))
-    guard = BudgetGuard(make_spec().budget, run=ws.root.name)
+    guard = BudgetGuard(make_spec().budget)
     guard.restore(BudgetSnapshot(spent=guard.spent, billed_usd=0.10,   # the boundary save missed 0.32
                                  calls=1, by_stage={}, by_round={}, active_s=0.0))
     _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
@@ -259,7 +259,7 @@ def test_resume_reconcile_keeps_subscription_spend_notional(tmp_path, settings):
     led = open_run_ledger(ws.root)
     led.append(CallCost(run=ws.root.name, backend="codex", model="gpt-5.6-sol", label="generator", cost_usd=7.7))
     led.append(CallCost(run=ws.root.name, backend="claude-code", model="sonnet", cost_usd=1.1))
-    guard = BudgetGuard(make_spec().budget, run=ws.root.name)
+    guard = BudgetGuard(make_spec().budget)
     _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
     assert guard.billed_usd == 0.0, "subscription cost is notional; resume must keep billed at $0"
     led.append(CallCost(run=ws.root.name, backend="gemini", model="gemini-3.7-flash", cost_usd=0.25))

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -31,7 +31,9 @@ from codeverse.contracts.artifacts import BuildResult, GateReport, Judgment, Mea
 from codeverse.contracts.common import Usage
 from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord
-from codeverse.orchestrator import usage_delta
+from codeverse.judges.base import JudgeInput
+from codeverse.judges.rubrics import is_degraded
+from codeverse.orchestrator import BudgetExceeded, usage_delta
 from codeverse.proc import fan_out
 from codeverse.spatial.render import RenderError
 from codeverse.tracks import skills_hook
@@ -56,6 +58,11 @@ class RoundPipeline(Protocol):
         ...
 
 
+#: ``(ctx, round_index, build, measurement) → renders`` — ``RoundPipeline.render`` or a
+#: cheaper stand-in (best-of-N candidates rank on ``candidates.quick_render``)
+RenderFn = Callable[[RunContext, int, BuildResult, Measurement | None], RenderSet | None]
+
+
 class RoundFailed(RuntimeError):
     """Every generation task of a round failed — nothing to build."""
 
@@ -68,7 +75,7 @@ def load_round_journal(ws: Workspace) -> list[RoundRecord]:
     """The on-disk round journal: ``rounds/r*.json`` sorted, contiguous prefix only.
 
     Workspace-level (no ``RunContext``) because ``lifecycle.reconcile_resume``
-    reads it before the context exists; :func:`load_round_records` delegates here."""
+    reads it before the context exists."""
     d = ws.root / "rounds"
     if not d.is_dir():
         return []
@@ -131,8 +138,6 @@ def _run_phase(ctx: RunContext, tasks: Sequence[GenerationTask]) -> list[Generat
     budget_stop: Exception | None = None
     for task, r in zip(tasks, results, strict=True):
         if isinstance(r, Exception):
-            from codeverse.orchestrator import BudgetExceeded
-
             if isinstance(r, BudgetExceeded) and budget_stop is None:
                 budget_stop = r  # a failed item; the siblings' paid results still land in ``out``
             ctx.events.emit("generate.failed", label=task.label, error=f"{type(r).__name__}: {r}")
@@ -160,6 +165,8 @@ def run_round(
     extra_usage: Usage | None = None,
     extra_notes: Sequence[str] = (),
     previous_best: float | None = None,
+    render: RenderFn | None = None,
+    geometry_views: bool = True,
 ) -> RoundRecord:
     """Execute one round and persist its record.  Budget is charged as it goes.
 
@@ -167,12 +174,16 @@ def run_round(
     best-of-N winner copied in): the round is then build → gates → render →
     judge only.  ``extra_usage`` / ``extra_notes`` fold pre-round work
     (candidate generation) into the record; ``previous_best`` is the best score
-    before this round, used only to flag the round as wasted in ``cost.round``."""
+    before this round, used only to flag the round as wasted in ``cost.round``.
+    ``render`` replaces ``pipeline.render`` and ``geometry_views=False`` skips the
+    clay views: the two knobs a best-of-N candidate turns (``candidates.run_best_of_n``
+    runs each candidate as this round in its sub-workspace)."""
     mark = ctx.budget.mark()
     try:
         return _run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
                           previous=previous, files_hint=files_hint, extra_usage=extra_usage,
-                          extra_notes=extra_notes, previous_best=previous_best)
+                          extra_notes=extra_notes, previous_best=previous_best, render=render,
+                          geometry_views=geometry_views)
     except BaseException as e:
         # the round died half-way (budget stop, 503 storm, RoundFailed).  Whatever it
         # burned is already in the guard: report it so the round is not invisible.
@@ -194,6 +205,8 @@ def _run_round(
     extra_usage: Usage | None = None,
     extra_notes: Sequence[str] = (),
     previous_best: float | None = None,
+    render: RenderFn | None = None,
+    geometry_views: bool = True,
 ) -> RoundRecord:
     t0 = time.time()
     ctx.events.emit("round.start", round=index, kind=kind, n_tasks=len(tasks))
@@ -205,7 +218,11 @@ def _run_round(
     if extra_usage is not None and extra_usage.cost_usd:
         cost["candidates"] = round(extra_usage.cost_usd, 6)
 
-    skills_hook.attach_for_round(ctx, index=index, kind=kind)
+    # a candidate IS a baseline written in a sub-workspace: route its skills as baseline work,
+    # or every kind-gated bundle (the *-forms / *-joints routes) drops out and the winner is
+    # generated with a strictly smaller library than a --candidates 1 baseline (review 2026-08-29)
+    skill_kind = "baseline" if kind == "candidate" else kind
+    skills_hook.attach_for_round(ctx, index=index, kind=skill_kind)
     gens = run_generation_tasks(ctx, skills_hook.with_inlined_skill(ctx, tasks))
     turns = 0
     for g in gens:
@@ -234,7 +251,7 @@ def _run_round(
         rec.measurement = pipeline.measure(ctx, outcome.build)
         gates.extend(pipeline.gates(ctx, index, outcome.build, rec.measurement))
         try:
-            rec.renders = pipeline.render(ctx, index, outcome.build, rec.measurement)
+            rec.renders = (render or pipeline.render)(ctx, index, outcome.build, rec.measurement)
         except RenderError as e:
             # A render that times out (measured 2026-08-26, art_verify camera_tripod: the
             # refine round built in 1.2 s, then render_glb.mjs hit its 330 s timeout with
@@ -251,12 +268,15 @@ def _run_round(
         n_err = sum(len(g.errors) for g in gates)
         ctx.events.emit("gates.done", round=index, n_gates=len(gates), n_errors=n_err,
                         tri_count=rec.measurement.tri_count if rec.measurement else None)
-        skip = skip_judge_reason(ctx, gates=gates, renders=rec.renders)
+        # a candidate's verdict is the ONLY thing that picks the code r00 starts from, so it is
+        # bought even past the ceiling — unlike a refine verdict, which could promote nothing
+        skip = skip_judge_reason(ctx, gates=gates, renders=rec.renders, ignore_budget=kind == "candidate")
         if skip:
             notes.append(f"judge skipped ({skip})")
             ctx.events.emit("judge.skipped", round=index, reason=skip)
         else:
-            rec.judgment, judge_usage = _judge(ctx, pipeline, index, outcome.build, gates, rec, previous, notes)
+            rec.judgment, judge_usage = _judge(ctx, pipeline, index, outcome.build, gates, rec, previous, notes,
+                                               geometry_views=geometry_views)
             if rec.judgment is not None or judge_usage.cost_usd:
                 # a degraded/crashed verdict was still PAID: fold its usage into the
                 # round's usage and cost["judge"] so rec.usage and the cost.round event
@@ -272,7 +292,7 @@ def _run_round(
     else:
         notes.append(f"build failed: {outcome.build.error_type}: {outcome.build.error_message[:200]}")
     rec.gates = gates
-    rec.skills = skills_hook.record_usage(ctx, index=index, kind=kind)
+    rec.skills = skills_hook.record_usage(ctx, index=index, kind=skill_kind)
     _write_gate_reports(ctx, index, gates)
 
     rec.commit = ctx.ws.commit(f"r{index:02d} {kind}")
@@ -288,7 +308,8 @@ def _run_round(
 
 
 # ----------------------------------------------------------------------------- cost of a round
-def skip_judge_reason(ctx: RunContext, *, gates: Sequence[GateReport], renders: RenderSet | None) -> str:
+def skip_judge_reason(ctx: RunContext, *, gates: Sequence[GateReport], renders: RenderSet | None,
+                      ignore_budget: bool = False) -> str:
     """Why this round must NOT be judged (``""`` = judge it).
 
     Only states in which the verdict is never bought at all — a skip that the
@@ -299,6 +320,8 @@ def skip_judge_reason(ctx: RunContext, *, gates: Sequence[GateReport], renders: 
     * ``budget already exceeded`` — the loop's next ``budget_ok`` check ends the
       run, so this verdict could not promote anything.  Measured: 2 verdicts /
       $0.09 in the audit were bought past the run's wall clock (docs/COST.md §5).
+      ``ignore_budget`` exempts the best-of-N candidates: their verdict picks the
+      code r00 starts from, so skipping it wastes the N generations already paid for.
     * ``gate errors`` — only when the caller set ``judge_on_gate_errors=False``;
       ``rejudge_round`` honours that too, so the verdict is not re-bought.
 
@@ -309,7 +332,7 @@ def skip_judge_reason(ctx: RunContext, *, gates: Sequence[GateReport], renders: 
         return "no judge configured"
     if renders is None or not renders.views:
         return "no renders"
-    if not ctx.budget.ok():
+    if not ctx.budget.ok() and not ignore_budget:
         return "budget already exceeded"
     if judge_blocked_by_gates(ctx, gates):
         return "gate errors"
@@ -379,7 +402,7 @@ def record_aborted_round(ctx: RunContext, *, index: int, kind: str, usage: Usage
     """A round that raised half-way still reports what it burned.
 
     Its record is written next to the round records as ``aborted_rNN.json`` (never
-    ``rNN.json``: the round did not happen, and ``load_round_records`` must not
+    ``rNN.json``: the round did not happen, and ``load_round_journal`` must not
     resume from it), a ``cost.round`` event is emitted, and the usage is remembered
     in ``ctx.extra`` so the run record can carry it.  Accounting a stop must never
     raise on top of the stop that is already happening."""
@@ -398,7 +421,8 @@ def record_aborted_round(ctx: RunContext, *, index: int, kind: str, usage: Usage
 
 
 def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildResult, gates: list[GateReport],
-           rec: RoundRecord, previous: Judgment | None, notes: list[str]) -> tuple[Judgment | None, Usage]:
+           rec: RoundRecord, previous: Judgment | None, notes: list[str], *,
+           geometry_views: bool = True) -> tuple[Judgment | None, Usage]:
     """Judge one round → ``(judgment, paid_usage)``.
 
     ``judgment`` is ``None`` when the verdict is unusable (the judge crashed or
@@ -407,8 +431,6 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
     its ``cost.round`` event.  Failure notes are appended to the CALLER's
     ``notes`` list — ``_run_round`` joins that list into ``rec.notes`` at the
     end of the round, so writing to ``rec.notes`` here was silently lost."""
-    from codeverse.judges.base import JudgeInput
-
     renders = rec.renders
     jv = getattr(pipeline, "judge_views", None)
     if callable(jv) and renders is not None:
@@ -418,7 +440,7 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
             log.warning("judge_views selection failed: %s", e)
             renders = rec.renders
     geometry = None
-    gv = getattr(pipeline, "geometry_views", None)
+    gv = getattr(pipeline, "geometry_views", None) if geometry_views else None
     if callable(gv):
         try:
             geometry = gv(ctx, index, build)
@@ -447,9 +469,9 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
         notes.append(f"judge failed: {type(e).__name__}: {e}")
         return None, paid
     ctx.ws.write_json(ctx.ws.judge_path(index), judgment)
-    if _is_degraded(judgment):
+    if is_degraded(judgment):
         # a glitch, never a score: keep the raw verdict on disk, pay for it, but do not
-        # let 0.0 poison plateau/best/refine (judges/scoring.degraded_judgment contract)
+        # let 0.0 poison plateau/best/refine (judges/rubrics.degraded_judgment contract)
         ctx.budget.add(judgment.usage, stage="judge", role="judge", round_index=index,
                        label=judgment.rubric or "judge", outcome="degraded")
         ctx.events.emit("judge.degraded", round=index, error=judgment.summary[:300],
@@ -460,14 +482,6 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
                     n_issues=len(judgment.issues), n_plan=len(judgment.improvement_plan),
                     duration_s=round(time.time() - t0, 1), cost_usd=round(judgment.usage.cost_usd, 4))
     return judgment, judgment.usage
-
-
-def _is_degraded(judgment: Judgment) -> bool:
-    try:
-        from codeverse.judges.rubrics import is_degraded
-    except ImportError:  # pragma: no cover — judges package always ships with tracks
-        return False
-    return is_degraded(judgment)
 
 
 def rejudge_round(ctx: RunContext, pipeline: RoundPipeline, rec: RoundRecord, previous: Judgment | None = None) -> bool:

@@ -46,7 +46,6 @@ from codeverse.tracks.lifecycle import BaseTrack
 from codeverse.tracks.prompting import (
     base_prompt_context,
     budget_for,
-    current_files,
     expected_files,
     file_for_target_factory,
     glb_to_plan_frame,
@@ -69,7 +68,7 @@ GEOMETRY_VIEWS = tuple(v for v in OBJECT_VIEWS if v.name in GEOMETRY_VIEW_NAMES)
 
 
 class ObjectPipeline:
-    """Measure → connectivity + contract (+ runtime extra gates) → 8-view render."""
+    """Measure → connectivity + contract → 8-view render."""
 
     views = OBJECT_VIEWS
 
@@ -89,9 +88,6 @@ class ObjectPipeline:
             out.append(
                 ctx.services.contract(measurement, ctx.plan, BBOX_TOLERANCE_M, ctx.language.value)
             )
-        extra = getattr(ctx.runtime, "extra_gates", None)
-        if callable(extra):
-            out.extend(extra(ctx.ws, build))
         if measurement is not None and ctx.plan is not None:
             # is the object as dense as its own plan says?  Deterministic, so the judge is
             # never asked "does it look detailed enough" (tracks/depth.py).
@@ -310,16 +306,10 @@ class StaticObjectTrack(BaseTrack):
         return language_system_prompt(ctx.language, role="scope",
                                       n_parts=len(scope.parts), names=", ".join(scope.names))
 
-    def system_prompt(self, ctx: RunContext) -> str:
-        return language_system_prompt(ctx.language, tools=not ctx.single_shot)
-
     def round_files_hint(self, ctx: RunContext) -> list[str]:
         return expected_files(ctx)
 
     # ------------------------------------------------------------------ refine (scaffold hooks)
-    def refine_file_for_target(self, ctx: RunContext) -> Any:
-        return file_for_target_factory(ctx)
-
     def extra_refine_tasks(self, ctx: RunContext, last: RoundRecord) -> Sequence[RefineTask]:
         # NB: the `detail_budget` WARN is deliberately NOT turned into a refine task.  Measured:
         # refine rounds that added > 2000 triangles while assembly was still open lost 0.075 of
@@ -393,11 +383,11 @@ class StaticObjectTrack(BaseTrack):
             files = list(scope.files) if scope is not None else expected_files(ctx)
             context = (scope_context(ctx, scope, round_index=index, tasks=lines, files=files,
                                      judge_summary=judge_digest(last),
-                                     current_files=current_files(ctx, files) if ctx.single_shot else {})
+                                     current_files=refine_inline_files(ctx, files, scoped=False))
                        if scope is not None else
                        base_prompt_context(ctx, round_index=index, tasks=lines, files=files,
                                            judge_summary=judge_digest(last),
-                                           current_files=current_files(ctx, files) if ctx.single_shot else {}))
+                                           current_files=refine_inline_files(ctx, files, scoped=False)))
             tasks.append(
                 GenerationTask(
                     label=f"detail_{scope.label}" if scope is not None else "detail",
@@ -431,16 +421,15 @@ class StaticObjectTrack(BaseTrack):
 DRIFT_GATE = "detail_drift"
 
 
-def drift_findings(before: Any, after: Any, *, tol_m: float, language: str = "") -> list[Any]:
+def drift_findings(before: Measurement | None, after: Measurement | None, *, tol_m: float,
+                   language: str = "") -> list[GateFinding]:
     """Did a detail round move anything?  Findings for the ``detail_drift`` gate.
 
     The detail round's whole contract is "surface only": the silhouette, the part
     list and every part box stay put.  This is the deterministic check of that
     promise — the judge is never asked whether the shape moved, code answers it.
     """
-    from codeverse.contracts.artifacts import GateFinding, Severity
-
-    out: list[Any] = []
+    out: list[GateFinding] = []
     if before is None or after is None:
         return out
     for axis, a, b in zip(_axes(language), before.extents, after.extents, strict=True):
@@ -510,10 +499,8 @@ def _axes(language: str) -> tuple[str, str, str]:
     return ("x", "y", "z")
 
 
-def drift_gate(before: Any, after: Any, *, tol_m: float, language: str = "") -> Any:
+def drift_gate(before: Measurement | None, after: Measurement | None, *, tol_m: float, language: str = "") -> GateReport:
     """``detail_drift`` GateReport (passing when nothing moved)."""
-    from codeverse.contracts.artifacts import GateReport, Severity
-
     findings = drift_findings(before, after, tol_m=tol_m, language=language)
     return GateReport(gate=DRIFT_GATE, findings=findings,
                       passed=not any(f.severity is Severity.ERROR for f in findings))

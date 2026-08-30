@@ -9,7 +9,7 @@ zone / asset / env / camera, in parallel when file-disjoint.
 Cost/latency shaping (the baseline used to eat the whole budget, leaving the
 refine rounds nothing):
 
-* assets are single-shot by default (``scene_assets`` / ``scene_asset_gen``);
+* assets are single-shot by default (``scene_assets``);
 * **small zones are batched** — a zone that places ≤ 3 assets is written
   together with its neighbour in ONE session that exclusively owns both files,
   while big zones keep the parallel fan-out;
@@ -52,11 +52,9 @@ from codeverse.tracks.prompting import (
     base_prompt_context,
     bbox_line,
     cookbook_sections,
-    current_files,
-    file_for_target_factory,
     judge_digest,
-    language_system_prompt,
     reference_images,
+    refine_inline_files,
 )
 from codeverse.tracks.repair import format_error_report
 from codeverse.tracks.scene_assets import (
@@ -103,9 +101,6 @@ class ScenePipeline:
 
     def gates(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> list[GateReport]:
         out: list[GateReport] = []
-        extra = getattr(ctx.runtime, "extra_gates", None)
-        if callable(extra):
-            out.extend(extra(ctx.ws, build))
         census_gate = census_gate_report(build)
         if census_gate is not None:
             out.append(census_gate)
@@ -289,9 +284,8 @@ class SceneTrack(BaseTrack):
         skills_hook.attach_for_round(zone_gen, index=0, kind="zone")
 
         def _one(batch: list[ZonePlan]) -> GenerationResult:
-            gen = self._strategy(ctx, "zones")
-            task = skills_hook.with_inlined_skill(gen, [self._zone_task(gen, batch)])[0]
-            return generate(ctx.ws, agent_id=gen.agent_id, task=task, agent=gen.agent, model=gen.model, settings=ctx.settings,
+            task = skills_hook.with_inlined_skill(zone_gen, [self._zone_task(zone_gen, batch)])[0]
+            return generate(ctx.ws, agent_id=zone_gen.agent_id, task=task, agent=zone_gen.agent, model=zone_gen.model, settings=ctx.settings,
                             budget=ctx.budget, events=ctx.events)
 
         results = fan_out(batches, _one, max_workers=ctx.settings.limits.max_parallel_agents, label="zones",
@@ -355,7 +349,7 @@ class SceneTrack(BaseTrack):
             result = ctx.services.assemble_scene(ctx.ws, ctx.plan)
             ctx.ws.commit("assemble")
             ctx.events.emit("assemble.done", deterministic=True)
-            return {"ok": True, "deterministic": True, "result": _jsonable(result)}
+            return {"ok": True, "deterministic": True, "result": result}  # StageRunner.stage jsonables it
         except ServiceUnavailable as e:
             ctx.events.emit("assemble.fallback", reason=str(e))
         prompt = render("tracks/scene_compose.j2", **self._ctx(ctx))
@@ -394,16 +388,13 @@ class SceneTrack(BaseTrack):
         return list(SCENE_FILES)
 
     # ------------------------------------------------------------------ refine (scaffold hooks)
-    def refine_file_for_target(self, ctx: RunContext) -> Any:
-        return file_for_target_factory(ctx)
-
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
         files = group.files or list(SCENE_FILES)
         lines = compact_instructions(group.tasks, max_lines=ctx.policy.max_instructions_per_task)
         prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes=refine_recipes(ctx, files), round_index=index, tasks=lines,
                                                               targets=group.targets, files=files, edit_only_these=parallel,
                                                               judge_summary=judge_digest(last),
-                                                              current_files=current_files(ctx, files) if ctx.single_shot else {}))
+                                                              current_files=refine_inline_files(ctx, files, scoped=False)))
         ctx.record_prompt("scene_refine", prompt)
         # parallel groups are file-disjoint by plan_refine_groups: enforce the split they promised
         return GenerationTask(label=f"refine_{group.label}" if parallel else "refine", prompt=prompt, system=self.system_prompt(ctx),
@@ -426,16 +417,13 @@ class SceneTrack(BaseTrack):
         prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes="", round_index=index, tasks=lines, targets=["build"],
                                                              files=files, edit_only_these=False,
                                                              judge_summary="(no judgment: the scene did not build — fix the errors above first)",
-                                                             current_files=current_files(ctx, files) if ctx.single_shot else {}))
+                                                             current_files=refine_inline_files(ctx, files, scoped=False)))
         ctx.record_prompt("scene_refine", prompt)
         return GenerationTask(label="rebuild", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
                               kind="rebuild", temperature=0.7, thinking="high",
                               timeout_s=ctx.budget.timeout_s(REFINE_TIMEOUT_S, floor_s=180, soft=False))
 
     # ------------------------------------------------------------------ helpers
-    def system_prompt(self, ctx: RunContext) -> str:
-        return language_system_prompt(ctx.language, tools=not ctx.single_shot)
-
     def _ctx(self, ctx: RunContext, **extra: Any) -> dict[str, Any]:
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         zones_table = "\n".join(f"- {z.name}: {z.description} — {bbox_line(z.bbox)}; contents: {', '.join(z.contents) or '-'}" for z in plan.zones)
@@ -522,15 +510,3 @@ def _guess_target(error: str, plan: Any) -> str:
     if "scene.js" in low:
         return "composition"
     return "overall"
-
-
-def _jsonable(obj: Any) -> Any:
-    if hasattr(obj, "model_dump"):
-        return obj.model_dump(mode="json")
-    if isinstance(obj, (str, int, float, bool)) or obj is None:
-        return obj
-    if isinstance(obj, (list, tuple)):
-        return [_jsonable(o) for o in obj]
-    if isinstance(obj, dict):
-        return {str(k): _jsonable(v) for k, v in obj.items()}
-    return str(obj)

@@ -19,8 +19,9 @@ class TrackPipeline(Protocol):
     track: Track
     rubric: str  # judges/rubrics/<rubric>.yaml
 
-    def run(self, spec: Spec, ws: Workspace, *, resume: bool = False) -> RunRecord:
-        """Full pipeline: plan → baseline → rounds → finalise.  Must be resumable."""
+    def run(self, spec: Spec, ws: Workspace, *, resume: bool = False, force: bool = False) -> RunRecord:
+        """Full pipeline: plan → baseline → rounds → finalise.  Must be resumable;
+        ``force`` re-plans a resumed run whose spec changed (archives the old rounds)."""
         ...
 
 

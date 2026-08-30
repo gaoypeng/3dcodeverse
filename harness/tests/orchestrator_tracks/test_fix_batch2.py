@@ -68,7 +68,7 @@ def test_judged_round_survives_budget_ceiling_crossed_by_judge(tmp_path, chair_p
     was committed/recorded, throwing away a complete judged round (scene r2 case)."""
     spec = make_spec(max_rounds=3)
     ws = Workspace(tmp_path / "runs" / "r")
-    judge = FakeJudge(scores=(0.55,), cost=0.05, minutes=12.0)  # this single verdict crosses max_usd
+    judge = FakeJudge(scores=(0.55,), cost=0.05, minutes=12.0)  # this single verdict crosses max_minutes
     track = StaticObjectTrack(services=FakeServices(), judge=judge, agent=FakeAgent(_writer),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                               runtime=FakeRuntime(Language.THREEJS))
@@ -103,7 +103,7 @@ def test_finalise_restores_best_when_aborted_round_dirtied_src(tmp_path, chair_p
     assert ws.changed_files() == []  # tree clean at the delivered commit
     # finding lifecycle.py:256 — the aborted round's charges survive into run_state for resume
     state = RunState.load(ws)
-    spent = state.extra["spent_usage"]  # legacy mirror, kept one release
+    spent = state.extra["budget_snapshot"]["spent"]
     assert spent["cost_usd"] == pytest.approx(0.025, abs=1e-6)
     snap = state.extra["budget_snapshot"]
     assert snap["billed_usd"] == pytest.approx(0.025, abs=1e-6) and snap["calls"] > 0
@@ -130,7 +130,7 @@ def test_spent_usage_saved_when_a_round_crashes(tmp_path, chair_plan, settings):
     with pytest.raises(RuntimeError, match="gate exploded"):
         track.run(spec, ws)
     state = RunState.load(ws)
-    spent = state.extra["spent_usage"]  # legacy mirror, kept one release
+    spent = state.extra["budget_snapshot"]["spent"]
     # planner 0.002 + r0 agent 0.01 + r0 judge 0.003 + r1 agent 0.01 — the r1 charge must not vanish
     assert spent["cost_usd"] == pytest.approx(0.025, abs=1e-6)
     assert state.extra["budget_snapshot"]["billed_usd"] == pytest.approx(0.025, abs=1e-6)

@@ -1,15 +1,6 @@
-"""Generation depth: complexity-aware budgets, per-part scoped baselines, the detail round.
-
-The measured motivation is in the wave's ``complexity_baseline.md`` and repeated in
-``codeverse/tracks/depth.py``: across 88 consecutive refine-round pairs the built part
-count never changed once, mean Δgeometry_detail per refine round was +0.003, and the
-refine rounds that DID add geometry lost assembly_fit for it.  So depth is bought in
-round 0 (scoped fan-out) and polish gets its own round behind a clean-structure gate.
-"""
+"""Complexity-aware depth budgets, scoped baselines, and the gated detail round."""
 
 from __future__ import annotations
-
-import pytest
 
 from codeverse.contracts.artifacts import (
     BuildResult,
@@ -27,11 +18,11 @@ from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import MAX_TRIS_OBJECT, to_snake
 from codeverse.orchestrator import (
     DETAIL_KIND,
+    KIND_FOR_STRATEGY,
     REWRITE_KIND,
     RoundPolicy,
     StopPolicy,
     detail_blocked,
-    kind_for_strategy,
 )
 from codeverse.tracks.depth import (
     PartScope,
@@ -70,24 +61,17 @@ def test_depth_budget_scales_with_the_plan_and_is_bounded(chair_plan):
     assert big.target_tris > small.target_tris               # a bigger machine is allowed more
     assert small.target_tris >= 6_000 and big.max_tris <= MAX_TRIS_OBJECT
     assert small.min_tris < small.target_tris < small.max_tris
-    # the build-time guard is honest: never longer than the subprocess timeout it is measured against
     assert 20 <= big.max_build_s <= 300 - 30
-
-
-def test_depth_budget_counts_leaves_not_bare_parts():
-    """``instances`` and ``children`` both multiply the shapes a plan really stands for."""
     one = PartPlan(name="Leg", role="leg", description="rod", bbox=BBox(center=(0, 0.2, 0), extents=(0.04, 0.4, 0.04)),
                    instances=4)
     plan = StaticPlan(object_name="X", summary="s", overall_bbox=BBox(center=(0, 0.2, 0), extents=(0.5, 0.4, 0.5)),
                       parts=[one], acceptance=[])
     assert depth_budget(plan).n_units == 4
 
-
-def test_detail_budget_prompt_states_the_numbers(chair_plan):
     text = depth_budget(chair_plan).as_prompt()
     assert "DETAIL BUDGET" in text and "plan parts" in text
     assert f"{depth_budget(chair_plan).target_tris:,}" in text
-    assert "not on new parts" in text  # the measured rule: density inside parts, not extra parts
+    assert "not on new parts" in text
 
 
 # ----------------------------------------------------------------------------- scoping
@@ -101,9 +85,6 @@ def test_scope_groups_partitions_along_the_attachment_tree(chair_plan):
     # Backrest and Armrest both hang off BackLeg → the subtree stays together
     by_part = {n: i for i, s in enumerate(scopes) for n in s.names}
     assert by_part["Backrest"] == by_part["BackLeg"] == by_part["Armrest"]
-
-
-def test_scope_groups_declines_when_scoping_cannot_help(chair_plan):
     assert scope_groups(chair_plan, files_for=_files_for, min_parts=99) == []       # small plan
     assert scope_groups(chair_plan, files_for=None, min_parts=3) == []              # no per-part files
     assert scope_groups(chair_plan, files_for=_files_for, max_groups=1, min_parts=3) == []
@@ -133,10 +114,7 @@ def test_scoped_generation_can_be_switched_off(monkeypatch):
 
 # ----------------------------------------------------------------------------- the detail round
 def test_kind_for_strategy_is_the_one_mapping():
-    assert kind_for_strategy("same") == "refine"
-    assert kind_for_strategy("switch") == REWRITE_KIND
-    assert kind_for_strategy("detail") == DETAIL_KIND
-    assert kind_for_strategy("nonsense") == "refine"
+    assert KIND_FOR_STRATEGY == {"same": "refine", "switch": REWRITE_KIND, "detail": DETAIL_KIND}
 
 
 def test_detail_round_is_offered_only_on_a_clean_finished_structure():
@@ -186,37 +164,34 @@ def _measurement(parts, *, extents=(1.0, 1.0, 1.0), tris=1000) -> Measurement:
                        parts=[PartMeasure(name=n, bbox_min=lo, bbox_max=hi, tri_count=10, islands=1) for n, lo, hi in parts])
 
 
-def test_drift_gate_passes_when_only_triangles_changed():
+def test_drift_gate_allows_detail_only_changes():
     before = _measurement([("Seat", (0, 0, 0), (0.4, 0.04, 0.4))], tris=1000)
     after = _measurement([("Seat", (0, 0, 0), (0.4, 0.04, 0.4))], tris=4200)
     g = drift_gate(before, after, tol_m=0.005)
     assert g.passed and g.gate == DRIFT_GATE
     assert "+3,200 triangles" in g.findings[0].message
 
-
-@pytest.mark.parametrize("after_parts,extents,needle", [
-    ([("Seat", (0, 0, 0), (0.4, 0.04, 0.4))], (1.2, 1.0, 1.0), "overall x extent"),
-    # the fix hint names the axis in the AUTHOR's frame: GLB y (up) is z for a blender author
-    ([("Seat", (0, 0, 0), (0.4, 0.04, 0.4))], (1.0, 1.2, 1.0), "overall z extent"),
-    ([("Seat", (0.02, 0, 0), (0.42, 0.04, 0.4))], (1.0, 1.0, 1.0), "moved 20.0 mm"),
-    ([], (1.0, 1.0, 1.0), "disappeared"),
-])
-def test_drift_gate_fails_when_the_detail_round_moved_something(after_parts, extents, needle):
-    before = _measurement([("Seat", (0, 0, 0), (0.4, 0.04, 0.4))])
-    g = drift_gate(before, _measurement(after_parts, extents=extents), tol_m=0.005, language="blender")
-    assert not g.passed and any(needle in f.message for f in g.findings)
-    assert all(f.data.get("kind") == "detail_drift" for f in g.findings)
-
-
-def test_drift_gate_warns_but_does_not_fail_on_a_new_part():
-    before = _measurement([("Seat", (0, 0, 0), (0.4, 0.04, 0.4))])
-    after = _measurement([("Seat", (0, 0, 0), (0.4, 0.04, 0.4)), ("Bolt", (0, 0, 0), (0.01, 0.01, 0.01))])
+    after = _measurement([
+        ("Seat", (0, 0, 0), (0.4, 0.04, 0.4)),
+        ("Bolt", (0, 0, 0), (0.01, 0.01, 0.01)),
+    ])
     g = drift_gate(before, after, tol_m=0.005)
     assert g.passed and any(f.severity is Severity.WARN and "new top-level part" in f.message for f in g.findings)
-
-
-def test_drift_gate_is_silent_without_a_baseline():
     assert drift_gate(None, _measurement([]), tol_m=0.005).passed
+
+
+def test_drift_gate_fails_when_the_detail_round_moved_something():
+    before = _measurement([("Seat", (0, 0, 0), (0.4, 0.04, 0.4))])
+    cases = [
+        ([("Seat", (0, 0, 0), (0.4, 0.04, 0.4))], (1.2, 1.0, 1.0), "overall x extent"),
+        ([("Seat", (0, 0, 0), (0.4, 0.04, 0.4))], (1.0, 1.2, 1.0), "overall z extent"),
+        ([("Seat", (0.02, 0, 0), (0.42, 0.04, 0.4))], (1.0, 1.0, 1.0), "moved 20.0 mm"),
+        ([], (1.0, 1.0, 1.0), "disappeared"),
+    ]
+    for after_parts, extents, needle in cases:
+        g = drift_gate(before, _measurement(after_parts, extents=extents), tol_m=0.005, language="blender")
+        assert not g.passed and any(needle in f.message for f in g.findings)
+        assert all(f.data.get("kind") == "detail_drift" for f in g.findings)
 
 
 # ----------------------------------------------------------------------------- the track wiring

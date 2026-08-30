@@ -1,14 +1,4 @@
-"""Budget continuity across resume + charge-before-persist ordering.
-
-A resume used to rebuild the guard with only ``spent`` restored: ``billed_usd``,
-``calls``, the stage/round buckets and the wall clock all restarted at zero, so
-after a resume the money/time already spent no longer constrained new work and a
-raised ``--max-usd`` granted a FULL fresh cap.  The guard now snapshots and
-restores its whole accumulator state (``BudgetSnapshot``), and paid work is
-persisted BEFORE the ceiling is enforced: single-shot responses are written to
-disk, fan-out siblings are arbitrated/adopted, and planner attempts are booked
-the moment each call is paid.
-"""
+"""Budget continuity across resume and charge-before-persist ordering."""
 
 from __future__ import annotations
 
@@ -52,7 +42,7 @@ def test_resume_restores_money_calls_and_active_time_but_not_downtime():
     g2.restore(revived)
     assert g2.billed_usd == pytest.approx(0.65) and g2.calls == 2
     assert g2.by_stage == {"baseline": pytest.approx(0.6), "judge": pytest.approx(0.05)}
-    assert g2.round_costs(0) == {"baseline": pytest.approx(0.6), "judge": pytest.approx(0.05)}
+    assert g2.by_round.get(0, {}) == {"baseline": pytest.approx(0.6), "judge": pytest.approx(0.05)}
     # ACTIVE minutes carry over; the downtime between the sessions cost nothing
     assert g2.elapsed_minutes() == pytest.approx(2.0, abs=0.1)
     g2.start_time -= 60  # one more ACTIVE minute in THIS session accumulates on top
@@ -68,7 +58,6 @@ def test_resume_restores_money_calls_and_active_time_but_not_downtime():
 
 
 def test_a_raised_cap_grants_only_the_difference_and_grace_never_persists():
-    """A resumed run gets the raised ceiling MINUS what it already used, not a fresh one."""
     import time as _t
 
     g1 = BudgetGuard(Budget(max_minutes=10.0), start_time=_t.time())
@@ -96,7 +85,7 @@ def test_build_context_restores_the_snapshot_and_falls_back_to_legacy_spent(tmp_
     state.extra["budget_snapshot"] = g.snapshot().model_dump(mode="json")
     ctx = track.build_context(spec, ws, EventLog(ws.events_path), state)
     assert ctx.budget.billed_usd == pytest.approx(0.4) and ctx.budget.calls == 1
-    assert ctx.budget.round_costs(0)["baseline"] == pytest.approx(0.4)
+    assert ctx.budget.by_round.get(0, {})["baseline"] == pytest.approx(0.4)
 
     # legacy fallback: an old run dir carries only spent_usage (spent restored, as before)
     state2 = RunState()
@@ -129,7 +118,8 @@ def test_a_budget_tripped_candidate_still_lets_the_sibling_be_adopted(tmp_path, 
 
     def writer(job, ws_):
         if ws_.root.name == "c0":  # <ws>/_cand/c0 trips the ceiling mid-generation
-            raise BudgetExceeded("cost $9.99 exceeds max_usd $5.00", spent_usd=9.99, elapsed_min=1.0)
+            raise BudgetExceeded("elapsed 9.99 min exceeds max_minutes 5.00",
+                                 spent_usd=9.99, elapsed_min=9.99)
         return {"src/object.js": f"// {job.label} in {ws_.root.name}\n"
                                  "export function build(THREE) { return new THREE.Group(); }\n"}
 
