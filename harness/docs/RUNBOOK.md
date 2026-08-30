@@ -74,9 +74,8 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 
 | id | what runs | notes |
 |---|---|---|
-| `gemini-cli:gemini-3.6-flash` (default) | in-process tool loop with file tools + every spatial tool | cheapest agentic path; the only backend whose transcripts feed repair-pair mining |
+| `gemini-cli:gemini-3.7-flash` (default) | `gemini -p … --approval-mode yolo --skip-trust --output-format json`; every spatial tool over MCP | cheapest agentic path; transcripts feed repair-pair mining; see gotchas below |
 | `single-shot:gemini:gemini-3.7-flash` | one structured-output call → multi-file envelope, no tools | fastest/cheapest; baseline for "raw model" deltas |
-| `gemini-cli:gemini-3.7-flash` | `gemini -p … --approval-mode yolo --skip-trust --output-format json` | see gotchas below |
 | `claude-code:<model>` | `claude -p … --dangerously-skip-permissions --mcp-config trajectories/<label>_rNN/mcp.json --strict-mcp-config …` | local subscription — test lightly |
 | `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high … -c mcp_servers.3dcv.…` | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id, `""` to defer to `~/.codex/config.toml`) |
 | `agy:<model>` | `agy --print … --add-dir ws` | no per-workspace MCP: tools via `3dcv tools <name> --json … --workspace .`; no served-model or cost reporting |
@@ -184,7 +183,7 @@ call the `texture_pass` / `texture_preview` tools mid-session.
     --judge gemini:gemini-3.1-pro-preview --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out bench/out/x]
 3dcv bench report bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
-    --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
+    --arms harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
 ```
 Results stream to `results.jsonl` (resumable).  Batteries: `static_objects_v1` (24),
 `articulated_v1` (12), `scenes_v1` (12), `compare_v1` (8, harness-vs-one-shot).
@@ -249,7 +248,7 @@ model, produced the zero — check `cell.json`'s `error`).
   it up).
 * **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…),
   languages=(…), cost_hint=…)` in `spatial/tools*.py` (imported from
-  `spatial/tools.py`); available to tracks, MCP, api-agent and prompt cards at once.
+  `spatial/tools.py`); available to tracks, MCP and prompt cards at once.
   Update `tests/spatial_tools` EXPECTED_TOOLS.
 * **New rubric**: `judges/rubrics/<name>.yaml` with `pass_threshold`,
   `criteria[{id, weight, floor, title, description, anchors, kind}]`,

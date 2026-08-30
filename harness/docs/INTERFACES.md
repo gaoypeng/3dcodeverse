@@ -268,7 +268,7 @@ from codeverse.spatial.frame_stats import sequence_stats, frame_gate    # gate "
 from codeverse.spatial.registry import tool, get_tool, list_tools, tool_cards, ToolContext, Observation
 import codeverse.spatial.tools   # registers: build, measure, render_views, render_sheet, isolate, cross_section,
     # check_connectivity, check_contract, compare_silhouette, joint_sweep [articulated], shader_probe, scene_probe,
-    # scene_views + check_placement [scene], read_cookbook, gl_probe + gl_frames [graphics], texture_pass + texture_preview [object tracks]
+    # scene_views + check_placement [scene], gl_probe + gl_frames [graphics], texture_pass + texture_preview [object tracks]
 python -m codeverse.spatial.mcp_server --workspace <ws> [--track X] [--language Y] [--round N] [--list]   # MCP name: 3dcv
 ```
 
@@ -355,9 +355,9 @@ from codeverse.tracks.static_object import drift_gate, detail_instructions, DRIF
     # ERROR when a detail round moved/resized/removed a part or changed the overall extents (tol from policy)
 from codeverse.tracks.prompting import base_prompt_context, reference_images, file_for_target_factory, \
     scope_context, budget_for, detail_budget_text      # Δ split out of
-from codeverse.tracks.prompting import select_cookbook_chapters, select_cookbook_excerpt, is_always_chapter
+from codeverse.tracks.prompting import select_cookbook_chapters, is_always_chapter
     # select_cookbook_chapters(ctx, brief, *, budget=9000, always=COOKBOOK_ALWAYS) -> list[Section]: the header +
-    # always-on chapters + the brief's chapters (whole, cookbook order, inside budget); the excerpt joins them
+    # always-on chapters + the brief's chapters (whole, cookbook order, inside budget)
 from codeverse.tracks.graphics_recipes import seed_recipes, graphics_brief, cookbook_functions, EXTRA_KEY, RECIPES_REL
     # seed_recipes(ctx) -> list[str]: glsl_shader + seed_recipes_enabled() only.  Writes the selected chapters'
     # function definitions (minus always-on chapters and the raymarching template) + the helpers they call to

@@ -258,6 +258,8 @@ it lands these four rows stay `mixed`, not `measured`.
 * **`telemetry.record_exact_read` is wired to `read_file` only** (`agents/api_agent.py`), so
   `read_skill` — api-agent's actual read channel — never reaches `skill_reads.jsonl`. One
   line in `SkillTools.read_skill` makes `3dcv skills report` truthful without atime.
+  *(Moot since 2026-08-28: the api-agent and its `read_skill` channel were deleted with it;
+  vendor-CLI reads go through the filesystem and leave no exact-read channel to wire.)*
 * **`scene_frames/content_*` has no classified kind.** Frame coverage is half of what
   `cv3d-scene-composition` teaches; it neither routes nor counts. Left alone deliberately:
   adding a kind widens routing, which is an effect claim needing its own evidence.

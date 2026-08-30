@@ -431,8 +431,7 @@ out not to pay.
 
 * **`MeteredChatModel`** wraps everything `models.get_chat_model` hands out, so one
   `CallCost` row is appended per `ChatModel.generate` — planner, judges,
-  captioner, texturing, single-shot generation **and every turn of the in-process
-  api-agent**.
+  captioner, texturing and single-shot generation.
 * **`MeteredAgent`** wraps everything `agents.get_coding_agent` hands out: it sets
   the ambient round/stage for the session (so the rows above land in the right
   bucket), applies whatever turn cap the settings name (only ever *lowering*
@@ -447,8 +446,8 @@ out not to pay.
   model — a texture pass, a captioner — looked metered, so its session row was
   dropped and **$1.23 of the reproduction vanished**; and an in-process session
   whose turns ran in a worker thread looked unmetered and was counted **twice**.
-  `IN_PROCESS_AGENT_KINDS = {"api-agent"}` (or a backend's own
-  `meters_own_calls` attribute) decides it now, and
+  a backend's own `meters_own_calls` attribute decides it now (every shipped
+  backend is a vendor CLI, so none sets it), and
   `tests/cost/test_instrument.py` pins both directions.
 
 **Attribution.**  A call is filed under what *it* says it is, not under what
@@ -457,8 +456,8 @@ label that names a job of its own (`judge:…`, `planner`, `texture_gate`,
 `caption…`, `pairwise:…`), then the ambient agent session.  A spatial tool that
 bills a model inside a refine session used to land on `stage=refine /
 role=generator`; it now lands on its own stage.  A *generation* label still yields
-to the session, which knows more (best-of-N runs `job.kind="candidate"` while its
-turns are labelled `api-agent:baseline:tN`).
+to the session, which knows more (best-of-N runs `job.kind="candidate"` while the retired api-agent's
+recorded turns were labelled `api-agent:baseline:tN`).
 
 **Who opens a ledger.**  `3dcv make` / `3dcv resume` (`cli.main._run_track`),
 `3dcv texture pass` (with `create=False`), **and the bench drivers** —

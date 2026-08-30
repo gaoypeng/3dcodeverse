@@ -54,7 +54,7 @@ deterministic contract check.
 
 ```bash
 3dcv bench run bench/prompts/static_objects_v1.yaml \
-    --generator gemini-cli:gemini-3.6-flash --judge gemini:gemini-3.1-pro-preview \
+    --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview \
     --rounds 2 --parallel 4 --out bench/out/static_v1_apiagent
 3dcv bench run bench/prompts/static_objects_v1.yaml --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
 3dcv bench report bench/out/static_v1_apiagent
