@@ -103,8 +103,9 @@ class VlmJudge:
         self.model_id = model_id or get_settings().default_judge
         self.n_samples = max(1, int(n_samples))
         if self.n_samples % 2 == 0:
-            log.warning("judge n_samples=%d is even: exact vote ties on defects / acceptance items are decided by the "
-                        "representative sample (rubrics.aggregate_samples); an odd n gives a true majority", self.n_samples)
+            log.warning("judge n_samples=%d is even: an exact vote tie on a defect reads as absent and a tie on an "
+                        "acceptance item follows the representative sample (rubrics.aggregate_samples); an odd n "
+                        "gives a true majority", self.n_samples)
         self.temperature = temperature
         self.thinking = thinking
         self.max_attempts = max(1, int(max_attempts))

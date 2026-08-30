@@ -20,9 +20,11 @@ never a reason for a measurement to fail.
 from __future__ import annotations
 
 import contextlib
+import json
 import re
+import struct
 import threading
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -66,6 +68,49 @@ def load_scene(glb: Path | str) -> trimesh.Scene:
     return scene
 
 
+def gltf_node_names(glb: Path | str) -> list[str | None]:
+    """The ``name`` of every node in the GLB's JSON chunk, in index order (None = unnamed)."""
+    with Path(glb).open("rb") as fh:
+        head = fh.read(20)
+        if len(head) < 20 or head[:4] != b"glTF":
+            return []
+        (n,) = struct.unpack("<I", head[12:16])
+        try:
+            js = json.loads(fh.read(n))
+        except ValueError:
+            return []
+    return [node.get("name") for node in js.get("nodes", [])]
+
+
+def node_name_findings(glb: Path | str) -> list[str]:
+    """Findings for a GLB whose node names trimesh cannot key on.
+
+    trimesh names graph nodes by their glTF ``name`` and de-duplicates collisions, and
+    on THREE.GLTFExporter files with repeated / missing names (the brilliana gallery's
+    desk-lamp-q2: 21 unnamed, 'Arm' x2, 'Shade' x2, 'Rivet' x4) that walk went wrong in
+    two ways at once — the root ``pivot`` matrix was dropped from its descendants and a
+    renamed 'Arm' was re-parented to the world, so an upright lamp measured as lying on
+    its side with a part 28 mm under the floor (2026-08-30).  The harness's own exporters
+    name every node uniquely (blender, cadquery, and export_glb.mjs bake instances to
+    ``<Name>_<i>``: 0 of 14 recorded threejs GLBs differ from the naive bounds), so this
+    fires on foreign files and on an agent that reused a name — either way the numbers
+    downstream are approximate and the reader is told."""
+    names = gltf_node_names(glb)
+    if not names:
+        return []
+    out: list[str] = []
+    unnamed = sum(1 for n in names if not n)
+    dups = {n: c for n, c in Counter(n for n in names if n).items() if c > 1}
+    if unnamed:
+        out.append(f"{unnamed} of {len(names)} glTF nodes are unnamed — parts are keyed by node name; "
+                   "measurements and contact checks may mis-pose them")
+    if dups:
+        shown = ", ".join(f"'{n}' x{c}" for n, c in sorted(dups.items())[:6])
+        out.append(f"duplicate glTF node names ({shown}) — trimesh re-parents renamed nodes; "
+                   "measurements and contact checks may mis-pose them")
+    return out
+
+
 def _subtree_nodes(scene: trimesh.Scene, root: str) -> list[str]:
     """All nodes under ``root`` (inclusive), depth first; cycle-safe (a malformed
     graph, e.g. a node named like the base frame, must not hang the gate)."""
@@ -81,10 +126,36 @@ def _subtree_nodes(scene: trimesh.Scene, root: str) -> list[str]:
     return out
 
 
+def world_transform(scene: trimesh.Scene, node: str) -> np.ndarray:
+    """``node``'s world matrix, composed by walking the edge matrices up to the base frame.
+
+    Not ``scene.graph.get(node)``: trimesh 4.12 leaves the SCENE-ROOT node's own matrix out
+    of its descendants' world transforms.  A GLB whose root node carries the Z-up→Y-up
+    rotation — what THREE.GLTFExporter writes for a Z-up scene (``pivot``, the brilliana
+    gallery) — therefore measured as lying on its side: desk-lamp-q2 bounds y ∈ [−0.12, 0.12],
+    z ∈ [0, 0.45] from trimesh against y ∈ [0, 0.45] from the node walk and from the render
+    rig (2026-08-30).  Every gate downstream — bbox, ground gap, floating, orientation —
+    read that wrong pose, and the judge read the gate text.  Cycle-safe (a malformed graph
+    must not hang the gate)."""
+    edges = scene.graph.transforms.edge_data
+    parents = scene.graph.transforms.parents
+    m = np.eye(4)
+    seen: set[str] = set()
+    while node != scene.graph.base_frame and node in parents and node not in seen:
+        seen.add(node)
+        parent = parents[node]
+        local = edges.get((parent, node), {}).get("matrix")
+        if local is not None:
+            m = np.asarray(local, dtype=float) @ m
+        node = parent
+    return m
+
+
 def _world_mesh(scene: trimesh.Scene, node: str) -> trimesh.Trimesh | None:
     """Geometry at ``node`` transformed to world space (None if not a mesh)."""
     try:
-        transform, geom_name = scene.graph.get(node)
+        _, geom_name = scene.graph.get(node)
+        transform = world_transform(scene, node)
     except Exception:
         return None
     if geom_name is None:
@@ -278,6 +349,7 @@ def measure_glb(glb: Path | str) -> Measurement:
     scene = load_scene(p)
     parts = entry.parts if entry is not None and entry.parts is not None else part_meshes(scene)
     m = _measure(scene, parts)
+    m.extra["findings"] = [*node_name_findings(p), *m.extra.get("findings", [])]
     if entry is not None:
         if entry.parts is None:
             entry.parts = parts

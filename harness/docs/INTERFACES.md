@@ -269,9 +269,23 @@ from codeverse.spatial.complexity import (ComplexityVector, COMPLEXITY_WEIGHTS, 
 complexity_of_glb(glb) -> ComplexityVector     # part_count, assembly_depth, tri_count, materials, silhouette,
     # feature_density, symmetry_groups, hollowness, + index 0-1 (documented weights) and band
     # (trivial|simple|moderate|complex|intricate).  Deterministic, no VLM/render.  docs/COMPLEXITY.md
-from codeverse.spatial.connectivity import check_connectivity   # (glb, *, gap_m=…, …, language="") — Δ language selects the
+from codeverse.spatial.connectivity import check_connectivity   # (glb, *, gap_m=…, …, language="", planned_edges=()) — planned_edges: (child, parent | (copies…)); Δ language selects the
 from codeverse.spatial.contract import check_contract           # frame of fix hints; both gates emit hints in the AUTHORING frame
                                                                 # (labelled "blender frame: Z-up, -Y front" etc.), GLB vectors in data
+    # (Δ 2026-08-30) connectivity measures overlap WHERE it is (a dense pass on the AABB-overlap region), so a thin
+    #   member's tip is no longer diluted under PENETRATION_MIN_FRACTION; every interpenetration finding carries
+    #   data{kind="penetration", other, entering, container, depth_m, fraction_inside, local_fraction, inside_count,
+    #   through_ratio (2·depth/thickness of the part entered — MEASURED, never a severity), thickness_m}; severity is
+    #   depth alone (2 mm WARN / 10 mm ERROR).  One INFO "contact ledger" finding closes every report:
+    #   data{parts, contacts [[a,b,gap_mm]], overlaps [[a,b,depth_mm,through]] incl. sub-threshold welds, ground_gap_mm{part},
+    #   planned [[a,b,gap_mm,"contact"|"open"]] for the plan's attach_to pairs (spatial/contract.planned_joins — a child against
+    #   every parent copy its box touches; the gate keeps each CONTACT row, else the nearest), planned_unresolved}.
+    # (Δ 2026-08-30) check_contract adds ONE orientation finding on a StaticPlan (data.kind="orientation", pose lying|stood → ERROR,
+    #   turned → WARN; planned_up_m, measured_up_m, best_axis): an extents-permutation test in the plan frame, 0 flags over
+    #   629 corpus measurements, fires on brilliana's c-clamp / gate-valve.
+from codeverse.spatial.measure import measure_glb, world_transform, node_name_findings   # (Δ 2026-08-30) world frames are composed
+    # by walking the graph's edge matrices (trimesh's get() dropped a root pivot's rotation); a GLB with duplicate / unnamed nodes
+    # lands a finding in Measurement.extra["findings"] — trimesh re-parents renamed nodes and the numbers are approximate
 from codeverse.spatial.scene_placement import check_placement, placement_findings, placement_gate_safe, placement_census, placement_table_text
 check_placement(ws, *, indoor=None, force_probe=False) -> GateReport   # gate "scene_placement"; data.kind ∈ floating | sunken |
     # unsupported | interpenetration | summary | probe_failed; target "Zone/Asset" (routes to src/zones/<zone>.js);
@@ -309,9 +323,14 @@ from codeverse.judges.base import JudgeInput   # (spec, renders, measurement=Non
                                                #  round_index=0, previous=None, extra_context="", geometry_views=None)
 from codeverse.judges.prompt_builder import plan_montages, render_montage, Montage    # ≤3 2×2 montages (shaded/geometry/poses) + ≤2 detail
     # crops @≤1024px replace sheet+9 views; clay/normals views (RenderView.mode) auto-route to the GEOMETRY montage
-from codeverse.judges.rubrics import is_degraded, aggregate_samples   # ScoreBreakdown adds defects, defect_votes (majority,
-    # ties→representative sample, D36), tie_broken, defect_penalty, overall_after_defects,
-    # judge_prompt_hash (D37); overall = caps(weighted_mean − Σpenalty)
+from codeverse.judges.rubrics import is_degraded, aggregate_samples, SCORING_VERSION   # ScoreBreakdown adds defects,
+    # defect_votes (majority; a defect tie → absent, an acceptance tie → representative sample, D36 as amended
+    # 2026-08-30), tie_broken, defect_penalty, overall_after_defects, overridden (defects the measured-absent
+    # veto switched off), scoring_version (= SCORING_VERSION, 2; older records carry 0), judge_prompt_hash (D37);
+    # overall = caps(weighted_mean − Σpenalty)
+    # CapRule gains measures: list[str] (the checklist defect ids a gate rule is the MEASUREMENT of —
+    # penetration_error.measures = [interpenetration]) and graded: bool (an acceptance rule caps at
+    # cap + (1−cap)·verified/total instead of a flat cap); rubrics._rule_evidence is now _rule_hit -> CapApplied | None
 from codeverse.judges.rubrics import apply_caps           # (rubric, overall, gates, acceptance_results, acceptance_items=None, *,
                                                        #  console_errors=None, views=None, defects_present=None) -> CapResult;
                                                        # cap rules add when="missing_views" and ledger lines "defect:<id>"
@@ -404,6 +423,13 @@ from codeverse.tracks.graphics import seed_recipes, graphics_brief, cookbook_fun
     # which loses the helpers recipes.glsl now provides (trim_skeleton_common; recipes are pasted first).
     # GraphicsTrack.prepare() runs it after the skeleton and commits "recipes" when it wrote something.
 from codeverse.tracks.common import RunContext, Services   # common.py; RunContext.single_shot / .agent_kind
+    # (Δ 2026-08-30) Services.connectivity(glb, language="", planned_edges=()) forwards the plan's attach_to pairs;
+    #   spatial.contract.planned_joins(plan, measurement) -> [(child, (parent copies…))] spells them in GLB part names via
+    #   spatial.contract.match_parts (instance copies Leg_0..n join the nearest parent copy — no regex on ids)
+from codeverse.judges.prompt_builder import gates_section, contact_ledger   # (Δ 2026-08-30) contact_ledger(gates) finds the
+    # connectivity report's INFO ledger; with it gates_section renders MEASURED STRUCTURE + one overlap line + planned joins
+    # (LEDGER_MAX_CONTACTS 24, LEDGER_MAX_JOINS 20, ground line for parts within GROUND_BAND_MM of the lowest point whose gap
+    # exceeds GROUND_GAP_REPORT_MM) and drops the per-pair penetration WARN prose; without it the pre-change text, byte for byte
 from codeverse.tracks.generation import write_files        # (ws, files, *, allowed_roots, only=None, frozen=(), on_skip=None):
     # frozen = harness-owned paths a single-shot envelope may not rewrite (skipped with a reason, never an error)
 from codeverse.agents.cli_common import find_json_object, default_mcp_command   # THE one JSON-envelope finder behind

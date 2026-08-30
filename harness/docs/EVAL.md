@@ -186,23 +186,71 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   part should cap via `connectivity` findings with `data["kind"]="floating"`.
 * A better recurring smoke than re-judging e2e rounds: a separation set with
   deliberately broken variants (exploded / floating / primitive-only).
-* **A checklist defect a passed gate measured absent does not cap (7a9b6d3).**  The
-  judge's binary checklist feeds a per-item penalty and, for `floating_part` /
-  `interpenetration`-class items, a hard cap (`defect:<id>` in `caps_applied`).  Those are
-  also what the connectivity gate *measures*.  Measured 2026-08-26 on a plan-pinned pair
+* **A checklist defect a passed gate measured absent does not cap (7a9b6d3; repaired
+  2026-08-30).**  The judge's binary checklist feeds a per-item penalty and, for
+  `floating_part` and `interpenetration`, a hard cap (`defect:<id>` in `caps_applied`).
+  Those two are also what the connectivity gate *measures*, and since 2026-08-30 the veto
+  really reaches both: replayed over the 419 stored static_object verdicts
+  (`bench/rejudge_offline.py`) it switches off `interpenetration` on 163 and `floating_part`
+  on 72 — before the repair it had fired 10 times in total and never once for
+  interpenetration.  Measured 2026-08-26 on a plan-pinned pair
   (fancy_v1 `gas_street_lamp`, two lamps the eye cannot tell apart): the gate reported
   "all 9 parts connected, gap ≤ 2 mm" and was in the judge's input; both pro samples read
   the dark seam under the pedestal as "floating in mid-air, a clear daylight gap", and
   `defect:floating_part` capped the run at 0.600 (uncapped 0.720) against 0.962 for its
-  sibling.  `judges/caps.measured_absent`: when a `when=gate` cap rule with the same id
-  has all its watched gates passed with no ERROR finding of its `kinds`, the checklist
-  claim is switched off before the penalty and before `apply_caps`, and named in the verdict
-  tail ("checklist claims contradicted by a passed gate").  A failed gate, a gate that did
-  not run, or a defect nothing measures (`wrong_object`, `missing_named_part`) are
-  untouched.  Re-aggregating the eleven judged fancy_v1 cells from their stored samples
-  changed exactly one score (that lamp, 0.600 → 0.720); the other 0.600s are
-  `missing_must_acceptance` / interpenetration caps the gates agree with.  0b6f52b tells the
-  judge the same thing in its prompt; this holds when the judge does not listen.
+  sibling.  `judges/rubrics.measured_absent`: when a `when=gate` cap rule whose `measures`
+  names the defect (`penetration_error.measures: [interpenetration]`; `floating_part` by
+  default) has all its watched gates passed with no ERROR finding of its `kinds`, the
+  checklist claim is switched off before the penalty and before `apply_caps`, named in the
+  verdict tail ("checklist claims contradicted by a passed gate") and listed in
+  `raw.overridden`.  A failed gate, a gate that did not run, or a defect nothing measures
+  (`wrong_object`, `missing_named_part`) are untouched.  Two faults kept it dead until
+  2026-08-30: the rule was matched by *id* (`penetration_error` ≠ `interpenetration`, so 237
+  interpenetration flags — 110 of them citing only WARNs the rubric says to ignore — were
+  never vetoed), and the object rubrics' rules watched `gate: "*"`, so a failing contract gate
+  (53 of the 62 blocked cases) switched off a veto connectivity had earned; they now watch
+  `connectivity` alone, the only gate that emits floating / penetration ERRORs on this track
+  (540 findings over 356 records).  The veto is depth-aware (`VETO_PENETRATION_DEPTH_M`, 8 mm —
+  5 mm let the judge's tick on the pipe tee's 5.8 mm designed branch socket stand, −0.32 on that
+  side of the paired re-judge): a penetration WARN measured that deep is not "absent" — the
+  WARN-blind version switched off 163 interpenetration claims.  With the graded cap below the
+  final replay moves 230 of 419 stored verdicts (none down), pass rate 15.0 % → 21.0 %,
+  pearson(gate errors, overall) −0.219 → −0.301, vetoed: interpenetration 130, floating 72.  0b6f52b tells the judge the same thing in its prompt; this holds when the judge
+  does not listen.
+* **`missing_must_acceptance` is graded (2026-08-30).**  The flat 0.6 was the decisive cap on
+  121 of 424 static_object verdicts (28.6 %): one unverified must item out of ten scored
+  exactly like ten out of ten, and 130 of 419 stored scores sat on 0.600.  The cap is now
+  `0.6 + 0.4 · verified/total` over the must items (`CapRule.graded`; the ledger line says
+  "k of n must items verified").  Pass/fail is unchanged — any unverified must item still
+  fails — only the score keeps its gradient: the 0.600 spike drops 130 → 20 on replay, σ
+  0.206 → 0.224.  Every breakdown now carries `scoring_version` (`rubrics.SCORING_VERSION`,
+  2 for this batch); `rejudge_offline --identity` holds only same-version verdicts to 1e-9.
+* **The judge reads the contact ledger, not WARN prose (2026-08-30).**  Audited over 420
+  rounds: P(judge marks interpenetration | connectivity ERROR) = 69/69, and 110 of the 237
+  flags cited only WARNs the rubric excuses — the same images with the gate section removed
+  flipped the flag on 13/24 sides.  `gates_section` now renders the gate's contact ledger:
+  one measured overlap line (deepest pair, through-ratio, "these are welds, not the defect"),
+  a MEASURED STRUCTURE block with the plan's joins as contact/OPEN (312 stored rounds carry
+  joins; 171 have ≥ 1 OPEN one — the assembly_fit ground truth that did not exist), and the
+  lowest point above the floor with its number.  p50 307 / p90 484 tokens on the corpus.
+  It rides on the v1 `judge_prompt_hash` (per-run text is not hashed), so its effect is NOT
+  in any replay: the measurement is a paired re-judge.  **Run 2026-08-30** (42 matched items,
+  the 53-item σ battery as arm A vs the shipped bundle as arm B, fixed order, n=3, $6.12):
+  on old-gate-clean items the interpenetration claim rate moved 21 % → 18 % (n=28 —
+  underpowered against the corpus's 39 % criterion, which needs the 120 view-pruned rounds);
+  Δ(B−A) overall +0.059 mean (corpus rounds +0.141, h2h ours −0.040, h2h theirs +0.026);
+  within-arm σ unchanged (0.030 → 0.032).  Two case reads: the new gate's 12.7 mm ERROR on
+  clock_q4 is a real catch (0.912 → 0.700), and the pipe tee's −0.32 exposed the 5 mm veto
+  line marking a designed 5.8 mm branch socket — which is why the line is 8 mm.
+* **The judge's own re-judge σ is 0.035 (2026-08-30, fixed montage order).**  53 items — the
+  29 corpus rounds that still carry view PNGs + the 24 h2h object-sides re-rendered from their
+  GLBs — judged three times each with the identical prompt (`VlmJudge(fixed_order=True)`,
+  pro, $7.79): σ of the final overall mean 0.035, median 0.027, p90 0.060; per criterion
+  0.037 (intent) – 0.065 (structure).  That is the number `cost/routing.JUDGE_NOISE` already
+  tables (0.030, measured with per-sample view shuffles), so the loop's σ-keyed stops are
+  keyed to the right magnitude and the 0.072 round-to-round spread in the corpus is
+  generation variance, not the judge.  Untested: temperature 0.0 (brilliana measured 0.013
+  vs 0.035 between 0.0 and 0.2 on 512 calls) — one more $8 battery.
 * Never tune rubric text against the battery you report on; bump the rubric version
   (`*_v2`) instead and re-run.
 
@@ -521,6 +569,15 @@ rank **#2–#26 of the 120 scored entries in their gallery** (all ≥ 0.8085 by 
 median 0.7747).  The comparison that would answer the question — our configured best
 (`gemini-cli:gemini-3.7-flash`, `--candidates 3 --texture`) against a *median* draw from their
 gallery — has not been run.
+**Measurement caveat found 2026-08-30 (evening):** the three THEIRS threejs sides (desk_lamp,
+clock, lighthouse — THREE.GLTFExporter files with a root ``pivot`` matrix, 21–173 unnamed nodes
+and duplicate names) were MIS-MEASURED by trimesh: an upright lamp read as lying on its side
+with a part 28 mm under the floor, and the judge saw that measurement table.  Their
+``wrong_orientation`` ticks and the ground-gap numbers on those three are suspect, and so is
+the threejs +0.335.  Our own 14 threejs GLBs are unaffected (0 mm difference between the
+graph walk and trimesh).  ``measure_glb`` now walks the edge matrices itself and flags
+duplicate/unnamed nodes; those three sides need a re-evaluation before the per-language
+threejs number is quoted again.
 
 ### 8.8 PR #1's articulated planner repair, verified (2026-08-26 evening)
 

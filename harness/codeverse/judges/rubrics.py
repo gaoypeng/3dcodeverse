@@ -31,6 +31,7 @@ import yaml
 from pydantic import (
     BaseModel,
     Field,
+    PrivateAttr,
     ValidationError,
     create_model,
     field_validator,
@@ -118,11 +119,20 @@ class CapRule(BaseModel):
     pattern on the gate name (``"build*"``), ``severity`` the minimum severity,
     ``kinds`` a list of tokens any of which must appear in ``finding.data.kind``
     / ``finding.data.code`` or, as a fallback, in the lower-cased message.
-    ``when="acceptance"`` fires when any ``must`` acceptance item is not verified.
+    ``when="acceptance"`` fires when any ``must`` acceptance item is not verified;
+    with ``graded`` the cap is ``cap + (1 - cap) · verified/total`` over the must
+    items instead of the flat ``cap``.
     ``when="console"`` fires when the render set reports console errors (scenes).
     ``when="missing_views"`` fires when NO render view has a name/mode containing
     any of ``kinds`` (e.g. ``kinds: [pose_, articulation_sheet]`` = the articulated
     rubric requires posed views).
+
+    ``measures`` names the checklist defects this gate rule is the MEASUREMENT of
+    (default: the rule's own id).  ``measured_absent`` reads it: a passed gate the
+    rule watches vetoes those checklist claims.  Audited 2026-08-30 over 420
+    static_object verdicts: ``penetration_error`` had never vetoed ``interpenetration``
+    because the match was on ``id`` alone — 237 interpenetration flags, 69 with a gate
+    ERROR behind them, 0 vetoes.
     """
 
     id: str
@@ -131,7 +141,20 @@ class CapRule(BaseModel):
     gate: str = Field(default="*", description="fnmatch pattern on GateFinding.gate")
     severity: Severity = Severity.ERROR
     kinds: list[str] = Field(default_factory=list)
+    measures: list[str] = Field(
+        default_factory=list, description="checklist defect ids a passed gate under this rule vetoes; default [id]"
+    )
+    graded: bool = Field(
+        default=False,
+        description="acceptance rules only: cap + (1 - cap) * verified_must / total_must instead of the flat cap",
+    )
     note: str = ""
+
+    @model_validator(mode="after")
+    def _default_measures(self) -> CapRule:
+        if not self.measures:
+            self.measures = [self.id]
+        return self
 
 
 class Rubric(BaseModel):
@@ -201,8 +224,17 @@ class Rubric(BaseModel):
                 out.append((c.id, float(scores[c.id]), c.floor))
         return out
 
+    _source: dict[str, Any] | None = PrivateAttr(default=None)
+
     def content_hash(self) -> str:
-        payload = json.dumps(self.model_dump(mode="json"), sort_keys=True)
+        """A hash of what the YAML DECLARES, not of the model's defaults.
+
+        Hashing ``model_dump`` moved the hash of every rubric — scene_v1, shader_v1/v2
+        included — when ``CapRule`` gained ``measures`` and ``graded`` (2026-08-30),
+        although their files had not changed a byte; a schema field must never re-key
+        recorded verdicts.  A rubric built without a source dict (tests) hashes its dump."""
+        src = self._source if self._source is not None else self.model_dump(mode="json")
+        payload = json.dumps(src, sort_keys=True, default=str)
         return hashlib.sha256(payload.encode()).hexdigest()[:12]
 
 
@@ -212,9 +244,11 @@ def list_rubrics() -> list[str]:
 
 def rubric_from_dict(data: dict, *, name_hint: str = "") -> Rubric:
     try:
-        return Rubric(**data)
+        rubric = Rubric(**data)
     except Exception as e:  # pydantic ValidationError / TypeError
         raise RubricError(f"invalid rubric {name_hint or data.get('name')!r}: {e}") from e
+    rubric._source = json.loads(json.dumps(data, default=str))
+    return rubric
 
 
 @lru_cache(maxsize=32)
@@ -484,9 +518,10 @@ def measured_absent(rubric: Rubric, defect_id: str, gates: list[GateReport]) -> 
 
     A checklist defect is a VLM's reading of a picture.  Some of them — a floating part, an
     interpenetration — are also what a gate measures on the exported mesh, and the rubric
-    already says which: a ``when="gate"`` cap rule with the same id and a ``kinds`` list.
-    When every gate that rule watches ran and passed with no ERROR finding of those kinds,
-    the measurement contradicts the perception, and the perception must not cap.
+    already says which: a ``when="gate"`` cap rule whose ``measures`` names the defect and
+    whose ``kinds`` name the findings.  When every gate that rule watches ran and passed
+    with no ERROR finding of those kinds, the measurement contradicts the perception, and
+    the perception must not cap.
 
     Measured 2026-08-26 on a plan-pinned pair (fancy_v1 gas_street_lamp): the connectivity
     gate said "all 9 parts connected, gap <= 2 mm"; the judge read the dark seam under the
@@ -494,24 +529,51 @@ def measured_absent(rubric: Rubric, defect_id: str, gates: list[GateReport]) -> 
     ``defect:floating_part`` capped the run at 0.6 (uncapped 0.72) against 0.96 for a sibling
     the eye cannot tell apart.  CLAUDE.md law 3: gates decide geometry, the VLM is perception.
 
+    Audited 2026-08-30 (420 static_object verdicts): the veto had fired 10 times.  It matched
+    ``r.id == defect_id`` — ``penetration_error`` never reached ``interpenetration`` — and the
+    rules watched ``gate: "*"``, so a failing contract gate (53 of the 62 blocked cases)
+    switched off a veto the connectivity gate had earned.  Now ``measures`` carries the
+    defect ids and the object rubrics watch ``connectivity`` alone.
+
     A defect with no matching gate rule (wrong_object, missing_named_part …) is never
     overridden: nothing measured it.  A gate that did not run overrides nothing either.
+    When several rules measure one defect, every one of them must be clean.
     """
-    rule = next(
-        (r for r in rubric.caps if r.when == "gate" and r.id == defect_id and r.kinds), None
-    )
-    if rule is None:
+    rules = [r for r in rubric.caps if r.when == "gate" and defect_id in r.measures and r.kinds]
+    if not rules:
         return False
-    watched = [g for g in gates if fnmatch(g.gate, rule.gate)]
+    return all(_rule_gates_clean(r, gates) for r in rules)
+
+
+#: A penetration the gate rated WARN but measured at least this deep is NOT "measured
+#: absent": the rubric excuses "weld overlaps of a few mm", and the veto that trusted every
+#: WARN was switching off 163 interpenetration claims — and, since 2026-08-30, a stile 17 mm
+#: through a seat is a WARN too.  From here up the judge's reading stands and the picture
+#: decides.  The line is 8 mm, not 5: the paired re-judge marked the pipe tee's 5.8 mm
+#: branch socket — the canonical DESIGNED weld — as the defect the moment a 5 mm line let
+#: the claim stand (−0.32 on that side), and the corpus holds only 9 standing claims in the
+#: 5–8 mm band (sockets, vise rails) against 16 at 8–10 mm and 43 with an ERROR behind them.
+VETO_PENETRATION_DEPTH_M = 0.008
+
+
+def _rule_gates_clean(rule: CapRule, gates: list[GateReport]) -> bool:
+    """Every gate ``rule`` watches ran, passed, and has no finding of its ``kinds`` that is
+    an ERROR — or a penetration WARN measured at ``VETO_PENETRATION_DEPTH_M`` or deeper.
+    A report is watched when its name OR one of its findings' ``gate`` matches the rule,
+    the same predicate the cap side (``_finding_matches``) uses."""
+    watched = [g for g in gates if fnmatch(g.gate, rule.gate) or any(fnmatch(f.gate, rule.gate) for f in g.findings)]
     if not watched:
         return False
     for g in watched:
         if not g.passed:
             return False
         for f in g.findings:
-            if f.severity == Severity.ERROR and any(
-                k in (f.message or "").lower() for k in rule.kinds
-            ):
+            if not any(k.lower() in _finding_tokens(f) for k in rule.kinds):
+                continue
+            if f.severity == Severity.ERROR:
+                return False
+            depth = f.data.get("depth_m") if isinstance(f.data, dict) else None
+            if f.severity == Severity.WARN and isinstance(depth, (int, float)) and depth >= VETO_PENETRATION_DEPTH_M:
                 return False
     return True
 
@@ -544,7 +606,7 @@ def apply_caps(
     """
     applied: list[CapApplied] = []
     for rule in rubric.caps:
-        evidence = _rule_evidence(
+        hit = _rule_hit(
             rule,
             gates,
             acceptance_results,
@@ -552,8 +614,8 @@ def apply_caps(
             console_errors or [],
             views or [],
         )
-        if evidence is not None:
-            applied.append(CapApplied(rule=rule.id, cap=rule.cap, evidence=evidence))
+        if hit is not None:
+            applied.append(hit)
     for did, present in (defects_present or {}).items():
         if not present:
             continue
@@ -575,41 +637,71 @@ def apply_caps(
     return CapResult(overall=max(0.0, min(1.0, capped)), caps_applied=applied)
 
 
-def _rule_evidence(
+def _rule_hit(
     rule: CapRule,
     gates: list[GateReport],
     acceptance_results: dict[str, bool],
     acceptance_items: list[AcceptanceItem],
     console_errors: list[str],
     views: list[RenderView],
-) -> str | None:
+) -> CapApplied | None:
+    """The ledger line ``rule`` earns on this evidence, or None when it does not fire."""
     if rule.when == "missing_views":
         tokens = [k.lower() for k in rule.kinds]
         if any(any(t in f"{v.name} {v.mode}".lower() for t in tokens) for v in views):
             return None
-        return f"no render view matching {rule.kinds} among {len(views)} view(s)"
+        return CapApplied(rule=rule.id, cap=rule.cap,
+                          evidence=f"no render view matching {rule.kinds} among {len(views)} view(s)")
     if rule.when == "acceptance":
         missing = missing_must_items(acceptance_items, acceptance_results)
-        if missing:
-            return f"must items not verified: {', '.join(missing[:6])}"
-        return None
+        if not missing:
+            return None
+        total = sum(1 for a in acceptance_items if a.priority == "must")
+        verified = total - len(missing)
+        # A flat cap was the DECISIVE cap on 121 of 424 static_object verdicts (28.6 %,
+        # audited 2026-08-30): one unverified must item out of ten pinned the score to
+        # 0.600 exactly as ten out of ten did.  Graded, the cap keeps its floor at ``cap``
+        # (0 of n verified) and climbs linearly to 1.0; pass/fail is untouched — the
+        # verdict still fails on ``must_missing``.
+        cap = rule.cap + (1.0 - rule.cap) * verified / total if rule.graded and total else rule.cap
+        return CapApplied(rule=rule.id, cap=cap,
+                          evidence=f"{verified} of {total} must items verified; not verified: {', '.join(missing[:6])}")
     if rule.when == "console":
         if console_errors:
-            return f"{len(console_errors)} console error(s); first: {console_errors[0][:160]}"
+            return CapApplied(rule=rule.id, cap=rule.cap,
+                              evidence=f"{len(console_errors)} console error(s); first: {console_errors[0][:160]}")
         return None
     for report in gates:
         for f in report.findings:
             if _finding_matches(rule, report, f):
                 target = f" [{f.target}]" if f.target else ""
-                return f"{report.gate}{target}: {f.message[:200]}"
+                return CapApplied(rule=rule.id, cap=rule.cap, evidence=f"{report.gate}{target}: {f.message[:200]}")
     return None
 
 
 # ===================================================================== scoring
+SCORING_VERSION = 2
+"""The arithmetic downstream of the model, stamped into every ``ScoreBreakdown``.
+
+A stored verdict is reproducible from its samples only under the version that wrote
+it (``bench/rejudge_offline.py --identity`` compares nothing else); an older stamp is
+drift to report, not a fault.
+
+0 — before 2026-08-26 (no stamp on disk): majority vote, penalties, the cap ladder.
+1 — 2026-08-26, 7a9b6d3: ``veto_measured_defects`` — a checklist defect a passed gate
+    measured absent neither penalises nor caps.  (Unstamped; 41 corpus verdicts predate
+    it and move on replay.)
+2 — 2026-08-30: ``CapRule.measures`` (the veto reaches ``interpenetration``), the object
+    rubrics' floating/penetration rules watch ``connectivity`` alone, a defect vote tie
+    is absent, ``missing_must_acceptance`` is graded, ``overridden`` + this stamp in raw.
+"""
+
+
 class ScoreBreakdown(BaseModel):
     """Everything the pass/fail decision used (serialised into ``Judgment.raw``)."""
 
     status: str = Field(default="ok", description="ok | degraded")
+    scoring_version: int = Field(default=0, description="SCORING_VERSION that produced this breakdown")
     per_criterion_mean: dict[str, float]
     per_criterion_std: dict[str, float]
     per_sample_overall: list[float]
@@ -628,12 +720,14 @@ class ScoreBreakdown(BaseModel):
         default_factory=dict, description="checklist id → present (majority vote)"
     )
     defect_votes: dict[str, list[bool]] = Field(default_factory=dict)
+    overridden: list[str] = Field(default_factory=list,
+                                  description="checklist defects the vote marked present that a passed gate measured absent (veto_measured_defects)")
     defect_penalty: float = 0.0
     n_requested: int
     n_used: int
     sample_errors: list[str] = Field(default_factory=list)
     tie_broken: list[str] = Field(default_factory=list,
-                                  description="defect / acceptance ids an exact vote tie handed to the representative sample")
+                                  description="ids an exact vote tie decided: acceptance → the representative sample, defect → absent")
     rubric_hash: str = ""
     judge_prompt_hash: str = Field(default="", description="hash of everything the judge is told that is constant per rubric: "
                                                            "role prompt + view-rig rules + wire schema (prompt_builder.judge_prompt_hash)")
@@ -650,7 +744,14 @@ def _representative(samples: list[JudgeOutput], overalls: list[float]) -> JudgeO
 
 
 def _vote(votes: list[bool], tie_break: bool) -> tuple[bool, bool]:
-    """Majority of ``votes``; an exact tie takes ``tie_break``.  Returns (decision, was_tie)."""
+    """Majority of ``votes``; an exact tie takes ``tie_break``.  Returns (decision, was_tie).
+
+    Acceptance ties take the representative sample (the owner's policy: a must-item tie
+    decides pass/fail, and the old ties→False failed a run on one dissent).  Defect ties
+    take ``False``: the rubric puts the burden of proof on the defect ("present only when an
+    image or a gate finding shows it"), so a split vote has not met it.  419 of 420 corpus
+    verdicts are n=1 — this moves nothing on disk (2026-08-30).
+    """
     if not votes:
         return False, False
     yes = sum(1 for v in votes if v)
@@ -716,7 +817,7 @@ def aggregate_samples(
             d_votes.setdefault(did, []).append(bool(flag))
     defects: dict[str, bool] = {}
     for did, v in d_votes.items():
-        defects[did], tied = _vote(v, bool(rep.defects.get(did, False)))
+        defects[did], tied = _vote(v, False)
         if tied:
             tie_broken.append(did)
     # a checklist defect that a passed gate measured as absent neither penalises nor caps
@@ -754,6 +855,7 @@ def aggregate_samples(
         summary = (summary + " " if summary else "") + tail
 
     breakdown = ScoreBreakdown(
+        scoring_version=SCORING_VERSION,
         per_criterion_mean=mean_scores,
         per_criterion_std=std_scores,
         per_sample_overall=[round(o, 4) for o in overalls],
@@ -766,6 +868,7 @@ def aggregate_samples(
         acceptance_votes=votes,
         defects=defects,
         defect_votes=d_votes,
+        overridden=overridden,
         defect_penalty=penalty,
         n_requested=n_requested or len(samples),
         n_used=len(samples),
@@ -836,6 +939,7 @@ def degraded_judgment(
     """A verdict the orchestrator must treat as a GLITCH (not a score): ``raw.status == 'degraded'``."""
     breakdown = {
         "status": "degraded",
+        "scoring_version": SCORING_VERSION,
         "error": error,
         "n_requested": n_requested,
         "n_used": 0,

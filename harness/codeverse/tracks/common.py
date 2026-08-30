@@ -80,9 +80,13 @@ class Services:
     def measure(self, glb: Path) -> Measurement:
         return _import("codeverse.spatial.measure", "measure_glb")(glb)
 
-    def connectivity(self, glb: Path, language: str = "") -> GateReport:
-        """``language`` selects the frame of the fix hints (the author's frame, not the GLB's)."""
-        return _import("codeverse.spatial.connectivity", "check_connectivity")(glb, language=language)
+    def connectivity(self, glb: Path, language: str = "", planned_edges: Sequence[tuple[str, str | Sequence[str]]] = ()) -> GateReport:
+        """``language`` selects the frame of the fix hints (the author's frame, not the GLB's);
+        ``planned_edges`` are the plan's attach_to pairs spelled in GLB part names — the gate
+        measures each one and lists it contact/open in its contact ledger (the judge's
+        assembly_fit ground truth since 2026-08-30)."""
+        return _import("codeverse.spatial.connectivity", "check_connectivity")(
+            glb, language=language, planned_edges=tuple(planned_edges))
 
     def contract(self, measurement: Measurement, plan: Plan, tol_m: float, language: str = "") -> GateReport:
         return _import("codeverse.spatial.contract", "check_contract")(measurement, plan, language=language, tol_m=tol_m)

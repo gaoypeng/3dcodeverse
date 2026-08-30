@@ -153,18 +153,23 @@ caps:
     severity: error
     cap: 0.0
     note: the code did not build or export; nothing to score
+  # Both watch `connectivity` alone (2026-08-30): over 356 static_object records it is the
+  # only gate that emits floating / penetration ERRORs (540 findings), so the cap loses
+  # nothing — and the veto (judges/rubrics.measured_absent) stops being switched off by a
+  # failing contract gate, which had blocked it in 53 of 62 cases.
   - id: floating_part
     when: gate
-    gate: "*"
+    gate: "connectivity"
     severity: error
     kinds: [floating, unattached, no_contact, disconnected, unsupported, island]
     cap: 0.6
   - id: penetration_error
     when: gate
-    gate: "*"
+    gate: "connectivity"
     severity: error
     kinds: [penetrat, intersect, overlap, collision]
     cap: 0.7
+    measures: [interpenetration]
   - id: contract_violation
     when: gate
     gate: "contract*"
@@ -174,6 +179,11 @@ caps:
   - id: missing_must_acceptance
     when: acceptance
     cap: 0.6
+    graded: true
+    note: >
+      0.6 + 0.4 * verified/total over the must items (2026-08-30): the flat 0.6 was the
+      decisive cap on 121 of 424 verdicts (28.6 %), one unverified item scoring like ten.
+      The verdict still FAILS on any unverified must item; only the score keeps its gradient.
 
 # Binary checklist: answered by the judge, scored in code (penalty subtracted, cap applied).
 defects:

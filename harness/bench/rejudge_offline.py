@@ -11,8 +11,13 @@ Two uses:
 
 * **identity** — run it on an unchanged tree: every verdict must reproduce to 1e-9.
   That is the acceptance test for this tool, and the guard that says the corpus is
-  still readable.  (A verdict scored under an older rubric hash is reported, not
-  failed: the rubric moved, the tool did not.)
+  still readable.  Only verdicts stamped with today's ``rubrics.SCORING_VERSION`` are
+  held to it; one scored under an older version (or an older rubric hash) is DRIFT —
+  reported, not failed: the scoring moved, the tool did not.  Which means the guard
+  is DORMANT on today's corpus: every verdict on disk was written before the stamp
+  (version 0), so nothing is held until a version-``SCORING_VERSION`` run is recorded.
+  An empty held set is said out loud and exits 2 — a green line that checked nothing
+  is what a guard must never print — unless ``--allow-empty-identity`` is passed.
 * **impact** — change ``rubrics.py`` or a rubric YAML, run it again: every moved
   verdict, with its before/after caps and defects, the shift in pass rate, in the
   0.600 spike, in σ and in pearson(gate errors, overall).  That is how a scoring
@@ -24,7 +29,7 @@ Cost: seconds of CPU.  It never writes into a run.
 CLI::
 
     python bench/rejudge_offline.py bench/out --rubric static_object_v1 --out scratch/replay
-    python bench/rejudge_offline.py bench/out --rubric static_object_v1 --identity   # exit 1 on any drift
+    python bench/rejudge_offline.py bench/out --rubric static_object_v1 --identity   # exit 1 on any drift, 2 when nothing was held
 """
 
 from __future__ import annotations
@@ -38,10 +43,16 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from codeverse.contracts.artifacts import GateReport, Judgment, Severity
+from codeverse.contracts.artifacts import GateReport, Severity
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.run import RoundRecord
-from codeverse.judges.rubrics import JudgeOutput, Rubric, aggregate_samples, load_rubric
+from codeverse.judges.rubrics import (
+    SCORING_VERSION,
+    JudgeOutput,
+    Rubric,
+    aggregate_samples,
+    load_rubric,
+)
 from codeverse.proc import read_json_or_none
 
 TOL = 1e-9
@@ -53,6 +64,8 @@ class ReplayRow(BaseModel):
     kind: str
     rubric_hash_stored: str
     rubric_hash_now: str
+    scoring_version_stored: int = Field(default=0, description="raw.scoring_version the run wrote; 0 = before the stamp")
+    scoring_version_now: int = SCORING_VERSION
     gate_errors: int
     stored: float
     replay: float
@@ -73,6 +86,7 @@ class ReplayReport(BaseModel):
     n_errors: int
     n_moved: int
     n_rubric_drift: int = Field(description="verdicts whose stored rubric hash differs from today's — drift, not a tool fault")
+    n_scoring_drift: int = Field(default=0, description="verdicts stamped with an older SCORING_VERSION (or none) — drift, not a tool fault")
     mean_delta: float
     median_delta: float
     max_abs_delta: float
@@ -88,6 +102,8 @@ class ReplayReport(BaseModel):
     cap_counts_after: dict[str, int]
     defect_counts_before: dict[str, int]
     defect_counts_after: dict[str, int]
+    overridden_counts: dict[str, int] = Field(default_factory=dict,
+                                              description="defect id → verdicts where the measured-absent veto switched it off on replay")
     rows: list[ReplayRow]
 
     def to_markdown(self) -> str:
@@ -96,8 +112,10 @@ class ReplayReport(BaseModel):
         lines = [
             f"# offline replay — {self.rubric}",
             "",
-            f"n={self.n} verdicts ({self.n_errors} unreadable, {self.n_rubric_drift} scored under another rubric hash)",
+            f"n={self.n} verdicts ({self.n_errors} unreadable, {self.n_rubric_drift} scored under another rubric hash, "
+            f"{self.n_scoring_drift} under an older scoring version than {SCORING_VERSION})",
             f"moved: **{self.n_moved}**  mean Δ {self.mean_delta:+.4f}  median Δ {self.median_delta:+.4f}  max |Δ| {self.max_abs_delta:.4f}",
+            "vetoed on replay (measured absent): " + (", ".join(f"{k} {v}" for k, v in sorted(self.overridden_counts.items())) or "none"),
             f"pass rate {self.pass_rate_before:.1%} → {self.pass_rate_after:.1%}   "
             f"scores pinned at 0.600: {self.spike_600_before} → {self.spike_600_after}   "
             f"σ {self.sd_before:.3f} → {self.sd_after:.3f}   pearson(gate errors, overall) {f(self.pearson_errors_before)} → {f(self.pearson_errors_after)}",
@@ -111,9 +129,9 @@ class ReplayReport(BaseModel):
             lines.append(f"| {k} | {self.defect_counts_before.get(k, 0)} | {self.defect_counts_after.get(k, 0)} |")
         if moved:
             lines += ["", f"## moved verdicts ({len(moved)})", "",
-                      "| run | round | gate err | stored | replay | Δ | caps before → after | overridden |", "|---|---|---|---|---|---|---|---|"]
+                      "| run | round | sv | gate err | stored | replay | Δ | caps before → after | overridden |", "|---|---|---|---|---|---|---|---|---|"]
             for r in sorted(moved, key=lambda r: -abs(r.delta))[:200]:
-                lines.append(f"| {r.run} | r{r.round:02d} | {r.gate_errors} | {r.stored:.3f} | {r.replay:.3f} | {r.delta:+.3f} | "
+                lines.append(f"| {r.run} | r{r.round:02d} | {r.scoring_version_stored} | {r.gate_errors} | {r.stored:.3f} | {r.replay:.3f} | {r.delta:+.3f} | "
                              f"{', '.join(r.caps_before) or '-'} → {', '.join(r.caps_after) or '-'} | {', '.join(r.overridden) or '-'} |")
         return "\n".join(lines)
 
@@ -179,30 +197,16 @@ def replay_round(path: Path, rubric: Rubric | None = None) -> ReplayRow | None:
     return ReplayRow(
         run=_run_label(run_dir), round=rec.index, kind=rec.kind,
         rubric_hash_stored=raw.get("rubric_hash", ""), rubric_hash_now=raw_now.get("rubric_hash", ""),
+        scoring_version_stored=int(raw.get("scoring_version", 0)), scoring_version_now=int(raw_now.get("scoring_version", 0)),
         gate_errors=gate_errors,
         stored=stored.overall, replay=now.overall, delta=round(now.overall - stored.overall, 6),
         stored_passed=stored.passed, replay_passed=now.passed,
         caps_before=[c["rule"] for c in (raw.get("caps") or {}).get("caps_applied", [])],
-        caps_after=[c.rule for c in raw_now_caps(now)],
+        caps_after=[c["rule"] for c in (raw_now.get("caps") or {}).get("caps_applied", [])],
         defects_before=[d for d, on in (raw.get("defects") or {}).items() if on],
         defects_after=[d for d, on in (raw_now.get("defects") or {}).items() if on],
-        overridden=_overridden(now),
+        overridden=list(raw_now.get("overridden") or []),
     )
-
-
-def raw_now_caps(j: Judgment):
-    from codeverse.judges.rubrics import CapApplied
-
-    return [CapApplied.model_validate(c) for c in (json.loads(j.raw).get("caps") or {}).get("caps_applied", [])]
-
-
-def _overridden(j: Judgment) -> list[str]:
-    # the verdict tail names them: "… | measured absent: floating_part"
-    tail = j.summary.rsplit("[verdict:", 1)[-1]
-    if "measured absent" not in tail:
-        return []
-    seg = tail.split("measured absent:", 1)[1].split("|")[0].split("]")[0]
-    return [s.strip() for s in seg.split(",") if s.strip()]
 
 
 def _pearson(xs: list[float], ys: list[float]) -> float | None:
@@ -246,6 +250,7 @@ def replay_corpus(roots: list[Path], *, rubric_name: str, rubric: Rubric | None 
         rubric=rubric_name, n=len(ok), n_errors=n_err,
         n_moved=sum(1 for d in deltas if abs(d) > TOL),
         n_rubric_drift=sum(1 for r in ok if r.rubric_hash_stored and r.rubric_hash_stored != r.rubric_hash_now),
+        n_scoring_drift=sum(1 for r in ok if r.scoring_version_stored != SCORING_VERSION),
         mean_delta=round(statistics.fmean(deltas), 6) if deltas else 0.0,
         median_delta=round(statistics.median(deltas), 6) if deltas else 0.0,
         max_abs_delta=round(max((abs(d) for d in deltas), default=0.0), 6),
@@ -258,6 +263,7 @@ def replay_corpus(roots: list[Path], *, rubric_name: str, rubric: Rubric | None 
         pearson_errors_before=_pearson(errs, before), pearson_errors_after=_pearson(errs, after),
         cap_counts_before=dict(caps_b), cap_counts_after=dict(caps_a),
         defect_counts_before=dict(def_b), defect_counts_after=dict(def_a),
+        overridden_counts=dict(Counter(d for r in ok for d in r.overridden)),
         rows=rows,
     )
 
@@ -272,7 +278,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--kinds", default="", help="comma list of round kinds to keep (default all, incl. candidate)")
     ap.add_argument("--out", type=Path, default=None, help="directory for replay.json + replay.md")
     ap.add_argument("--identity", action="store_true",
-                    help="assert nothing moved: exit 1 on any |Δ| > 1e-9 outside rubric drift")
+                    help="assert nothing moved: exit 1 on any |Δ| > 1e-9 outside rubric drift; "
+                         "exit 2 when no verdict carries today's scoring version (the guard is dormant)")
+    ap.add_argument("--allow-empty-identity", action="store_true",
+                    help="with --identity: exit 0 even when no verdict was held (the warning still prints)")
     a = ap.parse_args(argv)
     rubric = load_rubric(str(a.rubric_file)) if a.rubric_file else None
     kinds = {k for k in a.kinds.split(",") if k} or None
@@ -283,14 +292,25 @@ def main(argv: list[str] | None = None) -> int:
         (a.out / "replay.md").write_text(rep.to_markdown())
     print(rep.to_markdown().split("\n## moved")[0])
     if a.identity:
-        drift = {r.rubric_hash_stored for r in rep.rows if r.rubric_hash_stored and r.rubric_hash_stored != r.rubric_hash_now}
-        bad = [r for r in rep.rows if not r.error and abs(r.delta) > TOL and r.rubric_hash_stored == r.rubric_hash_now]
+        current = [r for r in rep.rows if not r.error
+                   and r.scoring_version_stored == SCORING_VERSION and r.rubric_hash_stored == r.rubric_hash_now]
+        bad = [r for r in current if abs(r.delta) > TOL]
         if bad:
-            print(f"\nIDENTITY FAILED: {len(bad)} verdict(s) under today's rubric hash do not reproduce:", file=sys.stderr)
+            print(f"\nIDENTITY FAILED: {len(bad)} verdict(s) under scoring version {SCORING_VERSION} "
+                  "and today's rubric hash do not reproduce:", file=sys.stderr)
             for r in bad[:20]:
                 print(f"  {r.run} r{r.round:02d}: stored {r.stored:.4f} replay {r.replay:.4f}", file=sys.stderr)
             return 1
-        print(f"\nidentity OK: {rep.n} verdicts reproduce" + (f" ({len(drift)} older rubric hash(es) skipped)" if drift else ""))
+        if not current:
+            # "identity OK: 0 of 419" once printed green over a corpus written entirely
+            # before the version stamp — a guard that holds nothing has checked nothing.
+            print(f"\nWARNING: identity guard is DORMANT: no verdict on disk carries scoring version "
+                  f"{SCORING_VERSION} under today's rubric hash; nothing was checked "
+                  f"({rep.n} verdicts, {rep.n_scoring_drift} under an older scoring version, "
+                  f"{rep.n_rubric_drift} under another rubric hash)", file=sys.stderr)
+            return 0 if a.allow_empty_identity else 2
+        print(f"\nidentity OK: {len(current)} of {rep.n} verdicts held to it reproduce "
+              f"({rep.n_scoring_drift} under an older scoring version, {rep.n_rubric_drift} under another rubric hash: drift, not failure)")
     return 0
 
 

@@ -34,6 +34,7 @@ from codeverse.conventions import (
 )
 from codeverse.orchestrator import DETAIL_KIND, RefineTask, TaskGroup, compact_instructions
 from codeverse.prompts import render
+from codeverse.spatial.contract import planned_joins
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.depth import (
     PartScope,
@@ -81,9 +82,9 @@ class ObjectPipeline:
         out: list[GateReport] = []
         glb = Path(build.glb_path) if build.glb_path else None
         if glb is not None:
-            out.append(
-                ctx.services.connectivity(glb, ctx.language.value)
-            )  # fix hints in the author's frame
+            out.append(  # fix hints in the author's frame; planned joins measured into the ledger
+                ctx.services.connectivity(glb, ctx.language.value, planned_edges=planned_joins(ctx.plan, measurement))
+            )
         if measurement is not None and ctx.plan is not None:
             out.append(
                 ctx.services.contract(measurement, ctx.plan, BBOX_TOLERANCE_M, ctx.language.value)
@@ -163,6 +164,12 @@ class ObjectPipeline:
         build: BuildResult,
         gates: list[GateReport],
     ) -> str:
+        """Nothing beyond ``gates_section``.  The measured-structure block the judge reads
+        (contacts, planned joins, floor gaps, the weld line) is rendered by
+        ``judges.prompt_builder.gates_section`` from the connectivity report's contact
+        ledger — the report is stored in ``rounds/rNN.json``, so ``3dcv judge <slug>``,
+        calibration and every other reader of the round record get the same block as the
+        in-run judge without this method restating it (2026-08-30)."""
         return ""
 
 
