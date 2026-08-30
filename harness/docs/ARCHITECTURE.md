@@ -112,8 +112,7 @@ codeverse/
                       blender/ cadquery/ threejs/ urdf/ scene_threejs/ glsl_shader/ opengl_python/ are each
                       a single __init__.py (lint → skeleton → runtime, in dependency order) beside their
                       data (wrappers/, starter/ — Path(__file__) assets unchanged; the contract text
-                      is prompts/<lang>/contract.md, read through RuntimeDocs);
-                      file_lint.py (one just-written file → syntax/lint verdict for write_file, COST.md §29)
+                      is prompts/<lang>/contract.md, read through RuntimeDocs)
   spatial/            node.py, render.py, observe.py, tool_common.py (shared tool plumbing),
                       render_scene.py (judge view subset, content-fitted orbit),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
@@ -281,7 +280,12 @@ summary:
   helpers) — pure bpy, Z-up, -Y front, meters; PascalCase object names = part
   names.  Small objects may stay single-file.  Harness wrapper (`run_bpy.py` +
   `_census.py`) puts `src/` on sys.path, maps errors to workspace-relative
-  `src/parts/<x>.py:line`, collects census, exports GLB (Y-up) + STL.
+  `src/parts/<x>.py:line`, collects census, exports GLB (Y-up) + STL.  The census
+  records `n_material_slots` + `material_indices_used` (read off the EVALUATED mesh,
+  so modifier-added indices count) and warns when a mesh carries slots no polygon
+  uses, or sits on an index past the last slot — one part is one mesh object, so
+  per-feature colour is per-polygon `material_index`, and an assignment that
+  silently no-ops ships the whole part in one flat colour (2026-08-30).
 * **cadquery**: `src/model.py` — `import cadquery as cq` (+math) only; module-level
   `result` = `cq.Assembly` or `Workplane`.  A chain ending in a selector exports the
   parent solid with a warning (ExportError when no solid exists); helper-module

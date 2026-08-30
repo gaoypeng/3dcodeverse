@@ -323,9 +323,9 @@ residency (1.1x) and fast-mode multipliers, per-search server-tool fees.
 | role | model | $/call | measured quality | when |
 |---|---|---|---|---|
 | planner | `gemini:gemini-3.7-flash` ★ | $0.013 | no failure attributable to the planner | always — the plan is 0.8% of a run |
-| generator | `gemini-cli:gemini-3.6-flash` ★ | $0.52 | compare_v1 mean 0.835 (best arm) | default for every track with tools |
+| generator | `gemini-cli:gemini-3.7-flash` ★ | $0.73 | 0.827 on compare_v1 | default for every track with tools since 2026-08-28 |
 | generator | `single-shot:gemini:gemini-3.7-flash` | $0.05 | graphics: 5/6 passed, median 0.810 | glsl / opengl — one file, compiler feedback |
-| generator | `gemini-cli:gemini-3.7-flash` | $0.73 | 0.827 — same as api-agent, 2x price, 2x wall | only when you need the CLI itself |
+| generator | `gemini-cli:gemini-3.6-flash` | $0.52 | compare_v1 mean 0.835 (best arm measured) | the cheaper arm, and the one every recorded battery was run on |
 | generator | `codex:gpt-5.6-sol` | $1.93 in-loop / $0.20 one-shot | one-shot 0.786 | strong one-shot baseline, expensive loop |
 | generator | `oneshot:claude-code` | $1.04 | 0.673, 0/2 passed | not for bulk generation |
 | judge | `gemini:gemini-3.1-pro-preview` ★ | $0.060 | σ 0.030, pearson(gate errors, score) **+0.63** | every decision that persists |
@@ -641,7 +641,7 @@ given**, so `3dcv resume` reproduces it.
 
 | | economy | balanced | quality |
 |---|---|---|---|
-| generator | `single-shot:gemini:gemini-3.7-flash` | `gemini-cli:gemini-3.6-flash` | `gemini-cli:gemini-3.6-flash` |
+| generator | `single-shot:gemini:gemini-3.7-flash` | `gemini-cli:gemini-3.7-flash` | `gemini-cli:gemini-3.7-flash` |
 | judge | flash, n=2 | **pro, n=1** | **pro, n=3** |
 | refine rounds | 2 | 4 | 4 |
 | best-of-N | 1 | 1 | 2 |

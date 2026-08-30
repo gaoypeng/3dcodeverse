@@ -49,19 +49,26 @@ written) that were accepted because the code works that way and the tests pin it
 * **D7 Stage cache by input hash.**  `StageRunner` stores `stages/<name>.json` keyed by a
   hash of the inputs, so `3dcv resume` re-runs only what changed; the budget guard is
   restored from `run_state.extra.budget_snapshot` (`BudgetSnapshot`: spent usage, billed
-  USD, call count, per-stage/per-round buckets, cumulative ACTIVE seconds — grace is
-  deliberately NOT persisted).  Prior spend and active minutes still count after a
-  resume, so a raised `--max-minutes` grants only the difference.  The `spent_usage`
-  mirror in `run_state.extra` was dropped 2026-08-29 (write side); the read fallback
-  stays because 531 of 739 `bench/out` run dirs predate `budget_snapshot`.
+  USD, call count, per-STAGE buckets, cumulative ACTIVE seconds — grace is
+  deliberately NOT persisted; the per-ROUND bucket went 2026-08-30, nothing read it and
+  `CallCost.round` in `telemetry/cost.jsonl` is the per-round record).  Prior spend and
+  active minutes still count after a resume, so a raised `--max-minutes` grants only the
+  difference.  The `spent_usage` mirror in `run_state.extra` went 2026-08-29 (write) and
+  2026-08-30 (read): of the 282 run dirs that have it and no snapshot, only 41 can be
+  resumed at all, and `check()` enforces on `billed_usd`, which
+  `_reconcile_billed_from_ledger` restores from the ledger regardless.
   `run_state.extra` carries `budget_snapshot` and `spec_fingerprint` only: the
   candidate count lives in `spec.options.candidates`, the candidate table in
   `rounds/candidates.json` (which `record.extra.candidates` is read from).
 * **D8 Events carry `event`, not `kind` (Δ).**  `EventLog.emit(event, **data)` so payloads
   may include `kind=` (round kind).  `3dcv status` and tests follow.
-* **D9 `materialize_workspace` returns `Materialized` (Δ).**  Body files, ignore files,
-  the cookbook path, the MCP command and warnings; callers that ignore the return are
-  unaffected.  The codex `-c` overrides are NOT on it (`codex_overrides` was deleted
+* **D9 `materialize_workspace` returns `None` (Δ 2026-08-30).**  It used to return a
+  `Materialized` model carrying the body files, the ignore files, the cookbook path, the MCP
+  command and a `warnings` list — and every production caller discarded it
+  (`tracks/common.Services.materialize` is itself typed `-> None`), so the one signal on it, an
+  unresolved cookbook, was written and never read.  That warning is now a `log.warning` on
+  `codeverse.agents.materialize`, where a run log shows it; the model is gone.
+  The codex `-c` overrides are NOT on it (`codex_overrides` was deleted
   2026-08-29): the codex backend builds `codex_mcp_overrides(mcp_command)` per session.
   The cookbook is copied to `ws/.3dcv/cookbook.md` (gemini-cli cannot read outside the
   workspace); the MCP argv defaults to `cli_common.default_mcp_command(ws)`, i.e.
@@ -266,8 +273,67 @@ written) that were accepted because the code works that way and the tests pin it
   `CV3D_SYSPROMPT=v0` arm, `shader_presence` / counterfactual renders, the in-process
   turn-cap backstop, the concurrent-session registry) are gone with their docs.
 
+* **D45 The 2026-08-30 batch: verified before applied.**  Context: a second external review
+  listed six P1s, three P2s and eight deletions; separately a 12-subsystem comparison against
+  `astra3d-brilliana` produced 36 claims about the static_object track.  Every item was
+  reproduced or refuted by an independent auditor BEFORE any edit — of the review, two claims
+  were refuted outright and four downgraded; of the comparison, ten of 36 survived and only one
+  at high severity.  Decision: apply what reproduced, and prefer the fix that deletes.
+  (a) **`material_index` has a warning and a recipe.**  One mesh object per plan part means
+  per-feature colour inside a part is per-polygon `material_index` — a string that appeared
+  NOWHERE in `codeverse/`, the prompts, the skills or the docs, while `_census.py` warned only
+  about a mesh with NO material.  `h2h_microscope_x1b` authored 31 materials and 19 `tag_faces`
+  calls that all silently no-opped (`bmesh.ops.create_cube` returns `{'verts'}`, so
+  `res["faces"]` raises), shipped an 11-slot arm in one off-white, and lost 0.271 to
+  `untextured_flat` (which fired on 4 of 12 h2h runs — all four losses).  The census now records
+  `n_material_slots` + `material_indices_used` off the evaluated mesh and warns on unused slots
+  and on an out-of-range index; the blender cookbook carries the recipe and the trap.
+  Deliberately a build WARNING, not a gate: an agent may legitimately append a slot it fills a
+  round later.
+  (b) **The cost ledger has no process-wide default.**  `bind_run` / `set_default_ledger` /
+  `default_ledger_path` are gone; `bound_run` and `bound_ledger` hold ContextVar tokens.  The old
+  save-and-restore republished a sibling's run the moment the first parallel bench cell exited,
+  so later rows landed in a finished run's file — the interleave 1756866 deleted `_active_ledgers`
+  for, left standing on this half.  Standing rule: **a thread that may bill a model is spawned
+  through `proc.fan_out`, never a bare pool** (`texturing/generate.py` was the last one).
+  (c) **A paid verdict is never re-bought or reversed.**  `PairwiseNote` moved into
+  `contracts/run.py` and onto `RoundRecord`; `reconcile_resume` replays it
+  (`candidates.replay_best_round`).  Reconciliation may re-rank; it may not undo a comparison the
+  run paid for (18 run dirs on disk carried a divergent verdict).
+  (d) **One render-cache authority.**  `spatial/tool_common.py` may name a deterministic out_dir;
+  only `spatial/render.py` decides a PNG is still good.  The deleted `renderset.json` marker keyed
+  on GLB size+mtime alone: it served stale views after a same-size rebuild, ignored a rig edit,
+  and returned paths inside the ORIGINAL workspace for a copied run.
+  (e) **`bench run --no-resume` is gone** — it dropped the recorded rows and then resumed the
+  workspace anyway (`resume = ws.exists()` never read it), carrying the old spec, spend and clock.
+  `--redo-status` is the one fresh rerun and it archives first.  `compare_backends --no-resume` is
+  documented and has three readers, so it stayed — and now archives the cell's `run/` first.
+  (f) **Anthropic/OpenAI derive each SDK call's timeout from the remaining `max_wait_s`**
+  (`min(client timeout, max(20 s, remaining))`) instead of a fixed 600 s socket timeout under a
+  deadline only checked between attempts.
+  (g) **Prompt files have no size limits.**  `tests/prompts/test_files.py` capped a cookbook at
+  950 lines, a contract at 150 and every prompt at >500 chars.  The blender cookbook hit the cap
+  the day a measured failure earned it a new recipe, and the test's answer was to make the recipe
+  worse.  Prompt text is not a resource to ration by line count (owner, 2026-08-30); the
+  structural checks — chaptered, jinja-inert, states its units and frame, carries a runnable
+  example — stay.
+  (h) Deleted: `languages/file_lint.py` (orphaned when `api_tools.py` went 2026-08-28 — a vendor
+  CLI's writes cannot be intercepted), the `Materialized` DTO (its one signal is now a
+  `log.warning`), `AgentJob.images`, `SkillRead.first_seen_turn`, `RenderSet.turntable` (360
+  records carry the key, 0 non-null), `attribute_changes(own_hints=)`, `BudgetGuard.charge`'s
+  role/label/outcome + `by_round` (`CallCost` carries all three per call), the `spent_usage`
+  resume fallback, the root-`cost_ledger.jsonl` leg of `existing_ledger_path` (zero real files
+  exist; 677 symlinks), and `FakeImageModel` → `tests/texturing/conftest.py`.
+  Also fixed: `kind="detail"` files as `Stage.REFINE`, `Stage.ASSEMBLE` maps to the generator
+  role, and pairwise books `Stage.PAIRWISE` instead of hiding in the judge bucket.
+
 ## Rejected / deferred
 
+* A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven
+  compatibility branches it was meant to absorb, only two are schema-shaped — 14 lines — so it
+  would add an abstraction and delete nothing, L4).
+* Deleting `spatial/sections.py` (rejected 2026-08-30: it IS the registered `cross_section` MCP
+  tool, imported at module level by `spatial/tools.py`; removing it takes down the MCP server).
 * Registering `single-shot` as a CodingAgent kind (rejected: it has no tools/session).
 * A free-form `dict` judge schema (rejected: flash skips criteria).
 * Storing URDF meshes Y-up and converting on load (rejected: breaks foreign loaders).

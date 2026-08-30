@@ -124,7 +124,10 @@ with run_ledger(ws.root, run=slug):        # binds the run, points record_call a
     #   The rule is the BACKEND, never "did a row get written while it ran": a CLI session with one
     #   in-process tool call used to be dropped entirely, an in-process session whose turns ran in
     #   another thread used to be counted twice.  A backend may declare `meters_own_calls`.
-from codeverse.cost.context import CallContext, call_context, bind_run, context_from_label, SELF_DESCRIBING
+from codeverse.cost.context import CallContext, call_context, bound_run, context_from_label, SELF_DESCRIBING
+from codeverse.cost.ledger import bound_ledger, process_ledger_path   # (Δ 2026-08-30) both are context
+    #   managers holding a ContextVar token; there is no process-wide default any more — a thread that
+    #   may bill a model is spawned through proc.fan_out (which copies context), never a bare pool.
     # precedence: explicit > a label naming a job of its OWN (SELF_DESCRIBING = plan/judge/pairwise/
     #   texture/caption) > ambient (call_context) > the rest of the label > nothing.  A judge or a
     #   texture pass that bills a model INSIDE an agent session is filed under its own stage, not the
@@ -156,8 +159,8 @@ reconstructed, so all 61 recorded runs keep auditing.
 ## agents/
 ```python
 from codeverse.agents import get_coding_agent           # (agent_id) -> CodingAgent  .run(job) .available() .id .kind .model
-from codeverse.agents.materialize import materialize_workspace, Materialized, codex_mcp_overrides
-materialize_workspace(ws, *, agent_kind, contract_md, cookbook_rel, spatial_tools, mcp_command=None) -> Materialized
+from codeverse.agents.materialize import materialize_workspace, codex_mcp_overrides
+materialize_workspace(ws, *, agent_kind, contract_md, cookbook_rel, spatial_tools, mcp_command=None) -> None
 # mcp_command defaults to cli_common.default_mcp_command(ws) = [sys.executable, -m codeverse.spatial.mcp_server --workspace …]
 # (None/[] = the default — no ValueError); tracks/common.Services.materialize takes no mcp_command
 # writes AGENTS.md + GEMINI.md + CLAUDE.md (same body), ws/.3dcv/cookbook.md (Δ copied in: gemini-cli cannot read
@@ -355,18 +358,21 @@ StopPolicy(policy).evaluate(history, budget_ok=True) -> StopDecision(reason, str
 from codeverse.orchestrator import DETAIL_KIND, KIND_FOR_STRATEGY, detail_blocked   # THE strategy → kind dict
 from codeverse.orchestrator import BudgetGuard, usage_delta
 BudgetGuard(budget, start_time=None, *, soft_fraction=1.0)            # no run= / ledger=
-    .charge(usage, *, stage="other", role=None, label="", round_index=None, outcome="ok", enforce=True)
-    # THE door every dollar goes through: accumulate → bucket by stage/round → enforce the ceilings.
+    .charge(usage, *, stage="other", enforce=True)   # (Δ 2026-08-30: role/label/round_index/outcome gone)
+    # THE door every dollar goes through: accumulate → bucket by stage → enforce the ceilings.
+    # The per-call record (role, label, round, outcome) is the LEDGER row; the guard bucketing them a
+    # second time fed nothing but itself.
     # It writes NO ledger row: cost.instrument.MeteredAgent (one source='session' row per CLI session) and
     # MeteredChatModel (one row per call) are the only writers of telemetry/cost.jsonl.
     # add(...) = charge(enforce=False) — "not enforced" never means "not seen".
-    .by_stage / .by_round[i] / .stage_summary() / .mark()   # what a round burned, live
+    .by_stage / .stage_summary() / .mark()   # what a round burned, live (by_round[i] deleted — no reader;
+    #                                          per-round money is CallCost.round in telemetry/cost.jsonl)
 from codeverse.tracks.candidates import CandidateRecord, rank_candidates, decide_best   # pure decision logic
 from codeverse.tracks.candidates import run_best_of_n, choose_best_round, quick_render   # N parallel baselines in <ws>/_cand/c<k>
 # each candidate IS steps._run_round(kind="candidate") in its sub-workspace: render=quick_render(ctx, round_index, build,
 # measurement, *, pipeline) (4 views + the articulated pose views), geometry_views=False, its own events.jsonl and a
 # one-sample judge → _cand/c<k>/judge/r00.json (a degraded verdict stays score None); crashed candidate retried once;
-# selection by build_ok → quick score → fewer gate errors, pairwise within margin (booked stage=judge label="pairwise");
+# selection by build_ok → quick score → fewer gate errors, pairwise within margin (booked stage=Stage.PAIRWISE);
 # winner copied back, normal r00 pipeline follows; rounds/candidates.json IS record.extra["candidates"] (n, selected,
 # candidates[], pairwise)
 from codeverse.tracks.articulated_object import default_motion_checks, expected_direction   # gate "motion_direction"
@@ -447,7 +453,8 @@ texture_pass(ws, spec, plan, *, model_id, image_model=None, judge=True, judge_mo
 # unwrap (planar/box/cylinder per part, tile_size_m) → artifacts/object_textured.glb → seam gate + before/after judge
 # gate (ship iff Δoverall ≥ −0.01 AND materials criterion improved); record.extra["texturing"], events texture.*
 from codeverse.texturing.plan import material_plan, default_plan, TexturePlan
-from codeverse.texturing.generate import generate_textures, FakeImageModel
+from codeverse.texturing.generate import generate_textures   # (Δ) FakeImageModel / procedural_texture
+    # moved to tests/texturing/conftest.py 2026-08-30 — no production path could construct them
 from codeverse.texturing.plan import scene_texture_pack, texture_pack_prompt   # 6–12 named tiles + manifest.json
 # under public/textures/ for scene prompts (URL /public/textures/<name>.png)
 ```
@@ -497,6 +504,10 @@ unjudged | regression | zero_delta, `run_usd`) — emitted for aborted rounds to
 `judge.skipped` (reason), `generate.turn_cap` (label, max_turns, turns, cost_usd),
 `strategy.switch` (regression → whole-artifact rewrite), `budget.overrun` (a post-loop
 texture pass crossed the ceiling; the loop is already finished, so not `budget.exceeded`).
+`RoundRecord` gained `pairwise: PairwiseNote | None` (Δ 2026-08-30) — the paid tie-break
+verdict, stored so `reconcile_resume` REPLAYS it (`candidates.replay_best_round`) instead
+of re-ranking on score and reversing a comparison the run bought.  `PairwiseNote` moved
+from `codeverse.tracks.candidates` to `codeverse.contracts.run` (it is pure data).
 `RunRecord` (record.json): spec, plan, workspace, status, rounds[RoundRecord],
 best_round, baseline_score, final_score, total_usage, environment,
 prompt_hashes{contract, cookbook, generate, refine}, error, extra{stop_reason,

@@ -213,6 +213,12 @@ round (clock_q4, lighthouse_1: `budget`, 0 rounds, "60.3 / 76.7 min elapsed").  
 tree is archived as `runs/<id>.attempt<N>` and the prompt runs from scratch with the new
 options, the way `ab_plan` has done since the skills wave.
 
+It is also the ONLY way: `bench run --no-resume` was deleted 2026-08-30.  It dropped the
+recorded rows and then resumed the workspace anyway — `resume = ws.exists()` never read the
+flag — so a "fresh" rerun carried the old spec, rounds, spend and clock and appended a second
+results row for the same tree.  `compare_backends --no-resume` kept its flag (it is documented
+and has three readers) and now archives the harness cell's `run/` before re-running it.
+
 ### 7.w One driver per out dir — a second `bench run` re-runs what the first is still running
 
 Measured 2026-08-26 (refs_v1_graphics): a redo driver (`--redo-status budget`) started while the

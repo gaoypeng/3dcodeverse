@@ -100,6 +100,9 @@ the same `FixedEvaluator` (`BlenderRuntime` lint+build → measure → connectiv
 arena runs every harness arm against every one-shot arm per prompt (both orderings).
 Output under `--out`: `matrix.json`, `results.jsonl` (cells, resume source),
 `pairwise.jsonl`, `cells/<prompt>/<arm>/{run,gen,eval}`, `report.md`, `report.html`.
+`--no-resume` archives a harness cell's `run/` as `run.attempt<N>` and regenerates it
+(2026-08-30; before that it dropped the recorded row and then resumed the finished
+workspace anyway, so the "fresh" cell re-reported its old score).
 
 Report per arm: mean/median score, pass rate, build-failure rate, per-tier breakdown,
 cost and wall time per prompt; arena: wins/ties/losses with mean confidence.  Claim a
@@ -478,8 +481,10 @@ settling before a larger n measures the rubric's preference with more precision.
 
 No such comparison existed before today; their scores are their own judges'.  Protocol:
 `bench/h2h_glb.py` (objects) takes 12 confirmed entries of astra3d-brilliana's gallery (prompt
-verbatim, `must_have` empty), our runs on the same prompts (flash, ≤ 3 rounds, on a 503-storm
-day), renders BOTH GLBs with our renderer, gates both, and judges both with one fixed pro judge
+verbatim, `must_have` empty), our runs on the same prompts (generator
+**`api-agent:gemini:gemini-3.7-flash`** — the in-process arm, retired two days later by `66175ec`;
+`candidates=1`, `texture=false`; ≤ 3 rounds, on a 503-storm day), renders BOTH GLBs with our
+renderer, gates both, and judges both with one fixed pro judge
 (`static_object_v1`, n=2) — twice: **visual only** (no gate text in the judge's context) and
 **gated** (the gate findings in the context, what the harness itself would say).  The gallery
 GLBs are merged, un-welded exports whose "floating" findings are export artefacts as often as
@@ -500,6 +505,22 @@ with geometry measured we are ahead on 10 of 12 (final, all twelve prompts judge
 counts, not the third decimal.  Scenes: ahead on 4 of 5 at less than half the minutes and a
 quarter of the dollars; the two landmark prompts (Big Ben, Colosseum) score near zero on both
 sides.  Sheets: `bench/out/h2h_brilliana_v1/pairs/`, `bench/out/h2h_scene_v1/sheets/`.
+
+**Re-read 2026-08-30, from the stored judgments rather than this table.**  Recomputing
+`overall_uncapped` — the rubric-weighted mean of the seven criteria, before any defect penalty or
+cap — gives theirs 0.848 against ours 0.843: **Δ = −0.005, 6 W / 6 L**.  So the +0.105 above is
+produced *entirely* by the binary defect checklist (their mean penalty −0.192, ours −0.082), and the
+checklist is perception, not our gates — `h2h_glb.py:170` judges the visual pass with `gates=[]`.
+Its dominant term is `wrong_orientation`: theirs 4/12, ours 0/12, because `contracts/conventions.py`
+pins a front axis per language and their pipeline pins only up-axis.  Per criterion we lead
+intent_fidelity +0.042 / structure +0.029 / proportions +0.025 and trail assembly_fit −0.069 /
+geometry_detail −0.046 / materials −0.042 / craftsmanship −0.029 — right object, plainer object.
+Both deltas sit inside the 0.202 floor, so **n = 12 separates neither**; what the run does establish
+is that unselected single runs (`candidates=1`, `texture=false`) draw level with twelve entries that
+rank **#2–#26 of the 120 scored entries in their gallery** (all ≥ 0.8085 by their own judge; gallery
+median 0.7747).  The comparison that would answer the question — our configured best
+(`gemini-cli:gemini-3.7-flash`, `--candidates 3 --texture`) against a *median* draw from their
+gallery — has not been run.
 
 ### 8.8 PR #1's articulated planner repair, verified (2026-08-26 evening)
 

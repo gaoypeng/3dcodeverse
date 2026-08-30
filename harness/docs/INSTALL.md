@@ -356,10 +356,12 @@ export GEMINI_API_KEYS="key1,key2,key3"        # e.g. in ~/.bashrc
 3dcodeverse doctor --live                      # one ~$0.00001 "pong" call
 ```
 
-### 8.2 Subscription CLIs (all optional)
+### 8.2 The coding-agent CLIs (`gemini` required, the rest optional)
 
-Only needed if you want `--generator gemini-cli:… | claude-code:… | codex:… | agy:…`.
-The default generator (`gemini-cli:gemini-3.6-flash`) needs none of them.
+The generator is always a vendor CLI: `--generator gemini-cli:… | claude-code:… | codex:… | agy:…`.
+Since 2026-08-28 the default is `gemini-cli:gemini-3.7-flash`, so **`gemini` is the one CLI a default
+run needs**; it authenticates with the same api key as the harness's own calls.  The other three are
+needed only when you name them.
 
 ```bash
 npm i -g @google/gemini-cli        # gemini   (0.53.0 here)
