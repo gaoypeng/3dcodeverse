@@ -415,6 +415,22 @@ written) that were accepted because the code works that way and the tests pin it
   `JUDGE_NOISE` already tables, so the corpus's 0.072 round-to-round spread is generation, not
   the judge.  Rejected on the way: a through-ratio ERROR line (d), and a per-part ground gap
   for every part (a shade is legitimately 400 mm off the floor).
+  (j) **An OPEN planned join stays report-only** — the (e) policy, now measured (census
+  2026-08-30: 217 static_object runs, 2 106 resolved planned rows — 0 unresolved names, was
+  965 — 223 OPEN across 92 runs).  181/223 are a child measurably welded to OTHER parts (mean
+  overall 0.630; the judge had already priced 74 %), 41/41 genuinely detached children already
+  carry the floating ERROR (mean 0.326, their runs already fail), and the class an upgrade
+  exists to catch — touches nothing, unflagged — is EMPTY.  An ERROR's entire marginal bite is
+  46 currently-passing runs (mean 0.643, seven at 0.83–0.96) whose 94 open rows all read as
+  planner noise on the sheets (0/19 eyeballed rows show a defect the gate+judge miss in a
+  passing run: aprons weld into legs, a wheel rim rides its 8 spokes 419 mm from the hub the
+  plan named) — the invented `attach_to` edge becoming law, D45's failure verbatim, plus a
+  PROTECTED refine round each.  Severity may not be smuggled through the kind string either:
+  `rubrics._finding_tokens` matches cap kinds against data/message/target, so `kind=open_join`
+  caps nothing while `kind=no_contact` silently adds the 0.6 cap AND blocks the measured-absent
+  veto.  Re-open only if a future battery's ledger census shows a touches-nothing-unflagged row
+  (free to count), or a paired A/B (~$5.50, 46 runs × 2 arms) shows the judge under-prices the
+  OPEN lines it already reads.
 
 ## Rejected / deferred
 
