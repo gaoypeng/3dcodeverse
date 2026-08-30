@@ -243,9 +243,9 @@ def test_ledger_turns_penetration_warn_prose_into_one_measured_line():
     assert "- ground: lowest point 0.0 mm (BackPlate) — floor contact; parts within 10 mm of the floor: RibStructure 3.0 mm" in text
     assert ("CONNECTIVITY PASSED: all 16 parts are in measured contact (26 contacts, gap <= 2 mm)." in text
             and "Do NOT report any part as floating" in text)
-    # five overlaps reach 5 mm (the veto's line): no injunction against the interpenetration tick,
+    # three overlaps reach 8 mm (the veto's line): no injunction against the interpenetration tick,
     # the measurement is named and the picture decides — the prompt and rubrics._rule_gates_clean agree
-    assert "All 23 overlaps measured; 5 reach 5 mm or more (" in text
+    assert "All 23 overlaps measured; 3 reach 8 mm or more (" in text
     assert "mark interpenetration only if a part VISIBLY passes through another in a render" in text
     assert "do NOT mark the interpenetration defect" not in text
     assert text.index("errors (1)") < text.index("MEASURED STRUCTURE") < text.index("connectivity measured") < text.index("warnings (1)")

@@ -210,18 +210,19 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   never vetoed), and the object rubrics' rules watched `gate: "*"`, so a failing contract gate
   (53 of the 62 blocked cases) switched off a veto connectivity had earned; they now watch
   `connectivity` alone, the only gate that emits floating / penetration ERRORs on this track
-  (540 findings over 356 records).  The veto is depth-aware (`VETO_PENETRATION_DEPTH_M`, 5 mm):
-  a penetration WARN measured that deep is not "absent" — the WARN-blind version switched off
-  163 interpenetration claims, 79 of them on a 5 mm+ overlap.  With the graded cap below the
-  final replay moves 213 of 419 stored verdicts (none down), pass rate 15.0 % → 19.3 %,
-  pearson(gate errors, overall) −0.219 → −0.291, vetoed: interpenetration 93, floating 72.  0b6f52b tells the judge the same thing in its prompt; this holds when the judge
+  (540 findings over 356 records).  The veto is depth-aware (`VETO_PENETRATION_DEPTH_M`, 8 mm —
+  5 mm let the judge's tick on the pipe tee's 5.8 mm designed branch socket stand, −0.32 on that
+  side of the paired re-judge): a penetration WARN measured that deep is not "absent" — the
+  WARN-blind version switched off 163 interpenetration claims.  With the graded cap below the
+  final replay moves 230 of 419 stored verdicts (none down), pass rate 15.0 % → 21.0 %,
+  pearson(gate errors, overall) −0.219 → −0.301, vetoed: interpenetration 130, floating 72.  0b6f52b tells the judge the same thing in its prompt; this holds when the judge
   does not listen.
 * **`missing_must_acceptance` is graded (2026-08-30).**  The flat 0.6 was the decisive cap on
   121 of 424 static_object verdicts (28.6 %): one unverified must item out of ten scored
   exactly like ten out of ten, and 130 of 419 stored scores sat on 0.600.  The cap is now
   `0.6 + 0.4 · verified/total` over the must items (`CapRule.graded`; the ledger line says
   "k of n must items verified").  Pass/fail is unchanged — any unverified must item still
-  fails — only the score keeps its gradient: the 0.600 spike drops 130 → 19 on replay, σ
+  fails — only the score keeps its gradient: the 0.600 spike drops 130 → 20 on replay, σ
   0.206 → 0.224.  Every breakdown now carries `scoring_version` (`rubrics.SCORING_VERSION`,
   2 for this batch); `rejudge_offline --identity` holds only same-version verdicts to 1e-9.
 * **The judge reads the contact ledger, not WARN prose (2026-08-30).**  Audited over 420
@@ -233,10 +234,14 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   joins; 171 have ≥ 1 OPEN one — the assembly_fit ground truth that did not exist), and the
   lowest point above the floor with its number.  p50 307 / p90 484 tokens on the corpus.
   It rides on the v1 `judge_prompt_hash` (per-run text is not hashed), so its effect is NOT
-  in any replay: the measurement is a paired re-judge — 40 rounds, fixed order, arm A the
-  stored text vs arm B the ledger text over the same images (~$5.5), kill criteria: the
-  interpenetration claim rate on gate-clean rounds must fall from 39 %, and on open-join
-  rounds assembly_fit must separate by more than the fixed-order σ below.
+  in any replay: the measurement is a paired re-judge.  **Run 2026-08-30** (42 matched items,
+  the 53-item σ battery as arm A vs the shipped bundle as arm B, fixed order, n=3, $6.12):
+  on old-gate-clean items the interpenetration claim rate moved 21 % → 18 % (n=28 —
+  underpowered against the corpus's 39 % criterion, which needs the 120 view-pruned rounds);
+  Δ(B−A) overall +0.059 mean (corpus rounds +0.141, h2h ours −0.040, h2h theirs +0.026);
+  within-arm σ unchanged (0.030 → 0.032).  Two case reads: the new gate's 12.7 mm ERROR on
+  clock_q4 is a real catch (0.912 → 0.700), and the pipe tee's −0.32 exposed the 5 mm veto
+  line marking a designed 5.8 mm branch socket — which is why the line is 8 mm.
 * **The judge's own re-judge σ is 0.035 (2026-08-30, fixed montage order).**  53 items — the
   29 corpus rounds that still carry view PNGs + the 24 h2h object-sides re-rendered from their
   GLBs — judged three times each with the identical prompt (`VlmJudge(fixed_order=True)`,

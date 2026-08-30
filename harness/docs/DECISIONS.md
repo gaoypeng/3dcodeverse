@@ -358,17 +358,20 @@ written) that were accepted because the code works that way and the tests pin it
   (`bench/rejudge_offline.py`, 419 verdicts, $0):
   (a) **`CapRule.measures`** names the checklist defect a gate rule is the measurement of, and the
   object rubrics' `floating_part` / `penetration_error` watch `connectivity` only.  The veto is
-  depth-aware: a penetration WARN measured at `VETO_PENETRATION_DEPTH_M` (5 mm) or deeper is not
-  "measured absent" — of the 163 claims a WARN-blind veto switched off, 79 sat on a 5 mm+ overlap
-  (median 4.8 mm), and since (d) a stile 17 mm through a seat is a WARN too.  Replayed with (b):
-  213 verdicts move (0 down), mean +0.078, pass 15.0 % → 19.3 %, pearson(gate errors, overall)
-  −0.219 → −0.291, vetoed on replay: interpenetration 93, floating 72.  articulated_v1 keeps
+  depth-aware: a penetration WARN measured at `VETO_PENETRATION_DEPTH_M` (8 mm) or deeper is not
+  "measured absent" — the WARN-blind veto switched off 163 claims, and since (d) a stile 17 mm
+  through a seat is a WARN too.  8 mm, not 5: at 5 the paired re-judge marked the pipe tee's
+  5.8 mm branch socket — the canonical designed weld — as the defect (−0.32 on that side), and
+  the corpus holds only 9 standing claims in the 5–8 mm band against 16 at 8–10 and 43 with an
+  ERROR behind them.  Replayed with (b):
+  230 verdicts move (0 down), mean +0.086, pass 15.0 % → 21.0 %, pearson(gate errors, overall)
+  −0.219 → −0.301, vetoed on replay: interpenetration 130, floating 72.  articulated_v1 keeps
   `gate: "*"` — no single gate owns either measurement there (joint_sweep + connectivity).
   `Rubric.content_hash` hashes what the YAML declares, not the model's defaults, so a schema field
   (`measures`, `graded`) never re-keys recorded verdicts of an unchanged rubric.
   (b) **The acceptance cap is graded**: `cap + (1 − cap) · verified/total` must items.  Pass/fail
   unchanged (`must_missing` still fails).  Without it 98 of the rounds (a) frees are re-pinned to
-  0.600 by the flat cap; with it the 0.600 spike falls 130 → 19.
+  0.600 by the flat cap; with it the 0.600 spike falls 130 → 20.
   (c) **A defect vote tie is absent** (D36 amended); acceptance ties unchanged.  `SCORING_VERSION`
   = 2 is stamped on every breakdown; the replay tool holds identity only to same-version verdicts.
   (d) **The gate measures overlap where it is**: a dense pass on the AABB-overlap region, a

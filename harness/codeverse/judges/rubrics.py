@@ -547,10 +547,13 @@ def measured_absent(rubric: Rubric, defect_id: str, gates: list[GateReport]) -> 
 
 #: A penetration the gate rated WARN but measured at least this deep is NOT "measured
 #: absent": the rubric excuses "weld overlaps of a few mm", and the veto that trusted every
-#: WARN was switching off 163 interpenetration claims of which 79 sat on a 5 mm+ overlap
-#: (median 4.8 mm) — and, since 2026-08-30, a stile 17 mm through a seat is a WARN too.
-#: From here up the judge's reading stands and the picture decides.
-VETO_PENETRATION_DEPTH_M = 0.005
+#: WARN was switching off 163 interpenetration claims — and, since 2026-08-30, a stile 17 mm
+#: through a seat is a WARN too.  From here up the judge's reading stands and the picture
+#: decides.  The line is 8 mm, not 5: the paired re-judge marked the pipe tee's 5.8 mm
+#: branch socket — the canonical DESIGNED weld — as the defect the moment a 5 mm line let
+#: the claim stand (−0.32 on that side), and the corpus holds only 9 standing claims in the
+#: 5–8 mm band (sockets, vise rails) against 16 at 8–10 mm and 43 with an ERROR behind them.
+VETO_PENETRATION_DEPTH_M = 0.008
 
 
 def _rule_gates_clean(rule: CapRule, gates: list[GateReport]) -> bool:
