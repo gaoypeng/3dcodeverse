@@ -80,10 +80,6 @@ class GlResult(BaseModel):
     def judge_frames(self) -> list[GlFrame]:
         return [f for f in self.frames if f.judge]
 
-    @property
-    def has_nan(self) -> bool:
-        return any(f.nan or f.inf for f in self.frames)
-
 
 class GlHostError(RuntimeError):
     """Harness-side failure (runner missing, no GL at all) — not an agent error."""

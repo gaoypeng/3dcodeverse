@@ -41,10 +41,14 @@ def test_registry_has_every_tool() -> None:
         f"missing {sorted(EXPECTED_TOOLS - registered)} — update CORE_TOOLS/SCOPED_TOOLS above")
     static_blender = {t.name for t in list_tools(track="static_object", language="blender")}
     assert "joint_sweep" not in static_blender and "gl_probe" not in static_blender
-    assert "texture_pass" in static_blender
-    assert "shader_probe" in {t.name for t in list_tools(track="scene", language="scene_threejs")}
+    assert {"texture_pass", "texture_preview"} <= static_blender
+    scene = {t.name for t in list_tools(track="scene", language="scene_threejs")}
+    assert "shader_probe" in scene
+    assert not {"texture_pass", "texture_preview"} & {t.name for t in list_tools(track="scene")}
     graphics = {t.name for t in list_tools(track="graphics", language="glsl_shader")}
     assert {"gl_probe", "gl_frames"} <= graphics and "texture_pass" not in graphics and "scene_probe" not in graphics
+    texture_card = get_tool("texture_pass").card()
+    assert "judge" in texture_card and "texture_pass" in texture_card
     for t in list_tools():
         assert t.schema()["type"] == "object" and t.description
 
@@ -226,6 +230,25 @@ def test_render_views_cached(stool_ctx: ToolContext, fake_renderer) -> None:
     assert not obs.ok and "front_right_34" in obs.text
     obs = get_tool("render_views").call(stool_ctx, {"mode": "xray"})
     assert not obs.ok and "shaded" in obs.text
+    # 'depth' was advertised from the first commit and never drawn by any renderer:
+    # a usage error with the mode list, not a RenderError from deep inside the rig
+    obs = get_tool("render_views").call(stool_ctx, {"mode": "depth"})
+    assert not obs.ok and "shaded" in obs.text and "failed" not in obs.text
+
+
+def test_render_modes_match_the_js_rig() -> None:
+    """One mode tuple: contracts.RENDER_MODES ↔ runtime_js/render_glb.mjs MODES ↔ the arg schema."""
+    import re
+
+    from codeverse.config import get_settings
+    from codeverse.contracts.artifacts import RENDER_MODES
+
+    src = (get_settings().runtime_js_dir() / "render_glb.mjs").read_text()
+    m = re.search(r"const MODES = \[([^\]]*)\]", src)
+    assert m and tuple(re.findall(r"'([a-z]+)'", m.group(1))) == RENDER_MODES
+    assert "depth" not in RENDER_MODES
+    for name in ("render_views", "render_sheet"):
+        assert get_tool(name).schema()["properties"]["mode"]["description"] == " | ".join(RENDER_MODES)
 
 
 def test_render_sheet_and_isolate(stool_ctx: ToolContext, fake_renderer) -> None:
@@ -253,7 +276,9 @@ def test_compare_silhouette_tool(stool_ctx: ToolContext, fake_renderer) -> None:
     assert not obs.ok and "out of range" in obs.text
 
 
-def test_scene_tools_degrade_when_unavailable(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_texture_tools_degrade_when_texturing_is_unavailable(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`lazy` guards only the optional siblings (codeverse.languages / codeverse.texturing);
+    spatial-on-spatial imports are ordinary imports since 2026-08-29."""
     import codeverse.spatial.tool_common as tc
     import codeverse.spatial.tools as ts
 
@@ -261,37 +286,36 @@ def test_scene_tools_degrade_when_unavailable(stool_ctx: ToolContext, monkeypatc
         raise tc.ToolUnavailable(f"{module} not importable")
 
     monkeypatch.setattr(ts, "lazy", boom)
-    for name in ("joint_sweep", "shader_probe", "scene_probe", "scene_views"):
-        obs = get_tool(name).call(stool_ctx, {})
-        assert not obs.ok and obs.text.startswith(f"tool {name} unavailable:"), name
+    stool_ctx.workspace.write_json(stool_ctx.workspace.plan_path, _stool_plan_with_missing_backrest())
+    obs = get_tool("texture_pass").call(stool_ctx, {})
+    assert not obs.ok and obs.text.startswith("tool texture_pass unavailable:"), obs.text
 
 
 def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     import codeverse.spatial.tools as ts
-
-    calls = {}
+    from codeverse.spatial.probes import SceneProbeResult
 
     def fake_check_shaders(ws, *, module=None, timeout_s=90.0):
         return GateReport(gate="shaders", passed=False, findings=[GateFinding(gate="shaders", severity=Severity.ERROR, target="src/shaders/water.js", message="ERROR: 0:12: 'vUv' undeclared", fix_hint="declare varying vec2 vUv")])
 
+    failed = GateReport(gate="scene_probe", passed=False, findings=[
+        GateFinding(gate="scene_probe", severity=Severity.ERROR, target="src/scene.js", message="console: boom")])
+
     def fake_probe_scene(ws, **kw):
-        return {"census": {"meshes": 12, "lights": 2}, "fps": 58.0, "errors": []}
+        return SceneProbeResult(gate=failed, census={"meshes": 12, "lights": 2}, ok=True, findings=["[error] src/scene.js: console: boom"])
 
-    def fake_joint_sweep(ws, *, n_random=8, seed=0, render=True, out_dir=None, joint=None, expected_direction=None, joints=None):
-        calls["n_random"], calls["joint"] = n_random, joint
-        from codeverse.spatial.registry import Observation
-        return Observation(ok=True, text="sweep ok", numbers={"poses": n_random})
-
-    def fake_lazy(module, attr):
-        return {"check_shaders": fake_check_shaders, "probe_scene": fake_probe_scene, "joint_sweep_observation": fake_joint_sweep}[attr]
-
-    monkeypatch.setattr(ts, "lazy", fake_lazy)
+    monkeypatch.setattr(ts, "check_shaders", fake_check_shaders)
+    monkeypatch.setattr(ts, "probe_scene", fake_probe_scene)
     obs = get_tool("shader_probe").call(stool_ctx, {})
     assert not obs.ok and "vUv" in obs.text and "declare varying" in obs.text
     obs = get_tool("scene_probe").call(stool_ctx, {})
-    assert obs.ok and "meshes=12" in obs.text and obs.numbers["fps"] == 58.0
-    obs = get_tool("joint_sweep").call(stool_ctx, {"joints": ["hinge"], "n_samples": 5})
-    assert obs.ok and calls == {"n_random": 5, "joint": "hinge"}
+    # ok = the probe TOOL ran; the failed gate is a result, not a tool error (SceneProbeResult)
+    assert obs.ok and "meshes=12" in obs.text and "boom" in obs.text and obs.numbers["census"]["meshes"] == 12
+    monkeypatch.setattr(ts, "probe_scene", lambda ws, **kw: SceneProbeResult(gate=failed, errors=["driver died"], ok=False))
+    obs = get_tool("scene_probe").call(stool_ctx, {})
+    assert not obs.ok and "driver died" in obs.text
+    obs = get_tool("joint_sweep").call(stool_ctx, {})
+    assert not obs.ok and "run `build`" in obs.text          # no robot.urdf in a static workspace
 
 
 # --------------------------------------------------------------------------- build without a GLB (scene / graphics)
@@ -412,11 +436,12 @@ def test_build_card_and_observation_are_unchanged_when_fewer_turns_is_off(stool_
     assert "CONNECTIVITY" not in obs.text and "CONTRACT" not in obs.text and "CHECKS:" not in obs.text
     assert "checks_passed" not in obs.numbers
     card_off = get_tool("build").card()
+    description = get_tool("build").description
     assert "check_connectivity" not in card_off
     monkeypatch.setenv("CV3D_FEWER_TURNS", "1")
     card_on = get_tool("build").card()
     assert "do not call those two tools separately" in card_on and card_on.startswith(card_off.splitlines()[0][:40])
-    assert get_tool("build").description == get_tool("build").description   # the static text never changes
+    assert get_tool("build").description == description                    # the static text never changes
 
 
 def test_a_failed_build_tells_the_agent_WHY_not_to_build_again(tmp_ws):

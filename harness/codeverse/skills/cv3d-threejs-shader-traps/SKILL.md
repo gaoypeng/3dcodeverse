@@ -119,8 +119,8 @@ Verified against this runtime on 2026-08-25 — believing them costs a repair ro
 The gate proves your shader **compiles and is bound**. It says nothing about whether it is
 *visible* or *right*: colours crushed by the ACES plus sRGB output chain, transparent water
 z-fighting the shore, a patched material whose clone lost its `onBeforeCompile`, a shared
-program cache key, an effect placed outside every camera's frustum. There is no agent tool for
-the counterfactual "strip the shader and diff the pixels" probe, so look at the frames:
+program cache key, an effect placed outside every camera's frustum. Nothing in the harness
+renders the scene without your shader to compare against, so look at the frames yourself:
 `scene_views` (or `render_views`) at two different times, and check that the thing you wrote
 changed something.
 

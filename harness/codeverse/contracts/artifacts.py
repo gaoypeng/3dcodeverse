@@ -106,10 +106,16 @@ class Measurement(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
+#: every mode the object rig draws (runtime_js/render_glb.mjs MODES, pinned by
+#: tests/spatial_tools/test_tools.py).  The tool layer advertised "depth" from the
+#: first commit; no renderer ever had it.
+RENDER_MODES = ("shaded", "wire", "normals", "silhouette", "clay")
+
+
 class RenderView(BaseModel):
     name: str
     path: str
-    mode: str = "shaded"  # shaded | wire | normals | silhouette | depth | clay
+    mode: str = "shaded"
     width: int = 0
     height: int = 0
     camera_position: Vec3 | None = None

@@ -56,7 +56,6 @@ __all__ = [
     "COMPLEXITY_VERSION",
     "complexity_of_parts",
     "complexity_of_glb",
-    "complexity_summary_line",
     "band_of",
 ]
 
@@ -388,11 +387,3 @@ def complexity_of_glb(glb: Path | str) -> ComplexityVector:
     return complexity_of_parts(parts, scene=scene)
 
 
-def complexity_summary_line(vec: ComplexityVector) -> str:
-    """One line for prompts, reports and the CLI."""
-    return (
-        f"complexity {vec.index:.2f} ({vec.band}) · {vec.part_count} parts"
-        f" · depth {vec.assembly_depth} · {vec.tri_count} tris · {vec.materials} materials"
-        f" · silhouette {vec.silhouette:.1f} · feature density {vec.feature_density:.0f}"
-        f" · {vec.symmetry_groups} repeat groups · hollowness {vec.hollowness:.2f}"
-    )

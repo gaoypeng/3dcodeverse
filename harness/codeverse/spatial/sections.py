@@ -11,7 +11,6 @@ image — the cheap way to inspect interiors along a whole object.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,7 +21,7 @@ from PIL import Image, ImageDraw
 
 from codeverse.spatial.measure import GlbLoadError, merged_mesh, solid_parts
 from codeverse.spatial.registry import Observation
-from codeverse.spatial.sheet import load_font
+from codeverse.spatial.sheet import contact_sheet, load_font
 
 _AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
 #: which two axes are drawn (horizontal, vertical) for a slicing axis
@@ -201,7 +200,6 @@ def cross_section(
     size: int = 512,
 ) -> Observation:
     """Slice the GLB at ``axis = at`` (fraction of the bbox, or meters if ``absolute``)."""
-    t0 = time.time()
     axis = axis.lower()
     if axis not in _AXIS_INDEX:
         return Observation.error(f"axis must be one of x|y|z, got {axis!r}")
@@ -224,12 +222,12 @@ def cross_section(
     numbers = {"axis": axis, "at_m": round(at_m, 4), "n_loops": data.n_loops,
                "total_area_m2": round(data.total_area_m2, 6), "hollow_ratio": round(data.hollow_ratio, 3),
                "parts_cut": per_part}
-    return Observation(ok=True, text=text, numbers=numbers, images=[str(out)], duration_ms=int((time.time() - t0) * 1000))
+    return Observation(ok=True, text=text, numbers=numbers, images=[str(out)])
 
 
 def slices_sheet(glb: Path | str, axis: str, n: int, out_png: Path | str, *, parts: Sequence[str] | None = None, tile: int = 320) -> Observation:
-    """``n`` evenly spaced sections along ``axis`` tiled into one labelled grid."""
-    t0 = time.time()
+    """``n`` evenly spaced sections along ``axis`` tiled into one labelled grid
+    (``sheet.contact_sheet``; each tile carries its own title, so no sheet labels)."""
     axis = axis.lower()
     if axis not in _AXIS_INDEX:
         return Observation.error(f"axis must be one of x|y|z, got {axis!r}")
@@ -241,22 +239,18 @@ def slices_sheet(glb: Path | str, axis: str, n: int, out_png: Path | str, *, par
     if not sel:
         return Observation.error("slices_sheet: no mesh parts in the GLB")
     out = Path(out_png)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    cols = min(n, 4)
-    rows = int(np.ceil(n / cols))
-    sheet = Image.new("RGB", (cols * tile, rows * tile), (255, 255, 255))
     numbers: dict[str, object] = {"axis": axis, "n": n, "slices": []}
+    tiles: list[tuple[str, Path]] = []
     for i in range(n):
         frac = (i + 0.5) / n
         at_m = _resolve_at(sel, axis, frac, False)
         data = compute_section(sel, axis, at_m)
         tmp = out.with_name(f"{out.stem}_{i}.png")
-        draw_section(data, tmp, size=tile, title=f"{axis}={at_m:.3f} m ({frac:.2f})")
-        sheet.paste(Image.open(tmp), ((i % cols) * tile, (i // cols) * tile))
-        tmp.unlink(missing_ok=True)
+        tiles.append((f"{axis}={at_m:.3f}", draw_section(data, tmp, size=tile, title=f"{axis}={at_m:.3f} m ({frac:.2f})")))
         numbers["slices"].append({"at_m": round(at_m, 4), "n_loops": data.n_loops,  # type: ignore[attr-defined]
                                   "area_m2": round(data.total_area_m2, 6), "hollow_ratio": round(data.hollow_ratio, 3)})
-    sheet.save(out)
+    contact_sheet(tiles, out, cols=min(n, 4), tile=tile, label=False)
+    for _, tmp in tiles:
+        tmp.unlink(missing_ok=True)
     summary = "; ".join(f"{s['at_m']:.3f}m: {s['n_loops']} loops, hollow {s['hollow_ratio']:.0%}" for s in numbers["slices"])  # type: ignore[index]
-    return Observation(ok=True, text=f"{n} sections along {axis}: {summary}", numbers=numbers, images=[str(out)],
-                       duration_ms=int((time.time() - t0) * 1000))
+    return Observation(ok=True, text=f"{n} sections along {axis}: {summary}", numbers=numbers, images=[str(out)])

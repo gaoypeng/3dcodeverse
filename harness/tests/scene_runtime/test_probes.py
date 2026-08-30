@@ -1,11 +1,11 @@
-"""Browser-backed probes: scene probe, shader preflight, shader presence."""
+"""Browser-backed probes: scene probe, shader preflight."""
 
 from __future__ import annotations
 
 import pytest
 
 from codeverse.contracts.artifacts import Severity
-from codeverse.spatial.probes import check_shaders, probe_scene, shader_presence
+from codeverse.spatial.probes import check_shaders, probe_scene
 from tests.scene_runtime.conftest import needs_browser
 
 pytestmark = [pytest.mark.node, needs_browser]
@@ -120,24 +120,8 @@ def test_check_shaders_static_audit_without_compile(starter_ws):
     assert any(f.target == "src/shaders/bad.js:2" for f in rep.errors)
 
 
-def test_shader_presence_on_example_and_when_hidden(starter_ws):
-    obs = shader_presence(starter_ws)
-    assert obs.ok and obs.numbers["custom_materials"] == 2
-    assert obs.numbers["max_diff_frac"] > 0.05 and "PRESENT" in obs.text
-    assert len(obs.images) >= 2
-    # hide the custom-shader meshes → stripping changes nothing
-    p = starter_ws.src / "zones" / "pondside.js"
-    p.write_text(p.read_text().replace("  water.name = 'PondWater';", "  water.name = 'PondWater';\n  water.visible = false;"))
-    e = starter_ws.src / "env.js"
-    e.write_text(e.read_text().replace("  sky.name = 'Sky';", "  sky.name = 'Sky';\n  sky.visible = false;"))
-    obs2 = shader_presence(starter_ws)
-    assert obs2.numbers["max_diff_frac"] == 0.0 and "NOT VISIBLE" in obs2.text
-
-
 def test_probe_scene_hanging_create_scene_times_out_as_agent_finding(starter_ws):
-    """Finding: a createScene that never resolves (loader.load without onError on a
-    missing asset) must time out INSIDE boot with an agent-attributed finding, not
-    hang into the driver watchdog (exit 3 → 'harness failure, not your code')."""
+    """A hanging createScene times out as an agent finding, not a harness crash."""
     (starter_ws.src / "scene.js").write_text(
         "import * as THREE from 'three';\n"
         "export async function createScene({ THREE: T, renderer, loaders }) {\n"
@@ -157,8 +141,7 @@ def test_probe_scene_hanging_create_scene_times_out_as_agent_finding(starter_ws)
 
 
 def test_probe_result_tool_semantics(starter_ws, monkeypatch):
-    """SceneProbeResult.ok/errors = 'did the tool run' (MCP is_error); agent-fixable
-    gate findings live in .findings and never mark the tool call as failed."""
+    """Tool success is distinct from agent-fixable gate success."""
     import codeverse.spatial.probes as probes_mod
     from codeverse.spatial.render_scene import NodeResult, SceneRenderError
 

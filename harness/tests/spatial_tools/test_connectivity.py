@@ -103,9 +103,9 @@ def test_missing_glb_is_error(tmp_path: Path) -> None:
 
 
 def test_pair_distance_sampled_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.spatial.connectivity as c
+    import codeverse.spatial.joints_collide as collide
 
-    monkeypatch.setattr(c, "_fcl_available", lambda: False)
+    monkeypatch.setattr(collide, "_fcl", None)
     a = trimesh.creation.box(extents=(1, 1, 1))
     b = trimesh.creation.box(extents=(1, 1, 1))
     b.apply_translation((1.02, 0, 0))

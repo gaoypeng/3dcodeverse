@@ -18,12 +18,12 @@ from pathlib import Path
 from typing import Any
 
 from codeverse.config import get_settings
-from codeverse.contracts.artifacts import RenderSet, RenderView
+from codeverse.contracts.artifacts import RENDER_MODES, RenderSet, RenderView
 from codeverse.conventions import OBJECT_VIEWS, ViewPreset
+from codeverse.proc import sha256_file
 from codeverse.spatial._render_common import build_sheet, out_directory, view_specs
 from codeverse.spatial.node import NodeError, run_node, runtime_js_dir
 
-MODES = ("shaded", "wire", "normals", "silhouette", "clay")
 BACKGROUNDS = ("studio", "white", "transparent")
 CACHE_VERSION = 4  # bump when the rig changes in a way that invalidates cached PNGs
 
@@ -32,16 +32,8 @@ class RenderError(RuntimeError):
     """Rendering failed (node/puppeteer error, bad GLB, bad arguments)."""
 
 
-def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def _cache_key(glb: Path, params: dict[str, Any]) -> str:
-    blob = json.dumps({"v": CACHE_VERSION, "glb": _sha256_file(glb), **params}, sort_keys=True)
+    blob = json.dumps({"v": CACHE_VERSION, "glb": sha256_file(glb), **params}, sort_keys=True)
     return hashlib.sha256(blob.encode()).hexdigest()[:24]
 
 
@@ -101,8 +93,8 @@ def render_glb(
     out_dir = Path(out_dir).resolve()
     if not glb.is_file():
         raise RenderError(f"GLB not found: {glb}")
-    if mode not in MODES:
-        raise RenderError(f"mode must be one of {MODES}, got {mode!r}")
+    if mode not in RENDER_MODES:
+        raise RenderError(f"mode must be one of {RENDER_MODES}, got {mode!r}")
     if background not in BACKGROUNDS:
         raise RenderError(f"background must be one of {BACKGROUNDS}, got {background!r}")
     view_list = list(views) if views is not None else list(OBJECT_VIEWS)
@@ -211,26 +203,4 @@ def _restore_from_cache(cache_dir: Path, out_dir: Path) -> dict[str, Any] | None
     return record
 
 
-def render_turntable(
-    glb: Path | str,
-    out: Path | str,
-    *,
-    n: int = 24,
-    elevation_deg: float = 18.0,
-    mode: str = "shaded",
-    width: int = 512,
-    height: int = 512,
-    fps: int = 12,
-) -> Path:
-    """Render ``n`` azimuth steps and assemble ``out`` (.mp4 via ffmpeg, or .gif via PIL)."""
-    from codeverse.spatial.turntable import assemble_turntable
-
-    out = Path(out)
-    frames_dir = out.parent / f".{out.stem}_frames"
-    frames_dir.mkdir(parents=True, exist_ok=True)
-    views = [ViewPreset(f"tt{i:03d}", 360.0 * i / n, elevation_deg) for i in range(n)]
-    rs = render_glb(glb, frames_dir, views=views, mode=mode, width=width, height=height, sheet=False)
-    return assemble_turntable([Path(v.path) for v in rs.views], out, fps=fps)
-
-
-__all__ = ["render_glb", "render_turntable", "RenderError", "MODES", "BACKGROUNDS"]
+__all__ = ["render_glb", "RenderError", "BACKGROUNDS"]

@@ -136,11 +136,6 @@ def _fmt_delta(v: np.ndarray) -> str:
     return ", ".join(f"{a}{d * 100:+.1f}cm" for a, d in zip(_AXES, v, strict=True))
 
 
-#: shared formatters (``spatial.measure``): sizes in cm, translation vectors in m
-_fmt_ext = fmt_extent_cm
-_fmt_vec = fmt_vec
-
-
 def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, language: str,
                   check_center: bool = True) -> list[GateFinding]:
     """WARN/ERROR findings for one box comparison (empty when within tolerance).
@@ -159,7 +154,7 @@ def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, language:
     p_ctr = glb_vec_to_plan(plan.center, language)
     bits = []
     if ext_bad.any():
-        bits.append(f"size {_fmt_ext(p_ext + d_ext)} vs planned {_fmt_ext(p_ext)} cm (Δ {_fmt_delta(d_ext)})")
+        bits.append(f"size {fmt_extent_cm(p_ext + d_ext)} vs planned {fmt_extent_cm(p_ext)} cm (Δ {_fmt_delta(d_ext)})")
     if ctr_bad:
         bits.append(f"centre off by ({_fmt_delta(d_ctr)})")
     hint = f"{what}: " + ("; ".join(bits))
@@ -185,7 +180,7 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
                 gate=GATE, severity=Severity.ERROR, target=target,
                 message=f"plan part '{pp.name}' is missing from the GLB",
                 fix_hint=f"create a part named exactly '{pp.name}'" + (f" (×{pp.instances} as {pp.name}_0..{pp.instances - 1})" if pp.instances > 1 else "")
-                + f" — {pp.role}; planned size {_fmt_ext(pp.bbox.extents)} cm",
+                + f" — {pp.role}; planned size {fmt_extent_cm(pp.bbox.extents)} cm",
                 data={"expected_instances": pp.instances},
             ))
             continue
@@ -227,13 +222,13 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
         findings.append(GateFinding(
             gate=GATE, severity=Severity.WARN, target="overall",
             message=f"footprint centre is {m.footprint_offset_m * 100:.1f} cm off the up axis",
-            fix_hint=f"translate everything by {_fmt_vec(glb_vec_to_plan((-m.center[0], 0.0, -m.center[2]), language))} m "
+            fix_hint=f"translate everything by {fmt_vec(glb_vec_to_plan((-m.center[0], 0.0, -m.center[2]), language))} m "
                      f"({frame_label(language)}) to centre the footprint",
             data={"footprint_offset_m": m.footprint_offset_m, "frame": language_frame(language).value},
         ))
     for r in extra:
         findings.append(GateFinding(gate=GATE, severity=Severity.INFO, target=r.name,
-                                    message=f"GLB part '{r.name}' is not in the plan ({_fmt_ext(np.subtract(r.bbox_max, r.bbox_min))} cm)"))
+                                    message=f"GLB part '{r.name}' is not in the plan ({fmt_extent_cm(np.subtract(r.bbox_max, r.bbox_min))} cm)"))
     return findings
 
 

@@ -23,7 +23,7 @@ from typing import Any
 from PIL import Image
 
 from codeverse.spatial.observe import fmt_numbers
-from codeverse.spatial.registry import Observation, ToolContext, ToolDef, list_tools
+from codeverse.spatial.registry import Observation, ToolContext, list_tools
 from codeverse.spatial.tool_common import spec_dict
 from codeverse.workspace import Workspace
 
@@ -73,16 +73,12 @@ def observation_content(obs: Observation) -> list[Any]:
     return blocks
 
 
-def mcp_tools(ctx: ToolContext) -> list[ToolDef]:
-    return list_tools(track=ctx.track, language=ctx.language)
-
-
 def make_server(ctx: ToolContext):
     """Low-level MCP ``Server`` wired to the registry for ``ctx``."""
     from mcp import types
     from mcp.server.lowlevel import Server
 
-    defs = {t.name: t for t in mcp_tools(ctx)}
+    defs = {t.name: t for t in list_tools(track=ctx.track, language=ctx.language)}
 
     async def on_list_tools(_req_ctx: Any, _params: Any) -> types.ListToolsResult:
         tools = [types.Tool(name=t.name, description=f"({t.cost_hint}) {t.describe()}", input_schema=t.schema())
@@ -123,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     ctx = build_context(ws, track=ns.track, language=ns.language, round_index=ns.round_index)
     if ns.list:
-        print(json.dumps([{"name": t.name, "description": t.describe(), "schema": t.schema()} for t in mcp_tools(ctx)], indent=1))
+        print(json.dumps([{"name": t.name, "description": t.describe(), "schema": t.schema()} for t in list_tools(track=ctx.track, language=ctx.language)], indent=1))
         return 0
     asyncio.run(serve_stdio(ctx))
     return 0

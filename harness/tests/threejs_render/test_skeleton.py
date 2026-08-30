@@ -53,7 +53,6 @@ def test_runtime_protocol_surface():
     assert rt.entry_globs == ("src/object.js", "src/parts/*.js")
     doc = rt.contract_doc()
     assert "build" in doc and "three" in doc.lower()
-    assert rt.cookbook_path().name == "cookbook.md"
 
 
 def test_skeleton_rejects_non_static_plan(tmp_path: Path):

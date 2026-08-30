@@ -1,6 +1,7 @@
-"""Shared plumbing for the spatial tools: context lookups, lazy imports of
-sibling packages (render / joints / probes / runtimes) with a typed
-``ToolUnavailable`` failure, render-output caching and plan/spec loading.
+"""Shared plumbing for the spatial tools: context lookups, lazy imports of the
+optional siblings (``codeverse.languages`` runtimes, ``codeverse.texturing``, the
+node renderer) with a typed ``ToolUnavailable`` failure, render-output caching
+and plan/spec loading.
 
 Tools never touch globals: everything flows through :class:`ToolContext`.
 """
@@ -16,7 +17,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from codeverse.contracts.artifacts import RenderSet, Severity
+from codeverse.contracts.artifacts import RENDER_MODES, RenderSet, Severity
 from codeverse.contracts.plan import ArticulatedPlan, GraphicsPlan, Plan, ScenePlan, StaticPlan
 from codeverse.conventions import OBJECT_VIEWS, ViewPreset
 from codeverse.proc import read_json_or_none
@@ -30,7 +31,6 @@ __all__ = [
 ]
 
 VIEW_BY_NAME: dict[str, ViewPreset] = {v.name: v for v in OBJECT_VIEWS}
-RENDER_MODES = ("shaded", "wire", "normals", "silhouette", "depth", "clay")
 
 
 #: ``ToolUnavailable`` now lives in ``registry`` (``ToolDef.call`` catches it for

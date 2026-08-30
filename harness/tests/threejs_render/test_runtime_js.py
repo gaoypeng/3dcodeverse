@@ -31,20 +31,12 @@ def test_export_cli_writes_census_and_error_json(stool_ws: Workspace, tmp_path: 
     with pytest.raises(NodeError) as ei:
         run_node(rt / "export_glb.mjs", ["--ws", str(stool_ws.root), "--entry", "src/nope.js"], three_hook=True, timeout_s=60)
     err = ei.value.result.last_json["error"]
-    assert err["type"] == "MissingEntry"
+    assert err["type"] == "MissingEntryFile"
     assert (stool_ws.artifacts / "export_error.json").is_file()
 
 
-def test_render_glb_driver_protocol_and_shared_plumbing(tmp_path: Path):
-    """render_glb.mjs is a thin entry: shared arg parsing / JSON-last-line
-    protocol (lib/cli.mjs), shared browser + static server (lib/host_env.mjs),
-    shared release dance (lib/host_page.mjs) — and it still reports a failure as
-    exit 1 with `{ok: false, error}` as the LAST stdout line."""
+def test_render_glb_driver_reports_invalid_requests_as_last_json(tmp_path: Path):
     rt = runtime_js_dir()
-    src = (rt / "render_glb.mjs").read_text()
-    assert "from './lib/cli.mjs'" in src and "from './lib/host_env.mjs'" in src
-    assert "releaseBrowser" in src
-    assert "createRequire" not in src and "parseArgs" not in src   # no second copy of either
     with pytest.raises(NodeError) as ei:
         run_node(rt / "render_glb.mjs",
                  ["--glb", str(tmp_path / "missing.glb"), "--out", str(tmp_path / "out"),

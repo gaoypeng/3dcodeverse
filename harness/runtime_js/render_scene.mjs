@@ -24,7 +24,7 @@ const args = parseCli({
   times: { default: '0,1.5' }, width: { default: '1024' }, height: { default: '576' },
   gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' }, 'fps-seconds': { default: '2' },
   'timeout-ms': { default: '240000' }, 'create-timeout-ms': { default: '' }, 'log-depth': { type: 'boolean', default: false },
-  'orbit-fog': { type: 'boolean', default: false }, counterfactual: { type: 'boolean', default: false },
+  'orbit-fog': { type: 'boolean', default: false },
 });
 
 function tag(t) {
@@ -105,12 +105,6 @@ async function main() {
           const file = `${c.name}_${tag(t)}.png`;
           dataUrlToPng(r.dataUrl, outFile(outDir, file));
           metrics.views.push({ name: c.name, kind: c.kind, path: file, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: r.ms });
-          if (args.counterfactual) {
-            const cf = await page.evaluate((spec, tt) => window.__c3v.renderAt(spec, tt, { stripCustom: true }), c, t);
-            const cfFile = `${c.name}_${tag(t)}_nocustom.png`;
-            dataUrlToPng(cf.dataUrl, outFile(outDir, cfFile));
-            metrics.views.push({ name: `${c.name}_nocustom`, kind: 'counterfactual', path: cfFile, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: cf.ms, counterfactual_of: file });
-          }
         } catch (e) { sceneErr(`render failed for '${c.name}' at t=${t}`, e); }
       }
     }

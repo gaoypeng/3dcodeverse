@@ -21,7 +21,6 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -50,7 +49,10 @@ class ToolUnavailable(RuntimeError):
 
     Raised by ``tool_common.lazy`` (and anything built on it) and turned into a
     ``tool <name> unavailable: ...`` Observation by :meth:`ToolDef.call` — tools
-    never have to catch it themselves.
+    never have to catch it themselves.  The boundary is real only for
+    ``codeverse.languages`` (the runtimes) and ``codeverse.texturing``; everything
+    under ``codeverse.spatial`` is imported eagerly (2026-08-29: string paths for
+    intra-package imports hid ordinary imports from go-to-definition).
     """
 
 
@@ -68,14 +70,7 @@ class ToolContext:
     round_index: int = 0
     language: str = ""
     track: str = ""
-    scratch: Path | None = None
     extra: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def scratch_dir(self) -> Path:
-        d = self.scratch or (self.workspace.artifacts / "tool_scratch")
-        d.mkdir(parents=True, exist_ok=True)
-        return d
 
 
 @dataclass(frozen=True)

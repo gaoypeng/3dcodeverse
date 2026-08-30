@@ -83,7 +83,7 @@ def _load(path: Path) -> np.ndarray | None:
 def _pair_rows(entries: Sequence[dict[str, Any]], out_dir: Path) -> list[MotionRow]:
     by_name: dict[str, list[dict[str, Any]]] = {}
     for v in entries:
-        if not isinstance(v, dict) or v.get("kind") == "counterfactual" or "_nocustom" in str(v.get("name", "")):
+        if not isinstance(v, dict):
             continue
         by_name.setdefault(str(v.get("name", "?")), []).append(v)
     rows: list[MotionRow] = []

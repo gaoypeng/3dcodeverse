@@ -64,7 +64,6 @@ def test_registry_and_contract():
     assert isinstance(rt, UrdfBlenderRuntime) and rt.entry_globs == ("src/model.py", "src/robot.urdf")
     doc = rt.contract_doc()
     assert "meshes/<link>.glb" in doc and "pivot" in doc
-    assert rt.cookbook_path().name == "cookbook.md"
 
 
 def test_build_ok(tmp_path, cabinet_plan, fake_blender):
@@ -76,7 +75,7 @@ def test_build_ok(tmp_path, cabinet_plan, fake_blender):
     art = res.census["articulation"]
     assert art["summary"]["max_penetration_m"] == 0.0 and art["movable_joints"] == ["hinge"]
     assert res.census["links"]["door"]["islands"] == 1
-    assert res.stdout_tail == "built\n"
+    assert res.stdout_tail == "built"  # proc.tail joins lines: same shape as blender/cadquery
 
 
 def test_build_lint_error_short_circuits(tmp_path, cabinet_plan, fake_blender):
@@ -168,7 +167,7 @@ def test_build_timeout(tmp_path, cabinet_plan, fake_blender, monkeypatch):
                         lambda *a, **k: ProcResult(returncode=-9, stdout="", stderr="", timed_out=True, duration_ms=0))
     ws = _ws(tmp_path, cabinet_plan)
     res = UrdfBlenderRuntime().build(ws, timeout_s=1)
-    assert not res.ok and res.error_type == "Timeout"
+    assert not res.ok and res.error_type == "BuildTimeout"
 
 
 def test_wrapper_rejects_unsafe_link_names_offline():

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 3dcodeverse harness — idempotent installer / updater.
 #
-#   bash harness/scripts/setup.sh [options]
+#   bash harness/setup.sh [options]
 #
 # Does, in order: version checks (python >= 3.10, node >= 20.6) -> `pip install -e
 # harness[<extras>]` -> `npm ci` in runtime_js *only when the lockfile moved* ->
@@ -17,7 +17,7 @@ MIN_NODE_MAJOR=20    # node 20.6+ (`node --import` module hooks)
 MIN_NODE_MINOR=6
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HARNESS="$(cd "$HERE/.." && pwd)"
+HARNESS="$HERE"
 RUNTIME_JS="$HARNESS/runtime_js"
 
 PY="${PYTHON:-python3}"
@@ -130,7 +130,6 @@ if command -v blender-5.0 >/dev/null 2>&1 || command -v blender >/dev/null 2>&1 
 else
   info "blender  not found (optional: blender / urdf_blender tracks unavailable — docs/INSTALL.md §6)"
 fi
-command -v ffmpeg >/dev/null 2>&1 && info "ffmpeg   found" || info "ffmpeg   not found (optional: turntables fall back to animated GIF)"
 
 # ------------------------------------------------------------------ python pkg
 if [ "$DO_PYTHON" -eq 1 ]; then

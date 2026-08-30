@@ -16,7 +16,7 @@ import os
 import re
 import resource
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -59,7 +59,11 @@ class NodeResult:
     last_json: dict[str, Any] | None
     duration_ms: int
     timed_out: bool = False
-    cmd: list[str] = field(default_factory=list)
+
+    @property
+    def summary(self) -> dict[str, Any]:
+        """The driver's last stdout JSON line, ``{}`` when it printed none."""
+        return self.last_json or {}
 
     @property
     def stdout_tail(self) -> str:
@@ -207,7 +211,6 @@ def run_node(
         last_json=parse_last_json(proc.stdout),
         duration_ms=proc.duration_ms,
         timed_out=proc.timed_out,
-        cmd=cmd,
     )
     if result.timed_out:
         raise NodeError(f"node script {script.name} timed out after {timeout_s:.0f}s\n{result.stderr_tail}", result)

@@ -1,32 +1,22 @@
-"""Scene probes: import/census gate, shader compile preflight, shader presence.
+"""Scene probes: import/census gate and shader compile preflight.
 
 * ``probe_scene(ws)``    → (GateReport 'scene_probe', census)  — the scene build gate
 * ``check_shaders(ws)``  → GateReport 'shader_preflight' (file:line + fix hints)
-* ``shader_presence(ws)``→ Observation: counterfactual render (custom shaders
-  stripped) vs normal; pixel-diff fraction proves the effect is in the frame.
 
-All three drive the node host (``runtime_js/*.mjs``) via ``run_scene_script``.
+Both drive the node host (``runtime_js/*.mjs``) via ``run_scene_script``.
 """
 
 from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.contracts.plan import CameraPlan
 from codeverse.conventions import MAX_TRIS_SCENE
-from codeverse.spatial.registry import Observation
-from codeverse.spatial.render_scene import (
-    SceneRenderError,
-    read_metrics,
-    render_scene,
-    run_scene_script,
-)
+from codeverse.spatial.render_scene import SceneRenderError, run_scene_script
 from codeverse.workspace import Workspace
 
 PROBE_GATE = "scene_probe"
@@ -213,45 +203,3 @@ def shader_report(report: dict[str, Any], *, duration_ms: int = 0) -> GateReport
                            target="scene", **comp))
     passed = bool(rep.get("ok")) and not any(f.severity == Severity.ERROR for f in findings)
     return GateReport(gate=gate, passed=passed, findings=findings, duration_ms=duration_ms)
-
-
-def shader_presence(
-    ws: Workspace,
-    *,
-    out_dir: Path | None = None,
-    camera: CameraPlan | None = None,
-    time_s: float = 0.7,
-    width: int = 512,
-    height: int = 288,
-    threshold: float = 0.01,
-) -> Observation:
-    """Counterfactual probe: render normally and with custom-shader materials
-    stripped; the fraction of changed pixels says whether the effect is visible.
-    ``present`` when diff ≥ ``threshold`` (calibrate with fixtures; 0.0 = invisible)."""
-    import numpy as np
-    from PIL import Image
-
-    out = Path(out_dir) if out_dir else ws.artifacts / "tool_scratch" / "shader_presence"
-    rs = render_scene(ws, out, cameras=[camera] if camera else None, orbit=False, times=(time_s,),
-                      width=width, height=height, sheet=False, fps_seconds=0, counterfactual=True)
-    metrics = read_metrics(out)
-    custom = (metrics.get("census") or {}).get("custom_materials", [])
-    pairs = [(v, nv) for v in rs.views if "_nocustom" not in v.name for nv in rs.views if nv.name == f"{v.name}_nocustom"]
-    if not pairs:
-        return Observation.error("shader_presence: no render pairs produced; is the scene booting? " + "; ".join(rs.console_errors[:3]))
-    results = []
-    images: list[str] = []
-    for v, nv in pairs:
-        a = np.asarray(Image.open(v.path).convert("RGB")).astype(int)
-        b = np.asarray(Image.open(nv.path).convert("RGB")).astype(int)
-        frac = float((np.abs(a - b).max(axis=2) > 12).mean())
-        results.append({"camera": v.name, "diff_frac": round(frac, 4), "present": frac >= threshold})
-        images += [v.path, nv.path]
-    best = max(r["diff_frac"] for r in results)
-    text = (f"custom-shader materials: {len(custom)} ({', '.join(m.get('on', '?') for m in custom[:6])}); "
-            f"pixel change when stripped: " + ", ".join(f"{r['camera']}={r['diff_frac']:.1%}" for r in results)
-            + (". PRESENT: the shader changes the frame." if best >= threshold else
-               ". NOT VISIBLE: stripping the custom shader changes nothing — it is not in any camera's frame (or is hidden/occluded)."))
-    if not custom:
-        text = "no custom shader materials found (ShaderMaterial / onBeforeCompile). " + text
-    return Observation(ok=True, text=text, numbers={"custom_materials": len(custom), "max_diff_frac": best, "per_camera": results, "threshold": threshold}, images=images)

@@ -80,27 +80,6 @@ class MotionCheck(BaseModel):
 
 
 # ------------------------------------------------------------------ sweep
-def _components(links: list[str], edges: set[tuple[str, str]]) -> dict[str, int]:
-    parent = {n: n for n in links}
-
-    def find(x: str) -> str:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    for a, b in edges:
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
-    roots = {}
-    out = {}
-    for n in links:
-        r = find(n)
-        out[n] = roots.setdefault(r, len(roots))
-    return out
-
-
 def sweep_collisions(
     robot: Robot,
     poses: list[dict[str, float]],
@@ -123,7 +102,8 @@ def sweep_collisions(
     islands = {n: len(bodies[n].islands) for n in names}
     # links joined only by fixed joints never move relative to each other: their overlap is
     # structural and is measured once (at rest when the sweep has a rest pose, else first pose)
-    rigid_group = _components(list(robot.links), {(j.parent, j.child) for j in robot.joints.values() if j.type == "fixed"})
+    comps = collide.components(list(robot.links), {(j.parent, j.child) for j in robot.joints.values() if j.type == "fixed"})
+    rigid_group = {n: i for i, comp in enumerate(comps) for n in comp}
     labels = [pose_label(robot, q) for q in poses]
     rigid_pose = labels.index("rest") if "rest" in labels else 0
 

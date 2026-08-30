@@ -20,9 +20,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
+import { finish, parseCli } from './lib/cli.mjs';
 import { installExporterPolyfills } from './lib/node_polyfills.mjs';
 import { objectCensus, findNonFinitePositions, worldBox } from './lib/census.mjs';
 import { bakeInstancedMeshes, expandInstancedMesh } from './lib/instances.mjs';
@@ -36,14 +36,9 @@ const TEXTURE_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emis
 const PLACEMENT_THRESHOLD_M = 0.01;
 
 function cli() {
-  const { values } = parseArgs({
-    options: {
-      ws: { type: 'string' },
-      entry: { type: 'string', default: 'src/object.js' },
-      out: { type: 'string', default: 'artifacts/object.glb' },
-      census: { type: 'string', default: 'artifacts/census.json' },
-      normalise: { type: 'string', default: '0' },
-    },
+  const values = parseCli({
+    ws: {}, entry: { default: 'src/object.js' }, out: { default: 'artifacts/object.glb' },
+    census: { default: 'artifacts/census.json' }, normalise: { default: '0' },
   });
   if (!values.ws) throw new Error('--ws <workspace dir> is required');
   const ws = path.resolve(values.ws);
@@ -55,10 +50,6 @@ function cli() {
     census: abs(values.census),
     normalise: values.normalise === '1',
   };
-}
-
-function emit(obj) {
-  process.stdout.write(JSON.stringify(obj) + '\n');
 }
 
 /** Capture console.warn/error from three (e.g. unsupported materials) as warnings. */
@@ -78,7 +69,7 @@ function captureWarnings(sink) {
 async function loadBuild(entry) {
   if (!fs.existsSync(entry)) {
     const e = new Error(`entry module not found: ${entry}`);
-    e.name = 'MissingEntry';
+    e.name = 'MissingEntryFile';  // same spelling as every python runtime's build.json
     throw e;
   }
   const mod = await import(pathToFileURL(entry).href);
@@ -240,7 +231,7 @@ async function main() {
   fs.mkdirSync(path.dirname(args.census), { recursive: true });
   fs.writeFileSync(args.census, JSON.stringify(census, null, 2));
 
-  emit({ ok: true, glb: args.out, census: args.census, duration_ms: Date.now() - t0,
+  finish({ ok: true, glb: args.out, census: args.census, duration_ms: Date.now() - t0,
     tri_count: census.tri_count, parts: census.parts.length, warnings });
 }
 
@@ -265,6 +256,5 @@ main().catch((err) => {
   } catch (_e) {
     /* reporting must never mask the original failure */
   }
-  emit(record);
-  process.exit(1);
+  finish(record, 1);
 });

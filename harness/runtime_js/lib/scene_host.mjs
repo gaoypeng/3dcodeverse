@@ -19,7 +19,7 @@ import { placementTable } from './host_placement.mjs';
 import { frameStats, nearGeometry } from './host_metrics.mjs';
 import { frameCoverage } from './host_coverage.mjs';
 import { installShaderErrorHook } from './host_shader_errors.mjs';
-import { attributeErrors, captured, captureMaterialSources, materialAudit, stripCustomShaders } from './host_compile.mjs';
+import { attributeErrors, captured, captureMaterialSources, materialAudit } from './host_compile.mjs';
 import { makeRenderer, rendererString } from './browser/renderer.js';
 
 const FIXED_DT = 1 / 30;
@@ -323,7 +323,7 @@ function renderOnce(cam) {
 }
 
 /** Render camera spec at time t; returns {dataUrl, ms}. */
-function renderAt(spec, t, opts = {}) {
+function renderAt(spec, t) {
   if (!state.booted) throw new Error('host not booted');
   advanceTo(t);
   state.scene.updateMatrixWorld(true);
@@ -331,12 +331,10 @@ function renderAt(spec, t, opts = {}) {
   const t0 = performance.now();
   const savedFog = state.scene.fog;
   if (spec.noFog) state.scene.fog = null;   // overview rig: structure over atmosphere
-  const undo = opts.stripCustom ? stripCustomShaders(state.scene, THREE) : null;
   try {
     renderOnce(cam);
   } finally {
     state.scene.fog = savedFog;
-    if (undo) undo();
   }
   const ms = Math.round(performance.now() - t0);
   return { dataUrl: state.canvas.toDataURL('image/png'), ms, sim_time: state.simTime };

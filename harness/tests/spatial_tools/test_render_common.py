@@ -42,16 +42,6 @@ def test_view_specs_is_the_one_camera_payload() -> None:
     assert json.loads(_views_json(SCENE_VIEWS)) == rc.view_specs(SCENE_VIEWS)
 
 
-def test_read_json_never_raises(tmp_path: Path) -> None:
-    assert rc.read_json(tmp_path / "nope.json") == {}
-    bad = tmp_path / "bad.json"
-    bad.write_text("{not json")
-    assert rc.read_json(bad) == {}
-    good = tmp_path / "g.json"
-    good.write_text('{"a": 1}')
-    assert rc.read_json(good) == {"a": 1}
-
-
 def test_build_sheet_uses_the_settings_grid_and_guards_empty(tmp_path: Path) -> None:
     assert rc.build_sheet([], tmp_path / "none.png") is None
     for i in range(2):
@@ -97,19 +87,6 @@ def test_gl_contact_sheet_and_gif_go_through_the_shared_writers(tmp_path: Path) 
     assert write_gif(frames[:1], tmp_path / "one.gif") is None      # < 2 frames = no preview
 
 
-def test_turntable_gif_uses_the_same_writer(tmp_path: Path) -> None:
-    from codeverse.spatial.turntable import assemble_turntable
-
-    paths = []
-    for i in range(4):
-        p = tmp_path / f"tt{i}.png"
-        Image.new("RGB", (64, 64), (10 * i, 0, 0)).save(p)
-        paths.append(p)
-    out = assemble_turntable(paths, tmp_path / "tt.gif", fps=8)
-    with Image.open(out) as im:
-        assert im.n_frames == 4 and im.width == 64
-
-
 # --------------------------------------------------------------------------- parts loader
 def test_solid_parts_is_cached_parts_without_the_empty_ones(stool_glb: Path) -> None:
     from codeverse.spatial.measure import cached_parts, solid_parts
@@ -121,11 +98,10 @@ def test_solid_parts_is_cached_parts_without_the_empty_ones(stool_glb: Path) -> 
 
 def test_shared_number_formatters() -> None:
     from codeverse.spatial.connectivity import _fmt_vec as conn_vec
-    from codeverse.spatial.contract import _fmt_ext, _fmt_vec
     from codeverse.spatial.measure import fmt_extent_cm, fmt_vec
 
-    assert _fmt_ext is fmt_extent_cm and fmt_extent_cm([0.34, 0.47]) == "34.0×47.0"
-    assert _fmt_vec([-0.00001, 0.5, 0]) == "(+0.000, +0.500, +0.000)"     # never '-0.000'
+    assert fmt_extent_cm([0.34, 0.47]) == "34.0×47.0"
+    assert fmt_vec([-0.00001, 0.5, 0]) == "(+0.000, +0.500, +0.000)"     # never '-0.000'
     assert conn_vec((-0.00001, 0.5, 0.0)) == "(+0.0000, +0.5000, +0.0000)"  # 4 decimals, same shape
     assert fmt_vec([1.23456], digits=2) == "(+1.23)"
 
@@ -153,12 +129,9 @@ def test_tool_unavailable_is_reported_by_the_registry(stool_ctx: ToolContext, mo
 
     monkeypatch.setattr(tc, "lazy", boom)
     monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
-    monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
-    monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
-    monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
     ws = stool_ctx.workspace
     (ws.artifacts / "object_textured.glb").write_bytes((ws.artifacts / "object.glb").read_bytes())
-    for name in ("build", "render_views", "scene_probe", "texture_preview"):
+    for name in ("build", "render_views", "texture_preview"):
         obs = get_tool(name).call(stool_ctx, {})
         assert not obs.ok and obs.text.startswith(f"tool {name} unavailable:"), (name, obs.text)
     # a graphics workspace: the gl tools degrade the same way

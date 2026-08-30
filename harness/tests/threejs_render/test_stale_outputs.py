@@ -49,6 +49,6 @@ def test_node_failure_with_result_writes_failed_build_json(tmp_path, monkeypatch
 
     monkeypatch.setattr(rt_mod, "run_node", timeout)
     res = ThreeJsRuntime().build(ws)
-    assert not res.ok and res.error_type == "Timeout"
+    assert not res.ok and res.error_type == "BuildTimeout"
     assert not (ws.artifacts / "object.glb").exists()
     assert json.loads((ws.artifacts / "build.json").read_text())["ok"] is False

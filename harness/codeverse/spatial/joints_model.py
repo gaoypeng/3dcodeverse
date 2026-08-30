@@ -139,11 +139,6 @@ class Joint:
             T[:3, 3] = self.axis * q
         return T
 
-    def clamp(self, q: float) -> float:
-        if self.type in ("revolute", "prismatic") and self.lower is not None and self.upper is not None:
-            return min(max(q, self.lower), self.upper)
-        return q
-
 
 @dataclass
 class Link:
@@ -152,7 +147,6 @@ class Link:
     submeshes: list[trimesh.Trimesh] = field(default_factory=list)  # per-material pieces, LINK frame — used for export
     visual_origin: np.ndarray = field(default_factory=lambda: np.eye(4))
     mesh_file: str | None = None
-    has_collision: bool = False
 
     @property
     def tri_count(self) -> int:
@@ -189,18 +183,6 @@ class Robot:
             out.append(cur)
             stack.extend(j.child for j in reversed(self.child_joints(cur)))
         return out
-
-    def chain(self, link: str) -> list[Joint]:
-        """Joints from the root down to ``link`` (empty for the root)."""
-        chain: list[Joint] = []
-        cur = link
-        while cur != self.root:
-            j = self.parent_joint(cur)
-            if j is None:
-                raise UrdfError(f"link {link!r} is not connected to root {self.root!r}")
-            chain.append(j)
-            cur = j.parent
-        return list(reversed(chain))
 
     def meshed_links(self) -> list[str]:
         return [n for n, link in self.links.items() if link.mesh is not None]
@@ -242,7 +224,7 @@ def _load_mesh_file(filename: str, urdf_dir: Path, meshes_dir: Path | None, scal
 
 def _link_from_xml(el: ET.Element, urdf_dir: Path, meshes_dir: Path | None, *, load_meshes: bool) -> Link:
     name = el.get("name", "")
-    link = Link(name=name, has_collision=el.find("collision") is not None)
+    link = Link(name=name)
     parts: list[trimesh.Trimesh] = []
     first_origin: np.ndarray | None = None
     for vis in el.findall("visual"):
@@ -356,7 +338,7 @@ def load_urdf(urdf_path: Path | str, meshes_dir: Path | str | None = None, *, lo
 
 
 # ------------------------------------------------------------------ FK
-def fk(robot: Robot, q: dict[str, float] | None = None, *, clamp: bool = False) -> dict[str, np.ndarray]:
+def fk(robot: Robot, q: dict[str, float] | None = None) -> dict[str, np.ndarray]:
     """World transform of every link frame for joint values ``q`` (missing → 0)."""
     q = q or {}
     unknown = set(q) - set(robot.joints)
@@ -368,10 +350,7 @@ def fk(robot: Robot, q: dict[str, float] | None = None, *, clamp: bool = False) 
             continue
         j = robot.parent_joint(name)
         assert j is not None
-        val = float(q.get(j.name, 0.0))
-        if clamp:
-            val = j.clamp(val)
-        out[name] = out[j.parent] @ j.origin @ j.motion(val)
+        out[name] = out[j.parent] @ j.origin @ j.motion(float(q.get(j.name, 0.0)))
     return out
 
 
@@ -385,16 +364,4 @@ def link_world_meshes(robot: Robot, q: dict[str, float] | None = None) -> dict[s
         m = link.mesh.copy()
         m.apply_transform(T[name])
         out[name] = m
-    return out
-
-
-def world_bboxes(robot: Robot, q: dict[str, float] | None = None) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """Per-link world AABB (min, max) at pose ``q``."""
-    T = fk(robot, q)
-    out = {}
-    for name, link in robot.links.items():
-        if link.mesh is None:
-            continue
-        pts = trimesh.transform_points(link.mesh.vertices, T[name])
-        out[name] = (pts.min(axis=0), pts.max(axis=0))
     return out

@@ -1,4 +1,4 @@
-"""render_glb / render_turntable (node + headless Chrome) and offline guards."""
+"""render_glb (node + headless Chrome) and offline guards."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from PIL import Image
 
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
 from codeverse.spatial import render as render_mod
-from codeverse.spatial.render import RenderError, render_glb, render_turntable
+from codeverse.spatial.render import RenderError, render_glb
 
 
 def test_render_glb_offline_validation(tmp_path: Path):
@@ -77,11 +77,3 @@ def test_render_views_modes_isolate_and_cache(stool_glb: Path, tmp_path: Path):
 
     ex = render_glb(stool_glb, tmp_path / "explode", views=[ViewPreset("front", 0, 8)], explode=0.5, mode="clay", width=128, height=128, sheet=False)
     assert Path(ex.views[0].path).is_file()
-
-
-@pytest.mark.node
-def test_render_turntable_gif(stool_glb: Path, tmp_path: Path):
-    out = render_turntable(stool_glb, tmp_path / "tt.gif", n=6, width=96, height=96)
-    assert out.suffix == ".gif" and out.is_file()
-    with Image.open(out) as im:
-        assert getattr(im, "n_frames", 1) == 6

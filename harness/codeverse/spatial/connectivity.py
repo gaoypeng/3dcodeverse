@@ -38,6 +38,7 @@ import trimesh
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.conventions import CONTACT_GAP_M, Frame
+from codeverse.spatial import joints_collide as collide
 from codeverse.spatial.contract import frame_label, glb_vec_to_plan, language_frame
 from codeverse.spatial.joints_collide import fcl_collision_object, inside_island, oriented_islands
 from codeverse.spatial.measure import GlbLoadError, fmt_vec, solid_parts
@@ -90,15 +91,6 @@ def _aabb_gap(a: trimesh.Trimesh, b: trimesh.Trimesh) -> float:
     return float(np.linalg.norm(np.maximum(lo, 0.0)))
 
 
-def _fcl_available() -> bool:
-    try:
-        import fcl  # noqa: F401
-
-        return True
-    except Exception:
-        return False
-
-
 def pair_distance(
     name_a: str,
     a: trimesh.Trimesh,
@@ -114,15 +106,13 @@ def pair_distance(
     :func:`codeverse.spatial.joints_collide.fcl_collision_object`) so a caller
     testing many pairs builds each part's BVH once instead of once per pair.
     """
-    if _fcl_available():
+    if collide._fcl is not None:
         try:
-            import fcl
-
             oa = obj_a if obj_a is not None else fcl_collision_object(a)
             ob = obj_b if obj_b is not None else fcl_collision_object(b)
-            req = fcl.DistanceRequest(enable_nearest_points=True)
-            res = fcl.DistanceResult()
-            d = fcl.distance(oa, ob, req, res)
+            req = collide._fcl.DistanceRequest(enable_nearest_points=True)
+            res = collide._fcl.DistanceResult()
+            d = collide._fcl.distance(oa, ob, req, res)
             pa, pb = res.nearest_points
             return PairDistance(name_a, name_b, float(max(d, 0.0)), tuple(map(float, pa)), tuple(map(float, pb)))
         except Exception:
@@ -184,23 +174,6 @@ def penetration_depth(a: trimesh.Trimesh, b: trimesh.Trimesh, n: int = N_SAMPLES
         worst_depth = max(worst_depth, depth)
         worst_frac = max(worst_frac, frac)
     return worst_depth, worst_frac
-
-
-def _components(names: list[str], edges: set[tuple[str, str]]) -> list[set[str]]:
-    parent = {n: n for n in names}
-
-    def find(x: str) -> str:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    for a, b in edges:
-        parent[find(a)] = find(b)
-    comps: dict[str, set[str]] = {}
-    for n in names:
-        comps.setdefault(find(n), set()).add(n)
-    return list(comps.values())
 
 
 def _fmt_vec(v: tuple[float, float, float]) -> str:
@@ -282,7 +255,7 @@ def check_connectivity(
                     data={"other": b, "depth_m": depth, "fraction_inside": frac},
                 ))
     # ---- components → floating parts
-    comps = _components(big, edges)
+    comps = collide.components(big, edges)
     # TOUCHING the ground, not merely at-or-below it: the old one-sided `<= gap_m`
     # counted a part buried 1 m under the floor as grounded, so a model authored around
     # the origin instead of on it (a routine agent mistake, which the contract gate

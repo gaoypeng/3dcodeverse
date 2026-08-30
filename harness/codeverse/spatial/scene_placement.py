@@ -260,11 +260,12 @@ def placement_census(ws: Workspace, *, force_probe: bool = False, timeout_s: flo
     return census
 
 
-def _setting_text(ws: Workspace) -> str:
-    plan = read_json_or_none(ws.plan_path)
-    if not isinstance(plan, dict):
-        return ""
-    return " ".join(str(plan.get(k) or "") for k in ("setting", "environment", "title"))
+def setting_text(plan: Any) -> str:
+    """The plan text the indoor/outdoor rule reads (``setting`` / ``environment`` /
+    ``title``), from a plan dict or a ScenePlan; ``""`` for anything else."""
+    if isinstance(plan, dict):
+        return " ".join(str(plan.get(k) or "") for k in ("setting", "environment", "title"))
+    return " ".join(str(getattr(plan, k, "") or "") for k in ("setting", "environment", "title"))
 
 
 def check_placement(ws: Workspace, *, indoor: bool | None = None, force_probe: bool = False, timeout_s: float = 60.0) -> GateReport:
@@ -272,7 +273,7 @@ def check_placement(ws: Workspace, *, indoor: bool | None = None, force_probe: b
     t0 = time.time()
     census = placement_census(ws, force_probe=force_probe, timeout_s=timeout_s)
     if indoor is None:
-        indoor = infer_indoor(_setting_text(ws))
+        indoor = infer_indoor(setting_text(read_json_or_none(ws.plan_path)))
     return placement_findings(census.get("placement") or {}, indoor=indoor, duration_ms=int((time.time() - t0) * 1000))
 
 
@@ -284,8 +285,7 @@ def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None) -> G
         table = (census or {}).get("placement")
         if not isinstance(table, dict):
             return None
-        text = " ".join(str(getattr(plan, k, "") or "") for k in ("setting", "environment", "title"))
-        return placement_findings(table, indoor=infer_indoor(text))
+        return placement_findings(table, indoor=infer_indoor(setting_text(plan)))
     except Exception as e:  # noqa: BLE001 — advisory instrumentation must not fail the round
         log.warning("scene placement gate failed: %s", e)
         return GateReport(gate=GATE, passed=True, findings=[

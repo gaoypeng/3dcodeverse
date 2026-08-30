@@ -10,10 +10,11 @@ from codeverse.contracts.common import Language
 from codeverse.languages import get_runtime
 from codeverse.languages.base import LanguageRuntime
 from codeverse.languages.scene_threejs import SceneThreeJsRuntime
+from codeverse.prompts import PROMPTS_DIR
 from tests.scene_runtime.conftest import needs_browser
 
 
-def test_runtime_registered_and_conforms():
+def test_runtime_registered_conforms_and_writes_skeleton(ws):
     rt = get_runtime(Language.SCENE_THREEJS)
     assert isinstance(rt, SceneThreeJsRuntime)
     assert isinstance(rt, LanguageRuntime)
@@ -21,16 +22,7 @@ def test_runtime_registered_and_conforms():
     assert "src/scene.js" in rt.entry_globs and "src/zones/*.js" in rt.entry_globs
     doc = rt.contract_doc()
     assert "createScene" in doc and "update(t, dt)" in doc
-    # the GLSL chunk rules are the cookbook's job, not the contract's — this used to
-    # assert them against languages/scene_threejs/CONTRACT.md, a file contract_doc()
-    # never reached (deleted 2026-08-28); prompts/scene_threejs/glsl_cookbook.md states
-    # the same rule and IS delivered
-    assert "`#include <...>` alone on its line" in rt.cookbook_path().with_name("glsl_cookbook.md").read_text()
-    assert rt.cookbook_path().name == "cookbook.md"
-
-
-def test_skeleton_writes_example(ws):
-    rt = SceneThreeJsRuntime()
+    assert "`#include <...>` alone on its line" in (PROMPTS_DIR / rt.prompt_dir / "glsl_cookbook.md").read_text()
     paths = rt.skeleton(ws, None)
     assert (ws.src / "scene.js") in paths
 
@@ -69,9 +61,7 @@ def test_build_fails_on_import_error(starter_ws):
 
 
 def test_build_interprets_combined_summary_offline(ws, monkeypatch):
-    """The single-boot build (probe_scene.mjs --compile) still yields the SAME two
-    GateReports: scene_probe from the probe summary, shader_preflight from the
-    embedded shader_report; a non-booting scene keeps the failed-empty shader gate."""
+    """One probe boot yields both gate reports, including the no-boot shape."""
     import codeverse.languages.scene_threejs as rt_mod
     from codeverse.spatial.render_scene import NodeResult
 
@@ -119,9 +109,7 @@ def test_build_interprets_combined_summary_offline(ws, monkeypatch):
 
 
 def test_probe_crash_leaves_no_stale_probe_outputs(ws, monkeypatch):
-    """A driver crash (SceneRenderError) must not leave the previous round's census
-    or the root driver outputs (scene_probe.json / shader_preflight.json) looking
-    current; build.json on disk says ok:false, never the previous round's ok:true."""
+    """A probe crash removes prior outputs and publishes a failed build."""
     import codeverse.spatial.render_scene as rs_mod
     from codeverse.spatial.render_scene import SceneRenderError
 

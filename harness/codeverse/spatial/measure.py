@@ -383,9 +383,6 @@ def fmt_vec(v: Any, digits: int = 3) -> str:
     return "(" + ", ".join(f"{round(float(x), digits) + 0.0:+.{digits}f}" for x in v) + ")"
 
 
-_fmt_ext = fmt_extent_cm   # legacy private alias
-
-
 def measure_summary_table(m: Measurement, max_rows: int = 30) -> str:
     """Compact markdown table for prompts (judge/agent): totals + per-part rows.
 
@@ -393,7 +390,7 @@ def measure_summary_table(m: Measurement, max_rows: int = 30) -> str:
     capped at ``max_rows`` (largest parts first, then an "… n more" line).
     """
     lines = [
-        f"overall: {_fmt_ext(m.extents)} cm (W×H×D, Y-up) · centre ({m.center[0]:.3f}, {m.center[1]:.3f}, {m.center[2]:.3f}) m"
+        f"overall: {fmt_extent_cm(m.extents)} cm (W×H×D, Y-up) · centre ({m.center[0]:.3f}, {m.center[1]:.3f}, {m.center[2]:.3f}) m"
         f" · {m.tri_count} tris · {len(m.parts)} parts · {m.n_islands} islands"
         f" · ground gap {m.ground_gap_m * 1000:.1f} mm · footprint offset {m.footprint_offset_m * 1000:.1f} mm",
         "",
@@ -408,11 +405,11 @@ def measure_summary_table(m: Measurement, max_rows: int = 30) -> str:
         maxs = np.max([p.bbox_max for p in ps], axis=0)
         ext = maxs - mins
         if len(ps) == 1:
-            label, size_txt = key, _fmt_ext(ext)
+            label, size_txt = key, fmt_extent_cm(ext)
         else:
             label = f"{key} ×{len(ps)} ({members[0]}..{members[-1].rsplit('_', 1)[-1]})"
             each = np.max([np.subtract(p.bbox_max, p.bbox_min) for p in ps], axis=0)
-            size_txt = f"{_fmt_ext(each)} each, span {_fmt_ext(ext)}"
+            size_txt = f"{fmt_extent_cm(each)} each, span {fmt_extent_cm(ext)}"
         tris = sum(p.tri_count for p in ps)
         islands = sum(p.islands for p in ps)
         wt = "yes" if all(p.watertight for p in ps) else ("no" if not any(p.watertight for p in ps) else "some")

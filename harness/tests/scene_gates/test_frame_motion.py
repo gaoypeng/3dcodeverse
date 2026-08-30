@@ -88,11 +88,6 @@ def test_unmeasurable_views_are_skipped_not_called_static(tmp_path: Path) -> Non
     assert motion_from_dir(tmp_path / "nowhere") == []
 
 
-def test_counterfactual_views_never_count(tmp_path: Path) -> None:
-    m = _metrics(tmp_path, ("Establishing_nocustom", "counterfactual", int(0.9 * W * H), 60))
-    assert motion_rows(m, tmp_path) == []
-
-
 def test_frame_gate_reports_motion_as_info_and_freeze_as_error(tmp_path: Path) -> None:
     moving = _metrics(tmp_path, ("Establishing", "authored", int(0.05 * W * H), 40))
     moving["motion"] = [r.as_dict() for r in motion_rows(moving, tmp_path)]
