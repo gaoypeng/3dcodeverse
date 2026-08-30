@@ -86,6 +86,17 @@ def test_studio_render_is_reproducible_and_stamps_the_rig_version(stool_glb: Pat
                    sheet=False, use_cache=False)
     meta = json.loads((tmp_path / "a" / "views.json").read_text())
     assert meta["rig_version"] == 2
+    # The v1 flat fill put 79% of a frame in one luminance bucket.  Reuse this
+    # real render to pin the v2 sweep: its corners stay darker than the centre.
+    with Image.open(a.views[0].path) as im:
+        pixels = np.asarray(im.convert("L"), dtype=np.float32)
+    corner = float(np.mean([
+        pixels[:24, :24].mean(), pixels[:24, -24:].mean(),
+        pixels[-24:, :24].mean(), pixels[-24:, -24:].mean(),
+    ]))
+    top_centre = float(pixels[:24, 116:140].mean())
+    assert top_centre - corner > 4.0, (
+        f"backdrop looks flat: centre {top_centre:.1f} vs corners {corner:.1f}")
     if a.renderer != b.renderer:
         pytest.skip(f"different GL backends between runs ({a.renderer} vs {b.renderer})")
     for va, vb in zip(a.views, b.views, strict=True):
@@ -109,18 +120,3 @@ def test_orbit_views_share_one_camera_distance(stool_glb: Path, tmp_path: Path):
     assert len(band) >= 4
     assert max(band) / min(band) <= 1.10 + 1e-6, f"orbit distances spread too far: {sorted(band)}"
     assert steep, "OBJECT_VIEWS should still contain a plan view that fits itself"
-
-
-@pytest.mark.node
-def test_the_backdrop_is_a_sweep_not_a_flat_fill(stool_glb: Path, tmp_path: Path):
-    """The v1 flat #e9e9ec background put 79 % of an average frame in one luminance
-    bucket — over the `scene_frames` flat-frame threshold on a quarter of all frames.
-    The sweep spreads it out; the corners must be measurably darker than the centre."""
-    render_glb(stool_glb, tmp_path / "s", views=OBJECT_VIEWS_QUICK[:1], width=256, height=256,
-               sheet=False, use_cache=False)
-    png = next((tmp_path / "s").glob("view_*.png"))
-    with Image.open(png) as im:
-        a = np.asarray(im.convert("L"), dtype=np.float32)
-    corner = float(np.mean([a[:24, :24].mean(), a[:24, -24:].mean(), a[-24:, :24].mean(), a[-24:, -24:].mean()]))
-    top_centre = float(a[:24, 116:140].mean())
-    assert top_centre - corner > 4.0, f"backdrop looks flat: centre {top_centre:.1f} vs corners {corner:.1f}"

@@ -1,20 +1,4 @@
-"""Routing over the WHOLE input space, against the REAL library — invariants, not examples.
-
-``test_router`` checks the rows one at a time with a synthetic library.  This file runs
-the router over the full cross product of the inputs a run can actually present — every
-track x language x round kind x plan-signal combination, and every gate finding kind the
-corpus produces — and asserts the four properties that must hold for all of them:
-
-  determinism   the same input always gives the same ordered list
-  the cap       no input ever exceeds ``max_skills``
-  totality      a junk input degrades to an empty list, never an exception
-  relevance     a gate-fired sheet outranks a standing one, and the routed set is
-                explainable — every selection names the row that put it there
-
-The library is the shipped one, not a fixture: the property that matters is that THESE
-fourteen bundles route sanely, and a bundle whose evidence is inherited-unverified must
-stay out unless the switch says otherwise.
-"""
+"""Routing invariants over the shipped library's complete input space."""
 
 from __future__ import annotations
 
@@ -60,46 +44,55 @@ def _signal_sets():
 BASE_INPUTS = [(t, lang, kind) for t in TRACKS for lang in LANGUAGES for kind in KINDS]
 
 
-@pytest.mark.parametrize("track", TRACKS)
-def test_the_cap_and_the_ordering_hold_over_the_whole_input_space(track: str):
-    seen = 0
-    for language, kind in itertools.product(LANGUAGES, KINDS):
-        for sig in _signal_sets():
-            got = select(track, language, kind, signals=sig, library=LIBRARY, max_skills=5)
-            seen += 1
-            assert len(got) <= 5, f"{track}/{language}/{kind} routed {len(got)}"
-            assert len({s.name for s in got}) == len(got), "a skill was attached twice"
-            prios = [s.priority for s in got]
-            assert prios == sorted(prios, reverse=True), f"{track}/{language}/{kind} is out of order"
-            for s in got:
-                assert s.rules and s.reason, f"{s.name} was attached with no rule to point at"
-    assert seen == len(LANGUAGES) * len(KINDS) * 2 ** len(FLAGS)
+def test_the_cap_and_the_ordering_hold_over_the_whole_input_space():
+    expected = len(LANGUAGES) * len(KINDS) * 2 ** len(FLAGS)
+    for track in TRACKS:
+        seen = 0
+        for language, kind in itertools.product(LANGUAGES, KINDS):
+            for signals in _signal_sets():
+                got = select(track, language, kind, signals=signals, library=LIBRARY, max_skills=5)
+                seen += 1
+                assert len(got) <= 5, f"{track}/{language}/{kind} routed {len(got)}"
+                assert len({skill.name for skill in got}) == len(got), "duplicate skill"
+                priorities = [skill.priority for skill in got]
+                assert priorities == sorted(priorities, reverse=True), (
+                    f"{track}/{language}/{kind} is out of order"
+                )
+                for skill in got:
+                    assert skill.rules and skill.reason, f"{skill.name} has no routing reason"
+        assert seen == expected, track
 
 
-@pytest.mark.parametrize("track", TRACKS)
-def test_routing_is_deterministic_over_the_whole_input_space(track: str):
-    for language, kind in itertools.product(LANGUAGES, KINDS):
-        sig = {"multi_part": True, "has_instances": True, "has_custom_shader": True, "n_parts": 4}
-        a = [s.name for s in select(track, language, kind, signals=sig, library=LIBRARY)]
-        b = [s.name for s in select(track, language, kind, signals=sig, library=LIBRARY)]
-        assert a == b
+def test_routing_is_deterministic_over_the_whole_input_space():
+    signals = {"multi_part": True, "has_instances": True, "has_custom_shader": True, "n_parts": 4}
+    for track in TRACKS:
+        for language, kind in itertools.product(LANGUAGES, KINDS):
+            a = [s.name for s in select(track, language, kind, signals=signals, library=LIBRARY)]
+            b = [s.name for s in select(track, language, kind, signals=signals, library=LIBRARY)]
+            assert a == b, f"{track}/{language}/{kind}"
 
 
-@pytest.mark.parametrize("finding", LIVE_KINDS)
-def test_every_corpus_finding_kind_routes_sanely_from_every_session(finding: str):
+def test_every_corpus_finding_kind_routes_sanely_from_every_session():
     """A gate finding must never crash the router, never blow the cap, and never
     silently outrank nothing — where a row answers it, it must come back at >= 90."""
-    answered_somewhere = False
-    for track, language, kind in BASE_INPUTS:
-        got = select(track, language, kind, findings=[finding], library=LIBRARY, max_skills=5)
-        assert len(got) <= 5
-        fired = [s for s in got if s.gate_fired]
-        for s in fired:
-            assert s.priority >= 90, f"{s.name} answered {finding} at priority {s.priority}"
-            assert finding in s.reason or any(finding.startswith(p.rstrip("*"))
-                                              for r in ROUTES if r.rule in s.rules for p in r.findings)
-        answered_somewhere = answered_somewhere or bool(fired)
-    assert answered_somewhere, f"{finding} is classified but no row anywhere answers it"
+    for finding in LIVE_KINDS:
+        answered_somewhere = False
+        for track, language, kind in BASE_INPUTS:
+            got = select(track, language, kind, findings=[finding], library=LIBRARY, max_skills=5)
+            assert len(got) <= 5, f"{finding}: {track}/{language}/{kind}"
+            fired = [skill for skill in got if skill.gate_fired]
+            for skill in fired:
+                assert skill.priority >= 90, (
+                    f"{skill.name} answered {finding} at priority {skill.priority}"
+                )
+                assert finding in skill.reason or any(
+                    finding.startswith(pattern.rstrip("*"))
+                    for route in ROUTES
+                    if route.rule in skill.rules
+                    for pattern in route.findings
+                ), f"{skill.name} cannot explain why it answered {finding}"
+            answered_somewhere = answered_somewhere or bool(fired)
+        assert answered_somewhere, f"{finding} is classified but no route answers it"
 
 
 def test_a_quiet_kind_stays_quiet_until_a_gate_fires():
@@ -109,16 +102,14 @@ def test_a_quiet_kind_stays_quiet_until_a_gate_fires():
             assert select(track, language, kind, signals=sig, library=LIBRARY) == []
 
 
-@pytest.mark.parametrize("bad", JUNK)
-def test_junk_inputs_degrade_to_empty_and_never_raise(bad: str):
-    combos = [(bad, "blender", "baseline"), ("static_object", bad, "baseline"),
-              ("static_object", "blender", bad), (bad, bad, bad)]
-    for track, language, kind in combos:
-        got = select(track, language, kind, signals={"multi_part": True}, library=LIBRARY)
-        assert isinstance(got, list) and len(got) <= 5
-        for s in got:
-            # a wildcard row may legitimately fire on a junk track; it may never invent a skill
-            assert s.name in ROUTED_SKILLS
+def test_junk_inputs_degrade_to_empty_and_never_raise():
+    for bad in JUNK:
+        combos = [(bad, "blender", "baseline"), ("static_object", bad, "baseline"),
+                  ("static_object", "blender", bad), (bad, bad, bad)]
+        for track, language, kind in combos:
+            got = select(track, language, kind, signals={"multi_part": True}, library=LIBRARY)
+            assert isinstance(got, list) and len(got) <= 5, (track, language, kind)
+            assert all(skill.name in ROUTED_SKILLS for skill in got)
 
 
 def test_none_and_broken_inputs_are_survivable():

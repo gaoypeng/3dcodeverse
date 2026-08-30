@@ -1,28 +1,15 @@
-"""Every bundle's ONE deterministic claim: that it exists, that it is still readable,
-and that the readout counts what the row says it counts.
-
-WHY this file.  ``metadata.evidence`` says where a bundle's prose came from.  Nothing
-said what the bundle is supposed to DO to a run in a number a machine can recompute, so
-a bundle that stopped earning its tokens looked exactly like one that never had.
-``codeverse/skills/targets.py`` names the quantity and ``bench/skill_targets.py`` reads
-it out; this pins the two together and to the live gate vocabulary.
-
-The rows are deliberately checked against ``skills.registry`` rather than a copy: a gate
-reword that changes a slug must fail HERE, where the readout would otherwise start
-silently counting zero and a later A/B would read "no effect".
-"""
+"""Keep bundle target claims complete and the benchmark readout honest."""
 
 from __future__ import annotations
 
 import json
 import re
-import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
-from codeverse.skills import bundle_dirs, iter_skills, skills_dir
+from codeverse.skills import bundle_dirs, skills_dir
 from codeverse.skills.registry import ROUTED_SKILLS, finding_kind
 from codeverse.skills.targets import (
     BY_SKILL,
@@ -35,11 +22,7 @@ from codeverse.skills.targets import (
     target_for,
 )
 
-HARNESS = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(HARNESS))
-
 BUNDLES = bundle_dirs()
-SKILLS = list(iter_skills()) if BUNDLES else []
 pytestmark = pytest.mark.skipif(not BUNDLES, reason=f"no bundles in {skills_dir()} yet")
 
 
@@ -58,22 +41,11 @@ def _frontmatter(d: Path) -> dict:
 
 
 # --------------------------------------------------------------------------- the table
-@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
-def test_every_shipped_bundle_has_exactly_one_target(s):
-    """A bundle with no falsifiable claim is a bundle maintained by taste."""
-    assert target_for(s.name) is not None, (
-        f"{s.name} ships with no row in skills/targets.py — decide the ONE deterministic "
-        f"quantity it moves, or add it with measurable=False and say why")
-
-
-def test_every_target_row_names_a_bundle_that_exists():
+def test_target_table_exactly_covers_the_shipped_and_routed_bundles():
+    """No orphan rows, unmeasured routes, duplicate rows or bundles maintained by taste."""
     have = {d.name for d in BUNDLES}
-    assert set(BY_SKILL) <= have, f"targets.py names missing bundle(s): {sorted(set(BY_SKILL) - have)}"
-
-
-def test_every_routed_skill_has_a_target():
-    missing = [s for s in ROUTED_SKILLS if s not in BY_SKILL]
-    assert missing == [], f"the router can attach {missing}, and nothing measures them"
+    assert len(BY_SKILL) == len(TARGETS), "a bundle has more than one target row"
+    assert set(BY_SKILL) == have == set(ROUTED_SKILLS)
 
 
 def test_every_gate_kind_a_target_counts_is_a_live_kind():
@@ -83,15 +55,30 @@ def test_every_gate_kind_a_target_counts_is_a_live_kind():
         f"readout would report a silent zero")
 
 
-@pytest.mark.parametrize("t", TARGETS, ids=[t.skill for t in TARGETS])
-def test_a_row_is_well_formed(t):
-    assert t.direction in DIRECTIONS
-    assert t.source in SOURCES
-    assert t.unit and t.why, f"{t.skill}: a row must say what the number is and why it is the claim"
-    if t.source == SRC_GATE:
-        assert t.kinds, f"{t.skill}: a gate-sourced row must name the kinds it counts"
-    if not t.measurable:
-        assert t.caveat, f"{t.skill}: measurable=False is a finding — it owes the reason"
+def test_target_rows_and_bundle_metadata_are_complete():
+    for target in TARGETS:
+        assert target.direction in DIRECTIONS, target.skill
+        assert target.source in SOURCES, target.skill
+        assert target.unit and target.why, f"{target.skill}: target needs a unit and rationale"
+        if target.source == SRC_GATE:
+            assert target.kinds, f"{target.skill}: a gate target needs finding kinds"
+        if not target.measurable:
+            assert target.caveat, f"{target.skill}: an unmeasurable target needs a caveat"
+
+    for bundle in BUNDLES:
+        metadata, target = _frontmatter(bundle), target_for(bundle.name)
+        assert target is not None, bundle.name
+        assert metadata.get("target_metric") == target.metric, bundle.name
+        assert metadata.get("target_direction") == target.direction, bundle.name
+        assert metadata.get("target_unit") == target.unit, bundle.name
+        assert metadata.get("target_measurable") == ("true" if target.measurable else "false"), (
+            bundle.name
+        )
+        baseline = str(metadata.get("target_baseline") or "").strip()
+        assert baseline, f"{bundle.name}: target_baseline is missing"
+        assert re.search(r"\bn\s*=\s*\d+", baseline), (
+            f"{bundle.name}: target_baseline must state n=<runs>"
+        )
 
 
 def test_no_two_bundles_claim_the_same_quantity():
@@ -104,43 +91,21 @@ def test_no_two_bundles_claim_the_same_quantity():
             seen[k] = t.skill
 
 
-# --------------------------------------------------------------------------- frontmatter
-@pytest.mark.parametrize("d", BUNDLES, ids=[d.name for d in BUNDLES])
-def test_the_claim_travels_with_the_skill(d: Path):
-    """The row must be readable from the bundle alone — it ships to other CLIs."""
-    meta, t = _frontmatter(d), target_for(d.name)
-    assert t is not None
-    assert meta.get("target_metric") == t.metric
-    assert meta.get("target_direction") == t.direction
-    assert meta.get("target_unit") == t.unit
-    assert meta.get("target_measurable") == ("true" if t.measurable else "false")
-    assert str(meta.get("target_baseline") or "").strip(), (
-        f"{d.name}: target_baseline is the number a later A/B has to beat; recompute it with "
-        f"`python bench/skill_targets.py bench/out`")
-
-
-@pytest.mark.parametrize("d", BUNDLES, ids=[d.name for d in BUNDLES])
-def test_a_baseline_names_its_n(d: Path):
-    """"3.35 per run" without an n is a mood.  Every baseline states the population."""
-    base = str(_frontmatter(d).get("target_baseline") or "")
-    assert re.search(r"\bn\s*=\s*\d+", base), f"{d.name}: target_baseline must state n=<runs>"
-
-
 # --------------------------------------------------------------------------- classification
-@pytest.mark.parametrize(
-    "message",
-    ["very large frame-to-frame change (max |Δ| 0.412); flicker or hard cuts",
-     "very low visual detail (edge density 0.0014); the image is a near-flat gradient",
-     "frames do not change over time (mean |Δ| 0.0001); the shader looks static",
-     "frames are essentially black (mean luminance 0.004)",
-     "frames are blown out white (mean luminance 0.991)",
-     "NaN/Inf pixels in 3 frame(s) (first at t=1s: nan=1200 inf=0)",
-     "no frames were rendered"])
-def test_every_actionable_gl_frames_message_classifies(message):
-    """R19/R24 say "the frame gate saw no motion or no detail"; the regex used to catch
-    only two of the seven messages ``frame_gate`` can emit, so a shader that came out
-    static or black routed NOTHING.  This is the pin on the widened rule."""
-    assert finding_kind("gl_frames", message, "warn") == "gl_frames/motion_or_detail"
+def test_every_actionable_gl_frames_message_classifies():
+    messages = (
+        "very large frame-to-frame change (max |Δ| 0.412); flicker or hard cuts",
+        "very low visual detail (edge density 0.0014); the image is a near-flat gradient",
+        "frames do not change over time (mean |Δ| 0.0001); the shader looks static",
+        "frames are essentially black (mean luminance 0.004)",
+        "frames are blown out white (mean luminance 0.991)",
+        "NaN/Inf pixels in 3 frame(s) (first at t=1s: nan=1200 inf=0)",
+        "no frames were rendered",
+    )
+    for message in messages:
+        assert finding_kind("gl_frames", message, "warn") == "gl_frames/motion_or_detail", (
+            message
+        )
 
 
 # --------------------------------------------------------------------------- the readout
@@ -249,8 +214,6 @@ def test_the_cli_runs_over_a_synthetic_battery(tmp_path, capsys):
 
 
 def test_the_confidence_block_says_how_many_pairs_an_effect_needs():
-    """The deterministic readout is lower-variance than the judged score, not zero-variance;
-    a row that cannot say how many pairs it needs cannot be planned around."""
     from bench.skill_targets import confidence
 
     c = confidence([-1.0, 1.0, -1.0, 1.0], control_mean=4.0)
@@ -258,11 +221,6 @@ def test_the_confidence_block_says_how_many_pairs_an_effect_needs():
     assert c["ci95"] == pytest.approx(2 * c["se"])
     assert c["resolvable_effect"] == 1.0                     # 25% of a control mean of 4
     assert c["n_to_resolve"] == 5                            # (2*1.1547/1.0)^2
-
-
-def test_confidence_is_silent_on_a_single_pair():
-    from bench.skill_targets import confidence
-
     assert confidence([1.0], control_mean=4.0)["sd"] is None
 
 

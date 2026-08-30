@@ -71,7 +71,7 @@ def test_parse_multifile_single_fence_fallback_and_errors():
         parse_multifile("", expected_files=["src/a.js"])
 
 
-def test_safe_relpath_and_write_files(tmp_ws):
+def test_write_files_filters_paths_and_os_errors(tmp_ws):
     assert safe_relpath("./src/x.js") == "src/x.js"
     for bad in ("../etc/passwd", "/abs/src/x.js", "docs/readme.md", "src/../../x"):
         with pytest.raises(GenerationError):
@@ -80,32 +80,21 @@ def test_safe_relpath_and_write_files(tmp_ws):
     assert [c.path for c in changes] == ["src/a.js", "public/b.txt"] and (tmp_ws.src / "a.js").read_text() == "x\n"
     assert "=== FILE:" in SINGLE_SHOT_FORMAT
 
-
-def test_a_directory_shaped_path_that_does_not_exist_yet_is_also_skipped(tmp_ws):
-    """The silent half of the same defect: with no src/parts on disk, write_text
-    quietly created a FILE named 'parts' holding the prose body."""
     skipped: list[str] = []
-
     changes = write_files(
         tmp_ws,
         {"src/parts/": "Here are the parts.\n", "src/object.js": "export const x = 1;\n"},
         on_skip=lambda path, why: skipped.append(path),
     )
-
     assert [c.path for c in changes] == ["src/object.js"]
     assert skipped == ["src/parts/"]
     assert not (tmp_ws.src / "parts").is_file()
 
-
-def test_write_files_survives_an_oserror_from_the_filesystem(tmp_ws):
-    """Any OSError, not just IsADirectoryError, must skip one block -- never the answer."""
-    (tmp_ws.src / "a.js").mkdir(parents=True, exist_ok=True)
-    skipped: list[str] = []
-
-    changes = write_files(tmp_ws, {"src/a.js": "x", "src/b.js": "y"},
+    (tmp_ws.src / "blocked.js").mkdir(parents=True)
+    skipped.clear()
+    changes = write_files(tmp_ws, {"src/blocked.js": "x", "src/c.js": "y"},
                           on_skip=lambda path, why: skipped.append(path))
-
-    assert [c.path for c in changes] == ["src/b.js"] and skipped == ["src/a.js"]
+    assert [c.path for c in changes] == ["src/c.js"] and skipped == ["src/blocked.js"]
 
 
 # ----------------------------------------------------------------------------- strategies
@@ -156,9 +145,6 @@ def test_planner_validates_retries_and_writes(tmp_ws):
     assert isinstance(p, StaticPlan) and p.object_name == "DiningChair" and tmp_ws.plan_path.is_file()
     assert len(model.requests) == 2 and "failed validation" in model.requests[1].messages[-1].text
     assert model.requests[0].response_schema is not None and "PascalCase" in model.requests[0].system
-    # the deadline scales with the answer size it asked for (measured: 60 tok/s p10) and
-    # never sits below the owner's PLAN_MAX_WAIT_S floor — the old flat 300 s guaranteed
-    # a timeout the moment a re-ask grew the budget (audit 2026-08-27)
     from codeverse.tracks.planner import PLAN_MAX_WAIT_S, plan_wait_s
 
     assert all(PLAN_MAX_WAIT_S <= r.max_wait_s <= plan_wait_s(r.max_output_tokens) for r in model.requests)
@@ -170,7 +156,7 @@ def test_planner_validates_retries_and_writes(tmp_ws):
     assert "plan.invalid" in kinds and "plan.done" in kinds
 
 
-def test_planner_gives_up_after_reask(tmp_ws):
+def test_planner_validation_reasks_and_ceiling(tmp_ws):
     model = FakeChatModel(lambda req: {"bad": 1})
     with pytest.raises(PlanningError):
         plan(make_spec(), "fake:planner", StaticPlan, tmp_ws, model=model)
@@ -178,10 +164,6 @@ def test_planner_gives_up_after_reask(tmp_ws):
 
     assert len(model.requests) == 1 + MAX_VALIDATION_REASKS == 3
 
-
-def test_planner_allows_two_validation_reasks(tmp_ws):
-    """compare_art_v2: 5 of 14 articulated plans failed validation twice and the run died.
-    A second validation re-ask is cheap next to the run it saves."""
     answers = [{"object_name": "X"}, {"object_name": "Y"}, _valid_plan_dict()]
     model = FakeChatModel(lambda req: answers.pop(0))
     p = plan(make_spec(), "fake:planner", StaticPlan, tmp_ws, model=model, runtime=FakeRuntime(Language.THREEJS))
@@ -211,10 +193,6 @@ def test_ensure_acceptance_is_idempotent():
 
 
 def test_scene_plan_items_are_advisory_and_only_the_spec_must_haves_gate():
-    """A *must* the judge cannot verify caps the run at 0.60 AND fails it, so on the scene
-    track (no measurement pass, planner writes its checklist before the scene exists) only
-    the spec's must_have list keeps that priority — measured: a1/a6-style planner wishes
-    capped a 0.75 japanese garden at 0.60."""
     from codeverse.contracts.plan import AcceptanceItem
 
     p = ScenePlan.model_validate(plan_example(Track.SCENE))

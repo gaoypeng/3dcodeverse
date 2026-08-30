@@ -22,10 +22,13 @@ def test_example_scene_lints_clean(starter_ws):
     assert not [f for f in rep.findings if f.severity == Severity.ERROR]
 
 
-def test_missing_scene_js_is_an_error(ws):
+def test_required_scene_entry_and_export(ws):
     rep = lint(ws)
     assert not rep.passed
     assert any("src/scene.js is missing" in m for _, m in _msgs(rep, Severity.ERROR))
+    (ws.src / "scene.js").write_text("import * as THREE from 'three';\nexport function makeScene() {}\n")
+    rep = lint(ws)
+    assert any("does not export createScene" in m for _, m in _msgs(rep, Severity.ERROR))
 
 
 def test_forbidden_imports_and_globals(ws):
@@ -72,12 +75,6 @@ def test_zone_without_build_and_asset_without_factory(ws):
     rep = lint(ws)
     assert any("zone module does not export build" in m for _, m in _msgs(rep, Severity.ERROR))
     assert any("asset module exports no build" in m for _, m in _msgs(rep, Severity.WARN))
-
-
-def test_missing_create_scene_export(ws):
-    (ws.src / "scene.js").write_text("import * as THREE from 'three';\nexport function makeScene() {}\n")
-    rep = lint(ws)
-    assert any("does not export createScene" in m for _, m in _msgs(rep, Severity.ERROR))
 
 
 def test_large_file_warning(ws):

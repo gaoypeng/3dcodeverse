@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from codeverse.config import Settings
+from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.contracts.common import Language
 from codeverse.contracts.run import RunStatus
 from codeverse.skills.materialize import MARK_BEGIN
@@ -41,13 +42,32 @@ class RealMessageServices(FakeServices):
     proven by the real text."""
 
     def contract(self, measurement, plan, tol_m, language=""):
-        from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-
         parts = list(getattr(plan, "parts", []))[: self.contract_errors]
         findings = [GateFinding(gate="contract", severity=Severity.ERROR, target=p.name,
                                 message=f"part '{p.name}' bbox deviates from the plan (worst 3.4x tolerance)",
                                 fix_hint=f"resize {p.name} to its plan extents") for p in parts]
         return GateReport(gate="contract", passed=not findings, findings=findings)
+
+
+class RepairOnceRuntime(FakeRuntime):
+    """A real lint-shaped failure that the baseline's repair session must consume."""
+
+    def lint(self, ws):
+        if "SHADER_LINT_ERROR" in self._src_text(ws):
+            finding = GateFinding(
+                gate="lint:threejs", severity=Severity.ERROR, target="src/object.js",
+                message="shader compile error: unbound uniform u_time",
+                fix_hint="bind u_time before compiling the material",
+            )
+            return GateReport(gate="lint:threejs", passed=False, findings=[finding])
+        return super().lint(ws)
+
+
+def _repairing_writer(job, ws):
+    files = _agent_writer(job, ws)
+    if job.kind == "baseline":
+        files["src/object.js"] += "// SHADER_LINT_ERROR\n"
+    return files
 
 
 @pytest.fixture(autouse=True)
@@ -73,31 +93,26 @@ def run(tmp_path: Path, chair_plan, settings, monkeypatch):
         write_bundle(lib, name)
     monkeypatch.setenv("CV3D_SKILLS", "on")
     monkeypatch.setenv("CV3D_SKILLS_DIR", str(lib))
+    chair_plan.summary += " with a custom shader material"
     ws = Workspace(tmp_path / "runs" / "chair")
-    agent = FakeAgent(_agent_writer)
+    agent = FakeAgent(_repairing_writer)
     track = StaticObjectTrack(services=RealMessageServices(contract_errors=1), judge=FakeJudge(scores=(0.55, 0.7, 0.85)),
                               agent=agent, planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
-                              settings=settings, runtime=FakeRuntime(Language.THREEJS))
+                              settings=settings, runtime=RepairOnceRuntime(Language.THREEJS))
     rec = track.run(make_spec(max_rounds=3), ws)
     assert rec.status is RunStatus.PASSED
     return rec, ws, agent
 
 
-def test_the_bundles_reach_the_workspace_in_both_roots(run):
-    _, ws, _ = run
+def test_enabled_run_delivers_routes_repairs_and_records_skills(run):
+    rec, ws, agent = run
     for root in (".agents/skills", ".claude/skills"):
         names = sorted(p.name for p in (ws.root / root).iterdir())
         assert names and all((ws.root / root / n / "SKILL.md").is_file() for n in names)
 
-
-def test_the_index_reaches_the_file_the_agent_reads(run):
-    _, ws, _ = run
     body = (ws.root / "AGENTS.md").read_text()
     assert MARK_BEGIN in body and "MANDATORY" in body
 
-
-def test_every_round_records_what_was_attached_and_what_was_read(run):
-    rec, _, _ = run
     for r in rec.rounds:
         assert r.skills is not None, r.kind
         assert r.skills.listed and len(r.skills.listed) <= 5
@@ -105,9 +120,6 @@ def test_every_round_records_what_was_attached_and_what_was_read(run):
         assert r.skills.deep_read_rate == 0.0  # the fake agent reads nothing — and we can SEE that
         assert {x.name for x in r.skills.reads} == set(r.skills.listed)
 
-
-def test_the_baseline_round_gets_the_standing_set_and_the_next_round_gets_the_gate_set(run):
-    rec, _, _ = run
     baseline = rec.rounds[0].skills.listed
     refine = rec.rounds[1].skills.listed
     # R11/R3: a threejs baseline gets the standing form + contact sheets, with no gate to react to
@@ -117,20 +129,16 @@ def test_the_baseline_round_gets_the_standing_set_and_the_next_round_gets_the_ga
     reasons = {x.name: x.reason for x in rec.rounds[1].skills.reads}
     assert "contract/" in reasons["cv3d-bbox-contract"]
 
-
-def test_the_body_that_was_sent_is_hashed_into_the_record(run):
-    """`prompt_hashes` already answers "what text decided this run"; a skill body is
-    part of that text, so `skill:<name>` rows sit beside the prompt rows."""
-    rec, _, _ = run
     keys = [k for k in rec.prompt_hashes if k.startswith("skill:")]
     assert keys and all(rec.prompt_hashes[k] for k in keys)
     assert {k.split(":", 1)[1] for k in keys} >= set(rec.rounds[0].skills.listed)
 
-
-def test_telemetry_is_on_disk_for_the_report_command(run):
-    _, ws, _ = run
     rows = (ws.root / "telemetry" / "skills.jsonl").read_text().splitlines()
     assert len(rows) == 3 and all('"listed"' in r for r in rows)
+
+    repair = next(job for job in agent.jobs if job.kind == "repair")
+    assert "cv3d-threejs-shader-traps" in repair.prompt
+    assert rec.rounds[0].notes.startswith("repair attempts: 1/2 (fixed)")
 
 
 def test_the_switch_off_leaves_no_trace(tmp_path, chair_plan, settings, monkeypatch):

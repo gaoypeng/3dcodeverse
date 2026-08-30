@@ -32,7 +32,7 @@ npm ci                                  # exact-lockfile install (~2 s); NOT `np
 npx puppeteer browsers install chrome   # only if ~/.cache/puppeteer is empty
 ```
 
-`bash harness/scripts/setup.sh` does both of these (plus the python install and
+`bash harness/setup.sh` does both of these (plus the python install and
 `3dcodeverse doctor`) and skips `npm ci` when the lockfile has not moved.
 
 Re-run `npm ci` after a fresh clone or after pulling a `package.json` /

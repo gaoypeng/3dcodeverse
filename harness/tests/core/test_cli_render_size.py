@@ -1,11 +1,4 @@
-"""SM-09: `3dcv render` dropped render.width / height / scene_width / scene_height.
-
-The four settings exist (config.Render), are accepted from YAML and CV3D_RENDER__*,
-and are honoured by the IN-RUN renders (tracks/static_object.py passes r.width/r.height,
-tracks/scene.py passes r.scene_width/r.scene_height) — but the one command whose whole
-job is rendering hardcoded render.py's 768x768 and render_scene.py's 1024x576, so a CLI
-render did not match the one the judge saw.
-"""
+"""The render CLI honors configured dimensions and explicit overrides."""
 
 from __future__ import annotations
 
@@ -65,7 +58,7 @@ def _run(tmp_path: Path, language: Language, track: Track) -> Path:
     return runs
 
 
-def test_object_render_uses_the_configured_size(tmp_path, captured, monkeypatch):
+def test_object_render_uses_configured_size_and_explicit_flags_win(tmp_path, captured, monkeypatch):
     runs = _run(tmp_path, Language.BLENDER, Track.STATIC_OBJECT)
     monkeypatch.setenv("CV3D_RENDER__WIDTH", "1600")
     monkeypatch.setenv("CV3D_RENDER__HEIGHT", "1200")
@@ -76,13 +69,7 @@ def test_object_render_uses_the_configured_size(tmp_path, captured, monkeypatch)
 
     assert res.exit_code == 0, res.output
     assert (captured.get("width"), captured.get("height")) == (1600, 1200)
-
-
-def test_explicit_flags_win_over_the_setting(tmp_path, captured):
-    runs = _run(tmp_path, Language.BLENDER, Track.STATIC_OBJECT)
-
     res = runner.invoke(app, ["render", "r1", "--runs-dir", str(runs), "--width", "320", "--height", "240"])
-
     assert res.exit_code == 0, res.output
     assert (captured.get("width"), captured.get("height")) == (320, 240)
 

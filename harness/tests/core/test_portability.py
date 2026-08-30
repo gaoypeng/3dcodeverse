@@ -28,24 +28,17 @@ HARNESS = Path(__file__).resolve().parents[2]
 PY_FLOOR = (3, 13)
 
 
-def test_setup_script_checks_the_same_floors() -> None:
+def test_setup_and_runtime_js_declare_the_same_runtime_floors() -> None:
     text = (HARNESS / "setup.sh").read_text()
     assert re.search(rf"^MIN_PY_MINOR={PY_FLOOR[1]}\b", text, re.M), "setup.sh python floor drifted"
     assert re.search(rf"^MIN_NODE_MAJOR={NODE_MIN[0]}\b", text, re.M), "setup.sh node major floor drifted"
     assert re.search(rf"^MIN_NODE_MINOR={NODE_MIN[1]}\b", text, re.M), "setup.sh node minor floor drifted"
-
-
-def test_runtime_js_engines_matches_node_min() -> None:
     pkg = json.loads((HARNESS / "runtime_js" / "package.json").read_text())
     assert pkg["engines"]["node"] == f">={NODE_MIN_STR}"
 
 
 def test_package_data_ships_every_file_a_runtime_reads() -> None:
-    """PORT-4: a wheel built from this tree shipped no scene_threejs starter tree and no
-    CONTRACT.md, and the declared glob ``spatial/js/*`` matched nothing at all (there is no
-    such directory).  skeleton.write_example() then rglob'd an absent directory and wrote
-    ZERO files while reporting success.  Every non-python file under codeverse/ must be
-    covered by a package-data glob, and no glob may be dead."""
+    """Every runtime data file matches a live package-data glob."""
     cfg = tomllib.loads((HARNESS / "pyproject.toml").read_text())
     globs = cfg["tool"]["setuptools"]["package-data"]["codeverse"]
     pkg = HARNESS / "codeverse"
@@ -63,8 +56,7 @@ def test_package_data_ships_every_file_a_runtime_reads() -> None:
 
 
 def test_write_example_refuses_to_write_nothing(tmp_path, monkeypatch) -> None:
-    """The other half of PORT-4: an install without the starter tree must fail loudly at
-    the moment it is needed, not hand back an empty scene."""
+    """A package missing its starter tree fails instead of writing an empty scene."""
     import codeverse.languages.scene_threejs as skeleton
 
     monkeypatch.setattr(skeleton, "STARTER_DIR", tmp_path / "gone" / "src")
@@ -72,9 +64,8 @@ def test_write_example_refuses_to_write_nothing(tmp_path, monkeypatch) -> None:
         skeleton.write_example(Workspace(tmp_path / "ws").create())
 
 # ------------------------------------------------------------------- the node floor gate
-@pytest.mark.parametrize(
-    "text,expected",
-    [
+def test_node_version_parsing_and_gate() -> None:
+    parsed = [
         ("v24.14.0\n", (24, 14, 0)),
         ("v20.6.0", (20, 6, 0)),
         ("v18.20.4", (18, 20, 4)),
@@ -82,28 +73,19 @@ def test_write_example_refuses_to_write_nothing(tmp_path, monkeypatch) -> None:
         ("v22.0.0-nightly20240101", (22, 0, 0)),
         ("not found", None),
         ("", None),
-    ],
-)
-def test_parse_node_version(text: str, expected: tuple[int, int, int] | None) -> None:
-    assert parse_node_version(text) == expected
+    ]
+    for text, expected in parsed:
+        assert parse_node_version(text) == expected, text
+    for version in ((20, 6, 0), (20, 6, 1), (22, 15, 0), (24, 14, 0), None):
+        assert node_version_error(version) == "", version
+    for version in ((20, 5, 9), (18, 20, 4), (16, 0, 0)):
+        msg = node_version_error(version)
+        assert ".".join(map(str, version)) in msg
+        assert NODE_MIN_STR in msg
+        assert "CV3D_BINARIES__NODE" in msg and "nvm" in msg
 
 
-@pytest.mark.parametrize("version", [(20, 6, 0), (20, 6, 1), (22, 15, 0), (24, 14, 0), None])
-def test_node_version_accepted(version: tuple[int, int, int] | None) -> None:
-    """At or above the floor passes; an unknown version is not our error to raise."""
-    assert node_version_error(version) == ""
-
-
-@pytest.mark.parametrize("version", [(20, 5, 9), (18, 20, 4), (16, 0, 0)])
-def test_node_version_rejected_with_an_actionable_message(version: tuple[int, int, int]) -> None:
-    msg = node_version_error(version)
-    assert ".".join(str(n) for n in version) in msg, "says which node was found"
-    assert NODE_MIN_STR in msg, "says which node is needed"
-    assert "CV3D_BINARIES__NODE" in msg and "nvm" in msg, "says how to fix it"
-
-
-def test_run_node_refuses_an_old_node_before_spawning(tmp_path, monkeypatch) -> None:
-    """The gate fires in run_node, so every node workload fails loudly and early."""
+def test_run_node_enforces_the_version_floor(tmp_path, monkeypatch) -> None:
     import codeverse.spatial.node as node_mod
 
     script = tmp_path / "noop.mjs"
@@ -112,10 +94,5 @@ def test_run_node_refuses_an_old_node_before_spawning(tmp_path, monkeypatch) -> 
     monkeypatch.setattr(node_mod, "run_subprocess", lambda *a, **k: pytest.fail("spawned an old node"))
     with pytest.raises(NodeError, match="too old"):
         node_mod.run_node(script)
-
-
-def test_require_node_version_passes_on_a_new_enough_node(monkeypatch) -> None:
-    import codeverse.spatial.node as node_mod
-
     monkeypatch.setattr(node_mod, "node_version", lambda _bin: (20, 6, 0))
     require_node_version("node")  # must not raise

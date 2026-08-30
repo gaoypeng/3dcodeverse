@@ -58,15 +58,7 @@ def test_unreliable_when_empty(tmp_path: Path) -> None:
 
 
 def test_a_photo_the_background_model_failed_on_is_unreliable(tmp_path: Path) -> None:
-    """A busy photo floods to a corner-to-corner mask, and the AREA test does not see it.
-
-    Measured 2026-08-25 over astra3d-brilliana/references_images: 9 of 21 photos produced
-    a mask whose bounding box spanned the whole frame — a coffee cup on a table read as
-    73.8 % "object" — and every one passed `reliable`, because fill only rejects above
-    95 %. The cost was not a missing number but a confident wrong one: a penny-farthing
-    render scored IoU 0.592 against the coffee cup and 0.636 against a flower, and both
-    fed `silhouette_match` in the reference_v1 rubric as measurements.
-    """
+    """A corner-to-corner mask is failed background segmentation, not a silhouette."""
     import numpy as np
     from PIL import Image
 

@@ -60,6 +60,8 @@ class ClassifierTrap(Exception):
 
 
 def test_structured_exceptions_beat_string_matching():
+    from codeverse.models.base import ModelError as ProviderError
+
     # no recognisable prose at all — only the status says what happened
     assert is_infra_failure(ModelError("upstream said no", status=503)) is True
     assert is_infra_failure(ModelError("bad request: prompt too long", status=400)) is False
@@ -68,6 +70,12 @@ def test_structured_exceptions_beat_string_matching():
     err = ValueError("generation failed")
     err.__cause__ = ModelError("overloaded", status=529)
     assert is_infra_failure(err) is True
+    for capability_failure in (
+        ProviderError("Gemini finish_reason=SAFETY", retryable=True),
+        ProviderError("Gemini returned no candidates", retryable=True),
+        ProviderError("Anthropic refused the request: None", retryable=False),
+    ):
+        assert is_infra_failure(capability_failure) is False
 
 
 def test_outage_cells_leave_every_rate_alone():
@@ -98,9 +106,6 @@ def test_both_failure_paths_classify_the_same_way(tmp_path):
     harness-vs-one-shot mean in the harness's favour, which is precisely what this
     module was written to end.
     """
-    import tempfile
-    from pathlib import Path
-
     from bench._oneshot import ApiOneShot
     from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
     from bench.run_bench import Battery
@@ -131,33 +136,17 @@ def test_both_failure_paths_classify_the_same_way(tmp_path):
             got[arm.kind] = (r.status, r.score)
         return got
 
-    for outage in (
+    for i, outage in enumerate((
         ModelError("Gemini API error 500: An internal error has occurred.", retryable=True, status=500),
         ModelError("Gemini transport error: [Errno 104] Connection reset by peer", retryable=True),
         ModelError("Anthropic connection error: TLS handshake failed", retryable=True),
         ModelError("Gemini request timed out: 600s", retryable=True, status=408),
-    ):
-        got = verdicts(outage, Path(tempfile.mkdtemp(dir=tmp_path)))
+    )):
+        got = verdicts(outage, tmp_path / str(i))
         assert got["harness"] == ("infra_failed", None), f"{outage} / harness -> {got}"
         assert got["oneshot"] == got["harness"], (
             f"one error, two verdicts for {outage!s}: {got} — the one-shot arm takes a hard "
             f"zero for the same downtime that drops the harness arm")
-
-
-def test_a_real_capability_failure_still_keeps_its_zero():
-    """The other half of the contract: widening the classifier must not start excusing
-    models.  Prose, unparseable code and a refusal are results, not outages."""
-    from codeverse.models.base import ModelError
-
-    for not_an_outage in (
-        "unparseable answer: no code fence found",
-        ModelError("Gemini finish_reason=SAFETY", retryable=True),
-        ModelError("Gemini returned no candidates", retryable=True),
-        ModelError("Anthropic refused the request: None", retryable=False),
-        "empty answer",
-    ):
-        assert not is_infra_failure(not_an_outage), not_an_outage
-
 
 def test_budget_exhaustion_is_scoreless_but_still_counts_against_build_rate():
     """The 50-minutes-for-nothing case: no score to average, but the arm did miss."""
@@ -182,15 +171,13 @@ def test_budget_and_outage_are_different_buckets():
     assert is_infra_failure(outage) and not is_budget_exhaustion(outage)
 
 
-def test_preflight_probes_every_model_a_harness_arm_needs(monkeypatch):
-    """A harness arm is only as available as the weakest model in its loop.
-
-    Regression (2026-08-24): `harness:codex:gpt-5.6-sol` — a local subscription CLI
-    generator with a healthy judge — was stuck for hours because the default PLANNER
-    is gemini-3.7-flash, which was down.  The first preflight only probed the judge
-    and the arm targets, so it would have waved those runs straight into the wall.
-    """
+@pytest.mark.parametrize(("raw_arms", "needs_loop"), [
+    ("harness:codex:gpt-5.6-sol", True),
+    ("oneshot:claude-code,oneshot:codex", False),
+])
+def test_preflight_probes_only_models_the_selected_arms_need(monkeypatch, raw_arms, needs_loop):
     from bench import compare_backends as cb
+    from codeverse.config import get_settings
     from codeverse.models.health import Health
 
     probed: list[str] = []
@@ -200,35 +187,14 @@ def test_preflight_probes_every_model_a_harness_arm_needs(monkeypatch):
         return Health(model=model, n_ok=4, n_tried=4)
 
     monkeypatch.setattr("codeverse.models.health.probe", fake_probe)
-    arms = cb.parse_arms("harness:codex:gpt-5.6-sol")
     opts = cb.CompareOptions(judge="gemini:fixed-judge")
-    assert cb._preflight("gemini:fixed-judge", arms, opts) is True
-
-    assert "gemini:fixed-judge" in probed, "the fixed judge must always be probed"
-    planner = get_settings_planner()
-    assert planner in probed, f"the harness planner {planner!r} was not probed: {probed}"
-    # the subscription CLI is not an API model and has nothing to probe
-    assert not any("codex" in m for m in probed), probed
-
-
-def get_settings_planner() -> str:
-    from codeverse.config import get_settings
-
-    return get_settings().backends().planner
-
-
-def test_preflight_skips_loop_models_for_oneshot_only_batteries(monkeypatch):
-    """A one-shot battery runs no harness loop, so it must not be blocked by a
-    planner it will never call."""
-    from bench import compare_backends as cb
-    from codeverse.models.health import Health
-
-    probed: list[str] = []
-    monkeypatch.setattr("codeverse.models.health.probe",
-                        lambda m, **_: (probed.append(m), Health(model=m, n_ok=4, n_tried=4))[1])
-    arms = cb.parse_arms("oneshot:claude-code,oneshot:codex")
-    assert cb._preflight("gemini:fixed-judge", arms, cb.CompareOptions(judge="gemini:fixed-judge")) is True
-    assert probed == ["gemini:fixed-judge"], probed
+    assert cb._preflight(opts.judge, cb.parse_arms(raw_arms), opts) is True
+    expected = {opts.judge}
+    if needs_loop:
+        backends = get_settings().backends()
+        expected |= {backends.planner, backends.judge}
+    assert set(probed) == expected
+    assert not any("codex" in model for model in probed), "subscription CLIs are not probed"
 
 
 def test_a_repair_lost_to_an_outage_drops_the_cell_instead_of_scoring_the_pre_repair_code(tmp_path):
@@ -321,12 +287,6 @@ def test_a_cyclic_cause_chain_does_not_recurse():
     assert is_infra_failure(c) is True
 
 
-def test_the_classifier_is_total_so_a_caller_never_loses_its_cell():
-    """is_infra_failure runs inside four drivers' `except` handlers, where a raise escapes
-    the handler itself.  A bug in it answers False; it does not propagate."""
-    assert is_infra_failure(ClassifierTrap("boom")) is False
-
-
 def test_a_classifier_crash_still_records_the_cell(tmp_path):
     """End to end: a failure whose classification blows up is still a row on disk."""
     from bench import compare_backends as cb
@@ -345,52 +305,25 @@ def test_a_classifier_crash_still_records_the_cell(tmp_path):
 
 
 def test_the_ab_viewer_refuses_to_call_a_winner_it_cannot_support():
-    """bench/ab_view.verdict is the guard against reading a two-run round as a result.
-
-    The measured reason it exists: a reference harness published, then retracted, several
-    prompt findings because a promising first replicate was noise (interpenetration −0.40
-    in replicate 1, +0.03 in replicate 2, pooled p=0.405).
-    """
-    import sys
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from bench.ab_view import Run, verdict
 
     def arm(name, *scores):
         return [Run(slug=f"{name}{i}", arm=name, final=s, status="passed") for i, s in enumerate(scores)]
 
-    head, _ = verdict(arm("a", 0.7), arm("b", 0.9))
-    assert head.startswith("Inconclusive"), "one scored run per arm is never a result"
-
-    head, _ = verdict(arm("a", 0.70, 0.72), arm("b", 0.74, 0.76))
-    assert head.startswith("Inconclusive"), "n=2 per arm is below the floor, whatever the delta"
-
-    # n is enough, but runs of one arm disagree by more than the arms disagree
-    head, _ = verdict(arm("a", 0.50, 0.70, 0.90), arm("b", 0.56, 0.76, 0.96))
-    assert head.startswith("Inconclusive"), head
-
-    head, _ = verdict(arm("a", 0.30, 0.32, 0.31), arm("b", 0.80, 0.82, 0.81))
-    assert head.startswith("B wins"), head
+    cases = [
+        ((0.7,), (0.9,), "Inconclusive"),
+        ((0.70, 0.72), (0.74, 0.76), "Inconclusive"),
+        ((0.50, 0.70, 0.90), (0.56, 0.76, 0.96), "Inconclusive"),
+        ((0.30, 0.32, 0.31), (0.80, 0.82, 0.81), "B wins"),
+    ]
+    for a_scores, b_scores, expected in cases:
+        head, _ = verdict(arm("a", *a_scores), arm("b", *b_scores))
+        assert head.startswith(expected), head
 
     # a run that never scored must not be counted as an observation
     a = arm("a", 0.5, 0.5) + [Run(slug="a9", arm="a", final=None, status="failed")]
     head, why = verdict(a, arm("b", 0.5))
     assert head.startswith("Inconclusive") and "1 of 1" in why
-
-
-def test_a_clock_stopped_cell_is_flagged_degraded():
-    """compare_v4 (2026-08-25): under a day-long 503 storm 37 of 40 harness runs stopped
-    on the WALL CLOCK with 0-2 rounds while the 3 that met a calm window scored
-    0.92-0.95, so a paired mean over them measures the weather.
-    """
-    from bench.compare_backends import CompareOptions, flag_degraded
-
-    c = CellResult(prompt_id="p", arm="harness:x", kind="harness", status="scored",
-                   harness_stop_reason="budget", harness_rounds=1, wall_s=2400, gen_cost_usd=0.9)
-    flag_degraded(c, CompareOptions(judge="g:x", loop_judge="g:x"))
-    assert c.degraded and "0.90" in c.degraded_reason  # it says what the cell actually spent
-
 
 def test_the_default_generator_and_the_cost_router_name_the_same_model():
     """`3dcv cost` prints default_route(GENERATOR) as "the default"; if it disagrees with

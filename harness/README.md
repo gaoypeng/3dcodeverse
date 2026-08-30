@@ -73,7 +73,7 @@ Design laws, the full package map and what each stage does: `docs/ARCHITECTURE.m
 `ruff` run locally before every push.  See `docs/INSTALL.md` §2.1.
 
 ```bash
-bash scripts/setup.sh     # install everything + run doctor (idempotent; see docs/INSTALL.md)
+bash setup.sh     # install everything + run doctor (idempotent; see docs/INSTALL.md)
 # ...or by hand:
 pip install -e '.[all,dev]'    # entry points: 3dcodeverse, 3dcv
 (cd runtime_js && npm ci)      # three@0.182 + puppeteer 24 (chrome → ~/.cache/puppeteer)

@@ -1,13 +1,4 @@
-"""Node-level placement table (``runtime_js/lib/host_placement.mjs`` via the census).
-
-A tiny synthetic scene drives ``sceneCensus(scene, THREE, {placement: true})``
-directly (no browser): a box on a ground plane (supported), a box 0.3 m up
-(floating), a box 0.5 m down (sunk), two half-overlapping boxes (interpenetration),
-a ``userData.placement = 'free'`` box (exempt) — plus the cases that produced false
-positives on the starter scene on 2026-08-26: a table with legs and a cup on it, a
-chair under the table, a bench under a tree canopy, a boat on a water plane, a
-half-buried rock, a sky dome and an instanced scatter.
-"""
+"""Synthetic census coverage for placement, support, overlap, and exemptions."""
 
 from __future__ import annotations
 
@@ -100,10 +91,7 @@ def test_interpenetration_is_a_pair_not_a_burial(table):
 
 
 def test_no_false_positives_on_legitimate_placements(table):
-    """Table legs (not its top) are the feet; a cup on the table sits on 'Table'; a chair under
-    the table top is not 'sunk into' it; a bench under a canopy is not an interpenetration;
-    a boat with its hull under the water surface is on_water; a rock 0.4 m under the terrain
-    reports its burial (python decides whether a rock may sit that deep)."""
+    """Nested furniture, canopy, water, and terrain contacts classify correctly."""
     for name, support in (("Table", "Ground"), ("Cup", "Table"), ("Chair", "Ground"), ("Tree", "Ground"), ("Bench", "Ground")):
         r = _row(table, name)
         assert r["ground_gap_m"] == pytest.approx(0, abs=1e-3) and r["support"] == support and r["sunk_m"] == 0, (name, r)
@@ -113,5 +101,4 @@ def test_no_false_positives_on_legitimate_placements(table):
     assert boat["on_water"] and boat["supported"] and not boat["floating"] and boat["sunk_into"] == "PondWater"
     rock = _row(table, "Rock")
     assert rock["sunk_into"] == "Ground" and 0.3 < rock["sunk_m"] < 0.5 and not rock["floating"]
-
 

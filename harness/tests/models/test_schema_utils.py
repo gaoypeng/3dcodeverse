@@ -34,29 +34,29 @@ def _walk(node, fn):
             _walk(v, fn)
 
 
-@pytest.mark.parametrize("model", [StaticPlan, ArticulatedPlan, ScenePlan])
-def test_gemini_schema_is_clean_and_sdk_valid(model):
-    g = to_gemini_schema(model.model_json_schema())
+def test_gemini_schemas_are_clean_and_sdk_valid():
+    def check(node):
+        if not isinstance(node, dict):
+            return
+        for bad in (
+            "$ref",
+            "$defs",
+            "title",
+            "default",
+            "const",
+            "prefixItems",
+            "additionalProperties",
+        ):
+            assert bad not in node, (bad, node)
+        if "anyOf" in node:
+            assert all(value.get("type") != "null" for value in node["anyOf"])
+        if node.get("type") == "object" and "properties" in node:
+            assert node["propertyOrdering"] == list(node["properties"])
 
-    def check(n):
-        if isinstance(n, dict):
-            for bad in (
-                "$ref",
-                "$defs",
-                "title",
-                "default",
-                "const",
-                "prefixItems",
-                "additionalProperties",
-            ):
-                assert bad not in n, (bad, n)
-            if "anyOf" in n:
-                assert all(v.get("type") != "null" for v in n["anyOf"])
-            if n.get("type") == "object" and "properties" in n:
-                assert n["propertyOrdering"] == list(n["properties"].keys())
-
-    _walk(g, check)
-    types.Schema.model_validate(g)  # the SDK accepts it
+    for model in (StaticPlan, ArticulatedPlan, ScenePlan):
+        schema = to_gemini_schema(model.model_json_schema())
+        _walk(schema, check)
+        types.Schema.model_validate(schema)
 
 
 def test_gemini_specifics():
@@ -117,13 +117,10 @@ def test_openai_strict_schema_shape():
     assert s["properties"]["style_notes"]["type"] == "string"
 
 
-@pytest.mark.parametrize("model", [StaticPlan, ArticulatedPlan, ScenePlan])
-def test_openai_strict_schema_never_adds_null(model):
+def test_openai_strict_schemas_never_add_null():
     """Wire contract == pydantic contract: a field accepts null on the wire iff the
     source schema does (``x: T | None``) — never because it merely has a default /
     default_factory, else the model's nulls fail ``model_validate``."""
-    original = inline_refs(model.model_json_schema())
-    strict = to_openai_strict_schema(model.model_json_schema())
 
     def pairs(o, st):
         if isinstance(o, dict) and "properties" in o and isinstance(st, dict):
@@ -136,13 +133,15 @@ def test_openai_strict_schema_never_adds_null(model):
             for a, b in zip(o["anyOf"], st["anyOf"], strict=True):
                 yield from pairs(a, b)
 
-    n_defaulted = 0
-    for orig, strict_sub in pairs(original, strict):
-        if not isinstance(orig, dict):
-            continue
-        n_defaulted += orig.get("default") is not None
-        assert _accepts_null(strict_sub) == _accepts_null(orig), (orig, strict_sub)
-    assert n_defaulted > 0
+    for model in (StaticPlan, ArticulatedPlan, ScenePlan):
+        original = inline_refs(model.model_json_schema())
+        strict = to_openai_strict_schema(model.model_json_schema())
+        compared = 0
+        for orig, strict_sub in pairs(original, strict):
+            if isinstance(orig, dict):
+                compared += orig.get("default") is not None
+                assert _accepts_null(strict_sub) == _accepts_null(orig), (orig, strict_sub)
+        assert compared > 0
 
 
 def _accepts_null(sub) -> bool:
@@ -190,31 +189,19 @@ def test_anthropic_schema_shape():
     assert s["properties"]["bounds"]["properties"]["center"]["items"] == {"type": "number"}
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
+def test_parse_json_lenient_accepts_wrappers_and_rejects_non_json():
+    for text in (
         '{"a": 1}',
         'Sure! ```json\n{"a": 1}\n```',
         'prefix text {"a": 1} trailing',
         '{"a": 1,}',
         '```\n{"a": 1}\n```',
-    ],
-)
-def test_parse_json_lenient(text):
-    assert parse_json_lenient(text) == {"a": 1}
-
-
-def test_parse_json_lenient_array_and_failure():
+        '{"a": 1} and later {broken',
+        'note {"a": 1} ps: see {figure 2}',
+    ):
+        assert parse_json_lenient(text) == {"a": 1}
     assert parse_json_lenient("[1, 2]") == [1, 2]
-    with pytest.raises(JsonParseError):
-        parse_json_lenient("no json here")
-    with pytest.raises(JsonParseError):
-        parse_json_lenient("")
+    for text in ("no json here", ""):
+        with pytest.raises(JsonParseError):
+            parse_json_lenient(text)
     assert json.dumps(parse_json_lenient('{"n": {"x": [1]}}')) == '{"n": {"x": [1]}}'
-
-
-def test_parse_json_lenient_first_balanced_brace_wins_over_outer_span():
-    # trailing chatter contains a second, unrelated brace pair: the depth-counted
-    # first balanced candidate parses where the outermost {...} span cannot
-    assert parse_json_lenient('{"a": 1} and later {broken')['a'] == 1
-    assert parse_json_lenient('note {"a": 1} ps: see {figure 2}') == {"a": 1}

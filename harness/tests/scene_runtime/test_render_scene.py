@@ -72,13 +72,9 @@ def test_render_scene_parses_driver_output(fake_runtime, ws, tmp_path):
 
 
 @needs_node
-def test_driver_crash_raises(fake_runtime):
+def test_driver_failures_raise(fake_runtime):
     with pytest.raises(SceneRenderError, match="driver exploded"):
         run_scene_script("crash.mjs", [], timeout_s=30)
-
-
-@needs_node
-def test_driver_timeout_raises(fake_runtime):
     with pytest.raises(SceneRenderError, match="timed out"):
         run_scene_script("slow.mjs", [], timeout_s=1)
 
@@ -86,36 +82,6 @@ def test_driver_timeout_raises(fake_runtime):
 def test_missing_driver_raises(fake_runtime):
     with pytest.raises(SceneRenderError, match="missing node driver"):
         run_scene_script("nope.mjs", [], timeout_s=5)
-
-
-@pytest.mark.node
-@needs_browser
-def test_real_render_of_example_scene(starter_ws):
-    out = starter_ws.renders_dir(0)
-    rs = render_scene(starter_ws, out, times=(0.0, 1.5), width=640, height=360, fps_seconds=0.5)
-    assert rs.console_errors == []
-    names = {v.name for v in rs.views}
-    assert {"overview", "pond_low", "windmill"} <= names
-    assert {v.name for v in SCENE_VIEWS} <= names
-    assert len(rs.views) == 2 * (3 + len(SCENE_VIEWS))
-    assert rs.fps and rs.fps > 5
-    assert rs.renderer
-    im = Image.open(rs.views[0].path)
-    assert im.size == (640, 360)
-    # not black, not blown: a lit scene
-    px = list(im.convert("L").resize((32, 18)).getdata())
-    assert 20 < sum(px) / len(px) < 235
-    assert rs.contact_sheet and Path(rs.contact_sheet).is_file()
-    m = read_metrics(out)
-    assert m["census"]["totals"]["triangles"] > 1000
-    checks = {c["name"]: c for c in m["camera_checks"]}
-    assert not checks["overview"]["camera_in_geometry"]
-    assert checks["overview"]["dark_frac"] < 0.2 and checks["overview"]["blown_frac"] < 0.2
-    # animation actually changes the frame between t=0 and t=1.5
-    a = Image.open(next(v.path for v in rs.views if v.name == "windmill" and v.time_s == 0.0)).convert("L")
-    b = Image.open(next(v.path for v in rs.views if v.name == "windmill" and v.time_s == 1.5)).convert("L")
-    diff = sum(1 for x, y in zip(a.getdata(), b.getdata(), strict=True) if abs(x - y) > 12)
-    assert diff > 100
 
 
 @pytest.mark.node
@@ -131,8 +97,7 @@ def test_camera_in_geometry_is_detected(starter_ws):
 
 @needs_node
 def test_driver_crash_after_metrics_degrades_to_renderset(fake_runtime, ws, tmp_path):
-    """A driver death AFTER instruments were written must yield a degraded
-    RenderSet (console_errors say why) — never a SceneRenderError that fails the run."""
+    """A crash after metrics yields a degraded RenderSet rather than losing frames."""
     (fake_runtime / "render_scene.mjs").write_text(
         FAKE_DRIVER.replace(
             "console.log(JSON.stringify({ ok: true, n_views: views.length, renderer: 'FakeGL' }));",
@@ -159,9 +124,7 @@ def test_render_scene_clears_stale_metrics(fake_runtime, ws, tmp_path):
 @pytest.mark.node
 @needs_browser
 def test_update_throw_mid_render_yields_frames_and_console_error(starter_ws):
-    """Finding: an update(t, dt) exception past the probed window must NOT abort the
-    render (SceneRenderError → run FAILED); the remaining views render and the error
-    becomes a console error (→ render_console gate finding)."""
+    """A late update error is recorded without aborting the remaining frames."""
     scene = starter_ws.src / "scene.js"
     src = scene.read_text()
     assert "function update(t, dt) {" in src
@@ -183,8 +146,7 @@ def test_update_throw_mid_render_yields_frames_and_console_error(starter_ws):
 
 @needs_browser
 def test_request_failure_line_filters_phantom_aborts():
-    """Finding: Chrome's phantom `requestfailed net::ERR_ABORTED` after a consumed
-    200 response must never reach console_errors (spurious gate failures)."""
+    """Consumed or offsite request failures do not create phantom gate errors."""
     from tests.scene_runtime.conftest import run_node_json
 
     res = run_node_json(

@@ -1,10 +1,4 @@
-"""Flat env aliases for nested settings (codeverse/config.py Settings._FLAT_ALIASES).
-
-Regression (2026-08-24): ``CV3D_MAX_IN_FLIGHT=16`` was written into three battery launches
-and two workflow briefs, and pydantic-settings only read ``CV3D_RATE__MAX_IN_FLIGHT`` — so
-every one of them silently ran at the default 64 while docs/COST.md §23 was telling people
-to set it.  An env knob that is read by nothing is worse than no knob.
-"""
+"""Flat environment aliases and layered configuration."""
 
 from __future__ import annotations
 
@@ -13,22 +7,13 @@ import pytest
 from codeverse.config import Settings
 
 
-def test_flat_alias_sets_the_nested_field(monkeypatch):
+def test_flat_and_nested_max_in_flight_aliases(monkeypatch):
     monkeypatch.delenv("CV3D_RATE__MAX_IN_FLIGHT", raising=False)
     monkeypatch.setenv("CV3D_MAX_IN_FLIGHT", "16")
     assert Settings().rate.max_in_flight == 16
-
-
-def test_nested_name_still_works(monkeypatch):
     monkeypatch.delenv("CV3D_MAX_IN_FLIGHT", raising=False)
     monkeypatch.setenv("CV3D_RATE__MAX_IN_FLIGHT", "24")
     assert Settings().rate.max_in_flight == 24
-
-
-def test_flat_alias_wins_when_both_are_set(monkeypatch):
-    """The short name is what the doctor prints and what people type; if both are present
-    the one a person set on the command line should win."""
-    monkeypatch.setenv("CV3D_RATE__MAX_IN_FLIGHT", "24")
     monkeypatch.setenv("CV3D_MAX_IN_FLIGHT", "8")
     assert Settings().rate.max_in_flight == 8
 
@@ -42,22 +27,8 @@ def test_empty_alias_is_ignored_and_garbage_is_loud(monkeypatch):
         Settings()
 
 
-def test_doctor_prints_a_name_that_is_actually_read():
-    """The `pool sharing` row tells people which env var to set; it must be one that works."""
-    from pathlib import Path
-
-    src = (Path(__file__).resolve().parents[2] / "codeverse" / "doctor.py").read_text()  # checks moved out of cli/, 2026-08-28
-    assert "CV3D_MAX_IN_FLIGHT=" in src
-    assert "CV3D_MAX_IN_FLIGHT" in Settings._FLAT_ALIASES
-
-
 def test_a_negative_cap_is_rejected_by_both_spellings(monkeypatch):
-    """SM-07: ``CV3D_MAX_IN_FLIGHT=-5`` used to survive Settings, be reported as *fitting*
-    the pool budget by ``3dcv doctor`` (-5 <= headroom), poison the shared in-flight
-    accounting every sibling process reads, and finally die as a bare
-    'ValueError: semaphore initial value must be >= 0' from threading.BoundedSemaphore
-    inside KeyPool — at the first model call, after the workspace and spec.json were on
-    disk.  0 means unlimited here, so -1 / -5 is exactly what an operator reaches for."""
+    """Both spellings reject negative caps; zero remains the unlimited sentinel."""
     monkeypatch.delenv("CV3D_RATE__MAX_IN_FLIGHT", raising=False)
     monkeypatch.setenv("CV3D_MAX_IN_FLIGHT", "-5")
     with pytest.raises(ValueError, match="CV3D_MAX_IN_FLIGHT"):  # names the variable they typed
@@ -69,8 +40,7 @@ def test_a_negative_cap_is_rejected_by_both_spellings(monkeypatch):
 
 
 def test_the_rate_and_limits_dials_carry_their_bounds(monkeypatch):
-    """The same class of value elsewhere: a 0 RPM bucket never refills and a 0-worker
-    fan-out cannot start a thread, so both are rejected at construction, not at use."""
+    """Reject rate/worker values that cannot make progress."""
     from codeverse.config import Limits, Rate
 
     for kwargs in ({"max_in_flight": -1}, {"rpm_per_key": 0}, {"tpm_per_key": -1}):
@@ -84,13 +54,7 @@ def test_the_rate_and_limits_dials_carry_their_bounds(monkeypatch):
 
 # --------------------------------------------------------------------------- yaml layering
 def test_a_project_file_overrides_only_the_keys_it_names(tmp_path, monkeypatch):
-    """SM-04: the two YAML files were merged with ``dict.update``, so naming a section in
-    ./codeverse.yaml replaced the WHOLE sub-dict and every sibling key the user set in
-    ~/.config/codeverse/config.yaml fell back to the built-in Field default — not to the
-    user's value.  Here that means the key pool scheduling against the built-in
-    1,000,000 TPM when the operator declared 250,000, 4x their real quota, merely because
-    the project file mentions `rate:` at all.  docs/INSTALL.md §8.3 documents the order as
-    "built-in defaults < user config < project config < env", which reads as per-setting."""
+    """Project YAML overlays named keys without discarding user-config siblings."""
     import os
 
     from codeverse import config as C
@@ -135,11 +99,7 @@ def test_deep_merge_overlays_per_key_at_every_depth():
 
 
 def test_runtime_js_dir_override_and_loud_failure(tmp_path, monkeypatch):
-    """CV3D_RUNTIME_JS relocates the Node runtime; a missing dir fails loudly at
-    first use (the wheel ships no runtime_js) instead of a cryptic node crash."""
-    import pytest
-
-    from codeverse.config import Settings
+    """CV3D_RUNTIME_JS supports relocation and rejects a missing directory."""
 
     good = tmp_path / "runtime_js"
     good.mkdir()

@@ -17,7 +17,6 @@ from codeverse.contracts.chat import ChatResponse
 from codeverse.contracts.common import Language, Track, Usage
 from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse.contracts.spec import Spec
-from codeverse.texturing.generate import FakeImageModel
 
 
 def _box(ext: tuple[float, float, float], center: tuple[float, float, float]) -> trimesh.Trimesh:
@@ -75,11 +74,6 @@ def chair_plan() -> StaticPlan:
 @pytest.fixture
 def chair_spec() -> Spec:
     return Spec(id="t1", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a simple oak chair with brushed steel legs")
-
-
-@pytest.fixture
-def fake_image_model() -> FakeImageModel:
-    return FakeImageModel()
 
 
 def fake_render(glb: Path | str, out_dir: Path | str, *, views: Any, width: int = 512, height: int = 512, **_: Any) -> RenderSet:

@@ -66,6 +66,10 @@ def test_render_scene_js_contents():
     assert "crane: '/assets/crane.glb'" in src
     assert "name: 'overview', position: [1, 2, 3]" in src
     assert "import { buildEnv, heightAt } from './env.js';" in src
+    assert "const addZone = async (build, name) => {" in src
+    assert "const g = await build(ctx);" in src
+    assert "await addZone(buildHarbour, 'Harbour');" in src
+    assert "const env = (await buildEnv(ctx)) || {};" in src
     src2 = render_scene_js([], cams, [], env_ok=False)
     assert "env.js" not in src2 and "heightAt: () => 0" in src2
 
@@ -114,17 +118,6 @@ def test_assemble_end_to_end_excludes_broken_zone(starter_ws):
     src = (starter_ws.src / "scene.js").read_text()
     assert "broken" not in src
     assert lint(starter_ws).passed
-
-
-def test_render_scene_js_awaits_async_builds():
-    """Finding: lint + the assembler probe accept `export async function build(ctx)`,
-    so the generated scene.js must await build/buildEnv instead of throwing on the Promise."""
-    cams = [CameraPlan(name="overview", position=(1, 2, 3), look_at=(0, 0, 0), fov=50)]
-    src = render_scene_js(["orchard"], cams, [], env_ok=True)
-    assert "const addZone = async (build, name) => {" in src
-    assert "const g = await build(ctx);" in src
-    assert "await addZone(buildOrchard, 'Orchard');" in src
-    assert "const env = (await buildEnv(ctx)) || {};" in src
 
 
 @pytest.mark.node

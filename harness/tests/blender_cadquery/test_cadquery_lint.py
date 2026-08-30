@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from codeverse.contracts.artifacts import Severity
 from codeverse.languages.cadquery import lint_cadquery_source
 
@@ -60,20 +58,18 @@ def _rotate_src(expr: str, prelude: str = "") -> str:
             f"w = cq.Workplane().box(1, 1, 1).rotate((0, 0, 0), (0, 0, 1), {expr})\nresult = cq.Assembly()\nresult.add(w, name='Part')\n")
 
 
-@pytest.mark.parametrize("expr", ["i * 360 / n_pins", "i * pitch_deg", "360 / spindles", "math.degrees(a) * 2",
-                                  "a * 180 / math.pi", "180 / math.pi * a", "360 * a / (2 * math.pi)", "np.rad2deg(a) / 2",
-                                  "math.degrees(math.pi / 4)", "90", "pitch_deg"])
-def test_rotate_degrees_expressions_are_not_flagged(expr: str) -> None:
-    """Identifiers merely containing the letters 'pi' (n_pins, pitch, spindles) and rad→deg conversions are degrees."""
-    r = lint_cadquery_source(_rotate_src(expr))
-    assert r.passed and not any("DEGREES" in m for m in _msgs(r)), (expr, _msgs(r))
-
-
-@pytest.mark.parametrize("expr", ["math.pi / 2", "i * 2 * math.pi / n_pins", "math.pi", "math.radians(30) * 2", "math.radians(a)",
-                                  "math.tau / 4", "a * math.pi / 180", "np.deg2rad(30)", "-math.pi / 2"])
-def test_rotate_radians_expressions_are_flagged(expr: str) -> None:
-    r = lint_cadquery_source(_rotate_src(expr))
-    assert not r.passed and any("DEGREES" in m for m in _msgs(r, Severity.ERROR)), (expr, _msgs(r))
+def test_rotate_angle_expression_table() -> None:
+    degrees = ("i * 360 / n_pins", "i * pitch_deg", "360 / spindles", "math.degrees(a) * 2",
+               "a * 180 / math.pi", "180 / math.pi * a", "360 * a / (2 * math.pi)",
+               "np.rad2deg(a) / 2", "math.degrees(math.pi / 4)", "90", "pitch_deg")
+    radians = ("math.pi / 2", "i * 2 * math.pi / n_pins", "math.pi", "math.radians(30) * 2",
+               "math.radians(a)", "math.tau / 4", "a * math.pi / 180", "np.deg2rad(30)", "-math.pi / 2")
+    for expr in degrees:
+        r = lint_cadquery_source(_rotate_src(expr))
+        assert r.passed and not any("DEGREES" in m for m in _msgs(r)), (expr, _msgs(r))
+    for expr in radians:
+        r = lint_cadquery_source(_rotate_src(expr))
+        assert not r.passed and any("DEGREES" in m for m in _msgs(r, Severity.ERROR)), (expr, _msgs(r))
 
 
 def test_bare_workplane_warns() -> None:

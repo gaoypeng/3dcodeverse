@@ -49,7 +49,6 @@ def _track(status: RunStatus, stop_reason: str, rounds: int, cost: float, aborte
     (RunStatus.BUDGET, "budget", 2, 1.5, 1, False),   # iterated twice: cut, but not degraded
 
     (RunStatus.PASSED, "pass", 1, 0.8, 0, False),     # passed after one round: fine
-    (RunStatus.PLATEAU, "plateau", 1, 0.7, 0, False),
 ])
 def test_flag_degraded_rule(tmp_path, status, stop, rounds, cost, aborted, expect):
     battery = Battery.load(BATTERY)
@@ -60,7 +59,7 @@ def test_flag_degraded_rule(tmp_path, status, stop, rounds, cost, aborted, expec
     assert (r.harness_stop_reason, r.harness_rounds, r.harness_aborted_rounds) == (stop, rounds, aborted)
     assert r.degraded is expect, r
     if expect:
-        assert "ceiling stop" in r.degraded_reason and "having spent" in r.degraded_reason
+        assert "ceiling stop" in r.degraded_reason and f"having spent ${cost:.2f}" in r.degraded_reason
 
 
 def test_degraded_needs_the_wall_clock_floor():

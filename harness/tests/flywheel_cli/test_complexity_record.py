@@ -9,25 +9,20 @@ what does a complexity point cost?" (docs/COMPLEXITY.md).
 from __future__ import annotations
 
 import json
-import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from bench import complexity_report as CR
+from codeverse.contracts.artifacts import Judgment, Measurement
+from codeverse.contracts.common import Backends, Language, Track, Usage
+from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
+from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
+from codeverse.contracts.spec import Spec
+from codeverse.flywheel.record import complexity_block, fill_derived, round_summary
+
 REPO = Path(__file__).resolve().parents[2]
-if str(REPO) not in sys.path:
-    sys.path.insert(0, str(REPO))
-
-from datetime import UTC  # noqa: E402
-
-from bench import complexity_report as CR  # noqa: E402
-from codeverse.contracts.artifacts import Judgment, Measurement  # noqa: E402
-from codeverse.contracts.common import Backends, Language, Track, Usage  # noqa: E402
-from codeverse.contracts.plan import BBox, PartPlan, StaticPlan  # noqa: E402
-from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus  # noqa: E402
-from codeverse.contracts.spec import Spec  # noqa: E402
-from codeverse.flywheel.record import complexity_block, fill_derived, round_summary  # noqa: E402
 
 
 def _measurement(index: float, parts: int = 8) -> Measurement:

@@ -14,12 +14,6 @@ from codeverse.skills.model import EVIDENCE_INHERITED
 from codeverse.skills.registry import QUIET_KINDS, plan_signals, select, skills_for
 from tests.skills.conftest import write_bundle
 
-TRACK_OF = {
-    "blender": "static_object", "cadquery": "static_object", "threejs": "static_object",
-    "urdf_blender": "articulated_object", "scene_threejs": "scene",
-    "glsl_shader": "graphics", "opengl_python": "graphics",
-}
-
 
 def part(name="Leg", instances=1, symmetry="none", children=()):
     return NS(name=name, instances=instances, symmetry=symmetry, children=list(children))

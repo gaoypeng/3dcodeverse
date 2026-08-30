@@ -79,10 +79,7 @@ def test_the_switch_is_read_at_call_time(ws, monkeypatch):
     assert _listed(ws) == ["cv3d-bbox-contract"], "attach_skills must consult the env when only= is omitted"
 
 
-def test_pinning_one_bundle_still_permits_a_pinned_plan():
-    """The switch is generation-side, so bench/ab_plan.py --pin-plan stays available —
-    which is the only reason this wave is measurable where the plan loop was not."""
-    from codeverse.tracks.plan_features import LIVE_SWITCHES, pin_plan_blockers
+def test_the_switch_is_registered_live():
+    from codeverse.tracks.plan_features import LIVE_SWITCHES
 
     assert SKILLS_ONLY_ENV in LIVE_SWITCHES, "an unregistered switch is one ab_plan calls dead"
-    assert pin_plan_blockers({"CV3D_SKILLS": "1", SKILLS_ONLY_ENV: "cv3d-bbox-contract"}) == []

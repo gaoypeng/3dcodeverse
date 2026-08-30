@@ -102,13 +102,7 @@ def test_defect_majority_vote_with_odd_n(judge_input, cache_dir):
 
 
 def test_defect_vote_ties_follow_the_representative_sample(judge_input, cache_dir, caplog):
-    """D36: an exact tie (even n) is decided by the representative sample, not a fixed direction.
-
-    Under the old rule (ties → present) ONE dissenting sample at n=2 applied the penalty,
-    so n=2 was strictly harsher than n=1 and n=3.  With two samples both are equally close
-    to the mean, so the representative is the first one — the decision follows s0 in BOTH
-    directions, and the id is reported in ``tie_broken``.
-    """
+    """Exact defect-vote ties follow the representative sample."""
     flagged_first = FakeChatModel(by_label={":s0": [_reply(0.9, ["render_artifacts"])], ":s1": [_reply(0.9)]})
     with caplog.at_level("WARNING", logger="codeverse.judges.vlm_judge"):
         j = VlmJudge("static_object_v1", chat_model=flagged_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)

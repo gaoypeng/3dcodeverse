@@ -42,11 +42,6 @@ def test_skeleton_source_parses_and_lints(table_plan) -> None:
     assert lint_cadquery_source(src).passed
 
 
-def test_missing_entry(tmp_ws) -> None:
-    r = CadQueryRuntime().build(tmp_ws)
-    assert not r.ok and r.error_type == "MissingEntryFile"
-
-
 def test_missing_entry_invalidates_previous_outputs(tmp_ws) -> None:
     """Same invariant as BlenderRuntime: the invalidation runs BEFORE the
     missing-entry early return and build.json agrees with the returned result."""

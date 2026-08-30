@@ -1,17 +1,9 @@
-"""finding_kind() against real gate text, and the shape of the route table (T5).
-
-The golden list in ``data/gate_findings.json`` was mined from 2,113 gate reports under
-``bench/out``.  It is the guard against the failure mode this classifier invites: a gate
-message gets reworded, ``finding_kind`` quietly returns None, and repair rounds stop
-getting the skill that answers them — with nothing failing anywhere.
-"""
+"""Classify the recorded gate-message corpus and validate the routing table."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-
-import pytest
 
 from codeverse.skills.registry import ROUTED_SKILLS, ROUTES, Route, finding_kind, finding_kinds
 
@@ -19,21 +11,14 @@ DATA = Path(__file__).parent / "data" / "gate_findings.json"
 GOLDEN = json.loads(DATA.read_text())["findings"]
 
 
-def test_the_golden_list_is_real_and_not_tiny():
+def test_every_recorded_finding_classifies_to_its_expected_kind():
     assert len(GOLDEN) >= 30
     assert {r["severity"] for r in GOLDEN} == {"warn", "error"}
-
-
-@pytest.mark.parametrize("row", GOLDEN, ids=[f"{r['gate']}:{r['kind']}:{i}" for i, r in enumerate(GOLDEN)])
-def test_every_recorded_finding_classifies_to_its_expected_kind(row: dict):
-    got = finding_kind(row["gate"], row["message"], row["severity"])
-    assert got is not None, f"unknown: {row['gate']} / {row['message'][:90]}"
-    assert got == row["kind"]
-
-
-def test_no_recorded_finding_is_unknown():
-    unknown = [r for r in GOLDEN if finding_kind(r["gate"], r["message"], r["severity"]) is None]
-    assert unknown == []
+    for index, row in enumerate(GOLDEN):
+        got = finding_kind(row["gate"], row["message"], row["severity"])
+        label = f"row {index} ({row['gate']} / {row['message'][:90]})"
+        assert got is not None, f"unknown {label}"
+        assert got == row["kind"], label
 
 
 def test_info_findings_are_census_not_defects():
@@ -67,9 +52,7 @@ def test_finding_kinds_accepts_reports_findings_and_strings():
 
 
 # --------------------------------------------------------------------------- the table
-#: route ids deliberately absent, and why.  A retired id is NEVER reused: a run record and
-#: a ledger row both refer to a routing decision by its id, so recycling R5 would silently
-#: relabel every historical "R5 fired" as a different skill.
+#: Retired ids remain reserved because run records refer to routing decisions by id.
 RETIRED_RULES = {"R5": "cv3d-form-manifest, cut 2026-08-25 (read 2/19); docs/skills-attic/"}
 
 

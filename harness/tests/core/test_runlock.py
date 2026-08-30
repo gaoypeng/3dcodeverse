@@ -38,10 +38,7 @@ def _child_script(run_root: Path, ready: Path, go: Path) -> str:
 
 
 def test_two_processes_cannot_hold_one_run(tmp_path: Path):
-    """Measured 2026-08-25: a lane launched `3dcv resume tsr_scn_temple_night` three
-    times and two ran concurrently on the same workspace for four minutes, both writing
-    run_state.json, both snapshotting src/ into the same git repo, both spending the
-    run's budget."""
+    """Two processes cannot concurrently mutate the same workspace."""
     import subprocess
     import sys
 
@@ -90,12 +87,7 @@ def test_a_dead_holder_never_wedges_a_run(tmp_path: Path):
 
 
 def test_a_second_thread_is_refused_and_the_first_keeps_the_lock(tmp_path: Path):
-    """The bench drivers run runs in a THREAD pool of one process.
-
-    Keying the held set on the path alone made a second thread walk straight into a run
-    the first was inside — and worse, whichever left first unlocked and closed the fd
-    while the other was still working, handing the run to any outside process.
-    """
+    """A refused sibling thread cannot release the owning thread's lock."""
     run_root = tmp_path / "runs" / "slug"
     run_root.mkdir(parents=True)
     entered, refused = threading.Event(), []
@@ -125,12 +117,7 @@ def test_a_second_thread_is_refused_and_the_first_keeps_the_lock(tmp_path: Path)
 
 
 def test_a_failed_record_write_leaks_nothing(tmp_path: Path, monkeypatch):
-    """The record write lives INSIDE the try that owns the fd.
-
-    Outside it, a failure left an fd holding the flock with nothing registered to release
-    it — every process was refused for the lifetime of this one, by a message naming an
-    empty holder.
-    """
+    """A failed holder-record write leaks neither fd nor in-process registry."""
     import codeverse.proc as R
 
     run_root = tmp_path / "runs" / "slug"
@@ -168,8 +155,7 @@ def test_the_lock_file_lives_outside_the_run_directory(tmp_path: Path):
 
 
 def test_force_refuses_to_wipe_a_run_another_holder_is_using(tmp_path: Path):
-    """`--force` means "overwrite a DEAD run", never "evict a running one": create_workspace
-    rmtree's the run root, and `make` holds the mutex around it (cli/main.py)."""
+    """``--force`` may overwrite a dead run, never evict a live holder."""
     import subprocess
     import sys
 

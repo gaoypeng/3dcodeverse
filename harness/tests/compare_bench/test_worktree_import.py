@@ -23,8 +23,10 @@ import pytest
 
 HARNESS = Path(__file__).resolve().parents[2]
 BENCH = HARNESS / "bench"
+CODEVERSE_IMPORT = re.compile(r"^\s*(?:from|import)\s+codeverse\b", re.M)
 #: every bench module that bootstraps sys.path because it is also run as a script
-SCRIPTS = sorted(p for p in BENCH.glob("*.py") if "sys.path.insert" in p.read_text())
+SCRIPTS = sorted(p for p in BENCH.glob("*.py")
+                 if "sys.path.insert" in p.read_text() and CODEVERSE_IMPORT.search(p.read_text()))
 
 
 def test_there_is_at_least_one_such_script():
@@ -35,9 +37,8 @@ def test_there_is_at_least_one_such_script():
 def test_the_sys_path_bootstrap_comes_before_any_codeverse_import(script: Path):
     text = script.read_text()
     boot = text.index("sys.path.insert")
-    first = re.search(r"^\s*(?:from|import)\s+codeverse\b", text, re.M)
-    if first is None:
-        pytest.skip(f"{script.name} imports no codeverse")
+    first = CODEVERSE_IMPORT.search(text)
+    assert first is not None  # filtered by SCRIPTS
     assert first.start() > boot, (
         f"{script.name} imports codeverse at line {text[:first.start()].count(chr(10)) + 1}, "
         f"before its sys.path bootstrap at line {text[:boot].count(chr(10)) + 1}. A child "

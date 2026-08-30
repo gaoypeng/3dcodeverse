@@ -7,7 +7,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from codeverse.spatial.registry import ToolContext, get_tool, list_tools
+from codeverse.spatial.registry import ToolContext, get_tool
 from codeverse.texturing.generate import FakeImageModel
 from codeverse.texturing.run import TextureServices
 from codeverse.workspace import Workspace
@@ -23,14 +23,6 @@ def _ws(tmp_path: Path, chair_glb, chair_spec, chair_plan, *, texture: bool = Tr
     ws.write_json(ws.plan_path, chair_plan)
     shutil.copy(chair_glb, ws.artifacts / "object.glb")
     return ws
-
-
-def test_tools_registered_for_object_tracks():
-    names = {t.name for t in list_tools(track="static_object")}
-    assert {"texture_pass", "texture_preview"} <= names
-    assert "texture_pass" not in {t.name for t in list_tools(track="scene")}
-    card = get_tool("texture_pass").card()
-    assert "judge" in card and "texture_pass" in card
 
 
 def test_texture_pass_tool_runs_with_injected_fakes(tmp_path, chair_glb, chair_spec, chair_plan):

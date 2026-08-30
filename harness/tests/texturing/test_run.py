@@ -8,7 +8,13 @@ from pathlib import Path
 
 from codeverse.contracts.run import RunRecord
 from codeverse.texturing.generate import FakeImageModel
-from codeverse.texturing.run import TextureReport, latest_sheet, load_report, texture_pass
+from codeverse.texturing.run import (
+    TextureReport,
+    TextureServices,
+    latest_sheet,
+    load_report,
+    texture_pass,
+)
 from codeverse.workspace import Workspace
 from tests.texturing.conftest import FakeJudge, fake_render
 
@@ -27,8 +33,9 @@ def test_texture_pass_ships_and_records(tmp_path, chair_glb, chair_spec, chair_p
     ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan)
     judge = FakeJudge([(0.70, {"materials": 0.6, "intent_fidelity": 0.8}), (0.73, {"materials": 0.75, "intent_fidelity": 0.8})])
     img = FakeImageModel(usd_per_image=0.05)
-    rep = texture_pass(ws, chair_spec, chair_plan, model_id="", image_model=img, judge_obj=judge, render=fake_render,
-                       cache_dir=tmp_path / "cache")
+    services = TextureServices(image_model=img, judge_obj=judge, render=fake_render,
+                               cache_dir=tmp_path / "cache")
+    rep = texture_pass(ws, chair_spec, chair_plan, model_id="", services=services)
     assert isinstance(rep, TextureReport) and rep.shipped and rep.delta == 0.03
     assert rep.plan.source == "default" and len(rep.textures.paths()) == 2
     assert (ws.artifacts / "object_textured.glb").is_file() and (ws.artifacts / "object.glb").read_bytes() == chair_glb.read_bytes()
@@ -73,15 +80,3 @@ def test_texture_pass_no_judge_and_all_failed(tmp_path, chair_glb, chair_spec, c
                         render=fake_render, cache_dir=tmp_path / "cache2")
     assert not rep2.shipped and rep2.apply is None and rep2.glb_out == "" and rep2.textures.failed()
     assert not (ws2.artifacts / "object_textured.glb").exists()
-
-
-def test_texture_services_bundle_and_deprecated_judge_object(tmp_path, chair_glb, chair_spec, chair_plan):
-    from codeverse.texturing.run import TextureServices
-
-    # services bundles the five injection params (explicit kwargs would win)
-    ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan)
-    judge = FakeJudge([(0.70, {"materials": 0.6}), (0.73, {"materials": 0.75})])
-    services = TextureServices(image_model=FakeImageModel(), judge_obj=judge, render=fake_render,
-                               cache_dir=tmp_path / "cache")
-    rep = texture_pass(ws, chair_spec, chair_plan, model_id="", services=services)
-    assert rep.shipped and rep.gate is not None

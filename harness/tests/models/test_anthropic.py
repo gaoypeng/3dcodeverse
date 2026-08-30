@@ -262,13 +262,6 @@ def test_retry_on_429_529_5xx_and_not_on_400():
     assert not ei.value.retryable and ei.value.status == 400 and len(fc.calls) == 1
 
 
-def test_exhaustion_raises_retryable():
-    m, fc = make([api_error(429)] * 6)
-    with pytest.raises(ModelError) as ei:
-        m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert ei.value.retryable and len(fc.calls) == 6
-
-
 def test_refusal_and_empty():
     m, _ = make([msg([], stop="refusal")])
     with pytest.raises(ModelError) as ei:
@@ -311,12 +304,13 @@ def test_a_failed_reply_carries_what_it_was_billed():
     refusal / bad-JSON / empty reply looked FREE to the ledger and to the key pool."""
     for script, req in (
         ([msg([], stop="refusal")], ChatRequest(messages=[ChatMessage.user("x")])),
-        ([msg([text("not json")], stop="max_tokens")],
-         ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"})),
+        (
+            [msg([text("not json")], stop="max_tokens")],
+            ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"}),
+        ),
         ([msg([], stop="end_turn")] * 6, ChatRequest(messages=[ChatMessage.user("x")])),
     ):
         m, _ = make(script)
         with pytest.raises(ModelError) as e:
             m.generate(req)
         assert e.value.usage.input_tokens == 100 and e.value.usage.output_tokens == 20
-

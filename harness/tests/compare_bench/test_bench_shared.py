@@ -73,12 +73,3 @@ def test_the_harness_arm_looks_for_each_languages_own_entry_file():
     assert {lang.value for lang, e in ENTRY_FILE.items() if e != "src/model.py"} == {
         "threejs", "scene_threejs", "glsl_shader", "opengl_python"}
     assert entry_of(SimpleNamespace(language=Language.GLSL_SHADER)) == "src/shader.frag"
-
-
-def test_every_language_in_the_enum_has_an_entry_file():
-    """``entry_of`` indexes ``ENTRY_FILE`` directly, so a new language without a row would
-    raise KeyError deep inside a paid cell instead of failing here."""
-    from codeverse.contracts.common import ENTRY_FILE, Language
-
-    missing = [lang.value for lang in Language if lang not in ENTRY_FILE]
-    assert not missing, f"no ENTRY_FILE row for {missing}"

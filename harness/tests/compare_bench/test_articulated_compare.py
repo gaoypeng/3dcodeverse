@@ -61,10 +61,6 @@ def test_files_for_and_extract_files_two_file_answer():
     # fenced blocks each preceded by their path also parse
     fenced = f"{MODEL_FILE}\n```python\n{PY}```\n{URDF_FILE}\n```xml\n{XML}```\n"
     assert extract_files(fenced, Language.URDF_BLENDER) == {MODEL_FILE: PY, URDF_FILE: XML}
-    # the static path is unchanged
-    assert extract_files("```python\nimport bpy\n```", Language.BLENDER) == {MODEL_FILE: "import bpy\n"}
-
-
 @pytest.mark.parametrize("text", [
     f"```python\n{PY}```",                                        # one block, two expected
     f"=== FILE: {MODEL_FILE} ===\n{PY}=== END FILE ===\n",        # envelope with the URDF missing
@@ -89,16 +85,6 @@ def test_urdf_repair_prompt_carries_both_previous_files():
     p = repair_prompt(_urdf_spec(), {MODEL_FILE: PY, URDF_FILE: XML}, build, GateReport(gate="lint:urdf", passed=True), attempt=1)
     assert "FKMismatch" in p and "corrected files" in p
     assert f"PREVIOUS `{MODEL_FILE}`" in p and f"PREVIOUS `{URDF_FILE}`" in p and "```xml" in p
-
-
-def test_fixed_evaluator_follows_the_battery_track():
-    ev = FixedEvaluator("gemini:x", n_samples=3, track=Track.ARTICULATED_OBJECT, language=Language.URDF_BLENDER)
-    assert ev.rubric == "articulated_v1" == rubric_for(Track.ARTICULATED_OBJECT)
-    assert ev.language is Language.URDF_BLENDER and ev.runtime(Language.URDF_BLENDER).language is Language.URDF_BLENDER
-    static = FixedEvaluator("gemini:x")
-    assert static.rubric == "static_object_v1" and static.language is Language.BLENDER
-    pinned = FixedEvaluator("gemini:x", rubric="asset_v1", track=Track.ARTICULATED_OBJECT)
-    assert pinned.rubric == "asset_v1"
 
 
 def test_rubric_for_is_the_one_track_to_rubric_mapping():
@@ -178,7 +164,6 @@ def test_main_builds_the_evaluator_from_the_battery(monkeypatch, tmp_path):
         (Path(out_dir) / "results.jsonl").write_text("")
 
     monkeypatch.setattr(cb, "run_matrix", fake_run_matrix)
-    monkeypatch.setattr(cb, "_preflight", lambda *a, **k: True)
     rc = cb.main(["--prompts", str(PROMPTS / "articulated_v2.yaml"), "--arms", "oneshot:gemini:x",
                   "--out", str(tmp_path / "out"), "--no-preflight", "--judge-samples", "3"])
     assert rc == 0

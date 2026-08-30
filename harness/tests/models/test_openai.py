@@ -169,8 +169,10 @@ def test_tool_roundtrip_and_images_in_tool_results():
         description="d",
         parameters={"type": "object", "properties": {"part": {"type": "string"}}},
     )
+    bad = NS(id="bad", type="function", function=NS(name="measure", arguments="{not json"))
     m, fc = make(
         [
+            completion(None, tool_calls=[bad], finish="tool_calls"),
             completion(
                 None, tool_calls=[tc("call_1", "measure", {"part": "all"})], finish="tool_calls"
             ),
@@ -187,8 +189,8 @@ def test_tool_roundtrip_and_images_in_tool_results():
         and r.text == ""
     )
     assert (
-        fc.calls[0]["tools"][0]["function"]["name"] == "measure"
-        and fc.calls[0]["tool_choice"] == "auto"
+        fc.calls[1]["tools"][0]["function"]["name"] == "measure"
+        and fc.calls[1]["tool_choice"] == "auto"
     )
     msgs = [
         *req.messages,
@@ -207,7 +209,7 @@ def test_tool_roundtrip_and_images_in_tool_results():
     ]
     r2 = m.generate(ChatRequest(messages=msgs, tools=[tool]))
     assert r2.text == "45 cm"
-    sent = fc.calls[1]["messages"]
+    sent = fc.calls[2]["messages"]
     assert (
         sent[1]["role"] == "assistant"
         and sent[1]["tool_calls"][0]["function"]["arguments"] == '{"part": "all"}'
@@ -215,20 +217,6 @@ def test_tool_roundtrip_and_images_in_tool_results():
     assert sent[2] == {"role": "tool", "tool_call_id": "call_1", "content": "0.45"}
     assert sent[3]["role"] == "user" and sent[3]["content"][0]["type"] == "image_url"
     assert sent[3]["content"][0]["image_url"]["url"].startswith("data:image/png;base64,")
-
-
-def test_bad_tool_arguments_retryable():
-    bad = NS(id="c", type="function", function=NS(name="f", arguments="{not json"))
-    m, fc = make([completion(None, tool_calls=[bad], finish="tool_calls"), completion("fine")])
-    assert (
-        m.generate(
-            ChatRequest(
-                messages=[ChatMessage.user("x")],
-                tools=[ToolSpec(name="f", description="d", parameters={})],
-            )
-        ).text
-        == "fine"
-    )
 
 
 def test_images_data_urls():
@@ -284,13 +272,17 @@ def test_a_failed_reply_carries_what_it_was_billed():
     """Both raise sites had ``usage`` in hand (built two lines above) and dropped it:
     a bad-JSON or empty completion is billed exactly like a good one."""
     for script, req in (
-        ([completion("not json", finish="length")],
-         ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"})),
-        ([completion(None, finish="content_filter")], ChatRequest(messages=[ChatMessage.user("x")])),
+        (
+            [completion("not json", finish="length")],
+            ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"}),
+        ),
+        (
+            [completion(None, finish="content_filter")],
+            ChatRequest(messages=[ChatMessage.user("x")]),
+        ),
     ):
         m, _ = make(script)
         with pytest.raises(ModelError) as e:
             m.generate(req)
         u = e.value.usage
         assert u.input_tokens == 100 and u.output_tokens == 20 and u.thoughts_tokens == 10
-

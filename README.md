@@ -31,7 +31,7 @@ for the data flywheel.  Generation backends: the vendor coding CLIs
 Gemini / Anthropic / OpenAI models.
 
 ```bash
-bash harness/scripts/setup.sh        # python deps + node runtime + doctor (Linux, python 3.13, node 20.6+)
+bash harness/setup.sh        # python deps + node runtime + doctor (Linux, python 3.13, node 20.6+)
 3dcv make "a mid-century wooden dining chair" --track static_object --language blender
 3dcv gallery serve                   # browse every run in the browser
 ```

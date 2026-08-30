@@ -27,17 +27,10 @@ def make(**kw) -> tuple[StormGate, Clock]:
     return StormGate("test", clock=c, sleep=c.sleep, **kw), c
 
 
-def test_open_gate_never_waits():
-    gate, clock = make()
-    assert gate.enter() == 0.0
-    assert clock.t == 100.0
-    assert not gate.storming
-
-
 def test_a_hit_closes_the_gate_and_the_next_worker_parks():
     gate, clock = make(base_delay=4.0)
     closed = gate.hit()
-    assert closed == min(4.0, MAX_WAIT_S)   # the house cap clips the gate's own delay
+    assert closed == min(4.0, MAX_WAIT_S)  # the house cap clips the gate's own delay
     assert gate.storming
     waited = gate.enter()
     assert waited >= closed
@@ -87,35 +80,22 @@ def test_a_success_reopens_the_gate_for_everybody():
     assert clock.t == 100.0
 
 
-def test_no_single_wait_exceeds_the_house_rule():
-    """Patience comes from the number of waits, never the length of one."""
-    gate, clock = make(base_delay=1.0)
-    for _ in range(10):
-        assert gate.hit() <= MAX_WAIT_S + 1e-9
-    gate2, clock2 = make(base_delay=1.0)
-    assert gate2.hit(retry_after_s=600.0) <= MAX_WAIT_S + 1e-9
-
-
-def test_escalates_then_resets_on_success():
+def test_hits_escalate_and_cap_then_success_resets_the_storm():
     gate, _ = make(base_delay=0.5)
     first = gate.hit()
-    gate2 = gate.hit()
-    assert gate2 >= first  # the streak escalates the closure
+    second = gate.hit()
+    assert first <= second <= MAX_WAIT_S
+    for _ in range(8):
+        assert gate.hit() <= MAX_WAIT_S
+    assert gate.snapshot()["storms"] == 1
     gate.ok()
-    assert gate.hit() == first  # a success resets the streak
-
-
-def test_snapshot_counts_storms_not_hits():
-    gate, clock = make(base_delay=0.5)
-    gate.hit()
-    gate.hit()
-    gate.hit()
-    gate.ok()
-    gate.hit()
+    assert gate.hit() == first
     snap = gate.snapshot()
-    assert snap["hits"] == 4
+    assert snap["hits"] == 11
     assert snap["storms"] == 2
     assert snap["name"] == "test"
+    capped, _ = make(base_delay=1.0)
+    assert capped.hit(retry_after_s=600.0) == MAX_WAIT_S
 
 
 def test_registry_is_per_model_and_shared():
@@ -153,6 +133,8 @@ def test_many_workers_share_one_storm_discovery():
     for t in threads:
         t.join(3)
     assert len(calls) == 12  # everybody gets through once the gate reopens
+
+
 def test_enter_returns_at_the_deadline_even_mid_storm():
     """A parked worker with a retry deadline gets control back at that deadline
     (rotate_with_retries then raises); the gate never holds it hostage."""

@@ -118,19 +118,11 @@ def test_workspace_git_roundtrip(tmp_ws):
     assert (tmp_ws.src / "a.py").read_text() == "x = 1\n"
 
 
-def test_budget_forbids_retired_and_unknown_fields():
-    """The money ceiling was deleted 2026-08-28: a stale caller (or a typo) must raise,
-    never be silently swallowed into a default Budget."""
+def test_budget_is_strict_but_recorded_specs_migrate_the_retired_cost_key():
     with pytest.raises(ValidationError):
         Budget(max_usd=1.0)
     with pytest.raises(ValidationError):
         Budget(max_minuts=5)
-
-
-def test_recorded_spec_with_retired_budget_key_still_loads():
-    """Pre-deletion runs carry budget.max_usd in spec.json / record.json; the ONE
-    migration point (Spec._strip_retired_budget_keys) drops it before validation, so
-    resume and flywheel reads keep working while Budget stays strict."""
     import json
 
     data = {"id": "x", "track": "static_object", "language": "blender", "prompt": "p",

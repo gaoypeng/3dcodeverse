@@ -28,8 +28,6 @@ LIBRARY = all_skills()
 #: the routed index (an unclassified, loaderless backend) is the only index we write
 API_INDEX_TOKENS_MAX = 400
 API_INDEX_BYTES_MAX = 2048
-#: a native loader gets one sentence — its own loader writes the real index
-NATIVE_INDEX_TOKENS_MAX = 60
 
 TRACKS = ("static_object", "articulated_object", "scene", "graphics")
 LANGUAGES = ("blender", "cadquery", "threejs", "urdf_blender", "scene_threejs",
@@ -59,5 +57,4 @@ def test_the_api_agent_index_stays_inside_its_budget_with_the_whole_library_inst
     tokens = index_tokens(worst[3], "api-agent")
     assert tokens <= API_INDEX_TOKENS_MAX, f"{worst[:3]} costs {tokens} tokens of message 0"
     assert len(index_block(worst[3], "unknown-backend").encode()) <= API_INDEX_BYTES_MAX
-
 
