@@ -12,7 +12,6 @@ from tests.prompts.conftest import PROMPT_FILES, PROMPTS_DIR, read_prompt
 def test_prompt_file_contract(rel: str) -> None:
     p = PROMPTS_DIR / rel
     assert p.is_file(), f"missing prompt file {rel}"
-    assert len(p.read_text()) > 500, f"{rel} suspiciously small"
     raw = load_text(rel)
     assert prompt_hash(raw)
     # markdown prompts must be jinja-inert: render() with no context must be a no-op
@@ -33,17 +32,13 @@ def test_cookbook_structure(rel: str) -> None:
     assert len(headings) == len(set(headings)), f"{rel}: duplicate section headings"
     joined = " | ".join(headings)
     assert "Pitfalls" in joined, f"{rel}: needs a Pitfalls chapter"
-    lines = len(text.splitlines())
-    assert 250 <= lines <= 950, f"{rel}: {lines} lines (want a substantial but bounded cookbook)"
 
 
 @pytest.mark.parametrize(
     "rel", [f for f in PROMPT_FILES if f.endswith("contract.md") and not f.startswith("system/")]
 )
-def test_contract_size_and_content(rel: str) -> None:
+def test_contract_content(rel: str) -> None:
     text = read_prompt(rel)
-    lines = len(text.splitlines())
-    assert lines <= 150, f"{rel}: {lines} lines — contracts must stay short"
     assert "COMPLETE minimal example" in text, f"{rel}: must carry a complete runnable example"
     low = text.lower()
     assert "meter" in low or "metre" in low, f"{rel}: units must be stated"

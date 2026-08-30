@@ -4,7 +4,7 @@
 module must therefore stay standalone (no ``codeverse`` imports).  It inspects the scene
 after the agent script ran: evaluated triangle counts, world bboxes, materials, parents,
 and the contract warnings the build cannot otherwise see (cameras, lights, visible
-boolean cutters, unlinked meshes, default primitive names).
+boolean cutters, unlinked meshes, default primitive names, material slots no polygon uses).
 """
 
 from __future__ import annotations
@@ -52,6 +52,7 @@ def _object_record(obj: Any, dg: Any, scene_objects: set[str], vl_names: set[str
         "in_view_layer": obj.name in vl_names,
         "hidden": is_hidden(obj, vl_names),
         "materials": [s.material.name for s in obj.material_slots if s.material],
+        "n_material_slots": len(obj.material_slots),
         "modifiers": [m.type for m in obj.modifiers],
         "location": [round(v, 5) for v in obj.matrix_world.translation],
     }
@@ -64,6 +65,13 @@ def _object_record(obj: Any, dg: Any, scene_objects: set[str], vl_names: set[str
             rec["vert_count"] = len(me.vertices)
             rec["has_uv"] = bool(me.uv_layers)
             rec["has_vertex_colors"] = bool(me.color_attributes)
+            if rec["n_material_slots"] and len(me.polygons):
+                # which slots the EXPORT actually uses: modifiers can add indices the
+                # authored mesh never had (solidify's material_offset), and an index past
+                # the last slot is clamped at export instead of raising
+                per_poly = [0] * len(me.polygons)
+                me.polygons.foreach_get("material_index", per_poly)
+                rec["material_indices_used"] = sorted(set(per_poly))
             bb = world_bbox(ob_eval, Vector)
             ob_eval.to_mesh_clear()
         except RuntimeError as e:
@@ -73,6 +81,47 @@ def _object_record(obj: Any, dg: Any, scene_objects: set[str], vl_names: set[str
         if bb:
             rec["bbox_min"], rec["bbox_max"] = bb
     return rec
+
+
+def _named(items: list[str], limit: int = 6) -> str:
+    """Join at most ``limit`` names — the build shows only 10 warnings, one must not eat them all."""
+    head = ", ".join(items[:limit])
+    return head if len(items) <= limit else f"{head} (+{len(items) - limit} more)"
+
+
+def material_slot_warnings(meshes: list[dict[str, Any]]) -> list[str]:
+    """Material slots the polygons never use — the part was authored in N colours and exports in one.
+
+    Every new polygon starts on slot 0, so an assignment that silently no-opped (a real run
+    read ``res['faces']`` from ``bmesh.ops.create_cube``, which returns only ``{'verts'}``,
+    and shipped an 11-slot arm in one off-white) is invisible in the census's material list:
+    the materials are all there.  Only the per-polygon indices show it.
+    """
+    unused: list[str] = []
+    clamped: list[str] = []
+    for o in meshes:
+        used = o.get("material_indices_used")
+        n_slots = o.get("n_material_slots", 0)
+        if not used:
+            continue
+        if used[-1] >= n_slots:
+            clamped.append(f"'{o['name']}' (index {used[-1]}, {n_slots} slot(s))")
+        elif len(used) < n_slots:
+            unused.append(f"'{o['name']}' ({n_slots} slots, {len(used)} used)")
+    warnings: list[str] = []
+    if unused:
+        warnings.append(
+            f"mesh(es) {_named(unused)} carry material slots no polygon uses — those colours never reach "
+            "the export; assign per face (for f in bm.faces: f.material_index = k, BEFORE bm.to_mesh, or "
+            "poly.material_index on the built mesh — see the cookbook's material_index recipe) or drop the "
+            "unused slots"
+        )
+    if clamped:
+        warnings.append(
+            f"mesh(es) {_named(clamped)} have polygons on a material_index past the last slot: Blender "
+            "clamps them to the last material instead of raising; append the missing materials in slot order"
+        )
+    return warnings
 
 
 def _warnings(bpy: Any, objects: list[dict[str, Any]], boolean_operands: dict[str, list[str]],
@@ -103,6 +152,7 @@ def _warnings(bpy: Any, objects: list[dict[str, Any]], boolean_operands: dict[st
             warnings.append(f"mesh '{o['name']}' has no material (will export grey)")
         if DEFAULT_NAME_RE.match(o["name"]):
             warnings.append(f"mesh '{o['name']}' keeps a default primitive name; set obj.name = '<PartName>'")
+    warnings.extend(material_slot_warnings(visible))
     unlinked = [o["name"] for o in objects if o["type"] == "MESH" and not o["in_scene"]]
     if unlinked:
         warnings.append(f"mesh object(s) {unlinked} were created but never linked to the scene → not exported; "
