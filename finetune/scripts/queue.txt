@@ -10,3 +10,5 @@ mm1_singleview|bash scripts/run_9b_mm1.sh
 mmmix2_eval|bash scripts/run_mmmix2_eval.sh
 noise_profile|bash scripts/run_noise_profile.sh
 27b_mm_eval|bash scripts/run_27b_mm_eval.sh
+bal9b|bash scripts/run_9b_balanced.sh
+stopdpo_train|bash scripts/run_stop_dpo_train.sh
