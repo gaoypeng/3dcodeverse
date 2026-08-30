@@ -1,7 +1,7 @@
 """Paired analysis of a ``compare_backends`` battery: harness arm − one-shot arm per prompt.
 
 ``bench/_compare_report.py`` tabulates arms; this answers the paper's question — *is the
-harness lift separated from noise?* — the way ``docs/report.html`` §6 states it: every
+harness lift separated from noise?* — the way the retired compare report framed it: every
 comparison carries its paired standard error, a 95 % confidence interval and the exact
 two-sided sign test, and a comparison whose interval crosses zero is labelled
 ``unsupported`` however good the mean looks.

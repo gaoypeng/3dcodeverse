@@ -1226,7 +1226,7 @@ guard is now `len(failed_keys) < len(pool)`.
 
 
 
-**Follow-up, same day, from the time audit (51 storm-day runs vs 52 baseline; scripts retired 2026-08-28 — findings preserved in `docs/TIME_AUDIT_2026-08-26.md`).**
+**Follow-up, same day, from the time audit (51 storm-day runs vs 52 baseline; scripts retired 2026-08-28 — findings summarised in §28 below).**
 Three accelerations, all additive and on by default:
 
 *A caller clips the retry budget to what it can afford* (`ChatRequest.max_wait_s`, None = the
@@ -1269,7 +1269,7 @@ in `raw` and `attempts` on the raised `ModelError`; `cost/instrument.py` copies 
 defaulted so old rows load); `3dcv cost` / `bench/cost_report.py` add a per-key table and a
 `tries/call` column (`CostBucket.attempts_per_call`) whenever the ledger carries them.
 
-## 28. Where the time goes — the 2026-08-26 audit (`docs/TIME_AUDIT_2026-08-26.md`)
+## 28. Where the time goes — the 2026-08-26 audit
 
 51 storm-day runs against 52 baseline runs, every stage and every model call, scripts in
 `bench/time_audit/` (read-only over `bench/out`).  The numbers that decide what to build next:

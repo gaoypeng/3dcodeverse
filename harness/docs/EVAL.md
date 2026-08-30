@@ -212,7 +212,7 @@ same contact sheets ("would a curator screenshot it / does it look like the thin
 Three aurora versions nobody would take for an aurora scored 0.78 / 0.94 / 0.94 with empty issue
 lists; opaque pastel discs for bokeh 0.92; a lifted purple wash for a nebula 0.82; a crisp
 ukiyo-e wave 0.59 under planner must items.  The rubric scored the nouns of the brief being
-present.  `docs/GRAPHICS_LOOP.md` is the loop that fixes this (rubric `shader_v2`: likeness,
+present.  The graphics loop fixes this (rubric `shader_v2`: likeness,
 tonal range, an artefact checklist; reference photos via `bench/refs/<id>/`; `LikenessJudge`)
 and the ledger of turns; `bench/judge_calib_graphics.py` re-judges the corpus under two rubrics
 against the eye file and is the gate for switching the track default.  The rule from §6 holds:
