@@ -202,6 +202,10 @@ class SceneTrack(BaseTrack):
         # atomic: both results or neither.
         def _layouts() -> dict[str, Any]:
             """L2 zone layouts (optional accelerator): planner-model calls, never fatal."""
+            import os
+
+            if os.environ.get("CV3D_ZONE_LAYOUTS") == "0":   # A/B switch, default on
+                return {}
             try:
                 model = self._planner_model
                 if model is None:
