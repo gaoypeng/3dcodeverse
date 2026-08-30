@@ -34,6 +34,7 @@ from codeverse.agents.cli_common import (
     estimate_cost_safe,
     exists_on_path,
     failed,
+    find_json_object,
     finish_session,
     hardened_env,
     invoke,
@@ -104,22 +105,8 @@ def write_system_settings(path: Path | None = None, *, mcp_command: list[str] | 
 
 
 def parse_gemini_json(stdout: str) -> dict[str, Any] | None:
-    """The CLI prints one JSON object (possibly after log noise); find it."""
-    s = stdout.strip()
-    if not s:
-        return None
-    try:
-        return json.loads(s)
-    except json.JSONDecodeError:
-        pass
-    start = s.find("{")
-    while start != -1:
-        try:
-            obj = json.loads(s[start:])
-            return obj if isinstance(obj, dict) else None
-        except json.JSONDecodeError:
-            start = s.find("{", start + 1)
-    return None
+    """The CLI prints one (indented, multi-line) JSON object, possibly after log noise."""
+    return find_json_object(stdout, lambda d: True)
 
 
 def _model_usage(tok: dict[str, Any], name: str) -> Usage:
@@ -245,7 +232,8 @@ class GeminiCliAgent(_CliAgent):
             while True:
                 attempts += 1
                 used.add(key)
-                proc = self._invoke(s, prompt, key, attempt=attempts, soft_timeout_s=next_soft)
+                proc = invoke(s, self.build_argv(prompt), self.build_env(s, key), prompt=prompt, attempt=attempts,
+                              soft_timeout_s=next_soft, model=self.model, key_tail=key[-4:])
                 outcome = self._interpret(s, proc)
                 usage_total = usage_total + outcome["usage"]
                 pool.report(key, "429" if outcome["quota"] else ("ok" if outcome["ok"] else "5xx"))
@@ -266,6 +254,7 @@ class GeminiCliAgent(_CliAgent):
                 s.notes.append(f"attempt {attempts} transient failure ({outcome['exit_reason']}); retrying with {how}")
                 s.traj.append("retry", attempt=attempts, reason=outcome["errors"][:1])
             usage_total.cost_usd = round(usage_total.cost_usd, 6)
+            # turns stays 0: gemini-cli's stats carry tools.totalCalls only, no turn count
             return finish_session(
                 s, ok=outcome["ok"], exit_reason=outcome["exit_reason"], text=outcome["text"],
                 usage=usage_total, tool_calls=usage_total.tool_calls, errors=outcome["errors"],
@@ -273,11 +262,6 @@ class GeminiCliAgent(_CliAgent):
             )
         finally:
             release_session(s)
-
-    def _invoke(self, s: Session, prompt: str, key: str, *, attempt: int,
-                soft_timeout_s: float | None = None) -> CompletedProc:
-        return invoke(s, self.build_argv(prompt), self.build_env(s, key), prompt=prompt, attempt=attempt,
-                      soft_timeout_s=soft_timeout_s, model=self.model, key_tail=key[-4:])
 
     def _interpret(self, s: Session, proc: CompletedProc) -> dict[str, Any]:
         parsed = parse_gemini_json(proc.stdout)
@@ -326,29 +310,12 @@ ALLOWED_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "Skill",
 
 
 def parse_claude_json(stdout: str) -> dict[str, Any] | None:
-    """Envelope is one JSON object; tolerate leading log noise and stream-json arrays."""
-    s = stdout.strip()
-    if not s:
-        return None
-    try:
-        obj = json.loads(s)
-    except json.JSONDecodeError:
-        obj = None
-        for line in reversed(s.splitlines()):
-            line = line.strip()
-            if line.startswith("{"):
-                try:
-                    cand = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(cand, dict) and cand.get("type") == "result":
-                    return cand
-                obj = obj or cand
-        return obj if isinstance(obj, dict) else None
-    if isinstance(obj, list):  # stream-json array: last result event wins
-        results = [e for e in obj if isinstance(e, dict) and e.get("type") == "result"]
-        return results[-1] if results else None
-    return obj if isinstance(obj, dict) else None
+    """The ``type == "result"`` envelope, else the last JSON line (a stream-json array
+    without a result event is no envelope)."""
+    env = find_json_object(stdout, lambda d: d.get("type") == "result")
+    if env is not None or stdout.lstrip().startswith("["):
+        return env
+    return find_json_object(stdout, lambda d: True)
 
 
 def usage_from_envelope(env: dict[str, Any], model: str) -> Usage:
@@ -458,7 +425,7 @@ class ClaudeCodeAgent(_CliAgent):
             else:
                 reason, ok = "completed", True
             return finish_session(
-                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=max(turns - 1, 0),
+                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=max(turns - 1, 0), turns=turns,
                 errors=errors, rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns,
                 session_id=(env or {}).get("session_id", ""), subtype=(env or {}).get("subtype", ""),
                 model_usage=(env or {}).get("modelUsage", {}),
@@ -613,7 +580,8 @@ class CodexAgent(_CliAgent):
             else:
                 ok, reason = True, "completed"
             return finish_session(
-                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=events.tool_calls, errors=errors,
+                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=events.tool_calls,
+                turns=events.turns_completed, errors=errors,
                 rc=proc.rc, killed_reason=proc.killed_reason, thread_id=events.thread_id,
                 turns_completed=events.turns_completed, usage_raw=events.usage_raw,
             )
@@ -676,17 +644,8 @@ def resolve_model(model: str, binary: str) -> str:
 
 
 def parse_agy_json(stdout: str) -> dict[str, Any] | None:
-    s = stdout.strip()
-    if not s:
-        return None
-    for cand in (s, *reversed([ln for ln in s.splitlines() if ln.strip().startswith("{")])):
-        try:
-            obj = json.loads(cand)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(obj, dict) and ("response" in obj or "status" in obj):
-            return obj
-    return None
+    """agy's envelope is the JSON line carrying ``response`` or ``status``."""
+    return find_json_object(stdout, lambda d: "response" in d or "status" in d)
 
 
 def usage_from_agy(env: dict[str, Any], model: str) -> Usage:
@@ -756,7 +715,8 @@ class AntigravityAgent(_CliAgent):
             else:
                 ok, reason = True, "completed"
             return finish_session(
-                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=0, errors=errors,
+                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=0,
+                turns=int((env or {}).get("num_turns") or 0), errors=errors,
                 rc=proc.rc, killed_reason=proc.killed_reason,
                 conversation_id=(env or {}).get("conversation_id", ""), num_turns=(env or {}).get("num_turns", 0),
             )

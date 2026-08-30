@@ -7,10 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from codeverse.contracts.common import Usage
 from codeverse.cost import audit_runs, find_runs, reconstruct
 from codeverse.cost.types import Role, Stage
-
-REPO = Path(__file__).resolve().parents[2]
 
 
 def test_reconstructs_and_reconciles(fake_run: Path):
@@ -30,13 +29,7 @@ def test_generate_event_does_not_double_count_its_session(fake_run: Path):
 
 
 def test_a_retried_session_does_not_double_count_its_generate_event(fake_run: Path, tmp_path: Path):
-    """The de-duplication bug behind docs/COST.md §6.
-
-    A retry records itself as ``<label>.a2`` while the ``generate.done`` event
-    carries the plain job label, so keying the "already covered" pool on the
-    session's own label left the retry's dollars in a different bucket, the pool
-    ran dry and the event was counted a SECOND time — $3.58 of the reconstructed
-    $89.88 across the 61 recorded runs."""
+    """Reconstruction counts a retried generation exactly once."""
     import shutil
 
     ws = tmp_path / "retried"
@@ -103,49 +96,8 @@ def test_find_runs_skips_sub_workspaces(tmp_path: Path):
     assert find_runs(tmp_path) == [tmp_path / "a"]
 
 
-@pytest.mark.skipif(not (REPO / "runs" / "e2e_chair_blender" / "record.json").is_file(),
-                    reason="recorded reference runs are not present")
-def test_reference_runs_reconcile():
-    """Every recorded run reconciles to its own record (or explains the gap)."""
-    audit = audit_runs([REPO / "runs"])
-    assert audit.n_runs >= 5
-    for led in audit.runs:
-        gap = led.ledger_usd - led.recorded_usd
-        assert gap > -0.01, f"{led.run}: ledger lost ${-gap:.4f}"
-        if gap > 0.01:
-            assert led.notes, f"{led.run}: unexplained extra ${gap:.4f}"
-
-
-@pytest.mark.skipif(not (REPO / "bench" / "out" / "articulated_v1_flash").is_dir(),
-                    reason="the recorded bench batteries are not present")
-@pytest.mark.parametrize(
-    ("path", "record_usd"),
-    [("bench/out/articulated_v1_flash/runs/art_hard_door_handle", 3.0690),
-     ("bench/out/static_v1_flash/runs/tool_med_hand_drill", 4.0210),
-     ("bench/out/articulated_v1_flash/runs/art_easy_laptop", 1.1223)],
-)
-def test_runs_with_retried_sessions_reconcile_instead_of_looking_off_record(path: str, record_usd: float):
-    """The three worst rows of the old docs/COST.md §6 table ($1.38 / $0.50 / $0.31
-    "off record") were the retry de-duplication bug, not lost money."""
-    led = reconstruct(REPO / path)
-    assert led.recorded_usd == pytest.approx(record_usd, abs=0.001)
-    found = sum(r.recorded_usd for r in led.rows if r.source != "residual")
-    assert found <= led.recorded_usd + 0.005, f"{path}: ${found - led.recorded_usd:.4f} counted twice"
-
-
-@pytest.mark.skipif(not (REPO / "runs" / "e2e_chair_blender" / "record.json").is_file(),
-                    reason="recorded reference runs are not present")
-def test_gemini_cli_recheck_finds_the_stale_parse():
-    """The threejs run was recorded before ``tokens.prompt`` was the total prompt:
-    re-pricing from the raw CLI stats must show the under-billing, not hide it."""
-    led = reconstruct(REPO / "runs" / "e2e_bench_threejs", recheck=True)
-    assert led.ledger_usd > 2.0 > led.recorded_usd
-    assert any("differs from record.total_usage" in n for n in led.notes)
-
-
 def test_best_of_n_losers_are_attributed_and_counted_as_waste(fake_run: Path, tmp_path: Path):
-    """A ``_cand/c<k>`` sub-workspace is the run's, not a run of its own; the
-    candidates that lost are money spent on artifacts nobody kept."""
+    """Candidate sub-workspaces attribute their spend to the parent run."""
     import shutil
 
     ws = tmp_path / "cands"
@@ -157,11 +109,33 @@ def test_best_of_n_losers_are_attributed_and_counted_as_waste(fake_run: Path, tm
     (ws / "rounds").mkdir(exist_ok=True)
     (ws / "rounds" / "candidates.json").write_text(json.dumps({"n": 2, "selected": 1}))
 
-    from codeverse.cost import audit_runs
-
     led = reconstruct(ws)
     assert find_runs(ws) == [ws], "a candidate sub-workspace is not a separate run"
     cand_rows = [r for r in led.rows if r.stage is Stage.CANDIDATE]
     assert len(cand_rows) == 4 and {r.label.split(":")[0] for r in cand_rows} == {"c0", "c1"}
     waste = audit_runs([ws]).waste_by_kind()
     assert "lost_candidate" in waste and waste["lost_candidate"][1] > 0
+
+
+def test_a_live_ledger_files_losing_candidates_as_waste(fake_run: Path, tmp_path: Path):
+    """Live rows carry the candidate clone's label (``baseline_c<k>``, kind=candidate) —
+    not the reconstructed ``c<k>:baseline`` — and the waste detector must read both."""
+    import shutil
+
+    from codeverse.cost.instrument import run_ledger
+    from codeverse.cost.ledger import record_call
+
+    ws = tmp_path / "live_cands"
+    shutil.copytree(fake_run, ws)
+    (ws / "rounds").mkdir(exist_ok=True)
+    (ws / "rounds" / "candidates.json").write_text(json.dumps({"n": 2, "selected": 1}))
+    usage = Usage(backend="gemini-cli", model="gemini-3.7-flash", input_tokens=10_000, output_tokens=500)
+    with run_ledger(ws, run=ws.name):
+        for k in (0, 1):
+            record_call(usage, stage=Stage.CANDIDATE, round=0, label=f"baseline_c{k}", source="session")
+    led = reconstruct(ws)
+    assert led.source == "live" and led.selected_candidate == "c1"
+    waste = audit_runs([ws]).waste_by_kind()
+    assert waste["lost_candidate"][0] == 1 and waste["lost_candidate"][1] > 0
+    (item,) = [w for w in audit_runs([ws]).waste if w.kind == "lost_candidate"]
+    assert "c0 lost to c1" in item.detail

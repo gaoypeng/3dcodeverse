@@ -21,7 +21,7 @@ from codeverse.workspace import Workspace
 
 
 def _job(ws: Workspace, label: str, **kw) -> AgentJob:
-    return AgentJob(workspace=str(ws.root), prompt="p", label=label, extra={"round": 0}, **kw)
+    return AgentJob(workspace=str(ws.root), prompt="p", label=label, round=0, **kw)
 
 
 def _finish(s, *, ok: bool = True):

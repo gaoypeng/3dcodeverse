@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import json
-
-import pytest
+import sys
 
 from codeverse.agents.cli_common import default_mcp_command
 from codeverse.agents.materialize import CV3D_DIR, codex_mcp_overrides, materialize_workspace
@@ -36,14 +35,11 @@ def test_no_mcp_server_is_written_into_the_workspace(tmp_ws: Workspace):
     gs = tmp_ws.root / ".gemini" / "settings.json"
     gs.parent.mkdir(parents=True)
     gs.write_text(json.dumps({"mcpServers": {"3dcv": {"command": "/tmp/evil"}}, "ui": {"theme": "dark"}}))
-    res = _mat(tmp_ws)
+    _mat(tmp_ws)
     data = json.loads(gs.read_text())
     assert data["ui"]["theme"] == "dark"
     assert "3dcv" not in data["mcpServers"], "an agent-planted 3dcv impostor must be dropped"
     assert not (tmp_ws.root / ".mcp.json").exists(), "claude-code writes its own per-session mcp.json"
-    assert res.codex_overrides[1].startswith("mcp_servers.3dcv.command=")
-    assert "mcp_servers.3dcv.args=[" in res.codex_overrides[3]
-    assert "global" in res.agy_mcp.lower()
     assert data["context"]["fileFiltering"]["respectGitIgnore"] is False  # .gitignore hides artifacts/ + trajectories/
 
 
@@ -80,8 +76,7 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
 
 def test_spatial_disabled_drops_server_and_documents_absence(tmp_ws: Workspace):
     _mat(tmp_ws)
-    res = _mat(tmp_ws, spatial=False)
-    assert res.codex_overrides == []
+    _mat(tmp_ws, spatial=False)
     assert "3dcv" not in json.loads((tmp_ws.root / ".gemini" / "settings.json").read_text()).get("mcpServers", {})
     assert "No spatial tools are available" in (tmp_ws.root / "AGENTS.md").read_text()
 
@@ -118,6 +113,9 @@ def test_codex_overrides_are_valid_toml_fragments():
     assert keys["mcp_servers.3dcv.default_tools_approval_mode"] == '"approve"'
 
 
-def test_spatial_requires_mcp_command(tmp_ws: Workspace):
-    with pytest.raises(ValueError):
-        materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="", spatial_tools=True, mcp_command=[])
+def test_default_mcp_command_is_the_backends_interpreter(tmp_ws: Workspace):
+    # one place knows the command: the body + codex overrides quote sys.executable, never bare "python"
+    res = materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="", spatial_tools=True)
+    assert res.mcp_command == default_mcp_command(tmp_ws)
+    assert res.mcp_command[0] == sys.executable
+    assert sys.executable in (tmp_ws.root / "AGENTS.md").read_text()

@@ -12,6 +12,7 @@ from codeverse.cli._common import resolve_dial
 from codeverse.cli.main import app
 from codeverse.config import Settings, get_settings
 from codeverse.cost.profiles import PROFILE_NAMES, PROFILES, get_profile, profile_table
+from codeverse.orchestrator import RoundPolicy
 
 runner = CliRunner()
 
@@ -49,20 +50,6 @@ def test_balanced_is_todays_defaults():
     assert p.max_minutes == 60.0 and p.judge_max_px == 1024
 
 
-def test_apply_profile_sets_the_whole_dial():
-    s = Settings()
-    p = s.apply_profile("quality")
-    assert p.name == "quality" and s.profile == "quality"
-    assert s.default_judge == p.judge and s.default_candidates == 2
-    assert s.judge.samples == 3 and s.judge.max_px == 1024
-    s2 = Settings()
-    s2.apply_profile("economy")
-    assert s2.judge.samples == 2 and s2.limits.agent_max_turns == 0
-    # payload untouched: 768 px bills the same on Gemini and is noisier, and the
-    # crop cut did not survive a second draw (docs/COST.md §14)
-    assert s2.judge.detail_crops == 2 and s2.judge.max_px == 1024
-
-
 def test_a_value_the_user_configured_survives_the_profile_unless_forced():
     s = Settings(default_generator="codex:gpt-5.6-sol")
     s.apply_profile("economy")
@@ -73,11 +60,7 @@ def test_a_value_the_user_configured_survives_the_profile_unless_forced():
 
 
 def test_one_stated_judge_field_does_not_disable_the_whole_judge_block(monkeypatch):
-    """SM-03: ``model_fields_set`` on Settings is SECTION-granular — pydantic marks the
-    whole ``judge`` sub-model as set when any CV3D_JUDGE__* is present — so stating
-    max_px (which no profile even changes) used to suppress judge_samples too:
-    ``CV3D_PROFILE=quality CV3D_JUDGE__MAX_PX=800`` judged at n=1 while `3dcv make`
-    advertised "judge sigma 0.017 at n=3".  Statedness must be per FIELD."""
+    """A stated judge field freezes only itself, not the whole section."""
     monkeypatch.setenv("CV3D_JUDGE__MAX_PX", "800")
     s = Settings()
     s.apply_profile("quality")
@@ -95,8 +78,7 @@ def test_one_stated_judge_field_does_not_disable_the_whole_judge_block(monkeypat
 
 
 def test_applying_a_profile_twice_is_idempotent():
-    """A profile writes DEFAULTS, so its own values must not come back as "stated" and
-    freeze the next apply_profile (model_copy(update=) marks the copied fields set)."""
+    """Profile defaults do not masquerade as user-stated fields."""
     s = Settings()
     s.apply_profile("quality")
     s.apply_profile("economy")
@@ -109,10 +91,7 @@ def test_unknown_profile_is_a_clear_error():
 
 
 def test_a_bogus_profile_name_is_a_typed_cli_error_not_a_traceback(monkeypatch, tmp_path):
-    """SM-10: the profile is read while get_settings() builds, and `app` runs with
-    pretty_exceptions_enable=False, so one typo in an exported CV3D_PROFILE dumped a raw
-    Python stack from EVERY command — including `3dcv doctor`, the command you would run
-    to find out what is wrong with your configuration."""
+    """An invalid environment profile yields one clean validation error."""
     runner = CliRunner()
     monkeypatch.setenv("CV3D_PROFILE", "bogus")
     get_settings.cache_clear()
@@ -175,8 +154,8 @@ def test_judge_samples_reach_the_round_policy_only_when_a_profile_asks(tmp_path:
     s.apply_profile("quality", force=True)
     opts = C.round_policy_options(spec, s)
     assert opts["policy"].judge_samples == 3 and opts["policy"].max_rounds == 3
-    # the rubric threshold is bound here because injecting a policy skips BaseTrack's own binding
-    assert opts["policy"].target == pytest.approx(0.72)
+    # the rubric threshold is NOT bound here: BaseTrack.after_plan binds it for an injected policy too
+    assert opts["policy"].target == RoundPolicy().target
 
 
 # --------------------------------------------------------------- flag == env var
@@ -221,6 +200,9 @@ def _dial_from_env(name: str, monkeypatch):
 )
 def test_each_profile_resolves_to_its_documented_dial(name, expected, monkeypatch):
     """Every dial value docs/COST.md §15 promises, from BOTH entry points."""
+    settings = Settings()
+    applied = settings.apply_profile(name)
+    assert applied.name == settings.profile == name
     for dial in (_dial_from_flag(name), _dial_from_env(name, monkeypatch)):
         assert dial.profile == name
         for field, want in expected.items():

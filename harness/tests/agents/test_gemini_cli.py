@@ -206,6 +206,8 @@ def test_unavailable_when_no_keys(tmp_ws: Workspace, agent: GeminiCliAgent, monk
 def test_parse_helpers():
     assert parse_gemini_json("noise\n{\"response\": \"x\"}") == {"response": "x"}
     assert parse_gemini_json("") is None
+    # the CLI prints the envelope INDENTED over many lines (a single-line scan finds nothing)
+    assert parse_gemini_json('log line\n{\n  "response": "x",\n  "stats": {\n    "models": {}\n  }\n}\n')["response"] == "x"
     # no `prompt` key: total prompt = uncached input + cached
     u = usage_from_stats({"models": {"m": {"tokens": {"input": 1, "candidates": 2, "cached": 3, "thoughts": 4}}},
                           "tools": {"totalCalls": 9}}, "m")

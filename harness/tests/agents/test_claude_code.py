@@ -100,6 +100,7 @@ def test_fake_run_success_and_error(tmp_ws: Workspace, fake_bin, monkeypatch):
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="c", system_append="SYS", timeout_s=30))
     assert res.ok and res.exit_reason == "completed", res.errors
     assert res.text.endswith("sys=SYS") and res.usage.cost_usd == 0.0123 and res.tool_calls == 2
+    assert res.turns == 3  # the envelope's num_turns, in the typed result
     assert [f.path for f in res.files_changed] == ["src/hello.txt"]
     rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
     assert rec["num_turns"] == 3 and rec["session_id"] == "abc"

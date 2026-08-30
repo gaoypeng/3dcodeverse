@@ -13,9 +13,9 @@ role" for the call that is about to happen.  Precedence:
    under the session's ``stage=refine / role=generator``;
 3. the ambient context (:func:`call_context`) — set by
    :mod:`codeverse.cost.instrument` around an agent session.  It beats a
-   *generation* label because the session knows more than one of its turns does:
-   a best-of-N candidate runs with ``job.kind="candidate"`` while its turns are
-   labelled ``api-agent:baseline:t3``;
+   *generation* label because the session knows more than a call made inside it
+   does: a best-of-N candidate session runs with ``job.kind="candidate"`` while a
+   tool it calls bills a model under a plain ``baseline`` label;
 4. what is left of the label (a generation stage, the round tag) — which also
    survives a thread hop that a ``ContextVar`` does not.
 
@@ -163,21 +163,14 @@ _LABEL_HINTS: tuple[tuple[str, Stage, Role], ...] = (
 
 
 def context_from_label(label: str) -> CallContext:
-    """Best-effort attribution from a ``ChatRequest.label``.
-
-    Understands the api-agent's ``api-agent:<job label>:t<turn>`` form (the job
-    label carries the stage) and the judge's ``…:r<NN>:s<k>`` round tag."""
+    """Best-effort attribution from a ``ChatRequest.label``: its head names the job
+    (``judge:…``, ``texture_plan``, a generation stage) and the judge's
+    ``…:r<NN>:s<k>`` tag carries the round."""
     low = (label or "").strip()
     if not low:
         return _EMPTY
     round_index = _round_from_label(low)
-    body = low
-    if low.startswith("api-agent:"):
-        parts = low.split(":")
-        body = parts[1] if len(parts) > 1 else ""
-        return CallContext(round=round_index, stage=_stated(stage_for_label(body)),
-                           role=Role.GENERATOR, label=low)
-    head = body.split(":", 1)[0].lower()
+    head = low.split(":", 1)[0].lower()
     best: tuple[int, Stage, Role] | None = None
     for prefix, stage, role in _LABEL_HINTS:
         if head.startswith(prefix) and (best is None or len(prefix) > best[0]):
@@ -240,7 +233,7 @@ class AttemptRecord:
 
     attempt: int  #: 1-based issue order within the logical call
     key: str  #: the full API key that served it; the ledger keeps only its last 4 chars
-    outcome: str  #: KeyPool vocabulary: ok | 429 | 5xx | error | dead
+    outcome: str  #: the KeyPool report vocabulary (``models.retry``): ok | 429 | 5xx | error | dead, plus whatever the pool adds
     discarded: bool  #: True for every round-trip that is not the winning one
     usage: Usage  #: what the provider billed for THIS round-trip
     error: str = ""  #: str(ModelError) when the round-trip failed

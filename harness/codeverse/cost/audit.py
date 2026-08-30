@@ -174,11 +174,15 @@ def _waste(led: RunLedger, rounds: Sequence[RoundCost]) -> list[WasteItem]:
     if repair and not led.passed:
         items.append(WasteItem("repair_no_converge", led.run, sum(r.cost_usd for r in repair),
                                detail=f"{len(repair)} repair call(s) in a run that ended '{led.status}'"))
-    # best-of-N candidates that lost (their whole sub-workspace is thrown away)
+    # best-of-N candidates that lost (their whole sub-workspace is thrown away).  Two label
+    # forms: a live ledger row is ``baseline_c<k>`` (the candidate clone's label), a
+    # reconstructed one ``c<k>:baseline``.  Generator sessions only — the quick-judge rows
+    # inside a candidate carry no candidate marker on either path.
     won = led.selected_candidate
-    losers = [r for r in led.rows if r.stage is Stage.CANDIDATE and not (won and r.label.startswith(f"{won}:"))]
+    losers = [r for r in led.rows if r.stage is Stage.CANDIDATE
+              and not (won and (r.label.startswith(f"{won}:") or r.label.endswith(f"_{won}")))]
     if losers:
-        names = sorted({r.label.split(":", 1)[0] for r in losers})
+        names = sorted({_candidate_of(r.label) for r in losers})
         items.append(WasteItem("lost_candidate", led.run, sum(r.cost_usd for r in losers),
                                detail=f"best-of-N: {', '.join(names)} lost to {won or '(unknown)'}"))
     # anything spent on a round that finished after the budget was blown
@@ -189,6 +193,12 @@ def _waste(led: RunLedger, rounds: Sequence[RoundCost]) -> list[WasteItem]:
             items.append(WasteItem("post_budget", led.run, sum(r.cost_usd for r in extra),
                                    detail=f"round r{extra[0].round:02d} completed after the budget was already gone"))
     return items
+
+
+def _candidate_of(label: str) -> str:
+    """``c1:baseline`` → ``c1``; ``baseline_c1`` → ``c1``."""
+    head, sep, _ = label.partition(":")
+    return head if sep else label.rsplit("_", 1)[-1]
 
 
 def audit_runs(paths: Iterable[str | Path], *, recheck: bool = False) -> Audit:

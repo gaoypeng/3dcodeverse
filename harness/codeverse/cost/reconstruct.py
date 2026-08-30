@@ -197,7 +197,9 @@ def _session_rows(d: Path, run: str, *, recheck: bool,
                              reprice=recheck))
         return rows, label, rnd, duration
     if session.input_tokens or session.output_tokens or session.cost_usd:
-        n_calls = int(result.get("turns") or 0) or 1
+        # ``turns`` is AgentResult.turns (since 2026-08-29); older vendor result.json files
+        # carry only the backend's own key (claude / agy ``num_turns``, codex ``turns_completed``)
+        n_calls = int(result.get("turns") or result.get("num_turns") or result.get("turns_completed") or 0) or 1
         rows.append(_row(session, run=run, stage=stage, label=label, rnd=rnd, source="trajectory",
                          outcome=outcome, n_calls=n_calls, reprice=recheck))
     return rows, label, rnd, duration

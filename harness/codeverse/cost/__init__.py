@@ -17,7 +17,7 @@ from __future__ import annotations
 from codeverse.cost.audit import audit_runs
 from codeverse.cost.context import call_context
 from codeverse.cost.guard import estimate_call, text_tokens
-from codeverse.cost.instrument import per_call_metering, run_ledger
+from codeverse.cost.instrument import run_ledger
 from codeverse.cost.ledger import CostLedger, load_ledger, open_run_ledger, record_call, summarise
 from codeverse.cost.reconstruct import find_runs, reconstruct
 from codeverse.cost.report import markdown
@@ -27,6 +27,6 @@ from codeverse.cost.types import Role, Stage
 __all__ = [
     "CostLedger", "Role", "Stage", "audit_runs", "call_context", "default_route",
     "estimate_call", "find_runs", "load_ledger", "markdown", "open_run_ledger",
-    "per_call_metering", "pro_break_even", "reconstruct", "record_call", "run_ledger",
+    "pro_break_even", "reconstruct", "record_call", "run_ledger",
     "summarise", "text_tokens",
 ]

@@ -14,8 +14,9 @@ from codeverse.cost.types import Role, Stage
 
 
 def test_label_tells_stage_role_and_round():
-    c = context_from_label("api-agent:refine_drip_tray:t7")
-    assert c.stage is Stage.REFINE and c.role is Role.GENERATOR
+    c = context_from_label("refine_drip_tray")
+    assert c.stage is Stage.REFINE and c.role is None  # a generation label states no role...
+    assert attribute(label="refine_drip_tray").role is Role.GENERATOR  # ...the stage derives it
     c = context_from_label("judge:static_object_v1:r02:s1")
     assert c.stage is Stage.JUDGE and c.role is Role.JUDGE and c.round == 2
     assert context_from_label("planner-retry").stage is Stage.PLAN
@@ -26,16 +27,16 @@ def test_label_tells_stage_role_and_round():
 
 
 def test_repair_label_wins_over_the_label_it_repairs():
-    assert context_from_label("api-agent:baseline_repair1:t0").stage is Stage.REPAIR
+    assert context_from_label("baseline_repair1").stage is Stage.REPAIR
 
 
 def test_a_generation_label_yields_to_the_session_and_explicit_beats_both():
-    # best-of-N: the session knows it is a candidate, its turns only say "baseline"
+    # best-of-N: the session knows it is a candidate, a call inside it only says "baseline"
     with call_context(round=3, stage=Stage.CANDIDATE, label="cand_c1"):
-        got = attribute(label="api-agent:baseline:t0")
+        got = attribute(label="baseline")
         assert got.stage is Stage.CANDIDATE and got.round == 3
-        assert got.label == "api-agent:baseline:t0"  # the most specific label is kept
-        forced = attribute(CallContext(stage=Stage.REPAIR, round=9), label="api-agent:baseline:t0")
+        assert got.label == "baseline"  # the most specific label is kept
+        forced = attribute(CallContext(stage=Stage.REPAIR, round=9), label="baseline")
         assert forced.stage is Stage.REPAIR and forced.round == 9
 
 

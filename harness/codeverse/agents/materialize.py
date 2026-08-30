@@ -5,10 +5,10 @@ One shared body is written to ``AGENTS.md`` (codex / generic), ``GEMINI.md``
 the ``3dcv`` spatial tools, where the cookbook is, and the language contract.
 MCP wiring:
 
-* gemini-cli → the per-session system settings (``agents/gemini_cli.write_system_settings``);
+* gemini-cli → the per-session system settings (``agents/backends.write_system_settings``);
   ``ws/.gemini/settings.json`` is agent-writable, so it only carries the ``context`` block
-* claude-code → per-session ``trajectories/<label>_rNN/mcp.json`` (``agents/claude_code.py``)
-* codex → ``-c`` overrides returned in :class:`Materialized.codex_overrides`
+* claude-code → per-session ``trajectories/<label>_rNN/mcp.json`` (``agents/backends.py``)
+* codex → ``-c`` overrides (:func:`codex_mcp_overrides`, built per session by its backend)
 * agy (Antigravity) → no per-workspace MCP; the body documents the CLI fallback.
 
 Skills: the routed ``SKILL.md`` bundles are written per ROUND, not here — the set depends
@@ -18,9 +18,9 @@ into the three body files this module writes, so there is exactly one shared hea
 new one (docs/COST.md §13 measured and reverted a second head at +2,925 tokens/call).
 Nothing here needs to change for the CLIs to see them: codex's per-tool approval override
 below is scoped to ``mcp_servers.3dcv.*`` and cannot reach its skills loader, and
-gemini-cli's ``activate_skill`` consent is already covered by ``--approval-mode yolo``
-(``agents/gemini_cli.py``).  claude-code needed one change — ``Skill`` in its
-``--allowedTools``, see ``agents/claude_code.py``.
+gemini-cli's ``activate_skill`` consent is already covered by ``--approval-mode yolo``.
+claude-code needed one change — ``Skill`` in its ``--allowedTools``
+(``agents/backends.ALLOWED_TOOLS``).
 
 Ignore files: ``.geminiignore`` / ``.aiexclude`` hide only noise (:data:`IGNORE_LINES`);
 ``.gemini/settings.json`` gets ``context.fileFiltering.respectGitIgnore=false`` because the
@@ -36,6 +36,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from codeverse.agents.cli_common import default_mcp_command
 from codeverse.prompts import PROMPTS_DIR
 from codeverse.workspace import Workspace
 
@@ -65,8 +66,6 @@ class Materialized(BaseModel):
     ignore_files: list[str] = Field(default_factory=list)
     cookbook_path: str = ""
     mcp_command: list[str] = Field(default_factory=list)
-    codex_overrides: list[str] = Field(default_factory=list, description="extra argv for `codex exec` (-c k=v pairs)")
-    agy_mcp: str = Field(default="", description="how Antigravity reaches the tools")
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -195,12 +194,15 @@ def materialize_workspace(
     contract_md: str,
     cookbook_rel: str,
     spatial_tools: bool,
-    mcp_command: list[str],
+    mcp_command: list[str] | None = None,
 ) -> Materialized:
-    """Write AGENTS.md / GEMINI.md / CLAUDE.md + MCP configs + ignore files into ``ws``."""
-    out = Materialized(mcp_command=list(mcp_command))
-    if spatial_tools and not mcp_command:
-        raise ValueError("spatial_tools=True requires a non-empty mcp_command")
+    """Write AGENTS.md / GEMINI.md / CLAUDE.md + MCP configs + ignore files into ``ws``.
+
+    ``mcp_command`` defaults to ``cli_common.default_mcp_command(ws)`` — the same
+    ``sys.executable`` the backends launch; three callers used to spell a bare ``python``
+    here, which the body text and codex's ``-c`` overrides then quoted verbatim."""
+    mcp_command = list(mcp_command) if mcp_command else default_mcp_command(ws)
+    out = Materialized(mcp_command=mcp_command)
 
     # cookbook: copy into the harness-owned .3dcv/ dir so every CLI can read it in-workspace
     src = _resolve_cookbook(ws, cookbook_rel)
@@ -219,7 +221,7 @@ def materialize_workspace(
         out.warnings.append(f"cookbook not found: {cookbook_rel!r}")
         cookbook_note = "No cookbook is available in this session; rely on the contract below."
 
-    body = _body(agent_kind, contract_md, cookbook_note, spatial_tools, list(mcp_command))
+    body = _body(agent_kind, contract_md, cookbook_note, spatial_tools, mcp_command)
     for name in ("AGENTS.md", "GEMINI.md", "CLAUDE.md"):
         (ws.root / name).write_text(body)
         out.body_files.append(str(ws.root / name))
@@ -229,15 +231,6 @@ def materialize_workspace(
     gemini_settings = ws.root / ".gemini" / "settings.json"
     _merge_json(gemini_settings, {"context": dict(GEMINI_CONTEXT_SETTINGS)})
     _drop_server(gemini_settings)
-    if spatial_tools:
-        out.codex_overrides = codex_mcp_overrides(list(mcp_command))
-        out.agy_mcp = (
-            "Antigravity CLI only supports GLOBAL MCP registration (`agy mcp add ...`), which would "
-            "leak across parallel runs; no per-workspace MCP is written. The body documents the "
-            "`python -m codeverse.cli.main tools <name> --json ...` shell fallback instead."
-        )
-    else:
-        out.agy_mcp = "spatial tools disabled"
 
     ignore_text = "\n".join(IGNORE_LINES) + "\n"
     for name in (".geminiignore", ".aiexclude"):

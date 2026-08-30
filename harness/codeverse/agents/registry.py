@@ -53,8 +53,16 @@ def parse_agent_id(agent_id: str) -> tuple[str, str]:
     return kind, model
 
 
-@lru_cache(maxsize=32)
 def get_coding_agent(agent_id: str) -> CodingAgent:
+    """The (metered) CodingAgent for ``<kind>:<model>`` — the same wrap
+    ``models.registry.get_chat_model`` gives a chat model."""
+    from codeverse.cost.instrument import metered_agent
+
+    return metered_agent(_build_agent(agent_id))
+
+
+@lru_cache(maxsize=32)
+def _build_agent(agent_id: str) -> CodingAgent:
     kind, model = parse_agent_id(agent_id)
     if kind == "gemini-cli":
         from codeverse.agents.backends import GeminiCliAgent

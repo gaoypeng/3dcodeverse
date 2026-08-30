@@ -52,6 +52,20 @@ class Role(StrEnum):
     OTHER = "other"
 
 
+#: a bare ``GenerationTask.kind`` whose money belongs to a differently-named stage.  ONE
+#: vocabulary for both spend paths: ``MeteredAgent.run`` files the session row by
+#: ``job.kind`` and ``tracks.generation.task_stage`` buckets the guard by the same kind —
+#: until 2026-08-29 only the tracks side knew these, so every scene zone / compose /
+#: asset / rebuild session landed in the ledger as ``other``.
+_KIND_STAGES: dict[str, Stage] = {
+    "generate": Stage.BASELINE,
+    "rebuild": Stage.REPAIR,
+    "asset": Stage.ASSETS,
+    "asset_fix": Stage.ASSETS,
+    "zone": Stage.ZONES,
+    "compose": Stage.ASSEMBLE,
+}
+
 #: label prefix → stage, longest prefix wins (``asset_stone_lantern`` → assets)
 _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
     ("asset_", Stage.ASSETS),
@@ -69,11 +83,14 @@ _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
 
 
 def stage_for_label(label: str) -> Stage:
-    """Map a generation/trajectory label (``refine_drip_tray``, ``r00_baseline_repair1``,
-    ``asset_koi``) to its :class:`Stage`.  Repair labels win over the label they repair."""
+    """Map a task kind or a generation/trajectory label (``zone``, ``refine_drip_tray``,
+    ``r00_baseline_repair1``, ``asset_koi``) to its :class:`Stage`.  A bare kind or
+    stage name wins outright; repair labels win over the label they repair."""
     low = (label or "").strip().lower()
     if not low:
         return Stage.OTHER
+    if low in _KIND_STAGES:
+        return _KIND_STAGES[low]
     if "repair" in low:
         return Stage.REPAIR
     best: tuple[int, Stage] | None = None

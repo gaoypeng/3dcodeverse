@@ -8,9 +8,7 @@ runtimes, ``agents/cli_common.hardened_env`` for the coding-agent CLIs).
 
 from __future__ import annotations
 
-from typing import Any
-
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from codeverse.contracts.chat import ImagePart
 from codeverse.contracts.common import Usage
@@ -23,17 +21,14 @@ class FileChange(BaseModel):
     lines_removed: int = 0
 
 
-#: legacy ``AgentJob.extra`` keys lifted into the typed fields (values stay in extra too)
-_LEGACY_JOB_KEYS = ("round", "kind", "language", "track", "files_hint", "mcp_command")
-
-
 class AgentJob(BaseModel):
     workspace: str
     prompt: str
     system_append: str = ""
-    model: str = ""
     label: str = ""
     timeout_s: int = 1800
+    #: consumed only by claude-code (``--max-turns``); gemini-cli / codex / agy have no
+    #: turn flag and run unbounded except by ``timeout_s`` and the run's wall clock
     max_turns: int = 60
     spatial_tools: bool = Field(
         default=True, description="expose the 3dcv MCP spatial tools to the agent"
@@ -51,8 +46,8 @@ class AgentJob(BaseModel):
     track: str = Field(default="", description="spec track (spatial tool filtering)")
     files_hint: list[str] = Field(
         default_factory=list,
-        description="workspace-relative files/dirs this task is expected to touch — attributes "
-        "files_changed between concurrent sessions in one workspace",
+        description="workspace-relative files/dirs this task is expected to touch (the "
+        "``edit_only`` scope)",
     )
     edit_only: bool = Field(
         default=False,
@@ -62,8 +57,9 @@ class AgentJob(BaseModel):
     )
     images: list[ImagePart] = Field(
         default_factory=list,
-        description="inline images for the FIRST user message (reference photos; the contact sheet the "
-        "judge scored). Backends without an image channel ignore them; the prompt names the files too.",
+        description="images for this task (reference photos; the contact sheet the judge scored). "
+        "No vendor CLI takes an image on argv: ``tracks/generation.run_agent_task`` lists their "
+        "paths in the prompt for the agent's own file/image tools.",
     )
     always_writable: list[str] = Field(
         default_factory=list,
@@ -79,26 +75,6 @@ class AgentJob(BaseModel):
     mcp_command: list[str] | None = Field(
         default=None, description="override for the 3dcv MCP server command"
     )
-    extra: dict[str, Any] = Field(
-        default_factory=dict, description="one-off backend hints (legacy keys are lifted)"
-    )
-
-    @model_validator(mode="before")
-    @classmethod
-    def _lift_legacy_extra(cls, data: Any) -> Any:
-        """Constructors that pass ``extra={"round": 2, ...}`` keep working: known keys
-        are lifted into the typed fields.  ``extra`` itself is left untouched so
-        existing ``job.extra[...]`` readers see exactly what they were given."""
-        if not isinstance(data, dict):
-            return data
-        extra = data.get("extra")
-        if not isinstance(extra, dict):
-            return data
-        data = dict(data)  # never mutate the caller's dict
-        for key in _LEGACY_JOB_KEYS:
-            if key in extra and key not in data:
-                data[key] = extra[key]
-        return data
 
 
 class AgentResult(BaseModel):
@@ -110,4 +86,8 @@ class AgentResult(BaseModel):
     usage: Usage = Field(default_factory=Usage)
     duration_s: float = 0.0
     tool_calls: int = 0
+    turns: int = Field(
+        default=0, description="model turns as the backend counts them (claude-code num_turns, codex "
+        "turn.completed events, agy num_turns); 0 for gemini-cli, which exposes no turn count",
+    )
     errors: list[str] = Field(default_factory=list)

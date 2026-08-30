@@ -33,7 +33,7 @@ def fake_bin(tmp_path: Path):
 @pytest.fixture
 def scoped_ws(tmp_ws):
     """A workspace with an entry file and two part files — the tree every write-scope
-    test (CLI post-hoc restore and in-process FileTools alike) needs."""
+    test (the CLI post-hoc restore and the single-shot envelope alike) needs."""
     (tmp_ws.src / "parts").mkdir(parents=True, exist_ok=True)
     (tmp_ws.src / "model.py").write_text("# entry\n")
     (tmp_ws.src / "parts" / "seat.py").write_text("# seat\n")
