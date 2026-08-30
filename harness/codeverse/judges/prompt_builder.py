@@ -27,6 +27,7 @@ from PIL import Image, ImageDraw
 from codeverse.config import get_settings
 from codeverse.contracts.artifacts import (
     RENDER_MODES,
+    GateFinding,
     GateReport,
     Judgment,
     Measurement,
@@ -38,7 +39,8 @@ from codeverse.contracts.chat import ChatMessage, ImagePart, TextPart
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS, SCENE_VIEWS, ViewPreset
-from codeverse.judges.rubrics import Rubric
+from codeverse.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric
+from codeverse.spatial.connectivity import PENETRATION_ERROR_M, PENETRATION_WARN_M
 from codeverse.spatial.measure import measure_summary_table
 from codeverse.spatial.sheet import crop_region, load_font, montage_2x2
 
@@ -467,43 +469,268 @@ def measurement_section(m: Measurement | None) -> str:
     return "MEASUREMENTS (harness, Y-up meters):\n" + _clip(str(measure_summary_table(m)), 6000)
 
 
+#: MEASURED STRUCTURE clips.  p90 of the 321 stored static_object rounds that report a
+#: contact count is 26 contacts (2026-08-30, scratch corpus_ledger.py over bench/out); the
+#: whole block has to stay near 500 tokens on such a round, so contacts and planned joins
+#: are cut with an "… n more" rather than listed to the end.
+LEDGER_MAX_CONTACTS = 24
+LEDGER_MAX_JOINS = 20
+#: Parts whose lowest vertex is within this of the object's lowest point are the ground-contact
+#: candidates; only those get a floor gap in the prompt (a lamp shade is not "above the floor").
+GROUND_BAND_MM = 10.0
+#: A near-floor gap at or under this is a hairline: the corpus has a verdict writing "legs end
+#: above the ground plane" on 0.3 mm, so the number is printed instead of the adjective.
+GROUND_GAP_REPORT_MM = 0.5
+
+_PASSED_FLOATING = (
+    "CONNECTIVITY PASSED: every part is in measured contact with its neighbour (gap <= 2 mm). "
+    "A dark seam or shadow line where two parts meet is contact, not daylight. Do NOT report any "
+    "part as floating, hovering or disconnected, and do not mark the floating-part defect present; "
+    "if a joint looks visually ugly, say so under craftsmanship."
+)
+
+
+def contact_ledger(gates: list[GateReport]) -> tuple[GateReport, GateFinding] | None:
+    """The connectivity gate's per-pair table — one INFO finding per report since 2026-08-30
+    (``spatial.connectivity._ledger``) — with the report that carries it; ``None`` on a
+    round recorded before it existed."""
+    for g in gates:
+        if g.gate != "connectivity":
+            continue
+        for f in g.findings:
+            if f.severity == Severity.INFO and f.data.get("kind") == "ledger":
+                return g, f
+    return None
+
+
 def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: int = 8) -> str:
+    """The judge's gate facts.  ERRORs are listed as recorded.  With a contact ledger the
+    connectivity WARNs are not prose any more: the audit of 420 judged static rounds
+    (2026-08-30, docs/EVAL.md §6) found the judge marking interpenetration on every gate
+    ERROR (69/69) and on 110 rounds whose only evidence was a WARN the rubric tells it to
+    ignore — it read the gate's sentences, not the images (same images, gate text removed:
+    13 of 24 flags flipped).  So the WARNs become one measured line and a MEASURED STRUCTURE
+    block (contacts, planned joins contact/open, floor gaps) the judge can cite instead.
+    Without a ledger (older rounds) the text is the pre-ledger text byte for byte, which is
+    what keeps ``3dcv judge <old-slug>`` comparable with the verdict it stored."""
     if not gates:
         return "GATE FINDINGS: (no gates run)"
-    errs, warns = [], []
-    for g in gates:
-        for f in g.findings:
-            tgt = f" [{f.target}]" if f.target else ""
-            line = f"- {g.gate}{tgt}: {_clip(f.message, 220)}"
-            (errs if f.severity == Severity.ERROR else warns if f.severity == Severity.WARN else []).append(line)
     status = ", ".join(f"{g.gate}={'pass' if g.passed else 'FAIL'}" for g in gates)
     lines = [f"GATE FINDINGS (deterministic; treat as facts): {status}"]
-    if errs:
-        lines.append(f"errors ({len(errs)}):")
-        lines.extend(errs[:max_errors])
-        if len(errs) > max_errors:
-            lines.append(f"- … {len(errs) - max_errors} more errors")
-    if warns:
-        lines.append(f"warnings ({len(warns)}):")
-        lines.extend(warns[:max_warns])
-        if len(warns) > max_warns:
-            lines.append(f"- … {len(warns) - max_warns} more warnings")
-    if not errs and not warns:
+    errs = [_finding_line(g, f) for g in gates for f in g.findings if f.severity == Severity.ERROR]
+    found = contact_ledger(gates)
+    if found is None:
+        warns = [_finding_line(g, f) for g in gates for f in g.findings if f.severity == Severity.WARN]
+        lines += _capped("errors", errs, max_errors) + _capped("warnings", warns, max_warns)
+        if not errs and not warns:
+            lines.append("no errors or warnings — parts are connected and contracts hold.")
+        if any(g.gate == "connectivity" and g.passed for g in gates):
+            # The connectivity gate MEASURES mesh-to-mesh contact; a VLM reads shading.  Measured
+            # 2026-08-26 (fancy_v1 gas_street_lamp, plan-pinned pair): on a lamp whose gate said
+            # "all 9 parts connected, gap <= 2 mm", the judge called the dark seam under the
+            # pedestal "floating in mid-air, a clear daylight gap" — CRITICAL — and scored
+            # structure_plausibility 0.4 against 1.0 for the near-identical sibling.  A measured
+            # contact outranks a shadow (CLAUDE.md law 3); the seam is at most a craftsmanship note.
+            lines.append(_PASSED_FLOATING)
+        return "\n".join(lines)
+    conn, ledger = found
+    d = ledger.data
+    lines += _capped("errors", errs, max_errors)
+    lines += _structure_block(conn, d)
+    overlap = _overlap_line(conn, d)
+    if overlap:
+        lines.append(overlap)
+    rest = [(g, f) for g in gates for f in g.findings
+            if f.severity == Severity.WARN and not (g.gate == "connectivity" and f.data.get("kind") == "penetration")]
+    lines += _grouped_warnings(rest, max_warns)
+    if not errs and not any(f.severity == Severity.WARN for g in gates for f in g.findings):
         lines.append("no errors or warnings — parts are connected and contracts hold.")
-    if any(g.gate == "connectivity" and g.passed for g in gates):
-        # The connectivity gate MEASURES mesh-to-mesh contact; a VLM reads shading.  Measured
-        # 2026-08-26 (fancy_v1 gas_street_lamp, plan-pinned pair): on a lamp whose gate said
-        # "all 9 parts connected, gap <= 2 mm", the judge called the dark seam under the
-        # pedestal "floating in mid-air, a clear daylight gap" — CRITICAL — and scored
-        # structure_plausibility 0.4 against 1.0 for the near-identical sibling.  A measured
-        # contact outranks a shadow (CLAUDE.md law 3); the seam is at most a craftsmanship note.
-        lines.append(
-            "CONNECTIVITY PASSED: every part is in measured contact with its neighbour (gap <= 2 mm). "
-            "A dark seam or shadow line where two parts meet is contact, not daylight. Do NOT report any "
-            "part as floating, hovering or disconnected, and do not mark the floating-part defect present; "
-            "if a joint looks visually ugly, say so under craftsmanship."
-        )
+    n_parts = len(d.get("parts") or [])
+    if conn.passed and n_parts >= 2:
+        lines.append(_passed_paragraph(n_parts, len(d.get("contacts") or []), float(d.get("contact_gap_mm") or 0.0),
+                                       list(d.get("overlaps") or [])))
     return "\n".join(lines)
+
+
+def _finding_line(g: GateReport, f: GateFinding) -> str:
+    tgt = f" [{f.target}]" if f.target else ""
+    return f"- {g.gate}{tgt}: {_clip(f.message, 220)}"
+
+
+def _capped(label: str, items: list[str], cap: int) -> list[str]:
+    if not items:
+        return []
+    out = [f"{label} ({len(items)}):", *items[:cap]]
+    if len(items) > cap:
+        out.append(f"- … {len(items) - cap} more {label}")
+    return out
+
+
+def _structure_block(conn: GateReport, d: dict) -> list[str]:
+    """N parts / E contacts / floating / overlaps, the contact graph, the plan's joins measured
+    contact or OPEN, and the floor gap of the parts that could be standing on the floor."""
+    parts = list(d.get("parts") or [])
+    contacts = list(d.get("contacts") or [])
+    gap = float(d.get("contact_gap_mm") or 0.0)
+    floating = sum(1 for f in conn.findings if f.severity == Severity.ERROR and f.data.get("kind") == "floating")
+    lines = [
+        f"MEASURED STRUCTURE (connectivity gate, exact mesh-to-mesh distances): {len(parts)} part{'s' if len(parts) != 1 else ''}, "
+        f"{len(contacts)} contacts (gap ≤ {gap:g} mm), {floating} floating, {len(d.get('overlaps') or [])} overlapping pairs."
+    ]
+    planned = list(d.get("planned") or [])
+    if planned:
+        lines.append("- " + _planned_line(planned, gap))
+    # the planned joins already list their contacts pair by pair; the adjacency adds what the
+    # plan did not ask for (an apron touching a stretcher) instead of repeating it
+    planned_pairs = {frozenset((str(a), str(b))) for a, b, _g, st in planned if st == "contact"}
+    other = [c for c in contacts if frozenset((str(c[0]), str(c[1]))) not in planned_pairs]
+    if other:
+        label = "other contacts, not in the plan" if planned_pairs else "contacts"
+        lines.append(f"- {label} (gap in mm where not 0): " + _adjacency(other, LEDGER_MAX_CONTACTS))
+    unresolved = list(d.get("planned_unresolved") or [])
+    if unresolved:
+        lines.append(f"- plan parts not found in the mesh: {', '.join(unresolved[:8])}" + (" …" if len(unresolved) > 8 else ""))
+    ground = _ground_line(d.get("ground_gap_mm") or {})
+    if ground:
+        lines.append("- " + ground)
+    return lines
+
+
+def _gap(mm: float) -> str:
+    """A contact's gap: nothing when it rounds to 0.0 mm (most do), else the number —
+    26 "0.0" tokens were a fifth of the block on the p90 round."""
+    return f" {mm:.1f}" if round(mm, 1) else ""
+
+
+def _adjacency(contacts: list, cap: int) -> str:
+    by_a: dict[str, list[str]] = {}
+    for a, b, gap in contacts[:cap]:
+        by_a.setdefault(str(a), []).append(f"{b}{_gap(float(gap))}")
+    text = " · ".join(f"{a}: {', '.join(bs)}" for a, bs in by_a.items())
+    if len(contacts) > cap:
+        text += f" · … {len(contacts) - cap} more"
+    return text
+
+
+def _planned_line(planned: list, gap_mm: float) -> str:
+    """OPEN joins first so the clip never hides one: they are the assembly_fit signal."""
+    rows = [(str(a), str(b), float(g), str(st)) for a, b, g, st in planned]
+    open_rows = [r for r in rows if r[3] != "contact"]
+    contact_rows = [r for r in rows if r[3] == "contact"]
+    shown = (open_rows + contact_rows)[:LEDGER_MAX_JOINS]
+    bits = [f"PLANNED JOINS (the plan's attach_to pairs, measured; contact = gap ≤ {gap_mm:g} mm): "
+            f"{len(contact_rows)}/{len(rows)} in contact."]
+    if any(r[3] != "contact" for r in shown):
+        bits.append("OPEN: " + "; ".join(f"{a}→{b} {g:.1f} mm" for a, b, g, st in shown if st != "contact") + ".")
+    if any(r[3] == "contact" for r in shown):
+        bits.append("CONTACT (gap in mm where not 0): " + ", ".join(f"{a}→{b}{_gap(g)}" for a, b, g, st in shown if st == "contact") + ".")
+    if len(rows) > len(shown):
+        bits.append(f"… {len(rows) - len(shown)} more.")
+    return " ".join(bits)
+
+
+def _ground_line(ground: dict) -> str:
+    if not ground:
+        return ""
+    low_name, low = min(((str(n), float(g)) for n, g in ground.items()), key=lambda kv: kv[1])
+    band = [(str(n), float(g)) for n, g in ground.items() if float(g) - low <= GROUND_BAND_MM]
+    up = [(n, g) for n, g in band if g > GROUND_GAP_REPORT_MM]
+    if low > GROUND_GAP_REPORT_MM:
+        head = f"ground: lowest point {low:.1f} mm above the floor ({low_name}) — nothing touches it"
+    elif low < -GROUND_GAP_REPORT_MM:
+        head = f"ground: lowest point {-low:.1f} mm below the floor ({low_name})"
+    else:
+        head = f"ground: lowest point {low:.1f} mm ({low_name}) — floor contact"
+    if up:
+        head += (f"; parts within {GROUND_BAND_MM:g} mm of the floor: "
+                 + ", ".join(f"{n} {g:.1f} mm" for n, g in up[:8]) + (" …" if len(up) > 8 else ""))
+    else:
+        head += f"; every other near-floor part is within {GROUND_GAP_REPORT_MM:g} mm of the floor"
+    return head
+
+
+def _overlap_line(conn: GateReport, d: dict) -> str:
+    """The measured replacement for the interpenetration WARN prose.  The gate's ERROR
+    pairs are already listed under errors; every other overlapping pair is a weld by the
+    gate's own rule (depth ≤ 10 mm; the through-ratio is a fact, not a severity), and the
+    rubric says a weld is not the defect — the judge marked it anyway on 110 WARN-only rounds.
+    A pair reaching half-way or more through its partner is named as a measurement: the ratio
+    saturates at the mid-plane and cannot tell "ends inside" from "out the far side", so that
+    reading is left to the geometry montage."""
+    over = list(d.get("overlaps") or [])
+    if not over:
+        return ""
+    error_pairs = {(f.target, f.data.get("other")) for f in conn.findings
+                   if f.severity == Severity.ERROR and f.data.get("kind") == "penetration"}
+    rest = [r for r in over if (str(r[0]), str(r[1])) not in error_pairs]
+    # classified by MEASURED depth, never by severity: the gate keeps a deep overlap a WARN when
+    # only a sliver of surface is inside (a stile 17 mm through a seat), and calling that a
+    # "weld under the ERROR line" would hand the judge a false fact (skeptic 2026-08-30)
+    deep = [r for r in rest if float(r[2]) > PENETRATION_ERROR_M * 1000]
+    welds = [r for r in rest if float(r[2]) <= PENETRATION_ERROR_M * 1000]
+    text = f"connectivity measured {len(over)} mating overlaps"
+    if welds:
+        a, b, depth, through = max(welds, key=lambda r: float(r[2]))
+        text += f" (deepest weld {float(depth):.1f} mm {a}/{b}, through-ratio {float(through):.2f})"
+    text += f"; weld allowance {PENETRATION_WARN_M * 1000:g} mm, ERROR line {PENETRATION_ERROR_M * 1000:g} mm; "
+    if error_pairs:
+        text += f"{len(error_pairs)} pair(s) above it are listed under errors; "
+    text += f"{len(welds)} weld(s) under it are NOT the interpenetration defect."
+    if deep:
+        text += (f" {len(deep)} overlap(s) deeper than the ERROR line kept WARN because only a sliver of either "
+                 "surface is inside — a continuous member through a slab reads like this; the montage decides: "
+                 + "; ".join(f"{a}/{b} {float(dp):.1f} mm (through-ratio {float(t):.2f})" for a, b, dp, t in deep[:3])
+                 + ("" if len(deep) <= 3 else f"; … {len(deep) - 3} more") + ".")
+    mid = [r for r in welds if float(r[3]) >= 0.5]  # the gate names the ratio in its message from 0.5 up
+    if mid:
+        text += (" Measured, not a defect claim: "
+                 + "; ".join(f"{a}/{b} reaches {min(float(t), 1.0):.0%} of the way to its partner's mid-plane ({float(dp):.1f} mm)"
+                             for a, b, dp, t in mid[:3])
+                 + " — the far side is for the GEOMETRY montage.")
+    return text
+
+
+def _grouped_warnings(rest: list[tuple[GateReport, GateFinding]], max_warns: int) -> list[str]:
+    """One line per (gate, kind), ``max_warns`` findings each — 8 flat lines used to cut a
+    15-WARN round (p90) mid-list, dropping every contract WARN behind the connectivity ones."""
+    if not rest:
+        return []
+    groups: dict[str, list[GateFinding]] = {}
+    for g, f in rest:
+        kind = f.data.get("kind") if isinstance(f.data.get("kind"), str) else ""
+        groups.setdefault(f"{g.gate}/{kind}" if kind else g.gate, []).append(f)
+    lines = [f"warnings ({len(rest)}), grouped by kind:"]
+    for key, fs in groups.items():
+        items = [(f"[{f.target}] " if f.target else "") + _clip(f.message, 160) for f in fs[:max_warns]]
+        line = f"- {key} ×{len(fs)}: " + "; ".join(items)
+        if len(fs) > max_warns:
+            line += f"; … {len(fs) - max_warns} more"
+        lines.append(line)
+    return lines
+
+
+def _passed_paragraph(n_parts: int, n_contacts: int, gap_mm: float, overlaps: list) -> str:
+    # Same voice as the legacy paragraph (2026-08-26 gas_street_lamp seam), now with the
+    # measurement it rests on and the interpenetration half.  The injunction against the
+    # interpenetration tick is only made when the veto will honour it: every overlap under
+    # VETO_PENETRATION_DEPTH_M (rubrics._rule_gates_clean).  A deeper WARN — a stile through a
+    # seat, a rod to a plate's mid-plane — is named as a measurement and the picture decides.
+    head = (
+        f"CONNECTIVITY PASSED: all {n_parts} parts are in measured contact ({n_contacts} contacts, gap <= {gap_mm:g} mm). "
+        "A dark seam or shadow line where two parts meet is contact, not daylight. Do NOT report any "
+        "part as floating, hovering or disconnected, and do not mark the floating-part defect present. "
+    )
+    deep = [r for r in overlaps if float(r[2]) >= VETO_PENETRATION_DEPTH_M * 1000]
+    if not deep:
+        tail = (f"All {len(overlaps)} overlaps measured, none over {VETO_PENETRATION_DEPTH_M * 1000:g} mm: do NOT mark "
+                "the interpenetration defect present either — those overlaps are welds. ")
+    else:
+        tail = (f"All {len(overlaps)} overlaps measured; {len(deep)} reach {VETO_PENETRATION_DEPTH_M * 1000:g} mm or more ("
+                + "; ".join(f"{a}/{b} {float(dp):.1f} mm" for a, b, dp, _t in deep[:3])
+                + ("" if len(deep) <= 3 else f"; … {len(deep) - 3} more")
+                + "): mark interpenetration only if a part VISIBLY passes through another in a render; "
+                "a hidden overlap is a weld. ")
+    return head + tail + "If a joint looks visually ugly, say so under craftsmanship."
 
 
 def previous_section(prev: Judgment | None, round_index: int) -> str:
