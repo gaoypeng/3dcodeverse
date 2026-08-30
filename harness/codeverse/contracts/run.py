@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,7 +31,6 @@ class SkillRead(BaseModel):
     deep: bool = Field(default=False, description="a references/*.md atime > mtime: the body was read and followed")
     deep_measurable: bool = Field(default=True, description="False when the bundle ships no references/ file to probe")
     body_tokens: int = 0
-    first_seen_turn: int | None = Field(default=None, description="HISTORICAL, read-only: only the api-agent (deleted 2026-08-28) knew the exact turn of the first read; CLI agents leave it None")
     reason: str = Field(default="", description="which route attached it, and which finding")
 
 
@@ -166,6 +165,28 @@ class RunStatus(StrEnum):
     FAILED = "failed"
 
 
+class PairwiseNote(BaseModel):
+    """What a tie-break compared and what it concluded.
+
+    Lives on the round record because the comparison is a PAID judge call (~$0.05):
+    ``rNN.json`` is the durable artifact, so a resume replays the verdict instead of
+    re-ranking on score alone and silently reversing it
+    (``tracks.candidates.replay_best_round``)."""
+
+    a: str = Field(description="label of the incumbent (current best)")
+    b: str = Field(description="label of the challenger (new round / other candidate)")
+    winner: Literal["a", "b", "tie"] = "tie"
+    confidence: float = 0.0
+    accepted: bool = Field(default=False, description="True when the challenger replaces the incumbent")
+    reasons: list[str] = Field(default_factory=list)
+    usage: Usage = Field(default_factory=Usage)
+    error: str = ""
+
+    def line(self) -> str:
+        verdict = {"a": f"{self.a} wins", "b": f"{self.b} wins", "tie": "tie"}[self.winner]
+        return f"pairwise {self.a} vs {self.b}: {verdict} (confidence {self.confidence:.2f}) → {'replace' if self.accepted else 'keep'}"
+
+
 class RoundRecord(BaseModel):
     index: int
     kind: str = Field(description="baseline | refine | repair | texture | asset:<name> ...")
@@ -183,6 +204,9 @@ class RoundRecord(BaseModel):
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     duration_s: float = 0.0
     notes: str = ""
+    pairwise: PairwiseNote | None = Field(
+        default=None, description="the paid tie-break verdict that ranked this round against the "
+                                  "incumbent best, when one was bought; None = ranked on score alone")
 
     @property
     def score(self) -> float | None:

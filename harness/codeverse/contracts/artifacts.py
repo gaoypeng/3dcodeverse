@@ -131,7 +131,6 @@ class RenderView(BaseModel):
 class RenderSet(BaseModel):
     views: list[RenderView] = Field(default_factory=list)
     contact_sheet: str | None = Field(default=None, description="one labelled grid image of all views")
-    turntable: str | None = None
     renderer: str = ""
     duration_ms: int = 0
     console_errors: list[str] = Field(default_factory=list, description="(scenes) JS/WebGL errors seen")

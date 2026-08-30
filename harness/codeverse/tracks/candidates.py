@@ -31,8 +31,9 @@ from pydantic import BaseModel, Field
 
 from codeverse.contracts.artifacts import BuildResult, Measurement, RenderSet
 from codeverse.contracts.common import Usage
-from codeverse.contracts.run import RoundRecord
+from codeverse.contracts.run import PairwiseNote, RoundRecord
 from codeverse.conventions import OBJECT_VIEWS_QUICK
+from codeverse.cost.types import Stage
 from codeverse.orchestrator import BestSelector, BudgetExceeded, gate_error_count
 from codeverse.proc import EventLog, fan_out
 from codeverse.tracks.common import RunContext
@@ -212,7 +213,7 @@ def select_candidate(ctx: RunContext, records: Sequence[CandidateRecord], render
     decision, note = decide_best(a.score, b.score, margin=ctx.policy.pairwise_margin,
                                  min_confidence=ctx.policy.pairwise_min_confidence, compare=compare, labels=(a.label, b.label))
     if note is not None:
-        ctx.budget.add(note.usage, stage="judge", role="judge", round_index=0, label="pairwise")  # post-hoc: a finished comparison
+        ctx.budget.add(note.usage, stage=Stage.PAIRWISE)  # post-hoc: a finished comparison
         ctx.events.emit("pairwise.done", stage="candidates", a=note.a, b=note.b, winner=note.winner, confidence=note.confidence,
                         accepted=note.accepted, error=note.error, cost_usd=round(note.usage.cost_usd, 4))
     if decision == "pairwise":
@@ -243,7 +244,8 @@ def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], selector: Best
     within ``policy.pairwise_margin`` of the current best: then a pairwise
     comparison of the two render sets decides, and the new round replaces the
     best only when it wins with ``confidence ≥ policy.pairwise_min_confidence``.
-    The verdict is appended to the new round's notes and re-persisted."""
+    The verdict is stored on the round (``RoundRecord.pairwise``, plus a notes line)
+    and re-persisted, so :func:`replay_best_round` can reproduce it on resume."""
     incumbent = ctx.state.best_round
     if incumbent is None or incumbent >= len(rounds) or incumbent == new_index:
         return selector.pick(rounds)
@@ -255,8 +257,9 @@ def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], selector: Best
                                  min_confidence=ctx.policy.pairwise_min_confidence, compare=compare,
                                  labels=(f"r{incumbent:02d}", f"r{new_index:02d}"))
     if note is not None:
-        ctx.budget.add(note.usage, stage="judge", role="judge", round_index=new_index, label="pairwise")  # post-hoc
+        ctx.budget.add(note.usage, stage=Stage.PAIRWISE)  # post-hoc
         new.usage = new.usage + note.usage
+        new.pairwise = note
         new.notes = (new.notes + "; " if new.notes else "") + note.line()
         ctx.ws.write_json(round_record_path(ctx, new_index), new)
         ctx.events.emit("pairwise.done", stage="rounds", a=note.a, b=note.b, winner=note.winner, confidence=note.confidence,
@@ -264,6 +267,27 @@ def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], selector: Best
     if decision == "score":
         return selector.pick(rounds)
     return new_index if decision == "pairwise" else incumbent
+
+
+def replay_best_round(journal: Sequence[RoundRecord]) -> int | None:
+    """The best index the loop chose, replaying the paid pairwise verdicts it stored.
+
+    ``rNN.json`` + the git commit are durable BEFORE the best is promoted and the state
+    saved (``lifecycle._round_loop``), so a kill in that gap — or any resume of a run
+    whose state predates ``best_considered_through`` — used to re-rank on score alone
+    and reverse a ~$0.05 judgement the run had already bought (18 such runs on disk,
+    2026-08-30).  Walking the journal the way the live loop did keeps it: a round that
+    carries a :class:`PairwiseNote` was decided inside ``policy.pairwise_margin``, where
+    score ranking has nothing to say, so the stored verdict — replace or keep — wins;
+    every other round falls back to the same ``BestSelector`` ranking."""
+    selector = BestSelector()
+    best: int | None = None
+    for i, rec in enumerate(journal):
+        if rec.pairwise is None or best is None or best == i:
+            best = selector.pick(journal[:i + 1])
+        elif rec.pairwise.accepted:
+            best = i
+    return best
 
 
 def _pairwise_fn(ctx: RunContext, renders_a: RenderSet | None, renders_b: RenderSet | None):
@@ -301,23 +325,6 @@ class CandidateRecord(BaseModel):
 def rank_candidates(records: Sequence[CandidateRecord]) -> list[int]:
     """Candidate indices best-first: built > higher quick score > fewer gate errors > earlier."""
     return [r.index for r in sorted(records, key=lambda r: r.sort_key(), reverse=True)]
-
-
-class PairwiseNote(BaseModel):
-    """What a tie-break compared and what it concluded (persisted in round notes)."""
-
-    a: str = Field(description="label of the incumbent (current best)")
-    b: str = Field(description="label of the challenger (new round / other candidate)")
-    winner: Literal["a", "b", "tie"] = "tie"
-    confidence: float = 0.0
-    accepted: bool = Field(default=False, description="True when the challenger replaces the incumbent")
-    reasons: list[str] = Field(default_factory=list)
-    usage: Usage = Field(default_factory=Usage)
-    error: str = ""
-
-    def line(self) -> str:
-        verdict = {"a": f"{self.a} wins", "b": f"{self.b} wins", "tie": "tie"}[self.winner]
-        return f"pairwise {self.a} vs {self.b}: {verdict} (confidence {self.confidence:.2f}) → {'replace' if self.accepted else 'keep'}"
 
 
 Decision = Literal["score", "pairwise", "keep"]
@@ -370,5 +377,6 @@ def decide_best(
     return ("pairwise" if note.accepted else "keep"), note
 
 
-__all__ = ["CAND_DIR", "CandidateRecord", "PairwiseNote", "adopt_candidate", "choose_best_round", "decide_best",
-           "make_candidate_context", "quick_render", "rank_candidates", "run_best_of_n", "select_candidate"]
+__all__ = ["CAND_DIR", "CandidateRecord", "adopt_candidate", "choose_best_round", "decide_best",
+           "make_candidate_context", "quick_render", "rank_candidates", "replay_best_round", "run_best_of_n",
+           "select_candidate"]

@@ -25,10 +25,11 @@ A caller may still set one (``GenerationTask.max_turns`` > ``generate(max_turns=
 profile sets), and a cap that IS set stays **graceful**: the session is not killed
 but asked, in a short wrap-up (``agent_wrapup_turns``), for one last build + summary.
 
-**Every dollar is charged.**  Both strategies spend through
-``BudgetGuard.charge`` with their stage / label / round, so a retried session
-(``<label>.a2``) and a wrap-up session are visible to the guard, the record and
-the ledger even when the *next* attempt then raises.
+**Every dollar is charged.**  Both strategies spend through ``BudgetGuard.charge`` in
+the stage the task belongs to, so a retried session (``<label>.a2``) and a wrap-up
+session are visible to the guard, the record and the ledger even when the *next*
+attempt then raises.  The label, round and outcome of each call are on the ledger row
+``cost.instrument`` writes, not on the guard (2026-08-30).
 """
 
 from __future__ import annotations
@@ -391,8 +392,7 @@ def generate_files(
     # book the money WITHOUT enforcing: the response is already paid for, and raising
     # here would discard it before transcript/parse/write_files.  The ceiling is
     # enforced at the round's phase boundary instead (steps._run_phase).
-    _charge(budget, usage, task=task, label=task.label, outcome=str(resp.finish_reason or "ok"),
-            enforce=False)
+    _charge(budget, usage, task=task, enforce=False)
     if _is_truncated(resp):
         # cut off by max_output_tokens: the envelope is unterminated — one retry with a
         # DOUBLED budget beats writing a half-file.  Already at the 65,536 model ceiling
@@ -411,7 +411,7 @@ def generate_files(
             req = req.model_copy(update={"max_output_tokens": grown})
             resp = model.generate(req)
             usage = usage + resp.usage
-            _charge(budget, resp.usage, task=task, label=f"{task.label}.retry", outcome="truncated",
+            _charge(budget, resp.usage, task=task,
                     enforce=False)
     traj = ws.trajectory_dir(task.label.replace("/", "_"), task.round)
     (traj / "prompt.md").write_text(f"# system\n{system}\n\n# user\n{task.prompt}\n")
@@ -485,26 +485,19 @@ def task_stage(task: GenerationTask) -> str:
     return str(stage) if stage is not Stage.OTHER else (task.label or "other")
 
 
-def _charge(
-    budget: Any | None, usage: Usage, *, task: GenerationTask, label: str, outcome: str = "ok",
-    enforce: bool = True,
-) -> None:
-    """Spend through the guard with the stage/label/round this task belongs to.
+def _charge(budget: Any | None, usage: Usage, *, task: GenerationTask, enforce: bool = True) -> None:
+    """Spend through the guard in the stage this task belongs to.
 
     ``enforce=False`` books the dollar without raising — the single-shot path uses it
     so a paid response is still parsed and written to disk; the ceiling is enforced at
-    the round's phase boundary (``steps._run_phase``) after the work is persisted."""
+    the round's phase boundary (``steps._run_phase``) after the work is persisted.
+
+    Label, round and outcome are NOT passed on (2026-08-30): the guard buckets by stage
+    and enforces, and the per-call record with all three is the ledger row
+    ``cost.instrument`` writes."""
     if budget is None:
         return
-    budget.charge(
-        usage,
-        stage=task_stage(task),
-        role="generator",
-        label=label,
-        round_index=task.round,
-        outcome=outcome,
-        enforce=enforce,
-    )
+    budget.charge(usage, stage=task_stage(task), enforce=enforce)
 
 
 _TRUNCATED_FINISH = {"max_tokens", "max_output_tokens", "length"}
@@ -579,7 +572,6 @@ def run_agent_task(
         edit_only=task.edit_only,
         always_writable=_always_writable(language, task),
         read_only=_read_only(language),
-        images=list(task.images),
         **({"max_turns": turns_cap} if turns_cap > 0 else {}),
     )
     acc = _SessionAcc(task=task, budget=budget)
@@ -695,7 +687,7 @@ class _SessionAcc:
         self.usage = self.usage + res.usage
         self.turns += session_turns(res)
         if res.usage.cost_usd or res.usage.input_tokens or res.usage.output_tokens:  # an empty session books no call
-            _charge(self.budget, res.usage, task=self.task, label=label, outcome=res.exit_reason or "ok")
+            _charge(self.budget, res.usage, task=self.task)
         return res
 
 
@@ -718,8 +710,9 @@ def session_turns(res: Any) -> int:
 def _images_block(images: list[ImagePart], ws: Workspace) -> str:
     """The task's images (reference photos, the judged contact sheet) as a prompt
     section.  No vendor CLI takes an image on argv, so the agent opens the files with
-    its own file/image tools; until 2026-08-29 ``AgentJob.images`` was filled and read
-    by nobody, so the contact sheet the judge scored reached no CLI session.
+    its own file/image tools; until 2026-08-29 the only carrier was ``AgentJob.images``,
+    which no backend read, so the contact sheet the judge scored reached no CLI session
+    (that field is gone since 2026-08-30 — this block IS the delivery).
 
     Every image is copied into ``.3dcv/images/`` first, exactly as the cookbook is (D9),
     and listed workspace-relative: a CLI reads only INSIDE its workspace (``--image
@@ -807,9 +800,7 @@ def _attributed_fallback(ws: Workspace, task: GenerationTask, before: str) -> li
         from codeverse.agents.cli_common import attribute_changes
     except ImportError:  # pragma: no cover — agents package always ships with tracks
         return raw
-    return attribute_changes(
-        raw, write_roots=list(task.write_roots), own_hints=frozenset(task.files_hint)
-    )
+    return attribute_changes(raw, write_roots=list(task.write_roots))
 
 
 def generate(

@@ -358,7 +358,7 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
     # book the money non-enforcing like every other judge site (steps.py, candidates.py):
     # the verdict is already paid for, and raising here would discard it.  The stage
     # boundary enforces the ceiling.
-    ctx.budget.add(verdict.usage, stage="judge", role="judge", label=f"asset_{to_snake(asset.name)}")
+    ctx.budget.add(verdict.usage, stage="judge")
     if is_degraded(verdict):
         # a degraded verdict is no verdict: score stays None and `judged` False, and the
         # fix pass is skipped (its improvement_plan is empty by construction).

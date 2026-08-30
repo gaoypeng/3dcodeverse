@@ -24,6 +24,7 @@ from tests.orchestrator_tracks.fakes import (
     FakeAgent,
     FakeChatModel,
     FakeJudge,
+    FakePairwise,
     FakeRuntime,
     FakeServices,
 )
@@ -95,6 +96,41 @@ def test_crash_between_round_write_and_state_save_delivers_the_newer_round(compl
     assert st.best_commit == rec1.rounds[1].commit
     ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "resume.reconciled"]
     assert ev and ev[-1]["state_was_stale"] is True and ev[-1]["best_changed"] is True
+
+
+def test_a_paid_pairwise_verdict_survives_the_crash_window(tmp_path, chair_plan, settings):
+    """``choose_best_round`` re-persists rNN.json WITH its verdict and only THEN does
+    ``_promote_best`` save the state, so a kill in that gap (or any state predating
+    ``best_considered_through``) left a paid ~$0.05 judgement on disk that reconcile
+    could not see — and score-only re-ranking silently reversed it.  18 runs on disk
+    were in that shape (2026-08-30)."""
+    plan = chair_plan.model_dump(mode="json")
+
+    def build(pairwise):
+        return StaticObjectTrack(services=FakeServices(pairwise=pairwise), judge=FakeJudge(scores=(0.70, 0.72)),
+                                 agent=FakeAgent(_writer), planner_model=_planner(plan), settings=settings,
+                                 runtime=FakeRuntime(Language.BLENDER),
+                                 policy=RoundPolicy(max_rounds=1, target=0.9))
+
+    spec = make_spec(language=Language.BLENDER, max_rounds=1)
+    ws = Workspace(tmp_path / "runs" / "r")
+    paid = FakePairwise([("a", 0.9)])   # r1 outscores r0 by 0.02 (inside the margin); the judge says r0
+    rec1 = build(paid).run(spec, ws)
+    assert len(paid.calls) == 1 and rec1.best_round == 0 and rec1.final_score == pytest.approx(0.70)
+    note = rec1.rounds[1].pairwise
+    assert note is not None and note.winner == "a" and note.accepted is False
+    on_disk = json.loads((ws.root / "rounds" / "r01.json").read_text())
+    assert on_disk["pairwise"]["winner"] == "a", "the verdict must be durable, not just in notes"
+
+    state = json.loads(ws.state_path.read_text())    # ...killed before _promote_best saved
+    state["best_considered_through"] = 0
+    ws.state_path.write_text(json.dumps(state))
+
+    again = FakePairwise([("b", 0.99)])              # a second verdict would flip it
+    rec2 = build(again).run(spec, ws, resume=True)
+    assert again.calls == [], "resume replays the stored verdict, it never buys another"
+    assert rec2.best_round == 0 and rec2.final_score == pytest.approx(0.70)
+    assert RunState.load(ws).best_round == 0
 
 
 def test_a_self_consistent_state_with_an_unranked_round_still_re_ranks(completed_run):
@@ -237,7 +273,7 @@ def test_resume_charges_for_spend_the_snapshot_missed(tmp_path, chair_plan, sett
         led.append(CallCost(run=ws.root.name, model="gemini:flash", label="planner", cost_usd=cost))
     guard = BudgetGuard(make_spec().budget)
     guard.restore(BudgetSnapshot(spent=guard.spent, billed_usd=0.10,   # the boundary save missed 0.32
-                                 calls=1, by_stage={}, by_round={}, active_s=0.0))
+                                 calls=1, by_stage={}, active_s=0.0))
     _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
     assert guard.billed_usd == pytest.approx(0.42), "resume must charge for every billed call"
     guard.billed_usd = 5.0                           # a snapshot AHEAD of the ledger wins

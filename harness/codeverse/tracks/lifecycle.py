@@ -21,7 +21,7 @@ from typing import Any
 
 from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import GateReport
-from codeverse.contracts.common import Track, Usage
+from codeverse.contracts.common import Track
 from codeverse.contracts.plan import Plan
 from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse.contracts.spec import Spec
@@ -48,7 +48,7 @@ from codeverse.orchestrator import (
 )
 from codeverse.proc import EventLog
 from codeverse.prompts import render
-from codeverse.tracks.candidates import choose_best_round, run_best_of_n
+from codeverse.tracks.candidates import choose_best_round, replay_best_round, run_best_of_n
 from codeverse.tracks.common import (
     RunContext,
     Services,
@@ -116,10 +116,10 @@ def _reconcile_billed_from_ledger(budget: BudgetGuard, ws: Workspace, events: Ev
     row), and so do subscription-backend rows: their ``cost_usd`` is notional, not money
     (the same ``bills_usd`` predicate the live path uses — ``BudgetGuard.charge``), so a
     codex/claude/agy run resumed offline keeps billed at $0.  A missing or unreadable
-    ledger simply leaves the snapshot alone.  ``load_ledger(root)`` reads the ledger the
-    metered models/agents write (``telemetry/cost.jsonl``), else the root
-    ``cost_ledger.jsonl`` that runs before 2026-08-23 wrote directly (bench/out keeps
-    hundreds of those)."""
+    ledger simply leaves the snapshot alone.  ``load_ledger(root)`` reads the one ledger
+    the metered models/agents write, ``telemetry/cost.jsonl``; the root-level
+    ``cost_ledger.jsonl`` leg went on 2026-08-30 (an audit of every run under $HOME found
+    677 symlinks to that name and zero real files — ``LEDGER_NAME`` is the alias only)."""
     try:
         from codeverse.cost.billing import bills_usd
         from codeverse.cost.ledger import load_ledger
@@ -402,10 +402,10 @@ class BaseTrack:
            dropped (half-written journal), with a ``resume.dropped_rounds`` event.
         3. **Rebuild.**  ``completed_rounds``/``round_commits`` come from the journal;
            when the state disagrees with it (rounds it never promoted, a best pointing
-           at the wrong commit) the best is recomputed with ``BestSelector`` — the
-           same ranking ``choose_best_round`` starts from, with no paid pairwise call.
-           A state that already agrees keeps its best untouched (it may embody a paid
-           pairwise keep-the-incumbent decision the pure ranking lacks).
+           at the wrong commit) the best is recomputed with :func:`replay_best_round`,
+           which re-walks the journal applying the pairwise verdicts the rounds stored
+           — never buying a new one, never reversing one already paid for.
+           A state that already agrees keeps its best untouched.
 
         Returns the loop's initial round history.  A fresh (non-resume) run only
         stamps the fingerprint and starts empty."""
@@ -461,11 +461,11 @@ class BaseTrack:
         best_changed = False
         # an empty journal used to have its own arm; it is subsumed — with journal == []
         # this condition is always true (best_invalid when a best is set, `best is None`
-        # otherwise) and BestSelector().pick([]) is None, which clears the best the same
+        # otherwise) and replay_best_round([]) is None, which clears the best the same
         # way.  The only divergence, blanking a stale best_commit while best_round is
         # None, is unobservable: no reader touches best_commit without best_round.
         if stale or best_invalid or unranked or best is None:
-            pick = BestSelector().pick(journal)
+            pick = replay_best_round(journal)
             if pick is None:
                 best_changed = best is not None
                 state.best_round, state.best_commit, state.best_score = None, "", None
@@ -509,10 +509,6 @@ class BaseTrack:
             # so a raised cap (--max-minutes / --rounds) grants only the difference,
             # never a fresh full cap.
             budget.restore(BudgetSnapshot.model_validate(snap))
-        else:
-            spent = state.extra.get("spent_usage")  # legacy run dirs (pre-snapshot)
-            if spent:
-                budget.spent = Usage.model_validate(spent)
         _reconcile_billed_from_ledger(budget, ws, events)
         policy = self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds)
         policy = replace(policy, n_candidates=self._resolve_candidates(spec, settings), judge_model=spec.backends.judge,
@@ -747,7 +743,7 @@ class BaseTrack:
         if rounds and self._texture_wanted(ctx):
             self._texture_pass(ctx)
         ctx.state.status, ctx.state.stop_reason, ctx.state.error = status, stop_reason, error
-        ctx.state.save(ctx.ws)
+        self._save_budget(ctx)  # saves state too — AFTER the texture pass charged
         rec = self._record(ctx, rounds, status, error=error, stop_reason=stop_reason)
         self.services.finalize_record(ctx.ws, rec)
         ctx.events.emit("run.done", status=status.value, stop=stop_reason, best_round=rec.best_round,
@@ -805,7 +801,7 @@ class BaseTrack:
             log.warning("texture pass failed: %s", e)
             ctx.events.emit("texture.failed", error=f"{type(e).__name__}: {e}")
             return
-        ctx.budget.add(trep.usage, stage="texture", role="image", label="texture_pass")
+        ctx.budget.add(trep.usage, stage="texture")
         ctx.extra["texturing"] = trep.summary()
         if not ctx.budget.ok():
             # visible, but NOT `budget.exceeded`: that event means "the loop stopped",

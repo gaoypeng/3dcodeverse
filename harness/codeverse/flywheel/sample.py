@@ -8,7 +8,7 @@ Sample folder (STORAGE_RULES §3/§8 compatible)::
       robot.urdf        (urdf_blender) copy of src/robot.urdf
       meta.json         SampleMeta (typed, below)
       captions.json     {detailed, instruction, factory} or {} when not captioned
-      renders/          view_*.png, sheet.png, turntable.mp4, object.glb (< 20 MB)
+      renders/          view_*.png, sheet.png, object.glb (< 20 MB)
       meshes/<link>.glb (urdf_blender) per-link meshes referenced by robot.urdf
 """
 
@@ -178,7 +178,7 @@ def write_code_tree(dest: Path, files: dict[str, bytes], language: Language) -> 
 
 
 def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str]:
-    """Copy the round's views, contact sheet, turntable and a small object.glb."""
+    """Copy the round's views, contact sheet and a small object.glb."""
     out: list[str] = []
     rdir = dest / "renders"
     rdir.mkdir(parents=True, exist_ok=True)
@@ -205,9 +205,6 @@ def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str
         sheet = ws.rebase(rnd.renders.contact_sheet or "")
         if sheet.is_file():
             _cp(sheet, f"sheet{sheet.suffix or '.png'}")
-        tt = ws.rebase(rnd.renders.turntable or "")
-        if tt.is_file():
-            _cp(tt, f"turntable{tt.suffix or '.mp4'}")
     if not any(o.startswith("renders/sheet") for o in out):
         packaged = ws.deliverable / "sheet.png"  # new layout keeps the best sheet here
         _cp(packaged if packaged.is_file() else None, "sheet.png")

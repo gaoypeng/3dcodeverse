@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from codeverse.contracts.chat import ImagePart
 from codeverse.contracts.common import Usage
 
 
@@ -54,12 +53,6 @@ class AgentJob(BaseModel):
         description="ENFORCE files_hint: an existing file outside it cannot be overwritten (new files "
         "and the language entry file stay allowed). Refine tasks set this so a session fixing one "
         "part cannot rewrite its neighbours.",
-    )
-    images: list[ImagePart] = Field(
-        default_factory=list,
-        description="images for this task (reference photos; the contact sheet the judge scored). "
-        "No vendor CLI takes an image on argv: ``tracks/generation.run_agent_task`` lists their "
-        "paths in the prompt for the agent's own file/image tools.",
     )
     always_writable: list[str] = Field(
         default_factory=list,

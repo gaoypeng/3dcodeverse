@@ -813,33 +813,24 @@ class BudgetGuard:
         self.soft_fraction = min(1.0, max(0.0, float(soft_fraction)))
         #: one-off extension of the HARD wall-clock ceiling (finalise/salvage headroom)
         self.grace_minutes = 0.0
-        #: stage -> USD and round -> {stage -> USD}, so a round can report what it burned
+        #: stage -> USD, so a stop can say where the money went
         self.by_stage: dict[str, float] = {}
-        self.by_round: dict[int, dict[str, float]] = {}
 
     # ----------------------------------------------------------------- accounting
-    def charge(
-        self,
-        usage: Usage | None,
-        *,
-        stage: str = OTHER_STAGE,
-        role: str | None = None,
-        label: str = "",
-        round_index: int | None = None,
-        outcome: str = "ok",
-        enforce: bool = True,
-    ) -> None:
+    def charge(self, usage: Usage | None, *, stage: str = OTHER_STAGE, enforce: bool = True) -> None:
         """THE door every dollar goes through — for bucketing and enforcement only.
 
-        Accumulates ``usage``, buckets it by ``stage`` (and by round) and — when
-        ``enforce`` — raises ``BudgetExceeded`` if a hard ceiling is now crossed.
+        Accumulates ``usage``, buckets it by ``stage`` and — when ``enforce`` — raises
+        ``BudgetExceeded`` if a hard ceiling is now crossed.
         The ledger row is NOT written here: ``cost.instrument`` (MeteredAgent /
         MeteredChatModel) is the one writer, one priced row per real call.  Until
         2026-08-29 this method kept a second, aggregate writer that fired whenever no
         ``run_ledger()`` was active — a direct ``track.run()`` without the CLI, or any
         run with ``CV3D_COST_LEDGER=off`` (the guard's own ledger was opened
         unconditionally), so ledger-off runs of that era carry one unpriced row per
-        charge; a ledger-off run now writes nothing at all."""
+        charge; a ledger-off run now writes nothing at all.  Role, label and round
+        went with that second writer (2026-08-30): ``CallCost`` carries all three per
+        call, so the guard bucketing them a second time fed nothing but itself."""
         if usage is None:
             return
         with self._lock:
@@ -849,13 +840,10 @@ class BudgetGuard:
             self.calls += 1
             key = stage or OTHER_STAGE
             self.by_stage[key] = self.by_stage.get(key, 0.0) + float(usage.cost_usd)
-            if round_index is not None:
-                per = self.by_round.setdefault(int(round_index), {})
-                per[key] = per.get(key, 0.0) + float(usage.cost_usd)
         if enforce:
             self.check()
 
-    def add(self, usage: Usage | None, **kw: Any) -> None:
+    def add(self, usage: Usage | None, *, stage: str = OTHER_STAGE) -> None:
         """Account for ``usage`` WITHOUT enforcing the ceilings.
 
         For work that is already done and persisted (a completed judge verdict,
@@ -863,8 +851,7 @@ class BudgetGuard:
         and raising here would throw away a finished, paid-for result.  The
         round loop stops at its next ``ok()`` check instead.  The dollar is
         still bucketed — "not enforced" never means "not seen"."""
-        kw["enforce"] = False
-        self.charge(usage, **kw)
+        self.charge(usage, stage=stage, enforce=False)
 
     def mark(self) -> Usage:
         """Snapshot of the running total — diff it with :func:`usage_delta` to see
@@ -883,7 +870,6 @@ class BudgetGuard:
                 billed_usd=self.billed_usd,
                 calls=self.calls,
                 by_stage=dict(self.by_stage),
-                by_round={r: dict(per) for r, per in self.by_round.items()},
                 active_s=self._active_s + (time.time() - self.start_time),
             )
 
@@ -898,7 +884,6 @@ class BudgetGuard:
             self.billed_usd = float(snap.billed_usd)
             self.calls = int(snap.calls)
             self.by_stage = dict(snap.by_stage)
-            self.by_round = {int(r): dict(per) for r, per in snap.by_round.items()}
             self._active_s = float(snap.active_s)
             self.start_time = time.time()
 
@@ -995,7 +980,7 @@ class BudgetGuard:
 class BudgetSnapshot(BaseModel):
     """What survives a resume (``run_state.extra["budget_snapshot"]``).
 
-    The five accumulator fields of :class:`BudgetGuard` plus cumulative ACTIVE
+    The four accumulator fields of :class:`BudgetGuard` plus cumulative ACTIVE
     seconds.  Grace (``grace_minutes``) and config (ceilings, soft
     fraction, run, ledger) are EXCLUDED on purpose: grace is per-attempt salvage
     headroom — persisting it would ratchet the hard ceiling — and config always
@@ -1006,8 +991,6 @@ class BudgetSnapshot(BaseModel):
     billed_usd: float
     calls: int
     by_stage: dict[str, float]
-    #: matches the ``BudgetGuard.by_round`` shape
-    by_round: dict[int, dict[str, float]]
     active_s: float
 
 

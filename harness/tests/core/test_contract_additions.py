@@ -93,3 +93,26 @@ def test_spec_options_do_not_change_the_plan_stage_hash():
     plain = Spec(id="x", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a chair")
     opted = plain.model_copy(update={"options": RunOptions(candidates=4, texture=True)})
     assert hash_inputs(plan_stage_inputs(plain)) == hash_inputs(plan_stage_inputs(opted))
+
+
+def test_records_written_before_the_2026_08_30_field_retirements_still_load():
+    """RenderSet.turntable (360 records carry the key, none non-null), SkillRead.
+    first_seen_turn (an api-agent leftover) and AgentJob.images (dead once image staging
+    moved to .3dcv/images/) were deleted.  Every model here ignores unknown keys, so the
+    stored runs on disk must keep re-reading — that is the whole licence for the delete."""
+    from codeverse.contracts.agent import AgentJob
+    from codeverse.contracts.run import RoundRecord, SkillRead
+
+    rs = RenderSet.model_validate({"renderer": "blender", "turntable": "renders/turntable.mp4",
+                                   "contact_sheet": "renders/sheet.png"})
+    assert rs.contact_sheet == "renders/sheet.png" and not hasattr(rs, "turntable")
+    sk = SkillRead.model_validate({"name": "bpy_modifiers", "surfaced": True, "first_seen_turn": None})
+    assert sk.surfaced and not hasattr(sk, "first_seen_turn")
+    job = AgentJob.model_validate({"workspace": "/w", "prompt": "p",
+                                   "images": [{"path": "renders/sheet.png", "label": "sheet"}]})
+    assert job.prompt == "p" and not hasattr(job, "images")
+    # and the field this batch ADDED round-trips through the round journal
+    rec = RoundRecord.model_validate({"index": 1, "kind": "refine",
+                                      "pairwise": {"a": "r00", "b": "r01", "winner": "a", "confidence": 0.9}})
+    assert rec.pairwise is not None and rec.pairwise.accepted is False
+    assert RoundRecord(index=0, kind="baseline").pairwise is None

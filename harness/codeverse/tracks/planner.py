@@ -699,7 +699,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     if brief_enabled(spec):
         brief, usage = expand_brief(spec, model_id, model=model, events=events)
         if guard is not None and (usage.cost_usd or usage.input_tokens or usage.output_tokens):
-            guard.add(usage, stage="plan", role="planner", label="planner-brief")
+            guard.add(usage, stage="plan")
     budget = plan_budget(spec, brief)
     unit = "passes" if spec.track is Track.GRAPHICS else "parts"
     system = build_system_prompt(spec, plan_model, runtime=runtime, template=template, example=example, budget=budget)
@@ -727,8 +727,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
         usage = usage + resp.usage
         if guard is not None:
             # booked where it is paid: a later attempt that raises cannot erase this dollar
-            guard.add(resp.usage, stage="plan", role="planner",
-                      label=f"planner{'-retry' if attempt else ''}")
+            guard.add(resp.usage, stage="plan")
         raw = resp.parsed if resp.parsed is not None else _parse_json(resp.text)
         try:
             if not isinstance(raw, dict):

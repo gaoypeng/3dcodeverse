@@ -11,7 +11,6 @@ import pytest
 from codeverse.config import Settings, seed_recipes_enabled
 from codeverse.contracts.common import HARNESS_OWNED_SRC, Language, Track
 from codeverse.contracts.plan import GraphicsPlan
-from codeverse.languages.file_lint import lint_one_file
 from codeverse.languages.glsl_shader import (
     COMMON_GLSL,
     GlslShaderRuntime,
@@ -372,9 +371,6 @@ def test_lint_flags_a_redefinition_of_a_seeded_recipe(tmp_path) -> None:
     rep = lint_workspace(ws)
     assert not rep.passed and [f.data["file"] for f in rep.findings if f.data["kind"] == "redefines_recipe"] == ["src/buffer_a.frag"]
     assert not any(f.data["kind"] == "stray_file" for f in rep.findings)
-    # the per-file verdict a write_file hands back says it too
-    verdict = lint_one_file("glsl_shader", "src/common.glsl", common, ws.src / "common.glsl")
-    assert verdict.checked and any("`aurora` is already provided by src/recipes.glsl" in e for e in verdict.errors)
 
 
 def test_prompt_block_lists_the_seeded_names(tmp_path) -> None:

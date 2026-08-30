@@ -287,8 +287,7 @@ def _run_round(
                 # add, never charge: the verdict exists and is paid for — raising here
                 # would drop a fully judged round before it is committed/recorded
                 # (the loop stops at its next budget_ok check instead, AFTER best promotion).
-                ctx.budget.add(rec.judgment.usage, stage="judge", role="judge", round_index=index,
-                               label=rec.judgment.rubric or "judge")
+                ctx.budget.add(rec.judgment.usage, stage="judge")
     else:
         notes.append(f"build failed: {outcome.build.error_type}: {outcome.build.error_message[:200]}")
     rec.gates = gates
@@ -462,8 +461,7 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
         paid = paid if isinstance(paid, Usage) else Usage()
         if paid.cost_usd:
             # the provider billed the failed attempt (ModelError.usage): book it
-            ctx.budget.add(paid, stage="judge", role="judge", round_index=index,
-                           label="judge", outcome="failed")
+            ctx.budget.add(paid, stage="judge")
         ctx.events.emit("judge.failed", round=index, error=f"{type(e).__name__}: {e}",
                         cost_usd=round(paid.cost_usd, 4))
         notes.append(f"judge failed: {type(e).__name__}: {e}")
@@ -472,8 +470,7 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
     if is_degraded(judgment):
         # a glitch, never a score: keep the raw verdict on disk, pay for it, but do not
         # let 0.0 poison plateau/best/refine (judges/rubrics.degraded_judgment contract)
-        ctx.budget.add(judgment.usage, stage="judge", role="judge", round_index=index,
-                       label=judgment.rubric or "judge", outcome="degraded")
+        ctx.budget.add(judgment.usage, stage="judge")
         ctx.events.emit("judge.degraded", round=index, error=judgment.summary[:300],
                         cost_usd=round(judgment.usage.cost_usd, 4))
         notes.append(f"judge degraded: {judgment.summary[:200]}")
@@ -512,8 +509,7 @@ def rejudge_round(ctx: RunContext, pipeline: RoundPipeline, rec: RoundRecord, pr
     rec.judgment = judgment
     rec.usage = rec.usage + judgment.usage
     rec.notes = "; ".join(notes)
-    ctx.budget.add(judgment.usage, stage="judge", role="judge", round_index=rec.index,
-                   label=judgment.rubric or "judge", outcome="rejudge")
+    ctx.budget.add(judgment.usage, stage="judge")
     ctx.ws.write_json(round_record_path(ctx, rec.index), rec)
     # the round's original cost.round went out as wasted=unjudged; emit the corrected
     # one so the audit stream stops counting a now-scored round as wasted.

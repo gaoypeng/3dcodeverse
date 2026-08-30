@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from codeverse.contracts.common import Budget, Language, Usage
 from codeverse.contracts.plan import StaticPlan
 from codeverse.contracts.run import RunStatus
+from codeverse.contracts.spec import RunOptions
 from codeverse.orchestrator import BudgetExceeded, BudgetGuard, BudgetSnapshot, RunState
 from codeverse.proc import EventLog
 from codeverse.tracks.generation import GenerationTask, generate_files
@@ -30,8 +32,8 @@ from tests.orchestrator_tracks.fakes import (
 # --------------------------------------------------------------- snapshot / restore
 def test_resume_restores_money_calls_and_active_time_but_not_downtime():
     g1 = BudgetGuard(Budget(max_minutes=10.0))
-    g1.charge(Usage(backend="gemini", cost_usd=0.6), stage="baseline", round_index=0, label="baseline")
-    g1.add(Usage(backend="gemini", cost_usd=0.05), stage="judge", role="judge", round_index=0)
+    g1.charge(Usage(backend="gemini", cost_usd=0.6), stage="baseline")
+    g1.add(Usage(backend="gemini", cost_usd=0.05), stage="judge")
     g1.start_time -= 120  # two minutes of ACTIVE work in the first session
     snap = g1.snapshot()
     assert snap.version == 1 and snap.active_s == pytest.approx(120, abs=2)
@@ -42,7 +44,6 @@ def test_resume_restores_money_calls_and_active_time_but_not_downtime():
     g2.restore(revived)
     assert g2.billed_usd == pytest.approx(0.65) and g2.calls == 2
     assert g2.by_stage == {"baseline": pytest.approx(0.6), "judge": pytest.approx(0.05)}
-    assert g2.by_round.get(0, {}) == {"baseline": pytest.approx(0.6), "judge": pytest.approx(0.05)}
     # ACTIVE minutes carry over; the downtime between the sessions cost nothing
     assert g2.elapsed_minutes() == pytest.approx(2.0, abs=0.1)
     g2.start_time -= 60  # one more ACTIVE minute in THIS session accumulates on top
@@ -74,24 +75,52 @@ def test_a_raised_cap_grants_only_the_difference_and_grace_never_persists():
     assert g2.remaining()["minutes"] == pytest.approx(7.0, abs=0.1)  # 15 − 8, never a fresh 15
 
 
-def test_build_context_restores_the_snapshot_and_falls_back_to_legacy_spent(tmp_path, settings):
+def test_build_context_restores_the_budget_snapshot(tmp_path, settings):
     spec = make_spec()
     ws = Workspace(tmp_path / "runs" / "r").create()
     track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.THREEJS))
 
     g = BudgetGuard(Budget(max_minutes=10.0))
-    g.charge(Usage(backend="gemini", cost_usd=0.4), stage="baseline", round_index=0)
+    g.charge(Usage(backend="gemini", cost_usd=0.4), stage="baseline")
     state = RunState()
     state.extra["budget_snapshot"] = g.snapshot().model_dump(mode="json")
     ctx = track.build_context(spec, ws, EventLog(ws.events_path), state)
     assert ctx.budget.billed_usd == pytest.approx(0.4) and ctx.budget.calls == 1
-    assert ctx.budget.by_round.get(0, {})["baseline"] == pytest.approx(0.4)
+    assert ctx.budget.by_stage["baseline"] == pytest.approx(0.4)
 
-    # legacy fallback: an old run dir carries only spent_usage (spent restored, as before)
+    # a snapshot written before by_round was retired (2026-08-30) still loads: extra keys are ignored
+    legacy = dict(state.extra["budget_snapshot"], by_round={"0": {"baseline": 0.4}})
     state2 = RunState()
-    state2.extra["spent_usage"] = Usage(backend="gemini", cost_usd=0.3).model_dump(mode="json")
+    state2.extra["budget_snapshot"] = legacy
     ctx2 = track.build_context(spec, ws, EventLog(ws.events_path), state2)
-    assert ctx2.budget.spent.cost_usd == pytest.approx(0.3)
+    assert ctx2.budget.billed_usd == pytest.approx(0.4)
+
+
+def test_the_texture_pass_spend_reaches_the_snapshot_a_resume_restores(tmp_path, chair_plan, settings, monkeypatch):
+    """finalise saved the state BEFORE the texture pass charged, so the snapshot a resume
+    restored was the PRE-texture one and a $0.12 pack simply vanished from the run's money
+    (reproduced 2026-08-30: total_usage 0.217 with cost_by_stage[texture], 0.097 after)."""
+    import codeverse.texturing.run as texrun
+
+    monkeypatch.setattr(texrun, "texture_pass",
+                        lambda *a, **kw: SimpleNamespace(usage=Usage(backend="gemini", cost_usd=0.12),
+                                                         summary=lambda: {"shipped": True}))
+    spec = make_spec(max_rounds=0, options=RunOptions(texture=True))
+    ws = Workspace(tmp_path / "runs" / "tex")
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)),
+                              agent=FakeAgent(lambda job, ws_: {"src/object.js": "export function build(THREE) "
+                                                                                 "{ return new THREE.Group(); }\n"}),
+                              planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
+                              settings=settings, runtime=FakeRuntime(Language.THREEJS))
+    rec = track.run(spec, ws)
+    assert rec.extra["texturing"] == {"shipped": True}, "the pass must have run at all"
+
+    snap = RunState.load(ws).extra["budget_snapshot"]
+    assert snap["by_stage"]["texture"] == pytest.approx(0.12)
+    assert snap["spent"]["cost_usd"] == pytest.approx(rec.total_usage.cost_usd, abs=1e-6)
+    # and the guard a resume rebuilds starts from that number, not from the pre-texture one
+    ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState.load(ws))
+    assert ctx.budget.by_stage["texture"] == pytest.approx(0.12)
 
 
 # --------------------------------------------------------------- ordering: single-shot

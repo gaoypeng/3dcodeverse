@@ -32,8 +32,8 @@ class Constraints(BaseModel):
 class RunOptions(BaseModel):
     """Run-shape options frozen on the spec (distinct from Budget and Backends).
 
-    ``None`` / ``False`` means "not stated": resolution falls through to
-    ``run_state.extra`` (legacy runs) and then ``Settings`` defaults.
+    ``None`` / ``False`` means "not stated": the resolver falls through to its
+    ``Settings`` default (``BaseTrack._resolve_candidates``, ``cost.profiles``).
     """
 
     candidates: int | None = Field(default=None, ge=1, description="best-of-N baseline candidates")

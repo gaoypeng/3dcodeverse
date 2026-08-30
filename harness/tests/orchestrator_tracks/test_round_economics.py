@@ -223,7 +223,7 @@ def test_hitting_the_cap_asks_for_a_landing_instead_of_killing_the_session(tmp_w
     assert res.ok and res.turn_capped and res.sessions == 2
     # both sessions are paid for and both are in the guard, under their own labels
     assert res.usage.cost_usd == pytest.approx(0.4) and guard.spent.cost_usd == pytest.approx(0.4)
-    assert guard.by_round.get(1, {})["refine"] == pytest.approx(0.4)
+    assert guard.by_stage["refine"] == pytest.approx(0.4)
     kinds = [e["event"] for e in events.read()]
     assert "generate.turn_cap" in kinds
     done = next(e for e in events.read() if e["event"] == "generate.done")
@@ -244,7 +244,7 @@ def test_a_crashing_second_session_never_erases_what_the_first_one_spent(tmp_ws)
                          budget=guard)
     assert len(agent.jobs) == 2 and not res.ok
     assert guard.spent.cost_usd == pytest.approx(0.2) and res.usage.cost_usd == pytest.approx(0.2)
-    assert "503 storm" in res.notes and guard.by_round.get(2, {})["refine"] == pytest.approx(0.2)
+    assert "503 storm" in res.notes and guard.by_stage["refine"] == pytest.approx(0.2)
 
 
 def _result_of(agent, i):
@@ -268,6 +268,9 @@ def test_task_stage_names_the_cost_bucket_a_task_spends_in():
     assert t("rebuild") == "repair"           # regenerating after a failed build IS repair money
     assert t("zone") == "zones" and t("asset") == "assets" and t("asset_fix") == "assets"
     assert t("compose") == "assemble" and t("env") == "env"
+    # the static track's surface-detail round is refine money, not "other" — it filed as
+    # Stage.OTHER until 2026-08-30 because _LABEL_STAGES had no "detail" prefix
+    assert t("detail") == "refine" and t("detail", "detail_seat") == "refine"
     # an unknown kind falls back to the label, which record_call maps by prefix
     assert t("something_new", "asset_koi") == "asset_koi"
 

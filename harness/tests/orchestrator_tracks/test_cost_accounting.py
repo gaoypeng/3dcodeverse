@@ -63,12 +63,12 @@ def replay(name: str, root: Path | None, *, texture: bool = True) -> BudgetGuard
         for j in fx["judges"]:  # steps.run_round: the judge's MeteredChatModel writes, the guard buckets
             u = Usage(cost_usd=j["cost_usd"], input_tokens=j["input_tokens"], output_tokens=j["output_tokens"])
             record_call(u, round=j["round"], stage="judge", role="judge", label=j["rubric"])
-            guard.add(u, stage="judge", role="judge", round_index=j["round"], label=j["rubric"])
+            guard.add(u, stage="judge")
         if texture:
             for t in fx["post_hoc_texture_passes"]:  # lifecycle._texture_pass
                 u = Usage(cost_usd=t["cost_usd"])
                 record_call(u, stage="texture", role="image", label="texture_pass")
-                guard.add(u, stage="texture", role="image", label="texture_pass")
+                guard.add(u, stage="texture")
     return guard
 
 
@@ -91,15 +91,18 @@ def test_every_recorded_dollar_reaches_the_guard_and_the_ledger(name, tmp_path):
     assert sum(1 for r in rows if r.label.endswith(".a2")) == len(retried)
 
 
-def test_the_round_the_budget_cut_is_still_reported():
+def test_the_round_the_budget_cut_is_still_reported(tmp_path):
     fx = FIXTURES["tool_med_hand_drill"]
     assert fx["rounds_in_record"] == [0, 1]
     cut = [s for s in fx["sessions"] if s["round"] == 2]
     assert cut, "fixture must contain the round the budget cut"
-    guard = replay("tool_med_hand_drill", None)
+    guard = replay("tool_med_hand_drill", tmp_path)
     burned = sum(s["cost_usd"] for s in cut)
-    assert guard.by_round.get(2, {})["refine"] == pytest.approx(burned, abs=1e-6)
+    # per-round money lives in the ledger (CallCost.round), the one place that keeps it;
+    # the guard totals and enforces, and its own by_round map was retired 2026-08-30
+    assert sum(r.cost_usd for r in load_ledger(tmp_path) if r.round == 2) == pytest.approx(burned, abs=1e-6)
     assert burned > 0.8  # $0.86 that record.rounds never mentioned
+    assert guard.spent.cost_usd > burned  # and it is inside the run total, not beside it
 
 
 def test_post_hoc_texture_passes_are_inside_the_total_now():
@@ -113,16 +116,15 @@ def test_post_hoc_texture_passes_are_inside_the_total_now():
 
 
 # ----------------------------------------------------------------------------- guard mechanics
-def test_spend_buckets_by_stage_and_round_and_only_charge_enforces():
+def test_spend_buckets_by_stage_and_only_charge_enforces():
     g0 = BudgetGuard(Budget(max_minutes=60))
-    g0.charge(Usage(cost_usd=0.4), stage="baseline", round_index=0, label="baseline")
-    g0.add(Usage(cost_usd=0.05), stage="judge", role="judge", round_index=0)
+    g0.charge(Usage(cost_usd=0.4), stage="baseline")
+    g0.add(Usage(cost_usd=0.05), stage="judge")
     assert g0.by_stage == {"baseline": pytest.approx(0.4), "judge": pytest.approx(0.05)}
-    assert g0.by_round.get(0, {})["judge"] == pytest.approx(0.05) and g0.by_round.get(9, {}) == {}
     assert list(g0.stage_summary())[0] == "baseline"  # biggest bucket first
 
     g = BudgetGuard(Budget(max_minutes=1.0), start_time=time.time() - 600)  # already past
-    g.add(Usage(cost_usd=0.9), stage="texture", role="image")  # over the ceiling, never raises
+    g.add(Usage(cost_usd=0.9), stage="texture")  # over the ceiling, never raises
     assert not g.ok() and g.spent.cost_usd == pytest.approx(0.9)
     with pytest.raises(BudgetExceeded):
         g.charge(Usage(cost_usd=0.01), stage="refine")
@@ -144,7 +146,7 @@ def test_the_guard_never_writes_a_ledger_row_itself(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ledger_mod, "_fallback_read", False)
     quiet = BudgetGuard(Budget(max_minutes=60))
-    quiet.charge(Usage(cost_usd=0.1), stage="plan", role="planner")
+    quiet.charge(Usage(cost_usd=0.1), stage="plan")
     assert quiet.spent.cost_usd == pytest.approx(0.1)
     assert not (tmp_path / "process.jsonl").exists() and not any(tmp_path.glob("**/*.jsonl"))
 
