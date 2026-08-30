@@ -107,7 +107,6 @@ def run_cmd(
     limit: Annotated[int | None, typer.Option("--limit")] = None,
     ids: Annotated[list[str] | None, typer.Option("--id", help="only these prompt ids")] = None,
     tiers: Annotated[list[str] | None, typer.Option("--tier")] = None,
-    no_resume: Annotated[bool, typer.Option("--no-resume")] = False,
     redo_status: Annotated[str, typer.Option("--redo-status", help="comma list of recorded statuses to re-run, "
                                                                    "e.g. infra_failed once the provider recovers")] = "",
     report: Annotated[bool, typer.Option("--report/--no-report")] = True,
@@ -120,7 +119,7 @@ def run_cmd(
     # one source of truth for the worker count: BenchOptions.parallel (the measured knee)
     par = {"parallel": parallel} if parallel is not None else {}
     opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_minutes=max_minutes,
-                                 limit=limit, ids=ids or [], tiers=tiers or [], resume=not no_resume,
+                                 limit=limit, ids=ids or [], tiers=tiers or [],
                                  redo_status=[x for x in redo_status.split(",") if x], **par)
     out_dir = out or (C.REPO_ROOT / "bench" / "out" / battery.stem)
     console.print(f"battery={battery} out={out_dir} generator={generator or 'default'} judge={judge or 'default'}")

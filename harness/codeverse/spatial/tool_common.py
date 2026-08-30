@@ -207,23 +207,23 @@ def cached_render_glb(
     explode: float = 0.0,
     sheet: bool = True,
 ) -> RenderSet:
-    """``render_glb`` with an on-disk RenderSet cache (same args → same files)."""
+    """``render_glb`` into a deterministic per-call out_dir; the CACHE lives in
+    ``spatial.render``, which is the only thing allowed to decide a PNG is still good.
+
+    This used to keep a second ``renderset.json`` marker here, keyed on the GLB's
+    size+mtime alone.  It served stale views whenever a rebuild landed on the same
+    size and mtime, ignored a rig edit / CACHE_VERSION bump entirely, and — because the
+    marker stores absolute paths — a copied workspace returned views inside the ORIGINAL
+    one.  ``render_glb``'s key (sha256 of the GLB + CACHE_VERSION + the rig signature)
+    has none of those holes, so one authority is both cheaper and correct.
+    """
     out_dir = render_cache_dir(ctx, glb, views=[v.name for v in views], mode=mode, size=size,
                                isolate=list(isolate or []), explode=explode, sheet=sheet)
-    marker = out_dir / "renderset.json"
-    if marker.is_file():
-        try:
-            rs = RenderSet.model_validate_json(marker.read_text())
-            if all(Path(v.path).is_file() for v in rs.views) and (not rs.contact_sheet or Path(rs.contact_sheet).is_file()):
-                return rs
-        except ValidationError:
-            pass
     render_glb = lazy("codeverse.spatial.render", "render_glb")
     rs = render_glb(glb, out_dir, views=list(views), mode=mode, width=size, height=size,
                     isolate=list(isolate) if isolate else None, explode=explode, sheet=sheet)
     if not isinstance(rs, RenderSet):
         raise ToolUnavailable(f"render_glb returned {type(rs).__name__}, expected RenderSet")
-    marker.write_text(rs.model_dump_json())
     return rs
 
 

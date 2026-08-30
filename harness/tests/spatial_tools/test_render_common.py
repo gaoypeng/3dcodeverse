@@ -119,6 +119,38 @@ def test_tool_out_dir_is_round_stamped(stool_ctx: ToolContext) -> None:
     assert a != b and a.is_dir() and a.parent == d.parent
 
 
+def test_cached_render_glb_leaves_the_cache_to_render_glb(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One cache authority.  ``tool_common`` used to short-circuit on its own
+    ``renderset.json`` marker keyed on the GLB's size+mtime, so a rebuild that landed on
+    the same stamp served stale PNGs and a copied workspace served views pointing into the
+    ORIGINAL one.  ``render.render_glb`` (sha256 + CACHE_VERSION + rig signature) decides now.
+    """
+    import codeverse.spatial.tool_common as tc
+    from codeverse.contracts.artifacts import RenderSet, RenderView
+
+    calls: list[Path] = []
+
+    def fake_render_glb(glb, out_dir, *, views, mode, width, height, isolate, explode, sheet):
+        calls.append(Path(out_dir))
+        png = Path(out_dir) / f"{views[0].name}.png"
+        png.write_bytes(b"png")
+        return RenderSet(views=[RenderView(name=views[0].name, path=str(png))], contact_sheet=None)
+
+    monkeypatch.setattr(tc, "lazy", lambda module, attr: fake_render_glb)
+    glb = stool_ctx.workspace.artifacts / "object.glb"
+    preset = OBJECT_VIEWS[0]
+    first = tc.cached_render_glb(stool_ctx, glb, views=[preset])
+    stamp = glb.stat()
+    glb.write_bytes(glb.read_bytes()[::-1])                      # new content, same size
+    import os
+
+    os.utime(glb, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))     # ...and the same mtime
+    second = tc.cached_render_glb(stool_ctx, glb, views=[preset])
+    assert len(calls) == 2 and calls[0] == calls[1], calls       # re-rendered into the same dir
+    assert first.views[0].path == second.views[0].path
+    assert not list(calls[0].glob("renderset.json"))             # no second marker on disk
+
+
 def test_tool_unavailable_is_reported_by_the_registry(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     """No tool catches ToolUnavailable itself any more — ToolDef.call does it for
     all of them, with the tool's own registered name."""

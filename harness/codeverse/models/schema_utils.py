@@ -385,8 +385,9 @@ def ask_structured(model: Any, schema: type[BaseModel], *, system: str, text: st
         resp = model.generate(req)
     except ModelError as e:
         return None, Usage(), f"call failed: {e}"
-    payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
-    try:
+    try:  # the parse is inside: every provider raises ModelError first today, but this
+        # function must not depend on all three keeping that half of the ChatModel contract
+        payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
         return schema.model_validate(payload), resp.usage, ""
-    except (ValidationError, TypeError) as e:
+    except (JsonParseError, ValidationError, TypeError) as e:
         return None, resp.usage, f"answer unparsable: {e}"

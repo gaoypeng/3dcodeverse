@@ -1,9 +1,13 @@
 """The 3dcv skill library: task-scoped rule sheets, routed automatically, read-measured.
 
-A *skill* is not a renamed cookbook chapter.  The cookbook stays the reference manual
-(copyable code, reachable by ``read_cookbook``); a skill is <=350 lines of rules and
-numbers for one recurring failure class, and it is attached to a session only when the
-track / language / kind / plan / **previous round's gate findings** say it applies.
+A *skill* is not a renamed cookbook chapter — the two sit on opposite sides of the split
+in ``prompts/catalog.py``.  The cookbook is PROMPT material: the reference manual of
+copyable code, resolved through that catalog, inlined into the generate templates and
+materialised at ``.3dcv/cookbook.md`` for the agent to re-read (the ``read_cookbook`` MCP
+tool that once served it a chapter at a time was deleted — 0 calls in 16 zone sessions).
+A skill is AGENT-READ material the harness only materialises: <=350 lines of rules and
+numbers for one recurring failure class, attached to a session only when the track /
+language / kind / plan / **previous round's gate findings** say it applies.
 
 Why the library lives inside the package: every backend reads it from a materialised
 workspace copy, but the source of truth ships in the wheel, so it must be package data

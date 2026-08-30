@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 
 from codeverse.agents.cli_common import default_mcp_command
@@ -18,7 +19,7 @@ def _mat(ws: Workspace, kind: str = "gemini-cli", spatial: bool = True, cookbook
 
 
 def test_writes_three_bodies_same_content(tmp_ws: Workspace):
-    res = _mat(tmp_ws)
+    _mat(tmp_ws)
     bodies = [(tmp_ws.root / n).read_text() for n in ("AGENTS.md", "GEMINI.md", "CLAUDE.md")]
     assert bodies[0] == bodies[1] == bodies[2]
     body = bodies[0]
@@ -26,7 +27,6 @@ def test_writes_three_bodies_same_content(tmp_ws: Workspace):
     assert "never import from `codeverse`" in body.lower() or "Never import from `codeverse`" in body
     assert CONTRACT.splitlines()[0] in body
     assert "Spatial tools (3dcv)" in body
-    assert len(res.body_files) == 3
 
 
 def test_no_mcp_server_is_written_into_the_workspace(tmp_ws: Workspace):
@@ -50,7 +50,7 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
 
     from codeverse.agents.materialize import IGNORE_LINES
 
-    res = _mat(tmp_ws)
+    _mat(tmp_ws)
 
     def ignored(rel: str, lines: tuple[str, ...]) -> bool:
         for pat in lines:
@@ -63,7 +63,7 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
 
     for f in (".geminiignore", ".aiexclude"):
         lines = tuple(ln for ln in (tmp_ws.root / f).read_text().splitlines() if ln.strip())
-        assert lines == IGNORE_LINES and str(tmp_ws.root / f) in res.ignore_files
+        assert lines == IGNORE_LINES
         assert "artifacts/" not in lines and "trajectories/" not in lines
         for readable in ("artifacts/census.json", "artifacts/build_last.json", "artifacts/measurement.json",
                          "artifacts/gates/r00/contract_tool.json", "artifacts/tool_renders/r00_ab/sheet.png",
@@ -81,19 +81,27 @@ def test_spatial_disabled_drops_server_and_documents_absence(tmp_ws: Workspace):
     assert "No spatial tools are available" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
-def test_cookbook_copied_when_found(tmp_ws: Workspace, tmp_path):
+def test_cookbook_copied_when_found(tmp_ws: Workspace, tmp_path, caplog):
     cb = tmp_path / "cookbook.md"
     cb.write_text("# cookbook\nsnippet")
-    res = _mat(tmp_ws, cookbook=str(cb))
-    assert res.cookbook_path.endswith(f"{CV3D_DIR}/cookbook.md")
+    with caplog.at_level(logging.WARNING, logger="codeverse.agents.materialize"):
+        _mat(tmp_ws, cookbook=str(cb))
     assert (tmp_ws.root / CV3D_DIR / "cookbook.md").read_text().startswith("# cookbook")
     assert f"{CV3D_DIR}/cookbook.md" in (tmp_ws.root / "AGENTS.md").read_text()
-    assert not res.warnings
+    assert not [r for r in caplog.records if r.name == "codeverse.agents.materialize"], \
+        "a resolved cookbook must not warn"
 
 
-def test_missing_cookbook_is_a_warning(tmp_ws: Workspace):
-    res = _mat(tmp_ws, cookbook="nope/cookbook.md")
-    assert any("cookbook not found" in w for w in res.warnings)
+def test_missing_cookbook_warns_where_someone_can_see_it(tmp_ws: Workspace, caplog):
+    """The unresolved cookbook is the failure `tracks/common.cookbook_rel_for` was fixed for
+    (an articulated run told the agent "No cookbook is available" while its 24 kB cookbook sat
+    on disk).  It used to land in a `Materialized.warnings` list every caller threw away; the
+    log line is the whole signal now, so it has to fire."""
+    with caplog.at_level(logging.WARNING, logger="codeverse.agents.materialize"):
+        _mat(tmp_ws, cookbook="nope/cookbook.md")
+    assert any("cookbook not found" in r.getMessage() and "nope/cookbook.md" in r.getMessage()
+               for r in caplog.records)
+    assert "No cookbook is available" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
 def test_kind_specific_tool_hint(tmp_ws: Workspace):
@@ -115,7 +123,7 @@ def test_codex_overrides_are_valid_toml_fragments():
 
 def test_default_mcp_command_is_the_backends_interpreter(tmp_ws: Workspace):
     # one place knows the command: the body + codex overrides quote sys.executable, never bare "python"
-    res = materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="", spatial_tools=True)
-    assert res.mcp_command == default_mcp_command(tmp_ws)
-    assert res.mcp_command[0] == sys.executable
-    assert sys.executable in (tmp_ws.root / "AGENTS.md").read_text()
+    materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="", spatial_tools=True)
+    body = (tmp_ws.root / "AGENTS.md").read_text()
+    assert default_mcp_command(tmp_ws)[0] == sys.executable
+    assert f"command: `{' '.join(default_mcp_command(tmp_ws))}`" in body

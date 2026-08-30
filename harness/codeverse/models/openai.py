@@ -26,7 +26,14 @@ from codeverse.contracts.chat import (
 )
 from codeverse.contracts.common import Usage
 from codeverse.models.base import ModelError
-from codeverse.models.parts import Stopwatch, classify_sdk_exception, image_b64, with_logged_retries
+from codeverse.models.parts import (
+    Stopwatch,
+    attempt_timeout_s,
+    classify_sdk_exception,
+    image_b64,
+    retry_budget_s,
+    with_logged_retries,
+)
 from codeverse.models.pricing import estimate_cost
 from codeverse.models.retry import MAX_WAIT_S, cause_for
 from codeverse.models.schema_utils import (
@@ -271,11 +278,13 @@ class OpenAIModel:
 
     # -------------------------------------------------------------- generate
     def generate(self, request: ChatRequest) -> ChatResponse:
+        deadline = time.monotonic() + retry_budget_s(request.max_wait_s)
+
         def attempt() -> ChatResponse:
             strict = self._strict_ok and request.response_schema is not None
             kwargs = build_kwargs(request, self.model, strict_schema=strict)
             try:
-                return self._once(kwargs, request)
+                return self._once(kwargs, request, deadline)
             except Exception as exc:  # noqa: BLE001 - classified
                 err = classify_exception(exc)
                 if strict and _is_schema_rejection(err):
@@ -288,7 +297,7 @@ class OpenAIModel:
                         self._strict_ok = False
                     kwargs = build_kwargs(request, self.model, strict_schema=False)
                     try:
-                        return self._once(kwargs, request)
+                        return self._once(kwargs, request, deadline)
                     except Exception as exc2:  # noqa: BLE001
                         err2 = classify_exception(exc2)
                         raise err2 from cause_for(err2, exc2)
@@ -299,10 +308,12 @@ class OpenAIModel:
                                    max_delay=self.max_delay, sleep=self._sleep, log=log,
                                    max_wait_s=request.max_wait_s)
 
-    def _once(self, kwargs: dict[str, Any], request: ChatRequest) -> ChatResponse:
+    def _once(self, kwargs: dict[str, Any], request: ChatRequest, deadline: float) -> ChatResponse:
         client = self.client()
         with Stopwatch() as sw:
-            completion = client.chat.completions.create(model=self.model, **kwargs)
+            # the client is built once with a fixed timeout; the deadline is per call
+            completion = client.chat.completions.create(
+                model=self.model, timeout=attempt_timeout_s(deadline, self.timeout_s), **kwargs)
         if not completion.choices:
             raise ModelError("OpenAI returned no choices", retryable=True)
         text, calls, finish = parse_choice(completion.choices[0])

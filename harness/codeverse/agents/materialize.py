@@ -31,14 +31,15 @@ would otherwise refuse to read the build census / the long-prompt file there.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from pathlib import Path
-
-from pydantic import BaseModel, Field
 
 from codeverse.agents.cli_common import default_mcp_command
 from codeverse.prompts import PROMPTS_DIR
 from codeverse.workspace import Workspace
+
+log = logging.getLogger(__name__)
 
 CV3D_DIR = ".3dcv"  # harness-owned read-only docs inside the workspace
 MCP_SERVER_NAME = "3dcv"
@@ -57,16 +58,6 @@ IGNORE_LINES = (
 #: are git-ignored run state) unless told otherwise — the per-workspace settings turn that off so
 #: ``IGNORE_LINES`` is the single source of truth for what the agent may read.
 GEMINI_CONTEXT_SETTINGS = {"fileFiltering": {"respectGitIgnore": False, "respectGeminiIgnore": True}}
-
-
-class Materialized(BaseModel):
-    """What :func:`materialize_workspace` wrote and how each CLI reaches the tools."""
-
-    body_files: list[str] = Field(default_factory=list)
-    ignore_files: list[str] = Field(default_factory=list)
-    cookbook_path: str = ""
-    mcp_command: list[str] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- body
@@ -195,14 +186,21 @@ def materialize_workspace(
     cookbook_rel: str,
     spatial_tools: bool,
     mcp_command: list[str] | None = None,
-) -> Materialized:
+) -> None:
     """Write AGENTS.md / GEMINI.md / CLAUDE.md + MCP configs + ignore files into ``ws``.
 
     ``mcp_command`` defaults to ``cli_common.default_mcp_command(ws)`` — the same
     ``sys.executable`` the backends launch; three callers used to spell a bare ``python``
-    here, which the body text and codex's ``-c`` overrides then quoted verbatim."""
+    here, which the body text and codex's ``-c`` overrides then quoted verbatim.
+
+    Returns nothing: the ``Materialized`` DTO this used to build (body/ignore paths, the
+    cookbook path, the argv, a warnings list) was discarded by every production caller —
+    ``tracks/common.Services.materialize`` is typed ``-> None`` — so its one real signal,
+    a cookbook that did not resolve, was written and read by nobody.  That is the exact
+    failure ``tracks/common.cookbook_rel_for`` was fixed for on 2026-08-29 (an articulated
+    run told the agent "No cookbook is available" while its 24 kB cookbook sat on disk);
+    it is a log line now, where someone reading the run can see it (2026-08-30)."""
     mcp_command = list(mcp_command) if mcp_command else default_mcp_command(ws)
-    out = Materialized(mcp_command=mcp_command)
 
     # cookbook: copy into the harness-owned .3dcv/ dir so every CLI can read it in-workspace
     src = _resolve_cookbook(ws, cookbook_rel)
@@ -210,21 +208,18 @@ def materialize_workspace(
         dest = ws.root / CV3D_DIR / "cookbook.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, dest)
-        out.cookbook_path = str(dest)
         cookbook_note = (
             f"The cookbook for this language — copyable, verified snippets and skeletons — is at "
             f"`{CV3D_DIR}/cookbook.md` (relative to the workspace root). Read the relevant sections "
             "before writing code and copy its patterns exactly."
-
         )
     else:
-        out.warnings.append(f"cookbook not found: {cookbook_rel!r}")
+        log.warning("cookbook not found: %r — the %s session gets the contract only", cookbook_rel, agent_kind)
         cookbook_note = "No cookbook is available in this session; rely on the contract below."
 
     body = _body(agent_kind, contract_md, cookbook_note, spatial_tools, mcp_command)
     for name in ("AGENTS.md", "GEMINI.md", "CLAUDE.md"):
         (ws.root / name).write_text(body)
-        out.body_files.append(str(ws.root / name))
 
     # No MCP server is written into the workspace: every CLI gets 3dcv from a harness-owned
     # per-session file, so an agent-planted server cannot reach the next round (audit 2026-08-27).
@@ -235,5 +230,3 @@ def materialize_workspace(
     ignore_text = "\n".join(IGNORE_LINES) + "\n"
     for name in (".geminiignore", ".aiexclude"):
         (ws.root / name).write_text(ignore_text)
-        out.ignore_files.append(str(ws.root / name))
-    return out

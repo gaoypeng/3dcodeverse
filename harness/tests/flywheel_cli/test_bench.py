@@ -195,6 +195,9 @@ def test_the_runner_classifies_the_outage_that_reaches_it(tmp_path: Path):
     assert calls == [], "a plain resume still skips every recorded row"
     run_battery(battery, out, BenchOptions(parallel=1, limit=1, redo_status=["infra_failed"]), run_fn=counting)
     assert len(calls) == 1, "--redo-status infra_failed re-runs what the weather lost"
+    # ...and it is the ONLY way in.  A `resume` switch that merely dropped the recorded rows
+    # skipped the archive below and silently resumed the old workspace, spec and clock.
+    assert "resume" not in BenchOptions.model_fields
 
 
 def test_a_redo_starts_from_a_fresh_workspace(tmp_path):

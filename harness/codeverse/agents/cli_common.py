@@ -310,16 +310,13 @@ def _hinted(path: str, hints: frozenset[str]) -> bool:
     return any(path == h or path.startswith(h.rstrip("/") + "/") for h in hints)
 
 
-def attribute_changes(
-    files: list[FileChange],
-    *,
-    write_roots: list[str],
-    own_hints: frozenset[str] = frozenset(),
-) -> list[FileChange]:
+def attribute_changes(files: list[FileChange], *, write_roots: list[str]) -> list[FileChange]:
     """The subset of a whole-worktree git diff that belongs to ONE session: inside its
     ``write_roots`` and not harness-owned.  (Sessions on one workspace are serialised —
-    :data:`EXCLUSIVE_KINDS` — so there is no sibling to attribute against; ``own_hints``
-    is the session's declared scope, kept for callers that narrow further.)"""
+    :data:`EXCLUSIVE_KINDS` — so there is no sibling to attribute against.  An ``own_hints``
+    parameter sat in this signature unread until 2026-08-30: the edit_only scope is enforced
+    by :func:`_enforce_scope`, which REVERTS an out-of-scope write rather than hiding it from
+    ``files_changed``, so narrowing here would only have lied about what the session did.)"""
     roots = tuple(r.strip("/") for r in write_roots if r.strip("/"))
     out: list[FileChange] = []
     for f in files:
@@ -498,8 +495,7 @@ def finish_session(
             errors.append(msg)
             s.notes.append(msg)
         s.ws.commit(f"agent:{s.label}")
-        files = attribute_changes(s.ws.changed_files(s.head_before), write_roots=s.job.write_roots,
-                                  own_hints=s.files_hint)
+        files = attribute_changes(s.ws.changed_files(s.head_before), write_roots=s.job.write_roots)
         res = AgentResult(
             ok=ok, exit_reason=exit_reason, text=text, files_changed=files,
             transcript_path=str(s.traj.transcript_path if s.traj.transcript_path.exists() else s.traj.dir),

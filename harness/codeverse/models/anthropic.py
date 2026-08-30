@@ -33,8 +33,10 @@ from codeverse.models.base import ModelError
 from codeverse.models.parts import (
     BoundedCache,
     Stopwatch,
+    attempt_timeout_s,
     classify_sdk_exception,
     image_b64,
+    retry_budget_s,
     with_logged_retries,
 )
 from codeverse.models.pricing import cache_write_surcharge, estimate_cost
@@ -304,10 +306,11 @@ class AnthropicModel:
     # -------------------------------------------------------------- generate
     def generate(self, request: ChatRequest) -> ChatResponse:
         kwargs = build_kwargs(request, self.model, json_mode=self.json_mode)
+        deadline = time.monotonic() + retry_budget_s(request.max_wait_s)
 
         def attempt() -> ChatResponse:
             try:
-                return self._once(kwargs, request)
+                return self._once(kwargs, request, deadline)
             except Exception as exc:  # noqa: BLE001 - classified
                 err = classify_exception(exc)
                 raise err from cause_for(err, exc)
@@ -317,10 +320,12 @@ class AnthropicModel:
                                    max_delay=self.max_delay, sleep=self._sleep, log=log,
                                    max_wait_s=request.max_wait_s)
 
-    def _once(self, kwargs: dict[str, Any], request: ChatRequest) -> ChatResponse:
+    def _once(self, kwargs: dict[str, Any], request: ChatRequest, deadline: float) -> ChatResponse:
         client = self.client()
         with Stopwatch() as sw:
-            msg = client.messages.create(model=self.model, **kwargs)
+            # the client is built once with a fixed timeout; the deadline is per call
+            msg = client.messages.create(
+                model=self.model, timeout=attempt_timeout_s(deadline, self.timeout_s), **kwargs)
         text, calls, submit, thinking_blocks = parse_content(msg.content)
         stop = str(msg.stop_reason or "")
         if calls and thinking_blocks:

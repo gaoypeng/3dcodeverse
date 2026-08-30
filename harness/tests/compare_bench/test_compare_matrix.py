@@ -276,3 +276,32 @@ def test_max_usd_flag_was_deleted(capsys):
         main(["--prompts", "x.yaml", "--arms", "harness:gemini-cli:m", "--out", "o",
               "--max-usd", "2.5"])
     assert "--max-usd" in capsys.readouterr().err
+
+
+def test_no_resume_starts_the_harness_arm_fresh(tmp_path: Path):
+    """`--no-resume` regenerates every other arm, so the harness arm must not resume.
+
+    It used to: `_run_harness` only ever asked whether `<cell>/run` existed, so the arm
+    that had SUCCEEDED handed back its old score, generated in the old weather, against a
+    partner regenerated in today's.
+    """
+    ev = FakeEvaluator()
+    inner = fake_run_track(0.9)
+    seen: list[bool] = []
+
+    def run(spec, ws, resume):
+        seen.append(resume)
+        return inner(spec, ws, resume)
+
+    out = tmp_path / "cmp"
+    arms = parse_arms("harness:gemini-cli:gemini-3.6-flash")
+    deps = _deps(ev, {}, run)
+    opts = CompareOptions(judge="gemini:fixed", limit=1, parallel=1, pairwise=False)
+    cell = Path(run_matrix(BATTERY, out, arms, opts, deps)[0].workspace)
+    (cell / "run" / "src" / "stale.py").write_text("# stale")
+    run_matrix(BATTERY, out, arms, opts, deps)
+    assert seen == [False], "a plain resume re-runs nothing: the cell is already recorded"
+    run_matrix(BATTERY, out, arms, opts.model_copy(update={"resume": False}), deps)
+    assert seen == [False, False], "the redone cell ran fresh, not resumed"
+    assert (cell / "run.attempt1" / "src" / "stale.py").is_file(), "the old run is archived, not deleted"
+    assert not (cell / "run" / "src" / "stale.py").exists()

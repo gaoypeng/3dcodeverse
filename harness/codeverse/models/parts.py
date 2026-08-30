@@ -118,6 +118,34 @@ def classify_sdk_exception(exc: BaseException, sdk: Any, label: str,
     return ModelError(f"{label} unexpected error: {type(exc).__name__}: {exc}", retryable=False)
 
 
+#: floor of the per-attempt SDK timeout derived from what is left of the call's
+#: ``max_wait_s`` budget: a call that starts near its deadline still gets ONE real
+#: attempt instead of an instant timeout.  Same 20 s as gemini's ``HTTP_TIMEOUT_FLOOR_S``
+#: and the judge's own ``SAMPLE_MIN_WAIT_S``, so an attempt in flight overshoots the
+#: deadline by at most this floor.
+SDK_TIMEOUT_FLOOR_S = 20.0
+
+
+def retry_budget_s(max_wait_s: float | None) -> float:
+    """The budget for ONE logical call: the caller clips ``RETRY_DEADLINE_S``, never extends it."""
+    from codeverse.models.retry import RETRY_DEADLINE_S
+
+    return RETRY_DEADLINE_S if max_wait_s is None else min(RETRY_DEADLINE_S, float(max_wait_s))
+
+
+def attempt_timeout_s(deadline: float, ceiling: float) -> float:
+    """The SDK timeout for ONE attempt: what is left of ``deadline``, capped at the
+    client's ``timeout_s`` and floored at :data:`SDK_TIMEOUT_FLOOR_S`.
+
+    ``with_retries`` checks the deadline only BETWEEN attempts and both SDK clients are
+    built once with a fixed ``timeout`` (600 s), so a judge told it had 20 s of budget
+    left held a socket for 600 s (audit 2026-08-29).  The floor is what keeps a legitimate
+    long completion (the 930 s plan budget) on its full ``timeout_s`` — this shortens an
+    attempt, it never lengthens one.  Gemini clips the same way (``_attempt_config``).
+    """
+    return min(ceiling, max(SDK_TIMEOUT_FLOOR_S, deadline - time.monotonic()))
+
+
 def with_logged_retries(attempt: Any, *, label: str, model: str, attempts: int,
                         base_delay: float, max_delay: float, sleep: Any, log: Any,
                         max_wait_s: float | None = None) -> Any:
@@ -127,13 +155,13 @@ def with_logged_retries(attempt: Any, *, label: str, model: str, attempts: int,
     their waits included; ``None`` = ``RETRY_DEADLINE_S``); the backoff itself is
     ``attempts`` x <= ``MAX_WAIT_S`` (3 s), the round-trips are the real cost.
     """
-    from codeverse.models.retry import RETRY_DEADLINE_S, with_retries
+    from codeverse.models.retry import with_retries
 
     def on_retry(n: int, exc: BaseException, delay: float) -> None:
         log.warning("%s %s attempt %d/%d failed (%s); retrying in %.1fs",
                     label, model, n, attempts, exc, delay)
 
-    budget = RETRY_DEADLINE_S if max_wait_s is None else min(RETRY_DEADLINE_S, float(max_wait_s))
+    budget = retry_budget_s(max_wait_s)
     return with_retries(attempt, is_retryable=lambda e: isinstance(e, ModelError) and e.retryable,
                         attempts=attempts, base_delay=base_delay, max_delay=max_delay, max_total_s=budget,
                         on_retry=on_retry, sleep=sleep)

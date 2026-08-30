@@ -29,9 +29,11 @@ class StubAgent:
 def test_images_reach_the_agent_as_paths_in_the_prompt(tmp_ws: Workspace, tmp_path):
     """No vendor CLI takes an image on argv: the contact sheet the judge scored (and the
     reference photos) are copied into the workspace and listed for the agent's own file
-    tools — until 2026-08-29 ``AgentJob.images`` was filled and read by nobody.  The copy
-    is what makes the read possible: a host path is outside every CLI's workspace, and the
-    sheet's own home (``artifacts/renders/``) is hidden by ``.geminiignore``."""
+    tools.  The copy is what makes the read possible: a host path is outside every CLI's
+    workspace, and the sheet's own home (``artifacts/renders/``) is hidden by
+    ``.geminiignore``.  ``AgentJob.images`` used to be filled beside this and read by
+    nobody; it was deleted 2026-08-30, so the prompt block and the staged bytes below are
+    the whole delivery path — nothing else carries an image into a session."""
     sheet = tmp_path / "contact_sheet.png"
     sheet.write_bytes(b"png")
     task = GenerationTask(label="refine", prompt="fix the horn", round=1, kind="refine",
@@ -45,7 +47,8 @@ def test_images_reach_the_agent_as_paths_in_the_prompt(tmp_ws: Workspace, tmp_pa
     assert (tmp_ws.root / ".3dcv/images/00_contact_sheet.png").read_bytes() == b"png"
     # an unreadable source is still named, never silently dropped
     assert "reference (target): `/refs/photo.jpg`" in job.prompt
-    assert job.images and job.images[0].path == str(sheet)
+    # and only the readable one is staged: the named-but-uncopied path stays a host path
+    assert sorted(p.name for p in (tmp_ws.root / ".3dcv/images").iterdir()) == ["00_contact_sheet.png"]
     run_agent_task(tmp_ws, agent=agent, task=task.model_copy(update={"images": [], "label": "r2"}))
     assert "Images for this task" not in agent.jobs[1].prompt
 

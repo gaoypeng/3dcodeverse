@@ -76,6 +76,7 @@ from bench._oneshot import (  # noqa: E402
 from bench.run_bench import (  # noqa: E402
     Battery,
     BenchPrompt,
+    archive_attempt,
     build_spec,
     default_run_track,
     select_prompts,
@@ -233,8 +234,17 @@ def entry_of(spec: Spec) -> str:
     return ENTRY_FILE[spec.language]
 
 
-def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, res: CellResult) -> None:
+def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOptions,
+                 deps: CompareDeps, res: CellResult) -> None:
     run_ws = Workspace(cell / "run")
+    if run_ws.exists() and not opts.resume:
+        # --no-resume regenerates every other arm (a recorded one-shot answer is not re-used
+        # either), so a harness arm that resumed its FINISHED workspace handed back its old
+        # score, generated in the old weather, against a partner generated in today's — the
+        # cross-weather comparison the pairing exists to prevent (ab_plan.archive_cell has
+        # the measured story).  The old tree is archived, never deleted: it holds that
+        # attempt's cost ledger.
+        archive_attempt(run_ws.root)
     resume = run_ws.exists()
     if not resume:
         run_ws.create()
@@ -278,7 +288,7 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
         # of the per-process fallback log.  Context-local, so --parallel keeps cells apart.
         with run_ledger(cell, run=f"{item.id}:{arm.slug}"):
             if arm.kind == "harness":
-                _run_harness(spec, cell, eval_ws, deps, res)
+                _run_harness(spec, cell, eval_ws, opts, deps, res)
             else:
                 _generate_oneshot(arm, spec, cell, eval_ws, opts, deps, res)
             # A one-shot arm whose LAST attempt was lost to the provider has not finished

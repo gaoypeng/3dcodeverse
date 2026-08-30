@@ -222,8 +222,12 @@ def test_render_views_cached(stool_ctx: ToolContext, fake_renderer) -> None:
     assert obs.ok and obs.images[0].endswith("sheet.png") and len(obs.images) == 5  # sheet + 4 views
     assert obs.numbers["views"] == ["front_right_34", "back_left_34", "front", "top"]
     assert "artifacts/tool_renders/r00_" in obs.text and str(stool_ctx.workspace.root) not in obs.text
-    get_tool("render_views").call(stool_ctx, {})
-    assert fake_renderer.calls == 1  # second call served from the on-disk cache
+    again = get_tool("render_views").call(stool_ctx, {})
+    # same args → the same deterministic out_dir, which is what lets render_glb's OWN cache
+    # (sha256 of the glb + CACHE_VERSION + rig signature) skip the work.  It is reached every
+    # time: tool_common used to keep a second size+mtime marker here and short-circuit above
+    # it, which served stale PNGs.  This fake renderer has no cache, hence two calls.
+    assert again.images == obs.images and fake_renderer.calls == 2
     obs = get_tool("render_views").call(stool_ctx, {"views": ["front", "back", "left", "right", "top"]})
     assert obs.ok and len(obs.images) == 1  # > 4 views → sheet only
     obs = get_tool("render_views").call(stool_ctx, {"views": ["frontal"]})

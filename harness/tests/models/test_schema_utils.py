@@ -205,3 +205,24 @@ def test_parse_json_lenient_accepts_wrappers_and_rejects_non_json():
         with pytest.raises(JsonParseError):
             parse_json_lenient(text)
     assert json.dumps(parse_json_lenient('{"n": {"x": [1]}}')) == '{"n": {"x": [1]}}'
+
+
+def test_ask_structured_returns_the_triple_for_prose_it_cannot_parse():
+    """The five callers branch on the error string; none of them catches.  Every shipped
+    provider raises ModelError on unparseable structured output, but this must not depend
+    on all three keeping that half of the ChatModel contract."""
+    from codeverse.contracts.chat import ChatResponse
+    from codeverse.contracts.common import Usage
+    from codeverse.models.schema_utils import ask_structured
+
+    class Answer(BaseModel):
+        ok: bool
+
+    class Prose:
+        """A ChatModel that hands back text instead of raising (base.py:22-30 says it should)."""
+
+        def generate(self, request):
+            return ChatResponse(text="I refuse.", usage=Usage(cost_usd=0.01))
+
+    out, usage, err = ask_structured(Prose(), Answer, system="s", text="t", temperature=0.2, label="l")
+    assert out is None and usage.cost_usd == 0.01 and err.startswith("answer unparsable:")
