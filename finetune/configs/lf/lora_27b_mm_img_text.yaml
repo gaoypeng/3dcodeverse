@@ -21,7 +21,7 @@ preprocessing_num_workers: 16
 dataloader_num_workers: 4
 neat_packing: false
 packing: false
-tokenized_path: /wekafs/ict/hx_624/llm-ft/data/lf/tok_mm1_27b_img_text_len4096_px448
+tokenized_path: /wekafs/ict/hx_624/llm-ft/data/lf/tok_mm1_27b_len4096_px448b
 output_dir: /wekafs/ict/hx_624/llm-ft/runs/lf_qwen38_27b_mm_img_text
 logging_steps: 5
 save_steps: 300
