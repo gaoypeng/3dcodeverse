@@ -526,6 +526,18 @@ under `bench/out/`.
 
 ## Judge experiments log
 
+**2026-08-29 — per-language system prompts: NULL, three independent A/Bs.**  The
+one-line system prompts were replaced with evidence-grounded ones mined from each
+language's recorded failure corpus (`CV3D_SYSPROMPT=v0` keeps the old ones).  Three
+paired A/Bs all read null: glsl CLI (n=10/arm, Δ+0.003, within-arm σ 0.18), blender
+single-shot (8 pairs, paired Δ−0.027), blender CLI on 3.6-flash (10/10 pairs, paired
+Δ−0.036, 4W/2T/4L, paired σ 0.403 — per-brief swings up to ±0.9 dwarf any prompt
+effect).  With the tool loop enforcing the self-check discipline anyway, prompt
+wording is not where static/graphics quality lives; run-to-run variance is.  The
+prompts stay (they cost nothing and encode true contracts), but no further wording
+A/Bs without a structural change to test.
+
+
 **2026-08-29 — flash "named-feature sweep" prompt variant: REJECTED.**  Re-judged 9 recorded
 runs spanning stored 0.02–0.98 with `gemini-3.7-flash` n=3, base prompt vs a variant that
 inserts an explicit present/absent sweep of brief-named features before scoring.  The one
