@@ -47,6 +47,19 @@ What the gates name, measured over 32 recorded runs of this exact track:
 
 Rules that survive every brief:
 
+* **The brief's time of day is a hard constraint, not a mood suggestion.**  Decide it
+  once, write it down as a constant (`const MOOD = 'night'`, a sun azimuth, a sky colour,
+  a fog colour) and make every zone read it.  Measured 2026-08-30 on this exact battery:
+  a "cozy izakaya at NIGHT" rendered under a plain blue daytime sky over flat green
+  ground — the lanterns and the chef were built well and the scene still lost, because a
+  night brief rendered as noon is the wrong scene no matter what is in it.  The frame
+  gate cannot save you here: it only measures too-dark and too-bright, and a sunny day is
+  neither.  A night that reads as night sits near `mean_lum` 0.15-0.30 with real colour;
+  0.40 is daylight.
+* **The environment IS the scene, not its backdrop.**  Sky, ground material, fog and the
+  key light carry more of the verdict than any single prop.  Build them FIRST and make
+  them specific to the brief (snow, wet cobbles, desert haze); a default blue sky over
+  default green ground reads as "unfinished" however good the props on top are.
 * **Light before colour, and light before detail.** Get the frame into a readable band
   first. Hue, material and geometry work are all invisible on near-black pixels, and every
   hour you spend on them before the exposure is right is an hour the judge cannot see.
