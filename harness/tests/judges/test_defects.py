@@ -101,15 +101,22 @@ def test_defect_majority_vote_with_odd_n(judge_input, cache_dir):
     assert set(raw["per_criterion_std"]) == set(R.weights)
 
 
-def test_defect_vote_ties_follow_the_representative_sample(judge_input, cache_dir, caplog):
-    """Exact defect-vote ties follow the representative sample."""
+def test_defect_vote_ties_are_absent(judge_input, cache_dir, caplog):
+    """An exact defect-vote tie is ABSENT (2026-08-30; was: the representative sample, D36).
+
+    At n=2 the representative is whichever sample's overall sits nearer the mean — a
+    float comparison, not evidence — so a 1-1 tie was a coin flip on a defect that caps
+    the run at 0.7.  The rubric already puts the burden on the defect ("mark an item
+    present only when an image or a gate finding shows it"); a tie has not met it.
+    Acceptance ties still follow the representative (the test below): a must-item tie
+    decides pass/fail, and that policy is the owner's."""
     flagged_first = FakeChatModel(by_label={":s0": [_reply(0.9, ["render_artifacts"])], ":s1": [_reply(0.9)]})
     with caplog.at_level("WARNING", logger="codeverse.judges.vlm_judge"):
         j = VlmJudge("static_object_v1", chat_model=flagged_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)
     assert "n_samples=2 is even" in caplog.text
     raw = json.loads(j.raw)
     assert raw["defect_votes"]["render_artifacts"] == [True, False]
-    assert raw["defects"]["render_artifacts"] is True and j.overall == pytest.approx(0.85)
+    assert raw["defects"]["render_artifacts"] is False and j.overall == pytest.approx(0.9)
     assert raw["tie_broken"] == ["render_artifacts"]
 
     clean_first = FakeChatModel(by_label={":s0": [_reply(0.9)], ":s1": [_reply(0.9, ["render_artifacts"])]})

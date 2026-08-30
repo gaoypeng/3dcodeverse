@@ -104,21 +104,27 @@ caps:
     gate: "build*"
     severity: error
     cap: 0.0
+  # `connectivity` is the only gate on this track that emits floating / penetration
+  # ERRORs (2026-08-30); watching it alone keeps the cap and frees the veto from
+  # unrelated failing gates (judges/rubrics.measured_absent).
   - id: floating_part
     when: gate
-    gate: "*"
+    gate: "connectivity"
     severity: error
     kinds: [floating, no_contact, disconnected, unsupported, island]
     cap: 0.6
   - id: penetration_error
     when: gate
-    gate: "*"
+    gate: "connectivity"
     severity: error
     kinds: [penetrat, intersect, overlap, collision]
     cap: 0.7
+    measures: [interpenetration]
   - id: missing_must_acceptance
     when: acceptance
     cap: 0.6
+    graded: true
+    note: 0.6 + 0.4 * verified/total must items (2026-08-30, as static_object_v1); pass/fail unchanged
 
 # Binary checklist (judge answers, code scores: penalty subtracted, cap applied).
 defects:
