@@ -192,7 +192,15 @@ def _asset_findings(rows: list[AssetRow], *, floating_m: float, ground_y: float 
 
 def _pair_findings(pairs: list[Interpenetration]) -> list[GateFinding]:
     out: list[GateFinding] = []
+    # one finding per PAIR OF NAMES, keeping the worst overlap: a zone that stamps four
+    # TerracottaPlanters against one arbour used to yield four identical ERRORs
+    # (measured on t36_santorini) and flood the refine prompt with one fact
+    best: dict[tuple[str, str], Interpenetration] = {}
     for p in pairs:
+        key = tuple(sorted((f"{p.zone_a}/{p.a}", f"{p.zone_b}/{p.b}")))
+        if key not in best or p.aabb_overlap > best[key].aabb_overlap:
+            best[key] = p
+    for p in best.values():
         qa = f"{p.zone_a}/{p.a}" if p.zone_a else p.a
         qb = f"{p.zone_b}/{p.b}" if p.zone_b else p.b
         sev = Severity.ERROR if p.aabb_overlap > OVERLAP_ERROR else Severity.WARN
@@ -243,6 +251,136 @@ def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool =
     return GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=duration_ms)
 
 
+# --------------------------------------------------------------------------- plan-aware checks
+#: measured 2026-08-30 across the 48 scored runs of the four scene batteries: the top
+#: standing defects are exactly the ones nothing measured — thin_atmosphere 32/48 and
+#: undressed_scene 31/48 while the census already records ``fog`` / ``background`` and
+#: every placed asset's name, zone and bbox.  These checks are pure functions of the
+#: census + the plan; their ERRORs route into refine with the zone as the target.
+SCALE_WARN, SCALE_ERROR = 2.5, 4.0
+BOUNDS_MARGIN_MIN_M = 2.0
+
+
+def _plan_zones(plan: Any) -> list[tuple[str, list[str]]]:
+    zones = (plan.get("zones") if isinstance(plan, dict) else getattr(plan, "zones", None)) or []
+    out = []
+    for z in zones:
+        name = z.get("name") if isinstance(z, dict) else getattr(z, "name", "")
+        contents = (z.get("contents") if isinstance(z, dict) else getattr(z, "contents", None)) or []
+        if name:
+            out.append((str(name), [str(c) for c in contents]))
+    return out
+
+
+def _plan_asset_sizes(plan: Any) -> dict[str, float]:
+    assets = (plan.get("assets") if isinstance(plan, dict) else getattr(plan, "assets", None)) or []
+    out: dict[str, float] = {}
+    for a in assets:
+        name = a.get("name") if isinstance(a, dict) else getattr(a, "name", "")
+        size = (a.get("approx_size_m") if isinstance(a, dict) else getattr(a, "approx_size_m", None)) or ()
+        try:
+            m = max(float(v) for v in size)
+        except (TypeError, ValueError):
+            continue
+        if name and m > 0.05:
+            out[to_snake(name)] = m
+    return out
+
+
+def _plan_bounds(plan: Any) -> tuple[tuple[float, ...], tuple[float, ...]] | None:
+    b = plan.get("bounds") if isinstance(plan, dict) else getattr(plan, "bounds", None)
+    if b is None:
+        return None
+    try:
+        if isinstance(b, dict):
+            c, e = b.get("center"), b.get("extents")
+            lo = tuple(float(c[i]) - float(e[i]) / 2 for i in range(3))
+            hi = tuple(float(c[i]) + float(e[i]) / 2 for i in range(3))
+            return lo, hi
+        return tuple(map(float, b.min)), tuple(map(float, b.max))
+    except (TypeError, ValueError, IndexError, AttributeError):
+        return None
+
+
+def contract_findings(census: dict[str, Any] | None, plan: Any) -> list[GateFinding]:
+    """Deterministic plan-vs-census checks: env atmosphere present, every zone dressed
+    with its planned contents, plausible scale, content inside the world bounds."""
+    if not isinstance(census, dict) or plan is None:
+        return []
+    out: list[GateFinding] = []
+    # -- atmosphere: the two env facts the census measures on every boot
+    if "fog" in census and census.get("fog") is None:
+        out.append(_f(Severity.ERROR, "scene.fog is not set — frames read as thin_atmosphere (32/48 measured runs)",
+                      target="env", kind="no_fog",
+                      hint="in buildEnv set scene.fog = new THREE.Fog(<sky horizon hex>, near, far) with the plan's numbers"))
+    if "background" in census and census.get("background") is None:
+        out.append(_f(Severity.ERROR, "scene.background is not set (renders on the raw clear colour)",
+                      target="env", kind="no_background",
+                      hint="in buildEnv set scene.background to the sky colour or sky texture the plan names"))
+    table = census.get("placement") if isinstance(census.get("placement"), dict) else None
+    rows = [AssetRow.model_validate(r) for r in (table.get("assets") or [])] if table else []
+    if not rows:
+        return out
+    # -- every zone dressed with what the plan put there (names matched loosely on words)
+    by_zone: dict[str, list[AssetRow]] = {}
+    for r in rows:
+        by_zone.setdefault(to_snake(r.zone), []).append(r)
+    all_names = " ".join(to_snake(r.name) for r in rows)
+    for zone_name, contents in _plan_zones(plan):
+        zk = to_snake(zone_name)
+        placed = by_zone.get(zk, [])
+        if not placed and contents:
+            out.append(_f(Severity.ERROR, f"zone {zone_name} placed nothing (plan lists: {', '.join(contents[:6])})",
+                          target=zone_name, kind="zone_empty",
+                          hint=f"build the zone group named '{zone_name}' and place its planned contents"))
+            continue
+        zone_names = " ".join(to_snake(r.name) for r in placed)
+        missing = [c for c in contents if to_snake(c) not in zone_names and to_snake(c) not in all_names]
+        if missing:
+            out.append(_f(Severity.ERROR,
+                          f"zone {zone_name} is missing planned contents: {', '.join(missing[:5])}"
+                          + (f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""),
+                          target=zone_name, kind="missing_content", missing=missing[:8],
+                          hint="place each listed asset (import its builder / clone its GLB) inside this zone's bbox"))
+    # -- plausible scale vs the plan's approx_size_m
+    sizes = _plan_asset_sizes(plan)
+    for r in rows:
+        if r.exempt or not r.bbox or not r.bbox.get("size"):
+            continue
+        rk = to_snake(r.name)
+        key = next((k for k in sizes if k in rk), "")
+        if not key:
+            continue
+        measured = max(float(v) for v in r.bbox["size"])
+        f = measured / sizes[key]
+        if f > SCALE_ERROR or f < 1 / SCALE_ERROR:
+            sev = Severity.ERROR
+        elif f > SCALE_WARN or f < 1 / SCALE_WARN:
+            sev = Severity.WARN
+        else:
+            continue
+        out.append(_f(sev, f"{r.qualified} measures {measured:.2f} m but the plan sized {key} at ~{sizes[key]:.2f} m ({f:.1f}x)",
+                      target=r.qualified, kind="scale", factor=round(f, 2), zone=r.zone,
+                      hint=f"scale {r.name} so its largest dimension is ~{sizes[key]:.2f} m as planned"))
+    # -- content inside the world bounds
+    bounds = _plan_bounds(plan)
+    if bounds:
+        lo, hi = bounds
+        margin = max(BOUNDS_MARGIN_MIN_M, 0.05 * max(hi[0] - lo[0], hi[2] - lo[2]))
+        for r in rows:
+            if r.exempt or not r.bbox or not r.bbox.get("min"):
+                continue
+            bmin, bmax = r.bbox["min"], r.bbox["max"]
+            fully_out = (bmin[0] > hi[0] + margin or bmax[0] < lo[0] - margin
+                         or bmin[2] > hi[2] + margin or bmax[2] < lo[2] - margin)
+            if fully_out:
+                out.append(_f(Severity.ERROR, f"{r.qualified} sits entirely outside the plan bounds "
+                                              f"(x {bmin[0]:.0f}..{bmax[0]:.0f}, z {bmin[2]:.0f}..{bmax[2]:.0f})",
+                              target=r.qualified, kind="out_of_bounds", zone=r.zone,
+                              hint="move it inside the plan bounds or into its zone bbox"))
+    return out
+
+
 def placement_census(ws: Workspace, *, force_probe: bool = False, timeout_s: float = 60.0) -> dict[str, Any]:
     """The census dict carrying ``placement``: the last build's ``artifacts/census.json``,
     or a fresh ``probe_scene`` when it is missing / predates the table / ``force_probe``."""
@@ -285,7 +423,13 @@ def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None) -> G
         table = (census or {}).get("placement")
         if not isinstance(table, dict):
             return None
-        return placement_findings(table, indoor=infer_indoor(setting_text(plan)))
+        report = placement_findings(table, indoor=infer_indoor(setting_text(plan)))
+        extra = _cap_per_kind(contract_findings(census, plan))
+        if extra:
+            findings = report.findings + extra
+            passed = not any(f.severity == Severity.ERROR for f in findings)
+            report = GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=report.duration_ms)
+        return report
     except Exception as e:  # noqa: BLE001 — advisory instrumentation must not fail the round
         log.warning("scene placement gate failed: %s", e)
         return GateReport(gate=GATE, passed=True, findings=[

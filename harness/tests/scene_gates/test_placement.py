@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from codeverse.contracts.artifacts import BuildResult, Severity
 from codeverse.contracts.common import Language
-from codeverse.contracts.plan import BBox, CameraPlan, ScenePlan, ZonePlan
+from codeverse.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
 from codeverse.judges.rubrics import apply_caps, load_rubric
 from codeverse.orchestrator import build_refine_instructions
 from codeverse.spatial.scene_placement import (
@@ -175,3 +175,54 @@ def test_check_placement_reads_the_last_census_and_the_table_text(tmp_path):
     assert not r.passed and "indoor tolerance 2 cm" in r.findings[0].message
     text = placement_table_text(table)
     assert "Yard/Lantern | +0.300 | Ground | 0.000 | - | - | -" in text and "Yard/Rock | +0.000 | Ground | 0.300 | Terrain" in text
+
+
+# --------------------------------------------------------------------- plan-aware contract checks
+def _contract_plan() -> ScenePlan:
+    bb = BBox(center=(0, 0, 0), extents=(40, 8, 40))
+    zb = BBox(center=(0, 0, 0), extents=(20, 8, 20))
+    return ScenePlan(
+        title="t", summary="s", setting="meadow", mood="calm", bounds=bb, environment="sunny",
+        zones=[ZonePlan(name="Yard", description="d", bbox=zb, contents=["Lantern", "Bench"]),
+               ZonePlan(name="House", description="d", bbox=zb, contents=["Bench"])],
+        assets=[AssetPlan(name="Lantern", kind="threejs", description="d", approx_size_m=(0.4, 0.6, 0.4)),
+                AssetPlan(name="Bench", kind="threejs", description="d", approx_size_m=(1.6, 0.9, 0.6))],
+        cameras=[CameraPlan(name="overview", position=(1, 1, 1), look_at=(0, 0, 0), fov=50, purpose="p")])
+
+
+def test_contract_checks_fire_on_atmosphere_contents_scale_and_bounds():
+    """One census, five distinct deterministic failures the VLM used to carry alone."""
+    far = _row("FarCrate")
+    far["bbox"] = {"min": [100, 0, 100], "max": [101, 1, 101], "size": [1, 1, 1]}
+    census = {"fog": None, "background": None,
+              "placement": _table(_row("Lantern", h=3.0), far)}   # lantern 5x the planned 0.6 m
+    rep = placement_gate_safe(census, plan=_contract_plan())
+    kinds = {f.data.get("kind") for f in rep.findings}
+    assert {"no_fog", "no_background", "missing_content", "zone_empty", "scale", "out_of_bounds"} <= kinds
+    assert not rep.passed
+    missing = next(f for f in rep.findings if f.data.get("kind") == "missing_content")
+    assert missing.target == "Yard" and "Bench" in missing.message
+    empty = next(f for f in rep.findings if f.data.get("kind") == "zone_empty")
+    assert empty.target == "House"
+    scale = next(f for f in rep.findings if f.data.get("kind") == "scale")
+    assert scale.severity == Severity.ERROR and "5.0x" in scale.message
+
+
+def test_contract_checks_stay_quiet_on_a_dressed_in_bounds_scene():
+    census = {"fog": {"type": "Fog", "near": 10, "far": 60}, "background": "#aabbcc",
+              "placement": _table(_row("Lantern_3", h=0.6), _row("Bench", h=0.9),
+                                  _row("BenchB", zone="House", h=0.9))}
+    rep = placement_gate_safe(census, plan=_contract_plan())
+    contract_kinds = {"no_fog", "no_background", "missing_content", "zone_empty", "scale", "out_of_bounds"}
+    assert not [f for f in rep.findings if f.data.get("kind") in contract_kinds],         [(f.data.get("kind"), f.message) for f in rep.findings]
+    assert rep.passed
+
+
+def test_interpenetration_pairs_report_once_at_worst_overlap():
+    pair = {"a": "Planter", "b": "Arbor", "zone_a": "Yard", "zone_b": "Yard"}
+    r = placement_findings(_table(_row("Planter"), _row("Arbor"),
+                                  pairs=[{**pair, "aabb_overlap": 0.3, "inside_frac": 0.2},
+                                         {**pair, "aabb_overlap": 0.7, "inside_frac": 0.6},
+                                         {**pair, "aabb_overlap": 0.5, "inside_frac": 0.4}]))
+    inter = _by_kind(r, "interpenetration")
+    assert len(inter) == 1 and "70%" in inter[0].message and inter[0].severity == Severity.ERROR
