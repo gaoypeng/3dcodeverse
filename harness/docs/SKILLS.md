@@ -98,7 +98,7 @@ not mean that.** Two independent causes, both reproduced:
 So a fourth signal was added: `materialize.write_control` puts one **never-routed,
 never-indexed** bundle beside the real ones. Nothing should ever open it. When it comes
 back opened, `SkillsUsage.control_read` is set, `probe_trustworthy` is false and
-`deep_read_rate` returns **`None`** — not 100%, not 0. `3dcv skills report` excludes those
+the session's deep-read rate is **`None`** — not 100%, not 0. `3dcv skills report` excludes those
 sessions from the rate and prints how many it dropped.
 
 This is the difference between a metric and a number that would have read 100% forever.
@@ -245,7 +245,9 @@ Two things this also says, and neither is comfortable:
 
 ## 5. What the tests guarantee
 
-`tests/skills/` — 712 tests: 650 that run in the default suite, 58 marked `slow` (they recompute from `bench/out` or build a wheel), 4 marked `live` (they drive a real CLI).
+`tests/skills/` keeps the default checks hermetic.  The two `slow`-marked cases
+build a wheel (still selected by default; use `-m "not slow"` to omit them), and
+the `live` cases drive a real CLI.
 
 | file | guarantees |
 |---|---|
@@ -255,7 +257,6 @@ Two things this also says, and neither is comfortable:
 | `test_freshness.py` | every tool, gate kind, rubric criterion, constant, switch, sibling skill and cookbook section a bundle names still exists |
 | `test_router.py` / `test_routing_property.py` | the four routing laws, by row and over the whole input space |
 | `test_budget.py` | the index cost, re-measured against the shipped descriptions |
-| `test_corpus.py` | evidence labels and corpus claims recomputed from `bench/out` |
 | `test_telemetry.py` | the read probe, **including the control that catches git reading the tree** |
 | `test_packaging.py` | **a built wheel contains all 14 `SKILL.md`, all 14 `references/`, all 9 `_claims`** |
 | `test_live_discovery.py` | §7 — a real CLI actually finds and opens a bundle |
@@ -546,8 +547,9 @@ so; the rest are live.
   reaching `skills_hook.attach_for_round`, which lived only in `steps.run_round`; and
   `baseline_tasks` returned `[]`, so round 0 listed four bundles to a session that did not
   exist. Measured at **0 opens / 30 listings**. The three stages now attach and record with
-  their own kind. `tests/skills/test_delivery_reaches_the_session.py` holds every
-  agent-driving module to the hook. **The scene bundles' read rate against working delivery
+  their own kind. `tests/skills/test_delivery_reaches_the_session.py` runs a real
+  two-zone-session scene and proves env/zone/compose attach exactly once, before generation,
+  with matching telemetry. **The scene bundles' read rate against working delivery
   is UNMEASURED — that is the next wave's first experiment.**
 * ~~**`api-agent` has no skill affordance.**~~ **FIXED earlier**, and re-measured here: with
   `read_skill` it opens **58%** of listed bundles (51/88) across sessions that are offered

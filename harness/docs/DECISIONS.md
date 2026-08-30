@@ -51,21 +51,29 @@ written) that were accepted because the code works that way and the tests pin it
   restored from `run_state.extra.budget_snapshot` (`BudgetSnapshot`: spent usage, billed
   USD, call count, per-stage/per-round buckets, cumulative ACTIVE seconds — grace is
   deliberately NOT persisted).  Prior spend and active minutes still count after a
-  resume, so a raised `--max-minutes` grants only the difference; `spent_usage` is mirrored
-  for one release, and old run dirs without a snapshot fall back to it (spent only).
+  resume, so a raised `--max-minutes` grants only the difference.  The `spent_usage`
+  mirror in `run_state.extra` was dropped 2026-08-29 (write side); the read fallback
+  stays because 531 of 739 `bench/out` run dirs predate `budget_snapshot`.
+  `run_state.extra` carries `budget_snapshot` and `spec_fingerprint` only: the
+  candidate count lives in `spec.options.candidates`, the candidate table in
+  `rounds/candidates.json` (which `record.extra.candidates` is read from).
 * **D8 Events carry `event`, not `kind` (Δ).**  `EventLog.emit(event, **data)` so payloads
   may include `kind=` (round kind).  `3dcv status` and tests follow.
-* **D9 `materialize_workspace` returns `Materialized` (Δ).**  Callers need codex `-c`
-  overrides and the agy fallback text; callers that ignore the return are unaffected.
+* **D9 `materialize_workspace` returns `Materialized` (Δ).**  Body files, ignore files,
+  the cookbook path, the MCP command and warnings; callers that ignore the return are
+  unaffected.  The codex `-c` overrides are NOT on it (`codex_overrides` was deleted
+  2026-08-29): the codex backend builds `codex_mcp_overrides(mcp_command)` per session.
   The cookbook is copied to `ws/.3dcv/cookbook.md` (gemini-cli cannot read outside the
-  workspace); MCP argv uses `sys.executable`.
+  workspace); the MCP argv defaults to `cli_common.default_mcp_command(ws)`, i.e.
+  `sys.executable`, for every backend (the track-side bare-`python` literals are gone).
 * **D10 gemini-cli needs a system-settings file (Δ).**  api-key auth +
   `dynamicModelConfiguration` (else silent model substitution) + `folderTrust.enabled=false`
   (else workspace MCP servers are silently disabled even with `--skip-trust`).  Served
   model is checked; mismatch → `exit_reason=model_substituted`.
-* **D11 AgentJob carries typed fields; `extra` is back-compat only (Δ, revised 2026-08-27).**
-  `round`, `kind`, `files_hint`, `language`, `track` are typed `AgentJob` fields;
-  `contracts/agent.py::_lift_legacy_extra` lifts old `extra` payloads into them.
+* **D11 AgentJob carries typed fields only (Δ, revised 2026-08-29).**
+  `round`, `kind`, `files_hint`, `language`, `track`, `read_only`, `mcp_command` … are
+  typed `AgentJob` fields; the `extra` dict and its `_lift_legacy_extra` shim (and the
+  unused `model` field) were deleted 2026-08-29 — nothing in the tree built one.
 * **D12 api-agent exposes `build` under its real name; `run_build` is an alias (Δ).**
 * **D13 Node ESM resolution via an import hook (Δ).**  `NODE_PATH` cannot resolve bare ESM
   specifiers; `run_node(three_hook=True)` adds `--import runtime_js/lib/resolve_three.mjs`;
@@ -233,7 +241,30 @@ written) that were accepted because the code works that way and the tests pin it
   generated bpy file made CPython 3.11's `ast.parse` raise `SystemError` and the round died
   in `build_once`.  Decision: `_ast_lint.safe_parse` catches SyntaxError / RecursionError /
   SystemError / MemoryError / ValueError; every python lint reports a lint ERROR with a
-  flatten-the-literal hint instead.
+  flatten-the-literal hint instead.  The forbidden-import floor is one set:
+  `_ast_lint.BASE_FORBIDDEN_IMPORTS` (pickle, threading, importlib, webbrowser, ftplib,
+  smtplib, …) — since 2026-08-29 urdf's `model.py` lint is on it too (those became
+  ERRORs there) plus an explicit allow-list `{bpy, bmesh, mathutils, math, random, numpy}`;
+  anything else imported is a WARN, a `codeverse` self-import an ERROR.
+* **D44 The 2026-08-29 cleanup: delete, do not relocate (owner).**  Context: an external
+  review of `codeverse` proposed executor / policy abstractions (a `RoundExecutor`, a
+  `CandidateRunner`, a metering seam, a per-track prompt-policy object).  Decision: all
+  rejected — each moved code between files without deleting any (L4: a merge must delete).
+  What was done instead: (a) **candidates are rounds** — `run_candidate` / `quick_judge`
+  went, a best-of-N candidate is `steps._run_round(kind="candidate")` in its sub-workspace
+  with two knobs (`render=quick_render`, `geometry_views=False`), its own `events.jsonl`
+  and a one-sample judge; (b) **one ledger writer** — `BudgetGuard` buckets and enforces
+  only, `MeteredAgent` / `MeteredChatModel` write `telemetry/cost.jsonl`, and
+  `BaseTrack.run` opens the run ledger itself (`per_call_metering`, `_ledger_row`,
+  `run_ledger_path` deleted; `CV3D_COST_LEDGER=off` now really writes nothing);
+  (c) **a garbage env flag is OFF** — `config.env_flag` reads on/off/1/0/true/false/yes/no;
+  unset or empty is the caller's fallback (usually the Settings value), but an unparseable
+  value warns and reads as OFF, so a typo in a bench command is a control run, never a
+  silent arm (and never the variant, which a fallback of `True` would have handed it); (d) one MCP command (`default_mcp_command`, `sys.executable`),
+  one JSON-envelope finder, one union-find, one sha256, one `ask_structured`, one
+  `RENDER_MODES`; the retired mechanisms (`3dcv migrate-runs`, turntables + ffmpeg, the
+  `CV3D_SYSPROMPT=v0` arm, `shader_presence` / counterfactual renders, the in-process
+  turn-cap backstop, the concurrent-session registry) are gone with their docs.
 
 ## Rejected / deferred
 

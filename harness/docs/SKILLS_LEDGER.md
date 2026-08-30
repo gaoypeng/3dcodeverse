@@ -230,7 +230,7 @@ it lands these four rows stay `mixed`, not `measured`.
   intact; but any A/B straddling this commit compares two different metrics.
   `cv3d-scene-lighting` must be re-baselined against the new gate before it is paired.
 * **`shader_preflight` is not a gate at all.** It appears in **zero** `record.json` files
-  corpus-wide: `check_shaders` is an agent-invocable tool (`spatial/tools_scene.py`), never a
+  corpus-wide: `check_shaders` is an agent-invocable tool (`spatial/tools.py`), never a
   pipeline gate, so no round appends its report. The only evidence is 8 per-run
   `artifacts/shader_preflight.json` files, all clean. "Not instrumented" and "measured,
   always clean" must not print the same number — the readout now returns `None` when the

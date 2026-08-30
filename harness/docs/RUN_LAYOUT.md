@@ -50,12 +50,15 @@ symlink.  Which side is physical was not a matter of taste:
   must be on the alias side, never on the side that gets written.
 * **`deliverable/`, `telemetry/settings.json` and `telemetry/cost.json` are real
   files.**  They are *derived*: rebuilt from the run's own git history,
-  artifacts, trajectories and events every time the run is finalised or
-  migrated.  `deliverable/` is self-contained so it can be zipped and handed to
+  artifacts, trajectories and events every time the run is finalised, and on
+  the fly by `3dcv show` / the exporters for a run that predates them — old
+  runs are read as-is, never rewritten.  `deliverable/` is self-contained so it can be zipped and handed to
   someone (the flywheel exporter only falls back to it when git cannot answer).
   `telemetry/usage.jsonl` is the one file that can be either: a real
-  reconstructed ledger, or a symlink to the run's live `cost_ledger.jsonl` when
-  it has one — same rule as everywhere else, one physical copy.
+  reconstructed ledger, or a symlink to the run's live `telemetry/cost.jsonl`
+  when it has one (the root `cost_ledger.jsonl` is itself a symlink alias; a
+  real root file exists only in runs before 2026-08-23) — same rule as
+  everywhere else, one physical copy.
 
 `.gitignore` inside the run ignores `deliverable/`, `telemetry/` and `evidence`
 (as well as `artifacts/`, `stages/`, `trajectories/`, …) so the derived buckets
@@ -103,7 +106,8 @@ the packager produces no diff.
 * **`usage.jsonl`** — one priced row per model call, in the
   **`codeverse.cost` ledger format** (`CallCost`: tokens, unit prices, price
   provenance, stage, role, outcome).  There is exactly one ledger in the
-  harness: when the run wrote a live one (`<run>/cost_ledger.jsonl`)
+  harness: when the run wrote a live one (`<run>/telemetry/cost.jsonl`; the root
+  `cost_ledger.jsonl` is a symlink alias, a real root file only in pre-2026-08-23 runs)
   `telemetry/usage.jsonl` is a symlink to it, otherwise
   `cost.reconstruct.reconstruct_run` rebuilds the rows from the trajectories,
   the recorded judge verdicts and the priced events.  This bucket never
@@ -144,20 +148,6 @@ judge verdicts and events already on disk.
 For the money itself across many runs — waste, $ per passing artifact, price
 provenance — use the cost package's own command, `3dcv cost show <runs-dir>`.
 `3dcv show` is the single-run view; both read the same ledger rows.
-
-## Migrating existing runs
-
-```
-3dcv migrate-runs runs/ --dry-run     # report only, touches nothing
-3dcv migrate-runs runs/               # in place, idempotent
-3dcv migrate-runs runs/<slug>         # a single run directory
-```
-
-The migration only **adds**: it creates the buckets and aliases, builds
-`deliverable/` and `telemetry/`, and writes the two new record blocks.  It never
-moves or deletes evidence, never rewrites `src/`, never touches git history.  A
-second pass reports `up_to_date`.  Runs without a `record.json` (interrupted
-runs) get the layout only.
 
 ## Back-compatibility contract
 

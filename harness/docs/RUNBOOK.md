@@ -10,7 +10,7 @@ are relative to `/home/yipeng/3dcodeverse/harness` unless absolute.  The CLI is
 ```bash
 pip install -e /home/yipeng/3dcodeverse/harness      # once; entry points 3dcodeverse and 3dcv
 cd /home/yipeng/3dcodeverse/harness/runtime_js && npm install   # three@0.182, puppeteer (chrome cached)
-3dcv doctor            # python deps (incl. python-fcl, moderngl), blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, ffmpeg, mcp
+3dcv doctor            # python deps (incl. python-fcl, moderngl), blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, mcp
 3dcv doctor --live     # + one tiny Gemini call ("pong", ~$0.00001)
 python -m pytest tests -q                              # offline suite; live tests are opt-in (blender/node/GL run when the binaries exist)
 python -m pytest tests -q -m "not live and not blender and not node"   # pure-python subset
@@ -240,12 +240,12 @@ model, produced the zero — check `cell.json`'s `error`).
 
 * **New language**: enum in `contracts/common.py::Language` (+ `TRACK_LANGUAGES`,
   `ENTRY_FILE`, `LANGUAGE_LABEL`), frame in `conventions.LANGUAGE_FRAME`;
-  `languages/<lang>/{runtime.py, lint.py, skeleton.py, CONTRACT.md, wrappers/}`
-  implementing `LanguageRuntime`; branch in `languages/base.py::get_runtime`;
+  `languages/<lang>/{__init__.py, wrappers/}` (one merged module per language;
+  the contract text is `prompts/<lang>/contract.md`) implementing `LanguageRuntime`; branch in `languages/base.py::get_runtime`;
   `prompts/<lang>/contract.md` + `cookbook.md` (every snippet must run —
   `tests/prompts` executes them); part→file mapping via `runtime.file_for_part`
-  (blender and threejs have it; `tracks/prompting.file_for_target_factory` picks
-  it up).
+  (blender has it; `tracks/prompting.file_for_target_factory` picks it up and maps
+  every whole-object target to `[entry]` — no runtime `file_for_target` hook).
 * **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…),
   languages=(…), cost_hint=…)` in `spatial/tools*.py` (imported from
   `spatial/tools.py`); available to tracks, MCP and prompt cards at once.
@@ -258,7 +258,10 @@ model, produced the zero — check `cell.json`'s `error`).
 * **New backend**: ChatModel → `models/<provider>.py` + registry + prices;
   CodingAgent → `agents/<kind>.py` using `cli_common` + registry + `materialize.py`.
 * **New track**: subclass `tracks/lifecycle.py::BaseTrack` (hooks: `make_pipeline`,
-  `prepare`, `baseline_tasks`, `refine_tasks`, `round_files_hint`), a `RoundPipeline`,
+  `prepare`, `baseline_tasks`, `refine_tasks`, `round_files_hint`; `system_prompt`
+  defaults to `language_system_prompt(ctx.language, tools=not ctx.single_shot)` and
+  `refine_file_for_target` to `file_for_target_factory(ctx)` — override only for
+  role-specific prompts), a `RoundPipeline`,
   plan model in `contracts/plan.py`, `.j2` prompts, branch in `tracks/__init__.py`
   (`get_track` forwards `**options` to constructors).  `tracks/graphics.py` is the
   template for a track with its own planner and no GLB.

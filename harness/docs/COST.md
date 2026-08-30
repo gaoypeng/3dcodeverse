@@ -287,9 +287,11 @@ made:**
 | verified (no change) | – | every other gemini / anthropic / openai row | now flagged `verified` rather than "approximate" |
 | still `inferred` / `unverified` | – | `claude-haiku-4`, `o1-mini`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.2-codex`, `gemini-2.5-flash-image` | not listed on the pricing pages; `3dcv cost prices --unverified` lists them |
 
-Per-image prices now live in the price table (`Price.image_usd`,
-`IMAGE_USD_BY_SIZE`, `per_image_usd()`), and a test asserts they never drift from
-`models/gemini_image.IMAGE_USD`.
+Per-image prices live in the price table only (`Price.image_usd`,
+`IMAGE_USD_BY_SIZE`, `per_image_usd()`); the duplicate table in the image model is
+gone (2026-08-29) and `GeminiImageModel` prices with `per_image_usd(size=<generated
+px>)` directly — a 2K image was billed 0.067 (the 1K rate) instead of 0.134 until then,
+and a 512 request is billed as the 1K image it actually generates.
 
 **Two costing bugs the audit surfaced** (both in files owned by other engineers —
 see the hand-off notes):
@@ -349,7 +351,7 @@ Savings are estimated **on this data set** (61 runs, $86.30) unless stated.
 | # | change | est. saving | confidence | where |
 |---|---|---|---|---|
 | 1 | **Stop refining after r01 unless the last delta ≥ 0.05.**  r02+r03 cost $12.16 and bought +1.44 score points across 8 of 20 rounds. | **$9–12 (10–13%)** | high (measured) | `RoundPolicy` (min_delta 0.02 → 0.05 from r02, or plateau_window 1 after r01) |
-| 2 | **Check the budget *before* starting a round, against the estimated round cost**, not only between steps. | **$8.76 (9.7%)** | high (measured waste) | `orchestrator/budget.py` + `tracks/steps.py`; use `codeverse.cost.estimate_call` / median round cost |
+| 2 | **Check the budget *before* starting a round, against the estimated round cost**, not only between steps. | **$8.76 (9.7%)** | high (measured waste) | `orchestrator.py` (`BudgetGuard`) + `tracks/steps.py`; use `codeverse.cost.estimate_call` / median round cost |
 | 3 | ~~**Cap agent turns at ~25 and compact old tool results.**  39.3% of the agent bill is turn ≥20; 19 of the 33 sessions that ran ≥50 turns were cut off by their own budget.~~  **Tested, rejected: +$0.02 and −0.21 score** (A/B, n=3 per arm, §17) — the cap is off by default. | est. $8–15, **measured $0** | high (A/B) | `RoundPolicy.agent_max_turns=0`; still settable per caller |
 | 4 | **Fold the off-record spend into the budget** (cut rounds, post-hoc texture passes). | $0 saved, **$1.22 of blindness removed** | high | §6; the ledger (`codeverse.cost.record_call`) makes it automatic |
 | 5 | **Scene track: 73% of scene spend is assets+zones, 0/5 passed.**  Trim the per-zone context (each zone session re-sends the whole scene contract) and judge assets before zones start. | ~$1/run of $2.83 | medium | `tracks/scene*.py` |
@@ -370,11 +372,11 @@ the model, is what makes the artifact), and cheaper judges (§8).
 ```python
 from codeverse.cost import record_call, load_ledger, summarise
 
-record_call(res.usage, run=ws.slug, round=idx, stage="refine", role="generator",
-            label=job.label, outcome=res.exit_reason,
-            ledger=ws.root / "cost_ledger.jsonl")     # one append-only JSONL row
+with run_ledger(ws.root):                       # <run>/telemetry/cost.jsonl (cost_ledger.jsonl = symlink alias)
+    record_call(res.usage, run=ws.slug, round=idx, stage="refine", role="generator",
+                label=job.label, outcome=res.exit_reason)     # one append-only JSONL row
 
-rows = load_ledger(ws.root / "cost_ledger.jsonl")
+rows = load_ledger(ws.root)                     # telemetry/cost.jsonl, else the pre-2026-08-23 root file
 summarise(rows).dimension("stage")["judge"].cost_usd
 ```
 
@@ -434,9 +436,7 @@ out not to pay.
   captioner, texturing and single-shot generation.
 * **`MeteredAgent`** wraps everything `agents.get_coding_agent` hands out: it sets
   the ambient round/stage for the session (so the rows above land in the right
-  bucket), applies whatever turn cap the settings name (only ever *lowering*
-  `job.max_turns`; no profile names one — §17)
-  and, for a backend whose calls we cannot see (gemini-cli / claude-code / codex /
+  bucket) and, for a backend whose calls we cannot see (gemini-cli / claude-code / codex /
   agy), records one session row from `AgentResult.usage`.
 
   **Which backends those are is a property of the backend, not a guess.**  The
@@ -457,7 +457,14 @@ label that names a job of its own (`judge:…`, `planner`, `texture_gate`,
 bills a model inside a refine session used to land on `stage=refine /
 role=generator`; it now lands on its own stage.  A *generation* label still yields
 to the session, which knows more (best-of-N runs `job.kind="candidate"` while the retired api-agent's
-recorded turns were labelled `api-agent:baseline:tN`).
+recorded turns were labelled `api-agent:baseline:tN`).  A session row is filed by the task
+KIND through `cost.types.stage_for_label` (candidate → candidate, zone → zones, compose →
+assemble, rebuild → repair, asset / asset_fix → assets); before 2026-08-29 the scene kinds
+landed in `other`.  Candidate generation sessions carry `stage=candidate` with labels
+`baseline_c<k>`; candidate judge money is booked `stage=judge role=judge round_index=0`
+and the pairwise tie-break `stage=judge label=pairwise`.  `audit.lost_candidate` counts
+generator sessions only and reads both label forms — `baseline_c<k>` (live) and
+`c<k>:baseline` (reconstructed).
 
 **Who opens a ledger.**  `3dcv make` / `3dcv resume` (`cli.main._run_track`),
 `3dcv texture pass` (with `create=False`), **and the bench drivers** —
@@ -482,9 +489,12 @@ working — one physical copy.  A call made with no run context (a `3dcv judge`
 outside a run, a bench script, a notebook) goes to a per-process log under
 `<cache_dir>/cost/`; `CV3D_COST_LEDGER=off` disables writing entirely.
 
-**No double counting.**  `BudgetGuard.spend` also knows how to write rows; while
-`cost.instrument.per_call_metering()` is true it skips its own, because the
-per-call rows *are* that dollar with the tokens, cache hits and latency attached.
+**No double counting.**  `BudgetGuard` only buckets and enforces; `MeteredAgent` /
+`MeteredChatModel` are the one writer of `telemetry/cost.jsonl`, and `BaseTrack.run`
+opens the run ledger itself.  The guard's own aggregate writer and its
+`per_call_metering()` sentinel were deleted 2026-08-29: every production entry point
+(`3dcv make`, the bench drivers) opened `run_ledger` first, so it never wrote there —
+and with `CV3D_COST_LEDGER=off` it wrote anyway, which is now really off.
 
 **Reading it.**  `cost.reconstruct.reconstruct_run` prefers a live ledger and
 falls back to rebuilding from trajectories / verdicts / events, so
@@ -1241,8 +1251,9 @@ sessions overshot their timeout by 182 s median / 1 154 s p90); a judge sample g
 `SAMPLE_BUDGET_S = 240` for all its attempts (the verdict is 42 s p50 / 73 s p90, 50 / 103 s under
 the storm; two rounds lost 1 162 s and 927 s to 3 × 300 s timeouts before a second sample answered
 in 128 s); the planner 300 s (13.7 s p50 / 32 s p90, max 76 s; the storm-day plan stage waited
-492 s median for 39 s of model time).  Anthropic / OpenAI go through `with_retries`, which has no
-deadline (≈ 20 s of backoff at most), so the field is a no-op there.
+492 s median for 39 s of model time).  Anthropic / OpenAI go through `with_retries`, which
+since 2026-08-29 takes the same `max_total_s = ChatRequest.max_wait_s` (clipped to
+`RETRY_DEADLINE_S`) and stamps `ModelError.attempts` — the field is honoured on every provider.
 
 
 *The retry of a 503 is hedged across keys* (`rotate_with_retries(hedge=2)`; `Settings.rate.hedge`,

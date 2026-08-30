@@ -26,10 +26,10 @@ Once installed, read `docs/RUNBOOK.md` (how to run), `docs/ARCHITECTURE.md`
 git clone <repo> 3dcodeverse && cd 3dcodeverse
 python3 -m venv .venv && source .venv/bin/activate    # see §3 — a distro python3 is
                                                       # PEP 668 and pip will refuse it
-bash harness/scripts/setup.sh            # python + node deps + chrome + doctor
+bash harness/setup.sh            # python + node deps + chrome + doctor
 ```
 
-`scripts/setup.sh` is idempotent — it checks the interpreter versions, runs
+`setup.sh` is idempotent — it checks the interpreter versions, runs
 `pip install -e 'harness[all,dev]'`, runs `npm ci` in `runtime_js/` **only when the
 lockfile actually moved**, makes sure puppeteer's Chrome is downloaded, and
 finishes by printing `3dcodeverse doctor`.  Useful flags:
@@ -61,13 +61,13 @@ workflow, so the offline suite and `ruff` are run locally before every push (see
 
 | component | version | how it is enforced | notes |
 |---|---|---|---|
-| **python** | **3.13** | `requires-python = ">=3.13"`; ruff `target-version = "py313"`; `PY_FLOOR` in `tests/core/test_portability.py`; `MIN_PY_MINOR` in `scripts/setup.sh` | the four places are pinned together by the portability test |
+| **python** | **3.13** | `requires-python = ">=3.13"`; ruff `target-version = "py313"`; `PY_FLOOR` in `tests/core/test_portability.py`; `MIN_PY_MINOR` in `setup.sh` | the four places are pinned together by the portability test |
 | **node** | **20.6.0+** (developed on 24 LTS) | `runtime_js/package.json` `engines.node`; `codeverse.spatial.node.NODE_MIN` fails every node workload with an actionable message | 20.6 is the `--import` module-hook floor |
 | **Blender** | 4.2+ (developed on 5.0.1) | runtime probe only (`Settings.resolve_blender()`) | `blender` / `urdf_blender` are the only users |
 | **OS** | Linux x86_64 (WSL2 Ubuntu here) | — | macOS should work (nothing is Linux-specific except `resource.setrlimit` guards) but is not tested |
 
-The offline suite on this box, 2026-08-29: **2615 passed of the 2627 selected** (12 skipped are
-data-dependent, 28 deselected are `live`).
+The offline suite on this box, 2026-08-29: **1928 passed of the 1928 selected**
+(25 deselected are `live`).
 
 Moving to another Python later is the same four-line change (`requires-python`, ruff
 `target-version`, `PY_FLOOR`, `MIN_PY_MINOR`).
@@ -77,11 +77,10 @@ Moving to another Python later is the same four-line change (`requires-python`, 
 | what | required? | verified here | how it degrades without it |
 |---|---|---|---|
 | **Python 3.13** | yes | 3.13.9 (`/home/yipeng/miniconda3/bin/python`) | nothing runs; `requires-python = ">=3.13"` (§2.1) |
-| **pip + venv** | yes | pip 25.3, `python -m venv` | `scripts/setup.sh` cannot install the package.  A stock Debian/Ubuntu `/usr/bin/python3` ships **without** pip and is PEP 668 `EXTERNALLY-MANAGED`, so `pip install -e harness` refuses even once pip is present: `sudo apt install python3-venv python3-pip`, then use a virtualenv |
+| **pip + venv** | yes | pip 25.3, `python -m venv` | `setup.sh` cannot install the package.  A stock Debian/Ubuntu `/usr/bin/python3` ships **without** pip and is PEP 668 `EXTERNALLY-MANAGED`, so `pip install -e harness` refuses even once pip is present: `sudo apt install python3-venv python3-pip`, then use a virtualenv |
 | **git** | yes | 2.53.0 | run workspaces are git repos (one commit per round); `Workspace.create()` and the flywheel trajectory/pair miners fail |
 | **node ≥ 20.6** | yes, except for the `graphics` track | v24.14.0 (npm 11.9.0) | the `threejs` / `scene_threejs` languages disappear **and no object renders happen at all**: `spatial/render.py` renders *every* GLB (Blender-built and CadQuery-built included) with three.js in headless Chrome. Only `graphics` (moderngl) is node-free |
 | **Blender 4.2+ / 5.x** | optional | 5.0.1 (`~/.local/bin/blender-5.0`) | `blender` and `urdf_blender` languages unavailable → the `static_object` default language and the whole `articulated_object` track cannot build (`BlenderNotFoundError`); scenes lose planner-chosen bpy GLB assets |
-| **ffmpeg** | optional | **not installed** | `render_turntable` silently writes an animated **GIF** via PIL instead of `.mp4` (`spatial/turntable.py`); nothing else changes |
 | **EGL-capable GPU stack** | optional | ANGLE / D3D12 / RTX 5090 Laptop | headless Chrome falls back to **SwiftShader** and moderngl to **llvmpipe** — everything still renders, just several times slower; no correctness change |
 | C toolchain | usually no | — | only if pip has to build a wheel from source (`python-fcl`, `manifold3d` ship wheels for cp310–cp313 x86_64) |
 
@@ -105,7 +104,7 @@ import package `codeverse`, CLIs `3dcodeverse` and `3dcv`).  See the repo
 Use a virtualenv (or a conda env — this box installs into a conda base env).  It is
 only optional when your interpreter already owns its site-packages: a distro
 `/usr/bin/python3` is PEP 668 `EXTERNALLY-MANAGED` and pip will refuse to install into
-it.  `scripts/setup.sh` checks for pip and for that marker up front and tells you which
+it.  `setup.sh` checks for pip and for that marker up front and tells you which
 of the two you hit.
 
 ```bash
@@ -210,7 +209,7 @@ You need to re-run it when:
 * you pulled a change to `runtime_js/package.json` / `package-lock.json`, or
 * `3dcodeverse doctor` reports `three` or `puppeteer` FAIL.
 
-`scripts/setup.sh` automates exactly that test: it compares the mtime of
+`setup.sh` automates exactly that test: it compares the mtime of
 `package-lock.json` against `node_modules/.package-lock.json` and skips the
 reinstall when nothing moved (`--force-npm` overrides).
 
@@ -408,7 +407,6 @@ runs_dir: /data/runs
 cache_dir: /data/cache/codeverse
 binaries:
   blender: /home/yipeng/.local/bin/blender-5.0
-  ffmpeg: ffmpeg
 render:
   gpu: auto          # auto | on | off
   width: 768
@@ -465,7 +463,6 @@ Real output on this box (exit code 0; any FAIL row makes it exit 1):
 │ codex         │ OK     │ codex-cli 0.149.0                                   │
 │ agy           │ OK     │ 1.1.19                                              │
 │ git           │ OK     │ git version 2.53.0                                  │
-│ ffmpeg        │ WARN   │ not found (turntable mp4 disabled)                  │
 │ mcp           │ OK     │ mcp + codeverse.spatial.mcp_server importable       │
 └───────────────┴────────┴─────────────────────────────────────────────────────┘
 ```
@@ -497,7 +494,6 @@ that the keys work end to end):
 | `anthropic key` / `openai key` | WARN | not set | expected unless you use `anthropic:*` / `openai:*`; export the key to clear it |
 | `gemini-cli` / `claude` / `codex` / `agy` | WARN | CLI not on `PATH` | optional (§8.2); only that `--generator` is unavailable |
 | `git` | FAIL | git missing | install git — run workspaces are git repos |
-| `ffmpeg` | WARN | not found | optional; turntables become GIFs. `sudo apt-get install ffmpeg` (or `conda install -c conda-forge ffmpeg`) |
 | `mcp` | WARN | `mcp` package or the server module missing | `pip install -e 'harness[mcp]'`; only affects the agentic CLI backends |
 | `gemini live call` (`--live`) | FAIL | key rejected / no network | check the key value and outbound access; a `503 … high demand` is transient, not an install problem |
 | `gemini quota` | OK | always informational | the per-key RPM/TPM the pool schedules against x the number of keys (`Settings.rate`, docs/COST.md Part III); tune with `CV3D_RATE__TPM_PER_KEY` / `CV3D_RATE__MAX_IN_FLIGHT` |
@@ -600,6 +596,5 @@ those by hand (`npm rm -g @google/gemini-cli @anthropic-ai/claude-code @openai/c
 | Chrome (puppeteer) | 148.0.7778.97 (+ headless-shell) | `~/.cache/puppeteer` |
 | Blender | 5.0.1 (2025-12-16) | `~/.local/bin/blender-5.0` → `~/3dcodeverse_data/tools/blender-5.0.1-linux-x64` |
 | git | 2.53.0 | `/usr/bin/git` |
-| ffmpeg | not installed | — |
 | gemini-cli / claude / codex / agy | 0.53.0 / 2.1.241 / 0.149.0 / 1.1.19 | npm global / `~/.local/bin` |
 | GPU (Chrome WebGL) | ANGLE · D3D12 · NVIDIA GeForce RTX 5090 Laptop GPU · OpenGL ES 3.1 | via `--use-angle=gl-egl` + Mesa d3d12 |

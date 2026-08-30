@@ -526,9 +526,18 @@ under `bench/out/`.
 
 ## Judge experiments log
 
+**2026-08-29 — profiles and the detail round.**  `RoundPolicy.detail_rounds` is tri-state
+(`None` = the track default, `lifecycle.DEFAULT_DETAIL_ROUNDS=1` where supported; `0` = off).
+Until this date a profile that injected a `judge_samples>1` policy (economy, quality)
+silently zeroed the static track's surface-detail round while balanced kept it; all
+three profiles now get it, and `CV3D_DETAIL_ROUNDS` remains the A/B switch.  Any
+economy/quality-vs-balanced comparison straddling this commit compares different
+round counts.
+
 **2026-08-29 — per-language system prompts: NULL, three independent A/Bs.**  The
 one-line system prompts were replaced with evidence-grounded ones mined from each
-language's recorded failure corpus (`CV3D_SYSPROMPT=v0` keeps the old ones).  Three
+language's recorded failure corpus (the `CV3D_SYSPROMPT=v0` arm kept the old ones for
+the A/B; arm and `system_v0.md` files were deleted 2026-08-29 after the null).  Three
 paired A/Bs all read null: glsl CLI (n=10/arm, Δ+0.003, within-arm σ 0.18), blender
 single-shot (8 pairs, paired Δ−0.027), blender CLI on 3.6-flash (10/10 pairs, paired
 Δ−0.036, 4W/2T/4L, paired σ 0.403 — per-brief swings up to ±0.9 dwarf any prompt

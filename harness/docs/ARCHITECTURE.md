@@ -92,15 +92,16 @@ codeverse/
                       2026-08-28, to the JSONL event log (Events), the run lock (ONE writer per
                       run dir: an fcntl.flock at <runs>/.locks/<slug>.lock whose record NAMES the
                       holder, printed by `3dcv status`) and the bounded parallel fan-out
-                      (fan_out, split_results, FanOutReport) — still a leaf: imports nothing
-                      from codeverse
+                      (fan_out); sha256_file and version_line live here too — still a leaf:
+                      imports nothing from codeverse
   models/             ChatModel (base.py), parts.py; gemini.py (the whole Gemini stack:
                       request/response shapes, dead-key + free 429 rotation, the image model);
                       anthropic.py openai.py (each with its own request/response shapes);
-                      retry.py (the scheduling machine: key pool with 'dead' outcome + TPM
-                      reservation/reconcile, rotation with MAX_WAIT_S ≤ 3 s single waits, the
-                      shared 503 storm gate — ships OFF, docs/COST.md §21 — and the prompt-token
-                      estimate); pricing.py (version-suffix-only fallback), health.py (preflight
+                      retry.py (the scheduling machine: KeyPool with outcomes ok | 429 | 5xx |
+                      error | dead | skip + TPM reservation/reconcile, StormGate — ships OFF,
+                      docs/COST.md §21 — with_retries / rotate_with_retries, both bounded by
+                      max_total_s ≤ RETRY_DEADLINE_S with MAX_WAIT_S ≤ 3 s single waits, and the
+                      prompt-token estimate); pricing.py (version-suffix-only fallback), health.py (preflight
                       probe: no retries, no backoff), schema_utils.py (strict schema), registry.py
   agents/             registry.py (the CodingAgent protocol + dispatch — every backend is a
                       vendor CLI; the in-process api-agent died 2026-08-28), backends.py
@@ -110,20 +111,26 @@ codeverse/
   languages/          LanguageRuntime (base.py); one merged module per language since 2026-08-28 —
                       blender/ cadquery/ threejs/ urdf/ scene_threejs/ glsl_shader/ opengl_python/ are each
                       a single __init__.py (lint → skeleton → runtime, in dependency order) beside their
-                      data (wrappers/, starter/, CONTRACT.md — Path(__file__) assets unchanged);
+                      data (wrappers/, starter/ — Path(__file__) assets unchanged; the contract text
+                      is prompts/<lang>/contract.md, read through RuntimeDocs);
                       file_lint.py (one just-written file → syntax/lint verdict for write_file, COST.md §29)
-  spatial/            node.py, render.py, tool_common.py (shared tool plumbing),
+  spatial/            node.py, render.py, observe.py, tool_common.py (shared tool plumbing),
                       render_scene.py (judge view subset, content-fitted orbit),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
                       scene_placement.py (scene_placement gate + check_placement tool: floating / sunken /
                       unsupported / interpenetration per placed asset from the probe census's placement
                       table, runtime_js/lib/host_placement.mjs; added 2026-08-26),
                       gl_render.py (GlHost), frame_stats.py (gl_frames),
-                      sheet.py (montage_2x2, crop_region), turntable.py, measure.py, connectivity.py,
+                      sheet.py (montage_2x2, crop_region), measure.py, connectivity.py,
                       contract.py (authoring-frame hints), sections.py, silhouette.py, probes.py,
                       complexity.py (objective complexity vector -> Measurement.extra, docs/COMPLEXITY.md),
                       joints*.py + joints_collide.py (deterministic penetration), registry.py,
-                      tools.py (every @tool registration since 2026-08-28), mcp_server.py (MCP name: 3dcv)
+                      tools.py (every @tool registration since 2026-08-28, the joint_sweep body included;
+                      spatial siblings are plain imports — lazy() guards only codeverse.languages /
+                      codeverse.texturing and tool_common's node renderer), mcp_server.py (MCP name: 3dcv).
+                      Render modes are contracts.artifacts.RENDER_MODES (shaded wire normals silhouette
+                      clay — no 'depth'); build error_type spellings are languages/_common.MISSING_ENTRY
+                      ("MissingEntryFile") and BUILD_TIMEOUT ("BuildTimeout") for every runtime
   skills/             registry.py (typed ROUTES + the router that evaluates them),
                       model.py (Skill/Selection + the SKILL.md loader), prompting.py
                       (per-backend delivery policy + the index/mandate text),
@@ -138,22 +145,29 @@ codeverse/
                       billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
                       so the ledger bills real money and not list price; docs/COST.md §25)
                       guard.py routing.py reconstruct.py (old runs) audit.py report.py
-  judges/             base.py (Judge protocol + the pure round-replay pieces `3dcv judge` and
+  judges/             base.py (JudgeInput/Judgment helpers + the pure round-replay pieces `3dcv judge` and
                       calibration share), rubrics.py + rubrics/*.yaml (defect checklists, the wire
                       schema, caps and scoring), prompt_builder.py (image prep, montages, the
                       judge messages), vlm_judge.py (+ the reference/likeness judges),
-                      pairwise.py (compare_many), calibration.py
-  reference/          reference GROUNDING — give the pipeline a picture of what it is building:
-                      one module: synthesis, THE plausibility gate that makes a synthesized
+                      pairwise.py (compare_many), calibration.py.  No Judge Protocol: a judge is
+                      duck-typed `.judge(JudgeInput) -> Judgment`
+  reference.py        reference GROUNDING — give the pipeline a picture of what it is building:
+                      synthesis, THE plausibility gate that makes a synthesized
                       reference safe to use, Spec attachment + honesty guards, proportions
                       (does the picture agree with the brief?), render-vs-reference diff,
                       the content-addressed cache and ground_spec (the one call the CLI makes)
   texturing/          plan.py (VLM material plan + the scene texture pack), generate.py
                       (generation + the tileable seam fix + the seam/judge gate), apply.py
                       (world-metre unwrap, PBR map set, application + material normalisation),
-                      materials.py (named material library), run.py (texture_pass)
-  orchestrator.py     stage runner with resume, run state, round loop (RoundPolicy,
-                      StopPolicy, BestSelector), refine-task compilation + grouping, budget
+                      materials.py (named material library), run.py (texture_pass); __init__.py is
+                      docstring-only — import from the submodules
+  orchestrator.py     the round loop's LIBRARY, not the loop: round POLICIES (RoundPolicy /
+                      StopPolicy / BestSelector), refine-task compilation + grouping,
+                      StageRunner + RunState (resume), BudgetGuard.  The loop itself is
+                      tracks/lifecycle.py:_round_loop → tracks/steps.py:run_round.  A best-of-N
+                      candidate IS steps._run_round(kind='candidate') in a _cand/c<k> sub-workspace
+                      with two knobs (render=candidates.quick_render, geometry_views=False), its
+                      own _cand/c<k>/events.jsonl and a one-sample judge
   tracks/             __init__.py (get_track(track, **options) + the TrackPipeline protocol),
                       lifecycle.py, steps.py, candidates.py (best-of-N + the pure candidate/pairwise
                       decision logic), generation.py (agent + single-shot strategies + the file
@@ -173,7 +187,7 @@ codeverse/
                       depth.py,
                       skills_hook.py (the round's view of codeverse/skills: attach before generating,
                       probe reads after — a no-op unless CV3D_SKILLS is on)
-  flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, migrate.py (schema moves),
+  flywheel/           record.py (+ best_round_record), export.py, pack.py, sample.py, pairs.py,
                       deliverable.py, telemetry.py, captions.py, quality.py (tiers + dedupe + code/mesh fingerprints), index.py,
                       code_quality.py (the delivered CODE's own vector — magic numbers per 100 LOC,
                       function length, dead functions, duplication, docstrings → record.extra
@@ -236,9 +250,15 @@ runs/<slug>/
   src/            agent-authored RAW code (git repo; commits: spec, skeleton, pre:/agent:<label>, rNN <kind>)
   public/         (scene) compiled assets public/assets/<snake>.glb; (textured scenes) public/textures/*.png + manifest.json
   _assets/<snake>/  (scene) sub-workspaces for blender_glb assets (gitignored)
-  _cand/c<k>/     (--candidates N) throw-away best-of-N sub-workspaces (gitignored, kept for the flywheel)
+  _cand/c<k>/     (--candidates N) throw-away best-of-N sub-workspaces (gitignored, kept for the flywheel):
+                  each is a round of kind "candidate" — its own events.jsonl, rounds/r00.json, gates/,
+                  judge/r00.json (one-sample judge on quick_render views)
   stages/<name>.json   rounds/rNN.json   rounds/candidates.json   rounds/aborted_rNN.json (a round the
-                       budget/a crash cut: what it burned, never resumed from)   cost_ledger.jsonl (live ledger)
+                       budget/a crash cut: what it burned, never resumed from)
+  telemetry/cost.jsonl   live ledger: one row per metered call / CLI session, opened by BaseTrack.run
+                         (cost_ledger.jsonl at the root is a relative symlink to it, kept for the run-layout
+                         alias; runs before 2026-08-23 have the root file only)
+  run_state.json  stages + rounds done; extra carries budget_snapshot and spec_fingerprint only
   artifacts/      object.glb object.stl|step robot.urdf meshes/ articulation.json build.json census.json
                   measurement.json … ; graphics: frames/fNN_tT.png frames_sheet.png preview.gif metrics.json
                   texturing: object_textured.glb textures/{<id>.png, texture_plan.json, texturing.json, gate/}
@@ -336,7 +356,8 @@ in-loop option with `n_samples ≥ 2` for decisions.
 
 ```
 plan (structured output, one re-ask) → skeleton (buildable placeholder) → materialise workspace
-[scene only] assets (parallel; blender_glb assets get a sub-workspace + asset_v1 judge + one fix pass)
+[scene only] assets (parallel; blender_glb assets get a sub-workspace + asset_v1 judge + one fix pass; a degraded asset verdict leaves
+            score None / judged False, emits asset.judge_degraded and skips the fix pass)
              → env → zones (parallel) → assemble (deterministic scene.js)
 round 0 "baseline": generate → build_with_repair → measure → gates → render → post-render gates → judge
    (object tracks, ≥ 8 plan parts, a language with one file per part, an agent backend: the baseline FANS OUT
@@ -355,7 +376,8 @@ repeat while StopPolicy says continue (≤ max_rounds refine rounds, plateau_win
    refine tasks = gate ERRORS (fix hints, authoring-frame numbers) ∪ failed must-acceptance ∪ judge improvement plan
    (≤ 6 tasks, ≤ 6 compacted instruction lines each; reference runs add an IoU task when silhouette IoU < 0.6)
    fan out when ≥ 2 file-disjoint groups AND every task maps to files (threejs/blender parts, scene zones/assets/env)
-   generate (NO turn cap by default — 28 was A/B'd and rejected, +$0.02/−0.21 score, docs/COST.md §17;
+   generate (no HARNESS turn cap by default — claude-code runs under AgentJob.max_turns=60 (+6-turn wrap-up),
+             the other vendor CLIs have no turn cap at all; 28 was A/B'd and rejected, +$0.02/−0.21 score, docs/COST.md §17;
              a cap a caller sets (CV3D_AGENT_MAX_TURNS / task; no profile sets one) still buys a wrap-up session
              that lands a final build + summary instead of being killed) → build+repair (error-focused,
              escalates on identical signatures) → gates → … → judge (SKIPPED only where the verdict is never
@@ -448,8 +470,8 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
   trips the budget is not promoted to best — give scenes `--max-minutes 60`.
 * Gemini flash 503 storms happen; dead keys and 429s rotate freely now, but a
   sustained outage can still fail a round (`3dcv resume` re-uses cached stages).
-* `ffmpeg` absent here → turntables fall back to GIF.  A few single-file wrappers
-  were once over the old ~400-line guideline; the rule is now a 2 000-line cap (3 000 absolute).
+* A few single-file wrappers were once over the old ~400-line guideline; the rule
+  is now a 2 000-line cap (3 000 absolute).
 
 ## 11. Flywheel
 
