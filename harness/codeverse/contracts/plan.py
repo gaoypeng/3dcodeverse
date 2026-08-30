@@ -224,8 +224,8 @@ class ArticulatedPlan(StaticPlan):
         default_factory=list,
         description="filled by the harness, leave empty: automatic corrections applied to the planner's answer "
                     "before validation (a sub-part promoted to a link because a joint moves it, revolute limits "
-                    "written in degrees converted to radians or a > 2π radian range made continuous, a parent "
-                    "bbox grown around a sub-part)")
+                    "written in degrees converted to radians or a > 2π radian range made continuous, swapped "
+                    "or out-of-range limits clamped, a parent bbox grown around a sub-part)")
 
     @model_validator(mode="before")
     @classmethod
@@ -244,6 +244,10 @@ class ArticulatedPlan(StaticPlan):
            ambiguous and is read as radians: a wrong ``continuous`` there is what the run got before,
            while a wrong degrees reading would squeeze a full turn into a 6° hinge without a trace.
            A converted range that is still over 2π (``-360..360``) falls through to ``continuous``;
+        2b. swapped or out-of-range limits: ``upper < lower`` is written as the swap it is
+           (a hinge "from 90 to 0"), and a ``rest`` outside ``[lower, upper]`` is clamped to
+           the nearer limit — both killed cs37_urdf_02 at the planner (2026-08-29, 3.7-flash)
+           after two re-asks, and neither is a design decision worth a dead run;
         3. a sub-part sticking out of its parent's bbox by more than the slack: the parent bbox
            grows to enclose it (planner boxes are design intent, not measurements).
         Every repair is recorded in ``normalisations`` so the record shows what the planner
@@ -326,6 +330,26 @@ class ArticulatedPlan(StaticPlan):
             if span > 2 * math.pi + 1e-6:
                 j.update(type="continuous", lower=0.0, upper=0.0, rest=0.0)
                 notes.append(f"joint {j.get('name')}: revolute range {span:.2f} rad > 2π → continuous")
+
+        # 2b. swapped or out-of-range limits → swap / clamp (see the docstring)
+        for j in joints:
+            if j.get("type") not in ("revolute", "prismatic"):
+                continue
+            try:
+                lower, upper = float(j.get("lower", 0.0)), float(j.get("upper", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if upper < lower:
+                j["lower"], j["upper"] = upper, lower
+                notes.append(f"joint {j.get('name')}: limits swapped ({lower:g}..{upper:g} → {upper:g}..{lower:g})")
+                lower, upper = upper, lower
+            try:
+                rest = float(j.get("rest", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if rest < lower - 1e-9 or rest > upper + 1e-9:
+                j["rest"] = min(max(rest, lower), upper)
+                notes.append(f"joint {j.get('name')}: rest {rest:g} outside [{lower:g},{upper:g}] → clamped to {j['rest']:g}")
 
         # 3. sub-parts outside the parent bbox → grow the parent
         for part in parts:
