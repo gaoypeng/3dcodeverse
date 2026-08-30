@@ -112,8 +112,9 @@ from codeverse.cost.instrument import (run_ledger, metered_chat_model, metered_a
                                        MeteredAgent, MeteredChatModel, metering_enabled)
 with run_ledger(ws.root, run=slug):        # binds the run, points record_call at <run>/telemetry/cost.jsonl
     ...                                    # (+ a <run>/cost_ledger.jsonl symlink for the run-layout alias)
-    # NESTS (restores the outer ledger + run binding on exit) and is context-local first, so
-    #   bench.run_bench / compare_backends can hold one ledger per prompt across N threads.
+    # NESTS by holding ContextVar tokens (bound_run / bound_ledger) — context-local ONLY, no
+    #   process-wide default — so bench.run_bench / compare_backends hold one ledger per prompt
+    #   across N threads, and a thread that may bill a model goes through proc.fan_out.
     #   BaseTrack.run opens `run_ledger(ws.root, run=ws.root.name)` ITSELF, so a track run started
     #   outside the CLI/bench still meters; the CLI/bench ledger for the same run dir is the same file.
     # models.get_chat_model returns a MeteredChatModel → ONE row per ChatModel.generate

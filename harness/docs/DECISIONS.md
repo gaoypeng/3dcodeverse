@@ -299,7 +299,19 @@ written) that were accepted because the code works that way and the tests pin it
   (c) **A paid verdict is never re-bought or reversed.**  `PairwiseNote` moved into
   `contracts/run.py` and onto `RoundRecord`; `reconcile_resume` replays it
   (`candidates.replay_best_round`).  Reconciliation may re-rank; it may not undo a comparison the
-  run paid for (18 run dirs on disk carried a divergent verdict).
+  run paid for.  **The guarantee is forward-only** — 0 of the 1 466 `rounds/rNN.json` on disk carry
+  the field, so for every existing run `replay_best_round` degenerates to the pre-2026-08-30
+  `BestSelector().pick`, which is why nothing on disk changed behaviour.  Of the 30 recorded dirs
+  whose stored best disagrees with a plain re-rank, exactly one is re-enterable by `3dcv resume`
+  (20 are `plateau`, refused without `--force`; 9 name generator kinds deleted 2026-08-28).
+  KNOWN DIVERGENCE, unresolved: on the re-judge path `_promote_best` runs TWICE for one index
+  (`lifecycle._round_loop`) — once with `judgment=None`, which lets `choose_best_round`'s
+  `score is None` branch move the incumbent onto a round an earlier pairwise kept out, and again
+  after `rejudge_round`.  `replay_best_round` models one promotion per index, so after a judge
+  outage the live loop and the replay can pick different rounds (reproduced: live r1, replay r0).
+  Replay's answer is the one that honours the earlier verdict; the live loop is what reverses it
+  inside the unscored window.  Fixing the LIVE side is the change this law implies, and it is not
+  made here.
   (d) **One render-cache authority.**  `spatial/tool_common.py` may name a deterministic out_dir;
   only `spatial/render.py` decides a PNG is still good.  The deleted `renderset.json` marker keyed
   on GLB size+mtime alone: it served stale views after a same-size rebuild, ignored a rig edit,

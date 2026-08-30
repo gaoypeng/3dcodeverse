@@ -43,7 +43,12 @@ from codeverse.proc import read_json_or_none, read_jsonl_lenient
 log = logging.getLogger(__name__)
 
 #: events whose cost duplicates rows we already emit
-_AGGREGATE_EVENTS = frozenset({"round.done", "run.done", "texture.done"})
+#: events whose ``cost_usd`` RESTATES money the per-call rows already carry — turning one into a
+#: priced row double-counts.  ``candidate.done`` repeats its own round's total and
+#: ``candidate.selected`` the sum over every candidate, so a best-of-N run reconstructed from
+#: events alone billed its candidates two to three times (2026-08-30).
+_AGGREGATE_EVENTS = frozenset({"round.done", "run.done", "texture.done",
+                               "candidate.done", "candidate.selected"})
 
 
 def _read_json(path: Path) -> dict[str, Any]:

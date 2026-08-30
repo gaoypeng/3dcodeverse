@@ -461,8 +461,10 @@ recorded turns were labelled `api-agent:baseline:tN`).  A session row is filed b
 KIND through `cost.types.stage_for_label` (candidate → candidate, zone → zones, compose →
 assemble, rebuild → repair, asset / asset_fix → assets); before 2026-08-29 the scene kinds
 landed in `other`.  Candidate generation sessions carry `stage=candidate` with labels
-`baseline_c<k>`; candidate judge money is booked `stage=judge role=judge round_index=0`
-and the pairwise tie-break `stage=judge label=pairwise`.  `audit.lost_candidate` counts
+`baseline_c<k>`; candidate judge money is booked `stage=judge`, and the pairwise tie-break
+`stage=pairwise` (its ledger row carries `role=judge`, label `pairwise:…`).  Role, label and
+round live on the `CallCost` row, never on the guard — `BudgetGuard.charge/add` take
+`(usage, *, stage, enforce)` only since 2026-08-30 (D45).  `audit.lost_candidate` counts
 generator sessions only and reads both label forms — `baseline_c<k>` (live) and
 `c<k>:baseline` (reconstructed).
 
@@ -471,10 +473,12 @@ generator sessions only and reads both label forms — `baseline_c<k>` (live) an
 `bench/run_bench.py` opens one per prompt and `bench/compare_backends.py` one per
 cell (plus a nested one for a harness arm's own run, and one for the pairwise
 arena).  The batteries produce most of the runs in this repo, so until wave 3
-most priced rows were going to the per-process fallback log.  `run_ledger` nests
-(it restores the outer ledger and run binding instead of clearing them) and binds
-context-locally with a process-wide fallback, so `--parallel N` keeps N ledgers
-apart while a fan-out worker thread that inherited no context still finds its run.
+most priced rows were going to the per-process fallback log.  `run_ledger` nests by holding
+ContextVar tokens (`bound_run` / `bound_ledger`); there is no process-wide default, so
+`--parallel N` keeps N ledgers apart.  A thread that may bill a model must therefore be
+spawned through `proc.fan_out`, which copies the context — never a bare pool (D45(b): the
+old save-and-restore republished a sibling’s run the moment the first cell exited).  A call
+with no run context still lands in the per-process log under `cache_dir/cost/`.
 
 The row carries run, round, stage, role, label, backend/provider/model, the four
 token counts, the three **unit prices actually used** plus their provenance

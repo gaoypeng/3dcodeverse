@@ -87,6 +87,12 @@ def check_imports(
     """
     out: list[GateFinding] = []
     for mod, line in imports.items():
+        if not mod:
+            # `from . import helpers` has no top-level module to police: ast gives
+            # `node.module is None` and every visitor records "".  Reporting it produced
+            # "import of '' is unexpected" — a finding the agent cannot act on — in all
+            # three languages that share this helper (2026-08-30).
+            continue
         if mod in forbidden:
             out.append(make_finding("forbidden", mod, line))
         elif mod not in allowed:
