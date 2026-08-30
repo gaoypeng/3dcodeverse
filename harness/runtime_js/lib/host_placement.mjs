@@ -420,3 +420,90 @@ export function placementTable(scene, THREE, opts = {}) {
     ground_y: groundY, notes, duration_ms: Date.now() - t0,
   };
 }
+
+// ============================================================================ settle
+// Deterministic auto-seat, added 2026-08-30.  Measured on the 48-run scene batteries:
+// 38 sunken + 22 floating gate ERRORS were still present in FINAL rounds — the refine
+// agent is handed the exact "lower X by 0.23 m" hint and demonstrably does not apply
+// it reliably.  The measurement is deterministic, so the FIX can be too: after boot
+// (before any census or render) every clearly mis-seated asset is translated onto its
+// support.  The zone code keeps its wrong constant; every frame anyone sees or judges
+// is seated.  The moves are returned and carried in the census, so nothing is silent.
+//
+// Deliberately conservative, mirroring the python gate's exemptions
+// (codeverse/spatial/scene_placement.py — keep the two in sync):
+//   · exempt assets (free / backdrop / enclosure / instanced) are never touched
+//   · a foot in the water is a boat / jetty: never touched
+//   · BURIED-ok names (basin, trench, pool…) are below ground by definition
+//   · PARTIAL-ok names (rocks, posts, trees…) may bury half their height; only a
+//     burial past 3/4 height is pulled up, and only to the 40 % embed that reads
+//     as "grown in", never to the surface
+//   · a floating asset that TOUCHES another asset may be mounted on it: skipped
+//   · normal sunken assets keep a 4 cm embed (the zone recipes ask for 3-5 cm)
+const SETTLE_EMBED_M = 0.04;
+const SETTLE_PARTIAL_FRAC = 0.40;
+const SETTLE_MAX_MOVE_M = 6;
+const SETTLE_SEAT_EPS_M = 0.005;
+const BURIED_OK_RE = /\b(basin|bed|canal|cave|cellar|crater|ditch|drain|foundations?|graves?|gutter|holes?|lakebed|moat|pits?|pools?|riverbed|trench(es)?|tunnels?|wells?)\b/i;
+const PARTIAL_OK_RE = /\b(boulders?|bridges?|bush(es)?|cliffs?|docks?|dunes?|fences?|flowers?|grass|hills?|jett(y|ies)|logs?|mounds?|outcrops?|pebbles?|piers?|piles?|plants?|poles?|posts?|reeds?|rocks?|roots?|shrubs?|stakes?|stones?|stumps?|trees?|trunks?|tufts?)\b/i;
+
+/** Measure every placed asset once, then translate the clearly mis-seated ones onto
+ * their support.  Returns `{count, moves}`; mutates object positions (world-space dy
+ * applied through each parent's frame) and leaves matrices updated. */
+export function settleScene(scene, THREE, opts = {}) {
+  const groundY = Number.isFinite(opts.groundY) ? opts.groundY : null;
+  const notes = [];
+  scene.updateMatrixWorld(true);
+  const indices = indexMeshes(scene, notes);
+  const { assets } = collectAssets(scene, indices, opts.contentBox || null);
+  const checked = assets.filter((a) => !a.exempt);
+  for (const a of checked) { a.meshSet = new Set(a.meshes); }
+  const meshOwner = new Map();
+  for (const a of assets) for (const ci of a.meshes) meshOwner.set(ci.mesh, a.name);
+  const owner = (mesh) => meshOwner.get(mesh) || nearestName(mesh);
+  const moves = [];
+  const t0 = Date.now();
+  for (const a of checked) {
+    if (Date.now() - t0 > TIME_BUDGET_MS) break;
+    const cols = footColumns(a);
+    if (!cols.length) continue;
+    let best = null, sunk = null, water = false;
+    for (const col of cols) {
+      const r = probeColumn(a, col, indices, owner, groundY);
+      if (r.gap !== null && (!best || r.gap < best.gap)) best = r;
+      if (r.sunk > 0 && (!sunk || r.sunk > sunk.sunk)) sunk = r;
+      if (r.water) water = true;
+    }
+    if (water) continue;
+    const name = spaced(a.name);
+    const height = Math.max(a.max[1] - a.min[1], 1e-6);
+    let dy = 0, why = '';
+    if (sunk && sunk.sunk > 0) {
+      if (BURIED_OK_RE.test(name)) continue;
+      const frac = sunk.sunk / height;
+      if (PARTIAL_OK_RE.test(name)) {
+        if (frac <= 0.75) continue;                       // grown / driven in: fine
+        dy = sunk.sunk - SETTLE_PARTIAL_FRAC * height;    // pull up to a 40 % embed
+        why = 'sunken_partial';
+      } else if (sunk.sunk > SUNK_M) {
+        dy = sunk.sunk - SETTLE_EMBED_M;                  // reseat with a 4 cm embed
+        why = 'sunken';
+      } else { continue; }
+    } else if (best && best.gap !== null && best.gap > FLOATING_M) {
+      // mounted on a neighbour?  touching anything → leave it alone
+      if (checked.some((b) => b !== a && touches(a, b, CONTACT_TOL_M))) continue;
+      dy = -(best.gap - SETTLE_SEAT_EPS_M);               // drop onto the support
+      why = 'floating';
+    } else { continue; }
+    if (!Number.isFinite(dy) || Math.abs(dy) < 1e-4 || Math.abs(dy) > Math.max(SETTLE_MAX_MOVE_M, height)) continue;
+    const obj = a.obj, parent = obj.parent || scene;
+    const w = new THREE.Vector3();
+    obj.getWorldPosition(w);
+    const delta = parent.worldToLocal(new THREE.Vector3(w.x, w.y + dy, w.z))
+      .sub(parent.worldToLocal(w.clone()));
+    obj.position.add(delta);
+    moves.push({ name: a.name, zone: a.zone, dy_m: Math.round(dy * 1000) / 1000, why });
+  }
+  if (moves.length) scene.updateMatrixWorld(true);
+  return { count: moves.length, moves };
+}

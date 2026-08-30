@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { sceneCensus } from './host_census.mjs';
-import { placementTable } from './host_placement.mjs';
+import { placementTable, settleScene } from './host_placement.mjs';
 import { frameStats, nearGeometry } from './host_metrics.mjs';
 import { frameCoverage } from './host_coverage.mjs';
 import { installShaderErrorHook } from './host_shader_errors.mjs';
@@ -46,6 +46,7 @@ const state = {
   bootInfo: null,
   contentBox: null,
   fullBox: null,
+  settleInfo: null,
 };
 
 /**
@@ -224,6 +225,21 @@ async function boot(opts) {
     runUpdate(0, 0);
     state.simTime = 0;
     state.scene.updateMatrixWorld(true);
+
+    // settle (2026-08-30): deterministically seat floating / sunken assets before any
+    // census or render — the placement gate measured the errors for two batteries and
+    // the refine agent left 38 sunken + 22 floating standing in final rounds.  Runs on
+    // every boot (probe and render see the same seated scene); --no-settle disables.
+    if (opts.settle !== false) {
+      info.stage = 'settle';
+      try {
+        const c0 = sceneCensus(state.scene, THREE);
+        state.settleInfo = settleScene(state.scene, THREE, { groundY: c0.ground_y, contentBox: c0.content_bbox });
+      } catch (e) {
+        state.settleInfo = { count: 0, moves: [], error: String((e && e.message) || e).slice(0, 300) };
+      }
+      info.settled = state.settleInfo.count;
+    }
     state.booted = true;
     info.ok = cameras.length > 0;
     info.stage = 'ready';
@@ -405,6 +421,7 @@ function placement() {
 function census() {
   const c = sceneCensus(state.scene, THREE);
   c.glb_assets = glbUsage(state.scene);
+  if (state.settleInfo) c.settle = state.settleInfo;
   state.contentBox = c.content_bbox;
   state.fullBox = c.bbox;
   c.cameras = state.cameras.length;

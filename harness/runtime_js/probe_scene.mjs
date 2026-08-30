@@ -56,6 +56,7 @@ async function main() {
     host = await openHost(args.ws, {
       width: 320, height: 180, gpu: args.gpu, sceneRel: args.scene.replace(/^\.?\//, ''),
       createSceneTimeoutMs: createTimeoutMs(args['create-timeout-ms'], timeoutMs),
+      settle: !args['no-settle'],
     });
   } catch (e) {
     return fail(`host failed: ${e.message}`);

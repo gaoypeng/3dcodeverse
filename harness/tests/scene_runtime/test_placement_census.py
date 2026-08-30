@@ -102,3 +102,52 @@ def test_no_false_positives_on_legitimate_placements(table):
     rock = _row(table, "Rock")
     assert rock["sunk_into"] == "Ground" and 0.3 < rock["sunk_m"] < 0.5 and not rock["floating"]
 
+
+
+SETTLE_JS = """
+import * as THREE from 'three';
+import { settleScene, placementTable } from './lib/host_placement.mjs';
+const mat = new THREE.MeshStandardMaterial();
+const box = (name, sx, sy, sz, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat); m.name = name; m.position.set(x, y + sy / 2, z); return m; };
+const scene = new THREE.Scene();
+const env = new THREE.Group(); env.name = 'Environment'; scene.add(env);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60, 64, 64), mat); ground.name = 'Ground'; ground.rotation.x = -Math.PI / 2; env.add(ground);
+const pond = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), mat); pond.rotation.x = -Math.PI / 2; pond.position.set(-20, 0.2, -20);
+const pondGroup = new THREE.Group(); pondGroup.name = 'PondWater'; pondGroup.add(pond); env.add(pondGroup);
+const zone = new THREE.Group(); zone.name = 'Yard'; scene.add(zone);
+zone.add(box('Lantern', 0.4, 0.6, 0.4, 5, 0.3, 0));            // floating 0.3, touches nothing
+zone.add(box('Anvil', 1, 1, 1, -5, -0.5, 0));                   // sunken 0.5 into Ground
+const bird = box('Bird', 0.3, 0.2, 0.3, 0, 4, 5); bird.userData.placement = 'free'; zone.add(bird);
+zone.add(box('Boat', 2, 0.6, 0.8, -20, 0.0, -20));              // foot at pond level: on water
+const rock = box('Rock', 1, 1.2, 1, 8, -0.6, -8); zone.add(rock);  // half-buried rock: partial-ok, frac 0.5 <= 0.75
+const shelf = box('Shelf', 1, 0.1, 0.4, 12, 1.2, 0);            // floating but TOUCHING the wall
+const wall = box('Wall', 0.2, 2.5, 3, 12.5, 0, 0); zone.add(wall); zone.add(shelf);
+shelf.position.x = 12.35;                                        // AABBs meet the wall's
+scene.updateMatrixWorld(true);
+const settle = settleScene(scene, THREE, { groundY: 0 });
+const after = placementTable(scene, THREE, { groundY: 0 });
+console.log(JSON.stringify({ settle, after: { assets: after.assets.map((a) => ({ name: a.name, gap: a.ground_gap_m, sunk: a.sunk_m, supported: a.supported, exempt: a.exempt })) } }));
+"""
+
+
+@pytest.fixture(scope="module")
+def settled() -> dict:
+    return run_node_json(SETTLE_JS.replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+
+
+def test_settle_seats_floating_and_sunken_and_reports_the_moves(settled):
+    moves = {m["name"]: m for m in settled["settle"]["moves"]}
+    assert moves["Lantern"]["why"] == "floating" and moves["Lantern"]["dy_m"] == pytest.approx(-0.295, abs=5e-3)
+    assert moves["Anvil"]["why"] == "sunken" and moves["Anvil"]["dy_m"] == pytest.approx(0.46, abs=5e-3)
+    after = {a["name"]: a for a in settled["after"]["assets"]}
+    assert after["Lantern"]["supported"] and after["Lantern"]["gap"] == pytest.approx(0.005, abs=3e-3)
+    assert after["Anvil"]["sunk"] == pytest.approx(0.04, abs=5e-3)   # reseated with the 4 cm embed
+
+
+def test_settle_leaves_exempt_water_partial_and_mounted_alone(settled):
+    touched = {m["name"] for m in settled["settle"]["moves"]}
+    assert touched == {"Lantern", "Anvil"}, touched
+    after = {a["name"]: a for a in settled["after"]["assets"]}
+    assert after["Bird"]["exempt"] == "free"                          # tagged free: untouched
+    assert after["Boat"]["supported"]                                 # on water: untouched
+    assert after["Rock"]["sunk"] == pytest.approx(0.6, abs=5e-3)      # half-buried rock stays half-buried

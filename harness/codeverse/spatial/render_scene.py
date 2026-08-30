@@ -140,6 +140,8 @@ def render_scene(
         args += ["--bounds", _bounds_json(bounds)]
     tmo = timeout_s or settings.limits.render_timeout_s
     args += ["--timeout-ms", str(int(tmo * 1000))]
+    if os.environ.get("CV3D_SETTLE") == "0":   # A/B switch for the boot-time auto-seat
+        args.append("--no-settle")
     driver_error = ""
     try:
         res = run_scene_script("render_scene.mjs", args, timeout_s=tmo + 30)

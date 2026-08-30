@@ -53,6 +53,7 @@ async function main() {
     host = await openHost(args.ws, {
       width, height, gpu: args.gpu, logDepth: args['log-depth'],
       createSceneTimeoutMs: createTimeoutMs(args['create-timeout-ms'], timeoutMs),
+      settle: !args['no-settle'],
     });
   } catch (e) {
     return fail(`host failed: ${e.message}`);

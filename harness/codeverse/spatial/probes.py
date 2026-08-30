@@ -9,6 +9,7 @@ Both drive the node host (``runtime_js/*.mjs``) via ``run_scene_script``.
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Any
 
@@ -68,10 +69,10 @@ def probe_scene(ws: Workspace, *, timeout_s: float = 60.0, write_census: bool = 
     census: dict[str, Any] = {}
     out_json = ws.artifacts / "scene_probe.json"
     try:
-        res = run_scene_script(
-            "probe_scene.mjs", ["--ws", str(ws.root), "--out", str(out_json), "--timeout-ms", str(int(timeout_s * 1000))],
-            timeout_s=timeout_s + 20,
-        )
+        args = ["--ws", str(ws.root), "--out", str(out_json), "--timeout-ms", str(int(timeout_s * 1000))]
+        if os.environ.get("CV3D_SETTLE") == "0":   # A/B switch for the boot-time auto-seat
+            args.append("--no-settle")
+        res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
     except SceneRenderError as e:
         findings.append(_f(gate, Severity.ERROR, f"scene probe could not run: {e}", target="src/scene.js",
                            hint="this is a harness/driver failure, not your code; retry or report", harness_failure=True))
