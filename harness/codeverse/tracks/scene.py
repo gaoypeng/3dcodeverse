@@ -1,4 +1,4 @@
-"""SceneTrack: plan → skeleton → assets → env → zones → assemble → rounds.
+"""SceneTrack: plan → skeleton → (assets ∥ env) → zones → assemble → rounds.
 
 Language: scene_threejs.  Generation is staged (each stage cached by
 ``StageRunner`` for resume); the round loop then builds (probe + shaders),
@@ -191,15 +191,42 @@ class SceneTrack(BaseTrack):
         self.stage_skeleton(ctx, runner)
         self.ensure_materialized(ctx)
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
-        assets = runner.stage("assets", lambda: run_asset_stage(ctx), inputs={"assets": plan.assets, "agent": ctx.agent_id})
-        assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v for k, v in (assets or {}).items()}
+        # assets ∥ env (2026-08-30): the env brief is a pure function of the plan — the
+        # template references no asset output (0 uses of asset_api) and says "No assets/
+        # zones here" — yet the two stages ran back to back.  Measured on la_boulevard:
+        # assets 15 min + env 12 min sequential = 27 min of a 75-min budget; the pair
+        # runs in max(15, 12) and the ~12 saved minutes are a whole refine round
+        # (each measured at ~+0.13).  Workspace.commit serialises under its own lock,
+        # so the two stages' commits cannot race.  One cached stage keeps resume
+        # atomic: both results or neither.
+        def _assets_and_env() -> dict[str, Any]:
+            thunks = {"assets": lambda: run_asset_stage(ctx), "env": lambda: self._env_stage(ctx)}
+            results = fan_out(list(thunks.items()), lambda kv: kv[1](), max_workers=2,
+                              label="assets+env", item_name=lambda kv: kv[0])
+            out: dict[str, Any] = {}
+            first_exc: Exception | None = None
+            for (name, _), r in zip(thunks.items(), results, strict=True):
+                if isinstance(r, Exception):
+                    # the sibling's paid work is already committed by its own stage body;
+                    # re-raise after both have finished so nothing done is lost
+                    first_exc = first_exc or r
+                    ctx.events.emit("stage.failed", stage=name, error=f"{type(r).__name__}: {r}")
+                else:
+                    out[name] = {k: v.model_dump(mode="json") for k, v in r.items()} if name == "assets" else r
+            if first_exc is not None:
+                raise first_exc
+            return out
+        both = runner.stage("assets+env", _assets_and_env,
+                            inputs={"assets": plan.assets, "plan_env": plan.environment,
+                                    "setting": plan.setting, "agent": ctx.agent_id})
+        assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v
+                  for k, v in ((both or {}).get("assets") or {}).items()}
         # the merge map is a pure function of the plan, so a RESUMED run (cached asset
         # stage) still tells the zones which builder+variant to call
         _, alias = select_assets(list(plan.assets), MAX_ASSETS)
         ctx.extra["assets"] = assets
         ctx.extra["asset_alias"] = alias
         ctx.extra["asset_api"] = asset_api_summary(plan, assets, alias)
-        runner.stage("env", lambda: self._env_stage(ctx), inputs={"plan_env": plan.environment, "setting": plan.setting, "agent": ctx.agent_id})
         runner.stage("zones", lambda: self._zones_stage(ctx), inputs={"zones": plan.zones, "asset_api": ctx.extra["asset_api"], "agent": ctx.agent_id})
         runner.stage("assemble", lambda: self._assemble_stage(ctx), inputs={"cameras": plan.cameras, "zones": [z.name for z in plan.zones]})
 

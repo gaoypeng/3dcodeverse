@@ -211,7 +211,8 @@ def test_scene_track_stages_and_rounds(tmp_path, settings):
     rec = track.run(spec, ws)
     labels = [j.label for j in agent.jobs]
     # Quay and Water are both small zones (≤ 3 placements) → ONE batched session owning both files
-    assert set(labels[:2]) == {"asset_fishing_boat", "asset_bollard"} and "env" in labels and "zones_quay_water" in labels
+    # assets ∥ env: the combined stage's three sessions interleave freely; order resumes at zones
+    assert set(labels[:3]) == {"asset_fishing_boat", "asset_bollard", "env"} and "zones_quay_water" in labels
     assert "compose" in labels  # assembler unavailable → composer agent fallback
     assert labels.index("env") < labels.index("zones_quay_water") < labels.index("compose")
     assert (ws.src / "assets" / "fishing_boat.js").is_file() and (ws.src / "zones" / "quay.js").is_file() and (ws.src / "scene.js").is_file()
@@ -221,7 +222,7 @@ def test_scene_track_stages_and_rounds(tmp_path, settings):
     assert [r.kind for r in rec.rounds] == ["baseline", "refine"] and rec.rounds[0].renders is not None
     assert rec.rounds[0].renders.views and rec.status in (RunStatus.PLATEAU, RunStatus.PASSED)
     st = RunState.load(ws)
-    assert {"plan", "skeleton", "assets", "env", "zones", "assemble"} <= set(st.stages)
+    assert {"plan", "skeleton", "assets+env", "zones", "assemble"} <= set(st.stages)
     # scene refine tasks route by file ownership: zone → src/zones/<zone>.js
     assert any("src/zones/quay.js" in i for i in rec.rounds[1].instructions)
 
