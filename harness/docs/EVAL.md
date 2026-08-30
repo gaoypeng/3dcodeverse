@@ -678,4 +678,4 @@ refine round fixed both → final round clean, settle moved nothing, 0.724 passe
 (one-var off-switch exists); camera repair + auto-exposure ride in `scene_px_v1`
 (vs fv2 same-brief = their isolated read, in flight).  The honest gap to the baseline
 project is no longer the mean — it is the ceiling (their 0.936 vs our 0.758) and the
-floor (their 6 runs ≥ 0.7 vs our 2).\n
+floor (their 6 runs ≥ 0.7 vs our 2).
