@@ -65,6 +65,7 @@ from codeverse.tracks.scene_assets import (
     select_assets,
     single_shot_ctx,
 )
+from codeverse.tracks.zone_layout import layout_block, layout_zones
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -199,8 +200,23 @@ class SceneTrack(BaseTrack):
         # (each measured at ~+0.13).  Workspace.commit serialises under its own lock,
         # so the two stages' commits cannot race.  One cached stage keeps resume
         # atomic: both results or neither.
+        def _layouts() -> dict[str, Any]:
+            """L2 zone layouts (optional accelerator): planner-model calls, never fatal."""
+            try:
+                model = self._planner_model
+                if model is None:
+                    from codeverse.models import get_chat_model
+
+                    model = get_chat_model(ctx.spec.backends.planner)
+                layouts = layout_zones(plan, model, budget=ctx.budget, events=ctx.events)
+                return {k: v.model_dump(mode="json") for k, v in layouts.items()}
+            except Exception as e:  # noqa: BLE001 — layouts accelerate, they must never kill
+                ctx.events.emit("layout.stage_failed", error=f"{type(e).__name__}: {e}"[:300])
+                return {}
+
         def _assets_and_env() -> dict[str, Any]:
-            thunks = {"assets": lambda: run_asset_stage(ctx), "env": lambda: self._env_stage(ctx)}
+            thunks = {"assets": lambda: run_asset_stage(ctx), "env": lambda: self._env_stage(ctx),
+                      "layouts": _layouts}
             results = fan_out(list(thunks.items()), lambda kv: kv[1](), max_workers=2,
                               label="assets+env", item_name=lambda kv: kv[0])
             out: dict[str, Any] = {}
@@ -213,12 +229,14 @@ class SceneTrack(BaseTrack):
                     ctx.events.emit("stage.failed", stage=name, error=f"{type(r).__name__}: {r}")
                 else:
                     out[name] = {k: v.model_dump(mode="json") for k, v in r.items()} if name == "assets" else r
+            out.setdefault("layouts", {})
             if first_exc is not None:
                 raise first_exc
             return out
         both = runner.stage("assets+env", _assets_and_env,
                             inputs={"assets": plan.assets, "plan_env": plan.environment,
-                                    "setting": plan.setting, "agent": ctx.agent_id})
+                                    "setting": plan.setting, "zones": plan.zones, "agent": ctx.agent_id})
+        ctx.extra["layouts"] = (both or {}).get("layouts") or {}
         assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v
                   for k, v in ((both or {}).get("assets") or {}).items()}
         # the merge map is a pure function of the plan, so a RESUMED run (cached asset
@@ -354,7 +372,8 @@ class SceneTrack(BaseTrack):
             # a batched session reads ONE copy of the recipes (they are identical per zone)
             briefs.append(render("tracks/scene_zone.j2", **self._ctx(ctx, recipes=recipes if i == 0 else "", zone_name=zone.name, zone_description=zone.description,
                                                                     zone_bbox=bbox_line(zone.bbox), zone_contents=zone.contents,
-                                                                    zone_file=zone_file(zone), neighbours=neighbours)))
+                                                                    zone_file=zone_file(zone), neighbours=neighbours,
+                                                                    layout=layout_block(ctx.extra.get("layouts", {}).get(zone.name)))))
         ctx.record_prompt("scene_zone", briefs[0])
         if len(batch) == 1:
             prompt, label = briefs[0], f"zone_{to_snake(names[0])}"

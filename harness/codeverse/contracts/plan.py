@@ -511,6 +511,38 @@ class ScenePlan(BaseModel):
         return self
 
 
+class ZonePlacement(BaseModel):
+    """One asset's placement inside a zone, decided by the L2 zone director.
+
+    Typed rows with concrete numbers on purpose (the RefDimension lesson: an
+    open-ended dict maps to a property-less schema and the model answers ``{}``)."""
+
+    asset: str = Field(description="asset name from the plan")
+    count: int = Field(ge=1, description="how many instances in this zone")
+    cluster: tuple[float, float] = Field(description="cluster centre (x, z) in WORLD meters, inside the zone bbox")
+    spread_m: float = Field(ge=0, description="radius the instances scatter within (0 = exactly at the centre)")
+    faces: str = Field(default="", description="what the instances face, e.g. 'the path', 'azimuth 220'")
+    support: str = Field(default="ground", description="'ground' or the asset they stand on")
+
+
+class ZoneLayout(BaseModel):
+    """The L2 layout for ONE zone: where its planned contents actually go.
+
+    Produced by a cheap structured call per zone (parallel, never an agent),
+    validated deterministically against the zone bbox and the plan before it is
+    handed to the zone builder — the builder realises a layout instead of
+    inventing one."""
+
+    zone: str = Field(description="the zone's name, exactly as planned")
+    placements: list[ZonePlacement] = Field(default_factory=list)
+    path_points: list[tuple[float, float]] = Field(
+        default_factory=list, description="(x, z) polyline of the walkway through this zone, if any")
+    mid_props: int = Field(default=0, ge=0, description="loose mid props (0.3-1.5 m) beyond the placements")
+    small_props: int = Field(default=0, ge=0, description="small props (< 0.3 m)")
+    ground_cover: int = Field(default=0, ge=0, description="instanced tufts / pebbles")
+    notes: str = Field(default="", description="one line of layout intent, e.g. 'stalls face the lane'")
+
+
 class RefDimension(BaseModel):
     """One reference dimension of the real object.  A LIST of typed rows, not a free
     ``dict[str, float]``: an open-ended object maps to a property-less ``{"type":

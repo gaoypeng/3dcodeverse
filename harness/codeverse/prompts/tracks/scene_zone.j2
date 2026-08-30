@@ -7,7 +7,10 @@ Scene: {{ spec_prompt }} · Setting: {{ setting }} · Mood: {{ mood }}
 - Bbox: {{ zone_bbox }} — place EVERYTHING inside it (x/z), on the ground via `heightAt`.
 - Contents (asset names to place): {{ zone_contents | join(', ') if zone_contents else '(none — build local detail from primitives)' }}
 
-Neighbouring zones (do not build into them):
+{% if layout is defined and layout %}## Zone director's layout (realise EXACTLY these placements; positions are world meters)
+{{ layout }}
+
+{% endif %}Neighbouring zones (do not build into them):
 {% for n in neighbours %}- {{ n }}
 {% endfor %}
 
