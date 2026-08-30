@@ -5,3 +5,4 @@ mmmix2|scripts/run_9b_mmmix2.sh
 mmvis|scripts/run_9b_mmvis.sh
 img_budget2|scripts/eval_img_budget.sh
 27b_mm|bash scripts/run_27b_mm.sh
+img_decoding|bash scripts/run_img_decoding.sh

@@ -34,9 +34,11 @@ def auto_gpu_mem(requested, tp=1, headroom_gib=4.0):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True); ap.add_argument("--prompts", required=True); ap.add_argument("--out", required=True)
-    ap.add_argument("--max_new_tokens", type=int, default=6144); ap.add_argument("--max_model_len", type=int, default=12288)
+    ap.add_argument("--max_new_tokens", type=int, default=32768); ap.add_argument("--max_model_len", type=int, default=12288)
     ap.add_argument("--temperature", type=float, default=0.0); ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tp", type=int, default=1); ap.add_argument("--gpu_mem", type=float, default=0.88)
+    ap.add_argument("--presence_penalty", type=float, default=0.0)
+    ap.add_argument("--repetition_penalty", type=float, default=1.0)
     ap.add_argument("--dialect", default="blender"); ap.add_argument("--limit", type=int, default=None)
     a = ap.parse_args()
     from vllm import LLM, SamplingParams
@@ -47,6 +49,7 @@ def main():
     llm = LLM(model=a.model, dtype="bfloat16", tensor_parallel_size=a.tp, max_model_len=a.max_model_len,
               gpu_memory_utilization=auto_gpu_mem(a.gpu_mem, getattr(a, 'tp', 1)), limit_mm_per_prompt={"image": 4, "video": 0}, trust_remote_code=True)
     sp = SamplingParams(temperature=a.temperature, top_p=0.95 if a.temperature > 0 else 1.0,
+                        presence_penalty=a.presence_penalty, repetition_penalty=a.repetition_penalty,
                         max_tokens=a.max_new_tokens, seed=a.seed)
     import base64, io
     def data_url(path):
