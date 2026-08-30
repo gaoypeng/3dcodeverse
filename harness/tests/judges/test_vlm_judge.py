@@ -60,6 +60,19 @@ def test_n_samples_mean_std_and_shuffle(judge_input, cache_dir):
     assert j.summary.startswith("A recognisable chair.")
 
 
+def test_fixed_order_sends_the_identical_prompt_to_every_sample(judge_input, cache_dir):
+    """The σ the loop keys its stop thresholds to must be the model's re-judge noise; the
+    default per-sample shuffle measures view-order robustness instead (JUDGE_NOISE was
+    tabulated from that).  fixed_order is the mode the calibration battery uses."""
+    model = FakeChatModel(by_label={":s0": [good_reply(R, IDS, 0.7)], ":s1": [good_reply(R, IDS, 0.9)],
+                                    ":s2": [good_reply(R, IDS, 0.8)]})
+    j = _judge(model, n_samples=3, cache_dir=cache_dir, fixed_order=True).judge(judge_input)
+    assert j.n_samples == 3
+    orders = [[p.label for p in image_parts(r)] for r in model.requests]
+    assert len({tuple(o) for o in orders}) == 1, "every sample must see the montages in the same order"
+    assert len({r.system for r in model.requests}) == 1
+
+
 def test_floor_fails_even_if_mean_high(judge_input, cache_dir):
     model = FakeChatModel([good_reply(R, IDS, 0.95, overrides={"intent_fidelity": 0.2})])
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)

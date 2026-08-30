@@ -90,8 +90,16 @@ class VlmJudge:
         cache_dir: Path | None = None,
         label: str = "judge",
         sample_budget_s: float | None = None,
+        fixed_order: bool = False,
     ):
         self.rubric: Rubric = rubric if isinstance(rubric, Rubric) else load_rubric(rubric)
+        # Every sample of one call normally sees the montages and tiles in a different order
+        # (shuffle_seed below), so score_std is a view-ORDER robustness figure — the number
+        # cost/routing.JUDGE_NOISE was tabulated from.  fixed_order sends the identical
+        # prompt n times: the re-judge σ of the model itself, which is what the loop's
+        # stop thresholds and the pairwise margin are actually keyed to (audit 2026-08-30;
+        # brilliana measured 0.013 vs 0.035 between the two on 512 calls).
+        self.fixed_order = bool(fixed_order)
         self.model_id = model_id or get_settings().default_judge
         self.n_samples = max(1, int(n_samples))
         if self.n_samples % 2 == 0:
@@ -139,7 +147,7 @@ class VlmJudge:
         errors: list[str] = []
         reqs: list[ChatRequest] = []
         for k in range(self.n_samples):
-            seed = None if (self.n_samples == 1 and k == 0) else (inp.round_index * 1000 + k)
+            seed = None if (self.fixed_order or (self.n_samples == 1 and k == 0)) else (inp.round_index * 1000 + k)
             # a missing render is a pipeline bug, not a judge glitch → JudgeImageError propagates
             system, messages = build_judge_messages(
                 inp, self.rubric, shuffle_seed=seed, geometry_views=geometry_views, max_montages=self.max_montages,

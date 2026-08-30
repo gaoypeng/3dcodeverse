@@ -109,6 +109,7 @@ class CalibrationRow(BaseModel):
 class CalibrationTable(BaseModel):
     model_id: str
     n_samples: int
+    fixed_order: bool = False
     rows: list[CalibrationRow]
     pearson_errors_vs_score: float | None = None
     spearman_errors_vs_score: float | None = None
@@ -143,7 +144,8 @@ class CalibrationTable(BaseModel):
         fmt = lambda v: "n/a" if v is None else f"{v:+.3f}"  # noqa: E731
         lines.append("")
         lines.append(
-            f"model {self.model_id}, n_samples {self.n_samples}: pearson(gate errors, new score) = {fmt(self.pearson_errors_vs_score)}; "
+            f"model {self.model_id}, n_samples {self.n_samples}{' (fixed montage order: σ is the re-judge noise)' if self.fixed_order else ''}: "
+            f"pearson(gate errors, new score) = {fmt(self.pearson_errors_vs_score)}; "
             f"spearman = {fmt(self.spearman_errors_vs_score)}; pearson(stored, new) = {fmt(self.pearson_stored_vs_new)}; "
             f"mean overall std {self.mean_std:.3f}; mean per-criterion std {self.mean_criterion_std:.3f}; cost ${self.total_cost_usd:.3f}"
         )
@@ -266,11 +268,14 @@ def calibrate(
     thinking: str = "low",
     max_workers: int = 4,
     chat_model: Any = None,
+    fixed_order: bool = False,
 ) -> CalibrationTable:
     """Re-judge every round of ``run_dirs`` with ``n_samples`` and tabulate separation/noise.
 
     Writes ``calibration_<model>.json`` / ``.md`` into ``out_dir`` (default: cwd) and
     never touches the run directories.  ``chat_model`` injects a ChatModel (tests).
+    ``fixed_order`` sends every sample the same montage order, so ``mean_std`` becomes the
+    model's own re-judge σ instead of its order-permutation σ (see ``VlmJudge.fixed_order``).
     """
     from codeverse.config import get_settings
 
@@ -286,12 +291,13 @@ def calibrate(
     for i, c in enumerate(cases):
         geometry[i] = render_geometry_views(c, out, geometry_mode) if (geometry_mode and c.is_best) else None
     judges = {c.rubric: VlmJudge(c.rubric, model_id=model_id, n_samples=n_samples, thinking=thinking,  # type: ignore[arg-type]
-                                 cache_dir=out / "cache", label="calibrate", chat_model=chat_model) for c in cases}
+                                 cache_dir=out / "cache", label="calibrate", chat_model=chat_model,
+                                 fixed_order=fixed_order) for c in cases}
     with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
         rows = list(pool.map(lambda ic: _judge_case(ic[1], judges[ic[1].rubric], geometry[ic[0]], out), enumerate(cases)))
     ok = [r for r in rows if not r.error]
     table = CalibrationTable(
-        model_id=model_id, n_samples=n_samples, rows=rows,
+        model_id=model_id, n_samples=n_samples, fixed_order=fixed_order, rows=rows,
         pearson_errors_vs_score=pearson([float(r.gate_errors) for r in ok], [r.mean for r in ok]),
         spearman_errors_vs_score=spearman([float(r.gate_errors) for r in ok], [r.mean for r in ok]),
         pearson_stored_vs_new=pearson([r.stored_overall for r in ok if r.stored_overall is not None],
@@ -316,12 +322,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--rounds", default="", help="comma-separated round indices (default all)")
     ap.add_argument("--thinking", default="low")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--fixed-order", action="store_true",
+                    help="same montage order for every sample: measures the model's re-judge σ, not order robustness")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     rounds = [int(x) for x in a.rounds.split(",") if x.strip()] or None
     table = calibrate(a.run_dirs, model_id=a.model, n_samples=a.n, out_dir=a.out,
                       geometry_mode=None if a.geometry == "none" else a.geometry, rounds=rounds,
-                      thinking=a.thinking, max_workers=a.workers)
+                      thinking=a.thinking, max_workers=a.workers, fixed_order=a.fixed_order)
     print(table.to_markdown())
     return 0
 
