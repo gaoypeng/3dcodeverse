@@ -55,6 +55,7 @@ async function main() {
       createSceneTimeoutMs: createTimeoutMs(args['create-timeout-ms'], timeoutMs),
       settle: !args['no-settle'],
       cameraRepair: !!args['camera-repair'],
+      autoExposure: !!args['auto-exposure'],
     });
   } catch (e) {
     return fail(`host failed: ${e.message}`);

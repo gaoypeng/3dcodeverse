@@ -55,7 +55,7 @@ export function requestFailureLine(url, base, hasResponse, errorText) {
  * Open the host for workspace `wsRoot`.
  * @returns {Promise<{page, browser, base, gpu, renderer, errors, boot, close}>}
  */
-export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto', logDepth = false, sceneRel = 'src/scene.js', createSceneTimeoutMs = 0, settle = true, cameraRepair = false } = {}) {
+export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto', logDepth = false, sceneRel = 'src/scene.js', createSceneTimeoutMs = 0, settle = true, cameraRepair = false, autoExposure = false } = {}) {
   wsRoot = path.resolve(wsRoot);
   if (!fs.existsSync(path.join(wsRoot, sceneRel))) {
     throw new Error(`missing ${sceneRel} in workspace ${wsRoot}`);
@@ -101,7 +101,7 @@ export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto
     await page.waitForFunction('window.__c3v_ready === true', { timeout: 60000 });
     const boot = await page.evaluate(
       (o) => window.__c3v.boot(o),
-      { sceneUrl: `/${sceneRel}`, width, height, logDepth, createSceneTimeoutMs, settle, cameraRepair },
+      { sceneUrl: `/${sceneRel}`, width, height, logDepth, createSceneTimeoutMs, settle, cameraRepair, autoExposure },
     );
     const close = async () => {
       // page first, then release: a SHARED browser (connect-first reuse) must get

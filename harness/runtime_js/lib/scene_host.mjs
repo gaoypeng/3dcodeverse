@@ -50,6 +50,8 @@ const state = {
   cameraRepair: false,
   cameraRepairs: [],
   repairedSpecs: new Map(),
+  autoExposure: false,
+  autoExposureInfo: null,
 };
 
 /**
@@ -175,6 +177,8 @@ async function boot(opts) {
     state.cameraRepair = !!opts.cameraRepair;
     state.cameraRepairs = [];
     state.repairedSpecs = new Map();
+    state.autoExposure = !!opts.autoExposure;
+    state.autoExposureInfo = null;
     state.width = opts.width || 1024;
     state.height = opts.height || 576;
     window.requestAnimationFrame = () => { state.rafCalls += 1; return 0; };
@@ -245,6 +249,33 @@ async function boot(opts) {
         state.settleInfo = { count: 0, moves: [], error: String((e && e.message) || e).slice(0, 300) };
       }
       info.settled = state.settleInfo.count;
+    }
+
+    // auto-exposure (opt-in, --auto-exposure): one scene-wide bounded exposure, like a
+    // photographer picking ISO once.  fv_izakaya_night sat at mean_lum 0.07 for three
+    // rounds with the 'frame too dark' ERROR in every refine prompt and nobody fixed it;
+    // the frame gate's healthy band is 0.12..0.35.  Factor clamped to [0.5, 3.0] so a
+    // deliberately moody scene is brightened, never rewritten; recorded in the census.
+    if (opts.autoExposure && state.cameras.length) {
+      info.stage = 'auto_exposure';
+      try {
+        const probeCam = () => buildCameraRaw(state.cameras[0]);
+        const lum = () => { renderOnce(probeCam()); return frameStats(state.canvas).mean_lum; };
+        const before = lum();
+        let factor = 1;
+        let after = before;
+        for (let i = 0; i < 4 && (after < 0.10 || after > 0.45); i++) {
+          const step = after < 0.10 ? 1.6 : 0.7;
+          const next = Math.min(3.0, Math.max(0.5, factor * step));
+          if (next === factor) break;
+          factor = next;
+          state.renderer.toneMappingExposure = factor;
+          after = lum();
+        }
+        if (factor !== 1) state.autoExposureInfo = { factor: +factor.toFixed(2), lum_before: before, lum_after: after };
+      } catch (e) {
+        state.hostWarnings.push(`auto-exposure failed: ${String((e && e.message) || e).slice(0, 200)}`);
+      }
     }
     state.booted = true;
     info.ok = cameras.length > 0;
@@ -450,6 +481,7 @@ function census() {
   c.glb_assets = glbUsage(state.scene);
   if (state.settleInfo) c.settle = state.settleInfo;
   if (state.cameraRepairs.length) c.camera_repair = state.cameraRepairs.slice();
+  if (state.autoExposureInfo) c.auto_exposure = state.autoExposureInfo;
   state.contentBox = c.content_bbox;
   state.fullBox = c.bbox;
   c.cameras = state.cameras.length;

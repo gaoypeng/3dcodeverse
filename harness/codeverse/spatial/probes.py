@@ -74,6 +74,8 @@ def probe_scene(ws: Workspace, *, timeout_s: float = 60.0, write_census: bool = 
             args.append("--no-settle")
         if os.environ.get("CV3D_CAMERA_REPAIR") == "1":   # opt-in: repair plan cameras stuck in geometry
             args.append("--camera-repair")
+        if os.environ.get("CV3D_AUTO_EXPOSURE") == "1":   # opt-in: bounded scene-wide exposure into the healthy band
+            args.append("--auto-exposure")
         res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
     except SceneRenderError as e:
         findings.append(_f(gate, Severity.ERROR, f"scene probe could not run: {e}", target="src/scene.js",
