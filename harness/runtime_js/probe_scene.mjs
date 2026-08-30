@@ -57,6 +57,7 @@ async function main() {
       width: 320, height: 180, gpu: args.gpu, sceneRel: args.scene.replace(/^\.?\//, ''),
       createSceneTimeoutMs: createTimeoutMs(args['create-timeout-ms'], timeoutMs),
       settle: !args['no-settle'],
+      cameraRepair: !!args['camera-repair'],
     });
   } catch (e) {
     return fail(`host failed: ${e.message}`);

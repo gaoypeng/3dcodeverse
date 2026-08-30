@@ -54,6 +54,7 @@ async function main() {
       width, height, gpu: args.gpu, logDepth: args['log-depth'],
       createSceneTimeoutMs: createTimeoutMs(args['create-timeout-ms'], timeoutMs),
       settle: !args['no-settle'],
+      cameraRepair: !!args['camera-repair'],
     });
   } catch (e) {
     return fail(`host failed: ${e.message}`);

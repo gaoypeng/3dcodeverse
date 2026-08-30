@@ -72,6 +72,8 @@ def probe_scene(ws: Workspace, *, timeout_s: float = 60.0, write_census: bool = 
         args = ["--ws", str(ws.root), "--out", str(out_json), "--timeout-ms", str(int(timeout_s * 1000))]
         if os.environ.get("CV3D_SETTLE") == "0":   # A/B switch for the boot-time auto-seat
             args.append("--no-settle")
+        if os.environ.get("CV3D_CAMERA_REPAIR") == "1":   # opt-in: repair plan cameras stuck in geometry
+            args.append("--camera-repair")
         res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
     except SceneRenderError as e:
         findings.append(_f(gate, Severity.ERROR, f"scene probe could not run: {e}", target="src/scene.js",
