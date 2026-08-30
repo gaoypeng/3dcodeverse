@@ -120,6 +120,8 @@ zone.add(box('Anvil', 1, 1, 1, -5, -0.5, 0));                   // sunken 0.5 in
 const bird = box('Bird', 0.3, 0.2, 0.3, 0, 4, 5); bird.userData.placement = 'free'; zone.add(bird);
 zone.add(box('Boat', 2, 0.6, 0.8, -20, 0.0, -20));              // foot at pond level: on water
 const rock = box('Rock', 1, 1.2, 1, 8, -0.6, -8); zone.add(rock);  // half-buried rock: partial-ok, frac 0.5 <= 0.75
+const upper = box('UpperGround', 8, 1, 8, 9, 0, 20); env.add(upper);    // an uphill terrace: slab y 0..1, top face at y=1
+const aqueduct = box('Aqueduct', 6, 0.5, 1, 5, 0.4, 20); zone.add(aqueduct); // spans flat ground -> terrace: downhill col floats, uphill col sunk 0.6
 const shelf = box('Shelf', 1, 0.1, 0.4, 12, 1.2, 0);            // floating but TOUCHING the wall
 const wall = box('Wall', 0.2, 2.5, 3, 12.5, 0, 0); zone.add(wall); zone.add(shelf);
 shelf.position.x = 12.35;                                        // AABBs meet the wall's
@@ -147,6 +149,10 @@ def test_settle_seats_floating_and_sunken_and_reports_the_moves(settled):
 def test_settle_leaves_exempt_water_partial_and_mounted_alone(settled):
     touched = {m["name"] for m in settled["settle"]["moves"]}
     assert touched == {"Lantern", "Anvil"}, touched
+    # the slope guard: Aqueduct spans flat ground onto a terrace — one foot column
+    # rests / floats low while another is buried 0.6 m in the terrace.  Columns
+    # disagree, so settle must refuse (the santorini stairway lesson).
+    assert "Aqueduct" not in touched
     after = {a["name"]: a for a in settled["after"]["assets"]}
     assert after["Bird"]["exempt"] == "free"                          # tagged free: untouched
     assert after["Boat"]["supported"]                                 # on water: untouched

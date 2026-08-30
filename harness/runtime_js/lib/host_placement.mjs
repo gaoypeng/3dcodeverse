@@ -445,6 +445,7 @@ const SETTLE_PARTIAL_FRAC = 0.40;
 const SETTLE_MAX_MOVE_M = 6;
 const SETTLE_SEAT_EPS_M = 0.005;
 const BURIED_OK_RE = /\b(basin|bed|canal|cave|cellar|crater|ditch|drain|foundations?|graves?|gutter|holes?|lakebed|moat|pits?|pools?|riverbed|trench(es)?|tunnels?|wells?)\b/i;
+const SLOPE_CONFORMAL_RE = /\b(stairs?|stairways?|staircases?|steps?|ramps?|walkways?|paths?|roads?|terraces?|platforms?)\b/i;
 const PARTIAL_OK_RE = /\b(boulders?|bridges?|bush(es)?|cliffs?|docks?|dunes?|fences?|flowers?|grass|hills?|jett(y|ies)|logs?|mounds?|outcrops?|pebbles?|piers?|piles?|plants?|poles?|posts?|reeds?|rocks?|roots?|shrubs?|stakes?|stones?|stumps?|trees?|trunks?|tufts?)\b/i;
 
 /** Measure every placed asset once, then translate the clearly mis-seated ones onto
@@ -467,11 +468,17 @@ export function settleScene(scene, THREE, opts = {}) {
     if (Date.now() - t0 > TIME_BUDGET_MS) break;
     const cols = footColumns(a);
     if (!cols.length) continue;
-    let best = null, sunk = null, water = false;
+    let best = null, sunk = null, water = false, minSunk = Infinity, anyRest = false;
     for (const col of cols) {
       const r = probeColumn(a, col, indices, owner, groundY);
       if (r.gap !== null && (!best || r.gap < best.gap)) best = r;
-      if (r.sunk > 0 && (!sunk || r.sunk > sunk.sunk)) sunk = r;
+      if (r.sunk > 0) {
+        if (!sunk || r.sunk > sunk.sunk) sunk = r;
+        minSunk = Math.min(minSunk, r.sunk);
+      } else {
+        minSunk = 0;
+        if (r.gap !== null && r.gap <= CONTACT_TOL_M) anyRest = true;
+      }
       if (r.water) water = true;
     }
     if (water) continue;
@@ -479,14 +486,20 @@ export function settleScene(scene, THREE, opts = {}) {
     const height = Math.max(a.max[1] - a.min[1], 1e-6);
     let dy = 0, why = '';
     if (sunk && sunk.sunk > 0) {
-      if (BURIED_OK_RE.test(name)) continue;
-      const frac = sunk.sunk / height;
+      if (BURIED_OK_RE.test(name) || SLOPE_CONFORMAL_RE.test(name)) continue;
+      // Slope guard (2026-08-30): a structure following a hillside is "deeply sunk" at
+      // its uphill columns while its downhill columns rest — lifting by the DEEPEST
+      // burial strands the low end in the air.  Measured on t36_santorini: six
+      // StoneStairways lifted +1.3..+3.3 m turned a 0.258 scene into a 0.000 one.
+      // Settle only what is sunk at EVERY column, and lift by the SHALLOWEST burial.
+      if (anyRest || minSunk < Math.max(SUNK_M, 0.5 * sunk.sunk)) continue;
+      const frac = minSunk / height;
       if (PARTIAL_OK_RE.test(name)) {
         if (frac <= 0.75) continue;                       // grown / driven in: fine
-        dy = sunk.sunk - SETTLE_PARTIAL_FRAC * height;    // pull up to a 40 % embed
+        dy = minSunk - SETTLE_PARTIAL_FRAC * height;      // pull up to a 40 % embed
         why = 'sunken_partial';
-      } else if (sunk.sunk > SUNK_M) {
-        dy = sunk.sunk - SETTLE_EMBED_M;                  // reseat with a 4 cm embed
+      } else if (minSunk > SUNK_M) {
+        dy = minSunk - SETTLE_EMBED_M;                    // reseat with a 4 cm embed
         why = 'sunken';
       } else { continue; }
     } else if (best && best.gap !== null && best.gap > FLOATING_M) {
