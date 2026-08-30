@@ -42,6 +42,17 @@ def test_validator_accepts_a_buildable_layout_and_names_every_problem():
     assert "no placement for planned contents: FishingBoat" in complaint
 
 
+def test_validator_rejects_a_cluster_that_swallows_a_camera():
+    """fv_izakaya_night: BarCounter 0.7 m from the PotDetail camera — the lens sat inside
+    the counter and camera_in_geometry capped all three rounds.  The camera list is an
+    input to the layout, so the validator must reject this before a builder sees it."""
+    plan = _plan()   # camera 'overview' at (1, 1, 1)
+    bad = _layout(placements=[{"asset": "Stall", "count": 1, "cluster": (1.2, 0.8), "spread_m": 0.0}],
+                  zone="Market")
+    complaint = validate_layout(bad, plan.zones[1], plan)
+    assert "from camera overview" in complaint and "shot stays clear" in complaint
+
+
 def test_layout_block_renders_numbers_the_builder_can_follow():
     text = layout_block(_layout(path_points=[(-18.0, 0.0), (-2.0, 4.0)], mid_props=12, ground_cover=400,
                                 notes="boats face the quay"))

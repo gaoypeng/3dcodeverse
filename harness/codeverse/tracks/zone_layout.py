@@ -16,6 +16,7 @@ returns no layout for that zone and generation proceeds exactly as before.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 from codeverse.contracts.chat import ChatMessage, ChatRequest
@@ -34,6 +35,12 @@ LAYOUT_WAIT_S = 300.0
 COUNT_SLACK = 4
 #: cluster centres may sit this far outside the zone bbox (assets have radius)
 BBOX_MARGIN_M = 1.0
+#: base clearance a camera needs beyond half the asset's footprint.  Measured on
+#: fv_izakaya_night (2026-08-30): the director placed BarCounter 0.7 m from the
+#: PotDetail camera — the camera sat INSIDE the counter, camera_in_geometry +
+#: dark_frame capped all three rounds (0.512 uncapped → 0.252), and refine cannot
+#: fix it because cameras belong to the plan, not to any file an agent owns.
+CAMERA_CLEAR_M = 1.2
 
 
 def validate_layout(layout: ZoneLayout, zone: ZonePlan, plan: ScenePlan) -> str:
@@ -53,6 +60,15 @@ def validate_layout(layout: ZoneLayout, zone: ZonePlan, plan: ScenePlan) -> str:
                             f"x {lo[0]:.1f}..{hi[0]:.1f}, z {lo[2]:.1f}..{hi[2]:.1f}")
         if p.count > COUNT_SLACK * hints[k]:
             problems.append(f"{p.asset} count {p.count} is over {COUNT_SLACK}x the plan's instances_hint {hints[k]}")
+        # the shot must survive the layout: a cluster whose footprint reaches a camera
+        # puts geometry inside the lens (fv_izakaya_night), and nothing downstream can fix it
+        foot = max(known[k].approx_size_m[0], known[k].approx_size_m[2])
+        need = CAMERA_CLEAR_M + foot / 2 + p.spread_m
+        for cam in plan.cameras:
+            dist = math.hypot(x - cam.position[0], z - cam.position[2])
+            if dist < need:
+                problems.append(f"{p.asset} cluster ({x:.1f}, {z:.1f}) is {dist:.1f} m from camera {cam.name} "
+                                f"— keep >= {need:.1f} m (its footprint plus lens clearance) so the shot stays clear")
     placed = {to_snake(p.asset) for p in layout.placements}
     missing = [c for c in zone.contents if to_snake(c) not in placed]
     if missing:
@@ -88,9 +104,11 @@ def _one_layout(zone: ZonePlan, plan: ScenePlan, model: Any, budget: Any, events
                   for z in plan.zones if z.name != zone.name]
     assets = [f"{a.name}: {a.approx_size_m[0]:g}x{a.approx_size_m[1]:g}x{a.approx_size_m[2]:g} m, ~{a.instances_hint} planned"
               for a in plan.assets if to_snake(a.name) in {to_snake(c) for c in zone.contents}] or ["(no planned assets — dressing only)"]
+    cameras = [f"{c.name} at ({c.position[0]:.1f}, {c.position[2]:.1f}), fov {c.fov:.0f} — {c.purpose}"
+               for c in plan.cameras]
     system = render(LAYOUT_TEMPLATE, title=plan.title, setting=plan.setting, mood=plan.mood,
                     environment=plan.environment[:600], zone=zone, neighbours=neighbours, assets=assets,
-                    schema_fields=", ".join(ZoneLayout.model_fields))
+                    cameras=cameras, schema_fields=", ".join(ZoneLayout.model_fields))
     user = f"Lay out zone {zone.name}. Description (binding): {zone.description}\nContents to place: {', '.join(zone.contents) or '(none)'}"
     complaint = ""
     for attempt in (0, 1):
