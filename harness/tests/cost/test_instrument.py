@@ -9,12 +9,13 @@ import pytest
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ChatResponse
 from codeverse.contracts.common import Usage
+from codeverse.cost.context import run_binding
 from codeverse.cost.instrument import (
     MeteredAgent,
     MeteredChatModel,
     run_ledger,
 )
-from codeverse.cost.ledger import load_ledger
+from codeverse.cost.ledger import load_ledger, record_call
 from codeverse.cost.types import Role, Stage
 
 
@@ -223,15 +224,16 @@ def test_a_cli_session_is_recorded_even_when_a_tool_bills_a_model_inside_it(tmp_
 
 def test_an_in_process_session_is_never_counted_twice_even_from_another_thread(tmp_path: Path):
     """Worker-thread rows from a self-metered agent are not double counted."""
-    import threading
+    from codeverse.proc import fan_out
 
     class ThreadedAgent(FakeAgent):
         def run(self, job: AgentJob) -> AgentResult:
-            out: list[AgentResult] = []
-            t = threading.Thread(target=lambda: out.append(FakeAgent.run(self, job)))
-            t.start()
-            t.join()
-            return out[0]
+            # fan_out, not a bare Thread: it is the one helper that copies the caller's
+            # context, and since 2026-08-30 nothing else can find the run's ledger from
+            # a worker thread (the process-global fallback leaked between parallel runs)
+            (out,) = fan_out([job], lambda j: FakeAgent.run(self, j), label="agent")
+            assert isinstance(out, AgentResult)
+            return out
 
     with run_ledger(tmp_path, run="r1"):
         MeteredAgent(ThreadedAgent(MeteredChatModel(FakeChat()))).run(
@@ -267,9 +269,12 @@ def test_run_ledgers_nest_and_restore_the_outer_one(tmp_path: Path):
     assert {r.run for r in load_ledger(outer)} == {"cell"}
 
 
-def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Path):
+def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Path,
+                                                                  monkeypatch: pytest.MonkeyPatch):
     """`bench.run_bench` runs N prompts in N threads; their rows must not mix."""
     from concurrent.futures import ThreadPoolExecutor
+
+    from codeverse.cost import ledger as ledger_mod
 
     def one(name: str) -> None:
         with run_ledger(tmp_path / name, run=name):
@@ -283,6 +288,18 @@ def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Pat
     for name in names:
         rows = load_ledger(tmp_path / name)
         assert len(rows) == 3 and {r.run for r in rows} == {name}
+    # ...and neither binding leaked out of its worker.  Until 2026-08-30 the run name
+    # and the default ledger were ALSO process globals that the first thread to exit
+    # republished, so this plain main-thread call appended to a finished run's file
+    # under that run's name instead of going to the per-process log.
+    monkeypatch.setenv("CV3D_COST_LEDGER", str(tmp_path / "process.jsonl"))
+    monkeypatch.setattr(ledger_mod, "_fallback", None)
+    monkeypatch.setattr(ledger_mod, "_fallback_read", False)
+    assert run_binding().run == ""
+    record_call(Usage(cost_usd=0.5), label="baseline")
+    assert [r.run for r in load_ledger(tmp_path / "process.jsonl")] == [""]
+    for name in names:
+        assert len(load_ledger(tmp_path / name)) == 3
 
 
 # ------------------------------------------------------- key + attempts on the row (audit 2026-08-26 §4)

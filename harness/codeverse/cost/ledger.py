@@ -19,7 +19,8 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
@@ -49,10 +50,10 @@ log = logging.getLogger(__name__)
 TELEMETRY_DIR = "telemetry"
 TELEMETRY_LEDGER = f"{TELEMETRY_DIR}/cost.jsonl"
 
-#: legacy/alias name at the run root.  ``flywheel.telemetry.live_ledger_path`` looks
-#: here for "does this run have a live ledger", and runs recorded before the
-#: telemetry bucket existed have the real file here — so it stays readable, and
-#: :func:`open_run_ledger` leaves a symlink pointing at the telemetry copy.
+#: alias name at the run root: a relative symlink :func:`open_run_ledger` leaves
+#: pointing at the telemetry copy, so ``flywheel.telemetry.live_ledger_path`` and
+#: anything that learned this path before the telemetry bucket existed still reads
+#: the one physical file.
 LEDGER_NAME = "cost_ledger.jsonl"
 
 #: env var that points ``record_call`` at a ledger when no path is passed
@@ -94,50 +95,36 @@ class CostLedger:
         return summarise(self.read(), **kw)
 
 
-_default_lock = threading.Lock()
-_default: CostLedger | None = None
+_fallback_lock = threading.Lock()
 _fallback: CostLedger | None = None
 _fallback_read = False
 
 #: sentinel: "this execution context did not state a ledger"
 _UNSET: Any = object()
-#: context-local override of the default ledger.  Mirrors
-#: ``codeverse.cost.context.bind_run``: a bench worker running its own prompt in
-#: its own thread must not have its rows land in a sibling run's file, while a
-#: plain worker thread that inherited no context still finds the process's ledger.
+#: context-local override of the default ledger.  Context-local ONLY, like
+#: ``codeverse.cost.context._run_var``: a bench worker running its own prompt in its
+#: own thread must not have its rows land in a sibling run's file, and a process-wide
+#: copy of it could not unwind correctly when two runs overlap (2026-08-30).
 _default_var: ContextVar[Any] = ContextVar("cv3d_cost_default_ledger", default=_UNSET)
 
 
-def set_default_ledger(path: str | Path | None) -> CostLedger | None:
-    """Point the module-level :func:`record_call` at ``path``.
+@contextmanager
+def bound_ledger(path: str | Path) -> Iterator[CostLedger]:
+    """Point :func:`record_call` at ``path`` for the duration of the block.
 
-    ``None`` clears the override (back to ``$CV3D_COST_LEDGER`` / the per-process
-    log).  Sets both the context-local override and the process-wide one, so a
-    nested or parallel run is attributed correctly and an uninstrumented worker
-    thread still writes somewhere sensible."""
-    global _default, _fallback_read
-    led = CostLedger(path) if path is not None else None
-    _default_var.set(led if led is not None else _UNSET)
-    with _default_lock:
-        _default = led
-        if led is None:
-            _fallback_read = False  # re-read $CV3D_COST_LEDGER next time
-    return led
-
-
-def default_ledger_path() -> Path | None:
-    """The path :func:`set_default_ledger` last set here (``None`` = no override).
-    Used to save/restore around a nested :func:`~codeverse.cost.instrument.run_ledger`."""
-    led = _default_var.get()
-    if led is not _UNSET:
-        return led.path if led is not None else None
-    with _default_lock:
-        return _default.path if _default is not None else None
+    Unwinds with the ``ContextVar`` token, so nested and parallel blocks each undo
+    exactly their own binding."""
+    led = CostLedger(path)
+    token = _default_var.set(led)
+    try:
+        yield led
+    finally:
+        _default_var.reset(token)
 
 
 def default_ledger() -> CostLedger | None:
     """The ledger :func:`record_call` writes to when no ``ledger=`` is given:
-    whatever :func:`set_default_ledger` set, else ``$CV3D_COST_LEDGER``, else the
+    whatever :func:`bound_ledger` bound here, else ``$CV3D_COST_LEDGER``, else the
     per-process fallback log (:func:`process_ledger_path`) so a call made outside
     any run — ``3dcv judge``, a bench script, a notebook — is still accounted for.
     ``CV3D_COST_LEDGER=off`` turns writing off entirely."""
@@ -145,9 +132,7 @@ def default_ledger() -> CostLedger | None:
     led = _default_var.get()
     if led is not _UNSET:
         return led
-    with _default_lock:
-        if _default is not None:
-            return _default
+    with _fallback_lock:
         if _fallback_read:
             return _fallback
         env = os.environ.get(LEDGER_ENV, "").strip()
@@ -171,14 +156,13 @@ def process_ledger_path() -> Path:
 
 
 def existing_ledger_path(workspace: str | Path) -> Path | None:
-    """The ledger file a run actually has — the telemetry one, else the legacy
-    root file — or ``None``."""
-    root = Path(workspace)
-    for name in (TELEMETRY_LEDGER, LEDGER_NAME):
-        p = root / name
-        if p.is_file():
-            return p
-    return None
+    """The ledger file a run actually has, or ``None``.
+
+    Only ``telemetry/cost.jsonl``: the root :data:`LEDGER_NAME` is the symlink
+    :func:`open_run_ledger` leaves pointing at it, and a walk of every run under
+    ``$HOME`` on 2026-08-30 found 677 such symlinks and not one real file there."""
+    p = Path(workspace) / TELEMETRY_LEDGER
+    return p if p.is_file() else None
 
 
 def open_run_ledger(workspace: str | Path) -> CostLedger:
@@ -335,9 +319,9 @@ def record_call(
 
 
 def load_ledger(path: str | Path, *, include_attempts: bool = False) -> list[CallCost]:
-    """Read a ledger file (or a run directory containing one: ``telemetry/cost.jsonl``
-    first, then the legacy root ``cost_ledger.jsonl``).  Bad lines are skipped with a
-    debug log — a truncated last line never loses the rest of the file.
+    """Read a ledger file, or a run directory holding one (``telemetry/cost.jsonl``).
+    Bad lines are skipped with a debug log — a truncated last line never loses the
+    rest of the file.
 
     ``source="attempt"`` rows (one per round-trip, ``instrument.MeteredChatModel``)
     are left out unless ``include_attempts=True``: their tokens are already on the

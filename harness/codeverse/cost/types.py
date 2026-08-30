@@ -20,9 +20,10 @@ class Stage(StrEnum):
     of ``events.jsonl`` (``stage.start``/``generate.done`` labels)."""
 
     PLAN = "plan"
-    #: SKELETON / ASSEMBLE / GATES / RENDER are *deterministic harness work* (no
-    #: model call at all); kept in the enum so latency can be attributed to them
-    #: from events (``report.STAGE_ORDER``, ``audit.stage_latency``).
+    #: SKELETON / GATES / RENDER are *deterministic harness work* (no model call at
+    #: all); kept in the enum so latency can be attributed to them from events
+    #: (``report.STAGE_ORDER``, ``audit.stage_latency``).  ASSEMBLE is NOT one of
+    #: them — the scene track's ``compose`` task is an agent session that bills.
     SKELETON = "skeleton"
     ASSETS = "assets"
     ENV = "env"
@@ -73,6 +74,10 @@ _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
     ("env", Stage.ENV),
     ("baseline", Stage.BASELINE),
     ("refine", Stage.REFINE),
+    # the static track's surface-detail round (labels "detail" / "detail_<scope>",
+    # lifecycle.DEFAULT_DETAIL_ROUNDS=1 so it runs by default) is a refine pass under
+    # another name; without this its ledger row AND generation.task_stage said "other"
+    ("detail", Stage.REFINE),
     ("candidate", Stage.CANDIDATE),
     ("cand", Stage.CANDIDATE),
     ("plan", Stage.PLAN),
@@ -107,8 +112,8 @@ def role_for_stage(stage: Stage) -> Role:
         return Role.JUDGE
     if stage is Stage.CAPTION:
         return Role.CAPTIONER
-    if stage in (Stage.ASSETS, Stage.ENV, Stage.ZONES, Stage.BASELINE, Stage.REFINE,
-                 Stage.REPAIR, Stage.CANDIDATE):
+    if stage in (Stage.ASSETS, Stage.ENV, Stage.ZONES, Stage.ASSEMBLE, Stage.BASELINE,
+                 Stage.REFINE, Stage.REPAIR, Stage.CANDIDATE):
         return Role.GENERATOR
     return Role.OTHER
 

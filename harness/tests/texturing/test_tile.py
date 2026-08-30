@@ -9,10 +9,10 @@ from codeverse.texturing.generate import (
     SEAM_MAX,
     fit_size,
     make_tileable,
-    procedural_texture,
     save_texture,
     seam_score,
 )
+from tests.texturing.conftest import procedural_texture
 
 
 def _tileable(size: int = 64) -> Image.Image:

@@ -9,8 +9,9 @@ import trimesh
 
 from codeverse.spatial.measure import measure_glb
 from codeverse.texturing.apply import apply_textures, node_part_lookup
-from codeverse.texturing.generate import FakeImageModel, generate_textures
+from codeverse.texturing.generate import generate_textures
 from codeverse.texturing.plan import default_plan
+from tests.texturing.conftest import FakeImageModel
 
 
 def test_node_part_lookup_instances_and_links(chair_plan):

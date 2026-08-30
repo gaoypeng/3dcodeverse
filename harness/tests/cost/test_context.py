@@ -5,7 +5,7 @@ from __future__ import annotations
 from codeverse.cost.context import (
     CallContext,
     attribute,
-    bind_run,
+    bound_run,
     call_context,
     context_from_label,
     current,
@@ -58,8 +58,7 @@ def test_a_call_that_names_its_own_job_beats_the_session_it_runs_inside():
 
 
 def test_nested_contexts_merge_and_unwind():
-    try:
-        bind_run("run-a")
+    with bound_run("run-a"):
         assert current().run == "run-a"
         with call_context(stage=Stage.BASELINE, round=0):
             with call_context(label="inner"):
@@ -67,10 +66,41 @@ def test_nested_contexts_merge_and_unwind():
                 assert inner.stage is Stage.BASELINE and inner.round == 0 and inner.label == "inner"
             assert current().label == ""
         assert current().stage is None and current().run == "run-a"
-    finally:
-        bind_run("")
+    assert current().run == ""
+
+
+def test_a_run_bound_in_a_thread_is_never_published_to_the_others():
+    """The 2026-08-30 leak: the binding also lived in a process global, so once the
+    first parallel run exited it republished ITS name for every later caller."""
+    import threading
+
+    ready, seen = threading.Barrier(3), {}
+
+    def one(name: str) -> None:
+        with bound_run(name):
+            ready.wait(timeout=5)
+            seen[name] = current().run
+
+    threads = [threading.Thread(target=one, args=(n,)) for n in ("a", "b")]
+    for t in threads:
+        t.start()
+    ready.wait(timeout=5)
+    for t in threads:
+        t.join(timeout=5)
+    assert seen == {"a": "a", "b": "b"}
+    assert current().run == ""  # ...and the main thread never inherited either of them
 
 
 def test_role_is_derived_from_stage_when_unstated():
     assert attribute(CallContext(stage=Stage.ZONES)).role is Role.GENERATOR
     assert attribute(CallContext(stage=Stage.PAIRWISE)).role is Role.JUDGE
+    # the scene track's compose task is an agent session, not deterministic assembly
+    assert attribute(CallContext(stage=Stage.ASSEMBLE)).role is Role.GENERATOR
+
+
+def test_the_static_track_detail_round_is_a_refine_pass():
+    """``DEFAULT_DETAIL_ROUNDS=1``, so every static run bills one of these; until
+    2026-08-30 no prefix matched and the whole round landed under ``other``."""
+    for label in ("detail", "detail_seat_edge"):
+        got = attribute(label=label)
+        assert got.stage is Stage.REFINE and got.role is Role.GENERATOR, label

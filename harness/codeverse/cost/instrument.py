@@ -37,18 +37,17 @@ from codeverse.contracts.common import Usage
 from codeverse.cost.context import (
     AttemptRecord,
     attempt_recording,
-    bind_run,
+    bound_run,
     call_context,
     run_binding,
 )
 from codeverse.cost.ledger import (
     CostLedger,
+    bound_ledger,
     default_ledger,
-    default_ledger_path,
     existing_ledger_path,
     open_run_ledger,
     record_call,
-    set_default_ledger,
 )
 from codeverse.cost.types import Role, Stage, stage_for_label
 
@@ -102,12 +101,13 @@ class MeteredChatModel:
     def generate(self, request: ChatRequest) -> ChatResponse:
         call_id = uuid4().hex  # joins the per-attempt rows to the call's logical row
         # captured NOW: a hedge loser lands after this call returned, in a thread
-        # with no context, and its row must still reach THIS run's ledger
+        # with no context, so neither the run's ledger nor its name is reachable there
         ledger = default_ledger()
+        run = run_binding().run
         booked: list[int] = []  # round-trips that already billed themselves as "extra"
 
         def attempt_row(rec: AttemptRecord) -> None:
-            if self._record_attempt(request, call_id, rec, ledger):
+            if self._record_attempt(request, call_id, rec, ledger, run):
                 booked.append(rec.attempt)
 
         t0 = time.perf_counter()
@@ -146,7 +146,7 @@ class MeteredChatModel:
             log.debug("cost: could not record %s: %s", request.label, e)
 
     def _record_attempt(self, request: ChatRequest, call_id: str, rec: AttemptRecord,
-                        ledger: CostLedger | None) -> bool:
+                        ledger: CostLedger | None, run: str = "") -> bool:
         """One row per round-trip.  A round-trip that was DISCARDED and still cost money
         (a billed-but-invalid reply, a hedge loser that landed) is money nothing else
         records, so it goes in as ``source="extra"`` and counts in every total; the rest
@@ -154,7 +154,7 @@ class MeteredChatModel:
         already carries their tokens.  Returns True when it billed an ``extra``."""
         extra = bool(rec.discarded and rec.usage.cost_usd)
         try:
-            record_call(rec.usage, label=request.label,
+            record_call(rec.usage, run=run, label=request.label,
                         backend=rec.usage.backend or self.provider,
                         model=rec.usage.model or self.model,
                         outcome="discarded" if rec.discarded else "ok",
@@ -262,8 +262,7 @@ def run_ledger(workspace: str | Path, *, run: str = "", create: bool = True) -> 
     """Meter one run into ``<workspace>/telemetry/cost.jsonl``.
 
     Binds the run name and points :func:`~codeverse.cost.ledger.record_call` at the
-    run's ledger; restores the previous default on the way out so a second run in
-    the same process is not mixed in.
+    run's ledger for the duration of the block.
 
     ``create=False`` is for work done *after* a run finished (``3dcv judge``,
     a post-hoc texture pass): it appends only when the run already keeps a
@@ -271,32 +270,22 @@ def run_ledger(workspace: str | Path, *, run: str = "", create: bool = True) -> 
     the whole run's cost and hide everything the run really spent.  Without one
     the rows go to the per-process log instead.
 
-    **Nests and parallelises.**  The previous ledger and run binding are restored
-    on the way out rather than cleared, so a bench cell that opens a ledger for
-    the cell and then a second one for the harness run inside it keeps both; and
-    both are context-local first (see :func:`codeverse.cost.context.bind_run`), so
-    ``bench.run_bench`` can run N prompts in N threads without their rows mixing."""
+    **Nests and parallelises.**  Both bindings unwind by ``ContextVar`` token, so a
+    bench cell that opens a ledger for the cell and then a second one for the
+    harness run inside it keeps both, and ``bench.run_bench`` can run N prompts in
+    N threads without their rows mixing — a save-and-restore by value could not,
+    because a fresh worker saved whatever a sibling had published last."""
     if not metering_enabled():
         yield None
         return
     ws = Path(workspace)
-    prev_run = run_binding().run
-    prev_path = default_ledger_path()
     if not create and existing_ledger_path(ws) is None:
-        bind_run(run or ws.name)
-        try:
+        with bound_run(run or ws.name):
             yield None
-        finally:
-            bind_run(prev_run)
         return
     ledger = open_run_ledger(ws)
-    set_default_ledger(ledger.path)
-    bind_run(run or ws.name)
-    try:
+    with bound_run(run or ws.name), bound_ledger(ledger.path):
         yield ledger
-    finally:
-        set_default_ledger(prev_path)
-        bind_run(prev_run)
 
 
 __all__ = ["MeteredAgent", "MeteredChatModel", "metered_agent", "metered_chat_model",

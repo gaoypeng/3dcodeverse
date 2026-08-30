@@ -22,16 +22,17 @@ role" for the call that is about to happen.  Precedence:
 A label that names nothing (:data:`~codeverse.cost.types.Stage.OTHER`) states
 nothing and never displaces anything.
 
-The **run binding** (:func:`bind_run`, the run slug) is a ``ContextVar`` with a
-process-wide fallback: a nested run (a bench worker that opens its own ledger in
-its own thread) gets its own binding, while a plain worker thread that inherits
-nothing — ``codeverse.proc`` does not copy context — still sees the process's
-one run.
+The **run binding** (:func:`bound_run`, the run slug) is a plain ``ContextVar``.
+A bench worker that opens its own run in its own thread gets its own binding, and a
+worker thread inherits its caller's because ``codeverse.proc.fan_out`` copies the
+context (bb6179c).  There is deliberately no process-wide fallback: restoring one by
+value republished a sibling's run the moment the first parallel run exited, and rows
+written afterwards landed in that finished run's file (2026-08-30 — the interleave
+1756866 deleted the ``_active_ledgers`` global for, left standing on this half).
 """
 
 from __future__ import annotations
 
-import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -75,30 +76,24 @@ _ctx: ContextVar[CallContext] = ContextVar("cv3d_cost_ctx", default=_EMPTY)
 #: the run this execution context belongs to ("" = nothing bound here)
 _run_var: ContextVar[str] = ContextVar("cv3d_cost_run", default="")
 
-_binding_lock = threading.Lock()
-_run_binding: CallContext = _EMPTY
 
+@contextmanager
+def bound_run(run: str) -> Iterator[None]:
+    """Name the run every row written inside the block belongs to.
 
-def bind_run(run: str) -> None:
-    """Name the run every subsequent row belongs to.
-
-    Sets both the context-local binding (so a bench worker that runs its own
-    prompt in its own thread cannot have its rows stolen by a sibling) and the
-    process-wide fallback (so a worker thread that inherited no context — the
-    fan-out pools — still finds the run)."""
-    global _run_binding
-    _run_var.set(run or "")
-    with _binding_lock:
-        _run_binding = CallContext(run=run)
+    Unwinds with the ``ContextVar`` token instead of re-setting the previous value:
+    two of these open at once (``bench.run_bench``'s pool) must undo independently
+    — see the module docstring."""
+    token = _run_var.set(run or "")
+    try:
+        yield
+    finally:
+        _run_var.reset(token)
 
 
 def run_binding() -> CallContext:
-    """The context-local run if this thread bound one, else the process's."""
-    local = _run_var.get()
-    if local:
-        return CallContext(run=local)
-    with _binding_lock:
-        return _run_binding
+    """The run bound in this execution context (``run=""`` when none is)."""
+    return CallContext(run=_run_var.get())
 
 
 def current() -> CallContext:
@@ -264,5 +259,5 @@ def attempt_recording(sink: AttemptSink) -> Iterator[None]:
 
 
 __all__ = ["AttemptRecord", "AttemptSink", "CallContext", "attempt_recording", "attempt_sink",
-           "attribute", "bind_run", "call_context", "context_from_label", "current",
+           "attribute", "bound_run", "call_context", "context_from_label", "current",
            "run_binding"]

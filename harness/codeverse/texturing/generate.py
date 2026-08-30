@@ -14,10 +14,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import shutil
-import threading
 import time
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +31,7 @@ from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
 from codeverse.judges.base import JudgeInput, plan_digest
 from codeverse.judges.rubrics import is_degraded
+from codeverse.proc import fan_out
 
 #: seam score above which a texture is considered NOT tileable (after make_tileable)
 SEAM_MAX = 0.08
@@ -157,58 +156,6 @@ def prompt_key(prompt: str, model_id: str, size: int) -> str:
     return hashlib.sha256(f"v{CACHE_VERSION}|{model_id}|{size}|{prompt.strip()}".encode()).hexdigest()[:24]
 
 
-# --------------------------------------------------------------------------- fake model
-class FakeImageModel:
-    """Deterministic procedural textures (seeded by the prompt) for offline tests.
-    Records every prompt it was asked for in ``calls``."""
-
-    provider = "fake"
-
-    def __init__(self, model: str = "fake-image", *, latency_s: float = 0.0, fail_on: Sequence[str] = (),
-                 usd_per_image: float = 0.001) -> None:
-        self.model = model
-        self.latency_s = latency_s
-        self.fail_on = tuple(fail_on)
-        self.usd_per_image = usd_per_image
-        self.calls: list[str] = []
-        self._lock = threading.Lock()
-
-    @property
-    def id(self) -> str:
-        return f"fake-image:{self.model}"
-
-    def generate_with_usage(self, prompt: str, *, size: int = 1024, n: int = 1, seed: int | None = None,
-                            reference_images: Sequence[Any] = ()) -> tuple[list[Image.Image], Usage]:
-        with self._lock:
-            self.calls.append(prompt)
-        if any(s in prompt for s in self.fail_on):
-            from codeverse.models.base import ModelError
-
-            raise ModelError(f"fake image model refused: {prompt[:40]}", retryable=False)
-        if self.latency_s:
-            time.sleep(self.latency_s)
-        images = [procedural_texture(prompt, size=size, seed=(seed or 0) + i) for i in range(n)]
-        usage = Usage(backend="fake-image", model=self.model, input_tokens=len(prompt.split()), output_tokens=1290 * n,
-                      cost_usd=self.usd_per_image * n, latency_ms=int(self.latency_s * 1000))
-        return images, usage
-
-
-def procedural_texture(prompt: str, *, size: int = 256, seed: int = 0) -> Image.Image:
-    """Prompt-seeded noise + stripes in a prompt-derived colour.  NOT tileable on
-    purpose (so tests exercise ``make_tileable``): a linear gradient is added."""
-    h = int(hashlib.sha256(prompt.encode()).hexdigest()[:8], 16)
-    rng = np.random.default_rng(h + seed)
-    base = np.array([(h >> 16) & 255, (h >> 8) & 255, h & 255], dtype=np.float32) / 255.0
-    base = 0.25 + 0.6 * base
-    y, x = np.mgrid[0:size, 0:size].astype(np.float32) / size
-    stripes = 0.08 * np.sin(2 * np.pi * (8 * x + 3 * np.sin(2 * np.pi * y)))
-    noise = 0.06 * rng.standard_normal((size, size)).astype(np.float32)
-    grad = 0.25 * x  # seam-breaking gradient
-    lum = (stripes + noise + grad)[:, :, None]
-    img = np.clip(base[None, None, :] + lum, 0.0, 1.0)
-    return Image.fromarray((img * 255).astype(np.uint8), "RGB")
-
-
 # --------------------------------------------------------------------------- generation
 def _cache_dir(cache_dir: Path | None) -> Path:
     d = (cache_dir or get_settings().cache_dir) / "textures"
@@ -296,8 +243,12 @@ def generate_textures(
                                 size=size, error=f"{type(e).__name__}: {e}")
 
     ids = list(leaders.values())
-    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(ids)))) as pool:
-        assets = list(pool.map(_job, ids))
+    # fan_out, not a bare pool: its workers inherit the caller's context, so the image
+    # model's spend is billed to the run's ledger instead of the per-process log
+    # (codeverse.cost.context).  ``_job`` swallows its own failures, so nothing here
+    # comes back as an Exception.
+    assets = [a for a in fan_out(ids, _job, max_workers=max_workers, label="texture", item_name=str)
+              if isinstance(a, TextureAsset)]
     for a in assets:
         result.textures[a.texture_id] = a
         result.usage = result.usage + a.usage

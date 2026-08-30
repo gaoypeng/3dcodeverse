@@ -7,7 +7,6 @@ import shutil
 from pathlib import Path
 
 from codeverse.contracts.run import RunRecord
-from codeverse.texturing.generate import FakeImageModel
 from codeverse.texturing.run import (
     TextureReport,
     TextureServices,
@@ -16,7 +15,7 @@ from codeverse.texturing.run import (
     texture_pass,
 )
 from codeverse.workspace import Workspace
-from tests.texturing.conftest import FakeJudge, fake_render
+from tests.texturing.conftest import FakeImageModel, FakeJudge, fake_render
 
 
 def _ws(tmp_path: Path, chair_glb: Path, chair_spec, chair_plan) -> Workspace:

@@ -8,10 +8,9 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from codeverse.spatial.registry import ToolContext, get_tool
-from codeverse.texturing.generate import FakeImageModel
 from codeverse.texturing.run import TextureServices
 from codeverse.workspace import Workspace
-from tests.texturing.conftest import FakeJudge, FakePlanModel, fake_render
+from tests.texturing.conftest import FakeImageModel, FakeJudge, FakePlanModel, fake_render
 
 
 def _ws(tmp_path: Path, chair_glb, chair_spec, chair_plan, *, texture: bool = True) -> Workspace:
