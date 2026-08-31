@@ -373,6 +373,8 @@ def generate_files(
     allowed_roots: tuple[str, ...] = ALLOWED_ROOTS,
 ) -> GenerationResult:
     """Single-shot API codegen: ChatRequest → envelope → files on disk (no commit)."""
+    from codeverse.models.retry import RETRY_DEADLINE_S
+
     system = task.system + ("\n\n" if task.system else "") + single_shot_format_text()
     req = ChatRequest(
         messages=[ChatMessage.user(task.prompt, images=task.images or None)],
@@ -380,6 +382,9 @@ def generate_files(
         temperature=task.temperature,
         thinking=task.thinking,  # type: ignore[arg-type]
         max_output_tokens=task.max_output_tokens,
+        # the RUN's remaining wall clock, not the models' 1800 s default — and past
+        # the hard ceiling this refuses to buy the call at all (agent-path symmetry)
+        max_wait_s=_deadline_preflight(budget, RETRY_DEADLINE_S),
         # the round tag is the cost ledger's only way to attribute a single-shot call:
         # it has no agent session to inherit an ambient round from (codeverse.cost.context)
         label=f"{task.label}:r{task.round:02d}",
@@ -408,7 +413,10 @@ def generate_files(
                 retry=retry,
             )
         if retry:
-            req = req.model_copy(update={"max_output_tokens": grown})
+            # the retry is a second full-price call: preflight the clock again and
+            # hand it only what is left of the run (BudgetExceeded past the ceiling)
+            req = req.model_copy(update={"max_output_tokens": grown,
+                                         "max_wait_s": _deadline_preflight(budget, RETRY_DEADLINE_S)})
             resp = model.generate(req)
             usage = usage + resp.usage
             _charge(budget, resp.usage, task=task,
@@ -500,6 +508,22 @@ def _charge(budget: Any | None, usage: Usage, *, task: GenerationTask, enforce: 
     budget.charge(usage, stage=task_stage(task), enforce=enforce)
 
 
+def _deadline_preflight(budget: Any | None, wait_s: float, *, soft: bool = False) -> float:
+    """Gate a model/agent session on the run clock: refuse to start past the HARD
+    ceiling (``budget.check()`` raises — a timed-out session that produced nothing
+    bills nothing, so the accounting-driven check alone never fires), and clip the
+    session's wait to the remaining wall clock (a flat 30-minute session once ran
+    9 minutes PAST a 30-minute ceiling, measured 2026-08-27).  ``soft=True`` keeps
+    a caller-chosen window as its stage clipped it (scene.py's shares)."""
+    if budget is None:
+        return wait_s
+    if hasattr(budget, "check"):
+        budget.check()
+    if hasattr(budget, "timeout_s"):
+        wait_s = budget.timeout_s(wait_s, floor_s=120.0, soft=soft)
+    return wait_s
+
+
 _TRUNCATED_FINISH = {"max_tokens", "max_output_tokens", "length"}
 
 
@@ -532,25 +556,13 @@ def run_agent_task(
     charged to ``budget`` as it ends, so nothing is lost when a later attempt raises."""
     before = ws.head()
     timeout = task.timeout_s or (settings.limits.agent_timeout_s if settings is not None else 1800)
-    # ...but never longer than the run's remaining wall clock.  The scene track has
-    # clipped this since the greenhouse incident; object/articulated/graphics did not,
-    # so a flat 30-minute session ran 9 minutes PAST a 30-minute ceiling (measured
-    # 2026-08-27: 'elapsed 39.0 min exceeds max_minutes 30.0', round 0 never finished).
-    if budget is not None and hasattr(budget, "check"):
-        # ...and a run past its HARD ceiling must not start one at all.  A timed-out
-        # session that produced nothing bills nothing, the accounting-driven check()
-        # never fires, and the round loop treadmills on 120 s mercy floors forever
-        # (measured 2026-08-28: lamp_bl, 30-min cap, killed by hand at 57 min with
-        # round 0 unfinished — silent-bail retries kept getting floor sessions).
-        budget.check()
-    if budget is not None and hasattr(budget, "timeout_s"):
-        # A task that chose its own window already clipped it the way its stage wanted
-        # (scene.py: soft for env/zones/assets, hard for refine/rebuild) — re-clipping THAT
-        # against the soft share handed every scene refine session after the 0.55 share
-        # exactly the 120 s floor instead of the ≤ 900 s it asked for.  A task with no
-        # window of its own (repair) is still bounded by the soft share, so a failing
-        # baseline cannot eat the refine rounds' half.  (Both found by review 2026-08-29.)
-        timeout = budget.timeout_s(timeout, floor_s=120.0, soft=task.timeout_s is None)
+    # A task that chose its own window already clipped it the way its stage wanted
+    # (scene.py: soft for env/zones/assets, hard for refine/rebuild) — re-clipping THAT
+    # against the soft share handed every scene refine session after the 0.55 share
+    # exactly the 120 s floor instead of the ≤ 900 s it asked for.  A task with no
+    # window of its own (repair) is still bounded by the soft share, so a failing
+    # baseline cannot eat the refine rounds' half.  (Both found by review 2026-08-29.)
+    timeout = _deadline_preflight(budget, timeout, soft=task.timeout_s is None)
     turns_cap = task.max_turns or max_turns or agent_max_turns()  # 0 = leave AgentJob's own default
     # typed job context honoured by every CodingAgent: round → trajectory dir + ToolContext,
     # language/track → spatial tool filtering, files_hint → the edit_only scope.

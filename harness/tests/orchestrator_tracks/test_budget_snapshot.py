@@ -127,17 +127,67 @@ def test_the_texture_pass_spend_reaches_the_snapshot_a_resume_restores(tmp_path,
 def test_a_paid_single_shot_response_is_persisted_when_the_budget_trips(tmp_path):
     ws = Workspace(tmp_path / "ws").create()
     guard = BudgetGuard(Budget(max_minutes=1.0))
-    guard._active_s = 120.0                              # noqa: SLF001 — already past 1 min
     answer = ("=== FILE: src/object.js ===\n"
               "export function build(THREE) { return new THREE.Group(); }\n"
               "=== END FILE ===")
-    model = FakeChatModel(lambda req: answer, cost=0.05)  # paid work, booked before the stop
+
+    def slow_call(req):  # the CALL ITSELF crosses the wall-clock ceiling
+        guard._active_s = 120.0                          # noqa: SLF001
+        return answer
+
+    model = FakeChatModel(slow_call, cost=0.05)  # paid work, booked before the stop
     task = GenerationTask(label="baseline", prompt="p", files_hint=["src/object.js"])
     res = generate_files(ws, model=model, task=task, budget=guard)  # must NOT raise
     assert res.ok and (ws.src / "object.js").is_file()
     assert res.transcript_path and Path(res.transcript_path).is_file()
     assert guard.spent.cost_usd == pytest.approx(0.05)  # booked, dollar for dollar
     assert not guard.ok()  # the phase boundary (steps._run_phase) turns this into the stop
+
+
+def test_single_shot_obeys_the_run_clock(tmp_path):
+    """A run past its HARD wall-clock ceiling must not buy a single-shot call at all
+    (agent-path symmetry), and a live run's request carries the REMAINING wall clock
+    as max_wait_s — never the models' 1800 s retry default.  The truncation retry is
+    a second full-price call: it is preflighted the same way."""
+    ws = Workspace(tmp_path / "ws").create()
+    task = GenerationTask(label="baseline", prompt="p", files_hint=["src/object.js"], max_output_tokens=1000)
+
+    calls: list = []
+    answer = ("=== FILE: src/object.js ===\n"
+              "export function build(THREE) { return new THREE.Group(); }\n"
+              "=== END FILE ===")
+    model = FakeChatModel(lambda req: (calls.append(req) or answer), cost=0.01)
+
+    past = BudgetGuard(Budget(max_minutes=1.0))
+    past._active_s = 120.0                               # noqa: SLF001 — already past 1 min
+    with pytest.raises(BudgetExceeded):
+        generate_files(ws, model=model, task=task, budget=past)
+    assert calls == [] and past.spent.cost_usd == 0.0    # refused BEFORE any model call
+
+    live = BudgetGuard(Budget(max_minutes=10.0))
+    live._active_s = 8 * 60.0                            # noqa: SLF001 — 2 minutes left
+    res = generate_files(ws, model=model, task=task, budget=live)
+    assert res.ok and len(calls) == 1
+    assert calls[0].max_wait_s is not None and calls[0].max_wait_s <= 121  # clipped to remaining clock
+
+    # truncation retry: the first response is truncated, then the clock runs out
+    class TruncatingModel:
+        def __init__(self):
+            self.calls = 0
+
+        def generate(self, req):
+            from codeverse.contracts.chat import ChatResponse
+            self.calls += 1
+            live2._active_s = 11 * 60.0                  # noqa: SLF001 — ceiling crossed mid-call
+            return ChatResponse(text="=== FILE: src/object.js ===\nx", finish_reason="max_tokens",
+                                usage=Usage(backend="fake", cost_usd=0.01), raw={})
+
+    live2 = BudgetGuard(Budget(max_minutes=10.0))
+    tm = TruncatingModel()
+    with pytest.raises(BudgetExceeded):
+        generate_files(ws, model=tm, task=task, budget=live2)
+    assert tm.calls == 1                                 # the retry was never bought
+    assert live2.spent.cost_usd == pytest.approx(0.01)   # ...but the paid first call is booked
 
 
 # --------------------------------------------------------------- ordering: fan-out siblings
