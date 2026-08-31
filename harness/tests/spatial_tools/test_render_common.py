@@ -151,6 +151,77 @@ def test_cached_render_glb_leaves_the_cache_to_render_glb(stool_ctx: ToolContext
     assert not list(calls[0].glob("renderset.json"))             # no second marker on disk
 
 
+def test_store_in_cache_survives_a_concurrent_identical_writer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The pid-only tmp name let two threads of one judge fan-out share a tmp dir: the
+    loser's cleanup deleted the winner's half-copied PNGs AFTER a successful render
+    (FileNotFoundError out of a call whose render had succeeded).  Per-writer names +
+    tolerant rename: no exception, and the cache ends up complete."""
+    import shutil
+    import threading
+    import time
+
+    from codeverse.spatial import render as R
+
+    out = tmp_path / "out"
+    out.mkdir()
+    record = {"views": [{"name": f"v{i}"} for i in range(6)]}
+    for i in range(6):
+        (out / f"view_v{i}.png").write_bytes(b"x" * 1000)
+    cache_dir = tmp_path / "cache" / "deadbeefdeadbeefdeadbeef"
+    cache_dir.parent.mkdir(parents=True)
+
+    orig = shutil.copy2
+    monkeypatch.setattr(R.shutil, "copy2", lambda src, dst, **kw: (time.sleep(0.03), orig(src, dst, **kw))[1])
+
+    errs: list[str] = []
+
+    def store(delay: float) -> None:
+        time.sleep(delay)
+        try:
+            R._store_in_cache(cache_dir, out, record)
+        except Exception as e:  # noqa: BLE001 — the failure mode under test
+            errs.append(f"{type(e).__name__}: {e}")
+
+    threads = [threading.Thread(target=store, args=(d,)) for d in (0.0, 0.08)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errs == []
+    assert (cache_dir / "views.json").is_file()
+    assert sorted(p.name for p in cache_dir.glob("view_*.png")) == [f"view_v{i}.png" for i in range(6)]
+    assert not list(cache_dir.parent.glob("*.tmp")), "no tmp dirs left behind"
+
+
+def test_object_render_cache_is_keyed_by_gpu_mode(stool_glb: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """gpu=on and gpu=off used to share one cache key, so a hit served the OTHER
+    backend's pixels and misreported RenderSet.renderer.  The requested mode joins
+    the key ('auto' fragments from 'on'/'off' by design — owner default)."""
+    from types import SimpleNamespace
+
+    from codeverse.spatial import render as R
+
+    runs: list[tuple[str, Path]] = []
+
+    def fake_run_render(glb, out_dir, params, *, gpu, timeout_s):
+        runs.append((gpu, Path(out_dir)))
+        (Path(out_dir) / "view_front.png").write_bytes(b"png-" + gpu.encode())
+        return {"views": [{"name": "front"}], "renderer": f"webgl-{gpu}"}
+
+    fake_settings = SimpleNamespace(cache_dir=tmp_path / "cache",
+                                    render=SimpleNamespace(gpu="auto"),
+                                    limits=SimpleNamespace(render_timeout_s=5))
+    monkeypatch.setattr(R, "get_settings", lambda: fake_settings)
+    monkeypatch.setattr(R, "_run_render", fake_run_render)
+
+    a = R.render_glb(stool_glb, tmp_path / "a", views=[OBJECT_VIEWS[0]], sheet=False, gpu="on")
+    b = R.render_glb(stool_glb, tmp_path / "b", views=[OBJECT_VIEWS[0]], sheet=False, gpu="off")
+    assert len(runs) == 2, "gpu=off must not be served gpu=on's cached pixels"
+    assert a.renderer == "webgl-on" and b.renderer == "webgl-off"
+    c = R.render_glb(stool_glb, tmp_path / "c", views=[OBJECT_VIEWS[0]], sheet=False, gpu="on")
+    assert len(runs) == 2 and c.renderer == "webgl-on", "same mode still hits the cache"
+
+
 def test_tool_unavailable_is_reported_by_the_registry(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     """No tool catches ToolUnavailable itself any more — ToolDef.call does it for
     all of them, with the tool's own registered name."""

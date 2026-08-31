@@ -8,10 +8,12 @@ requested ``out_dir`` so every call still yields a self-contained directory.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import shutil
+import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -113,6 +115,10 @@ def render_glb(
         "background": background,
         "anim_time": anim_time,
         "shadow": bool(shadow),
+        # requested mode, not the resolved backend: 'auto' fragments from 'on'/'off',
+        # which is accepted over a hit serving the other backend's pixels (and lying
+        # about RenderSet.renderer) when someone flips CV3D_RENDER_GPU between runs
+        "gpu": gpu,
         "rig": _rig_signature(),
     }
     t0 = time.time()
@@ -178,17 +184,20 @@ def _run_render(glb: Path, out_dir: Path, params: dict[str, Any], *, gpu: str, t
 
 
 def _store_in_cache(cache_dir: Path, out_dir: Path, record: dict[str, Any]) -> None:
-    tmp = cache_dir.parent / f".{cache_dir.name}.{os.getpid()}.tmp"
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    tmp.mkdir(parents=True)
-    for v in record["views"]:
-        shutil.copy2(out_dir / f"view_{v['name']}.png", tmp / f"view_{v['name']}.png")
-    (tmp / "views.json").write_text(json.dumps(record, indent=1))
-    if cache_dir.exists():  # another process won the race; keep theirs
-        shutil.rmtree(tmp)
-        return
-    tmp.replace(cache_dir)
+    # per-writer tmp + tolerant rename (the vlm_judge._render_slices shape): a pid-only
+    # tmp name let two threads of one judge fan-out share a dir — the loser's rmtree
+    # deleted the winner's half-copied PNGs AFTER a successful render
+    tmp = cache_dir.parent / f".{cache_dir.name}.{os.getpid()}-{threading.get_ident()}.tmp"
+    shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        tmp.mkdir(parents=True)
+        for v in record["views"]:
+            shutil.copy2(out_dir / f"view_{v['name']}.png", tmp / f"view_{v['name']}.png")
+        (tmp / "views.json").write_text(json.dumps(record, indent=1))
+        with contextlib.suppress(OSError):  # a concurrent identical writer won the race; keep theirs
+            tmp.replace(cache_dir)
+    finally:  # a mid-copy crash (or losing the race) must not leave the .tmp behind
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _restore_from_cache(cache_dir: Path, out_dir: Path) -> dict[str, Any] | None:

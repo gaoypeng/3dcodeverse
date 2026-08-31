@@ -27,6 +27,23 @@ def test_empty_alias_is_ignored_and_garbage_is_loud(monkeypatch):
         Settings()
 
 
+def test_render_gpu_is_read_by_both_spellings_and_garbage_is_loud(monkeypatch):
+    """CV3D_RENDER_GPU is the spelling every doc and the node side use — it used to be
+    read by NOTHING in Settings (only CV3D_RENDER__GPU was), so the documented knob
+    was dead on 2 of 3 tracks."""
+    monkeypatch.delenv("CV3D_RENDER__GPU", raising=False)
+    monkeypatch.setenv("CV3D_RENDER_GPU", "off")
+    assert Settings().render.gpu == "off"
+    monkeypatch.setenv("CV3D_RENDER_GPU", "ON")  # case-tolerant
+    assert Settings().render.gpu == "on"
+    monkeypatch.delenv("CV3D_RENDER_GPU", raising=False)
+    monkeypatch.setenv("CV3D_RENDER__GPU", "off")
+    assert Settings().render.gpu == "off"
+    monkeypatch.setenv("CV3D_RENDER_GPU", "maybe")
+    with pytest.raises(ValueError, match="CV3D_RENDER_GPU"):
+        Settings()
+
+
 def test_a_negative_cap_is_rejected_by_both_spellings(monkeypatch):
     """Both spellings reject negative caps; zero remains the unlimited sentinel."""
     monkeypatch.delenv("CV3D_RATE__MAX_IN_FLIGHT", raising=False)

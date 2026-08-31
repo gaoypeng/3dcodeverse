@@ -225,6 +225,9 @@ class Settings(BaseSettings):
     #: knob; both spellings now work and the doctor prints the short one.
     _FLAT_ALIASES: ClassVar[dict[str, tuple[str, str]]] = {
         "CV3D_MAX_IN_FLIGHT": ("rate", "max_in_flight"),
+        # the spelling every doc and the node side (gpu_launch.cjs) use — pydantic-settings
+        # only read CV3D_RENDER__GPU, so the documented knob was dead on 2 of 3 tracks
+        "CV3D_RENDER_GPU": ("render", "gpu"),
         FEWER_TURNS_ENV: ("limits", "fewer_turns"),
         SEED_RECIPES_ENV: ("limits", "seed_recipes"),
     }
@@ -236,9 +239,14 @@ class Settings(BaseSettings):
             if raw is None or raw.strip() == "":
                 continue
             sub = getattr(self, section)
-            value: int | bool
-            if type(sub).model_fields[field].annotation is bool:
+            value: int | bool | str
+            ann = type(sub).model_fields[field].annotation
+            if ann is bool:
                 value = _env_flag(raw, env)
+            elif ann is str:  # render.gpu is the only str alias: validate its enum here
+                value = raw.strip().lower()
+                if value not in ("auto", "on", "off"):
+                    raise ValueError(f"{env}={raw!r}: expected auto|on|off")
             else:
                 try:
                     value = int(raw)
