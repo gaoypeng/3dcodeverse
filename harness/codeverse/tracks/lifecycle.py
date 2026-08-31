@@ -749,6 +749,7 @@ class BaseTrack:
         self._save_budget(ctx)  # aborted-round / stage charges must survive for resume
         best = ctx.state.best_round
         rebuild_err = ""
+        rebuild_ok = False
         if best is not None and best < len(rounds) and rounds[best].commit and self._needs_restore(ctx, rounds[best].commit):
             ctx.ws.restore(rounds[best].commit)
             ctx.ws.commit(f"restore best round r{best:02d}")
@@ -757,6 +758,8 @@ class BaseTrack:
                 ctx.events.emit("finalise.rebuild", round=best, ok=build.ok)
                 if not build.ok:  # the runtime invalidated the canonical artifact FIRST — it is gone
                     rebuild_err = f"{build.error_type or 'BuildFailed'}: {build.error_message}"[:300]
+                else:
+                    rebuild_ok = True
             except Exception as e:  # noqa: BLE001 — the best round already built once; report, don't fail
                 rebuild_err = f"{type(e).__name__}: {e}"[:300]
                 ctx.events.emit("finalise.rebuild_failed", error=rebuild_err)
@@ -764,6 +767,11 @@ class BaseTrack:
             # keep the earned status + scores; the record says the artifact is gone
             ctx.extra["finalise_rebuild_failed"] = rebuild_err
             error = error or f"finalise rebuild failed: {rebuild_err}"
+        elif rebuild_ok:
+            # a rebuild that RAN and succeeded clears the stale flag a prior failed finalise
+            # left (the prior-record merge would otherwise carry it forward); no-rebuild
+            # resumes keep the prior flag — the artifact may still be the missing one
+            ctx.extra["finalise_rebuild_failed"] = ""
         if rounds and not rebuild_err and self._texture_wanted(ctx):
             self._texture_pass(ctx)
         ctx.state.status, ctx.state.stop_reason, ctx.state.error = status, stop_reason, error
@@ -886,6 +894,8 @@ class BaseTrack:
         # sessions' aborted_rounds, prompt hashes of stages not re-executed): seed from
         # the prior record — unknown keys preserved, this session's values win.
         prior_extra, prior_hashes = self._prior_record_fields(ctx.ws)
+        if ctx.extra.get("finalise_rebuild_failed", None) == "":  # rebuilt successfully this session
+            prior_extra.pop("finalise_rebuild_failed", None)
         prior_aborted = prior_extra.get("aborted_rounds")
         for k, v in prior_extra.items():
             if k not in extra or extra[k] is None:

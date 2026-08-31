@@ -351,3 +351,42 @@ def test_scene_frames_gate_errors_flow_into_refine_instructions(tmp_path, settin
     assert tasks, "a scene_frames ERROR must produce a refine task"
     joined = "\n".join(instructions)
     assert "dark" in joined and "FIX: raise ambient" in joined
+
+
+def test_a_successful_re_finalise_clears_the_stale_rebuild_failed_flag(tmp_path, chair_plan, settings, monkeypatch):
+    """The prior-record merge carries extra keys the new record lacks — so a run that
+    once recorded ``finalise_rebuild_failed`` and is later resumed to a SUCCESSFUL
+    rebuild must clear the flag explicitly (a no-rebuild resume keeps it: the
+    artifact may still be the missing one)."""
+    import subprocess
+
+    fail_once = {"armed": True}
+
+    class FlakyRebuildRuntime(FakeRuntime):
+        def build(self, ws, *, timeout_s=None):
+            msg = subprocess.run(["git", "-C", str(ws.root), "log", "-1", "--format=%s"],
+                                 capture_output=True, text=True).stdout.strip()
+            if msg.startswith("restore best round") and fail_once["armed"]:
+                fail_once["armed"] = False
+                ws.stage_artifacts("object.glb").invalidate()
+                return BuildResult(ok=False, language=self.language.value, error_type="Timeout",
+                                   error_message="runtime crashed on rebuild", error_file="src/object.js")
+            return super().build(ws, timeout_s=timeout_s)
+
+    spec = make_spec(max_rounds=2)
+    ws = Workspace(tmp_path / "runs" / "r")
+
+    def track():
+        return StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.7, 0.5), targets=("Seat",)),
+                                 agent=FakeAgent(_writer), planner_model=_planner(chair_plan.model_dump(mode="json")),
+                                 settings=settings, runtime=FlakyRebuildRuntime(Language.THREEJS))
+
+    rec1 = track().run(spec, ws)
+    assert "runtime crashed on rebuild" in rec1.extra["finalise_rebuild_failed"]
+    # dirty the tree so the resume's finalise needs a restore (and hence a rebuild)
+    (ws.src / "object.js").write_text((ws.src / "object.js").read_text() + "\n// scribble\n")
+    ws.commit("scribble after the failed finalise")
+    rec2 = track().run(spec, ws, resume=True)
+    assert "finalise_rebuild_failed" not in rec2.extra, "a successful rebuild must clear the stale flag"
+    assert not rec2.error.startswith("finalise rebuild failed")
+    assert (ws.artifacts / "object.glb").is_file()
