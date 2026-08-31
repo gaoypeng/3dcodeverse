@@ -157,6 +157,39 @@ def test_a_self_consistent_state_with_an_unranked_round_still_re_ranks(completed
     assert ev["state_was_stale"] is False and ev["unranked_rounds"] is True and ev["best_changed"] is True
 
 
+def test_a_stored_pairwise_rejection_is_final(chair_plan):
+    """A paid pairwise REJECTION of a challenger (r1 within margin, judge said keep r0)
+    used to be silently overturned once ANY later round landed: both the live
+    ``choose_best_round`` and the resume ``replay_best_round`` re-ranked the WHOLE
+    journal on score alone and crowned the rejected r1.  The verdict is final: live
+    and replay agree, whether the later round is worse or failed to score at all."""
+    from codeverse.contracts.artifacts import BuildResult, Judgment
+    from codeverse.contracts.run import PairwiseNote, RoundRecord
+    from codeverse.orchestrator import BestSelector
+    from codeverse.tracks.candidates import choose_best_round, replay_best_round
+
+    def rec(i, score, pairwise=None):
+        j = None if score is None else Judgment(rubric="r", scores={}, overall=score, passed=False)
+        return RoundRecord(index=i, kind="baseline" if i == 0 else "refine", commit=f"c{i}",
+                           build=BuildResult(ok=score is not None, language="blender", entrypoint="src/main.py"),
+                           judgment=j, pairwise=pairwise)
+
+    r0 = rec(0, 0.70)
+    rejected = PairwiseNote(a="r00", b="r01", winner="a", confidence=0.9, accepted=False)
+    r1 = rec(1, 0.72, pairwise=rejected)  # outscores r0, but the paid verdict said keep r0
+    r2 = rec(2, 0.50)
+    assert replay_best_round([r0, r1]) == 0
+    assert replay_best_round([r0, r1, r2]) == 0, "a worse later round must not revive the rejected r1"
+    ctx = SimpleNamespace(state=SimpleNamespace(best_round=0),
+                          policy=SimpleNamespace(pairwise_margin=0.03, pairwise_min_confidence=0.6))
+    assert choose_best_round(ctx, [r0, r1, r2], BestSelector(), 2) == 0, "live must agree with replay"
+    r2b = rec(2, None)  # the new round never scored (build crash)
+    assert choose_best_round(ctx, [r0, r1, r2b], BestSelector(), 2) == 0
+    # an ACCEPTED verdict still promotes the challenger, and survives later worse rounds
+    accepted = PairwiseNote(a="r00", b="r01", winner="b", confidence=0.9, accepted=True)
+    assert replay_best_round([r0, rec(1, 0.72, pairwise=accepted), r2]) == 1
+
+
 # --------------------------------------------------------------------- (b) history wipe
 def test_a_planner_outage_on_resume_keeps_the_recorded_history(completed_run):
     """The FAILED handler serialized record.json with rounds=[] because the journal was

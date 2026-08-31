@@ -245,47 +245,49 @@ def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], selector: Best
     comparison of the two render sets decides, and the new round replaces the
     best only when it wins with ``confidence ≥ policy.pairwise_min_confidence``.
     The verdict is stored on the round (``RoundRecord.pairwise``, plus a notes line)
-    and re-persisted, so :func:`replay_best_round` can reproduce it on resume."""
+    and re-persisted; the decision itself is :func:`replay_best_round` over the journal,
+    so the live pick and any later resume replay the SAME sequential rule."""
     incumbent = ctx.state.best_round
-    if incumbent is None or incumbent >= len(rounds) or incumbent == new_index:
-        return selector.pick(rounds)
-    inc, new = rounds[incumbent], rounds[new_index]
-    if new.score is None or inc.score is None:
-        return selector.pick(rounds)
-    compare = _pairwise_fn(ctx, inc.renders, new.renders) if (inc.renders and new.renders) else None
-    decision, note = decide_best(inc.score, new.score, margin=ctx.policy.pairwise_margin,
-                                 min_confidence=ctx.policy.pairwise_min_confidence, compare=compare,
-                                 labels=(f"r{incumbent:02d}", f"r{new_index:02d}"))
-    if note is not None:
-        ctx.budget.add(note.usage, stage=Stage.PAIRWISE)  # post-hoc
-        new.usage = new.usage + note.usage
-        new.pairwise = note
-        new.notes = (new.notes + "; " if new.notes else "") + note.line()
-        ctx.ws.write_json(round_record_path(ctx, new_index), new)
-        ctx.events.emit("pairwise.done", stage="rounds", a=note.a, b=note.b, winner=note.winner, confidence=note.confidence,
-                        accepted=note.accepted, error=note.error, cost_usd=round(note.usage.cost_usd, 4))
-    if decision == "score":
-        return selector.pick(rounds)
-    return new_index if decision == "pairwise" else incumbent
+    if incumbent is not None and incumbent < len(rounds) and incumbent != new_index:
+        inc, new = rounds[incumbent], rounds[new_index]
+        if new.score is not None and inc.score is not None:
+            compare = _pairwise_fn(ctx, inc.renders, new.renders) if (inc.renders and new.renders) else None
+            _, note = decide_best(inc.score, new.score, margin=ctx.policy.pairwise_margin,
+                                  min_confidence=ctx.policy.pairwise_min_confidence, compare=compare,
+                                  labels=(f"r{incumbent:02d}", f"r{new_index:02d}"))
+            if note is not None:
+                ctx.budget.add(note.usage, stage=Stage.PAIRWISE)  # post-hoc
+                new.usage = new.usage + note.usage
+                new.pairwise = note
+                new.notes = (new.notes + "; " if new.notes else "") + note.line()
+                ctx.ws.write_json(round_record_path(ctx, new_index), new)
+                ctx.events.emit("pairwise.done", stage="rounds", a=note.a, b=note.b, winner=note.winner, confidence=note.confidence,
+                                accepted=note.accepted, error=note.error, cost_usd=round(note.usage.cost_usd, 4))
+    return replay_best_round(rounds, selector=selector)
 
 
-def replay_best_round(journal: Sequence[RoundRecord]) -> int | None:
-    """The best index the loop chose, replaying the paid pairwise verdicts it stored.
+def replay_best_round(journal: Sequence[RoundRecord], selector: BestSelector | None = None) -> int | None:
+    """The best index, walking the journal sequentially and honouring stored verdicts.
 
     ``rNN.json`` + the git commit are durable BEFORE the best is promoted and the state
     saved (``lifecycle._round_loop``), so a kill in that gap — or any resume of a run
     whose state predates ``best_considered_through`` — used to re-rank on score alone
     and reverse a ~$0.05 judgement the run had already bought (18 such runs on disk,
-    2026-08-30).  Walking the journal the way the live loop did keeps it: a round that
-    carries a :class:`PairwiseNote` was decided inside ``policy.pairwise_margin``, where
-    score ranking has nothing to say, so the stored verdict — replace or keep — wins;
-    every other round falls back to the same ``BestSelector`` ranking."""
-    selector = BestSelector()
+    2026-08-30).  Each round is an incumbent-vs-challenger step: a round that carries a
+    :class:`PairwiseNote` was decided inside ``policy.pairwise_margin``, where score
+    ranking has nothing to say, so the stored verdict — replace or keep — is FINAL
+    (a later, worse round can never revive a rejected challenger by global re-ranking);
+    every other round advances by the same two-way ``BestSelector`` rule, whose key is
+    a total order — so absent verdicts this equals the global pick."""
+    selector = selector or BestSelector()
     best: int | None = None
     for i, rec in enumerate(journal):
-        if rec.pairwise is None or best is None or best == i:
+        if rec.pairwise is not None and best is not None and best != i:
+            if rec.pairwise.accepted:
+                best = i
+        elif best is None:
             best = selector.pick(journal[:i + 1])
-        elif rec.pairwise.accepted:
+        elif selector.pick([journal[best], rec]) == 1:
             best = i
     return best
 
