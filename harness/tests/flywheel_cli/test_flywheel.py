@@ -436,8 +436,8 @@ def test_parquet_keeps_the_complexity_columns_the_exporter_writes(tmp_path):
         write_parquet([{**row, "a_new_metric": 1.0}], tmp_path / "later.parquet")
 
 
-def test_a_core_only_install_still_gets_a_complete_dataset(runs_dir: Path, tmp_path: Path, monkeypatch):
-    """Core installs always export JSONL and make parquet optional."""
+def _block_pyarrow(monkeypatch) -> None:
+    """Make ``import pyarrow`` fail the way a core-only install does."""
     import builtins
 
     real_import = builtins.__import__
@@ -448,6 +448,11 @@ def test_a_core_only_install_still_gets_a_complete_dataset(runs_dir: Path, tmp_p
         return real_import(name, *a, **kw)
 
     monkeypatch.setattr(builtins, "__import__", no_pyarrow)
+
+
+def test_a_core_only_install_still_gets_a_complete_dataset(runs_dir: Path, tmp_path: Path, monkeypatch):
+    """Core installs always export JSONL and make parquet optional."""
+    _block_pyarrow(monkeypatch)
     out = tmp_path / "ds_core"
     rep = export_samples(runs_dir, out)  # must NOT raise
     assert rep.n_exported == 3 and rep.n_indexed == 3
@@ -461,20 +466,11 @@ def test_a_core_only_install_still_gets_a_complete_dataset(runs_dir: Path, tmp_p
 
 def test_pack_refuses_before_writing_anything_when_pyarrow_is_missing(runs_dir: Path, tmp_path: Path, monkeypatch):
     """Packing refuses before writing when its optional dependency is absent."""
-    import builtins
-
     from typer.testing import CliRunner
 
     from codeverse.cli.main import app
 
-    real_import = builtins.__import__
-
-    def no_pyarrow(name, *a, **kw):
-        if name == "pyarrow" or name.startswith("pyarrow."):
-            raise ModuleNotFoundError("No module named 'pyarrow'")
-        return real_import(name, *a, **kw)
-
-    monkeypatch.setattr(builtins, "__import__", no_pyarrow)
+    _block_pyarrow(monkeypatch)
     out = tmp_path / "ds_pack"
     res = CliRunner().invoke(app, ["flywheel", "export", str(runs_dir), str(out), "--pack"])
     assert res.exit_code == 1

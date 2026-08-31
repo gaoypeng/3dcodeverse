@@ -20,11 +20,8 @@ from tests.orchestrator_tracks.fakes import (
     FakeJudge,
     FakeRuntime,
     FakeServices,
+    _planner,
 )
-
-
-def _planner(plan_dict):
-    return FakeChatModel(lambda req: plan_dict)
 
 
 def _writer(job, ws):

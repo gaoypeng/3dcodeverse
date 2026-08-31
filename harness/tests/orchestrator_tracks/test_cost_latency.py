@@ -34,6 +34,7 @@ from tests.orchestrator_tracks.fakes import (
     FakeJudge,
     FakeRuntime,
     FakeServices,
+    _planner,
 )
 
 RUNTIME_JS = get_settings().runtime_js_dir()
@@ -264,10 +265,6 @@ def test_single_shot_ctx_is_none_for_cli_backends(tmp_path, settings):
 
 
 # ----------------------------------------------------------------------------- salvage
-def _planner(payload):
-    return FakeChatModel(lambda req: payload)
-
-
 def _threejs_scene_plan() -> ScenePlan:
     """The scene example narrowed to its three.js assets — the only kind these fakes build."""
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))

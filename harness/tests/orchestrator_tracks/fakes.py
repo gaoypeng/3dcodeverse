@@ -197,6 +197,11 @@ class FakeChatModel:
         return ChatResponse(text=str(out), usage=usage)
 
 
+def _planner(payload: Any) -> FakeChatModel:
+    """A chat model that answers every planning request with ``payload``."""
+    return FakeChatModel(lambda req: payload)
+
+
 # ----------------------------------------------------------------------------- judge
 class FakeJudge:
     name = "fake"

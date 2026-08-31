@@ -11,7 +11,6 @@ import pytest
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Language, Usage
 from codeverse.contracts.run import RunStatus
-from codeverse.conventions import to_snake
 from codeverse.proc import EventLog
 from codeverse.tracks.static_object import StaticObjectTrack
 from codeverse.tracks.steps import RoundFailed, looks_transport
@@ -24,6 +23,7 @@ from tests.orchestrator_tracks.fakes import (
     FakeRuntime,
     FakeServices,
 )
+from tests.orchestrator_tracks.test_tracks import _agent_writer as _writer
 
 # --------------------------------------------------------------- signature unit
 
@@ -56,19 +56,6 @@ def test_agent_verdicts_do_not_match(msg):
 # --------------------------------------------------------------- track fixtures
 
 CRASH = ["rc=247; response=<empty>; stderr tail: Error: 503 UNAVAILABLE (crash-test)"]
-
-
-def _writer(job: AgentJob, ws: Workspace) -> dict[str, str]:
-    """Template writer (test_tracks.py): parts from the prompt table + a per-round object.js."""
-    files: dict[str, str] = {}
-    for line in job.prompt.splitlines():
-        if "| " in line and line.startswith("| ") and not line.startswith("| part") and not line.startswith("|---"):
-            name = line.split("|")[1].strip()
-            if name:
-                files[f"src/parts/{to_snake(name)}.js"] = (
-                    f"export function build{name}(THREE) {{ /* {job.label} r{job.round} */ return new THREE.Group(); }}\n")
-    files["src/object.js"] = f"// {job.label} r{job.round}\nexport function build(THREE) {{ return new THREE.Group(); }}\n"
-    return files
 
 
 class CrashingAgent(FakeAgent):

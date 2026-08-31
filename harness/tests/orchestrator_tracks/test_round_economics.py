@@ -32,10 +32,10 @@ from codeverse.workspace import Workspace
 from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
-    FakeChatModel,
     FakeJudge,
     FakeRuntime,
     FakeServices,
+    _planner,
 )
 
 
@@ -380,10 +380,6 @@ def _ctx(tmp_path, spec, settings, *, policy: RoundPolicy | None = None, agent=N
 
 
 # ----------------------------------------------------------------------------- end to end
-def _planner(plan_dict):
-    return FakeChatModel(lambda req: plan_dict)
-
-
 def _writer(job, ws):
     return {"src/object.js": f"// {job.label} r{job.round}\nexport function build(THREE) {{}}\n"}
 

@@ -22,16 +22,12 @@ from codeverse.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
-    FakeChatModel,
     FakeJudge,
     FakeRuntime,
     FakeServices,
+    _planner,
 )
 from tests.orchestrator_tracks.test_tracks import _agent_writer, _scene_writer
-
-
-def _planner(plan_dict):
-    return FakeChatModel(lambda req: plan_dict)
 
 
 def _static_run(tmp_path, chair_plan, settings, **spec_kw):
