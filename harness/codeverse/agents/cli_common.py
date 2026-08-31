@@ -304,6 +304,13 @@ def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
 HARNESS_OWNED_DIRS = ("artifacts", "trajectories", "stages", "rounds", "_cand", "_assets", ".3dcv", ".gemini", ".claude", ".git")
 HARNESS_OWNED_FILES = frozenset({"events.jsonl", "run_state.json", "record.json", "AGENTS.md", "GEMINI.md", "CLAUDE.md",
                                  ".mcp.json", ".geminiignore", ".aiexclude", ".gitignore"})
+#: gitignored control files git cannot revert: byte-snapshotted by :func:`begin_session`,
+#: compared + restored by :func:`_enforce_scope`.  Downstream trusts both blindly
+#: (``ensure_materialized`` once-per-run, ``_prior_record_fields`` merge).
+UNTRACKED_CONTROL_FILES = ("run_state.json", "record.json")
+#: the one harness-owned file the harness itself appends to MID-session (event stream):
+#: exempt from the tamper revert — restoring it would delete legitimate harness rows.
+_CONTROL_EXEMPT = frozenset({"events.jsonl"})
 
 
 def _hinted(path: str, hints: frozenset[str]) -> bool:
@@ -345,6 +352,8 @@ class Session:
     attempt: int = 1
     files_hint: frozenset[str] = frozenset()
     ws_lock: threading.RLock | None = None
+    #: bytes of :data:`UNTRACKED_CONTROL_FILES` at session start (None = absent)
+    control_snapshot: dict[str, bytes | None] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- serialisation
@@ -412,9 +421,11 @@ def begin_session(job: AgentJob, kind: str) -> Session:
         if lock is not None:
             lock.release()
         raise
+    control = {n: ((ws.root / n).read_bytes() if (ws.root / n).is_file() else None)
+               for n in UNTRACKED_CONTROL_FILES}
     return Session(ws=ws, job=job, kind=kind, label=label, round_index=round_index,
                    traj=traj, head_before=head_before, attempt=attempt, files_hint=hints,
-                   ws_lock=lock)
+                   ws_lock=lock, control_snapshot=control)
 
 
 def _clean(seq: Any) -> frozenset[str]:
@@ -438,16 +449,18 @@ def _enforce_scope(s: Session) -> dict[str, str]:
     frozen = _clean(s.job.read_only)
     narrow = (s.files_hint | _clean(s.job.always_writable)
               if (s.job.edit_only and s.files_hint) else frozenset())
-    if not roots and not narrow and not frozen:
-        return {}
     reverted: dict[str, str] = {}
     restore: list[str] = []
     remove: list[str] = []
+    # control files are enforced even with an empty write scope — there is no job
+    # narrow enough to make run_state.json or AGENTS.md agent-writable
     for f in s.ws.changed_files(s.head_before):
         parts = Path(f.path).parts
-        if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in HARNESS_OWNED_FILES:
+        if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in _CONTROL_EXEMPT:
             continue
-        if f.path in frozen:
+        if f.path in HARNESS_OWNED_FILES:  # was a silent skip: the tamper survived AND went unreported
+            why = "harness control file: never agent-writable"
+        elif f.path in frozen:
             why = "harness-owned: call its functions, never rewrite it"
         elif roots and not any(f.path == r or f.path.startswith(r + "/") for r in roots):
             why = f"outside write_roots {sorted(roots)}"
@@ -460,6 +473,16 @@ def _enforce_scope(s: Session) -> dict[str, str]:
     s.ws.restore_paths(s.head_before, restore)
     for path in remove:  # added files are not in head_before; the next `git add -A` stages the delete
         (s.ws.root / path).unlink(missing_ok=True)
+    for name, before in s.control_snapshot.items():  # gitignored control files: bytes are the truth
+        p = s.ws.root / name
+        now = p.read_bytes() if p.is_file() else None
+        if now == before:
+            continue
+        reverted[name] = "harness control file: never agent-writable"
+        if before is None:
+            p.unlink(missing_ok=True)
+        else:
+            p.write_bytes(before)
     return reverted
 
 
