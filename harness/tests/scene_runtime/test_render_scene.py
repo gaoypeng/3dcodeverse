@@ -12,6 +12,7 @@ from codeverse.conventions import SCENE_VIEWS
 from codeverse.spatial import render_scene as rs_mod
 from codeverse.spatial.render_scene import (
     SceneRenderError,
+    probe_env_args,
     read_metrics,
     render_scene,
     run_scene_script,
@@ -169,3 +170,72 @@ def test_request_failure_line_filters_phantom_aborts():
     assert res["real"] == "request failed: /assets/a.glb (net::ERR_CONNECTION_REFUSED)"
     assert res["offsite"] is None
     assert res["cs_default"] == 20000 and res["cs_flag"] == 3000 and res["cs_small_budget"] == 6000
+
+
+# ---------------------------------------------------------------- env flags (review-3 S4)
+_FLAG_WORDS = ("--no-settle", "--camera-repair", "--auto-exposure")
+
+
+def _flags(args):
+    return sorted(a for a in args if a in _FLAG_WORDS)
+
+
+@pytest.mark.parametrize(("env", "expect"), [
+    ({}, ["--camera-repair"]),
+    ({"CV3D_CAMERA_REPAIR": "0"}, []),
+    ({"CV3D_CAMERA_REPAIR": "false"}, []),
+    ({"CV3D_CAMERA_REPAIR": "off"}, []),
+    ({"CV3D_CAMERA_REPAIR": "no"}, []),
+    ({"CV3D_CAMERA_REPAIR": "true"}, ["--camera-repair"]),
+    ({"CV3D_SETTLE": "0"}, ["--camera-repair", "--no-settle"]),
+    ({"CV3D_SETTLE": "false"}, ["--camera-repair", "--no-settle"]),
+    ({"CV3D_AUTO_EXPOSURE": "1"}, ["--auto-exposure", "--camera-repair"]),
+    ({"CV3D_AUTO_EXPOSURE": "true"}, ["--auto-exposure", "--camera-repair"]),
+    ({"CV3D_AUTO_EXPOSURE": "garbage"}, ["--camera-repair"]),
+])
+def test_probe_env_args_speaks_the_canonical_flag_words(monkeypatch, env, expect):
+    """CV3D_CAMERA_REPAIR=false must DISABLE, CV3D_SETTLE=false must disable,
+    CV3D_AUTO_EXPOSURE=true must enable — the raw '0'/'1' compares silently
+    ignored every other word the doc'd env_flag vocabulary accepts."""
+    for k in ("CV3D_SETTLE", "CV3D_CAMERA_REPAIR", "CV3D_AUTO_EXPOSURE"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    assert _flags(probe_env_args()) == expect
+
+
+def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path):
+    """Review-3 S4 (V7c): the combined single-boot build probes under the SAME
+    settle / camera-repair / auto-exposure flags as the standalone probe and
+    render paths — it used to pass none of them."""
+    import codeverse.languages.scene_threejs as st
+    import codeverse.spatial.probes as probes_mod
+
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(script, args, *, timeout_s=0.0, cwd=None):
+        captured[script] = list(map(str, args))
+        raise SceneRenderError("captured")
+
+    monkeypatch.setattr(probes_mod, "run_scene_script", fake_run)
+    monkeypatch.setattr(rs_mod, "run_scene_script", fake_run)
+    for k in ("CV3D_SETTLE", "CV3D_CAMERA_REPAIR", "CV3D_AUTO_EXPOSURE"):
+        monkeypatch.delenv(k, raising=False)
+
+    # defaults: camera repair ON everywhere, settle on (no flag), exposure off
+    probes_mod.probe_scene(ws)
+    assert _flags(captured["probe_scene.mjs"]) == ["--camera-repair"]
+    st._probe_and_preflight(ws, timeout_s=5.0)
+    assert _flags(captured["probe_scene.mjs"]) == ["--camera-repair"], "combined build lost the default-ON policy"
+    with pytest.raises(SceneRenderError):
+        render_scene(ws, tmp_path / "out_flags", cameras=[CameraPlan(name="c", position=(1, 2, 3), look_at=(0, 0, 0), fov=45)],
+                     orbit=False, times=(0.0,), sheet=False)
+    assert _flags(captured["render_scene.mjs"]) == ["--camera-repair"]
+
+    # the A/B words reach every path, including the combined build
+    monkeypatch.setenv("CV3D_SETTLE", "0")
+    monkeypatch.setenv("CV3D_CAMERA_REPAIR", "false")
+    st._probe_and_preflight(ws, timeout_s=5.0)
+    assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]
+    probes_mod.probe_scene(ws)
+    assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]

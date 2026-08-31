@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from codeverse.config import get_settings
+from codeverse.config import env_flag, get_settings
 from codeverse.contracts.artifacts import RenderSet, RenderView
 from codeverse.contracts.plan import BBox, CameraPlan
 from codeverse.conventions import SCENE_VIEWS, ViewPreset
@@ -70,6 +70,26 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
             f"stderr tail: {r.stderr_tail}\nstdout tail: {r.stdout[-1000:]}"
         )
     return r
+
+
+def probe_env_args() -> list[str]:
+    """Scene-driver flags from the ``CV3D_*`` switches — the ONE parser (review-3 S4),
+    on the canonical ``env_flag`` words, so ``CV3D_CAMERA_REPAIR=false`` really
+    disables and ``CV3D_AUTO_EXPOSURE=true`` really enables.  Every driver
+    invocation — standalone probe, render, and the combined single-boot build —
+    appends these, so a census is always measured under the same settle /
+    camera-repair / auto-exposure policy the renders use."""
+    args: list[str] = []
+    if not env_flag("CV3D_SETTLE", True):   # A/B switch for the boot-time auto-seat
+        args.append("--no-settle")
+    if env_flag("CV3D_CAMERA_REPAIR", True):   # default ON since 2026-08-30: pure insurance —
+        # zero triggers across a whole healthy battery (scene_px_v1: layout camera-clearance
+        # already keeps lenses out of furniture), and the one class it exists for
+        # (fv_izakaya: three rounds of camera_in_geometry nobody could fix) is fatal.
+        args.append("--camera-repair")
+    if env_flag("CV3D_AUTO_EXPOSURE", False):   # opt-in: bounded scene-wide exposure into the healthy band
+        args.append("--auto-exposure")
+    return args
 
 
 def _camera_json(cams: Sequence[CameraPlan]) -> str:
@@ -140,15 +160,7 @@ def render_scene(
         args += ["--bounds", _bounds_json(bounds)]
     tmo = timeout_s or settings.limits.render_timeout_s
     args += ["--timeout-ms", str(int(tmo * 1000))]
-    if os.environ.get("CV3D_SETTLE") == "0":   # A/B switch for the boot-time auto-seat
-        args.append("--no-settle")
-    if os.environ.get("CV3D_CAMERA_REPAIR") != "0":   # default ON since 2026-08-30: pure insurance —
-        # zero triggers across a whole healthy battery (scene_px_v1: layout camera-clearance
-        # already keeps lenses out of furniture), and the one class it exists for
-        # (fv_izakaya: three rounds of camera_in_geometry nobody could fix) is fatal.
-        args.append("--camera-repair")
-    if os.environ.get("CV3D_AUTO_EXPOSURE") == "1":   # opt-in: bounded scene-wide exposure into the healthy band
-        args.append("--auto-exposure")
+    args += probe_env_args()
     driver_error = ""
     try:
         res = run_scene_script("render_scene.mjs", args, timeout_s=tmo + 30)

@@ -9,7 +9,6 @@ Both drive the node host (``runtime_js/*.mjs``) via ``run_scene_script``.
 from __future__ import annotations
 
 import json
-import os
 import time
 from typing import Any
 
@@ -17,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse.conventions import MAX_TRIS_SCENE
-from codeverse.spatial.render_scene import SceneRenderError, run_scene_script
+from codeverse.spatial.render_scene import SceneRenderError, probe_env_args, run_scene_script
 from codeverse.workspace import Workspace
 
 PROBE_GATE = "scene_probe"
@@ -70,15 +69,7 @@ def probe_scene(ws: Workspace, *, timeout_s: float = 60.0, write_census: bool = 
     out_json = ws.artifacts / "scene_probe.json"
     try:
         args = ["--ws", str(ws.root), "--out", str(out_json), "--timeout-ms", str(int(timeout_s * 1000))]
-        if os.environ.get("CV3D_SETTLE") == "0":   # A/B switch for the boot-time auto-seat
-            args.append("--no-settle")
-        if os.environ.get("CV3D_CAMERA_REPAIR") != "0":   # default ON since 2026-08-30: pure insurance —
-            # zero triggers across a whole healthy battery (scene_px_v1: layout camera-clearance
-            # already keeps lenses out of furniture), and the one class it exists for
-            # (fv_izakaya: three rounds of camera_in_geometry nobody could fix) is fatal.
-            args.append("--camera-repair")
-        if os.environ.get("CV3D_AUTO_EXPOSURE") == "1":   # opt-in: bounded scene-wide exposure into the healthy band
-            args.append("--auto-exposure")
+        args += probe_env_args()   # settle / camera-repair / auto-exposure: ONE parser (render_scene)
         res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
     except SceneRenderError as e:
         findings.append(_f(gate, Severity.ERROR, f"scene probe could not run: {e}", target="src/scene.js",

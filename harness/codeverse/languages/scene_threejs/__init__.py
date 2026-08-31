@@ -684,7 +684,7 @@ def _probe_and_preflight(ws: Workspace, *, timeout_s: float) -> tuple[GateReport
     """
     from codeverse.contracts.artifacts import GateFinding
     from codeverse.spatial.probes import PROBE_GATE, SHADER_GATE, probe_report, shader_report
-    from codeverse.spatial.render_scene import SceneRenderError, run_scene_script
+    from codeverse.spatial.render_scene import SceneRenderError, probe_env_args, run_scene_script
 
     t0 = time.time()
     args = [
@@ -693,6 +693,10 @@ def _probe_and_preflight(ws: Workspace, *, timeout_s: float) -> tuple[GateReport
         "--shaders-out", str(ws.artifacts / "shader_preflight.json"),
         "--timeout-ms", str(int(timeout_s * 1000)),
     ]
+    # the production build probes under the SAME settle / camera-repair / auto-exposure
+    # policy every render uses (review-3 S4: it used to carry none of the flags, so the
+    # build gate measured a census the renders then contradicted)
+    args += probe_env_args()
     try:
         res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
     except SceneRenderError as e:
