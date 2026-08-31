@@ -457,7 +457,10 @@ def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0, sun_azimuth_de
     zones = zone_files(ws)
     probe_path = ws.root / PROBE_REL
     probe_path.write_text(_probe_module(zones, glb_assets(ws)))
+    from codeverse.spatial.render_scene import probe_env_args
+
     args = ["--ws", str(ws.root), "--scene", PROBE_REL, "--timeout-ms", str(int(timeout_s * 1000))]
+    args += probe_env_args()  # the zone probe sees the same settle/repair/exposure world as the renders
     if sun_azimuth_deg is not None:
         args += ["--sun-azimuth", str(sun_azimuth_deg)]
     try:

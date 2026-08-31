@@ -17,6 +17,8 @@ matter in frame).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import shutil
 from dataclasses import replace
@@ -155,11 +157,44 @@ def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, 
         else:
             out[asset.name] = r
     shims = write_variant_shims(ctx.ws, alias, {n for n, r in out.items() if r.ok})
+    _record_spec_hashes(ctx, out, assets)  # the reuse guard's identity registry (rounds/ bookkeeping)
     ctx.ws.commit("assets")
     ctx.events.emit("assets.done", ok=[n for n, r in out.items() if r.ok], failed=[n for n, r in out.items() if not r.ok],
                     strategies={n: r.strategy for n, r in out.items() if r.strategy}, variant_shims=shims)
     ctx.budget.check()  # stage boundary: stop only after the finished assets are committed
     return out
+
+
+# ------------------------------------------------------------- committed-asset identity
+def _asset_spec_hash(asset: AssetPlan) -> str:
+    """The reuse guard's identity: the whole plan slice, not just the file name."""
+    return hashlib.sha1(asset.model_dump_json().encode()).hexdigest()[:12]
+
+
+def _spec_hashes_path(ctx: RunContext) -> Path:
+    return ctx.ws.root / "rounds" / "asset_spec_hashes.json"
+
+
+def _spec_hash_matches(ctx: RunContext, asset: AssetPlan) -> bool:
+    """False when unrecorded (pre-fix runs regenerate once, then reuse)."""
+    try:
+        recorded = json.loads(_spec_hashes_path(ctx).read_text())
+    except (OSError, ValueError):
+        return False
+    return recorded.get(asset.name) == _asset_spec_hash(asset)
+
+
+def _record_spec_hashes(ctx: RunContext, results: dict[str, AssetResult], assets: list[AssetPlan]) -> None:
+    by_name = {a.name: a for a in assets}
+    path = _spec_hashes_path(ctx)
+    try:
+        recorded = json.loads(path.read_text())
+    except (OSError, ValueError):
+        recorded = {}
+    for name, r in results.items():
+        if r.ok and name in by_name:
+            recorded[name] = _asset_spec_hash(by_name[name])
+    write_json_atomic(path, recorded)
 
 
 # ----------------------------------------------------------------------------- threejs asset
@@ -170,7 +205,7 @@ def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     # stop after the commit, or a failed sibling — must not re-pay a finished asset.
     # Deterministic node import-check only, no model call; the skeleton stub never
     # passes it (single low-poly box), and `ran` guards the checker-unavailable path.
-    if (ctx.ws.root / rel).is_file():
+    if (ctx.ws.root / rel).is_file() and _spec_hash_matches(ctx, asset):
         chk0 = check_threejs_asset(ctx, rel, pascal, expected_size_m=asset.approx_size_m)
         if chk0.ran and chk0.ok:
             ctx.events.emit("asset.generated", asset=asset.name, strategy="reused", ok=True, tris=chk0.tris, errors=[])
@@ -257,7 +292,8 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     # committed-child reuse (review-3 S2), blender twin: a GLB only exists at this
     # path when a previous session finished the build+copy; a measurable one is done.
     glb = ctx.ws.root / asset_file(asset)
-    if glb.is_file() and glb.stat().st_size > 0 and (size := _measure_size(ctx, glb)) is not None:
+    if glb.is_file() and glb.stat().st_size > 0 and _spec_hash_matches(ctx, asset) \
+            and (size := _measure_size(ctx, glb)) is not None:
         ctx.events.emit("asset.generated", asset=asset.name, strategy="reused", ok=True, tris=0, errors=[])
         return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=asset_file(asset), size_m=size,
                            strategy="reused", notes="committed GLB reused")

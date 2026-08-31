@@ -150,6 +150,30 @@ def test_a_committed_asset_is_reused_on_a_second_stage_run(tmp_ws, settings):
     assert len(agent.jobs) > n_jobs and results3["FishingBoat"].strategy != "reused"
 
 
+def test_a_replanned_asset_with_the_same_name_is_not_reused(tmp_ws, settings):
+    """Review-3 S2 sharp edge: after a --force re-plan, a committed module that kept
+    its NAME but changed its plan slice (description/dims) must regenerate — the reuse
+    guard's identity is the whole AssetPlan hash, not the file path."""
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
+    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS)
+    agent = FakeAgent(lambda job, ws: {job.prompt.split("write `")[1].split("`")[0] if "write `" in job.prompt else "src/x.js": _asset_module(job)})
+    ctx = _ctx(tmp_ws, settings, spec, plan, agent_id="fake:x", services=FakeServices(judge=FakeJudge(scores=(0.9, 0.9))), agent=agent)
+    ctx.runtime.skeleton(tmp_ws, plan)
+    tmp_ws.commit("skeleton")
+    run_asset_stage(ctx)
+    n_jobs = len(agent.jobs)
+    # the re-plan keeps the asset's name but changes what it IS
+    boat = next(a for a in ctx.plan.assets if a.name == "FishingBoat")
+    boat.description = "a rusted iron rowboat, half-sunk, barnacle-crusted"
+    results = run_asset_stage(ctx)
+    assert len(agent.jobs) > n_jobs, "a changed plan slice must regenerate, file presence is not identity"
+    assert results["FishingBoat"].strategy != "reused"
+    # and the regenerated module is reusable again under the NEW identity
+    n2 = len(agent.jobs)
+    assert run_asset_stage(ctx)["FishingBoat"].strategy == "reused" and len(agent.jobs) == n2
+
+
 def test_a_model_outage_is_not_an_escalation_signal() -> None:
     """A 503 reaches the asset stage only after models.retry spent its whole storm budget
     waiting; escalating to a full agent session then costs 10× and hits the same wall."""
