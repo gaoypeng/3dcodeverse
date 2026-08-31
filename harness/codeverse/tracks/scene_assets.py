@@ -166,6 +166,16 @@ def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, 
 def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
     """Single-shot → deterministic check → ONE repair → (only then) an agent session."""
     rel, pascal = asset_file(asset), to_pascal(asset.name)
+    # committed-child reuse (review-3 S2): a resume that re-enters the stage — budget
+    # stop after the commit, or a failed sibling — must not re-pay a finished asset.
+    # Deterministic node import-check only, no model call; the skeleton stub never
+    # passes it (single low-poly box), and `ran` guards the checker-unavailable path.
+    if (ctx.ws.root / rel).is_file():
+        chk0 = check_threejs_asset(ctx, rel, pascal, expected_size_m=asset.approx_size_m)
+        if chk0.ran and chk0.ok:
+            ctx.events.emit("asset.generated", asset=asset.name, strategy="reused", ok=True, tris=chk0.tris, errors=[])
+            return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=chk0.size_m,
+                               strategy="reused", notes="committed module reused (import check passed)")
     sub = single_shot_ctx(ctx)
     chk: AssetCheck | None = None
     strategy, notes = "", ""
@@ -244,6 +254,13 @@ def _generate_asset(ctx: RunContext, asset: AssetPlan, rel: str, *, language: La
 def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
     """Sub-workspace → Blender runtime → GLB → public/assets/<snake>.glb."""
     snake = to_snake(asset.name)
+    # committed-child reuse (review-3 S2), blender twin: a GLB only exists at this
+    # path when a previous session finished the build+copy; a measurable one is done.
+    glb = ctx.ws.root / asset_file(asset)
+    if glb.is_file() and glb.stat().st_size > 0 and (size := _measure_size(ctx, glb)) is not None:
+        ctx.events.emit("asset.generated", asset=asset.name, strategy="reused", ok=True, tris=0, errors=[])
+        return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=asset_file(asset), size_m=size,
+                           strategy="reused", notes="committed GLB reused")
     sub_ws = Workspace(ctx.ws.root / "_assets" / snake).create()
     runtime = ctx.services.runtime(Language.BLENDER)
     sub_spec = Spec(id=f"{ctx.spec.id}-asset-{snake}", track=Track.STATIC_OBJECT, language=Language.BLENDER,
