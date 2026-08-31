@@ -186,3 +186,41 @@ def test_a_zero_axis_still_fails_validation():
     with pytest.raises(ValidationError):
         ArticulatedPlan.model_validate(d)
 
+
+def _rename_part(d: dict, old: str, new: str) -> None:
+    for part in d["parts"]:
+        if part["name"] == old:
+            part["name"] = new
+        if part.get("attach_to") == old:
+            part["attach_to"] = new
+    for j in d["joints"]:
+        for side in ("parent", "child"):
+            if j.get(side) == old:
+                j[side] = new
+    if d.get("root_link") == old:
+        d["root_link"] = new
+
+
+def test_a_root_link_naming_no_part_is_resolved_by_the_1b_word_rule():
+    """af_excavator (2026-08-31, 3.7-flash): root_link 'chassis' over a part list that
+    spelt it differently killed the run after two re-asks.  Same word-boundary match as
+    the joint-fragment repair — never a bare substring."""
+    d = _raw()
+    real_root = d["root_link"]
+    _rename_part(d, real_root, "TrackedChassis")
+    d["root_link"] = "Chassis"
+    p = ArticulatedPlan.model_validate(d)
+    assert p.root_link == "TrackedChassis"
+    assert any("root_link 'Chassis'" in n and "TrackedChassis" in n for n in p.normalisations)
+
+
+def test_an_ambiguous_root_link_still_fails_validation():
+    d = _raw()
+    real_root = d["root_link"]
+    _rename_part(d, real_root, "TrackedChassis")
+    other = next(x["name"] for x in d["parts"] if x["name"] != "TrackedChassis")
+    _rename_part(d, other, "ChassisMount")
+    d["root_link"] = "Chassis"
+    with pytest.raises(ValidationError, match="root_link"):
+        ArticulatedPlan.model_validate(d)
+

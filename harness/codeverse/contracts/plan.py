@@ -250,6 +250,10 @@ class ArticulatedPlan(StaticPlan):
            after two re-asks, and neither is a design decision worth a dead run;
         3. a sub-part sticking out of its parent's bbox by more than the slack: the parent bbox
            grows to enclose it (planner boxes are design intent, not measurements).
+        4. a ``root_link`` that names no part but loosely matches exactly ONE (af_excavator
+           2026-08-31, 3.7-flash: ``root_link: chassis`` over a part list that spelt it
+           differently — two re-asks did not fix it and the run died at the planner): the
+           root is rewritten to that part.  Zero or several candidates still raise.
         Every repair is recorded in ``normalisations`` so the record shows what the planner
         actually wrote.  Anything else still fails validation and is re-asked.
         """
@@ -383,6 +387,19 @@ class ArticulatedPlan(StaticPlan):
             if grown:
                 part["bbox"] = {"center": [(lo[a] + hi[a]) / 2 for a in range(3)],
                                 "extents": [hi[a] - lo[a] for a in range(3)]}
+
+        # 4. root_link that names no part: loose word-match against the part list
+        root = data.get("root_link")
+        if isinstance(root, str) and root.strip():
+            names = {to_snake(p.get("name", "")): p.get("name") for p in parts if p.get("name")}
+            rk = to_snake(root)
+            if rk not in names:
+                # same word-boundary rule as repair 1b, never bare substring ("arm" != "alarm")
+                hits = [orig for k, orig in names.items()
+                        if rk in k.split("_") or k.endswith(f"_{rk}") or k.startswith(f"{rk}_")]
+                if len(hits) == 1:
+                    notes.append(f"root_link '{root}' named no part; rewrote to '{hits[0]}'")
+                    data["root_link"] = hits[0]
 
         data["parts"], data["joints"], data["normalisations"] = parts, joints, notes
         return data
