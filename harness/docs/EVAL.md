@@ -802,3 +802,29 @@ wrong_motion/pivot/pose_clips x2 each), objects n=3 scored (birdcage 0.982,
 gramophone 0.909, microscope 0.0) with ship-class briefs consuming whole budgets
 unscored — the fancy-object round-0 cost lesson is now three budget raises deep
 (40 → 60 → 90 minutes).
+
+### 2026-08-31 — day three: both fancy arms closed; the axis-instruction verdict funds a deterministic repair
+
+**obj_fancy_v1 closed** (6/6, one retirement round earlier): scored n=4 —
+birdcage 0.982, gramophone 0.909, tall_ship 0.276, microscope 0.0 (mean 0.542);
+armillary + pipe_organ ended `budget` unscored.  tall_ship autopsy: blender lint
+findings exploded 1→4→14 across rounds while connectivity stayed at 3 and
+materials stayed flat — the brief survives (softened wording), the defect is
+execution depth, not planning.  Model note: tall_ship's scored run rode
+gemini-3.6-flash during the 3.7 outage.
+
+**art_axis_v1 closed — the exact-axis INSTRUCTION alone loses.**  0.542
+(metronome, best=r0) / 0.276 (swiss_knife) / 0.0 (umbrella, r2 budget) vs
+baselines 0.214 / 0.356 / 0.334: paired Δmean −0.028, 1W2L, and
+`wrong_motion_type` present in 3/3 final rounds.  The mechanism read is the
+real result: the gate's hints were correct and specific (metronome carried the
+negate hint r0–r2; swiss_knife carried verbatim `<axis xyz>` values all
+battery) and the agents applied none of them.  Measurement existed; execution
+didn't follow → shipped `dd88944` deterministic axis repair
+(`repair_motion_axes`: anti-parallel → negate authored axis, orthogonal →
+write suggested_axis; runs before the sweep so poses/renders/judge see the
+fix; INFO finding tells the agent not to undo it; `CV3D_AXIS_REPAIR=0`).
+Confounds recorded honestly: this arm ran on 3.6-flash (3.7 outage, 000×3
+probes), and `21c34c1` transport-retry landed mid-battery (these runs predate
+it).  Validation arm `art_axr_v1` (same briefs, 3.7, both levers live) is in
+flight; its row decides the lever.
