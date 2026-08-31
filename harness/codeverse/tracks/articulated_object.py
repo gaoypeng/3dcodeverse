@@ -260,13 +260,23 @@ def default_motion_checks(ws: Workspace, plan: Plan | None) -> GateReport | None
             findings.append(GateFinding(gate=MOTION_GATE, severity=Severity.WARN, target=j.name,
                                         message=f"motion check skipped: {e}", data={"expected": expected}))
             continue
-        data = {"expected": expected, "observed_dir": list(chk.observed_dir), "motion": j.motion}
+        data = {"expected": expected, "observed_dir": list(chk.observed_dir), "motion": j.motion,
+                "cos": chk.cos, "suggested_axis": list(chk.suggested_axis) if chk.suggested_axis else None}
         if chk.ok:
             findings.append(GateFinding(gate=MOTION_GATE, severity=Severity.INFO, target=j.name, message=chk.message, data=data))
         else:
+            # anti-parallel: the sign is provably wrong — negate.  Orthogonal (the
+            # af_swiss_knife class: three rounds of guessing on the same joints): the
+            # geometry admits an exact axis, so the hint states it verbatim.
+            if chk.cos >= -0.5 and chk.suggested_axis is not None:
+                sx, sy, sz = chk.suggested_axis
+                hint = (f"in src/robot.urdf set joint '{j.name}' <axis xyz=\"{sx:g} {sy:g} {sz:g}\"/> "
+                        f"— computed from the pivot so positive motion goes {expected}")
+            else:
+                hint = axis_fix_hint(j.name, getattr(j, "axis", None), expected)
             findings.append(GateFinding(
                 gate=MOTION_GATE, severity=Severity.ERROR, target=j.name,
                 message=f"{chk.message}. Plan says: \"{j.motion}\"",
-                fix_hint=axis_fix_hint(j.name, getattr(j, "axis", None), expected), data=data))
+                fix_hint=hint, data=data))
     return GateReport(gate=MOTION_GATE, passed=not any(f.severity == Severity.ERROR for f in findings),
                       findings=findings, duration_ms=int((time.time() - t0) * 1000))

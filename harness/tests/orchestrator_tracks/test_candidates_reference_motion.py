@@ -380,6 +380,22 @@ def test_default_motion_checks_on_real_urdf(tmp_path):
     bad = default_motion_checks(robot(tmp_path / "bad", 1), plan)
     assert bad is not None and not bad.passed and bad.errors[0].target == "DoorHinge"
     assert "WRONG" in bad.errors[0].message and '<axis xyz="-0 -0 -1"/>' in bad.errors[0].fix_hint
+    # orthogonal (the swiss-knife class): a prismatic joint sliding +x when the plan says
+    # up — cos = 0 exactly, and the hint states the computed axis verbatim
+    import copy
+    ortho = robot(tmp_path / "ortho", 1)
+    u = (ortho.artifacts / "robot.urdf").read_text()
+    u = u.replace('type="revolute"', 'type="prismatic"').replace('<axis xyz="0 0 1"/>', '<axis xyz="1 0 0"/>')
+    (ortho.artifacts / "robot.urdf").write_text(u)
+    slide_plan = copy.deepcopy(plan)
+    slide_plan.joints[0].type = "prismatic"
+    slide_plan.joints[0].motion = "slides straight up"
+    o = default_motion_checks(ortho, slide_plan)
+    assert o is not None and not o.passed
+    # URDF space is Z-up: 'up' is +z there (the harness converts frames at the boundary)
+    assert "computed from the pivot" in o.errors[0].fix_hint and '<axis xyz="0 0 1"/>' in o.errors[0].fix_hint
+    assert o.errors[0].data.get("suggested_axis") == [0.0, 0.0, 1.0]
+
     plan.joints[0].motion = "rotates"  # ambiguous → no gate
     assert default_motion_checks(robot(tmp_path / "none", 1), plan) is None
 

@@ -77,6 +77,14 @@ class MotionCheck(BaseModel):
     observed_dir: tuple[float, float, float]
     ok: bool
     message: str
+    #: how aligned the observed tangent is with the expected direction (dot product)
+    cos: float = 0.0
+    #: an axis that WOULD send positive motion the expected way, computed from the
+    #: pivot geometry (revolute: normalize(r x want); prismatic: want) — None when the
+    #: lever arm is degenerate.  Added 2026-08-31: af_swiss_knife failed this check on
+    #: the same joints three rounds straight while the agent guessed; the geometry
+    #: admits an exact answer, so the hint should state it.
+    suggested_axis: tuple[float, float, float] | None = None
 
 
 # ------------------------------------------------------------------ sweep
@@ -253,7 +261,19 @@ def motion_direction_check(robot: Robot, joint: str, expected: str, *, probe: fl
     want = np.asarray(_DIRS[key], dtype=float)
     cos = float(d @ want)
     ok = cos > 0.5
+    suggested = None
+    if not ok:
+        if j.type == "prismatic":
+            suggested = tuple(round(float(v), 3) for v in want)
+        else:
+            pivot = fk(robot, {})[j.child][:3, 3]
+            r = c0 - pivot
+            s = np.cross(r, want)
+            n_s = float(np.linalg.norm(s))
+            if n_s > 1e-6:
+                suggested = tuple(round(float(v), 3) for v in s / n_s)
     return MotionCheck(joint=joint, expected=expected, observed_dir=tuple(round(float(v), 4) for v in d), ok=ok,
+                       cos=round(cos, 4), suggested_axis=suggested,
                        message=(f"{joint}: child '{j.child}' moves {tuple(round(float(v),3) for v in d)} for q={probe:+.3g}; "
                                 f"expected {expected} ({'ok' if ok else 'WRONG — flip the axis sign or swap limits'})"))
 
