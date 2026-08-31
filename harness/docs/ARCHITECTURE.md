@@ -83,13 +83,13 @@ codeverse/
                       node, GPU probe, keys, pool admission, vendor CLIs, MCP, skills)
   proc.py             stdlib-only subprocess + atomic-JSON primitives (ManagedProcess owns every
                       child's lifecycle: group kill on ANY exception, bounded pumps, stdin writer;
-                      run_subprocess, kill_group, tail, write_json_atomic, scrub_secrets) and the tolerant readers/writer
+                      run_subprocess, tail, write_json_atomic, scrub_secrets) and the tolerant readers/writer
                       (read_json_or_none, iter_jsonl_lines, read_jsonl_lenient, append_jsonl_line) —
                       shared by languages/spatial/cli/cost/flywheel/gallery/bench.  RULE: any
                       stdlib-only file / JSON / JSONL helper lives HERE; grep proc.py before writing a
                       try/except read (the 2026-08-26 review found the same tolerant read written
                       eight times because this module had not grown it).  Also home, since
-                      2026-08-28, to the JSONL event log (Events), the run lock (ONE writer per
+                      2026-08-28, to the JSONL event log (EventLog), the run lock (ONE writer per
                       run dir: an fcntl.flock at <runs>/.locks/<slug>.lock whose record NAMES the
                       holder, printed by `3dcv status`) and the bounded parallel fan-out
                       (fan_out); sha256_file and version_line live here too — still a leaf:
@@ -140,7 +140,7 @@ codeverse/
                       MeteredAgent — one row per ChatModel.generate; one session row only for a backend
                       that does NOT meter itself; run_ledger nests + is context-local so bench --parallel works)
                       profiles.py (economy|balanced|quality; cli._common.resolve_dial is THE resolver)
-                      caching.py (Block/order_blocks/session_cache — measurement only, docs/COST.md §13)
+                      caching.py (session_cache/session_key — measurement only, docs/COST.md §13)
                       billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
                       so the ledger bills real money and not list price; docs/COST.md §25)
                       guard.py routing.py reconstruct.py (old runs) audit.py report.py
@@ -178,12 +178,12 @@ codeverse/
                       graphics.py (the whole graphics track: planner hooks, prompt context, frame
                       RenderSet, and recipe seeding into the harness-owned, read-only
                       src/recipes.glsl — measured: flash calls a recipe on disk, not one it is
-                      shown; AgentJob.read_only, CV3D_SEED_RECIPES, docs/GRAPHICS_LOOP.md §3),
+                      shown; AgentJob.read_only, CV3D_SEED_RECIPES),
                       planner.py (the ONE planner loop + the cached EngineeringBrief
                       (CV3D_PLAN_BRIEF), plan budgets and the worked examples),
                       plan_features.py (CV3D_PLAN_FEATURES: one switch per plan-loop change, so each
                       can be A/B'd alone, + pin_plan_blockers() deciding when two arms may share
-                      one plan — docs/PLAN_LOOP.md, docs/EVAL.md §8.1),
+                      one plan — docs/EVAL.md §8.1),
                       depth.py,
                       skills_hook.py (the round's view of codeverse/skills: attach before generating,
                       probe reads after — a no-op unless CV3D_SKILLS is on)
@@ -237,8 +237,10 @@ runtime_js/           export_glb.mjs (placement policy, instance baking, selfche
                       render_scene.mjs probe_scene.mjs check_shaders.mjs gpu_launch.cjs serve.cjs
                       lib/{resolve_three, scene_host, host_coverage, host_census, host_placement, orbit, instances,
                       census, glsl_audit, browser/…}
-tests/                core models agents blender_cadquery threejs_render urdf_joints scene_runtime scene_gates
-                      spatial_tools judges orchestrator_tracks flywheel_cli graphics texturing prompts (~860 offline)
+tests/                agents bench_prompts blender_cadquery compare_bench core cost flywheel_cli gallery graphics
+                      install judges languages models orchestrator_tracks prompts reference scene_gates
+                      scene_prompts scene_runtime skills spatial_tools texturing threejs_render urdf_joints
+                      (24 dirs; 2 077 offline, 1 950 of them pure python)
 ```
 
 ## 3. Workspace layout (one run, as observed)
@@ -325,11 +327,11 @@ summary:
 `@tool(name, ArgsModel, description, *, tracks=(), languages=(), cost_hint)` registers
 `fn(ctx, args) -> Observation` → (a) direct call from tracks, (b) the stdio MCP
 server (name `3dcv`) for the vendor CLIs, (c) a native tool schema for any embedder
-(`ToolDef.schema()`), (d) a prompt card.  Tools: `build`, `measure`, `render_views`,
-`render_sheet`, `isolate`, `cross_section`, `check_connectivity`, `check_contract`,
-`compare_silhouette`, `joint_sweep` (articulated), `shader_probe`, `scene_probe`,
-`scene_views` (scene), `gl_probe`, `gl_frames` (graphics), `texture_pass`,
-`texture_preview` (object tracks).
+(`ToolDef.schema()`), (d) a prompt card.  The 19 tools: `build`, `measure`,
+`render_views`, `render_sheet`, `isolate`, `cross_section`, `check_connectivity`,
+`check_contract`, `check_placement`, `compare_silhouette`, `compare_reference`,
+`joint_sweep` (articulated), `shader_probe`, `scene_probe`, `scene_views` (scene),
+`gl_probe`, `gl_frames` (graphics), `texture_pass`, `texture_preview` (object tracks).
 
 ## 6. Judging (protocol v2)
 

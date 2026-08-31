@@ -38,7 +38,7 @@ from codeverse.config import get_settings, env_flag       # env_flag(env, fallba
 get_settings().backends(planner=..., generator=..., judge=..., captioner=...) -> Backends
     # settings defaults (default_planner/... mirror contracts Backends literals; + default_captioner);
     # truthy keyword overrides win, None/"" falls through, unknown role -> TypeError
-from codeverse.proc import ProcResult, run_subprocess, kill_group, tail, write_json_atomic
+from codeverse.proc import ProcResult, run_subprocess, tail, write_json_atomic
 run_subprocess(cmd, *, cwd, timeout_s, env=None, stdin_text=None, preexec_fn=None) -> ProcResult
     # own session/process group, group-kill on timeout, never raises on rc != 0; stdlib-only module
 from codeverse.proc import read_json_or_none, iter_jsonl_lines, read_jsonl_lenient, append_jsonl_line
@@ -135,7 +135,7 @@ from codeverse.cost.ledger import bound_ledger, process_ledger_path   # (Δ 2026
     #   session's; a generation label yields to the session (best-of-N: kind="candidate" beats
     #   label="baseline"); Stage.OTHER means "the label said nothing" and displaces nothing.
     # labels understood: judge:<rubric>:r<NN>:s<k> · planner · pairwise:… · texture… · caption… (api-agent:<label>:t<turn> in historical ledgers only)
-from codeverse.cost.caching import Block, order_blocks, prefix_report, session_cache, session_key
+from codeverse.cost.caching import session_cache, session_key
 session_cache(rows) -> [SessionCache]      # per session: cold first call, cached share, saved_usd, cold_usd
 from codeverse.cost.profiles import get_profile, PROFILES   # economy | balanced | quality
 get_settings().apply_profile(name, *, force=False) -> Profile
@@ -321,8 +321,10 @@ python -m codeverse.spatial.mcp_server --workspace <ws> [--track X] [--language 
 from codeverse.judges.rubrics import load_rubric, Rubric   # Rubric{…, defects: [DefectItem{id, text, penalty, cap}], caps[{…, when:, kinds}]}
 from codeverse.judges.vlm_judge import VlmJudge
 VlmJudge(rubric="static_object_v1", model_id=None (settings.default_judge = gemini-3.1-pro-preview), n_samples=1,
-         temperature=0.2, *, thinking="low", max_attempts=3, max_montages=3, detail_crops=2, max_px=1024, sample_budget_s=240,
-         chat_model=None, cache_dir=None, label="judge")            # Δ max_images is GONE → montage budget
+         temperature=0.2, *, thinking="low", max_attempts=3, max_montages=None, detail_crops=None, max_px=None,
+         sample_budget_s=None, fixed_order=False, chat_model=None, cache_dir=None, label="judge")
+    # Δ max_images is GONE → montage budget.  The four None params resolve through Settings.judge
+    # (montages=5 since D47, detail_crops=2, max_px=1024) and SAMPLE_BUDGET_S=900.0
 VlmJudge.judge(inp) -> Judgment                # clay/normals views travel ONLY as JudgeInput.geometry_views (no kwarg)
 VlmJudge.slice_payload(inp) -> (list[(label, png_path)], provenance_elicitation: bool)   # (D48) ([], False) unless
     # Settings.judge.slices=="on-error" AND spec.track in judges.base.SLICE_TRACKS AND inp.glb_path exists AND the
@@ -330,8 +332,8 @@ VlmJudge.slice_payload(inp) -> (list[(label, png_path)], provenance_elicitation:
 from codeverse.judges.base import JudgeInput   # (spec, renders, measurement=None, gates=[], acceptance=[], plan_summary="",
                                                #  round_index=0, previous=None, extra_context="", geometry_views=None,
                                                #  glb_path=None (D48: the round's canonical GLB; object tracks + 3dcv judge fill it))
-from codeverse.judges.prompt_builder import plan_montages, render_montage, Montage    # ≤3 2×2 montages (shaded/geometry/poses) + ≤2 detail
-    # crops @≤1024px replace sheet+9 views; clay/normals views (RenderView.mode) auto-route to the GEOMETRY montage
+from codeverse.judges.prompt_builder import plan_montages, render_montage, Montage    # ≤5 2×2 montages (shaded/geometry/poses) + ≤2 detail
+    # crops @≤1024px replace the sheet + the 14-view rig (D47); clay/normals views (RenderView.mode) auto-route to the GEOMETRY montage
 from codeverse.judges.prompt_builder import build_judge_messages, connectivity_error_pairs, PROVENANCE_ELICITATION
 build_judge_messages(inp, rubric, *, …, extra_images=None (PREpended: references), extra_text="",
                      slice_images=None, provenance_elicitation=False) -> (system, [ChatMessage])   # (D48) slice_images
@@ -472,13 +474,13 @@ run_round(ctx, *, index, kind, tasks, pipeline, ..., previous_best=None, render=
     # the clay/normals views
     # emits cost.round {stages{}, judge_usd, total_usd, agent_turns, wasted, waste_reason}; on ANY exception it
     # records what the round burned (rounds/aborted_rNN.json, ctx.extra["aborted_rounds"]) and re-raises
-from codeverse.tracks.planner import plan, plan_model_for, ensure_acceptance    # graphics uses tracks/graphics.plan_graphics
+from codeverse.tracks.planner import plan, ensure_acceptance    # graphics uses tracks/graphics.plan_graphics
 ```
 `run_round` = generate → commit → `build_with_repair` → measure → gates → render →
 post-render gates → judge → commit.  Post-render gates: static `reference_silhouette`
 (when references), articulated `joint_sweep` + `motion_direction`, scene
-`render_console` (`scene_frames` via `frame_gate_from_renders` is built but not yet
-wired into `ScenePipeline.post_render_gates`), graphics `gl_frames`.  Reference specs get a
+`render_console` + `scene_frames` (via `ctx.services.frame_gate` ->
+`frame_gate_from_renders`; advisory, a failure is logged not raised), graphics `gl_frames`.  Reference specs get a
 `ReferenceJudge` (rubric `reference_v1` for static_object) and images attached to
 generation prompts.
 

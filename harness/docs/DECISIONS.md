@@ -37,8 +37,9 @@ written) that were accepted because the code works that way and the tests pin it
 * **D3 `RoundPolicy.max_rounds` counts refine rounds after the baseline.**  `3dcv make
   --rounds 2` = baseline + up to 2 refine rounds.  The rubric's `pass_threshold`
   overrides `RoundPolicy.target` when no explicit policy is injected.
-* **D4 Parallel refine only when it is safe.**  Fan out only when ≥ 3 file-disjoint
-  groups exist and every task maps to a file (threejs parts, scene zones/assets/env);
+* **D4 Parallel refine only when it is safe.**  Fan out only when at least
+  `RoundPolicy.parallel_min_tasks` (default 2) file-disjoint groups exist and every task
+  maps to a file (threejs parts, scene zones/assets/env);
   single-file languages get one whole-object task.  Consequence: `Workspace` itself
   holds a per-root lock + index.lock retry (workspace.py).
 * **D5 A refine round that changes no file is a plateau, not a crash.**  Emits

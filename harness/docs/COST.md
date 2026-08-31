@@ -70,7 +70,7 @@ cheaper judge" is optimising 7% of the bill — and, as §8 shows, would lose mo
 
 `skeleton`, `assemble`, `gates` and `render` cost **$0.00**: they are
 deterministic harness work.  Blender build 0.13 s, gates ~2 s, an 8-view GPU
-render ~1.5 s — the "cheap first" law is holding.
+render ~1.5 s (that battery's rig; 14 views since D47) — the "cheap first" law is holding.
 
 ## 3. Per role, track, backend, model
 
@@ -532,7 +532,8 @@ tool cards and the output format were hoisted into one shared include
 **That include is gone (2026-08-23).**  The head was not *shared* with anything
 already being sent — it was **duplicated into every prompt**, so the shared prefix
 it created was paid for four times over.  Measured with `cost.prefix_report` on
-the real templates (one baseline + three refine prompts of one run, same context):
+the real templates (one baseline + three refine prompts of one run, same context;
+the helper has been deleted since — `caching.py` keeps only the session-cache half):
 
 | | shared prefix | per-prompt tokens | mean per call |
 |---|---|---|---|
@@ -558,10 +559,8 @@ i.e. by buying the cache block with more tokens than it returns.
 | **total, already first in every request** | **6,570** |
 
 6.6k is still under the floor, and it is already at position 0 — there is no
-reordering left to do there.  `codeverse/cost/caching.py` keeps `Block` /
-`order_blocks` / `prefix_report` / `prefix_signature` as **measurement helpers**
-with these numbers in its docstring, and `3dcv cost cache <slug>` still reports
-what a run's sessions actually cached.  The rule they encode: measure the prefix
+reordering left to do there.  `3dcv cost cache <slug>` still reports
+what a run's sessions actually cached.  The rule that measurement encodes: measure the prefix
 against the floor *before* reordering a prompt family, and never pad to reach it.
 
 ## 14. The judge payload — 768 px saves bytes, not dollars
@@ -798,8 +797,8 @@ run, a bench arm or `$CV3D_AGENT_MAX_TURNS` asks for it by name.
 
 ### `skip_judge_reason` — two of four branches removed
 
-A skip only saves money if the verdict is never bought.  Reproductions in
-`verifier/test_rejudge_defer.py`:
+A skip only saves money if the verdict is never bought.  Reproductions were run
+out of tree (no such test ships here):
 
 | branch | verdict | why |
 |---|---|---|
@@ -970,7 +969,7 @@ storm independently spends a full failed round-trip to learn what its siblings a
 know, then sleeps on its own private backoff schedule.  That is the 2 833 waits / 17.7 h
 in §18.
 
-`codeverse/models/storm.py` adds a process-wide `StormGate` per model:
+`codeverse/models/retry.py` adds a process-wide `StormGate` per model (`retry.py:449`):
 
 * the first worker to see a 503 calls `hit()`, which closes the gate for a short,
   escalating window (never longer than `MAX_WAIT_S` — patience comes from the *number*

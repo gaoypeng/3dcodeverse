@@ -157,7 +157,7 @@ requires (design §5.2 law 3).
 ## 3. Routing
 
 `codeverse/skills/registry.py` holds the typed table (R1–R24) and `finding_kind()`, the one
-place a gate message is pattern-matched. `codeverse/skills/router.py` turns
+place a gate message is pattern-matched; its router half (`select()`, `skills_for()`) turns
 `(track, language, kind, plan signals, findings)` into a ranked, capped, reasoned set.
 
 Four laws, all tested:
@@ -258,7 +258,7 @@ the `live` cases drive a real CLI.
 | `test_router.py` / `test_routing_property.py` | the four routing laws, by row and over the whole input space |
 | `test_budget.py` | the index cost, re-measured against the shipped descriptions |
 | `test_telemetry.py` | the read probe, **including the control that catches git reading the tree** |
-| `test_packaging.py` | **a built wheel contains all 14 `SKILL.md`, all 14 `references/`, all 9 `_claims`** |
+| `test_packaging.py` | **a built wheel contains all 13 `SKILL.md`, all 13 `references/`, all 9 `_claims`** |
 | `test_live_discovery.py` | §7 — a real CLI actually finds and opens a bundle |
 
 Two contradiction checks are worth separating, because they answer different questions:

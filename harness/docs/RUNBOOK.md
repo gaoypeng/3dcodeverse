@@ -81,7 +81,7 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 | `agy:<model>` | `agy --print … --add-dir ws` | no per-workspace MCP: tools via `3dcv tools <name> --json … --workspace .`; no served-model or cost reporting |
 | `gemini:* / anthropic:* / openai:*` | ChatModel for planner / judge / captioner / single-shot | Anthropic/OpenAI untested live here |
 
-### gemini-cli gotchas (handled by `agents/gemini_cli.py`; do not undo)
+### gemini-cli gotchas (handled by `agents/backends.py`; do not undo)
 * System settings file via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`: api-key auth,
   `experimental.dynamicModelConfiguration=true` (else unknown models are silently
   substituted → checked, `exit_reason=model_substituted`), `security.folderTrust.enabled=false`
@@ -253,16 +253,15 @@ model, produced the zero — check `cell.json`'s `error`).
   (blender has it; `tracks/prompting.file_for_target_factory` picks it up and maps
   every whole-object target to `[entry]` — no runtime `file_for_target` hook).
 * **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…),
-  languages=(…), cost_hint=…)` in `spatial/tools*.py` (imported from
-  `spatial/tools.py`); available to tracks, MCP and prompt cards at once.
+  languages=(…), cost_hint=…)` in `spatial/tools.py`; available to tracks, MCP and prompt cards at once.
   Update `tests/spatial_tools` EXPECTED_TOOLS.
 * **New rubric**: `judges/rubrics/<name>.yaml` with `pass_threshold`,
   `criteria[{id, weight, floor, title, description, anchors, kind}]`,
   `caps[{id, cap, when: gate|acceptance|console|missing_views, gate, severity, kinds}]`,
   `defects[{id, text, penalty, cap}]`.  Tracks pick rubrics in `tracks/*.py`;
-  `3dcv judge` maps track → rubric in `cli/main.py`.
+  `3dcv judge` maps track → rubric in `cli/_judge.py::rubric_for`.
 * **New backend**: ChatModel → `models/<provider>.py` + registry + prices;
-  CodingAgent → `agents/<kind>.py` using `cli_common` + registry + `materialize.py`.
+  CodingAgent → `agents/backends.py` using `cli_common` + registry + `materialize.py`.
 * **New track**: subclass `tracks/lifecycle.py::BaseTrack` (hooks: `make_pipeline`,
   `prepare`, `baseline_tasks`, `refine_tasks`, `round_files_hint`; `system_prompt`
   defaults to `language_system_prompt(ctx.language, tools=not ctx.single_shot)` and
