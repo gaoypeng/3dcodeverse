@@ -20,6 +20,9 @@ import { createTimeoutMs, errorSummary, openHost } from './lib/host_page.mjs';
 import { fitOrbitCameras, framingBox } from './lib/orbit.mjs';
 
 const args = parseCli({
+  'no-settle': { type: 'boolean', default: false },
+  'camera-repair': { type: 'boolean', default: false },
+  'auto-exposure': { type: 'boolean', default: false },
   ws: {}, out: {}, cameras: { default: 'authored' }, 'orbit-views': { default: 'none' }, bounds: { default: 'none' },
   times: { default: '0,1.5' }, width: { default: '1024' }, height: { default: '576' },
   gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' }, 'fps-seconds': { default: '2' },

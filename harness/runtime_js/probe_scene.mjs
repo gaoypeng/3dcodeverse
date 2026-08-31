@@ -28,6 +28,9 @@ import { fitOverviewCamera, fitZoneCamera, framingBox } from './lib/orbit.mjs';
 import { compileIntoReport, staticShaderReport } from './lib/shader_report.mjs';
 
 const args = parseCli({
+  'no-settle': { type: 'boolean', default: false },
+  'camera-repair': { type: 'boolean', default: false },
+  'auto-exposure': { type: 'boolean', default: false },
   ws: {}, out: {}, gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' }, 'timeout-ms': { default: '60000' },
   'create-timeout-ms': { default: '' }, 'update-steps': { default: '10' }, scene: { default: 'src/scene.js' },
   compile: { type: 'boolean', default: false }, 'shaders-out': { default: '' }, 'sun-azimuth': { default: '' },
