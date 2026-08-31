@@ -86,7 +86,10 @@ def test_missing_driver_raises(fake_runtime):
 
 @pytest.mark.node
 @needs_browser
-def test_camera_in_geometry_is_detected(starter_ws):
+def test_camera_in_geometry_is_detected(starter_ws, monkeypatch):
+    # this test asserts DETECTION, so the default-on camera repair must stand down
+    # (the repair itself is covered by test_camera_repair.py)
+    monkeypatch.setenv("CV3D_CAMERA_REPAIR", "0")
     cams = [CameraPlan(name="buried", position=(12.0, 2.0, -2.0), look_at=(12.0, 2.0, -10.0), fov=50)]  # inside the windmill tower
     out = starter_ws.renders_dir(1)
     render_scene(starter_ws, out, cameras=cams, orbit=False, times=(0.0,), fps_seconds=0, sheet=False)
