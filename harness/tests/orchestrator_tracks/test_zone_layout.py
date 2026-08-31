@@ -120,3 +120,43 @@ def test_layout_zones_drops_a_twice_rejected_zone_instead_of_dying():
     good_market = {"zone": "Market", "placements": [{"asset": "Stall", "count": 4, "cluster": (10.0, 0.0), "spread_m": 5.0}]}
     out = layout_zones(plan, _Model([bad, bad, good_market]), max_workers=1)
     assert set(out) == {"Market"}
+
+
+def test_a_run_past_its_ceiling_buys_no_layout_calls():
+    """Review-3 S3 (V5-claim2): past the hard ceiling, layout_zones makes ZERO model
+    calls and returns no layouts (the documented degraded mode) instead of buying up
+    to 2 x 300 s per zone."""
+    import time
+
+    from codeverse.contracts.common import Budget
+    from codeverse.orchestrator import BudgetGuard
+
+    model = _Model([])   # any call would pop an empty queue and explode the test
+    guard = BudgetGuard(Budget(max_minutes=30), start_time=time.time() - 45 * 60)
+    out = layout_zones(_plan(), model, budget=guard, max_workers=1)
+    assert out == {} and model.calls == 0
+
+
+def test_layout_waits_are_clipped_to_the_remaining_run_clock():
+    """A call that does go out asks for min(LAYOUT_WAIT_S, wall clock left), floored."""
+    import time
+
+    from codeverse.contracts.common import Budget
+    from codeverse.orchestrator import BudgetGuard
+
+    class _Recorder(_Model):
+        def __init__(self, answers):
+            super().__init__(answers)
+            self.waits = []
+
+        def generate(self, req):
+            self.waits.append(req.max_wait_s)
+            return super().generate(req)
+
+    good_quay = _layout().model_dump(mode="json")
+    good_market = {"zone": "Market", "placements": [{"asset": "Stall", "count": 4, "cluster": (10.0, 0.0), "spread_m": 5.0}]}
+    model = _Recorder([good_quay, good_market])
+    guard = BudgetGuard(Budget(max_minutes=30), start_time=time.time() - 28 * 60)   # ~2 min left
+    out = layout_zones(_plan(), model, budget=guard, max_workers=1)
+    assert set(out) == {"Quay", "Market"}
+    assert model.waits and all(20 <= w <= 125 for w in model.waits), model.waits

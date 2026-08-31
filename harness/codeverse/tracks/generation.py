@@ -508,7 +508,8 @@ def _charge(budget: Any | None, usage: Usage, *, task: GenerationTask, enforce: 
     budget.charge(usage, stage=task_stage(task), enforce=enforce)
 
 
-def _deadline_preflight(budget: Any | None, wait_s: float, *, soft: bool = False) -> float:
+def _deadline_preflight(budget: Any | None, wait_s: float, *, soft: bool = False,
+                        floor_s: float = 120.0) -> float:
     """Gate a session on the run clock: refuse to start past the HARD ceiling (a
     timed-out session that produced nothing bills nothing, so the accounting-driven
     check alone never fires) and clip the wait to the remaining wall clock (a flat
@@ -518,7 +519,7 @@ def _deadline_preflight(budget: Any | None, wait_s: float, *, soft: bool = False
     if hasattr(budget, "check"):
         budget.check()
     if hasattr(budget, "timeout_s"):
-        wait_s = budget.timeout_s(wait_s, floor_s=120.0, soft=soft)
+        wait_s = budget.timeout_s(wait_s, floor_s=floor_s, soft=soft)
     return wait_s
 
 

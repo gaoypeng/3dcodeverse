@@ -23,8 +23,10 @@ from codeverse.contracts.chat import ChatMessage, ChatRequest
 from codeverse.contracts.plan import ScenePlan, ZoneLayout, ZonePlan
 from codeverse.conventions import to_snake
 from codeverse.models.schema_utils import parse_json_lenient
+from codeverse.orchestrator import BudgetExceeded
 from codeverse.proc import fan_out
 from codeverse.prompts import render
+from codeverse.tracks.generation import _deadline_preflight
 
 log = logging.getLogger(__name__)
 
@@ -142,11 +144,21 @@ def _one_layout(zone: ZonePlan, plan: ScenePlan, model: Any, budget: Any, events
     user = f"Lay out zone {zone.name}. Description (binding): {zone.description}\nContents to place: {', '.join(zone.contents) or '(none)'}"
     complaint = ""
     for attempt in (0, 1):
+        # the run clock outranks the layout (review-3 S3): past the hard ceiling the
+        # documented degraded mode is "no layout for this zone", and a call that does
+        # go out gets the wall clock actually left, never a flat 300 s — the re-ask
+        # preflights again, so it cannot buy a second window past the ceiling
+        try:
+            max_wait_s = _deadline_preflight(budget, LAYOUT_WAIT_S, soft=True, floor_s=20.0)
+        except BudgetExceeded as e:
+            if events is not None:
+                events.emit("layout.skipped_budget", zone=zone.name, error=str(e)[:200])
+            return None
         ask = user if not complaint else f"{user}\n\nYour previous layout was rejected: {complaint}. Fix exactly these problems."
         resp = model.generate(ChatRequest(messages=[ChatMessage.user(ask)], system=system,
                                           response_schema=ZoneLayout.model_json_schema(), temperature=0.3,
                                           thinking="low", max_output_tokens=LAYOUT_MAX_TOKENS,
-                                          max_wait_s=LAYOUT_WAIT_S, label="zone-layout"))
+                                          max_wait_s=max_wait_s, label="zone-layout"))
         if budget is not None:
             budget.add(resp.usage, stage="plan")
         raw = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text or "{}")
