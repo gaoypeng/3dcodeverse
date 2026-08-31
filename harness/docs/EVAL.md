@@ -773,3 +773,32 @@ minority vote in the other arms and render-true, but the elicitation's per-defec
 made three samples consistent and the multiplicative cap stack did the rest; the first
 production battery re-checks dirty-round defect rates and cap stacking before D48 is
 called done.
+
+**Day-two addendum (2026-08-31, later).**  The articulated lever landed: the
+motion gate now computes the EXACT axis from the pivot geometry (59d156d —
+anti-parallel keeps the provably-right negation, orthogonal states the computed
+`<axis xyz>` verbatim; URDF space is Z-up, learned the hard way in the test).
+Validation arm art_axis_v1 re-runs swiss_knife (0.356 — it failed the same joints
+three rounds straight under the generic hint), metronome (0.214) and umbrella
+(0.334) at the raised 95-minute budget.
+
+**The retirement board** — briefs that defeated every ceiling, each with a distinct
+death spectrum: excavator (PlanningError → 75.8-min budget → read-timeout →
+hard-watchdog, 4 deaths), drawbridge (rc=247 → hard-watchdog → read-timeout, 3),
+dragon_teapot (116/65+/95.2-min budget kills, 3), carousel (65/72/96.8, 3).  The
+reaper now saves each corpse's last three events before deleting, which is how
+these spectra exist at all.
+
+**The microscope autopsy** (obj_fancy_v1, scored 0.0): the render shows two floating
+grey boxes — a mid-session death shipped a stub, connectivity flagged the floating
+'Limb' at 290 mm, refine was planned correctly (6 tasks), and then the refine
+session itself died of rc=247 (a 503 inside gemini-cli) so no_change delivered the
+stub honestly.  That crash signature has now killed three sessions tonight; a
+one-retry-on-transport-failure policy in the round loop is queued behind the axis
+validation arm.
+
+Closing arm stats: articulated n=6 mean 0.573 (3 ≥ 0.7; histogram detail_below x3,
+wrong_motion/pivot/pose_clips x2 each), objects n=3 scored (birdcage 0.982,
+gramophone 0.909, microscope 0.0) with ship-class briefs consuming whole budgets
+unscored — the fancy-object round-0 cost lesson is now three budget raises deep
+(40 → 60 → 90 minutes).
