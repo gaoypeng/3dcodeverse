@@ -205,8 +205,13 @@ def silhouette_aspect(path: Path | str) -> float:
 
 #: render views a reference photo could plausibly have been shot from — a straight-on
 #: studio elevation matches ``front``/``right``/``left``/``back``, a 3/4 product shot
-#: matches ``*_34``.  ``top`` and ``low_front_left`` are never a product-shot camera.
-CANDIDATE_VIEWS: tuple[str, ...] = ("front", "front_right_34", "right", "left", "back", "back_left_34")
+#: matches the ``*_high`` ring.  ``top``, ``bottom`` and the low ring are never a
+#: product-shot camera.  The ``*_34`` names are the pre-D47 rig, kept so stored runs
+#: (``3dcv judge <old-slug>``, calibration replays) still match their own cameras.
+CANDIDATE_VIEWS: tuple[str, ...] = (
+    "front", "front_right_high", "front_left_high", "right", "left", "back", "back_left_high",
+    "front_right_34", "back_left_34",  # legacy pre-D47 runs
+)
 
 
 def best_view_match(

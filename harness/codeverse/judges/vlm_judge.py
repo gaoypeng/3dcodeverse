@@ -257,8 +257,10 @@ IOU_LOW, IOU_HIGH = 0.25, 0.85
 #: (unreliable mask, or a reference whose proportions contradict the brief)
 NEUTRAL_SCORE = 0.5
 
-#: views handed to the mismatch pass (front-ish first, then a 3/4 and a side)
-DIFF_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_34", "front_left_34", "right", "left")
+#: views handed to the mismatch pass (front-ish first, then a 3/4 and a side);
+#: ``*_34`` names are the pre-D47 rig, kept for re-judging stored runs.
+DIFF_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high", "right", "left",
+                                    "front_right_34", "front_left_34")
 _ENV_DIFF = "CV3D_REFERENCE_DIFF"
 
 
@@ -304,7 +306,7 @@ class ReferenceJudge(VlmJudge):
         *,
         rubric: str | Rubric = "reference_v1",
         silhouette_fn: SilhouetteFn | None = None,
-        front_view_names: tuple[str, ...] = ("front", "front_right_34"),
+        front_view_names: tuple[str, ...] = ("front", "front_right_high", "front_right_34"),
         best_view: bool = True,
         diff: bool = True,
         diff_model: Any | None = None,

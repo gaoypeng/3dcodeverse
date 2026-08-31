@@ -351,10 +351,10 @@ class RenderSheetArgs(BaseModel):
     mode: str = Field(default="shaded", description=_MODE_DESC)
 
 
-@tool("render_sheet", RenderSheetArgs, "One labelled 8-view contact sheet of the built object (all canonical views).", cost_hint="slow")
+@tool("render_sheet", RenderSheetArgs, "One labelled 14-view contact sheet of the built object (all canonical views).", cost_hint="slow")
 def render_sheet(ctx: ToolContext, args: RenderSheetArgs) -> Observation:
     obs = _render(ctx, "render_sheet", views=[v.name for v in OBJECT_VIEWS], mode=args.mode, isolate=[], explode=0.0, size=512,
-                  note=f"{args.mode} 8-view sheet")
+                  note=f"{args.mode} 14-view sheet")
     if obs.ok and obs.images:
         obs.images = obs.images[:1]  # the sheet alone is the deliverable here
     return obs

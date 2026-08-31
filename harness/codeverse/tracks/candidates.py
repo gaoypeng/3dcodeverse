@@ -9,7 +9,7 @@
   goes to its own ``events.jsonl``; the run log carries ``candidate.*``.  The winner
   (quick score → fewer gate errors; a pairwise tie-break when the top two are
   within judge noise) is copied back into the run workspace and the ordinary
-  round-0 pipeline (build → gates → 8-view render → full judge) runs on it.
+  round-0 pipeline (build → gates → 14-view render → full judge) runs on it.
   Every candidate is charged to the run budget and persisted in
   ``rounds/candidates.json``.
 * ``choose_best_round`` — after each round: when the new score is within

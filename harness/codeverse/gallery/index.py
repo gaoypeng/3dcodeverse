@@ -101,8 +101,10 @@ def best_sheet(ws: Workspace, rec: RunRecord) -> str:
 
 
 #: view names that make the best single thumbnail, most telling first.  A ¾ view
-#: shows silhouette *and* depth; a flat orthographic front hides both.
-HERO_PREFERENCE = ("front_right_34", "back_left_34", "low_front_left", "front")
+#: shows silhouette *and* depth; a flat orthographic front hides both.  The ``*_34``
+#: names are the pre-D47 rig, kept because the gallery serves stored runs.
+HERO_PREFERENCE = ("front_right_high", "back_left_high", "front_right_low",
+                   "front_right_34", "back_left_34", "low_front_left", "front")
 
 
 def hero_view(ws: Workspace, rec: RunRecord) -> tuple[str, str, int]:

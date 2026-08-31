@@ -18,7 +18,7 @@ Arms
 
 Every arm ends with a ``src/model.py`` that is copied into a fresh eval workspace
 and scored by the SAME fixed evaluator: BlenderRuntime lint+build → measure →
-connectivity gate → 8-view ``render_glb`` → ``VlmJudge(static_object_v1, judge,
+connectivity gate → 14-view ``render_glb`` → ``VlmJudge(static_object_v1, judge,
 n_samples=2)`` whose acceptance checklist is the battery's ``must_have`` list.
 A failed build (or unparseable answer) scores 0 with the error recorded.  Then a
 pairwise arena (``PairwiseJudge``, same judge model, both orders) runs every

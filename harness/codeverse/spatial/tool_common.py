@@ -165,7 +165,7 @@ def resolve_views(names: Sequence[str]) -> list[ViewPreset]:
             raise ToolUsageError(f"unknown view {n!r}; choose from {list(VIEW_BY_NAME)}", "render_views(views=['front', 'top'])")
         out.append(v)
     if not out:
-        raise ToolUsageError("views must not be empty", "render_views(views=['front_right_34'])")
+        raise ToolUsageError("views must not be empty", "render_views(views=['front_right_high'])")
     return out
 
 
