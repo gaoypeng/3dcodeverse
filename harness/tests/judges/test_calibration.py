@@ -84,3 +84,21 @@ def test_calibrate_offline(tmp_path):
     (empty / "spec.json").write_text(make_spec(id="empty").model_dump_json())
     with pytest.raises(ValueError, match="no judgeable rounds"):
         calibrate([empty], model_id="fake:fake-1", out_dir=tmp_path / "out", chat_model=model)
+
+
+def test_run_labels_stay_distinct_across_battery_layouts():
+    """Bench cells all end in .../run: compare_backends cells for DIFFERENT prompts
+    (and ab_plan's control vs treatment arms) used to collapse to one label, so
+    their judgment sidecars overwrote each other (V9c)."""
+    from codeverse.judges.calibration import _run_label
+
+    # compare_backends: <battery>/cells/<prompt>/<arm>/run
+    a = _run_label(Path("/bench/out/compare_v1/cells/chair/harness-gemini/run"))
+    b = _run_label(Path("/bench/out/compare_v1/cells/table/harness-gemini/run"))
+    # ab_plan: <out>/<arm>/cells/<item>/<slug>/run
+    c = _run_label(Path("/bench/out/ab/control/cells/chair/g37/run"))
+    d = _run_label(Path("/bench/out/ab/treatment/cells/chair/g37/run"))
+    e = _run_label(Path("/bench/out/ab/control/cells/table/g37/run"))
+    assert len({a, b, c, d, e}) == 5, (a, b, c, d, e)
+    # a plain harness run keeps its slug as the whole label
+    assert _run_label(Path("/home/u/proj/runs/chair_bl")) == "chair_bl"

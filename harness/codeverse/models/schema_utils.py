@@ -375,16 +375,16 @@ def ask_structured(model: Any, schema: type[BaseModel], *, system: str, text: st
     (thinking="low", the 65 536 ceiling, the 900 s wait), caught the same two failure
     families and parsed the same two ways.  They differ only in what they RETURN on
     failure, which is why this hands the error back rather than raising or deciding.
-    Not for callers that need the failed call's own ``Usage`` or separate parse
-    errors from call errors (``judges.pairwise``, ``tracks.planner``).
+    Not for callers that need to separate parse errors from call errors
+    (``judges.pairwise``, ``tracks.planner``).
     """
     req = ChatRequest(messages=[ChatMessage.user(text, images=list(images) or None)], system=system,
                       response_schema=schema.model_json_schema(), temperature=temperature,
                       thinking="low", max_output_tokens=65_536, max_wait_s=900.0, label=label)
     try:
         resp = model.generate(req)
-    except ModelError as e:
-        return None, Usage(), f"call failed: {e}"
+    except ModelError as e:  # e.usage is what the provider ALREADY billed for the failure
+        return None, e.usage, f"call failed: {e}"
     try:  # the parse is inside: every provider raises ModelError first today, but this
         # function must not depend on all three keeping that half of the ChatModel contract
         payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)

@@ -43,10 +43,12 @@ log = logging.getLogger(__name__)
 
 def _run_label(run_dir: Path) -> str:
     """A label that stays unique across a battery: bench cells all end in ``.../run``, so
-    ``run_dir.name`` collided for every cell and their judgment files overwrote each other."""
+    ``run_dir.name`` collided for every cell and their judgment files overwrote each other.
+    The whole filtered tail is kept — a 2-part tail (``<arm>_run``) still collided across
+    a battery's prompts, and dropped the control/treatment arm in an ab_plan layout."""
     parts = run_dir.resolve().parts
-    tail = [q for q in parts[-3:] if q not in ("runs", "cells")]
-    return "_".join(tail[-2:]) if tail[-1] == "run" else tail[-1]
+    tail = [q for q in parts[-5:] if q not in ("runs", "cells")]
+    return "_".join(tail) if tail[-1] == "run" else tail[-1]
 
 
 # --------------------------------------------------------------------------- data

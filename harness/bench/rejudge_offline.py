@@ -46,6 +46,7 @@ from pydantic import BaseModel, Field
 from codeverse.contracts.artifacts import GateReport, Severity
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.run import RoundRecord
+from codeverse.judges.calibration import _run_label
 from codeverse.judges.rubrics import (
     SCORING_VERSION,
     JudgeOutput,
@@ -149,12 +150,6 @@ def round_files(roots: list[Path]) -> list[Path]:
             seen.add(real)
             out.append(p)
     return out
-
-
-def _run_label(run_dir: Path) -> str:
-    parts = run_dir.resolve().parts
-    tail = [q for q in parts[-4:] if q not in ("runs", "cells")]
-    return "/".join(tail[-3:]) if tail and tail[-1] in ("run",) else "/".join(tail[-2:])
 
 
 def _acceptance_items(run_dir: Path) -> list[AcceptanceItem]:

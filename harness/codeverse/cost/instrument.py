@@ -36,7 +36,9 @@ from codeverse.contracts.chat import ChatRequest, ChatResponse
 from codeverse.contracts.common import Usage
 from codeverse.cost.context import (
     AttemptRecord,
+    CallContext,
     attempt_recording,
+    attribute,
     bound_run,
     call_context,
     run_binding,
@@ -100,14 +102,17 @@ class MeteredChatModel:
     # -- the meter --------------------------------------------------------
     def generate(self, request: ChatRequest) -> ChatResponse:
         call_id = uuid4().hex  # joins the per-attempt rows to the call's logical row
-        # captured NOW: a hedge loser lands after this call returned, in a thread
-        # with no context, so neither the run's ledger nor its name is reachable there
+        # captured NOW: a hedge loser lands after this call returned, in a thread with
+        # no context, so neither the run's ledger, its name nor the stage/role/round
+        # attribution is reachable there — the loser's row used to fall back to what
+        # the label alone says (baseline/None instead of candidate/r0)
         ledger = default_ledger()
         run = run_binding().run
+        ctx = attribute(label=request.label)
         booked: list[int] = []  # round-trips that already billed themselves as "extra"
 
         def attempt_row(rec: AttemptRecord) -> None:
-            if self._record_attempt(request, call_id, rec, ledger, run):
+            if self._record_attempt(request, call_id, rec, ledger, run, ctx):
                 booked.append(rec.attempt)
 
         t0 = time.perf_counter()
@@ -146,7 +151,8 @@ class MeteredChatModel:
             log.debug("cost: could not record %s: %s", request.label, e)
 
     def _record_attempt(self, request: ChatRequest, call_id: str, rec: AttemptRecord,
-                        ledger: CostLedger | None, run: str = "") -> bool:
+                        ledger: CostLedger | None, run: str = "",
+                        ctx: CallContext | None = None) -> bool:
         """One row per round-trip.  A round-trip that was DISCARDED and still cost money
         (a billed-but-invalid reply, a hedge loser that landed) is money nothing else
         records, so it goes in as ``source="extra"`` and counts in every total; the rest
@@ -155,6 +161,8 @@ class MeteredChatModel:
         extra = bool(rec.discarded and rec.usage.cost_usd)
         try:
             record_call(rec.usage, run=run, label=request.label,
+                        stage=ctx.stage if ctx else None, role=ctx.role if ctx else None,
+                        round=ctx.round if ctx else None,
                         backend=rec.usage.backend or self.provider,
                         model=rec.usage.model or self.model,
                         outcome="discarded" if rec.discarded else "ok",

@@ -226,3 +226,26 @@ def test_ask_structured_returns_the_triple_for_prose_it_cannot_parse():
 
     out, usage, err = ask_structured(Prose(), Answer, system="s", text="t", temperature=0.2, label="l")
     assert out is None and usage.cost_usd == 0.01 and err.startswith("answer unparsable:")
+
+
+def test_ask_structured_returns_the_usage_a_failed_call_was_billed():
+    """A bad-JSON reply is charged like a good one — ModelError carries that usage, and
+    ask_structured used to drop it (return Usage()), so every caller-side tally
+    (BudgetGuard.charge, refset.usage, record.json spend) undercounted while the
+    metered ledger recorded the real bill."""
+    from codeverse.contracts.common import Usage
+    from codeverse.models.base import ModelError
+    from codeverse.models.schema_utils import ask_structured
+
+    class Answer(BaseModel):
+        ok: bool
+
+    billed = Usage(input_tokens=42_000, output_tokens=100, cost_usd=0.123, backend="gemini")
+
+    class Failing:
+        def generate(self, request):
+            raise ModelError("bad JSON reply, still billed", usage=billed)
+
+    out, usage, err = ask_structured(Failing(), Answer, system="s", text="t", temperature=0.0, label="l")
+    assert out is None and err.startswith("call failed:")
+    assert usage.cost_usd == 0.123 and usage.input_tokens == 42_000

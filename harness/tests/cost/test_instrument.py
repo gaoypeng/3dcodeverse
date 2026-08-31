@@ -442,6 +442,46 @@ def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
         logical.cost_usd + loser.cost_usd), "the loser is in the total exactly once"
 
 
+def test_a_late_hedge_loser_keeps_its_stage_role_and_round(tmp_path: Path):
+    """The loser lands AFTER generate() returned, from its own thread with empty
+    contextvars: its 'extra' row used to fall back to what the label alone says
+    (baseline/None) instead of the originating call's candidate/r0 attribution."""
+    import threading
+
+    from codeverse.cost.context import AttemptRecord, attempt_sink, call_context
+
+    loser_usage = _usage(cost_usd=0.30)
+
+    class Hedging:
+        provider, model = "gemini", "gemini-3.7-flash"
+        id = "gemini:gemini-3.7-flash"
+        late: threading.Thread | None = None
+
+        def supports_vision(self):
+            return True
+
+        def generate(self, req):
+            sink = attempt_sink()  # captured once, like gemini._attempt_hook
+
+            def loser_lands():
+                sink(AttemptRecord(attempt=2, key="k" * 20, outcome="ok", discarded=True,
+                                   usage=loser_usage, error=""))
+
+            self.late = threading.Thread(target=loser_lands)  # fresh thread = empty context
+            return ChatResponse(text="winner", usage=_usage(cost_usd=0.01))
+
+    inner = Hedging()
+    with run_ledger(tmp_path, run="r1"):
+        with call_context(stage="candidate", role="generator", round=0):
+            MeteredChatModel(inner).generate(ChatRequest(messages=[ChatMessage.user("x")], label="baseline"))
+        assert inner.late is not None
+        inner.late.start()
+        inner.late.join()
+    loser, = [r for r in load_ledger(tmp_path) if r.source == "extra"]
+    assert loser.discarded and loser.stage is Stage.CANDIDATE
+    assert loser.role is Role.GENERATOR and loser.round == 0
+
+
 def test_a_failed_calls_error_row_carries_what_was_billed(tmp_path: Path):
     """A final ModelError carries its billed usage into the error row."""
     from codeverse.models.base import ModelError
