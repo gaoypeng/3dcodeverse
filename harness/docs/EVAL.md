@@ -707,6 +707,38 @@ row-σ (0.040) and a windmill relapse to 0.62 — rejected; the replace-the-bott
 variant stays queued.  Temperature A2 @ t=0 ($6.0): σ 0.037 → 0.022 (8/42 rows exactly
 deterministic) but mean −0.037 and pearson(gate errors) −0.195 → −0.126 — t = 0.2 stays.
 
+### 2026-08-31 — the loop goes four-track: objects, articulated, graphics join scenes
+
+Same methodology per track: a fancy battery → the defect histogram → deterministic
+levers → a paired validation arm.  First-day ledger (3.7-flash, stored scores):
+
+| track | battery | arm | standing defects |
+|---|---|---|---|
+| graphics | gfx_fancy_v1 n=6 | mean 0.692, max 0.910 (caustics) | banding 3/6, comb 1 |
+| articulated | art_fancy_v1 n=6 | mean 0.573, 3 ≥ 0.7 (lamp 0.892) | detail_below x3, wrong_motion x2, pivot x2, pose_clips x2 |
+| objects | obj_fancy_v1 (open) | birdcage 0.982 r1 | complex briefs blow the round-0 budget (40→60→90 min) |
+| scene | scene_dg_v1 n=6 | density-gate arm: 3W2T1L vs fs_ | gate fired ZERO times — quiet insurance; zone_empty x3 did the catching |
+
+**The graphics lever validated cleanly.**  'Dither last' (a scored-defect rule the
+cookbook buried mid-comment) moved into the system prompt's survive-every-brief rules
+after two placements were rejected by the tests themselves (a new always-on chapter —
+and even comment growth — eats the chapter-selection budget and squeezed the stars
+recipe out of the aurora prompt).  Validation re-ran the three weakest/strongest:
+accretion 0.846→0.911, aurora 0.478→0.617, campfire 0.328→0.726 — **+0.201 mean,
+3W0L, banding 3/6 → 0/3**.
+
+**Articulated planner repairs went live.**  Repair 4 (root_link that names no part)
+and repair 1c (a joint naming a sub-part by word subset — {glazed,door} ⊆
+{glazed,front,door}) each turned a twice-dead planning failure into a scored run:
+grandfather_clock 0.815 on its first repaired attempt; the excavator cleared planning
+and moved its death downstream to budget/model-timeout.  rc=247 (a gemini-cli
+process crash with an empty response) appeared twice on the heaviest sessions and did
+not reproduce on retry — judged transient.
+
+Next levers by histogram: articulated joint quality (pivot/pose/motion-type — the
+planned-motion and sweep machinery already measures most of it), object round-0
+budgets for ship-class briefs, and the scene ceiling (0.802 vs 0.936).
+
 **2026-08-31 — conditional cross-section slices ADOPTED (D48): three iterations under a
 pre-registered stopping rule.**  Question: can the judge be made to SEE interpenetration
 (D47's provenance pass: pure-view TP 0/14 in every arm — the 14/14 naive figure measured
