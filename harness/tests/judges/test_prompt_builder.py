@@ -58,10 +58,10 @@ def test_user_message_layout(judge_input, cache_dir):
     imgs = _images(msgs)
     # 4 shaded views → ONE 2×2 montage + centre crop + ground-contact crop
     assert len(imgs) == 3
-    assert imgs[0].label.startswith("MONTAGE 1/1 — SHADED views: top-left = front_right_34 · az 35° el 22°")
-    assert "bottom-left = top · az 0° el 88°, bottom-right = front · az 0° el 8°" in imgs[0].label
-    assert imgs[1].label.startswith("DETAIL CROP — centre of front_right_34")
-    assert imgs[2].label.startswith("DETAIL CROP — ground-contact band of front")  # lowest elevation (8°)
+    assert imgs[0].label.startswith("MONTAGE 1/1 — SHADED views: top-left = front_right_high · az 45° el 30°")
+    assert "bottom-left = top · az 0° el 90°, bottom-right = front · az 0° el 0°" in imgs[0].label
+    assert imgs[1].label.startswith("DETAIL CROP — centre of front_right_high")
+    assert imgs[2].label.startswith("DETAIL CROP — ground-contact band of front")  # lowest elevation (0°)
     # labelled text precedes each image; the rig paragraph lists images in send order
     idx = parts.index(imgs[0])
     assert isinstance(parts[idx - 1], TextPart) and parts[idx - 1].text == imgs[0].label
@@ -93,14 +93,20 @@ def test_shuffle_is_deterministic_and_changes_order(tmp_path, judge_input, cache
 
 
 def test_geometry_views_add_a_montage(tmp_path, judge_input, cache_dir):
+    """The clay montage rides the pipeline's OWN cameras (OBJECT_CLAY_VIEWS) and labels
+    them — the clay 'top' is el 88 while the rig's shaded 'top' is el 90 (D47)."""
+    from codeverse.conventions import OBJECT_CLAY_VIEWS
+
     clay = []
-    for v in judge_input.renders.views:
+    for v in OBJECT_CLAY_VIEWS:
         p = draw_chair(tmp_path / f"clay_{v.name}.png", color=(180, 180, 180))
         clay.append(RenderView(name=v.name, path=str(p), mode="clay"))
     _, msgs = build_judge_messages(judge_input, R, cache_dir=cache_dir, geometry_views=RenderSet(views=clay))
     labels = [p.label for p in _images(msgs)]
     assert labels[0].startswith("MONTAGE 1/2 — SHADED views") and labels[1].startswith("MONTAGE 2/2 — GEOMETRY-ONLY views (clay")
     assert "front_right_34 · az 35° el 22° · clay" in labels[1]
+    assert "top · az 0° el 88° · clay" in labels[1]
+    assert "top · az 0° el 90°" in labels[0]
     text = _parts(msgs)[0].text
     assert "GEOMETRY-ONLY montage shows the same object without materials" in text
     # embedded clay views (by RenderView.mode) are routed the same way
@@ -153,7 +159,10 @@ def test_view_az_el_geometry():
     v = RenderView(name="custom", path="x.png", camera_position=(0.0, 1.0, 1.0), look_at=(0, 0, 0))
     az, el = view_az_el(v)
     assert az == 0.0 and el == 45.0
-    assert view_az_el(RenderView(name="top", path="x")) == (0.0, 88.0)
+    assert view_az_el(RenderView(name="top", path="x")) == (0.0, 90.0)
+    # a geometry-mode tile answers from the clay rig's own cameras (el 88, not 90)
+    assert view_az_el(RenderView(name="top", path="x", mode="clay")) == (0.0, 88.0)
+    assert view_az_el(RenderView(name="front_right_34", path="x", mode="normals")) == (35.0, 22.0)
     assert view_az_el(RenderView(name="zzz", path="x")) is None
 
 

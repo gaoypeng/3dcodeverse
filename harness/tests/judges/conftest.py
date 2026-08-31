@@ -18,7 +18,7 @@ from codeverse.judges.base import JudgeInput
 from codeverse.judges.rubrics import Rubric
 from codeverse.models.base import ModelError
 
-VIEW_NAMES = ("front_right_34", "back_left_34", "front", "top")
+VIEW_NAMES = ("front_right_high", "back_left_high", "front", "top")
 
 
 def draw_chair(path: Path, *, az_hint: int = 0, size: int = 512, legs: int = 4, color=(150, 90, 40)) -> Path:

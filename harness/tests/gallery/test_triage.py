@@ -106,6 +106,9 @@ def test_hero_falls_back_to_the_sheet_when_a_round_has_no_views(tmp_path: Path):
 
 # --------------------------------------------------------------------------- labels
 @pytest.mark.parametrize(("raw", "human"), [
+    ("front_right_high", "Front Right High"),
+    ("back_left_low", "Back Left Low"),
+    ("bottom", "Bottom"),
     ("front_right_34", "Front Right ¾"),
     ("view_front_right_34.png", "Front Right ¾"),
     ("back_left_34", "Back Left ¾"),

@@ -189,8 +189,9 @@ def test_judge_payload_size_comes_from_the_settings_dial(monkeypatch):
     monkeypatch.setattr("codeverse.judges.vlm_judge.get_settings", lambda: s)
     j = VlmJudge(rubric="static_object_v1", model_id="fake:fake-1")
     # no profile shrinks the payload: 768 px bills the same as 1024 on Gemini and is
-    # noisier, and the 2→1 crop cut did not survive a second draw (docs/COST.md §14)
-    assert j.max_px == 1024 and j.detail_crops == 2 and j.max_montages == 3
+    # noisier, the 2→1 crop cut did not survive a second draw (docs/COST.md §14), and
+    # fewer than 5 montages would silently drop the rig's low ring + poles (D47)
+    assert j.max_px == 1024 and j.detail_crops == 2 and j.max_montages == 5
     # a caller that states a size still gets it — the dial is the default, not a cap
     explicit = VlmJudge(rubric="static_object_v1", model_id="fake:fake-1", max_px=768, detail_crops=1)
     assert explicit.max_px == 768 and explicit.detail_crops == 1

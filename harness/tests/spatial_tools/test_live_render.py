@@ -20,8 +20,10 @@ def test_render_views_and_silhouette_live(stool_ctx: ToolContext) -> None:
     assert Path(obs.images[0]).is_file() and obs.numbers["views"] == ["front", "top"]
     sheet = Image.open(obs.images[0])
     assert sheet.size[0] > sheet.size[1]
-    # the silhouette of the front view is its own perfect reference
-    sil = get_tool("render_views").call(stool_ctx, {"views": ["front"], "mode": "silhouette", "size": 256})
+    # the silhouette of the front view is its own perfect reference (rendered at the
+    # tool's own 512 px — the D47 eye-level front (el 0) shows the legs edge-on, and a
+    # 256→512 resample alone costs ~0.05 IoU on those thin features)
+    sil = get_tool("render_views").call(stool_ctx, {"views": ["front"], "mode": "silhouette", "size": 512})
     assert sil.ok, sil.text
     ref = stool_ctx.workspace.root / "ref.png"
     Image.open(sil.images[-1]).convert("RGB").save(ref)

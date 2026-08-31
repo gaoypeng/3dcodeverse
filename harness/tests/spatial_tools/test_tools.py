@@ -220,7 +220,7 @@ def fake_renderer(monkeypatch: pytest.MonkeyPatch):
 def test_render_views_cached(stool_ctx: ToolContext, fake_renderer) -> None:
     obs = get_tool("render_views").call(stool_ctx, {})
     assert obs.ok and obs.images[0].endswith("sheet.png") and len(obs.images) == 5  # sheet + 4 views
-    assert obs.numbers["views"] == ["front_right_34", "back_left_34", "front", "top"]
+    assert obs.numbers["views"] == ["front_right_high", "back_left_high", "front", "top"]
     assert "artifacts/tool_renders/r00_" in obs.text and str(stool_ctx.workspace.root) not in obs.text
     again = get_tool("render_views").call(stool_ctx, {})
     # same args → the same deterministic out_dir, which is what lets render_glb's OWN cache
@@ -231,7 +231,7 @@ def test_render_views_cached(stool_ctx: ToolContext, fake_renderer) -> None:
     obs = get_tool("render_views").call(stool_ctx, {"views": ["front", "back", "left", "right", "top"]})
     assert obs.ok and len(obs.images) == 1  # > 4 views → sheet only
     obs = get_tool("render_views").call(stool_ctx, {"views": ["frontal"]})
-    assert not obs.ok and "front_right_34" in obs.text
+    assert not obs.ok and "front_right_high" in obs.text
     obs = get_tool("render_views").call(stool_ctx, {"mode": "xray"})
     assert not obs.ok and "shaded" in obs.text
     # 'depth' was advertised from the first commit and never drawn by any renderer:
@@ -257,7 +257,7 @@ def test_render_modes_match_the_js_rig() -> None:
 
 def test_render_sheet_and_isolate(stool_ctx: ToolContext, fake_renderer) -> None:
     obs = get_tool("render_sheet").call(stool_ctx, {"mode": "wire"})
-    assert obs.ok and len(obs.images) == 1 and obs.numbers["n_views"] == 8
+    assert obs.ok and len(obs.images) == 1 and obs.numbers["n_views"] == 14
     obs = get_tool("isolate").call(stool_ctx, {"part": "Leg_3"})
     assert obs.ok and obs.numbers["part"] == "Leg_3" and "| Leg_3 |" in obs.text
     obs = get_tool("isolate").call(stool_ctx, {"part": "Nope"})

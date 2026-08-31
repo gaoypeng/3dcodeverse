@@ -19,7 +19,7 @@ def test_agreement_across_swap(tmp_path, cache_dir):
     reqs = {r.label: r for r in model.requests}  # orderings run in parallel: look up by label
     labels = [p.label for p in image_parts(reqs["pairwise:fwd"])]
     assert len(labels) == 2  # one 2×2 montage per side
-    assert labels[0].startswith("CANDIDATE A — MONTAGE 1/1 — SHADED views: top-left = front_right_34") and labels[1].startswith("CANDIDATE B — MONTAGE")
+    assert labels[0].startswith("CANDIDATE A — MONTAGE 1/1 — SHADED views: top-left = front_right_high") and labels[1].startswith("CANDIDATE B — MONTAGE")
     # swapped ordering puts rb first as "A"
     labels2 = [p.label for p in image_parts(reqs["pairwise:swap"])]
     assert labels2[0].startswith("CANDIDATE A — MONTAGE")

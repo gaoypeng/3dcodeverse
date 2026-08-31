@@ -142,7 +142,7 @@ def test_acceptance_vote_ties_follow_the_representative_sample(judge_input, cach
 
 
 def test_missing_views_cap_for_articulated():
-    rest = [RenderView(name=n, path="x") for n in ("front_right_34", "top")]
+    rest = [RenderView(name=n, path="x") for n in ("front_right_high", "top")]
     res = apply_caps(A, 0.9, [], {}, [], views=rest)
     assert res.overall == 0.5 and res.caps_applied[0].rule == "missing_pose_sheet"
     res2 = apply_caps(A, 0.9, [], {}, [], views=rest + [RenderView(name="articulation_sheet", path="s")])

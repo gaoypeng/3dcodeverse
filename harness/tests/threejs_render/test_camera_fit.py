@@ -74,7 +74,7 @@ def test_fit_scales_with_the_box_not_the_view(tmp_path):
     rows = _fit_report(tmp_path)["rows"]
     by = {(r["box"], r["name"], round(r["aspect"], 2)): r["distance"] for r in rows}
     # the wide bench needs more distance than the small stool from the same view
-    for name in ("front", "front_right_34"):
+    for name in ("front", "front_right_high", "bottom"):
         assert by[(1, name, 1.0)] > by[(0, name, 1.0)]
     # a wider frame never needs to back off further than a square one (vertical fov fixed)
     for (b, name, aspect), d in by.items():

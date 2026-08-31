@@ -66,7 +66,7 @@ def test_one_stated_judge_field_does_not_disable_the_whole_judge_block(monkeypat
     s.apply_profile("quality")
     assert s.judge.max_px == 800, "the field the user stated wins"
     assert s.judge.samples == 3, "every field the user did NOT state still follows the profile"
-    assert s.judge.montages == 3 and s.judge.detail_crops == 2
+    assert s.judge.montages == 5 and s.judge.detail_crops == 2
     # and the same dial, whichever way the profile was named (cost/profiles.py's invariant)
     monkeypatch.setenv("CV3D_PROFILE", "quality")
     get_settings.cache_clear()
@@ -184,17 +184,17 @@ def _dial_from_env(name: str, monkeypatch):
         ("economy", {"generator": "single-shot:gemini:gemini-3.7-flash",
                      "judge": "gemini:gemini-3.7-flash", "judge_samples": 2,
                      "rounds": 2, "candidates": 1, "texture": False,
-                     "judge_max_px": 1024, "judge_montages": 3, "judge_detail_crops": 2,
+                     "judge_max_px": 1024, "judge_montages": 5, "judge_detail_crops": 2,
                      "agent_max_turns": 0, "max_minutes": 30.0}),
         ("balanced", {"generator": "gemini-cli:gemini-3.7-flash",
                       "judge": "gemini:gemini-3.1-pro-preview", "judge_samples": 1,
                       "rounds": 4, "candidates": 1, "texture": False,
-                      "judge_max_px": 1024, "judge_montages": 3, "judge_detail_crops": 2,
+                      "judge_max_px": 1024, "judge_montages": 5, "judge_detail_crops": 2,
                       "agent_max_turns": 0, "max_minutes": 60.0}),
         ("quality", {"generator": "gemini-cli:gemini-3.7-flash",
                      "judge": "gemini:gemini-3.1-pro-preview", "judge_samples": 3,
                      "rounds": 4, "candidates": 2, "texture": True,
-                     "judge_max_px": 1024, "judge_montages": 3, "judge_detail_crops": 2,
+                     "judge_max_px": 1024, "judge_montages": 5, "judge_detail_crops": 2,
                      "agent_max_turns": 0, "max_minutes": 90.0}),
     ],
 )
