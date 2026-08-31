@@ -39,8 +39,11 @@ What the judge will name if you skip it:
   what is *in* the scene, at more than one rate.
 * **A radial blob standing in for directional light** — a light shaft has a direction and a
   soft edge; a centred falloff has neither.
+* **Stepped gradients** — smooth skies, glows and fog quantise into visible bands on an
+  8-bit screen (banding_or_aliasing: 3 of 6 fancy-battery runs, 2026-08-31).  The cause is
+  almost always a missing final dither.
 
-Two rules that survive every brief:
+Three rules that survive every brief:
 
 * Everything is a smooth function of absolute `u_time`. No frame counters, no per-frame
   seeds, and never a hand-rolled `fract`/`mod` wrap of raw time — that is a visible cut
@@ -48,6 +51,9 @@ Two rules that survive every brief:
 * **Light before colour.** Get the frame into a readable band first; hue and palette work
   is invisible on dark, low-chroma pixels. A subject in daylight sits near half the
   brightness of its own sky — a fifth is underlit, not moody.
+* **Dither last.** The final colour op of every shader, after tonemap and gamma:
+  `col += (hash12(fragCoord) - 0.5) / 255.0;` — it breaks the 8-bit steps that band in
+  every smooth gradient.  Nothing writes to `fragColor` after it.
 
 A clean simpler effect beats a richer one carrying a visible defect. Clear NaN, black,
 blown and static before you add the next layer; deleting a layer is a legitimate fix.
