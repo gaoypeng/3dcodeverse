@@ -355,7 +355,6 @@ PairwiseJudge.compare_many(spec, candidates: list[RenderSet], *, rubric) -> Rank
 from codeverse.judges.calibration import calibrate, CalibrationTable   # (run_dirs, *, model_id, n_samples=3, out_dir, geometry_mode,
     # rounds, …) -> rows + pearson/spearman(errors vs score), mean_std, cost; CLI: python -m codeverse.judges.calibration RUN… --n 3
 from codeverse.judges.vlm_judge import ReferenceJudge  # image-conditioned specs
-from codeverse.judges.metrics import judge_agreement, plateau, best_index
 ```
 Rubrics: `static_object_v1` (0.72), `articulated_v1` (requires pose views via
 `missing_pose_sheet` cap), `scene_v1` (frame-gate caps dark/blown/flat/content_small),
@@ -372,7 +371,7 @@ rec = get_track(spec.track, **options).run(spec, ws, resume=False) -> RunRecord 
 # (CLI --candidates > spec.options.candidates > settings.default_candidates); StaticObject | Articulated | Scene | Graphics
 TrackPipeline.run(spec, ws, *, resume=False, force=False) -> RunRecord
 from codeverse.orchestrator import RoundPolicy, StopPolicy, StopDecision, BestSelector, judge_sigma, \
-    best_score, last_gain, REWRITE_KIND, build_refine_instructions, compact_instructions
+    best_score, last_gain, best_index, REWRITE_KIND, build_refine_instructions, compact_instructions
 RoundPolicy(max_rounds=4, plateau_window=2, min_delta=0.02, target=0.8, judge_on_gate_errors=True, max_refine_tasks=6,
             max_instructions_per_task=6, parallel_min_tasks=2, n_candidates=1, pairwise_margin=0.03,
             pairwise_min_confidence=0.6, judge_samples=1,

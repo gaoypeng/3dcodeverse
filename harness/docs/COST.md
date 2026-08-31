@@ -398,9 +398,6 @@ Two helpers exist for the callers:
   `CostEstimate` before the call; `CostGuard(budget_usd).check(est)` decides.
   An unpriceable model is **allowed but flagged** — refusing to run because we
   cannot price something would be worse than running it.
-* `Block(...)` + `order_blocks(...)` + `prefix_signature(...)` for cache-friendly
-  prompt assembly, and `prefix_report(prompts)` to measure whether a family of
-  prompts really shares a prefix (§4).
 
 ## 11. Caveats
 

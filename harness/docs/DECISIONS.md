@@ -40,8 +40,7 @@ written) that were accepted because the code works that way and the tests pin it
 * **D4 Parallel refine only when it is safe.**  Fan out only when ≥ 3 file-disjoint
   groups exist and every task maps to a file (threejs parts, scene zones/assets/env);
   single-file languages get one whole-object task.  Consequence: `Workspace` itself
-  holds a per-root lock + index.lock retry (workspace.py); the older
-  `generation.workspace_lock` layer is redundant and queued for removal.
+  holds a per-root lock + index.lock retry (workspace.py).
 * **D5 A refine round that changes no file is a plateau, not a crash.**  Emits
   `round.no_change` and stops with the best round so far.
 * **D6 Finalise restores the best commit and rebuilds.**  Artifacts always match the
@@ -81,7 +80,6 @@ written) that were accepted because the code works that way and the tests pin it
   `round`, `kind`, `files_hint`, `language`, `track`, `read_only`, `mcp_command` … are
   typed `AgentJob` fields; the `extra` dict and its `_lift_legacy_extra` shim (and the
   unused `model` field) were deleted 2026-08-29 — nothing in the tree built one.
-* **D12 api-agent exposes `build` under its real name; `run_build` is an alias (Δ).**
 * **D13 Node ESM resolution via an import hook (Δ).**  `NODE_PATH` cannot resolve bare ESM
   specifiers; `run_node(three_hook=True)` adds `--import runtime_js/lib/resolve_three.mjs`;
   browser pages get an import map from `serve.cjs`.  `ThreeJsRuntime` writes

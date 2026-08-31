@@ -441,24 +441,16 @@ So at n = 8 with a free plan, neither readout can separate this switch from noth
 
 ### What to try next, in order
 
-0. **Give `api-agent` a first-class affordance.** This is now the top item and it is not a
-   measurement problem. Either a `read_skill(name)` tool beside `read_cookbook` — which the
-   agent *does* call — or, for the routed set, inline the one highest-priority body the way
-   the single-shot arm already does. A pointer in message 0 competes with everything else in
-   message 0; a tool in the tool list does not. Re-measure the read rate before anything
-   else: with 0 %, no A/B of this switch on `api-agent` can measure the library at all.
-1. **Pin the plan** (`docs/EVAL.md` §8.1). The skills switch is generation-side — the
+0. **Pin the plan** (`docs/EVAL.md` §8.1). The skills switch is generation-side — the
    planner runs in the `plan` stage before anything is attached — so plan-once-write-both is
    valid here, and it removes the dominant variance term from *both* readouts instead of
    averaging it down. It also costs one planner call *less* per pair. This is the single
    highest-value change and nothing else is worth running before it.
-2. **Reconcile the prompt corpus on weld overlap** (§9). `contract.md` is fixed, but
+1. **Reconcile the prompt corpus on weld overlap** (§9). `contract.md` is fixed, but
    `tracks/generate_static.j2` still says "overlap neighbours by ≥ 0.002 m (push a leg
    2-5 mm into the seat)". While that stands, `cv3d-part-contact` is arguing with the
    prompt inside the same session, and the pair-count readout is measuring the argument.
-3. **Get one api-agent battery with the switch on**, for the exact-read calibration (§4).
-   Everything about the read metric on the CLI backends is an upper bound until then.
-4. Only then re-run this A/B, with the gate counts as the primary readout.
+2. Only then re-run this A/B, with the gate counts as the primary readout.
 
 ---
 
@@ -579,9 +571,6 @@ so; the rest are live.
   runs only lint and connectivity — never contract, joint_sweep, scene_frames or gl_frames.
   The *judged* column of any non-blender A/B is meaningless. The primary readout is safe:
   `bench/skill_targets.py` reads each arm's own harness record.
-* **`telemetry.record_exact_read` is wired to `read_file` only** (`agents/api_agent.py`), so
-  `read_skill` never reaches `skill_reads.jsonl`. One line in `SkillTools.read_skill` makes
-  `3dcv skills report` truthful for api-agent without depending on atime at all.
 * **The atime probe is blind in any git workspace, and its control proves it.** The control
   bundle came back "opened" in 27 of 33 sessions; the only 6 sessions where it stayed clean
   were the 6 scene sessions, where nothing was delivered. So the shipped report is honest

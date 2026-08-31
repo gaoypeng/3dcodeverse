@@ -179,8 +179,7 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
 "images beat gate text for visible facts" in the prompt fixed pro hallucinating
 "nothing moves" from contract-gate text.
 
-* Variance on your own runs: `3dcv judge <slug> --n k` and read `score_std` /
-  `judges.metrics.judge_agreement`.
+* Variance on your own runs: `3dcv judge <slug> --n k` and read `score_std`.
 * Sanity anchors: a skeleton placeholder should score ≈ 0.3–0.5; a deliberately wrong
   object should trip the `intent_fidelity` floor / `wrong_object` defect; a floating
   part should cap via `connectivity` findings with `data["kind"]="floating"`.
