@@ -36,3 +36,13 @@ rows also cannot be packed: set `packing: false` and `neat_packing: false`.
 Python 3.12 with `pandas`, `pyarrow`, `transformers` (tokenizer only), `playwright` (+ `playwright install chromium`),
 and `huggingface_hub` for the upload paths; `glslangValidator` on PATH (conda-forge `glslang`); Blender / OpenSCAD
 as system binaries. Paths to the binaries are constants at the top of each script — change them there.
+| `build_pairs_3dcodebench.py` | the three pair types for one source subdirectory — text→code, image→code, image+text→code — with one caption per sample rather than one row per caption variant. Renders are read by **scanning each tar**, because the byte offsets in `metadata.parquet` cannot be trusted (for `3dcodebench/instances_geo` only 577 of 1,953 point at a real tar header; the archives were repacked after the metadata was written, and following them silently cost 70% of the image pairs) |
+| `verify_unflattened_glsl.py` | compile-verifies the 44 Shadertoy shards `flatten_multifile.py` never reached — their metadata carries no `shader_json`, so there was no renderpass structure to merge a Common tab from. Writes the same `compiles` / `repair` columns the flattened shards have, so one filter covers the whole GLSL corpus |
+| `runners/` | the per-source drivers that call the above over every subdirectory |
+
+### A third rule these tools now encode
+
+3. **A conversion must never decide what a benchmark forbids.** `convert_subdirs.py` used to drop any sample
+   overlapping the 212 3DCodeBench factories, which silently emptied both `3dcodebench/instances_*` folders —
+   100% of their rows were overlaps. The overlap is now *counted* in `qc.json` and the rows are kept, so the
+   split is a decision the training run makes, not one the converter already made.
