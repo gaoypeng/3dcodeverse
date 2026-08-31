@@ -27,6 +27,7 @@ from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import (
     BBOX_TOLERANCE_M,
     LANGUAGE_FRAME,
+    OBJECT_CLAY_VIEWS,
     OBJECT_VIEWS,
     Frame,
     to_pascal,
@@ -63,13 +64,13 @@ from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-#: the 4 clay views judged for holes/intersections (subset of OBJECT_VIEWS by name)
-GEOMETRY_VIEW_NAMES: tuple[str, ...] = ("front_right_34", "back_left_34", "top", "low_front_left")
-GEOMETRY_VIEWS = tuple(v for v in OBJECT_VIEWS if v.name in GEOMETRY_VIEW_NAMES)
+#: the 4 clay views judged for holes/intersections — their own measured cameras (D47),
+#: NOT a name-filter over OBJECT_VIEWS (which silently shrank under renamed rigs)
+GEOMETRY_VIEWS = OBJECT_CLAY_VIEWS
 
 
 class ObjectPipeline:
-    """Measure → connectivity + contract → 8-view render."""
+    """Measure → connectivity + contract → 14-view render."""
 
     views = OBJECT_VIEWS
 

@@ -39,7 +39,6 @@ from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-GEOMETRY_VIEW_NAMES = ("front_right_34", "back_left_34", "top", "low_front_left")
 
 
 def _run_label(run_dir: Path) -> str:
@@ -194,10 +193,10 @@ def render_geometry_views(case: RoundCase, out_dir: Path, mode: str) -> RenderSe
     """Clay/normals renders of the run's final GLB for the best round (object tracks only)."""
     if not case.glb or case.inp.spec.track.value == "scene":
         return None
-    from codeverse.conventions import OBJECT_VIEWS
+    from codeverse.conventions import OBJECT_CLAY_VIEWS
     from codeverse.spatial.render import render_glb
 
-    views = [v for v in OBJECT_VIEWS if v.name in GEOMETRY_VIEW_NAMES]
+    views = list(OBJECT_CLAY_VIEWS)
     try:
         return render_glb(case.glb, out_dir / case.run / f"geometry_{mode}", views=views, mode=mode, sheet=False)
     except Exception as e:  # noqa: BLE001 — calibration must not die on a render hiccup

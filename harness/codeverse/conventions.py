@@ -82,24 +82,42 @@ class ViewPreset:
     elevation_deg: float
 
 
-#: Judge view set for objects: 3/4 views + orthographic-ish sides + top + underside.
+#: Judge view set for objects — the 14-view rig (brilliana camera numbers):
+#: three rings ±30° + eye-level cardinals + poles; adopted 2026-08-31, D47.
 OBJECT_VIEWS: tuple[ViewPreset, ...] = (
+    ViewPreset("front_right_high", 45.0, 30.0),
+    ViewPreset("back_right_high", 135.0, 30.0),
+    ViewPreset("back_left_high", 225.0, 30.0),
+    ViewPreset("front_left_high", 315.0, 30.0),
+    ViewPreset("front", 0.0, 0.0),
+    ViewPreset("right", 90.0, 0.0),
+    ViewPreset("back", 180.0, 0.0),
+    ViewPreset("left", 270.0, 0.0),
+    ViewPreset("front_right_low", 45.0, -30.0),
+    ViewPreset("back_right_low", 135.0, -30.0),
+    ViewPreset("back_left_low", 225.0, -30.0),
+    ViewPreset("front_left_low", 315.0, -30.0),
+    ViewPreset("top", 0.0, 90.0),
+    ViewPreset("bottom", 0.0, -90.0),
+)
+
+#: The measured legacy clay cameras (the judge's geometry montage) — its OWN tuple,
+#: not a subset of the rig.  Its ``top`` (el 88) shares a name with the rig's ``top``
+#: (el 90): that is fine ONLY because nothing unions the two tuples by name — clay
+#: tiles carry ``mode != "shaded"`` and prompt_builder resolves their labels here first.
+OBJECT_CLAY_VIEWS: tuple[ViewPreset, ...] = (
     ViewPreset("front_right_34", 35.0, 22.0),
     ViewPreset("back_left_34", 215.0, 22.0),
-    ViewPreset("front", 0.0, 8.0),
-    ViewPreset("right", 90.0, 8.0),
-    ViewPreset("back", 180.0, 8.0),
-    ViewPreset("left", 270.0, 8.0),
     ViewPreset("top", 0.0, 88.0),
     ViewPreset("low_front_left", 325.0, -12.0),
 )
 
-#: Quick 4-view subset (cheap gates, contact sheets for agents).
-OBJECT_VIEWS_QUICK: tuple[ViewPreset, ...] = (
-    OBJECT_VIEWS[0],
-    OBJECT_VIEWS[1],
-    OBJECT_VIEWS[2],
-    OBJECT_VIEWS[6],
+_OBJECT_VIEW_BY_NAME: dict[str, ViewPreset] = {v.name: v for v in OBJECT_VIEWS}
+
+#: Quick 4-view subset (cheap gates, agent contact sheets, texture pass, candidates,
+#: scene assets) — by NAME so a rig reorder cannot silently change it.
+OBJECT_VIEWS_QUICK: tuple[ViewPreset, ...] = tuple(
+    _OBJECT_VIEW_BY_NAME[n] for n in ("front_right_high", "back_left_high", "front", "top")
 )
 
 #: Scene overview rig (scenes sit on ground: aerial + eye level, no underside).
