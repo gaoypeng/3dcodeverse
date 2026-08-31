@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[0].parent))
 
 from codeverse.contracts.run import RunId  # noqa: E402
 from codeverse.flywheel.record import find_run_dirs  # noqa: E402
+from codeverse.judges.calibration import _ranks  # noqa: E402 — tie-averaged ranks, one copy
 from codeverse.proc import read_json_or_none  # noqa: E402
 from codeverse.spatial.complexity import COMPLEXITY_WEIGHTS, ComplexityVector, band_of  # noqa: E402
 
@@ -200,21 +201,6 @@ def pearson(xs: Sequence[float], ys: Sequence[float]) -> float | None:
     if sxx <= 0 or syy <= 0:
         return None
     return sxy / math.sqrt(sxx * syy)
-
-
-def _ranks(v: Sequence[float]) -> list[float]:
-    order = sorted(range(len(v)), key=lambda i: v[i])
-    out = [0.0] * len(v)
-    i = 0
-    while i < len(order):
-        j = i
-        while j + 1 < len(order) and v[order[j + 1]] == v[order[i]]:
-            j += 1
-        avg = (i + j) / 2.0 + 1.0
-        for k in range(i, j + 1):
-            out[order[k]] = avg
-        i = j + 1
-    return out
 
 
 def spearman(xs: Sequence[float], ys: Sequence[float]) -> float | None:

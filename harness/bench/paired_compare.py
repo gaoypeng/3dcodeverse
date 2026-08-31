@@ -33,6 +33,7 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:  # `python bench/paired_compare.py` from anywhere
     sys.path.insert(0, str(REPO))
 
+from bench._ab_report import _fmt as _f  # noqa: E402
 from bench._ab_report import _sign_test  # noqa: E402
 from bench._compare_report import CellResult  # noqa: E402
 from bench._jsonl import read_jsonl  # noqa: E402
@@ -216,12 +217,6 @@ def gate_stats(cells: dict[tuple[str, str], CellResult]) -> list[ArmGateStats]:
             degraded=sum(1 for r in rs if r.degraded),
         ))
     return out
-
-
-def _f(x: float | None, signed: bool = False) -> str:
-    if x is None:
-        return "—"
-    return f"{x:+.3f}" if signed else f"{x:.3f}"
 
 
 def render_gate_markdown(gs: list[ArmGateStats]) -> str:
