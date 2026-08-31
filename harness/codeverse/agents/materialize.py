@@ -61,7 +61,7 @@ GEMINI_CONTEXT_SETTINGS = {"fileFiltering": {"respectGitIgnore": False, "respect
 
 
 # --------------------------------------------------------------------------- body
-def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str]) -> str:
+def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], ws: Workspace | None = None) -> str:
     if not spatial_tools:
         return (
             "## Spatial tools\n\n"
@@ -69,9 +69,23 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str]) 
             "code carefully and keeping every dimension explicit; the harness builds, measures "
             "and renders after you finish.\n"
         )
-    from codeverse.spatial.registry import tool_cards
+    from codeverse.spatial.registry import list_tools
 
-    cards = tool_cards() or "(the tool registry is empty in this environment)"
+    # the same track/language filter the MCP server applies (mcp_server.build_context):
+    # this file is agy's ONLY tool documentation and its shell fallback is unscoped, so
+    # documenting the whole registry taught scene/graphics agents dead-end object tools
+    track = language = ""
+    if ws is not None and ws.spec_path.is_file():
+        try:
+            spec = json.loads(ws.spec_path.read_text())
+            track, language = str(spec.get("track", "")), str(spec.get("language", ""))
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning("could not read %s for tool filtering: %s", ws.spec_path, e)
+    tools = list_tools(track=track, language=language)
+    names = {t.name for t in tools}
+    cards = "\n".join(t.card() for t in tools) or "(the tool registry is empty in this environment)"
+    look = [n for n in ("render_views", "render_sheet", "scene_views", "gl_frames") if n in names]
+    prove = [n for n in ("measure", "check_contract", "scene_probe", "gl_probe") if n in names]
     if agent_kind == "claude-code":
         how = "Tools are exposed by the MCP server `3dcv`; their names appear as `mcp__c3v__<name>` (e.g. `mcp__c3v__build`)."
     elif agent_kind == "agy":
@@ -87,17 +101,22 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str]) 
         )
     else:
         how = f"Tools are exposed by the MCP server `{MCP_SERVER_NAME}` (command: `{' '.join(mcp_command)}`); call them by name."
+    workflow = (
+        "Workflow: edit → `build` → read the errors/numbers → fix → `build` again."
+        + (f" Use {' / '.join(f'`{n}`' for n in look)} to LOOK at what you made before declaring it finished;" if look else "")
+        + (f" use {' / '.join(f'`{n}`' for n in prove)} to prove it." if prove else "")
+        + " Never finish on a failing build."
+    )
     return (
         "## Spatial tools (3dcv)\n\n"
         f"{how}\n\n"
-        "Workflow: edit → `build` → read the errors/numbers → fix → `build` again. Use `render_views` / "
-        "`render_sheet` to LOOK at what you made before declaring it finished; use `measure` / "
-        "`check_contract` to prove dimensions. Never finish on a failing build.\n\n"
+        f"{workflow}\n\n"
         f"{cards}\n"
     )
 
 
-def _body(agent_kind: str, contract_md: str, cookbook_note: str, spatial_tools: bool, mcp_command: list[str]) -> str:
+def _body(agent_kind: str, contract_md: str, cookbook_note: str, spatial_tools: bool, mcp_command: list[str],
+          ws: Workspace | None = None) -> str:
     return (
         "# 3dcv workspace — rules for the coding agent\n\n"
         "You are working inside a harness-managed workspace. Read this whole file before acting.\n\n"
@@ -112,7 +131,7 @@ def _body(agent_kind: str, contract_md: str, cookbook_note: str, spatial_tools: 
         "4. Keep dimensions explicit and in meters; follow the coordinate frame stated in the contract.\n"
         "5. When you are done, reply with a SHORT summary of what you changed and what you verified. "
         "Do not ask questions — there is no human in the loop; make a reasonable decision and proceed.\n\n"
-        f"{_tool_section(agent_kind, spatial_tools, mcp_command)}\n"
+        f"{_tool_section(agent_kind, spatial_tools, mcp_command, ws)}\n"
         f"## Cookbook\n\n{cookbook_note}\n\n"
         f"## Language contract\n\n{contract_md.strip()}\n"
     )
@@ -217,7 +236,7 @@ def materialize_workspace(
         log.warning("cookbook not found: %r — the %s session gets the contract only", cookbook_rel, agent_kind)
         cookbook_note = "No cookbook is available in this session; rely on the contract below."
 
-    body = _body(agent_kind, contract_md, cookbook_note, spatial_tools, mcp_command)
+    body = _body(agent_kind, contract_md, cookbook_note, spatial_tools, mcp_command, ws)
     for name in ("AGENTS.md", "GEMINI.md", "CLAUDE.md"):
         (ws.root / name).write_text(body)
 

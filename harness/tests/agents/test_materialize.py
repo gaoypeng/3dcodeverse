@@ -29,6 +29,28 @@ def test_writes_three_bodies_same_content(tmp_ws: Workspace):
     assert "Spatial tools (3dcv)" in body
 
 
+def test_bodies_document_only_this_tracks_tools(tmp_ws: Workspace):
+    """AGENTS.md used to list all 19 tools + the object workflow for every track — for
+    agy (no MCP) this file is the ONLY tool documentation and its shell fallback is
+    unscoped, so scene/graphics agents were taught dead-end object-GLB tools (V11a)."""
+    tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "scene", "language": "scene_threejs", "prompt": "p"}))
+    _mat(tmp_ws, kind="agy")
+    body = (tmp_ws.root / "AGENTS.md").read_text()
+    for absent in ("`joint_sweep`", "`gl_probe`", "`texture_pass`", "`render_sheet`", "`check_contract`", "`cross_section`"):
+        assert absent not in body, absent
+    assert "`scene_views`" in body and "`scene_probe`" in body and "`build`" in body
+    assert "check_contract` to prove" not in body, "the object workflow sentence must not survive filtering"
+    # an object workspace keeps the full object toolset and its workflow sentence
+    tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "static_object", "language": "blender", "prompt": "p"}))
+    _mat(tmp_ws, kind="agy")
+    body = (tmp_ws.root / "AGENTS.md").read_text()
+    assert "`render_sheet`" in body and "`measure`" in body and "`check_contract`" in body
+    # no spec.json (bare workspaces in tests/tools): unfiltered fallback, nothing crashes
+    tmp_ws.spec_path.unlink()
+    _mat(tmp_ws, kind="agy")
+    assert "`joint_sweep`" in (tmp_ws.root / "AGENTS.md").read_text()
+
+
 def test_no_mcp_server_is_written_into_the_workspace(tmp_ws: Workspace):
     """Only the ``context`` block goes into the agent-writable ws/.gemini/settings.json;
     3dcv reaches each CLI through a harness-owned per-session file (audit 2026-08-27)."""

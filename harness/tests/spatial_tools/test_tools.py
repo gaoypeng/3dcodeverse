@@ -47,6 +47,14 @@ def test_registry_has_every_tool() -> None:
     assert not {"texture_pass", "texture_preview"} & {t.name for t in list_tools(track="scene")}
     graphics = {t.name for t in list_tools(track="graphics", language="glsl_shader")}
     assert {"gl_probe", "gl_frames"} <= graphics and "texture_pass" not in graphics and "scene_probe" not in graphics
+    # V11a: the object-GLB toolset never reaches scene/graphics agents — their builds
+    # never write artifacts/object.glb, so every one of these was a dead-end refusal
+    object_glb_tools = {"measure", "check_connectivity", "check_contract", "cross_section", "isolate",
+                        "render_views", "render_sheet", "compare_silhouette", "compare_reference"}
+    assert not object_glb_tools & scene and not object_glb_tools & graphics
+    assert "build" in scene and "build" in graphics  # build itself stays universal
+    articulated = {t.name for t in list_tools(track="articulated_object", language="urdf_blender")}
+    assert object_glb_tools | {"joint_sweep"} <= articulated  # articulated keeps the object toolset
     texture_card = get_tool("texture_pass").card()
     assert "judge" in texture_card and "texture_pass" in texture_card
     for t in list_tools():

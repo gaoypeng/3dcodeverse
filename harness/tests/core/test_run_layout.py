@@ -142,6 +142,29 @@ def test_a_relocated_run_still_resolves_its_stored_paths(tmp_path):
     assert ws.rebase(str(missing)) == missing
 
 
+def test_a_copied_run_reads_its_own_files_while_the_original_still_exists(tmp_path):
+    """rebase returned any stored absolute path that still EXISTED as-is, so a
+    copied/rsynced run silently read — and a retexture wrote past — the ORIGINAL's
+    files for as long as that directory lived (V10f).  This root's copy must win."""
+    import shutil
+
+    from codeverse.workspace import Workspace
+
+    a = tmp_path / "A" / "run1"
+    (a / "artifacts" / "renders" / "r01").mkdir(parents=True)
+    sheet_a = a / "artifacts" / "renders" / "r01" / "sheet.png"
+    sheet_a.write_bytes(b"ORIGINAL")
+    b = tmp_path / "B" / "run1"
+    b.parent.mkdir(parents=True)
+    shutil.copytree(a, b)  # copy: the original stays alive
+    (b / "artifacts" / "renders" / "r01" / "sheet.png").write_bytes(b"COPY")
+    got = Workspace(b).rebase(str(sheet_a))
+    assert got == b / "artifacts" / "renders" / "r01" / "sheet.png"
+    assert got.read_bytes() == b"COPY", "the copy's own file must win over the live original"
+    # ...and a path already under THIS root is untouched, existing or not
+    assert Workspace(a).rebase(str(sheet_a)) == sheet_a
+
+
 def test_show_prints_the_sheet_that_exists_after_a_move(tmp_path):
     """The user-visible half: `3dcv show` must not print a path that is not there."""
     from codeverse.cli._common import print_record_summary

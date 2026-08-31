@@ -241,12 +241,18 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     return text_observation(lines, ok=ok, numbers=numbers, limit=3000)
 
 
+#: the object-GLB toolset (everything that reads artifacts/object.glb): scene and
+#: graphics builds never write that file, so serving these there was a dead-end loop
+_OBJECT_TRACKS = (Track.STATIC_OBJECT.value, Track.ARTICULATED_OBJECT.value)
+
+
 # --------------------------------------------------------------------------- measure
 class MeasureArgs(BaseModel):
     parts: list[str] = Field(default=[], description="limit the table to these part names (empty = all)")
 
 
-@tool("measure", MeasureArgs, "Measure the built object: overall bbox/extents, ground gap, per-part size/tris/islands (Y-up meters).")
+@tool("measure", MeasureArgs, "Measure the built object: overall bbox/extents, ground gap, per-part size/tris/islands (Y-up meters).",
+      tracks=_OBJECT_TRACKS)
 def measure(ctx: ToolContext, args: MeasureArgs) -> Observation:
     glb = glb_path(ctx)
     try:
@@ -268,7 +274,8 @@ def measure(ctx: ToolContext, args: MeasureArgs) -> Observation:
 
 
 # --------------------------------------------------------------------------- gates
-@tool("check_connectivity", NoArgs, "Contact graph of all parts: floating parts (with the exact gap vector to close), interpenetration, stray islands.")
+@tool("check_connectivity", NoArgs, "Contact graph of all parts: floating parts (with the exact gap vector to close), interpenetration, stray islands.",
+      tracks=_OBJECT_TRACKS)
 def check_connectivity(ctx: ToolContext, args: NoArgs) -> Observation:
     glb = glb_path(ctx)
     plan = load_plan(ctx.workspace.plan_path) if ctx.workspace.plan_path.is_file() else None
@@ -281,7 +288,8 @@ def check_connectivity(ctx: ToolContext, args: NoArgs) -> Observation:
     return gate_observation(report)
 
 
-@tool("check_contract", NoArgs, "Compare the built object with plan.json: missing parts, bbox deltas per part, overall size, ground contact.")
+@tool("check_contract", NoArgs, "Compare the built object with plan.json: missing parts, bbox deltas per part, overall size, ground contact.",
+      tracks=_OBJECT_TRACKS)
 def check_contract(ctx: ToolContext, args: NoArgs) -> Observation:
     glb = glb_path(ctx)
     plan = load_plan(ctx.workspace.plan_path)
@@ -302,7 +310,8 @@ class CrossSectionArgs(BaseModel):
     parts: list[str] = Field(default=[], description="only slice these parts (empty = all)")
 
 
-@tool("cross_section", CrossSectionArgs, "Slice the object with an axis-aligned plane → labelled section image + loops/area/hollow ratio.")
+@tool("cross_section", CrossSectionArgs, "Slice the object with an axis-aligned plane → labelled section image + loops/area/hollow ratio.",
+      tracks=_OBJECT_TRACKS)
 def cross_section(ctx: ToolContext, args: CrossSectionArgs) -> Observation:
     glb = glb_path(ctx)
     axis = args.axis.lower()
@@ -341,7 +350,8 @@ def _render(ctx: ToolContext, tool_name: str, *, views: list[str], mode: str, is
     return render_observation(rs, ctx.workspace.root, note=note)
 
 
-@tool("render_views", RenderViewsArgs, "Render the built object from named camera views (contact sheet + views). Use to SEE what you built.", cost_hint="slow")
+@tool("render_views", RenderViewsArgs, "Render the built object from named camera views (contact sheet + views). Use to SEE what you built.",
+      tracks=_OBJECT_TRACKS, cost_hint="slow")
 def render_views(ctx: ToolContext, args: RenderViewsArgs) -> Observation:
     note = f"{args.mode} render" + (f", isolate={args.isolate}" if args.isolate else "") + (f", explode={args.explode:g}" if args.explode else "")
     return _render(ctx, "render_views", views=args.views, mode=args.mode, isolate=args.isolate, explode=args.explode, size=args.size, note=note)
@@ -351,7 +361,8 @@ class RenderSheetArgs(BaseModel):
     mode: str = Field(default="shaded", description=_MODE_DESC)
 
 
-@tool("render_sheet", RenderSheetArgs, "One labelled 14-view contact sheet of the built object (all canonical views).", cost_hint="slow")
+@tool("render_sheet", RenderSheetArgs, "One labelled 14-view contact sheet of the built object (all canonical views).",
+      tracks=_OBJECT_TRACKS, cost_hint="slow")
 def render_sheet(ctx: ToolContext, args: RenderSheetArgs) -> Observation:
     obs = _render(ctx, "render_sheet", views=[v.name for v in OBJECT_VIEWS], mode=args.mode, isolate=[], explode=0.0, size=512,
                   note=f"{args.mode} 14-view sheet")
@@ -365,7 +376,8 @@ class IsolateArgs(BaseModel):
     views: list[str] = Field(default=list(_DEFAULT_VIEWS), description="view names")
 
 
-@tool("isolate", IsolateArgs, "Render ONE part alone (others hidden) + its measurement row — inspect a single part's shape and placement.", cost_hint="slow")
+@tool("isolate", IsolateArgs, "Render ONE part alone (others hidden) + its measurement row — inspect a single part's shape and placement.",
+      tracks=_OBJECT_TRACKS, cost_hint="slow")
 def isolate(ctx: ToolContext, args: IsolateArgs) -> Observation:
     glb = glb_path(ctx)
     try:
@@ -400,7 +412,8 @@ class CompareSilhouetteArgs(BaseModel):
     reference_index: int = Field(default=0, ge=0, description="index into spec.references")
 
 
-@tool("compare_silhouette", CompareSilhouetteArgs, "Silhouette IoU / aspect-ratio error between a rendered view and a reference image (+ diff image).", cost_hint="slow")
+@tool("compare_silhouette", CompareSilhouetteArgs, "Silhouette IoU / aspect-ratio error between a rendered view and a reference image (+ diff image).",
+      tracks=_OBJECT_TRACKS, cost_hint="slow")
 def compare_silhouette(ctx: ToolContext, args: CompareSilhouetteArgs) -> Observation:
     glb = glb_path(ctx)
     ref_path, _ref = reference_path(ctx, args.reference_index, tool="compare_silhouette")
@@ -650,9 +663,6 @@ def gl_frames(ctx: ToolContext, args: GlFramesArgs) -> Observation:
 
 
 # ===================================================================== texturing
-_OBJECT_TRACKS = (Track.STATIC_OBJECT.value, Track.ARTICULATED_OBJECT.value)
-
-
 class TexturePassArgs(BaseModel):
     judge: bool = Field(default=True, description="run the before/after VLM ship gate (False = ship on seam gate only)")
     model: str = Field(default="", description="planner chat model id for the material plan (default: spec planner)")
@@ -754,7 +764,7 @@ class CompareReferenceArgs(BaseModel):
 
 @tool("compare_reference", CompareReferenceArgs,
       "Put the REFERENCE image and a render of your object side by side (+ outline diff and IoU). Use it to check "
-      "you built the right thing: part inventory, counts, proportions, profiles.", cost_hint="slow")
+      "you built the right thing: part inventory, counts, proportions, profiles.", tracks=_OBJECT_TRACKS, cost_hint="slow")
 def compare_reference(ctx: ToolContext, args: CompareReferenceArgs) -> Observation:
     glb = glb_path(ctx)
     ref_path, ref = reference_path(ctx, args.reference_index, tool="compare_reference")

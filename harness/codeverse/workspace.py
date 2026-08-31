@@ -124,22 +124,24 @@ class Workspace:
         the breakage partial and therefore silent.
 
         Relative paths join the root (what the old ``_judge.resolve_paths`` did, and the
-        only case it handled).  An absolute path that still exists is returned as-is.  An
-        absolute path that does NOT exist is re-rooted by finding its longest trailing
-        segment that does exist under this root — the run was moved, so the tail is
-        intact even though the prefix is not.  Nothing matches: the original is returned
-        so the caller reports a real missing file rather than a silently wrong one.
+        only case it handled).  An absolute path under another root is re-rooted FIRST,
+        by its longest trailing segment that exists under this root — for a moved run the
+        tail is intact even though the prefix is not, and for a COPIED/rsynced run this
+        workspace's own file must win even while the original still exists (readers used
+        to read, and a retexture to write past, the original's files until that directory
+        was deleted).  A path already under this root, or with no local tail match, is
+        returned as-is — an existing original still resolves, and a missing one is
+        reported as a real missing file rather than a silently wrong one.
         """
         p = Path(stored)
         if not p.is_absolute():
             return self.root / p
-        if p.exists():
-            return p
-        parts = p.parts
-        for i in range(1, len(parts)):
-            candidate = self.root.joinpath(*parts[i:])
-            if candidate.exists():
-                return candidate
+        if not p.is_relative_to(self.root):
+            parts = p.parts
+            for i in range(1, len(parts)):
+                candidate = self.root.joinpath(*parts[i:])
+                if candidate.exists():
+                    return candidate
         return p
 
     @property

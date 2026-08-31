@@ -80,6 +80,9 @@ _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
     ("detail", Stage.REFINE),
     ("candidate", Stage.CANDIDATE),
     ("cand", Stage.CANDIDATE),
+    # the zone-layout planner calls (tracks/zone_layout.py) charge the guard as "plan";
+    # unclassified, their ledger rows said other/other while the guard said plan
+    ("zone-layout", Stage.PLAN),
     ("plan", Stage.PLAN),
     ("judge", Stage.JUDGE),
     ("texture", Stage.TEXTURE),

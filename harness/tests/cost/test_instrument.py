@@ -442,6 +442,20 @@ def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
         logical.cost_usd + loser.cost_usd), "the loser is in the total exactly once"
 
 
+def test_zone_layout_rows_agree_with_the_guard(tmp_path: Path):
+    """tracks/zone_layout.py labels its planner calls 'zone-layout' and charges the
+    guard as stage='plan' — unclassified, the ledger filed the same dollars under
+    other/other, so the two owners disagreed on every zone-layout cent (V10c)."""
+    from codeverse.cost.types import role_for_stage, stage_for_label
+
+    assert stage_for_label("zone-layout") is Stage.PLAN
+    assert role_for_stage(stage_for_label("zone-layout")) is Role.PLANNER
+    with run_ledger(tmp_path, run="r1"):
+        record_call(_usage(cost_usd=0.02), label="zone-layout")
+    row, = load_ledger(tmp_path)
+    assert row.stage is Stage.PLAN and row.role is Role.PLANNER
+
+
 def test_a_late_hedge_loser_keeps_its_stage_role_and_round(tmp_path: Path):
     """The loser lands AFTER generate() returned, from its own thread with empty
     contextvars: its 'extra' row used to fall back to what the label alone says
