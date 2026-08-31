@@ -594,6 +594,17 @@ montage at the same tile count at both sizes (**+0.03 % tokens, not −20 %**), 
 768 px measurably *raises* sampling σ (0.0326 → 0.0421, +29 %).  **1024 px stays
 the default for every profile.**
 
+### Payload v3 (D47, 2026-08-31): 5 montages for the 14-view rig
+
+The rig A/B (docs/EVAL.md judge-experiments log) re-priced the verdict: the adopted
+payload C (14 views + clay, 5 montages + 2 crops) bills **$0.155/verdict at pro n=3
+(40.9k input tokens)** against the old 8-view payload's $0.146–0.150/30.0–34.0k — a
++3–6 % price for the only payload change that has survived multiplicity (+0.038
+same-cap).  The rejected 14-singles arm B cost $0.198 & 67.5k tok/verdict for a
+*negative* delta.  Every profile's `judge_montages` is 5 (economy included: the
+flash replica prices a C verdict at ~$0.032, and 3 montages would silently drop the
+low ring + poles).
+
 ### The crop-count experiment — INCONCLUSIVE, not adopted
 
 The other payload lever is the **image count**.  The same round

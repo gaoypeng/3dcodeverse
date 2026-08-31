@@ -68,7 +68,7 @@ the flywheel unit.
 
 ```
 codeverse/
-  conventions.py      frames (LANGUAGE_FRAME, GLB_FRAME), units, OBJECT_VIEWS/_QUICK, SCENE_VIEWS,
+  conventions.py      frames (LANGUAGE_FRAME, GLB_FRAME), units, OBJECT_VIEWS/_QUICK/_CLAY_VIEWS, SCENE_VIEWS,
                       to_snake/to_pascal/slugify, MAX_TRIS_*, BBOX_TOLERANCE_M, CONTACT_GAP_M  (THE source)
   config.py           Settings (CV3D_* env, ~/.config/codeverse/config.yaml; role defaults come from
                       contracts Backends; Settings.backends(**overrides) builds a Spec's Backends;
@@ -334,9 +334,10 @@ server (name `3dcv`) for the vendor CLIs, (c) a native tool schema for any embed
 
 ## 6. Judging (protocol v2)
 
-`VlmJudge(rubric, model_id, n_samples)` sends **montages, not loose views**: ≤ 3
+`VlmJudge(rubric, model_id, n_samples)` sends **montages, not loose views**: ≤ 5
 labelled 2×2 montages (shaded / geometry-only clay-or-normals / poses) + ≤ 2 detail
-crops at ≤ 1024 px, shuffled per sample.  The wire schema is **observe-then-score**
+crops at ≤ 1024 px, shuffled per sample — sized for the 14-view object rig + the
+clay montage (D47; was ≤ 3 under the 8-view rig).  The wire schema is **observe-then-score**
 (summary, strengths, issues, **defect checklist**, acceptance *before* criteria) —
 criteria-first measurably compressed flash to 0.6–0.7.  Every rubric carries binary
 `defects` (id/text/penalty/cap); defect and acceptance votes are majority (an exact
@@ -461,7 +462,7 @@ margin so pairwise picked the winner at 0.915 confidence; r00 0.563 → r01 0.61
 total $0.24 / 7.6 min.  Graphics `neon_rain` (single-shot flash, glsl_shader):
 plan → 328-line shader compiled first try, `gl_frames` clean, judged 0.786 →
 stop=pass after round 0, $0.045.  Per-stage timings: plan 7–60 s; Blender build
-0.1–0.6 s; GL build + 12 frames ~2–5 s; 8-view GPU render ~1.5 s; judge verdict
+0.1–0.6 s; GL build + 12 frames ~2–5 s; GPU view-rig render ~1.5 s at 8 views (D47's 14-view rig scales with view count, not re-timed); judge verdict
 $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object round.
 
 ## 10. Known limits (as of 2026-08-23)

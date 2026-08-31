@@ -432,6 +432,36 @@ written) that were accepted because the code works that way and the tests pin it
   (free to count), or a paired A/B (~$5.50, 46 runs × 2 arms) shows the judge under-prices the
   OPEN lines it already reads.
 
+* **D47 Judge payload v3: the 14-view rig through the montage machinery (2026-08-31).**
+  Supersedes D30's ≤ 3-montage cap.  `OBJECT_VIEWS` becomes the brilliana 14-view rig
+  (three rings ±30° + eye-level cardinals + poles); the measured legacy clay cameras
+  move to their own `OBJECT_CLAY_VIEWS` (its `top` is el 88, the rig's is 90 — clay
+  tiles carry `mode != shaded` and label their own cameras); `OBJECT_RANK` packs
+  montage 1 as {front_right_high, back_left_high, top, bottom} so a cap truncation
+  still sees the underside; `MAX_MONTAGES` / `Judge.montages` / every profile's
+  `judge_montages` go 3 → 5 (at 3 the low ring + poles are silently dropped; flash-C
+  is $0.032/verdict, so economy keeps the full payload too).  `OBJECT_VIEWS_QUICK`
+  stays 4 views by name, so agent contact sheets / texture pass / candidates / scene
+  assets keep their cost.
+  Measured: 4-arm A/B, 42 items (18 corpus rounds + 24 h2h sides) × n=3 pro, plus
+  3.7-flash and 3.6-flash replicas, ≈ $47.  Arms: A = 8 views, no clay (old
+  baseline); A2 = production-faithful 8 views + clay; B = 14 labelled 640 px single
+  views; C = 14 views + clay through our montage machinery (this decision).  The
+  only comparison that survives multiplicity is same-cap C−A **+0.038** (n=29,
+  p=.009); the raw deltas C−B p=.041 and C−A p=.024 do NOT survive Holm — cap flips
+  make the raw delta distribution heavy-tailed (sd(d) ~0.10–0.14).  The cap story
+  is the visible one: clean-item `untextured_flat` caps 11(A) / 6(A2) / 8(B) /
+  **3(C)** — more sky and underside pixels stop the judge inventing flatness.
+  B rejected: $0.198 & 67.5k input tok/verdict (C: $0.155 / 40.9k), its −0.025 vs A2
+  is entirely cap flips (~half contradicting the pixels on eyeball), and its
+  "best defect-hunter" halo was text-quoting — the provenance pass over every
+  defect-PRESENT vote shows interpenetration pure-view TP 0/14 in EVERY arm (the
+  14/14 naive TP measures reading comprehension of the shared gate text, not payload
+  quality), and B's floating lead reduces to one genuinely visual item.  Flash
+  replicas (3.7 and 3.6): payload Δ ≈ 0 — the rig pays only at pro tier, which is
+  the verdict judge anyway.  Underside full-res singles (the espresso catch) are
+  queued as the C+ experiment; its battery's numbers get appended here when it lands.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

@@ -14,7 +14,7 @@ fooling ourselves.  Tools: `3dcv bench`, `bench/compare_backends.py`,
    distinctions (overall std ≈ 0.08–0.12 at n=3) — its dynamic range comes from
    the rubric defect checklist, not the criteria.
 2. **Same evidence for every arm.**  The evaluator rebuilds from code: lint+build →
-   `measure_glb` → connectivity gate → canonical 8-view `render_glb` (`OBJECT_VIEWS`,
+   `measure_glb` → connectivity gate → canonical 14-view `render_glb` (`OBJECT_VIEWS`,
    studio rig) → `VlmJudge`.  A failed build scores 0 (error recorded).  Acceptance
    items come from the battery's `must_have` list for *all* arms (no plan-derived
    items, so harness and one-shot are judged alike).
@@ -96,7 +96,7 @@ Arms:
 
 Every arm ends with a `src/model.py` copied into a fresh eval workspace and scored by
 the same `FixedEvaluator` (`BlenderRuntime` lint+build → measure → connectivity →
-8-view render → `VlmJudge(static_object_v1, --judge, n_samples=2)`).  Then a pairwise
+14-view render → `VlmJudge(static_object_v1, --judge, n_samples=2)`).  Then a pairwise
 arena runs every harness arm against every one-shot arm per prompt (both orderings).
 Output under `--out`: `matrix.json`, `results.jsonl` (cells, resume source),
 `pairwise.jsonl`, `cells/<prompt>/<arm>/{run,gen,eval}`, `report.md`, `report.html`.
@@ -636,3 +636,18 @@ day), not in judge prose.  Flash stays a ranking/fallback judge; pro stays the v
 Two calibration-tool defects found the same day (colliding `run` labels overwriting judgment
 files; old records whose stored overall contradicts their own criterion scores) are fixed in
 `judges/calibration.py` and flagged in its report.
+**2026-08-31 — judge payload v3: the 14-view rig ADOPTED (D47).**  4-arm A/B on 42 items
+(18 corpus rounds + 24 h2h sides) × n=3 `gemini-3.1-pro-preview`, plus full 3.7-flash and
+3.6-flash replicas, ≈ $47.  Arms: A = 8 views no clay (old baseline) · A2 =
+production-faithful 8 views + clay · B = 14 labelled 640 px single views · C = 14-view rig
++ clay through the montage machinery (5 montages + 2 crops).  C mean overall 0.6835 vs A
+0.6427 / A2 0.6558 / B 0.6308; the only multiplicity survivor is same-cap C−A +0.038
+(n=29, p=.009) — raw C−B p=.041 / C−A p=.024 do not survive Holm because cap flips make
+the deltas heavy-tailed.  Clean-item `untextured_flat` caps: 11(A) / 6(A2) / 8(B) / 3(C).
+B rejected at $0.198 & 67.5k tok/verdict: its deficit is entirely cap flips (~half
+contradicting the pixels), and a defect-provenance pass over every PRESENT vote showed its
+defect-hunter halo was text-quoting — interpenetration pure-view TP is 0/14 in EVERY arm
+(the naive 14/14 measures reading comprehension of the shared gate text), and B's floating
+lead reduces to one genuinely visual item.  Flash replicas: payload Δ ≈ 0 on both 3.7 and
+3.6 — the rig pays only at pro tier.  C ships as D47 ($0.155/verdict, 40.9k input tok);
+underside full-res singles (the espresso catch) are queued as the C+ follow-up.
