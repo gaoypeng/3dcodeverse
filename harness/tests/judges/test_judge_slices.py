@@ -107,6 +107,13 @@ def test_knob_off_wrong_track_and_missing_glb_stay_baseline(tmp_path, cache_dir,
     assert req.system == baseline[0] and PROVENANCE_ELICITATION not in req.system
     assert [m.model_dump() for m in req.messages] == [m.model_dump() for m in baseline[1]]
 
+    # dirty gates + glb on a NON-OBJECT track (stray glb_path on a scene input): baseline —
+    # the SLICE_TRACKS guard, tested directly at the VlmJudge layer
+    req = judge_request(make_input(renders, dirty_gates(), glb,
+                                   spec_kw={"track": "scene", "language": "scene_threejs"}), cache_dir)
+    assert req.system == baseline[0] and PROVENANCE_ELICITATION not in req.system
+    assert "cross-section" not in text_of(req)
+
     # dirty gates + glb, but the knob is off: baseline
     monkeypatch.setattr("codeverse.judges.vlm_judge.get_settings",
                         lambda: Settings(judge={"slices": "off"}))

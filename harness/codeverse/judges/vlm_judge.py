@@ -17,6 +17,7 @@ to treat as a glitch, never as a score.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -275,10 +276,12 @@ class VlmJudge:
         if not mpath.is_file():
             tmp = cache / f"slices_{key}.{os.getpid()}-{threading.get_ident()}.tmp"
             shutil.rmtree(tmp, ignore_errors=True)
-            judge_slices(glb, pairs, tmp)
             try:
-                tmp.rename(out_dir)
-            except OSError:  # a concurrent writer got there first — use theirs
+                judge_slices(glb, pairs, tmp)
+                # a concurrent identical writer may have renamed first — then use theirs
+                with contextlib.suppress(OSError):
+                    tmp.rename(out_dir)
+            finally:  # a mid-render crash (or losing the race) must not leave the .tmp behind
                 shutil.rmtree(tmp, ignore_errors=True)
         return out_dir, SliceManifest.model_validate_json(mpath.read_text())
 

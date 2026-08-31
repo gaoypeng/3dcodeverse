@@ -541,7 +541,7 @@ def judge_slices(
             _hull_area(np.vstack(lines)) for p, lines in strokes.items() if p not in sections)
         effective_area = filled_area + stroke_hull_area
         proj_area = 0.0
-        for pname in set(sections) | set(strokes):
+        for pname in sorted(set(sections) | set(strokes)):
             v = np.asarray(parts[pname].vertices)
             proj_area += _hull_area(np.column_stack([v[:, horiz], v[:, 1]]))
         frac = effective_area / proj_area if proj_area > 0 else 0.0
