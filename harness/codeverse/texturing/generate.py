@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import shutil
 import time
 from collections.abc import Callable, Sequence
@@ -119,7 +120,7 @@ def save_texture(img: Image.Image, path: Path, *, fmt: str | None = None, qualit
 log = logging.getLogger(__name__)
 
 #: bump when the cached raw image semantics change (prompt composition, model config)
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # v2: seed joined the key
 
 
 class TextureAsset(BaseModel):
@@ -152,8 +153,9 @@ class TextureSet(BaseModel):
         return {k: v.error for k, v in self.textures.items() if v.error}
 
 
-def prompt_key(prompt: str, model_id: str, size: int) -> str:
-    return hashlib.sha256(f"v{CACHE_VERSION}|{model_id}|{size}|{prompt.strip()}".encode()).hexdigest()[:24]
+def prompt_key(prompt: str, model_id: str, size: int, seed: int | None = 0) -> str:
+    # seed is in the key: seed=2 must not be served seed=1's cached pixels
+    return hashlib.sha256(f"v{CACHE_VERSION}|{model_id}|{size}|{seed}|{prompt.strip()}".encode()).hexdigest()[:24]
 
 
 # --------------------------------------------------------------------------- generation
@@ -169,7 +171,7 @@ def generate_one(
 ) -> TextureAsset:
     """Generate (or fetch from cache) one texture and deliver ``out_dir/<texture_id>.png``."""
     model_id = getattr(image_model, "id", getattr(image_model, "model", "image"))
-    key = prompt_key(prompt, str(model_id), size)
+    key = prompt_key(prompt, str(model_id), size, seed)
     raw_path = _cache_dir(cache_dir) / f"{key}.png"
     asset = TextureAsset(texture_id=texture_id, path=str(Path(out_dir) / f"{texture_id}.png"), prompt=prompt,
                          prompt_hash=key, size=size, model=str(model_id))
@@ -184,7 +186,7 @@ def generate_one(
         raw = images[0].convert("RGB")
         asset.usage = usage
         if use_cache:
-            tmp = raw_path.with_suffix(".tmp.png")
+            tmp = raw_path.with_suffix(f".{os.getpid()}.tmp.png")  # per-writer: a cross-process collision poisoned the shared cache
             raw.save(tmp, "PNG")
             tmp.replace(raw_path)
     asset.seam_score_raw = seam_score(raw)
@@ -239,7 +241,7 @@ def generate_textures(
         except Exception as e:  # noqa: BLE001 — per-texture failure is data, not a crash
             log.warning("texture %s failed: %s: %s", tid, type(e).__name__, e)
             return TextureAsset(texture_id=tid, path=str(out_dir / f"{tid}.png"), prompt=prompts[tid],
-                                prompt_hash=prompt_key(prompts[tid], str(getattr(image_model, "id", "")), size),
+                                prompt_hash=prompt_key(prompts[tid], str(getattr(image_model, "id", "")), size, seed),
                                 size=size, error=f"{type(e).__name__}: {e}")
 
     ids = list(leaders.values())

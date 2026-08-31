@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -325,7 +326,9 @@ def material_plan(
     tp = finalize_plan(out, plan, model_id=model_id, usage=usage, source="vlm")
     if use_cache:
         cache_root.mkdir(parents=True, exist_ok=True)
-        cached.write_text(tp.model_dump_json(indent=2))
+        tmp = cached.with_suffix(f".{os.getpid()}.tmp")  # atomic: a torn sidecar re-bought the VLM call
+        tmp.write_text(tp.model_dump_json(indent=2))
+        tmp.replace(cached)
     return tp
 
 
