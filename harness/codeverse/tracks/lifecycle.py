@@ -73,6 +73,7 @@ from codeverse.tracks.steps import (
     RoundPipeline,
     failed_acceptance,
     load_round_journal,
+    looks_transport,
     rejudge_round,
     run_round,
     sum_usage,
@@ -621,6 +622,7 @@ class BaseTrack:
         pipeline = self.make_pipeline()
         stop_policy = StopPolicy(ctx.policy)
         rejudged: set[int] = set()
+        transport_retried: set[int] = set()
         while True:
             decision = stop_policy.evaluate(rounds, budget_ok=ctx.budget.ok())
             if decision.stop:
@@ -666,6 +668,16 @@ class BaseTrack:
                                     previous=previous, files_hint=self.round_files_hint(ctx),
                                     extra_notes=self.round_extra_notes(ctx), previous_best=best_score(rounds))
             except RoundFailed as e:
+                if index not in transport_retried and looks_transport(str(e)):
+                    # A vendor-CLI crash / 503 storm / dropped socket is not an agent
+                    # verdict — the session never really happened.  Re-run the SAME
+                    # round once, baseline included (rc=247 alone killed three whole
+                    # runs on 2026-08-29), before letting the failure mean anything.
+                    # ``continue`` re-enters through StopPolicy, so the budget and
+                    # round ceilings still guard the retry.
+                    transport_retried.add(index)
+                    ctx.events.emit("round.transport_retry", round=index, detail=str(e)[:500])
+                    continue
                 if index == 0:
                     raise
                 # A refine round in which no task changed any file is not a crash: the

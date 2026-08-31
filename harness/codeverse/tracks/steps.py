@@ -67,6 +67,29 @@ class RoundFailed(RuntimeError):
     """Every generation task of a round failed — nothing to build."""
 
 
+#: error-text markers that mean a round DIED IN TRANSPORT (vendor CLI crash, 503
+#: storm, dropped socket) rather than the agent declining the work.  They match
+#: ``RoundFailed`` messages, which join ``GenerationResult.notes`` as composed by
+#: ``agents/backends.py`` (``rc=N; response=<empty>; stderr tail: ...``) or by
+#: ``_run_phase`` from a raised ``ModelError`` (``... timed out``, ``503``).
+_TRANSPORT_MARKS = (
+    "response=<empty>", "no result envelope", "503", "unavailable", "overloaded",
+    "timed out", "etimedout", "econnreset", "socket hang up", "connection reset",
+)
+
+
+def looks_transport(msg: str) -> bool:
+    """True when a ``RoundFailed`` message carries a transport-death signature.
+
+    An agent that ran fine and chose to change nothing reports ``rc=0;
+    response=ok`` or plain task notes — none of the markers.  A marker therefore
+    separates "the session never really happened" (worth exactly one retry) from
+    "the agent declined" (a plateau verdict to respect).
+    """
+    low = msg.lower()
+    return any(m in low for m in _TRANSPORT_MARKS)
+
+
 def round_record_path(ctx: RunContext, index: int) -> Path:
     return ctx.ws.root / "rounds" / f"r{index:02d}.json"
 
