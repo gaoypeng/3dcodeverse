@@ -19,7 +19,9 @@ MSG=${1:-"finetune: sync scripts, configs, eval stack and docs"}
 
 [ -d "$DST" ] || { echo "repo clone missing at $REPO"; exit 1; }
 rsync -a --delete --exclude '__pycache__' --exclude '*.pyc' "$SRC/scripts/" "$DST/scripts/"
-rsync -a --exclude '__pycache__' "$SRC/configs/" "$DST/configs/"
+# --delete on configs too: without it a config retired into configs/lf/archive/ was copied to its new
+# location but the old copy lingered in the repo forever, so a tidy-up never actually reached GitHub.
+rsync -a --delete --exclude '__pycache__' "$SRC/configs/" "$DST/configs/"
 rsync -a --delete --exclude '__pycache__' --exclude 'out' --exclude '_test' --exclude 'ref_oracle' --exclude '*.pyc' "$SRC/eval/" "$DST/eval/"
 cp "$SRC/env.sh" "$DST/env.sh"
 cp "$SRC/REPORT.md" "$DST/docs/REPORT.md"

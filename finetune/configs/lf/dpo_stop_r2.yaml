@@ -1,5 +1,5 @@
 ### DPO with execution-feedback preference pairs, on top of LoRA-v1 (merged)
-model_name_or_path: /wekafs/ict/hx_624/llm-ft/runs/lf_qwen35_9b_mmmix2/merged
+model_name_or_path: /wekafs/ict/hx_624/llm-ft/runs/lf_qwen35_9b_stopdpo/merged
 trust_remote_code: true
 flash_attn: fa2
 stage: dpo
@@ -14,13 +14,13 @@ freeze_multi_modal_projector: true
 pref_beta: 0.1
 pref_loss: sigmoid
 dataset_dir: /wekafs/ict/hx_624/llm-ft/data/lf
-dataset: stop_dpo_pairs
+dataset: stop_dpo_pairs_r2
 template: qwen3_5
 enable_thinking: false
-cutoff_len: 2048
+cutoff_len: 4096
 preprocessing_num_workers: 16
 dataloader_num_workers: 2
-output_dir: /wekafs/ict/hx_624/llm-ft/runs/lf_qwen35_9b_stopdpo
+output_dir: /wekafs/ict/hx_624/llm-ft/runs/lf_qwen35_9b_stopdpo_r2
 logging_steps: 5
 save_steps: 1000
 save_only_model: true
