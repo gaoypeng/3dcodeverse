@@ -41,6 +41,13 @@ BBOX_MARGIN_M = 1.0
 #: dark_frame capped all three rounds (0.512 uncapped → 0.252), and refine cannot
 #: fix it because cameras belong to the plan, not to any file an agent owns.
 CAMERA_CLEAR_M = 1.2
+#: two LARGE assets whose cluster centres nearly coincide are stacked into each other —
+#: fv2_alpine_night's RetainingWall x PrayerBench interpenetration.  Deliberately narrow:
+#: only same-spot (< 0.6 m) pairs where BOTH footprints are >= 0.8 m and neither stands on
+#: the other — a stool against a counter (small footprint) or bottles on a bar
+#: (support relation) must never be rejected.
+STACK_DIST_M = 0.6
+STACK_MIN_FOOT_M = 0.8
 
 
 def validate_layout(layout: ZoneLayout, zone: ZonePlan, plan: ScenePlan) -> str:
@@ -73,6 +80,23 @@ def validate_layout(layout: ZoneLayout, zone: ZonePlan, plan: ScenePlan) -> str:
     missing = [c for c in zone.contents if to_snake(c) not in placed]
     if missing:
         problems.append(f"no placement for planned contents: {', '.join(missing)}")
+    # two large assets on the same spot = stacked into each other
+    rows = [(p, known.get(to_snake(p.asset))) for p in layout.placements]
+    for i, (a, pa) in enumerate(rows):
+        for b, pb in rows[i + 1:]:
+            if pa is None or pb is None or to_snake(a.asset) == to_snake(b.asset):
+                continue
+            if to_snake(a.support) == to_snake(b.asset) or to_snake(b.support) == to_snake(a.asset):
+                continue   # one stands on the other by design
+            fa = max(pa.approx_size_m[0], pa.approx_size_m[2])
+            fb = max(pb.approx_size_m[0], pb.approx_size_m[2])
+            if fa < STACK_MIN_FOOT_M or fb < STACK_MIN_FOOT_M:
+                continue
+            dist = math.hypot(a.cluster[0] - b.cluster[0], a.cluster[1] - b.cluster[1])
+            if dist < STACK_DIST_M:
+                problems.append(f"{a.asset} and {b.asset} share one spot ({dist:.1f} m apart, footprints "
+                                f"{fa:.1f}/{fb:.1f} m) — they will interpenetrate; separate the clusters or "
+                                f"make one the other's support")
     return "; ".join(problems)
 
 

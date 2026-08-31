@@ -53,6 +53,29 @@ def test_validator_rejects_a_cluster_that_swallows_a_camera():
     assert "from camera overview" in complaint and "shot stays clear" in complaint
 
 
+def test_validator_rejects_two_large_assets_on_one_spot_but_spares_adjacency():
+    """fv2_alpine: RetainingWall x PrayerBench interpenetrated because their clusters
+    coincided.  The rule is deliberately narrow: small footprints (a stool against a
+    counter) and support relations (bottles ON the bar) must pass untouched."""
+    plan = _plan()
+    stacked = _layout(placements=[
+        {"asset": "FishingBoat", "count": 1, "cluster": (-12.0, 3.0), "spread_m": 0.0},
+        {"asset": "Stall", "count": 1, "cluster": (-12.2, 3.1), "spread_m": 0.0}])
+    # Stall is not Quay content, but the stacking rule should still name the pair
+    complaint = validate_layout(stacked, plan.zones[0], plan)
+    assert "share one spot" in complaint and "FishingBoat" in complaint and "Stall" in complaint
+    # small footprint: Bollard (0.3 m) right next to the boat is legitimate adjacency
+    adjacent = _layout(placements=[
+        {"asset": "FishingBoat", "count": 1, "cluster": (-12.0, 3.0), "spread_m": 0.0},
+        {"asset": "Bollard", "count": 6, "cluster": (-12.1, 3.2), "spread_m": 0.5}])
+    assert "share one spot" not in validate_layout(adjacent, plan.zones[0], plan)
+    # support relation: a Stall standing ON the boat (declared) passes
+    supported = _layout(placements=[
+        {"asset": "FishingBoat", "count": 1, "cluster": (-12.0, 3.0), "spread_m": 0.0},
+        {"asset": "Stall", "count": 1, "cluster": (-12.1, 3.1), "spread_m": 0.0, "support": "FishingBoat"}])
+    assert "share one spot" not in validate_layout(supported, plan.zones[0], plan)
+
+
 def test_layout_block_renders_numbers_the_builder_can_follow():
     text = layout_block(_layout(path_points=[(-18.0, 0.0), (-2.0, 4.0)], mid_props=12, ground_cover=400,
                                 notes="boats face the quay"))
