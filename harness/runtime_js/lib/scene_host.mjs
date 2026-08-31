@@ -411,7 +411,16 @@ function renderAt(spec, t) {
     state.scene.fog = savedFog;
   }
   const ms = Math.round(performance.now() - t0);
-  return { dataUrl: state.canvas.toDataURL('image/png'), ms, sim_time: state.simTime };
+  // the camera actually used: differs from spec.position when camera repair fired
+  return { dataUrl: state.canvas.toDataURL('image/png'), ms, sim_time: state.simTime,
+           position: [cam.position.x, cam.position.y, cam.position.z] };
+}
+
+/** Repairs performed so far ({name, moved_back_m, moved_up_m, ...} per camera).
+ * Repair fires lazily on the first build of each camera, so drivers read this
+ * AFTER their render evaluations to stitch census.camera_repair (review-3 S5). */
+function cameraRepairs() {
+  return state.cameraRepairs.slice();
 }
 
 /**
@@ -493,6 +502,7 @@ window.__c3v = {
   boot,
   renderAt,
   cameraChecks,
+  cameraRepairs,
   compileAll,
   census,
   placement,

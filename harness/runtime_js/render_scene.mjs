@@ -110,7 +110,10 @@ async function main() {
           const r = await page.evaluate((spec, tt) => window.__c3v.renderAt(spec, tt), c, t);
           const file = `${c.name}_${tag(t)}.png`;
           dataUrlToPng(r.dataUrl, outFile(outDir, file));
-          metrics.views.push({ name: c.name, kind: c.kind, path: file, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: r.ms });
+          const view = { name: c.name, kind: c.kind, path: file, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: r.ms };
+          // position stays the AUTHORED camera; when repair moved the lens, record where the pixels really came from
+          if (r.position && c.position && r.position.some((v, i) => Math.abs(v - c.position[i]) > 1e-6)) view.repaired_position = r.position;
+          metrics.views.push(view);
         } catch (e) { sceneErr(`render failed for '${c.name}' at t=${t}`, e); }
       }
     }
@@ -119,6 +122,12 @@ async function main() {
       try { metrics.fps = await page.evaluate((s) => window.__c3v.fps(s), fpsSec); }
       catch (e) { sceneErr('fps measurement failed', e); }
     }
+    // repair fires lazily on each camera's first build, i.e. AFTER the census above
+    // was captured: re-read it here so census.camera_repair is observable (review-3 S5)
+    try {
+      const reps = await page.evaluate(() => window.__c3v.cameraRepairs());
+      if (reps.length && metrics.census) metrics.census.camera_repair = reps;
+    } catch (e) { sceneErr('camera repair readback failed', e); }
     metrics.shader_errors = (await page.evaluate(() => window.__c3v.shaderErrors())).map(({ _key, ...e }) => e);
     metrics.update_errors = await page.evaluate(() => window.__c3v.updateErrors());
     Object.assign(metrics, errorSummary(host.errors, boot));

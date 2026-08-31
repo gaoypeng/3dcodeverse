@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -97,6 +98,54 @@ def test_camera_in_geometry_is_detected(starter_ws, monkeypatch):
     m = read_metrics(out)
     chk = m["camera_checks"][0]
     assert chk["camera_in_geometry"] is True
+    # repair off → everything renders from the AUTHORED camera and no repair is recorded
+    assert "camera_repair" not in (m.get("census") or {})
+    assert all("repaired_position" not in v for v in m["views"])
+
+
+@pytest.mark.node
+@needs_browser
+def test_camera_repair_is_observable_in_census_and_views(starter_ws, monkeypatch):
+    """Review-3 S5 (V8): with the default-ON repair, a buried camera leaves a
+    census.camera_repair row and the view records where the pixels really came
+    from — repair used to fire AFTER census capture and vanish."""
+    monkeypatch.delenv("CV3D_CAMERA_REPAIR", raising=False)
+    cams = [CameraPlan(name="buried", position=(12.0, 2.0, -2.0), look_at=(12.0, 2.0, -10.0), fov=50)]  # inside the windmill tower
+    out = starter_ws.renders_dir(2)
+    render_scene(starter_ws, out, cameras=cams, orbit=False, times=(0.0,), fps_seconds=0, sheet=False)
+    m = read_metrics(out)
+    reps = (m.get("census") or {}).get("camera_repair")
+    assert reps and reps[0]["name"] == "buried" and reps[0]["moved_back_m"] + reps[0]["moved_up_m"] > 0
+    view = next(v for v in m["views"] if v["name"] == "buried")
+    assert view["position"] == [12.0, 2.0, -2.0]              # authored camera stays the record
+    assert view.get("repaired_position") and view["repaired_position"] != view["position"]
+    assert m["camera_checks"][0]["camera_in_geometry"] is False   # the effective camera is clear
+
+
+@needs_node
+def test_camera_repair_telemetry_survives_the_python_reader(fake_runtime, ws, tmp_path):
+    """The python side keeps metrics-only telemetry intact: census.camera_repair and
+    per-view repaired_position stay readable, RenderView keeps the authored camera."""
+    (fake_runtime / "render_scene.mjs").write_text(FAKE_DRIVER.replace(
+        "const metrics = {",
+        "for (const v of views) v.repaired_position = [1, 2.6, 4.1];\nconst metrics = {",
+    ).replace(
+        "census: { totals: { meshes: 1 } }",
+        "census: { totals: { meshes: 1 }, camera_repair: [{ name: 'authored_a', moved_back_m: 1.1, moved_up_m: 0.6, inside_before: ['BarCounter'] }] }",
+    ).replace(
+        "fs.writeFileSync(path.join(out, 'metrics.json'), JSON.stringify(metrics));",
+        "fs.writeFileSync(path.join(out, 'metrics.json'), JSON.stringify(metrics));\nfs.writeFileSync(path.join(out, 'views.json'), JSON.stringify(views));",
+    ))
+    out = tmp_path / "out"
+    rs = render_scene(ws, out, cameras=[CameraPlan(name="cam_a", position=(1, 2, 3), look_at=(0, 0, 0), fov=45)],
+                      orbit=False, times=(0.0,), sheet=False)
+    assert rs.views[0].camera_position == (1.0, 2.0, 3.0)
+    m = read_metrics(out)
+    assert m["census"]["camera_repair"][0]["name"] == "authored_a"
+    assert m["views"][0]["repaired_position"] == [1, 2.6, 4.1]
+    # the judge-flag rewrite of views.json must not strip the telemetry rider
+    entries = json.loads((out / "views.json").read_text())
+    assert entries[0]["repaired_position"] == [1, 2.6, 4.1] and "judge" in entries[0]
 
 
 @needs_node

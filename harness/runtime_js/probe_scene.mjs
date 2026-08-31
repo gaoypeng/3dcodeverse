@@ -100,6 +100,10 @@ async function main() {
       }
       const frame = await page.evaluate(() => { const c = window.__c3v.cameras()[0]; return window.__c3v.cameraChecks(c); });
       result.first_camera = frame;
+      // the render/check exercises above may have repaired a camera AFTER the census
+      // was captured: stitch it back so census.camera_repair is observable (review-3 S5)
+      const reps = await page.evaluate(() => window.__c3v.cameraRepairs());
+      if (reps.length) result.census.camera_repair = reps;
       const sunAz = parseFloat(args['sun-azimuth']);
       if (Number.isFinite(sunAz)) result.fitted_cameras = fitCameras(result.census, sunAz);
     }
