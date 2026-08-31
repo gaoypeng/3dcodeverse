@@ -36,6 +36,7 @@ import os
 import shutil
 import time
 from collections.abc import Sequence
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -208,6 +209,11 @@ def attach_skills(
     )
     out = SkillsMaterialized(listed=[s.name for s in sel], selections=list(sel),
                              reasons={s.name: s.reason for s in sel})
+    if not sel or single_shot:
+        # an empty selection is a legal desired set: the sweep must still run, or last
+        # round's bundles stay live where the native CLIs discover skills by directory
+        with suppress(OSError):
+            materialize_skills(ws_root, [])
     if not sel:
         write_index(ws_root, "")
         return out

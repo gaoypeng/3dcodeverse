@@ -111,6 +111,18 @@ def test_a_skill_that_is_no_longer_routed_is_removed_from_the_workspace(ws, libr
         assert not (ws / root / "cv3d-blender-forms").exists()
 
 
+def test_an_empty_selection_still_sweeps_last_rounds_bundles(ws, library):
+    """attach_skills' empty-selection early return used to skip the sweep entirely:
+    last round's bundles stayed live in both discovery roots, where the native CLIs
+    discover skills by directory (V4b).  An empty route is a legal desired set."""
+    materialize_skills(ws, [library["cv3d-part-contact"]])
+    out = attach_skills(ws, track="static_object", language="threejs", kind="generation",
+                        agent_kind="claude-code", library={})
+    assert out.listed == []
+    for root in SKILL_ROOTS:
+        assert not (ws / root / "cv3d-part-contact").exists(), f"stale bundle survived in {root}"
+
+
 # --------------------------------------------------------------------------- prompt text
 def test_native_loader_backends_get_one_sentence_and_no_second_index(library):
     skills = [library["cv3d-part-contact"], library["cv3d-bbox-contract"]]
