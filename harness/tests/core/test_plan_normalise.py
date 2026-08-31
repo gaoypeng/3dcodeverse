@@ -224,3 +224,39 @@ def test_an_ambiguous_root_link_still_fails_validation():
     with pytest.raises(ValidationError, match="root_link"):
         ArticulatedPlan.model_validate(d)
 
+
+def test_a_joint_naming_a_sub_part_by_word_subset_promotes_it():
+    """af_grandfather_clock: joint said GlazedDoor, the child was GlazedFrontDoor — no
+    affix match, so 1b could not save it.  1c matches by word subset and promotes."""
+    d = _raw()
+    parent = d["parts"][0]
+    parent.setdefault("children", []).append(
+        {"name": "GlazedFrontDoor", "role": "hinged door", "description": "a glazed door",
+         "bbox": {"center": list(parent["bbox"]["center"]), "extents": [e * 0.4 for e in parent["bbox"]["extents"]]},
+         "material": "oak and glass"})
+    d["joints"].append({"name": "CaseToGlazedDoor", "type": "revolute", "parent": parent["name"],
+                        "child": "GlazedDoor", "axis": [0, 1, 0], "pivot": [0.2, 0.5, 0],
+                        "lower": 0.0, "upper": 1.5, "rest": 0.0, "motion": "door swings open"})
+    p = ArticulatedPlan.model_validate(d)
+    names = [x.name for x in p.parts]
+    assert "GlazedFrontDoor" in names
+    j = next(x for x in p.joints if x.name == "CaseToGlazedDoor")
+    assert j.child == "GlazedFrontDoor"
+    assert any("resolved to sub-part GlazedFrontDoor" in n for n in p.normalisations)
+
+
+def test_the_unknown_link_complaint_lists_the_sub_parts():
+    """The re-ask used to see only top-level parts — with everything nested, it was blind
+    to the very children the joints meant, and both re-asks died the same way."""
+    d = _raw()
+    parent = d["parts"][0]
+    parent.setdefault("children", []).append(
+        {"name": "PendulumBob", "role": "bob", "description": "a brass disc",
+         "bbox": {"center": list(parent["bbox"]["center"]), "extents": [0.1, 0.1, 0.02]},
+         "material": "brass"})
+    d["joints"].append({"name": "Mystery", "type": "revolute", "parent": parent["name"],
+                        "child": "SomethingElse", "axis": [0, 1, 0], "pivot": [0, 0, 0],
+                        "lower": 0.0, "upper": 1.0, "rest": 0.0, "motion": "?"})
+    with pytest.raises(ValidationError, match=r"Sub-parts that exist but are NOT links:.*PendulumBob"):
+        ArticulatedPlan.model_validate(d)
+
