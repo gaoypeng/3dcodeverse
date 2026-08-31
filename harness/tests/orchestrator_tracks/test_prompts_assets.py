@@ -126,6 +126,7 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     assert "buildBollard" in sa and "FIX PASS" in sa
 
 
+@pytest.mark.node   # the threejs asset check imports three under node
 def test_a_committed_asset_is_reused_on_a_second_stage_run(tmp_ws, settings):
     """Review-3 S2 (V3-claim4): re-entering the stage (budget stop after commit, or a
     failed sibling) reuses a committed, import-clean module without a model call;
@@ -150,6 +151,7 @@ def test_a_committed_asset_is_reused_on_a_second_stage_run(tmp_ws, settings):
     assert len(agent.jobs) > n_jobs and results3["FishingBoat"].strategy != "reused"
 
 
+@pytest.mark.node   # the threejs asset check imports three under node
 def test_a_replanned_asset_with_the_same_name_is_not_reused(tmp_ws, settings):
     """Review-3 S2 sharp edge: after a --force re-plan, a committed module that kept
     its NAME but changed its plan slice (description/dims) must regenerate — the reuse

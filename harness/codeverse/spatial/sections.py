@@ -626,7 +626,7 @@ def judge_slices(
             label = g if len(groups[g]) == 1 else f"{g} (x{len(groups[g])})"
             if drawn_groups[g]:
                 handles.append(Line2D([], [], color=color_of_group[g], linewidth=2,
-                                      label=label + " [outline: open section]"))
+                                      label=label + " [outline only — not filled; NOT a hole]"))
             else:
                 handles.append(Patch(facecolor=color_of_group[g], edgecolor="#333333", label=label))
         if len(drawn_groups) > JUDGE_SLICE_LEGEND_MAX:

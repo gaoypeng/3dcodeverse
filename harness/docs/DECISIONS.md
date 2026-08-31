@@ -502,12 +502,51 @@ written) that were accepted because the code works that way and the tests pin it
   ("on-error" default | "off", `CV3D_JUDGE__SLICES`), slices appended AFTER the
   montages/crops with the F2/F3 rig text and the elicitation sentence in the DEFECT
   CHECKLIST bullet; clean rounds byte-identical (test-pinned), `judge_prompt_hash`
-  untouched.  **Watch item before D48 is called done** (b36_v0_02): the elicitation
-  sentence changes defect-marking *behaviour*, not just narration — its per-defect
-  sweep made three samples consistent on render-true defects and the multiplicative
-  cap stack took the row 0.54 → 0.008 (every added defect was already a minority vote
-  in the other arms; direction correct, magnitude brutal).  The first production
-  battery must re-check dirty-round defect rates and cap stacking.
+  untouched.
+  **Watch item ANSWERED 2026-08-31 — the channel stays, two sentences change.**  The
+  battery ran on a REBUILT corpus (the original scratchpad was destroyed by a /tmp
+  cleanup, so this is a fresh selection, not a replay): all 223 `static_object` runs
+  under `bench/out` with a GLB + plan re-gated live (92 dirty / 131 clean), then 16
+  dirty (12 blender / 4 threejs, 12 batteries, stored 0.052–0.980, 1–37 ERRORs, five
+  ≥ 0.88) + 6 clean controls re-rendered on the D47 rig and judged UNPATCHED in three
+  arms × n=3 ($11.45, 0 errors).  Payload drift vs the measured shim was not re-run —
+  it was closed line by line at the implementation review, and the shim is gone.
+  (a) **It is the slice IMAGES, not the sentence.**  Dirty rows 0.468 (off) → 0.429
+  (shipped), marked defects 2.50 → 2.75; the sentence-only arm (`slice_payload →
+  ([], True)`, the state a crashed drawing already produces) is FLAT at 0.471 / 2.38 —
+  it carries +0.0035 of the −0.039.  The mean move is inside noise (paired bootstrap
+  95 % CI [−0.114, +0.035]; 9 down / 5 up / 2 tie), i.e. not a uniform penalty.
+  (b) **The cap stack was the wrong thing to fear.**  Hard-cap loss FALLS 0.0204 →
+  0.0149 (the additive defect penalty is what rises, 0.189 → 0.204), is exactly 0.000
+  on 12 of 16 rows in BOTH arms, no row loses > 0.1 to a cap `off` did not apply
+  (max +0.032), and no cap brought by a new mark binds anywhere.  b36_v0_02 reproduces
+  only weakly — 0.579 → 0.202, of which 0.000 is caps — not the 0.54 → 0.008 that
+  wrote this watch item.
+  (c) **The shipped arm is the more ACCURATE one, not merely the harsher one.**  All 16
+  majority-marked disagreements were adjudicated against the rig renders and the exact
+  slice PNGs: +6 true marks gained, 0 true marks lost, 6 false `off` marks deleted, 4
+  false gained (net true +6 / net false −2).  Real wins: `h2h_office_chair`'s armrests
+  standing clear of the seat (off missed it 0/3 → 3/3), b36_v0_02's stacked-cylinder
+  scroll and painted-on f-holes.  Real deletions: the `sv2_violin` volute/C-bouts/
+  cut-out f-holes and the `machinist_vise` lofted casting that `off` had called
+  primitive.
+  (d) **The debt is two sentences, both inside slices-only text** (so clean-round
+  identity and `judge_prompt_hash` are untouched): the legend suffix
+  `[outline: open section]` named a MESH property and read as a hole report — it alone
+  moved `holes_or_inverted_faces` 0 → 2 cases, now `[outline only — not filled; NOT a
+  hole]`; and the in-plane caveat was too generic to stop a 2.4 mm open join and
+  section-cut islands being marked floating — it now POINTS AT the views that can
+  decide ("judge floating_part and holes_or_inverted_faces from the shaded and
+  geometry views") rather than forbidding the mark, because a bare prohibition would
+  suppress the true marks the channel exists to win.  Rejected: a revert (it nets +6
+  true marks), dropping the elicitation (inert on dirty rounds, and it produces the
+  citations this audit was read from), a cap-interaction guard (no such cap fired).
+  Clean-row invariant now MEASURED, not inherited: all 6 controls rebuild
+  byte-identical under both dials.  Forcing the sentence onto clean rows costs −0.092,
+  so it must never be promoted to unconditional — the on-error gate is load-bearing.
+  Separately fundable, NOT D48's: `untextured_flat` is over-applied by BOTH arms on
+  shaded models with a uniform sensible colour, which the rubric item's own text
+  exempts.
 
 ## Rejected / deferred
 

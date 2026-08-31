@@ -827,3 +827,40 @@ Confounds recorded honestly: this arm ran on 3.6-flash (3.7 outage, 000×3
 probes), and `21c34c1` transport-retry landed mid-battery (these runs predate
 it).  Validation arm `art_axr_v1` (same briefs, 3.7, both levers live) is in
 flight; its row decides the lever.
+
+### 2026-08-31 — D48 watch item: it is the images, the caps never bind, and the channel is the more accurate arm
+
+Rebuilt corpus (the original scratchpad was destroyed by a `/tmp` cleanup — a fresh selection,
+not a replay): all 223 `static_object` runs under `bench/out` carrying a GLB + plan re-gated live
+(0 failures → 92 dirty / 131 clean); 16 dirty + 6 clean controls re-rendered on the D47 14+4 rig
+and judged through the UNPATCHED shipped code, three arms × n=3 `gemini-3.1-pro-preview`
+($11.45, 0 errors, every row `n_used=3`).  Payload drift vs the measured shim was closed at the
+implementation review, not re-run.
+
+| dirty n=16 | mean | median | marked/case | hard-cap loss | defect penalty |
+|---|---|---|---|---|---|
+| `off` (pre-D48 payload) | 0.468 | 0.546 | 2.50 | 0.0204 | 0.1888 |
+| `slices` (shipped) | 0.429 | 0.447 | 2.75 | **0.0149** | **0.2040** |
+| `elicit` (sentence only) | 0.471 | 0.506 | 2.38 | 0.0148 | 0.1819 |
+
+`elicit` is the shipped `slice_payload` returning `([], True)` — the state a crashed drawing
+already produces — so `elicit − off` isolates the SENTENCE and `slices − elicit` the IMAGES.  The
+sentence is inert on dirty rounds (+0.0035, and it *lowers* marked defects); the images carry the
+move.  The cap stack is not the mechanism the watch item feared: hard-cap loss FALLS, is exactly
+0.000 on 12 of 16 rows in both arms, no row loses > 0.1 to a cap `off` did not apply (max +0.032),
+and no cap brought by a new mark binds.  b36_v0_02 moves 0.579 → 0.202 (not 0.54 → 0.008) with a
+0.000 cap contribution.  The mean move is inside noise (bootstrap 95 % CI [−0.114, +0.035];
+9 down / 5 up / 2 tie).
+
+Every one of the 16 majority-marked disagreements was adjudicated against the rig renders and the
+exact slice PNGs the judge saw: **+6 true marks, −0 true marks, −6 false `off` marks, +4 false
+marks** — net true +6 / net false −2.  Two of the four false gains are D48's own drawing
+describing itself, and both are now fixed in slices-only text: the legend suffix
+`[outline: open section]` (read as a hole report; it alone moved `holes_or_inverted_faces` 0 → 2
+cases) is now `[outline only — not filled; NOT a hole]`, and the in-plane caveat now points at the
+shaded and geometry views for `floating_part` / `holes_or_inverted_faces` instead of denying the
+slice — a bare prohibition would suppress the true marks the channel exists to win.  Clean-row
+identity is now measured rather than inherited (all 6 controls rebuild byte-identical under both
+dials); forcing the sentence onto clean rows costs −0.092, which the on-error gate prevents.
+Open, not D48's: `untextured_flat` is over-applied by BOTH arms on shaded models with a uniform
+sensible colour — exactly what the rubric item's own text exempts.

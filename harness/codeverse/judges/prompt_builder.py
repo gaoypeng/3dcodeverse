@@ -865,7 +865,9 @@ def slice_rig_section(labels: list[str]) -> str:
             "overlap are hatched red. "
             "A gap between parts IN THE CUT PLANE is not evidence of disconnection — parts "
             "may join outside this plane; the measured structure block is authoritative for "
-            "connectivity.\n" + lines)
+            "connectivity.  Judge floating_part and holes_or_inverted_faces from the shaded "
+            "and geometry views, which see the whole surface; a slice shows one cut only.\n"
+            + lines)
 
 
 def judge_prompt_hash(rubric: Rubric) -> str:

@@ -135,6 +135,11 @@ def test_dirty_gates_append_slices_after_crops_with_rig_text_and_one_elicitation
     text = text_of(req)
     assert "After the crops, 2 cross-section slice(s) show the interior" in text
     assert "A gap between parts IN THE CUT PLANE is not evidence of disconnection" in text
+    # the 2026-08-31 watch-item battery: the generic caveat did not stop a 2.4 mm open join
+    # and section-cut islands being marked floating_part, so the text names the views that
+    # CAN decide instead of merely denying the slice (a bare prohibition would suppress the
+    # true marks the channel is there to win)
+    assert "Judge floating_part and holes_or_inverted_faces from the shaded" in text
     assert f"- slice 1: {SLICE_LABELS['front_back']}" in text
     assert req.system.count(PROVENANCE_ELICITATION) == 1
     assert 'do not hide one to be kind. ' + PROVENANCE_ELICITATION in req.system
