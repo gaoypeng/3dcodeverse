@@ -46,3 +46,14 @@ as system binaries. Paths to the binaries are constants at the top of each scrip
    overlapping the 212 3DCodeBench factories, which silently emptied both `3dcodebench/instances_*` folders —
    100% of their rows were overlaps. The overlap is now *counted* in `qc.json` and the rows are kept, so the
    split is a decision the training run makes, not one the converter already made.
+| `shrink_pair_images.py` | re-encodes the extracted renders to training resolution (≤448px JPEG). Measured 90.8% smaller — 113.7 GB becomes 10.5 GB — and loses nothing a training run would have seen, because every vision tower downsamples to 448² anyway; the originals stay in the corpus tars |
+| `upload_pairs.py` | publishes the pair datasets INTO their source folders (`<source>/<subdir>_llamafactory_{text,img,imgtext}`) and their renders as `<source>/pair_renders/`, then registers everything in the root `dataset_info.json` |
+| `drop_old_pair_trees.py` | removes a superseded tree only after verifying the index no longer points into it — it refuses to run otherwise |
+
+### A fourth rule, learned the expensive way
+
+4. **Same name does not mean same content — compare before deleting.** Twice a folder appeared both at the
+   repository root and inside its source, and both times the root copy was the NEWER one (1,008 vs 949 samples,
+   and earlier 949 vs 318). Deleting the apparent duplicate would have silently discarded 1,239 samples. The
+   safe order is always: compare, promote the newer copy, then delete — in a single commit, so the repository is
+   never seen with the data in two places or in neither.
