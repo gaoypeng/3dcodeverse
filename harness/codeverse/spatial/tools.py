@@ -710,7 +710,7 @@ def texture_pass_tool(ctx: ToolContext, args: TexturePassArgs) -> Observation:
 
 
 class TexturePreviewArgs(BaseModel):
-    views: list[str] = Field(default=["front_right_34", "back_left_34", "front", "top"], description="view names")
+    views: list[str] = Field(default=list(_DEFAULT_VIEWS), description="view names")
 
 
 @tool("texture_preview", TexturePreviewArgs,
@@ -747,7 +747,7 @@ _SYNTH_WARNING = ("This reference was SYNTHESIZED from the brief by an image mod
 
 
 class CompareReferenceArgs(BaseModel):
-    view: str = Field(default="front_right_34", description="view to render for the comparison")
+    view: str = Field(default="front_right_high", description="view to render for the comparison")
     reference_index: int = Field(default=0, ge=0, description="index into spec.references")
     size: int = Field(default=512, ge=256, le=1024, description="render size in px (square)")
 
@@ -762,7 +762,7 @@ def compare_reference(ctx: ToolContext, args: CompareReferenceArgs) -> Observati
         return Observation.error(f"reference image {ref_path.name} not found")
     if args.view not in VIEW_BY_NAME:
         raise ToolUsageError(f"unknown view {args.view!r}; choose from {list(VIEW_BY_NAME)}",
-                             "compare_reference(view='front_right_34')")
+                             "compare_reference(view='front_right_high')")
     preset = VIEW_BY_NAME[args.view]
     shaded = cached_render_glb(ctx, glb, views=[preset], mode="shaded", size=args.size, sheet=False)
     sil = cached_render_glb(ctx, glb, views=[preset], mode="silhouette", size=args.size, sheet=False)

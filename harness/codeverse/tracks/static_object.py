@@ -568,7 +568,8 @@ def detail_instructions(last: Any, *, max_lines: int = 8) -> list[str]:
 # ===================================================================== reference images
 SILHOUETTE_GATE = "reference_silhouette"
 IOU_REFINE_THRESHOLD = 0.6
-FRONT_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_34", "front_left_34")
+FRONT_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high",
+                                     "front_right_34", "front_left_34")  # *_34 = pre-D47 stored runs
 
 
 def target_reference(ctx: RunContext) -> str | None:

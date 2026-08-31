@@ -165,6 +165,10 @@ _POSITIONS = {
     4: ("top-left", "top-right", "bottom-left", "bottom-right"),
 }
 MAX_TILES = 4
+#: payload knobs (defaults; ``Settings.judge`` overrides per run).  5 montages carry the
+#: 14-view rig + the clay geometry montage; 3 silently dropped the low ring + poles (D47).
+MAX_MONTAGES = 5
+MAX_DETAIL_CROPS = 2
 
 
 @dataclass(frozen=True)
@@ -222,8 +226,8 @@ def plan_montages(
     *,
     geometry_views: RenderSet | None = None,
     scene: bool = False,
-    max_montages: int = 3,
-    detail_crops: int = 2,
+    max_montages: int = MAX_MONTAGES,
+    detail_crops: int = MAX_DETAIL_CROPS,
 ) -> list[Montage]:
     """Decide which montages a judge call gets (see module docstring for the priority)."""
     shaded = [v for v in renders.views if not (is_pose_view(v) or is_pose_sheet(v) or is_geometry_view(v))]
@@ -389,8 +393,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from codeverse.judges.base import JudgeInput
 
 TEXT_BUDGET_CHARS = 24_000  # ≈ 6k tokens
-MAX_MONTAGES = 5  # 14-view rig: 4 shaded 2×2s + the clay geometry montage (D47)
-MAX_DETAIL_CROPS = 2
 MAX_PX = 1024  # montages are 2×2 grids: keep them legible
 MONTAGE_TILE_PX = 512
 
