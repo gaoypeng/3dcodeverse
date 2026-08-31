@@ -477,6 +477,39 @@ written) that were accepted because the code works that way and the tests pin it
   drops −0.195 → −0.126: re-keying every σ threshold to buy half the noise is a bad
   trade; **t = 0.2 stays**.
 
+* **D48 Conditional cross-section slices + provenance elicitation on gate-ERROR rounds
+  (2026-08-31).**  Context: the judge's interpenetration verdicts were reading
+  comprehension of the gate text, not seeing (D47's provenance pass: pure-view TP 0/14
+  in every arm).  Three measured iterations on the same 42-item battery (n=3 pro),
+  under a pre-registered stopping rule — adopt only if the guarded image-cited
+  interp majority on the 14 conn-dirty rows reaches 8/14, with a per-vote provenance
+  guard that verifies every "visible in slice n" citation against the slice manifest
+  and PNGs: **v1** (slices always on + a primed rig text) hit 8/14 but primed the
+  defect and damaged clean rounds; **v2** (de-primed: F1 hatch only gate-ERROR pairs,
+  F2 neutral legend "measured overlap (gate ERROR)", F3 anti-over-read sentence, F4
+  degenerate-slice drop) killed the clean-row damage but fell to 5/14 — the judges
+  still *saw* (the catches stayed) but stopped narrating; **v3** (conditional: slices
+  + one neutral elicitation sentence ONLY on rounds whose connectivity gate carries an
+  ERROR; every clean row byte-identical to production by construction) restored
+  **8/14 guard-verified** (2/23 citations fabricated, both guard-caught, 0 rows
+  flipped) with honest negatives: on the 4 rows whose error pairs miss both centre
+  planes the judges wrote text-only evidence in 10/12 present-votes instead of
+  inventing citations.  Both real catches retained (gate_valve wrong_orientation
+  3/3, clock_theirs hatch-verified interp); dirty-row mean at CPROD parity excluding
+  the one collapse; clean−dirty gap 0.155 → 0.198.  Cost: dirty verdict **$0.154 vs
+  $0.172** baseline — cheaper — so amortised ≤ $0 and no profile dial moves.
+  Shipped: `spatial.sections.judge_slices` (+ typed `SliceManifest` beside the PNGs —
+  citations stay auditable), `JudgeInput.glb_path`, `Settings.judge.slices`
+  ("on-error" default | "off", `CV3D_JUDGE__SLICES`), slices appended AFTER the
+  montages/crops with the F2/F3 rig text and the elicitation sentence in the DEFECT
+  CHECKLIST bullet; clean rounds byte-identical (test-pinned), `judge_prompt_hash`
+  untouched.  **Watch item before D48 is called done** (b36_v0_02): the elicitation
+  sentence changes defect-marking *behaviour*, not just narration — its per-defect
+  sweep made three samples consistent on render-true defects and the multiplicative
+  cap stack took the row 0.54 → 0.008 (every added defect was already a minority vote
+  in the other arms; direction correct, magnitude brutal).  The first production
+  battery must re-check dirty-round defect rates and cap stacking.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

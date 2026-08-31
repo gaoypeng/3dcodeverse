@@ -706,3 +706,38 @@ render_artifacts vs 0.965 blind) but posts the worst clean/dirty gap (0.112), th
 row-σ (0.040) and a windmill relapse to 0.62 — rejected; the replace-the-bottom-crop
 variant stays queued.  Temperature A2 @ t=0 ($6.0): σ 0.037 → 0.022 (8/42 rows exactly
 deterministic) but mean −0.037 and pearson(gate errors) −0.195 → −0.126 — t = 0.2 stays.
+
+**2026-08-31 — conditional cross-section slices ADOPTED (D48): three iterations under a
+pre-registered stopping rule.**  Question: can the judge be made to SEE interpenetration
+(D47's provenance pass: pure-view TP 0/14 in every arm — the 14/14 naive figure measured
+reading comprehension of the shared gate text)?  Instrument: the same 42-item battery,
+n=3 pro, 14 rows conn-dirty; the metric is the **guarded image-cited interp majority**
+on those 14, bar fixed at 8/14 BEFORE the last iteration ran.
+
+*Provenance-guard methodology.*  Every interp PRESENT vote that cites a slice is checked
+against the slice's own manifest and, where decisive, the PNG.  Citation classes:
+**A** = the slice is named AND the named part pair is verbatim in that slice's hatched
+list; **B** = the slice is named with no pair, but the slice genuinely carries hatch
+("slice 1 shows massive red hatched areas" over a slice that does).  A cited slice with
+no hatch, or a cited pair the manifest contradicts, is a FAIL and the vote is discarded.
+v3: 13 A votes + 8 B votes counted, 2 FAILs (a pair-swap parroted from the gate text; a
+citation into an empty slice) — 2/23 fabrication, 0 rows flipped by the guard.  Two rows
+reach majority through B votes only; both were PNG-read and the hatch is real, so 8/14
+stands (a pair-named-only reading gives 6/14 and discards PNG-true citations).
+
+*The three iterations.*  **v1** (slices always on, primed rig text): 8/14 but the wording
+primed the defect and clean rounds took damage — rejected.  **v2** (de-primed: hatch only
+gate-ERROR pairs, neutral legend, anti-over-read sentence, degenerate-slice drop): clean
+damage gone, but 5/14 — the seeing survived (catches retained), the narration did not.
+**v3** (conditional on a connectivity gate ERROR + one neutral elicitation sentence in
+the defect-checklist bullet; 28 clean rows byte-identical CPROD by construction): **8/14
+guard-verified**, honest negatives on the 4 rows whose error pairs miss both centre
+planes (10/12 present-votes there say text-only rather than inventing a citation), both
+real catches retained (gate_valve wrong_orientation 0.700→0.500 at 3/3; clock_theirs
+hatch-verified 3×A), dirty mean at CPROD parity excluding one row, clean−dirty gap
+0.155→0.198, dirty verdict $0.154 vs $0.172 (cheaper; docs/COST.md §14).  Caveat carried
+into D48 as a watch item: b36_v0_02 collapsed 0.54→0.008 — every added defect was a
+minority vote in the other arms and render-true, but the elicitation's per-defect sweep
+made three samples consistent and the multiplicative cap stack did the rest; the first
+production battery re-checks dirty-round defect rates and cap stacking before D48 is
+called done.

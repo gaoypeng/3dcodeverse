@@ -352,7 +352,20 @@ OPEN with the gap, the lowest point above the floor) and a CONNECTIVITY PASSED p
 that also forbids the interpenetration checklist claim.  It is rendered from the stored
 `GateReport`, so `3dcv judge <slug>` and calibration see exactly what the in-run judge
 saw, and a round recorded before the ledger existed renders byte-identical to before
-(`ObjectPipeline.judge_context` stays empty on purpose — one source).  Floors,
+(`ObjectPipeline.judge_context` stays empty on purpose — one source).  On an
+object-track round whose connectivity gate carries an ERROR, the payload
+conditionally grows **cross-section slices** (D48, `Settings.judge.slices =
+"on-error"`): `spatial.sections.judge_slices` cuts the round's GLB
+(`JudgeInput.glb_path`) on the two vertical centre planes — per-part fills with a
+legend, red hatch ONLY on the gate's ERROR penetration pairs, plain darkened blends
+for every other in-plane overlap, degenerate slices dropped — and the ≤ 2 PNGs are
+appended AFTER the montages and crops with a factual rig-text block (an in-plane gap
+is not evidence of disconnection) plus one provenance-elicitation sentence in the
+defect-checklist bullet ("say where it is visible … or state that it rests on the
+measured text alone").  A clean round's payload is **byte-identical** to the
+unconditional one (test-pinned; `judge_prompt_hash` unchanged), the render is local
+CPU, and the typed `SliceManifest` beside the PNGs keeps every "visible in slice n"
+citation auditable.  Floors,
 deterministic caps from gate findings (`data["kind"]`), console errors, missing
 must-acceptance and
 `missing_views` rules apply on top; degraded verdicts are glitches, not scores.

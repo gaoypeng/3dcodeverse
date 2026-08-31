@@ -605,6 +605,15 @@ same-cap).  The rejected 14-singles arm B cost $0.198 & 67.5k tok/verdict for a
 flash replica prices a C verdict at ~$0.032, and 3 montages would silently drop the
 low ring + poles).
 
+### Conditional slices (D48, 2026-08-31): the dirty verdict got CHEAPER
+
+The gate-ERROR-only slice channel (docs/DECISIONS.md D48) measured **$0.154/dirty
+verdict vs $0.172 baseline** (n=3, 3.1-pro, 14 conn-dirty rows) — the two extra
+small PNGs are outweighed by shorter narration — and a clean round's payload is
+byte-identical, so at production dirty ratios the channel amortises to **≤ $0**.
+The slice render itself is local CPU (shapely + matplotlib, a few seconds).  No
+profile carries a dial for it; `CV3D_JUDGE__SLICES=off` is the kill switch.
+
 ### The crop-count experiment — INCONCLUSIVE, not adopted
 
 The other payload lever is the **image count**.  The same round

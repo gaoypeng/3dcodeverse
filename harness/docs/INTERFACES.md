@@ -293,6 +293,11 @@ check_placement(ws, *, indoor=None, force_probe=False) -> GateReport   # gate "s
 placement_gate_safe(census, *, plan=None) -> GateReport | None       # round gate: None without a table, WARN on failure, never raises
 from codeverse.spatial.scene_placement import setting_text          # (plan: dict | model) -> the indoor/outdoor setting line
 from codeverse.spatial.silhouette import compare_silhouette
+from codeverse.spatial.sections import judge_slices, SliceManifest, JUDGE_SLICE_PLANES   # (D48)
+judge_slices(glb, error_pairs, out_dir, planes=("front_back","left_right")) -> SliceManifest   # two vertical centre slices,
+    # red hatch ONLY on error_pairs (the connectivity gate's ERROR penetration pairs), plain darkened blend otherwise,
+    # degenerate slices dropped (F4) → 0–2 PNGs (slice_<name>.png, manifest.json beside them; JudgeSlice.png is a bare
+    # file name); needs the mesh extra (shapely + matplotlib), ImportError propagates; a bad GLB → manifest.errors, no raise
 from codeverse.spatial.joints import load_urdf, fk, sweep_collisions, urdf_to_glb, render_poses   # RESERVED_LINK_NAMES={'world'}
 from codeverse.spatial.joints_collide import components   # (names, edges) -> list[set[str]]: THE union-find (connectivity + sweep)
 # the joint_sweep TOOL body lives in spatial/tools.py (no joint_sweep_observation helper; render_poses takes no renderer=)
@@ -319,10 +324,21 @@ VlmJudge(rubric="static_object_v1", model_id=None (settings.default_judge = gemi
          temperature=0.2, *, thinking="low", max_attempts=3, max_montages=3, detail_crops=2, max_px=1024, sample_budget_s=240,
          chat_model=None, cache_dir=None, label="judge")            # Δ max_images is GONE → montage budget
 VlmJudge.judge(inp) -> Judgment                # clay/normals views travel ONLY as JudgeInput.geometry_views (no kwarg)
+VlmJudge.slice_payload(inp) -> (list[(label, png_path)], provenance_elicitation: bool)   # (D48) ([], False) unless
+    # Settings.judge.slices=="on-error" AND spec.track in judges.base.SLICE_TRACKS AND inp.glb_path exists AND the
+    # connectivity gate has ≥1 ERROR; renders judge_slices into the judge cache (keyed by glb identity + error pairs)
 from codeverse.judges.base import JudgeInput   # (spec, renders, measurement=None, gates=[], acceptance=[], plan_summary="",
-                                               #  round_index=0, previous=None, extra_context="", geometry_views=None)
+                                               #  round_index=0, previous=None, extra_context="", geometry_views=None,
+                                               #  glb_path=None (D48: the round's canonical GLB; object tracks + 3dcv judge fill it))
 from codeverse.judges.prompt_builder import plan_montages, render_montage, Montage    # ≤3 2×2 montages (shaded/geometry/poses) + ≤2 detail
     # crops @≤1024px replace sheet+9 views; clay/normals views (RenderView.mode) auto-route to the GEOMETRY montage
+from codeverse.judges.prompt_builder import build_judge_messages, connectivity_error_pairs, PROVENANCE_ELICITATION
+build_judge_messages(inp, rubric, *, …, extra_images=None (PREpended: references), extra_text="",
+                     slice_images=None, provenance_elicitation=False) -> (system, [ChatMessage])   # (D48) slice_images
+    # (label, path) are APPENDED after the montages/crops + described by slice_rig_section in the view-rig text;
+    # provenance_elicitation appends one sentence to the DEFECT CHECKLIST bullet.  Defaults build the byte-identical
+    # pre-D48 payload; judge_prompt_hash(rubric) is unchanged either way (per-round content stays outside the hash)
+connectivity_error_pairs(gates) -> list[(a, b)]   # the gate's ERROR penetration pairs via finding.target/data.other
 from codeverse.judges.rubrics import is_degraded, aggregate_samples, SCORING_VERSION   # ScoreBreakdown adds defects,
     # defect_votes (majority; a defect tie → absent, an acceptance tie → representative sample, D36 as amended
     # 2026-08-30), tie_broken, defect_penalty, overall_after_defects, overridden (defects the measured-absent
