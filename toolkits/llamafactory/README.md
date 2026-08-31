@@ -57,3 +57,15 @@ as system binaries. Paths to the binaries are constants at the top of each scrip
    and earlier 949 vs 318). Deleting the apparent duplicate would have silently discarded 1,239 samples. The
    safe order is always: compare, promote the newer copy, then delete — in a single commit, so the repository is
    never seen with the data in two places or in neither.
+| `audit_pairs.py` | checks every pair dataset for the invariants that fail only once training has started: absolute paths, wrong extension, image files that do not exist, `<image>` count vs `len(images)`, turn shape, fenced code, empty system, row count vs `qc.json`. Exits non-zero on any finding, so it can gate a publish |
+
+### A fifth rule
+
+5. **Sampling proves a problem exists; it cannot prove one does not.** Checking four datasets said "every path is
+   relative". Scanning all 411 found **36,964 absolute paths** in three of them — introduced by a later rebuild
+   that reused already-extracted renders and took a code path which skipped the relativisation. For a global
+   invariant, scan globally: `audit_pairs.py` exists for exactly this.
+
+   The same audit script then reported all 1,948,765 rows as malformed, which was a defect in the checker
+   (parquet returns numpy arrays, and `isinstance(x, list)` is False for them) — rule 1 applies to your own
+   checkers too.
