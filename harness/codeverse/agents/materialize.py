@@ -71,9 +71,8 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], 
         )
     from codeverse.spatial.registry import list_tools
 
-    # the same track/language filter the MCP server applies (mcp_server.build_context):
-    # this file is agy's ONLY tool documentation and its shell fallback is unscoped, so
-    # documenting the whole registry taught scene/graphics agents dead-end object tools
+    # the MCP server's track/language filter (mcp_server.build_context): this file is
+    # agy's ONLY tool documentation, and the whole registry taught dead-end object tools
     track = language = ""
     if ws is not None and ws.spec_path.is_file():
         try:

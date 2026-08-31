@@ -304,12 +304,10 @@ def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
 HARNESS_OWNED_DIRS = ("artifacts", "trajectories", "stages", "rounds", "_cand", "_assets", ".3dcv", ".gemini", ".claude", ".git")
 HARNESS_OWNED_FILES = frozenset({"events.jsonl", "run_state.json", "record.json", "AGENTS.md", "GEMINI.md", "CLAUDE.md",
                                  ".mcp.json", ".geminiignore", ".aiexclude", ".gitignore"})
-#: gitignored control files git cannot revert: byte-snapshotted by :func:`begin_session`,
-#: compared + restored by :func:`_enforce_scope`.  Downstream trusts both blindly
-#: (``ensure_materialized`` once-per-run, ``_prior_record_fields`` merge).
+#: gitignored control files git cannot revert (downstream trusts both blindly):
+#: byte-snapshotted by :func:`begin_session`, compared + restored by :func:`_enforce_scope`
 UNTRACKED_CONTROL_FILES = ("run_state.json", "record.json")
-#: the one harness-owned file the harness itself appends to MID-session (event stream):
-#: exempt from the tamper revert — restoring it would delete legitimate harness rows.
+#: the harness appends to the event stream MID-session — exempt from the tamper revert
 _CONTROL_EXEMPT = frozenset({"events.jsonl"})
 
 
@@ -452,8 +450,7 @@ def _enforce_scope(s: Session) -> dict[str, str]:
     reverted: dict[str, str] = {}
     restore: list[str] = []
     remove: list[str] = []
-    # control files are enforced even with an empty write scope — there is no job
-    # narrow enough to make run_state.json or AGENTS.md agent-writable
+    # no empty-scope early-out: control files are enforced under ANY job scope
     for f in s.ws.changed_files(s.head_before):
         parts = Path(f.path).parts
         if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in _CONTROL_EXEMPT:

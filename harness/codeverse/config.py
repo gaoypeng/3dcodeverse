@@ -225,8 +225,7 @@ class Settings(BaseSettings):
     #: knob; both spellings now work and the doctor prints the short one.
     _FLAT_ALIASES: ClassVar[dict[str, tuple[str, str]]] = {
         "CV3D_MAX_IN_FLIGHT": ("rate", "max_in_flight"),
-        # the spelling every doc and the node side (gpu_launch.cjs) use — pydantic-settings
-        # only read CV3D_RENDER__GPU, so the documented knob was dead on 2 of 3 tracks
+        # the spelling every doc and gpu_launch.cjs use; only CV3D_RENDER__GPU was read
         "CV3D_RENDER_GPU": ("render", "gpu"),
         FEWER_TURNS_ENV: ("limits", "fewer_turns"),
         SEED_RECIPES_ENV: ("limits", "seed_recipes"),

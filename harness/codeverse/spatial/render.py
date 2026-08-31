@@ -115,9 +115,8 @@ def render_glb(
         "background": background,
         "anim_time": anim_time,
         "shadow": bool(shadow),
-        # requested mode, not the resolved backend: 'auto' fragments from 'on'/'off',
-        # which is accepted over a hit serving the other backend's pixels (and lying
-        # about RenderSet.renderer) when someone flips CV3D_RENDER_GPU between runs
+        # requested mode ('auto' fragments from 'on'/'off' — accepted over a hit
+        # serving the other backend's pixels and lying about RenderSet.renderer)
         "gpu": gpu,
         "rig": _rig_signature(),
     }
@@ -185,8 +184,7 @@ def _run_render(glb: Path, out_dir: Path, params: dict[str, Any], *, gpu: str, t
 
 def _store_in_cache(cache_dir: Path, out_dir: Path, record: dict[str, Any]) -> None:
     # per-writer tmp + tolerant rename (the vlm_judge._render_slices shape): a pid-only
-    # tmp name let two threads of one judge fan-out share a dir — the loser's rmtree
-    # deleted the winner's half-copied PNGs AFTER a successful render
+    # name let two judge threads share a tmp dir and delete each other's half-copied PNGs
     tmp = cache_dir.parent / f".{cache_dir.name}.{os.getpid()}-{threading.get_ident()}.tmp"
     shutil.rmtree(tmp, ignore_errors=True)
     try:

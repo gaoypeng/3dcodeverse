@@ -269,16 +269,13 @@ def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], selector: Best
 def replay_best_round(journal: Sequence[RoundRecord], selector: BestSelector | None = None) -> int | None:
     """The best index, walking the journal sequentially and honouring stored verdicts.
 
-    ``rNN.json`` + the git commit are durable BEFORE the best is promoted and the state
-    saved (``lifecycle._round_loop``), so a kill in that gap — or any resume of a run
-    whose state predates ``best_considered_through`` — used to re-rank on score alone
-    and reverse a ~$0.05 judgement the run had already bought (18 such runs on disk,
-    2026-08-30).  Each round is an incumbent-vs-challenger step: a round that carries a
+    Each round is an incumbent-vs-challenger step: a round carrying a
     :class:`PairwiseNote` was decided inside ``policy.pairwise_margin``, where score
     ranking has nothing to say, so the stored verdict — replace or keep — is FINAL
-    (a later, worse round can never revive a rejected challenger by global re-ranking);
-    every other round advances by the same two-way ``BestSelector`` rule, whose key is
-    a total order — so absent verdicts this equals the global pick."""
+    (a later round can never revive a rejected challenger by global re-ranking, and a
+    kill before the state save cannot reverse a paid ~$0.05 judgement — 18 such runs
+    on disk, 2026-08-30); every other round advances by the two-way ``BestSelector``
+    rule, whose key is a total order — absent verdicts this equals the global pick."""
     selector = selector or BestSelector()
     best: int | None = None
     for i, rec in enumerate(journal):

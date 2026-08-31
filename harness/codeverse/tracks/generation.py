@@ -509,12 +509,10 @@ def _charge(budget: Any | None, usage: Usage, *, task: GenerationTask, enforce: 
 
 
 def _deadline_preflight(budget: Any | None, wait_s: float, *, soft: bool = False) -> float:
-    """Gate a model/agent session on the run clock: refuse to start past the HARD
-    ceiling (``budget.check()`` raises — a timed-out session that produced nothing
-    bills nothing, so the accounting-driven check alone never fires), and clip the
-    session's wait to the remaining wall clock (a flat 30-minute session once ran
-    9 minutes PAST a 30-minute ceiling, measured 2026-08-27).  ``soft=True`` keeps
-    a caller-chosen window as its stage clipped it (scene.py's shares)."""
+    """Gate a session on the run clock: refuse to start past the HARD ceiling (a
+    timed-out session that produced nothing bills nothing, so the accounting-driven
+    check alone never fires) and clip the wait to the remaining wall clock (a flat
+    30-minute session once ran 9 minutes past the ceiling, measured 2026-08-27)."""
     if budget is None:
         return wait_s
     if hasattr(budget, "check"):

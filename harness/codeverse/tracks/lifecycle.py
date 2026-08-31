@@ -761,8 +761,7 @@ class BaseTrack:
                 rebuild_err = f"{type(e).__name__}: {e}"[:300]
                 ctx.events.emit("finalise.rebuild_failed", error=rebuild_err)
         if rebuild_err:
-            # keep the earned status + judge scores (they were really paid and judged),
-            # but the record must say the deliverable's artifact could not be rebuilt.
+            # keep the earned status + scores; the record says the artifact is gone
             ctx.extra["finalise_rebuild_failed"] = rebuild_err
             error = error or f"finalise rebuild failed: {rebuild_err}"
         if rounds and not rebuild_err and self._texture_wanted(ctx):

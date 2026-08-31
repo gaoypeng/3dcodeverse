@@ -103,9 +103,8 @@ class MeteredChatModel:
     def generate(self, request: ChatRequest) -> ChatResponse:
         call_id = uuid4().hex  # joins the per-attempt rows to the call's logical row
         # captured NOW: a hedge loser lands after this call returned, in a thread with
-        # no context, so neither the run's ledger, its name nor the stage/role/round
-        # attribution is reachable there — the loser's row used to fall back to what
-        # the label alone says (baseline/None instead of candidate/r0)
+        # no context — neither the run's ledger, its name, nor the stage/role/round
+        # attribution (the loser's row used to fall back to the bare label) is reachable
         ledger = default_ledger()
         run = run_binding().run
         ctx = attribute(label=request.label)
