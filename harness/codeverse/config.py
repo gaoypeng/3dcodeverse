@@ -16,7 +16,7 @@ import re
 import shutil
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
@@ -159,6 +159,12 @@ class Judge(BaseModel):
     montages: int = Field(default=5, description="max 2x2 montages per verdict (14-view rig, D47)")
     detail_crops: int = Field(default=2, description="max zoomed detail crops per verdict")
     samples: int = Field(default=1, description="default VLM samples per verdict")
+    slices: Literal["on-error", "off"] = Field(
+        default="on-error",
+        description="conditional cross-section slices (D48, CV3D_JUDGE__SLICES): 'on-error' appends ≤2 "
+        "interior slice images + one provenance-elicitation sentence to an object-track verdict whose "
+        "connectivity gate carries an ERROR; clean rounds build a byte-identical payload either way.  "
+        "Slice render is local CPU; no profile touches this dial (the channel measured ≤ $0).")
 
 
 #: The fewer-turns switch (docs/COST.md §29).  Read at CALL time by

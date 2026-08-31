@@ -21,7 +21,7 @@ from codeverse.contracts.artifacts import BuildResult, RenderSet, RenderView
 from codeverse.contracts.common import TRACK_INFO
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.run import RoundRecord, RunRecord
-from codeverse.judges.base import judged_subset, plan_digest, resolve_paths
+from codeverse.judges.base import SLICE_TRACKS, judged_subset, plan_digest, resolve_paths
 from codeverse.proc import read_json_or_none
 from codeverse.workspace import Workspace
 
@@ -102,7 +102,17 @@ def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> Any:
         acceptance=acceptance, plan_summary=plan_summary_for(ws), round_index=rnd.index,
         previous=previous_judgment(ws, rec, rnd.index), extra_context=extra_context_for(ws, rec, rnd),
         geometry_views=clay_geometry_views(ws, rnd.index),
+        glb_path=stored_glb_path(ws, rec, rnd),
     )
+
+
+def stored_glb_path(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> str | None:
+    """The round's canonical GLB (object tracks), rebased to THIS workspace — what lets
+    ``3dcv judge`` reproduce the D48 conditional slice payload from the stored gates."""
+    if rec.spec.track.value not in SLICE_TRACKS or rnd.build is None or not rnd.build.glb_path:
+        return None
+    p = ws.rebase(rnd.build.glb_path)
+    return str(p) if p.is_file() else None
 
 
 def make_judge(rec: RunRecord, rubric_name: str, model_id: str, n: int) -> Any:
@@ -120,14 +130,19 @@ def make_judge(rec: RunRecord, rubric_name: str, model_id: str, n: int) -> Any:
     return VlmJudge(rubric=rubric_name, model_id=model_id, n_samples=n)
 
 
-def count_prompt_images(inp: Any, rubric_name: str) -> int | None:
-    """Number of image parts a single judge sample will send (None on failure)."""
+def count_prompt_images(inp: Any, rubric_name: str, judge: Any = None) -> int | None:
+    """Number of image parts a single judge sample will send (None on failure).
+
+    With ``judge`` given, its D48 slice payload is counted too, so a dirty round's
+    printed count matches what the verdict call actually sends."""
     try:
         load_rubric = C.lazy("codeverse.judges.rubrics", "load_rubric")
         build_judge_messages = C.lazy("codeverse.judges.prompt_builder", "build_judge_messages")
         from codeverse.contracts.chat import ImagePart
 
-        _, messages = build_judge_messages(inp, load_rubric(rubric_name))
+        slices, elicit = judge.slice_payload(inp) if judge is not None else ([], False)
+        _, messages = build_judge_messages(inp, load_rubric(rubric_name),
+                                           slice_images=slices, provenance_elicitation=elicit)
         return sum(1 for m in messages for p in m.parts if isinstance(p, ImagePart))
     except Exception:  # noqa: BLE001 — informational only
         return None

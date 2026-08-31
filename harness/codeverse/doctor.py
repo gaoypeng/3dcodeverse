@@ -16,7 +16,7 @@ from codeverse.proc import version_line
 
 Row = tuple[str, str, str]
 _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", "numpy", "trimesh", "fcl", "PIL", "pyarrow",
-            "scipy", "shapely", "networkx", "manifold3d", "google.genai", "anthropic", "openai",
+            "scipy", "shapely", "networkx", "manifold3d", "matplotlib", "google.genai", "anthropic", "openai",
             "yourdfpy", "mcp", "moderngl", "cadquery")
 #: modules that come from an OPTIONAL extra: missing means one track is unavailable, not a
 #: broken install, so they are a WARN naming the extra to install.  `moderngl` and `cadquery`
@@ -29,7 +29,7 @@ _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", 
 #: docs/INSTALL.md §1 documents (no extras) got `python deps FAIL 14/23` — "your install
 #: is broken" for an install that is correct — and a remedy that named four of the five
 #: extras and could not clear the row.  Verified on a 3.13 clean clone, 2026-08-24.
-_OPTIONAL_DEPS = {"manifold3d": "mesh", "shapely": "mesh", "networkx": "mesh",
+_OPTIONAL_DEPS = {"manifold3d": "mesh", "shapely": "mesh", "networkx": "mesh", "matplotlib": "mesh",
                   "yourdfpy": "urdf", "scipy": "urdf", "mcp": "mcp",
                   "moderngl": "graphics", "cadquery": "cad", "pyarrow": "flywheel"}
 _CLI_TIMEOUT = 25

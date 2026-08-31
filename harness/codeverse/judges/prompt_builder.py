@@ -395,6 +395,7 @@ if TYPE_CHECKING:  # pragma: no cover
 TEXT_BUDGET_CHARS = 24_000  # ≈ 6k tokens
 MAX_PX = 1024  # montages are 2×2 grids: keep them legible
 MONTAGE_TILE_PX = 512
+SLICE_MAX_PX = 1024  # D48 slice images: single drawings, sent at the montage size
 
 _ROLE = """You are the BLIND JUDGE of a 3D-code harness: exacting but fair.
 You see only the brief, a plan digest, measured numbers, deterministic gate findings and labelled renders of the result — never the builder's code or reasoning. Judge what is visible and measured; do not invent faults and do not credit what you cannot see.
@@ -410,6 +411,18 @@ SCORING RULES
 - Improvement plan: at most 6 concrete, imperative instructions for the builder ("taper the four legs from 45 mm at the seat to 30 mm at the foot and extend them to touch y=0"), priority 1 first, each with a target name from the plan digest and an expected_gain estimate. Give items even for passing work if a named change would raise the score; leave empty only when nothing would.
 - Acceptance items: answer verified=true ONLY when the renders or measurements prove the item; otherwise false with what is missing.
 - Reply with ONE JSON object matching the requested schema; no prose outside it."""
+
+
+#: D48: end of the DEFECT CHECKLIST scoring-rule bullet in ``_ROLE`` — the anchor the
+#: provenance-elicitation sentence is appended after on slice (gate-ERROR) rounds.
+_DEFECT_BULLET_END = 'do not mark a defect to "be safe", and do not hide one to be kind.'
+#: D48: one neutral, defect-agnostic sentence.  Measured (42-item battery, n=3 pro): it turns
+#: dirty-round defect votes into locatable citations (62/97 image-located, 26 explicit
+#: text-only, 2/23 fabricated slice cites — both guard-caught) without naming any defect.
+PROVENANCE_ELICITATION = (
+    "For each defect you mark present, say where it is visible (MONTAGE n / "
+    "DETAIL CROP n / slice n) or state that it rests on the measured text alone."
+)
 
 
 def _rubric_block(rubric: Rubric) -> str:
@@ -440,8 +453,16 @@ def _rubric_block(rubric: Rubric) -> str:
     return "\n".join(lines)
 
 
-def build_system_prompt(rubric: Rubric) -> str:
-    return _ROLE + "\n\n" + _rubric_block(rubric)
+def build_system_prompt(rubric: Rubric, *, provenance_elicitation: bool = False) -> str:
+    """The judge's system prompt.  ``provenance_elicitation=True`` (D48, slice rounds only)
+    appends :data:`PROVENANCE_ELICITATION` once to the DEFECT CHECKLIST bullet; the default
+    is byte-identical to the pre-D48 prompt, which keeps ``judge_prompt_hash`` stable."""
+    role = _ROLE
+    if provenance_elicitation:
+        if role.count(_DEFECT_BULLET_END) != 1:  # the anchor moved: fail loudly, not silently
+            raise ValueError("prompt_builder._ROLE: the defect-checklist bullet anchor drifted")
+        role = role.replace(_DEFECT_BULLET_END, _DEFECT_BULLET_END + " " + PROVENANCE_ELICITATION)
+    return role + "\n\n" + _rubric_block(rubric)
 
 
 # --------------------------------------------------------------------------- text sections
@@ -567,6 +588,26 @@ def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: i
         lines.append(_passed_paragraph(n_parts, len(d.get("contacts") or []), float(d.get("contact_gap_mm") or 0.0),
                                        list(d.get("overlaps") or [])))
     return "\n".join(lines)
+
+
+def connectivity_error_pairs(gates: list[GateReport]) -> list[tuple[str, str]]:
+    """The connectivity gate's ERROR-level penetration part pairs — the D48 slice
+    channel's hatch targets.  The pair is read the way the measured batteries read it:
+    the finding's ``target`` (falling back to ``data.entering``) against ``data.other``
+    (falling back to ``data.container``) — never ``data.entering`` first, whose
+    direction is the probe's, not the finding's."""
+    pairs: set[frozenset[str]] = set()
+    for g in gates:
+        if g.gate != "connectivity":
+            continue
+        for f in g.findings:
+            if f.severity != Severity.ERROR or f.data.get("kind") != "penetration":
+                continue
+            a = f.target or f.data.get("entering")
+            b = f.data.get("other") or f.data.get("container")
+            if a and b and a != b:
+                pairs.add(frozenset((str(a), str(b))))
+    return [tuple(sorted(p)) for p in sorted(pairs, key=sorted)]
 
 
 def _finding_line(g: GateReport, f: GateFinding) -> str:
@@ -813,6 +854,20 @@ def view_rig_section(renders: RenderSet, montages: list[Montage], *, scene: bool
     return "\n".join(bits)
 
 
+def slice_rig_section(labels: list[str]) -> str:
+    """The D48 slice block appended to the view rig on gate-ERROR rounds: what the slice
+    images are (facts only: F2 wording for the hatch), the anti-over-read sentence (F3 —
+    an in-plane gap is not evidence of disconnection), and the slice list in send order."""
+    lines = "\n".join(f"- slice {i}: {lbl}" for i, lbl in enumerate(labels, 1))
+    return (f"After the crops, {len(labels)} cross-section slice(s) show the interior: "
+            "slices cut the object on two centre planes; each part keeps one color "
+            "(legend on the image); regions the connectivity gate measured as ERROR-level "
+            "overlap are hatched red. "
+            "A gap between parts IN THE CUT PLANE is not evidence of disconnection — parts "
+            "may join outside this plane; the measured structure block is authoritative for "
+            "connectivity.\n" + lines)
+
+
 def judge_prompt_hash(rubric: Rubric) -> str:
     """Hash of everything the judge is told that is constant for a rubric.
 
@@ -882,6 +937,8 @@ def build_judge_messages(
     cache_dir: Path | None = None,
     extra_images: list[tuple[str, str | Path]] | None = None,
     extra_text: str = "",
+    slice_images: list[tuple[str, str | Path]] | None = None,
+    provenance_elicitation: bool = False,
 ) -> tuple[str, list[ChatMessage]]:
     """Return ``(system, [user_message])`` for a rubric judge call.
 
@@ -892,8 +949,15 @@ def build_judge_messages(
     order (n-sample noise control).  ``extra_images`` (label, path) are placed
     BEFORE the montages (e.g. reference images); ``extra_text`` is appended to
     the text block (e.g. measured silhouette).
+
+    ``slice_images`` (label, path) are the D48 cross-section slices: placed AFTER
+    the montages and detail crops (the measured placement — the ``extra_images``
+    prepend was not what the batteries tested), described by
+    :func:`slice_rig_section` in the view-rig text, and ``provenance_elicitation``
+    adds one sentence to the system prompt's defect-checklist bullet.  With both
+    left at their defaults the output is byte-identical to the pre-D48 payload.
     """
-    system = build_system_prompt(rubric)
+    system = build_system_prompt(rubric, provenance_elicitation=provenance_elicitation)
     is_scene = inp.spec.track.value == "scene"
     sections = [
         brief_section(inp.spec),
@@ -910,7 +974,11 @@ def build_judge_messages(
         inp.renders, geometry_views=geometry_views, scene=is_scene, shuffle_seed=shuffle_seed,
         max_montages=max_montages, detail_crops=detail_crops, max_px=max_px, cache_dir=cache_dir,
     )
-    sections.append(view_rig_section(inp.renders, montages, scene=is_scene))
+    slices = slice_images or []
+    rig = view_rig_section(inp.renders, montages, scene=is_scene)
+    if slices:
+        rig = rig + "\n" + slice_rig_section([lbl for lbl, _ in slices])
+    sections.append(rig)
     text = "\n\n".join(s for s in sections if s)
     if len(text) > TEXT_BUDGET_CHARS:
         text = _clip(text, TEXT_BUDGET_CHARS)
@@ -921,5 +989,8 @@ def build_judge_messages(
     for lbl, ip in images:
         parts.append(TextPart(text=lbl))
         parts.append(ip)
+    for lbl, p in slices:  # D48: slices AFTER the montages and crops — the measured placement
+        parts.append(TextPart(text=lbl))
+        parts.append(image_part(prepare_image(p, label=lbl, max_px=SLICE_MAX_PX, cache_dir=cache_dir), lbl))
     parts.append(TextPart(text="Now score every criterion with evidence, answer every defect-checklist item and every acceptance item, and return the JSON object."))
     return system, [ChatMessage(role="user", parts=parts)]

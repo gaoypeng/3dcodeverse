@@ -17,9 +17,12 @@ to treat as a glitch, never as a score.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
+import shutil
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -30,8 +33,13 @@ from codeverse.config import get_settings
 from codeverse.contracts.artifacts import Judgment, RenderView
 from codeverse.contracts.chat import ChatRequest, ChatResponse
 from codeverse.contracts.common import Usage
-from codeverse.judges.base import JudgeInput
-from codeverse.judges.prompt_builder import build_judge_messages, judge_prompt_hash
+from codeverse.judges.base import SLICE_TRACKS, JudgeInput
+from codeverse.judges.prompt_builder import (
+    build_judge_messages,
+    connectivity_error_pairs,
+    default_cache_dir,
+    judge_prompt_hash,
+)
 from codeverse.judges.rubrics import (
     JudgeOutput,
     JudgeParseError,
@@ -55,6 +63,12 @@ log = logging.getLogger(__name__)
 SAMPLE_BUDGET_S = 900.0
 #: the floor of one attempt's ``max_wait_s``: a last attempt still gets a real try
 SAMPLE_MIN_WAIT_S = 20.0
+
+#: D48 slice-image labels, keyed by ``sections.JUDGE_SLICE_PLANES`` name (the tested wording)
+SLICE_LABELS = {
+    "front_back": "cross-section front-back · interior view",
+    "left_right": "cross-section left-right · interior view",
+}
 
 
 @dataclass
@@ -144,6 +158,7 @@ class VlmJudge:
         ctx = self.context(inp)
         measured, extra_text, extra_images = ctx.measured_scores, ctx.extra_text, ctx.extra_images
         usage = ctx.usage
+        slice_images, elicit = self.slice_payload(inp)  # D48: [] / False on a clean round
         samples: list[JudgeOutput] = []
         errors: list[str] = []
         reqs: list[ChatRequest] = []
@@ -154,6 +169,7 @@ class VlmJudge:
                 inp, self.rubric, shuffle_seed=seed, geometry_views=geometry_views, max_montages=self.max_montages,
                 detail_crops=self.detail_crops, max_px=self.max_px, cache_dir=self.cache_dir,
                 extra_images=extra_images, extra_text=extra_text,
+                slice_images=slice_images, provenance_elicitation=elicit,
             )
             reqs.append(ChatRequest(
                 messages=messages, system=system, response_schema=schema, temperature=self.temperature,
@@ -206,6 +222,65 @@ class VlmJudge:
                 f"{[c.id for c in self.rubric.measured_criteria()]} but VlmJudge computes none; use a specialised judge"
             )
         return JudgeContext()
+
+    # ------------------------------------------------------------------ D48 conditional slices
+    def slice_payload(self, inp: JudgeInput) -> tuple[list[tuple[str, str]], bool]:
+        """``([(label, png_path)…], provenance_elicitation)`` for the D48 slice channel.
+
+        The channel fires ONLY when ``Settings.judge.slices == "on-error"``, the track is
+        an object track, ``inp.glb_path`` exists, AND the connectivity gate carries ≥ 1
+        ERROR finding; otherwise ``([], False)`` and the payload is byte-identical to the
+        pre-D48 one.  On a firing round the slices are rendered (cached by GLB identity +
+        error pairs) into the judge cache dir; F4 may drop them all, in which case the
+        elicitation sentence still applies (the tested v3 semantics: elicitation follows
+        dirtiness, not slice count).  A missing mesh extra disables the channel; a render
+        crash degrades to text-only elicitation — a verdict never dies on a drawing.
+        """
+        if get_settings().judge.slices != "on-error":
+            return [], False
+        if inp.spec.track.value not in SLICE_TRACKS or not inp.glb_path:
+            return [], False
+        glb = Path(inp.glb_path)
+        if not glb.is_file():
+            return [], False
+        if not any(g.gate == "connectivity" and g.errors for g in inp.gates):
+            return [], False
+        pairs = connectivity_error_pairs(inp.gates)
+        try:
+            out_dir, manifest = self._render_slices(glb, pairs)
+        except ImportError as e:
+            log.warning("judge slices disabled: %s (install the 'mesh' extra)", e)
+            return [], False
+        except Exception as e:  # noqa: BLE001 — the drawing must never sink the verdict
+            log.warning("judge slice render failed for %s: %s", glb, e)
+            return [], True
+        return [(SLICE_LABELS.get(s.name, f"cross-section {s.name} · interior view"),
+                 str(out_dir / s.png)) for s in manifest.rendered()], True
+
+    def _render_slices(self, glb: Path, pairs: list[tuple[str, str]]):
+        """Render (or reuse) the slice set for ``glb`` under the judge cache dir.
+
+        Keyed like ``prepare_image``: path + mtime + size + the error pairs, so a
+        rebuilt GLB re-renders and concurrent judges of the same round share one set.
+        Writes go to a per-writer temp dir renamed into place (a concurrent identical
+        writer simply wins first)."""
+        from codeverse.spatial.sections import SliceManifest, judge_slices
+
+        cache = Path(self.cache_dir) if self.cache_dir else default_cache_dir()
+        st = glb.stat()
+        key = hashlib.sha1(
+            f"{glb.resolve()}|{st.st_mtime_ns}|{st.st_size}|{pairs}".encode()).hexdigest()[:20]
+        out_dir = cache / f"slices_{key}"
+        mpath = out_dir / "manifest.json"
+        if not mpath.is_file():
+            tmp = cache / f"slices_{key}.{os.getpid()}-{threading.get_ident()}.tmp"
+            shutil.rmtree(tmp, ignore_errors=True)
+            judge_slices(glb, pairs, tmp)
+            try:
+                tmp.rename(out_dir)
+            except OSError:  # a concurrent writer got there first — use theirs
+                shutil.rmtree(tmp, ignore_errors=True)
+        return out_dir, SliceManifest.model_validate_json(mpath.read_text())
 
     # ------------------------------------------------------------------ one sample with retries
     def _sample(

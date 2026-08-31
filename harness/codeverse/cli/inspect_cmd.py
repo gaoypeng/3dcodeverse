@@ -210,7 +210,7 @@ def judge(
     rubric_name = J.rubric_for(rec, rnd, rubric)
     inp = J.build_judge_input(ws, rec, rnd)
     judge_obj = J.make_judge(rec, rubric_name, model or rec.spec.backends.judge, n)
-    n_images = J.count_prompt_images(inp, rubric_name)
+    n_images = J.count_prompt_images(inp, rubric_name, judge_obj)
     from codeverse.cost.instrument import run_ledger
 
     # writes artifacts/judge/rNN_cli.json into the run: one writer per run dir

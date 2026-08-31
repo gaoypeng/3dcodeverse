@@ -31,7 +31,7 @@ from codeverse.contracts.artifacts import BuildResult, GateReport, Judgment, Mea
 from codeverse.contracts.common import Usage
 from codeverse.contracts.plan import AcceptanceItem, Plan
 from codeverse.contracts.run import RoundRecord
-from codeverse.judges.base import JudgeInput
+from codeverse.judges.base import SLICE_TRACKS, JudgeInput
 from codeverse.judges.rubrics import is_degraded
 from codeverse.orchestrator import BudgetExceeded, usage_delta
 from codeverse.proc import fan_out
@@ -451,6 +451,8 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
         acceptance=list(getattr(ctx.plan, "acceptance", []) or []), plan_summary=pipeline.plan_summary(ctx),
         round_index=index, previous=previous, extra_context=pipeline.judge_context(ctx.ws, ctx.plan, index, build, gates),
         geometry_views=geometry,
+        # D48: the round's canonical GLB feeds the conditional slice channel (object tracks only)
+        glb_path=build.glb_path if ctx.spec.track.value in SLICE_TRACKS else None,
     )
     t0 = time.time()
     try:

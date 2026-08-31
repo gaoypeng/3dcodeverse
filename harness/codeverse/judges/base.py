@@ -11,6 +11,10 @@ from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.spec import Spec
 from codeverse.workspace import Workspace
 
+#: tracks whose rounds have one canonical GLB the judge slice channel (D48) may cut;
+#: scene and graphics have none and are unaffected.
+SLICE_TRACKS = ("static_object", "articulated_object")
+
 
 class JudgeInput(BaseModel):
     spec: Spec
@@ -24,6 +28,11 @@ class JudgeInput(BaseModel):
     extra_context: str = ""
     geometry_views: RenderSet | None = Field(
         default=None, description="clay/normals renders for the geometry-only montage (holes, intersections)"
+    )
+    glb_path: str | None = Field(
+        default=None,
+        description="the round's canonical GLB (object tracks fill it; `3dcv judge` fills it from the stored "
+        "build) — the D48 slice channel cuts it on gate-ERROR rounds; None disables the channel",
     )
 
 
