@@ -142,7 +142,7 @@ def _plan():
 def test_error_findings_become_zone_routed_refine_tasks_one_per_asset():
     plan = _plan()
     r = placement_findings(_table(_row("Lantern", gap=0.3), _row("Bench", gap=0.4), _row("Vase", zone="House", gap=0.5)))
-    ctx = SimpleNamespace(runtime=SimpleNamespace(), plan=plan, language=Language.SCENE_THREEJS)
+    ctx = SimpleNamespace(runtime=SimpleNamespace(), plan=plan, language=Language.SCENE_THREEJS, extra={})
     tasks = build_refine_instructions(None, [r], [], plan, file_for_target=file_for_target_factory(ctx))
     assert sorted((t.target, tuple(t.files)) for t in tasks) == [("House/Vase", ("src/zones/house.js",)), ("Yard/Bench", ("src/zones/yard.js",)),
                                                                  ("Yard/Lantern", ("src/zones/yard.js",))]
@@ -151,7 +151,7 @@ def test_error_findings_become_zone_routed_refine_tasks_one_per_asset():
 
 def test_pipeline_gates_append_placement_after_census_and_never_raise():
     plan = _plan()
-    ctx = SimpleNamespace(runtime=SimpleNamespace(), plan=plan)
+    ctx = SimpleNamespace(runtime=SimpleNamespace(), plan=plan, extra={})
     build = BuildResult(ok=True, language="scene_threejs", census={"totals": {"meshes": 3}, "placement": _table(_row("Lantern", gap=0.3))})
     gates = ScenePipeline().gates(ctx, 0, build, None)
     assert [g.gate for g in gates] == ["scene_census", GATE] and not gates[-1].passed
@@ -226,3 +226,24 @@ def test_interpenetration_pairs_report_once_at_worst_overlap():
                                          {**pair, "aabb_overlap": 0.5, "inside_frac": 0.4}]))
     inter = _by_kind(r, "interpenetration")
     assert len(inter) == 1 and "70%" in inter[0].message and inter[0].severity == Severity.ERROR
+
+
+def test_density_gate_fires_on_a_zone_far_under_its_layout_budget():
+    """scene_final_v1's top standing defects (flat_ground 12 / undressed 11 / monotonous 10)
+    while every zone had a BINDING layout budget nobody enforced.  The census counts every
+    instance (InstancedMesh.count included), so the check is pure arithmetic."""
+    layouts = {"Yard": {"placements": [{"asset": "Lantern", "count": 6}],
+                        "mid_props": 20, "small_props": 40, "ground_cover": 400},
+               "House": {"placements": [], "mid_props": 2}}   # budget 2 < threshold: ignored
+    census = {"fog": {"type": "Fog"}, "background": "#aabbcc",
+              "groups": [{"name": "Yard", "instances": 30}, {"name": "House", "instances": 1}],
+              "placement": _table(_row("Lantern", h=0.6))}
+    rep = placement_gate_safe(census, plan=_contract_plan(), layouts=layouts)
+    under = [f for f in rep.findings if f.data.get("kind") == "underdressed"]
+    assert len(under) == 1 and under[0].target == "Yard"
+    assert "466" in under[0].message and "~30" in under[0].message
+    # the same zone with the budget met is quiet
+    census["groups"][0]["instances"] = 240   # >= half of 466
+    rep = placement_gate_safe(census, plan=_contract_plan(), layouts=layouts)
+    assert not [f for f in rep.findings if f.data.get("kind") == "underdressed"]
+

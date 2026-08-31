@@ -16,6 +16,7 @@ returns no layout for that zone and generation proceeds exactly as before.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 from codeverse.contracts.chat import ChatMessage, ChatRequest
@@ -34,6 +35,24 @@ LAYOUT_WAIT_S = 300.0
 COUNT_SLACK = 4
 #: cluster centres may sit this far outside the zone bbox (assets have radius)
 BBOX_MARGIN_M = 1.0
+#: lens margin beyond the asset's own reach.  Two measurements set this: fv_izakaya_night
+#: (2026-08-30) — BarCounter 0.7 m from the PotDetail camera put the lens INSIDE the
+#: counter, three capped rounds, unfixable downstream; and dg_izakaya_night (2026-08-31)
+#: — the first tune (1.2 m base + footprint/2 + full spread) rejected EVERY placement a
+#: small indoor zone could offer ("WoodenStool 1.8 m from OdenStationDetail — keep
+#: >= 1.8 m") until the layout was dropped entirely, muting the layer exactly where it
+#: helps.  The validator now rejects only what puts the LENS inside the asset's reach
+#: (half footprint + half spread + this margin, floored at 0.8 m); polite shot spacing
+#: stays in the prompt, where a director can trade it off.
+CAMERA_CLEAR_M = 0.4
+CAMERA_CLEAR_FLOOR_M = 0.8
+#: two LARGE assets whose cluster centres nearly coincide are stacked into each other —
+#: fv2_alpine_night's RetainingWall x PrayerBench interpenetration.  Deliberately narrow:
+#: only same-spot (< 0.6 m) pairs where BOTH footprints are >= 0.8 m and neither stands on
+#: the other — a stool against a counter (small footprint) or bottles on a bar
+#: (support relation) must never be rejected.
+STACK_DIST_M = 0.6
+STACK_MIN_FOOT_M = 0.8
 
 
 def validate_layout(layout: ZoneLayout, zone: ZonePlan, plan: ScenePlan) -> str:
@@ -53,10 +72,37 @@ def validate_layout(layout: ZoneLayout, zone: ZonePlan, plan: ScenePlan) -> str:
                             f"x {lo[0]:.1f}..{hi[0]:.1f}, z {lo[2]:.1f}..{hi[2]:.1f}")
         if p.count > COUNT_SLACK * hints[k]:
             problems.append(f"{p.asset} count {p.count} is over {COUNT_SLACK}x the plan's instances_hint {hints[k]}")
+        # the shot must survive the layout: a cluster whose footprint reaches a camera
+        # puts geometry inside the lens (fv_izakaya_night), and nothing downstream can fix it
+        foot = max(known[k].approx_size_m[0], known[k].approx_size_m[2])
+        need = max(CAMERA_CLEAR_FLOOR_M, foot / 2 + p.spread_m / 2 + CAMERA_CLEAR_M)
+        for cam in plan.cameras:
+            dist = math.hypot(x - cam.position[0], z - cam.position[2])
+            if dist < need:
+                problems.append(f"{p.asset} cluster ({x:.1f}, {z:.1f}) reaches camera {cam.name} "
+                                f"({dist:.1f} m < {need:.1f} m = half its footprint+spread plus lens margin) — "
+                                f"move the cluster or shrink its spread so the lens stays outside it")
     placed = {to_snake(p.asset) for p in layout.placements}
     missing = [c for c in zone.contents if to_snake(c) not in placed]
     if missing:
         problems.append(f"no placement for planned contents: {', '.join(missing)}")
+    # two large assets on the same spot = stacked into each other
+    rows = [(p, known.get(to_snake(p.asset))) for p in layout.placements]
+    for i, (a, pa) in enumerate(rows):
+        for b, pb in rows[i + 1:]:
+            if pa is None or pb is None or to_snake(a.asset) == to_snake(b.asset):
+                continue
+            if to_snake(a.support) == to_snake(b.asset) or to_snake(b.support) == to_snake(a.asset):
+                continue   # one stands on the other by design
+            fa = max(pa.approx_size_m[0], pa.approx_size_m[2])
+            fb = max(pb.approx_size_m[0], pb.approx_size_m[2])
+            if fa < STACK_MIN_FOOT_M or fb < STACK_MIN_FOOT_M:
+                continue
+            dist = math.hypot(a.cluster[0] - b.cluster[0], a.cluster[1] - b.cluster[1])
+            if dist < STACK_DIST_M:
+                problems.append(f"{a.asset} and {b.asset} share one spot ({dist:.1f} m apart, footprints "
+                                f"{fa:.1f}/{fb:.1f} m) — they will interpenetrate; separate the clusters or "
+                                f"make one the other's support")
     return "; ".join(problems)
 
 
@@ -88,9 +134,11 @@ def _one_layout(zone: ZonePlan, plan: ScenePlan, model: Any, budget: Any, events
                   for z in plan.zones if z.name != zone.name]
     assets = [f"{a.name}: {a.approx_size_m[0]:g}x{a.approx_size_m[1]:g}x{a.approx_size_m[2]:g} m, ~{a.instances_hint} planned"
               for a in plan.assets if to_snake(a.name) in {to_snake(c) for c in zone.contents}] or ["(no planned assets — dressing only)"]
+    cameras = [f"{c.name} at ({c.position[0]:.1f}, {c.position[2]:.1f}), fov {c.fov:.0f} — {c.purpose}"
+               for c in plan.cameras]
     system = render(LAYOUT_TEMPLATE, title=plan.title, setting=plan.setting, mood=plan.mood,
                     environment=plan.environment[:600], zone=zone, neighbours=neighbours, assets=assets,
-                    schema_fields=", ".join(ZoneLayout.model_fields))
+                    cameras=cameras, schema_fields=", ".join(ZoneLayout.model_fields))
     user = f"Lay out zone {zone.name}. Description (binding): {zone.description}\nContents to place: {', '.join(zone.contents) or '(none)'}"
     complaint = ""
     for attempt in (0, 1):

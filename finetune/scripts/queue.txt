@@ -14,4 +14,7 @@ bal9b|bash scripts/run_9b_balanced.sh
 stopdpo_train|bash scripts/run_stop_dpo_train.sh
 best_dual|bash scripts/run_best_dual_decode.sh
 27b_dual|bash scripts/run_27b_dual_decode.sh
-stopdpo_r2|bash scripts/run_stop_dpo.sh
+stopdpo_r2|bash scripts/run_stop_dpo_r2.sh
+mmvis_eval|bash scripts/run_mmvis_eval.sh
+rescore|bash scripts/run_rescore_sampled.sh
+stop_transfer|bash scripts/run_stopdpo_transfer.sh

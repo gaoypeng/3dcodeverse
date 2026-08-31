@@ -42,6 +42,45 @@ def test_validator_accepts_a_buildable_layout_and_names_every_problem():
     assert "no placement for planned contents: FishingBoat" in complaint
 
 
+def test_validator_rejects_a_cluster_that_swallows_a_camera():
+    """fv_izakaya_night: BarCounter 0.7 m from the PotDetail camera — the lens sat inside
+    the counter and camera_in_geometry capped all three rounds.  The camera list is an
+    input to the layout, so the validator must reject this before a builder sees it."""
+    plan = _plan()   # camera 'overview' at (1, 1, 1)
+    bad = _layout(placements=[{"asset": "Stall", "count": 1, "cluster": (1.2, 0.8), "spread_m": 0.0}],
+                  zone="Market")
+    complaint = validate_layout(bad, plan.zones[1], plan)
+    assert "camera overview" in complaint and "lens stays outside" in complaint
+    # the dg_izakaya lesson: an asset NEAR a camera but out of its reach is legal —
+    # a 0.3 m-foot lantern 1.5 m from the lens must never be rejected
+    near_ok = _layout(placements=[{"asset": "Bollard", "count": 2, "cluster": (2.0, 2.0), "spread_m": 0.4}],
+                      zone="Market")
+    assert "camera" not in validate_layout(near_ok, plan.zones[1], plan)
+
+
+def test_validator_rejects_two_large_assets_on_one_spot_but_spares_adjacency():
+    """fv2_alpine: RetainingWall x PrayerBench interpenetrated because their clusters
+    coincided.  The rule is deliberately narrow: small footprints (a stool against a
+    counter) and support relations (bottles ON the bar) must pass untouched."""
+    plan = _plan()
+    stacked = _layout(placements=[
+        {"asset": "FishingBoat", "count": 1, "cluster": (-12.0, 3.0), "spread_m": 0.0},
+        {"asset": "Stall", "count": 1, "cluster": (-12.2, 3.1), "spread_m": 0.0}])
+    # Stall is not Quay content, but the stacking rule should still name the pair
+    complaint = validate_layout(stacked, plan.zones[0], plan)
+    assert "share one spot" in complaint and "FishingBoat" in complaint and "Stall" in complaint
+    # small footprint: Bollard (0.3 m) right next to the boat is legitimate adjacency
+    adjacent = _layout(placements=[
+        {"asset": "FishingBoat", "count": 1, "cluster": (-12.0, 3.0), "spread_m": 0.0},
+        {"asset": "Bollard", "count": 6, "cluster": (-12.1, 3.2), "spread_m": 0.5}])
+    assert "share one spot" not in validate_layout(adjacent, plan.zones[0], plan)
+    # support relation: a Stall standing ON the boat (declared) passes
+    supported = _layout(placements=[
+        {"asset": "FishingBoat", "count": 1, "cluster": (-12.0, 3.0), "spread_m": 0.0},
+        {"asset": "Stall", "count": 1, "cluster": (-12.1, 3.1), "spread_m": 0.0, "support": "FishingBoat"}])
+    assert "share one spot" not in validate_layout(supported, plan.zones[0], plan)
+
+
 def test_layout_block_renders_numbers_the_builder_can_follow():
     text = layout_block(_layout(path_points=[(-18.0, 0.0), (-2.0, 4.0)], mid_props=12, ground_cover=400,
                                 notes="boats face the quay"))

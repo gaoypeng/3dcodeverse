@@ -186,3 +186,77 @@ def test_a_zero_axis_still_fails_validation():
     with pytest.raises(ValidationError):
         ArticulatedPlan.model_validate(d)
 
+
+def _rename_part(d: dict, old: str, new: str) -> None:
+    for part in d["parts"]:
+        if part["name"] == old:
+            part["name"] = new
+        if part.get("attach_to") == old:
+            part["attach_to"] = new
+    for j in d["joints"]:
+        for side in ("parent", "child"):
+            if j.get(side) == old:
+                j[side] = new
+    if d.get("root_link") == old:
+        d["root_link"] = new
+
+
+def test_a_root_link_naming_no_part_is_resolved_by_the_1b_word_rule():
+    """af_excavator (2026-08-31, 3.7-flash): root_link 'chassis' over a part list that
+    spelt it differently killed the run after two re-asks.  Same word-boundary match as
+    the joint-fragment repair — never a bare substring."""
+    d = _raw()
+    real_root = d["root_link"]
+    _rename_part(d, real_root, "TrackedChassis")
+    d["root_link"] = "Chassis"
+    p = ArticulatedPlan.model_validate(d)
+    assert p.root_link == "TrackedChassis"
+    assert any("root_link 'Chassis'" in n and "TrackedChassis" in n for n in p.normalisations)
+
+
+def test_an_ambiguous_root_link_still_fails_validation():
+    d = _raw()
+    real_root = d["root_link"]
+    _rename_part(d, real_root, "TrackedChassis")
+    other = next(x["name"] for x in d["parts"] if x["name"] != "TrackedChassis")
+    _rename_part(d, other, "ChassisMount")
+    d["root_link"] = "Chassis"
+    with pytest.raises(ValidationError, match="root_link"):
+        ArticulatedPlan.model_validate(d)
+
+
+def test_a_joint_naming_a_sub_part_by_word_subset_promotes_it():
+    """af_grandfather_clock: joint said GlazedDoor, the child was GlazedFrontDoor — no
+    affix match, so 1b could not save it.  1c matches by word subset and promotes."""
+    d = _raw()
+    parent = d["parts"][0]
+    parent.setdefault("children", []).append(
+        {"name": "GlazedFrontDoor", "role": "hinged door", "description": "a glazed door",
+         "bbox": {"center": list(parent["bbox"]["center"]), "extents": [e * 0.4 for e in parent["bbox"]["extents"]]},
+         "material": "oak and glass"})
+    d["joints"].append({"name": "CaseToGlazedDoor", "type": "revolute", "parent": parent["name"],
+                        "child": "GlazedDoor", "axis": [0, 1, 0], "pivot": [0.2, 0.5, 0],
+                        "lower": 0.0, "upper": 1.5, "rest": 0.0, "motion": "door swings open"})
+    p = ArticulatedPlan.model_validate(d)
+    names = [x.name for x in p.parts]
+    assert "GlazedFrontDoor" in names
+    j = next(x for x in p.joints if x.name == "CaseToGlazedDoor")
+    assert j.child == "GlazedFrontDoor"
+    assert any("resolved to sub-part GlazedFrontDoor" in n for n in p.normalisations)
+
+
+def test_the_unknown_link_complaint_lists_the_sub_parts():
+    """The re-ask used to see only top-level parts — with everything nested, it was blind
+    to the very children the joints meant, and both re-asks died the same way."""
+    d = _raw()
+    parent = d["parts"][0]
+    parent.setdefault("children", []).append(
+        {"name": "PendulumBob", "role": "bob", "description": "a brass disc",
+         "bbox": {"center": list(parent["bbox"]["center"]), "extents": [0.1, 0.1, 0.02]},
+         "material": "brass"})
+    d["joints"].append({"name": "Mystery", "type": "revolute", "parent": parent["name"],
+                        "child": "SomethingElse", "axis": [0, 1, 0], "pivot": [0, 0, 0],
+                        "lower": 0.0, "upper": 1.0, "rest": 0.0, "motion": "?"})
+    with pytest.raises(ValidationError, match=r"Sub-parts that exist but are NOT links:.*PendulumBob"):
+        ArticulatedPlan.model_validate(d)
+

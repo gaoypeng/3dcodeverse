@@ -101,3 +101,45 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3) {
     look_dir: [center.x, center.y, center.z].map((v) => +v.toFixed(3)),
   };
 }
+
+/**
+ * Deterministic camera repair, added 2026-08-30 and OFF by default
+ * (drivers pass --camera-repair; python gates it behind CV3D_CAMERA_REPAIR=1).
+ *
+ * Why: cameras belong to the PLAN — no refine agent owns a file that could fix
+ * one, so camera_in_geometry stood in final rounds across whole batteries
+ * (camera_unusable in 23/48 scored runs; fv_izakaya_night lost 0.26 to it three
+ * rounds straight).  The measurement (nearGeometry) is deterministic, so the fix
+ * can be: try the smallest retreat (backward along the view axis, then upward)
+ * that clears the lens, keeping lookAt — composition survives, the shot stops
+ * being inside the furniture.
+ *
+ * Pure: no renderer, raycasts only.  `makeCam(spec)` is supplied by the host so
+ * near/far/aspect match the real render exactly.
+ */
+const REPAIR_OFFSETS = [
+  [0, 0], [0, 0.5], [0.5, 0], [0.5, 0.5], [1, 0.5], [1, 1], [2, 1], [2, 2], [3, 2], [4, 2],
+];
+const REPAIR_CLEAR_M = 0.5;
+
+export function repairCameraSpec(scene, spec, THREE, makeCam) {
+  const dir = new THREE.Vector3(
+    spec.position[0] - spec.lookAt[0], spec.position[1] - spec.lookAt[1], spec.position[2] - spec.lookAt[2]);
+  if (dir.lengthSq() < 1e-9) dir.set(0, 0, 1);
+  dir.normalize();
+  let before = null;
+  for (const [back, up] of REPAIR_OFFSETS) {
+    const pos = [spec.position[0] + dir.x * back, spec.position[1] + dir.y * back + up, spec.position[2] + dir.z * back];
+    const candidate = { ...spec, position: pos };
+    const n = nearGeometry(scene, makeCam(candidate), THREE);
+    if (before === null) before = n;
+    const clear = !n.camera_in_geometry && (n.nearest_hit_m === null || n.nearest_hit_m >= REPAIR_CLEAR_M);
+    if (clear) {
+      if (back === 0 && up === 0) return null;   // the authored camera is fine: no repair
+      return { spec: candidate, name: spec.name || '', moved_back_m: back, moved_up_m: up,
+               nearest_before: before.nearest_hit_m, inside_before: before.inside_mesh_bbox,
+               nearest_after: n.nearest_hit_m };
+    }
+  }
+  return null;   // nothing within the retreat budget clears it: keep the authored shot
+}

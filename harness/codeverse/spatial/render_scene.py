@@ -142,6 +142,13 @@ def render_scene(
     args += ["--timeout-ms", str(int(tmo * 1000))]
     if os.environ.get("CV3D_SETTLE") == "0":   # A/B switch for the boot-time auto-seat
         args.append("--no-settle")
+    if os.environ.get("CV3D_CAMERA_REPAIR") != "0":   # default ON since 2026-08-30: pure insurance —
+        # zero triggers across a whole healthy battery (scene_px_v1: layout camera-clearance
+        # already keeps lenses out of furniture), and the one class it exists for
+        # (fv_izakaya: three rounds of camera_in_geometry nobody could fix) is fatal.
+        args.append("--camera-repair")
+    if os.environ.get("CV3D_AUTO_EXPOSURE") == "1":   # opt-in: bounded scene-wide exposure into the healthy band
+        args.append("--auto-exposure")
     driver_error = ""
     try:
         res = run_scene_script("render_scene.mjs", args, timeout_s=tmo + 30)

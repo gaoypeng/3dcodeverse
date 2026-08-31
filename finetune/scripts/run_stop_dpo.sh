@@ -6,23 +6,25 @@
 # (its runaway greedy output) and its own positives (a sampled generation that finishes AND executes), on
 # TRAINING prompts only -- the dialect suites are held-out and must not be trained on.
 set -uo pipefail; cd /wekafs/ict/hx_624/llm-ft
-W=data/stop_dpo; BASE=runs/lf_qwen35_9b_mmmix2/merged
+TAG=${TAG:-mmmix2}; W=data/stop_dpo_$TAG; BASE=${BASE_MODEL:-runs/lf_qwen35_9b_mmmix2/merged}
 [ -d "$BASE" ] || { echo "[stopdpo] no base model"; exit 0; }
+mkdir -p $W; cp -n data/stop_dpo/prompts.jsonl $W/prompts.jsonl 2>/dev/null || true
+STOP_TP=${STOP_TP:-1}; STOP_NSEQ=${STOP_NSEQ:-}
 G=""; for _ in $(seq 1 60); do G=${GPUS:-$(scripts/free_gpus.sh 40000 | cut -d, -f1)}; [ -n "$G" ] && break; sleep 30; done
 [ -z "$G" ] && { echo "[stopdpo] no GPU with 40 GB free"; exit 0; }
 source /wekafs/ict/hx_624/anaconda3/etc/profile.d/conda.sh; conda activate vllm
 export VLLM_CACHE_ROOT=/wekafs/ict/hx_624/cache/vllm HF_HOME=/wekafs/ict/hx_624/cache/huggingface VLLM_LOGGING_LEVEL=WARNING CUDA_VISIBLE_DEVICES=$G
 # greedy produces the negatives, sampling the positives -- exactly the two behaviours we want to separate
 [ -d $W/gen_greedy/. ] || python eval/generate_vllm.py --model $BASE --prompts $W/prompts.jsonl --out $W/gen_greedy \
-  --tp 1 --no_think --max_new_tokens 16384 --max_model_len 20480 2>&1 | tail -1
+  --tp $STOP_TP ${STOP_NSEQ:+--max_num_seqs $STOP_NSEQ} --no_think --max_new_tokens 16384 --max_model_len 20480 2>&1 | tail -1
 for i in 1 2; do
   [ -d $W/gen_s$i/. ] || python eval/generate_vllm.py --model $BASE --prompts $W/prompts.jsonl --out $W/gen_s$i \
-    --tp 1 --no_think --max_new_tokens 16384 --max_model_len 20480 --temperature 0.8 --seed $((700+i)) 2>&1 | tail -1
+    --tp $STOP_TP ${STOP_NSEQ:+--max_num_seqs $STOP_NSEQ} --no_think --max_new_tokens 16384 --max_model_len 20480 --temperature 0.8 --seed $((700+i)) 2>&1 | tail -1
 done
 conda activate llmft
 python - <<'PY'
 import json, os, glob, random, collections
-random.seed(5); W = "data/stop_dpo"
+random.seed(5); W = "data/stop_dpo_" + os.environ.get("TAG", "mmmix2")
 prompts = {json.loads(l)["task"]: json.loads(l) for l in open(f"{W}/prompts.jsonl")}
 def load(d):
     out = {}
@@ -54,9 +56,10 @@ for t, g in greedy.items():
                   "dialect": p["dialect"]})
     why["paired"] += 1
 random.shuffle(pairs)
-json.dump(pairs, open("data/lf/stop_dpo_pairs.json", "w"), ensure_ascii=False)
+tag = os.environ.get("TAG", "mmmix2")
+json.dump(pairs, open(f"data/lf/stop_dpo_pairs_{tag}.json", "w"), ensure_ascii=False)
 info = json.load(open("data/lf/dataset_info.json"))
-info["stop_dpo_pairs"] = {"file_name": "stop_dpo_pairs.json", "ranking": True, "formatting": "sharegpt",
+info[f"stop_dpo_pairs_{tag}"] = {"file_name": f"stop_dpo_pairs_{tag}.json", "ranking": True, "formatting": "sharegpt",
                           "columns": {"messages": "conversations", "system": "system", "chosen": "chosen", "rejected": "rejected"}}
 json.dump(info, open("data/lf/dataset_info.json", "w"), indent=2)
 print("[stopdpo] pairs:", len(pairs), dict(why))

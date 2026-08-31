@@ -14,6 +14,12 @@ Neighbouring zones (do not place into them):
 {% for n in neighbours %}- {{ n }}
 {% endfor %}
 
+## Authored cameras (the shots this scene is graded on — their first metres MUST stay clear)
+{% for c in cameras %}- {{ c }}
+{% endfor %}No cluster centre may sit within ~2 m + half the asset's footprint of any camera position —
+a counter placed at a camera puts the lens INSIDE the geometry and caps the whole run.
+Foreground framing near a camera is the zone builder's hand-placed job, never a cluster.
+
 ## Assets to place (measured sizes)
 {% for a in assets %}- {{ a }}
 {% endfor %}

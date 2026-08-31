@@ -9,6 +9,7 @@ plans are re-asked with the validation errors, before any generator runs.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import re
 from typing import Literal
@@ -250,6 +251,10 @@ class ArticulatedPlan(StaticPlan):
            after two re-asks, and neither is a design decision worth a dead run;
         3. a sub-part sticking out of its parent's bbox by more than the slack: the parent bbox
            grows to enclose it (planner boxes are design intent, not measurements).
+        4. a ``root_link`` that names no part but loosely matches exactly ONE (af_excavator
+           2026-08-31, 3.7-flash: ``root_link: chassis`` over a part list that spelt it
+           differently — two re-asks did not fix it and the run died at the planner): the
+           root is rewritten to that part.  Zero or several candidates still raise.
         Every repair is recorded in ``normalisations`` so the record shows what the planner
         actually wrote.  Anything else still fails validation and is re-asked.
         """
@@ -304,6 +309,47 @@ class ArticulatedPlan(StaticPlan):
                 if len(hits) == 1:
                     j[side] = by_name[hits[0]].get("name")
                     notes.append(f"joint {j.get('name')}.{side} '{raw_name}' resolved to the one part it names: {j[side]}")
+
+        # 1c. a joint that names a SUB-PART by a fragment (af_grandfather_clock 2026-08-31,
+        # 3.7-flash: everything nested under clock_case, the joint said GlazedDoor, the child
+        # spelt it longer — the exact-match promotion above missed it, 1b searches top-level
+        # links only, and the re-ask complaint listed top-level parts only, so both re-asks
+        # died the same way).  Sub-part names are longer and decorated, so the affix rule is
+        # too weak here: the match is WORD-SUBSET (every word of the reference appears in the
+        # candidate's words — {glazed,door} ⊆ {glazed,front,door}; "arm" still never matches
+        # "alarm").  A unique hit promotes the child and rewrites the joint side.
+        sub_index: dict[str, tuple[dict, dict]] = {}
+        for part in list(parts):
+            for child in part.get("children") or []:
+                if isinstance(child, dict) and child.get("name"):
+                    sub_index[to_snake(str(child["name"]))] = (part, child)
+        for j in joints:
+            for side in ("parent", "child"):
+                raw_name = str(j.get(side, ""))
+                key = to_snake(raw_name)
+                if not key or key in by_name:
+                    continue
+                kw = set(key.split("_"))
+                hits = [k for k in sub_index if kw <= set(k.split("_"))]
+                if len(hits) != 1:
+                    continue
+                owner, child = sub_index[hits[0]]
+                ckey = to_snake(str(child["name"]))
+                if ckey not in by_name:
+                    promoted = {
+                        "name": child.get("name"), "role": child.get("role") or f"moving part of {owner.get('name')}",
+                        "description": child.get("description", ""), "bbox": child.get("bbox"),
+                        "material": child.get("material") or owner.get("material", ""),
+                        "attach_to": owner.get("name"), "instances": child.get("instances", 1),
+                    }
+                    parts.append(promoted)
+                    by_name[ckey] = promoted
+                    with contextlib.suppress(ValueError, KeyError):
+                        owner["children"].remove(child)
+                    notes.append(f"promoted sub-part {owner.get('name')}.{child.get('name')} to a link: "
+                                 f"joint {j.get('name')} names it")
+                j[side] = by_name[ckey].get("name")
+                notes.append(f"joint {j.get('name')}.{side} '{raw_name}' resolved to sub-part {j[side]}")
 
         # 2. revolute joints with a > 2π range: degrees written for radians → radians; a radian
         #    range over 2π → continuous
@@ -384,6 +430,19 @@ class ArticulatedPlan(StaticPlan):
                 part["bbox"] = {"center": [(lo[a] + hi[a]) / 2 for a in range(3)],
                                 "extents": [hi[a] - lo[a] for a in range(3)]}
 
+        # 4. root_link that names no part: loose word-match against the part list
+        root = data.get("root_link")
+        if isinstance(root, str) and root.strip():
+            names = {to_snake(p.get("name", "")): p.get("name") for p in parts if p.get("name")}
+            rk = to_snake(root)
+            if rk not in names:
+                # same word-boundary rule as repair 1b, never bare substring ("arm" != "alarm")
+                hits = [orig for k, orig in names.items()
+                        if rk in k.split("_") or k.endswith(f"_{rk}") or k.startswith(f"{rk}_")]
+                if len(hits) == 1:
+                    notes.append(f"root_link '{root}' named no part; rewrote to '{hits[0]}'")
+                    data["root_link"] = hits[0]
+
         data["parts"], data["joints"], data["normalisations"] = parts, joints, notes
         return data
 
@@ -398,9 +457,13 @@ class ArticulatedPlan(StaticPlan):
             p, c = to_snake(j.parent), to_snake(j.child)
             if p not in links or c not in links:
                 unknown = ", ".join(n for n, k in ((j.parent, p), (j.child, c)) if k not in links)
+                subs = sorted({c.name for part in self.parts for c in part.children})
+                sub_note = (f" Sub-parts that exist but are NOT links: {', '.join(subs)} — a joint may "
+                            f"only move a top-level part; name one of those exactly to promote it, or a real part."
+                            if subs else "")
                 raise ValueError(
                     f"joint {j.name} references unknown link(s) {unknown} — the parts in this plan are: "
-                    f"{', '.join(sorted(links))}. Use those exact names (or add the missing part).")
+                    f"{', '.join(sorted(links))}. Use those exact names (or add the missing part).{sub_note}")
             if c in parent_of:
                 raise ValueError(f"link {j.child} has two parent joints")
             if c == root:

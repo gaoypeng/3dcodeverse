@@ -259,6 +259,13 @@ def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool =
 #: census + the plan; their ERRORs route into refine with the zone as the target.
 SCALE_WARN, SCALE_ERROR = 2.5, 4.0
 BOUNDS_MARGIN_MIN_M = 2.0
+#: a zone whose census instance count is under this fraction of its L2 layout budget is
+#: underdressed.  Measured on scene_final_v1 (n=19): flat_ground 12 / undressed 11 /
+#: monotonous 10 were the top standing defects while every zone had a layout with binding
+#: mid/small/ground-cover counts nobody enforced.  Half is deliberately generous — the
+#: budget mixes props with instanced tufts, and only a gross shortfall should gate.
+DENSITY_FRACTION = 0.5
+DENSITY_MIN_BUDGET = 20
 
 
 def _plan_zones(plan: Any) -> list[tuple[str, list[str]]]:
@@ -302,12 +309,46 @@ def _plan_bounds(plan: Any) -> tuple[tuple[float, ...], tuple[float, ...]] | Non
         return None
 
 
-def contract_findings(census: dict[str, Any] | None, plan: Any) -> list[GateFinding]:
+def _layout_budget(layout: Any) -> int:
+    """Total things the L2 layout put in the zone: placements + dressing counts."""
+    if layout is None:
+        return 0
+    get = layout.get if isinstance(layout, dict) else lambda k, d=0: getattr(layout, k, d)
+    placements = get("placements", []) or []
+    n = 0
+    for pl in placements:
+        n += int((pl.get("count", 1) if isinstance(pl, dict) else getattr(pl, "count", 1)) or 1)
+    for k in ("mid_props", "small_props", "ground_cover"):
+        n += int(get(k, 0) or 0)
+    return n
+
+
+def contract_findings(census: dict[str, Any] | None, plan: Any,
+                      layouts: dict[str, Any] | None = None) -> list[GateFinding]:
     """Deterministic plan-vs-census checks: env atmosphere present, every zone dressed
-    with its planned contents, plausible scale, content inside the world bounds."""
+    with its planned contents, plausible scale, content inside the world bounds — and,
+    when the zone has an L2 layout, its density budget actually met."""
     if not isinstance(census, dict) or plan is None:
         return []
     out: list[GateFinding] = []
+    # -- density: the layout's counts are binding, and the census counts every instance
+    groups = {to_snake(g.get("name", "")): g for g in (census.get("groups") or [])
+              if isinstance(g, dict)}
+    for zone_name, layout in (layouts or {}).items():
+        budget = _layout_budget(layout)
+        if budget < DENSITY_MIN_BUDGET:
+            continue
+        g = groups.get(to_snake(zone_name))
+        if g is None:
+            continue   # zone_empty below covers a missing group
+        have = int(g.get("instances") or 0)
+        if have < DENSITY_FRACTION * budget:
+            out.append(_f(Severity.ERROR,
+                          f"zone {zone_name} holds ~{have} instances but its layout budgeted {budget} "
+                          f"(placements + mid/small props + ground cover)",
+                          target=zone_name, kind="underdressed", have=have, budget=budget,
+                          hint="the layout's dressing counts are binding: add the missing props and the "
+                               "instanced ground cover (tufts/pebbles count via InstancedMesh.count)"))
     # -- atmosphere: the two env facts the census measures on every boot
     if "fog" in census and census.get("fog") is None:
         out.append(_f(Severity.ERROR, "scene.fog is not set — frames read as thin_atmosphere (32/48 measured runs)",
@@ -415,7 +456,8 @@ def check_placement(ws: Workspace, *, indoor: bool | None = None, force_probe: b
     return placement_findings(census.get("placement") or {}, indoor=indoor, duration_ms=int((time.time() - t0) * 1000))
 
 
-def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None) -> GateReport | None:
+def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None,
+                        layouts: dict[str, Any] | None = None) -> GateReport | None:
     """Round-gate entry: ``None`` when the census has no placement table (scene did not
     boot, or an older driver), a WARN-only report when anything raises — never an
     exception, so the placement check cannot kill a round."""
@@ -424,7 +466,7 @@ def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None) -> G
         if not isinstance(table, dict):
             return None
         report = placement_findings(table, indoor=infer_indoor(setting_text(plan)))
-        extra = _cap_per_kind(contract_findings(census, plan))
+        extra = _cap_per_kind(contract_findings(census, plan, layouts=layouts))
         if extra:
             findings = report.findings + extra
             passed = not any(f.severity == Severity.ERROR for f in findings)
