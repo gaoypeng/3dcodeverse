@@ -249,8 +249,12 @@ class BaseTrack:
 
     def prepare_salvage(self, ctx: RunContext) -> bool:
         """Make the workspace buildable after a stage tripped the budget before
-        round 0.  Return False (the default) when the track has nothing to salvage."""
-        return False
+        round 0.  Return False when the track has nothing to salvage.  The default
+        says yes exactly when best-of-N adopted a winner (``rounds/candidates.json``
+        is written immediately before adoption): the paid, buildable candidate must
+        not be thrown away by a ceiling trip at the r00 boundary.  A bare skeleton
+        still returns False."""
+        return (ctx.ws.root / "rounds" / "candidates.json").is_file()
 
     # ---- planner hooks (tracks/planner.py runs the one loop)
     def plan_example(self, spec: Spec) -> dict[str, Any]:
@@ -744,15 +748,24 @@ class BaseTrack:
     def finalise(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, stop_reason: str, error: str = "") -> RunRecord:
         self._save_budget(ctx)  # aborted-round / stage charges must survive for resume
         best = ctx.state.best_round
+        rebuild_err = ""
         if best is not None and best < len(rounds) and rounds[best].commit and self._needs_restore(ctx, rounds[best].commit):
             ctx.ws.restore(rounds[best].commit)
             ctx.ws.commit(f"restore best round r{best:02d}")
             try:
                 build = ctx.runtime.build(ctx.ws, timeout_s=ctx.settings.limits.build_timeout_s)
                 ctx.events.emit("finalise.rebuild", round=best, ok=build.ok)
+                if not build.ok:  # the runtime invalidated the canonical artifact FIRST — it is gone
+                    rebuild_err = f"{build.error_type or 'BuildFailed'}: {build.error_message}"[:300]
             except Exception as e:  # noqa: BLE001 — the best round already built once; report, don't fail
-                ctx.events.emit("finalise.rebuild_failed", error=f"{type(e).__name__}: {e}")
-        if rounds and self._texture_wanted(ctx):
+                rebuild_err = f"{type(e).__name__}: {e}"[:300]
+                ctx.events.emit("finalise.rebuild_failed", error=rebuild_err)
+        if rebuild_err:
+            # keep the earned status + judge scores (they were really paid and judged),
+            # but the record must say the deliverable's artifact could not be rebuilt.
+            ctx.extra["finalise_rebuild_failed"] = rebuild_err
+            error = error or f"finalise rebuild failed: {rebuild_err}"
+        if rounds and not rebuild_err and self._texture_wanted(ctx):
             self._texture_pass(ctx)
         ctx.state.status, ctx.state.stop_reason, ctx.state.error = status, stop_reason, error
         self._save_budget(ctx)  # saves state too — AFTER the texture pass charged
@@ -863,6 +876,8 @@ class BaseTrack:
                                  "cost_by_stage": ctx.budget.stage_summary()}
         if ctx.extra.get("texturing"):
             extra["texturing"] = ctx.extra["texturing"]
+        if ctx.extra.get("finalise_rebuild_failed"):
+            extra["finalise_rebuild_failed"] = ctx.extra["finalise_rebuild_failed"]
         if ctx.extra.get("aborted_rounds"):
             # rounds the budget (or a crash) cut after the money was spent: they are not
             # in ``rounds``, so name them here and keep their dollars in total_usage.

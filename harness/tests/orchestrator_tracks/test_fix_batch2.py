@@ -109,6 +109,49 @@ def test_finalise_restores_best_when_aborted_round_dirtied_src(tmp_path, chair_p
     assert snap["billed_usd"] == pytest.approx(0.025, abs=1e-6) and snap["calls"] > 0
 
 
+# --------------------------------------------------------------------- finding: finalise rebuild fails after invalidation
+def test_a_failed_finalise_rebuild_cannot_finalize_silently(tmp_path, chair_plan, settings, monkeypatch):
+    """Every real runtime invalidates the canonical artifact FIRST in build(), so a
+    failed rebuild of the restored best round leaves object.glb MISSING — yet the run
+    used to finalize with final_score set, ``record.error == ""`` and a deliverable
+    with no model file.  The earned status + judge scores are kept; the error and the
+    ``finalise_rebuild_failed`` flag must say what happened, and the texture pass
+    (whose input GLB is gone) must not charge image calls first."""
+    import subprocess
+
+    class RebuildFailsRuntime(FakeRuntime):
+        def build(self, ws, *, timeout_s=None):
+            msg = subprocess.run(["git", "-C", str(ws.root), "log", "-1", "--format=%s"],
+                                 capture_output=True, text=True).stdout.strip()
+            if msg.startswith("restore best round"):
+                ws.stage_artifacts("object.glb").invalidate()  # what the real runtimes do first
+                return BuildResult(ok=False, language=self.language.value, error_type="Timeout",
+                                   error_message="runtime crashed on rebuild", error_file="src/object.js")
+            return super().build(ws, timeout_s=timeout_s)
+
+    textured = []
+    from codeverse.tracks.lifecycle import BaseTrack
+    monkeypatch.setattr(BaseTrack, "_texture_wanted", staticmethod(lambda ctx: True))
+    monkeypatch.setattr(BaseTrack, "_texture_pass", lambda self, ctx: textured.append(True))
+
+    spec = make_spec(max_rounds=2)
+    ws = Workspace(tmp_path / "runs" / "r")
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.7, 0.5), targets=("Seat",)),
+                              agent=FakeAgent(_writer), planner_model=_planner(chair_plan.model_dump(mode="json")),
+                              settings=settings, runtime=RebuildFailsRuntime(Language.THREEJS))
+    rec = track.run(spec, ws)
+    assert rec.status is RunStatus.PLATEAU and rec.best_round == 0            # the earned status stays
+    assert rec.final_score == pytest.approx(0.7)                              # ...and so do the paid scores
+    assert rec.error.startswith("finalise rebuild failed: Timeout")
+    assert "runtime crashed on rebuild" in rec.extra["finalise_rebuild_failed"]
+    assert not (ws.artifacts / "object.glb").is_file()
+    assert textured == [], "the texture pass must not run against a missing GLB"
+    on_disk = json.loads(ws.record_path.read_text())
+    assert on_disk["error"].startswith("finalise rebuild failed") and on_disk["status"] == "plateau"
+    ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "finalise.rebuild"]
+    assert ev and ev[-1]["ok"] is False
+
+
 # --------------------------------------------------------------------- finding: spent usage persisted on crash paths
 def test_spent_usage_saved_when_a_round_crashes(tmp_path, chair_plan, settings):
     class BoomServices(FakeServices):

@@ -196,3 +196,52 @@ def test_planning_error_dollars_are_booked_exactly_once(tmp_path):
     n = 1 + MAX_VALIDATION_REASKS  # every paid attempt, each booked once
     assert guard.spent.cost_usd == pytest.approx(0.01 * n)
     assert ei.value.usage.cost_usd == pytest.approx(0.01 * n)  # the error still reports the total
+
+
+# --------------------------------------------------------------- ordering: r00 boundary stop
+def test_the_adopted_best_of_n_winner_survives_a_boundary_budget_stop(tmp_path, chair_plan, settings, monkeypatch):
+    """The winner is adopted + committed + candidates.json written, then the boundary
+    ``budget.check()`` trips BEFORE run_round persists r00.  prepare_salvage must say
+    yes (the paid, buildable candidate is sitting in src/) so the salvage round
+    delivers ONE scored round instead of a 0-round record that re-pays all N on resume."""
+    import codeverse.tracks.candidates as cand
+
+    real_adopt = cand.adopt_candidate
+
+    def adopt_then_ceiling(ctx, sub_ws):
+        real_adopt(ctx, sub_ws)
+        ctx.budget._active_s = ctx.spec.budget.max_minutes * 60 + 60  # noqa: SLF001 — clock ran out during candidates
+
+    monkeypatch.setattr(cand, "adopt_candidate", adopt_then_ceiling)
+
+    def writer(job, ws_):
+        return {"src/object.js": f"// {job.label} in {ws_.root.name}\n"
+                                 "export function build(THREE) { return new THREE.Group(); }\n"}
+
+    ws = Workspace(tmp_path / "runs" / "bo")
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(writer),
+                              planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
+                              settings=settings, runtime=FakeRuntime(Language.THREEJS), n_candidates=2)
+    rec = track.run(make_spec(max_rounds=0), ws)
+    assert rec.status is RunStatus.BUDGET
+    assert len(rec.rounds) == 1 and rec.rounds[0].score == pytest.approx(0.6)
+    assert rec.best_round == 0 and rec.final_score == pytest.approx(0.6)
+    ev = [e["event"] for e in EventLog(ws.events_path).read()]
+    assert "budget.salvage" in ev and "budget.salvage_skipped" not in ev
+
+
+def test_a_skeleton_only_budget_trip_still_salvages_nothing(tmp_path, chair_plan, settings):
+    """No candidate ever finished (the ceiling tripped mid-generation): there is no
+    adopted winner, so the salvage hook must keep saying no off-scene."""
+
+    def writer(job, ws_):
+        raise BudgetExceeded("elapsed 11.0 min exceeds max_minutes 10.0", spent_usd=1.0, elapsed_min=11.0)
+
+    ws = Workspace(tmp_path / "runs" / "bare")
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(writer),
+                              planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
+                              settings=settings, runtime=FakeRuntime(Language.THREEJS), n_candidates=1)
+    rec = track.run(make_spec(max_rounds=0), ws)
+    assert rec.status is RunStatus.BUDGET and rec.rounds == []
+    ev = [e["event"] for e in EventLog(ws.events_path).read()]
+    assert "budget.salvage_skipped" in ev
