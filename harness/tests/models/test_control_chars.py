@@ -123,9 +123,6 @@ def test_the_brief_text_fallback_is_sanitised(tmp_path):
 
         provider, model = "fake", "fake-1"
 
-        def supports_vision(self) -> bool:
-            return True
-
         def generate(self, request):
             return ChatResponse(text=json.dumps(payload), parsed=None, usage=Usage())
 

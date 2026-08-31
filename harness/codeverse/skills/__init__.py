@@ -104,10 +104,6 @@ def load_skill(name: str, root: Path | None = None) -> Skill:
     return parse_skill(d)
 
 
-def skill_names(root: Path | None = None) -> list[str]:
-    return [p.name for p in bundle_dirs(root)]
-
-
 from codeverse.skills.config import skills_enabled, skills_max, skills_unverified  # noqa: E402
 from codeverse.skills.materialize import attach_skills, materialize_skills  # noqa: E402
 from codeverse.skills.registry import plan_signals, select, skills_for  # noqa: E402
@@ -117,5 +113,5 @@ from codeverse.skills.telemetry import probe_reads  # noqa: E402
 __all__ = ["SKILLS_DIR_ENV", "Skill", "SkillError", "SkillRef", "all_skills", "attach_skills", "bundle_dirs",
            "check_claims", "claim_values",
            "iter_skills", "load_skill", "materialize_skills", "plan_signals", "probe_reads", "select",
-           "skill_names", "skills_dir", "skills_enabled", "skills_for", "skills_max", "skills_unverified",
+           "skills_dir", "skills_enabled", "skills_for", "skills_max", "skills_unverified",
            "validate_bundle"]

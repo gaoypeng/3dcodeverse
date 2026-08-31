@@ -38,9 +38,6 @@ class FakeChat:
     def id(self) -> str:
         return "gemini:gemini-3.7-flash"
 
-    def supports_vision(self) -> bool:
-        return True
-
     def generate(self, request: ChatRequest) -> ChatResponse:
         self.requests.append(request)
         if self.error is not None:
@@ -157,7 +154,7 @@ def test_the_proxy_forwards_everything_else():
     chat = FakeChat()
     chat.pool = "the-key-pool"  # type: ignore[attr-defined]
     m = MeteredChatModel(chat)
-    assert m.id == "gemini:gemini-3.7-flash" and m.provider == "gemini" and m.supports_vision()
+    assert m.id == "gemini:gemini-3.7-flash" and m.provider == "gemini"
     assert m.pool == "the-key-pool"
     agent = MeteredAgent(FakeAgent(chat))
     assert agent.kind == "self-metering" and agent.available() == (True, "ok")
@@ -470,9 +467,6 @@ def test_a_late_hedge_loser_keeps_its_stage_role_and_round(tmp_path: Path):
         provider, model = "gemini", "gemini-3.7-flash"
         id = "gemini:gemini-3.7-flash"
         late: threading.Thread | None = None
-
-        def supports_vision(self):
-            return True
 
         def generate(self, req):
             sink = attempt_sink()  # captured once, like gemini._attempt_hook

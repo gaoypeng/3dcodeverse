@@ -24,8 +24,6 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
-UNITS = "meters"
-
 
 class Frame(StrEnum):
     """Named coordinate conventions."""

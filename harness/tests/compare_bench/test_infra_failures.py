@@ -116,9 +116,6 @@ def test_both_failure_paths_classify_the_same_way(tmp_path):
         class DeadModel:  # the real ApiOneShot around a model that raises the outage
             provider, model = "gemini", "gemini-3.7-flash"
 
-            def supports_vision(self):
-                return True
-
             def generate(self, request):
                 raise outage
 

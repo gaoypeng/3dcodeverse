@@ -35,7 +35,7 @@ The expected $ per profile comes from the same 61 runs; see
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 #: profile names in increasing order of spend
 PROFILE_NAMES = ("economy", "balanced", "quality")
@@ -74,11 +74,6 @@ class Profile:
 
     def expectation(self) -> str:
         return f"~${self.expected_usd:.2f}/run, {self.expected_score}"
-
-    def with_overrides(self, **kw: object) -> Profile:
-        """Copy with the fields the user stated explicitly (``None`` = not stated)."""
-        clean = {k: v for k, v in kw.items() if v is not None and hasattr(self, k)}
-        return replace(self, **clean) if clean else self  # type: ignore[arg-type]
 
 
 #: the three dials.  Generator ids are harness backend ids; judge/planner ids are

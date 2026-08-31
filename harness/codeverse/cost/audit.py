@@ -107,10 +107,6 @@ class Audit:
     def model_s(self) -> float:
         return sum(r.model_s for r in self.runs)
 
-    @property
-    def harness_s(self) -> float:
-        return sum(r.harness_s for r in self.runs)
-
     def bucket(self, dim: str, key: str) -> CostBucket:
         return self.summary.dimension(dim).get(key, CostBucket(key=key))
 

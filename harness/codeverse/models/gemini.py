@@ -581,9 +581,6 @@ class GeminiModel:
     def id(self) -> str:
         return f"gemini:{self.model}"
 
-    def supports_vision(self) -> bool:
-        return True
-
     # --------------------------------------------------------------- generate
     def generate(self, request: ChatRequest) -> ChatResponse:
         contents = to_contents(request.messages)

@@ -185,9 +185,6 @@ class FakeChatModel:
     def id(self) -> str:
         return "fake:fake-model"
 
-    def supports_vision(self) -> bool:
-        return True
-
     def generate(self, request: ChatRequest) -> ChatResponse:
         from tests.orchestrator_tracks.conftest import FAKE_CLOCK
 

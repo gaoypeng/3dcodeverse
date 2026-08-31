@@ -107,12 +107,6 @@ class RunLedger:
     def ledger_usd(self) -> float:
         return sum(r.cost_usd for r in self.rows)
 
-    @property
-    def harness_s(self) -> float:
-        """Wall clock not spent waiting on a model (build / gates / render / IO).
-        Clamped at 0: parallel stages can make ``model_s`` exceed the wall clock."""
-        return max(0.0, self.wall_s - self.model_s)
-
 
 def _row(usage: Usage, *, run: str, stage: Stage, label: str, rnd: int | None, source: str,
          role: Role | None = None, ts: float = 0.0, outcome: str = "ok", n_calls: int = 1,

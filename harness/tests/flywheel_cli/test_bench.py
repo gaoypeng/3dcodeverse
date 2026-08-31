@@ -99,9 +99,6 @@ def test_every_bench_prompt_opens_its_own_run_ledger(tmp_path: Path):
     class FakeChat:
         provider, model, id = "gemini", "gemini-3.7-flash", "gemini:gemini-3.7-flash"
 
-        def supports_vision(self) -> bool:
-            return True
-
         def generate(self, request: ChatRequest) -> ChatResponse:
             return ChatResponse(text="ok", usage=Usage(backend="gemini", model="gemini-3.7-flash",
                                                        input_tokens=1000, output_tokens=10))

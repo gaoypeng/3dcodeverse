@@ -31,9 +31,6 @@ class FakeChat:
     def id(self) -> str:
         return "fake:fake-1"
 
-    def supports_vision(self) -> bool:
-        return True
-
     def generate(self, request: ChatRequest) -> ChatResponse:
         with self._lock:
             self.requests.append(request)

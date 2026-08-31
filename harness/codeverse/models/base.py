@@ -29,8 +29,6 @@ class ChatModel(Protocol):
         """
         ...
 
-    def supports_vision(self) -> bool: ...
-
 
 class ModelError(RuntimeError):
     """A model call failed.  ``attempts`` is how many round-trips the retry machine

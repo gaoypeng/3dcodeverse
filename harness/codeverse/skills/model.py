@@ -62,11 +62,6 @@ class Skill(BaseModel):
         """ISO date the bundle's claims were last checked against the harness."""
         return self.metadata.get("verified", "")
 
-    @property
-    def when_to_use(self) -> str:
-        """Optional long form of the *when* half of ``description`` (metadata key)."""
-        return self.metadata.get("when_to_use", "")
-
     def ref(self) -> SkillRef:
         return SkillRef(name=self.name, description=self.description, body_tokens=self.body_tokens)
 

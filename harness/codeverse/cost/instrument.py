@@ -90,9 +90,6 @@ class MeteredChatModel:
     def id(self) -> str:
         return str(self._inner.id)
 
-    def supports_vision(self) -> bool:
-        return bool(self._inner.supports_vision())
-
     def __getattr__(self, name: str) -> Any:  # everything else is the real model's
         return getattr(self._inner, name)
 

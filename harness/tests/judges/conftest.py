@@ -134,9 +134,6 @@ class FakeChatModel:
     def id(self) -> str:
         return "fake:fake-1"
 
-    def supports_vision(self) -> bool:
-        return True
-
     def _next_reply(self, request: ChatRequest) -> Any:
         for key in sorted(self.by_label, key=len, reverse=True):
             if key in (request.label or "") and self.by_label[key]:

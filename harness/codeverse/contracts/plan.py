@@ -655,10 +655,6 @@ class EngineeringBrief(BaseModel):
                                    description="things a naive model would wrongly add")
 
     @property
-    def dimension_map(self) -> dict[str, float]:
-        return {d.name: d.meters for d in self.dimensions_m}
-
-    @property
     def is_useful(self) -> bool:
         """A brief with no assemblies AND no signature features tells the planner nothing —
         the caller discards it rather than pasting an empty block into the prompt."""

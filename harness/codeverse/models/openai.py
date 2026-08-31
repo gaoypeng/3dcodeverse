@@ -252,9 +252,6 @@ class OpenAIModel:
     def id(self) -> str:
         return f"openai:{self.model}"
 
-    def supports_vision(self) -> bool:
-        return True
-
     # ---------------------------------------------------------------- client
     def client(self) -> Any:
         with self._lock:

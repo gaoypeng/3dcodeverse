@@ -40,10 +40,6 @@ class SessionCache:
         return self.cached_tokens / self.input_tokens if self.input_tokens else 0.0
 
     @property
-    def first_cached_fraction(self) -> float:
-        return self.first_cached / self.first_input if self.first_input else 0.0
-
-    @property
     def saved_usd(self) -> float:
         """USD the cache reads saved against paying full input price for them."""
         return self.cached_tokens * max(0.0, self.price_input - self.price_cached) / 1e6
