@@ -247,3 +247,25 @@ def test_density_gate_fires_on_a_zone_far_under_its_layout_budget():
     rep = placement_gate_safe(census, plan=_contract_plan(), layouts=layouts)
     assert not [f for f in rep.findings if f.data.get("kind") == "underdressed"]
 
+
+def test_no_backdrop_fires_outdoors_and_stays_quiet_with_a_ring_or_indoors():
+    """world_edge_visible stood in 11/19 scene_final_v1 verdicts; the env contract's
+    silhouette ring is measurable: standing geometry must reach past the play area."""
+    base = {"fog": {"type": "Fog"}, "background": "#aabbcc",
+            "placement": _table(_row("Lantern_3", h=0.6), _row("Bench", h=0.9),
+                                _row("BenchB", zone="House", h=0.9))}
+    near_only = dict(base, groups=[
+        {"name": "Yard", "kind": "content", "bbox": {"min": [-10, 0, -10], "max": [10, 4, 10]}}])
+    rep = placement_gate_safe(near_only, plan=_contract_plan(), layouts=None)
+    hits = [f for f in rep.findings if f.data.get("kind") == "no_backdrop"]
+    assert len(hits) == 1 and hits[0].target == "env" and "25 m" in hits[0].message
+    # a silhouette ring past 1.25x the half-extent quiets it
+    ringed = dict(base, groups=near_only["groups"] + [
+        {"name": "BackdropHills", "kind": "content", "bbox": {"min": [-40, 0, -40], "max": [40, 5, 40]}}])
+    rep = placement_gate_safe(ringed, plan=_contract_plan(), layouts=None)
+    assert not [f for f in rep.findings if f.data.get("kind") == "no_backdrop"]
+    # an interior never asks for one
+    indoor = _contract_plan().model_copy(update={"setting": "a candlelit library interior"})
+    rep = placement_gate_safe(near_only, plan=indoor, layouts=None)
+    assert not [f for f in rep.findings if f.data.get("kind") == "no_backdrop"]
+

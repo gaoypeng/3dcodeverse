@@ -266,6 +266,13 @@ BOUNDS_MARGIN_MIN_M = 2.0
 #: budget mixes props with instanced tufts, and only a gross shortfall should gate.
 DENSITY_FRACTION = 0.5
 DENSITY_MIN_BUDGET = 20
+#: an outdoor scene with no geometry reaching past this multiple of the bounds
+#: half-extent has no backdrop ring — the world edge shows from every overview camera.
+#: world_edge_visible stood in 11/19 scene_final_v1 verdicts and 3/6 of the density
+#: arm while the plan's env contract demands a silhouette ring at ~0.6 x fog-far
+#: (well beyond bounds); 1.25x the half-extent is a deliberately lenient floor.
+BACKDROP_REACH_FACTOR = 1.25
+BACKDROP_MIN_HEIGHT_M = 2.0
 
 
 def _plan_zones(plan: Any) -> list[tuple[str, list[str]]]:
@@ -358,6 +365,33 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         out.append(_f(Severity.ERROR, "scene.background is not set (renders on the raw clear colour)",
                       target="env", kind="no_background",
                       hint="in buildEnv set scene.background to the sky colour or sky texture the plan names"))
+    # -- backdrop ring: outdoor worlds must have geometry past the play area
+    bounds = _plan_bounds(plan)
+    groups = census.get("groups")
+    if bounds and isinstance(groups, list) and not infer_indoor(setting_text(plan)):
+        lo, hi = bounds
+        cx, cz = (lo[0] + hi[0]) / 2, (lo[2] + hi[2]) / 2
+        half = max(hi[0] - lo[0], hi[2] - lo[2]) / 2
+        need = BACKDROP_REACH_FACTOR * half
+        reach = 0.0
+        for g in groups:
+            b = g.get("bbox") if isinstance(g, dict) else None
+            if not (isinstance(b, dict) and b.get("min") and b.get("max")):
+                continue
+            if g.get("kind") not in ("content", "ground"):
+                continue
+            if (b["max"][1] - b["min"][1]) < BACKDROP_MIN_HEIGHT_M:
+                continue
+            r = max(abs(b["min"][0] - cx), abs(b["max"][0] - cx), abs(b["min"][2] - cz), abs(b["max"][2] - cz))
+            reach = max(reach, r)
+        if 0 < reach < need:
+            out.append(_f(Severity.ERROR,
+                          f"no backdrop ring: the farthest standing geometry reaches {reach:.0f} m from centre "
+                          f"but the world edge hides only past ~{need:.0f} m",
+                          target="env", kind="no_backdrop", reach_m=round(reach, 1), need_m=round(need, 1),
+                          hint="build the env plan's silhouette ring (24-40 SOLID pieces — hills / treeline / "
+                               "rooftops — at ~0.6 x fog-far radius, 3-8 m tall, darkened): the fog supplies the "
+                               "haze, the ring hides the edge"))
     table = census.get("placement") if isinstance(census.get("placement"), dict) else None
     rows = [AssetRow.model_validate(r) for r in (table.get("assets") or [])] if table else []
     if not rows:
