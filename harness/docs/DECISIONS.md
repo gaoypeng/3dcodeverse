@@ -448,9 +448,9 @@ written) that were accepted because the code works that way and the tests pin it
   baseline); A2 = production-faithful 8 views + clay; B = 14 labelled 640 px single
   views; C = 14 views + clay through our montage machinery (this decision).  The
   only comparison that survives multiplicity is same-cap C−A **+0.038** (n=29,
-  p=.009); the raw deltas C−B p=.041 and C−A p=.024 do NOT survive Holm — cap flips
+  SE 0.013, t≈2.98); the raw deltas C−B p=.041 and C−A p=.024 do NOT survive Holm — cap flips
   make the raw delta distribution heavy-tailed (sd(d) ~0.10–0.14).  The cap story
-  is the visible one: clean-item `untextured_flat` caps 11(A) / 6(A2) / 8(B) /
+  is the visible one: `untextured_flat` cap-rule fires 11(A) / 6(A2) / 8(B) /
   **3(C)** — more sky and underside pixels stop the judge inventing flatness.
   B rejected: $0.198 & 67.5k input tok/verdict (C: $0.155 / 40.9k), its −0.025 vs A2
   is entirely cap flips (~half contradicting the pixels on eyeball), and its
@@ -459,8 +459,23 @@ written) that were accepted because the code works that way and the tests pin it
   14/14 naive TP measures reading comprehension of the shared gate text, not payload
   quality), and B's floating lead reduces to one genuinely visual item.  Flash
   replicas (3.7 and 3.6): payload Δ ≈ 0 — the rig pays only at pro tier, which is
-  the verdict judge anyway.  Underside full-res singles (the espresso catch) are
-  queued as the C+ experiment; its battery's numbers get appended here when it lands.
+  the verdict judge anyway.  The SHIPPED grouping was itself re-measured (arm Cprod, $7.2, same 42 × n=3):
+  montage grouping ALONE moves the mean −0.044 vs C's accidental grouping — as large
+  as the rig effect itself — because leading montage 1 with the poles ends C's
+  dirty-item leniency (the 11-error windmill: C 0.51 → Cprod 0.04; clean/dirty gap
+  0.134 → 0.155) and lands ≈ A2 overall (−0.016, inside noise).  A payload experiment
+  must therefore measure the exact grouping it ships; this entry's operative numbers
+  are Cprod's.  Underside full-res singles (arm Cplus: Cprod + bottom and
+  front_right_low appended as 768 px singles, $6.8): recovers the espresso-class
+  underside catch (0.795 with render_artifacts flagged, vs 0.965 blind in Cprod) but
+  degrades everything else — worst clean/dirty gap 0.112, highest row-σ 0.040, and
+  the windmill relapses to 0.62 with all three samples dropping the floating and
+  primitive reads — measured and REJECTED; a variant that replaces the semantically
+  odd bottom ground-band crop instead of appending stays queued.  Temperature
+  (A2 @ t=0, $6.0): σ 0.037 → 0.022 with 8/42 rows fully deterministic — temperature
+  is ~40 % of re-judge noise — but the mean shifts −0.037 and pearson(gate errors)
+  drops −0.195 → −0.126: re-keying every σ threshold to buy half the noise is a bad
+  trade; **t = 0.2 stays**.
 
 ## Rejected / deferred
 

@@ -642,12 +642,19 @@ files; old records whose stored overall contradicts their own criterion scores) 
 production-faithful 8 views + clay · B = 14 labelled 640 px single views · C = 14-view rig
 + clay through the montage machinery (5 montages + 2 crops).  C mean overall 0.6835 vs A
 0.6427 / A2 0.6558 / B 0.6308; the only multiplicity survivor is same-cap C−A +0.038
-(n=29, p=.009) — raw C−B p=.041 / C−A p=.024 do not survive Holm because cap flips make
-the deltas heavy-tailed.  Clean-item `untextured_flat` caps: 11(A) / 6(A2) / 8(B) / 3(C).
+(n=29, SE 0.013, t≈2.98) — raw C−B p=.041 / C−A p=.024 do not survive Holm because cap flips make
+the deltas heavy-tailed.  `untextured_flat` cap-rule fires: 11(A) / 6(A2) / 8(B) / 3(C).
 B rejected at $0.198 & 67.5k tok/verdict: its deficit is entirely cap flips (~half
 contradicting the pixels), and a defect-provenance pass over every PRESENT vote showed its
 defect-hunter halo was text-quoting — interpenetration pure-view TP is 0/14 in EVERY arm
 (the naive 14/14 measures reading comprehension of the shared gate text), and B's floating
 lead reduces to one genuinely visual item.  Flash replicas: payload Δ ≈ 0 on both 3.7 and
-3.6 — the rig pays only at pro tier.  C ships as D47 ($0.155/verdict, 40.9k input tok);
-underside full-res singles (the espresso catch) are queued as the C+ follow-up.
+3.6 — the rig pays only at pro tier.  C ships as D47 ($0.155/verdict, 40.9k input tok) — with the SHIPPED
+grouping re-measured (arm Cprod, $7.2): grouping alone moves the mean −0.044 vs C's
+accidental grouping (windmill 0.51 → 0.04; clean/dirty gap 0.134 → 0.155; ≈ A2 overall at
+−0.016) — a payload experiment must measure the exact grouping it ships.  Underside
+full-res singles (arm Cplus, $6.8): recovers the espresso underside catch (0.795 +
+render_artifacts vs 0.965 blind) but posts the worst clean/dirty gap (0.112), the highest
+row-σ (0.040) and a windmill relapse to 0.62 — rejected; the replace-the-bottom-crop
+variant stays queued.  Temperature A2 @ t=0 ($6.0): σ 0.037 → 0.022 (8/42 rows exactly
+deterministic) but mean −0.037 and pearson(gate errors) −0.195 → −0.126 — t = 0.2 stays.
