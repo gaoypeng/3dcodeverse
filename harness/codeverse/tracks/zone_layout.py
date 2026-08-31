@@ -35,12 +35,17 @@ LAYOUT_WAIT_S = 300.0
 COUNT_SLACK = 4
 #: cluster centres may sit this far outside the zone bbox (assets have radius)
 BBOX_MARGIN_M = 1.0
-#: base clearance a camera needs beyond half the asset's footprint.  Measured on
-#: fv_izakaya_night (2026-08-30): the director placed BarCounter 0.7 m from the
-#: PotDetail camera — the camera sat INSIDE the counter, camera_in_geometry +
-#: dark_frame capped all three rounds (0.512 uncapped → 0.252), and refine cannot
-#: fix it because cameras belong to the plan, not to any file an agent owns.
-CAMERA_CLEAR_M = 1.2
+#: lens margin beyond the asset's own reach.  Two measurements set this: fv_izakaya_night
+#: (2026-08-30) — BarCounter 0.7 m from the PotDetail camera put the lens INSIDE the
+#: counter, three capped rounds, unfixable downstream; and dg_izakaya_night (2026-08-31)
+#: — the first tune (1.2 m base + footprint/2 + full spread) rejected EVERY placement a
+#: small indoor zone could offer ("WoodenStool 1.8 m from OdenStationDetail — keep
+#: >= 1.8 m") until the layout was dropped entirely, muting the layer exactly where it
+#: helps.  The validator now rejects only what puts the LENS inside the asset's reach
+#: (half footprint + half spread + this margin, floored at 0.8 m); polite shot spacing
+#: stays in the prompt, where a director can trade it off.
+CAMERA_CLEAR_M = 0.4
+CAMERA_CLEAR_FLOOR_M = 0.8
 #: two LARGE assets whose cluster centres nearly coincide are stacked into each other —
 #: fv2_alpine_night's RetainingWall x PrayerBench interpenetration.  Deliberately narrow:
 #: only same-spot (< 0.6 m) pairs where BOTH footprints are >= 0.8 m and neither stands on
@@ -70,12 +75,13 @@ def validate_layout(layout: ZoneLayout, zone: ZonePlan, plan: ScenePlan) -> str:
         # the shot must survive the layout: a cluster whose footprint reaches a camera
         # puts geometry inside the lens (fv_izakaya_night), and nothing downstream can fix it
         foot = max(known[k].approx_size_m[0], known[k].approx_size_m[2])
-        need = CAMERA_CLEAR_M + foot / 2 + p.spread_m
+        need = max(CAMERA_CLEAR_FLOOR_M, foot / 2 + p.spread_m / 2 + CAMERA_CLEAR_M)
         for cam in plan.cameras:
             dist = math.hypot(x - cam.position[0], z - cam.position[2])
             if dist < need:
-                problems.append(f"{p.asset} cluster ({x:.1f}, {z:.1f}) is {dist:.1f} m from camera {cam.name} "
-                                f"— keep >= {need:.1f} m (its footprint plus lens clearance) so the shot stays clear")
+                problems.append(f"{p.asset} cluster ({x:.1f}, {z:.1f}) reaches camera {cam.name} "
+                                f"({dist:.1f} m < {need:.1f} m = half its footprint+spread plus lens margin) — "
+                                f"move the cluster or shrink its spread so the lens stays outside it")
     placed = {to_snake(p.asset) for p in layout.placements}
     missing = [c for c in zone.contents if to_snake(c) not in placed]
     if missing:

@@ -50,7 +50,12 @@ def test_validator_rejects_a_cluster_that_swallows_a_camera():
     bad = _layout(placements=[{"asset": "Stall", "count": 1, "cluster": (1.2, 0.8), "spread_m": 0.0}],
                   zone="Market")
     complaint = validate_layout(bad, plan.zones[1], plan)
-    assert "from camera overview" in complaint and "shot stays clear" in complaint
+    assert "camera overview" in complaint and "lens stays outside" in complaint
+    # the dg_izakaya lesson: an asset NEAR a camera but out of its reach is legal —
+    # a 0.3 m-foot lantern 1.5 m from the lens must never be rejected
+    near_ok = _layout(placements=[{"asset": "Bollard", "count": 2, "cluster": (2.0, 2.0), "spread_m": 0.4}],
+                      zone="Market")
+    assert "camera" not in validate_layout(near_ok, plan.zones[1], plan)
 
 
 def test_validator_rejects_two_large_assets_on_one_spot_but_spares_adjacency():
