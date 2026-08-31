@@ -61,7 +61,7 @@ class Profile:
     texture: bool = False            # run the derived texture pass
     #: judge payload
     judge_max_px: int = 1024         # measured: 768 bills the same and is noisier — see PROFILES
-    judge_montages: int = 3
+    judge_montages: int = 5  # 14-view rig needs 5 (D47); 3 silently drops the low ring + poles
     judge_detail_crops: int = 2      # one crop ≈ 1,198 input tokens ($0.0024 on the pro judge);
                                      # NOT reduced by any profile — the score effect is inside the
                                      # judge's own noise in both directions (docs/COST.md §14)
@@ -107,7 +107,7 @@ PROFILES: dict[str, Profile] = {
         # swing = 1.6x the pro judge's measured σ (0.030).  Two draws that disagree by more than
         # the instrument's noise do not license a payload cut worth a fifth of a cent, so the
         # experiment is recorded as INCONCLUSIVE in docs/COST.md §14 and the budget is unchanged.
-        judge_max_px=1024, judge_montages=3, judge_detail_crops=2,
+        judge_max_px=1024, judge_montages=5, judge_detail_crops=2,
         max_minutes=30.0,
         expected_usd=0.30,
         expected_score="graphics 0.81 median (5/6 passed); objects clear the gates less often "
@@ -122,7 +122,7 @@ PROFILES: dict[str, Profile] = {
         judge="gemini:gemini-3.1-pro-preview",
         captioner="gemini:gemini-3.7-flash",
         rounds=4, candidates=1, judge_samples=1, max_turns=0, texture=False,
-        judge_max_px=1024, judge_montages=3, judge_detail_crops=2,
+        judge_max_px=1024, judge_montages=5, judge_detail_crops=2,
         max_minutes=60.0,
         expected_usd=1.47,
         expected_score="0.835 mean on compare_v1, 36/61 runs passed ($2.50 per passing artifact) "
@@ -139,7 +139,7 @@ PROFILES: dict[str, Profile] = {
         judge="gemini:gemini-3.1-pro-preview",
         captioner="gemini:gemini-3.7-flash",
         rounds=4, candidates=2, judge_samples=3, max_turns=0, texture=True,
-        judge_max_px=1024, judge_montages=3, judge_detail_crops=2,
+        judge_max_px=1024, judge_montages=5, judge_detail_crops=2,
         max_minutes=90.0,
         expected_usd=3.20,
         expected_score="best-of-2 lifted the stool baseline 0.563 → 0.612 and the texture pass "

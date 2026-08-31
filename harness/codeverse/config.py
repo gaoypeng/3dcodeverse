@@ -156,7 +156,7 @@ class Judge(BaseModel):
     """Judge payload size — what one verdict is allowed to send (docs/COST.md §3)."""
 
     max_px: int = Field(default=1024, description="longest edge of a montage / crop sent to the judge")
-    montages: int = Field(default=3, description="max 2x2 montages per verdict")
+    montages: int = Field(default=5, description="max 2x2 montages per verdict (14-view rig, D47)")
     detail_crops: int = Field(default=2, description="max zoomed detail crops per verdict")
     samples: int = Field(default=1, description="default VLM samples per verdict")
 

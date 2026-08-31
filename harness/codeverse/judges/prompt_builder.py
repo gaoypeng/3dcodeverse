@@ -1,8 +1,8 @@
 """What the judge SEES: image prep, montage planning and message assembly.
 
 * image prep (``prepare_image``): every image sent to a judge is downscaled
-  (≤ ``max_px`` on the long side) and carries a burnt-in label (``VIEW 3/8 — front ·
-  az 0° el 8°``) the model can cite as evidence; prepared files are cached under
+  (≤ ``max_px`` on the long side) and carries a burnt-in label (``VIEW 5/14 — front ·
+  az 0° el 0°``) the model can cite as evidence; prepared files are cached under
   ``<cache_dir>/<sha>.png`` keyed by source path, mtime, size, max_px and label text.
 * montage planning (``plan_montages`` / ``render_montage``): ranked views packed into
   ≤2×2 sheets — shaded, geometry (clay/normals), poses, detail crops.
@@ -38,13 +38,17 @@ from codeverse.contracts.artifacts import (
 from codeverse.contracts.chat import ChatMessage, ImagePart, TextPart
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.spec import Spec
-from codeverse.conventions import OBJECT_VIEWS, SCENE_VIEWS, ViewPreset
+from codeverse.conventions import OBJECT_CLAY_VIEWS, OBJECT_VIEWS, SCENE_VIEWS, ViewPreset
 from codeverse.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric
 from codeverse.spatial.connectivity import PENETRATION_ERROR_M, PENETRATION_WARN_M
 from codeverse.spatial.measure import measure_summary_table
 from codeverse.spatial.sheet import crop_region, load_font, montage_2x2
 
 _PRESETS: dict[str, ViewPreset] = {v.name: v for v in (*OBJECT_VIEWS, *SCENE_VIEWS)}
+#: Clay tiles label their OWN cameras: ``OBJECT_CLAY_VIEWS.top`` sits at el 88 while the
+#: rig's ``top`` is el 90, so a geometry-mode tile resolves here before ``_PRESETS`` —
+#: labelling a clay tile with the rig's numbers was the rig_ab payload_c.py pitfall.
+_CLAY_PRESETS: dict[str, ViewPreset] = {v.name: v for v in OBJECT_CLAY_VIEWS}
 
 
 class JudgeImageError(FileNotFoundError):
@@ -56,7 +60,11 @@ def default_cache_dir() -> Path:
 
 
 def view_az_el(view: RenderView) -> tuple[float, float] | None:
-    """Azimuth/elevation (deg) of a view: from the preset name, else from camera geometry (Y-up)."""
+    """Azimuth/elevation (deg) of a view: from the preset name (geometry-mode tiles
+    prefer the clay rig's own cameras), else from camera geometry (Y-up)."""
+    if view.mode != "shaded" and view.name in _CLAY_PRESETS:
+        p = _CLAY_PRESETS[view.name]
+        return p.azimuth_deg, p.elevation_deg
     if view.name in _PRESETS:
         p = _PRESETS[view.name]
         return p.azimuth_deg, p.elevation_deg
@@ -133,8 +141,15 @@ MontageKind = Literal["shaded", "geometry", "poses", "pose_sheet", "detail"]
 
 #: modes that show geometry without material/lighting noise: every render mode but shaded
 GEOMETRY_MODES = tuple(m for m in RENDER_MODES if m != "shaded")
-#: most-informative-first order for the object rig (names from conventions.OBJECT_VIEWS)
-OBJECT_RANK = ("front_right_34", "back_left_34", "top", "low_front_left", "front", "right", "back", "left")
+#: most-informative-first order for the object rig (names from conventions.OBJECT_VIEWS):
+#: montage 1 = {front_right_high, back_left_high, top, bottom}, so a montage-cap
+#: truncation still sees the underside; then the eye ring, then the remaining rings.
+OBJECT_RANK = (
+    "front_right_high", "back_left_high", "top", "bottom",
+    "front", "right", "back", "left",
+    "front_right_low", "back_left_low", "front_left_high", "back_right_high",
+    "front_left_low", "back_right_low",
+)
 #: scene rig: authored cameras first (graded for composition), then the overview rig.
 #: The rig names come from ``conventions.SCENE_VIEWS`` — anything else in a scene render
 #: set is a camera the SCENE authored, whatever it is called (they are PascalCase plan
@@ -307,7 +322,7 @@ def montage_strip(m: Montage, index: int, total: int) -> str:
 
 
 def montage_label(m: Montage, index: int, total: int) -> str:
-    """Full label for the text part: strip + tile layout (``…: top-left = front_right_34 · az 35° el 22°, …``)."""
+    """Full label for the text part: strip + tile layout (``…: top-left = front_right_high · az 45° el 30°, …``)."""
     head = montage_strip(m, index, total)
     if m.is_detail:
         return head + (f" — {m.hint}" if m.hint else "")
@@ -374,7 +389,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from codeverse.judges.base import JudgeInput
 
 TEXT_BUDGET_CHARS = 24_000  # ≈ 6k tokens
-MAX_MONTAGES = 3
+MAX_MONTAGES = 5  # 14-view rig: 4 shaded 2×2s + the clay geometry montage (D47)
 MAX_DETAIL_CROPS = 2
 MAX_PX = 1024  # montages are 2×2 grids: keep them legible
 MONTAGE_TILE_PX = 512
@@ -386,7 +401,7 @@ Work in this order: observe (summary, strengths, issues), answer the defect chec
 
 SCORING RULES
 - Score each criterion 0..1 against its anchors (interpolate between anchors). Use the WHOLE range: competent work sits at 0.8+, one clearly visible major defect pulls the affected criterion to ~0.4, broken work sits at 0.1-0.3. Do not compress everything into 0.5-0.7 — a primitive box-stack and a crafted product must be 0.4 apart, not 0.1.
-- Every score needs evidence that cites the image and tile (e.g. "MONTAGE 1 top-left (front_right_34): rear leg ends 3 cm above ground; measurement ground_gap 0.03").
+- Every score needs evidence that cites the image and tile (e.g. "MONTAGE 1 top-left (front_right_high): rear leg ends 3 cm above ground; measurement ground_gap 0.03").
 - DEFECT CHECKLIST: answer EVERY item with present=true/false. true ONLY when the defect is visible in an image, or a gate finding of severity ERROR / a measurement states it; gate WARNINGS (e.g. a few-mm weld overlap) are informational and never make a defect present. Cite where. These answers drive penalties and caps computed by the harness, so be literal: do not mark a defect to "be safe", and do not hide one to be kind.
 - Do NOT compute an overall or decide pass/fail; the harness computes the weighted overall, subtracts defect penalties, applies floors and caps.
 - Issues: observable defects, most severe first, with target = the part / zone / joint / asset name from the plan digest (or "overall"), a kind, a severity and evidence.
