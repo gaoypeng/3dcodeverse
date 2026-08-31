@@ -144,6 +144,9 @@ class StageRunner:
         self.ws = ws
         self.events = events
         self.state = state if state is not None else RunState()
+        #: the scene baseline fans sibling stages out in parallel; the bookkeeping
+        #: (``state.stages`` + the ``run_state.json`` save) must not interleave
+        self._lock = threading.Lock()
 
     # ----------------------------------------------------------------- paths
     def result_path(self, name: str) -> Path:
@@ -194,8 +197,9 @@ class StageRunner:
         dt = time.time() - t0
         path.parent.mkdir(parents=True, exist_ok=True)
         self.ws.write_json(path, {"stage": name, "inputs_hash": h, "result": _jsonable(result)})
-        self.state.stages[name] = StageState(name=name, inputs_hash=h, result_path=str(path), duration_s=dt)
-        self.state.save(self.ws)
+        with self._lock:
+            self.state.stages[name] = StageState(name=name, inputs_hash=h, result_path=str(path), duration_s=dt)
+            self.state.save(self.ws)
         self.events.emit("stage.done", stage=name, inputs_hash=h, duration_s=round(dt, 2))
         return result
 

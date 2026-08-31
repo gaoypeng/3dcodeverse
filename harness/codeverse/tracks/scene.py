@@ -198,8 +198,7 @@ class SceneTrack(BaseTrack):
         # assets 15 min + env 12 min sequential = 27 min of a 75-min budget; the pair
         # runs in max(15, 12) and the ~12 saved minutes are a whole refine round
         # (each measured at ~+0.13).  Workspace.commit serialises under its own lock,
-        # so the two stages' commits cannot race.  One cached stage keeps resume
-        # atomic: both results or neither.
+        # so the two stages' commits cannot race.
         def _layouts() -> dict[str, Any]:
             """L2 zone layouts (optional accelerator): planner-model calls, never fatal."""
             import os
@@ -218,39 +217,32 @@ class SceneTrack(BaseTrack):
                 ctx.events.emit("layout.stage_failed", error=f"{type(e).__name__}: {e}"[:300])
                 return {}
 
-        def _assets_and_env() -> dict[str, Any]:
-            thunks = {"assets": lambda: run_asset_stage(ctx), "env": lambda: self._env_stage(ctx),
-                      "layouts": _layouts}
-            results = fan_out(list(thunks.items()), lambda kv: kv[1](), max_workers=2,
-                              label="assets+env", item_name=lambda kv: kv[0])
-            out: dict[str, Any] = {}
-            first_exc: Exception | None = None
-            for (name, _), r in zip(thunks.items(), results, strict=True):
-                if isinstance(r, Exception):
-                    # the sibling's paid work is already committed by its own stage body;
-                    # re-raise after both have finished so nothing done is lost
-                    first_exc = first_exc or r
-                    ctx.events.emit("stage.failed", stage=name, error=f"{type(r).__name__}: {r}")
-                else:
-                    out[name] = {k: v.model_dump(mode="json") for k, v in r.items()} if name == "assets" else r
-            out.setdefault("layouts", {})
-            if first_exc is not None:
-                raise first_exc
-            return out
-        both = runner.stage("assets+env", _assets_and_env,
-                            inputs={"assets": plan.assets, "plan_env": plan.environment,
-                                    "setting": plan.setting, "zones": plan.zones, "agent": ctx.agent_id})
-        ctx.extra["layouts"] = (both or {}).get("layouts") or {}
+        # each child is its OWN cached stage (2026-08-31): a failing sibling never
+        # invalidates a succeeded one's paid, committed result on resume.  The key is
+        # the WHOLE plan (+ agent) — correct-by-construction against future prompt
+        # fields; the old enumerated keys let a mood/title/bounds/camera-only re-plan
+        # hit a stale cached stage.  Old "assets+env" composite entries are ignored.
+        key = {"plan": plan, "agent": ctx.agent_id}
+        stage_fns: dict[str, Any] = {"assets": lambda: run_asset_stage(ctx),
+                                     "env": lambda: self._env_stage(ctx), "layouts": _layouts}
+        results = fan_out(list(stage_fns.items()), lambda kv: runner.stage(kv[0], kv[1], inputs=key),
+                          max_workers=2, label="assets+env", item_name=lambda kv: kv[0])
+        staged = dict(zip(stage_fns, results, strict=True))
+        first_exc = next((r for r in results if isinstance(r, Exception)), None)
+        if first_exc is not None:
+            raise first_exc   # after every sibling has finished and cached its own result
+        ctx.extra["layouts"] = staged["layouts"] or {}
         assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v
-                  for k, v in ((both or {}).get("assets") or {}).items()}
+                  for k, v in (staged["assets"] or {}).items()}
         # the merge map is a pure function of the plan, so a RESUMED run (cached asset
         # stage) still tells the zones which builder+variant to call
         _, alias = select_assets(list(plan.assets), MAX_ASSETS)
         ctx.extra["assets"] = assets
         ctx.extra["asset_alias"] = alias
         ctx.extra["asset_api"] = asset_api_summary(plan, assets, alias)
-        runner.stage("zones", lambda: self._zones_stage(ctx), inputs={"zones": plan.zones, "asset_api": ctx.extra["asset_api"], "agent": ctx.agent_id})
-        runner.stage("assemble", lambda: self._assemble_stage(ctx), inputs={"cameras": plan.cameras, "zones": [z.name for z in plan.zones]})
+        runner.stage("zones", lambda: self._zones_stage(ctx),
+                     inputs={"plan": plan, "asset_api": ctx.extra["asset_api"], "layouts": ctx.extra["layouts"], "agent": ctx.agent_id})
+        runner.stage("assemble", lambda: self._assemble_stage(ctx), inputs={"plan": plan})
 
     # ---- degradation ------------------------------------------------------
     def _strategy(self, ctx: RunContext, stage: str) -> RunContext:

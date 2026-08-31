@@ -222,7 +222,7 @@ def test_scene_track_stages_and_rounds(tmp_path, settings):
     assert [r.kind for r in rec.rounds] == ["baseline", "refine"] and rec.rounds[0].renders is not None
     assert rec.rounds[0].renders.views and rec.status in (RunStatus.PLATEAU, RunStatus.PASSED)
     st = RunState.load(ws)
-    assert {"plan", "skeleton", "assets+env", "zones", "assemble"} <= set(st.stages)
+    assert {"plan", "skeleton", "assets", "env", "layouts", "zones", "assemble"} <= set(st.stages)
     # scene refine tasks route by file ownership: zone → src/zones/<zone>.js
     assert any("src/zones/quay.js" in i for i in rec.rounds[1].instructions)
 
@@ -244,6 +244,67 @@ def test_scene_track_deterministic_assembler_and_resume(tmp_path, settings):
     rec2 = mk().run(spec, ws, resume=True)
     assert len(agent.jobs) == n_jobs  # all stages + baseline cached / loaded
     assert len(rec2.rounds) == 1 and rec2.rounds[0].commit == rec.rounds[0].commit
+
+
+def _small_scene_plan():
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
+    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
+    for z in plan.zones:
+        z.contents = [c for c in z.contents if c in {a.name for a in plan.assets}]
+    return plan
+
+
+def test_scene_children_are_stages_and_a_failed_env_never_repays_assets(tmp_path, settings):
+    """Review-3 V3-claim3: assets/env/layouts each cache as their OWN stage, so a
+    failing sibling leaves the paid asset results cached and resume re-runs only it."""
+    plan = _small_scene_plan()
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
+    ws = Workspace(tmp_path / "runs" / "harbour3")
+    boom = {"on": True}
+
+    def _writer(job, ws_):
+        if boom["on"] and job.label == "env":
+            raise RuntimeError("env agent session died")
+        return _scene_writer(job, ws_)
+
+    agent = FakeAgent(_writer)
+    mk = lambda: SceneTrack(services=FakeServices(assemble=True), judge=FakeJudge(scores=(0.6,)), agent=agent,  # noqa: E731
+                            planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
+                            runtime=FakeRuntime(Language.SCENE_THREEJS))
+    with pytest.raises(RuntimeError, match="env agent session died"):
+        mk().run(spec, ws)
+    st = RunState.load(ws)
+    assert "assets" in st.stages and "layouts" in st.stages and "env" not in st.stages
+    assert any(j.label.startswith("asset_") for j in agent.jobs)  # the siblings really ran before the failure
+    boom["on"] = False
+    agent.jobs.clear()
+    rec = mk().run(spec, ws, resume=True)
+    labels = [j.label for j in agent.jobs]
+    assert "env" in labels and not any(label.startswith("asset_") for label in labels)
+    assert len(rec.rounds) == 1
+
+
+def test_a_mood_only_replan_invalidates_the_env_stage(tmp_path, settings):
+    """Review-3 V4a: the stage key is the whole plan, so a re-plan differing only in
+    `mood` misses the cache (it used to serve an env generated under the old mood)."""
+    plan = _small_scene_plan()
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
+    ws = Workspace(tmp_path / "runs" / "harbour4")
+    agent = FakeAgent(_scene_writer)
+    mk = lambda: SceneTrack(services=FakeServices(assemble=True), judge=FakeJudge(scores=(0.6, 0.6)), agent=agent,  # noqa: E731
+                            planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
+                            runtime=FakeRuntime(Language.SCENE_THREEJS))
+    mk().run(spec, ws)
+    assert "env" in [j.label for j in agent.jobs]
+    # simulate a `resume --force` re-plan that changed ONLY the mood
+    stage_file = ws.root / "stages" / "plan.json"
+    data = json.loads(stage_file.read_text())
+    assert data["result"]["mood"] != "desolate, horror"
+    data["result"]["mood"] = "desolate, horror"
+    stage_file.write_text(json.dumps(data))
+    agent.jobs.clear()
+    mk().run(spec, ws, resume=True)
+    assert "env" in [j.label for j in agent.jobs]  # a stale cached env must not be served
 
 
 def test_get_track_dispatch():
