@@ -9,7 +9,9 @@ renders a pose sheet which is appended to the judge's views.
 from __future__ import annotations
 
 import logging
+import os
 import time
+import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -26,11 +28,6 @@ from codeverse.contracts.common import TRACK_INFO, Track
 from codeverse.contracts.plan import ArticulatedPlan, Plan
 from codeverse.conventions import to_snake
 from codeverse.spatial.render import RenderError
-from codeverse.tracks.articulated_repairs import (
-    buried_links,
-    repair_motion_directions,
-    repairs_enabled,
-)
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.static_object import ObjectPipeline, StaticObjectTrack
 from codeverse.workspace import Workspace
@@ -45,19 +42,36 @@ class ArticulatedPipeline(ObjectPipeline):
 
     def gates(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> list[GateReport]:
         out = super().gates(ctx, round_index, build, measurement)
-        # motion first: with CV3D_ART_REPAIRS a reversed joint is flipped in robot.urdf
-        # before the sweep, so the pose sheet the judge sees shows the repaired motion
-        motion = self._motion_gate(ctx)
-        if motion is not None and motion.errors and repairs_enabled():
-            motion = repair_motion_directions(ctx.ws, ctx.plan, motion, recheck=ctx.services.motion_checks,
-                                              events=ctx.events)
+        repaired = self._axis_repair(ctx)
         out_dir = ctx.ws.renders_dir(round_index) / "poses"
         report, views = ctx.services.joint_sweep(ctx.ws, ctx.plan, out_dir)
         ctx.extra["pose_views"] = views
         out.append(report)
+        motion = self._motion_gate(ctx)
         if motion is not None:
+            if repaired:
+                motion.findings.append(GateFinding(
+                    gate=MOTION_GATE, severity=Severity.INFO, target=", ".join(repaired),
+                    message=(f"harness axis repair rewrote <axis xyz> of {', '.join(repaired)} in src/robot.urdf "
+                             "(measured motion was provably wrong) — build on it, do not undo it")))
             out.append(motion)
         return out
+
+    @staticmethod
+    def _axis_repair(ctx: RunContext) -> list[str]:
+        """Measure → deterministically fix wrong joint axes BEFORE the sweep renders,
+        so this round's poses, renders and judge all see the corrected motion."""
+        if os.environ.get(AXIS_REPAIR_ENV) == "0":
+            return []
+        try:
+            pre = ctx.services.motion_checks(ctx.ws, ctx.plan)
+            repaired = repair_motion_axes(ctx.ws, pre)
+        except Exception as e:  # noqa: BLE001 — advisory repair; the gate still reports truth
+            log.warning("axis repair skipped: %s", e)
+            return []
+        if repaired:
+            ctx.events.emit("gate.axis_repaired", joints=repaired)
+        return repaired
 
     @staticmethod
     def _motion_gate(ctx: RunContext) -> GateReport | None:
@@ -108,13 +122,13 @@ class ArticulatedObjectTrack(StaticObjectTrack):
     def make_pipeline(self) -> ArticulatedPipeline:
         return ArticulatedPipeline()
 
-    def system_prompt(self, ctx: RunContext) -> str:
-        return ("You are an expert in Blender bpy and URDF writing RAW code (no SDKs). Links are bpy objects named exactly "
-                "as the URDF links; joints are native URDF with origins/axes in the parent link frame. Exact numbers beat adjectives.")
-
 
 # ----------------------------------------------------------------------------- sweep adapter
 def default_joint_sweep(ws: Workspace, plan: Plan | None, out_dir: Path) -> tuple[GateReport, list[RenderView]]:
+    # ``plan`` is unread HERE — the sweep reads the built URDF off disk — but it stays in
+    # the Services.joint_sweep signature: it is the interface's information, and the test
+    # double (tests/orchestrator_tracks/fakes.py) synthesises its poses and findings from
+    # plan.joints because it has no URDF to read.
     """Adapter to ``codeverse.spatial.joints``: load → pose samples →
     ``sweep_collisions`` → ``sweep_findings`` (gate) and ``render_poses`` (pose views +
     ``articulation_sheet.png`` for the judge)."""
@@ -135,11 +149,10 @@ def default_joint_sweep(ws: Workspace, plan: Plan | None, out_dir: Path) -> tupl
             fix_hint="fix robot.urdf so every link has a mesh under meshes/<link>.glb and joints form one tree")]), []
     findings = [f.model_copy(update={"gate": SWEEP_GATE})
                 for f in joints.aggregate_findings(joints.sweep_findings(report))]
-    if repairs_enabled():
-        try:
-            findings += [f.model_copy(update={"gate": SWEEP_GATE}) for f in buried_links(robot)]
-        except Exception as e:  # noqa: BLE001 — an extra check never fails the gate
-            log.warning("buried-link check failed: %s", e)
+    try:
+        findings += [f.model_copy(update={"gate": SWEEP_GATE}) for f in joints.buried_links(robot)]
+    except Exception as e:  # noqa: BLE001 — an extra check never fails the gate
+        log.warning("buried-link check failed: %s", e)
     gate = GateReport(gate=SWEEP_GATE, passed=not any(f.severity == Severity.ERROR for f in findings), findings=findings,
                       duration_ms=int((time.time() - t0) * 1000))
     views: list[RenderView] = []
@@ -172,8 +185,6 @@ def _find_urdf(ws: Workspace) -> Path | None:
 
 
 # ===================================================================== planned-motion gate
-# (merged from codeverse/tracks/motion.py, 2026-08-28 — its two importers were this file
-#  and one lazy Services hook; the byte-identical _find_urdf duplicate died with it)
 MOTION_GATE = "motion_direction"
 
 #: phrase → direction key understood by ``spatial.joints.motion_direction_check``.
@@ -248,6 +259,111 @@ def axis_fix_hint(joint_name: str, axis: Sequence[float] | None, expected: str) 
     return f"negate the <axis> of joint '{joint_name}' in src/robot.urdf (or swap lower/upper) so motion goes {expected}"
 
 
+#: kill-switch for the deterministic axis repair (default ON, mirrors CV3D_CAMERA_REPAIR)
+AXIS_REPAIR_ENV = "CV3D_AXIS_REPAIR"
+
+
+def _set_axis_in_urdf_text(text: str, urdf_joint: str, axis: tuple[float, float, float]) -> str | None:
+    """``text`` with joint ``urdf_joint``'s ``<axis xyz>`` replaced (inserted when
+    missing).  String surgery instead of an XML round-trip so authored comments and
+    formatting survive; ``None`` when the joint block cannot be located safely."""
+    xyz = f"{axis[0]:g} {axis[1]:g} {axis[2]:g}"
+    start = -1
+    pos = 0
+    while (jpos := text.find("<joint", pos)) != -1:
+        head_end = text.find(">", jpos)
+        if head_end == -1:
+            return None
+        head = text[jpos:head_end]
+        if f'name="{urdf_joint}"' in head or f"name='{urdf_joint}'" in head:
+            start = jpos
+            break
+        pos = jpos + 6
+    if start == -1:
+        return None
+    end = text.find("</joint>", start)
+    if end == -1:
+        return None
+    block = text[start:end]
+    a0 = block.find("<axis")
+    if a0 != -1:
+        close = block.find("/>", a0)
+        if close == -1:
+            return None
+        new_block = block[:a0] + f'<axis xyz="{xyz}"/>' + block[close + 2:]
+    else:
+        head_end = block.find(">")
+        if head_end == -1:
+            return None
+        new_block = block[: head_end + 1] + f'\n    <axis xyz="{xyz}"/>' + block[head_end + 1:]
+    return text[:start] + new_block + text[start + len(block):]
+
+
+def repair_motion_axes(ws: Workspace, report: GateReport | None) -> list[str]:
+    """Deterministically rewrite provably-wrong ``<axis xyz>`` in ``src/robot.urdf``.
+
+    For every motion_direction ERROR whose measured data admits an exact fix:
+    anti-parallel motion (``cos <= -0.5``) negates the authored axis; otherwise a
+    computed ``suggested_axis`` is written verbatim.  The same fixes rode along as
+    fix_hints for a whole battery and the agents applied none of them
+    (ax_metronome / ax_swiss_knife, 2026-08-31): the measurement exists, so the
+    execution goes deterministic.  ``CV3D_AXIS_REPAIR=0`` disables.  Both the
+    authored file and the built ``artifacts/robot.urdf`` copy are updated so the
+    re-run gate and the pose sweep see the repair.  Returns repaired plan-joint
+    names; a finding without measured data (``cos``) is never touched."""
+    if report is None or os.environ.get(AXIS_REPAIR_ENV) == "0":
+        return []
+    src = ws.src / "robot.urdf"
+    if not src.is_file():
+        return []
+    text = src.read_text()
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return []
+    joints: dict[str, ET.Element] = {j.get("name", ""): j for j in root.findall("joint")}
+    by_snake = {to_snake(n): n for n in joints}
+    repaired: list[str] = []
+    for f in report.findings:
+        if f.severity != Severity.ERROR:
+            continue
+        data = f.data or {}
+        cos = data.get("cos")
+        if cos is None:
+            continue
+        urdf_name = by_snake.get(to_snake(f.target or ""))
+        if urdf_name is None:
+            continue
+        if cos <= -0.5:
+            ax_el = joints[urdf_name].find("axis")
+            cur = [float(v) for v in (ax_el.get("xyz") or "1 0 0").split()] if ax_el is not None else [1.0, 0.0, 0.0]
+            target_axis = (-cur[0], -cur[1], -cur[2])
+        elif data.get("suggested_axis"):
+            sx, sy, sz = data["suggested_axis"]
+            target_axis = (float(sx), float(sy), float(sz))
+        else:
+            continue
+        new_text = _set_axis_in_urdf_text(text, urdf_name, target_axis)
+        if new_text is None:
+            continue
+        try:  # the repair must never ship a file it cannot prove well-formed and applied
+            got = ET.fromstring(new_text).findall("joint")
+            el = next(j for j in got if j.get("name") == urdf_name).find("axis")
+            assert el is not None
+            vals = [float(v) for v in el.get("xyz").split()]
+            assert all(abs(a - b) < 1e-9 for a, b in zip(vals, target_axis, strict=True))
+        except Exception:
+            continue
+        text = new_text
+        repaired.append(f.target or urdf_name)
+    if repaired:
+        src.write_text(text)
+        art = ws.artifacts / "robot.urdf"
+        if art.is_file():
+            art.write_text(text)
+    return repaired
+
+
 def default_motion_checks(ws: Workspace, plan: Plan | None) -> GateReport | None:
     """Run ``motion_direction_check`` for every plan joint with an obvious motion
     direction.  ``None`` when the plan has no such joints; unknown joints /
@@ -279,19 +395,22 @@ def default_motion_checks(ws: Workspace, plan: Plan | None) -> GateReport | None
                                         message=f"motion check skipped: {e}", data={"expected": expected}))
             continue
         data = {"expected": expected, "observed_dir": list(chk.observed_dir), "motion": j.motion,
-                "cos": getattr(chk, "cos", None)}
+                "cos": chk.cos, "suggested_axis": list(chk.suggested_axis) if chk.suggested_axis else None}
         if chk.ok:
             findings.append(GateFinding(gate=MOTION_GATE, severity=Severity.INFO, target=j.name, message=chk.message, data=data))
-        elif getattr(chk, "partial", False):
-            findings.append(GateFinding(
-                gate=MOTION_GATE, severity=Severity.WARN, target=j.name,
-                message=f"{chk.message}. Plan says: \"{j.motion}\"",
-                fix_hint=f"refine joint {j.name}: keep the axis sign; move the pivot / axis line so '{j.child}' moves "
-                         f"squarely along {expected}", data=data))
         else:
+            # anti-parallel: the sign is provably wrong — negate.  Orthogonal (the
+            # af_swiss_knife class: three rounds of guessing on the same joints): the
+            # geometry admits an exact axis, so the hint states it verbatim.
+            if chk.cos >= -0.5 and chk.suggested_axis is not None:
+                sx, sy, sz = chk.suggested_axis
+                hint = (f"in src/robot.urdf set joint '{j.name}' <axis xyz=\"{sx:g} {sy:g} {sz:g}\"/> "
+                        f"— computed from the pivot so positive motion goes {expected}")
+            else:
+                hint = axis_fix_hint(j.name, getattr(j, "axis", None), expected)
             findings.append(GateFinding(
                 gate=MOTION_GATE, severity=Severity.ERROR, target=j.name,
                 message=f"{chk.message}. Plan says: \"{j.motion}\"",
-                fix_hint=axis_fix_hint(j.name, getattr(j, "axis", None), expected), data=data))
+                fix_hint=hint, data=data))
     return GateReport(gate=MOTION_GATE, passed=not any(f.severity == Severity.ERROR for f in findings),
                       findings=findings, duration_ms=int((time.time() - t0) * 1000))

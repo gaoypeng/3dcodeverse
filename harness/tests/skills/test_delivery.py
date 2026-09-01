@@ -25,21 +25,15 @@ def test_a_native_loader_is_never_handed_a_second_index():
         assert d.native_loader and not d.needs_index, kind
 
 
-def test_a_loaderless_backend_gets_the_index():
+def test_unclassified_backends_get_the_safe_loaderless_policy():
     """Measured 2026-08-25: the native loaders read 5 of 5 routed bundles while a
     loaderless backend read 0 of 5 from a MANDATORY paragraph, making 52 read_file calls
     instead.  Prose is not an affordance.  Every SHIPPED backend has a native loader
     since the in-process one was deleted (2026-08-28), so this is the policy for a
     backend nobody has classified."""
-    d = delivery_for("some-future-cli")
-    assert not d.native_loader and d.needs_index
-
-
-def test_an_unclassified_backend_gets_the_safe_answer():
-    """Over-delivering costs tokens; under-delivering costs the skill entirely."""
     for kind in ("some-future-cli", "", "typo-agent"):
         d = delivery_for(kind)
-        assert d.needs_index, kind
+        assert not d.native_loader and d.needs_index, kind
         assert d.root == AGENTS_SKILL_ROOT
 
 
@@ -82,4 +76,3 @@ def test_adding_a_backend_is_one_row():
         if any(f'"{n}"' in text or f"'{n}'" in text for n in names):
             offenders.append(py.name)
     assert not offenders, f"per-backend knowledge leaked out of delivery.py into {offenders}"
-

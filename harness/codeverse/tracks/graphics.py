@@ -3,7 +3,7 @@
 Languages: glsl_shader (Shadertoy-style fragment shader) · opengl_python (raw
 moderngl program).  Reuses ``BaseTrack`` (lifecycle) and ``run_round`` (steps)
 unchanged; the track-specific pieces are the planner hooks (template / example /
-acceptance in ``graphics_steps``), the prompt context (no 3D frame), the
+acceptance, below), the prompt context (no 3D frame), the
 ``gl_frames`` gate (frame statistics from the build) and the render step (the
 sampled frames + contact sheet as the RenderSet the ``shader_v2`` judge sees).
 Refinement is always one whole-program task.
@@ -35,24 +35,22 @@ from codeverse.languages._gl_common import SHEET_NAME, read_metrics
 from codeverse.languages.glsl_shader import COMMON_GLSL, FUNC_DEF, strip_comments
 from codeverse.orchestrator import TaskGroup
 from codeverse.prompts import render
-from codeverse.spatial.cookbook_tool import Section, split_sections
+from codeverse.prompts.sections import Section, split_sections
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT, GenerationTask
 from codeverse.tracks.lifecycle import BaseTrack, StageRunner
-from codeverse.tracks.planner import add_acceptance_item, build_system_prompt
-from codeverse.tracks.planner import plan as run_planner
+from codeverse.tracks.planner import add_acceptance_item
 from codeverse.tracks.prompting import (
     AGENT_OUTPUT_RULES,
     acceptance_lines,
     constraints_text,
-    current_files,
     is_always_chapter,
     judge_digest,
     judged_sheet,
     reference_images,
     reference_note,
+    refine_inline_files,
     select_cookbook_chapters,
-    select_cookbook_excerpt,
     skeleton_files,
 )
 from codeverse.workspace import Workspace
@@ -61,16 +59,6 @@ log = logging.getLogger(__name__)
 
 
 # ===================================================================== recipe seeding
-# (merged from codeverse/tracks/graphics_recipes.py, 2026-08-28 — its two importers
-#  were this track and graphics_steps.  Original module rationale:
-#  Seed the cookbook's verified GLSL recipes into the HARNESS-OWNED ``src/recipes.glsl`` BEFORE the session.
-#  
-#  Measured 2026-08-26 (refs_v2_graphics, aurora brief, gemini-3.7-flash api-agent, shader_v2 judge): the
-#  baseline prompt carried the cookbook's "Light phenomena" chapter — five mentions of ``curtain(`` in
-#  ``trajectories/baseline_r00/prompt.md`` — and the agent called none of them (``grep -c "curtain("
-#  src/shader.frag`` = 0 in both finished runs): round 0 was again a comb of bars (``comb_artefact``, 0.33).
-#  Showing flash a recipe is not the same as flash using it, so the recipes go ON DISK.
-#  ... see git history of graphics_recipes.py for the full measured writeup.)
 #: the harness-owned recipe file (``contracts.common.HARNESS_OWNED_SRC``; ``AgentJob.read_only``)
 RECIPES_REL = HARNESS_OWNED_SRC[Language.GLSL_SHADER][0]
 #: the agent's helper file — never written by this module, except :func:`trim_skeleton_common`
@@ -292,7 +280,6 @@ def seed_recipes(ctx: RunContext) -> list[str]:
 
 
 # ===================================================================== planner hooks + prompt context + frames
-# (merged from codeverse/tracks/graphics_steps.py, 2026-08-28 — single production importer)
 PLAN_TEMPLATE = "tracks/plan_graphics.j2"
 PLAN_TEMPERATURE = 0.5
 PLAN_MAX_OUTPUT_TOKENS = 65_536   # the model's declared output ceiling; unused tokens cost nothing
@@ -325,12 +312,6 @@ def plan_example() -> dict[str, Any]:  # the graphics worked example (planner ho
     }
 
 
-def build_plan_system_prompt(spec: Spec, *, runtime: Any | None = None) -> str:
-    """The graphics plan system prompt = the shared builder with the graphics
-    template + worked example (``plan_graphics.j2`` references no 3D frame)."""
-    return build_system_prompt(spec, GraphicsPlan, runtime=runtime, template=PLAN_TEMPLATE, example=plan_example())
-
-
 def ensure_graphics_acceptance(plan: GraphicsPlan, spec: Spec) -> GraphicsPlan:
     """Spec must_have / must_not → visual items; planned motion → a probe item (never 'ground contact')."""
     items: list[AcceptanceItem] = list(plan.acceptance)
@@ -347,16 +328,6 @@ def ensure_graphics_acceptance(plan: GraphicsPlan, spec: Spec) -> GraphicsPlan:
 def graphics_event_stats(plan: GraphicsPlan) -> dict[str, Any]:
     """``plan.done`` payload for graphics (passes, not parts/zones)."""
     return {"n_passes": len(plan.passes), "n_acceptance": len(plan.acceptance)}
-
-
-def plan_graphics(spec: Spec, model_id: str, ws: Workspace, *, model: Any | None = None, events: Any | None = None,
-                  budget: Any | None = None, runtime: Any | None = None) -> GraphicsPlan:
-    """Structured planner call → validated GraphicsPlan: the ONE planner loop
-    (``tracks/planner.plan``) parameterised with the graphics hooks."""
-    return run_planner(spec, model_id, GraphicsPlan, ws, model=model, events=events, budget=budget, runtime=runtime,
-                       template=PLAN_TEMPLATE, example=plan_example(), temperature=PLAN_TEMPERATURE,
-                       max_output_tokens=PLAN_MAX_OUTPUT_TOKENS,
-                       finalise=lambda p: ensure_graphics_acceptance(p, spec), event_stats=graphics_event_stats)
 
 
 # ----------------------------------------------------------------------------- prompt context
@@ -378,9 +349,9 @@ def graphics_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
     res = plan.resolution if plan else (1280, 720)
     d: dict[str, Any] = {
         "track": ctx.track.value, "language": ctx.language.value, "contract": ctx.contract_text,
-        "cookbook_rel": ctx.cookbook_rel, "cookbook_excerpt": select_cookbook_excerpt(ctx, graphics_brief(ctx)), "tool_cards": ctx.tool_cards,
-        # the recipes tracks/graphics_recipes.py put in the harness-owned src/recipes.glsl before the session ([] = no block)
-        "seeded_recipes": list((getattr(ctx, "extra", None) or {}).get(EXTRA_KEY) or []),
+        "cookbook_rel": ctx.cookbook_rel, "cookbook_excerpt": ctx.cookbook_text, "tool_cards": ctx.tool_cards,
+        # the recipes seed_recipes() put in the harness-owned src/recipes.glsl before the session ([] = no block)
+        "seeded_recipes": list(ctx.extra.get(EXTRA_KEY) or []),
         "single_shot": ctx.single_shot, "output_format": SINGLE_SHOT_FORMAT if ctx.single_shot else AGENT_OUTPUT_RULES,
         "spec_prompt": ctx.spec.prompt, "constraints": constraints_text(ctx.spec),
         "title": plan.title if plan else "Untitled effect", "plan_summary": plan.summary if plan else "",
@@ -496,7 +467,7 @@ class GraphicsTrack(BaseTrack):
     # ------------------------------------------------------------------ prepare
     def prepare(self, ctx: RunContext, runner: StageRunner) -> None:
         """Skeleton, then the brief's verified cookbook recipes into the harness-owned, read-only
-        src/recipes.glsl (graphics_recipes: measured, flash does not call a recipe it is only shown — and a
+        src/recipes.glsl (seed_recipes: measured, flash does not call a recipe it is only shown — and a
         recipe seeded into its own common.glsl was overwritten by the end of the run, so the file is one
         the agent cannot write: AgentJob.read_only)."""
         super().prepare(ctx, runner)
@@ -504,12 +475,6 @@ class GraphicsTrack(BaseTrack):
             ctx.ws.commit("recipes")
 
     # ------------------------------------------------------------------ baseline
-    def system_prompt(self, ctx: RunContext) -> str:
-        what = "GLSL fragment-shader artist (Shadertoy style)" if ctx.language is Language.GLSL_SHADER else "raw OpenGL (moderngl) graphics programmer"
-        return (f"You are an expert {what} writing RAW code for a headless harness. Follow the contract exactly: "
-                f"no #version/uniform redeclarations (shader) · no window/context creation (program) · everything animates with time. "
-                f"Render and LOOK at your frames before finishing.")
-
     def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
         files = graphics_expected_files(ctx)
         prompt = render(self.generate_template, **graphics_prompt_context(
@@ -531,7 +496,7 @@ class GraphicsTrack(BaseTrack):
         prompt = render(self.refine_template, **graphics_prompt_context(
             ctx, round_index=index, tasks=[t.line() for t in group.tasks], targets=group.targets, files=files,
             judge_summary=judge_digest(last), frame_notes=frame_stats_text(ctx.ws),
-            current_files=current_files(ctx, files) if ctx.single_shot else {}))
+            current_files=refine_inline_files(ctx, files, scoped=False)))
         ctx.record_prompt("refine", prompt)
         return GenerationTask(label="refine", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
                               kind="refine", temperature=0.5, thinking="medium", owns_entry=True,

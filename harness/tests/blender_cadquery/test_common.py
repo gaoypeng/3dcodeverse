@@ -3,41 +3,14 @@
 from __future__ import annotations
 
 import json
-import sys
-import time
 from pathlib import Path
 
 from codeverse.languages._common import (
     ProcResult,
     compose_build_result,
-    run_subprocess,
     strip_blender_noise,
-    tail,
-    write_json_atomic,
 )
-
-
-def test_run_subprocess_captures_output(tmp_path: Path) -> None:
-    r = run_subprocess([sys.executable, "-c", "import sys; print('out'); print('err', file=sys.stderr); sys.exit(3)"],
-                       cwd=tmp_path, timeout_s=10)
-    assert r.returncode == 3 and r.stdout.strip() == "out" and r.stderr.strip() == "err" and not r.timed_out
-
-
-def test_run_subprocess_timeout_kills_group(tmp_path: Path) -> None:
-    code = "import subprocess, sys, time; p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); print(p.pid, flush=True); time.sleep(30)"
-    t0 = time.monotonic()
-    r = run_subprocess([sys.executable, "-c", code], cwd=tmp_path, timeout_s=1.5)
-    assert r.timed_out and time.monotonic() - t0 < 6
-    child_pid = int(r.stdout.strip())
-    time.sleep(0.3)
-    assert not Path(f"/proc/{child_pid}").exists() or "zombie" in (Path(f"/proc/{child_pid}/status").read_text().lower())
-
-
-def test_tail_limits() -> None:
-    text = "\n".join(str(i) for i in range(100))
-    t = tail(text, max_lines=5)
-    assert t.splitlines() == ["95", "96", "97", "98", "99"]
-    assert len(tail("x" * 10_000, max_chars=100)) == 100
+from codeverse.proc import write_json_atomic
 
 
 def test_strip_blender_noise() -> None:

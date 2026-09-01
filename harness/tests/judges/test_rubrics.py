@@ -56,3 +56,44 @@ def test_unknown_and_invalid_rubric():
 def test_content_hash_stable():
     assert load_rubric("scene_v1").content_hash() == load_rubric("scene_v1").content_hash()
     assert load_rubric("scene_v1").content_hash() != load_rubric("asset_v1").content_hash()
+
+
+def test_cap_rule_measures_defaults_to_its_own_id_and_the_object_rubrics_name_interpenetration():
+    """2026-08-30: ``penetration_error`` had never vetoed ``interpenetration`` because the veto
+    matched on id; the object rubrics now say which checklist defect each gate rule measures."""
+    from codeverse.judges.rubrics import CapRule
+
+    assert CapRule(id="floating_part", cap=0.6).measures == ["floating_part"]
+    assert CapRule(id="penetration_error", cap=0.7, measures=["interpenetration"]).measures == ["interpenetration"]
+    for name in ("static_object_v1", "reference_v1", "asset_v1", "articulated_v1"):
+        r = load_rubric(name)
+        rule = next(c for c in r.caps if c.id == "penetration_error")
+        assert "interpenetration" in rule.measures, name
+        assert next(c for c in r.caps if c.id == "missing_must_acceptance").graded, name
+    for name in ("static_object_v1", "reference_v1", "asset_v1"):
+        r = load_rubric(name)
+        assert {c.gate for c in r.caps if c.id in ("floating_part", "penetration_error")} == {"connectivity"}, name
+    # articulated keeps gate "*": connectivity AND joint_sweep both report floating / penetration there
+    a = load_rubric("articulated_v1")
+    assert {c.gate for c in a.caps if c.id in ("floating_part", "penetration_error")} == {"*"}
+    for name in ("scene_v1", "shader_v1", "shader_v2"):  # not object rubrics: the flat cap stays
+        assert not next(c for c in load_rubric(name).caps if c.id == "missing_must_acceptance").graded, name
+
+
+def test_cap_rules_are_not_part_of_the_judge_prompt():
+    """The 2026-08-30 cap changes move ``content_hash`` but not ``judge_prompt_hash``: cap rules
+    are scored in code and never rendered to the judge (prompt_builder._rubric_block)."""
+    import yaml
+
+    from codeverse.judges.prompt_builder import judge_prompt_hash
+    from codeverse.judges.rubrics import RUBRICS_DIR, rubric_from_dict
+
+    r = load_rubric("static_object_v1")
+    data = yaml.safe_load((RUBRICS_DIR / "static_object_v1.yaml").read_text())
+    data["caps"] = []
+    stripped = rubric_from_dict(data)
+    assert stripped.content_hash() != r.content_hash(), "content_hash hashes what the YAML declares"
+    # …and only that: a schema default the YAML never wrote does not re-key recorded verdicts
+    assert r.content_hash() == rubric_from_dict(yaml.safe_load((RUBRICS_DIR / "static_object_v1.yaml").read_text())).content_hash()
+    assert judge_prompt_hash(stripped) == judge_prompt_hash(r)
+    assert "interpenetration" in judge_prompt_hash.__globals__["build_system_prompt"](r), "the checklist defect IS rendered"

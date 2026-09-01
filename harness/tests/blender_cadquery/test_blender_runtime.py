@@ -45,7 +45,6 @@ def test_protocol_and_registry() -> None:
     assert rt.entry_globs == ("src/model.py", "src/parts/*.py") and rt.language.value == "blender"
     assert rt.file_for_part("Seat Cushion") == "src/parts/seat_cushion.py"  # tracks call this via getattr
     assert "bpy" in rt.contract_doc() and "Z is up" in rt.contract_doc()
-    assert rt.cookbook_path().name == "cookbook.md"
 
 
 def test_missing_binary_raises(tmp_ws) -> None:
@@ -53,12 +52,6 @@ def test_missing_binary_raises(tmp_ws) -> None:
     (tmp_ws.src / "model.py").write_text("import bpy\n")
     with pytest.raises(BlenderNotFoundError):
         rt.build(tmp_ws)
-
-
-def test_missing_entry_file(tmp_ws, tmp_path) -> None:
-    rt = BlenderRuntime(blender=_fake_blender(tmp_path))
-    r = rt.build(tmp_ws)
-    assert not r.ok and r.error_type == "MissingEntryFile"
 
 
 def test_missing_entry_invalidates_previous_outputs(tmp_ws, tmp_path) -> None:

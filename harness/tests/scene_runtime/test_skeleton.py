@@ -33,10 +33,12 @@ def test_example_files_exist_and_are_complete():
     assert "InstancedMesh" in (STARTER_DIR / "zones" / "meadow.js").read_text()
 
 
-def test_write_example_copies_all(ws):
+def test_example_writers_copy_all(ws):
     paths = write_example(ws)
     assert len(paths) >= 8
     assert (ws.src / "scene.js").is_file()
+    fallback = write_skeleton(ws, None)
+    assert (ws.src / "zones" / "meadow.js") in fallback
 
 
 @needs_node
@@ -59,9 +61,7 @@ def test_plan_skeleton_writes_zone_and_asset_stubs_and_lints(ws):
     assert "GROUND_SIZE = 200" in env  # 80 m span * 2.5
     assert (ws.public / "assets").is_dir()
     rep = lint(ws)
-    assert rep.passed, [(f.target, f.message) for f in rep.errors]
-
-
-def test_non_scene_plan_falls_back_to_example(ws):
-    paths = write_skeleton(ws, None)
-    assert (ws.src / "zones" / "meadow.js") in paths
+    # a fresh skeleton IS an unwritten env.js, and lint says so on purpose (that check is
+    # what catches an env stage that never ran); everything else must already be legal.
+    other = [(f.target, f.message) for f in rep.errors if "untouched skeleton" not in f.message]
+    assert not other, other

@@ -43,9 +43,6 @@ class WasteItem:
     detail: str = ""
     round: int | None = None
 
-    def as_row(self) -> tuple[str, str, str, float]:
-        return (self.kind, self.run, self.detail, self.usd)
-
 
 @dataclass
 class RoundCost:
@@ -74,7 +71,6 @@ class Audit:
     summary: Summary = field(default_factory=Summary)
     rounds: list[RoundCost] = field(default_factory=list)
     waste: list[WasteItem] = field(default_factory=list)
-    recheck: bool = False
 
     # ---------------------------------------------------------------- totals
     @property
@@ -110,10 +106,6 @@ class Audit:
     @property
     def model_s(self) -> float:
         return sum(r.model_s for r in self.runs)
-
-    @property
-    def harness_s(self) -> float:
-        return sum(r.harness_s for r in self.runs)
 
     def bucket(self, dim: str, key: str) -> CostBucket:
         return self.summary.dimension(dim).get(key, CostBucket(key=key))
@@ -178,11 +170,15 @@ def _waste(led: RunLedger, rounds: Sequence[RoundCost]) -> list[WasteItem]:
     if repair and not led.passed:
         items.append(WasteItem("repair_no_converge", led.run, sum(r.cost_usd for r in repair),
                                detail=f"{len(repair)} repair call(s) in a run that ended '{led.status}'"))
-    # best-of-N candidates that lost (their whole sub-workspace is thrown away)
+    # best-of-N candidates that lost (their whole sub-workspace is thrown away).  Two label
+    # forms: a live ledger row is ``baseline_c<k>`` (the candidate clone's label), a
+    # reconstructed one ``c<k>:baseline``.  Generator sessions only — the quick-judge rows
+    # inside a candidate carry no candidate marker on either path.
     won = led.selected_candidate
-    losers = [r for r in led.rows if r.stage is Stage.CANDIDATE and not (won and r.label.startswith(f"{won}:"))]
+    losers = [r for r in led.rows if r.stage is Stage.CANDIDATE
+              and not (won and (r.label.startswith(f"{won}:") or r.label.endswith(f"_{won}")))]
     if losers:
-        names = sorted({r.label.split(":", 1)[0] for r in losers})
+        names = sorted({_candidate_of(r.label) for r in losers})
         items.append(WasteItem("lost_candidate", led.run, sum(r.cost_usd for r in losers),
                                detail=f"best-of-N: {', '.join(names)} lost to {won or '(unknown)'}"))
     # anything spent on a round that finished after the budget was blown
@@ -195,12 +191,18 @@ def _waste(led: RunLedger, rounds: Sequence[RoundCost]) -> list[WasteItem]:
     return items
 
 
+def _candidate_of(label: str) -> str:
+    """``c1:baseline`` → ``c1``; ``baseline_c1`` → ``c1``."""
+    head, sep, _ = label.partition(":")
+    return head if sep else label.rsplit("_", 1)[-1]
+
+
 def audit_runs(paths: Iterable[str | Path], *, recheck: bool = False) -> Audit:
     """Reconstruct + aggregate every run under ``paths`` (files, run dirs or trees)."""
     dirs: list[Path] = []
     for p in paths:
         dirs += find_runs(p)
-    audit = Audit(recheck=recheck)
+    audit = Audit()
     for d in dirs:
         led = reconstruct(d, recheck=recheck)
         if not led.rows:

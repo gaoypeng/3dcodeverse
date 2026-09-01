@@ -8,23 +8,25 @@ requested ``out_dir`` so every call still yields a self-contained directory.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import shutil
+import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from codeverse.config import get_settings
-from codeverse.contracts.artifacts import RenderSet, RenderView
+from codeverse.contracts.artifacts import RENDER_MODES, RenderSet, RenderView
 from codeverse.conventions import OBJECT_VIEWS, ViewPreset
+from codeverse.proc import sha256_file
 from codeverse.spatial._render_common import build_sheet, out_directory, view_specs
 from codeverse.spatial.node import NodeError, run_node, runtime_js_dir
 
-MODES = ("shaded", "wire", "normals", "silhouette", "clay")
 BACKGROUNDS = ("studio", "white", "transparent")
 CACHE_VERSION = 4  # bump when the rig changes in a way that invalidates cached PNGs
 
@@ -36,16 +38,8 @@ class RenderError(RuntimeError):
     """Rendering failed (node/puppeteer error, bad GLB, bad arguments)."""
 
 
-def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def _cache_key(glb: Path, params: dict[str, Any]) -> str:
-    blob = json.dumps({"v": CACHE_VERSION, "glb": _sha256_file(glb), **params}, sort_keys=True)
+    blob = json.dumps({"v": CACHE_VERSION, "glb": sha256_file(glb), **params}, sort_keys=True)
     return hashlib.sha256(blob.encode()).hexdigest()[:24]
 
 
@@ -105,8 +99,8 @@ def render_glb(
     out_dir = Path(out_dir).resolve()
     if not glb.is_file():
         raise RenderError(f"GLB not found: {glb}")
-    if mode not in MODES:
-        raise RenderError(f"mode must be one of {MODES}, got {mode!r}")
+    if mode not in RENDER_MODES:
+        raise RenderError(f"mode must be one of {RENDER_MODES}, got {mode!r}")
     if background not in BACKGROUNDS:
         raise RenderError(f"background must be one of {BACKGROUNDS}, got {background!r}")
     view_list = list(views) if views is not None else list(OBJECT_VIEWS)
@@ -125,6 +119,9 @@ def render_glb(
         "background": background,
         "anim_time": anim_time,
         "shadow": bool(shadow),
+        # requested mode ('auto' fragments from 'on'/'off' — accepted over a hit
+        # serving the other backend's pixels and lying about RenderSet.renderer)
+        "gpu": gpu,
         "rig": _rig_signature(),
     }
     t0 = time.time()
@@ -210,17 +207,19 @@ def _run_render(glb: Path, out_dir: Path, params: dict[str, Any], *, gpu: str, t
 
 
 def _store_in_cache(cache_dir: Path, out_dir: Path, record: dict[str, Any]) -> None:
-    tmp = cache_dir.parent / f".{cache_dir.name}.{os.getpid()}.tmp"
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    tmp.mkdir(parents=True)
-    for v in record["views"]:
-        shutil.copy2(out_dir / f"view_{v['name']}.png", tmp / f"view_{v['name']}.png")
-    (tmp / "views.json").write_text(json.dumps(record, indent=1))
-    if cache_dir.exists():  # another process won the race; keep theirs
-        shutil.rmtree(tmp)
-        return
-    tmp.replace(cache_dir)
+    # per-writer tmp + tolerant rename (the vlm_judge._render_slices shape): a pid-only
+    # name let two judge threads share a tmp dir and delete each other's half-copied PNGs
+    tmp = cache_dir.parent / f".{cache_dir.name}.{os.getpid()}-{threading.get_ident()}.tmp"
+    shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        tmp.mkdir(parents=True)
+        for v in record["views"]:
+            shutil.copy2(out_dir / f"view_{v['name']}.png", tmp / f"view_{v['name']}.png")
+        (tmp / "views.json").write_text(json.dumps(record, indent=1))
+        with contextlib.suppress(OSError):  # a concurrent identical writer won the race; keep theirs
+            tmp.replace(cache_dir)
+    finally:  # a mid-copy crash (or losing the race) must not leave the .tmp behind
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _restore_from_cache(cache_dir: Path, out_dir: Path) -> dict[str, Any] | None:
@@ -235,26 +234,4 @@ def _restore_from_cache(cache_dir: Path, out_dir: Path) -> dict[str, Any] | None
     return record
 
 
-def render_turntable(
-    glb: Path | str,
-    out: Path | str,
-    *,
-    n: int = 24,
-    elevation_deg: float = 18.0,
-    mode: str = "shaded",
-    width: int = 512,
-    height: int = 512,
-    fps: int = 12,
-) -> Path:
-    """Render ``n`` azimuth steps and assemble ``out`` (.mp4 via ffmpeg, or .gif via PIL)."""
-    from codeverse.spatial.turntable import assemble_turntable
-
-    out = Path(out)
-    frames_dir = out.parent / f".{out.stem}_frames"
-    frames_dir.mkdir(parents=True, exist_ok=True)
-    views = [ViewPreset(f"tt{i:03d}", 360.0 * i / n, elevation_deg) for i in range(n)]
-    rs = render_glb(glb, frames_dir, views=views, mode=mode, width=width, height=height, sheet=False)
-    return assemble_turntable([Path(v.path) for v in rs.views], out, fps=fps)
-
-
-__all__ = ["render_glb", "render_turntable", "RenderError", "MODES", "BACKGROUNDS"]
+__all__ = ["render_glb", "RenderError", "BACKGROUNDS"]

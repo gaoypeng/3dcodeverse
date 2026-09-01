@@ -60,6 +60,19 @@ def test_n_samples_mean_std_and_shuffle(judge_input, cache_dir):
     assert j.summary.startswith("A recognisable chair.")
 
 
+def test_fixed_order_sends_the_identical_prompt_to_every_sample(judge_input, cache_dir):
+    """The σ the loop keys its stop thresholds to must be the model's re-judge noise; the
+    default per-sample shuffle measures view-order robustness instead (JUDGE_NOISE was
+    tabulated from that).  fixed_order is the mode the calibration battery uses."""
+    model = FakeChatModel(by_label={":s0": [good_reply(R, IDS, 0.7)], ":s1": [good_reply(R, IDS, 0.9)],
+                                    ":s2": [good_reply(R, IDS, 0.8)]})
+    j = _judge(model, n_samples=3, cache_dir=cache_dir, fixed_order=True).judge(judge_input)
+    assert j.n_samples == 3
+    orders = [[p.label for p in image_parts(r)] for r in model.requests]
+    assert len({tuple(o) for o in orders}) == 1, "every sample must see the montages in the same order"
+    assert len({r.system for r in model.requests}) == 1
+
+
 def test_floor_fails_even_if_mean_high(judge_input, cache_dir):
     model = FakeChatModel([good_reply(R, IDS, 0.95, overrides={"intent_fidelity": 0.2})])
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
@@ -138,10 +151,10 @@ def test_partial_samples_still_score(judge_input, cache_dir):
     assert raw["n_requested"] == 2 and raw["n_used"] == 1 and len(raw["sample_errors"]) == 1
 
 
-def test_non_retryable_error_stops_early(judge_input, cache_dir):
+def test_non_retryable_error_stops_at_once(judge_input, cache_dir):
     model = FakeChatModel(default=ModelError("bad request", retryable=False))
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
-    assert is_degraded(j) and len(model.requests) == 2
+    assert is_degraded(j) and len(model.requests) == 1
 
 
 def test_base_judge_rejects_measured_rubric(judge_input, cache_dir):
@@ -176,8 +189,9 @@ def test_judge_payload_size_comes_from_the_settings_dial(monkeypatch):
     monkeypatch.setattr("codeverse.judges.vlm_judge.get_settings", lambda: s)
     j = VlmJudge(rubric="static_object_v1", model_id="fake:fake-1")
     # no profile shrinks the payload: 768 px bills the same as 1024 on Gemini and is
-    # noisier, and the 2→1 crop cut did not survive a second draw (docs/COST.md §14)
-    assert j.max_px == 1024 and j.detail_crops == 2 and j.max_montages == 3
+    # noisier, the 2→1 crop cut did not survive a second draw (docs/COST.md §14), and
+    # fewer than 5 montages would silently drop the rig's low ring + poles (D47)
+    assert j.max_px == 1024 and j.detail_crops == 2 and j.max_montages == 5
     # a caller that states a size still gets it — the dial is the default, not a cap
     explicit = VlmJudge(rubric="static_object_v1", model_id="fake:fake-1", max_px=768, detail_crops=1)
     assert explicit.max_px == 768 and explicit.detail_crops == 1

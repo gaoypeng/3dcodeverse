@@ -17,6 +17,8 @@ matter in frame).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import shutil
 from dataclasses import replace
@@ -30,11 +32,12 @@ from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import AssetPlan, BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
+from codeverse.judges.rubrics import is_degraded
 from codeverse.proc import fan_out, write_json_atomic, write_text_atomic
 from codeverse.prompts import render
 from codeverse.tracks.common import RunContext, language_contract, load_prompt_or
 from codeverse.tracks.generation import SINGLE_SHOT_PREFIX, GenerationTask, generate, is_single_shot
-from codeverse.tracks.prompting import base_prompt_context
+from codeverse.tracks.prompting import base_prompt_context, language_system_prompt
 from codeverse.tracks.repair import build_with_repair
 from codeverse.workspace import Workspace
 
@@ -59,8 +62,7 @@ def asset_timeout_s(ctx: Any, floor_s: int) -> int:
     """``ASSET_AGENT_TIMEOUT_S`` clipped to one asset's share of the run AND to the
     wall clock actually left (:meth:`BudgetGuard.timeout_s`, which owns the floor)."""
     share = ctx.budget.budget.max_minutes * 60.0 * ASSET_SESSION_SHARE
-    return ctx.budget.timeout_s(min(ASSET_AGENT_TIMEOUT_S, share) if share else ASSET_AGENT_TIMEOUT_S,
-                                floor_s=floor_s)
+    return ctx.budget.timeout_s(min(ASSET_AGENT_TIMEOUT_S, share), floor_s=floor_s)
 
 
 class AssetResult(BaseModel):
@@ -73,7 +75,7 @@ class AssetResult(BaseModel):
     fixed: bool = False
     notes: str = ""
     strategy: str = Field(default="", description="single-shot | single-shot+repair | agent | escalated")
-    judged: bool = False
+    judged: bool = Field(default=False, description="a non-degraded verdict was recorded in `score`")
 
 
 def is_model_outage(e: BaseException) -> bool:
@@ -155,6 +157,7 @@ def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, 
         else:
             out[asset.name] = r
     shims = write_variant_shims(ctx.ws, alias, {n for n, r in out.items() if r.ok})
+    _record_spec_hashes(ctx, out, assets)  # the reuse guard's identity registry (rounds/ bookkeeping)
     ctx.ws.commit("assets")
     ctx.events.emit("assets.done", ok=[n for n, r in out.items() if r.ok], failed=[n for n, r in out.items() if not r.ok],
                     strategies={n: r.strategy for n, r in out.items() if r.strategy}, variant_shims=shims)
@@ -162,10 +165,52 @@ def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, 
     return out
 
 
+# ------------------------------------------------------------- committed-asset identity
+def _asset_spec_hash(asset: AssetPlan) -> str:
+    """The reuse guard's identity: the whole plan slice, not just the file name."""
+    return hashlib.sha1(asset.model_dump_json().encode()).hexdigest()[:12]
+
+
+def _spec_hashes_path(ctx: RunContext) -> Path:
+    return ctx.ws.root / "rounds" / "asset_spec_hashes.json"
+
+
+def _spec_hash_matches(ctx: RunContext, asset: AssetPlan) -> bool:
+    """False when unrecorded (pre-fix runs regenerate once, then reuse)."""
+    try:
+        recorded = json.loads(_spec_hashes_path(ctx).read_text())
+    except (OSError, ValueError):
+        return False
+    return recorded.get(asset.name) == _asset_spec_hash(asset)
+
+
+def _record_spec_hashes(ctx: RunContext, results: dict[str, AssetResult], assets: list[AssetPlan]) -> None:
+    by_name = {a.name: a for a in assets}
+    path = _spec_hashes_path(ctx)
+    try:
+        recorded = json.loads(path.read_text())
+    except (OSError, ValueError):
+        recorded = {}
+    for name, r in results.items():
+        if r.ok and name in by_name:
+            recorded[name] = _asset_spec_hash(by_name[name])
+    write_json_atomic(path, recorded)
+
+
 # ----------------------------------------------------------------------------- threejs asset
 def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
     """Single-shot → deterministic check → ONE repair → (only then) an agent session."""
     rel, pascal = asset_file(asset), to_pascal(asset.name)
+    # committed-child reuse (review-3 S2): a resume that re-enters the stage — budget
+    # stop after the commit, or a failed sibling — must not re-pay a finished asset.
+    # Deterministic node import-check only, no model call; the skeleton stub never
+    # passes it (single low-poly box), and `ran` guards the checker-unavailable path.
+    if (ctx.ws.root / rel).is_file() and _spec_hash_matches(ctx, asset):
+        chk0 = check_threejs_asset(ctx, rel, pascal, expected_size_m=asset.approx_size_m)
+        if chk0.ran and chk0.ok:
+            ctx.events.emit("asset.generated", asset=asset.name, strategy="reused", ok=True, tris=chk0.tris, errors=[])
+            return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=chk0.size_m,
+                               strategy="reused", notes="committed module reused (import check passed)")
     sub = single_shot_ctx(ctx)
     chk: AssetCheck | None = None
     strategy, notes = "", ""
@@ -231,9 +276,7 @@ def _generate_asset(ctx: RunContext, asset: AssetPlan, rel: str, *, language: La
     if feedback:
         prompt = prompt + "\n\n" + feedback + "\n## Current file (rewrite it COMPLETELY)\n```\n" + _read(ctx.ws, rel, 24_000) + "\n```\n"
     task = GenerationTask(label=label, prompt=prompt,
-                          system=("You write ONE self-contained three.js ESM asset module. Raw three.js only; no DOM; no texture loading."
-                                  if language is Language.SCENE_THREEJS else
-                                  "You write ONE raw bpy script (src/model.py) that builds a single scene asset. No SDKs, no render/export calls."),
+                          system=_asset_system(ctx, language),
                           files_hint=[rel], round=attempt, kind="asset", temperature=0.5, timeout_s=timeout_s,
                           # threejs assets share the scene workspace (a stray write would hit
                           # zones/env); blender heroes own their whole sub-workspace
@@ -246,6 +289,14 @@ def _generate_asset(ctx: RunContext, asset: AssetPlan, rel: str, *, language: La
 def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
     """Sub-workspace → Blender runtime → GLB → public/assets/<snake>.glb."""
     snake = to_snake(asset.name)
+    # committed-child reuse (review-3 S2), blender twin: a GLB only exists at this
+    # path when a previous session finished the build+copy; a measurable one is done.
+    glb = ctx.ws.root / asset_file(asset)
+    if glb.is_file() and glb.stat().st_size > 0 and _spec_hash_matches(ctx, asset) \
+            and (size := _measure_size(ctx, glb)) is not None:
+        ctx.events.emit("asset.generated", asset=asset.name, strategy="reused", ok=True, tris=0, errors=[])
+        return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=asset_file(asset), size_m=size,
+                           strategy="reused", notes="committed GLB reused")
     sub_ws = Workspace(ctx.ws.root / "_assets" / snake).create()
     runtime = ctx.services.runtime(Language.BLENDER)
     sub_spec = Spec(id=f"{ctx.spec.id}-asset-{snake}", track=Track.STATIC_OBJECT, language=Language.BLENDER,
@@ -259,10 +310,8 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     runtime.skeleton(sub_ws, sub_plan)
     sub_ws.commit("skeleton")
     if not ctx.single_shot:
-        kind = ctx.agent_id.split(":", 1)[0]
-        ctx.services.materialize(sub_ws, agent_kind=kind, contract_md=sub.contract_text, cookbook_rel=sub.cookbook_rel,
-                                 spatial_tools=True,
-                                 mcp_command=["python", "-m", "codeverse.spatial.mcp_server", "--workspace", str(sub_ws.root)])
+        ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=sub.contract_text, cookbook_rel=sub.cookbook_rel,
+                                 spatial_tools=True)
     res = _generate_asset(sub, asset, "src/model.py", language=Language.BLENDER, attempt=0,
                           timeout_s=asset_timeout_s(ctx, 180))
     if not res.ok:
@@ -359,12 +408,17 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
     except Exception as e:  # noqa: BLE001
         events.emit("asset.judge_failed", asset=asset.name, error=f"{type(e).__name__}: {e}")
         return result
-    # persist the verdict on the result FIRST, then book the money non-enforcing like
-    # every other judge site (steps.py, candidates.py): the verdict is already paid
-    # for, and raising here would discard it.  The stage boundary enforces the ceiling.
+    # book the money non-enforcing like every other judge site (steps.py, candidates.py):
+    # the verdict is already paid for, and raising here would discard it.  The stage
+    # boundary enforces the ceiling.
+    ctx.budget.add(verdict.usage, stage="judge")
+    if is_degraded(verdict):
+        # a degraded verdict is no verdict: score stays None and `judged` False, and the
+        # fix pass is skipped (its improvement_plan is empty by construction).
+        events.emit("asset.judge_degraded", asset=asset.name)
+        return result
     result.score = verdict.overall
     result.judged = True
-    ctx.budget.add(verdict.usage, stage="judge", role="judge", label=f"asset_{to_snake(asset.name)}")
     events.emit("asset.judged", asset=asset.name, score=round(verdict.overall, 3), passed=verdict.passed)
     if verdict.passed or not verdict.improvement_plan:
         return result
@@ -384,6 +438,23 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
 
 
 # ----------------------------------------------------------------------------- helpers
+def _asset_system(ctx: RunContext, language: Language) -> str:
+    """The system prompt for one asset generation — same language, DIFFERENT task.
+
+    A blender hero runs the full static-object machinery (plan, gates, judge) in its
+    sub-workspace, so it gets the blender language base COMPOSED with the prop-for-a-scene
+    role overlay.  A three.js asset module is not a scene build at all — the scene_threejs
+    base (lighting, cameras, multi-file) would mislead it — so it gets the dedicated
+    asset-module prompt instead of that base.
+    """
+    if language is Language.SCENE_THREEJS:
+        return load_prompt_or(
+            "scene_threejs/asset.md",
+            "You write ONE self-contained three.js ESM asset module. Raw three.js only; no DOM; no texture loading.",
+        ).strip()
+    return language_system_prompt(Language.BLENDER, role="asset", tools=not is_single_shot(ctx.agent_id))
+
+
 def _asset_prompt(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language) -> str:
     prompt = render("tracks/scene_asset.j2", **base_prompt_context(
         ctx, asset_name=asset.name, asset_kind=asset.kind, asset_description=asset.description, asset_size=asset.approx_size_m,
@@ -414,8 +485,6 @@ def _read(ws: Workspace, rel: str, limit: int = 30_000) -> str:
 
 
 # ===================================================================== cheap asset generation
-# (merged from codeverse/tracks/scene_asset_gen.py, 2026-08-28 — single-shot + check +
-#  dedupe were only ever called from this stage and from scene.py)
 #: max triangles for ONE asset instance (the scene contract's budget)
 ASSET_MAX_TRIS = 15_000
 

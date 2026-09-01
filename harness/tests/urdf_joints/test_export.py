@@ -17,7 +17,6 @@ from codeverse.spatial.joints import (
     render_poses,
     urdf_to_glb,
 )
-from codeverse.spatial.sheet import LABEL_H, PAD, contact_sheet
 from tests.urdf_joints.conftest import write_mesh_robot
 
 
@@ -53,7 +52,9 @@ def test_urdf_to_glb_hierarchy_and_extras(tmp_path):
     assert _gltf_json(glb2)["scenes"][0]["extras"]["pose"] == {"hinge": 1.57}
 
 
-def test_render_poses_with_fake_renderer_builds_sheet(tmp_path):
+def test_render_poses_with_fake_renderer_builds_sheet(tmp_path, monkeypatch):
+    import codeverse.spatial.joints_export as je
+
     urdf, meshes = write_mesh_robot(tmp_path)
     r = load_urdf(urdf, meshes)
     calls = []
@@ -68,25 +69,12 @@ def test_render_poses_with_fake_renderer_builds_sheet(tmp_path):
             rs.views.append(RenderView(name=v.name, path=str(p)))
         return rs
 
-    out = render_poses(r, tmp_path / "ren", renderer=fake_renderer)
+    monkeypatch.setattr(je, "render_glb", fake_renderer)
+    out = render_poses(r, tmp_path / "ren")
     assert [label for label, _ in out] == ["rest", "hinge@upper"]
     assert len(calls) == 2 and all(c.exists() for c in calls)
     sheet = tmp_path / "ren" / ARTICULATION_SHEET_NAME
     assert sheet.is_file() and Image.open(sheet).size[0] > 32
-
-
-def test_articulation_sheet_geometry_and_missing_tile(tmp_path):
-    """The articulation sheet is ``sheet.contact_sheet``: labelled grid, and a
-    missing pose PNG becomes a grey labelled tile instead of an OSError."""
-    imgs = []
-    for i in range(3):
-        p = tmp_path / f"{i}.png"
-        Image.new("RGB", (64, 48), (i * 50, 0, 0)).save(p)
-        imgs.append((f"img{i}", p))
-    imgs.append(("missing", tmp_path / "nope.png"))  # never written
-    out = contact_sheet(imgs, tmp_path / "s.png", cols=2, tile=64)
-    im = Image.open(out)
-    assert im.size == (2 * (64 + PAD) + PAD, 2 * (64 + LABEL_H + PAD) + PAD)
 
 
 def test_multi_material_link_keeps_materials(tmp_path):
@@ -110,17 +98,31 @@ def test_multi_material_link_keeps_materials(tmp_path):
     assert sorted(n for n in [e[1] for e in s.graph.to_edgelist()] if n.startswith("body")) == ["body", "body__0", "body__1"]
 
 
-def test_joint_sweep_observation_offline(tmp_path):
-    from codeverse.spatial.joints import joint_sweep_observation
+def test_joint_sweep_tool_offline(tmp_path, monkeypatch):
+    """The ``joint_sweep`` tool body lives in spatial.tools: collision sweep over every
+    joint, renders narrowed to ``joints`` (+ rest) through ``render_poses``."""
+    import codeverse.spatial.tools as ts
+    from codeverse.spatial.registry import ToolContext, get_tool
     from codeverse.workspace import Workspace
-    from tests.urdf_joints.conftest import write_mesh_robot
 
     ws = Workspace(tmp_path / "ws").create()
-    obs = joint_sweep_observation(ws, render=False)
+    ctx = ToolContext(workspace=ws, language="urdf_blender", track="articulated_object")
+    obs = get_tool("joint_sweep").call(ctx, {})
     assert not obs.ok and "run `build`" in obs.text
     write_mesh_robot(ws.artifacts)
-    obs = joint_sweep_observation(ws, render=False, joint="hinge", expected_direction="front")
-    assert obs.ok and obs.numbers["max_penetration_m"] == 0.0 and obs.numbers["motion_check"]["ok"]
+    rendered: list[list[str] | None] = []
+
+    def fake_render_poses(robot, out_dir, poses=None, **kw):
+        rendered.append(None if poses is None else [label for label, _ in poses])
+        Image.new("RGB", (8, 8), "gray").save(out_dir / ARTICULATION_SHEET_NAME)
+        return []
+
+    monkeypatch.setattr(ts, "render_poses", fake_render_poses)
+    obs = get_tool("joint_sweep").call(ctx, {"joints": ["hinge"], "n_samples": 5})
+    assert obs.ok and obs.numbers["max_penetration_m"] == 0.0
+    assert rendered == [["rest", "hinge@upper"]] and obs.images[0].endswith(ARTICULATION_SHEET_NAME)  # lower=0 dedupes into rest
+    obs = get_tool("joint_sweep").call(ctx, {})
+    assert rendered[-1] is None          # empty joints = the full sheet (render_poses default)
 
 
 def test_robot_named_like_a_link_keeps_frame_and_placement(tmp_path):

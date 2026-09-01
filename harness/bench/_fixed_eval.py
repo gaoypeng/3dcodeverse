@@ -1,7 +1,7 @@
 """The fixed evaluator shared by every arm of ``bench/compare_backends.py``.
 
 ``FixedEvaluator.evaluate(ws, spec)``: the cell's runtime lint + build → ``measure_glb``
-→ connectivity gate → 8-view ``render_glb`` (articulated: + joint sweep + pose sheet;
+→ connectivity gate → 14-view ``render_glb`` (articulated: + joint sweep + pose sheet;
 graphics: the frame sheet) → ``judge_for(spec)`` — a ``VlmJudge`` (or ``LikenessJudge``
 for graphics with reference photos) on ``rubric_for(spec)``, the track's ``TRACK_INFO``
 rubric, the ONE track→rubric mapping of the compare bench.  The judge's acceptance checklist is the brief's

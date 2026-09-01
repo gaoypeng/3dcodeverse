@@ -95,14 +95,14 @@ class PairwiseJudge:
         model_id: str | None = None,
         *,
         temperature: float = 0.2,
-        max_px: int = 768,
+        max_px: int = 1024,
         views_per_side: int = 4,
         chat_model: ChatModel | None = None,
         cache_dir: Path | None = None,
     ):
         self.model_id = model_id or get_settings().default_judge
         self.temperature = temperature
-        self.max_px = max(max_px, 1024)  # a 2×2 montage needs the resolution
+        self.max_px = max(max_px, 1024)  # a 2×2 montage needs the resolution: 1024 is the floor, not a hint
         self.views_per_side = min(4, views_per_side)
         self._model = chat_model
         self.cache_dir = cache_dir

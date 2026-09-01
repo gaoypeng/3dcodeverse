@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from codeverse.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse.contracts.common import Usage
+from codeverse.models.pricing import estimate_cost
 from codeverse.proc import ManagedProcess, append_jsonl_line, read_jsonl_lenient, scrub_secrets
 from codeverse.workspace import Workspace
 
@@ -102,7 +103,6 @@ class Trajectory:
 
 
 # ===================================================================== watchdog
-# (merged from codeverse/agents/watchdog.py, 2026-08-28)
 _SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".gemini", ".gemini_home"}
 
 
@@ -111,9 +111,8 @@ class CompletedProc:
     """Outcome of :func:`run_with_watchdog`.
 
     ``stdout``/``stderr`` are bounded to ``codeverse.proc.STREAM_BUDGET_BYTES`` per
-    stream (head + tail kept, truncation marker in between); the ``*_lines`` lists
-    are derived from those bounded texts — streaming consumers that must see every
-    line unconditionally use ``on_line``.
+    stream (head + tail kept, truncation marker in between) — streaming consumers
+    that must see every line unconditionally use ``on_line``.
     """
 
     rc: int
@@ -122,8 +121,6 @@ class CompletedProc:
     duration_s: float
     timed_out: bool = False
     killed_reason: str = ""  # "" | idle | hard_timeout
-    stdout_lines: list[str] = field(default_factory=list, repr=False)
-    stderr_lines: list[str] = field(default_factory=list, repr=False)
 
 
 class ActivityTracker:
@@ -155,8 +152,6 @@ def _latest_mtime(dirs: Iterable[Path]) -> float:
                 except OSError:
                     continue
     return latest
-
-
 
 
 def run_with_watchdog(
@@ -227,7 +222,6 @@ def run_with_watchdog(
     return CompletedProc(
         rc=rc, stdout=out_text, stderr=err_text, duration_s=time.monotonic() - t0,
         timed_out=bool(killed), killed_reason=killed,
-        stdout_lines=out_text.splitlines(), stderr_lines=err_text.splitlines(),
     )
 
 
@@ -252,7 +246,6 @@ def _reject_control_chars(cmd: Sequence[str], cwd: object) -> None:
 
 
 # ===================================================================== cli_common
-# (merged from codeverse/agents/cli_common.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 #: argv prompts above this many bytes are written to a file instead.
@@ -311,60 +304,24 @@ def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
 HARNESS_OWNED_DIRS = ("artifacts", "trajectories", "stages", "rounds", "_cand", "_assets", ".3dcv", ".gemini", ".claude", ".git")
 HARNESS_OWNED_FILES = frozenset({"events.jsonl", "run_state.json", "record.json", "AGENTS.md", "GEMINI.md", "CLAUDE.md",
                                  ".mcp.json", ".geminiignore", ".aiexclude", ".gitignore"})
-
-
-@dataclass
-class _LiveSession:
-    """Registry entry: lets concurrent sessions in ONE workspace (scene fan-out) attribute files."""
-
-    label: str
-    hints: frozenset[str]
-    t_start: float
-    t_end: float | None = None
-
-
-_LIVE: dict[str, list[_LiveSession]] = {}
-_LIVE_LOCK = threading.Lock()
-
-
-def _register(ws: Workspace, label: str, hints: frozenset[str]) -> _LiveSession:
-    entry = _LiveSession(label=label, hints=hints, t_start=time.monotonic())
-    with _LIVE_LOCK:
-        _LIVE.setdefault(str(ws.root), []).append(entry)
-    return entry
-
-
-def _sibling_hints(ws: Workspace, me: _LiveSession) -> frozenset[str]:
-    """Files claimed (``job.files_hint``) by OTHER sessions that overlapped ``me`` in time."""
-    me.t_end = time.monotonic()
-    with _LIVE_LOCK:
-        entries = _LIVE.get(str(ws.root), [])
-        claimed: set[str] = set()
-        for e in entries:
-            if e is me:
-                continue
-            overlaps = e.t_start <= me.t_end and (e.t_end is None or e.t_end >= me.t_start)
-            if overlaps:
-                claimed |= e.hints
-        oldest_active = min((e.t_start for e in entries if e.t_end is None), default=me.t_end)
-        entries[:] = [e for e in entries if e.t_end is None or e.t_end >= oldest_active]
-    return frozenset(claimed - me.hints)
+#: gitignored control files git cannot revert (downstream trusts both blindly):
+#: byte-snapshotted by :func:`begin_session`, compared + restored by :func:`_enforce_scope`
+UNTRACKED_CONTROL_FILES = ("run_state.json", "record.json")
+#: the harness appends to the event stream MID-session — exempt from the tamper revert
+_CONTROL_EXEMPT = frozenset({"events.jsonl"})
 
 
 def _hinted(path: str, hints: frozenset[str]) -> bool:
     return any(path == h or path.startswith(h.rstrip("/") + "/") for h in hints)
 
 
-def attribute_changes(
-    files: list[FileChange],
-    *,
-    write_roots: list[str],
-    own_hints: frozenset[str] = frozenset(),
-    sibling_hints: frozenset[str] = frozenset(),
-) -> list[FileChange]:
+def attribute_changes(files: list[FileChange], *, write_roots: list[str]) -> list[FileChange]:
     """The subset of a whole-worktree git diff that belongs to ONE session: inside its
-    ``write_roots``, not harness-owned, and not a file another concurrent session
-    declared as its target (``job.files_hint``) unless this session declared it too."""
+    ``write_roots`` and not harness-owned.  (Sessions on one workspace are serialised —
+    :data:`EXCLUSIVE_KINDS` — so there is no sibling to attribute against.  An ``own_hints``
+    parameter sat in this signature unread until 2026-08-30: the edit_only scope is enforced
+    by :func:`_enforce_scope`, which REVERTS an out-of-scope write rather than hiding it from
+    ``files_changed``, so narrowing here would only have lied about what the session did.)"""
     roots = tuple(r.strip("/") for r in write_roots if r.strip("/"))
     out: list[FileChange] = []
     for f in files:
@@ -372,8 +329,6 @@ def attribute_changes(
         if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in HARNESS_OWNED_FILES:
             continue
         if roots and not any(f.path == r or f.path.startswith(r + "/") for r in roots):
-            continue
-        if sibling_hints and _hinted(f.path, sibling_hints) and not _hinted(f.path, own_hints):
             continue
         out.append(f)
     return out
@@ -394,8 +349,9 @@ class Session:
     notes: list[str] = field(default_factory=list)
     attempt: int = 1
     files_hint: frozenset[str] = frozenset()
-    live: _LiveSession | None = None
     ws_lock: threading.RLock | None = None
+    #: bytes of :data:`UNTRACKED_CONTROL_FILES` at session start (None = absent)
+    control_snapshot: dict[str, bytes | None] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- serialisation
@@ -458,15 +414,16 @@ def begin_session(job: AgentJob, kind: str) -> Session:
     if lock is not None:
         lock.acquire()
     try:
-        live = _register(ws, label, hints)
         head_before = ws.commit(f"pre:{label}")
     except BaseException:
         if lock is not None:
             lock.release()
         raise
+    control = {n: ((ws.root / n).read_bytes() if (ws.root / n).is_file() else None)
+               for n in UNTRACKED_CONTROL_FILES}
     return Session(ws=ws, job=job, kind=kind, label=label, round_index=round_index,
                    traj=traj, head_before=head_before, attempt=attempt, files_hint=hints,
-                   live=live, ws_lock=lock)
+                   ws_lock=lock, control_snapshot=control)
 
 
 def _clean(seq: Any) -> frozenset[str]:
@@ -490,16 +447,17 @@ def _enforce_scope(s: Session) -> dict[str, str]:
     frozen = _clean(s.job.read_only)
     narrow = (s.files_hint | _clean(s.job.always_writable)
               if (s.job.edit_only and s.files_hint) else frozenset())
-    if not roots and not narrow and not frozen:
-        return {}
     reverted: dict[str, str] = {}
     restore: list[str] = []
     remove: list[str] = []
+    # no empty-scope early-out: control files are enforced under ANY job scope
     for f in s.ws.changed_files(s.head_before):
         parts = Path(f.path).parts
-        if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in HARNESS_OWNED_FILES:
+        if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in _CONTROL_EXEMPT:
             continue
-        if f.path in frozen:
+        if f.path in HARNESS_OWNED_FILES:  # was a silent skip: the tamper survived AND went unreported
+            why = "harness control file: never agent-writable"
+        elif f.path in frozen:
             why = "harness-owned: call its functions, never rewrite it"
         elif roots and not any(f.path == r or f.path.startswith(r + "/") for r in roots):
             why = f"outside write_roots {sorted(roots)}"
@@ -512,6 +470,16 @@ def _enforce_scope(s: Session) -> dict[str, str]:
     s.ws.restore_paths(s.head_before, restore)
     for path in remove:  # added files are not in head_before; the next `git add -A` stages the delete
         (s.ws.root / path).unlink(missing_ok=True)
+    for name, before in s.control_snapshot.items():  # gitignored control files: bytes are the truth
+        p = s.ws.root / name
+        now = p.read_bytes() if p.is_file() else None
+        if now == before:
+            continue
+        reverted[name] = "harness control file: never agent-writable"
+        if before is None:
+            p.unlink(missing_ok=True)
+        else:
+            p.write_bytes(before)
     return reverted
 
 
@@ -523,11 +491,13 @@ def finish_session(
     text: str,
     usage: Usage,
     tool_calls: int = 0,
+    turns: int = 0,
     errors: list[str] | None = None,
     **extra: Any,
 ) -> AgentResult:
     """Commit the agent's work, compute ``files_changed`` via git (attributed to this
-    session — see :func:`attribute_changes`), write result.json.
+    session — see :func:`attribute_changes`), write result.json.  ``turns`` is the
+    backend's own count (``AgentResult.turns``); ``extra`` lands in result.json only.
 
     Write scope is enforced here for the CLI backends (they have no write-time gate):
     writes outside ``write_roots`` (and, for ``edit_only``, outside ``files_hint``) are
@@ -545,14 +515,12 @@ def finish_session(
             errors.append(msg)
             s.notes.append(msg)
         s.ws.commit(f"agent:{s.label}")
-        siblings = _sibling_hints(s.ws, s.live) if s.live is not None else frozenset()
-        files = attribute_changes(s.ws.changed_files(s.head_before), write_roots=s.job.write_roots,
-                                  own_hints=s.files_hint, sibling_hints=siblings)
+        files = attribute_changes(s.ws.changed_files(s.head_before), write_roots=s.job.write_roots)
         res = AgentResult(
             ok=ok, exit_reason=exit_reason, text=text, files_changed=files,
             transcript_path=str(s.traj.transcript_path if s.traj.transcript_path.exists() else s.traj.dir),
             usage=usage, duration_s=round(time.monotonic() - s.t0, 3), tool_calls=tool_calls,
-            errors=errors,
+            turns=turns, errors=errors,
         )
         s.traj.write_result(res, kind=s.kind, label=s.label, round=s.round_index, attempt=s.attempt, job_label=s.job.label,
                             head_before=s.head_before, head_after=s.ws.head(), notes=s.notes, **extra)
@@ -585,6 +553,12 @@ def deliver_prompt(s: Session, prompt: str, *, max_bytes: int = MAX_ARGV_PROMPT_
 #: seconds without output or workspace activity before the watchdog kills a CLI agent;
 #: read at call time by :func:`invoke` so a test can monkeypatch it here.
 IDLE_GRACE_S = 300.0
+
+#: watchdog poll period.  A real vendor CLI runs for minutes, so 1 s of latency on
+#: noticing it exited is free — but a FAKE cli in a test exits in milliseconds and then
+#: waits out the poll, which was ~1 s on every agent.run() in the suite.  Same shape as
+#: IDLE_GRACE_S: read at call time so tests can turn it down (tests/agents/conftest.py).
+POLL_S = 1.0
 
 
 def invoke(
@@ -632,7 +606,7 @@ def invoke(
     soft = float(s.job.timeout_s if soft_timeout_s is None else soft_timeout_s)
     proc = run_with_watchdog(
         argv, cwd=s.ws.root, env=env, soft_timeout_s=soft, hard_timeout_s=soft + 300.0,
-        idle_grace_s=IDLE_GRACE_S if idle_grace_s is None else idle_grace_s,
+        idle_grace_s=IDLE_GRACE_S if idle_grace_s is None else idle_grace_s, poll_s=POLL_S,
         on_line=on_line, stdin=stdin, activity_dirs=[s.ws.src, s.ws.public],
     )
     suffix = "" if attempt == 1 else f".{attempt}"
@@ -669,14 +643,51 @@ def tail(text: str, n: int = 2000) -> str:
     return text if len(text) <= n else text[-n:]
 
 
+def find_json_object(stdout: str, accept: Callable[[dict[str, Any]], bool]) -> dict[str, Any] | None:
+    """The one JSON envelope a CLI printed, possibly around log noise.
+
+    Tries the whole text; unwraps a top-level list (claude's stream-json array) to
+    its LAST accepted element; then ``{``-starting lines from the END (claude / agy
+    print one envelope per line after their chatter); then ``json.loads(s[start:])``
+    forward from every ``{`` — mandatory, not a fallback: ``gemini --output-format
+    json`` prints an INDENTED multi-line object that no single-line scan can parse.
+    ``accept`` says which dict is the envelope."""
+    s = stdout.strip()
+    if not s:
+        return None
+    try:
+        whole = json.loads(s)
+    except json.JSONDecodeError:
+        whole = None
+    if isinstance(whole, list):
+        hits = [e for e in whole if isinstance(e, dict) and accept(e)]
+        return hits[-1] if hits else None
+    if isinstance(whole, dict):
+        return whole if accept(whole) else None
+    for line in reversed(s.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            cand = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(cand, dict) and accept(cand):
+            return cand
+    start = s.find("{")
+    while start != -1:
+        try:
+            obj = json.loads(s[start:])
+        except json.JSONDecodeError:
+            start = s.find("{", start + 1)
+            continue
+        return obj if isinstance(obj, dict) and accept(obj) else None
+    return None
+
+
 # --------------------------------------------------------------------------- pricing
 def estimate_cost_safe(provider: str, model: str, usage: Usage) -> float:
-    """``codeverse.models.pricing.estimate_cost`` when available; else 0.0 + warning."""
-    try:
-        from codeverse.models.pricing import estimate_cost
-    except ImportError:
-        log.warning("codeverse.models.pricing unavailable; cost for %s:%s recorded as 0", provider, model)
-        return 0.0
+    """``estimate_cost`` that never raises: an unknown model prices as 0.0 + a warning."""
     try:
         return float(estimate_cost(provider, model, usage))
     except Exception as e:  # unknown model in the price table must not sink the run

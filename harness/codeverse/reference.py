@@ -2,13 +2,13 @@
 
 Today a prompt goes to a planner that has never SEEN the object.  This module
 synthesizes a neutral studio product shot of the brief with the image model,
-**validates** it (:mod:`.gate`), and hands it to the rest of the harness as the
+**validates** it (``check_plausible`` + ``decide``), and hands it to the rest of the harness as the
 fidelity anchor: the planner sees it, the generator's ``compare_reference`` tool
 sees it, the silhouette gate measures against it and the judge scores against it
 (:class:`codeverse.judges.vlm_judge.ReferenceJudge`).
 
 A synthesized reference is never ground truth and is marked as such everywhere
-(:mod:`.attach`): the user's own ``--image`` wins, the brief's dimensions win,
+(``attach`` / ``SYNTH_NOTE``): the user's own ``--image`` wins, the brief's dimensions win,
 and a picture that fails the gate is discarded rather than chased.
 
 Entry points::
@@ -36,18 +36,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from codeverse.config import get_settings
-from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
+from codeverse.contracts.chat import ImagePart
 from codeverse.contracts.common import Usage
 from codeverse.contracts.spec import ReferenceImage, Spec
-from codeverse.models.base import ModelError
-from codeverse.models.schema_utils import parse_json_lenient
+from codeverse.models.schema_utils import ask_structured
 from codeverse.prompts import prompt_hash
 
 log = logging.getLogger(__name__)
 
 
 # ===================================================================== types
-# (merged from codeverse/reference/types.py, 2026-08-28)
 #: The note stamped on every synthesized ``ReferenceImage``.  It travels into the
 #: planner prompt label, the generator's reference note, the judge's image label
 #: and ``spec.json`` — so nothing downstream can mistake it for ground truth.
@@ -72,7 +70,7 @@ class PlausibilityVerdict(BaseModel):
     """One vision call's answer about ONE candidate reference image.
 
     ``ok`` is computed in code from the booleans + ``contradictions`` (see
-    :func:`codeverse.reference.gate.decide`), never taken from the model.
+    :func:`decide`), never taken from the model.
     """
 
     ok: bool = False
@@ -122,7 +120,7 @@ class ReferenceView(BaseModel):
 
 
 class ReferenceSet(BaseModel):
-    """The result of :func:`codeverse.reference.synth.synth_reference`.
+    """The result of :func:`synth_reference`.
 
     ``accepted`` is what may be attached to a spec; ``rejected`` is kept only so
     the run can record *why* the fallback to no-reference happened.
@@ -220,7 +218,6 @@ class ReferenceDiff(BaseModel):
 
 
 # ===================================================================== spec_text
-# (merged from codeverse/reference/spec_text.py, 2026-08-28)
 def brief_text(spec: Spec) -> str:
     """Prompt + the constraints a photograph could show, as one block."""
     lines = [spec.prompt.strip()]
@@ -262,7 +259,6 @@ def visual_constraints(spec: Spec) -> str:
 
 
 # ===================================================================== prompts
-# (merged from codeverse/reference/prompts.py, 2026-08-28)
 # --------------------------------------------------------------------------- image prompt writer
 IMAGE_PROMPT_SYSTEM = (
     "You write prompts for a text-to-image model.  You are given a 3D modelling brief.  Your job is to "
@@ -311,7 +307,7 @@ VIEW_CLAUSE: dict[str, str] = {
 
 #: order views are requested in as ``n_views`` grows.  The straight-on ``front``
 #: elevation comes second on purpose: it is the SILHOUETTE TARGET, and the harness
-#: measures IoU against the run's ``front`` render (``tracks.reference.silhouette_gate``),
+#: measures IoU against the run's ``front`` render (``tracks.static_object.silhouette_gate``),
 #: so the two cameras must agree.  The 3/4 shot carries the part inventory.
 VIEW_ORDER: tuple[str, ...] = ("three_quarter", "front", "side", "back")
 
@@ -385,8 +381,6 @@ Rules:
 
 
 # ===================================================================== cache
-# (merged from codeverse/reference/cache.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 CACHE_SUBDIR = "references"
 
@@ -444,13 +438,9 @@ def image_dir(key: str, *, cache_dir: Path | None = None) -> Path:
 
 
 # ===================================================================== proportions
-# (merged from codeverse/reference/proportions.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 #: relative aspect disagreement above which the picture's proportions are not a target
 ASPECT_TOL = 0.25
-#: the measured silhouette criterion's score when the reference contradicts the brief
-NEUTRAL_SCORE = 0.5
 
 #: brief keys that describe a HORIZONTAL extent of the object
 _WIDTH_KEYS = ("width", "length", "depth", "diameter")
@@ -526,8 +516,6 @@ def conflict_note(info: dict[str, Any]) -> str:
 
 
 # ===================================================================== gate
-# (merged from codeverse/reference/gate.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 
 class GateAnswer(BaseModel):
@@ -581,32 +569,16 @@ def check_plausible(
     if not path.is_file():
         return PlausibilityVerdict(reason=f"image missing: {path.name}", model_id=model_id), Usage()
     text = GATE_USER.format(brief=brief_text(spec), constraints=visual_constraints(spec))
-    req = ChatRequest(
-        messages=[ChatMessage.user(text, images=[ImagePart(path=str(path), label="CANDIDATE REFERENCE")])],
-        system=GATE_SYSTEM,
-        response_schema=GateAnswer.model_json_schema(),
-        temperature=temperature,
-        thinking="low",
-        max_output_tokens=65_536,
-        max_wait_s=900.0,
-        label="reference_gate",
-    )
-    try:
-        resp = model.generate(req)
-    except ModelError as e:
-        log.warning("reference gate: model error on %s: %s", path.name, e)
-        return PlausibilityVerdict(reason=f"gate call failed: {e}", model_id=model_id), Usage()
-    payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
-    try:
-        ans = GateAnswer.model_validate(payload)
-    except (ValidationError, TypeError) as e:
-        log.warning("reference gate: unparsable answer for %s: %s", path.name, e)
-        return PlausibilityVerdict(reason=f"gate answer unparsable: {e}", model_id=model_id), resp.usage
-    return decide(ans, model_id=model_id or getattr(model, "id", "")), resp.usage
+    ans, usage, err = ask_structured(model, GateAnswer, system=GATE_SYSTEM, text=text,
+                           images=[ImagePart(path=str(path), label="CANDIDATE REFERENCE")],
+                           temperature=temperature, label="reference_gate")
+    if err:
+        log.warning("reference gate on %s: %s", path.name, err)
+        return PlausibilityVerdict(reason=f"gate {err}", model_id=model_id), usage
+    return decide(ans, model_id=model_id or getattr(model, "id", "")), usage
 
 
 # ===================================================================== attach
-# (merged from codeverse/reference/attach.py, 2026-08-28)
 def has_user_references(spec: Spec) -> bool:
     """True when the user supplied their own reference image(s) (``--image``)."""
     return any(not is_synthetic(r) for r in spec.references)
@@ -657,8 +629,6 @@ def attach(spec: Spec, refset: ReferenceSet) -> tuple[Spec, str]:
 
 
 # ===================================================================== synth
-# (merged from codeverse/reference/synth.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 MAX_VIEWS = len(VIEW_ORDER)
 DEFAULT_SIZE = 1024
@@ -700,27 +670,18 @@ def image_prompt_plan(spec: Spec, view_names: list[str], *, model: Any, temperat
     if model is None:
         return _fallback_plan(spec, view_names), Usage()
     text = IMAGE_PROMPT_USER.format(brief=brief_text(spec), n_views=len(view_names), views=", ".join(view_names))
-    req = ChatRequest(messages=[ChatMessage.user(text)], system=IMAGE_PROMPT_SYSTEM,
-                      response_schema=ImagePromptPlan.model_json_schema(), temperature=temperature,
-                      thinking="low", max_output_tokens=65_536, max_wait_s=900.0, label="reference_prompt")
-    try:
-        resp = model.generate(req)
-    except ModelError as e:
-        log.warning("reference prompt writer failed (%s); using the brief verbatim", e)
-        return _fallback_plan(spec, view_names), Usage()
-    payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
-    try:
-        plan = ImagePromptPlan.model_validate(payload)
-    except (ValidationError, TypeError) as e:
-        log.warning("reference prompt writer returned invalid JSON (%s); using the brief verbatim", e)
-        return _fallback_plan(spec, view_names), resp.usage
+    plan, usage, err = ask_structured(model, ImagePromptPlan, system=IMAGE_PROMPT_SYSTEM, text=text,
+                            temperature=temperature, label="reference_prompt")
+    if err:
+        log.warning("reference prompt writer %s; using the brief verbatim", err)
+        return _fallback_plan(spec, view_names), usage
     if not plan.subject.strip():
         plan.subject = brief_text(spec).replace("\n", ", ")
     by_view = {v.view.strip().lower(): v for v in plan.views}
     plan.views = [by_view.get(v, ViewPrompt(view=v)) for v in view_names]
     for v, name in zip(plan.views, view_names, strict=True):
         v.view = name
-    return plan, resp.usage
+    return plan, usage
 
 
 def synth_reference(
@@ -821,12 +782,8 @@ def _publish(rs: ReferenceSet, out_dir: Path | None) -> ReferenceSet:
 
 
 # ===================================================================== mismatch
-# (merged from codeverse/reference/mismatch.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 MAX_MISMATCHES = 6
-#: how many mismatches become refine tasks
-TOP_TASKS = 3
 _SYNTH_LINE = ("The REFERENCE was SYNTHESIZED from the brief by an image model — it is a shape target, "
                "not ground truth.  Where it disagrees with the brief, the BRIEF wins and it is not a mismatch.")
 
@@ -873,22 +830,12 @@ def compare(
     )
     images = [ImagePart(path=str(p), label=f"REFERENCE {i + 1}") for i, p in enumerate(refs)]
     images += [ImagePart(path=str(p), label=f"RENDER {i + 1} ({p.stem})") for i, p in enumerate(rens)]
-    req = ChatRequest(messages=[ChatMessage.user(text, images=images)], system=DIFF_SYSTEM,
-                      response_schema=DiffAnswer.model_json_schema(), temperature=temperature,
-                      thinking="low", max_output_tokens=65_536, max_wait_s=900.0, label="reference_diff")
-    try:
-        resp = model.generate(req)
-    except ModelError as e:
-        log.warning("reference diff failed: %s", e)
-        diff.error = f"diff call failed: {e}"
-        return diff
-    diff.usage = resp.usage
-    payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
-    try:
-        ans = DiffAnswer.model_validate(payload)
-    except (ValidationError, TypeError) as e:
-        log.warning("reference diff unparsable: %s", e)
-        diff.error = f"diff answer unparsable: {e}"
+    ans, usage, err = ask_structured(model, DiffAnswer, system=DIFF_SYSTEM, text=text, images=images,
+                           temperature=temperature, label="reference_diff")
+    diff.usage = usage
+    if err:
+        log.warning("reference diff %s", err)
+        diff.error = f"diff {err}"
         return diff
     diff.mismatches = ans.mismatches[:MAX_MISMATCHES]
     diff.matches = [m.strip()[:120] for m in ans.matches if m.strip()][:4]
@@ -913,27 +860,7 @@ def _measured_block(diff: ReferenceDiff) -> str:
     return line + ".  This is a fact; do not re-estimate it.\n"
 
 
-def refine_tasks(diff: ReferenceDiff, *, top: int = TOP_TASKS) -> list[Any]:
-    """The top mismatches as priority-1 ``RefineTask``s (``source='gate'`` so the
-    round policy protects them from being trimmed as judge chatter)."""
-    from codeverse.orchestrator import RefineTask
-
-    out = []
-    for m in diff.top(top):
-        out.append(RefineTask(
-            target=m.target or "overall",
-            kind="reference",
-            instruction=(f"Reference mismatch ({m.kind.replace('_', ' ')}, {m.severity}): {m.detail} "
-                         f"Look at the reference image again and fix this specifically."),
-            priority=1,
-            source="gate",
-        ))
-    return out
-
-
 # ===================================================================== run
-# (merged from codeverse/reference/run.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 ARTIFACT_SUBDIR = "reference"
 
@@ -1004,6 +931,6 @@ __all__ = [
     "SYNTH_NOTE", "SYNTH_TAG", "Mismatch", "PlausibilityVerdict", "ReferenceDiff", "ReferenceSet",
     "ReferenceView", "attach", "check_plausible", "compare", "compose_image_prompt", "conflict_note",
     "decide", "dimension_conflict", "expected_aspect_range",
-    "ground_spec", "has_user_references", "is_synthetic", "reference_images", "refine_tasks",
+    "ground_spec", "has_user_references", "is_synthetic", "reference_images",
     "synth_reference", "views_for",
 ]

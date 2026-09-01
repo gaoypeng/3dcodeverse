@@ -1,6 +1,6 @@
 """Planner: spec → validated Plan (StaticPlan / ArticulatedPlan / ScenePlan).
 
-An optional cheap **brief expansion** (``tracks/brief.py``) turns the one-line
+An optional cheap **brief expansion** (``expand_brief``, below) turns the one-line
 request into an engineering brief, which — together with a **plan budget derived
 from the request** — goes into one structured ``ChatRequest`` (system prompt from
 ``prompts/tracks/plan_<track>.j2``, ``response_schema`` = the plan model's JSON
@@ -34,8 +34,9 @@ from codeverse.contracts.plan import AcceptanceItem, EngineeringBrief
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import LANGUAGE_FRAME, frame_doc, to_pascal, to_snake
 from codeverse.models.schema_utils import parse_json_lenient
+from codeverse.proc import sha256_file
 from codeverse.prompts import load_text, prompt_hash, render
-from codeverse.tracks.common import language_contract, load_prompt_or
+from codeverse.tracks.common import language_contract
 from codeverse.tracks.prompting import constraints_text
 from codeverse.workspace import Workspace
 
@@ -43,8 +44,6 @@ log = logging.getLogger(__name__)
 
 
 # ===================================================================== the brief
-# (merged from codeverse/tracks/brief.py, 2026-08-28 — this module was its only
-#  production importer; three files described one hand-off)
 #: env switch: ``off``/``0``/``false`` disables brief expansion for the run
 BRIEF_ENV = "CV3D_PLAN_BRIEF"
 #: tracks the object-shaped brief applies to (graphics/scene get budgets only)
@@ -75,19 +74,11 @@ def _reference_digest(spec: Spec) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for r in spec.references:
         try:
-            digest = _sha256_file(Path(r.path))
+            digest = sha256_file(r.path)
         except OSError:
             digest = "(unreadable)"
         out.append({"path": r.path, "role": r.role, "note": r.note, "sha256": digest})
     return out
-
-
-def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def brief_cache_key(spec: Spec, model_id: str) -> str:
@@ -211,7 +202,6 @@ def brief_block(brief: EngineeringBrief | None) -> str:
 
 
 # ===================================================================== plan budgets
-# (merged from codeverse/tracks/plan_budget.py, 2026-08-28 — same reason)
 #: practical ceiling on TOP-LEVEL plan parts per language.  Blender/three.js own one
 #: file per part so they scale; cadquery is one file; urdf links cost a joint each and
 #: the collision sweep is O(links² × poses), so depth there goes into sub-parts.
@@ -430,7 +420,7 @@ def plan_quality_complaint(plan_obj: Any, budget: PlanBudget, *, unit: str = "pa
 def _fold_pass(ps: Any) -> None:
     """Fold a graphics pass's ``elements`` + ``detail_hint`` into its ``description``.
 
-    ``graphics_steps.passes_table`` prints ``| name | kind | description |`` — one markdown
+    ``graphics.passes_table`` prints ``| name | kind | description |`` — one markdown
     row — so the fold must stay on a single line and must be idempotent."""
     if not (ps.elements or ps.detail_hint) or " · " in ps.description:
         return
@@ -442,13 +432,13 @@ def _fold_pass(ps: Any) -> None:
     ps.description = " · ".join(bits).replace("\n", " ").replace("|", "/")
 
 
-def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None, budget: PlanBudget | None = None) -> Any:
+def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None) -> Any:
     """Fold what the BRIEF knows back into the plan's own fields, after validation.
 
     A part's own depth needs no folding: ``tracks/prompting.py`` renders
     ``PartPlan.children`` and ``PartPlan.detail_hint`` straight from the typed fields, so
     copying them into ``description`` would print every sub-part twice.  A graphics PASS is
-    the exception — ``graphics_steps.passes_table`` renders only ``description`` — so
+    the exception — ``graphics.passes_table`` renders only ``description`` — so
     ``elements`` are folded there, on ONE line because that table is markdown.
 
     * the brief's signature features become ``should`` acceptance items — ``should``, not
@@ -489,7 +479,6 @@ def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None, budget: PlanBudge
 
 
 # ===================================================================== worked examples
-# (merged from codeverse/tracks/plan_examples.py, 2026-08-28 — same reason)
 def plan_example(track: Track) -> dict[str, Any]:
     """Compact, valid worked example per track (concrete beats abstract)."""
     if track is Track.SCENE:
@@ -749,7 +738,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     The two re-asks have SEPARATE budgets and different complaints:
     ``MAX_VALIDATION_REASKS`` for a plan the schema rejects, ``MAX_QUALITY_REASKS`` for a
     plan that validates but is boxes-at-different-sizes against the derived budget
-    (:func:`codeverse.tracks.plan_budget.plan_quality_complaint`).  A quality re-ask never eats
+    (:func:`plan_quality_complaint`).  A quality re-ask never eats
     the validation re-ask, and a plan that fails quality twice is still USED — a mediocre
     plan beats no plan.
 
@@ -772,7 +761,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     if brief_enabled(spec):
         brief, usage = expand_brief(spec, model_id, model=model, events=events)
         if guard is not None and (usage.cost_usd or usage.input_tokens or usage.output_tokens):
-            guard.add(usage, stage="plan", role="planner", label="planner-brief")
+            guard.add(usage, stage="plan")
     budget = plan_budget(spec, brief)
     unit = "passes" if spec.track is Track.GRAPHICS else "parts"
     system = build_system_prompt(spec, plan_model, runtime=runtime, template=template, example=example, budget=budget)
@@ -810,8 +799,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
         usage = usage + resp.usage
         if guard is not None:
             # booked where it is paid: a later attempt that raises cannot erase this dollar
-            guard.add(resp.usage, stage="plan", role="planner",
-                      label=f"planner{'-retry' if attempt else ''}")
+            guard.add(resp.usage, stage="plan")
         raw = resp.parsed if resp.parsed is not None else _parse_json(resp.text)
         try:
             if not isinstance(raw, dict):
@@ -862,7 +850,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
         if normalised and events is not None:
             events.emit("plan.normalised", attempt=attempt, n=len(normalised), items=normalised[:8])
         result = finalise(result) if finalise is not None else ensure_acceptance(normalise_names(result), spec)
-        result = enrich_plan(result, brief, budget)
+        result = enrich_plan(result, brief)
         ws.write_json(ws.plan_path, result)
         if events is not None:
             stats = (event_stats or default_event_stats)(result)
@@ -890,7 +878,7 @@ def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, runtime: Any
         track=spec.track.value,
         language=lang.value,
         frame_doc=frame_doc(LANGUAGE_FRAME[lang.value]),
-        contract=language_contract(lang, runtime)[:6000],
+        contract=language_contract(lang, runtime),
         example_json=json.dumps(example if example is not None else plan_example(spec.track), indent=1),
         schema_fields=", ".join(plan_model.model_json_schema().get("properties", {}).keys()),
         target_parts=budget.target_parts,
@@ -1022,4 +1010,4 @@ def normalise_names[P: BaseModel](plan_obj: P) -> P:
 
 __all__ = ["MAX_GEOMETRY_REASKS", "articulation_acceptance", "PLAN_GEOMETRY_ENV", "geometry_check_enabled", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS", "PLAN_TOKENS_MAX", "PlanningError", "plan",
            "plan_tokens", "plan_with_usage", "plan_example", "ensure_acceptance", "add_acceptance_item",
-           "default_event_stats", "normalise_names", "build_system_prompt", "build_user_prompt", "load_prompt_or"]
+           "default_event_stats", "normalise_names", "build_system_prompt", "build_user_prompt"]

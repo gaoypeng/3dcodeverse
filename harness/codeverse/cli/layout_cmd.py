@@ -1,4 +1,4 @@
-"""``3dcv show`` + ``3dcv migrate-runs`` — the run directory, read and reorganised.
+"""``3dcv show`` — one run directory, read in three sections.
 
 ``show`` prints one run as three clearly separated sections (docs/RUN_LAYOUT.md):
 
@@ -7,20 +7,19 @@
 * **COST & SETTINGS** — tokens and dollars per stage, model ids, thinking levels,
   rubric hash, budget vs spent, wall clock.
 
-Both commands work on the new layout and on runs written before it: the cost /
-settings block is computed on the fly when ``telemetry/`` is not there yet.
+Works on the new layout and on runs written before it: the cost / settings block
+is computed on the fly when ``telemetry/`` is not there yet.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 from rich.table import Table
 
 from codeverse.cli import _common as C
-from codeverse.cli._common import console, fmt_score, fmt_usd, kv_table, ok, warn
+from codeverse.cli._common import RunsDirOpt, console, fmt_score, fmt_usd, kv_table, warn
 from codeverse.contracts.run import (
     CostSummary,
     DeliverableFile,
@@ -29,8 +28,6 @@ from codeverse.contracts.run import (
     SettingsSnapshot,
 )
 from codeverse.workspace import Workspace
-
-RunsDirOpt = Annotated[Path | None, typer.Option("--runs-dir", help="runs root (default: settings.runs_dir)")]
 
 
 def _human_bytes(n: int) -> str:
@@ -100,14 +97,14 @@ def print_deliverable(ws: Workspace, record: RunRecord) -> None:
         for name, why in d.skipped.items():
             warn(f"not packaged: {name} — {why}")
     else:
-        console.print(kv_table("artifacts (old layout — run `3dcv migrate-runs` to build deliverable/)",
+        console.print(kv_table("artifacts (old layout — no deliverable/)",
                                _legacy_deliverable_rows(ws)))
 
 
 # --------------------------------------------------------------------------- (b) evidence
 def print_evidence(ws: Workspace, record: RunRecord) -> None:
-    from codeverse.flywheel.record import effective_judgment
-    from codeverse.flywheel.sample import best_round_record, gate_error_summary
+    from codeverse.flywheel.record import best_round_record, effective_judgment
+    from codeverse.flywheel.sample import gate_error_summary
 
     _section("QUALITY EVIDENCE — why we believe it")
     rnd = best_round_record(record)
@@ -135,7 +132,7 @@ def print_evidence(ws: Workspace, record: RunRecord) -> None:
         mm = rnd.measurement
         rows["measured"] = (f"extents {tuple(round(v, 3) for v in mm.extents)} m · {mm.tri_count} tris · "
                             f"{mm.n_meshes} meshes · ground gap {mm.ground_gap_m:.3f} m")
-    rows["evidence dir"] = f"{ws.evidence if ws.evidence.exists() else ws.artifacts} (renders/ gates/ judge/)"
+    rows["evidence dir"] = f"{ws.artifacts} (renders/ gates/ judge/)"
     console.print(kv_table("evidence", rows))
     if j is not None and j.issues:
         for issue in j.issues[:5]:
@@ -176,8 +173,7 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
     cost, settings = tele.cost, tele.settings
     if cost is not None:
         u = cost.tokens
-        budget_line = (f"{fmt_usd(cost.total_usd)} of {fmt_usd(cost.budget_usd)}"
-                       f"{'' if cost.budget_used_pct is None else f' ({cost.budget_used_pct:.0f}%)'}")
+        budget_line = fmt_usd(cost.total_usd)
         console.print(kv_table("cost", {
             "spent / budget": budget_line,
             "wall clock": f"{cost.wall_clock_s / 60:.1f} min of {cost.max_minutes:.0f} min",
@@ -209,12 +205,12 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
             "render": " · ".join(f"{k}={v}" for k, v in settings.render.items()),
         }))
     if computed:
-        console.print("[dim]computed on the fly (no telemetry/ yet — `3dcv migrate-runs` writes it)[/dim]")
+        console.print("[dim]computed on the fly (no telemetry/ in this run)[/dim]")
     else:
         console.print(f"[dim]telemetry: {ws.cost_path} · {ws.usage_path} · {ws.settings_path}[/dim]")
 
 
-# --------------------------------------------------------------------------- commands
+# --------------------------------------------------------------------------- command
 def show(
     slug: str,
     runs_dir: RunsDirOpt = None,
@@ -237,30 +233,3 @@ def show(
     if section in ("all", "cost"):
         print_cost_and_settings(ws, record)
 
-
-def migrate_runs_cmd(
-    runs_dir: Annotated[Path, typer.Argument(help="runs root (or a single run directory)")],
-    dry_run: Annotated[bool, typer.Option("--dry-run", help="report what would change; touch nothing")] = False,
-) -> None:
-    """Reorganise existing runs in place onto deliverable/ + evidence/ + telemetry/ (idempotent)."""
-    from codeverse.flywheel.migrate import MIGRATED, migrate_runs
-
-    try:
-        rep = migrate_runs(runs_dir, dry_run=dry_run)
-    except FileNotFoundError as e:
-        raise C.CliError(str(e)) from e
-    t = Table(title=f"{'would migrate' if dry_run else 'migrated'} {rep.runs_dir}")
-    for col in ("run", "status", "layout", "deliverable", "telemetry rows", "record", "note"):
-        t.add_column(col)
-    for m in rep.runs:
-        t.add_row(Path(m.run).name, m.status,
-                  ", ".join(f"{k}:{v}" for k, v in list(m.layout.items())[:3]) or "-",
-                  "-" if m.deliverable_files is None else f"{m.deliverable_files} files / {_human_bytes(m.deliverable_bytes)}",
-                  "-" if m.telemetry_rows is None else str(m.telemetry_rows),
-                  "updated" if m.record_updated else "-", m.reason[:60])
-    console.print(t)
-    summary = (f"{rep.n_runs} runs · {rep.n_migrated} {'to migrate' if dry_run else MIGRATED} · "
-               f"{rep.n_up_to_date} up to date · {rep.n_skipped} skipped · {rep.n_failed} failed")
-    (warn if rep.n_failed else ok)(summary)
-    if rep.n_failed:
-        raise typer.Exit(code=1)

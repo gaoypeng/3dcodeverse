@@ -101,21 +101,22 @@ def test_defect_majority_vote_with_odd_n(judge_input, cache_dir):
     assert set(raw["per_criterion_std"]) == set(R.weights)
 
 
-def test_defect_vote_ties_follow_the_representative_sample(judge_input, cache_dir, caplog):
-    """D36: an exact tie (even n) is decided by the representative sample, not a fixed direction.
+def test_defect_vote_ties_are_absent(judge_input, cache_dir, caplog):
+    """An exact defect-vote tie is ABSENT (2026-08-30; was: the representative sample, D36).
 
-    Under the old rule (ties → present) ONE dissenting sample at n=2 applied the penalty,
-    so n=2 was strictly harsher than n=1 and n=3.  With two samples both are equally close
-    to the mean, so the representative is the first one — the decision follows s0 in BOTH
-    directions, and the id is reported in ``tie_broken``.
-    """
+    At n=2 the representative is whichever sample's overall sits nearer the mean — a
+    float comparison, not evidence — so a 1-1 tie was a coin flip on a defect that caps
+    the run at 0.7.  The rubric already puts the burden on the defect ("mark an item
+    present only when an image or a gate finding shows it"); a tie has not met it.
+    Acceptance ties still follow the representative (the test below): a must-item tie
+    decides pass/fail, and that policy is the owner's."""
     flagged_first = FakeChatModel(by_label={":s0": [_reply(0.9, ["render_artifacts"])], ":s1": [_reply(0.9)]})
     with caplog.at_level("WARNING", logger="codeverse.judges.vlm_judge"):
         j = VlmJudge("static_object_v1", chat_model=flagged_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)
     assert "n_samples=2 is even" in caplog.text
     raw = json.loads(j.raw)
     assert raw["defect_votes"]["render_artifacts"] == [True, False]
-    assert raw["defects"]["render_artifacts"] is True and j.overall == pytest.approx(0.85)
+    assert raw["defects"]["render_artifacts"] is False and j.overall == pytest.approx(0.9)
     assert raw["tie_broken"] == ["render_artifacts"]
 
     clean_first = FakeChatModel(by_label={":s0": [_reply(0.9)], ":s1": [_reply(0.9, ["render_artifacts"])]})
@@ -141,7 +142,7 @@ def test_acceptance_vote_ties_follow_the_representative_sample(judge_input, cach
 
 
 def test_missing_views_cap_for_articulated():
-    rest = [RenderView(name=n, path="x") for n in ("front_right_34", "top")]
+    rest = [RenderView(name=n, path="x") for n in ("front_right_high", "top")]
     res = apply_caps(A, 0.9, [], {}, [], views=rest)
     assert res.overall == 0.5 and res.caps_applied[0].rule == "missing_pose_sheet"
     res2 = apply_caps(A, 0.9, [], {}, [], views=rest + [RenderView(name="articulation_sheet", path="s")])

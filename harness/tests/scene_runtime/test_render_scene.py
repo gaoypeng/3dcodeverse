@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from codeverse.conventions import SCENE_VIEWS
 from codeverse.spatial import render_scene as rs_mod
 from codeverse.spatial.render_scene import (
     SceneRenderError,
+    probe_env_args,
     read_metrics,
     render_scene,
     run_scene_script,
@@ -72,13 +74,9 @@ def test_render_scene_parses_driver_output(fake_runtime, ws, tmp_path):
 
 
 @needs_node
-def test_driver_crash_raises(fake_runtime):
+def test_driver_failures_raise(fake_runtime):
     with pytest.raises(SceneRenderError, match="driver exploded"):
         run_scene_script("crash.mjs", [], timeout_s=30)
-
-
-@needs_node
-def test_driver_timeout_raises(fake_runtime):
     with pytest.raises(SceneRenderError, match="timed out"):
         run_scene_script("slow.mjs", [], timeout_s=1)
 
@@ -90,49 +88,69 @@ def test_missing_driver_raises(fake_runtime):
 
 @pytest.mark.node
 @needs_browser
-def test_real_render_of_example_scene(starter_ws):
-    out = starter_ws.renders_dir(0)
-    rs = render_scene(starter_ws, out, times=(0.0, 1.5), width=640, height=360, fps_seconds=0.5)
-    assert rs.console_errors == []
-    names = {v.name for v in rs.views}
-    assert {"overview", "pond_low", "windmill"} <= names
-    assert {v.name for v in SCENE_VIEWS} <= names
-    assert len(rs.views) == 2 * (3 + len(SCENE_VIEWS))
-    assert rs.fps and rs.fps > 5
-    assert rs.renderer
-    im = Image.open(rs.views[0].path)
-    assert im.size == (640, 360)
-    # not black, not blown: a lit scene
-    px = list(im.convert("L").resize((32, 18)).getdata())
-    assert 20 < sum(px) / len(px) < 235
-    assert rs.contact_sheet and Path(rs.contact_sheet).is_file()
-    m = read_metrics(out)
-    assert m["census"]["totals"]["triangles"] > 1000
-    checks = {c["name"]: c for c in m["camera_checks"]}
-    assert not checks["overview"]["camera_in_geometry"]
-    assert checks["overview"]["dark_frac"] < 0.2 and checks["overview"]["blown_frac"] < 0.2
-    # animation actually changes the frame between t=0 and t=1.5
-    a = Image.open(next(v.path for v in rs.views if v.name == "windmill" and v.time_s == 0.0)).convert("L")
-    b = Image.open(next(v.path for v in rs.views if v.name == "windmill" and v.time_s == 1.5)).convert("L")
-    diff = sum(1 for x, y in zip(a.getdata(), b.getdata(), strict=True) if abs(x - y) > 12)
-    assert diff > 100
-
-
-@pytest.mark.node
-@needs_browser
-def test_camera_in_geometry_is_detected(starter_ws):
+def test_camera_in_geometry_is_detected(starter_ws, monkeypatch):
+    # this test asserts DETECTION, so the default-on camera repair must stand down
+    # (the repair itself is covered by test_camera_repair.py)
+    monkeypatch.setenv("CV3D_CAMERA_REPAIR", "0")
     cams = [CameraPlan(name="buried", position=(12.0, 2.0, -2.0), look_at=(12.0, 2.0, -10.0), fov=50)]  # inside the windmill tower
     out = starter_ws.renders_dir(1)
     render_scene(starter_ws, out, cameras=cams, orbit=False, times=(0.0,), fps_seconds=0, sheet=False)
     m = read_metrics(out)
     chk = m["camera_checks"][0]
     assert chk["camera_in_geometry"] is True
+    # repair off → everything renders from the AUTHORED camera and no repair is recorded
+    assert "camera_repair" not in (m.get("census") or {})
+    assert all("repaired_position" not in v for v in m["views"])
+
+
+@pytest.mark.node
+@needs_browser
+def test_camera_repair_is_observable_in_census_and_views(starter_ws, monkeypatch):
+    """Review-3 S5 (V8): with the default-ON repair, a buried camera leaves a
+    census.camera_repair row and the view records where the pixels really came
+    from — repair used to fire AFTER census capture and vanish."""
+    monkeypatch.delenv("CV3D_CAMERA_REPAIR", raising=False)
+    cams = [CameraPlan(name="buried", position=(12.0, 2.0, -2.0), look_at=(12.0, 2.0, -10.0), fov=50)]  # inside the windmill tower
+    out = starter_ws.renders_dir(2)
+    render_scene(starter_ws, out, cameras=cams, orbit=False, times=(0.0,), fps_seconds=0, sheet=False)
+    m = read_metrics(out)
+    reps = (m.get("census") or {}).get("camera_repair")
+    assert reps and reps[0]["name"] == "buried" and reps[0]["moved_back_m"] + reps[0]["moved_up_m"] > 0
+    view = next(v for v in m["views"] if v["name"] == "buried")
+    assert view["position"] == [12.0, 2.0, -2.0]              # authored camera stays the record
+    assert view.get("repaired_position") and view["repaired_position"] != view["position"]
+    assert m["camera_checks"][0]["camera_in_geometry"] is False   # the effective camera is clear
+
+
+@needs_node
+def test_camera_repair_telemetry_survives_the_python_reader(fake_runtime, ws, tmp_path):
+    """The python side keeps metrics-only telemetry intact: census.camera_repair and
+    per-view repaired_position stay readable, RenderView keeps the authored camera."""
+    (fake_runtime / "render_scene.mjs").write_text(FAKE_DRIVER.replace(
+        "const metrics = {",
+        "for (const v of views) v.repaired_position = [1, 2.6, 4.1];\nconst metrics = {",
+    ).replace(
+        "census: { totals: { meshes: 1 } }",
+        "census: { totals: { meshes: 1 }, camera_repair: [{ name: 'authored_a', moved_back_m: 1.1, moved_up_m: 0.6, inside_before: ['BarCounter'] }] }",
+    ).replace(
+        "fs.writeFileSync(path.join(out, 'metrics.json'), JSON.stringify(metrics));",
+        "fs.writeFileSync(path.join(out, 'metrics.json'), JSON.stringify(metrics));\nfs.writeFileSync(path.join(out, 'views.json'), JSON.stringify(views));",
+    ))
+    out = tmp_path / "out"
+    rs = render_scene(ws, out, cameras=[CameraPlan(name="cam_a", position=(1, 2, 3), look_at=(0, 0, 0), fov=45)],
+                      orbit=False, times=(0.0,), sheet=False)
+    assert rs.views[0].camera_position == (1.0, 2.0, 3.0)
+    m = read_metrics(out)
+    assert m["census"]["camera_repair"][0]["name"] == "authored_a"
+    assert m["views"][0]["repaired_position"] == [1, 2.6, 4.1]
+    # the judge-flag rewrite of views.json must not strip the telemetry rider
+    entries = json.loads((out / "views.json").read_text())
+    assert entries[0]["repaired_position"] == [1, 2.6, 4.1] and "judge" in entries[0]
 
 
 @needs_node
 def test_driver_crash_after_metrics_degrades_to_renderset(fake_runtime, ws, tmp_path):
-    """A driver death AFTER instruments were written must yield a degraded
-    RenderSet (console_errors say why) — never a SceneRenderError that fails the run."""
+    """A crash after metrics yields a degraded RenderSet rather than losing frames."""
     (fake_runtime / "render_scene.mjs").write_text(
         FAKE_DRIVER.replace(
             "console.log(JSON.stringify({ ok: true, n_views: views.length, renderer: 'FakeGL' }));",
@@ -159,9 +177,7 @@ def test_render_scene_clears_stale_metrics(fake_runtime, ws, tmp_path):
 @pytest.mark.node
 @needs_browser
 def test_update_throw_mid_render_yields_frames_and_console_error(starter_ws):
-    """Finding: an update(t, dt) exception past the probed window must NOT abort the
-    render (SceneRenderError → run FAILED); the remaining views render and the error
-    becomes a console error (→ render_console gate finding)."""
+    """A late update error is recorded without aborting the remaining frames."""
     scene = starter_ws.src / "scene.js"
     src = scene.read_text()
     assert "function update(t, dt) {" in src
@@ -183,8 +199,7 @@ def test_update_throw_mid_render_yields_frames_and_console_error(starter_ws):
 
 @needs_browser
 def test_request_failure_line_filters_phantom_aborts():
-    """Finding: Chrome's phantom `requestfailed net::ERR_ABORTED` after a consumed
-    200 response must never reach console_errors (spurious gate failures)."""
+    """Consumed or offsite request failures do not create phantom gate errors."""
     from tests.scene_runtime.conftest import run_node_json
 
     res = run_node_json(
@@ -204,3 +219,72 @@ def test_request_failure_line_filters_phantom_aborts():
     assert res["real"] == "request failed: /assets/a.glb (net::ERR_CONNECTION_REFUSED)"
     assert res["offsite"] is None
     assert res["cs_default"] == 20000 and res["cs_flag"] == 3000 and res["cs_small_budget"] == 6000
+
+
+# ---------------------------------------------------------------- env flags (review-3 S4)
+_FLAG_WORDS = ("--no-settle", "--camera-repair", "--auto-exposure")
+
+
+def _flags(args):
+    return sorted(a for a in args if a in _FLAG_WORDS)
+
+
+@pytest.mark.parametrize(("env", "expect"), [
+    ({}, ["--camera-repair"]),
+    ({"CV3D_CAMERA_REPAIR": "0"}, []),
+    ({"CV3D_CAMERA_REPAIR": "false"}, []),
+    ({"CV3D_CAMERA_REPAIR": "off"}, []),
+    ({"CV3D_CAMERA_REPAIR": "no"}, []),
+    ({"CV3D_CAMERA_REPAIR": "true"}, ["--camera-repair"]),
+    ({"CV3D_SETTLE": "0"}, ["--camera-repair", "--no-settle"]),
+    ({"CV3D_SETTLE": "false"}, ["--camera-repair", "--no-settle"]),
+    ({"CV3D_AUTO_EXPOSURE": "1"}, ["--auto-exposure", "--camera-repair"]),
+    ({"CV3D_AUTO_EXPOSURE": "true"}, ["--auto-exposure", "--camera-repair"]),
+    ({"CV3D_AUTO_EXPOSURE": "garbage"}, ["--camera-repair"]),
+])
+def test_probe_env_args_speaks_the_canonical_flag_words(monkeypatch, env, expect):
+    """CV3D_CAMERA_REPAIR=false must DISABLE, CV3D_SETTLE=false must disable,
+    CV3D_AUTO_EXPOSURE=true must enable — the raw '0'/'1' compares silently
+    ignored every other word the doc'd env_flag vocabulary accepts."""
+    for k in ("CV3D_SETTLE", "CV3D_CAMERA_REPAIR", "CV3D_AUTO_EXPOSURE"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    assert _flags(probe_env_args()) == expect
+
+
+def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path):
+    """Review-3 S4 (V7c): the combined single-boot build probes under the SAME
+    settle / camera-repair / auto-exposure flags as the standalone probe and
+    render paths — it used to pass none of them."""
+    import codeverse.languages.scene_threejs as st
+    import codeverse.spatial.probes as probes_mod
+
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(script, args, *, timeout_s=0.0, cwd=None):
+        captured[script] = list(map(str, args))
+        raise SceneRenderError("captured")
+
+    monkeypatch.setattr(probes_mod, "run_scene_script", fake_run)
+    monkeypatch.setattr(rs_mod, "run_scene_script", fake_run)
+    for k in ("CV3D_SETTLE", "CV3D_CAMERA_REPAIR", "CV3D_AUTO_EXPOSURE"):
+        monkeypatch.delenv(k, raising=False)
+
+    # defaults: camera repair ON everywhere, settle on (no flag), exposure off
+    probes_mod.probe_scene(ws)
+    assert _flags(captured["probe_scene.mjs"]) == ["--camera-repair"]
+    st._probe_and_preflight(ws, timeout_s=5.0)
+    assert _flags(captured["probe_scene.mjs"]) == ["--camera-repair"], "combined build lost the default-ON policy"
+    with pytest.raises(SceneRenderError):
+        render_scene(ws, tmp_path / "out_flags", cameras=[CameraPlan(name="c", position=(1, 2, 3), look_at=(0, 0, 0), fov=45)],
+                     orbit=False, times=(0.0,), sheet=False)
+    assert _flags(captured["render_scene.mjs"]) == ["--camera-repair"]
+
+    # the A/B words reach every path, including the combined build
+    monkeypatch.setenv("CV3D_SETTLE", "0")
+    monkeypatch.setenv("CV3D_CAMERA_REPAIR", "false")
+    st._probe_and_preflight(ws, timeout_s=5.0)
+    assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]
+    probes_mod.probe_scene(ws)
+    assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]

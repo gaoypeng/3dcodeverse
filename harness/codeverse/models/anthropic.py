@@ -30,9 +30,17 @@ from codeverse.contracts.chat import (
 )
 from codeverse.contracts.common import Usage
 from codeverse.models.base import ModelError
-from codeverse.models.parts import BoundedCache, Stopwatch, image_b64
+from codeverse.models.parts import (
+    BoundedCache,
+    Stopwatch,
+    attempt_timeout_s,
+    classify_sdk_exception,
+    image_b64,
+    retry_budget_s,
+    with_logged_retries,
+)
 from codeverse.models.pricing import cache_write_surcharge, estimate_cost
-from codeverse.models.retry import MAX_WAIT_S, with_retries
+from codeverse.models.retry import MAX_WAIT_S, cause_for
 from codeverse.models.schema_utils import (
     JsonParseError,
     parse_json_lenient,
@@ -233,29 +241,14 @@ def parse_content(content: list[Any]) -> tuple[str, list[ToolCallPart], Any, lis
 
 
 # ===================================================================== anthropic
-# (merged from codeverse/models/anthropic.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 
 def classify_exception(exc: BaseException) -> ModelError:
-    """Map anthropic SDK exceptions onto ``ModelError``."""
-    if isinstance(exc, ModelError):
-        return exc
+    """Map anthropic SDK exceptions onto ``ModelError`` (the shared ladder in parts.py)."""
     import anthropic
 
-    if isinstance(exc, anthropic.APIStatusError):
-        status = int(getattr(exc, "status_code", 0) or 0)
-        retry = status in (408, 409, 429, 529) or status >= 500
-        return ModelError(
-            f"Anthropic API error {status}: {exc.message}", retryable=retry, status=status
-        )
-    if isinstance(exc, anthropic.APITimeoutError):
-        return ModelError(f"Anthropic request timed out: {exc}", retryable=True, status=408)
-    if isinstance(exc, anthropic.APIConnectionError):
-        return ModelError(f"Anthropic connection error: {exc}", retryable=True)
-    if isinstance(exc, anthropic.APIError):
-        return ModelError(f"Anthropic API error: {exc}", retryable=False)
-    return ModelError(f"Anthropic unexpected error: {type(exc).__name__}: {exc}", retryable=False)
+    return classify_sdk_exception(exc, anthropic, "Anthropic", extra_retry=frozenset({529}))
 
 
 class AnthropicModel:
@@ -291,9 +284,6 @@ class AnthropicModel:
     def id(self) -> str:
         return f"anthropic:{self.model}"
 
-    def supports_vision(self) -> bool:
-        return True
-
     # ---------------------------------------------------------------- client
     def client(self) -> Any:
         with self._lock:
@@ -313,39 +303,26 @@ class AnthropicModel:
     # -------------------------------------------------------------- generate
     def generate(self, request: ChatRequest) -> ChatResponse:
         kwargs = build_kwargs(request, self.model, json_mode=self.json_mode)
+        deadline = time.monotonic() + retry_budget_s(request.max_wait_s)
 
         def attempt() -> ChatResponse:
             try:
-                return self._once(kwargs, request)
+                return self._once(kwargs, request, deadline)
             except Exception as exc:  # noqa: BLE001 - classified
-                raise classify_exception(exc) from exc
+                err = classify_exception(exc)
+                raise err from cause_for(err, exc)
 
-        def on_retry(n: int, exc: BaseException, delay: float) -> None:
-            log.warning(
-                "anthropic %s attempt %d/%d failed (%s); retrying in %.1fs",
-                self.model,
-                n,
-                self.max_attempts,
-                exc,
-                delay,
-            )
+        return with_logged_retries(attempt, label="anthropic", model=self.model,
+                                   attempts=self.max_attempts, base_delay=self.base_delay,
+                                   max_delay=self.max_delay, sleep=self._sleep, log=log,
+                                   max_wait_s=request.max_wait_s)
 
-        # ChatRequest.max_wait_s is not honoured here: with_retries has no deadline, and its
-        # 6 attempts x <= 5 s backoff bound one call to ~20 s of waiting plus the round-trips.
-        return with_retries(
-            attempt,
-            is_retryable=lambda e: isinstance(e, ModelError) and e.retryable,
-            attempts=self.max_attempts,
-            base_delay=self.base_delay,
-            max_delay=self.max_delay,
-            on_retry=on_retry,
-            sleep=self._sleep,
-        )
-
-    def _once(self, kwargs: dict[str, Any], request: ChatRequest) -> ChatResponse:
+    def _once(self, kwargs: dict[str, Any], request: ChatRequest, deadline: float) -> ChatResponse:
         client = self.client()
         with Stopwatch() as sw:
-            msg = client.messages.create(model=self.model, **kwargs)
+            # the client is built once with a fixed timeout; the deadline is per call
+            msg = client.messages.create(
+                model=self.model, timeout=attempt_timeout_s(deadline, self.timeout_s), **kwargs)
         text, calls, submit, thinking_blocks = parse_content(msg.content)
         stop = str(msg.stop_reason or "")
         if calls and thinking_blocks:

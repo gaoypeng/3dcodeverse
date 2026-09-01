@@ -1,8 +1,6 @@
-"""Core spatial tools registered with ``@tool``: build, measure, check_connectivity,
-check_contract, cross_section.  Rendering tools live in ``tools_render``, scene /
-articulation tools in ``tools_scene`` and the cookbook reader in ``cookbook_tool``
-(all imported at the bottom so ``import codeverse.spatial.tools`` registers every
-tool).
+"""Every spatial tool registered with ``@tool``, in sections: build / measure / gates /
+sections · rendering · articulation · scenes · graphics · texturing · reference.
+``import codeverse.spatial.tools`` registers all of them.
 
 House rules: observations are compact (errors first, fix hints attached), text
 never contains absolute host paths (images are absolute — the harness converts),
@@ -18,13 +16,19 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse.config import fewer_turns_enabled, get_settings
-from codeverse.contracts.artifacts import BuildResult, GateReport, Measurement, RenderSet
+from codeverse.contracts.artifacts import RENDER_MODES, BuildResult, GateReport, Measurement
 from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS, OBJECT_VIEWS_QUICK
 from codeverse.spatial.connectivity import check_connectivity as _check_connectivity
 from codeverse.spatial.contract import check_contract as _check_contract
+from codeverse.spatial.contract import planned_joins
+from codeverse.spatial.frame_metrics import frame_summary_text
+from codeverse.spatial.joints_export import ARTICULATION_SHEET_NAME, render_poses
+from codeverse.spatial.joints_model import UrdfError, load_urdf
+from codeverse.spatial.joints_poses import limit_poses, pose_samples
+from codeverse.spatial.joints_sweep import report_numbers, summary_text, sweep_collisions
 from codeverse.spatial.measure import GlbLoadError, measure_glb, measure_summary_table
 from codeverse.spatial.observe import (
     build_failure_lines,
@@ -39,7 +43,16 @@ from codeverse.spatial.observe import (
     text_observation,
     truncate,
 )
+from codeverse.spatial.probes import check_shaders, probe_scene
 from codeverse.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
+from codeverse.spatial.render_scene import read_metrics, render_scene
+from codeverse.spatial.scene_placement import (
+    infer_indoor,
+    placement_findings,
+    placement_table_text,
+    setting_text,
+)
+from codeverse.spatial.scene_placement import placement_census as _placement_census
 from codeverse.spatial.sections import cross_section as _cross_section
 from codeverse.spatial.sheet import contact_sheet
 from codeverse.spatial.silhouette import compare_silhouette as _compare_silhouette
@@ -58,8 +71,6 @@ from codeverse.spatial.tool_common import (
     spec_dict,
     tool_out_dir,
 )
-
-_STDERR_TAIL_LINES = 30
 
 
 # --------------------------------------------------------------------------- build
@@ -129,10 +140,11 @@ def _folded_checks(ctx: ToolContext, glb: Path, m: Measurement, language: str) -
         numbers[f"{name.lower()}_errors"] = n_err
         verdicts.append(f"{name.lower()} " + ("PASS" if report.passed else f"FAIL ({n_err} error(s))"))
 
-    conn = _check_connectivity(glb, language=language)
+    plan = load_plan(ws.plan_path) if ws.plan_path.is_file() else None
+    conn = _check_connectivity(glb, language=language, planned_edges=planned_joins(plan, m))
     fold("CONNECTIVITY", conn)
-    if ws.plan_path.is_file():
-        contract = _check_contract(m, load_plan(ws.plan_path), language=language)
+    if plan is not None:
+        contract = _check_contract(m, plan, language=language)
         fold("CONTRACT", contract)
         passed = conn.passed and contract.passed
     else:
@@ -145,6 +157,39 @@ def _folded_checks(ctx: ToolContext, glb: Path, m: Measurement, language: str) -
     return [summary, *lines], numbers
 
 
+_STDERR_TAIL_LINES = 25
+_LINT_WARNS_SHOWN = 10
+
+
+def _lint_gate(ctx: ToolContext, rt: Any, *, verb: str) -> tuple[Observation | None, list[str]]:
+    """Lint before any build-running tool builds: (refusal observation | None, warning
+    lines).  Lint ERRORs skip the build (docs/DECISIONS.md L5) and are recorded as the
+    LATEST build status — without that the previous round's build_last.json (ok: true)
+    + object.glb stayed readable as current."""
+    ws = ctx.workspace
+    lint: GateReport = rt.lint(ws)
+    errs = lint_lines(lint, ws.root, errors_only=True)
+    warns = lint_lines(lint, ws.root, errors_only=False)
+    if not errs:
+        return None, warns
+    ws.write_json(ws.artifacts / "build_last.json",
+                  BuildResult(ok=False, language=language_of(ctx), error_type="LintError",
+                              error_message="\n".join(errs)[:4000]))
+    text = f"LINT FAILED — fix these before {verb}:\n" + "\n".join(errs)
+    if warns:
+        text += "\nwarnings:\n" + "\n".join(warns[:_LINT_WARNS_SHOWN])
+    return text_observation(text, ok=False, numbers={"stage": "lint", "lint_errors": len(errs)}), warns
+
+
+def _build_failed(ctx: ToolContext, br: BuildResult, warns: list[str]) -> Observation:
+    """The BUILD FAILED observation of every build-running tool; ``error_file`` is
+    workspace-relative (house rule: text never carries absolute host paths)."""
+    ws = ctx.workspace
+    return text_observation(build_failure_lines(br, ws.root, warns, tail_n=_STDERR_TAIL_LINES), ok=False, limit=3000,
+                            numbers={"stage": "build", "ok": False, "duration_ms": br.duration_ms, "error_type": br.error_type,
+                                     "error_file": error_file_display(br.error_file, ws.root), "error_line": br.error_line})
+
+
 @tool("build", NoArgs, "Lint + build the code in src/ with the language runtime, export artifacts/object.glb and measure it. Call after every edit.", cost_hint="slow",
       describe_extra=lambda: _BUILD_INCLUDES_CHECKS if fewer_turns_enabled() else "")
 def build(ctx: ToolContext, args: NoArgs) -> Observation:
@@ -152,26 +197,14 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     ws = ctx.workspace
     language = language_of(ctx)
     rt = lazy("codeverse.languages", "get_runtime")(language)
-    lint: GateReport = rt.lint(ws)
-    lint_errors = lint_lines(lint, ws.root, errors_only=True)
-    lint_warns = lint_lines(lint, ws.root, errors_only=False)
-    if lint_errors:
-        # record the refusal as the LATEST build status: without this the previous
-        # round's build_last.json (ok: true) + object.glb stayed readable as current
-        ws.write_json(ws.artifacts / "build_last.json",
-                      BuildResult(ok=False, language=language, error_type="LintError",
-                                  error_message="\n".join(lint_errors)[:4000]))
-        text = "LINT FAILED — fix these before building:\n" + "\n".join(lint_errors)
-        if lint_warns:
-            text += "\nwarnings:\n" + "\n".join(lint_warns[:10])
-        return text_observation(text, ok=False, numbers={"stage": "lint", "lint_errors": len(lint_errors)})
+    refused, lint_warns = _lint_gate(ctx, rt, verb="building")
+    if refused is not None:
+        return refused
     br: BuildResult = rt.build(ws, timeout_s=get_settings().limits.build_timeout_s)
     ws.write_json(ws.artifacts / "build_last.json", br)
-    numbers: dict[str, Any] = {"stage": "build", "ok": br.ok, "duration_ms": br.duration_ms}
     if not br.ok:
-        lines = build_failure_lines(br, ws.root, lint_warns, tail_n=_STDERR_TAIL_LINES)
-        numbers.update({"error_type": br.error_type, "error_file": error_file_display(br.error_file, ws.root), "error_line": br.error_line})
-        return text_observation(lines, ok=False, numbers=numbers, limit=3000)
+        return _build_failed(ctx, br, lint_warns)
+    numbers: dict[str, Any] = {"stage": "build", "ok": br.ok, "duration_ms": br.duration_ms}
     if not br.glb_path and language in _SCENE_LANGS + _GL_LANGS:
         # languages without a GLB deliverable: report the language's own artifacts
         ok, extra_lines, extra_numbers = _no_glb_summary(ctx, br, language)
@@ -192,7 +225,7 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
         if m.extra.get("findings"):
             numbers["findings"] = m.extra["findings"]
     if lint_warns:
-        lines.append("lint warnings:\n" + "\n".join(lint_warns[:10]))
+        lines.append("lint warnings:\n" + "\n".join(lint_warns[:_LINT_WARNS_SHOWN]))
     census_warn = br.census.get("warnings") if isinstance(br.census, dict) else None
     if census_warn:
         lines.append("build warnings:\n" + "\n".join(f"- {sanitize_text(str(w), ws.root)}" for w in list(census_warn)[:10]))
@@ -208,12 +241,18 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     return text_observation(lines, ok=ok, numbers=numbers, limit=3000)
 
 
+#: the object-GLB toolset (everything that reads artifacts/object.glb): scene and
+#: graphics builds never write that file, so serving these there was a dead-end loop
+_OBJECT_TRACKS = (Track.STATIC_OBJECT.value, Track.ARTICULATED_OBJECT.value)
+
+
 # --------------------------------------------------------------------------- measure
 class MeasureArgs(BaseModel):
     parts: list[str] = Field(default=[], description="limit the table to these part names (empty = all)")
 
 
-@tool("measure", MeasureArgs, "Measure the built object: overall bbox/extents, ground gap, per-part size/tris/islands (Y-up meters).")
+@tool("measure", MeasureArgs, "Measure the built object: overall bbox/extents, ground gap, per-part size/tris/islands (Y-up meters).",
+      tracks=_OBJECT_TRACKS)
 def measure(ctx: ToolContext, args: MeasureArgs) -> Observation:
     glb = glb_path(ctx)
     try:
@@ -235,15 +274,22 @@ def measure(ctx: ToolContext, args: MeasureArgs) -> Observation:
 
 
 # --------------------------------------------------------------------------- gates
-@tool("check_connectivity", NoArgs, "Contact graph of all parts: floating parts (with the exact gap vector to close), interpenetration, stray islands.")
+@tool("check_connectivity", NoArgs, "Contact graph of all parts: floating parts (with the exact gap vector to close), interpenetration, stray islands.",
+      tracks=_OBJECT_TRACKS)
 def check_connectivity(ctx: ToolContext, args: NoArgs) -> Observation:
     glb = glb_path(ctx)
-    report = _check_connectivity(glb, language=language_of(ctx))
+    plan = load_plan(ctx.workspace.plan_path) if ctx.workspace.plan_path.is_file() else None
+    try:  # the plan's attach_to pairs in the GLB's part names — the same resolver as the track's gate
+        planned = planned_joins(plan, measure_glb(glb)) if plan is not None else []
+    except GlbLoadError as e:
+        return Observation.error(f"check_connectivity: {e}")
+    report = _check_connectivity(glb, language=language_of(ctx), planned_edges=planned)
     ctx.workspace.write_json(ctx.workspace.gates_dir(ctx.round_index) / "connectivity_tool.json", report)
     return gate_observation(report)
 
 
-@tool("check_contract", NoArgs, "Compare the built object with plan.json: missing parts, bbox deltas per part, overall size, ground contact.")
+@tool("check_contract", NoArgs, "Compare the built object with plan.json: missing parts, bbox deltas per part, overall size, ground contact.",
+      tracks=_OBJECT_TRACKS)
 def check_contract(ctx: ToolContext, args: NoArgs) -> Observation:
     glb = glb_path(ctx)
     plan = load_plan(ctx.workspace.plan_path)
@@ -264,7 +310,8 @@ class CrossSectionArgs(BaseModel):
     parts: list[str] = Field(default=[], description="only slice these parts (empty = all)")
 
 
-@tool("cross_section", CrossSectionArgs, "Slice the object with an axis-aligned plane → labelled section image + loops/area/hollow ratio.")
+@tool("cross_section", CrossSectionArgs, "Slice the object with an axis-aligned plane → labelled section image + loops/area/hollow ratio.",
+      tracks=_OBJECT_TRACKS)
 def cross_section(ctx: ToolContext, args: CrossSectionArgs) -> Observation:
     glb = glb_path(ctx)
     axis = args.axis.lower()
@@ -278,20 +325,16 @@ def cross_section(ctx: ToolContext, args: CrossSectionArgs) -> Observation:
     return obs
 
 
-# register the cookbook reader (the other tool modules merged in, 2026-08-28)
-import codeverse.spatial.cookbook_tool  # noqa: E402,F401
-
-# ===================================================================== tools_render
-# (merged from codeverse/spatial/tools_render.py, 2026-08-28 — its one importer was the
-#  registration block at the bottom of this file)
+# ===================================================================== rendering
 _DEFAULT_VIEWS = [v.name for v in OBJECT_VIEWS_QUICK]
 _MAX_SIZE = 1024
+_MODE_DESC = " | ".join(RENDER_MODES)
 
 
 class RenderViewsArgs(BaseModel):
     views: list[str] = Field(default=list(_DEFAULT_VIEWS),
                              description=f"view names from {[v.name for v in OBJECT_VIEWS]}")
-    mode: str = Field(default="shaded", description="shaded | wire | normals | silhouette | depth | clay")
+    mode: str = Field(default="shaded", description=_MODE_DESC)
     isolate: list[str] = Field(default=[], description="render only these parts (others hidden)")
     explode: float = Field(default=0.0, ge=0.0, le=3.0, description="exploded view factor (0 = assembled)")
     size: int = Field(default=512, ge=128, le=_MAX_SIZE, description="image size in px (square)")
@@ -307,20 +350,22 @@ def _render(ctx: ToolContext, tool_name: str, *, views: list[str], mode: str, is
     return render_observation(rs, ctx.workspace.root, note=note)
 
 
-@tool("render_views", RenderViewsArgs, "Render the built object from named camera views (contact sheet + views). Use to SEE what you built.", cost_hint="slow")
+@tool("render_views", RenderViewsArgs, "Render the built object from named camera views (contact sheet + views). Use to SEE what you built.",
+      tracks=_OBJECT_TRACKS, cost_hint="slow")
 def render_views(ctx: ToolContext, args: RenderViewsArgs) -> Observation:
     note = f"{args.mode} render" + (f", isolate={args.isolate}" if args.isolate else "") + (f", explode={args.explode:g}" if args.explode else "")
     return _render(ctx, "render_views", views=args.views, mode=args.mode, isolate=args.isolate, explode=args.explode, size=args.size, note=note)
 
 
 class RenderSheetArgs(BaseModel):
-    mode: str = Field(default="shaded", description="shaded | wire | normals | silhouette | depth | clay")
+    mode: str = Field(default="shaded", description=_MODE_DESC)
 
 
-@tool("render_sheet", RenderSheetArgs, "One labelled 8-view contact sheet of the built object (all canonical views).", cost_hint="slow")
+@tool("render_sheet", RenderSheetArgs, "One labelled 14-view contact sheet of the built object (all canonical views).",
+      tracks=_OBJECT_TRACKS, cost_hint="slow")
 def render_sheet(ctx: ToolContext, args: RenderSheetArgs) -> Observation:
     obs = _render(ctx, "render_sheet", views=[v.name for v in OBJECT_VIEWS], mode=args.mode, isolate=[], explode=0.0, size=512,
-                  note=f"{args.mode} 8-view sheet")
+                  note=f"{args.mode} 14-view sheet")
     if obs.ok and obs.images:
         obs.images = obs.images[:1]  # the sheet alone is the deliverable here
     return obs
@@ -331,7 +376,8 @@ class IsolateArgs(BaseModel):
     views: list[str] = Field(default=list(_DEFAULT_VIEWS), description="view names")
 
 
-@tool("isolate", IsolateArgs, "Render ONE part alone (others hidden) + its measurement row — inspect a single part's shape and placement.", cost_hint="slow")
+@tool("isolate", IsolateArgs, "Render ONE part alone (others hidden) + its measurement row — inspect a single part's shape and placement.",
+      tracks=_OBJECT_TRACKS, cost_hint="slow")
 def isolate(ctx: ToolContext, args: IsolateArgs) -> Observation:
     glb = glb_path(ctx)
     try:
@@ -353,12 +399,21 @@ def isolate(ctx: ToolContext, args: IsolateArgs) -> Observation:
     return obs
 
 
+def _iou_verdict(res: dict[str, Any]) -> str:
+    """Silhouette IoU → words, for compare_silhouette and compare_reference alike."""
+    verdict = "good match" if res["iou"] >= 0.8 else "rough match" if res["iou"] >= 0.6 else "POOR match"
+    if not res["reliable"]:
+        verdict += " (IoU UNRELIABLE: background mask failed on one image — trust the pictures, not the number)"
+    return verdict
+
+
 class CompareSilhouetteArgs(BaseModel):
     view: str = Field(default="front", description="view to render in silhouette mode")
     reference_index: int = Field(default=0, ge=0, description="index into spec.references")
 
 
-@tool("compare_silhouette", CompareSilhouetteArgs, "Silhouette IoU / aspect-ratio error between a rendered view and a reference image (+ diff image).", cost_hint="slow")
+@tool("compare_silhouette", CompareSilhouetteArgs, "Silhouette IoU / aspect-ratio error between a rendered view and a reference image (+ diff image).",
+      tracks=_OBJECT_TRACKS, cost_hint="slow")
 def compare_silhouette(ctx: ToolContext, args: CompareSilhouetteArgs) -> Observation:
     glb = glb_path(ctx)
     ref_path, _ref = reference_path(ctx, args.reference_index, tool="compare_silhouette")
@@ -373,43 +428,29 @@ def compare_silhouette(ctx: ToolContext, args: CompareSilhouetteArgs) -> Observa
     out_dir = render_cache_dir(ctx, glb, silhouette=args.view, ref=args.reference_index)
     diff = out_dir / f"silhouette_diff_{args.view}_ref{args.reference_index}.png"
     res = _compare_silhouette(rs.views[0].path, ref_path, diff_png=diff)
-    verdict = ("good match" if res["iou"] >= 0.8 else "rough match" if res["iou"] >= 0.6 else "poor match")
-    if not res["reliable"]:
-        verdict += " (UNRELIABLE: background mask failed on one image — judge visually)"
-    text = (f"silhouette '{args.view}' vs reference #{args.reference_index} ({ref_path.name}): IoU {res['iou']:.2f} → {verdict}; "
+    text = (f"silhouette '{args.view}' vs reference #{args.reference_index} ({ref_path.name}): IoU {res['iou']:.2f} → {_iou_verdict(res)}; "
             f"aspect w/h render {res['render_aspect']:.2f} vs ref {res['ref_aspect']:.2f} (err {res['aspect_ratio_err']:.0%}). "
             f"Diff image: red = reference only, blue = render only. " + fmt_numbers({k: v for k, v in res.items() if k != "diff_png_path"}))
     images = image_budget([str(diff), rs.views[0].path])
     return Observation(ok=True, text=text, numbers={"view": args.view, **res}, images=images)
 
 
-# ===================================================================== tools_scene
-# (merged from codeverse/spatial/tools_scene.py, 2026-08-28 — its one importer was the
-#  registration block at the bottom of this file)
-def _as_observation(result: Any, root, *, title: str) -> Observation:
-    """Normalise whatever a sibling returns (Observation / GateReport / RenderSet / dict / str)."""
-    if isinstance(result, Observation):
-        return result
-    if isinstance(result, GateReport):
-        return gate_observation(result, title=title)
-    if isinstance(result, RenderSet):
-        return render_observation(result, root, note=title)
-    if isinstance(result, BaseModel):
-        result = result.model_dump(mode="json")
-    if isinstance(result, dict):
-        images = [str(p) for p in (result.get("images") or []) if p]
-        errors = result.get("errors") or result.get("console_errors") or []
-        text = title + ": " + fmt_numbers({k: v for k, v in result.items() if k not in ("images",)}, max_items=40)
-        if errors:
-            text += "\nerrors:\n" + "\n".join(f"  ! {str(e)[:200]}" for e in list(errors)[:10])
-        return Observation(ok=not errors, text=truncate(text), numbers=result, images=images[:6])
-    return Observation(ok=True, text=truncate(f"{title}: {result}"))
-
-
-# --------------------------------------------------------------------------- articulated
+# ===================================================================== articulation
 class JointSweepArgs(BaseModel):
     joints: list[str] = Field(default=[], description="joint names to sweep (empty = all)")
     n_samples: int = Field(default=8, ge=2, le=32, description="poses per joint across its range")
+
+
+def _poses_for(robot, joints: list[str] | None) -> list[tuple[str, dict[str, float]]] | None:
+    """``limit_poses`` narrowed to ``joints`` (rest kept); ``None`` = the full sheet.
+
+    An unknown joint name narrows to nothing but rest, which is a wrong-but-visible sheet
+    rather than a silent fallback to everything — the agent sees one tile and its typo.
+    """
+    if not joints:
+        return None
+    want = set(joints)
+    return [(label, q) for label, q in limit_poses(robot) if label == "rest" or label.split("@")[0] in want]
 
 
 @tool("joint_sweep", JointSweepArgs, "Sweep URDF joints through their ranges: self-collision / limit findings for ALL joints, "
@@ -417,31 +458,49 @@ class JointSweepArgs(BaseModel):
       "(three views per pose); the collision check always covers the whole robot.",
       tracks=(Track.ARTICULATED_OBJECT.value,), cost_hint="slow")
 def joint_sweep(ctx: ToolContext, args: JointSweepArgs) -> Observation:
-    fn = lazy("codeverse.spatial.joints", "joint_sweep_observation")
+    """``joints`` narrows the RENDER to those joints' limit poses (plus rest).  The collision
+    sweep still covers every joint — a change to one joint can collide with another, and
+    that check is cheap.  Rendering is not: every pose is a GLB export plus three views, so
+    a 10-joint object renders ~63 images per call, and agents call this 3-8 times a round.
+    Measured 2026-08-25: articulated rounds ran a median 1007 s against 497 s for static
+    objects, with the agent session — mostly waiting on sweeps — as the whole difference."""
+    ws = ctx.workspace
+    urdf = ws.artifacts / "robot.urdf"
+    if not urdf.is_file():
+        return Observation.error("joint_sweep: artifacts/robot.urdf not found — run `build` first")
+    try:
+        robot = load_urdf(urdf, ws.artifacts / "meshes")
+        report = sweep_collisions(robot, pose_samples(robot, n_random=args.n_samples, seed=0))
+    except UrdfError as e:
+        return Observation.error(f"joint_sweep: {e}")
     out_dir = tool_out_dir(ctx, "joints")
-    res = fn(ctx.workspace, joints=args.joints or None, n_random=args.n_samples,
-             joint=args.joints[0] if len(args.joints) == 1 else None, out_dir=out_dir)
-    return _as_observation(res, ctx.workspace.root, title="joint sweep")
+    render_poses(robot, out_dir, poses=_poses_for(robot, args.joints or None))
+    ok = report.summary.max_penetration_m <= report.tol_m and not report.summary.floating_links
+    return Observation(ok=ok, text=summary_text(report), numbers=report_numbers(report),
+                       images=[str(out_dir / ARTICULATION_SHEET_NAME)])
 
 
-# --------------------------------------------------------------------------- scenes
+# ===================================================================== scenes
 @tool("shader_probe", NoArgs, "Compile every GLSL/ShaderMaterial in the scene headlessly and report shader errors with line numbers.",
       languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
 def shader_probe(ctx: ToolContext, args: NoArgs) -> Observation:
-    fn = lazy("codeverse.spatial.probes", "check_shaders")
-    res = fn(ctx.workspace)
-    return _as_observation(res, ctx.workspace.root, title="shader probe")
+    return gate_observation(check_shaders(ctx.workspace), title="shader probe")
 
 
 @tool("scene_probe", NoArgs, "Load the scene headlessly: object/material/light census, triangle count, fps, console errors.",
       languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
 def scene_probe(ctx: ToolContext, args: NoArgs) -> Observation:
-    fn = lazy("codeverse.spatial.probes", "probe_scene")
-    res = fn(ctx.workspace)
-    obs = _as_observation(res, ctx.workspace.root, title="scene probe")
-    census = obs.numbers.get("census") if isinstance(obs.numbers, dict) else None
-    if isinstance(census, dict) and census:
-        obs.text = obs.text + "\ncensus: " + fmt_numbers(census, max_items=30)
+    res = probe_scene(ctx.workspace)
+    # ok = the probe TOOL ran (SceneProbeResult semantics): a gate that fails on
+    # agent-fixable findings stays ok; only harness/driver failures flip it
+    obs = gate_observation(res.gate, title="scene probe")
+    obs.ok = not res.errors
+    if res.errors:
+        obs.text += "\nerrors:\n" + "\n".join(f"  ! {e[:200]}" for e in res.errors[:10])
+    if res.census:
+        obs.text += "\ncensus: " + fmt_numbers(res.census, max_items=30)
+        obs.numbers["census"] = res.census
+    obs.text = truncate(obs.text)
     return obs
 
 
@@ -457,7 +516,6 @@ def scene_views(ctx: ToolContext, args: SceneViewsArgs) -> Observation:
         raise ToolUsageError("cameras must be authored | orbit | all", "scene_views(cameras='authored')")
     if not args.times or len(args.times) > 6:
         raise ToolUsageError("times must hold 1..6 values", "scene_views(times=[0.0, 1.5])")
-    render_scene = lazy("codeverse.spatial.render_scene", "render_scene")
     cams = None
     if args.cameras in ("authored", "all") and ctx.workspace.plan_path.is_file():
         try:
@@ -469,17 +527,15 @@ def scene_views(ctx: ToolContext, args: SceneViewsArgs) -> Observation:
     key = f"{args.cameras}_{'_'.join(f'{t:g}' for t in args.times)}".replace(".", "p")
     out_dir = tool_out_dir(ctx, f"scene_{key}")
     rs = render_scene(ctx.workspace, out_dir, cameras=cams, orbit=orbit, times=tuple(args.times), sheet=True)
-    obs = _as_observation(rs, ctx.workspace.root, title=f"scene views ({args.cameras}, t={args.times})")
+    obs = render_observation(rs, ctx.workspace.root, note=f"scene views ({args.cameras}, t={args.times})")
     table = _frame_table(out_dir)
     return obs.model_copy(update={"text": truncate(obs.text + "\n\n" + table)}) if table else obs
 
 
-def _frame_table(out_dir) -> str:
+def _frame_table(out_dir: Path) -> str:
     """The deterministic numbers behind the pictures — exposure/coverage per camera plus the
     measured motion between the times.  Without them the agent is asked to LOOK at a sheet and
     guess whether its sway is visible or its dusk is too dark; with them it can read the answer."""
-    read_metrics = lazy("codeverse.spatial.render_scene", "read_metrics")
-    frame_summary_text = lazy("codeverse.spatial.frame_metrics", "frame_summary_text")
     try:
         metrics = read_metrics(out_dir)
         return frame_summary_text(metrics) if metrics else ""
@@ -499,27 +555,20 @@ class CheckPlacementArgs(BaseModel):
       "obj.userData.placement = 'free'.",
       languages=(Language.SCENE_THREEJS.value,), cost_hint="fast")
 def check_placement(ctx: ToolContext, args: CheckPlacementArgs) -> Observation:
-    census_of = lazy("codeverse.spatial.scene_placement", "placement_census")
-    findings_of = lazy("codeverse.spatial.scene_placement", "placement_findings")
-    table_of = lazy("codeverse.spatial.scene_placement", "placement_table_text")
-    infer_indoor = lazy("codeverse.spatial.scene_placement", "infer_indoor")
-    census = census_of(ctx.workspace, force_probe=args.rebuild)
+    census = _placement_census(ctx.workspace, force_probe=args.rebuild)
     indoor = False
     if ctx.workspace.plan_path.is_file():
         try:
-            plan = load_plan(ctx.workspace.plan_path)
-            indoor = infer_indoor(" ".join(str(getattr(plan, k, "") or "") for k in ("setting", "environment", "title")))
+            indoor = infer_indoor(setting_text(load_plan(ctx.workspace.plan_path)))
         except ToolUsageError:
             indoor = False
     table = census.get("placement") or {}
-    report = findings_of(table, indoor=indoor)
+    report = placement_findings(table, indoor=indoor)
     obs = gate_observation(report, title="placement check")
-    return obs.model_copy(update={"text": truncate(obs.text + "\n\n" + table_of(table))})
+    return obs.model_copy(update={"text": truncate(obs.text + "\n\n" + placement_table_text(table))})
 
 
-# ===================================================================== tools_graphics
-# (merged from codeverse/spatial/tools_graphics.py, 2026-08-28 — its one importer was the
-#  registration block at the bottom of this file)
+# ===================================================================== graphics
 GRAPHICS_LANGS = (Language.GLSL_SHADER.value, Language.OPENGL_PYTHON.value)
 MAX_FRAMES = 8
 
@@ -544,9 +593,6 @@ def _runtime(ctx: ToolContext):
     return get_runtime(lang)
 
 
-_STDERR_TAIL_LINES = 25
-
-
 def _run_build(ctx: ToolContext, *, times: list[float], preview: bool, width: int = 0, height: int = 0) -> tuple[Observation | None, BuildResult | None, list[str]]:
     """Lint → build; returns (error observation | None, build, lint warnings).
 
@@ -554,27 +600,16 @@ def _run_build(ctx: ToolContext, *, times: list[float], preview: bool, width: in
     """
     ws = ctx.workspace
     rt = _runtime(ctx)
-    lint: GateReport = rt.lint(ws)
-    errs = lint_lines(lint, ws.root, errors_only=True)
-    warns = lint_lines(lint, ws.root, errors_only=False)
-    if errs:
-        # the refusal is the latest build status (same reasoning as tools.build)
-        ws.write_json(ws.artifacts / "build_last.json",
-                      BuildResult(ok=False, language=language_of(ctx), error_type="LintError",
-                                  error_message="\n".join(errs)[:4000]))
-        text = "LINT FAILED — fix these before rendering:\n" + "\n".join(errs)
-        if warns:
-            text += "\nwarnings:\n" + "\n".join(warns[:8])
-        return text_observation(text, ok=False, numbers={"stage": "lint", "lint_errors": len(errs)}), None, warns
+    refused, warns = _lint_gate(ctx, rt, verb="rendering")
+    if refused is not None:
+        return refused, None, warns
     kw = {"times": times, "preview": preview}
     if width and height:
         kw.update(width=width, height=height)
     br: BuildResult = rt.build(ws, **kw)
     ws.write_json(ws.artifacts / "build_last.json", br)
     if not br.ok:
-        return text_observation(build_failure_lines(br, ws.root, warns, tail_n=_STDERR_TAIL_LINES), ok=False, limit=3000,
-                                numbers={"stage": "build", "error_type": br.error_type, "error_file": br.error_file,
-                                         "error_line": br.error_line}), br, warns
+        return _build_failed(ctx, br, warns), br, warns
     return None, br, warns
 
 
@@ -595,7 +630,7 @@ def gl_probe(ctx: ToolContext, args: GlProbeArgs) -> Observation:
     frames = sorted(Path(br.extra_paths["frames"]).glob("f*_t*.png")) if br.extra_paths.get("frames") else []
     lines = [f"PROBE OK ({br.duration_ms} ms, {br.census.get('renderer', 'GL')}) — frame at t={args.t:g}s", text]
     if warns:
-        lines.append("lint warnings:\n" + "\n".join(warns[:8]))
+        lines.append("lint warnings:\n" + "\n".join(warns[:_LINT_WARNS_SHOWN]))
     numbers.update({"stage": "probe", "t": args.t, "duration_ms": br.duration_ms})
     return text_observation(lines, ok=numbers.get("gate_errors", 0) == 0, numbers=numbers,
                             images=[str(p) for p in frames[:1]], limit=3000)
@@ -622,17 +657,12 @@ def gl_frames(ctx: ToolContext, args: GlFramesArgs) -> Observation:
         images.append(str(dst))
     lines = [f"FRAMES OK ({br.duration_ms} ms, {br.census.get('renderer', 'GL')}) — sheet tiles labelled t=<s>; compare them for motion", text]
     if warns:
-        lines.append("lint warnings:\n" + "\n".join(warns[:8]))
+        lines.append("lint warnings:\n" + "\n".join(warns[:_LINT_WARNS_SHOWN]))
     numbers.update({"stage": "frames", "times": args.times, "duration_ms": br.duration_ms, "sheet": rel_path(images[0], ctx.workspace.root) if images else ""})
     return text_observation(lines, ok=numbers.get("gate_errors", 0) == 0, numbers=numbers, images=images, limit=3000)
 
 
-# ===================================================================== tools_texture
-# (merged from codeverse/spatial/tools_texture.py, 2026-08-28 — its one importer was the
-#  registration block at the bottom of this file)
-_OBJECT_TRACKS = (Track.STATIC_OBJECT.value, Track.ARTICULATED_OBJECT.value)
-
-
+# ===================================================================== texturing
 class TexturePassArgs(BaseModel):
     judge: bool = Field(default=True, description="run the before/after VLM ship gate (False = ship on seam gate only)")
     model: str = Field(default="", description="planner chat model id for the material plan (default: spec planner)")
@@ -690,15 +720,13 @@ def texture_pass_tool(ctx: ToolContext, args: TexturePassArgs) -> Observation:
 
 
 class TexturePreviewArgs(BaseModel):
-    views: list[str] = Field(default=["front_right_34", "back_left_34", "front", "top"], description="view names")
+    views: list[str] = Field(default=list(_DEFAULT_VIEWS), description="view names")
 
 
 @tool("texture_preview", TexturePreviewArgs,
       "Render artifacts/object_textured.glb (after texture_pass) as a labelled contact sheet + list the generated textures.",
       tracks=_OBJECT_TRACKS, cost_hint="slow")
 def texture_preview(ctx: ToolContext, args: TexturePreviewArgs) -> Observation:
-    from codeverse.spatial.tool_common import cached_render_glb, resolve_views
-
     ws = ctx.workspace
     glb = ws.artifacts / "object_textured.glb"
     if not glb.is_file():
@@ -712,9 +740,7 @@ def texture_preview(ctx: ToolContext, args: TexturePreviewArgs) -> Observation:
     return text_observation(text, numbers={"n_textures": len(pngs)}, images=images)
 
 
-# ===================================================================== tools_reference
-# (merged from codeverse/spatial/tools_reference.py, 2026-08-28 — its one importer was the
-#  registration block at the bottom of this file)
+# ===================================================================== reference
 #: what the agent should compare, in the order that decides whether the object
 #: reads as the real thing (identity before polish)
 CHECKLIST = (
@@ -731,14 +757,14 @@ _SYNTH_WARNING = ("This reference was SYNTHESIZED from the brief by an image mod
 
 
 class CompareReferenceArgs(BaseModel):
-    view: str = Field(default="front_right_34", description="view to render for the comparison")
+    view: str = Field(default="front_right_high", description="view to render for the comparison")
     reference_index: int = Field(default=0, ge=0, description="index into spec.references")
     size: int = Field(default=512, ge=256, le=1024, description="render size in px (square)")
 
 
 @tool("compare_reference", CompareReferenceArgs,
       "Put the REFERENCE image and a render of your object side by side (+ outline diff and IoU). Use it to check "
-      "you built the right thing: part inventory, counts, proportions, profiles.", cost_hint="slow")
+      "you built the right thing: part inventory, counts, proportions, profiles.", tracks=_OBJECT_TRACKS, cost_hint="slow")
 def compare_reference(ctx: ToolContext, args: CompareReferenceArgs) -> Observation:
     glb = glb_path(ctx)
     ref_path, ref = reference_path(ctx, args.reference_index, tool="compare_reference")
@@ -746,7 +772,7 @@ def compare_reference(ctx: ToolContext, args: CompareReferenceArgs) -> Observati
         return Observation.error(f"reference image {ref_path.name} not found")
     if args.view not in VIEW_BY_NAME:
         raise ToolUsageError(f"unknown view {args.view!r}; choose from {list(VIEW_BY_NAME)}",
-                             "compare_reference(view='front_right_34')")
+                             "compare_reference(view='front_right_high')")
     preset = VIEW_BY_NAME[args.view]
     shaded = cached_render_glb(ctx, glb, views=[preset], mode="shaded", size=args.size, sheet=False)
     sil = cached_render_glb(ctx, glb, views=[preset], mode="silhouette", size=args.size, sheet=False)
@@ -760,12 +786,9 @@ def compare_reference(ctx: ToolContext, args: CompareReferenceArgs) -> Observati
          ("outline: red=reference only, blue=yours", diff_png)],
         out_dir / f"compare_reference_{args.view}_ref{args.reference_index}.png", cols=3, tile=384)
     iou = float(res["iou"])
-    verdict = "good match" if iou >= 0.8 else "rough match" if iou >= 0.6 else "POOR match"
-    if not res["reliable"]:
-        verdict += " (IoU UNRELIABLE: background mask failed — trust the pictures, not the number)"
     lines = [
         f"REFERENCE #{args.reference_index} ({ref_path.name}, role={ref.get('role', 'target')}) vs your {args.view} "
-        f"render: outline IoU {iou:.2f} → {verdict}; aspect w/h yours {res['render_aspect']:.2f} vs reference "
+        f"render: outline IoU {iou:.2f} → {_iou_verdict(res)}; aspect w/h yours {res['render_aspect']:.2f} vs reference "
         f"{res['ref_aspect']:.2f} (err {res['aspect_ratio_err']:.0%}).",
         f"Look at the sheet and check, in this order: {CHECKLIST}",
     ]

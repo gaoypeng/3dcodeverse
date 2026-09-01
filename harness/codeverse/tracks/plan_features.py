@@ -25,15 +25,14 @@ GRAPH_BUDGET = "graph_budget"
 GRAPH_EXAMPLE = "graph_example"
 CONSISTENCY = "consistency"
 KNOWN_FEATURES: tuple[str, ...] = (FIT, CONTACTS, GRAPH, GRAPH_BUDGET, GRAPH_EXAMPLE, CONSISTENCY)
-#: which stage each switch would have changed — read by ``pin_plan_blockers``
-PLAN_SIDE: frozenset[str] = frozenset({FIT, GRAPH, GRAPH_BUDGET, GRAPH_EXAMPLE, CONSISTENCY})
+#: the one generation-side switch; ``pin_plan_blockers`` treats the rest as plan-side
 GENERATION_SIDE: frozenset[str] = frozenset({CONTACTS})
 #: env switches that act AFTER planning — ``--pin-plan`` may share one plan across arms
 #: that differ only by these.  Anything not listed is treated as plan-side: refusing to
 #: pin costs one noisy A/B, pinning wrongly costs a confident wrong answer
 #: (docs/EVAL.md §8.1 measured it — the A/A's worst pair differed 1 part vs 10).
 GENERATION_SIDE_ENV: frozenset[str] = frozenset({"CV3D_SKILLS", "CV3D_SKILLS_MAX", "CV3D_SKILLS_UNVERIFIED",
-                                                 "CV3D_SKILLS_ONLY", "CV3D_ART_REPAIRS",
+                                                 "CV3D_SKILLS_ONLY",
                                                  "CV3D_DETAIL_ROUNDS", "CV3D_REFERENCE_DIFF",
                                                  "CV3D_FEWER_TURNS", "CV3D_SEED_RECIPES"})
 
@@ -78,9 +77,6 @@ LIVE_SWITCHES: dict[str, str] = {
     # prompt inlines its files, the baseline prompt asks for every file in turn 1.  One
     # switch, read at call time by config.fewer_turns_enabled; acts after planning.
     "CV3D_FEWER_TURNS": "codeverse/config.py",
-    # deterministic articulated repairs (axis flip on a reversed joint, buried-link check);
-    # act after planning — an A/B over it may --pin-plan
-    "CV3D_ART_REPAIRS": "codeverse/tracks/articulated_repairs.py",
     "CV3D_SEED_RECIPES": "codeverse/config.py",
     # model-transport switches (2026-08-28, the hung-read waves): streaming with
     # inter-chunk stall detection, and the IPv4-only transport.  Read at call time
@@ -105,4 +101,4 @@ def dead_env_keys(env: dict[str, str]) -> list[str]:
 
 __all__ = ["CONSISTENCY", "CONTACTS", "DEAD_SWITCHES", "FIT", "GENERATION_SIDE",
            "GENERATION_SIDE_ENV", "GRAPH", "GRAPH_BUDGET", "GRAPH_EXAMPLE", "KNOWN_FEATURES",
-           "LIVE_SWITCHES", "PLAN_FEATURES_ENV", "PLAN_SIDE", "dead_env_keys", "pin_plan_blockers"]
+           "LIVE_SWITCHES", "PLAN_FEATURES_ENV", "dead_env_keys", "pin_plan_blockers"]

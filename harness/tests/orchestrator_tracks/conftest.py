@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 import pytest
 
 from codeverse.config import Settings
@@ -17,8 +19,19 @@ def no_brief_expansion(monkeypatch) -> None:
     A fake planner model answers one canned plan per request; the extra brief call would
     eat it and every ``FakeChatModel(lambda req: answers.pop(0))`` in here would go one
     answer out of step.  The tests that exercise the brief set ``CV3D_PLAN_BRIEF=on``
-    themselves (``test_planner_depth.py``)."""
+    themselves (``test_planner_depth.py``).
+
+    Also clear the global Settings cache around each test: ``get_settings()`` is an
+    ``lru_cache`` singleton that snapshots ``CV3D_*`` env vars at first construction, so
+    whichever test happens to touch it first bakes ITS monkeypatched env into every later
+    test in the worker — ``test_fewer_turns`` failed alone and passed in file order for
+    exactly this reason."""
+    from codeverse.config import get_settings
+
     monkeypatch.setenv("CV3D_PLAN_BRIEF", "off")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture
@@ -46,13 +59,32 @@ def chair_plan() -> StaticPlan:
 
 
 def make_spec(track: Track = Track.STATIC_OBJECT, language: Language = Language.THREEJS, *, generator: str = "fake:fake-model",
-              max_rounds: int = 3, max_usd: float = 5.0, prompt: str = "a mid-century wooden dining chair", **kw) -> Spec:
+              max_rounds: int = 3, max_minutes: float = 10.0, prompt: str = "a mid-century wooden dining chair", **kw) -> Spec:
     return Spec(id="t1", track=track, language=language, prompt=prompt,
                 constraints=Constraints(dimensions_m={"height": 0.82}, must_have=["armrests"]),
-                budget=Budget(max_rounds=max_rounds, max_usd=max_usd, max_minutes=10, max_repair_attempts=2),
+                budget=Budget(max_rounds=max_rounds, max_minutes=max_minutes, max_repair_attempts=2),
                 backends=Backends(planner="fake:planner", generator=generator, judge="fake:judge"), **kw)
 
 
 @pytest.fixture
 def spec() -> Spec:
     return make_spec()
+
+
+#: minutes the fakes have "spent".  A fake answers instantly, so a scenario that needs a
+#: run to stop mid-way gives its fakes a duration: FakeAgent(..., minutes=8).
+FAKE_CLOCK = {"minutes": 0.0}
+
+
+@contextlib.contextmanager
+def fake_clock():
+    """Point BudgetGuard's wall clock at FAKE_CLOCK for the duration of a test."""
+    from codeverse.orchestrator import BudgetGuard
+
+    real = BudgetGuard.elapsed_minutes
+    FAKE_CLOCK["minutes"] = 0.0
+    BudgetGuard.elapsed_minutes = lambda self: FAKE_CLOCK["minutes"]   # type: ignore[method-assign]
+    try:
+        yield FAKE_CLOCK
+    finally:
+        BudgetGuard.elapsed_minutes = real                             # type: ignore[method-assign]

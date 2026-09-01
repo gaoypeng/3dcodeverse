@@ -6,7 +6,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from codeverse.texturing.generate import SEAM_MAX, FakeImageModel, generate_textures, prompt_key
+from codeverse.texturing.generate import SEAM_MAX, generate_textures, prompt_key
+from tests.texturing.conftest import FakeImageModel
 
 
 def test_generate_dedupes_caches_and_accounts(tmp_path: Path):
@@ -41,3 +42,15 @@ def test_generate_accepts_texture_plan_and_empty(tmp_path: Path, chair_plan):
     ts = generate_textures(tp, tmp_path, FakeImageModel(), size=64, cache_dir=tmp_path / "c")
     assert set(ts.textures) == set(tp.texture_ids())
     assert generate_textures({}, tmp_path, FakeImageModel(), size=64, cache_dir=tmp_path / "c").textures == {}
+
+
+def test_seed_is_part_of_the_cache_key(tmp_path: Path):
+    """seed=2 used to be served seed=1's cached pixels: the key omitted the seed, so
+    any caller varying it got silently identical textures (V9b)."""
+    model = FakeImageModel(usd_per_image=0.01)
+    generate_textures({"oak": "oak wood grain"}, tmp_path / "o1", model, size=64, cache_dir=tmp_path / "c", seed=1)
+    ts2 = generate_textures({"oak": "oak wood grain"}, tmp_path / "o2", model, size=64, cache_dir=tmp_path / "c", seed=2)
+    assert len(model.calls) == 2 and not ts2.textures["oak"].cached, "a new seed must regenerate"
+    ts3 = generate_textures({"oak": "oak wood grain"}, tmp_path / "o3", model, size=64, cache_dir=tmp_path / "c", seed=2)
+    assert len(model.calls) == 2 and ts3.textures["oak"].cached, "the same seed still hits the cache"
+    assert prompt_key("p", "m", 64, seed=1) != prompt_key("p", "m", 64, seed=2)

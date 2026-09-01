@@ -43,7 +43,12 @@ from codeverse.proc import read_json_or_none, read_jsonl_lenient
 log = logging.getLogger(__name__)
 
 #: events whose cost duplicates rows we already emit
-_AGGREGATE_EVENTS = frozenset({"round.done", "run.done", "texture.done"})
+#: events whose ``cost_usd`` RESTATES money the per-call rows already carry — turning one into a
+#: priced row double-counts.  ``candidate.done`` repeats its own round's total and
+#: ``candidate.selected`` the sum over every candidate, so a best-of-N run reconstructed from
+#: events alone billed its candidates two to three times (2026-08-30).
+_AGGREGATE_EVENTS = frozenset({"round.done", "run.done", "texture.done",
+                               "candidate.done", "candidate.selected"})
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -81,7 +86,6 @@ class RunLedger:
     track: str = ""
     language: str = ""
     generator: str = ""
-    judge_model: str = ""
     status: str = ""
     stop_reason: str = ""
     passed: bool = False
@@ -94,9 +98,6 @@ class RunLedger:
     wall_s: float = 0.0   # time the run was actually working (budget elapsed / stage+round durations)
     span_s: float = 0.0   # first to last event — includes time queued behind other runs
     model_s: float = 0.0
-    budget_usd: float = 0.0
-    parallel: bool = False
-    resumed: bool = False
     selected_candidate: str = ""   # "c1" when the run ran best-of-N and c1 won
     source: str = "reconstructed"  # live (the run wrote its own ledger) | reconstructed
     rows: list[CallCost] = field(default_factory=list)
@@ -105,12 +106,6 @@ class RunLedger:
     @property
     def ledger_usd(self) -> float:
         return sum(r.cost_usd for r in self.rows)
-
-    @property
-    def harness_s(self) -> float:
-        """Wall clock not spent waiting on a model (build / gates / render / IO).
-        Clamped at 0: parallel stages can make ``model_s`` exceed the wall clock."""
-        return max(0.0, self.wall_s - self.model_s)
 
 
 def _row(usage: Usage, *, run: str, stage: Stage, label: str, rnd: int | None, source: str,
@@ -201,7 +196,9 @@ def _session_rows(d: Path, run: str, *, recheck: bool,
                              reprice=recheck))
         return rows, label, rnd, duration
     if session.input_tokens or session.output_tokens or session.cost_usd:
-        n_calls = int(result.get("turns") or 0) or 1
+        # ``turns`` is AgentResult.turns (since 2026-08-29); older vendor result.json files
+        # carry only the backend's own key (claude / agy ``num_turns``, codex ``turns_completed``)
+        n_calls = int(result.get("turns") or result.get("num_turns") or result.get("turns_completed") or 0) or 1
         rows.append(_row(session, run=run, stage=stage, label=label, rnd=rnd, source="trajectory",
                          outcome=outcome, n_calls=n_calls, reprice=recheck))
     return rows, label, rnd, duration
@@ -272,11 +269,10 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
     led = RunLedger(
         run=run, path=root,
         track=str(spec.get("track") or ""), language=str(spec.get("language") or ""),
-        generator=str(backends.get("generator") or ""), judge_model=str(backends.get("judge") or ""),
+        generator=str(backends.get("generator") or ""),
         status=str(record.get("status") or ""), stop_reason=str(extra.get("stop_reason") or ""),
         baseline_score=record.get("baseline_score"), final_score=record.get("final_score"),
         recorded_usd=float(total.cost_usd),
-        budget_usd=float(((spec.get("budget") or {}).get("max_usd")) or 0.0),
     )
     cands = _read_json(root / "rounds" / "candidates.json") or (extra.get("candidates") or {})
     if isinstance(cands, dict) and cands.get("selected") is not None:
@@ -325,13 +321,13 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
     # ------------------------------------------------------------------ events
     first_t = last_t = 0.0
     active_s = 0.0
-    n_finishes = 0
     for ev in _read_jsonl(root / "events.jsonl"):
         name = str(ev.get("event") or "")
         t = float(ev.get("t") or 0.0)
         first_t = first_t or t
-        if name in ("run.done", "run.failed"):
-            n_finishes += 1
+        # folded in from a SECOND full pass over the same file, which added only this
+        if name == "stage.done" and str(ev.get("stage")) == "plan":
+            model_s += float(ev.get("duration_s") or 0.0)
         if name in ("run.done", "run.failed", "stop", "budget.exceeded"):
             last_t = max(last_t, t)   # a post-hoc texture pass is not part of the run's wall clock
         elif not last_t:
@@ -361,11 +357,6 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
                    role=role, ts=t, model=model)
         row.price_source = "event-cost"  # cost known, tokens are not recorded by the event
         led.rows.append(row)
-    for ev in _read_jsonl(root / "events.jsonl"):
-        if str(ev.get("event")) == "stage.done" and str(ev.get("stage")) == "plan":
-            model_s += float(ev.get("duration_s") or 0.0)
-
-    led.resumed = n_finishes > 1
     led.span_s = max(0.0, last_t - first_t)
     elapsed_min = float(((extra.get("budget") or {}).get("elapsed_min")) or 0.0)
     # events are emitted from run creation, so the span of a queued bench run counts
@@ -373,7 +364,6 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
     # ones (the budget's own elapsed restarts on ``3dcv resume``).
     led.wall_s = max(active_s, elapsed_min * 60.0) or led.span_s
     led.model_s = model_s
-    led.parallel = model_s > led.wall_s > 0
 
     # ------------------------------------------------------------------ residual
     if total.cost_usd:
@@ -407,7 +397,7 @@ def reconstruct_cell(cell_dir: str | Path, *, recheck: bool = False) -> RunLedge
     cell = _read_json(root / "cell.json")
     run = RunId(battery="", rel=f"{root.parent.name}/{root.name}").slug  # <prompt>__<arm>
     led = RunLedger(run=run, path=root, track="static_object", language="blender",
-                    generator=str(cell.get("arm") or root.name), judge_model=str(cell.get("judge") or ""),
+                    generator=str(cell.get("arm") or root.name),
                     status=str(cell.get("status") or ""), passed=bool(cell.get("passed")),
                     final_score=cell.get("score"), n_rounds=1,
                     wall_s=float(cell.get("wall_s") or 0.0), model_s=float(cell.get("gen_seconds") or 0.0))

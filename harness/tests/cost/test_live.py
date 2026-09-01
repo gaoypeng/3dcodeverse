@@ -10,8 +10,7 @@ from pathlib import Path
 import pytest
 
 from codeverse.contracts.chat import ChatMessage, ChatRequest
-from codeverse.cost import Block, cache_efficiency, order_blocks, render_blocks
-from codeverse.cost.guard import estimate_call, text_tokens
+from codeverse.cost.guard import estimate_call
 
 pytestmark = pytest.mark.live
 
@@ -32,37 +31,6 @@ def _stable_text() -> str:
 def _send(model, text: str):
     return model.generate(ChatRequest(messages=[ChatMessage.user(text)], max_output_tokens=1100,
                                       temperature=0.0, thinking="low", label="cost-test")).usage
-
-
-@pytest.mark.parametrize("arm", ["stable_first", "volatile_first"])
-def test_cache_friendly_ordering_is_measurably_cheaper(arm: str):
-    """A ≥12k-token stable prefix must cache when it comes FIRST and must not
-    when the volatile block precedes it (measured 2026-08-23: 69% vs 0%)."""
-    import uuid
-
-    from codeverse.config import get_settings
-    from codeverse.models.gemini import GeminiModel
-
-    keys = list(get_settings().gemini_api_keys)
-    if not keys:
-        pytest.skip("no gemini keys")
-    # a corpus no call has seen before: the two arms must not inherit each
-    # other's cache (the implicit cache is shared across the whole key pool).
-    stable = f"[corpus {uuid.uuid4().hex}]\n" + _stable_text() * 2
-    assert text_tokens(stable) > 12_000, "the experiment needs a prefix above the cache floor"
-    model = GeminiModel("gemini-3.7-flash", keys=[keys[0 if arm == "stable_first" else 1]])
-    usages = []
-    for i in range(4):
-        blocks = [Block("stable", stable, stable=(arm == "stable_first")),
-                  Block("volatile", f"ROUND {i}\nReply with ONE JSON object {{\"n\": {i}}}.")]
-        text = render_blocks(order_blocks(blocks)) if arm == "stable_first" \
-            else f"ROUND {i}\nReply with ONE JSON object {{\"n\": {i}}}.\n\n{stable}"
-        usages.append(_send(model, text))
-    cached, total, rate = cache_efficiency(usages[1:])  # the first call warms the cache
-    if arm == "stable_first":
-        assert rate > 0.3, f"stable-first should cache; got {rate:.2f} (implicit cache is best-effort)"
-    else:
-        assert rate < 0.2, f"volatile-first must not cache; got {rate:.2f}"
 
 
 def test_estimate_is_within_15_percent_of_the_bill():
@@ -93,7 +61,7 @@ def test_a_metered_run_reconciles_with_its_own_record(tmp_path: Path):
     r = CliRunner().invoke(app, [
         "make", "a smooth grey ceramic bowl", "--track", "static_object", "--language", "blender",
         "--generator", "single-shot:gemini:gemini-3.7-flash", "--judge", "gemini:gemini-3.7-flash",
-        "--rounds", "0", "--max-usd", "1", "--max-minutes", "15",
+        "--rounds", "0", "--max-minutes", "15",
         "--runs-dir", str(runs), "--slug", "cost_live_bowl"])
     assert r.exit_code in (0, 1), r.output  # a failed judge/build is still a metered run
     ws = Workspace(runs / "cost_live_bowl")

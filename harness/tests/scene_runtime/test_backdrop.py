@@ -1,11 +1,4 @@
-"""One backdrop classifier for the census and the coverage instrument.
-
-`lib/host_census.mjs` (what `content_bbox` covers) and `lib/host_coverage.mjs`
-(what `content_frac` measures) used to carry two copies of the same sky/ground
-rules; both now call `lib/backdrop.mjs`.  If a copy ever comes back, the census
-and the per-frame coverage can disagree about what "content" is — which is
-exactly what the frame gate and the orbit framing depend on.
-"""
+"""One backdrop classifier serves census and frame coverage."""
 
 from __future__ import annotations
 
@@ -30,6 +23,7 @@ CASES = [
     ("Meadow", [100, 0.5, 100], False, 0, "ground"),         # unnamed but very wide + flat
     ("Grass", [80, 1.0, 80], True, 0, "content"),            # scatter: instanced wins
     ("Cabin", [6, 4, 5], False, 0, "content"),
+    ("Cabin", [6, 4, 5], False, 3, "content"),
     ("Path", [30, 0.1, 30], False, 5, "ground"),             # far larger than the content bbox
     ("Path", [30, 0.1, 30], False, 0, "content"),            # same box, no content bbox known
     ("Rug", [3, 0.05, 3], False, 40, "content"),             # small relative to content: not backdrop
@@ -53,18 +47,6 @@ console.log(JSON.stringify(out));
 def test_classifier_rule_table():
     got = _classify([[c[0], c[1], c[2], c[3]] for c in CASES])
     assert got == [c[4] for c in CASES], list(zip([c[0] for c in CASES], got, strict=True))
-
-
-def test_content_span_rule_only_applies_when_a_content_bbox_is_known():
-    """The census classifies before it has a content bbox and therefore passes
-    span 0 (its historical rule set); coverage knows the content bbox and adds
-    the "far larger than the content" rule.  One function, one extra argument —
-    not two rule sets."""
-    assert _classify([["Path", [30, 0.1, 30], False, 5]]) == ["ground"]
-    assert _classify([["Path", [30, 0.1, 30], False, 0]]) == ["content"]
-    # a normal object is content whether or not the content span is known
-    assert _classify([["Cabin", [6, 4, 5], False, 3]]) == ["content"]
-    assert _classify([["Cabin", [6, 4, 5], False, 0]]) == ["content"]
 
 
 def test_the_rules_live_in_exactly_one_file():

@@ -1,10 +1,14 @@
-"""Judge image preparation: downscale, label strips, caching, view geometry.
+"""What the judge SEES: image prep, montage planning and message assembly.
 
-Every image sent to a judge goes through ``prepare_image`` so the token cost is
-bounded (≤ ``max_px`` on the long side) and every view carries a burnt-in label
-(``VIEW 3/8 — front · az 0° el 8°``) that the model can cite as evidence.
-Prepared files are cached under ``<cache_dir>/<sha>.png`` keyed by source path,
-mtime, size, max_px and label text.
+* image prep (``prepare_image``): every image sent to a judge is downscaled
+  (≤ ``max_px`` on the long side) and carries a burnt-in label (``VIEW 5/14 — front ·
+  az 0° el 0°``) the model can cite as evidence; prepared files are cached under
+  ``<cache_dir>/<sha>.png`` keyed by source path, mtime, size, max_px and label text.
+* montage planning (``plan_montages`` / ``render_montage``): ranked views packed into
+  ≤2×2 sheets — shaded, geometry (clay/normals), poses, detail crops.
+* message assembly (``build_judge_messages``): rubric + montages + measurements +
+  acceptance items → the ``ChatRequest`` system/messages; ``judge_prompt_hash`` is the
+  verdict's provenance stamp.
 """
 
 from __future__ import annotations
@@ -22,6 +26,8 @@ from PIL import Image, ImageDraw
 
 from codeverse.config import get_settings
 from codeverse.contracts.artifacts import (
+    RENDER_MODES,
+    GateFinding,
     GateReport,
     Judgment,
     Measurement,
@@ -32,12 +38,17 @@ from codeverse.contracts.artifacts import (
 from codeverse.contracts.chat import ChatMessage, ImagePart, TextPart
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.spec import Spec
-from codeverse.conventions import OBJECT_VIEWS, SCENE_VIEWS, ViewPreset
-from codeverse.judges.rubrics import Rubric
+from codeverse.conventions import OBJECT_CLAY_VIEWS, OBJECT_VIEWS, SCENE_VIEWS, ViewPreset
+from codeverse.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric
+from codeverse.spatial.connectivity import PENETRATION_ERROR_M, PENETRATION_WARN_M
 from codeverse.spatial.measure import measure_summary_table
 from codeverse.spatial.sheet import crop_region, load_font, montage_2x2
 
 _PRESETS: dict[str, ViewPreset] = {v.name: v for v in (*OBJECT_VIEWS, *SCENE_VIEWS)}
+#: Clay tiles label their OWN cameras: ``OBJECT_CLAY_VIEWS.top`` sits at el 88 while the
+#: rig's ``top`` is el 90, so a geometry-mode tile resolves here before ``_PRESETS`` —
+#: labelling a clay tile with the rig's numbers was the rig_ab payload_c.py pitfall.
+_CLAY_PRESETS: dict[str, ViewPreset] = {v.name: v for v in OBJECT_CLAY_VIEWS}
 
 
 class JudgeImageError(FileNotFoundError):
@@ -49,7 +60,11 @@ def default_cache_dir() -> Path:
 
 
 def view_az_el(view: RenderView) -> tuple[float, float] | None:
-    """Azimuth/elevation (deg) of a view: from the preset name, else from camera geometry (Y-up)."""
+    """Azimuth/elevation (deg) of a view: from the preset name (geometry-mode tiles
+    prefer the clay rig's own cameras), else from camera geometry (Y-up)."""
+    if view.mode != "shaded" and view.name in _CLAY_PRESETS:
+        p = _CLAY_PRESETS[view.name]
+        return p.azimuth_deg, p.elevation_deg
     if view.name in _PRESETS:
         p = _PRESETS[view.name]
         return p.azimuth_deg, p.elevation_deg
@@ -122,13 +137,19 @@ def image_part(path: Path, label: str) -> ImagePart:
 
 
 # ===================================================================== montage
-# (merged from codeverse/judges/montage.py, 2026-08-28)
 MontageKind = Literal["shaded", "geometry", "poses", "pose_sheet", "detail"]
 
-#: modes that show geometry without material/lighting noise
-GEOMETRY_MODES = ("clay", "normals", "wire", "silhouette", "depth")
-#: most-informative-first order for the object rig (names from conventions.OBJECT_VIEWS)
-OBJECT_RANK = ("front_right_34", "back_left_34", "top", "low_front_left", "front", "right", "back", "left")
+#: modes that show geometry without material/lighting noise: every render mode but shaded
+GEOMETRY_MODES = tuple(m for m in RENDER_MODES if m != "shaded")
+#: most-informative-first order for the object rig (names from conventions.OBJECT_VIEWS):
+#: montage 1 = {front_right_high, back_left_high, top, bottom}, so a montage-cap
+#: truncation still sees the underside; then the eye ring, then the remaining rings.
+OBJECT_RANK = (
+    "front_right_high", "back_left_high", "top", "bottom",
+    "front", "right", "back", "left",
+    "front_right_low", "back_left_low", "front_left_high", "back_right_high",
+    "front_left_low", "back_right_low",
+)
 #: scene rig: authored cameras first (graded for composition), then the overview rig.
 #: The rig names come from ``conventions.SCENE_VIEWS`` — anything else in a scene render
 #: set is a camera the SCENE authored, whatever it is called (they are PascalCase plan
@@ -144,6 +165,10 @@ _POSITIONS = {
     4: ("top-left", "top-right", "bottom-left", "bottom-right"),
 }
 MAX_TILES = 4
+#: payload knobs (defaults; ``Settings.judge`` overrides per run).  5 montages carry the
+#: 14-view rig + the clay geometry montage; 3 silently dropped the low ring + poles (D47).
+MAX_MONTAGES = 5
+MAX_DETAIL_CROPS = 2
 
 
 @dataclass(frozen=True)
@@ -201,8 +226,8 @@ def plan_montages(
     *,
     geometry_views: RenderSet | None = None,
     scene: bool = False,
-    max_montages: int = 3,
-    detail_crops: int = 2,
+    max_montages: int = MAX_MONTAGES,
+    detail_crops: int = MAX_DETAIL_CROPS,
 ) -> list[Montage]:
     """Decide which montages a judge call gets (see module docstring for the priority)."""
     shaded = [v for v in renders.views if not (is_pose_view(v) or is_pose_sheet(v) or is_geometry_view(v))]
@@ -301,7 +326,7 @@ def montage_strip(m: Montage, index: int, total: int) -> str:
 
 
 def montage_label(m: Montage, index: int, total: int) -> str:
-    """Full label for the text part: strip + tile layout (``…: top-left = front_right_34 · az 35° el 22°, …``)."""
+    """Full label for the text part: strip + tile layout (``…: top-left = front_right_high · az 45° el 30°, …``)."""
     head = montage_strip(m, index, total)
     if m.is_detail:
         return head + (f" — {m.hint}" if m.hint else "")
@@ -364,15 +389,13 @@ def describe_montages(montages: list[Montage]) -> str:
 
 
 # ===================================================================== prompt_builder
-# (merged from codeverse/judges/prompt_builder.py, 2026-08-28)
 if TYPE_CHECKING:  # pragma: no cover
     from codeverse.judges.base import JudgeInput
 
 TEXT_BUDGET_CHARS = 24_000  # ≈ 6k tokens
-MAX_MONTAGES = 3
-MAX_DETAIL_CROPS = 2
 MAX_PX = 1024  # montages are 2×2 grids: keep them legible
 MONTAGE_TILE_PX = 512
+SLICE_MAX_PX = 1024  # D48 slice images: single drawings, sent at the montage size
 
 _ROLE = """You are the BLIND JUDGE of a 3D-code harness: exacting but fair.
 You see only the brief, a plan digest, measured numbers, deterministic gate findings and labelled renders of the result — never the builder's code or reasoning. Judge what is visible and measured; do not invent faults and do not credit what you cannot see.
@@ -381,13 +404,25 @@ Work in this order: observe (summary, strengths, issues), answer the defect chec
 
 SCORING RULES
 - Score each criterion 0..1 against its anchors (interpolate between anchors). Use the WHOLE range: competent work sits at 0.8+, one clearly visible major defect pulls the affected criterion to ~0.4, broken work sits at 0.1-0.3. Do not compress everything into 0.5-0.7 — a primitive box-stack and a crafted product must be 0.4 apart, not 0.1.
-- Every score needs evidence that cites the image and tile (e.g. "MONTAGE 1 top-left (front_right_34): rear leg ends 3 cm above ground; measurement ground_gap 0.03").
+- Every score needs evidence that cites the image and tile (e.g. "MONTAGE 1 top-left (front_right_high): rear leg ends 3 cm above ground; measurement ground_gap 0.03").
 - DEFECT CHECKLIST: answer EVERY item with present=true/false. true ONLY when the defect is visible in an image, or a gate finding of severity ERROR / a measurement states it; gate WARNINGS (e.g. a few-mm weld overlap) are informational and never make a defect present. Cite where. These answers drive penalties and caps computed by the harness, so be literal: do not mark a defect to "be safe", and do not hide one to be kind.
 - Do NOT compute an overall or decide pass/fail; the harness computes the weighted overall, subtracts defect penalties, applies floors and caps.
 - Issues: observable defects, most severe first, with target = the part / zone / joint / asset name from the plan digest (or "overall"), a kind, a severity and evidence.
 - Improvement plan: at most 6 concrete, imperative instructions for the builder ("taper the four legs from 45 mm at the seat to 30 mm at the foot and extend them to touch y=0"), priority 1 first, each with a target name from the plan digest and an expected_gain estimate. Give items even for passing work if a named change would raise the score; leave empty only when nothing would.
 - Acceptance items: answer verified=true ONLY when the renders or measurements prove the item; otherwise false with what is missing.
 - Reply with ONE JSON object matching the requested schema; no prose outside it."""
+
+
+#: D48: end of the DEFECT CHECKLIST scoring-rule bullet in ``_ROLE`` — the anchor the
+#: provenance-elicitation sentence is appended after on slice (gate-ERROR) rounds.
+_DEFECT_BULLET_END = 'do not mark a defect to "be safe", and do not hide one to be kind.'
+#: D48: one neutral, defect-agnostic sentence.  Measured (42-item battery, n=3 pro): it turns
+#: dirty-round defect votes into locatable citations (62/97 image-located, 26 explicit
+#: text-only, 2/23 fabricated slice cites — both guard-caught) without naming any defect.
+PROVENANCE_ELICITATION = (
+    "For each defect you mark present, say where it is visible (MONTAGE n / "
+    "DETAIL CROP n / slice n) or state that it rests on the measured text alone."
+)
 
 
 def _rubric_block(rubric: Rubric) -> str:
@@ -418,8 +453,16 @@ def _rubric_block(rubric: Rubric) -> str:
     return "\n".join(lines)
 
 
-def build_system_prompt(rubric: Rubric) -> str:
-    return _ROLE + "\n\n" + _rubric_block(rubric)
+def build_system_prompt(rubric: Rubric, *, provenance_elicitation: bool = False) -> str:
+    """The judge's system prompt.  ``provenance_elicitation=True`` (D48, slice rounds only)
+    appends :data:`PROVENANCE_ELICITATION` once to the DEFECT CHECKLIST bullet; the default
+    is byte-identical to the pre-D48 prompt, which keeps ``judge_prompt_hash`` stable."""
+    role = _ROLE
+    if provenance_elicitation:
+        if role.count(_DEFECT_BULLET_END) != 1:  # the anchor moved: fail loudly, not silently
+            raise ValueError("prompt_builder._ROLE: the defect-checklist bullet anchor drifted")
+        role = role.replace(_DEFECT_BULLET_END, _DEFECT_BULLET_END + " " + PROVENANCE_ELICITATION)
+    return role + "\n\n" + _rubric_block(rubric)
 
 
 # --------------------------------------------------------------------------- text sections
@@ -464,43 +507,288 @@ def measurement_section(m: Measurement | None) -> str:
     return "MEASUREMENTS (harness, Y-up meters):\n" + _clip(str(measure_summary_table(m)), 6000)
 
 
+#: MEASURED STRUCTURE clips.  p90 of the 321 stored static_object rounds that report a
+#: contact count is 26 contacts (2026-08-30, scratch corpus_ledger.py over bench/out); the
+#: whole block has to stay near 500 tokens on such a round, so contacts and planned joins
+#: are cut with an "… n more" rather than listed to the end.
+LEDGER_MAX_CONTACTS = 24
+LEDGER_MAX_JOINS = 20
+#: Parts whose lowest vertex is within this of the object's lowest point are the ground-contact
+#: candidates; only those get a floor gap in the prompt (a lamp shade is not "above the floor").
+GROUND_BAND_MM = 10.0
+#: A near-floor gap at or under this is a hairline: the corpus has a verdict writing "legs end
+#: above the ground plane" on 0.3 mm, so the number is printed instead of the adjective.
+GROUND_GAP_REPORT_MM = 0.5
+
+_PASSED_FLOATING = (
+    "CONNECTIVITY PASSED: every part is in measured contact with its neighbour (gap <= 2 mm). "
+    "A dark seam or shadow line where two parts meet is contact, not daylight. Do NOT report any "
+    "part as floating, hovering or disconnected, and do not mark the floating-part defect present; "
+    "if a joint looks visually ugly, say so under craftsmanship."
+)
+
+
+def contact_ledger(gates: list[GateReport]) -> tuple[GateReport, GateFinding] | None:
+    """The connectivity gate's per-pair table — one INFO finding per report since 2026-08-30
+    (``spatial.connectivity._ledger``) — with the report that carries it; ``None`` on a
+    round recorded before it existed."""
+    for g in gates:
+        if g.gate != "connectivity":
+            continue
+        for f in g.findings:
+            if f.severity == Severity.INFO and f.data.get("kind") == "ledger":
+                return g, f
+    return None
+
+
 def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: int = 8) -> str:
+    """The judge's gate facts.  ERRORs are listed as recorded.  With a contact ledger the
+    connectivity WARNs are not prose any more: the audit of 420 judged static rounds
+    (2026-08-30, docs/EVAL.md §6) found the judge marking interpenetration on every gate
+    ERROR (69/69) and on 110 rounds whose only evidence was a WARN the rubric tells it to
+    ignore — it read the gate's sentences, not the images (same images, gate text removed:
+    13 of 24 flags flipped).  So the WARNs become one measured line and a MEASURED STRUCTURE
+    block (contacts, planned joins contact/open, floor gaps) the judge can cite instead.
+    Without a ledger (older rounds) the text is the pre-ledger text byte for byte, which is
+    what keeps ``3dcv judge <old-slug>`` comparable with the verdict it stored."""
     if not gates:
         return "GATE FINDINGS: (no gates run)"
-    errs, warns = [], []
-    for g in gates:
-        for f in g.findings:
-            tgt = f" [{f.target}]" if f.target else ""
-            line = f"- {g.gate}{tgt}: {_clip(f.message, 220)}"
-            (errs if f.severity == Severity.ERROR else warns if f.severity == Severity.WARN else []).append(line)
     status = ", ".join(f"{g.gate}={'pass' if g.passed else 'FAIL'}" for g in gates)
     lines = [f"GATE FINDINGS (deterministic; treat as facts): {status}"]
-    if errs:
-        lines.append(f"errors ({len(errs)}):")
-        lines.extend(errs[:max_errors])
-        if len(errs) > max_errors:
-            lines.append(f"- … {len(errs) - max_errors} more errors")
-    if warns:
-        lines.append(f"warnings ({len(warns)}):")
-        lines.extend(warns[:max_warns])
-        if len(warns) > max_warns:
-            lines.append(f"- … {len(warns) - max_warns} more warnings")
-    if not errs and not warns:
+    errs = [_finding_line(g, f) for g in gates for f in g.findings if f.severity == Severity.ERROR]
+    found = contact_ledger(gates)
+    if found is None:
+        warns = [_finding_line(g, f) for g in gates for f in g.findings if f.severity == Severity.WARN]
+        lines += _capped("errors", errs, max_errors) + _capped("warnings", warns, max_warns)
+        if not errs and not warns:
+            lines.append("no errors or warnings — parts are connected and contracts hold.")
+        if any(g.gate == "connectivity" and g.passed for g in gates):
+            # The connectivity gate MEASURES mesh-to-mesh contact; a VLM reads shading.  Measured
+            # 2026-08-26 (fancy_v1 gas_street_lamp, plan-pinned pair): on a lamp whose gate said
+            # "all 9 parts connected, gap <= 2 mm", the judge called the dark seam under the
+            # pedestal "floating in mid-air, a clear daylight gap" — CRITICAL — and scored
+            # structure_plausibility 0.4 against 1.0 for the near-identical sibling.  A measured
+            # contact outranks a shadow (CLAUDE.md law 3); the seam is at most a craftsmanship note.
+            lines.append(_PASSED_FLOATING)
+        return "\n".join(lines)
+    conn, ledger = found
+    d = ledger.data
+    lines += _capped("errors", errs, max_errors)
+    lines += _structure_block(conn, d)
+    overlap = _overlap_line(conn, d)
+    if overlap:
+        lines.append(overlap)
+    rest = [(g, f) for g in gates for f in g.findings
+            if f.severity == Severity.WARN and not (g.gate == "connectivity" and f.data.get("kind") == "penetration")]
+    lines += _grouped_warnings(rest, max_warns)
+    if not errs and not any(f.severity == Severity.WARN for g in gates for f in g.findings):
         lines.append("no errors or warnings — parts are connected and contracts hold.")
-    if any(g.gate == "connectivity" and g.passed for g in gates):
-        # The connectivity gate MEASURES mesh-to-mesh contact; a VLM reads shading.  Measured
-        # 2026-08-26 (fancy_v1 gas_street_lamp, plan-pinned pair): on a lamp whose gate said
-        # "all 9 parts connected, gap <= 2 mm", the judge called the dark seam under the
-        # pedestal "floating in mid-air, a clear daylight gap" — CRITICAL — and scored
-        # structure_plausibility 0.4 against 1.0 for the near-identical sibling.  A measured
-        # contact outranks a shadow (CLAUDE.md law 3); the seam is at most a craftsmanship note.
-        lines.append(
-            "CONNECTIVITY PASSED: every part is in measured contact with its neighbour (gap <= 2 mm). "
-            "A dark seam or shadow line where two parts meet is contact, not daylight. Do NOT report any "
-            "part as floating, hovering or disconnected, and do not mark the floating-part defect present; "
-            "if a joint looks visually ugly, say so under craftsmanship."
-        )
+    n_parts = len(d.get("parts") or [])
+    if conn.passed and n_parts >= 2:
+        lines.append(_passed_paragraph(n_parts, len(d.get("contacts") or []), float(d.get("contact_gap_mm") or 0.0),
+                                       list(d.get("overlaps") or [])))
     return "\n".join(lines)
+
+
+def connectivity_error_pairs(gates: list[GateReport]) -> list[tuple[str, str]]:
+    """The connectivity gate's ERROR-level penetration part pairs — the D48 slice
+    channel's hatch targets.  The pair is read the way the measured batteries read it:
+    the finding's ``target`` (falling back to ``data.entering``) against ``data.other``
+    (falling back to ``data.container``) — never ``data.entering`` first, whose
+    direction is the probe's, not the finding's."""
+    pairs: set[frozenset[str]] = set()
+    for g in gates:
+        if g.gate != "connectivity":
+            continue
+        for f in g.findings:
+            if f.severity != Severity.ERROR or f.data.get("kind") != "penetration":
+                continue
+            a = f.target or f.data.get("entering")
+            b = f.data.get("other") or f.data.get("container")
+            if a and b and a != b:
+                pairs.add(frozenset((str(a), str(b))))
+    return [tuple(sorted(p)) for p in sorted(pairs, key=sorted)]
+
+
+def _finding_line(g: GateReport, f: GateFinding) -> str:
+    tgt = f" [{f.target}]" if f.target else ""
+    return f"- {g.gate}{tgt}: {_clip(f.message, 220)}"
+
+
+def _capped(label: str, items: list[str], cap: int) -> list[str]:
+    if not items:
+        return []
+    out = [f"{label} ({len(items)}):", *items[:cap]]
+    if len(items) > cap:
+        out.append(f"- … {len(items) - cap} more {label}")
+    return out
+
+
+def _structure_block(conn: GateReport, d: dict) -> list[str]:
+    """N parts / E contacts / floating / overlaps, the contact graph, the plan's joins measured
+    contact or OPEN, and the floor gap of the parts that could be standing on the floor."""
+    parts = list(d.get("parts") or [])
+    contacts = list(d.get("contacts") or [])
+    gap = float(d.get("contact_gap_mm") or 0.0)
+    floating = sum(1 for f in conn.findings if f.severity == Severity.ERROR and f.data.get("kind") == "floating")
+    lines = [
+        f"MEASURED STRUCTURE (connectivity gate, exact mesh-to-mesh distances): {len(parts)} part{'s' if len(parts) != 1 else ''}, "
+        f"{len(contacts)} contacts (gap ≤ {gap:g} mm), {floating} floating, {len(d.get('overlaps') or [])} overlapping pairs."
+    ]
+    planned = list(d.get("planned") or [])
+    if planned:
+        lines.append("- " + _planned_line(planned, gap))
+    # the planned joins already list their contacts pair by pair; the adjacency adds what the
+    # plan did not ask for (an apron touching a stretcher) instead of repeating it
+    planned_pairs = {frozenset((str(a), str(b))) for a, b, _g, st in planned if st == "contact"}
+    other = [c for c in contacts if frozenset((str(c[0]), str(c[1]))) not in planned_pairs]
+    if other:
+        label = "other contacts, not in the plan" if planned_pairs else "contacts"
+        lines.append(f"- {label} (gap in mm where not 0): " + _adjacency(other, LEDGER_MAX_CONTACTS))
+    unresolved = list(d.get("planned_unresolved") or [])
+    if unresolved:
+        lines.append(f"- plan parts not found in the mesh: {', '.join(unresolved[:8])}" + (" …" if len(unresolved) > 8 else ""))
+    ground = _ground_line(d.get("ground_gap_mm") or {})
+    if ground:
+        lines.append("- " + ground)
+    return lines
+
+
+def _gap(mm: float) -> str:
+    """A contact's gap: nothing when it rounds to 0.0 mm (most do), else the number —
+    26 "0.0" tokens were a fifth of the block on the p90 round."""
+    return f" {mm:.1f}" if round(mm, 1) else ""
+
+
+def _adjacency(contacts: list, cap: int) -> str:
+    by_a: dict[str, list[str]] = {}
+    for a, b, gap in contacts[:cap]:
+        by_a.setdefault(str(a), []).append(f"{b}{_gap(float(gap))}")
+    text = " · ".join(f"{a}: {', '.join(bs)}" for a, bs in by_a.items())
+    if len(contacts) > cap:
+        text += f" · … {len(contacts) - cap} more"
+    return text
+
+
+def _planned_line(planned: list, gap_mm: float) -> str:
+    """OPEN joins first so the clip never hides one: they are the assembly_fit signal."""
+    rows = [(str(a), str(b), float(g), str(st)) for a, b, g, st in planned]
+    open_rows = [r for r in rows if r[3] != "contact"]
+    contact_rows = [r for r in rows if r[3] == "contact"]
+    shown = (open_rows + contact_rows)[:LEDGER_MAX_JOINS]
+    bits = [f"PLANNED JOINS (the plan's attach_to pairs, measured; contact = gap ≤ {gap_mm:g} mm): "
+            f"{len(contact_rows)}/{len(rows)} in contact."]
+    if any(r[3] != "contact" for r in shown):
+        bits.append("OPEN: " + "; ".join(f"{a}→{b} {g:.1f} mm" for a, b, g, st in shown if st != "contact") + ".")
+    if any(r[3] == "contact" for r in shown):
+        bits.append("CONTACT (gap in mm where not 0): " + ", ".join(f"{a}→{b}{_gap(g)}" for a, b, g, st in shown if st == "contact") + ".")
+    if len(rows) > len(shown):
+        bits.append(f"… {len(rows) - len(shown)} more.")
+    return " ".join(bits)
+
+
+def _ground_line(ground: dict) -> str:
+    if not ground:
+        return ""
+    low_name, low = min(((str(n), float(g)) for n, g in ground.items()), key=lambda kv: kv[1])
+    band = [(str(n), float(g)) for n, g in ground.items() if float(g) - low <= GROUND_BAND_MM]
+    up = [(n, g) for n, g in band if g > GROUND_GAP_REPORT_MM]
+    if low > GROUND_GAP_REPORT_MM:
+        head = f"ground: lowest point {low:.1f} mm above the floor ({low_name}) — nothing touches it"
+    elif low < -GROUND_GAP_REPORT_MM:
+        head = f"ground: lowest point {-low:.1f} mm below the floor ({low_name})"
+    else:
+        head = f"ground: lowest point {low:.1f} mm ({low_name}) — floor contact"
+    if up:
+        head += (f"; parts within {GROUND_BAND_MM:g} mm of the floor: "
+                 + ", ".join(f"{n} {g:.1f} mm" for n, g in up[:8]) + (" …" if len(up) > 8 else ""))
+    else:
+        head += f"; every other near-floor part is within {GROUND_GAP_REPORT_MM:g} mm of the floor"
+    return head
+
+
+def _overlap_line(conn: GateReport, d: dict) -> str:
+    """The measured replacement for the interpenetration WARN prose.  The gate's ERROR
+    pairs are already listed under errors; every other overlapping pair is a weld by the
+    gate's own rule (depth ≤ 10 mm; the through-ratio is a fact, not a severity), and the
+    rubric says a weld is not the defect — the judge marked it anyway on 110 WARN-only rounds.
+    A pair reaching half-way or more through its partner is named as a measurement: the ratio
+    saturates at the mid-plane and cannot tell "ends inside" from "out the far side", so that
+    reading is left to the geometry montage."""
+    over = list(d.get("overlaps") or [])
+    if not over:
+        return ""
+    error_pairs = {(f.target, f.data.get("other")) for f in conn.findings
+                   if f.severity == Severity.ERROR and f.data.get("kind") == "penetration"}
+    rest = [r for r in over if (str(r[0]), str(r[1])) not in error_pairs]
+    # classified by MEASURED depth, never by severity: the gate keeps a deep overlap a WARN when
+    # only a sliver of surface is inside (a stile 17 mm through a seat), and calling that a
+    # "weld under the ERROR line" would hand the judge a false fact (skeptic 2026-08-30)
+    deep = [r for r in rest if float(r[2]) > PENETRATION_ERROR_M * 1000]
+    welds = [r for r in rest if float(r[2]) <= PENETRATION_ERROR_M * 1000]
+    text = f"connectivity measured {len(over)} mating overlaps"
+    if welds:
+        a, b, depth, through = max(welds, key=lambda r: float(r[2]))
+        text += f" (deepest weld {float(depth):.1f} mm {a}/{b}, through-ratio {float(through):.2f})"
+    text += f"; weld allowance {PENETRATION_WARN_M * 1000:g} mm, ERROR line {PENETRATION_ERROR_M * 1000:g} mm; "
+    if error_pairs:
+        text += f"{len(error_pairs)} pair(s) above it are listed under errors; "
+    text += f"{len(welds)} weld(s) under it are NOT the interpenetration defect."
+    if deep:
+        text += (f" {len(deep)} overlap(s) deeper than the ERROR line kept WARN because only a sliver of either "
+                 "surface is inside — a continuous member through a slab reads like this; the montage decides: "
+                 + "; ".join(f"{a}/{b} {float(dp):.1f} mm (through-ratio {float(t):.2f})" for a, b, dp, t in deep[:3])
+                 + ("" if len(deep) <= 3 else f"; … {len(deep) - 3} more") + ".")
+    mid = [r for r in welds if float(r[3]) >= 0.5]  # the gate names the ratio in its message from 0.5 up
+    if mid:
+        text += (" Measured, not a defect claim: "
+                 + "; ".join(f"{a}/{b} reaches {min(float(t), 1.0):.0%} of the way to its partner's mid-plane ({float(dp):.1f} mm)"
+                             for a, b, dp, t in mid[:3])
+                 + " — the far side is for the GEOMETRY montage.")
+    return text
+
+
+def _grouped_warnings(rest: list[tuple[GateReport, GateFinding]], max_warns: int) -> list[str]:
+    """One line per (gate, kind), ``max_warns`` findings each — 8 flat lines used to cut a
+    15-WARN round (p90) mid-list, dropping every contract WARN behind the connectivity ones."""
+    if not rest:
+        return []
+    groups: dict[str, list[GateFinding]] = {}
+    for g, f in rest:
+        kind = f.data.get("kind") if isinstance(f.data.get("kind"), str) else ""
+        groups.setdefault(f"{g.gate}/{kind}" if kind else g.gate, []).append(f)
+    lines = [f"warnings ({len(rest)}), grouped by kind:"]
+    for key, fs in groups.items():
+        items = [(f"[{f.target}] " if f.target else "") + _clip(f.message, 160) for f in fs[:max_warns]]
+        line = f"- {key} ×{len(fs)}: " + "; ".join(items)
+        if len(fs) > max_warns:
+            line += f"; … {len(fs) - max_warns} more"
+        lines.append(line)
+    return lines
+
+
+def _passed_paragraph(n_parts: int, n_contacts: int, gap_mm: float, overlaps: list) -> str:
+    # Same voice as the legacy paragraph (2026-08-26 gas_street_lamp seam), now with the
+    # measurement it rests on and the interpenetration half.  The injunction against the
+    # interpenetration tick is only made when the veto will honour it: every overlap under
+    # VETO_PENETRATION_DEPTH_M (rubrics._rule_gates_clean).  A deeper WARN — a stile through a
+    # seat, a rod to a plate's mid-plane — is named as a measurement and the picture decides.
+    head = (
+        f"CONNECTIVITY PASSED: all {n_parts} parts are in measured contact ({n_contacts} contacts, gap <= {gap_mm:g} mm). "
+        "A dark seam or shadow line where two parts meet is contact, not daylight. Do NOT report any "
+        "part as floating, hovering or disconnected, and do not mark the floating-part defect present. "
+    )
+    deep = [r for r in overlaps if float(r[2]) >= VETO_PENETRATION_DEPTH_M * 1000]
+    if not deep:
+        tail = (f"All {len(overlaps)} overlaps measured, none over {VETO_PENETRATION_DEPTH_M * 1000:g} mm: do NOT mark "
+                "the interpenetration defect present either — those overlaps are welds. ")
+    else:
+        tail = (f"All {len(overlaps)} overlaps measured; {len(deep)} reach {VETO_PENETRATION_DEPTH_M * 1000:g} mm or more ("
+                + "; ".join(f"{a}/{b} {float(dp):.1f} mm" for a, b, dp, _t in deep[:3])
+                + ("" if len(deep) <= 3 else f"; … {len(deep) - 3} more")
+                + "): mark interpenetration only if a part VISIBLY passes through another in a render; "
+                "a hidden overlap is a weld. ")
+    return head + tail + "If a joint looks visually ugly, say so under craftsmanship."
 
 
 def previous_section(prev: Judgment | None, round_index: int) -> str:
@@ -564,6 +852,22 @@ def view_rig_section(renders: RenderSet, montages: list[Montage], *, scene: bool
         bits.append(f"PROBE: measured {renders.fps:.0f} fps.")
     bits.append("Images in send order:\n" + describe_montages(montages))
     return "\n".join(bits)
+
+
+def slice_rig_section(labels: list[str]) -> str:
+    """The D48 slice block appended to the view rig on gate-ERROR rounds: what the slice
+    images are (facts only: F2 wording for the hatch), the anti-over-read sentence (F3 —
+    an in-plane gap is not evidence of disconnection), and the slice list in send order."""
+    lines = "\n".join(f"- slice {i}: {lbl}" for i, lbl in enumerate(labels, 1))
+    return (f"After the crops, {len(labels)} cross-section slice(s) show the interior: "
+            "slices cut the object on two centre planes; each part keeps one color "
+            "(legend on the image); regions the connectivity gate measured as ERROR-level "
+            "overlap are hatched red. "
+            "A gap between parts IN THE CUT PLANE is not evidence of disconnection — parts "
+            "may join outside this plane; the measured structure block is authoritative for "
+            "connectivity.  Judge floating_part and holes_or_inverted_faces from the shaded "
+            "and geometry views, which see the whole surface; a slice shows one cut only.\n"
+            + lines)
 
 
 def judge_prompt_hash(rubric: Rubric) -> str:
@@ -635,6 +939,8 @@ def build_judge_messages(
     cache_dir: Path | None = None,
     extra_images: list[tuple[str, str | Path]] | None = None,
     extra_text: str = "",
+    slice_images: list[tuple[str, str | Path]] | None = None,
+    provenance_elicitation: bool = False,
 ) -> tuple[str, list[ChatMessage]]:
     """Return ``(system, [user_message])`` for a rubric judge call.
 
@@ -645,8 +951,15 @@ def build_judge_messages(
     order (n-sample noise control).  ``extra_images`` (label, path) are placed
     BEFORE the montages (e.g. reference images); ``extra_text`` is appended to
     the text block (e.g. measured silhouette).
+
+    ``slice_images`` (label, path) are the D48 cross-section slices: placed AFTER
+    the montages and detail crops (the measured placement — the ``extra_images``
+    prepend was not what the batteries tested), described by
+    :func:`slice_rig_section` in the view-rig text, and ``provenance_elicitation``
+    adds one sentence to the system prompt's defect-checklist bullet.  With both
+    left at their defaults the output is byte-identical to the pre-D48 payload.
     """
-    system = build_system_prompt(rubric)
+    system = build_system_prompt(rubric, provenance_elicitation=provenance_elicitation)
     is_scene = inp.spec.track.value == "scene"
     sections = [
         brief_section(inp.spec),
@@ -663,7 +976,11 @@ def build_judge_messages(
         inp.renders, geometry_views=geometry_views, scene=is_scene, shuffle_seed=shuffle_seed,
         max_montages=max_montages, detail_crops=detail_crops, max_px=max_px, cache_dir=cache_dir,
     )
-    sections.append(view_rig_section(inp.renders, montages, scene=is_scene))
+    slices = slice_images or []
+    rig = view_rig_section(inp.renders, montages, scene=is_scene)
+    if slices:
+        rig = rig + "\n" + slice_rig_section([lbl for lbl, _ in slices])
+    sections.append(rig)
     text = "\n\n".join(s for s in sections if s)
     if len(text) > TEXT_BUDGET_CHARS:
         text = _clip(text, TEXT_BUDGET_CHARS)
@@ -674,5 +991,8 @@ def build_judge_messages(
     for lbl, ip in images:
         parts.append(TextPart(text=lbl))
         parts.append(ip)
+    for lbl, p in slices:  # D48: slices AFTER the montages and crops — the measured placement
+        parts.append(TextPart(text=lbl))
+        parts.append(image_part(prepare_image(p, label=lbl, max_px=SLICE_MAX_PX, cache_dir=cache_dir), lbl))
     parts.append(TextPart(text="Now score every criterion with evidence, answer every defect-checklist item and every acceptance item, and return the JSON object."))
     return system, [ChatMessage(role="user", parts=parts)]

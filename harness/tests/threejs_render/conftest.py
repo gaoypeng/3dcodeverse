@@ -93,11 +93,6 @@ def stool_ws(tmp_path: Path) -> Workspace:
     return write_stool(tmp_path / "stool")
 
 
-@pytest.fixture
-def node_available() -> bool:
-    return shutil.which("node") is not None
-
-
 @pytest.fixture(scope="session")
 def stool_glb(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Build the stool once per session (needs node); skipped when node is missing."""

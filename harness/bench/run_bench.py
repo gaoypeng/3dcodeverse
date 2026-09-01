@@ -98,7 +98,6 @@ class BenchOptions(BaseModel):
     planner: str | None = None
     judge: str | None = None
     rounds: int = 4
-    max_usd: float = 5.0
     max_minutes: float = 60.0
     #: measured (docs/COST.md Part III): one bench cell holds ~0.9 model calls
     #: in flight, so 8 cells sit near 7 — far inside the 64-call model knee — and
@@ -107,7 +106,9 @@ class BenchOptions(BaseModel):
     limit: int | None = None
     ids: list[str] = Field(default_factory=list)
     tiers: list[str] = Field(default_factory=list)
-    resume: bool = True
+    # No "start over" switch: --redo-status is the ONE way to re-run a recorded prompt,
+    # because it archives the old tree first (RUNBOOK 7.u).  The `resume` flag it replaced
+    # skipped that archive and resumed the old workspace, spec and clock (dropped 2026-08-30).
     redo_status: list[str] = Field(default_factory=list,
                                    description="re-run prompts already recorded with one of these statuses "
                                                "(the point of `infra_failed`: retry what the weather lost)")
@@ -146,7 +147,7 @@ def discover_references(item: BenchPrompt, track: Track, *, battery_dir: Path | 
 
 
 def build_spec(
-    battery: Battery, item: BenchPrompt, *, backends: Backends, rounds: int, max_usd: float,
+    battery: Battery, item: BenchPrompt, *, backends: Backends, rounds: int,
     max_minutes: float, tag0: str, extra_tags: Sequence[str] = (),
 ) -> Spec:
     """Shared Spec core for bench drivers (``run_bench`` / ``compare_backends``).
@@ -155,14 +156,14 @@ def build_spec(
         id=f"{battery.name}/{item.id}", track=battery.track, language=item.language or battery.language, prompt=item.prompt,
         constraints=Constraints(must_have=list(item.must_have), dimensions_m=item.dimensions_m),
         references=discover_references(item, battery.track, battery_dir=battery.source_dir),
-        budget=Budget(max_rounds=rounds, max_usd=max_usd, max_minutes=max_minutes),
+        budget=Budget(max_rounds=rounds, max_minutes=max_minutes),
         backends=backends, tags=[tag0, battery.name, item.tier, item.category, *extra_tags, *item.tags],
     )
 
 
 def spec_for(battery: Battery, item: BenchPrompt, opts: BenchOptions) -> Spec:
     backends = get_settings().backends(generator=opts.generator, planner=opts.planner, judge=opts.judge)
-    return build_spec(battery, item, backends=backends, rounds=opts.rounds, max_usd=opts.max_usd,
+    return build_spec(battery, item, backends=backends, rounds=opts.rounds,
                       max_minutes=opts.max_minutes, tag0="bench")
 
 
@@ -232,7 +233,7 @@ def run_battery(
                                                   "options": opts.model_dump(mode="json"),
                                                   "started_at": datetime.now(UTC).isoformat()}, indent=2))
     results_jsonl = out / "results.jsonl"
-    done = _load_done(results_jsonl) if opts.resume else {}
+    done = _load_done(results_jsonl)
     # `--redo-status infra_failed` re-runs the cells the weather lost, once it clears
     redo_ids = {k for k, r in done.items() if r.status in set(opts.redo_status)}
     for pid in redo_ids:

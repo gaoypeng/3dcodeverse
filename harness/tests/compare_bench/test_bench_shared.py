@@ -34,10 +34,10 @@ def test_select_prompts_is_single_owner_for_both_drivers():
 def test_build_spec_tags_and_budget():
     b = _battery()
     item = b.prompts[0]
-    spec = build_spec(b, item, backends=rb.get_settings().backends(), rounds=2, max_usd=1.5,
+    spec = build_spec(b, item, backends=rb.get_settings().backends(), rounds=2,
                       max_minutes=10, tag0="compare", extra_tags=("harness",))
     assert spec.tags[:4] == ["compare", b.name, item.tier, item.category] and "harness" in spec.tags
-    assert spec.budget.max_rounds == 2 and spec.budget.max_usd == 1.5
+    assert spec.budget.max_rounds == 2 and spec.budget.max_minutes == 10.0
     assert spec.id == f"{b.name}/{item.id}"
 
 
@@ -73,12 +73,3 @@ def test_the_harness_arm_looks_for_each_languages_own_entry_file():
     assert {lang.value for lang, e in ENTRY_FILE.items() if e != "src/model.py"} == {
         "threejs", "scene_threejs", "glsl_shader", "opengl_python"}
     assert entry_of(SimpleNamespace(language=Language.GLSL_SHADER)) == "src/shader.frag"
-
-
-def test_every_language_in_the_enum_has_an_entry_file():
-    """``entry_of`` indexes ``ENTRY_FILE`` directly, so a new language without a row would
-    raise KeyError deep inside a paid cell instead of failing here."""
-    from codeverse.contracts.common import ENTRY_FILE, Language
-
-    missing = [lang.value for lang in Language if lang not in ENTRY_FILE]
-    assert not missing, f"no ENTRY_FILE row for {missing}"

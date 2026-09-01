@@ -1,8 +1,11 @@
-"""What a round did with its skills — the record shape, kept in contracts with the rest.
+"""The run record — ``record.json`` — and everything stored inside it.
 
-Lives here rather than in ``codeverse/skills`` so ``contracts`` stays a leaf package that
-``flywheel``, ``gallery`` and the CLI can import without pulling the router in, and so a
-stored ``record.json`` can be re-read by a build that has no skill library at all.
+``RunRecord`` (rounds, totals, provenance: the flywheel unit), ``RunId`` (where a run
+sits in a runs dir or a battery), the per-round skills usage, and the packaged
+``telemetry/`` + ``deliverable/`` blocks.  The skills shapes live here rather than in
+``codeverse/skills`` so ``contracts`` stays a leaf that ``flywheel``, ``gallery`` and the
+CLI import without the router, and a stored record re-reads on a build with no skill
+library at all.
 """
 
 from __future__ import annotations
@@ -10,7 +13,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,7 +31,6 @@ class SkillRead(BaseModel):
     deep: bool = Field(default=False, description="a references/*.md atime > mtime: the body was read and followed")
     deep_measurable: bool = Field(default=True, description="False when the bundle ships no references/ file to probe")
     body_tokens: int = 0
-    first_seen_turn: int | None = Field(default=None, description="historical (pre-2026-08-28) api-agent runs only: exact turn of the first read")
     reason: str = Field(default="", description="which route attached it, and which finding")
 
 
@@ -77,7 +79,6 @@ class SkillsUsage(BaseModel):
 
 
 # ===================================================================== run
-# (merged from codeverse/contracts/run.py, 2026-08-28)
 # --------------------------------------------------------------------------- identity
 #: battery-layout path segments that are pure plumbing, never part of a run's identity
 RUN_PATH_NOISE = frozenset({"arms", "cells", "runs"})
@@ -164,6 +165,28 @@ class RunStatus(StrEnum):
     FAILED = "failed"
 
 
+class PairwiseNote(BaseModel):
+    """What a tie-break compared and what it concluded.
+
+    Lives on the round record because the comparison is a PAID judge call (~$0.05):
+    ``rNN.json`` is the durable artifact, so a resume replays the verdict instead of
+    re-ranking on score alone and silently reversing it
+    (``tracks.candidates.replay_best_round``)."""
+
+    a: str = Field(description="label of the incumbent (current best)")
+    b: str = Field(description="label of the challenger (new round / other candidate)")
+    winner: Literal["a", "b", "tie"] = "tie"
+    confidence: float = 0.0
+    accepted: bool = Field(default=False, description="True when the challenger replaces the incumbent")
+    reasons: list[str] = Field(default_factory=list)
+    usage: Usage = Field(default_factory=Usage)
+    error: str = ""
+
+    def line(self) -> str:
+        verdict = {"a": f"{self.a} wins", "b": f"{self.b} wins", "tie": "tie"}[self.winner]
+        return f"pairwise {self.a} vs {self.b}: {verdict} (confidence {self.confidence:.2f}) → {'replace' if self.accepted else 'keep'}"
+
+
 class RoundRecord(BaseModel):
     index: int
     kind: str = Field(description="baseline | refine | repair | texture | asset:<name> ...")
@@ -181,6 +204,9 @@ class RoundRecord(BaseModel):
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     duration_s: float = 0.0
     notes: str = ""
+    pairwise: PairwiseNote | None = Field(
+        default=None, description="the paid tie-break verdict that ranked this round against the "
+                                  "incumbent best, when one was bought; None = ranked on score alone")
 
     @property
     def score(self) -> float | None:
@@ -198,7 +224,7 @@ class RoleSettings(BaseModel):
 
     role: str
     model: str = ""
-    backend: str = Field(default="", description="gemini | anthropic | api-agent | gemini-cli | codex | …")
+    backend: str = Field(default="", description="gemini | anthropic | gemini-cli | codex | … (api-agent only in records written before 2026-08-28)")
     thinking: str = Field(default="", description="off | low | medium | high; '' = not recorded")
     temperature: float | None = None
     n_samples: int | None = Field(default=None, description="judge samples per verdict")
@@ -210,7 +236,7 @@ class SettingsSnapshot(BaseModel):
 
     schema_version: int = 1
     roles: list[RoleSettings] = Field(default_factory=list)
-    budget: dict[str, Any] = Field(default_factory=dict, description="max_rounds / max_usd / max_minutes / max_repair_attempts")
+    budget: dict[str, Any] = Field(default_factory=dict, description="max_rounds / max_minutes / max_repair_attempts")
     candidates: int | None = Field(default=None, description="best-of-N baseline width, resolved")
     texture: bool = False
     seed: int = 0
@@ -244,8 +270,6 @@ class CostSummary(BaseModel):
 
     schema_version: int = 1
     total_usd: float = 0.0
-    budget_usd: float = 0.0
-    budget_used_pct: float | None = None
     wall_clock_s: float = 0.0
     max_minutes: float = 0.0
     n_calls: int = 0

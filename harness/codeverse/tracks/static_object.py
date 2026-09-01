@@ -27,6 +27,7 @@ from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import (
     BBOX_TOLERANCE_M,
     LANGUAGE_FRAME,
+    OBJECT_CLAY_VIEWS,
     OBJECT_VIEWS,
     Frame,
     to_pascal,
@@ -34,6 +35,7 @@ from codeverse.conventions import (
 )
 from codeverse.orchestrator import DETAIL_KIND, RefineTask, TaskGroup, compact_instructions
 from codeverse.prompts import render
+from codeverse.spatial.contract import planned_joins
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.depth import (
     PartScope,
@@ -46,12 +48,12 @@ from codeverse.tracks.lifecycle import BaseTrack
 from codeverse.tracks.prompting import (
     base_prompt_context,
     budget_for,
-    current_files,
     expected_files,
     file_for_target_factory,
     glb_to_plan_frame,
     judge_digest,
     judged_sheet,
+    language_system_prompt,
     measurement_vs_plan,
     reference_images,
     refine_inline_files,
@@ -62,13 +64,13 @@ from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-#: the 4 clay views judged for holes/intersections (subset of OBJECT_VIEWS by name)
-GEOMETRY_VIEW_NAMES: tuple[str, ...] = ("front_right_34", "back_left_34", "top", "low_front_left")
-GEOMETRY_VIEWS = tuple(v for v in OBJECT_VIEWS if v.name in GEOMETRY_VIEW_NAMES)
+#: the 4 clay views judged for holes/intersections — their own measured cameras (D47),
+#: NOT a name-filter over OBJECT_VIEWS (which silently shrank under renamed rigs)
+GEOMETRY_VIEWS = OBJECT_CLAY_VIEWS
 
 
 class ObjectPipeline:
-    """Measure → connectivity + contract (+ runtime extra gates) → 8-view render."""
+    """Measure → connectivity + contract → 14-view render."""
 
     views = OBJECT_VIEWS
 
@@ -81,16 +83,13 @@ class ObjectPipeline:
         out: list[GateReport] = []
         glb = Path(build.glb_path) if build.glb_path else None
         if glb is not None:
-            out.append(
-                ctx.services.connectivity(glb, ctx.language.value)
-            )  # fix hints in the author's frame
+            out.append(  # fix hints in the author's frame; planned joins measured into the ledger
+                ctx.services.connectivity(glb, ctx.language.value, planned_edges=planned_joins(ctx.plan, measurement))
+            )
         if measurement is not None and ctx.plan is not None:
             out.append(
                 ctx.services.contract(measurement, ctx.plan, BBOX_TOLERANCE_M, ctx.language.value)
             )
-        extra = getattr(ctx.runtime, "extra_gates", None)
-        if callable(extra):
-            out.extend(extra(ctx.ws, build))
         if measurement is not None and ctx.plan is not None:
             # is the object as dense as its own plan says?  Deterministic, so the judge is
             # never asked "does it look detailed enough" (tracks/depth.py).
@@ -166,6 +165,12 @@ class ObjectPipeline:
         build: BuildResult,
         gates: list[GateReport],
     ) -> str:
+        """Nothing beyond ``gates_section``.  The measured-structure block the judge reads
+        (contacts, planned joins, floor gaps, the weld line) is rendered by
+        ``judges.prompt_builder.gates_section`` from the connectivity report's contact
+        ledger — the report is stored in ``rounds/rNN.json``, so ``3dcv judge <slug>``,
+        calibration and every other reader of the round record get the same block as the
+        in-run judge without this method restating it (2026-08-30)."""
         return ""
 
 
@@ -306,26 +311,13 @@ class StaticObjectTrack(BaseTrack):
         return tasks
 
     def scope_system_prompt(self, ctx: RunContext, scope: PartScope) -> str:
-        return (
-            f"You are an expert {ctx.language.value} 3D modeller writing RAW code (no SDKs, no helper libraries). "
-            f"You own {len(scope.parts)} part(s) of a larger object: {', '.join(scope.names)}. "
-            f"Other sessions own the rest — never write a file outside your list. "
-            f"Follow the contract exactly; exact numbers beat adjectives; real detail beats a correctly sized box."
-        )
-
-    def system_prompt(self, ctx: RunContext) -> str:
-        return (
-            f"You are an expert {ctx.language.value} 3D modeller writing RAW code (no SDKs, no helper libraries). "
-            f"Follow the contract exactly; exact numbers beat adjectives."
-        )
+        return language_system_prompt(ctx.language, role="scope",
+                                      n_parts=len(scope.parts), names=", ".join(scope.names))
 
     def round_files_hint(self, ctx: RunContext) -> list[str]:
         return expected_files(ctx)
 
     # ------------------------------------------------------------------ refine (scaffold hooks)
-    def refine_file_for_target(self, ctx: RunContext) -> Any:
-        return file_for_target_factory(ctx)
-
     def extra_refine_tasks(self, ctx: RunContext, last: RoundRecord) -> Sequence[RefineTask]:
         # NB: the `detail_budget` WARN is deliberately NOT turned into a refine task.  Measured:
         # refine rounds that added > 2000 triangles while assembly was still open lost 0.075 of
@@ -384,68 +376,38 @@ class StaticObjectTrack(BaseTrack):
         ``ctx.extra`` records the round index and the measurement to diff against, which
         is what ``ObjectPipeline.gates`` turns into the ``detail_drift`` gate.
         """
-        lines = detail_instructions(
-            last, ctx.plan, max_lines=ctx.policy.max_instructions_per_task + 2
-        )
+        lines = detail_instructions(last, max_lines=ctx.policy.max_instructions_per_task + 2)
         if not lines:
             return [], []
         ctx.extra["detail_round"] = index
         ctx.extra["detail_baseline"] = last.measurement
         scopes = self.scopes(ctx)
         tasks: list[GenerationTask] = []
-        if scopes:
-            for scope in scopes:
-                files = list(scope.files)
-                prompt = render(
-                    self.detail_template,
-                    **scope_context(
-                        ctx,
-                        scope,
-                        round_index=index,
-                        tasks=lines,
-                        files=files,
-                        judge_summary=judge_digest(last),
-                        current_files=current_files(ctx, files) if ctx.single_shot else {},
-                    ),
-                )
-                tasks.append(
-                    GenerationTask(
-                        label=f"detail_{scope.label}",
-                        prompt=prompt,
-                        system=self.detail_system_prompt(ctx),
-                        files_hint=files,
-                        round=index,
-                        kind=DETAIL_KIND,
-                        temperature=0.6,
-                        thinking="high",
-                        # detail is file-disjoint per scope; the entry gains no surface detail
-                        edit_only=True,
-                    )
-                )
-        else:
-            files = expected_files(ctx)
-            prompt = render(
-                self.detail_template,
-                **base_prompt_context(
-                    ctx,
-                    round_index=index,
-                    tasks=lines,
-                    files=files,
-                    judge_summary=judge_digest(last),
-                    current_files=current_files(ctx, files) if ctx.single_shot else {},
-                ),
-            )
+        # one scoped task per scope, or one whole-object task.  The two arms differed in
+        # four values — the context builder, the label, the file list, and which of
+        # edit_only / owns_entry is set (detail is file-disjoint per scope, so a scoped
+        # pass never touches the entry; the whole-object pass owns the full tree).
+        for scope in scopes or [None]:
+            files = list(scope.files) if scope is not None else expected_files(ctx)
+            context = (scope_context(ctx, scope, round_index=index, tasks=lines, files=files,
+                                     judge_summary=judge_digest(last),
+                                     current_files=refine_inline_files(ctx, files, scoped=False))
+                       if scope is not None else
+                       base_prompt_context(ctx, round_index=index, tasks=lines, files=files,
+                                           judge_summary=judge_digest(last),
+                                           current_files=refine_inline_files(ctx, files, scoped=False)))
             tasks.append(
                 GenerationTask(
-                    label="detail",
-                    prompt=prompt,
+                    label=f"detail_{scope.label}" if scope is not None else "detail",
+                    prompt=render(self.detail_template, **context),
                     system=self.detail_system_prompt(ctx),
                     files_hint=files,
                     round=index,
                     kind=DETAIL_KIND,
                     temperature=0.6,
                     thinking="high",
-                    owns_entry=True,  # whole-object pass: files_hint is the full tree
+                    edit_only=scope is not None,
+                    owns_entry=scope is None,
                 )
             )
         ctx.record_prompt("detail", tasks[0].prompt)
@@ -459,30 +421,23 @@ class StaticObjectTrack(BaseTrack):
         return tasks, lines
 
     def detail_system_prompt(self, ctx: RunContext) -> str:
-        return (
-            f"You are an expert {ctx.language.value} 3D modeller adding SURFACE DETAIL to a model whose structure "
-            f"is already accepted. You may not move, resize, rename, add or remove a part — a deterministic gate "
-            f"compares every part's bounding box against the previous round and fails the round if one moved. "
-            f"Everything you add lives inside or on an existing part's surface."
-        )
+        return language_system_prompt(ctx.language, role="detail")
 
 
 # ===================================================================== the DETAIL round
-# (merged from codeverse/tracks/detailing.py, 2026-08-28 — this file was its only importer)
 # --------------------------------------------------------------------------- detail-round drift gate
 DRIFT_GATE = "detail_drift"
 
 
-def drift_findings(before: Any, after: Any, *, tol_m: float, language: str = "") -> list[Any]:
+def drift_findings(before: Measurement | None, after: Measurement | None, *, tol_m: float,
+                   language: str = "") -> list[GateFinding]:
     """Did a detail round move anything?  Findings for the ``detail_drift`` gate.
 
     The detail round's whole contract is "surface only": the silhouette, the part
     list and every part box stay put.  This is the deterministic check of that
     promise — the judge is never asked whether the shape moved, code answers it.
     """
-    from codeverse.contracts.artifacts import GateFinding, Severity
-
-    out: list[Any] = []
+    out: list[GateFinding] = []
     if before is None or after is None:
         return out
     for axis, a, b in zip(_axes(language), before.extents, after.extents, strict=True):
@@ -552,10 +507,8 @@ def _axes(language: str) -> tuple[str, str, str]:
     return ("x", "y", "z")
 
 
-def drift_gate(before: Any, after: Any, *, tol_m: float, language: str = "") -> Any:
+def drift_gate(before: Measurement | None, after: Measurement | None, *, tol_m: float, language: str = "") -> GateReport:
     """``detail_drift`` GateReport (passing when nothing moved)."""
-    from codeverse.contracts.artifacts import GateReport, Severity
-
     findings = drift_findings(before, after, tol_m=tol_m, language=language)
     return GateReport(gate=DRIFT_GATE, findings=findings,
                       passed=not any(f.severity is Severity.ERROR for f in findings))
@@ -581,7 +534,7 @@ DEFAULT_DETAIL_LINES: tuple[str, ...] = (
 )
 
 
-def detail_instructions(last: Any, plan: Any, *, max_lines: int = 8) -> list[str]:
+def detail_instructions(last: Any, *, max_lines: int = 8) -> list[str]:
     """Instruction lines for a detail round: the measured density gap first, then the
     judge's detail-shaped asks, then the standing detail vocabulary; deduped and capped."""
     lines: list[str] = []
@@ -613,11 +566,10 @@ def detail_instructions(last: Any, plan: Any, *, max_lines: int = 8) -> list[str
 
 
 # ===================================================================== reference images
-# (merged from codeverse/tracks/reference.py, 2026-08-28 — this file was its only importer,
-#  and nothing else, tests included, ever imported it)
 SILHOUETTE_GATE = "reference_silhouette"
 IOU_REFINE_THRESHOLD = 0.6
-FRONT_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_34", "front_left_34")
+FRONT_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high",
+                                     "front_right_34", "front_left_34")  # *_34 = pre-D47 stored runs
 
 
 def target_reference(ctx: RunContext) -> str | None:

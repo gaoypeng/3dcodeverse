@@ -28,6 +28,8 @@ from __future__ import annotations
 import logging
 import os
 
+from codeverse.config import env_flag
+
 log = logging.getLogger(__name__)
 
 SKILLS_ENV = "CV3D_SKILLS"
@@ -36,28 +38,14 @@ SKILLS_UNVERIFIED_ENV = "CV3D_SKILLS_UNVERIFIED"
 SKILLS_ONLY_ENV = "CV3D_SKILLS_ONLY"
 
 DEFAULT_SKILLS_MAX = 5
-_TRUE = frozenset({"1", "on", "true", "yes", "y"})
-_FALSE = frozenset({"", "0", "off", "false", "no", "n"})
-
-
-def _flag(env: str, default: bool = False) -> bool:
-    raw = os.environ.get(env, "").strip().lower()
-    if raw in _TRUE:
-        return True
-    if raw in _FALSE:
-        return default
-    log.warning("%s=%r is not a boolean; treating it as %s", env, raw, "on" if default else "off")
-    return default
-
-
 def skills_enabled() -> bool:
     """Is the skill system on for this process?  Default OFF until the A/B says otherwise."""
-    return _flag(SKILLS_ENV)
+    return env_flag(SKILLS_ENV, False)
 
 
 def skills_unverified() -> bool:
     """Route bundles whose evidence label is ``inherited-unverified``?  Default no."""
-    return _flag(SKILLS_UNVERIFIED_ENV)
+    return env_flag(SKILLS_UNVERIFIED_ENV, False)
 
 
 def skills_only() -> frozenset[str]:

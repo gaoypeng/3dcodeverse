@@ -82,17 +82,15 @@ def _colliding_root(tmp_path: Path) -> Path:
     return root
 
 
-def test_iter_runs_mints_distinct_identities_for_basename_run(tmp_path: Path):
+def test_nested_run_identity_survives_every_flywheel_consumer(tmp_path: Path):
+    """Build the colliding-basename corpus once, then exercise every reader."""
     root = _nested_battery(tmp_path)
     found = list(iter_runs(root))
     assert all(isinstance(f, FoundRun) for f in found)
     assert all(f.ws.root.name == "run" for f in found)  # the basename really is degenerate
     assert sorted(f.run_id.slug for f in found) == ["cmp_a_stool__armx", "cmp_b_lamp__armx"]
 
-
-# --------------------------------------------------------------------------- export
-def test_export_of_two_nested_runs_writes_two_sample_dirs(tmp_path: Path):
-    root = _nested_battery(tmp_path)
+    # Export keeps both identities and their distinct payloads.
     out = tmp_path / "ds"
     rep = export_samples(root, out)
     assert rep.n_exported == 2 and rep.n_indexed == 2, rep.skipped
@@ -104,20 +102,7 @@ def test_export_of_two_nested_runs_writes_two_sample_dirs(tmp_path: Path):
     keys = {json.loads(line)["key"] for line in (out / "metadata.jsonl").read_text().splitlines()}
     assert keys == {"cmp_a_stool__armx", "cmp_b_lamp__armx"}
 
-
-def test_export_raises_on_a_slug_collision_before_writing_anything(tmp_path: Path):
-    root = _colliding_root(tmp_path)
-    out = tmp_path / "ds"
-    with pytest.raises(SampleError, match="duplicate sample id") as ei:
-        export_samples(root, out)
-    msg = str(ei.value)
-    assert "cells/x/run" in msg and "runs/x" in msg, "both run dirs must be named"
-    assert list(out.rglob("meta.json")) == [], "nothing may be written on a collision"
-
-
-# --------------------------------------------------------------------------- sqlite index
-def test_sqlite_index_holds_two_rows_with_rel_arm_cell(tmp_path: Path):
-    root = _nested_battery(tmp_path)
+    # SQLite keeps the same rel/arm/cell mapping.
     db = tmp_path / "idx.sqlite"
     assert build_sqlite_index(root, db) == 2
     con = sqlite3.connect(db)
@@ -128,36 +113,21 @@ def test_sqlite_index_holds_two_rows_with_rel_arm_cell(tmp_path: Path):
         ("cmp_b_lamp__armx", "cells/cmp_b_lamp/armx/run", "armx", "cmp_b_lamp"),
     ]
 
-
-def test_sqlite_index_collision_names_both_workspaces(tmp_path: Path):
-    root = _colliding_root(tmp_path)
-    with pytest.raises(sqlite3.IntegrityError) as ei:
-        build_sqlite_index(root, tmp_path / "idx.sqlite")
-    msg = str(ei.value)
-    assert "duplicate run slug 'x'" in msg
-    assert "cells/x/run" in msg and "runs/x" in msg
-
-
-# --------------------------------------------------------------------------- pairs
-def test_pairs_run_field_is_the_slug_not_run(tmp_path: Path):
-    root = _nested_battery(tmp_path)
+    # Pair rows use the resolved slug, never the degenerate directory basename.
     out = tmp_path / "pairs.jsonl"
     n = build_pairs(root, out, min_delta=0.05)
     assert n == 2  # one preference pair per run (0.55 → 0.80)
     runs = {json.loads(line)["run"] for line in out.read_text().splitlines()}
     assert runs == {"cmp_a_stool__armx", "cmp_b_lamp__armx"}
 
-
-# --------------------------------------------------------------------------- captions
-def test_caption_sidecars_do_not_bleed_across_nested_runs(tmp_path: Path):
+    # Caption sidecars are equally isolated.
     from codeverse.flywheel.captions import caption_sample
     from tests.flywheel_cli.test_captions import GOOD, FakeModel
 
-    root = _nested_battery(tmp_path)
     side = tmp_path / "caps"
-    found = {f.run_id.slug: f for f in iter_runs(root)}
-    a = found["cmp_a_stool__armx"]
-    b = found["cmp_b_lamp__armx"]
+    by_slug = {f.run_id.slug: f for f in found}
+    a = by_slug["cmp_a_stool__armx"]
+    b = by_slug["cmp_b_lamp__armx"]
     caption_sample(a.ws, a.record, "fake:fake", model=FakeModel([GOOD]),
                    out_dir=side, slug=a.run_id.slug)
     assert (side / "cmp_a_stool__armx.json").is_file()
@@ -165,3 +135,19 @@ def test_caption_sidecars_do_not_bleed_across_nested_runs(tmp_path: Path):
     assert load_captions(a.ws, a.record, side, slug=a.run_id.slug)["detailed"] == GOOD["detailed"]
     assert load_captions(b.ws, b.record, side, slug=b.run_id.slug) == {}, \
         "the un-captioned run must not pick up its neighbour's side-car"
+
+
+def test_slug_collisions_fail_before_export_or_index_publication(tmp_path: Path):
+    root = _colliding_root(tmp_path)
+    out = tmp_path / "ds"
+    with pytest.raises(SampleError, match="duplicate sample id") as export_error:
+        export_samples(root, out)
+    msg = str(export_error.value)
+    assert "cells/x/run" in msg and "runs/x" in msg, "both run dirs must be named"
+    assert list(out.rglob("meta.json")) == [], "nothing may be written on a collision"
+
+    with pytest.raises(sqlite3.IntegrityError) as index_error:
+        build_sqlite_index(root, tmp_path / "collision.sqlite")
+    msg = str(index_error.value)
+    assert "duplicate run slug 'x'" in msg
+    assert "cells/x/run" in msg and "runs/x" in msg

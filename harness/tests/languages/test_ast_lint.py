@@ -7,6 +7,7 @@ import ast
 import codeverse.languages.blender as blender_lint
 import codeverse.languages.cadquery as cadquery_lint
 import codeverse.languages.opengl_python as opengl_lint
+import codeverse.languages.urdf as urdf_lint
 from codeverse.contracts.artifacts import GateFinding, Severity
 from codeverse.languages._ast_lint import BASE_FORBIDDEN_IMPORTS, check_imports, dotted
 
@@ -24,6 +25,7 @@ def test_language_forbidden_sets_are_supersets_of_base() -> None:
     assert BASE_FORBIDDEN_IMPORTS <= blender_lint.FORBIDDEN_IMPORTS
     assert BASE_FORBIDDEN_IMPORTS <= cadquery_lint.FORBIDDEN_IMPORTS
     assert BASE_FORBIDDEN_IMPORTS <= opengl_lint.DANGEROUS_MODULES
+    assert BASE_FORBIDDEN_IMPORTS <= urdf_lint.FORBIDDEN_IMPORTS  # was a hand-copied subset until 2026-08-29
 
 
 def test_language_specific_extras_survive() -> None:
@@ -50,6 +52,10 @@ def test_base_modules_error_in_every_language_lint() -> None:
         "def render(ctx, state, t, frame, fbo):\n    pass\n"
     )
     assert any(f.severity == Severity.ERROR and "webbrowser" in f.message for f in findings)
+
+    findings = urdf_lint.lint_model_text("import bpy\nimport webbrowser\nimport os\n", [])
+    assert any(f.severity == Severity.ERROR and "webbrowser" in f.message for f in findings)
+    assert any(f.severity == Severity.WARN and "'os'" in f.message for f in findings)
 
 
 # ----------------------------------------------------------------- check_imports / dotted
@@ -146,3 +152,15 @@ def test_real_deeply_nested_source_does_not_escape_the_lint():
     deep = "import bpy\nx = " + " + ".join(["1"] * 40_000) + "\n"
     rep = lint_blender_source(deep)
     assert isinstance(rep.passed, bool)
+
+
+def test_the_runtime_registry_covers_every_language():
+    """get_runtime was a 7-branch if-chain whose last arm was an unreachable
+    fall-through; as a table, a missing row is a KeyError at call time instead.  This
+    is the drift guard that makes the table safe."""
+    from codeverse.contracts.common import Language
+    from codeverse.languages.base import _RUNTIMES, get_runtime
+
+    assert set(_RUNTIMES) == set(Language), "every Language needs a runtime row"
+    for lang in Language:
+        assert get_runtime(lang).language is lang

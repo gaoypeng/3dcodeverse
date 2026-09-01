@@ -3,7 +3,7 @@
 Companion to `cv3d-blender-forms`. Every snippet was written against the harness's own
 runtime (Blender 5.0.1, `blender -b --factory-startup`, no operator context you did not
 create yourself) and uses only the allowed imports. Longer copyable code lives in the
-cookbook: `read_cookbook(section="Modifiers")` and friends.
+cookbook section "Modifiers" and friends.
 
 ## 1. A beam between two world points (instead of rotating a cylinder)
 

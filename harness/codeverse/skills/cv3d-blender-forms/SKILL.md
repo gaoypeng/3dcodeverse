@@ -46,8 +46,8 @@ start from "what primitive is nearest".
 | smooth organic body with sharp seams | SUBSURF plus edge creases | subsurf shrinks the part: measured on Blender 5.0.1 a subsurfed cube loses **16%** of every extent, a 32-segment cylinder 4-6%. The exporter applies it, so the contract gate sees the shrunk size |
 | beam between two points | build along one axis, then place from the endpoints | do **not** rotate a cylinder with Euler angles; see `references/form-recipes.md` |
 
-Code for every row: `read_cookbook(section="Modifiers")`, `"Screw and lathe"`,
-`"Curves"`, `"Deformation"`, `"Boolean detailing"`, `"Parametric repetition"`.
+Code for every row: the cookbook section "Modifiers", and "Screw and lathe",
+"Curves", "Deformation", "Boolean detailing", "Parametric repetition".
 
 ## The five traps, with counts
 

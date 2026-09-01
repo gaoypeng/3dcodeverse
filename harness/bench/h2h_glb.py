@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import statistics
 import sys
 from datetime import datetime
@@ -45,6 +44,7 @@ from pydantic import BaseModel, Field
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # `python bench/h2h_glb.py` from the repo root
 
 from bench._fixed_eval import RUBRIC  # noqa: E402
+from bench.h2h_scene import sign_test  # noqa: E402
 from bench.run_bench import Battery, BenchPrompt  # noqa: E402
 
 JUDGE_MODEL = "gemini:gemini-3.1-pro-preview"
@@ -207,25 +207,15 @@ def side_by_side(theirs: Side, ours: Side, dst: Path, slug: str) -> str:
 
 
 # ----------------------------------------------------------------------------- stats
-def sign_test_p(deltas: list[float]) -> float | None:
-    """Exact two-sided sign test on the non-zero deltas (ours - theirs)."""
-    nz = [d for d in deltas if d != 0.0]
-    if not nz:
-        return None
-    n, k = len(nz), sum(d > 0 for d in nz)
-    cdf = lambda x: sum(math.comb(n, i) for i in range(x + 1)) / 2**n  # noqa: E731
-    return min(1.0, 2 * min(cdf(k), 1 - cdf(k - 1)))
-
-
 def _stats(rows: list[Row], *, visual: bool = False) -> str:
     d = [(r.delta_visual if visual else r.delta) for r in rows if (r.delta_visual if visual else r.delta) is not None]
     if not d:
         return "n=0 (no pair judged on both sides)"
     sd = statistics.stdev(d) if len(d) > 1 else 0.0
     wins, losses = sum(x > 0 for x in d), sum(x < 0 for x in d)
-    p = sign_test_p(d)
+    n_nz, _, p = sign_test(d)
     return (f"n={len(d)}  mean Δ(ours−theirs)={statistics.mean(d):+.3f}  sd={sd:.3f}  "
-            f"wins/losses/ties={wins}/{losses}/{len(d) - wins - losses}  sign-test p={'n/a' if p is None else f'{p:.3f}'}")
+            f"wins/losses/ties={wins}/{losses}/{len(d) - wins - losses}  sign-test p={'n/a' if n_nz == 0 else f'{p:.3f}'}")
 
 
 def summary_md(rows: list[Row]) -> str:

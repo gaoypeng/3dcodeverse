@@ -16,7 +16,6 @@ from codeverse.spatial.complexity import (
     band_of,
     complexity_of_glb,
     complexity_of_parts,
-    complexity_summary_line,
 )
 from codeverse.spatial.measure import measure_glb, part_meshes
 
@@ -73,7 +72,6 @@ def test_vector_shape_and_weights(stool_glb: Path) -> None:
     assert vec.index == pytest.approx(
         sum(COMPLEXITY_WEIGHTS[a] * v for a, v in vec.components.items()), abs=5e-4
     )
-    assert "complexity" in complexity_summary_line(vec)
 
 
 def test_detail_beats_primitives(tmp_path: Path) -> None:

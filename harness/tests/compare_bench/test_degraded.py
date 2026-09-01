@@ -44,23 +44,22 @@ def _track(status: RunStatus, stop_reason: str, rounds: int, cost: float, aborte
 
 
 @pytest.mark.parametrize("status,stop,rounds,cost,aborted,expect", [
-    (RunStatus.BUDGET, "budget", 1, 1.2, 1, True),    # the storm case: clock stop, 1 round, money left
+    (RunStatus.BUDGET, "budget", 1, 1.2, 1, True),    # the storm case: clock stop after 1 round
     (RunStatus.BUDGET, "budget", 0, 0.9, 1, True),    # never completed a round
     (RunStatus.BUDGET, "budget", 2, 1.5, 1, False),   # iterated twice: cut, but not degraded
-    (RunStatus.BUDGET, "budget", 1, 2.4, 0, False),   # a MONEY stop (>= 90% of max_usd) is the protocol, not weather
+
     (RunStatus.PASSED, "pass", 1, 0.8, 0, False),     # passed after one round: fine
-    (RunStatus.PLATEAU, "plateau", 1, 0.7, 0, False),
 ])
 def test_flag_degraded_rule(tmp_path, status, stop, rounds, cost, aborted, expect):
     battery = Battery.load(BATTERY)
-    opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x", max_usd=2.5, degraded_min_wall_s=0)
+    opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x", degraded_min_wall_s=0)
     deps = CompareDeps(FakeEvaluator(), run_track=_track(status, stop, rounds, cost, aborted))
     r = run_cell(battery, battery.prompts[0], parse_arm("harness:gemini-cli:gemini-3.6-flash"), tmp_path, opts, deps)
     assert r.status == "scored" and r.score is not None
     assert (r.harness_stop_reason, r.harness_rounds, r.harness_aborted_rounds) == (stop, rounds, aborted)
     assert r.degraded is expect, r
     if expect:
-        assert "ceiling stop" in r.degraded_reason and "unspent" in r.degraded_reason
+        assert "ceiling stop" in r.degraded_reason and f"having spent ${cost:.2f}" in r.degraded_reason
 
 
 def test_degraded_needs_the_wall_clock_floor():

@@ -15,11 +15,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { sceneCensus } from './host_census.mjs';
-import { placementTable } from './host_placement.mjs';
-import { frameStats, nearGeometry } from './host_metrics.mjs';
+import { placementTable, settleScene } from './host_placement.mjs';
+import { frameStats, nearGeometry, repairCameraSpec } from './host_metrics.mjs';
 import { frameCoverage } from './host_coverage.mjs';
 import { installShaderErrorHook } from './host_shader_errors.mjs';
-import { attributeErrors, captured, captureMaterialSources, materialAudit, stripCustomShaders } from './host_compile.mjs';
+import { attributeErrors, captured, captureMaterialSources, materialAudit } from './host_compile.mjs';
 import { makeRenderer, rendererString } from './browser/renderer.js';
 
 const FIXED_DT = 1 / 30;
@@ -46,6 +46,12 @@ const state = {
   bootInfo: null,
   contentBox: null,
   fullBox: null,
+  settleInfo: null,
+  cameraRepair: false,
+  cameraRepairs: [],
+  repairedSpecs: new Map(),
+  autoExposure: false,
+  autoExposureInfo: null,
 };
 
 /**
@@ -168,6 +174,11 @@ async function boot(opts) {
   state.bootInfo = info;
   try {
     loadedGlbs = [];
+    state.cameraRepair = !!opts.cameraRepair;
+    state.cameraRepairs = [];
+    state.repairedSpecs = new Map();
+    state.autoExposure = !!opts.autoExposure;
+    state.autoExposureInfo = null;
     state.width = opts.width || 1024;
     state.height = opts.height || 576;
     window.requestAnimationFrame = () => { state.rafCalls += 1; return 0; };
@@ -224,6 +235,48 @@ async function boot(opts) {
     runUpdate(0, 0);
     state.simTime = 0;
     state.scene.updateMatrixWorld(true);
+
+    // settle (2026-08-30): deterministically seat floating / sunken assets before any
+    // census or render — the placement gate measured the errors for two batteries and
+    // the refine agent left 38 sunken + 22 floating standing in final rounds.  Runs on
+    // every boot (probe and render see the same seated scene); --no-settle disables.
+    if (opts.settle !== false) {
+      info.stage = 'settle';
+      try {
+        const c0 = sceneCensus(state.scene, THREE);
+        state.settleInfo = settleScene(state.scene, THREE, { groundY: c0.ground_y, contentBox: c0.content_bbox });
+      } catch (e) {
+        state.settleInfo = { count: 0, moves: [], error: String((e && e.message) || e).slice(0, 300) };
+      }
+      info.settled = state.settleInfo.count;
+    }
+
+    // auto-exposure (opt-in, --auto-exposure): one scene-wide bounded exposure, like a
+    // photographer picking ISO once.  fv_izakaya_night sat at mean_lum 0.07 for three
+    // rounds with the 'frame too dark' ERROR in every refine prompt and nobody fixed it;
+    // the frame gate's healthy band is 0.12..0.35.  Factor clamped to [0.5, 3.0] so a
+    // deliberately moody scene is brightened, never rewritten; recorded in the census.
+    if (opts.autoExposure && state.cameras.length) {
+      info.stage = 'auto_exposure';
+      try {
+        const probeCam = () => buildCameraRaw(state.cameras[0]);
+        const lum = () => { renderOnce(probeCam()); return frameStats(state.canvas).mean_lum; };
+        const before = lum();
+        let factor = 1;
+        let after = before;
+        for (let i = 0; i < 4 && (after < 0.10 || after > 0.45); i++) {
+          const step = after < 0.10 ? 1.6 : 0.7;
+          const next = Math.min(3.0, Math.max(0.5, factor * step));
+          if (next === factor) break;
+          factor = next;
+          state.renderer.toneMappingExposure = factor;
+          after = lum();
+        }
+        if (factor !== 1) state.autoExposureInfo = { factor: +factor.toFixed(2), lum_before: before, lum_after: after };
+      } catch (e) {
+        state.hostWarnings.push(`auto-exposure failed: ${String((e && e.message) || e).slice(0, 200)}`);
+      }
+    }
     state.booted = true;
     info.ok = cameras.length > 0;
     info.stage = 'ready';
@@ -278,6 +331,27 @@ function raceCreateScene(mod, ctx, timeoutMs) {
 }
 
 function buildCamera(spec) {
+  // camera repair (opt-in, --camera-repair): cameras belong to the plan and no refine
+  // agent can fix one, so a lens inside geometry is repaired here — the smallest
+  // backward/upward retreat that clears it, cached per camera name so every render of
+  // that camera uses the same repaired spec, recorded in census.camera_repair.
+  if (state.cameraRepair && spec && spec.name && Array.isArray(spec.position) && Array.isArray(spec.lookAt)) {
+    const key = spec.name + '|' + spec.position.join(',');
+    if (!state.repairedSpecs.has(key)) {
+      let fix = null;
+      try { fix = repairCameraSpec(state.scene, spec, THREE, buildCameraRaw); } catch (e) { fix = null; }
+      state.repairedSpecs.set(key, fix ? fix.spec : null);
+      if (fix) state.cameraRepairs.push({ name: fix.name, moved_back_m: fix.moved_back_m, moved_up_m: fix.moved_up_m,
+                                          nearest_before: fix.nearest_before, inside_before: fix.inside_before,
+                                          nearest_after: fix.nearest_after });
+    }
+    const fixed = state.repairedSpecs.get(key);
+    if (fixed) return buildCameraRaw(fixed);
+  }
+  return buildCameraRaw(spec);
+}
+
+function buildCameraRaw(spec) {
   const aspect = state.width / state.height;
   if (!state.fullBox) { const c = sceneCensus(state.scene, THREE); state.fullBox = c.bbox; state.contentBox = c.content_bbox; }
   const fb = state.fullBox;
@@ -323,7 +397,7 @@ function renderOnce(cam) {
 }
 
 /** Render camera spec at time t; returns {dataUrl, ms}. */
-function renderAt(spec, t, opts = {}) {
+function renderAt(spec, t) {
   if (!state.booted) throw new Error('host not booted');
   advanceTo(t);
   state.scene.updateMatrixWorld(true);
@@ -331,15 +405,22 @@ function renderAt(spec, t, opts = {}) {
   const t0 = performance.now();
   const savedFog = state.scene.fog;
   if (spec.noFog) state.scene.fog = null;   // overview rig: structure over atmosphere
-  const undo = opts.stripCustom ? stripCustomShaders(state.scene, THREE) : null;
   try {
     renderOnce(cam);
   } finally {
     state.scene.fog = savedFog;
-    if (undo) undo();
   }
   const ms = Math.round(performance.now() - t0);
-  return { dataUrl: state.canvas.toDataURL('image/png'), ms, sim_time: state.simTime };
+  // the camera actually used: differs from spec.position when camera repair fired
+  return { dataUrl: state.canvas.toDataURL('image/png'), ms, sim_time: state.simTime,
+           position: [cam.position.x, cam.position.y, cam.position.z] };
+}
+
+/** Repairs performed so far ({name, moved_back_m, moved_up_m, ...} per camera).
+ * Repair fires lazily on the first build of each camera, so drivers read this
+ * AFTER their render evaluations to stitch census.camera_repair (review-3 S5). */
+function cameraRepairs() {
+  return state.cameraRepairs.slice();
 }
 
 /**
@@ -407,6 +488,9 @@ function placement() {
 function census() {
   const c = sceneCensus(state.scene, THREE);
   c.glb_assets = glbUsage(state.scene);
+  if (state.settleInfo) c.settle = state.settleInfo;
+  if (state.cameraRepairs.length) c.camera_repair = state.cameraRepairs.slice();
+  if (state.autoExposureInfo) c.auto_exposure = state.autoExposureInfo;
   state.contentBox = c.content_bbox;
   state.fullBox = c.bbox;
   c.cameras = state.cameras.length;
@@ -418,6 +502,7 @@ window.__c3v = {
   boot,
   renderAt,
   cameraChecks,
+  cameraRepairs,
   compileAll,
   census,
   placement,

@@ -21,11 +21,14 @@ from typing import Any
 
 from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import GateReport
-from codeverse.contracts.common import Track, Usage
+from codeverse.contracts.common import Track
 from codeverse.contracts.plan import Plan
 from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse.contracts.spec import Spec
+from codeverse.cost.context import run_binding
+from codeverse.cost.instrument import run_ledger
 from codeverse.orchestrator import (
+    KIND_FOR_STRATEGY,
     BestSelector,
     BudgetExceeded,
     BudgetGuard,
@@ -41,12 +44,11 @@ from codeverse.orchestrator import (
     best_score,
     build_refine_instructions,
     hash_inputs,
-    kind_for_strategy,
     plan_refine_groups,
 )
 from codeverse.proc import EventLog
 from codeverse.prompts import render
-from codeverse.tracks.candidates import choose_best_round, run_best_of_n
+from codeverse.tracks.candidates import choose_best_round, replay_best_round, run_best_of_n
 from codeverse.tracks.common import (
     RunContext,
     Services,
@@ -58,13 +60,20 @@ from codeverse.tracks.generation import GenerationTask, single_shot_model_id
 from codeverse.tracks.planner import default_event_stats, ensure_acceptance, normalise_names
 from codeverse.tracks.planner import plan as run_planner
 from codeverse.tracks.planner import plan_example as default_plan_example
-from codeverse.tracks.prompting import base_prompt_context, current_files, expected_files
+from codeverse.tracks.prompting import (
+    base_prompt_context,
+    expected_files,
+    file_for_target_factory,
+    language_system_prompt,
+    refine_inline_files,
+)
 from codeverse.tracks.repair import format_error_report
 from codeverse.tracks.steps import (
     RoundFailed,
     RoundPipeline,
     failed_acceptance,
     load_round_journal,
+    looks_transport,
     rejudge_round,
     run_round,
     sum_usage,
@@ -75,27 +84,26 @@ log = logging.getLogger(__name__)
 
 REFERENCE_RUBRIC = "reference_v1"
 
-#: fallback name of the run's live cost ledger when the cost package cannot place
-#: one itself (``flywheel/telemetry.py`` publishes it as ``telemetry/usage.jsonl``)
-LEDGER_NAME = "cost_ledger.jsonl"
-
-
-#: surface-detail rounds a track that implements one gets by default.  ``RoundPolicy`` itself
-#: defaults to 0 so the pure stop policy is unchanged for everyone else; ``CV3D_DETAIL_ROUNDS``
-#: overrides both (0 = off — the A/B switch for docs/EVAL.md).
+#: surface-detail rounds a track that implements one gets by default.  ``RoundPolicy.detail_rounds``
+#: is None (= this default) unless a caller chose a number; ``CV3D_DETAIL_ROUNDS`` overrides both
+#: (0 = off — the A/B switch for docs/EVAL.md).
 DEFAULT_DETAIL_ROUNDS = 1
 
 
-def detail_round_budget(policy: RoundPolicy, supported: bool, *, explicit: bool) -> int:
-    """How many detail rounds THIS run gets: env > an explicit policy > the track default."""
+def detail_round_budget(policy: RoundPolicy, supported: bool) -> int:
+    """How many detail rounds THIS run gets: env > a chosen ``policy.detail_rounds`` > the track default.
+
+    Until 2026-08-29 the third tier was skipped whenever ANY policy object was injected, so the
+    economy/quality profiles (a policy for ``judge_samples`` alone) silently lost the static
+    track's detail round."""
     raw = os.environ.get("CV3D_DETAIL_ROUNDS", "").strip()
     if raw.isdigit():
         return int(raw) if supported else 0
     if not supported:
         return 0
-    if explicit:
+    if policy.detail_rounds is not None:
         return policy.detail_rounds
-    return policy.detail_rounds or DEFAULT_DETAIL_ROUNDS
+    return DEFAULT_DETAIL_ROUNDS
 
 
 def _reconcile_billed_from_ledger(budget: BudgetGuard, ws: Workspace, events: EventLog) -> None:
@@ -106,11 +114,18 @@ def _reconcile_billed_from_ledger(budget: BudgetGuard, ws: Workspace, events: Ev
     from the ledger.  Taking the larger of the two makes resume charge for everything
     the provider actually billed — silently under-counting is how a resumed run walks
     past its ceiling.  Attempt rows stay excluded (the winner is already on the logical
-    row); a missing or unreadable ledger simply leaves the snapshot alone."""
+    row), and so do subscription-backend rows: their ``cost_usd`` is notional, not money
+    (the same ``bills_usd`` predicate the live path uses — ``BudgetGuard.charge``), so a
+    codex/claude/agy run resumed offline keeps billed at $0.  A missing or unreadable
+    ledger simply leaves the snapshot alone.  ``load_ledger(root)`` reads the one ledger
+    the metered models/agents write, ``telemetry/cost.jsonl``; the root-level
+    ``cost_ledger.jsonl`` leg went on 2026-08-30 (an audit of every run under $HOME found
+    677 symlinks to that name and zero real files — ``LEDGER_NAME`` is the alias only)."""
     try:
+        from codeverse.cost.billing import bills_usd
         from codeverse.cost.ledger import load_ledger
 
-        billed = sum(float(r.cost_usd or 0.0) for r in load_ledger(ws.root))
+        billed = sum(float(r.cost_usd or 0.0) for r in load_ledger(ws.root) if bills_usd(r.backend))
     except Exception as e:  # noqa: BLE001 — accounting repair must never block a resume
         log.debug("ledger reconcile skipped: %s", e)
         return
@@ -120,24 +135,10 @@ def _reconcile_billed_from_ledger(budget: BudgetGuard, ws: Workspace, events: Ev
         budget.billed_usd = billed
 
 
-def run_ledger_path(ws: Workspace) -> Any:
-    """Where this run's priced per-call rows go.
-
-    ``codeverse.cost`` owns the run layout (``telemetry/cost.jsonl`` + the
-    ``cost_ledger.jsonl`` alias); fall back to the alias name if it cannot."""
-    try:
-        from codeverse.cost.ledger import open_run_ledger
-
-        return open_run_ledger(ws.root)
-    except Exception as e:  # noqa: BLE001 — accounting must never fail a run
-        log.debug("cost ledger placement fell back to %s: %s", LEDGER_NAME, e)
-        return ws.root / LEDGER_NAME
-
-
 _STATUS: dict[str, RunStatus] = {
     "pass": RunStatus.PASSED, "plateau": RunStatus.PLATEAU, "max_rounds": RunStatus.PLATEAU,
     "budget": RunStatus.BUDGET,
-    # the two money stops (orchestrator/rounds.py): the code is intact and the best
+    # the two money stops (orchestrator.StopPolicy): the code is intact and the best
     # round is delivered — the run stopped because another round was not worth buying.
     "regression": RunStatus.PLATEAU, "diminishing_returns": RunStatus.PLATEAU,
     # judge outage (degraded/crashed verdicts even after a retry): the code is intact
@@ -148,7 +149,7 @@ _STATUS: dict[str, RunStatus] = {
 
 def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
     """Only the spec fields the PLAN depends on: hashing the whole Spec meant that
-    raising ``budget.max_usd`` in spec.json (the only way to continue a BUDGET-stopped
+    raising ``budget.max_minutes`` in spec.json (the only way to continue a BUDGET-stopped
     run) re-planned + re-skeletoned on resume, overwriting src/ under existing rounds."""
     return {
         "prompt": spec.prompt,
@@ -196,7 +197,7 @@ class BaseTrack:
     allow_refine_fanout: bool = True
     #: does this track implement ``detail_tasks``?  When False the round policy's detail
     #: budget is zeroed for the run, so the stop policy never offers a round the track
-    #: cannot build (see orchestrator/rounds.detail_blocked).
+    #: cannot build (see ``orchestrator.detail_blocked``).
     supports_detail_round: bool = False
     #: share of the run budget the BASELINE may use (1.0 = no soft cap).  The scene
     #: track lowers it so the refine rounds always inherit money and minutes.
@@ -237,7 +238,7 @@ class BaseTrack:
         raise NotImplementedError
 
     def system_prompt(self, ctx: RunContext) -> str:
-        raise NotImplementedError
+        return language_system_prompt(ctx.language, tools=not ctx.single_shot)
 
     def round_files_hint(self, ctx: RunContext) -> list[str]:
         return []
@@ -248,8 +249,12 @@ class BaseTrack:
 
     def prepare_salvage(self, ctx: RunContext) -> bool:
         """Make the workspace buildable after a stage tripped the budget before
-        round 0.  Return False (the default) when the track has nothing to salvage."""
-        return False
+        round 0.  Return False when the track has nothing to salvage.  The default
+        says yes exactly when best-of-N adopted a winner (``rounds/candidates.json``
+        is written immediately before adoption): the paid, buildable candidate must
+        not be thrown away by a ceiling trip at the r00 boundary.  A bare skeleton
+        still returns False."""
+        return (ctx.ws.root / "rounds" / "candidates.json").is_file()
 
     # ---- planner hooks (tracks/planner.py runs the one loop)
     def plan_example(self, spec: Spec) -> dict[str, Any]:
@@ -266,8 +271,8 @@ class BaseTrack:
 
     # ---- refine hooks (the scaffold below is shared; tracks fill in the task)
     def refine_file_for_target(self, ctx: RunContext) -> Any:
-        """``target → [files]`` mapper for refine tasks (None = whole-object)."""
-        return None
+        """``target → [files]`` mapper for refine tasks (None = whole-object language)."""
+        return file_for_target_factory(ctx)
 
     def extra_refine_tasks(self, ctx: RunContext, last: RoundRecord) -> Sequence[Any]:
         """Harness-derived tasks prepended to the judge's (e.g. reference IoU)."""
@@ -286,7 +291,7 @@ class BaseTrack:
         no change to the silhouette, the placement or the part list.
 
         Offered by the stop policy only once the structure gates are clean
-        (``orchestrator.rounds.detail_blocked``); tracks that do not implement it set
+        (``orchestrator.detail_blocked``); tracks that do not implement it set
         ``supports_detail_round = False`` and are never offered the round."""
         return [], []
 
@@ -333,57 +338,55 @@ class BaseTrack:
         lint = next((g for g in last.gates if g.gate.startswith("lint")), GateReport(gate="lint", passed=True))
         report = format_error_report(last.build, lint, ctx.cookbook_text) if last.build else "build did not run"
         prompt = render(self.generate_template, **self.generate_context(
-            ctx, skeleton_files=current_files(ctx, files) if ctx.single_shot else {}, previous_error=report))
+            ctx, skeleton_files=refine_inline_files(ctx, files, scoped=False), previous_error=report))
         return GenerationTask(label="rebuild", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
                               kind="rebuild", temperature=0.7, thinking="high")
 
     # ------------------------------------------------------------------ public API
-    def plan(self, spec: Spec, ws: Workspace) -> Plan:
-        ws.create()
-        events = EventLog(ws.events_path)
-        runtime = self._runtime or self.services.runtime(spec.language)
-        return run_planner(spec, spec.backends.planner, self.plan_model, ws, model=self._planner_model,
-                           events=events, runtime=runtime, **self._plan_kwargs(spec))
-
     def run(self, spec: Spec, ws: Workspace, *, resume: bool = False, force: bool = False) -> RunRecord:
         ws.create()
-        if not ws.spec_path.is_file() or not resume:
-            ws.write_json(ws.spec_path, spec)
-        events = EventLog(ws.events_path)
-        state = RunState.load_or_new(ws, resume=resume)
-        # BEFORE build_context (which restores the budget snapshot from state.extra):
-        # make the state agree with the durable round journal, verify spec identity,
-        # and take the reconciled rounds as the loop's initial history — so the
-        # FAILED/BUDGET handlers below serialize the real rounds, never [].
-        rounds: list[RoundRecord] = self.reconcile_resume(spec, ws, events, state, resume=resume, force=force)
-        ctx = self.build_context(spec, ws, events, state)
-        runner = StageRunner(ws, events, state)
-        events.emit("run.start", track=self.track.value, language=spec.language.value, resume=resume,
-                    agent=ctx.agent_id, planner=spec.backends.planner, judge=spec.backends.judge)
-        stop: StopReason | str = "failed"
-        error = ""
-        try:
-            ctx.plan = runner.stage("plan", lambda: self._plan_stage(ctx), inputs={"spec": plan_stage_inputs(spec), "track": self.track.value},
-                                    model=self.plan_model)
-            self.after_plan(ctx)
-            self.prepare(ctx, runner)
-            stop = self._round_loop(ctx, rounds)
-        except BudgetExceeded as e:
-            events.emit("budget.exceeded", reason=e.reason, spent_usd=round(e.spent_usd, 4))
-            stop, error = "budget", e.reason
-            self._salvage_baseline(ctx, rounds)
-        except Exception as e:  # noqa: BLE001 — persist a FAILED record, then fail loud
-            error = f"{type(e).__name__}: {e}"
-            events.emit("run.failed", error=error, traceback=traceback.format_exc()[-3000:])
-            self._save_budget(ctx)  # mid-round charges must survive for resume
-            state.status, state.error = RunStatus.FAILED, error
-            state.save(ws)
-            rec = self._record(ctx, rounds, RunStatus.FAILED, error=error, stop_reason="failed")
-            self.services.finalize_record(ws, rec)
-            raise
-        status = _STATUS.get(stop, RunStatus.FAILED)
-        rec = self.finalise(ctx, rounds, status, stop_reason=str(stop), error=error)
-        return rec
+        # the run's own ledger even when nobody opened one (a test, a script): the CLI /
+        # bench open the same file first and run_ledger nests, restoring theirs on exit.
+        # Keep THEIR name when they bound one — a compare_backends cell is "<prompt>:<arm>",
+        # and rebinding it to the directory ("run") collapsed every cell into one bucket.
+        with run_ledger(ws.root, run=run_binding().run or ws.root.name):
+            if not ws.spec_path.is_file() or not resume:
+                ws.write_json(ws.spec_path, spec)
+            events = EventLog(ws.events_path)
+            state = RunState.load_or_new(ws, resume=resume)
+            # BEFORE build_context (which restores the budget snapshot from state.extra):
+            # make the state agree with the durable round journal, verify spec identity,
+            # and take the reconciled rounds as the loop's initial history — so the
+            # FAILED/BUDGET handlers below serialize the real rounds, never [].
+            rounds: list[RoundRecord] = self.reconcile_resume(spec, ws, events, state, resume=resume, force=force)
+            ctx = self.build_context(spec, ws, events, state)
+            runner = StageRunner(ws, events, state)
+            events.emit("run.start", track=self.track.value, language=spec.language.value, resume=resume,
+                        agent=ctx.agent_id, planner=spec.backends.planner, judge=spec.backends.judge)
+            stop: StopReason | str = "failed"
+            error = ""
+            try:
+                ctx.plan = runner.stage("plan", lambda: self._plan_stage(ctx), inputs={"spec": plan_stage_inputs(spec), "track": self.track.value},
+                                        model=self.plan_model)
+                self.after_plan(ctx)
+                self.prepare(ctx, runner)
+                stop = self._round_loop(ctx, rounds)
+            except BudgetExceeded as e:
+                events.emit("budget.exceeded", reason=e.reason, spent_usd=round(e.spent_usd, 4))
+                stop, error = "budget", e.reason
+                self._salvage_baseline(ctx, rounds)
+            except Exception as e:  # noqa: BLE001 — persist a FAILED record, then fail loud
+                error = f"{type(e).__name__}: {e}"
+                events.emit("run.failed", error=error, traceback=traceback.format_exc()[-3000:])
+                self._save_budget(ctx)  # mid-round charges must survive for resume
+                state.status, state.error = RunStatus.FAILED, error
+                state.save(ws)
+                rec = self._record(ctx, rounds, RunStatus.FAILED, error=error, stop_reason="failed")
+                self.services.finalize_record(ws, rec)
+                raise
+            status = _STATUS.get(stop, RunStatus.FAILED)
+            rec = self.finalise(ctx, rounds, status, stop_reason=str(stop), error=error)
+            return rec
 
     # ------------------------------------------------------------------ resume reconciliation
     def reconcile_resume(self, spec: Spec, ws: Workspace, events: EventLog, state: RunState,
@@ -404,10 +407,10 @@ class BaseTrack:
            dropped (half-written journal), with a ``resume.dropped_rounds`` event.
         3. **Rebuild.**  ``completed_rounds``/``round_commits`` come from the journal;
            when the state disagrees with it (rounds it never promoted, a best pointing
-           at the wrong commit) the best is recomputed with ``BestSelector`` — the
-           same ranking ``choose_best_round`` starts from, with no paid pairwise call.
-           A state that already agrees keeps its best untouched (it may embody a paid
-           pairwise keep-the-incumbent decision the pure ranking lacks).
+           at the wrong commit) the best is recomputed with :func:`replay_best_round`,
+           which re-walks the journal applying the pairwise verdicts the rounds stored
+           — never buying a new one, never reversing one already paid for.
+           A state that already agrees keeps its best untouched.
 
         Returns the loop's initial round history.  A fresh (non-resume) run only
         stamps the fingerprint and starts empty."""
@@ -461,12 +464,13 @@ class BaseTrack:
         # stale best, which is then restored and DELIVERED over the newer paid round
         unranked = bool(journal) and state.best_considered_through < journal[-1].index
         best_changed = False
-        if not journal:
-            if best is not None:
-                state.best_round, state.best_commit, state.best_score = None, "", None
-                best_changed = True
-        elif stale or best_invalid or unranked or best is None:
-            pick = BestSelector().pick(journal)
+        # an empty journal used to have its own arm; it is subsumed — with journal == []
+        # this condition is always true (best_invalid when a best is set, `best is None`
+        # otherwise) and replay_best_round([]) is None, which clears the best the same
+        # way.  The only divergence, blanking a stale best_commit while best_round is
+        # None, is unobservable: no reader touches best_commit without best_round.
+        if stale or best_invalid or unranked or best is None:
+            pick = replay_best_round(journal)
             if pick is None:
                 best_changed = best is not None
                 state.best_round, state.best_commit, state.best_score = None, "", None
@@ -503,23 +507,17 @@ class BaseTrack:
     def build_context(self, spec: Spec, ws: Workspace, events: EventLog, state: RunState) -> RunContext:
         settings = self._settings or get_settings()
         runtime = self._runtime or self.services.runtime(spec.language)
-        budget = BudgetGuard(spec.budget, soft_fraction=self.soft_budget_fraction,
-                             run=ws.root.name, ledger=run_ledger_path(ws))
+        budget = BudgetGuard(spec.budget, soft_fraction=self.soft_budget_fraction)
         snap = state.extra.get("budget_snapshot")
         if snap:
             # full guard state: money, calls, buckets AND active minutes keep counting,
-            # so a raised --max-usd grants only the difference, never a fresh full cap.
+            # so a raised cap (--max-minutes / --rounds) grants only the difference,
+            # never a fresh full cap.
             budget.restore(BudgetSnapshot.model_validate(snap))
-        else:
-            spent = state.extra.get("spent_usage")  # legacy run dirs (pre-snapshot)
-            if spent:
-                budget.spent = Usage.model_validate(spent)
         _reconcile_billed_from_ledger(budget, ws, events)
-        n_cand = self._resolve_candidates(spec, state, settings)
-        policy = ((self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds))
-                  .with_candidates(n_cand).with_judge(spec.backends.judge))
-        policy = replace(policy, detail_rounds=detail_round_budget(policy, self.supports_detail_round,
-                                                                    explicit=self._policy is not None))
+        policy = self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds)
+        policy = replace(policy, n_candidates=self._resolve_candidates(spec, settings), judge_model=spec.backends.judge,
+                         detail_rounds=detail_round_budget(policy, self.supports_detail_round))
         # reference images: static objects are scored with reference_v1 (adds the measured silhouette
         # criterion); other tracks keep their rubric but the judge still sees the references.
         rubric = REFERENCE_RUBRIC if spec.references and self.track is Track.STATIC_OBJECT else self.rubric
@@ -534,19 +532,15 @@ class BaseTrack:
             ctx.record_prompt(name, text)
         return ctx
 
-    def _resolve_candidates(self, spec: Spec, state: RunState, settings: Settings) -> int:
+    def _resolve_candidates(self, spec: Spec, settings: Settings) -> int:
         """Best-of-N width: constructor (CLI --candidates) > ``spec.options.candidates``
-        > persisted run state (legacy resume) > settings default."""
+        (the persisted carrier — spec.json travels with the run) > settings default."""
         n = self._n_candidates
         if n is None:
             n = spec.options.candidates
         if n is None:
-            n = state.extra.get("n_candidates")
-        if n is None:
             n = getattr(settings, "default_candidates", 1)
-        n = max(1, int(n or 1))
-        state.extra["n_candidates"] = n
-        return n
+        return max(1, int(n or 1))
 
     def make_judge(self, ctx: RunContext, *, n_samples: int | None = None) -> Any:
         """The main judge: injected → reference / likeness judge when the spec has images → rubric VLM judge."""
@@ -568,10 +562,11 @@ class BaseTrack:
         judge_hash = getattr(ctx.judge, "prompt_hash", "")
         if isinstance(judge_hash, str) and judge_hash:
             ctx.prompt_hashes["judge"] = judge_hash
-        if self._policy is None:
-            thr = self.services.rubric_threshold(ctx.rubric)
-            if thr is not None:
-                ctx.policy = replace(ctx.policy, target=float(thr))
+        # the rubric's pass threshold is the stop target whenever the rubric states one —
+        # for an injected policy too (the CLI used to re-derive it; one binding now)
+        thr = self.services.rubric_threshold(ctx.rubric)
+        if thr is not None:
+            ctx.policy = replace(ctx.policy, target=float(thr))
         if ctx.single_shot:
             if ctx.model is None:
                 ctx.model = self.services.chat_model(single_shot_model_id(ctx.agent_id))
@@ -612,12 +607,11 @@ class BaseTrack:
         """Materialise AGENTS.md/MCP config once per run for agent generators."""
         if ctx.single_shot:
             return
-        kind = ctx.agent_id.split(":", 1)[0]
+        kind = ctx.agent_kind
         if ctx.state.materialized_for == kind:
             return
-        mcp = ["python", "-m", "codeverse.spatial.mcp_server", "--workspace", str(ctx.ws.root)]
         self.services.materialize(ctx.ws, agent_kind=kind, contract_md=self.agent_contract_md(ctx), cookbook_rel=ctx.cookbook_rel,
-                                  spatial_tools=True, mcp_command=mcp)
+                                  spatial_tools=True)
         ctx.state.materialized_for = kind
         ctx.state.save(ctx.ws)
         ctx.events.emit("workspace.materialized", agent_kind=kind)
@@ -631,8 +625,8 @@ class BaseTrack:
         self.ensure_materialized(ctx)
         pipeline = self.make_pipeline()
         stop_policy = StopPolicy(ctx.policy)
-        selector = BestSelector()
         rejudged: set[int] = set()
+        transport_retried: set[int] = set()
         while True:
             decision = stop_policy.evaluate(rounds, budget_ok=ctx.budget.ok())
             if decision.stop:
@@ -656,13 +650,10 @@ class BaseTrack:
                     rejudged.add(last.index)
                     prev_j = rounds[-2].judgment if len(rounds) > 1 else None
                     if rejudge_round(ctx, pipeline, last, previous=prev_j):
-                        best = choose_best_round(ctx, rounds, selector, last.index)
-                        if best is not None and ctx.state.update_best(best, rounds[best].commit, rounds[best].score):
-                            ctx.events.emit("best.updated", round=best, score=rounds[best].score)
-                        self._save_budget(ctx)
+                        self._promote_best(ctx, rounds, last.index)
                         continue  # decide() re-runs with the recovered score
                 tasks, instructions = self.refine_tasks(ctx, last, rounds, strategy=decision.strategy)
-                kind = kind_for_strategy(decision.strategy)
+                kind = KIND_FOR_STRATEGY.get(decision.strategy, "refine")
                 if not tasks:
                     if last.judgment is None and last.build is not None and last.build.ok:
                         # no tasks only because the judge never scored the round: stopping
@@ -681,6 +672,16 @@ class BaseTrack:
                                     previous=previous, files_hint=self.round_files_hint(ctx),
                                     extra_notes=self.round_extra_notes(ctx), previous_best=best_score(rounds))
             except RoundFailed as e:
+                if index not in transport_retried and looks_transport(str(e)):
+                    # A vendor-CLI crash / 503 storm / dropped socket is not an agent
+                    # verdict — the session never really happened.  Re-run the SAME
+                    # round once, baseline included (rc=247 alone killed three whole
+                    # runs on 2026-08-29), before letting the failure mean anything.
+                    # ``continue`` re-enters through StopPolicy, so the budget and
+                    # round ceilings still guard the retry.
+                    transport_retried.add(index)
+                    ctx.events.emit("round.transport_retry", round=index, detail=str(e)[:500])
+                    continue
                 if index == 0:
                     raise
                 # A refine round in which no task changed any file is not a crash: the
@@ -698,11 +699,15 @@ class BaseTrack:
             # r1=0.7).  Crashing before this save leaves state behind the journal, which
             # reconcile detects (stale) and repairs by re-ranking; that is the safe side.
             ctx.state.mark_round_done(index, rec.commit)
-            best = choose_best_round(ctx, rounds, selector, index)
-            ctx.state.best_considered_through = index  # this round HAS been ranked
-            if best is not None and ctx.state.update_best(best, rounds[best].commit, rounds[best].score):
-                ctx.events.emit("best.updated", round=best, score=rounds[best].score)
-            self._save_budget(ctx)
+            self._promote_best(ctx, rounds, index)
+
+    def _promote_best(self, ctx: RunContext, rounds: list[RoundRecord], index: int) -> None:
+        """Rank round ``index`` in (pairwise tie-break included), promote the best, save."""
+        best = choose_best_round(ctx, rounds, BestSelector(), index)
+        ctx.state.best_considered_through = index  # this round HAS been ranked
+        if best is not None and ctx.state.update_best(best, rounds[best].commit, rounds[best].score):
+            ctx.events.emit("best.updated", round=best, score=rounds[best].score)
+        self._save_budget(ctx)
 
     def _salvage_baseline(self, ctx: RunContext, rounds: list[RoundRecord]) -> None:
         """A stage tripped the budget BEFORE round 0 ever ran (the greenhouse scene:
@@ -715,13 +720,10 @@ class BaseTrack:
         already stopping on budget."""
         if rounds or ctx.state.completed_rounds or ctx.plan is None:
             return  # nothing was built yet (the PLAN itself blew the budget) → nothing to salvage
-        if not ctx.budget.ok() and ctx.budget.spent.cost_usd > ctx.budget.hard_usd * 2:
-            return  # runaway spend: do not throw good money after bad
-        grace_usd = max(0.15, ctx.spec.budget.max_usd * 0.10)
         grace_min = max(5.0, ctx.spec.budget.max_minutes * 0.15)
-        ctx.budget.grant_grace(usd=grace_usd, minutes=grace_min)
-        ctx.events.emit("budget.salvage", reason="no round completed before the budget stop",
-                        grace_usd=round(grace_usd, 3), grace_minutes=round(grace_min, 1))
+        ctx.budget.grant_grace(minutes=grace_min)
+        ctx.events.emit("budget.salvage", reason="no round completed before the clock stop",
+                        grace_minutes=round(grace_min, 1))
         try:
             if not self.prepare_salvage(ctx):
                 ctx.events.emit("budget.salvage_skipped", reason="nothing buildable to salvage")
@@ -734,34 +736,46 @@ class BaseTrack:
             ctx.events.emit("budget.salvage_failed", error=f"{type(e).__name__}: {e}")
             return
         rounds.append(rec)
-        ctx.state.mark_round_done(0, rec.commit, ctx.ws)
-        if ctx.state.update_best(0, rec.commit, rec.score):
-            ctx.events.emit("best.updated", round=0, score=rec.score)
-        self._save_budget(ctx)
+        ctx.state.mark_round_done(0, rec.commit)
+        self._promote_best(ctx, rounds, 0)
 
     def _save_budget(self, ctx: RunContext) -> None:
         snap = ctx.budget.snapshot()
         ctx.state.extra["budget_snapshot"] = snap.model_dump(mode="json")
-        # legacy mirror, kept for one release: older tooling/tests still read spent_usage
-        ctx.state.extra["spent_usage"] = snap.spent.model_dump(mode="json")
         ctx.state.save(ctx.ws)
 
     # ------------------------------------------------------------------ finalise
     def finalise(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, stop_reason: str, error: str = "") -> RunRecord:
         self._save_budget(ctx)  # aborted-round / stage charges must survive for resume
         best = ctx.state.best_round
+        rebuild_err = ""
+        rebuild_ok = False
         if best is not None and best < len(rounds) and rounds[best].commit and self._needs_restore(ctx, rounds[best].commit):
             ctx.ws.restore(rounds[best].commit)
             ctx.ws.commit(f"restore best round r{best:02d}")
             try:
                 build = ctx.runtime.build(ctx.ws, timeout_s=ctx.settings.limits.build_timeout_s)
                 ctx.events.emit("finalise.rebuild", round=best, ok=build.ok)
+                if not build.ok:  # the runtime invalidated the canonical artifact FIRST — it is gone
+                    rebuild_err = f"{build.error_type or 'BuildFailed'}: {build.error_message}"[:300]
+                else:
+                    rebuild_ok = True
             except Exception as e:  # noqa: BLE001 — the best round already built once; report, don't fail
-                ctx.events.emit("finalise.rebuild_failed", error=f"{type(e).__name__}: {e}")
-        if rounds and self._texture_wanted(ctx):
+                rebuild_err = f"{type(e).__name__}: {e}"[:300]
+                ctx.events.emit("finalise.rebuild_failed", error=rebuild_err)
+        if rebuild_err:
+            # keep the earned status + scores; the record says the artifact is gone
+            ctx.extra["finalise_rebuild_failed"] = rebuild_err
+            error = error or f"finalise rebuild failed: {rebuild_err}"
+        elif rebuild_ok:
+            # a rebuild that RAN and succeeded clears the stale flag a prior failed finalise
+            # left (the prior-record merge would otherwise carry it forward); no-rebuild
+            # resumes keep the prior flag — the artifact may still be the missing one
+            ctx.extra["finalise_rebuild_failed"] = ""
+        if rounds and not rebuild_err and self._texture_wanted(ctx):
             self._texture_pass(ctx)
         ctx.state.status, ctx.state.stop_reason, ctx.state.error = status, stop_reason, error
-        ctx.state.save(ctx.ws)
+        self._save_budget(ctx)  # saves state too — AFTER the texture pass charged
         rec = self._record(ctx, rounds, status, error=error, stop_reason=stop_reason)
         self.services.finalize_record(ctx.ws, rec)
         ctx.events.emit("run.done", status=status.value, stop=stop_reason, best_round=rec.best_round,
@@ -819,14 +833,14 @@ class BaseTrack:
             log.warning("texture pass failed: %s", e)
             ctx.events.emit("texture.failed", error=f"{type(e).__name__}: {e}")
             return
-        ctx.budget.add(trep.usage, stage="texture", role="image", label="texture_pass")
+        ctx.budget.add(trep.usage, stage="texture")
         ctx.extra["texturing"] = trep.summary()
         if not ctx.budget.ok():
             # visible, but NOT `budget.exceeded`: that event means "the loop stopped",
             # and a texture pass runs after the loop has already finished.
             ctx.events.emit("budget.overrun", stage="texture",
-                            reason=f"the texture pass took the run past its ceiling "
-                                   f"(${ctx.budget.spent.cost_usd:.3f} of ${ctx.budget.hard_usd:.2f})",
+                            reason=f"the texture pass took the run past its wall-clock ceiling "
+                                   f"(spent ${ctx.budget.spent.cost_usd:.3f})",
                             spent_usd=round(ctx.budget.spent.cost_usd, 4))
 
     @staticmethod
@@ -862,11 +876,15 @@ class BaseTrack:
         # none of them in ``rounds`` — the guard is the honest total (docs/COST.md §6).
         if ctx.budget.spent.cost_usd > total.cost_usd:
             total = ctx.budget.spent
+        cands = ctx.ws.root / "rounds" / "candidates.json"  # best-of-N summary: the file is the one copy
         extra: dict[str, Any] = {"stop_reason": stop_reason, "rubric": ctx.rubric, "budget": ctx.budget.summary(),
-                                 "n_candidates": ctx.policy.n_candidates, "candidates": ctx.state.extra.get("candidates"),
+                                 "n_candidates": ctx.policy.n_candidates,
+                                 "candidates": ctx.ws.read_json(cands) if cands.is_file() else None,
                                  "cost_by_stage": ctx.budget.stage_summary()}
         if ctx.extra.get("texturing"):
             extra["texturing"] = ctx.extra["texturing"]
+        if ctx.extra.get("finalise_rebuild_failed"):
+            extra["finalise_rebuild_failed"] = ctx.extra["finalise_rebuild_failed"]
         if ctx.extra.get("aborted_rounds"):
             # rounds the budget (or a crash) cut after the money was spent: they are not
             # in ``rounds``, so name them here and keep their dollars in total_usage.
@@ -876,6 +894,8 @@ class BaseTrack:
         # sessions' aborted_rounds, prompt hashes of stages not re-executed): seed from
         # the prior record — unknown keys preserved, this session's values win.
         prior_extra, prior_hashes = self._prior_record_fields(ctx.ws)
+        if ctx.extra.get("finalise_rebuild_failed", None) == "":  # rebuilt successfully this session
+            prior_extra.pop("finalise_rebuild_failed", None)
         prior_aborted = prior_extra.get("aborted_rounds")
         for k, v in prior_extra.items():
             if k not in extra or extra[k] is None:

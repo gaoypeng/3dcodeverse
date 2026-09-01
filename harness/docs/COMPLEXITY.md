@@ -232,12 +232,19 @@ generation-side levers belong to the other two owners of the complexity wave.
    rubric).  Binary checklist items are the mechanism that gives a compressed
    judge range (ARCHITECTURE §6), and this is the one statement of F2 that a
    judge cannot answer with a vibe: it forces the kinds to be counted.
-6. **Nothing in the physical-plausibility path was touched.**  Every cap and
-   defect cap is byte-identical — `build_error` 0.0, `floating_part` 0.6,
+6. **Nothing in the physical-plausibility path was touched by this wave.**  Every
+   cap FLOOR and defect cap is unchanged — `build_error` 0.0, `floating_part` 0.6,
    `penetration_error` 0.7, `contract_violation` 0.75,
-   `missing_must_acceptance` 0.6, `wrong_object` 0.25 — and
+   `missing_must_acceptance` 0.6, `wrong_object` 0.25.  One of them has since
+   changed shape, deliberately and outside this wave: since 2026-08-30 the
+   acceptance cap is GRADED on the object rubrics — `0.6 + 0.4 · verified/total`
+   over the must items, so 0 of n still floors at 0.6 while 9 of 10 caps at 0.96
+   (`CapRule.graded`; DECISIONS D46 b, EVAL §6).  The guard
    `tests/judges/test_detail_anchors.py::test_physical_plausibility_caps_are_untouched`
-   fails if a later wave softens one.
+   pinned `.cap` alone and so let that through; its companion
+   `test_acceptance_cap_is_graded_with_the_floor_pinned` now pins both the
+   `graded` flag and the 0.6 floor, so a later wave can neither soften a floor
+   nor quietly fall back to the flat cap.
 
 ### 3.1 Did the rubric change measurably work?  Not yet — and here is the number
 

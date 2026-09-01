@@ -43,11 +43,22 @@ def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace)
     out = starter_ws.renders_dir(0)
     rs = render_scene(starter_ws, out, times=(0.0, 1.5), width=640, height=360, fps_seconds=0.3)
     assert rs.console_errors == []
+    names = {v.name for v in rs.views}
+    assert {"overview", "pond_low", "windmill"} <= names
+    assert {v.name for v in SCENE_VIEWS} <= names
     assert len(rs.views) == 2 * (3 + len(SCENE_VIEWS))          # full set on disk
+    assert rs.fps and rs.fps > 5 and rs.renderer
+    im = Image.open(rs.views[0].path)
+    assert im.size == (640, 360)
+    px = im.convert("L").resize((32, 18)).tobytes()
+    assert 20 < sum(px) / len(px) < 235                          # lit, neither black nor blown
     m = read_metrics(out)
+    assert m["census"]["totals"]["triangles"] > 1000
     chk = {c["name"]: c for c in m["camera_checks"]}
     for c in chk.values():
         assert 0.0 <= c["content_frac"] <= 1.0 and abs(c["content_frac"] + c["ground_frac"] + c["sky_frac"] - 1.0) < 0.02
+    assert not chk["overview"]["camera_in_geometry"]
+    assert chk["overview"]["dark_frac"] < 0.2 and chk["overview"]["blown_frac"] < 0.2
     assert chk["overview"]["content_frac"] > 0.2                  # authored establishing shot shows the grove
     assert chk["overview_top"]["ground_frac"] > 0.5               # top-down: mostly ground between the trees
     assert m["framing_bbox"]["size"][0] < m["census"]["bbox"]["size"][0]  # content, not the sky dome / ground
@@ -66,9 +77,13 @@ def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace)
     motion = {r["name"]: r for r in m["motion"]}
     assert motion and set(motion) == {v.name for v in rs.views}
     assert all(0.0 <= r["changed_frac"] <= 1.0 for r in motion.values())
+    a = Image.open(next(v.path for v in rs.views if v.name == "windmill" and v.time_s == 0.0)).convert("L")
+    b = Image.open(next(v.path for v in rs.views if v.name == "windmill" and v.time_s == 1.5)).convert("L")
+    assert sum(1 for x, y in zip(a.tobytes(), b.tobytes(), strict=True) if abs(x - y) > 12) > 100
     entries = json.loads((out / "views.json").read_text())
     assert all("judge" in e for e in entries)
     assert {(v["name"], v["time_s"]) for v in entries if v["judge"]} == stamped
+    assert rs.contact_sheet and Path(rs.contact_sheet).is_file()
     sheet = Image.open(rs.contact_sheet)
     tile_h = Image.open(rs.views[0].path).size[1]
     assert sheet.size[1] < 5 * tile_h                             # 8 tiles in 4 columns → 2 rows, not 5

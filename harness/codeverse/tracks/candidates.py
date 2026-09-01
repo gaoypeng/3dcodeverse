@@ -3,10 +3,13 @@
 * ``run_best_of_n`` — N baseline candidates are generated IN PARALLEL, each in
   its own throw-away sub-workspace (``<ws>/_cand/c<k>``: own git repo, copy of
   the skeleton + spec + plan, own AGENTS.md/MCP config), built (+repair),
-  gated, quick-rendered (4 views) and quick-judged (n_samples=1).  The winner
+  gated, quick-rendered (4 views) and judged (n_samples=1) — the ordinary round
+  (``steps._run_round``, kind ``candidate``) with two knobs turned: ``quick_render``
+  in place of ``pipeline.render`` and no clay views.  Each candidate's round trace
+  goes to its own ``events.jsonl``; the run log carries ``candidate.*``.  The winner
   (quick score → fewer gate errors; a pairwise tie-break when the top two are
   within judge noise) is copied back into the run workspace and the ordinary
-  round-0 pipeline (build → gates → 8-view render → full judge) runs on it.
+  round-0 pipeline (build → gates → 14-view render → full judge) runs on it.
   Every candidate is charged to the run budget and persisted in
   ``rounds/candidates.json``.
 * ``choose_best_round`` — after each round: when the new score is within
@@ -18,28 +21,28 @@ from __future__ import annotations
 
 import logging
 import shutil
-import time
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from codeverse.contracts.artifacts import GateReport, RenderSet
+from codeverse.contracts.artifacts import BuildResult, Measurement, RenderSet
 from codeverse.contracts.common import Usage
-from codeverse.contracts.run import RoundRecord
+from codeverse.contracts.run import PairwiseNote, RoundRecord
 from codeverse.conventions import OBJECT_VIEWS_QUICK
-from codeverse.orchestrator import BestSelector, BudgetExceeded
-from codeverse.proc import fan_out
+from codeverse.cost.types import Stage
+from codeverse.orchestrator import BestSelector, BudgetExceeded, gate_error_count
+from codeverse.proc import EventLog, fan_out
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import GenerationTask
-from codeverse.tracks.repair import build_with_repair
 from codeverse.tracks.steps import (
     RoundFailed,
     RoundPipeline,
+    _run_round,
     round_record_path,
-    run_generation_tasks,
     run_round,
 )
 from codeverse.workspace import Workspace
@@ -60,7 +63,20 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
     subs = [make_candidate_context(track, ctx, k) for k in range(n)]
 
     def _one(k: int) -> tuple[CandidateRecord, RenderSet | None]:
-        return run_candidate(track, subs[k], k, tasks, pipeline, files_hint=files_hint)
+        sub, label = subs[k], f"c{k}"
+        ctx.events.emit("candidate.start", candidate=k, workspace=str(sub.ws.root))
+        # kind="candidate" is what the cost ledger files the sessions under (Stage.CANDIDATE)
+        tasks_k = [t.model_copy(update={"label": f"{t.label}_{label}", "kind": "candidate"}) for t in tasks]
+        rec = _run_round(sub, index=0, kind="candidate", tasks=tasks_k, pipeline=pipeline, files_hint=list(files_hint),
+                         render=partial(quick_render, pipeline=pipeline), geometry_views=False)
+        build_ok = rec.build is not None and rec.build.ok
+        cand = CandidateRecord(index=k, label=label, workspace=str(sub.ws.root), commit=rec.commit, build_ok=build_ok,
+                               score=rec.score, gate_errors=gate_error_count(rec), usage=rec.usage,
+                               duration_s=rec.duration_s, sheet=(rec.renders.contact_sheet if rec.renders else "") or "",
+                               notes=rec.notes)
+        ctx.events.emit("candidate.done", candidate=k, score=cand.score, build_ok=build_ok, gate_errors=cand.gate_errors,
+                        duration_s=cand.duration_s, cost_usd=round(rec.usage.cost_usd, 4), commit=rec.commit[:10])
+        return cand, rec.renders
 
     results = fan_out(list(range(n)), _one, max_workers=ctx.settings.limits.max_parallel_agents, label="candidates",
                       item_name=lambda k: f"c{k}")
@@ -106,8 +122,6 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
     ctx.ws.write_json(ctx.ws.root / "rounds" / "candidates.json",
                       {"n": n, "selected": best, "candidates": [r.model_dump(mode="json") for r in records],
                        "pairwise": note.model_dump(mode="json") if note else None})
-    ctx.state.extra["candidates"] = {"n": n, "selected": best,
-                                     "scores": {r.label: r.score for r in records}}
     ctx.events.emit("candidate.selected", round=0, candidate=best, label=records[best].label, score=records[best].score,
                     build_ok=records[best].build_ok, scores={r.label: r.score for r in records},
                     cost_usd=round(usage.cost_usd, 4))
@@ -139,56 +153,16 @@ def make_candidate_context(track: Any, ctx: RunContext, k: int) -> RunContext:
         if path.is_file():
             shutil.copyfile(path, sub_ws.root / path.name)
     if not ctx.single_shot:
-        kind = ctx.agent_id.split(":", 1)[0]
-        ctx.services.materialize(sub_ws, agent_kind=kind, contract_md=track.agent_contract_md(ctx), cookbook_rel=ctx.cookbook_rel,
-                                 spatial_tools=True,
-                                 mcp_command=["python", "-m", "codeverse.spatial.mcp_server", "--workspace", str(sub_ws.root)])
+        ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=track.agent_contract_md(ctx),
+                                 cookbook_rel=ctx.cookbook_rel, spatial_tools=True)
     sub_ws.commit("skeleton")
-    return replace(ctx, ws=sub_ws, extra={})
+    # own event log (the run log keeps only candidate.*) and a one-sample judge for ranking
+    return replace(ctx, ws=sub_ws, extra={}, events=EventLog(sub_ws.events_path),
+                   judge=track.make_judge(ctx, n_samples=1))
 
 
-def run_candidate(track: Any, sub: RunContext, k: int, tasks: Sequence[GenerationTask], pipeline: RoundPipeline, *,
-                  files_hint: Sequence[str] = ()) -> tuple[CandidateRecord, RenderSet | None]:
-    """generate → build(+repair) → gates → quick 4-view render → quick judge, in the sub-workspace."""
-    t0 = time.time()
-    label = f"c{k}"
-    sub.events.emit("candidate.start", candidate=k, workspace=str(sub.ws.root))
-    rec = CandidateRecord(index=k, label=label, workspace=str(sub.ws.root))
-    usage = Usage()
-    tasks_k = [t.model_copy(update={"label": f"{t.label}_{label}"}) for t in tasks]
-    gens = run_generation_tasks(sub, tasks_k)  # RoundFailed propagates → candidate failed
-    for g in gens:
-        usage = usage + g.usage
-    sub.ws.commit(f"{label}: generated")
-    outcome = build_with_repair(sub, round_index=0, label=label, files_hint=list(files_hint))
-    usage = usage + outcome.usage
-    rec.build_ok = outcome.build.ok
-    gates: list[GateReport] = [outcome.lint]
-    renders: RenderSet | None = None
-    if outcome.build.ok:
-        measurement = pipeline.measure(sub, outcome.build)
-        gates.extend(pipeline.gates(sub, 0, outcome.build, measurement))
-        renders = quick_render(sub, outcome.build.glb_path, pipeline=pipeline,
-                               build=outcome.build, measurement=measurement)
-        if renders is not None and renders.views:
-            rec.sheet = renders.contact_sheet or ""
-            judgment = quick_judge(track, sub, pipeline, outcome.build, gates, measurement, renders)
-            if judgment is not None:
-                rec.score = judgment.overall
-                usage = usage + judgment.usage
-    else:
-        rec.notes = f"build failed: {outcome.build.error_type}: {outcome.build.error_message[:160]}"
-    rec.gate_errors = sum(len(g.errors) for g in gates)
-    rec.commit = sub.ws.commit(f"candidate {label}")
-    rec.usage = usage
-    rec.duration_s = round(time.time() - t0, 2)
-    sub.events.emit("candidate.done", candidate=k, score=rec.score, build_ok=rec.build_ok, gate_errors=rec.gate_errors,
-                    duration_s=rec.duration_s, cost_usd=round(usage.cost_usd, 4), commit=rec.commit[:10])
-    return rec, renders
-
-
-def quick_render(ctx: RunContext, glb_path: str | None, *, pipeline: RoundPipeline | None = None,
-                 build: Any | None = None, measurement: Any | None = None) -> RenderSet | None:
+def quick_render(ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None, *,
+                 pipeline: RoundPipeline | None = None) -> RenderSet | None:
     """Cheap renders for ranking a candidate — by the route THIS track actually has.
 
     An object has a GLB and gets the reduced-view, reduced-resolution rig, which is the
@@ -207,37 +181,23 @@ def quick_render(ctx: RunContext, glb_path: str | None, *, pipeline: RoundPipeli
     That costs more than the quick rig; it costs less than paying for N generations and
     keeping the first one blind.
     """
-    out_dir = ctx.ws.renders_dir(0) / "quick"
+    out_dir = ctx.ws.renders_dir(round_index) / "quick"
     try:
-        if glb_path:
-            return ctx.services.render_object(Path(glb_path), out_dir, views=OBJECT_VIEWS_QUICK,
-                                              width=QUICK_PX, height=QUICK_PX)
-        if pipeline is None or build is None:
+        if build.glb_path:
+            rs = ctx.services.render_object(Path(build.glb_path), out_dir, views=OBJECT_VIEWS_QUICK,
+                                            width=QUICK_PX, height=QUICK_PX)
+            # ArticulatedPipeline.gates() parks its sweep views here for render() to pick up
+            pose = ctx.extra.pop("pose_views", None)
+            if pose:
+                rs.views = list(rs.views) + list(pose)
+            return rs
+        if pipeline is None:
             return None
-        return pipeline.render(ctx, 0, build, measurement)
+        return pipeline.render(ctx, round_index, build, measurement)
     except Exception as e:  # noqa: BLE001 — a candidate without renders is ranked by gates only
         log.warning("quick render failed for %s: %s", ctx.ws.root, e)
         ctx.events.emit("candidate.render_failed", workspace=str(ctx.ws.root), error=f"{type(e).__name__}: {e}")
         return None
-
-
-def quick_judge(track: Any, ctx: RunContext, pipeline: RoundPipeline, build: Any, gates: list[GateReport],
-                measurement: Any, renders: RenderSet) -> Any | None:
-    from codeverse.judges.base import JudgeInput
-
-    try:
-        judge = track.make_judge(ctx, n_samples=1)
-        inp = JudgeInput(spec=ctx.spec, renders=renders, measurement=measurement, gates=gates,
-                         acceptance=list(getattr(ctx.plan, "acceptance", []) or []), plan_summary=pipeline.plan_summary(ctx),
-                         round_index=0, extra_context=pipeline.judge_context(ctx.ws, ctx.plan, 0, build, gates))
-        judgment = judge.judge(inp)
-    except Exception as e:  # noqa: BLE001 — judge outage: candidate ranked by gates only
-        log.warning("quick judge failed for %s: %s", ctx.ws.root, e)
-        ctx.events.emit("candidate.judge_failed", workspace=str(ctx.ws.root), error=f"{type(e).__name__}: {e}")
-        return None
-    ctx.budget.add(judgment.usage)  # verdict already paid for; the loop stops at its next check
-    ctx.ws.write_json(ctx.ws.judge_path(0, "_quick"), judgment)
-    return judgment
 
 
 def select_candidate(ctx: RunContext, records: Sequence[CandidateRecord], renders: dict[int, RenderSet]) -> tuple[int, PairwiseNote | None]:
@@ -253,7 +213,7 @@ def select_candidate(ctx: RunContext, records: Sequence[CandidateRecord], render
     decision, note = decide_best(a.score, b.score, margin=ctx.policy.pairwise_margin,
                                  min_confidence=ctx.policy.pairwise_min_confidence, compare=compare, labels=(a.label, b.label))
     if note is not None:
-        ctx.budget.add(note.usage)  # post-hoc accounting of a finished comparison
+        ctx.budget.add(note.usage, stage=Stage.PAIRWISE)  # post-hoc: a finished comparison
         ctx.events.emit("pairwise.done", stage="candidates", a=note.a, b=note.b, winner=note.winner, confidence=note.confidence,
                         accepted=note.accepted, error=note.error, cost_usd=round(note.usage.cost_usd, 4))
     if decision == "pairwise":
@@ -276,7 +236,6 @@ def adopt_candidate(ctx: RunContext, sub_ws: Workspace) -> None:
         shutil.copytree(sub_ws.trajectories, ctx.ws.trajectories, dirs_exist_ok=True)
 
 
-
 # ----------------------------------------------------------------------------- best round (pairwise tie-break)
 def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], selector: BestSelector, new_index: int) -> int | None:
     """Index of the best round after ``rounds[new_index]`` finished.
@@ -285,27 +244,49 @@ def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], selector: Best
     within ``policy.pairwise_margin`` of the current best: then a pairwise
     comparison of the two render sets decides, and the new round replaces the
     best only when it wins with ``confidence ≥ policy.pairwise_min_confidence``.
-    The verdict is appended to the new round's notes and re-persisted."""
+    The verdict is stored on the round (``RoundRecord.pairwise``, plus a notes line)
+    and re-persisted; the decision itself is :func:`replay_best_round` over the journal,
+    so the live pick and any later resume replay the SAME sequential rule."""
     incumbent = ctx.state.best_round
-    if incumbent is None or incumbent >= len(rounds) or incumbent == new_index:
-        return selector.pick(rounds)
-    inc, new = rounds[incumbent], rounds[new_index]
-    if new.score is None or inc.score is None:
-        return selector.pick(rounds)
-    compare = _pairwise_fn(ctx, inc.renders, new.renders) if (inc.renders and new.renders) else None
-    decision, note = decide_best(inc.score, new.score, margin=ctx.policy.pairwise_margin,
-                                 min_confidence=ctx.policy.pairwise_min_confidence, compare=compare,
-                                 labels=(f"r{incumbent:02d}", f"r{new_index:02d}"))
-    if note is not None:
-        ctx.budget.add(note.usage)  # post-hoc accounting of a finished comparison
-        new.usage = new.usage + note.usage
-        new.notes = (new.notes + "; " if new.notes else "") + note.line()
-        ctx.ws.write_json(round_record_path(ctx, new_index), new)
-        ctx.events.emit("pairwise.done", stage="rounds", a=note.a, b=note.b, winner=note.winner, confidence=note.confidence,
-                        accepted=note.accepted, error=note.error, cost_usd=round(note.usage.cost_usd, 4))
-    if decision == "score":
-        return selector.pick(rounds)
-    return new_index if decision == "pairwise" else incumbent
+    if incumbent is not None and incumbent < len(rounds) and incumbent != new_index:
+        inc, new = rounds[incumbent], rounds[new_index]
+        if new.score is not None and inc.score is not None:
+            compare = _pairwise_fn(ctx, inc.renders, new.renders) if (inc.renders and new.renders) else None
+            _, note = decide_best(inc.score, new.score, margin=ctx.policy.pairwise_margin,
+                                  min_confidence=ctx.policy.pairwise_min_confidence, compare=compare,
+                                  labels=(f"r{incumbent:02d}", f"r{new_index:02d}"))
+            if note is not None:
+                ctx.budget.add(note.usage, stage=Stage.PAIRWISE)  # post-hoc
+                new.usage = new.usage + note.usage
+                new.pairwise = note
+                new.notes = (new.notes + "; " if new.notes else "") + note.line()
+                ctx.ws.write_json(round_record_path(ctx, new_index), new)
+                ctx.events.emit("pairwise.done", stage="rounds", a=note.a, b=note.b, winner=note.winner, confidence=note.confidence,
+                                accepted=note.accepted, error=note.error, cost_usd=round(note.usage.cost_usd, 4))
+    return replay_best_round(rounds, selector=selector)
+
+
+def replay_best_round(journal: Sequence[RoundRecord], selector: BestSelector | None = None) -> int | None:
+    """The best index, walking the journal sequentially and honouring stored verdicts.
+
+    Each round is an incumbent-vs-challenger step: a round carrying a
+    :class:`PairwiseNote` was decided inside ``policy.pairwise_margin``, where score
+    ranking has nothing to say, so the stored verdict — replace or keep — is FINAL
+    (a later round can never revive a rejected challenger by global re-ranking, and a
+    kill before the state save cannot reverse a paid ~$0.05 judgement — 18 such runs
+    on disk, 2026-08-30); every other round advances by the two-way ``BestSelector``
+    rule, whose key is a total order — absent verdicts this equals the global pick."""
+    selector = selector or BestSelector()
+    best: int | None = None
+    for i, rec in enumerate(journal):
+        if rec.pairwise is not None and best is not None and best != i:
+            if rec.pairwise.accepted:
+                best = i
+        elif best is None:
+            best = selector.pick(journal[:i + 1])
+        elif selector.pick([journal[best], rec]) == 1:
+            best = i
+    return best
 
 
 def _pairwise_fn(ctx: RunContext, renders_a: RenderSet | None, renders_b: RenderSet | None):
@@ -319,13 +300,7 @@ def _pairwise_fn(ctx: RunContext, renders_a: RenderSet | None, renders_b: Render
     return _compare
 
 
-__all__ = ["CAND_DIR", "adopt_candidate", "choose_best_round", "make_candidate_context", "run_best_of_n", "run_candidate",
-           "select_candidate"]
-
-
 # ===================================================================== decision logic
-# (merged from codeverse/orchestrator/candidates.py, 2026-08-28 — this file was its
-#  only production importer, and two candidates.py in sibling packages was a hazard)
 class CandidateRecord(BaseModel):
     """One best-of-N baseline candidate (generated in its own sub-workspace)."""
 
@@ -349,23 +324,6 @@ class CandidateRecord(BaseModel):
 def rank_candidates(records: Sequence[CandidateRecord]) -> list[int]:
     """Candidate indices best-first: built > higher quick score > fewer gate errors > earlier."""
     return [r.index for r in sorted(records, key=lambda r: r.sort_key(), reverse=True)]
-
-
-class PairwiseNote(BaseModel):
-    """What a tie-break compared and what it concluded (persisted in round notes)."""
-
-    a: str = Field(description="label of the incumbent (current best)")
-    b: str = Field(description="label of the challenger (new round / other candidate)")
-    winner: Literal["a", "b", "tie"] = "tie"
-    confidence: float = 0.0
-    accepted: bool = Field(default=False, description="True when the challenger replaces the incumbent")
-    reasons: list[str] = Field(default_factory=list)
-    usage: Usage = Field(default_factory=Usage)
-    error: str = ""
-
-    def line(self) -> str:
-        verdict = {"a": f"{self.a} wins", "b": f"{self.b} wins", "tie": "tie"}[self.winner]
-        return f"pairwise {self.a} vs {self.b}: {verdict} (confidence {self.confidence:.2f}) → {'replace' if self.accepted else 'keep'}"
 
 
 Decision = Literal["score", "pairwise", "keep"]
@@ -416,3 +374,8 @@ def decide_best(
     note.error = getattr(res, "error", "") or ""
     note.accepted = note.winner == "b" and note.confidence >= min_confidence
     return ("pairwise" if note.accepted else "keep"), note
+
+
+__all__ = ["CAND_DIR", "CandidateRecord", "adopt_candidate", "choose_best_round", "decide_best",
+           "make_candidate_context", "quick_render", "rank_candidates", "replay_best_round", "run_best_of_n",
+           "select_candidate"]

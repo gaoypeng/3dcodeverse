@@ -24,13 +24,11 @@ from tests.orchestrator_tracks.fakes import (
     FakeAgent,
     FakeChatModel,
     FakeJudge,
+    FakePairwise,
     FakeRuntime,
     FakeServices,
+    _planner,
 )
-
-
-def _planner(plan_dict):
-    return FakeChatModel(lambda req: plan_dict)
 
 
 def _writer(job, ws):
@@ -97,6 +95,41 @@ def test_crash_between_round_write_and_state_save_delivers_the_newer_round(compl
     assert ev and ev[-1]["state_was_stale"] is True and ev[-1]["best_changed"] is True
 
 
+def test_a_paid_pairwise_verdict_survives_the_crash_window(tmp_path, chair_plan, settings):
+    """``choose_best_round`` re-persists rNN.json WITH its verdict and only THEN does
+    ``_promote_best`` save the state, so a kill in that gap (or any state predating
+    ``best_considered_through``) left a paid ~$0.05 judgement on disk that reconcile
+    could not see — and score-only re-ranking silently reversed it.  18 runs on disk
+    were in that shape (2026-08-30)."""
+    plan = chair_plan.model_dump(mode="json")
+
+    def build(pairwise):
+        return StaticObjectTrack(services=FakeServices(pairwise=pairwise), judge=FakeJudge(scores=(0.70, 0.72)),
+                                 agent=FakeAgent(_writer), planner_model=_planner(plan), settings=settings,
+                                 runtime=FakeRuntime(Language.BLENDER),
+                                 policy=RoundPolicy(max_rounds=1, target=0.9))
+
+    spec = make_spec(language=Language.BLENDER, max_rounds=1)
+    ws = Workspace(tmp_path / "runs" / "r")
+    paid = FakePairwise([("a", 0.9)])   # r1 outscores r0 by 0.02 (inside the margin); the judge says r0
+    rec1 = build(paid).run(spec, ws)
+    assert len(paid.calls) == 1 and rec1.best_round == 0 and rec1.final_score == pytest.approx(0.70)
+    note = rec1.rounds[1].pairwise
+    assert note is not None and note.winner == "a" and note.accepted is False
+    on_disk = json.loads((ws.root / "rounds" / "r01.json").read_text())
+    assert on_disk["pairwise"]["winner"] == "a", "the verdict must be durable, not just in notes"
+
+    state = json.loads(ws.state_path.read_text())    # ...killed before _promote_best saved
+    state["best_considered_through"] = 0
+    ws.state_path.write_text(json.dumps(state))
+
+    again = FakePairwise([("b", 0.99)])              # a second verdict would flip it
+    rec2 = build(again).run(spec, ws, resume=True)
+    assert again.calls == [], "resume replays the stored verdict, it never buys another"
+    assert rec2.best_round == 0 and rec2.final_score == pytest.approx(0.70)
+    assert RunState.load(ws).best_round == 0
+
+
 def test_a_self_consistent_state_with_an_unranked_round_still_re_ranks(completed_run):
     """The sharper crash shape (reproduced by review, 2026-08-27): the round was saved
     BEFORE best selection, so completed_rounds/round_commits matched the journal exactly
@@ -119,6 +152,39 @@ def test_a_self_consistent_state_with_an_unranked_round_still_re_ranks(completed
     assert rec2.best_round == 1 and rec2.final_score == pytest.approx(0.7)
     ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "resume.reconciled"][-1]
     assert ev["state_was_stale"] is False and ev["unranked_rounds"] is True and ev["best_changed"] is True
+
+
+def test_a_stored_pairwise_rejection_is_final(chair_plan):
+    """A paid pairwise REJECTION of a challenger (r1 within margin, judge said keep r0)
+    used to be silently overturned once ANY later round landed: both the live
+    ``choose_best_round`` and the resume ``replay_best_round`` re-ranked the WHOLE
+    journal on score alone and crowned the rejected r1.  The verdict is final: live
+    and replay agree, whether the later round is worse or failed to score at all."""
+    from codeverse.contracts.artifacts import BuildResult, Judgment
+    from codeverse.contracts.run import PairwiseNote, RoundRecord
+    from codeverse.orchestrator import BestSelector
+    from codeverse.tracks.candidates import choose_best_round, replay_best_round
+
+    def rec(i, score, pairwise=None):
+        j = None if score is None else Judgment(rubric="r", scores={}, overall=score, passed=False)
+        return RoundRecord(index=i, kind="baseline" if i == 0 else "refine", commit=f"c{i}",
+                           build=BuildResult(ok=score is not None, language="blender", entrypoint="src/main.py"),
+                           judgment=j, pairwise=pairwise)
+
+    r0 = rec(0, 0.70)
+    rejected = PairwiseNote(a="r00", b="r01", winner="a", confidence=0.9, accepted=False)
+    r1 = rec(1, 0.72, pairwise=rejected)  # outscores r0, but the paid verdict said keep r0
+    r2 = rec(2, 0.50)
+    assert replay_best_round([r0, r1]) == 0
+    assert replay_best_round([r0, r1, r2]) == 0, "a worse later round must not revive the rejected r1"
+    ctx = SimpleNamespace(state=SimpleNamespace(best_round=0),
+                          policy=SimpleNamespace(pairwise_margin=0.03, pairwise_min_confidence=0.6))
+    assert choose_best_round(ctx, [r0, r1, r2], BestSelector(), 2) == 0, "live must agree with replay"
+    r2b = rec(2, None)  # the new round never scored (build crash)
+    assert choose_best_round(ctx, [r0, r1, r2b], BestSelector(), 2) == 0
+    # an ACCEPTED verdict still promotes the challenger, and survives later worse rounds
+    accepted = PairwiseNote(a="r00", b="r01", winner="b", confidence=0.9, accepted=True)
+    assert replay_best_round([r0, rec(1, 0.72, pairwise=accepted), r2]) == 1
 
 
 # --------------------------------------------------------------------- (b) history wipe
@@ -193,7 +259,7 @@ def test_a_spec_edit_without_force_is_refused_before_anything_runs(completed_run
     assert json.loads(ws.record_path.read_text())["status"] != "failed"
 
     # the sanctioned budget raise (outside the fingerprint) still resumes plainly
-    spec3 = make_spec(language=Language.BLENDER, max_rounds=0, max_usd=50.0)
+    spec3 = make_spec(language=Language.BLENDER, max_rounds=0)
     ws.write_json(ws.spec_path, spec3)
     rec3 = run.rerun(spec=spec3, resume=True)
     assert [r.index for r in rec3.rounds] == [0]
@@ -235,11 +301,33 @@ def test_resume_charges_for_spend_the_snapshot_missed(tmp_path, chair_plan, sett
     led = open_run_ledger(ws.root)
     for cost in (0.30, 0.12):                       # what the provider actually billed
         led.append(CallCost(run=ws.root.name, model="gemini:flash", label="planner", cost_usd=cost))
-    guard = BudgetGuard(make_spec().budget, run=ws.root.name)
+    guard = BudgetGuard(make_spec().budget)
     guard.restore(BudgetSnapshot(spent=guard.spent, billed_usd=0.10,   # the boundary save missed 0.32
-                                 calls=1, by_stage={}, by_round={}, active_s=0.0))
+                                 calls=1, by_stage={}, active_s=0.0))
     _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
     assert guard.billed_usd == pytest.approx(0.42), "resume must charge for every billed call"
     guard.billed_usd = 5.0                           # a snapshot AHEAD of the ledger wins
     _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
     assert guard.billed_usd == pytest.approx(5.0), "reconcile never lowers what was already billed"
+
+
+def test_resume_reconcile_keeps_subscription_spend_notional(tmp_path, settings):
+    """A codex/claude/agy ledger row is priced at list rates but bills $0 (bills_usd):
+    resuming a subscription-backend run offline must not flip billed from $0 to the
+    notional sum — reconcile shares the exact predicate the live spend path uses."""
+    from codeverse.cost.ledger import open_run_ledger
+    from codeverse.cost.types import CallCost
+    from codeverse.orchestrator import BudgetGuard
+    from codeverse.tracks.lifecycle import _reconcile_billed_from_ledger
+
+    ws = Workspace(tmp_path / "runs" / "sub")
+    ws.create()
+    led = open_run_ledger(ws.root)
+    led.append(CallCost(run=ws.root.name, backend="codex", model="gpt-5.6-sol", label="generator", cost_usd=7.7))
+    led.append(CallCost(run=ws.root.name, backend="claude-code", model="sonnet", cost_usd=1.1))
+    guard = BudgetGuard(make_spec().budget)
+    _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
+    assert guard.billed_usd == 0.0, "subscription cost is notional; resume must keep billed at $0"
+    led.append(CallCost(run=ws.root.name, backend="gemini", model="gemini-3.7-flash", cost_usd=0.25))
+    _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
+    assert guard.billed_usd == pytest.approx(0.25), "the API-billed row still counts in full"

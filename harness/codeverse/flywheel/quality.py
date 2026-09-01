@@ -161,7 +161,6 @@ def near_duplicates(items: Iterable[DedupeItem], *, mesh_threshold: float = 0.9)
 
 
 # ===================================================================== quality
-# (merged from codeverse/flywheel/quality.py, 2026-08-28)
 QualityTier = Literal["A", "B", "C", "D"]
 TIER_ORDER: dict[str, int] = {"A": 0, "B": 1, "C": 2, "D": 3}
 TIER_C_MIN_SCORE = 0.6

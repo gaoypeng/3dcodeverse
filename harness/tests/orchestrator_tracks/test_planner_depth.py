@@ -1,7 +1,4 @@
-"""Planner depth: brief expansion, hierarchical sub-parts, plan budgets, quality gate.
-
-Every test here is offline (fake chat models); the live A/B lives in the wave report.
-"""
+"""Planner brief expansion, hierarchical parts, budgets, and quality gates."""
 
 from __future__ import annotations
 
@@ -64,7 +61,7 @@ def _detailed(i: int) -> str:
 
 
 # ----------------------------------------------------------------------------- (2) sub-parts
-def test_subpart_inside_parent_is_accepted_and_counted():
+def test_subpart_contracts():
     p = _part("BurrMechanism", children=[
         SubPartPlan(name="Burr", description="conical burr, 24 cutting flutes", bbox=_bbox(ex=0.4, ey=0.4, ez=0.4)),
         SubPartPlan(name="Shaft", description="square shaft 10 mm", bbox=_bbox(cz=0.2, ex=0.1, ey=0.1, ez=0.5)),
@@ -72,106 +69,59 @@ def test_subpart_inside_parent_is_accepted_and_counted():
     ])
     assert p.leaf_count == 4  # 1 + 1 + 2 copies
     assert _plan([p]).leaf_count == 4
+    plain = _part("Plain")  # plans written before sub-parts keep the additive defaults
+    assert plain.children == [] and plain.detail_hint == ""
 
-
-def test_subpart_outside_parent_bbox_is_rejected_with_the_axis_and_the_overflow():
     with pytest.raises(ValidationError) as e:
         _part("Head", children=[SubPartPlan(name="Peg", description="peg", bbox=_bbox(cx=3.0, ex=0.2, ey=0.2, ez=0.2))])
     msg = str(e.value)
     assert "sticks" in msg and " x " in msg and "Peg" in msg and "grow the parent bbox" in msg
 
-
-def test_subpart_within_the_relative_slack_is_tolerated():
-    # planner boxes are design intent: a child may overhang by SUBPART_REL_SLACK × extent
     over = 0.5 + SUBPART_REL_SLACK * 0.9  # parent half-extent 0.5, child centre pushes it just inside
     _part("Head", bbox=_bbox(ex=1.0, ey=1.0, ez=1.0),
           children=[SubPartPlan(name="Peg", description="peg", bbox=_bbox(cx=over, ex=0.0, ey=0.2, ez=0.2))])
 
-
-def test_duplicate_and_parent_colliding_subpart_names_are_rejected():
     with pytest.raises(ValidationError, match="duplicate sub-part name"):
         _part("Head", children=[SubPartPlan(name="Peg", description="a", bbox=_bbox(ex=0.2, ey=0.2, ez=0.2)),
                                 SubPartPlan(name="peg", description="b", bbox=_bbox(ex=0.2, ey=0.2, ez=0.2))])
     with pytest.raises(ValidationError, match="repeats its parent"):
         _part("Peg", children=[SubPartPlan(name="Peg", description="a", bbox=_bbox(ex=0.2, ey=0.2, ez=0.2))])
-
-
-def test_a_subpart_may_not_shadow_a_top_level_part_name():
     with pytest.raises(ValidationError, match="same name as top-level part"):
         _plan([_part("Body", children=[SubPartPlan(name="Lid", description="d", bbox=_bbox(ex=0.2, ey=0.2, ez=0.2))]),
                _part("Lid")])
 
 
-def test_subparts_are_depth_1_by_construction():
-    # SubPartPlan has no `children` field at all, so a cycle cannot even be expressed
-    assert "children" not in SubPartPlan.model_fields
-
-
-def test_every_recorded_plan_still_validates():
-    """ADDITIVE-only contract change: plans written before sub-parts existed must load."""
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[2] / "bench" / "out"
-    seen = 0
-    for pj in sorted(root.glob("*/runs/*/plan.json")):
-        raw = json.loads(pj.read_text())
-        if "parts" not in raw or "root_link" in raw:
-            continue  # articulated / graphics
-        if any(k in raw["parts"][0] for k in ("children", "detail_hint")):
-            continue  # a plan written after this wave landed — not a legacy sample
-        p = StaticPlan.model_validate(raw)
-        assert all(part.children == [] and part.detail_hint == "" for part in p.parts)
-        seen += 1
-        if seen >= 40:
-            break
-    if seen == 0:  # pragma: no cover — a checkout without bench/out
-        pytest.skip("no recorded plans on disk")
-
-
 # ----------------------------------------------------------------------------- (3) budgets
-def test_a_short_checklist_is_not_evidence_so_the_count_trigger_stays_off():
-    """"a stool" may be four parts: without a checklist or a brief the target is an
-    aspiration the prompt states, not something the gate may reject a plan over."""
+def test_plan_budget_contracts():
     thin = _plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(3)])
     assert not B.plan_budget(_spec(must=2)).evidence
     assert B.plan_quality_complaint(thin, B.plan_budget(_spec(must=2))) == ""
     assert "Only 3 parts" in B.plan_quality_complaint(thin, B.plan_budget(_spec(must=9)))
 
-
-def test_budget_scales_with_the_checklist_and_is_capped_by_the_language():
     small = B.plan_budget(_spec(must=3))
     big = B.plan_budget(_spec(must=13))
     huge = B.plan_budget(_spec(must=40))
     assert small.target_parts == B.MIN_PARTS < big.target_parts == 13
     assert huge.target_parts == B.PART_CAP[Language.BLENDER.value]
     assert huge.cap_parts == B.PART_CAP[Language.BLENDER.value]
-    # urdf links cost a joint + a collision pair each: a much lower ceiling
     assert B.plan_budget(_spec(must=40, track=Track.ARTICULATED_OBJECT,
                                language=Language.URDF_BLENDER)).cap_parts == B.PART_CAP[Language.URDF_BLENDER.value]
 
-
-def test_budget_uses_the_brief_when_there_is_no_checklist():
     brief = _brief().model_copy(update={
         "signature_features": ["a", "b", "c"],
         "sub_assemblies": [SubAssembly(name=f"s{i}", parts=["p", "q", "r"]) for i in range(4)]})
     b = B.plan_budget(_spec(must=0), brief)
     assert b.target_parts == 7 and b.min_assemblies == 3 and "sub-assemblies" in b.reason
 
-
-def test_graphics_budget_counts_passes_and_caps_at_six():
     b = B.plan_budget(_spec(must=6, track=Track.GRAPHICS, language=Language.GLSL_SHADER))
     assert b.cap_parts == B.GRAPHICS_CAP and b.target_parts == 5 and b.evidence
     assert "passes" in B.budget_block(b, unit="passes") and "`elements`" in B.budget_block(b, unit="passes")
 
-
-def test_budget_block_reaches_the_planner_user_prompt():
     text = build_user_prompt(_spec(must=10), budget=B.plan_budget(_spec(must=10)))
     assert "PLAN BUDGET" in text and "10 checklist items" in text
 
 
 def test_the_scene_track_gets_no_part_budget():
-    """A scene is planned in zones and assets — "aim for 10 top-level parts" is nonsense
-    there, and the quality gate has no parts to look at either."""
     from codeverse.contracts.plan import ScenePlan
 
     spec = _spec(must=10, track=Track.SCENE, language=Language.SCENE_THREEJS)
@@ -193,42 +143,28 @@ def test_plan_templates_render_the_budget_numbers():
 
 
 # ----------------------------------------------------------------------------- (4) quality gate
-def test_gate_fires_on_under_decomposition_and_names_the_number():
+def test_plan_quality_gate_contracts():
     budget = B.plan_budget(_spec(must=12))
     complaint = B.plan_quality_complaint(_plan([_part(f"P{i}", desc=_detailed(i)) for i in range(4)]), budget)
     assert "Only 4 parts" in complaint and "about 12" in complaint
 
-
-def test_gate_fires_on_boxes_at_different_sizes_and_names_the_offenders():
     budget = B.plan_budget(_spec(must=8))
     complaint = B.plan_quality_complaint(_plan([_part(f"P{i}") for i in range(8)]), budget)
     assert "boxes at different sizes" in complaint and "P0" in complaint
 
-
-def test_gate_stays_quiet_on_a_plan_that_meets_its_budget():
-    budget = B.plan_budget(_spec(must=8))
     parts = [_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(8)]
     assert B.plan_quality_complaint(_plan(parts), budget) == ""
 
-
-def test_soft_complaints_never_fire_alone():
-    """A wrought-iron arch really is all one material, and a chair really has no assembly."""
-    budget = B.plan_budget(_spec(must=8))
     parts = [_part(f"P{i}", desc=_detailed(i), material="wrought iron") for i in range(8)]
     assert B.plan_quality_complaint(_plan(parts), budget) == ""
     thin = [_part(f"P{i}", material="wrought iron") for i in range(8)]
     both = B.plan_quality_complaint(_plan(thin), budget)
-    assert "boxes at different sizes" in both and "same material" in both  # rides along with a hard one
+    assert "boxes at different sizes" in both and "same material" in both
 
-
-def test_children_and_elements_count_as_detail():
-    budget = B.plan_budget(_spec(must=8))
     kids = [SubPartPlan(name="K", description="knurled collar", bbox=_bbox(ex=0.2, ey=0.2, ez=0.2))]
     parts = [_part(f"P{i}", material=f"m{i}", children=kids) for i in range(8)]
     assert B.plan_quality_complaint(_plan(parts), budget) == ""
 
-
-def test_graphics_passes_are_judged_by_technique_not_by_bevels():
     assert B.has_pass_detail("vignette, slight chromatic aberration, tonemap + gamma")
     assert B.has_pass_detail("40-60 blurred discs in 3 depth layers")
     assert not B.has_pass_detail("the background")
@@ -394,47 +330,29 @@ def test_plan_output_room_grows_with_the_plan_and_is_capped():
     assert plan_tokens(small, 24000) >= 24000  # never below the caller's floor
 
 
-def test_a_truncated_plan_is_retried_with_more_room_instead_of_killing_the_run(tmp_path, monkeypatch):
-    """Measured failure: the deeper plan overflowed the flat 24 000-token ceiling and the
-    ModelError took the whole run down at the plan stage."""
+def test_truncated_plans_keep_growing_output_room(tmp_path, monkeypatch):
     monkeypatch.setenv(BR.BRIEF_ENV, "off")
     from codeverse.models.base import ModelError
 
-    ws = Workspace(tmp_path / "run")
-    ws.create()
     good = json.loads(_plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(9)]).model_dump_json())
-    seen: list[int] = []
 
-    def responder(req):
-        seen.append(req.max_output_tokens)
-        if len(seen) == 1:
-            raise ModelError("structured output unavailable (finish_reason=MAX_TOKENS; raise max_output_tokens)")
-        return good
+    def run(failures):
+        ws = Workspace(tmp_path / f"run-{failures}").create()
+        seen: list[int] = []
 
-    plan, _u = plan_with_usage(_spec(must=8), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
-    assert len(seen) == 2 and seen[1] > seen[0] and len(plan.parts) == 9
+        def responder(req):
+            seen.append(req.max_output_tokens)
+            if len(seen) <= failures:
+                raise ModelError("structured output unavailable (finish_reason=MAX_TOKENS; raise max_output_tokens)")
+            return good
 
+        plan, _u = plan_with_usage(_spec(must=8), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
+        return seen, plan
 
-def test_repeated_truncation_keeps_growing_to_the_ceiling(tmp_path, monkeypatch):
-    """chest_urdf, loop_w1 (2026-08-28): validation re-asks grew the history and
-    3.6-flash truncated AGAIN at 55,800 — the old single-growth guard killed the run
-    one step short of the 65,536 ceiling.  Truncation grows until the ceiling."""
-    monkeypatch.setenv(BR.BRIEF_ENV, "off")
-    from codeverse.models.base import ModelError
-
-    ws = Workspace(tmp_path / "run")
-    ws.create()
-    good = json.loads(_plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(9)]).model_dump_json())
-    seen: list[int] = []
-
-    def responder(req):
-        seen.append(req.max_output_tokens)
-        if len(seen) <= 2:
-            raise ModelError("structured output unavailable (finish_reason=MAX_TOKENS; raise max_output_tokens)")
-        return good
-
-    plan, _u = plan_with_usage(_spec(must=8), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
-    assert len(seen) == 3 and seen[0] < seen[1] < seen[2] and len(plan.parts) == 9
+    for failures in (1, 2):
+        seen, plan = run(failures)
+        assert len(seen) == failures + 1 and seen == sorted(set(seen))
+        assert len(plan.parts) == 9
 
 
 def test_a_model_error_that_is_not_truncation_still_propagates(tmp_path, monkeypatch):
@@ -520,24 +438,15 @@ def test_brief_and_plan_are_one_model_and_the_events_say_so(tmp_path, monkeypatc
 
 
 def test_a_model_name_leak_is_rejected_not_modelled():
-    """Measured 2026-08-28 (gear_cq_ss): the planner emitted a part literally named
-    'Gemini25FlashThinking' — a thinking model's self-reference leaked into structured
-    output — and the generator faithfully built a placeholder pillar for it (judged 0.0).
-    The contract now rejects such names so the planner is re-asked, like an unsafe
-    camera name.  Real part names that merely contain 'flash' or 'model' stay legal."""
-    import pytest as _pytest
-    from pydantic import ValidationError
-
     from codeverse.contracts.plan import JointPlan, PartPlan, SubPartPlan
 
     for bad in ("Gemini25FlashThinking", "GPT4Placeholder", "placeholder_arm"):
-        with _pytest.raises(ValidationError, match="leaked from"):
+        with pytest.raises(ValidationError, match="leaked from"):
             PartPlan(name=bad, role="r", description="d", bbox=_bbox())
-    with _pytest.raises(ValidationError, match="leaked from"):
+    with pytest.raises(ValidationError, match="leaked from"):
         SubPartPlan(name="ClaudePart", description="d", bbox=_bbox())
-    with _pytest.raises(ValidationError, match="leaked from"):
+    with pytest.raises(ValidationError, match="leaked from"):
         JointPlan(name="gemini_hinge", type="revolute", parent="A", child="B",
                   axis=(0, 0, 1), pivot=(0, 0, 0))
-    # high precision: legitimate names that merely contain hot substrings stay legal
     for ok in ("CameraFlash", "ModelStand", "GearHousing"):
         PartPlan(name=ok, role="r", description="d", bbox=_bbox())

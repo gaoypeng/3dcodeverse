@@ -1,9 +1,4 @@
-"""codeverse/proc.py — subprocess primitives (Batch-1 foundations).
-
-This module owns the ManagedProcess lifecycle: stdin delivery, group kill,
-KeyboardInterrupt cleanup, drain/reap and bounded capture.  ``agents/watchdog``
-only adds clocks on top, so tests/agents/test_watchdog.py does not repeat them.
-"""
+"""Subprocess lifecycle, bounded capture, atomic writes, and tolerant reads."""
 
 from __future__ import annotations
 
@@ -58,8 +53,7 @@ def test_timeout_kills_the_whole_process_group(tmp_path: Path):
 
 
 def test_a_leader_that_exits_0_still_takes_its_grandchildren_down(tmp_path: Path):
-    """``__exit__`` asked "is the LEADER still running?", so a leader that exited 0 left its
-    same-group grandchildren alive.  Detached-stdio shape: nothing holds the pipes."""
+    """A cleanly exited leader must not leave same-group grandchildren alive."""
     pid_file = tmp_path / "pid"
     r = run_subprocess(["bash", "-c", f"sleep 300 >/dev/null 2>&1 & echo $! > {pid_file}; exit 0"],
                        cwd=tmp_path, timeout_s=10)
@@ -68,8 +62,7 @@ def test_a_leader_that_exits_0_still_takes_its_grandchildren_down(tmp_path: Path
 
 
 def test_a_leader_that_exits_0_does_not_burn_the_drain_window(tmp_path: Path, monkeypatch):
-    """Same shape with the grandchild holding the INHERITED pipes: the drain used to wait out
-    DRAIN_TIMEOUT_S for a process nobody had signalled, then blame a "detached descendant"."""
+    """Inherited pipes do not force a clean exit through the drain timeout."""
     import codeverse.proc as proc_mod
 
     monkeypatch.setattr(proc_mod, "DRAIN_TIMEOUT_S", 3.0)
@@ -84,9 +77,7 @@ def test_a_leader_that_exits_0_does_not_burn_the_drain_window(tmp_path: Path, mo
 
 
 def test_a_detached_descendant_holding_the_pipes_cannot_extend_the_timeout(tmp_path: Path, monkeypatch):
-    """CP-4: after TimeoutExpired a SECOND, untimed communicate() ran; a descendant that
-    setsid'd while inheriting stdout kept the pipe open and blocked it unboundedly, so a
-    caller passing timeout_s=N was never released at N."""
+    """A detached descendant holding stdout cannot extend the caller's timeout."""
     import codeverse.proc as proc_mod
 
     # raising=False so this test still RUNS (and fails on the hang) against the
@@ -104,8 +95,7 @@ def test_a_detached_descendant_holding_the_pipes_cannot_extend_the_timeout(tmp_p
 
 
 def test_a_same_group_grandchild_still_has_its_output_collected(tmp_path: Path):
-    """The bound must not cost us the normal case: a grandchild inside the group is
-    killed by killpg, so the drain completes and the output survives."""
+    """The timeout path still preserves output from a same-group grandchild."""
     r = run_subprocess(["bash", "-c", "echo hello; sleep 30 & wait"], cwd=tmp_path, timeout_s=0.4)
     assert r.timed_out and "hello" in r.stdout
 
@@ -171,10 +161,7 @@ print(bad)
 
 
 def test_write_json_atomic_survives_concurrent_writers(tmp_path: Path):
-    """RS-1: one shared ``<name>.tmp`` per destination meant writer A renamed B's
-    half-written tmp into place (readers saw truncated JSON) and B's replace() died with
-    FileNotFoundError.  Real callers share a path (zone agents → artifacts/build_last.json).
-    Three PROCESSES, one path: on the old code this failed within a few dozen iterations."""
+    """Concurrent processes publish only complete JSON and leave no temp files."""
     import subprocess
 
     harness = Path(__file__).resolve().parents[2]
@@ -191,11 +178,7 @@ def test_write_json_atomic_survives_concurrent_writers(tmp_path: Path):
 
 
 def test_unique_tmp_is_per_process_and_per_thread(tmp_path: Path):
-    """CQ-2's naming half: two writers racing on ONE destination must not pick the same
-    temp name.  The barrier is load-bearing — ``threading.get_ident()`` is unique only
-    among LIVING threads, so without it CPython recycles one ident, the assertion decays
-    to 1 != 8 and it fails only on some interpreters (seen on 3.10, passed on 3.13,
-    2026-08-24).  The fix under test was never wrong; the test was."""
+    """Simultaneously live threads choose distinct process/thread temp names."""
     from codeverse.proc import unique_tmp
 
     out = tmp_path / "cache" / "checker.mjs"
@@ -222,8 +205,7 @@ def test_unique_tmp_is_per_process_and_per_thread(tmp_path: Path):
 
 
 def test_concurrent_writers_of_one_destination_all_succeed(tmp_path: Path):
-    """CQ-2's write half: the second writer's replace() used to find its source already
-    renamed away -> FileNotFoundError.  Barrier-synchronised, this failed ~half the time."""
+    """Barrier-synchronized writers can safely replace one destination."""
     from codeverse.proc import write_text_atomic
 
     out = tmp_path / "shared.txt"
@@ -310,10 +292,7 @@ def _raise_ki(signum: int, frame: object) -> None:
 
 @pytest.mark.timeout(60, method="thread")  # thread method: the test drives SIGALRM itself
 def test_keyboard_interrupt_kills_the_group(tmp_path: Path):
-    """``start_new_session`` puts the child outside the terminal's foreground group, so
-    Ctrl-C's SIGINT NEVER reaches it — the parent's KeyboardInterrupt must kill the group
-    itself (pre-fix: no try/finally around communicate(), so every interrupt during a
-    blender/node run orphaned the tree).  The KI must still propagate to the caller."""
+    """KeyboardInterrupt kills the separate child process group and propagates."""
     pid_file = tmp_path / "pid"
     old = signal.signal(signal.SIGALRM, _raise_ki)
     try:
@@ -328,8 +307,7 @@ def test_keyboard_interrupt_kills_the_group(tmp_path: Path):
 
 
 def test_invalid_utf8_replaces_instead_of_raising(tmp_path: Path):
-    """text=True with a strict decode raised UnicodeDecodeError out of communicate()
-    — one bad byte lost the whole result.  Now: U+FFFD, like the JSONL readers here."""
+    """One bad byte is replaced instead of discarding the subprocess result."""
     r = run_subprocess(
         [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'ok \\xff\\xfe end')"],
         cwd=tmp_path, timeout_s=30,
@@ -340,8 +318,7 @@ def test_invalid_utf8_replaces_instead_of_raising(tmp_path: Path):
 
 @pytest.mark.timeout(120)
 def test_huge_output_is_bounded_head_and_tail(tmp_path: Path):
-    """Output used to be collected unbounded in RAM (and written whole to the
-    trajectory).  ~48 MB in → at most the budget (+ marker) out, keeping both ends."""
+    """Large output is bounded while preserving its head, tail, and truncation marker."""
     code = (
         "import sys\n"
         "w = sys.stdout.buffer.write\n"

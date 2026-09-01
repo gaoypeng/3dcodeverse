@@ -6,8 +6,6 @@
 * ``make_tileable(img, border_frac)``: cross-fades each edge band with the mirrored
   opposite band (a smoothstep ramp over ``border_frac`` of the width) so the wrap
   seam disappears; content in the middle is untouched.
-* ``offset_check(img)``: half-offset the image (seams move to the centre) — the
-  classic visual check; returns the offset image for inspection.
 * ``fit_size`` / ``save_texture``: power-of-two downscale + PNG or JPEG q90.
 """
 
@@ -15,11 +13,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import shutil
-import threading
 import time
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +30,9 @@ from codeverse.contracts.common import Usage
 from codeverse.contracts.plan import AcceptanceItem, StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
+from codeverse.judges.base import JudgeInput, plan_digest
+from codeverse.judges.rubrics import is_degraded
+from codeverse.proc import fan_out
 
 #: seam score above which a texture is considered NOT tileable (after make_tileable)
 SEAM_MAX = 0.08
@@ -94,14 +94,6 @@ def make_tileable(img: Image.Image, border_frac: float = 0.12) -> Image.Image:
     return Image.fromarray((np.clip(out, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8), "RGB")
 
 
-def offset_check(img: Image.Image) -> Image.Image:
-    """Roll the image by half its size so the wrap seams sit in the centre."""
-    a = _arr(img)
-    h, w = a.shape[:2]
-    rolled = np.roll(np.roll(a, w // 2, axis=1), h // 2, axis=0)
-    return Image.fromarray((rolled * 255.0 + 0.5).astype(np.uint8), "RGB")
-
-
 def fit_size(img: Image.Image, size: int) -> Image.Image:
     """Square, power-of-two-ish downscale to ``size`` (never upscales)."""
     w, h = img.size
@@ -124,22 +116,11 @@ def save_texture(img: Image.Image, path: Path, *, fmt: str | None = None, qualit
     return path
 
 
-def tile_preview(img: Image.Image, reps: int = 2, size: int = 512) -> Image.Image:
-    """``reps × reps`` repetition for eyeballing tileability."""
-    t = img.convert("RGB").resize((size // reps, size // reps), Image.LANCZOS)
-    out = Image.new("RGB", (t.size[0] * reps, t.size[1] * reps))
-    for i in range(reps):
-        for j in range(reps):
-            out.paste(t, (i * t.size[0], j * t.size[1]))
-    return out
-
-
 # ===================================================================== generate
-# (merged from codeverse/texturing/generate.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 #: bump when the cached raw image semantics change (prompt composition, model config)
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # v2: seed joined the key
 
 
 class TextureAsset(BaseModel):
@@ -172,64 +153,9 @@ class TextureSet(BaseModel):
         return {k: v.error for k, v in self.textures.items() if v.error}
 
 
-def prompt_key(prompt: str, model_id: str, size: int) -> str:
-    return hashlib.sha256(f"v{CACHE_VERSION}|{model_id}|{size}|{prompt.strip()}".encode()).hexdigest()[:24]
-
-
-# --------------------------------------------------------------------------- fake model
-class FakeImageModel:
-    """Deterministic procedural textures (seeded by the prompt) for offline tests.
-    Records every prompt it was asked for in ``calls``."""
-
-    provider = "fake"
-
-    def __init__(self, model: str = "fake-image", *, latency_s: float = 0.0, fail_on: Sequence[str] = (),
-                 usd_per_image: float = 0.001) -> None:
-        self.model = model
-        self.latency_s = latency_s
-        self.fail_on = tuple(fail_on)
-        self.usd_per_image = usd_per_image
-        self.calls: list[str] = []
-        self._lock = threading.Lock()
-
-    @property
-    def id(self) -> str:
-        return f"fake-image:{self.model}"
-
-    def generate(self, prompt: str, *, size: int = 1024, n: int = 1, seed: int | None = None,
-                 reference_images: Sequence[Any] = ()) -> list[Image.Image]:
-        return self.generate_with_usage(prompt, size=size, n=n, seed=seed, reference_images=reference_images)[0]
-
-    def generate_with_usage(self, prompt: str, *, size: int = 1024, n: int = 1, seed: int | None = None,
-                            reference_images: Sequence[Any] = ()) -> tuple[list[Image.Image], Usage]:
-        with self._lock:
-            self.calls.append(prompt)
-        if any(s in prompt for s in self.fail_on):
-            from codeverse.models.base import ModelError
-
-            raise ModelError(f"fake image model refused: {prompt[:40]}", retryable=False)
-        if self.latency_s:
-            time.sleep(self.latency_s)
-        images = [procedural_texture(prompt, size=size, seed=(seed or 0) + i) for i in range(n)]
-        usage = Usage(backend="fake-image", model=self.model, input_tokens=len(prompt.split()), output_tokens=1290 * n,
-                      cost_usd=self.usd_per_image * n, latency_ms=int(self.latency_s * 1000))
-        return images, usage
-
-
-def procedural_texture(prompt: str, *, size: int = 256, seed: int = 0) -> Image.Image:
-    """Prompt-seeded noise + stripes in a prompt-derived colour.  NOT tileable on
-    purpose (so tests exercise ``make_tileable``): a linear gradient is added."""
-    h = int(hashlib.sha256(prompt.encode()).hexdigest()[:8], 16)
-    rng = np.random.default_rng(h + seed)
-    base = np.array([(h >> 16) & 255, (h >> 8) & 255, h & 255], dtype=np.float32) / 255.0
-    base = 0.25 + 0.6 * base
-    y, x = np.mgrid[0:size, 0:size].astype(np.float32) / size
-    stripes = 0.08 * np.sin(2 * np.pi * (8 * x + 3 * np.sin(2 * np.pi * y)))
-    noise = 0.06 * rng.standard_normal((size, size)).astype(np.float32)
-    grad = 0.25 * x  # seam-breaking gradient
-    lum = (stripes + noise + grad)[:, :, None]
-    img = np.clip(base[None, None, :] + lum, 0.0, 1.0)
-    return Image.fromarray((img * 255).astype(np.uint8), "RGB")
+def prompt_key(prompt: str, model_id: str, size: int, seed: int | None = 0) -> str:
+    # seed is in the key: seed=2 must not be served seed=1's cached pixels
+    return hashlib.sha256(f"v{CACHE_VERSION}|{model_id}|{size}|{seed}|{prompt.strip()}".encode()).hexdigest()[:24]
 
 
 # --------------------------------------------------------------------------- generation
@@ -245,7 +171,7 @@ def generate_one(
 ) -> TextureAsset:
     """Generate (or fetch from cache) one texture and deliver ``out_dir/<texture_id>.png``."""
     model_id = getattr(image_model, "id", getattr(image_model, "model", "image"))
-    key = prompt_key(prompt, str(model_id), size)
+    key = prompt_key(prompt, str(model_id), size, seed)
     raw_path = _cache_dir(cache_dir) / f"{key}.png"
     asset = TextureAsset(texture_id=texture_id, path=str(Path(out_dir) / f"{texture_id}.png"), prompt=prompt,
                          prompt_hash=key, size=size, model=str(model_id))
@@ -260,7 +186,7 @@ def generate_one(
         raw = images[0].convert("RGB")
         asset.usage = usage
         if use_cache:
-            tmp = raw_path.with_suffix(".tmp.png")
+            tmp = raw_path.with_suffix(f".{os.getpid()}.tmp.png")  # per-writer: a cross-process collision poisoned the shared cache
             raw.save(tmp, "PNG")
             tmp.replace(raw_path)
     asset.seam_score_raw = seam_score(raw)
@@ -315,12 +241,16 @@ def generate_textures(
         except Exception as e:  # noqa: BLE001 — per-texture failure is data, not a crash
             log.warning("texture %s failed: %s: %s", tid, type(e).__name__, e)
             return TextureAsset(texture_id=tid, path=str(out_dir / f"{tid}.png"), prompt=prompts[tid],
-                                prompt_hash=prompt_key(prompts[tid], str(getattr(image_model, "id", "")), size),
+                                prompt_hash=prompt_key(prompts[tid], str(getattr(image_model, "id", "")), size, seed),
                                 size=size, error=f"{type(e).__name__}: {e}")
 
     ids = list(leaders.values())
-    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(ids)))) as pool:
-        assets = list(pool.map(_job, ids))
+    # fan_out, not a bare pool: its workers inherit the caller's context, so the image
+    # model's spend is billed to the run's ledger instead of the per-process log
+    # (codeverse.cost.context).  ``_job`` swallows its own failures, so nothing here
+    # comes back as an Exception.
+    assets = [a for a in fan_out(ids, _job, max_workers=max_workers, label="texture", item_name=str)
+              if isinstance(a, TextureAsset)]
     for a in assets:
         result.textures[a.texture_id] = a
         result.usage = result.usage + a.usage
@@ -335,8 +265,6 @@ def generate_textures(
 
 
 # ===================================================================== gate
-# (merged from codeverse/texturing/gate.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 MIN_OVERALL_DELTA = -0.01
 MIN_MATERIALS_DELTA = 0.0
@@ -387,20 +315,6 @@ def material_criterion(scores: dict[str, float], rubric_hint: str = "") -> str:
     return ""
 
 
-def _plan_summary(plan: StaticPlan | None) -> str:
-    if plan is None:
-        return ""
-    parts = ", ".join(f"{p.name}×{p.instances}" if p.instances > 1 else p.name for p in plan.parts)
-    e = plan.overall_bbox.extents
-    return f"{plan.object_name}: {plan.summary} Overall {e[0]:.2f}×{e[1]:.2f}×{e[2]:.2f} m. Parts: {parts}."
-
-
-def _degraded(j: Judgment) -> bool:
-    from codeverse.judges.rubrics import is_degraded
-
-    return is_degraded(j)
-
-
 def judge_gate(
     spec: Spec,
     plan: StaticPlan | None,
@@ -418,8 +332,6 @@ def judge_gate(
 ) -> GateResult:
     """Render + judge both GLBs; decide.  ``judge`` is any object with
     ``.judge(JudgeInput) -> Judgment`` (``VlmJudge`` or a fake)."""
-    from codeverse.judges.base import JudgeInput
-
     t0 = time.time()
     if render is None:
         from codeverse.spatial.render import render_glb
@@ -429,7 +341,7 @@ def judge_gate(
     rs_before = render(glb_before, out_dir / "before", views=list(views), width=size, height=size)
     rs_after = render(glb_after, out_dir / "after", views=list(views), width=size, height=size)
     acceptance: list[AcceptanceItem] = list(getattr(plan, "acceptance", []) or [])
-    summary = _plan_summary(plan)
+    summary = plan_digest(plan.model_dump()) if plan is not None else ""
     res = GateResult(shipped=False, renders_before=rs_before, renders_after=rs_after)
     jb = judge.judge(JudgeInput(spec=spec, renders=rs_before, measurement=measurement, acceptance=acceptance,
                                 plan_summary=summary, round_index=0,
@@ -440,7 +352,7 @@ def judge_gate(
     res.judgment_before, res.judgment_after = jb, ja
     res.usage = jb.usage + ja.usage
     res.duration_s = round(time.time() - t0, 2)
-    if _degraded(jb) or _degraded(ja):
+    if is_degraded(jb) or is_degraded(ja):
         res.reason = "judge degraded on one side — not shipped"
         return res
     res.overall_before, res.overall_after = float(jb.overall), float(ja.overall)
@@ -453,8 +365,6 @@ def judge_gate(
         res.materials_delta = round(res.materials_after - res.materials_before, 4)
     ok_overall = res.delta >= min_overall_delta
     ok_mat = (res.materials_delta is None) or (res.materials_delta > min_materials_delta)
-    if crit and res.materials_delta is None:
-        ok_mat = False
     res.shipped = bool(ok_overall and ok_mat)
     if res.shipped:
         res.reason = f"Δoverall {res.delta:+.3f} ≥ {min_overall_delta:+.2f} and {crit or 'overall'} {res.materials_delta:+.3f}" if crit \

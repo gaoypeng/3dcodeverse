@@ -38,6 +38,7 @@ console.log(JSON.stringify([orbitDirection(0, 0), orbitDirection(90, 0)]));
 
 
 def test_orbit_cameras_are_above_ground_and_fitted():
+    assert fit(None) == []
     cams = fit(groundY=0.0)
     by = {c["name"]: c for c in cams}
     assert set(by) == {"overview_front_right", "overview_top", "eye_front"}
@@ -55,14 +56,7 @@ def test_orbit_cameras_are_above_ground_and_fitted():
     assert eye["noFog"] is False
     top = by["overview_top"]
     assert top["position"][1] > 100
-
-
-def test_empty_bbox_returns_no_cameras():
-    assert fit(None) == []
-
-
 def test_fit_zone_camera_respects_floor_and_sun_side():
-    """Single owner of the zone fit (assemble.py consumes it via probe_scene.mjs)."""
     body = """
 import { fitZoneCamera } from './lib/orbit.mjs';
 const box = { min: [20, 0, -5], max: [30, 3, 5], size: [10, 3, 10] };

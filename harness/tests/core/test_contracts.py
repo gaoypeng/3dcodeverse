@@ -22,7 +22,14 @@ from codeverse.contracts import (
     Usage,
 )
 from codeverse.contracts.plan import AssetPlan, CameraPlan, ZonePlan
-from codeverse.conventions import OBJECT_VIEWS, slugify, to_pascal, to_snake
+from codeverse.conventions import (
+    OBJECT_CLAY_VIEWS,
+    OBJECT_VIEWS,
+    OBJECT_VIEWS_QUICK,
+    slugify,
+    to_pascal,
+    to_snake,
+)
 
 
 def _box(cx=0.0, cy=0.0, cz=0.5, ex=1.0, ey=1.0, ez=1.0) -> BBox:
@@ -40,7 +47,17 @@ def test_names_normalise_consistently():
 
 def test_view_presets_unique():
     names = [v.name for v in OBJECT_VIEWS]
-    assert len(names) == len(set(names)) == 8
+    assert len(names) == len(set(names)) == 14
+    # the 14-view rig (D47): quick subset by name, poles present, underside reachable
+    assert {v.name for v in OBJECT_VIEWS_QUICK} <= set(names) and len(OBJECT_VIEWS_QUICK) == 4
+    assert "bottom" in names and "top" in names
+    assert min(v.elevation_deg for v in OBJECT_VIEWS) == -90.0
+    assert max(v.elevation_deg for v in OBJECT_VIEWS) == 90.0
+    # the clay rig is its own 4-view tuple; its 'top' (el 88) deliberately shares the
+    # rig's name at a different camera — nothing may union the two tuples by name
+    assert len(OBJECT_CLAY_VIEWS) == 4
+    clay_top = next(v for v in OBJECT_CLAY_VIEWS if v.name == "top")
+    assert clay_top.elevation_deg == 88.0
 
 
 def test_spec_rejects_language_outside_track():
@@ -116,3 +133,18 @@ def test_workspace_git_roundtrip(tmp_ws):
     assert c0 != c1
     tmp_ws.restore(c0)
     assert (tmp_ws.src / "a.py").read_text() == "x = 1\n"
+
+
+def test_budget_is_strict_but_recorded_specs_migrate_the_retired_cost_key():
+    with pytest.raises(ValidationError):
+        Budget(max_usd=1.0)
+    with pytest.raises(ValidationError):
+        Budget(max_minuts=5)
+    import json
+
+    data = {"id": "x", "track": "static_object", "language": "blender", "prompt": "p",
+            "budget": {"max_rounds": 2, "max_minutes": 30.0, "max_usd": 2.5}}
+    s = Spec.model_validate(data)
+    assert s.budget.max_rounds == 2 and not hasattr(s.budget, "max_usd")
+    assert Spec.model_validate_json(json.dumps(data)).budget.max_minutes == 30.0
+    assert data["budget"]["max_usd"] == 2.5, "migration must not mutate the caller's dict"

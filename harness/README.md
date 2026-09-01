@@ -13,8 +13,7 @@ renders, judges, refines, textures and records every run as data-flywheel materi
 * **Spatial tools** (direct, or over the MCP server `3dcv` for the agentic CLIs):
   build, measure, render_views/sheet, isolate, cross_section,
   check_connectivity, check_contract, compare_silhouette, joint_sweep, shader_probe,
-  scene_probe, scene_views, gl_probe, gl_frames, texture_pass, texture_preview,
-  read_cookbook.
+  scene_probe, scene_views, gl_probe, gl_frames, texture_pass, texture_preview.
 * **Judging:** rubric VLM judge (default `gemini-3.1-pro-preview`) on labelled 2×2
   montages with binary defect checklists; code-computed scores, floors and caps from
   deterministic gates; pairwise, ranking and reference judges; best-of-N candidates;
@@ -74,7 +73,7 @@ Design laws, the full package map and what each stage does: `docs/ARCHITECTURE.m
 `ruff` run locally before every push.  See `docs/INSTALL.md` §2.1.
 
 ```bash
-bash scripts/setup.sh     # install everything + run doctor (idempotent; see docs/INSTALL.md)
+bash setup.sh     # install everything + run doctor (idempotent; see docs/INSTALL.md)
 # ...or by hand:
 pip install -e '.[all,dev]'    # entry points: 3dcodeverse, 3dcv
 (cd runtime_js && npm ci)      # three@0.182 + puppeteer 24 (chrome → ~/.cache/puppeteer)

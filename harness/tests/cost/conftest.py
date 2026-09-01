@@ -47,7 +47,7 @@ def fake_run(tmp_path: Path) -> Path:
         "spec": {"track": "static_object", "language": "blender",
                  "backends": {"generator": "gemini-cli:gemini-3.6-flash",
                               "judge": "gemini:gemini-3.1-pro-preview"},
-                 "budget": {"max_usd": 5.0}},
+                 "budget": {"max_minutes": 60.0}},
         "status": "passed", "baseline_score": 0.6, "final_score": 0.8, "best_round": 0,
         "total_usage": total, "extra": {"stop_reason": "pass", "budget": {"elapsed_min": 2.0}},
         "rounds": [{"index": 0, "kind": "baseline", "usage": session, "gates": [],

@@ -20,7 +20,7 @@ from codeverse.gallery.compare import (
     parse_keys,
     render_compare,
 )
-from codeverse.gallery.index import HERO_PREFERENCE, build_index, hero_view
+from codeverse.gallery.index import build_index, hero_view
 from codeverse.gallery.model import VERDICTS, humanize_view, match, summarize, verdict_breakdown
 from codeverse.gallery.page import render_index
 from codeverse.gallery.server import GalleryApp
@@ -101,15 +101,14 @@ def test_hero_falls_back_to_the_sheet_when_a_round_has_no_views(tmp_path: Path):
     ws, rec = make_fake_run(tmp_path / "runs", "noviews")
     for rnd in rec.rounds:
         rnd.renders = None
-    assert hero_view(ws, rec, rec.best_round) == ("", "", 0)
-
-
-def test_hero_preference_is_ordered_best_first():
-    assert HERO_PREFERENCE[0] == "front_right_34"     # a ¾ view shows silhouette and depth
+    assert hero_view(ws, rec) == ("", "", 0)
 
 
 # --------------------------------------------------------------------------- labels
 @pytest.mark.parametrize(("raw", "human"), [
+    ("front_right_high", "Front Right High"),
+    ("back_left_low", "Back Left Low"),
+    ("bottom", "Bottom"),
     ("front_right_34", "Front Right ¾"),
     ("view_front_right_34.png", "Front Right ¾"),
     ("back_left_34", "Back Left ¾"),

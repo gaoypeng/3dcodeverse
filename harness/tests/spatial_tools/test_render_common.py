@@ -42,16 +42,6 @@ def test_view_specs_is_the_one_camera_payload() -> None:
     assert json.loads(_views_json(SCENE_VIEWS)) == rc.view_specs(SCENE_VIEWS)
 
 
-def test_read_json_never_raises(tmp_path: Path) -> None:
-    assert rc.read_json(tmp_path / "nope.json") == {}
-    bad = tmp_path / "bad.json"
-    bad.write_text("{not json")
-    assert rc.read_json(bad) == {}
-    good = tmp_path / "g.json"
-    good.write_text('{"a": 1}')
-    assert rc.read_json(good) == {"a": 1}
-
-
 def test_build_sheet_uses_the_settings_grid_and_guards_empty(tmp_path: Path) -> None:
     assert rc.build_sheet([], tmp_path / "none.png") is None
     for i in range(2):
@@ -97,19 +87,6 @@ def test_gl_contact_sheet_and_gif_go_through_the_shared_writers(tmp_path: Path) 
     assert write_gif(frames[:1], tmp_path / "one.gif") is None      # < 2 frames = no preview
 
 
-def test_turntable_gif_uses_the_same_writer(tmp_path: Path) -> None:
-    from codeverse.spatial.turntable import assemble_turntable
-
-    paths = []
-    for i in range(4):
-        p = tmp_path / f"tt{i}.png"
-        Image.new("RGB", (64, 64), (10 * i, 0, 0)).save(p)
-        paths.append(p)
-    out = assemble_turntable(paths, tmp_path / "tt.gif", fps=8)
-    with Image.open(out) as im:
-        assert im.n_frames == 4 and im.width == 64
-
-
 # --------------------------------------------------------------------------- parts loader
 def test_solid_parts_is_cached_parts_without_the_empty_ones(stool_glb: Path) -> None:
     from codeverse.spatial.measure import cached_parts, solid_parts
@@ -121,11 +98,10 @@ def test_solid_parts_is_cached_parts_without_the_empty_ones(stool_glb: Path) -> 
 
 def test_shared_number_formatters() -> None:
     from codeverse.spatial.connectivity import _fmt_vec as conn_vec
-    from codeverse.spatial.contract import _fmt_ext, _fmt_vec
     from codeverse.spatial.measure import fmt_extent_cm, fmt_vec
 
-    assert _fmt_ext is fmt_extent_cm and fmt_extent_cm([0.34, 0.47]) == "34.0×47.0"
-    assert _fmt_vec([-0.00001, 0.5, 0]) == "(+0.000, +0.500, +0.000)"     # never '-0.000'
+    assert fmt_extent_cm([0.34, 0.47]) == "34.0×47.0"
+    assert fmt_vec([-0.00001, 0.5, 0]) == "(+0.000, +0.500, +0.000)"     # never '-0.000'
     assert conn_vec((-0.00001, 0.5, 0.0)) == "(+0.0000, +0.5000, +0.0000)"  # 4 decimals, same shape
     assert fmt_vec([1.23456], digits=2) == "(+1.23)"
 
@@ -143,6 +119,109 @@ def test_tool_out_dir_is_round_stamped(stool_ctx: ToolContext) -> None:
     assert a != b and a.is_dir() and a.parent == d.parent
 
 
+def test_cached_render_glb_leaves_the_cache_to_render_glb(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One cache authority.  ``tool_common`` used to short-circuit on its own
+    ``renderset.json`` marker keyed on the GLB's size+mtime, so a rebuild that landed on
+    the same stamp served stale PNGs and a copied workspace served views pointing into the
+    ORIGINAL one.  ``render.render_glb`` (sha256 + CACHE_VERSION + rig signature) decides now.
+    """
+    import codeverse.spatial.tool_common as tc
+    from codeverse.contracts.artifacts import RenderSet, RenderView
+
+    calls: list[Path] = []
+
+    def fake_render_glb(glb, out_dir, *, views, mode, width, height, isolate, explode, sheet):
+        calls.append(Path(out_dir))
+        png = Path(out_dir) / f"{views[0].name}.png"
+        png.write_bytes(b"png")
+        return RenderSet(views=[RenderView(name=views[0].name, path=str(png))], contact_sheet=None)
+
+    monkeypatch.setattr(tc, "lazy", lambda module, attr: fake_render_glb)
+    glb = stool_ctx.workspace.artifacts / "object.glb"
+    preset = OBJECT_VIEWS[0]
+    first = tc.cached_render_glb(stool_ctx, glb, views=[preset])
+    stamp = glb.stat()
+    glb.write_bytes(glb.read_bytes()[::-1])                      # new content, same size
+    import os
+
+    os.utime(glb, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))     # ...and the same mtime
+    second = tc.cached_render_glb(stool_ctx, glb, views=[preset])
+    assert len(calls) == 2 and calls[0] == calls[1], calls       # re-rendered into the same dir
+    assert first.views[0].path == second.views[0].path
+    assert not list(calls[0].glob("renderset.json"))             # no second marker on disk
+
+
+def test_store_in_cache_survives_a_concurrent_identical_writer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The pid-only tmp name let two threads of one judge fan-out share a tmp dir: the
+    loser's cleanup deleted the winner's half-copied PNGs AFTER a successful render
+    (FileNotFoundError out of a call whose render had succeeded).  Per-writer names +
+    tolerant rename: no exception, and the cache ends up complete."""
+    import shutil
+    import threading
+    import time
+
+    from codeverse.spatial import render as R
+
+    out = tmp_path / "out"
+    out.mkdir()
+    record = {"views": [{"name": f"v{i}"} for i in range(6)]}
+    for i in range(6):
+        (out / f"view_v{i}.png").write_bytes(b"x" * 1000)
+    cache_dir = tmp_path / "cache" / "deadbeefdeadbeefdeadbeef"
+    cache_dir.parent.mkdir(parents=True)
+
+    orig = shutil.copy2
+    monkeypatch.setattr(R.shutil, "copy2", lambda src, dst, **kw: (time.sleep(0.03), orig(src, dst, **kw))[1])
+
+    errs: list[str] = []
+
+    def store(delay: float) -> None:
+        time.sleep(delay)
+        try:
+            R._store_in_cache(cache_dir, out, record)
+        except Exception as e:  # noqa: BLE001 — the failure mode under test
+            errs.append(f"{type(e).__name__}: {e}")
+
+    threads = [threading.Thread(target=store, args=(d,)) for d in (0.0, 0.08)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errs == []
+    assert (cache_dir / "views.json").is_file()
+    assert sorted(p.name for p in cache_dir.glob("view_*.png")) == [f"view_v{i}.png" for i in range(6)]
+    assert not list(cache_dir.parent.glob("*.tmp")), "no tmp dirs left behind"
+
+
+def test_object_render_cache_is_keyed_by_gpu_mode(stool_glb: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """gpu=on and gpu=off used to share one cache key, so a hit served the OTHER
+    backend's pixels and misreported RenderSet.renderer.  The requested mode joins
+    the key ('auto' fragments from 'on'/'off' by design — owner default)."""
+    from types import SimpleNamespace
+
+    from codeverse.spatial import render as R
+
+    runs: list[tuple[str, Path]] = []
+
+    def fake_run_render(glb, out_dir, params, *, gpu, timeout_s):
+        runs.append((gpu, Path(out_dir)))
+        (Path(out_dir) / "view_front.png").write_bytes(b"png-" + gpu.encode())
+        return {"views": [{"name": "front"}], "renderer": f"webgl-{gpu}"}
+
+    fake_settings = SimpleNamespace(cache_dir=tmp_path / "cache",
+                                    render=SimpleNamespace(gpu="auto"),
+                                    limits=SimpleNamespace(render_timeout_s=5))
+    monkeypatch.setattr(R, "get_settings", lambda: fake_settings)
+    monkeypatch.setattr(R, "_run_render", fake_run_render)
+
+    a = R.render_glb(stool_glb, tmp_path / "a", views=[OBJECT_VIEWS[0]], sheet=False, gpu="on")
+    b = R.render_glb(stool_glb, tmp_path / "b", views=[OBJECT_VIEWS[0]], sheet=False, gpu="off")
+    assert len(runs) == 2, "gpu=off must not be served gpu=on's cached pixels"
+    assert a.renderer == "webgl-on" and b.renderer == "webgl-off"
+    c = R.render_glb(stool_glb, tmp_path / "c", views=[OBJECT_VIEWS[0]], sheet=False, gpu="on")
+    assert len(runs) == 2 and c.renderer == "webgl-on", "same mode still hits the cache"
+
+
 def test_tool_unavailable_is_reported_by_the_registry(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     """No tool catches ToolUnavailable itself any more — ToolDef.call does it for
     all of them, with the tool's own registered name."""
@@ -153,12 +232,9 @@ def test_tool_unavailable_is_reported_by_the_registry(stool_ctx: ToolContext, mo
 
     monkeypatch.setattr(tc, "lazy", boom)
     monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
-    monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
-    monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
-    monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
     ws = stool_ctx.workspace
     (ws.artifacts / "object_textured.glb").write_bytes((ws.artifacts / "object.glb").read_bytes())
-    for name in ("build", "render_views", "scene_probe", "texture_preview"):
+    for name in ("build", "render_views", "texture_preview"):
         obs = get_tool(name).call(stool_ctx, {})
         assert not obs.ok and obs.text.startswith(f"tool {name} unavailable:"), (name, obs.text)
     # a graphics workspace: the gl tools degrade the same way

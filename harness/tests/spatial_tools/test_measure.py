@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 import trimesh
 
@@ -121,3 +122,74 @@ def test_instance_groups_bare_base_beside_indexed_siblings() -> None:
     g = instance_groups(["lens", "lens_2", "lens_1", "tripod"])
     assert g["lens"] == ["lens", "lens_1", "lens_2"]
     assert g["tripod"] == ["tripod"]
+
+
+# ------------------------------------------------- 2026-08-30: world transforms and node names
+def _root_pivot_scene(dup_names: bool = False) -> trimesh.Scene:
+    """Two 0.1 x 0.1 x 0.4 posts authored Z-up under a root 'pivot' carrying the Z-up→Y-up
+    rotation — what THREE.GLTFExporter writes for a Z-up scene."""
+    rot = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]], float)
+    sc = trimesh.Scene()
+    sc.graph.update(frame_from=sc.graph.base_frame, frame_to="pivot", matrix=rot)
+    for i, x in enumerate((0.0, 0.3)):
+        box = trimesh.creation.box(extents=(0.1, 0.1, 0.4))
+        place = np.eye(4)
+        place[:3, 3] = (x, 0, 0.2)   # on the NODE, so the walk has an edge to compose
+        sc.add_geometry(box, node_name=f"Post_{i}", geom_name=f"G{i}", parent_node_name="pivot", transform=place)
+    return sc
+
+
+def test_world_transform_composes_every_edge_up_to_the_root() -> None:
+    """``scene.graph.get`` left a scene-root matrix out of its descendants' world frames on
+    the brilliana desk lamp (an upright lamp measured lying down, 2026-08-30); the edge
+    walk is what the render rig agrees with.  Here: the rotation on world→pivot must reach
+    a grandchild, composed in the right order."""
+    from codeverse.spatial.measure import world_transform
+
+    sc = _root_pivot_scene()
+    t = world_transform(sc, "Post_1")
+    # Post_1 sits at x=0.3, z=0.2 in the Z-up frame → world x=0.3, y=0.2
+    assert np.allclose(t[:3, 3], (0.3, 0.2, 0.0), atol=1e-9)
+    assert np.allclose(t[:3, :3], [[1, 0, 0], [0, 0, 1], [0, -1, 0]], atol=1e-9)
+    assert np.allclose(world_transform(sc, sc.graph.base_frame), np.eye(4))
+
+
+def test_a_root_pivot_glb_measures_upright(tmp_path: Path) -> None:
+    p = tmp_path / "pivot.glb"
+    p.write_bytes(_root_pivot_scene().export(file_type="glb"))
+    m = measure_glb(p)
+    assert m.bbox_min[1] == pytest.approx(0.0, abs=1e-6) and m.bbox_max[1] == pytest.approx(0.4, abs=1e-6)
+    assert m.ground_gap_m == pytest.approx(0.0, abs=1e-6)
+    assert not [f for f in m.extra.get("findings", []) if "node" in f]
+
+
+def test_duplicate_or_unnamed_glTF_nodes_are_named_in_the_findings(tmp_path: Path) -> None:
+    """The harness's own exporters name every node uniquely; a foreign THREE export with
+    'Arm' x2 and 21 unnamed nodes mis-posed under trimesh — the reader must be told the
+    numbers are approximate rather than trust them (desk-lamp-q2, 2026-08-30)."""
+    import json
+    import struct
+
+    from codeverse.spatial.measure import gltf_node_names, node_name_findings
+
+    raw = _root_pivot_scene().export(file_type="glb")
+    (n,) = struct.unpack("<I", raw[12:16])
+    js = json.loads(raw[20:20 + n])
+    for node in js["nodes"]:
+        if node.get("name", "").startswith("Post_"):
+            node["name"] = "Post"          # a duplicate
+    js["nodes"][0].pop("name", None)      # and an unnamed one
+    body = json.dumps(js, separators=(",", ":")).encode()
+    body += b" " * ((4 - len(body) % 4) % 4)
+    glb = struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(body) + len(raw[20 + n:])) + struct.pack("<I", len(body)) + b"JSON" + body + raw[20 + n:]
+    p = tmp_path / "dups.glb"
+    p.write_bytes(glb)
+
+    assert gltf_node_names(p).count("Post") == 2
+    found = node_name_findings(p)
+    assert any("duplicate glTF node names ('Post' x2)" in f for f in found)
+    assert any(f"1 of {len(gltf_node_names(p))} glTF nodes are unnamed" in f for f in found)
+    assert found == [f for f in measure_glb(p).extra["findings"] if "glTF node" in f]
+    clean = tmp_path / "clean.glb"
+    clean.write_bytes(raw)
+    assert node_name_findings(clean) == []

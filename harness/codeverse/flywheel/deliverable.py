@@ -29,7 +29,7 @@ from pathlib import Path
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.run import DeliverableFile, RoundRecord, RunDeliverable, RunRecord
 from codeverse.flywheel import _git
-from codeverse.proc import write_json_atomic
+from codeverse.proc import sha256_file, write_json_atomic
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -47,10 +47,6 @@ _ARTIFACT_ROLES: tuple[tuple[str, str], ...] = (
     ("preview.gif", "preview"),
     ("frames_sheet.png", "sheet"),
 )
-
-
-def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
 
 
 class _Writer:
@@ -73,7 +69,7 @@ class _Writer:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
         self.total += len(data)
-        self.files.append(DeliverableFile(path=f"deliverable/{rel}", role=role, bytes=len(data), sha256=_sha256(data)))
+        self.files.append(DeliverableFile(path=f"deliverable/{rel}", role=role, bytes=len(data), sha256=hashlib.sha256(data).hexdigest()))
 
     def add_file(self, src: Path, rel: str, role: str) -> bool:
         if not src.is_file():
@@ -90,7 +86,7 @@ class _Writer:
         _place(src, dest)
         self.total += size
         self.files.append(DeliverableFile(path=f"deliverable/{rel}", role=role, bytes=size,
-                                          sha256=_sha256(src.read_bytes())))
+                                          sha256=sha256_file(src)))
         return True
 
 
@@ -100,15 +96,6 @@ def _place(src: Path, dest: Path) -> None:
     break the sha256 recorded in the manifest.  The size caps above already bound
     the copy cost."""
     shutil.copy2(src, dest)
-
-
-def _resolve(ws: Workspace, path: str | None) -> Path | None:
-    if not path:
-        return None
-    p = Path(path)
-    if not p.is_absolute():
-        p = ws.root / p
-    return p if p.is_file() else None
 
 
 def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
@@ -149,8 +136,10 @@ def _copy_artifacts(ws: Workspace, record: RunRecord, w: _Writer) -> None:
 
 
 def _copy_sheet(ws: Workspace, rnd: RoundRecord | None, w: _Writer) -> None:
-    sheet = _resolve(ws, rnd.renders.contact_sheet) if (rnd is not None and rnd.renders is not None) else None
-    if sheet is not None:
+    if rnd is None or rnd.renders is None or not rnd.renders.contact_sheet:
+        return
+    sheet = ws.rebase(rnd.renders.contact_sheet)
+    if sheet.is_file():
         w.add_file(sheet, f"sheet{sheet.suffix or '.png'}", "sheet")
 
 
@@ -181,10 +170,9 @@ def build_deliverable(ws: Workspace, record: RunRecord, *, clean: bool = True) -
 
     Idempotent: the folder is rebuilt from scratch every time, so a second call
     on an unchanged run produces byte-identical content."""
-    from codeverse.flywheel.record import best_round_index
+    from codeverse.flywheel.record import best_round_record
 
-    idx = best_round_index(record)
-    rnd = next((r for r in record.rounds if r.index == idx), None)
+    rnd = best_round_record(record)
     previous = load_deliverable(ws) if ws.deliverable_manifest_path.is_file() else None
     if clean and ws.deliverable.exists():
         shutil.rmtree(ws.deliverable)
@@ -198,7 +186,7 @@ def build_deliverable(ws: Workspace, record: RunRecord, *, clean: bool = True) -
     _copy_captions(ws, record, w)
     entry = ENTRY_FILE.get(record.spec.language, "")
     manifest = RunDeliverable(
-        best_round=idx, commit=(rnd.commit if rnd is not None else ""), code_source=code_source,
+        best_round=(rnd.index if rnd is not None else None), commit=(rnd.commit if rnd is not None else ""), code_source=code_source,
         entry=f"deliverable/{entry}" if entry in files else "",
         files=sorted(w.files, key=lambda f: f.path), total_bytes=w.total, skipped=w.skipped,
         generated_at=datetime.now(UTC),

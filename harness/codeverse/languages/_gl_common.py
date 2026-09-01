@@ -49,7 +49,7 @@ def invalidate_stale_outputs(ws: Workspace) -> None:
     """Wipe the previous build's GL artifacts at the TOP of ``build()``.
 
     Hoisted from ``GlHost._run`` (which still wipes its own out_dir) so the
-    ``MissingEntry`` early returns — which never reach the host — also clear
+    ``MISSING_ENTRY`` early returns — which never reach the host — also clear
     ``frames/`` and ``gl_result.json``; sheet/gif/metrics/build.json were never
     cleared anywhere, so a failed build left the previous round's sheet looking
     current to every bare-existence reader (``read_metrics``, the gallery)."""

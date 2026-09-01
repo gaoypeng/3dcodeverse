@@ -17,10 +17,14 @@ from __future__ import annotations
 import argparse
 import json
 import statistics as st
+import sys
 from pathlib import Path
 from typing import Any
 
-from codeverse.contracts.artifacts import GateReport, RenderSet
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # `python bench/refs_ab_readout.py` from the repo root
+
+from bench.judge_calib_graphics import best_round  # noqa: E402
+from codeverse.contracts.artifacts import GateReport, RenderSet  # noqa: E402
 from codeverse.contracts.spec import ReferenceImage, Spec
 from codeverse.judges.base import JudgeInput, plan_digest
 from codeverse.judges.vlm_judge import LikenessJudge
@@ -28,16 +32,6 @@ from codeverse.tracks.graphics import frame_stats_text
 from codeverse.workspace import Workspace
 
 SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
-
-
-def best_round(run: Path) -> dict[str, Any] | None:
-    best: dict[str, Any] | None = None
-    for f in sorted(run.glob("rounds/r*.json")):
-        r = json.loads(f.read_text())
-        j = r.get("judgment") or {}
-        if j.get("overall") is not None and (best is None or j["overall"] > (best.get("judgment") or {}).get("overall", -1)):
-            best = r
-    return best
 
 
 def judge_run(run: Path, refs: list[Path], judge: LikenessJudge, cache: Path) -> dict[str, Any]:

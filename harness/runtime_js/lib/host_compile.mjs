@@ -2,11 +2,8 @@
  * Compile-time material machinery (page-side): capture the FINAL GLSL sources
  * of every custom material (ShaderMaterial directly; onBeforeCompile via a
  * cache-key-preserving wrapper), attribute compiler errors to materials by
- * source-line match, audit runtime materials (fog/uTime), and swap custom
- * shaders for plain ones for the counterfactual presence probe.
+ * source-line match, audit runtime materials (fog/uTime).
  */
-
-import { isCustomShader } from './host_census.mjs';
 
 export const captured = []; // {name, type, vs, fs} final shader sources per custom material
 
@@ -70,40 +67,3 @@ export function materialAudit(scene, THREE) {
   });
   return out;
 }
-
-
-
-/**
- * Counterfactual: swap custom-shader materials for plain ones (ShaderMaterial →
- * grey MeshStandardMaterial, onBeforeCompile → unpatched clone).  Returns an
- * undo function.  Used by the shader-presence probe (pixel diff vs normal).
- */
-export function stripCustomShaders(scene, THREE) {
-  const undo = [];
-  const cloneCache = new Map();
-  scene.traverse((o) => {
-    if (!o.material) return;
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
-    const swapped = mats.map((m) => {
-      if (!m || !isCustomShader(m, THREE)) return m;
-      if (cloneCache.has(m.uuid)) return cloneCache.get(m.uuid);
-      let rep;
-      if (m.isShaderMaterial || m.isRawShaderMaterial) {
-        rep = new THREE.MeshStandardMaterial({ color: 0x808080, roughness: 0.8, side: m.side, transparent: m.transparent, opacity: m.opacity, depthWrite: m.depthWrite });
-      } else {
-        rep = m.clone();
-        delete rep.onBeforeCompile; // clone() does not copy the own patch, but be explicit
-        rep.customProgramCacheKey = THREE.Material.prototype.customProgramCacheKey;
-      }
-      cloneCache.set(m.uuid, rep);
-      return rep;
-    });
-    if (swapped.some((m, i) => m !== mats[i])) {
-      const orig = o.material;
-      o.material = Array.isArray(orig) ? swapped : swapped[0];
-      undo.push(() => { o.material = orig; });
-    }
-  });
-  return () => { for (const u of undo) u(); for (const m of cloneCache.values()) m.dispose(); };
-}
-

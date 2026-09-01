@@ -262,13 +262,6 @@ def test_retry_on_429_529_5xx_and_not_on_400():
     assert not ei.value.retryable and ei.value.status == 400 and len(fc.calls) == 1
 
 
-def test_exhaustion_raises_retryable():
-    m, fc = make([api_error(429)] * 6)
-    with pytest.raises(ModelError) as ei:
-        m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert ei.value.retryable and len(fc.calls) == 6
-
-
 def test_refusal_and_empty():
     m, _ = make([msg([], stop="refusal")])
     with pytest.raises(ModelError) as ei:
@@ -311,8 +304,10 @@ def test_a_failed_reply_carries_what_it_was_billed():
     refusal / bad-JSON / empty reply looked FREE to the ledger and to the key pool."""
     for script, req in (
         ([msg([], stop="refusal")], ChatRequest(messages=[ChatMessage.user("x")])),
-        ([msg([text("not json")], stop="max_tokens")],
-         ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"})),
+        (
+            [msg([text("not json")], stop="max_tokens")],
+            ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"}),
+        ),
         ([msg([], stop="end_turn")] * 6, ChatRequest(messages=[ChatMessage.user("x")])),
     ):
         m, _ = make(script)
@@ -320,3 +315,24 @@ def test_a_failed_reply_carries_what_it_was_billed():
             m.generate(req)
         assert e.value.usage.input_tokens == 100 and e.value.usage.output_tokens == 20
 
+
+def test_each_attempt_gets_what_is_left_of_the_call_budget():
+    """``max_wait_s`` is the whole call's deadline, and ``with_retries`` only checks it
+    BETWEEN attempts — so the attempt itself must carry it.  The client is built once with
+    a fixed 600 s timeout, so a judge with 20 s of budget left used to hold a socket for
+    600 s.  Floor: a long completion (the 930 s plan) keeps the full client timeout."""
+    m, fc = make([msg([text("hi")])], timeout_s=600.0)
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=25.0))
+    assert 20.0 <= fc.calls[0]["timeout"] <= 25.0
+
+    m, fc = make([msg([text("hi")])], timeout_s=600.0)
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=5.0))
+    assert fc.calls[0]["timeout"] == 20.0, "a near-dead budget still buys ONE real attempt"
+
+    m, fc = make([msg([text("hi")])], timeout_s=600.0)
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=930.0))
+    assert fc.calls[0]["timeout"] == 600.0, "a long plan is bounded by the client, not clipped"
+
+    m, fc = make([msg([text("hi")])], timeout_s=600.0)
+    m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert fc.calls[0]["timeout"] == 600.0

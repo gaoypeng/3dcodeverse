@@ -13,10 +13,10 @@ from pathlib import Path
 
 from codeverse.contracts.common import ENTRY_FILE
 from codeverse.contracts.run import RunRecord
-from codeverse.flywheel.record import effective_judgment
-from codeverse.gallery.cards import gallery_figure, tier_tag, verdict_tag
+from codeverse.flywheel.record import best_round_record, effective_judgment
+from codeverse.gallery.cards import fmt, gallery_figure, tier_tag, verdict_tag
 from codeverse.gallery.code import CODE_CSS, numbered, read_text, src_files
-from codeverse.gallery.index import best_sheet, hero_view
+from codeverse.gallery.index import _rel, best_sheet, hero_view
 from codeverse.gallery.model import RunEntry
 from codeverse.gallery.theme import esc, footer, page_shell, top_bar
 from codeverse.gallery.urls import UrlMaker
@@ -62,10 +62,6 @@ SEVERITY_CLASS = {"critical": "pill-fail", "blocker": "pill-fail", "major": "pil
                   "moderate": "pill-warn", "minor": "pill-warn"}
 
 
-def _fmt(v: float | None, d: int = 3) -> str:
-    return "—" if v is None else format(v, f".{d}f")
-
-
 def _kv(key: str, value: str) -> str:
     return f"<div class='kv'><span class='k'>{esc(key)}</span><span class='v'>{value}</span></div>"
 
@@ -73,17 +69,6 @@ def _kv(key: str, value: str) -> str:
 def _panel(title: str, inner: str, *, anchor: str = "", extra_head: str = "") -> str:
     ident = f" id='{esc(anchor)}'" if anchor else ""
     return f"<div class='panel'{ident}><h2>{esc(title)}{extra_head}</h2>{inner}</div>"
-
-
-def _rel(run: Path, path: str | None) -> str:
-    if not path:
-        return ""
-    p = Path(path)
-    p = p if p.is_absolute() else run / p
-    try:
-        return p.resolve().relative_to(run.resolve()).as_posix()
-    except (ValueError, OSError):
-        return ""
 
 
 # --------------------------------------------------------------------------- sections
@@ -104,7 +89,7 @@ def _hero(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
     delta = ("—" if entry.score is None or entry.baseline_score is None
              else format(entry.score - entry.baseline_score, "+.3f"))
     facts = "".join([
-        _kv("score", f"<b>{_fmt(entry.score)}</b> (baseline {_fmt(entry.baseline_score)}, Δ {delta})"),
+        _kv("score", f"<b>{fmt(entry.score)}</b> (baseline {fmt(entry.baseline_score)}, Δ {delta})"),
         _kv("rounds", f"{entry.rounds} · best r{entry.best_round if entry.best_round is not None else '–'}"),
         _kv("gate errors", str(entry.gate_errors) + (
             " — " + ", ".join(f"{k}:{v}" for k, v in entry.gate_summary.items()) if entry.gate_summary else "")),
@@ -135,7 +120,7 @@ def _rounds_table(entry: RunEntry, urls: UrlMaker) -> str:
         sheet = f"<a href='{esc(urls.file(entry, r.sheet))}'>all views</a>" if r.sheet else "—"
         best = " class='best'" if r.index == entry.best_round else ""
         rows.append(f"<tr{best}><td class='n'>{r.index}</td><td>{esc(r.kind)}</td>"
-                    f"<td class='n'>{_fmt(r.score)}</td><td>{verdict}</td><td class='n'>{esc(gates)}</td>"
+                    f"<td class='n'>{fmt(r.score)}</td><td>{verdict}</td><td class='n'>{esc(gates)}</td>"
                     f"<td>{build}</td><td class='n'>{r.cost_usd:.3f}</td><td class='n'>{r.duration_s:.0f}</td>"
                     f"<td><code class='xs'>{esc(r.commit)}</code></td><td>{sheet}</td></tr>")
     body = "".join(rows) or "<tr><td colspan='10' class='faint'>no rounds recorded</td></tr>"
@@ -145,7 +130,7 @@ def _rounds_table(entry: RunEntry, urls: UrlMaker) -> str:
 
 
 def _judgment_panel(rec: RunRecord, best: int | None) -> str:
-    rnd = next((r for r in rec.rounds if r.index == best), None)
+    rnd = best_round_record(rec)
     j = effective_judgment(rnd) if rnd is not None else None
     if j is None:
         return _panel("judge", "<p class='faint small'>the best round has no (non-degraded) verdict.</p>",
@@ -176,8 +161,8 @@ def _judgment_panel(rec: RunRecord, best: int | None) -> str:
     return _panel(f"judge — best round r{best}", inner, anchor="judge")
 
 
-def _measurement_panel(rec: RunRecord, best: int | None) -> str:
-    rnd = next((r for r in rec.rounds if r.index == best), None)
+def _measurement_panel(rec: RunRecord) -> str:
+    rnd = best_round_record(rec)
     m = rnd.measurement if rnd is not None else None
     if m is None:
         m = next((r.measurement for r in reversed(rec.rounds) if r.measurement is not None), None)
@@ -228,10 +213,10 @@ def _complexity_panel(entry: RunEntry, rec: RunRecord) -> str:
     block = block if isinstance(block, dict) else {}
     index = entry.complexity if entry.complexity is not None else block.get("index")
     rows = [_kv("index", f"{float(index):.3f} ({esc(entry.complexity_band or block.get('band', ''))})")]
-    for axis, label, fmt in _CX_ROWS:
+    for axis, label, spec in _CX_ROWS:
         v = entry.complexity_axes.get(axis, block.get(axis))
         if isinstance(v, (int, float)):
-            rows.append(_kv(label, fmt.format(float(v))))
+            rows.append(_kv(label, spec.format(float(v))))
     if isinstance(block.get("plan_parts"), int) and block["plan_parts"]:
         rows.append(_kv("plan parts", str(block["plan_parts"])))
         if block.get("parts_per_plan_part") is not None:
@@ -244,14 +229,14 @@ def _complexity_panel(entry: RunEntry, rec: RunRecord) -> str:
     return _panel("complexity", f"<div class='kvs'>{''.join(rows)}</div>{note}", anchor="complexity")
 
 
-def _renders_panel(entry: RunEntry, urls: UrlMaker, rec: RunRecord, best: int | None) -> str:
-    run = Path(entry.path)
-    rnd = next((r for r in rec.rounds if r.index == best), None)
+def _renders_panel(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
+    ws = Workspace(entry.path)
+    rnd = best_round_record(rec)
     figs: list[tuple[str, str]] = []
     if rnd is not None and rnd.renders is not None:
         for v in rnd.renders.views:
-            rel = _rel(run, v.path)
-            if rel and (run / rel).is_file():
+            rel = _rel(ws, v.path)
+            if rel and (ws.root / rel).is_file():
                 figs.append((v.name, rel))
     figs += [(link.label, link.rel) for link in entry.links
              if link.label in ("articulation", "preview.gif") and link.rel]
@@ -290,8 +275,7 @@ def _cost_panel(entry: RunEntry, ws: Workspace, rec: RunRecord) -> str:
         for s in sorted(cost.by_stage, key=lambda s: -s.cost_usd))
     totals = "".join([
         _kv("total", f"${cost.total_usd:.4f}"),
-        _kv("budget", f"${cost.budget_usd:.2f}" + (f" ({cost.budget_used_pct:.0f}% used)"
-                                                   if cost.budget_used_pct is not None else "")),
+
         _kv("calls", str(cost.n_calls)),
         _kv("wall clock", f"{cost.wall_clock_s / 60:.1f} min"),
         _kv("unattributed", f"${cost.unattributed_usd:.4f}"),
@@ -370,7 +354,7 @@ def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord
     if not entry.sheet:
         entry = entry.model_copy(update={"sheet": best_sheet(ws, rec)})
     if not entry.hero:
-        hero, label, n = hero_view(ws, rec, best)
+        hero, label, n = hero_view(ws, rec)
         entry = entry.model_copy(update={"hero": hero, "hero_label": label, "n_views": n})
     nav = "".join(f"<a href='#{a}'>{a}</a>" for a in
                   ("rounds", "judge", "complexity", "measurement", "renders", "cost", "code"))
@@ -386,8 +370,8 @@ def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord
         + _rounds_table(entry, urls)
         + _judgment_panel(rec, best)
         + _complexity_panel(entry, rec)
-        + _measurement_panel(rec, best)
-        + _renders_panel(entry, urls, rec, best)
+        + _measurement_panel(rec)
+        + _renders_panel(entry, urls, rec)
         + _cost_panel(entry, ws, rec)
         + _code_panel(entry, urls, rec)
         + (_foot_nav(urls, prev, nxt) if urls.has_detail else "")

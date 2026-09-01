@@ -9,6 +9,7 @@ plans are re-asked with the validation errors, before any generator runs.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import re
 from typing import Literal
@@ -224,8 +225,8 @@ class ArticulatedPlan(StaticPlan):
         default_factory=list,
         description="filled by the harness, leave empty: automatic corrections applied to the planner's answer "
                     "before validation (a sub-part promoted to a link because a joint moves it, revolute limits "
-                    "written in degrees converted to radians or a > 2π radian range made continuous, a parent "
-                    "bbox grown around a sub-part)")
+                    "written in degrees converted to radians or a > 2π radian range made continuous, swapped "
+                    "or out-of-range limits clamped, a parent bbox grown around a sub-part)")
 
     @model_validator(mode="before")
     @classmethod
@@ -244,8 +245,16 @@ class ArticulatedPlan(StaticPlan):
            ambiguous and is read as radians: a wrong ``continuous`` there is what the run got before,
            while a wrong degrees reading would squeeze a full turn into a 6° hinge without a trace.
            A converted range that is still over 2π (``-360..360``) falls through to ``continuous``;
+        2b. swapped or out-of-range limits: ``upper < lower`` is written as the swap it is
+           (a hinge "from 90 to 0"), and a ``rest`` outside ``[lower, upper]`` is clamped to
+           the nearer limit — both killed cs37_urdf_02 at the planner (2026-08-29, 3.7-flash)
+           after two re-asks, and neither is a design decision worth a dead run;
         3. a sub-part sticking out of its parent's bbox by more than the slack: the parent bbox
            grows to enclose it (planner boxes are design intent, not measurements).
+        4. a ``root_link`` that names no part but loosely matches exactly ONE (af_excavator
+           2026-08-31, 3.7-flash: ``root_link: chassis`` over a part list that spelt it
+           differently — two re-asks did not fix it and the run died at the planner): the
+           root is rewritten to that part.  Zero or several candidates still raise.
         Every repair is recorded in ``normalisations`` so the record shows what the planner
         actually wrote.  Anything else still fails validation and is re-asked.
         """
@@ -301,16 +310,46 @@ class ArticulatedPlan(StaticPlan):
                     j[side] = by_name[hits[0]].get("name")
                     notes.append(f"joint {j.get('name')}.{side} '{raw_name}' resolved to the one part it names: {j[side]}")
 
-        # 1c. a root_link that names no part (compare ab_repairs grand_piano, 2026-08-29: flash
-        #     wrote a UUID string there, three times): the root is the one part no joint names
-        #     as a child — when that part is unique the repair is unambiguous
-        root_key = to_snake(str(data.get("root_link", "")))
-        if root_key and root_key not in by_name:
-            children = {to_snake(str(j.get("child", ""))) for j in joints}
-            roots = [p for k, p in by_name.items() if k not in children]
-            if len(roots) == 1:
-                notes.append(f"root_link '{data.get('root_link')}' is not a part → {roots[0].get('name')} (the one link no joint moves)")
-                data["root_link"] = roots[0].get("name")
+        # 1c. a joint that names a SUB-PART by a fragment (af_grandfather_clock 2026-08-31,
+        # 3.7-flash: everything nested under clock_case, the joint said GlazedDoor, the child
+        # spelt it longer — the exact-match promotion above missed it, 1b searches top-level
+        # links only, and the re-ask complaint listed top-level parts only, so both re-asks
+        # died the same way).  Sub-part names are longer and decorated, so the affix rule is
+        # too weak here: the match is WORD-SUBSET (every word of the reference appears in the
+        # candidate's words — {glazed,door} ⊆ {glazed,front,door}; "arm" still never matches
+        # "alarm").  A unique hit promotes the child and rewrites the joint side.
+        sub_index: dict[str, tuple[dict, dict]] = {}
+        for part in list(parts):
+            for child in part.get("children") or []:
+                if isinstance(child, dict) and child.get("name"):
+                    sub_index[to_snake(str(child["name"]))] = (part, child)
+        for j in joints:
+            for side in ("parent", "child"):
+                raw_name = str(j.get(side, ""))
+                key = to_snake(raw_name)
+                if not key or key in by_name:
+                    continue
+                kw = set(key.split("_"))
+                hits = [k for k in sub_index if kw <= set(k.split("_"))]
+                if len(hits) != 1:
+                    continue
+                owner, child = sub_index[hits[0]]
+                ckey = to_snake(str(child["name"]))
+                if ckey not in by_name:
+                    promoted = {
+                        "name": child.get("name"), "role": child.get("role") or f"moving part of {owner.get('name')}",
+                        "description": child.get("description", ""), "bbox": child.get("bbox"),
+                        "material": child.get("material") or owner.get("material", ""),
+                        "attach_to": owner.get("name"), "instances": child.get("instances", 1),
+                    }
+                    parts.append(promoted)
+                    by_name[ckey] = promoted
+                    with contextlib.suppress(ValueError, KeyError):
+                        owner["children"].remove(child)
+                    notes.append(f"promoted sub-part {owner.get('name')}.{child.get('name')} to a link: "
+                                 f"joint {j.get('name')} names it")
+                j[side] = by_name[ckey].get("name")
+                notes.append(f"joint {j.get('name')}.{side} '{raw_name}' resolved to sub-part {j[side]}")
 
         # 2. revolute joints with a > 2π range: degrees written for radians → radians; a radian
         #    range over 2π → continuous
@@ -337,6 +376,26 @@ class ArticulatedPlan(StaticPlan):
             if span > 2 * math.pi + 1e-6:
                 j.update(type="continuous", lower=0.0, upper=0.0, rest=0.0)
                 notes.append(f"joint {j.get('name')}: revolute range {span:.2f} rad > 2π → continuous")
+
+        # 2b. swapped or out-of-range limits → swap / clamp (see the docstring)
+        for j in joints:
+            if j.get("type") not in ("revolute", "prismatic"):
+                continue
+            try:
+                lower, upper = float(j.get("lower", 0.0)), float(j.get("upper", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if upper < lower:
+                j["lower"], j["upper"] = upper, lower
+                notes.append(f"joint {j.get('name')}: limits swapped ({lower:g}..{upper:g} → {upper:g}..{lower:g})")
+                lower, upper = upper, lower
+            try:
+                rest = float(j.get("rest", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if rest < lower - 1e-9 or rest > upper + 1e-9:
+                j["rest"] = min(max(rest, lower), upper)
+                notes.append(f"joint {j.get('name')}: rest {rest:g} outside [{lower:g},{upper:g}] → clamped to {j['rest']:g}")
 
         # 3. sub-parts outside the parent bbox → grow the parent
         for part in parts:
@@ -371,6 +430,28 @@ class ArticulatedPlan(StaticPlan):
                 part["bbox"] = {"center": [(lo[a] + hi[a]) / 2 for a in range(3)],
                                 "extents": [hi[a] - lo[a] for a in range(3)]}
 
+        # 4. root_link that names no part: loose word-match against the part list
+        root = data.get("root_link")
+        if isinstance(root, str) and root.strip():
+            names = {to_snake(p.get("name", "")): p.get("name") for p in parts if p.get("name")}
+            rk = to_snake(root)
+            if rk not in names:
+                # same word-boundary rule as repair 1b, never bare substring ("arm" != "alarm")
+                hits = [orig for k, orig in names.items()
+                        if rk in k.split("_") or k.endswith(f"_{rk}") or k.startswith(f"{rk}_")]
+                if len(hits) == 1:
+                    notes.append(f"root_link '{root}' named no part; rewrote to '{hits[0]}'")
+                    data["root_link"] = hits[0]
+                elif not hits:
+                    # 4b. nothing even loosely matches (a UUID, prose — ab_repairs
+                    #     grand_piano 2026-08-29, three plans in a row): the one part no
+                    #     joint names as a child is the root; unique → unambiguous
+                    children = {to_snake(str(j.get("child", ""))) for j in joints}
+                    roots = [orig for k, orig in names.items() if k not in children]
+                    if len(roots) == 1:
+                        notes.append(f"root_link '{root}' named no part; rewrote to the one link no joint moves: '{roots[0]}'")
+                        data["root_link"] = roots[0]
+
         data["parts"], data["joints"], data["normalisations"] = parts, joints, notes
         return data
 
@@ -385,9 +466,13 @@ class ArticulatedPlan(StaticPlan):
             p, c = to_snake(j.parent), to_snake(j.child)
             if p not in links or c not in links:
                 unknown = ", ".join(n for n, k in ((j.parent, p), (j.child, c)) if k not in links)
+                subs = sorted({c.name for part in self.parts for c in part.children})
+                sub_note = (f" Sub-parts that exist but are NOT links: {', '.join(subs)} — a joint may "
+                            f"only move a top-level part; name one of those exactly to promote it, or a real part."
+                            if subs else "")
                 raise ValueError(
                     f"joint {j.name} references unknown link(s) {unknown} — the parts in this plan are: "
-                    f"{', '.join(sorted(links))}. Use those exact names (or add the missing part).")
+                    f"{', '.join(sorted(links))}. Use those exact names (or add the missing part).{sub_note}")
             if c in parent_of:
                 raise ValueError(f"link {j.child} has two parent joints")
             if c == root:
@@ -498,6 +583,38 @@ class ScenePlan(BaseModel):
         return self
 
 
+class ZonePlacement(BaseModel):
+    """One asset's placement inside a zone, decided by the L2 zone director.
+
+    Typed rows with concrete numbers on purpose (the RefDimension lesson: an
+    open-ended dict maps to a property-less schema and the model answers ``{}``)."""
+
+    asset: str = Field(description="asset name from the plan")
+    count: int = Field(ge=1, description="how many instances in this zone")
+    cluster: tuple[float, float] = Field(description="cluster centre (x, z) in WORLD meters, inside the zone bbox")
+    spread_m: float = Field(ge=0, description="radius the instances scatter within (0 = exactly at the centre)")
+    faces: str = Field(default="", description="what the instances face, e.g. 'the path', 'azimuth 220'")
+    support: str = Field(default="ground", description="'ground' or the asset they stand on")
+
+
+class ZoneLayout(BaseModel):
+    """The L2 layout for ONE zone: where its planned contents actually go.
+
+    Produced by a cheap structured call per zone (parallel, never an agent),
+    validated deterministically against the zone bbox and the plan before it is
+    handed to the zone builder — the builder realises a layout instead of
+    inventing one."""
+
+    zone: str = Field(description="the zone's name, exactly as planned")
+    placements: list[ZonePlacement] = Field(default_factory=list)
+    path_points: list[tuple[float, float]] = Field(
+        default_factory=list, description="(x, z) polyline of the walkway through this zone, if any")
+    mid_props: int = Field(default=0, ge=0, description="loose mid props (0.3-1.5 m) beyond the placements")
+    small_props: int = Field(default=0, ge=0, description="small props (< 0.3 m)")
+    ground_cover: int = Field(default=0, ge=0, description="instanced tufts / pebbles")
+    notes: str = Field(default="", description="one line of layout intent, e.g. 'stalls face the lane'")
+
+
 class RefDimension(BaseModel):
     """One reference dimension of the real object.  A LIST of typed rows, not a free
     ``dict[str, float]``: an open-ended object maps to a property-less ``{"type":
@@ -545,10 +662,6 @@ class EngineeringBrief(BaseModel):
                                      description="real parts that are NOT visible and must not be modelled")
     not_present: list[str] = Field(default_factory=list, max_length=10,
                                    description="things a naive model would wrongly add")
-
-    @property
-    def dimension_map(self) -> dict[str, float]:
-        return {d.name: d.meters for d in self.dimensions_m}
 
     @property
     def is_useful(self) -> bool:

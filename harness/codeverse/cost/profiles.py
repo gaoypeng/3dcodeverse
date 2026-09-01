@@ -35,7 +35,7 @@ The expected $ per profile comes from the same 61 runs; see
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 #: profile names in increasing order of spend
 PROFILE_NAMES = ("economy", "balanced", "quality")
@@ -61,12 +61,11 @@ class Profile:
     texture: bool = False            # run the derived texture pass
     #: judge payload
     judge_max_px: int = 1024         # measured: 768 bills the same and is noisier — see PROFILES
-    judge_montages: int = 3
+    judge_montages: int = 5  # 14-view rig needs 5 (D47); 3 silently drops the low ring + poles
     judge_detail_crops: int = 2      # one crop ≈ 1,198 input tokens ($0.0024 on the pro judge);
                                      # NOT reduced by any profile — the score effect is inside the
                                      # judge's own noise in both directions (docs/COST.md §14)
     #: budget ceilings a run of this shape should not need to exceed
-    max_usd: float = 5.0
     max_minutes: float = 60.0
     #: measured expectation (docs/COST.md) — reported by ``3dcv cost profiles``
     expected_usd: float = 0.0
@@ -75,11 +74,6 @@ class Profile:
 
     def expectation(self) -> str:
         return f"~${self.expected_usd:.2f}/run, {self.expected_score}"
-
-    def with_overrides(self, **kw: object) -> Profile:
-        """Copy with the fields the user stated explicitly (``None`` = not stated)."""
-        clean = {k: v for k, v in kw.items() if v is not None and hasattr(self, k)}
-        return replace(self, **clean) if clean else self  # type: ignore[arg-type]
 
 
 #: the three dials.  Generator ids are harness backend ids; judge/planner ids are
@@ -108,8 +102,8 @@ PROFILES: dict[str, Profile] = {
         # swing = 1.6x the pro judge's measured σ (0.030).  Two draws that disagree by more than
         # the instrument's noise do not license a payload cut worth a fifth of a cent, so the
         # experiment is recorded as INCONCLUSIVE in docs/COST.md §14 and the budget is unchanged.
-        judge_max_px=1024, judge_montages=3, judge_detail_crops=2,
-        max_usd=1.50, max_minutes=30.0,
+        judge_max_px=1024, judge_montages=5, judge_detail_crops=2,
+        max_minutes=30.0,
         expected_usd=0.30,
         expected_score="graphics 0.81 median (5/6 passed); objects clear the gates less often "
                        "— a one-shot flash generator scored 0.14 on compare_v1's hard cells",
@@ -118,30 +112,39 @@ PROFILES: dict[str, Profile] = {
     ),
     "balanced": Profile(
         name="balanced",
-        generator="gemini-cli:gemini-3.6-flash",
+        generator="gemini-cli:gemini-3.7-flash",
         planner="gemini:gemini-3.7-flash",
         judge="gemini:gemini-3.1-pro-preview",
         captioner="gemini:gemini-3.7-flash",
         rounds=4, candidates=1, judge_samples=1, max_turns=0, texture=False,
-        judge_max_px=1024, judge_montages=3, judge_detail_crops=2,
-        max_usd=5.0, max_minutes=60.0,
+        judge_max_px=1024, judge_montages=5, judge_detail_crops=2,
+        max_minutes=60.0,
         expected_usd=1.47,
-        expected_score="0.835 mean on compare_v1, 36/61 runs passed ($2.50 per passing artifact)",
-        note="today's defaults — the arm every number in docs/COST.md was measured on",
+        expected_score="0.835 mean on compare_v1, 36/61 runs passed ($2.50 per passing artifact) "
+                       "— MEASURED ON gemini-cli:gemini-3.6-flash, not on this dial's generator",
+        note="today's defaults.  The generator moved to 3.7-flash on 2026-08-28 and these two "
+             "expectations have NOT been re-measured on it: docs/COST.md §12 puts the 3.7 CLI arm "
+             "at $0.73/call against 3.6's $0.52 and 0.827 against 0.835, so expect this run to "
+             "cost more and score about the same until a battery says otherwise",
     ),
     "quality": Profile(
         name="quality",
-        generator="gemini-cli:gemini-3.6-flash",
+        generator="gemini-cli:gemini-3.7-flash",
         planner="gemini:gemini-3.7-flash",
         judge="gemini:gemini-3.1-pro-preview",
         captioner="gemini:gemini-3.7-flash",
         rounds=4, candidates=2, judge_samples=3, max_turns=0, texture=True,
-        judge_max_px=1024, judge_montages=3, judge_detail_crops=2,
-        max_usd=8.0, max_minutes=90.0,
+        judge_max_px=1024, judge_montages=5, judge_detail_crops=2,
+        max_minutes=90.0,
         expected_usd=3.20,
         expected_score="best-of-2 lifted the stool baseline 0.563 → 0.612 and the texture pass "
-                       "0.686 → 0.701; judge σ 0.017 at n=3",
-        note="gemini-cli + pro judge n=3 + 4 rounds + best-of-2 + texture pass",
+                       "0.686 → 0.701; judge σ 0.017 at n=3 "
+                       "— MEASURED ON gemini-cli:gemini-3.6-flash, not on this dial's generator",
+        note="gemini-cli + pro judge n=3 + 4 rounds + best-of-2 + texture pass.  The generator "
+             "moved to 3.7-flash on 2026-08-28 and the $3.20 / score expectations above have NOT "
+             "been re-measured on it (same caveat as balanced: docs/COST.md §12 puts the 3.7 CLI "
+             "arm at $0.73/call vs 3.6's $0.52), so expect this dial to cost more and score about "
+             "the same until a battery says otherwise",
     ),
 }
 

@@ -1,6 +1,4 @@
-"""Cost/latency shaping of the scene baseline: soft budget, single-shot assets,
-zone batching, judge skipping, and the salvage round that stops a budget-stopped
-run from finishing with no score at all."""
+"""Scene cost/latency shaping: batching, cheap assets, and budget salvage."""
 
 from __future__ import annotations
 
@@ -29,13 +27,14 @@ from codeverse.tracks.scene_assets import (
     variant_index,
 )
 from codeverse.workspace import Workspace
-from tests.orchestrator_tracks.conftest import make_spec
+from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
     FakeChatModel,
     FakeJudge,
     FakeRuntime,
     FakeServices,
+    _planner,
 )
 
 RUNTIME_JS = get_settings().runtime_js_dir()
@@ -46,34 +45,31 @@ needs_node = pytest.mark.skipif(
 
 # ----------------------------------------------------------------------------- soft budget
 def test_soft_budget_degrades_before_the_hard_cap_and_grace_reopens_it():
-    g = BudgetGuard(Budget(max_usd=1.0, max_minutes=60.0), soft_fraction=0.55)
-    assert g.soft_ok() and g.soft_remaining()["usd"] == pytest.approx(0.55)
-    g.add(_usage(0.6))
+    clock = {"t": 0.0}
+    g = BudgetGuard(Budget(max_minutes=10.0), soft_fraction=0.55)
+    g.start_time = 0.0
+    g.elapsed_minutes = lambda: clock["t"]                       # type: ignore[method-assign]
+    assert g.soft_ok() and g.soft_remaining()["minutes"] == pytest.approx(5.5)
+    clock["t"] = 6.0
     assert not g.soft_ok() and "soft cap" in g.soft_exceeded()
     assert g.ok()  # the HARD ceiling is untouched: degrade, do not die
-    g.add(_usage(0.5))
+    clock["t"] = 11.0
     assert not g.ok()
     with pytest.raises(BudgetExceeded):
         g.check()
-    g.grant_grace(usd=0.3, minutes=5.0)
-    assert g.ok() and g.hard_usd == pytest.approx(1.3)
-    g.grant_grace(usd=0.1)  # never shrinks
-    assert g.hard_usd == pytest.approx(1.3)
+    g.grant_grace(minutes=5.0)
+    assert g.ok() and g.hard_minutes == pytest.approx(15.0)
+    g.grant_grace(minutes=1.0)  # never shrinks
+    assert g.hard_minutes == pytest.approx(15.0)
     assert g.summary()["soft_fraction"] == 0.55
 
 
 def test_timeout_is_clipped_to_the_wall_clock_left():
-    g = BudgetGuard(Budget(max_usd=5.0, max_minutes=10.0), soft_fraction=0.5)
+    g = BudgetGuard(Budget(max_minutes=10.0), soft_fraction=0.5)
     assert g.timeout_s(1800, floor_s=60) == pytest.approx(300, abs=2)  # 50 % of 10 min
     assert g.timeout_s(120, floor_s=60) == pytest.approx(120, abs=2)   # never inflates
     g.start_time -= 600  # the run is already over its wall clock
     assert g.timeout_s(1800, floor_s=90) == 90                          # floor, never 0
-
-
-def _usage(cost: float):
-    from codeverse.contracts.common import Usage
-
-    return Usage(backend="fake", cost_usd=cost)
 
 
 # ----------------------------------------------------------------------------- dedupe
@@ -119,8 +115,6 @@ def test_small_zones_share_a_session_and_big_ones_keep_the_fan_out():
     assert plan_zone_batches(zones) == batches
     assert zone_file(zones[0]) == "src/zones/small1.js"
 
-
-def test_every_zone_gets_exactly_one_owner_file():
     zones = [_zone(f"Z{i}", i % 5) for i in range(9)]
     batches = plan_zone_batches(zones)
     files = [zone_file(z) for b in batches for z in b]
@@ -129,9 +123,6 @@ def test_every_zone_gets_exactly_one_owner_file():
 
 # ----------------------------------------------------------------------------- single-shot assets
 def test_single_shot_needs_a_chat_model_not_a_coding_agent():
-    """Single-shot is ONE api call for an asset file — the cheap path before a full agent
-    session.  The coding agent is always a vendor CLI now (2026-08-28), which exposes no
-    chat model, so the model comes from the run's planner backend."""
     assert single_shot_agent_id("gemini-cli:gemini-3.6-flash", "gemini:gemini-3.6-flash") == "single-shot:gemini:gemini-3.6-flash"
     assert single_shot_agent_id("single-shot:gemini:x") == "single-shot:gemini:x"
     assert single_shot_agent_id("gemini-cli:gemini-3.6-flash") == ""       # no chat model given
@@ -165,9 +156,9 @@ def _envelope(rel: str, body: str) -> str:
 
 
 def _scene_ctx(tmp_path, settings, *, services, agent=None, plan=None, agent_id="fake-agent:gemini:x",
-               max_usd=5.0) -> RunContext:
+               max_minutes: float = 10.0) -> RunContext:
     plan = plan or ScenePlan.model_validate(plan_example(Track.SCENE))
-    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, generator=agent_id, max_usd=max_usd)
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, generator=agent_id, max_minutes=max_minutes)
     ws = Workspace(tmp_path / "ws").create()
     ws.write_json(ws.spec_path, spec)
     rt = FakeRuntime(Language.SCENE_THREEJS)
@@ -274,10 +265,6 @@ def test_single_shot_ctx_is_none_for_cli_backends(tmp_path, settings):
 
 
 # ----------------------------------------------------------------------------- salvage
-def _planner(payload):
-    return FakeChatModel(lambda req: payload)
-
-
 def _threejs_scene_plan() -> ScenePlan:
     """The scene example narrowed to its three.js assets — the only kind these fakes build."""
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
@@ -289,7 +276,7 @@ def _threejs_scene_plan() -> ScenePlan:
 
 def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path, settings):
     plan = _threejs_scene_plan()
-    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=1, max_usd=5.0)
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=1)
     ws = Workspace(tmp_path / "runs" / "greenhouse")
     services = FakeServices(assemble=True)
 
@@ -302,10 +289,11 @@ def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path,
 
     # the greenhouse hole: 2 asset sessions + env stay under $5; the zone session's own
     # (real, guard-enforced) charge crosses the ceiling mid-stage: $1.30 × 4 = $5.20
-    track = SceneTrack(services=services, judge=FakeJudge(scores=(0.58,)), agent=FakeAgent(writer, cost=1.3),
+    track = SceneTrack(services=services, judge=FakeJudge(scores=(0.58,)), agent=FakeAgent(writer, cost=1.3, minutes=3.0),
                        planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
                        runtime=FakeRuntime(Language.SCENE_THREEJS))
-    rec = track.run(spec, ws)
+    with fake_clock():
+        rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET and rec.extra["stop_reason"] == "budget"
     # …and, unlike the greenhouse run, it has a score
     assert rec.best_round == 0 and rec.final_score == pytest.approx(0.58)
@@ -315,20 +303,21 @@ def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path,
     names = [e["event"] for e in ev]
     assert "budget.salvage" in names and names.count("best.updated") == 1
     salvage = next(e for e in ev if e["event"] == "budget.salvage")
-    assert salvage["grace_usd"] > 0 and salvage["grace_minutes"] > 0
+    assert salvage["grace_minutes"] > 0
 
 
 def test_soft_budget_notes_land_in_the_round_record(tmp_path, settings):
     plan = _threejs_scene_plan()
-    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0, max_usd=5.0)
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
     ws = Workspace(tmp_path / "runs" / "degraded")
     services = FakeServices(assemble=True)
     # an expensive agent: the soft cap (55 % of $5) is crossed during the asset stage
-    agent = FakeAgent(_writer, cost=1.1)
+    agent = FakeAgent(_writer, cost=1.1, minutes=2.0)
     track = SceneTrack(services=services, judge=FakeJudge(scores=(0.5,)), agent=agent,
                        planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
                        runtime=FakeRuntime(Language.SCENE_THREEJS))
-    rec = track.run(spec, ws)
+    with fake_clock():
+        rec = track.run(spec, ws)
     ev = [json.loads(x) for x in (ws.root / "events.jsonl").read_text().splitlines() if x.strip()]
     degraded = [e for e in ev if e["event"] == "budget.degraded"]
     assert degraded, "the soft cap must be reported before the hard cap kills the run"
@@ -346,8 +335,6 @@ def _writer(job, ws):
 
 @needs_node
 def test_a_merged_asset_leaves_a_working_shim_not_the_placeholder_box(tmp_path, settings, monkeypatch):
-    """Over the cap, twins merge — and a zone that imports the merged name must still
-    get the real prop, not the skeleton's blockout box."""
     import codeverse.tracks.scene_assets as sa
 
     monkeypatch.setattr(sa, "MAX_ASSETS", 1)  # force the rescue path with a tiny plan
@@ -369,17 +356,13 @@ def test_a_merged_asset_leaves_a_working_shim_not_the_placeholder_box(tmp_path, 
     assert chk.ok and chk.meshes == 2, "the shim resolves to the real factory, not the blockout stub"
 
 
-def test_every_planned_asset_is_built_while_the_plan_fits_under_the_cap():
-    """Dedupe is a cap rescue: a distinct prop is worth more than a variant flag."""
+def test_asset_selection_folds_only_over_the_cap():
     twins = [_asset("PondRock", (1.1, 0.75, 0.9)), _asset("SteppingStone", (0.65, 0.12, 0.55))]
     kept, alias = select_assets(twins, cap=8)
     assert [k.name for k in kept] == ["PondRock", "SteppingStone"] and not alias
     kept, alias = select_assets(twins, cap=1)
     assert [k.name for k in kept] == ["PondRock"] and alias == {"SteppingStone": "PondRock"}
 
-
-def test_over_the_cap_folding_beats_truncation():
-    """8 planned props, cap 4: folding rescues twins that truncation would delete."""
     assets = [_asset("HeroBoulder", (2.4, 2.0, 2.2)), _asset("Bench", (1.6, 0.9, 0.6)),
               _asset("Lantern", (0.4, 1.2, 0.4)), _asset("Crate", (0.6, 0.5, 0.6)),
               _asset("TalusRock", (1.8, 1.4, 1.6)), _asset("Stool", (0.5, 0.6, 0.5)),
@@ -392,7 +375,6 @@ def test_over_the_cap_folding_beats_truncation():
 
 
 def test_a_batched_session_that_writes_only_one_file_fails_the_other_zone(tmp_path, settings):
-    """The skeleton leaves a stub at every zone path, so 'the file exists' proves nothing."""
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     plan = plan.model_copy(update={"assets": [_asset("Bollard", (0.3, 0.5, 0.3))],
                                    "zones": [_zone("Quay", 0), _zone("Water", 0)]})
@@ -417,7 +399,6 @@ def test_a_batched_session_that_writes_only_one_file_fails_the_other_zone(tmp_pa
 
 @needs_node
 def test_an_imperfect_asset_stays_available_but_a_broken_one_does_not(tmp_path, settings):
-    """Wrong size = worth one repair; won't import = zones must not reference it."""
     services = FakeServices()
     ctx = _scene_ctx(tmp_path, settings, services=services)
     (ctx.ws.src / "assets").mkdir(parents=True, exist_ok=True)
@@ -431,17 +412,15 @@ def test_an_imperfect_asset_stays_available_but_a_broken_one_does_not(tmp_path, 
 
 
 def test_a_scene_round_judged_at_the_ceiling_is_still_promoted(tmp_path, settings):
-    """The batch-2 promotion order must hold for scenes too: the verdict is paid for,
-    recorded and promoted BEFORE the loop notices the budget is gone — and the salvage
-    must not then run a second round 0 on top of it."""
     plan = _threejs_scene_plan()
-    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=2, max_usd=0.10)
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=2)
     ws = Workspace(tmp_path / "runs" / "ceiling")
-    judge = FakeJudge(scores=(0.61,), cost=0.5)  # the single verdict blows max_usd
+    judge = FakeJudge(scores=(0.61,), cost=0.5, minutes=12.0)
     track = SceneTrack(services=FakeServices(assemble=True), judge=judge, agent=FakeAgent(_writer, cost=0.001),
                        planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
                        runtime=FakeRuntime(Language.SCENE_THREEJS))
-    rec = track.run(spec, ws)
+    with fake_clock():
+        rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET and rec.best_round == 0 and rec.final_score == pytest.approx(0.61)
     assert len(rec.rounds) == 1 and rec.rounds[0].judgment is not None
     names = [json.loads(x)["event"] for x in (ws.root / "events.jsonl").read_text().splitlines() if x.strip()]
@@ -452,8 +431,6 @@ def test_a_scene_round_judged_at_the_ceiling_is_still_promoted(tmp_path, setting
 
 @pytest.mark.node
 def test_a_model_outage_escalates_the_asset_instead_of_losing_it(tmp_path, settings):
-    """A 503 storm that outlives the model layer's retries must fall through to the
-    agent session, not mark the asset NOT AVAILABLE for every zone."""
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     plan = plan.model_copy(update={"assets": [_asset("Bollard", (0.3, 0.5, 0.3))], "zones": []})
 
@@ -471,14 +448,10 @@ def test_a_model_outage_escalates_the_asset_instead_of_losing_it(tmp_path, setti
 
 
 def test_a_generation_session_never_outlives_the_wall_budget():
-    """Measured 2026-08-27: a static run with --max-minutes 30 stopped at 39.0 min with
-    round 0 unfinished, because run_agent_task handed the session a flat
-    settings.limits.agent_timeout_s (1800 s) and only checked the ceiling at the next
-    boundary.  The scene track had clipped this since the greenhouse incident."""
     from codeverse.contracts.spec import Budget
     from codeverse.orchestrator import BudgetGuard
 
-    g = BudgetGuard(Budget(max_usd=10.0, max_minutes=30.0, max_rounds=4), run="t")
+    g = BudgetGuard(Budget(max_minutes=30.0, max_rounds=4))
     assert g.timeout_s(1800, floor_s=120.0) == pytest.approx(1800, abs=60)   # fresh run: full session
     g.start_time -= 27 * 60                                                   # 3 minutes left
     clipped = g.timeout_s(1800, floor_s=120.0)
@@ -488,10 +461,6 @@ def test_a_generation_session_never_outlives_the_wall_budget():
 
 
 def test_one_asset_cannot_eat_the_scene_run():
-    """Measured 2026-08-27 (scn_med_conservatory, 25-min cap): seven assets finished
-    inside 5.7 min while one escalation ran the full ASSET_AGENT_TIMEOUT_S and held the
-    stage to 10.9 min — the stage waits for its slowest, so round 0 started at 18.9 min
-    and the judged round only happened via the budget salvage at 25.5 min."""
     from codeverse.contracts.spec import Budget
     from codeverse.orchestrator import BudgetGuard
     from codeverse.tracks.scene_assets import (
@@ -501,7 +470,7 @@ def test_one_asset_cannot_eat_the_scene_run():
     )
 
     class Ctx:
-        budget = BudgetGuard(Budget(max_usd=10.0, max_minutes=25.0, max_rounds=4), run="t")
+        budget = BudgetGuard(Budget(max_minutes=25.0, max_rounds=4))
 
     fresh = asset_timeout_s(Ctx, 120)
     assert fresh < ASSET_AGENT_TIMEOUT_S, "one asset may not have the whole preparation budget"
@@ -510,6 +479,6 @@ def test_one_asset_cannot_eat_the_scene_run():
     assert asset_timeout_s(Ctx, 120) == 120, "and never past the wall clock, floor aside"
 
     class Long:
-        budget = BudgetGuard(Budget(max_usd=10.0, max_minutes=90.0, max_rounds=4), run="t")
+        budget = BudgetGuard(Budget(max_minutes=90.0, max_rounds=4))
 
     assert asset_timeout_s(Long, 120) == ASSET_AGENT_TIMEOUT_S, "a long run keeps the ceiling"

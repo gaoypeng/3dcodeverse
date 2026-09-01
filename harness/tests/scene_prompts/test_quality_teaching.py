@@ -13,7 +13,7 @@ import pytest
 from codeverse.judges.rubrics import load_rubric
 from codeverse.prompts import load_text
 
-#: chapters the prompts point the agent at by name (read_cookbook matches on the title)
+#: cookbook chapter titles selected by the scene prompt builder
 QUALITY_CHAPTERS = [
     "Ground that reads real",
     "Horizon: the world must not end",
@@ -33,14 +33,8 @@ def cookbook() -> str:
 
 
 @pytest.mark.parametrize("title", QUALITY_CHAPTERS)
-def test_cookbook_has_the_quality_chapter(cookbook: str, title: str) -> None:
-    headings = [ln[3:].strip() for ln in cookbook.splitlines() if ln.startswith("## ")]
-    assert any(h.startswith(title) for h in headings), f"missing chapter {title!r}; have {headings}"
-
-
-@pytest.mark.parametrize("title", QUALITY_CHAPTERS)
-def test_cookbook_chapter_is_findable_by_read_cookbook(cookbook: str, title: str) -> None:
-    from codeverse.spatial.cookbook_tool import find_section, split_sections
+def test_cookbook_quality_chapter_is_selectable(cookbook: str, title: str) -> None:
+    from codeverse.prompts.sections import find_section, split_sections
 
     s = find_section(split_sections(cookbook), title)
     assert s is not None and s.title.startswith(title)
@@ -134,12 +128,12 @@ def test_extra_anchor_levels_reach_the_judge_prompt() -> None:
 # --------------------------------------------------------------------------- delivery
 def test_the_quality_chapters_travel_INSIDE_the_zone_and_env_prompts() -> None:
     """Naming a chapter is not teaching it: on scenes_v1 not one of the 20 zone/env
-    sessions called `read_cookbook`, so the chapters that decide the score are inlined
+    sessions fetched cookbook chapters on demand, so the chapters that decide the score are inlined
     into the brief itself (`tracks.prompting.cookbook_sections`)."""
     from codeverse.tracks.scene import ENV_RECIPES, ZONE_RECIPES
 
     cookbook = load_text("scene_threejs/cookbook.md")
-    from codeverse.spatial.cookbook_tool import find_section, split_sections
+    from codeverse.prompts.sections import find_section, split_sections
 
     secs = split_sections(cookbook)
     for names in (ENV_RECIPES, ZONE_RECIPES):
@@ -161,6 +155,6 @@ def test_cookbook_sections_inlines_whole_chapters_and_clips_safely(tmp_path) -> 
     for token in ("setColorAt", "cameraMask", "foreground frame", "±0.10–0.20 rad"):
         assert token in text, token
     assert len(text) > 12_000
-    assert cookbook_sections(ctx, ZONE_RECIPES, max_chars=500).endswith("call read_cookbook for the rest]")
+    assert cookbook_sections(ctx, ZONE_RECIPES, max_chars=500).rstrip().endswith("cookbook.md]")
     assert cookbook_sections(SimpleNamespace(cookbook_text=""), ZONE_RECIPES) == ""
     assert cookbook_sections(ctx, ["zzz qqq"]) == ""                  # no match → nothing, never junk

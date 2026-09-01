@@ -21,7 +21,6 @@ from bench._oneshot import (  # noqa: E402
     minimal_contract,
     oneshot_prompt,
     repair_prompt,
-    write_model_file,
 )
 from codeverse.contracts.artifacts import BuildResult, GateReport  # noqa: E402
 from codeverse.contracts.common import Language, Track  # noqa: E402
@@ -63,11 +62,6 @@ def test_extract_model_file_tolerant(text: str):
 def test_extract_model_file_rejects_prose():
     with pytest.raises(MultiFileParseError):
         extract_model_file("Sorry, I cannot do that.")
-
-
-def test_write_model_file(tmp_ws):
-    p = write_model_file(tmp_ws, "```python\nimport bpy\n```")
-    assert p == tmp_ws.root / MODEL_FILE and p.read_text() == "import bpy\n"
 
 
 def test_claude_argv_disables_tools_and_is_single_turn():

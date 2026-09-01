@@ -230,7 +230,7 @@ it lands these four rows stay `mixed`, not `measured`.
   intact; but any A/B straddling this commit compares two different metrics.
   `cv3d-scene-lighting` must be re-baselined against the new gate before it is paired.
 * **`shader_preflight` is not a gate at all.** It appears in **zero** `record.json` files
-  corpus-wide: `check_shaders` is an agent-invocable tool (`spatial/tools_scene.py`), never a
+  corpus-wide: `check_shaders` is an agent-invocable tool (`spatial/tools.py`), never a
   pipeline gate, so no round appends its report. The only evidence is 8 per-run
   `artifacts/shader_preflight.json` files, all clean. "Not instrumented" and "measured,
   always clean" must not print the same number — the readout now returns `None` when the
@@ -242,7 +242,7 @@ it lands these four rows stay `mixed`, not `measured`.
   admitted a `passed` run with no gated round as a clean 0.
 * **A budget cap tuned for the judged score starves the gate readout.** The `bbox-contract`
   A/B's variant produced a *scored* artefact with **zero gated rounds**, so the primary
-  metric lost the cell while the secondary kept it. Raise `--max-usd`/`--max-minutes` for
+  metric lost the cell while the secondary kept it. Raise `--max-minutes` for
   any A/B whose readout is a gate.
 * **The A/B rig scored four of seven languages 0.0.** `compare_backends._run_harness` gated
   the harness arm on `src/model.py`; a glsl run that finished `passed` having written
@@ -256,8 +256,9 @@ it lands these four rows stay `mixed`, not `measured`.
   each arm's own harness record. Know that the *judged* column of any non-blender A/B is
   meaningless.
 * **`telemetry.record_exact_read` is wired to `read_file` only** (`agents/api_agent.py`), so
-  `read_skill` — api-agent's actual read channel — never reaches `skill_reads.jsonl`. One
-  line in `SkillTools.read_skill` makes `3dcv skills report` truthful without atime.
+  `read_skill` — api-agent's actual read channel — never reaches `skill_reads.jsonl`.
+  *(Moot since 2026-08-28: the api-agent and its `read_skill` channel were deleted with it;
+  vendor-CLI reads go through the filesystem and leave no exact-read channel to wire.)*
 * **`scene_frames/content_*` has no classified kind.** Frame coverage is half of what
   `cv3d-scene-composition` teaches; it neither routes nor counts. Left alone deliberately:
   adding a kind widens routing, which is an effect claim needing its own evidence.

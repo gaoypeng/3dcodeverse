@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-
-import pytest
+import logging
+import sys
 
 from codeverse.agents.cli_common import default_mcp_command
 from codeverse.agents.materialize import CV3D_DIR, codex_mcp_overrides, materialize_workspace
@@ -19,7 +19,7 @@ def _mat(ws: Workspace, kind: str = "gemini-cli", spatial: bool = True, cookbook
 
 
 def test_writes_three_bodies_same_content(tmp_ws: Workspace):
-    res = _mat(tmp_ws)
+    _mat(tmp_ws)
     bodies = [(tmp_ws.root / n).read_text() for n in ("AGENTS.md", "GEMINI.md", "CLAUDE.md")]
     assert bodies[0] == bodies[1] == bodies[2]
     body = bodies[0]
@@ -27,7 +27,28 @@ def test_writes_three_bodies_same_content(tmp_ws: Workspace):
     assert "never import from `codeverse`" in body.lower() or "Never import from `codeverse`" in body
     assert CONTRACT.splitlines()[0] in body
     assert "Spatial tools (3dcv)" in body
-    assert len(res.body_files) == 3
+
+
+def test_bodies_document_only_this_tracks_tools(tmp_ws: Workspace):
+    """AGENTS.md used to list all 19 tools + the object workflow for every track — for
+    agy (no MCP) this file is the ONLY tool documentation and its shell fallback is
+    unscoped, so scene/graphics agents were taught dead-end object-GLB tools (V11a)."""
+    tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "scene", "language": "scene_threejs", "prompt": "p"}))
+    _mat(tmp_ws, kind="agy")
+    body = (tmp_ws.root / "AGENTS.md").read_text()
+    for absent in ("`joint_sweep`", "`gl_probe`", "`texture_pass`", "`render_sheet`", "`check_contract`", "`cross_section`"):
+        assert absent not in body, absent
+    assert "`scene_views`" in body and "`scene_probe`" in body and "`build`" in body
+    assert "check_contract` to prove" not in body, "the object workflow sentence must not survive filtering"
+    # an object workspace keeps the full object toolset and its workflow sentence
+    tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "static_object", "language": "blender", "prompt": "p"}))
+    _mat(tmp_ws, kind="agy")
+    body = (tmp_ws.root / "AGENTS.md").read_text()
+    assert "`render_sheet`" in body and "`measure`" in body and "`check_contract`" in body
+    # no spec.json (bare workspaces in tests/tools): unfiltered fallback, nothing crashes
+    tmp_ws.spec_path.unlink()
+    _mat(tmp_ws, kind="agy")
+    assert "`joint_sweep`" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
 def test_no_mcp_server_is_written_into_the_workspace(tmp_ws: Workspace):
@@ -36,14 +57,11 @@ def test_no_mcp_server_is_written_into_the_workspace(tmp_ws: Workspace):
     gs = tmp_ws.root / ".gemini" / "settings.json"
     gs.parent.mkdir(parents=True)
     gs.write_text(json.dumps({"mcpServers": {"3dcv": {"command": "/tmp/evil"}}, "ui": {"theme": "dark"}}))
-    res = _mat(tmp_ws)
+    _mat(tmp_ws)
     data = json.loads(gs.read_text())
     assert data["ui"]["theme"] == "dark"
     assert "3dcv" not in data["mcpServers"], "an agent-planted 3dcv impostor must be dropped"
     assert not (tmp_ws.root / ".mcp.json").exists(), "claude-code writes its own per-session mcp.json"
-    assert res.codex_overrides[1].startswith("mcp_servers.3dcv.command=")
-    assert "mcp_servers.3dcv.args=[" in res.codex_overrides[3]
-    assert "global" in res.agy_mcp.lower()
     assert data["context"]["fileFiltering"]["respectGitIgnore"] is False  # .gitignore hides artifacts/ + trajectories/
 
 
@@ -54,7 +72,7 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
 
     from codeverse.agents.materialize import IGNORE_LINES
 
-    res = _mat(tmp_ws)
+    _mat(tmp_ws)
 
     def ignored(rel: str, lines: tuple[str, ...]) -> bool:
         for pat in lines:
@@ -67,7 +85,7 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
 
     for f in (".geminiignore", ".aiexclude"):
         lines = tuple(ln for ln in (tmp_ws.root / f).read_text().splitlines() if ln.strip())
-        assert lines == IGNORE_LINES and str(tmp_ws.root / f) in res.ignore_files
+        assert lines == IGNORE_LINES
         assert "artifacts/" not in lines and "trajectories/" not in lines
         for readable in ("artifacts/census.json", "artifacts/build_last.json", "artifacts/measurement.json",
                          "artifacts/gates/r00/contract_tool.json", "artifacts/tool_renders/r00_ab/sheet.png",
@@ -80,25 +98,32 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
 
 def test_spatial_disabled_drops_server_and_documents_absence(tmp_ws: Workspace):
     _mat(tmp_ws)
-    res = _mat(tmp_ws, spatial=False)
-    assert res.codex_overrides == []
+    _mat(tmp_ws, spatial=False)
     assert "3dcv" not in json.loads((tmp_ws.root / ".gemini" / "settings.json").read_text()).get("mcpServers", {})
     assert "No spatial tools are available" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
-def test_cookbook_copied_when_found(tmp_ws: Workspace, tmp_path):
+def test_cookbook_copied_when_found(tmp_ws: Workspace, tmp_path, caplog):
     cb = tmp_path / "cookbook.md"
     cb.write_text("# cookbook\nsnippet")
-    res = _mat(tmp_ws, cookbook=str(cb))
-    assert res.cookbook_path.endswith(f"{CV3D_DIR}/cookbook.md")
+    with caplog.at_level(logging.WARNING, logger="codeverse.agents.materialize"):
+        _mat(tmp_ws, cookbook=str(cb))
     assert (tmp_ws.root / CV3D_DIR / "cookbook.md").read_text().startswith("# cookbook")
     assert f"{CV3D_DIR}/cookbook.md" in (tmp_ws.root / "AGENTS.md").read_text()
-    assert not res.warnings
+    assert not [r for r in caplog.records if r.name == "codeverse.agents.materialize"], \
+        "a resolved cookbook must not warn"
 
 
-def test_missing_cookbook_is_a_warning(tmp_ws: Workspace):
-    res = _mat(tmp_ws, cookbook="nope/cookbook.md")
-    assert any("cookbook not found" in w for w in res.warnings)
+def test_missing_cookbook_warns_where_someone_can_see_it(tmp_ws: Workspace, caplog):
+    """The unresolved cookbook is the failure `tracks/common.cookbook_rel_for` was fixed for
+    (an articulated run told the agent "No cookbook is available" while its 24 kB cookbook sat
+    on disk).  It used to land in a `Materialized.warnings` list every caller threw away; the
+    log line is the whole signal now, so it has to fire."""
+    with caplog.at_level(logging.WARNING, logger="codeverse.agents.materialize"):
+        _mat(tmp_ws, cookbook="nope/cookbook.md")
+    assert any("cookbook not found" in r.getMessage() and "nope/cookbook.md" in r.getMessage()
+               for r in caplog.records)
+    assert "No cookbook is available" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
 def test_kind_specific_tool_hint(tmp_ws: Workspace):
@@ -118,6 +143,9 @@ def test_codex_overrides_are_valid_toml_fragments():
     assert keys["mcp_servers.3dcv.default_tools_approval_mode"] == '"approve"'
 
 
-def test_spatial_requires_mcp_command(tmp_ws: Workspace):
-    with pytest.raises(ValueError):
-        materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="", spatial_tools=True, mcp_command=[])
+def test_default_mcp_command_is_the_backends_interpreter(tmp_ws: Workspace):
+    # one place knows the command: the body + codex overrides quote sys.executable, never bare "python"
+    materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="", spatial_tools=True)
+    body = (tmp_ws.root / "AGENTS.md").read_text()
+    assert default_mcp_command(tmp_ws)[0] == sys.executable
+    assert f"command: `{' '.join(default_mcp_command(tmp_ws))}`" in body

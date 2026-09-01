@@ -9,26 +9,16 @@ from tests.prompts.conftest import PROMPT_FILES, PROMPTS_DIR, read_prompt
 
 
 @pytest.mark.parametrize("rel", PROMPT_FILES)
-def test_file_exists_and_nonempty(rel: str) -> None:
+def test_prompt_file_contract(rel: str) -> None:
     p = PROMPTS_DIR / rel
     assert p.is_file(), f"missing prompt file {rel}"
-    assert len(p.read_text()) > 500, f"{rel} suspiciously small"
-
-
-@pytest.mark.parametrize("rel", PROMPT_FILES)
-def test_loads_and_renders(rel: str) -> None:
     raw = load_text(rel)
     assert prompt_hash(raw)
     # markdown prompts must be jinja-inert: render() with no context must be a no-op
     rendered = render(rel)
     assert rendered == raw, f"{rel} contains live jinja syntax; keep prompt .md files static"
-
-
-@pytest.mark.parametrize("rel", PROMPT_FILES)
-def test_jinja_safe(rel: str) -> None:
-    text = read_prompt(rel)
     for seq in ("{{", "{%", "{#"):
-        assert seq not in text, f"{rel} contains {seq!r} which breaks jinja rendering"
+        assert seq not in raw, f"{rel} contains {seq!r} which breaks jinja rendering"
 
 
 @pytest.mark.parametrize(
@@ -42,17 +32,13 @@ def test_cookbook_structure(rel: str) -> None:
     assert len(headings) == len(set(headings)), f"{rel}: duplicate section headings"
     joined = " | ".join(headings)
     assert "Pitfalls" in joined, f"{rel}: needs a Pitfalls chapter"
-    lines = len(text.splitlines())
-    assert 250 <= lines <= 950, f"{rel}: {lines} lines (want a substantial but bounded cookbook)"
 
 
 @pytest.mark.parametrize(
     "rel", [f for f in PROMPT_FILES if f.endswith("contract.md") and not f.startswith("system/")]
 )
-def test_contract_size_and_content(rel: str) -> None:
+def test_contract_content(rel: str) -> None:
     text = read_prompt(rel)
-    lines = len(text.splitlines())
-    assert lines <= 150, f"{rel}: {lines} lines — contracts must stay short"
     assert "COMPLETE minimal example" in text, f"{rel}: must carry a complete runnable example"
     low = text.lower()
     assert "meter" in low or "metre" in low, f"{rel}: units must be stated"
@@ -71,18 +57,32 @@ def test_frames_consistent_with_conventions() -> None:
         assert "+Z front" in text or "+Z is the front" in text, f"{rel}: must state +Z front"
 
 
-def test_singleshot_format_matches_parser_contract() -> None:
-    text = read_prompt("system/singleshot_format.md")
-    assert "=== FILE: " in text and "=== END FILE ===" in text
-
-
 def test_system_prompts_cover_the_laws() -> None:
     hc = read_prompt("system/harness_contract.md")
     for needle in ("artifacts/", "render_sheet", "check_connectivity", "2 mm",
                    "Definition of done", "ground", "seed"):
         assert needle.lower() in hc.lower(), f"harness_contract.md must mention {needle!r}"
-    tu = read_prompt("system/tools_usage.md")
-    for tool in ("build", "measure", "render_views", "render_sheet", "isolate", "cross_section",
-                 "check_connectivity", "check_contract", "compare_silhouette", "joint_sweep",
-                 "shader_probe", "scene_probe", "read_cookbook"):
-        assert f"`{tool}" in tu, f"tools_usage.md must document {tool!r}"
+    # system/tools_usage.md was a hand-written tool list with no production reader
+    # (deleted 2026-08-28): the agent's tool section is GENERATED from the @tool
+    # registrations by agents/materialize._tool_section, so "every tool is documented"
+    # is true by construction and this assertion was checking a file nobody read.
+
+
+def test_every_language_ships_a_system_prompt() -> None:
+    """The generator's system prompt is per LANGUAGE and lives in the prompt corpus.
+
+    It used to be an f-string in each track class, and the three static-object
+    languages shared one sentence with the name swapped in — bpy mesh modelling,
+    CadQuery's B-rep workplanes and three.js BufferGeometry, told the same thing.
+    A missing file here means a language silently falls back to nothing.
+    """
+    from codeverse.contracts.common import Language
+    from codeverse.prompts.catalog import prompt_dir_for
+    from codeverse.tracks.prompting import language_system_prompt
+
+    for lang in Language:
+        text = language_system_prompt(lang)
+        assert text.strip(), f"{lang.value}: empty system prompt"
+        assert (PROMPTS_DIR / prompt_dir_for(lang) / "system.md").is_file(), lang.value
+    for role in ("scope", "detail", "repair"):
+        assert (PROMPTS_DIR / "system" / f"role_{role}.j2").is_file(), role

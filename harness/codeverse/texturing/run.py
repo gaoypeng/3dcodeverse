@@ -292,15 +292,8 @@ def texture_pass(
 def _make_judge(spec: Spec, rubric: str | None, judge_model_id: str | None) -> Any:
     from codeverse.judges.vlm_judge import VlmJudge
 
-    info = TRACK_INFO.get(spec.track)
-    if rubric:
-        name = rubric
-    elif info is not None:
-        name = info.rubric
-    else:
-        name = "static_object_v1"
-        log.warning("no TRACK_INFO row for track %s; texture gate falls back to %s", spec.track, name)
-    return VlmJudge(rubric=name, model_id=judge_model_id or spec.backends.judge, n_samples=1, label="texture_gate")
+    return VlmJudge(rubric=rubric or TRACK_INFO[spec.track].rubric, model_id=judge_model_id or spec.backends.judge,
+                    n_samples=1, label="texture_gate")
 
 
 def _finish(ws: Workspace, report: TextureReport, t0: float, events: EventLog, update_record: bool) -> TextureReport:

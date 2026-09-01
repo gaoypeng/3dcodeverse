@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from codeverse.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
-from codeverse.texturing.generate import FakeImageModel
 from codeverse.texturing.plan import (
     default_scene_pack_plan,
     load_manifest,
@@ -16,6 +15,7 @@ from codeverse.texturing.plan import (
     scene_texture_pack,
     texture_pack_prompt,
 )
+from tests.texturing.conftest import FakeImageModel
 from tests.texturing.test_plan import _FakeChat
 
 

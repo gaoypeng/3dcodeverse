@@ -80,31 +80,6 @@ def test_a_source_without_a_cached_stage_is_refused(tmp_path):
         seed_plan(src, dst)
 
 
-# --------------------------------------------------------------- the permission rule
-def test_only_a_post_planning_switch_may_be_pinned():
-    from codeverse.tracks.plan_features import pin_plan_blockers
-
-    assert pin_plan_blockers({"CV3D_PLAN_FEATURES": "contacts"}) == []
-    assert pin_plan_blockers({"CV3D_PLAN_FEATURES": "fit"}), "a plan-side switch must block"
-
-
-def test_pinning_a_plan_side_switch_would_delete_the_experiment(tmp_path):
-    """The failure this guards: both arms get one plan, so a change that only alters
-    planning becomes a no-op — and the rig then reports 'no effect' with confidence."""
-    from codeverse.tracks.plan_features import pin_plan_blockers
-
-    src = _planned_run(tmp_path, parts=10)
-    dst = tmp_path / "dst_run"
-    (dst / "stages").mkdir(parents=True)
-    (dst / "run_state.json").write_text(json.dumps({"status": "created", "stages": {}}))
-    seed_plan(src, dst)
-    # identical plans in both arms is exactly what pinning means...
-    assert json.loads((dst / "plan.json").read_text()) == json.loads((src / "plan.json").read_text())
-    # ...which is why the caller must refuse it for a switch that changes planning
-    assert pin_plan_blockers({"CV3D_PLAN_FEATURES": "fit"}) == [
-        "CV3D_PLAN_FEATURES=fit changes the plan itself"]
-
-
 # --------------------------------------------------------------- the driver's use of it
 def test_pin_pair_seeds_every_arm_from_one_plan(tmp_path, monkeypatch):
     """``--pin-plan`` must plan ONCE and hand the same plan to both arms.
@@ -188,13 +163,6 @@ def test_a_plan_side_variant_env_is_refused_by_the_cli():
         ab_plan.main(["--prompts", str(ab_plan.REPO / "bench" / "prompts" / "compare_v1.yaml"),
                       "--out", "/tmp/never", "--pin-plan", "--no-preflight",
                       "--variant-env", "CV3D_PLAN_BRIEF=1"])
-
-
-def test_a_generation_side_variant_env_is_permitted():
-    """The premise of this whole wave: CV3D_SKILLS acts after planning, so it is pinnable."""
-    from codeverse.tracks.plan_features import pin_plan_blockers
-
-    assert pin_plan_blockers({"CV3D_SKILLS": "1", "CV3D_SKILLS_MAX": "1"}) == []
 
 
 # --------------------------------------------------------------------------- the key

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,11 +11,11 @@ from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import ArticulatedPlan, ScenePlan
 from codeverse.orchestrator import BudgetGuard, RoundPolicy, RunState
 from codeverse.proc import EventLog
-from codeverse.prompts import list_prompts, render
+from codeverse.prompts import PROMPTS_DIR, render
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
 from codeverse.tracks.planner import plan_example
-from codeverse.tracks.prompting import base_prompt_context
+from codeverse.tracks.prompting import base_prompt_context, judged_sheet
 from codeverse.tracks.scene_assets import asset_api_summary, asset_plan, run_asset_stage
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import FakeAgent, FakeJudge, FakeRuntime, FakeServices
@@ -50,8 +51,18 @@ def _ctx(tmp_ws, settings, spec, plan, *, agent_id="single-shot:gemini:x", servi
                       cookbook_rel=f"{lang.value}/cookbook.md", tool_cards="- `build`: builds")
 
 
+def test_judged_sheet_returns_one_labelled_existing_image(tmp_path):
+    png = tmp_path / "sheet.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+    images = judged_sheet(SimpleNamespace(index=2, renders=SimpleNamespace(contact_sheet=str(png))))
+    assert len(images) == 1 and images[0].path == str(png)
+    assert "round 2" in images[0].label and "judge" in images[0].label
+    for renders in (None, SimpleNamespace(contact_sheet=""), SimpleNamespace(contact_sheet=str(tmp_path / "gone.png"))):
+        assert judged_sheet(SimpleNamespace(index=0, renders=renders)) == []
+
+
 def test_all_track_templates_exist_and_render(tmp_ws, settings, chair_plan):
-    names = {p.split("/")[-1][:-3] for p in list_prompts() if p.startswith("tracks/") and p.endswith(".j2")}
+    names = {p.stem for p in (PROMPTS_DIR / "tracks").rglob("*.j2")}
     assert names >= TEMPLATES
     spec = make_spec()
     ctx = _ctx(tmp_ws, settings, spec, chair_plan)
@@ -93,6 +104,10 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     assert crate_jobs == ["asset_crate", "asset_crate_fix"] and crate.fixed
     assert (tmp_ws.root / "_assets" / "crate" / "src" / "model.py").is_file() and "_assets/" in (tmp_ws.root / ".gitignore").read_text()
     assert results["FishingBoat"].ok and results["FishingBoat"].path == "src/assets/fishing_boat.js"
+    # blender twin of the S2 reuse: the committed GLB short-circuits the second stage run
+    n_jobs = len(agent.jobs)
+    again = run_asset_stage(ctx)
+    assert len(agent.jobs) == n_jobs and again["Crate"].strategy == "reused" and again["Crate"].ok
     api = asset_api_summary(plan, results)
     assert "buildFishingBoat" in api and "public/assets/crate.glb" in api
     sub = asset_plan(plan.assets[2])
@@ -109,6 +124,56 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     sa = render("tracks/scene_asset.j2", **base_prompt_context(ctx, asset_name="Bollard", asset_kind="threejs", asset_description="d", asset_size=(0.3, 0.5, 0.3),
                                                               asset_file="src/assets/bollard.js", asset_language="scene_threejs", fix_instructions=["- x"], current_code=""))
     assert "buildBollard" in sa and "FIX PASS" in sa
+
+
+@pytest.mark.node   # the threejs asset check imports three under node
+def test_a_committed_asset_is_reused_on_a_second_stage_run(tmp_ws, settings):
+    """Review-3 S2 (V3-claim4): re-entering the stage (budget stop after commit, or a
+    failed sibling) reuses a committed, import-clean module without a model call;
+    a committed but broken module is regenerated."""
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
+    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS)
+    agent = FakeAgent(lambda job, ws: {job.prompt.split("write `")[1].split("`")[0] if "write `" in job.prompt else "src/x.js": _asset_module(job)})
+    ctx = _ctx(tmp_ws, settings, spec, plan, agent_id="fake:x", services=FakeServices(judge=FakeJudge(scores=(0.9, 0.9))), agent=agent)
+    ctx.runtime.skeleton(tmp_ws, plan)
+    tmp_ws.commit("skeleton")
+    results = run_asset_stage(ctx)
+    assert results["FishingBoat"].ok and results["FishingBoat"].strategy != "reused"
+    n_jobs = len(agent.jobs)
+    results2 = run_asset_stage(ctx)
+    assert len(agent.jobs) == n_jobs, "a committed passing asset must not be re-paid"
+    assert results2["FishingBoat"].strategy == "reused" and results2["FishingBoat"].ok
+    assert results2["FishingBoat"].path == results["FishingBoat"].path and results2["FishingBoat"].size_m is not None
+    # a committed but import-broken module is NOT reused: it goes back through generation
+    (tmp_ws.root / results["FishingBoat"].path).write_text("export function nope() {}\n")
+    results3 = run_asset_stage(ctx)
+    assert len(agent.jobs) > n_jobs and results3["FishingBoat"].strategy != "reused"
+
+
+@pytest.mark.node   # the threejs asset check imports three under node
+def test_a_replanned_asset_with_the_same_name_is_not_reused(tmp_ws, settings):
+    """Review-3 S2 sharp edge: after a --force re-plan, a committed module that kept
+    its NAME but changed its plan slice (description/dims) must regenerate — the reuse
+    guard's identity is the whole AssetPlan hash, not the file path."""
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
+    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS)
+    agent = FakeAgent(lambda job, ws: {job.prompt.split("write `")[1].split("`")[0] if "write `" in job.prompt else "src/x.js": _asset_module(job)})
+    ctx = _ctx(tmp_ws, settings, spec, plan, agent_id="fake:x", services=FakeServices(judge=FakeJudge(scores=(0.9, 0.9))), agent=agent)
+    ctx.runtime.skeleton(tmp_ws, plan)
+    tmp_ws.commit("skeleton")
+    run_asset_stage(ctx)
+    n_jobs = len(agent.jobs)
+    # the re-plan keeps the asset's name but changes what it IS
+    boat = next(a for a in ctx.plan.assets if a.name == "FishingBoat")
+    boat.description = "a rusted iron rowboat, half-sunk, barnacle-crusted"
+    results = run_asset_stage(ctx)
+    assert len(agent.jobs) > n_jobs, "a changed plan slice must regenerate, file presence is not identity"
+    assert results["FishingBoat"].strategy != "reused"
+    # and the regenerated module is reusable again under the NEW identity
+    n2 = len(agent.jobs)
+    assert run_asset_stage(ctx)["FishingBoat"].strategy == "reused" and len(agent.jobs) == n2
 
 
 def test_a_model_outage_is_not_an_escalation_signal() -> None:

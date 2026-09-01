@@ -3,7 +3,11 @@ its plan + spec, a fake image model, a fake render function and a fake judge."""
 
 from __future__ import annotations
 
+import hashlib
 import json
+import threading
+import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +21,6 @@ from codeverse.contracts.chat import ChatResponse
 from codeverse.contracts.common import Language, Track, Usage
 from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse.contracts.spec import Spec
-from codeverse.texturing.generate import FakeImageModel
 
 
 def _box(ext: tuple[float, float, float], center: tuple[float, float, float]) -> trimesh.Trimesh:
@@ -75,11 +78,6 @@ def chair_plan() -> StaticPlan:
 @pytest.fixture
 def chair_spec() -> Spec:
     return Spec(id="t1", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a simple oak chair with brushed steel legs")
-
-
-@pytest.fixture
-def fake_image_model() -> FakeImageModel:
-    return FakeImageModel()
 
 
 def fake_render(glb: Path | str, out_dir: Path | str, *, views: Any, width: int = 512, height: int = 512, **_: Any) -> RenderSet:
@@ -140,3 +138,59 @@ class FakePlanModel:
         self.calls.append(req)
         return ChatResponse(text=json.dumps(self.payload), parsed=self.payload,
                             usage=Usage(cost_usd=0.002, input_tokens=100))
+
+
+# --------------------------------------------------------------------------- fake image model
+class FakeImageModel:
+    """Deterministic procedural textures (seeded by the prompt) for offline tests.
+    Records every prompt it was asked for in ``calls``.
+
+    Lived in ``codeverse.texturing.generate`` until 2026-08-30, where nothing in a
+    real run could reach it: no setting, env var or CLI flag selects it, and the
+    keyless path raises ``ModelError`` rather than falling back to a fake."""
+
+    provider = "fake"
+
+    def __init__(self, model: str = "fake-image", *, latency_s: float = 0.0, fail_on: Sequence[str] = (),
+                 usd_per_image: float = 0.001) -> None:
+        self.model = model
+        self.latency_s = latency_s
+        self.fail_on = tuple(fail_on)
+        self.usd_per_image = usd_per_image
+        self.calls: list[str] = []
+        self._lock = threading.Lock()
+
+    @property
+    def id(self) -> str:
+        return f"fake-image:{self.model}"
+
+    def generate_with_usage(self, prompt: str, *, size: int = 1024, n: int = 1, seed: int | None = None,
+                            reference_images: Sequence[Any] = ()) -> tuple[list[Image.Image], Usage]:
+        with self._lock:
+            self.calls.append(prompt)
+        if any(s in prompt for s in self.fail_on):
+            from codeverse.models.base import ModelError
+
+            raise ModelError(f"fake image model refused: {prompt[:40]}", retryable=False)
+        if self.latency_s:
+            time.sleep(self.latency_s)
+        images = [procedural_texture(prompt, size=size, seed=(seed or 0) + i) for i in range(n)]
+        usage = Usage(backend="fake-image", model=self.model, input_tokens=len(prompt.split()), output_tokens=1290 * n,
+                      cost_usd=self.usd_per_image * n, latency_ms=int(self.latency_s * 1000))
+        return images, usage
+
+
+def procedural_texture(prompt: str, *, size: int = 256, seed: int = 0) -> Image.Image:
+    """Prompt-seeded noise + stripes in a prompt-derived colour.  NOT tileable on
+    purpose (so tests exercise ``make_tileable``): a linear gradient is added."""
+    h = int(hashlib.sha256(prompt.encode()).hexdigest()[:8], 16)
+    rng = np.random.default_rng(h + seed)
+    base = np.array([(h >> 16) & 255, (h >> 8) & 255, h & 255], dtype=np.float32) / 255.0
+    base = 0.25 + 0.6 * base
+    y, x = np.mgrid[0:size, 0:size].astype(np.float32) / size
+    stripes = 0.08 * np.sin(2 * np.pi * (8 * x + 3 * np.sin(2 * np.pi * y)))
+    noise = 0.06 * rng.standard_normal((size, size)).astype(np.float32)
+    grad = 0.25 * x  # seam-breaking gradient
+    lum = (stripes + noise + grad)[:, :, None]
+    img = np.clip(base[None, None, :] + lum, 0.0, 1.0)
+    return Image.fromarray((img * 255).astype(np.uint8), "RGB")

@@ -6,11 +6,7 @@ and the runtime turns those into a :class:`BuildResult`.  This module owns:
 
 * :func:`compose_build_result` — wrapper json + process outcome → BuildResult,
   failing loud when the wrapper did not report;
-* :func:`read_json_file` / :func:`remove_stale` / :func:`strip_blender_noise`.
-
-The subprocess + atomic-JSON primitives (:class:`ProcResult`,
-:func:`run_subprocess`, :func:`tail`, :func:`write_json_atomic`) live in
-:mod:`codeverse.proc` and are re-exported here for the runtime callers.
+* :func:`read_json_file` / :func:`strip_blender_noise`.
 
 Wrappers themselves are standalone scripts (they never import ``codeverse``;
 Blender's bundled python cannot see this package).
@@ -24,12 +20,13 @@ from pathlib import Path
 from typing import Any
 
 from codeverse.contracts.artifacts import BuildResult
-from codeverse.proc import (  # noqa: F401 — re-exported
-    ProcResult,
-    run_subprocess,
-    tail,
-    write_json_atomic,
-)
+from codeverse.proc import ProcResult, tail
+
+#: The one spelling of every runtime's typed build failures — recorded in build.json /
+#: record.json / bench cells, so the strings stay as first recorded (2026-08-29: threejs,
+#: urdf said "Timeout" and the GL runtimes "MissingEntry"; nothing keyed on either).
+MISSING_ENTRY = "MissingEntryFile"
+BUILD_TIMEOUT = "BuildTimeout"
 
 # lines Blender prints on every headless run that carry no signal for the agent
 _BLENDER_NOISE_PREFIXES = (
@@ -78,12 +75,6 @@ def read_json_file(path: Path) -> dict[str, Any]:
     return data
 
 
-def remove_stale(*paths: Path) -> None:
-    """Delete previous wrapper outputs so a crashed run cannot be mistaken for a fresh one."""
-    for p in paths:
-        p.unlink(missing_ok=True)
-
-
 def compose_build_result(
     *,
     language: str,
@@ -98,7 +89,7 @@ def compose_build_result(
 
     Contract: success requires the wrapper to say ``ok`` AND a non-empty GLB on
     disk.  Timeouts / crashes before ``build.json`` exists become a failed
-    BuildResult with a typed error (``BuildTimeout`` / ``WrapperCrash``) — never
+    BuildResult with a typed error (``BUILD_TIMEOUT`` / ``WrapperCrash``) — never
     an exception — so the orchestrator can route them to repair.
     """
     stdout_tail = tail(output_filter(proc.stdout) if output_filter else proc.stdout)
@@ -108,7 +99,7 @@ def compose_build_result(
     if proc.timed_out:
         return BuildResult(
             ok=False,
-            error_type="BuildTimeout",
+            error_type=BUILD_TIMEOUT,
             error_message=f"build exceeded the time limit ({proc.duration_ms // 1000}s); "
             "reduce geometry (subdivisions, array counts, boolean ops) so the script finishes quickly",
             **base,

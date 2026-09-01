@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import pytest
 from PIL import Image
 
 REPO = Path(__file__).resolve().parents[2]
@@ -135,8 +134,3 @@ class FakePairwise:
 
         self.calls += 1
         return PairwiseResult(winner="a", confidence=0.8, reasons=["Candidate A is cleaner"], usage=Usage(cost_usd=0.03))
-
-
-@pytest.fixture
-def fake_evaluator() -> FakeEvaluator:
-    return FakeEvaluator()

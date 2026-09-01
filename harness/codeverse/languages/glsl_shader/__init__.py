@@ -10,6 +10,8 @@ from pathlib import Path
 from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import GraphicsPlan, Plan
+from codeverse.languages._common import MISSING_ENTRY
+from codeverse.languages._docs import RuntimeDocs
 from codeverse.languages._gl_common import (  # noqa: F401 — re-exported
     GlslMessage,
     LineMap,
@@ -23,12 +25,10 @@ from codeverse.languages._gl_common import (  # noqa: F401 — re-exported
     preview_times,
     resolution_for,
 )
-from codeverse.prompts import PROMPTS_DIR, load_text
 from codeverse.spatial.gl_render import GlHost, GlResult
 from codeverse.workspace import Workspace
 
 # ===================================================================== wrap
-# (merged from codeverse/languages/glsl_shader/wrap.py, 2026-08-28)
 UNIFORM_NAMES: tuple[str, ...] = ("u_time", "u_resolution", "u_mouse", "u_frame", "u_prev", "u_noise", "u_buffer_a")
 
 HEADER = """#version 330 core
@@ -59,7 +59,6 @@ _BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 _LINE_COMMENT = re.compile(r"//[^\n]*")
 _MAIN_IMAGE = re.compile(r"\bvoid\s+mainImage\s*\(")
 _PLAIN_MAIN = re.compile(r"\bvoid\s+main\s*\(\s*(void)?\s*\)")
-_OUT_DECL = re.compile(r"\bout\s+vec4\s+\w+\s*;")
 
 
 @dataclass
@@ -134,7 +133,6 @@ def first_error(messages: list[GlslMessage]) -> GlslMessage | None:
 
 
 # ===================================================================== lint
-# (merged from codeverse/languages/glsl_shader/lint.py, 2026-08-28)
 GATE = "lint:glsl_shader"
 SHADER = "src/shader.frag"
 COMMON = "src/common.glsl"
@@ -284,7 +282,6 @@ def lint_text(shader_src: str, common_src: str | None = None, buffer_a_src: str 
 
 
 # ===================================================================== skeleton
-# (merged from codeverse/languages/glsl_shader/skeleton.py, 2026-08-28)
 COMMON_GLSL = """// src/common.glsl — helpers pasted above shader.frag by the harness (no #include needed).
 // Keep ONLY functions / constants here; no main(), no uniforms, no #version.
 #define PI 3.14159265359
@@ -383,29 +380,12 @@ def write_skeleton(ws: Workspace, plan: Plan | None) -> list[Path]:
 
 
 # ===================================================================== runtime
-# (merged from codeverse/languages/glsl_shader/runtime.py, 2026-08-28)
-CONTRACT_FALLBACK = """src/shader.frag — GLSL 330 fragment shader body (NO #version line, NO uniform declarations):
-write `void mainImage(out vec4 fragColor, in vec2 fragCoord)` using the harness uniforms u_time, u_resolution,
-u_mouse, u_frame, u_prev (previous frame), u_noise (256² noise), u_buffer_a (src/buffer_a.frag output).
-Optional src/common.glsl (helpers, pasted in first) and src/buffer_a.frag (one feedback pass). Animate with u_time."""
-
-
-class GlslShaderRuntime:
+class GlslShaderRuntime(RuntimeDocs):
     language = Language.GLSL_SHADER
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.GLSL_SHADER], COMMON, BUFFER_A)
 
     def __init__(self, *, host: GlHost | None = None):
         self._host = host
-
-    # ------------------------------------------------------------------ contract
-    def contract_doc(self) -> str:
-        try:
-            return load_text("glsl_shader/contract.md")
-        except FileNotFoundError:
-            return CONTRACT_FALLBACK
-
-    def cookbook_path(self) -> Path:
-        return PROMPTS_DIR / "glsl_shader" / "cookbook.md"
 
     # ------------------------------------------------------------------ skeleton / lint
     def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:
@@ -433,9 +413,9 @@ class GlslShaderRuntime:
     def build(self, ws: Workspace, *, timeout_s: int | None = None, times: list[float] | None = None,
               preview: bool = True, width: int | None = None, height: int | None = None) -> BuildResult:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
-        invalidate_stale_outputs(ws)  # BEFORE the MissingEntry return, so it also clears
+        invalidate_stale_outputs(ws)  # BEFORE the MISSING_ENTRY return, so it also clears
         if not (ws.root / SHADER).is_file():
-            res = GlResult(ok=False, mode="shader", stage="lint", error_type="MissingEntry", error_message=f"{SHADER} is missing")
+            res = GlResult(ok=False, mode="shader", stage="lint", error_type=MISSING_ENTRY, error_message=f"{SHADER} is missing")
             return finish_build(ws, res, language=self.language.value, error_file=SHADER)
         plan = load_plan(ws)
         w, h = resolution_for(plan)

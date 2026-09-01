@@ -69,7 +69,7 @@ def test_spec_for_and_acceptance():
     harness = spec_for(b, b.prompts[0], parse_arm("harness:gemini-cli:gemini-3.7-flash"), opts)
     one = spec_for(b, b.prompts[0], parse_arm("oneshot:codex"), opts)
     assert harness.backends.generator == "gemini-cli:gemini-3.7-flash" and harness.backends.judge == "gemini:gemini-3.7-flash"
-    assert harness.budget.max_rounds == 3 and harness.budget.max_usd == 2.5
+    assert harness.budget.max_rounds == 3
     assert one.backends.generator == "single-shot:codex" and one.constraints.must_have == b.prompts[0].must_have
     acc = acceptance_from_spec(one)
     assert [a.id for a in acc] == ["must_1", "must_2", "must_3"] and all(a.priority == "must" for a in acc)
@@ -230,9 +230,6 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
     class FakeChat:
         provider, model, id = "gemini", "gemini-3.7-flash", "gemini:gemini-3.7-flash"
 
-        def supports_vision(self) -> bool:
-            return True
-
         def generate(self, request: ChatRequest) -> ChatResponse:
             return ChatResponse(text="ok", usage=Usage(backend="gemini", model="gemini-3.7-flash",
                                                        input_tokens=1000, output_tokens=10))
@@ -251,7 +248,7 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
     inner_track = fake_run_track(0.9)
 
     def run_track(spec, ws, resume):  # the harness run spends inside its own ledger
-        bill("api-agent:baseline:t0")
+        bill("baseline")
         return inner_track(spec, ws, resume)
 
     deps = _deps(ev, {"claude-code": FakeBackend(["```python\n" + GOOD.format(score=0.6) + "```"])}, run_track)
@@ -262,8 +259,46 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
     assert len(rows) == 2
     cells = {r.arm: Path(r.workspace) for r in rows}
     harness = cells["harness:gemini-cli:gemini-3.6-flash"]
-    assert [r.label for r in load_ledger(harness / "run")] == ["api-agent:baseline:t0"]
+    assert [r.label for r in load_ledger(harness / "run")] == ["baseline"]
     assert [r.label for r in load_ledger(harness)] == ["judge:static_object_v1:r00:s0"]
     oneshot = cells["oneshot:claude-code"]
     assert not (oneshot / "run").exists()
     assert [r.label for r in load_ledger(oneshot)] == ["judge:static_object_v1:r00:s0"]
+
+
+def test_max_usd_flag_was_deleted(capsys):
+    """The money ceiling left the harness on 2026-08-28: the flag must be rejected,
+    not silently parsed into nothing."""
+    with pytest.raises(SystemExit):
+        main(["--prompts", "x.yaml", "--arms", "harness:gemini-cli:m", "--out", "o",
+              "--max-usd", "2.5"])
+    assert "--max-usd" in capsys.readouterr().err
+
+
+def test_no_resume_starts_the_harness_arm_fresh(tmp_path: Path):
+    """`--no-resume` regenerates every other arm, so the harness arm must not resume.
+
+    It used to: `_run_harness` only ever asked whether `<cell>/run` existed, so the arm
+    that had SUCCEEDED handed back its old score, generated in the old weather, against a
+    partner regenerated in today's.
+    """
+    ev = FakeEvaluator()
+    inner = fake_run_track(0.9)
+    seen: list[bool] = []
+
+    def run(spec, ws, resume):
+        seen.append(resume)
+        return inner(spec, ws, resume)
+
+    out = tmp_path / "cmp"
+    arms = parse_arms("harness:gemini-cli:gemini-3.6-flash")
+    deps = _deps(ev, {}, run)
+    opts = CompareOptions(judge="gemini:fixed", limit=1, parallel=1, pairwise=False)
+    cell = Path(run_matrix(BATTERY, out, arms, opts, deps)[0].workspace)
+    (cell / "run" / "src" / "stale.py").write_text("# stale")
+    run_matrix(BATTERY, out, arms, opts, deps)
+    assert seen == [False], "a plain resume re-runs nothing: the cell is already recorded"
+    run_matrix(BATTERY, out, arms, opts.model_copy(update={"resume": False}), deps)
+    assert seen == [False, False], "the redone cell ran fresh, not resumed"
+    assert (cell / "run.attempt1" / "src" / "stale.py").is_file(), "the old run is archived, not deleted"
+    assert not (cell / "run" / "src" / "stale.py").exists()

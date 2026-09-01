@@ -10,7 +10,7 @@
 # results: eval/out/<name>_<suite>/summary.json  + eval/out/<name>_report.json (one row per suite)
 set -uo pipefail
 MODEL=$(readlink -f "$1"); NAME=$2; shift 2
-GPU=${GPUS:-0}; TP=${TP:-1}; THINK=""; TEMP=0.0; SEED=0; MAXNEW=8192
+GPU=${GPUS:-0}; TP=${TP:-1}; THINK=""; TEMP=0.0; SEED=0; MAXNEW=32768
 SUITES="bench cadquery openscad glsl blender threejs"
 while [ $# -gt 0 ]; do
   case "$1" in

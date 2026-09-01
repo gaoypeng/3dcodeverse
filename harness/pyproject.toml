@@ -41,11 +41,11 @@ dependencies = [
 cad = ["cadquery>=2.4"]                                   # language `cadquery`
 urdf = ["yourdfpy>=0.0.56", "scipy>=1.11"]                # track `articulated_object` (urdf_blender)
 graphics = ["moderngl>=5.8"]                              # track `graphics` (glsl_shader / opengl_python)
-mesh = ["shapely>=2.0", "networkx>=3.2", "manifold3d>=2.3"]  # cross_section area, mesh split, joint-sweep booleans
+mesh = ["shapely>=2.0", "networkx>=3.2", "manifold3d>=2.3", "matplotlib>=3.8"]  # cross_section area, mesh split, joint-sweep booleans, judge slices (D48)
 mcp = ["mcp>=1.0"]                                        # `3dcv mcp` spatial-tool server for the agentic CLIs
 flywheel = ["pyarrow>=15"]                                # `3dcv flywheel export --pack` (parquet)
 all = ["3dcodeverse[cad,urdf,graphics,mesh,mcp,flywheel]"]
-dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.5", "pyarrow>=15",
+dev = ["pytest>=8", "pytest-timeout>=2.3", "pytest-xdist>=3.6", "ruff>=0.5", "pyarrow>=15",
        # the Agent Skills reference validator (CLI: `agentskills`).  Pure python,
        # click + strictyaml.  tests/skills/test_spec_compliance.py runs it over every
        # bundle and skips cleanly when it is absent, so it is dev-only on purpose:
@@ -60,16 +60,17 @@ dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.5", "pyarrow>=15",
 include = ["codeverse*"]
 
 [tool.setuptools.package-data]
-# Every non-python file a runtime reads at call time.  `languages/**/*.md` + the
-# scene starter tree were missing and `spatial/js/*` matched nothing at all (no such
-# directory), so a wheel install shipped no starter files: skeleton.write_example()
-# rglob'd an absent directory and wrote ZERO files while reporting success.
+# Every non-python file a runtime reads at call time.  The scene starter tree was once
+# missing and `spatial/js/*` matched nothing at all (no such directory), so a wheel
+# install shipped no starter files: skeleton.write_example() rglob'd an absent
+# directory and wrote ZERO files while reporting success.  tests/core/test_portability.py
+# fails on a glob that matches nothing (languages/**/*.md died with the last README).
 # `skills/**/*` carries the SKILL.md bundles + their references/: an installed wheel that
 # ships none of them routes an empty set, and the failure is silent (the run still passes,
 # the skill simply never appears).  tests/skills/test_packaging.py builds a wheel and
 # asserts the files are in it.
 codeverse = ["prompts/**/*", "judges/rubrics/*.yaml", "languages/**/wrappers/*",
-             "languages/**/*.md", "languages/**/starter/**/*", "skills/**/*"]
+             "languages/**/starter/**/*", "skills/**/*"]
 
 [tool.setuptools.exclude-package-data]
 codeverse = ["**/__pycache__/*"]   # a wheel must not carry the build host's bytecode
@@ -89,10 +90,13 @@ timeout = 600
 # that happens to have API keys configured fires real requests, and during a provider
 # outage it hangs instead of failing — which is exactly what happened on 2026-08-24.
 # Everyone's default run is the offline suite (run locally before every push; there is no CI).
-addopts = ["-m", "not live"]
+# -n auto: the offline suite is ~1 900 mostly-independent tests and this box has 24
+# cores — serial it is ~3 min, parallel ~15 s.  -p no:randomly is NOT set: xdist
+# distributes by file, and every test that touches shared state already uses tmp_path.
+addopts = ["-m", "not live", "-n", "auto", "--dist", "worksteal"]
 markers = [
   "live: needs network + API keys (deselect with -m 'not live')",
   "blender: needs a Blender binary",
   "node: needs node + runtime_js deps",
-  "slow: recomputes something from bench/out (deselect with -m 'not slow')",
+  "slow: builds or validates a distributable artifact (deselect with -m 'not slow')",
 ]

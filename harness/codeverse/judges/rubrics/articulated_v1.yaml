@@ -189,6 +189,8 @@ caps:
   - island
   - touches nothing
   cap: 0.6
+  note: 'stays on gate "*" (2026-08-30): connectivity reports rest-pose floating and joint_sweep
+    "touches nothing", so unlike the object rubrics no single gate owns this measurement'
 - id: penetration_error
   when: gate
   gate: '*'
@@ -198,9 +200,18 @@ caps:
   - intersect
   - overlap
   cap: 0.7
+  measures:
+  - interpenetration
+  - pose_clips_body
+  note: 'stays on gate "*": connectivity can report a rest-pose interpenetration and joint_sweep
+    collides every link pair in every sampled pose, the rest pose included
+    (spatial/joints_sweep.sweep_collisions).  The veto therefore needs EVERY gate clean —
+    conservative, and sound for both the rest-pose and the posed checklist claims'
 - id: missing_must_acceptance
   when: acceptance
   cap: 0.6
+  graded: true
+  note: 0.6 + 0.4 * verified/total must items (2026-08-30, as static_object_v1); pass/fail unchanged
 - id: unattached_link
   when: gate
   gate: '*'

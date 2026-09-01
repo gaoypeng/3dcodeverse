@@ -9,7 +9,7 @@ gate reword breaks one golden test instead of silently unrouting a repair skill.
 classifies **actionable** findings only: INFO lines ("named objects: [...]") are census,
 not defects, and return ``None``.
 
-**ROUTES** — typed rows, evaluated by ``router.py``.  A row fires when ALL of its stated
+**ROUTES** — typed rows, evaluated by ``select()`` below.  A row fires when ALL of its stated
 conditions hold; ``priority`` decides who survives the cap, and every gate-fired row sits
 at >= 90 so a repair round spends its budget on what actually broke.
 
@@ -242,7 +242,6 @@ ROUTED_SKILLS: tuple[str, ...] = tuple(dict.fromkeys(r.skill for r in ROUTES))
 
 
 # ===================================================================== router
-# (merged from codeverse/skills/router.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 #: plan-derived booleans/ints the table may test.  Kept here (not on the Plan contracts)

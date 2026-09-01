@@ -20,9 +20,10 @@ class Stage(StrEnum):
     of ``events.jsonl`` (``stage.start``/``generate.done`` labels)."""
 
     PLAN = "plan"
-    #: SKELETON / ASSEMBLE / GATES / RENDER are *deterministic harness work* (no
-    #: model call at all); kept in the enum so latency can be attributed to them
-    #: from events (``report.STAGE_ORDER``, ``audit.stage_latency``).
+    #: SKELETON / GATES / RENDER are *deterministic harness work* (no model call at
+    #: all); kept in the enum so latency can be attributed to them from events
+    #: (``report.STAGE_ORDER``, ``audit.stage_latency``).  ASSEMBLE is NOT one of
+    #: them — the scene track's ``compose`` task is an agent session that bills.
     SKELETON = "skeleton"
     ASSETS = "assets"
     ENV = "env"
@@ -52,6 +53,20 @@ class Role(StrEnum):
     OTHER = "other"
 
 
+#: a bare ``GenerationTask.kind`` whose money belongs to a differently-named stage.  ONE
+#: vocabulary for both spend paths: ``MeteredAgent.run`` files the session row by
+#: ``job.kind`` and ``tracks.generation.task_stage`` buckets the guard by the same kind —
+#: until 2026-08-29 only the tracks side knew these, so every scene zone / compose /
+#: asset / rebuild session landed in the ledger as ``other``.
+_KIND_STAGES: dict[str, Stage] = {
+    "generate": Stage.BASELINE,
+    "rebuild": Stage.REPAIR,
+    "asset": Stage.ASSETS,
+    "asset_fix": Stage.ASSETS,
+    "zone": Stage.ZONES,
+    "compose": Stage.ASSEMBLE,
+}
+
 #: label prefix → stage, longest prefix wins (``asset_stone_lantern`` → assets)
 _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
     ("asset_", Stage.ASSETS),
@@ -59,8 +74,15 @@ _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
     ("env", Stage.ENV),
     ("baseline", Stage.BASELINE),
     ("refine", Stage.REFINE),
+    # the static track's surface-detail round (labels "detail" / "detail_<scope>",
+    # lifecycle.DEFAULT_DETAIL_ROUNDS=1 so it runs by default) is a refine pass under
+    # another name; without this its ledger row AND generation.task_stage said "other"
+    ("detail", Stage.REFINE),
     ("candidate", Stage.CANDIDATE),
     ("cand", Stage.CANDIDATE),
+    # the zone-layout planner calls (tracks/zone_layout.py) charge the guard as "plan";
+    # unclassified, their ledger rows said other/other while the guard said plan
+    ("zone-layout", Stage.PLAN),
     ("plan", Stage.PLAN),
     ("judge", Stage.JUDGE),
     ("texture", Stage.TEXTURE),
@@ -69,11 +91,14 @@ _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
 
 
 def stage_for_label(label: str) -> Stage:
-    """Map a generation/trajectory label (``refine_drip_tray``, ``r00_baseline_repair1``,
-    ``asset_koi``) to its :class:`Stage`.  Repair labels win over the label they repair."""
+    """Map a task kind or a generation/trajectory label (``zone``, ``refine_drip_tray``,
+    ``r00_baseline_repair1``, ``asset_koi``) to its :class:`Stage`.  A bare kind or
+    stage name wins outright; repair labels win over the label they repair."""
     low = (label or "").strip().lower()
     if not low:
         return Stage.OTHER
+    if low in _KIND_STAGES:
+        return _KIND_STAGES[low]
     if "repair" in low:
         return Stage.REPAIR
     best: tuple[int, Stage] | None = None
@@ -90,8 +115,8 @@ def role_for_stage(stage: Stage) -> Role:
         return Role.JUDGE
     if stage is Stage.CAPTION:
         return Role.CAPTIONER
-    if stage in (Stage.ASSETS, Stage.ENV, Stage.ZONES, Stage.BASELINE, Stage.REFINE,
-                 Stage.REPAIR, Stage.CANDIDATE):
+    if stage in (Stage.ASSETS, Stage.ENV, Stage.ZONES, Stage.ASSEMBLE, Stage.BASELINE,
+                 Stage.REFINE, Stage.REPAIR, Stage.CANDIDATE):
         return Role.GENERATOR
     return Role.OTHER
 
@@ -205,10 +230,6 @@ class CallCost(BaseModel):
     discarded: bool = False
 
     @property
-    def uncached_tokens(self) -> int:
-        return max(0, self.input_tokens - min(self.cached_tokens, self.input_tokens))
-
-    @property
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens + self.thoughts_tokens
 
@@ -249,10 +270,6 @@ class CostBucket(BaseModel):
         self.latency_ms += row.latency_ms
         if row.price_approximate or row.price_source in ("unknown", "provider-reported"):
             self.approximate_usd += row.cost_usd
-
-    @property
-    def uncached_tokens(self) -> int:
-        return max(0, self.input_tokens - self.cached_tokens)
 
     @property
     def cached_fraction(self) -> float:

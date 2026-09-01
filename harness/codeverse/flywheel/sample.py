@@ -8,7 +8,7 @@ Sample folder (STORAGE_RULES §3/§8 compatible)::
       robot.urdf        (urdf_blender) copy of src/robot.urdf
       meta.json         SampleMeta (typed, below)
       captions.json     {detailed, instruction, factory} or {} when not captioned
-      renders/          view_*.png, sheet.png, turntable.mp4, object.glb (< 20 MB)
+      renders/          view_*.png, sheet.png, object.glb (< 20 MB)
       meshes/<link>.glb (urdf_blender) per-link meshes referenced by robot.urdf
 """
 
@@ -27,7 +27,6 @@ from codeverse.contracts.common import (
     LANGUAGE_LABEL,
     TRACK_INFO,
     Language,
-    Track,
     code_file,
 )
 from codeverse.contracts.run import RoundRecord, RunRecord
@@ -35,18 +34,12 @@ from codeverse.flywheel import _git
 from codeverse.flywheel.deliverable import deliverable_path
 from codeverse.flywheel.quality import QualityTier, code_fingerprint, prompt_hash, quality_tier
 from codeverse.flywheel.record import (
-    best_round_index,
     effective_judgment,
     round_complexity,
     round_summary,
 )
 from codeverse.workspace import Workspace
 
-#: deprecated aliases — the registries in ``codeverse.contracts.common`` are the
-#: single source now; import ``ENTRY_FILE`` / ``code_file`` / ``TRACK_INFO`` instead
-ENTRY_BY_LANGUAGE: dict[Language, str] = ENTRY_FILE
-CODE_FILE_BY_LANGUAGE: dict[Language, str] = {lang: code_file(lang) for lang in Language}
-TYPE_LABEL: dict[Track, str] = {t: TRACK_INFO[t].label for t in Track}
 MAX_GLB_BYTES = 20 * 1024 * 1024
 SOURCE_NAME = "3dcodeverse"
 SAMPLE_LICENSE = "CC-BY-4.0"
@@ -140,15 +133,6 @@ def sample_rel_dir(record: RunRecord, key: str) -> Path:
     return Path(record.spec.track.value) / record.spec.language.value / key
 
 
-def _resolve(ws: Workspace, p: str | None) -> Path | None:
-    if not p:
-        return None
-    path = Path(p)
-    if not path.is_absolute():
-        path = ws.root / path
-    return path if path.is_file() else None
-
-
 def code_files_for_round(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
     """Raw code tree for a round → ``(files, source)`` where source is ``commit``,
     ``deliverable`` (the packaged snapshot of the best round) or ``working_tree``."""
@@ -194,7 +178,7 @@ def write_code_tree(dest: Path, files: dict[str, bytes], language: Language) -> 
 
 
 def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str]:
-    """Copy the round's views, contact sheet, turntable and a small object.glb."""
+    """Copy the round's views, contact sheet and a small object.glb."""
     out: list[str] = []
     rdir = dest / "renders"
     rdir.mkdir(parents=True, exist_ok=True)
@@ -209,8 +193,8 @@ def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str
         names = [v.name for v in rnd.renders.views]
         by_stem = len(set(names)) != len(names)  # scene views repeat a camera name per time → use file stems
         for v in rnd.renders.views:
-            src = _resolve(ws, v.path)
-            if src is None:
+            src = ws.rebase(v.path)
+            if not src.is_file():
                 continue
             name = f"view_{src.stem if by_stem else v.name}{src.suffix or '.png'}"
             i = 2
@@ -218,12 +202,9 @@ def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str
                 name = f"view_{src.stem}_{i}{src.suffix or '.png'}"
                 i += 1
             _cp(src, name)
-        sheet = _resolve(ws, rnd.renders.contact_sheet)
-        if sheet is not None:
+        sheet = ws.rebase(rnd.renders.contact_sheet or "")
+        if sheet.is_file():
             _cp(sheet, f"sheet{sheet.suffix or '.png'}")
-        tt = _resolve(ws, rnd.renders.turntable)
-        if tt is not None:
-            _cp(tt, f"turntable{tt.suffix or '.mp4'}")
     if not any(o.startswith("renders/sheet") for o in out):
         packaged = ws.deliverable / "sheet.png"  # new layout keeps the best sheet here
         _cp(packaged if packaged.is_file() else None, "sheet.png")
@@ -251,7 +232,9 @@ def copy_textured(ws: Workspace, record: RunRecord, dest: Path) -> list[str]:
             (dest / "textures").mkdir(parents=True, exist_ok=True)
             shutil.copy2(p, dest / "textures" / p.name)
             out.append(f"textures/{p.name}")
-    glb = _resolve(ws, str(tex.get("glb_textured") or "")) or deliverable_path(ws, "object_textured.glb")
+    glb = ws.rebase(str(tex.get("glb_textured") or ""))
+    if not glb.is_file():
+        glb = deliverable_path(ws, "object_textured.glb")
     if glb is not None and glb.stat().st_size < MAX_GLB_BYTES:
         (dest / "renders").mkdir(parents=True, exist_ok=True)
         shutil.copy2(glb, dest / "renders" / "object_textured.glb")
@@ -386,8 +369,3 @@ def telemetry_digest(ws: Workspace, record: RunRecord) -> dict[str, Any]:
             "price_table_version": tele.settings.price_table_version,
         })
     return out
-
-
-def best_round_record(record: RunRecord) -> RoundRecord | None:
-    idx = best_round_index(record)
-    return next((r for r in record.rounds if r.index == idx), None)

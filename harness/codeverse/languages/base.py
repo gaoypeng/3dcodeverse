@@ -8,6 +8,7 @@ prompts.  Runtimes never import agent code into the harness process.
 
 from __future__ import annotations
 
+from importlib import import_module
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -39,35 +40,20 @@ class LanguageRuntime(Protocol):
         """Prompt text: the authoring contract for this language (from prompts/<lang>/)."""
         ...
 
-    def cookbook_path(self) -> Path: ...
+
+#: Language → (module, class).  Adding a language is a row, and the import stays lazy
+#: (a runtime pulls in bpy / moderngl / node bindings the other six do not need).
+_RUNTIMES: dict[Language, tuple[str, str]] = {
+    Language.BLENDER: ("codeverse.languages.blender", "BlenderRuntime"),
+    Language.CADQUERY: ("codeverse.languages.cadquery", "CadQueryRuntime"),
+    Language.THREEJS: ("codeverse.languages.threejs", "ThreeJsRuntime"),
+    Language.URDF_BLENDER: ("codeverse.languages.urdf", "UrdfBlenderRuntime"),
+    Language.SCENE_THREEJS: ("codeverse.languages.scene_threejs", "SceneThreeJsRuntime"),
+    Language.GLSL_SHADER: ("codeverse.languages.glsl_shader", "GlslShaderRuntime"),
+    Language.OPENGL_PYTHON: ("codeverse.languages.opengl_python", "OpenGLPythonRuntime"),
+}
 
 
 def get_runtime(language: Language | str) -> LanguageRuntime:
-    lang = Language(language)
-    if lang is Language.BLENDER:
-        from codeverse.languages.blender import BlenderRuntime
-
-        return BlenderRuntime()
-    if lang is Language.CADQUERY:
-        from codeverse.languages.cadquery import CadQueryRuntime
-
-        return CadQueryRuntime()
-    if lang is Language.THREEJS:
-        from codeverse.languages.threejs import ThreeJsRuntime
-
-        return ThreeJsRuntime()
-    if lang is Language.URDF_BLENDER:
-        from codeverse.languages.urdf import UrdfBlenderRuntime
-
-        return UrdfBlenderRuntime()
-    if lang is Language.GLSL_SHADER:
-        from codeverse.languages.glsl_shader import GlslShaderRuntime
-
-        return GlslShaderRuntime()
-    if lang is Language.OPENGL_PYTHON:
-        from codeverse.languages.opengl_python import OpenGLPythonRuntime
-
-        return OpenGLPythonRuntime()
-    from codeverse.languages.scene_threejs import SceneThreeJsRuntime
-
-    return SceneThreeJsRuntime()
+    module, cls = _RUNTIMES[Language(language)]
+    return getattr(import_module(module), cls)()

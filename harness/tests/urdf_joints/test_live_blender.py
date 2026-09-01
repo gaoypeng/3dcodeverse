@@ -1,4 +1,4 @@
-"""Real Blender builds (marked ``blender``): cabinet+door, drawer, bad pivot, yourdfpy, sheet."""
+"""Real Blender builds (marked ``blender``): cabinet+door, drawer, bad pivot, yourdfpy."""
 
 from __future__ import annotations
 
@@ -7,15 +7,7 @@ import pytest
 
 from codeverse.config import get_settings
 from codeverse.languages.urdf import UrdfBlenderRuntime
-from codeverse.spatial.joints import (
-    ARTICULATION_SHEET_NAME,
-    blender_render_glb,
-    fk,
-    link_world_meshes,
-    load_urdf,
-    motion_direction_check,
-    render_poses,
-)
+from codeverse.spatial.joints import fk, link_world_meshes, load_urdf, motion_direction_check
 from codeverse.workspace import Workspace
 
 pytestmark = pytest.mark.blender
@@ -82,7 +74,7 @@ def test_drawer_prismatic(tmp_path, drawer_plan):
 
 
 @needs_blender
-def test_bad_pivot_is_caught_and_sheet_renders(tmp_path, cabinet_plan):
+def test_bad_pivot_is_caught(tmp_path, cabinet_plan):
     ws = Workspace(tmp_path / "bad").create()
     rt = UrdfBlenderRuntime()
     rt.skeleton(ws, cabinet_plan)
@@ -95,10 +87,6 @@ def test_bad_pivot_is_caught_and_sheet_renders(tmp_path, cabinet_plan):
     art = res.census["articulation"]
     assert art["summary"]["max_penetration_m"] > 0.05 and "hinge@upper" in art["summary"]["overlapping_poses"]
     assert any(f["severity"] == "error" and "body|door" in f["target"] for f in art["findings"])
-    r = load_urdf(ws.artifacts / "robot.urdf", ws.artifacts / "meshes")
-    out = render_poses(r, ws.artifacts / "renders" / "articulation", renderer=blender_render_glb)
-    assert [label for label, _ in out] == ["rest", "hinge@upper"]
-    assert (ws.artifacts / "renders" / "articulation" / ARTICULATION_SHEET_NAME).is_file()
 
 
 @needs_blender

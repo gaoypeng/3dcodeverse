@@ -5,8 +5,9 @@ repo path `/home/yipeng/3dcodeverse/harness`) for LLM-written **raw** 3D code:
 Blender bpy · CadQuery · Three.js · URDF · GLSL / OpenGL, across four tracks
 (`static_object`, `articulated_object`, `scene`, `graphics`), with pluggable
 backends.  **The coding agent is always a VENDOR's** — gemini-cli / claude-code /
-codex / antigravity — and the harness supplies the workspace, the prompt and its 20
-3D tools (over MCP), then reads the result.  The harness's OWN api use is planning,
+codex / antigravity — and the harness supplies the workspace, the prompt and the
+3D tools its track can use (over MCP; 19 in the registry, filtered per track — D48
+review), then reads the result.  The harness's OWN api use is planning,
 judging, single-shot file generation and the texture pass (Gemini/Anthropic/OpenAI).
 It does not implement an agent loop: the in-process `api-agent` was deleted
 2026-08-28 (owner's call — reimplementing what the vendors already ship was never
@@ -28,7 +29,9 @@ score-vs-complexity corpus study) before changing anything.
 3. Deterministic gates/measurements run by the harness; VLM only for perception.
    Score is computed in code from rubric weights; caps/floors are explicit.
 4. Typed everything; no regex-on-id control flow; a file may be long but not a god file —
-   hard cap **1 500 lines** per file (owner's rule, 2026-08-26; the old ~400-line guideline is gone).
+   cap **2 000 lines** per file, **3 000** absolute (owner, 2026-08-28; was 1 500, and the old
+   ~400-line guideline is long gone).  Merging is NOT a goal in itself — a merge must DELETE
+   code, not just move it between files.
 5. Cheap first: lint → build → gates → montaged views → VLM.  Budgets are hard.
 6. Every round = a git commit of `src/`; every call = a `Usage`; every run = `record.json`.
 7. No wrapper re-centres or grounds the object: export **as authored**, warn in the
@@ -39,7 +42,7 @@ python **3.13** (one fixed version — owner's decision 2026-08-26; no floor, no
 node **20.6+** · Blender 4.2+ · Linux x86_64.  **There is no CI** (removed 2026-08-26 by the
 owner): run `ruff check codeverse bench tests` and the offline suite locally BEFORE every
 push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The version lives in
-`pyproject` `requires-python` + ruff `target-version` + `scripts/setup.sh`, and
+`pyproject` `requires-python` + ruff `target-version` + `setup.sh`, and
 `spatial/node.py:NODE_MIN` + `runtime_js/package.json` `engines` for node, pinned together by
 `tests/core/test_portability.py`.  Details: `docs/INSTALL.md` §2.1.
 
@@ -61,7 +64,13 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
   drops workspace MCP servers), `codex` 0.147+ (MCP needs
   `default_tools_approval_mode="approve"`), `claude` 2.1, `agy` 1.1 — the last three run
   on local subscriptions: test lightly.  No Anthropic/OpenAI API keys here.
-- Main test model: `gemini-3.7-flash` (lenient judge; needs the defect checklist for
+- Main test model: `gemini-3.7-flash` — and since 2026-08-28 it is also the DEFAULT
+  generator (`gemini-cli:gemini-3.7-flash`), verified live through the harness on both
+  vendor paths: gemini-cli completes and is not silently substituted, and `agy` 1.1.22
+  lists and serves `gemini-3.7-flash-{high,medium,low}`.  A BARE `gemini -m ...` is
+  substituted down to 3.5-flash — the harness's per-session system settings file is
+  what prevents that, so never judge model availability with a raw CLI probe.
+  (lenient judge; needs the defect checklist for
   range).  Judge default `gemini-3.1-pro-preview` (`Settings.default_judge`; tracks use
   n_samples=1); flash + `--n 3` is the cheap fallback, pro for calibration/eval.
 - Live runs under `runs/` (`e2e_*`): read-only reference material; never modify.
@@ -77,7 +86,7 @@ cd /home/yipeng/3dcodeverse/harness
 3dcodeverse make "..." --profile economy|balanced|quality   # one dial: models, judge n, rounds, candidates, texture, ceilings (--profile == CV3D_PROFILE)
 3dcodeverse make "..." --track static_object --language threejs --generator gemini-cli:gemini-3.7-flash
 3dcodeverse make "..." --track articulated_object --language urdf_blender
-3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-usd 3
+3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-minutes 60
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
 3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --texture --no-run
 3dcv resume <slug> · 3dcv status <slug> · 3dcv render <slug> [--mode wire] · 3dcv judge <slug> [--model ... --n 3]
@@ -92,7 +101,11 @@ cd /home/yipeng/3dcodeverse/harness
 python -m codeverse.judges.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 python bench/complexity_report.py bench/out --recursive   # score-vs-complexity + $/complexity point (docs/COMPLEXITY.md)
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
-python -m pytest tests -q -m "not live"            # ~860 offline tests; add "and not blender and not node" for pure python
+python -m pytest tests -q -m "not live"            # ~2 000 tests, ~40 s (real Blender + headless Chrome + CadQuery)
+python -m pytest tests -q -m "not live and not blender and not node"   # pure python, ~30 s
+# (the counts drift every commit — `--collect-only` is the answer, not a number in this file)
+# both run PARALLEL by default (pytest-xdist, -n auto --dist worksteal, in pyproject addopts).
+# A nested pytest inside a test MUST pass -n0 or it forks another full set of workers.
 ```
 
 ## Reference material (ideas only — never copy code)

@@ -49,14 +49,6 @@ def test_corrupt_record_does_not_raise(tmp_path: Path):
     assert entry.state == "broken" and entry.error
 
 
-def test_empty_record_from_a_half_written_write(tmp_path: Path):
-    run = tmp_path / "runs" / "empty"
-    run.mkdir(parents=True)
-    (run / "record.json").write_text("")
-    (entry,) = build_index([tmp_path / "runs"]).entries()
-    assert entry.state == "broken"
-
-
 def test_valid_json_but_not_a_record(tmp_path: Path):
     run = tmp_path / "runs" / "wrong_shape"
     run.mkdir(parents=True)

@@ -3,37 +3,36 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
+from bench.report import build_report, load_results
+from bench.run_bench import Battery, BenchOptions, run_battery
+from codeverse.contracts.run import RunRecord, RunStatus
+from codeverse.workspace import Workspace
+from tests.flywheel_cli.conftest import make_fake_run
+
 REPO = Path(__file__).resolve().parents[2]
-if str(REPO) not in sys.path:
-    sys.path.insert(0, str(REPO))
-
-from bench.report import build_report, load_results  # noqa: E402
-from bench.run_bench import Battery, BenchOptions, run_battery  # noqa: E402
-from codeverse.contracts.run import RunRecord, RunStatus  # noqa: E402
-from codeverse.workspace import Workspace  # noqa: E402
-from tests.flywheel_cli.conftest import make_fake_run  # noqa: E402
-
 BATTERIES = sorted((REPO / "bench" / "prompts").glob("*.yaml"))
 
 
-@pytest.mark.parametrize("path", BATTERIES, ids=[p.stem for p in BATTERIES])
-def test_batteries_are_valid(path: Path):
-    b = Battery.load(path)
-    ids = [p.id for p in b.prompts]
-    assert len(ids) == len(set(ids))
-    tiers = {p.tier for p in b.prompts}
-    assert tiers <= {"easy", "medium", "hard"}
-    # head-to-head batteries keep the other side's brief verbatim: no must items by design (bench/h2h_*.py)
-    assert all(p.must_have for p in b.prompts) or b.name.startswith("h2h_")
+def test_all_batteries_are_valid():
+    """One corpus contract is clearer than 27 identical pytest cases."""
+    assert BATTERIES, "no checked-in benchmark batteries found"
     expected = {"static_objects_v1": 24, "articulated_v1": 12, "scenes_v1": 12}
-    if b.name in expected:  # other batteries (compare_*, *_v2) are owned elsewhere; only the schema is checked
-        assert len(tiers) == 3  # v1 batteries span all three tiers; v2 drops easy (it saturated)
-        assert len(b.prompts) == expected[b.name]
+    for path in BATTERIES:
+        b = Battery.load(path)
+        ids = [p.id for p in b.prompts]
+        assert len(ids) == len(set(ids)), path.name
+        tiers = {p.tier for p in b.prompts}
+        assert tiers <= {"easy", "medium", "hard"}, path.name
+        # Head-to-head batteries keep the other side's brief verbatim: no must
+        # items by design (bench/h2h_*.py).
+        assert all(p.must_have for p in b.prompts) or b.name.startswith("h2h_"), path.name
+        if b.name in expected:  # Other batteries are owned elsewhere; only their schema is checked here.
+            assert len(tiers) == 3, path.name
+            assert len(b.prompts) == expected[b.name], path.name
 
 
 def _fake_run_fn(scores_by_id: dict[str, tuple[float, float]], fail_ids: set[str] = frozenset()):
@@ -100,9 +99,6 @@ def test_every_bench_prompt_opens_its_own_run_ledger(tmp_path: Path):
     class FakeChat:
         provider, model, id = "gemini", "gemini-3.7-flash", "gemini:gemini-3.7-flash"
 
-        def supports_vision(self) -> bool:
-            return True
-
         def generate(self, request: ChatRequest) -> ChatResponse:
             return ChatResponse(text="ok", usage=Usage(backend="gemini", model="gemini-3.7-flash",
                                                        input_tokens=1000, output_tokens=10))
@@ -125,11 +121,7 @@ def test_every_bench_prompt_opens_its_own_run_ledger(tmp_path: Path):
 
 
 def test_a_truncated_last_line_does_not_cost_the_whole_resume(tmp_path: Path):
-    """RS-3: results.jsonl is the resume source AND it is appended a line at a time,
-    so the run a SIGKILL ended is exactly the one whose last line is half-written.
-    Strict per-line validation made that file unusable: the battery could not be
-    resumed at all and its already-paid rows could not even be reported, so the
-    operator had to hand-edit the file or re-buy the battery."""
+    """A truncated final JSONL row preserves earlier paid results on resume."""
     battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
     out = tmp_path / "bench_out"
     run_battery(battery, out, BenchOptions(parallel=1, limit=2), run_fn=_fake_run_fn({}))
@@ -153,14 +145,8 @@ def test_a_truncated_last_line_does_not_cost_the_whole_resume(tmp_path: Path):
     assert {r.id for r in load_results(out)} == {json.loads(ln)["id"] for ln in good}
 
 
-def test_a_provider_outage_is_not_model_latency_and_not_an_error(tmp_path: Path):
-    """CQ-4: `3dcv bench` is the third battery driver and it never adopted
-    bench/_infra.py.  run_bench.py:210 recorded status='error' for ANY escaping
-    exception and report.py averaged r.minutes over every row including that one, so a
-    single 60-minute 503 storm cell inflated min/run 12.8x (1.0 -> 12.8) and was counted
-    in the same `errors` column as a genuine crash.  compare_backends has classified
-    this since 2026-08-24 and its own test states the invariant in words — "an hour
-    spent retrying a 503 is not model latency" — but only for the compare reporter."""
+def test_a_provider_outage_is_not_model_latency_and_not_an_error():
+    """Provider downtime is excluded from model latency and crash counts."""
     from bench.report import _stats
     from bench.run_bench import BenchItemResult
 
@@ -206,12 +192,13 @@ def test_the_runner_classifies_the_outage_that_reaches_it(tmp_path: Path):
     assert calls == [], "a plain resume still skips every recorded row"
     run_battery(battery, out, BenchOptions(parallel=1, limit=1, redo_status=["infra_failed"]), run_fn=counting)
     assert len(calls) == 1, "--redo-status infra_failed re-runs what the weather lost"
+    # ...and it is the ONLY way in.  A `resume` switch that merely dropped the recorded rows
+    # skipped the archive below and silently resumed the old workspace, spec and clock.
+    assert "resume" not in BenchOptions.model_fields
 
 
 def test_a_redo_starts_from_a_fresh_workspace(tmp_path):
-    """Measured 2026-08-26: a `budget` row redone with --max-minutes 120 resumed the old
-    workspace (old spec, old clock) and came back `budget` with 0 rounds.  The old tree
-    is archived as <id>.attempt1 and the prompt runs fresh."""
+    """Redoing with a new budget archives the old workspace and starts fresh."""
     from bench.run_bench import archive_attempt
 
     out = tmp_path / "out"

@@ -5,7 +5,7 @@ construction — there is no route that writes anything.  Routing is split in tw
 so it can be tested without a socket: :meth:`GalleryApp.route` maps a decoded
 path + query to a :class:`Response`, and the request handler only moves bytes.
 
-Safety model (see also ``gallery/paths.py``):
+Safety model (see also ``gallery/urls.py``):
 
 * a URL names a run by ``(battery, slug)`` and those must exist **in the index**,
   which only ever contains directories found under the roots the user declared;
@@ -22,7 +22,6 @@ import json
 import os
 import threading
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -385,7 +384,3 @@ def _open(url: str) -> None:
 
     with contextlib.suppress(Exception):  # headless box, no browser
         webbrowser.open(url)
-
-
-def started_at() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")

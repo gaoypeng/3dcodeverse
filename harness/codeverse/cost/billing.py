@@ -2,24 +2,18 @@
 
 ``Usage.cost_usd`` answers "what would these tokens cost at list price?".  That is the
 right number for a report, a $/complexity-point, or a flywheel record: it is comparable
-across backends and it does not depend on who is paying.  It is the WRONG number for a
-spend guard, because a backend on a local subscription bills no dollars at all.
+across backends and it does not depend on who is paying.  It is the WRONG number for
+"what did this run bill", because a backend on a local subscription bills no dollars at
+all — measured 2026-08-25 on ``tsr_scn_temple_night`` (``codex:gpt-5.6-sol``): two
+Blender hero sessions priced at OpenAI list rates read as $7.712 over a bill of exactly
+$0.00 (docs/COST.md §25).
 
-Conflating the two degraded real runs.  Measured 2026-08-25 on
-``tsr_scn_temple_night`` (``codex:gpt-5.6-sol``, ``--profile quality``): two Blender hero
-sessions priced at OpenAI list rates put the run at $7.712 against the profile's $4.40
-soft cap in 6.8 minutes, so the asset judge was skipped for both heroes and every later
-stage ran degraded — over a bill of exactly $0.00.  The run's own cost ledger agreed it
-was $0.00; only the guard disagreed.
-
-So the split is: the LEDGER and the reports keep pricing everything, and the BUDGET
-enforces only what is billed.  See ``orchestrator/budget.py`` for the enforcement side
-and ``docs/COST.md`` §25.
-
-What a subscription backend is still bounded by: ``max_minutes``, which
-``BudgetMeter.timeout_s`` also clips individual sessions against.  Wall clock, not money,
-is the scarce resource when the money is flat-rate — a runaway session is still stopped,
-just by the ceiling that actually applies to it.
+So the split is: the LEDGER and the reports price everything, and :func:`bills_usd`
+shapes the BILLED figure — ``BudgetGuard.billed_usd`` (``record.json`` / the report's
+``spent_usd`` beside ``notional_usd``) and the resume reconcile in
+``tracks/lifecycle.py``.  Nothing enforces a dollar ceiling any more (removed in
+fbf89a5); the only ceiling is ``max_minutes``, which ``BudgetGuard.timeout_s`` also
+clips individual sessions against.
 """
 
 from __future__ import annotations
@@ -35,7 +29,6 @@ def bills_usd(backend: str | None) -> bool:
     """True when this backend's ``cost_usd`` is money someone is actually charged.
 
     Unknown backends bill: a new API provider that nobody remembered to classify must be
-    enforced, not exempted.  Getting this wrong in the safe direction costs a degraded
-    run; getting it wrong in the other direction spends real money with no ceiling.
+    reported as spend, not exempted.
     """
     return (backend or "").strip().lower() not in SUBSCRIPTION_BACKENDS

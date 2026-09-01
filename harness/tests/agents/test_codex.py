@@ -96,6 +96,8 @@ def test_fake_run(tmp_ws: Workspace, fake_bin, monkeypatch):
     assert res.ok and res.exit_reason == "completed" and res.text == "Done." and res.tool_calls == 2, res.errors
     assert [f.path for f in res.files_changed] == ["src/hello.txt"]
     assert res.usage.input_tokens == 1000
+    # the turn count lands in the TYPED result (one turn.completed event), not only in result.json
+    assert res.turns == 1 == json.loads((Path(res.transcript_path).parent / "result.json").read_text())["turns"]
     assert (Path(res.transcript_path).parent / "stdout.jsonl").exists()
     monkeypatch.setenv("FAKE_MODE", "fail")
     res2 = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="y", timeout_s=30))
@@ -114,15 +116,18 @@ def test_live_codex_mcp_tool_call_is_not_cancelled(tmp_ws: Workspace):
     """Regression: without default_tools_approval_mode=approve codex auto-cancels every 3dcv MCP call."""
     if not shutil.which("codex"):
         pytest.skip("codex not installed")
+    import trimesh
+
     from codeverse.agents.cli_common import default_mcp_command
     from codeverse.agents.materialize import materialize_workspace
 
+    trimesh.creation.box().export(tmp_ws.artifacts / "object.glb")
     materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="threejs/cookbook.md", spatial_tools=True,
                          mcp_command=default_mcp_command(tmp_ws, language="threejs"))
     a = CodexAgent("")
-    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="Call the 3dcv MCP tool `read_cookbook` once and reply with its first "
-                         "five words, then DONE. Do not edit files.", timeout_s=300, label="mcpt", spatial_tools=True,
-                         extra={"language": "threejs"}))
+    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="Call the 3dcv MCP tool `measure` exactly once, then reply with the "
+                         "measured part count and DONE. Do not edit files.", timeout_s=300, label="mcpt",
+                         spatial_tools=True, language="threejs"))
     assert res.ok, res.errors
     events = [json.loads(ln) for ln in (Path(res.transcript_path).parent / "stdout.jsonl").read_text().splitlines()
               if ln.startswith("{")]

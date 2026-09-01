@@ -18,7 +18,10 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
    request states where that number came from).  Every nameable feature in the request and in the
    constraints must be either its own part or explicitly named in another part's `description` as
    geometry that part carries — a feature named nowhere will not be built, and the judge's
-   checklist will mark it missing.
+   checklist will mark it missing.  The same holds for the CATEGORY's defining features even
+   when the request does not spell them out: a violin has f-holes, a clock has hands, a wrench
+   has jaws — a plan that omits one plans the wrong object (measured: a "violin" plan with no
+   FHoles part built cleanly, passed every gate, and lost the round on intent).
    (Use `instances` for identical copies: 4 legs = ONE part, instances=4,
    bbox of ONE copy; `symmetry` says how copies are laid out.)  For EACH part:
    * `name` PascalCase, unique, descriptive (`SeatCushion`, `FrontLeg`, `Backrest`).

@@ -26,11 +26,9 @@ from codeverse.tracks import get_track
 from codeverse.tracks.graphics import (
     GraphicsPipeline,
     GraphicsTrack,
-    build_plan_system_prompt,
     ensure_graphics_acceptance,
     graphics_prompt_context,
     plan_example,
-    plan_graphics,
 )
 from codeverse.tracks.planner import PlanningError
 from codeverse.workspace import Workspace
@@ -43,7 +41,7 @@ STATIC_MARK = "STATIC_FRAMES"
 def make_spec(language: Language = Language.GLSL_SHADER, *, generator: str = "fake:fake-model", max_rounds: int = 3) -> Spec:
     return Spec(id="g1", track=Track.GRAPHICS, language=language, prompt="animated neon rain on a window with bokeh city lights",
                 constraints=Constraints(must_have=["bokeh lights"]),
-                budget=Budget(max_rounds=max_rounds, max_usd=5.0, max_minutes=10, max_repair_attempts=2),
+                budget=Budget(max_rounds=max_rounds, max_minutes=10, max_repair_attempts=2),
                 backends=Backends(planner="fake:planner", generator=generator, judge="fake:judge"))
 
 
@@ -86,10 +84,7 @@ class FakeGlRuntime:
         return finish_build(ws, res, language="glsl_shader", census={"convention": "mainImage"})
 
     def contract_doc(self) -> str:
-        return "FAKE GLSL CONTRACT"
-
-    def cookbook_path(self) -> Path:
-        return Path("/dev/null")
+        return "FAKE glsl_shader authoring contract"  # the runtime's contract_doc is what the prompt sees
 
 
 def _writer(job, ws):
@@ -105,6 +100,16 @@ def settings(tmp_path) -> Settings:
 
 def _services(**kw):
     return FakeServices(runtime_factory=lambda lang: FakeGlRuntime(), **kw)
+
+
+def _plan(spec, ws, model, budget=None):
+    """What plan_graphics() used to be: run_planner with GraphicsTrack's own hooks.
+    The wrapper was a second spelling of _plan_kwargs and had no production caller,
+    so the tests go through the hooks the live path actually uses."""
+    from codeverse.tracks.graphics import GraphicsTrack
+    from codeverse.tracks.planner import plan as run_planner
+    return run_planner(spec, "fake:planner", GraphicsPlan, ws, model=model, budget=budget,
+                       **GraphicsTrack()._plan_kwargs(spec))
 
 
 def test_graphics_track_end_to_end(tmp_path, settings):
@@ -209,7 +214,7 @@ def test_planner_reask_and_acceptance(tmp_ws):
         return plan_example()
 
     model = FakeChatModel(responder)
-    plan = plan_graphics(spec, "fake:planner", tmp_ws, model=model)
+    plan = _plan(spec, tmp_ws, model)
     assert attempts["n"] == 2 and plan.title == "Neon rain on a window" and tmp_ws.plan_path.is_file()
     assert "Fix EXACTLY these problems" in model.requests[1].messages[-1].text
     ids = [a.id for a in plan.acceptance]
@@ -219,8 +224,10 @@ def test_planner_reask_and_acceptance(tmp_ws):
     assert any(a.id.startswith("motion") for a in p2.acceptance) and not any("ground" in a.text.lower() for a in p2.acceptance)
     always_bad = FakeChatModel(lambda req: {"title": "x"})
     with pytest.raises(PlanningError):
-        plan_graphics(spec, "fake:planner", tmp_ws, model=always_bad)
-    sys_prompt = build_plan_system_prompt(spec)
+        _plan(spec, tmp_ws, always_bad)
+    from codeverse.tracks.graphics import PLAN_TEMPLATE
+    from codeverse.tracks.planner import build_system_prompt
+    sys_prompt = build_system_prompt(spec, GraphicsPlan, template=PLAN_TEMPLATE, example=plan_example())
     assert "ART-DIRECTOR" in sys_prompt and "NeonRainWindow" in sys_prompt
 
 

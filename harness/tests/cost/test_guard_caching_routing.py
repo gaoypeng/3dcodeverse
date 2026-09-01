@@ -5,20 +5,12 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.contracts.common import Usage
 from codeverse.cost import (
-    Block,
-    cache_efficiency,
     estimate_call,
-    order_blocks,
-    prefix_report,
-    prefix_signature,
-    render_blocks,
     text_tokens,
 )
 from codeverse.cost.guard import image_tokens
-from codeverse.cost.routing import ROUTES, default_route, pro_break_even, samples_for_precision
-from codeverse.cost.types import Role
+from codeverse.cost.routing import pro_break_even, samples_for_precision
 
 
 # ------------------------------------------------------------------ guard
@@ -42,50 +34,6 @@ def test_estimate_of_an_image_model_uses_the_per_image_price():
 
 
 # ------------------------------------------------------------------ caching
-def test_order_blocks_puts_the_stable_prefix_first():
-    blocks = [Block("round", "round 3 of 4", order=1),
-              Block("system", "SYSTEM RULES", stable=True, order=0),
-              Block("rubric", "RUBRIC", stable=True, order=1),
-              Block("renders", "<images>", order=0)]
-    ordered = order_blocks(blocks)
-    assert [b.name for b in ordered] == ["system", "rubric", "renders", "round"]
-    assert render_blocks(ordered).startswith("SYSTEM RULES\n\nRUBRIC")
-
-
-def test_prefix_signature_only_covers_the_stable_head():
-    a = order_blocks([Block("s", "SYS", stable=True), Block("v", "round 1")])
-    b = order_blocks([Block("s", "SYS", stable=True), Block("v", "round 2")])
-    assert prefix_signature(a) == prefix_signature(b)
-    c = order_blocks([Block("s", "SYS!", stable=True), Block("v", "round 1")])
-    assert prefix_signature(c) != prefix_signature(a)
-
-
-def test_prefix_report_measures_the_shared_head_and_its_value():
-    stable = "S" * 40_000  # 10k tokens
-    prompts = [stable + f"\nround {i}" for i in range(4)]
-    rep = prefix_report(prompts)
-    assert rep.prefix_tokens == pytest.approx(10_000, rel=0.01)
-    assert rep.shared_fraction > 0.99
-    # 3 later calls read 10k tokens from cache instead of paying full input price
-    assert rep.savings_usd(0.75, 0.075) == pytest.approx(3 * 10_000 * 0.675 / 1e6, rel=0.01)
-    volatile_first = [f"round {i}\n" + stable for i in range(4)]
-    assert prefix_report(volatile_first).prefix_tokens < 10  # the cache is gone
-
-
-def test_cache_efficiency_reads_usages():
-    us = [Usage(input_tokens=100, cached_tokens=0), Usage(input_tokens=100, cached_tokens=80)]
-    cached, total, rate = cache_efficiency(us)
-    assert (cached, total) == (80, 200) and rate == 0.4
-
-
-# ------------------------------------------------------------------ routing
-def test_routing_defaults_exist_for_every_role():
-    for role in (Role.PLANNER, Role.GENERATOR, Role.JUDGE, Role.IMAGE, Role.CAPTIONER):
-        route = default_route(role)
-        assert route is not None and route.model_id and route.when, role
-    assert all(r.usd_per_call > 0 for r in ROUTES)
-
-
 def test_pro_judge_pays_for_itself_at_equal_precision():
     assert samples_for_precision("gemini-3.7-flash", 0.030) == 8
     assert samples_for_precision("gemini-3.1-pro-preview", 0.030) == 1

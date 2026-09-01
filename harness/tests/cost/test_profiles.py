@@ -12,6 +12,7 @@ from codeverse.cli._common import resolve_dial
 from codeverse.cli.main import app
 from codeverse.config import Settings, get_settings
 from codeverse.cost.profiles import PROFILE_NAMES, PROFILES, get_profile, profile_table
+from codeverse.orchestrator import RoundPolicy
 
 runner = CliRunner()
 
@@ -46,31 +47,7 @@ def test_balanced_is_todays_defaults():
     s = Settings()
     assert (p.generator, p.planner, p.judge) == (s.default_generator, s.default_planner, s.default_judge)
     assert p.rounds == 4 and p.candidates == s.default_candidates and p.judge_samples == 1
-    assert p.max_usd == 5.0 and p.max_minutes == 60.0 and p.judge_max_px == 1024
-
-
-def test_economy_is_single_shot_flash_and_two_rounds_with_no_turn_cap_of_its_own():
-    p = PROFILES["economy"]
-    assert p.generator.startswith("single-shot:") and "flash" in p.judge
-    assert p.rounds == 2 and p.judge_samples == 2
-    # a single-shot generator opens no agent session, so economy's old 20-turn cap
-    # could never fire — and the cap it was modelled on lost its own A/B (+$0.02,
-    # −0.205 score, docs/COST.md §17), so no profile sets one
-    assert p.max_turns == 0 and all(PROFILES[n].max_turns == 0 for n in PROFILE_NAMES)
-
-
-def test_apply_profile_sets_the_whole_dial():
-    s = Settings()
-    p = s.apply_profile("quality")
-    assert p.name == "quality" and s.profile == "quality"
-    assert s.default_judge == p.judge and s.default_candidates == 2
-    assert s.judge.samples == 3 and s.judge.max_px == 1024
-    s2 = Settings()
-    s2.apply_profile("economy")
-    assert s2.judge.samples == 2 and s2.limits.agent_max_turns == 0
-    # payload untouched: 768 px bills the same on Gemini and is noisier, and the
-    # crop cut did not survive a second draw (docs/COST.md §14)
-    assert s2.judge.detail_crops == 2 and s2.judge.max_px == 1024
+    assert p.max_minutes == 60.0 and p.judge_max_px == 1024
 
 
 def test_a_value_the_user_configured_survives_the_profile_unless_forced():
@@ -83,17 +60,13 @@ def test_a_value_the_user_configured_survives_the_profile_unless_forced():
 
 
 def test_one_stated_judge_field_does_not_disable_the_whole_judge_block(monkeypatch):
-    """SM-03: ``model_fields_set`` on Settings is SECTION-granular — pydantic marks the
-    whole ``judge`` sub-model as set when any CV3D_JUDGE__* is present — so stating
-    max_px (which no profile even changes) used to suppress judge_samples too:
-    ``CV3D_PROFILE=quality CV3D_JUDGE__MAX_PX=800`` judged at n=1 while `3dcv make`
-    advertised "judge sigma 0.017 at n=3".  Statedness must be per FIELD."""
+    """A stated judge field freezes only itself, not the whole section."""
     monkeypatch.setenv("CV3D_JUDGE__MAX_PX", "800")
     s = Settings()
     s.apply_profile("quality")
     assert s.judge.max_px == 800, "the field the user stated wins"
     assert s.judge.samples == 3, "every field the user did NOT state still follows the profile"
-    assert s.judge.montages == 3 and s.judge.detail_crops == 2
+    assert s.judge.montages == 5 and s.judge.detail_crops == 2
     # and the same dial, whichever way the profile was named (cost/profiles.py's invariant)
     monkeypatch.setenv("CV3D_PROFILE", "quality")
     get_settings.cache_clear()
@@ -105,8 +78,7 @@ def test_one_stated_judge_field_does_not_disable_the_whole_judge_block(monkeypat
 
 
 def test_applying_a_profile_twice_is_idempotent():
-    """A profile writes DEFAULTS, so its own values must not come back as "stated" and
-    freeze the next apply_profile (model_copy(update=) marks the copied fields set)."""
+    """Profile defaults do not masquerade as user-stated fields."""
     s = Settings()
     s.apply_profile("quality")
     s.apply_profile("economy")
@@ -119,10 +91,7 @@ def test_unknown_profile_is_a_clear_error():
 
 
 def test_a_bogus_profile_name_is_a_typed_cli_error_not_a_traceback(monkeypatch, tmp_path):
-    """SM-10: the profile is read while get_settings() builds, and `app` runs with
-    pretty_exceptions_enable=False, so one typo in an exported CV3D_PROFILE dumped a raw
-    Python stack from EVERY command — including `3dcv doctor`, the command you would run
-    to find out what is wrong with your configuration."""
+    """An invalid environment profile yields one clean validation error."""
     runner = CliRunner()
     monkeypatch.setenv("CV3D_PROFILE", "bogus")
     get_settings.cache_clear()
@@ -150,37 +119,27 @@ def test_profile_table_and_cli():
     assert r.exit_code == 0 and "economy" in r.stdout and "quality" in r.stdout
 
 
-def test_make_profile_writes_the_whole_shape_onto_the_spec(tmp_path: Path):
-    runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--profile", "quality"])
-    assert r.exit_code == 0, r.output
-    spec = json.loads(next(p for p in sorted(runs.iterdir()) if not p.name.startswith(".")).joinpath("spec.json").read_text())
-    assert spec["options"] == {"candidates": 2, "texture": True, "profile": "quality"}
-    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_usd"] == 8.0
-    assert spec["backends"]["judge"] == "gemini:gemini-3.1-pro-preview"
-
-
 def test_an_explicit_flag_beats_the_profile(tmp_path: Path):
     runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run",
-                            "--profile", "economy", "--rounds", "4", "--max-usd", "9",
+    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--slug", "pot",
+                            "--profile", "economy", "--rounds", "4",
                             "--generator", "gemini-cli:gemini-3.6-flash"])
     assert r.exit_code == 0, r.output
-    spec = json.loads(next(p for p in sorted(runs.iterdir()) if not p.name.startswith(".")).joinpath("spec.json").read_text())
-    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_usd"] == 9.0
+    spec = json.loads((runs / "pot" / "spec.json").read_text())
+    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_minutes"] > 0
     assert spec["backends"]["generator"] == "gemini-cli:gemini-3.6-flash"
     assert spec["backends"]["judge"] == "gemini:gemini-3.7-flash"  # unstated → still the profile's
 
 
 def test_no_profile_flag_leaves_the_defaults_alone(tmp_path: Path):
     runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run"])
+    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--slug", "pot"])
     assert r.exit_code == 0, r.output
-    spec = json.loads(next(p for p in sorted(runs.iterdir()) if not p.name.startswith(".")).joinpath("spec.json").read_text())
+    spec = json.loads((runs / "pot" / "spec.json").read_text())
     # the resolved dial is recorded whichever way it was named, so `3dcv resume`
     # reproduces it; with no flag and no env that dial is the default, balanced
     assert spec["options"]["profile"] == "balanced" and spec["options"]["texture"] is False
-    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_usd"] == 5.0
+    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_minutes"] > 0
 
 
 def test_judge_samples_reach_the_round_policy_only_when_a_profile_asks(tmp_path: Path):
@@ -195,8 +154,8 @@ def test_judge_samples_reach_the_round_policy_only_when_a_profile_asks(tmp_path:
     s.apply_profile("quality", force=True)
     opts = C.round_policy_options(spec, s)
     assert opts["policy"].judge_samples == 3 and opts["policy"].max_rounds == 3
-    # the rubric threshold is bound here because injecting a policy skips BaseTrack's own binding
-    assert opts["policy"].target == pytest.approx(0.72)
+    # the rubric threshold is NOT bound here: BaseTrack.after_plan binds it for an injected policy too
+    assert opts["policy"].target == RoundPolicy().target
 
 
 # --------------------------------------------------------------- flag == env var
@@ -219,36 +178,31 @@ def _dial_from_env(name: str, monkeypatch):
         get_settings.cache_clear()
 
 
-@pytest.mark.parametrize("name", PROFILE_NAMES)
-def test_the_flag_and_the_env_var_resolve_to_the_same_dial(name, monkeypatch):
-    """`--profile X` and `CV3D_PROFILE=X` must set the WHOLE dial, not two thirds
-    of it: the verifier found the env path skipped candidates and the texture pass
-    because the CLI read those off the flag instead of the resolved profile."""
-    assert _dial_from_flag(name) == _dial_from_env(name, monkeypatch)
-
-
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
         ("economy", {"generator": "single-shot:gemini:gemini-3.7-flash",
                      "judge": "gemini:gemini-3.7-flash", "judge_samples": 2,
                      "rounds": 2, "candidates": 1, "texture": False,
-                     "judge_max_px": 1024, "judge_montages": 3, "judge_detail_crops": 2,
-                     "agent_max_turns": 0, "max_usd": 1.50, "max_minutes": 30.0}),
-        ("balanced", {"generator": "gemini-cli:gemini-3.6-flash",
+                     "judge_max_px": 1024, "judge_montages": 5, "judge_detail_crops": 2,
+                     "agent_max_turns": 0, "max_minutes": 30.0}),
+        ("balanced", {"generator": "gemini-cli:gemini-3.7-flash",
                       "judge": "gemini:gemini-3.1-pro-preview", "judge_samples": 1,
                       "rounds": 4, "candidates": 1, "texture": False,
-                      "judge_max_px": 1024, "judge_montages": 3, "judge_detail_crops": 2,
-                      "agent_max_turns": 0, "max_usd": 5.0, "max_minutes": 60.0}),
-        ("quality", {"generator": "gemini-cli:gemini-3.6-flash",
+                      "judge_max_px": 1024, "judge_montages": 5, "judge_detail_crops": 2,
+                      "agent_max_turns": 0, "max_minutes": 60.0}),
+        ("quality", {"generator": "gemini-cli:gemini-3.7-flash",
                      "judge": "gemini:gemini-3.1-pro-preview", "judge_samples": 3,
                      "rounds": 4, "candidates": 2, "texture": True,
-                     "judge_max_px": 1024, "judge_montages": 3, "judge_detail_crops": 2,
-                     "agent_max_turns": 0, "max_usd": 8.0, "max_minutes": 90.0}),
+                     "judge_max_px": 1024, "judge_montages": 5, "judge_detail_crops": 2,
+                     "agent_max_turns": 0, "max_minutes": 90.0}),
     ],
 )
 def test_each_profile_resolves_to_its_documented_dial(name, expected, monkeypatch):
     """Every dial value docs/COST.md §15 promises, from BOTH entry points."""
+    settings = Settings()
+    applied = settings.apply_profile(name)
+    assert applied.name == settings.profile == name
     for dial in (_dial_from_flag(name), _dial_from_env(name, monkeypatch)):
         assert dial.profile == name
         for field, want in expected.items():
@@ -264,9 +218,9 @@ def test_the_env_var_reaches_the_spec_a_make_writes(name, tmp_path: Path, monkey
     monkeypatch.setenv("CV3D_PROFILE", name)
     get_settings.cache_clear()
     runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run"])
+    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--slug", "pot"])
     assert r.exit_code == 0, r.output
-    spec = json.loads(next(p for p in sorted(runs.iterdir()) if not p.name.startswith(".")).joinpath("spec.json").read_text())
+    spec = json.loads((runs / "pot" / "spec.json").read_text())
     assert spec["options"] == {"candidates": p.candidates, "texture": p.texture, "profile": name}
-    assert spec["budget"]["max_rounds"] == p.rounds and spec["budget"]["max_usd"] == p.max_usd
+    assert spec["budget"]["max_rounds"] == p.rounds and spec["budget"]["max_minutes"] == p.max_minutes
     assert spec["backends"]["judge"] == p.judge and spec["backends"]["generator"] == p.generator

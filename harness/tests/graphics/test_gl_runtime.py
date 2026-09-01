@@ -20,10 +20,11 @@ PLAN = GraphicsPlan(title="Test", summary="s", style="warm", passes=[PassPlan(na
 
 
 @pytest.fixture(scope="module")
-def host() -> GlHost:
+def host(tmp_path_factory: pytest.TempPathFactory) -> GlHost:
     h = GlHost(timeout_s=120)
     try:
-        r = h.render_fragment_shader("#version 330 core\nout vec4 f;\nvoid main(){ f = vec4(1.0); }\n", __import__("tempfile").mkdtemp(),
+        r = h.render_fragment_shader("#version 330 core\nout vec4 f;\nvoid main(){ f = vec4(1.0); }\n",
+                                     tmp_path_factory.mktemp("gl_smoke"),
                                      width=16, height=16, times=(0.0,))
     except GlHostError as e:  # pragma: no cover - machine without GL
         pytest.skip(f"no OpenGL context: {e}")

@@ -8,7 +8,7 @@ Owns the typer app and every registration, the run-starting commands ``make`` /
 ``resume`` (spec building, reference grounding, track dispatch, budget raising) and
 ``mcp``.  The run-inspecting commands ``status`` / ``render`` / ``judge`` live in the
 sibling ``cli/inspect_cmd.py`` and are registered here, the way ``layout_cmd.py``'s
-``show`` / ``migrate-runs`` are.
+``show`` is.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ import typer
 from codeverse import __version__
 from codeverse.cli import _common as C
 from codeverse.cli._common import (
+    RunsDirOpt,
     console,
     err_console,
     kv_table,
@@ -46,8 +47,6 @@ from codeverse.contracts.spec import Constraints, ReferenceImage, RunOptions, Sp
 
 
 # ===================================================================== tools_cmd
-# (merged from codeverse/cli/tools_cmd.py, 2026-08-28 — main's registration block
-#  was its only importer)
 def tools(
     name: Annotated[str, typer.Argument(help="'list' or a tool name")] = "list",
     args_json: Annotated[str, typer.Option("--json", help="arguments object as JSON")] = "{}",
@@ -90,8 +89,6 @@ def tools(
 
 
 # ===================================================================== bench_cmd
-# (merged from codeverse/cli/bench_cmd.py, 2026-08-28 — main's registration block
-#  was its only importer)
 bench_app = typer.Typer(no_args_is_help=True)
 
 
@@ -102,15 +99,14 @@ def run_cmd(
     generator: Annotated[str | None, typer.Option("--generator")] = None,
     planner: Annotated[str | None, typer.Option("--planner")] = None,
     judge: Annotated[str | None, typer.Option("--judge", help="fixed judge model for the whole battery")] = None,
-    parallel: Annotated[int, typer.Option("--parallel", min=1)] = 4,
+    parallel: Annotated[int | None, typer.Option(
+        "--parallel", min=1, help="workers (default: BenchOptions.parallel — the measured knee)")] = None,
     rounds: Annotated[int, typer.Option("--rounds", min=0)] = 4,
-    max_usd: Annotated[float, typer.Option("--max-usd")] = 5.0,
     max_minutes: Annotated[float, typer.Option("--max-minutes", help="wall-clock budget per run; size it to the weather "
                                                                    "(RUNBOOK 7.x: 120 in a 503 storm, else runs burn the hour with no judged round)")] = 60.0,
     limit: Annotated[int | None, typer.Option("--limit")] = None,
     ids: Annotated[list[str] | None, typer.Option("--id", help="only these prompt ids")] = None,
     tiers: Annotated[list[str] | None, typer.Option("--tier")] = None,
-    no_resume: Annotated[bool, typer.Option("--no-resume")] = False,
     redo_status: Annotated[str, typer.Option("--redo-status", help="comma list of recorded statuses to re-run, "
                                                                    "e.g. infra_failed once the provider recovers")] = "",
     report: Annotated[bool, typer.Option("--report/--no-report")] = True,
@@ -120,9 +116,11 @@ def run_cmd(
         raise C.CliError(f"battery not found: {battery}")
     b = C.import_bench()
     run_bench = C.lazy("bench.run_bench")
-    opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_usd=max_usd, max_minutes=max_minutes,
-                                 parallel=parallel, limit=limit, ids=ids or [], tiers=tiers or [], resume=not no_resume,
-                                 redo_status=[x for x in redo_status.split(",") if x])
+    # one source of truth for the worker count: BenchOptions.parallel (the measured knee)
+    par = {"parallel": parallel} if parallel is not None else {}
+    opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_minutes=max_minutes,
+                                 limit=limit, ids=ids or [], tiers=tiers or [],
+                                 redo_status=[x for x in redo_status.split(",") if x], **par)
     out_dir = out or (C.REPO_ROOT / "bench" / "out" / battery.stem)
     console.print(f"battery={battery} out={out_dir} generator={generator or 'default'} judge={judge or 'default'}")
 
@@ -149,8 +147,6 @@ def report_cmd(out_dir: Annotated[Path, typer.Argument()]) -> None:
 
 
 # ===================================================================== gallery_cmd
-# (merged from codeverse/cli/gallery_cmd.py, 2026-08-28 — main's registration block
-#  was its only importer)
 gallery_app = typer.Typer(no_args_is_help=True)
 
 RootsArg = Annotated[list[Path] | None, typer.Argument(
@@ -258,11 +254,6 @@ app.command(
     help="List spatial tools or run one: `3dcv tools list` | `3dcv tools <name> --json '{...}' --workspace ws`.",
 )(tools)
 
-RunsDirOpt = Annotated[
-    Path | None, typer.Option("--runs-dir", help="runs root (default: settings.runs_dir)")
-]
-
-
 @app.callback(invoke_without_command=True)
 def _root(
     ctx: typer.Context, version: Annotated[bool, typer.Option("--version", is_eager=True)] = False
@@ -349,7 +340,6 @@ def make(
             "--rounds", min=0, help="refine rounds after the baseline (default: the profile's)"
         ),
     ] = None,
-    max_usd: Annotated[float | None, typer.Option("--max-usd", min=0)] = None,
     max_minutes: Annotated[float | None, typer.Option("--max-minutes", min=0)] = None,
     candidates: Annotated[
         int | None,
@@ -406,11 +396,10 @@ def make(
         profile,
         rounds=rounds,
         candidates=candidates,
-        max_usd=max_usd,
         max_minutes=max_minutes,
         texture=texture,
     )
-    rounds, max_usd, max_minutes = dial.rounds, dial.max_usd, dial.max_minutes
+    rounds, max_minutes = dial.rounds, dial.max_minutes
     candidates, texture = dial.candidates, dial.texture
     # A run must not record and display a pass it cannot run.  `3dcv texture pass` already
     # refuses non-object tracks; `3dcv make` accepted --texture (and --profile quality,
@@ -443,7 +432,7 @@ def make(
                 must_not=must_not,
                 style=style,
             ),
-            budget=Budget(max_rounds=rounds, max_usd=max_usd, max_minutes=max_minutes),
+            budget=Budget(max_rounds=rounds, max_minutes=max_minutes),
             # options.profile records the dial this run resolved to, whichever way it was
             # named (flag, CV3D_PROFILE, config.yaml), so `3dcv resume` re-applies it
             backends=backends,
@@ -473,7 +462,6 @@ def make(
                     "judge": f"{backends.judge} n={dial.judge_samples} "
                     f"({dial.judge_max_px}px/{dial.judge_detail_crops}crop)",
                     "rounds": rounds,
-                    "max_usd": max_usd,
                     "candidates": candidates,
                     "texture": texture,
                 },
@@ -585,7 +573,7 @@ def _finished_reason(ws, raised: dict) -> str:
             f" stop_reason={state.stop_reason!r}" if state.stop_reason else ""
         )
         if state.status is RunStatus.BUDGET:
-            return f"{detail}: raise a cap to continue it (--max-usd / --max-minutes / --rounds)"
+            return f"{detail}: raise a cap to continue it (--max-minutes / --rounds)"
         return f"{detail} best_score={state.best_score}"
     return ""
 
@@ -598,14 +586,6 @@ def resume(
         int | None,
         typer.Option(
             "--candidates", min=1, help="best-of-N baseline width (only matters before round 0 ran)"
-        ),
-    ] = None,
-    max_usd: Annotated[
-        float | None,
-        typer.Option(
-            "--max-usd", min=0,
-            help="raise the budget cap before resuming (rewrites spec.json; prior spend is "
-            "restored on resume, so the run gets the new cap MINUS what it already spent)",
         ),
     ] = None,
     max_minutes: Annotated[
@@ -628,7 +608,7 @@ def resume(
 ) -> None:
     """Resume an interrupted / partial run (or start a `--no-run` one).
 
-    ``--max-usd`` / ``--max-minutes`` / ``--rounds`` rewrite the spec's budget
+    ``--max-minutes`` / ``--rounds`` rewrite the spec's budget
     first — the only way to continue a BUDGET-stopped run.  A run that already
     reached a terminal state is refused unless ``--force``: re-entering it spends
     money and overwrites its final state."""
@@ -645,7 +625,7 @@ def resume(
                 raise C.CliError(f"{ws.spec_path}: {e}", code=2) from e
         raised = {
             k: v
-            for k, v in {"max_usd": max_usd, "max_minutes": max_minutes, "max_rounds": rounds}.items()
+            for k, v in {"max_minutes": max_minutes, "max_rounds": rounds}.items()
             if v is not None
         }
         if not force and (why := _finished_reason(ws, raised)):
@@ -684,18 +664,13 @@ def mcp(workspace: Annotated[Path, typer.Option("--workspace")]) -> None:
     )
 
 
-# --------------------------------------------------------------------------- run layout (show / migrate)
+# --------------------------------------------------------------------------- run layout (show)
 # appended registration — see codeverse/cli/layout_cmd.py
-from codeverse.cli.layout_cmd import migrate_runs_cmd as _migrate_runs_cmd  # noqa: E402
 from codeverse.cli.layout_cmd import show as _show  # noqa: E402
 
 app.command(
     "show", help="One run in three sections: DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS."
 )(_show)
-app.command(
-    "migrate-runs",
-    help="Reorganise existing runs onto deliverable/ + evidence/ + telemetry/ (idempotent).",
-)(_migrate_runs_cmd)
 
 
 if __name__ == "__main__":  # pragma: no cover

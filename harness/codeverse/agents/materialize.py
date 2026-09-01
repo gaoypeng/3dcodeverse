@@ -5,10 +5,10 @@ One shared body is written to ``AGENTS.md`` (codex / generic), ``GEMINI.md``
 the ``3dcv`` spatial tools, where the cookbook is, and the language contract.
 MCP wiring:
 
-* gemini-cli → the per-session system settings (``agents/gemini_cli.write_system_settings``);
+* gemini-cli → the per-session system settings (``agents/backends.write_system_settings``);
   ``ws/.gemini/settings.json`` is agent-writable, so it only carries the ``context`` block
-* claude-code → per-session ``trajectories/<label>_rNN/mcp.json`` (``agents/claude_code.py``)
-* codex → ``-c`` overrides returned in :class:`Materialized.codex_overrides`
+* claude-code → per-session ``trajectories/<label>_rNN/mcp.json`` (``agents/backends.py``)
+* codex → ``-c`` overrides (:func:`codex_mcp_overrides`, built per session by its backend)
 * agy (Antigravity) → no per-workspace MCP; the body documents the CLI fallback.
 
 Skills: the routed ``SKILL.md`` bundles are written per ROUND, not here — the set depends
@@ -18,9 +18,9 @@ into the three body files this module writes, so there is exactly one shared hea
 new one (docs/COST.md §13 measured and reverted a second head at +2,925 tokens/call).
 Nothing here needs to change for the CLIs to see them: codex's per-tool approval override
 below is scoped to ``mcp_servers.3dcv.*`` and cannot reach its skills loader, and
-gemini-cli's ``activate_skill`` consent is already covered by ``--approval-mode yolo``
-(``agents/gemini_cli.py``).  claude-code needed one change — ``Skill`` in its
-``--allowedTools``, see ``agents/claude_code.py``.
+gemini-cli's ``activate_skill`` consent is already covered by ``--approval-mode yolo``.
+claude-code needed one change — ``Skill`` in its ``--allowedTools``
+(``agents/backends.ALLOWED_TOOLS``).
 
 Ignore files: ``.geminiignore`` / ``.aiexclude`` hide only noise (:data:`IGNORE_LINES`);
 ``.gemini/settings.json`` gets ``context.fileFiltering.respectGitIgnore=false`` because the
@@ -31,13 +31,15 @@ would otherwise refuse to read the build census / the long-prompt file there.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from pathlib import Path
 
-from pydantic import BaseModel, Field
-
+from codeverse.agents.cli_common import default_mcp_command
 from codeverse.prompts import PROMPTS_DIR
 from codeverse.workspace import Workspace
+
+log = logging.getLogger(__name__)
 
 CV3D_DIR = ".3dcv"  # harness-owned read-only docs inside the workspace
 MCP_SERVER_NAME = "3dcv"
@@ -58,20 +60,8 @@ IGNORE_LINES = (
 GEMINI_CONTEXT_SETTINGS = {"fileFiltering": {"respectGitIgnore": False, "respectGeminiIgnore": True}}
 
 
-class Materialized(BaseModel):
-    """What :func:`materialize_workspace` wrote and how each CLI reaches the tools."""
-
-    body_files: list[str] = Field(default_factory=list)
-    ignore_files: list[str] = Field(default_factory=list)
-    cookbook_path: str = ""
-    mcp_command: list[str] = Field(default_factory=list)
-    codex_overrides: list[str] = Field(default_factory=list, description="extra argv for `codex exec` (-c k=v pairs)")
-    agy_mcp: str = Field(default="", description="how Antigravity reaches the tools")
-    warnings: list[str] = Field(default_factory=list)
-
-
 # --------------------------------------------------------------------------- body
-def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str]) -> str:
+def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], ws: Workspace | None = None) -> str:
     if not spatial_tools:
         return (
             "## Spatial tools\n\n"
@@ -79,9 +69,22 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str]) 
             "code carefully and keeping every dimension explicit; the harness builds, measures "
             "and renders after you finish.\n"
         )
-    from codeverse.spatial.registry import tool_cards
+    from codeverse.spatial.registry import list_tools
 
-    cards = tool_cards() or "(the tool registry is empty in this environment)"
+    # the MCP server's track/language filter (mcp_server.build_context): this file is
+    # agy's ONLY tool documentation, and the whole registry taught dead-end object tools
+    track = language = ""
+    if ws is not None and ws.spec_path.is_file():
+        try:
+            spec = json.loads(ws.spec_path.read_text())
+            track, language = str(spec.get("track", "")), str(spec.get("language", ""))
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning("could not read %s for tool filtering: %s", ws.spec_path, e)
+    tools = list_tools(track=track, language=language)
+    names = {t.name for t in tools}
+    cards = "\n".join(t.card() for t in tools) or "(the tool registry is empty in this environment)"
+    look = [n for n in ("render_views", "render_sheet", "scene_views", "gl_frames") if n in names]
+    prove = [n for n in ("measure", "check_contract", "scene_probe", "gl_probe") if n in names]
     if agent_kind == "claude-code":
         how = "Tools are exposed by the MCP server `3dcv`; their names appear as `mcp__c3v__<name>` (e.g. `mcp__c3v__build`)."
     elif agent_kind == "agy":
@@ -97,17 +100,22 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str]) 
         )
     else:
         how = f"Tools are exposed by the MCP server `{MCP_SERVER_NAME}` (command: `{' '.join(mcp_command)}`); call them by name."
+    workflow = (
+        "Workflow: edit → `build` → read the errors/numbers → fix → `build` again."
+        + (f" Use {' / '.join(f'`{n}`' for n in look)} to LOOK at what you made before declaring it finished;" if look else "")
+        + (f" use {' / '.join(f'`{n}`' for n in prove)} to prove it." if prove else "")
+        + " Never finish on a failing build."
+    )
     return (
         "## Spatial tools (3dcv)\n\n"
         f"{how}\n\n"
-        "Workflow: edit → `build` → read the errors/numbers → fix → `build` again. Use `render_views` / "
-        "`render_sheet` to LOOK at what you made before declaring it finished; use `measure` / "
-        "`check_contract` to prove dimensions. Never finish on a failing build.\n\n"
+        f"{workflow}\n\n"
         f"{cards}\n"
     )
 
 
-def _body(agent_kind: str, contract_md: str, cookbook_note: str, spatial_tools: bool, mcp_command: list[str]) -> str:
+def _body(agent_kind: str, contract_md: str, cookbook_note: str, spatial_tools: bool, mcp_command: list[str],
+          ws: Workspace | None = None) -> str:
     return (
         "# 3dcv workspace — rules for the coding agent\n\n"
         "You are working inside a harness-managed workspace. Read this whole file before acting.\n\n"
@@ -122,7 +130,7 @@ def _body(agent_kind: str, contract_md: str, cookbook_note: str, spatial_tools: 
         "4. Keep dimensions explicit and in meters; follow the coordinate frame stated in the contract.\n"
         "5. When you are done, reply with a SHORT summary of what you changed and what you verified. "
         "Do not ask questions — there is no human in the loop; make a reasonable decision and proceed.\n\n"
-        f"{_tool_section(agent_kind, spatial_tools, mcp_command)}\n"
+        f"{_tool_section(agent_kind, spatial_tools, mcp_command, ws)}\n"
         f"## Cookbook\n\n{cookbook_note}\n\n"
         f"## Language contract\n\n{contract_md.strip()}\n"
     )
@@ -195,12 +203,22 @@ def materialize_workspace(
     contract_md: str,
     cookbook_rel: str,
     spatial_tools: bool,
-    mcp_command: list[str],
-) -> Materialized:
-    """Write AGENTS.md / GEMINI.md / CLAUDE.md + MCP configs + ignore files into ``ws``."""
-    out = Materialized(mcp_command=list(mcp_command))
-    if spatial_tools and not mcp_command:
-        raise ValueError("spatial_tools=True requires a non-empty mcp_command")
+    mcp_command: list[str] | None = None,
+) -> None:
+    """Write AGENTS.md / GEMINI.md / CLAUDE.md + MCP configs + ignore files into ``ws``.
+
+    ``mcp_command`` defaults to ``cli_common.default_mcp_command(ws)`` — the same
+    ``sys.executable`` the backends launch; three callers used to spell a bare ``python``
+    here, which the body text and codex's ``-c`` overrides then quoted verbatim.
+
+    Returns nothing: the ``Materialized`` DTO this used to build (body/ignore paths, the
+    cookbook path, the argv, a warnings list) was discarded by every production caller —
+    ``tracks/common.Services.materialize`` is typed ``-> None`` — so its one real signal,
+    a cookbook that did not resolve, was written and read by nobody.  That is the exact
+    failure ``tracks/common.cookbook_rel_for`` was fixed for on 2026-08-29 (an articulated
+    run told the agent "No cookbook is available" while its 24 kB cookbook sat on disk);
+    it is a log line now, where someone reading the run can see it (2026-08-30)."""
+    mcp_command = list(mcp_command) if mcp_command else default_mcp_command(ws)
 
     # cookbook: copy into the harness-owned .3dcv/ dir so every CLI can read it in-workspace
     src = _resolve_cookbook(ws, cookbook_rel)
@@ -208,39 +226,25 @@ def materialize_workspace(
         dest = ws.root / CV3D_DIR / "cookbook.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, dest)
-        out.cookbook_path = str(dest)
         cookbook_note = (
             f"The cookbook for this language — copyable, verified snippets and skeletons — is at "
             f"`{CV3D_DIR}/cookbook.md` (relative to the workspace root). Read the relevant sections "
             "before writing code and copy its patterns exactly."
-            + (" You may also call the `read_cookbook` tool." if spatial_tools else "")
         )
     else:
-        out.warnings.append(f"cookbook not found: {cookbook_rel!r}")
+        log.warning("cookbook not found: %r — the %s session gets the contract only", cookbook_rel, agent_kind)
         cookbook_note = "No cookbook is available in this session; rely on the contract below."
 
-    body = _body(agent_kind, contract_md, cookbook_note, spatial_tools, list(mcp_command))
+    body = _body(agent_kind, contract_md, cookbook_note, spatial_tools, mcp_command, ws)
     for name in ("AGENTS.md", "GEMINI.md", "CLAUDE.md"):
         (ws.root / name).write_text(body)
-        out.body_files.append(str(ws.root / name))
 
     # No MCP server is written into the workspace: every CLI gets 3dcv from a harness-owned
     # per-session file, so an agent-planted server cannot reach the next round (audit 2026-08-27).
     gemini_settings = ws.root / ".gemini" / "settings.json"
     _merge_json(gemini_settings, {"context": dict(GEMINI_CONTEXT_SETTINGS)})
     _drop_server(gemini_settings)
-    if spatial_tools:
-        out.codex_overrides = codex_mcp_overrides(list(mcp_command))
-        out.agy_mcp = (
-            "Antigravity CLI only supports GLOBAL MCP registration (`agy mcp add ...`), which would "
-            "leak across parallel runs; no per-workspace MCP is written. The body documents the "
-            "`python -m codeverse.cli.main tools <name> --json ...` shell fallback instead."
-        )
-    else:
-        out.agy_mcp = "spatial tools disabled"
 
     ignore_text = "\n".join(IGNORE_LINES) + "\n"
     for name in (".geminiignore", ".aiexclude"):
         (ws.root / name).write_text(ignore_text)
-        out.ignore_files.append(str(ws.root / name))
-    return out

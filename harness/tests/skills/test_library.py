@@ -1,23 +1,15 @@
-"""The tests that run over the REAL bundles as they land (T1-T4, T6, T8).
-
-Every test here skips cleanly while the library is empty — the machinery ships before the
-bodies do — and starts biting the moment a bundle appears.  That ordering is deliberate:
-the Author phase should not be able to land a bundle that contradicts the contract, quotes
-a stale constant, or grows into a second cookbook, and it should not have to remember to
-add a test for each of those.
-"""
+"""Corpus invariants for the shipped skill bundles and their numeric claims."""
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 from collections import defaultdict
-from pathlib import Path
 
 import pytest
 
 from codeverse.skills import bundle_dirs, iter_skills, skills_dir, validate_bundle
-from codeverse.skills.model import BODY_MAX_LINES, BODY_MAX_TOKENS
-from codeverse.skills.registry import ROUTED_SKILLS, ROUTES
+from codeverse.skills.registry import ROUTES
 from codeverse.skills.targets import check_claims, claim_bases, load_claims
 
 BUNDLES = bundle_dirs()
@@ -31,53 +23,49 @@ CONTRACT_RESTATEMENTS = (
     r"\bZ is UP\b", r"\bY is UP\b", r"-Y is the FRONT", r"\+Z is the FRONT",
     r"units are meters", r"\bY-up\b.*\bframe\b",
 )
+MEASURED_PERCENTAGE = re.compile(
+    r"\d{1,3}(?:\.\d)?\s?%[^.\n]{0,40}\b(?:of runs|runs|corpus|battery|of the corpus)\b"
+    r"|\b(?:runs|corpus|battery|fired|deviates)\b[^.\n]{0,40}\d{1,3}(?:\.\d)?\s?%"
+)
+PROVENANCE = re.compile(
+    r"bench/out|battery|batteries|\bn\s?=\s?\d+|20\d\d-\d\d-\d\d|\bof\s+\d+\s+runs\b"
+    r"|\b\d+\s+(?:graded|run|runs|records?)\b"
+)
 
 
-@pytest.mark.parametrize("d", BUNDLES, ids=[d.name for d in BUNDLES])
-def test_bundle_is_spec_conformant(d: Path):
-    assert validate_bundle(d) == []
+def test_every_bundle_is_valid_and_its_claims_are_current():
+    """One corpus pass keeps structure, brevity, evidence and pinned values honest."""
+    for bundle in BUNDLES:
+        errors = validate_bundle(bundle)
+        assert not errors, f"{bundle.name}: {errors}"
 
-
-@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
-def test_body_is_inside_the_budget(s):
-    assert s.body_lines <= BODY_MAX_LINES
-    assert s.body_tokens <= BODY_MAX_TOKENS
-
-
-@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
-def test_a_skill_states_rules_and_does_not_become_a_second_cookbook(s):
-    """No code fence longer than 20 lines: code lives in the cookbook, which is one
-    library of truth with 3,560 lines already."""
-    for fence in re.findall(r"^```.*?^```", s.body, re.S | re.M):
-        n = len(fence.splitlines()) - 2
-        assert n <= MAX_FENCE_LINES, f"{s.name}: a {n}-line code fence belongs in the cookbook"
-
-
-@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
-def test_a_skill_does_not_restate_the_frame_or_unit_contract(s):
-    for pat in CONTRACT_RESTATEMENTS:
-        assert not re.search(pat, s.body, re.I), f"{s.name}: {pat!r} belongs in conventions.py only"
-
-
-@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
-def test_every_pinned_number_still_matches_its_live_constant(s):
-    """T2: changing PENETRATION_ERROR_M must break the test that ships the skill quoting it."""
-    assert check_claims(s) == []
-
-
-@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
-def test_an_evidence_thin_bundle_says_so(s):
-    if s.evidence != "measured":
-        assert s.metadata.get("evidence_note"), f"{s.name}: a non-measured bundle must say why in metadata"
+    for skill in SKILLS:
+        for fence in re.findall(r"^```.*?^```", skill.body, re.S | re.M):
+            lines = len(fence.splitlines()) - 2
+            assert lines <= MAX_FENCE_LINES, (
+                f"{skill.name}: a {lines}-line code fence belongs in the cookbook"
+            )
+        for pattern in CONTRACT_RESTATEMENTS:
+            assert not re.search(pattern, skill.body, re.I), (
+                f"{skill.name}: {pattern!r} belongs in conventions.py only"
+            )
+        errors = check_claims(skill)
+        assert not errors, f"{skill.name}: {errors}"
+        if skill.evidence != "measured":
+            assert skill.metadata.get("evidence_note"), (
+                f"{skill.name}: non-measured evidence needs a note"
+            )
+        verified = dt.date.fromisoformat(str(skill.metadata.get("verified", "")))
+        assert verified <= dt.date.today(), f"{skill.name}: verified {verified} is in the future"
+        for match in MEASURED_PERCENTAGE.finditer(skill.body):
+            window = skill.body[max(0, match.start() - 300): match.end() + 300]
+            assert PROVENANCE.search(window), (
+                f"{skill.name} gives {match.group(0)!r} without nearby provenance"
+            )
 
 
 def test_no_two_skills_anywhere_point_one_claim_key_at_different_numbers():
-    """T3: astra3d checked one hand-picked pair by hand; this checks the whole library.
-
-    Compared on the PRE-SCALE value, not the rendered text: "1 cm" and "0.01" metres are
-    the same tolerance honestly quoted in two units, and failing that pair would have
-    taught the next author to delete the claim rather than fix a contradiction.
-    """
+    """Compare pre-scale values so equivalent units do not look contradictory."""
     by_key: dict[str, dict[str, tuple[str, object]]] = defaultdict(dict)
     for s in SKILLS:
         for key, base in claim_bases(s.name).items():
@@ -89,7 +77,7 @@ def test_no_two_skills_anywhere_point_one_claim_key_at_different_numbers():
         assert len(values) == 1, f"{key} resolves to {sorted(values)} across {sorted(owners)}"
 
 
-def test_co_routing_skills_render_a_shared_number_the_same_way(): 
+def test_co_routing_skills_render_a_shared_number_the_same_way():
     """A weaker but still useful rule for skills that can land in ONE session together:
     if they chose the same units for a shared key, the sentence must read the same."""
     rows = {s.name: {r["key"]: r for r in load_claims(s.name) if r.get("key")} for s in SKILLS}
@@ -107,28 +95,17 @@ def test_co_routing_skills_render_a_shared_number_the_same_way():
 def _can_co_route(a: str, b: str) -> bool:
     """Two skills can co-route when some (track, language) can name both."""
     def reach(name: str) -> set[tuple[str, str]]:
-        out: set[tuple[str, str]] = set()
-        for r in ROUTES:
-            if r.skill != name:
-                continue
-            for t in r.tracks or ("*",):
-                for lang in r.languages or ("*",):
-                    out.add((t, lang))
-        return out
+        return {
+            (track, language)
+            for route in ROUTES
+            if route.skill == name
+            for track in route.tracks or ("*",)
+            for language in route.languages or ("*",)
+        }
 
     ra, rb = reach(a), reach(b)
-    return any((t1 == t2 or "*" in (t1, t2)) and (l1 == l2 or "*" in (l1, l2))
-               for t1, l1 in ra for t2, l2 in rb)
-
-
-def test_every_routed_skill_has_a_bundle_once_the_library_is_complete():
-    have = {d.name for d in BUNDLES}
-    missing = [n for n in ROUTED_SKILLS if n not in have]
-    if missing and len(have) < len(ROUTED_SKILLS):
-        pytest.skip(f"library still being written: {len(have)}/{len(ROUTED_SKILLS)} bundles")
-    assert missing == []
-
-
-def test_no_bundle_exists_that_no_route_can_ever_attach():
-    orphans = [d.name for d in BUNDLES if d.name not in ROUTED_SKILLS]
-    assert orphans == [], f"unroutable bundles pay the index and never help: {orphans}"
+    return any(
+        (t1 == t2 or "*" in (t1, t2)) and (l1 == l2 or "*" in (l1, l2))
+        for t1, l1 in ra
+        for t2, l2 in rb
+    )

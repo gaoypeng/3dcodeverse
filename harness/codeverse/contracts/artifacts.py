@@ -106,10 +106,16 @@ class Measurement(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
+#: every mode the object rig draws (runtime_js/render_glb.mjs MODES, pinned by
+#: tests/spatial_tools/test_tools.py).  The tool layer advertised "depth" from the
+#: first commit; no renderer ever had it.
+RENDER_MODES = ("shaded", "wire", "normals", "silhouette", "clay")
+
+
 class RenderView(BaseModel):
     name: str
     path: str
-    mode: str = "shaded"  # shaded | wire | normals | silhouette | depth | clay
+    mode: str = "shaded"
     width: int = 0
     height: int = 0
     camera_position: Vec3 | None = None
@@ -125,7 +131,6 @@ class RenderView(BaseModel):
 class RenderSet(BaseModel):
     views: list[RenderView] = Field(default_factory=list)
     contact_sheet: str | None = Field(default=None, description="one labelled grid image of all views")
-    turntable: str | None = None
     renderer: str = ""
     duration_ms: int = 0
     console_errors: list[str] = Field(default_factory=list, description="(scenes) JS/WebGL errors seen")
@@ -134,7 +139,6 @@ class RenderSet(BaseModel):
 
 
 # ===================================================================== judgment
-# (merged from codeverse/contracts/judgment.py, 2026-08-28)
 class JudgeIssue(BaseModel):
     target: str = Field(description="part / zone / joint / asset / 'overall'")
     kind: Literal[

@@ -29,7 +29,7 @@ No `OCP`/`OCC` direct calls, no numpy, no file I/O, no `cq.exporters`, no
 ## Forbidden / limits
 * No `show_object`, `exporters.export`, `open(`, `os`, `sys`, `subprocess`, network.
 * ≤ 40 parts; each part a valid solid (`.val().isValid()`), no empty Workplanes; fillets
-  < 0.45 × thinnest adjacent wall; feature sizes ≥ 0.5 mm; build < 120 s.
+  < 0.45 × thinnest adjacent wall; feature sizes ≥ 0.5 mm; build < 300 s.
 * Do not union parts across plan boundaries (keep one solid per part); small intentional
   overlap of **0.5–2 mm** between touching parts is required — that is how they "weld";
   deeper than 2 mm and the connectivity gate calls it interpenetration.

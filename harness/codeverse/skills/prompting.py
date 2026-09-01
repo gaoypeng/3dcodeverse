@@ -1,7 +1,7 @@
 """How one shared skill library reaches each coding agent — the ONE place that differs.
 
 The library itself is agent-agnostic: plain `agentskills.io` bundles under
-``codeverse/skills/<name>/SKILL.md``, routed by ``router.py`` from typed inputs.  Nothing
+``codeverse/skills/<name>/SKILL.md``, routed by ``registry.py`` from typed inputs.  Nothing
 in it knows what a backend is.  What genuinely differs between backends is only
 **delivery**, and only in two bits:
 
@@ -81,9 +81,8 @@ def known_backends() -> tuple[str, ...]:
 
 
 # ===================================================================== prompting
-# (merged from codeverse/skills/prompting.py, 2026-08-28)
-#: Per-backend policy lives in ONE place (``skills/delivery.py``); these are re-exported so
-#: existing importers keep working and so nothing here re-derives what a backend needs.
+#: Per-backend policy lives in ONE place (``_BACKENDS`` above); derived here so nothing
+#: else re-derives what a backend needs.
 NATIVE_LOADERS = tuple(k for k in known_backends() if delivery_for(k).native_loader)
 
 #: what a NATIVE loader is told.  Its own index lists every skill it can see, including any

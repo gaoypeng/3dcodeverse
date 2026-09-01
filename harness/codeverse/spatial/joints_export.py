@@ -11,21 +11,18 @@ Non-root link nodes carry ``extras.joint`` and the scene carries
 
 from __future__ import annotations
 
-import json
 import sys
-import time
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import trimesh
 
-from codeverse.contracts.artifacts import RenderSet, RenderView
+from codeverse.contracts.artifacts import RenderSet
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
-from codeverse.proc import run_subprocess
-from codeverse.spatial._render_common import build_sheet, out_directory, view_specs
-from codeverse.spatial.joints_model import Joint, Robot, UrdfError, fk
+from codeverse.spatial._render_common import out_directory
+from codeverse.spatial.joints_model import Joint, Robot, fk
 from codeverse.spatial.joints_poses import limit_poses
 from codeverse.spatial.render import render_glb
 from codeverse.spatial.sheet import contact_sheet
@@ -33,11 +30,8 @@ from codeverse.spatial.sheet import contact_sheet
 ARTICULATION_SHEET_NAME = "articulation_sheet.png"
 #: URDF (Z-up, -Y front) → glTF (Y-up, +Z front):  (x, y, z) → (x, z, -y)
 ZUP_TO_YUP = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float)
-YUP_TO_ZUP = ZUP_TO_YUP.T.copy()
 #: scene-graph base frame of the exported GLB (not a glTF node; must not collide with a link name)
 SCENE_BASE_FRAME = "__scene__"
-
-Renderer = Callable[..., RenderSet]
 
 
 def joint_extras(j: Joint) -> dict[str, Any]:
@@ -103,48 +97,11 @@ def urdf_to_glb(robot: Robot, out_glb: Path | str, pose: dict[str, float] | None
 
 
 # ------------------------------------------------------------------ rendering
-def blender_render_glb(glb: Path, out_dir: Path, *, views: Sequence[ViewPreset] | None = None, width: int = 512,
-                       height: int = 512, sheet: bool = False, timeout_s: int = 180, **_: Any) -> RenderSet:
-    """Minimal headless-Blender (Workbench) renderer with the same signature
-    subset as ``render_glb``.  Only used when a caller *explicitly* passes
-    ``renderer=blender_render_glb`` (e.g. to render without node/Chrome) — it is
-    never auto-selected."""
-    from codeverse.config import get_settings
-
-    blender = get_settings().resolve_blender()
-    if not blender:
-        raise RuntimeError("no Blender binary found for the fallback renderer")
-    views = tuple(views or OBJECT_VIEWS_QUICK)
-    out_dir = out_directory(out_dir)
-    script = Path(__file__).resolve().parent.parent / "languages" / "urdf" / "wrappers" / "render_glb_bpy.py"
-    spec = {"glb": str(glb), "out_dir": str(out_dir), "width": width, "height": height,
-            "views": [{"name": v["name"], "az": v["azimuth"], "el": v["elevation"]} for v in view_specs(views)]}
-    spec_path = out_dir / "_render_spec.json"
-    spec_path.write_text(json.dumps(spec))
-    t0 = time.time()
-    cmd = [blender, "-b", "--factory-startup", "--python", str(script), "--", str(spec_path)]
-    proc = run_subprocess(cmd, cwd=out_dir, timeout_s=timeout_s)
-    if proc.timed_out:
-        raise RuntimeError(f"blender fallback render timed out after {timeout_s}s: {proc.stderr[-2000:]}")
-    if proc.returncode != 0:
-        raise RuntimeError(f"blender fallback render failed: {proc.stderr[-2000:] or proc.stdout[-2000:]}")
-    rs = RenderSet(renderer="blender-workbench", duration_ms=int((time.time() - t0) * 1000))
-    for v in views:
-        p = out_dir / f"view_{v.name}.png"
-        if not p.is_file():
-            raise RuntimeError(f"blender fallback render produced no {p.name}; stdout tail: {proc.stdout[-800:]}")
-        rs.views.append(RenderView(name=v.name, path=str(p), width=width, height=height))
-    if sheet:
-        rs.contact_sheet = build_sheet([(v.name, v.path) for v in rs.views], out_dir / "sheet.png")
-    return rs
-
-
 def render_poses(
     robot: Robot,
     out_dir: Path | str,
     poses: list[tuple[str, dict[str, float]]] | None = None,
     *,
-    renderer: Renderer | None = None,
     views: Sequence[ViewPreset] | None = None,
     width: int = 512,
     height: int = 512,
@@ -156,79 +113,18 @@ def render_poses(
     out_dir = out_directory(out_dir)
     poses = poses if poses is not None else limit_poses(robot)
     views = tuple(views or OBJECT_VIEWS_QUICK[:3])
-    render = renderer or render_glb
     results: list[tuple[str, RenderSet]] = []
     tiles: list[tuple[str, Path]] = []
     for label, q in poses:
         safe = "".join(c if c.isalnum() or c in "-_@." else "_" for c in label)
         glb = urdf_to_glb(robot, out_dir / f"pose_{safe}.glb", q)
-        rs = render(glb, out_dir / f"pose_{safe}", views=views, width=width, height=height, sheet=False)
+        rs = render_glb(glb, out_dir / f"pose_{safe}", views=views, width=width, height=height, sheet=False)
         results.append((label, rs))
         for v in rs.views:
             if sheet_view is None or v.name == sheet_view:
                 tiles.append((f"{label} · {v.name}", Path(v.path)))
     contact_sheet(tiles, out_dir / ARTICULATION_SHEET_NAME, cols=len(views) if sheet_view is None else 4)
     return results
-
-
-def _poses_for(robot, joints: list[str] | None) -> list[tuple[str, dict[str, float]]] | None:
-    """``limit_poses`` narrowed to ``joints`` (rest kept); ``None`` = the full sheet.
-
-    An unknown joint name narrows to nothing but rest, which is a wrong-but-visible sheet
-    rather than a silent fallback to everything — the agent sees one tile and its typo.
-    """
-    if not joints:
-        return None
-    want = set(joints)
-    return [(label, q) for label, q in limit_poses(robot) if label == "rest" or label.split("@")[0] in want]
-
-
-# ------------------------------------------------------------------ tool-shaped entry point
-def joint_sweep_observation(ws, *, n_random: int = 8, seed: int = 0, render: bool = True, out_dir: Path | None = None,
-                            joint: str | None = None, expected_direction: str | None = None,
-                            joints: list[str] | None = None):
-    """Run the pose sweep on ``ws.artifacts/robot.urdf`` (+ ``meshes/``) and return an
-    ``Observation`` (``spatial.tools_scene`` wraps this as the ``joint_sweep`` tool).
-
-    ``joints`` narrows the RENDER to those joints' limit poses (plus rest).  The collision
-    sweep still covers every joint — a change to one joint can collide with another, and
-    that check is cheap.  Rendering is not: every pose is a GLB export plus three views, so
-    a 10-joint object renders ~63 images per call, and agents call this 3-8 times a round.
-    Measured 2026-08-25: articulated rounds ran a median 1007 s against 497 s for static
-    objects, with the agent session — mostly waiting on sweeps — as the whole difference.
-    The tool has accepted ``joints`` since it was written; nothing consumed it.
-    """
-    from codeverse.spatial.joints_model import load_urdf
-    from codeverse.spatial.joints_poses import pose_samples
-    from codeverse.spatial.joints_sweep import (
-        motion_direction_check,
-        report_numbers,
-        summary_text,
-        sweep_collisions,
-    )
-    from codeverse.spatial.registry import Observation
-
-    urdf = Path(ws.artifacts) / "robot.urdf"
-    if not urdf.is_file():
-        return Observation.error("joint_sweep: artifacts/robot.urdf not found — run `build` first")
-    try:
-        robot = load_urdf(urdf, Path(ws.artifacts) / "meshes")
-        report = sweep_collisions(robot, pose_samples(robot, n_random=n_random, seed=seed))
-    except UrdfError as e:
-        return Observation.error(f"joint_sweep: {e}")
-    text = summary_text(report)
-    numbers = report_numbers(report)
-    if joint and expected_direction:
-        mc = motion_direction_check(robot, joint, expected_direction)
-        text += "\n" + mc.message
-        numbers["motion_check"] = mc.model_dump(mode="json")
-    images: list[str] = []
-    if render:
-        d = Path(out_dir) if out_dir else Path(ws.artifacts) / "tool_scratch" / "joint_sweep"
-        render_poses(robot, d, poses=_poses_for(robot, joints))
-        images.append(str(d / ARTICULATION_SHEET_NAME))
-    ok = report.summary.max_penetration_m <= report.tol_m and not report.summary.floating_links
-    return Observation(ok=ok, text=text, numbers=numbers, images=images)
 
 
 if __name__ == "__main__":  # tiny manual CLI: python -m codeverse.spatial.joints_export robot.urdf out.glb

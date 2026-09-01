@@ -1,7 +1,13 @@
-"""ChatRequest ⇄ google-genai types (contents, config, tools, response parsing).
+"""The whole Gemini stack in one module (merged 2026-08-28, d512ccc):
 
-Kept separate from ``gemini.py`` (which owns clients, keys, retries) so each
-module stays small and the conversions are unit-testable offline.
+* conversion — ``ChatRequest`` ⇄ google-genai types (``to_contents``, ``build_config``,
+  ``extract_candidate``, ``parse_usage``); pure, unit-testable offline;
+* ``GeminiModel`` — the ``ChatModel``: a shared ``KeyPool`` over the configured keys,
+  ``rotate_with_retries`` with the storm gate / hedge, streaming with stall detection,
+  per-attempt ledger rows;
+* ``GeminiImageModel`` — text(+reference images) → PIL images on the same pool and
+  retry machine, priced per generated image (``pricing.per_image_usd``), with a
+  fallback model when the primary is missing.
 """
 
 from __future__ import annotations
@@ -15,7 +21,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 import httpx
 from google import genai
@@ -36,7 +42,7 @@ from codeverse.contracts.chat import (
 from codeverse.contracts.common import Usage
 from codeverse.models.base import ModelError
 from codeverse.models.parts import BoundedCache, Stopwatch, image_bytes
-from codeverse.models.pricing import estimate_cost
+from codeverse.models.pricing import estimate_cost, per_image_usd
 from codeverse.models.retry import (
     MAX_WAIT_S,
     RETRY_DEADLINE_S,
@@ -231,6 +237,20 @@ def parse_usage(resp: types.GenerateContentResponse, model: str) -> Usage:
     )
 
 
+def _guard_candidates(resp: types.GenerateContentResponse, usage: Usage | None, what: str) -> Any:
+    """The first candidate, or the two billed failures every Gemini reply can carry:
+    a blocked prompt (non-retryable) and no candidates at all (retryable)."""
+    pf = resp.prompt_feedback
+    if pf is not None and pf.block_reason:
+        raise ModelError(
+            f"{what} prompt blocked: {pf.block_reason} {pf.block_reason_message or ''}".strip(),
+            retryable=False, usage=usage,
+        )
+    if not resp.candidates:
+        raise ModelError(f"{what} returned no candidates", retryable=True, usage=usage)
+    return resp.candidates[0]
+
+
 def extract_candidate(
     resp: types.GenerateContentResponse, usage: Usage | None = None
 ) -> tuple[str, list[ToolCallPart], str]:
@@ -238,15 +258,7 @@ def extract_candidate(
     prompts (non-retryable) or empty candidates (retryable); ``usage`` (what the caller
     already parsed off ``resp``) rides on the error, because every one of these
     failures was billed."""
-    pf = resp.prompt_feedback
-    if pf is not None and pf.block_reason:
-        raise ModelError(
-            f"prompt blocked by Gemini: {pf.block_reason} {pf.block_reason_message or ''}".strip(),
-            retryable=False, usage=usage,
-        )
-    if not resp.candidates:
-        raise ModelError("Gemini returned no candidates", retryable=True, usage=usage)
-    cand = resp.candidates[0]
+    cand = _guard_candidates(resp, usage, "Gemini")
     finish = str(cand.finish_reason.value if cand.finish_reason else "") or "UNKNOWN"
     texts: list[str] = []
     calls: list[ToolCallPart] = []
@@ -284,7 +296,6 @@ def extract_candidate(
 
 
 # ===================================================================== gemini
-# (merged from codeverse/models/gemini.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 _RETRY_DELAY_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
@@ -363,6 +374,27 @@ def _default_keys() -> list[str]:
     return list(get_settings().gemini_api_keys)
 
 
+def _keys_or_raise(keys: list[str] | None, pool: KeyPool | None) -> list[str]:
+    keys = list(keys) if keys is not None else _default_keys()
+    if pool is None and not keys:
+        raise ModelError("no Gemini API keys configured (GEMINI_API_KEYS / ~/.config/astra3d/gemini_keys.env)")
+    return keys
+
+
+def _client_for(key: str, timeout_s: float, factory: Callable[[str], Any] | None) -> Any:
+    """One ``genai.Client`` per (key, timeout), process-wide; ``factory`` (tests) bypasses the cache."""
+    if factory is not None:
+        return factory(key)
+    ck = (key, int(timeout_s * 1000))
+    with _registry_lock:
+        client = _clients.get(ck)
+        if client is None:
+            client = genai.Client(api_key=key, http_options=types.HttpOptions(
+                timeout=ck[1], client_args=_ipv4_client_args() or None))
+            _clients[ck] = client
+        return client
+
+
 def classify_exception(exc: BaseException) -> ModelError:
     """Map provider / transport exceptions onto ``ModelError``."""
     if isinstance(exc, ModelError):
@@ -407,15 +439,16 @@ def is_dead_key_error(err: ModelError) -> bool:
 
 
 def failure_outcome(err: ModelError) -> Outcome:
-    """``KeyPool.report`` outcome for a failed call (content-level failures such as
-    bad JSON / empty candidates carry no status and are not the key's fault)."""
+    """``KeyPool.report`` outcome for a failed call.  Content-level failures (bad JSON,
+    empty candidates) carry no status and are not the key's fault: ``skip`` reconciles
+    the tokens they were billed and leaves health / counters alone."""
     if err.status == 429:
         return "429"
     if (err.status or 0) >= 500:
         return "5xx"
     if is_dead_key_error(err):
         return "dead"
-    return "error" if err.status else "ok"
+    return "error" if err.status else "skip"
 
 
 def _retry_after_s(exc: BaseException) -> float | None:
@@ -497,7 +530,9 @@ def _merge_stream_chunks(
 
 
 class GeminiModel:
-    """ChatModel for ``gemini:<model>``.  See module docstring."""
+    """ChatModel for ``gemini:<model>``: a shared ``KeyPool``, ``rotate_with_retries``
+    (storm gate, hedge, ``ChatRequest.max_wait_s`` deadline), streaming with stall
+    detection and per-attempt ledger rows."""
 
     provider = "gemini"
 
@@ -527,11 +562,7 @@ class GeminiModel:
         #: keys a retry is raced on after the call's first 503 (``Settings.rate.hedge``,
         #: 2; 1 = off) — see ``rotate_with_retries`` and docs/COST.md §27
         self.hedge = max(1, int(_rate().hedge if hedge is None else hedge))
-        keys = list(keys) if keys is not None else _default_keys()
-        if pool is None and not keys:
-            raise ModelError(
-                "no Gemini API keys configured (GEMINI_API_KEYS / ~/.config/astra3d/gemini_keys.env)"
-            )
+        keys = _keys_or_raise(keys, pool)
         self.pool = pool or shared_pool(keys, rpm_per_key=rpm_per_key, tpm_per_key=tpm_per_key)
         self.storm_gate = storm_gate if storm_gate is not None else (
             storm_gate_for(f"gemini:{model}") if _rate().storm_gate else None
@@ -549,22 +580,6 @@ class GeminiModel:
     @property
     def id(self) -> str:
         return f"gemini:{self.model}"
-
-    def supports_vision(self) -> bool:
-        return True
-
-    # ---------------------------------------------------------------- clients
-    def _client(self, key: str) -> Any:
-        if self._client_factory is not None:
-            return self._client_factory(key)
-        ck = (key, int(self.timeout_s * 1000))
-        with _registry_lock:
-            client = _clients.get(ck)
-            if client is None:
-                client = genai.Client(api_key=key, http_options=types.HttpOptions(
-                    timeout=ck[1], client_args=_ipv4_client_args() or None))
-                _clients[ck] = client
-            return client
 
     # --------------------------------------------------------------- generate
     def generate(self, request: ChatRequest) -> ChatResponse:
@@ -681,7 +696,7 @@ class GeminiModel:
         request: ChatRequest,
         warnings: list[str],
     ) -> ChatResponse:
-        client = self._client(key)
+        client = _client_for(key, self.timeout_s, self._client_factory)
         if not _streaming_enabled():
             with Stopwatch() as sw:
                 resp = client.models.generate_content(
@@ -743,57 +758,15 @@ class GeminiModel:
 
 
 # ===================================================================== gemini_image
-# (merged from codeverse/models/gemini_image.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
 FALLBACK_IMAGE_MODEL = "gemini-2.5-flash-image"
 
-#: approximate USD per generated 1024² image (floor for cost accounting)
-IMAGE_USD: dict[str, float] = {
-    "gemini-3.1-flash-image": 0.067,
-    "gemini-2.5-flash-image": 0.039,
-}
-
-#: requested pixel size → Gemini ``image_size`` token
+#: requested pixel size → Gemini ``image_size`` token; a 512 request GENERATES a 1K
+#: image (resized locally), so it is billed as one — ``_GENERATED_PX`` is the size
+#: ``pricing.per_image_usd`` is asked for
 _IMAGE_SIZE_TOKEN: dict[int, str] = {512: "1K", 1024: "1K", 2048: "2K", 4096: "4K"}
-
-
-@runtime_checkable
-class ImageModel(Protocol):
-    """Text-to-image backend.  Implementations must be thread-safe."""
-
-    model: str
-
-    @property
-    def id(self) -> str: ...
-
-    def generate(
-        self,
-        prompt: str,
-        *,
-        size: int = 1024,
-        n: int = 1,
-        seed: int | None = None,
-        reference_images: Sequence[Image.Image | Path | str] = (),
-    ) -> list[Image.Image]: ...
-
-    def generate_with_usage(
-        self,
-        prompt: str,
-        *,
-        size: int = 1024,
-        n: int = 1,
-        seed: int | None = None,
-        reference_images: Sequence[Image.Image | Path | str] = (),
-    ) -> tuple[list[Image.Image], Usage]: ...
-
-
-def image_cost(model: str, usage: Usage, n_images: int) -> float:
-    """Token-priced cost floored by the per-image price (approximate)."""
-    token_cost = estimate_cost("gemini", model, usage)
-    per_image = IMAGE_USD.get(model.strip().lower(), 0.0)
-    return max(token_cost, per_image * max(0, n_images))
+_GENERATED_PX: dict[str, int] = {"1K": 1024, "2K": 2048, "4K": 4096}
 
 
 def _to_part(ref: Image.Image | Path | str) -> types.Part:
@@ -801,11 +774,8 @@ def _to_part(ref: Image.Image | Path | str) -> types.Part:
         buf = io.BytesIO()
         ref.convert("RGB").save(buf, format="PNG")
         return types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
-    p = Path(ref)
-    if not p.is_file():
-        raise ModelError(f"reference image not found: {p}")
-    mime = "image/jpeg" if p.suffix.lower() in (".jpg", ".jpeg") else "image/png"
-    return types.Part.from_bytes(data=p.read_bytes(), mime_type=mime)
+    data, mime = image_bytes(ImagePart(path=str(ref)))
+    return types.Part.from_bytes(data=data, mime_type=mime)
 
 
 def _is_model_missing(err: ModelError) -> bool:
@@ -827,7 +797,9 @@ def _record(usage: Usage, n_images: int) -> None:
 
 
 class GeminiImageModel:
-    """See module docstring.  ``model`` is the primary; ``fallback`` the second try."""
+    """Text (+ reference images) → PIL images on the shared key pool and retry machine.
+    ``model`` is the primary; ``fallback`` the second try once the primary is missing
+    or fails retryably.  Not a ``ChatModel``: it meters itself (``_record``)."""
 
     provider = "gemini"
 
@@ -851,18 +823,15 @@ class GeminiImageModel:
         #: no 503 hedge by default: an image is billed per image, so a hedge that
         #: lands twice pays for two of them (the chat models default to 2)
         self.hedge = max(1, int(hedge))
-        keys = list(keys) if keys is not None else _default_keys()
-        if pool is None and not keys:
-            raise ModelError("no Gemini API keys configured (GEMINI_API_KEYS / ~/.config/astra3d/gemini_keys.env)")
+        keys = _keys_or_raise(keys, pool)
         self.pool = pool or shared_pool(keys)
+        self.storm_gate = storm_gate_for(f"gemini:{model}") if _rate().storm_gate else None
         self.timeout_s = timeout_s
         self.max_attempts = max(1, max_attempts)
         self.base_delay = base_delay
         self.max_delay = max_delay
         self._sleep = sleep
-        # reuse GeminiModel's cached clients (same key → same genai.Client)
-        self._clients = GeminiModel(model, pool=self.pool, timeout_s=timeout_s, client_factory=client_factory)
-        self.storm_gate = self._clients.storm_gate
+        self._client_factory = client_factory
         self._lock = threading.Lock()
         self._primary_dead = False
 
@@ -871,20 +840,6 @@ class GeminiImageModel:
         return f"gemini-image:{self.model}"
 
     # ------------------------------------------------------------------ API
-    def generate(
-        self,
-        prompt: str,
-        *,
-        size: int = 1024,
-        n: int = 1,
-        seed: int | None = None,
-        reference_images: Sequence[Image.Image | Path | str] = (),
-        max_wait_s: float | None = None,
-    ) -> list[Image.Image]:
-        images, _ = self.generate_with_usage(prompt, size=size, n=n, seed=seed,
-                                             reference_images=reference_images, max_wait_s=max_wait_s)
-        return images
-
     def generate_with_usage(
         self,
         prompt: str,
@@ -898,8 +853,7 @@ class GeminiImageModel:
         """``max_wait_s`` is the caller's retry budget for ONE image (each of the
         ``n`` images gets its own window, and a fallback model too), exactly like
         ``ChatRequest.max_wait_s`` clips ``GeminiModel.generate``; ``None`` = the
-        full ``retry.RETRY_DEADLINE_S`` (900 s).  Kept off the ``ImageModel``
-        protocol so fakes stay conformant; callers that hold a deadline pass it."""
+        full ``retry.RETRY_DEADLINE_S`` (1800 s)."""
         if not prompt.strip():
             raise ModelError("empty image prompt")
         if n < 1:
@@ -955,9 +909,10 @@ class GeminiImageModel:
         parts: list[types.Part] = [_to_part(r) for r in refs]
         parts.append(types.Part.from_text(text=prompt))
         contents = [types.Content(role="user", parts=parts)]
+        token = _IMAGE_SIZE_TOKEN.get(int(size), "1K")
         config = types.GenerateContentConfig(
             response_modalities=["IMAGE"],
-            image_config=types.ImageConfig(aspect_ratio="1:1", image_size=_IMAGE_SIZE_TOKEN.get(int(size), "1K")),
+            image_config=types.ImageConfig(aspect_ratio="1:1", image_size=token),
             seed=seed,
             http_options=types.HttpOptions(timeout=int(self.timeout_s * 1000)),
         )
@@ -975,7 +930,7 @@ class GeminiImageModel:
 
         return rotate_with_retries(
             self.pool,
-            lambda key: self._call(key, model, contents, _attempt_config(), size),
+            lambda key: self._call(key, model, contents, _attempt_config(), size, _GENERATED_PX[token]),
             classify=classify_exception,
             outcome_of=failure_outcome,
             max_attempts=self.max_attempts,
@@ -991,20 +946,16 @@ class GeminiImageModel:
         )
 
     def _call(
-        self, key: str, model: str, contents: list[types.Content], config: types.GenerateContentConfig, size: int
+        self, key: str, model: str, contents: list[types.Content], config: types.GenerateContentConfig,
+        size: int, generated_px: int,
     ) -> tuple[list[Image.Image], Usage]:
-        client = self._clients._client(key)
+        client = _client_for(key, self.timeout_s, self._client_factory)
         with Stopwatch() as sw:
             resp = client.models.generate_content(model=model, contents=contents, config=config)
         usage = parse_usage(resp, model)  # parsed first: the raises below were billed too
         usage.backend = "gemini-image"
         usage.latency_ms = sw.ms
-        pf = resp.prompt_feedback
-        if pf is not None and pf.block_reason:
-            raise ModelError(f"image prompt blocked: {pf.block_reason}", retryable=False, usage=usage)
-        if not resp.candidates:
-            raise ModelError("image model returned no candidates", retryable=True, usage=usage)
-        cand = resp.candidates[0]
+        cand = _guard_candidates(resp, usage, "image model")
         finish = str(cand.finish_reason.name if cand.finish_reason is not None else "")
         images: list[Image.Image] = []
         for part in (cand.content.parts if cand.content and cand.content.parts else []):
@@ -1019,7 +970,9 @@ class GeminiImageModel:
                                  retryable=False, usage=usage)
             raise ModelError(f"image model returned no image (finish_reason={finish or 'unknown'})",
                              retryable=True, usage=usage)
-        usage.cost_usd = image_cost(model, usage, len(images))
+        # token-priced cost floored by the per-image price of the size that was GENERATED
+        usage.cost_usd = max(estimate_cost("gemini", model, usage),
+                             per_image_usd("gemini", model, size=generated_px) * len(images))
         if int(size) not in (0, 1024) and images[0].size != (size, size):
             images = [im.resize((int(size), int(size)), Image.LANCZOS) for im in images]
         return images, usage

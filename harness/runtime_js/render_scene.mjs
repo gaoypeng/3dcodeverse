@@ -20,11 +20,14 @@ import { createTimeoutMs, errorSummary, openHost } from './lib/host_page.mjs';
 import { fitOrbitCameras, framingBox } from './lib/orbit.mjs';
 
 const args = parseCli({
+  'no-settle': { type: 'boolean', default: false },
+  'camera-repair': { type: 'boolean', default: false },
+  'auto-exposure': { type: 'boolean', default: false },
   ws: {}, out: {}, cameras: { default: 'authored' }, 'orbit-views': { default: 'none' }, bounds: { default: 'none' },
   times: { default: '0,1.5' }, width: { default: '1024' }, height: { default: '576' },
   gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' }, 'fps-seconds': { default: '2' },
   'timeout-ms': { default: '240000' }, 'create-timeout-ms': { default: '' }, 'log-depth': { type: 'boolean', default: false },
-  'orbit-fog': { type: 'boolean', default: false }, counterfactual: { type: 'boolean', default: false },
+  'orbit-fog': { type: 'boolean', default: false },
 });
 
 function tag(t) {
@@ -53,6 +56,9 @@ async function main() {
     host = await openHost(args.ws, {
       width, height, gpu: args.gpu, logDepth: args['log-depth'],
       createSceneTimeoutMs: createTimeoutMs(args['create-timeout-ms'], timeoutMs),
+      settle: !args['no-settle'],
+      cameraRepair: !!args['camera-repair'],
+      autoExposure: !!args['auto-exposure'],
     });
   } catch (e) {
     return fail(`host failed: ${e.message}`);
@@ -104,13 +110,10 @@ async function main() {
           const r = await page.evaluate((spec, tt) => window.__c3v.renderAt(spec, tt), c, t);
           const file = `${c.name}_${tag(t)}.png`;
           dataUrlToPng(r.dataUrl, outFile(outDir, file));
-          metrics.views.push({ name: c.name, kind: c.kind, path: file, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: r.ms });
-          if (args.counterfactual) {
-            const cf = await page.evaluate((spec, tt) => window.__c3v.renderAt(spec, tt, { stripCustom: true }), c, t);
-            const cfFile = `${c.name}_${tag(t)}_nocustom.png`;
-            dataUrlToPng(cf.dataUrl, outFile(outDir, cfFile));
-            metrics.views.push({ name: `${c.name}_nocustom`, kind: 'counterfactual', path: cfFile, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: cf.ms, counterfactual_of: file });
-          }
+          const view = { name: c.name, kind: c.kind, path: file, time_s: t, position: c.position, lookAt: c.lookAt, fov: c.fov, render_ms: r.ms };
+          // position stays the AUTHORED camera; when repair moved the lens, record where the pixels really came from
+          if (r.position && c.position && r.position.some((v, i) => Math.abs(v - c.position[i]) > 1e-6)) view.repaired_position = r.position;
+          metrics.views.push(view);
         } catch (e) { sceneErr(`render failed for '${c.name}' at t=${t}`, e); }
       }
     }
@@ -119,6 +122,12 @@ async function main() {
       try { metrics.fps = await page.evaluate((s) => window.__c3v.fps(s), fpsSec); }
       catch (e) { sceneErr('fps measurement failed', e); }
     }
+    // repair fires lazily on each camera's first build, i.e. AFTER the census above
+    // was captured: re-read it here so census.camera_repair is observable (review-3 S5)
+    try {
+      const reps = await page.evaluate(() => window.__c3v.cameraRepairs());
+      if (reps.length && metrics.census) metrics.census.camera_repair = reps;
+    } catch (e) { sceneErr('camera repair readback failed', e); }
     metrics.shader_errors = (await page.evaluate(() => window.__c3v.shaderErrors())).map(({ _key, ...e }) => e);
     metrics.update_errors = await page.evaluate(() => window.__c3v.updateErrors());
     Object.assign(metrics, errorSummary(host.errors, boot));

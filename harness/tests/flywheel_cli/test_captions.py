@@ -29,9 +29,6 @@ class FakeModel:
     def id(self):
         return "fake:fake"
 
-    def supports_vision(self):
-        return True
-
     def generate(self, request: ChatRequest) -> ChatResponse:
         self.requests.append(request)
         data = self.replies.pop(0)

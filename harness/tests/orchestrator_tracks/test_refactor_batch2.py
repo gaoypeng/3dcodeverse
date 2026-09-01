@@ -1,4 +1,4 @@
-"""Quality-wave batch 2: refine scaffold, planner hooks, RunOptions wiring, judge-view flags."""
+"""Refine grouping, RunOptions wiring, and judge-view flags."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from codeverse.contracts.spec import RunOptions
 from codeverse.orchestrator import RefineTask, RunState, plan_refine_groups
 from codeverse.proc import EventLog
 from codeverse.tracks.planner import plan_example
-from codeverse.tracks.scene import ScenePipeline, SceneTrack
+from codeverse.tracks.scene import ScenePipeline
 from codeverse.tracks.static_object import StaticObjectTrack
 from codeverse.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
@@ -20,11 +20,8 @@ from tests.orchestrator_tracks.fakes import (
     FakeJudge,
     FakeRuntime,
     FakeServices,
+    _planner,
 )
-
-
-def _planner(plan_dict):
-    return FakeChatModel(lambda req: plan_dict)
 
 
 def _writer(job, ws):
@@ -51,30 +48,36 @@ def test_plan_refine_groups_fans_out_only_when_allowed_and_disjoint():
 
 
 # --------------------------------------------------------------------- RunOptions wiring (F29)
-def test_spec_options_candidates_flow_into_the_policy(tmp_path, chair_plan, settings):
+def test_candidate_width_precedence(tmp_path, settings):
     spec = make_spec(options=RunOptions(candidates=2))
-    ws = Workspace(tmp_path / "runs" / "r").create()
     track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.THREEJS))
+    ws = Workspace(tmp_path / "spec").create()
     ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState())
-    assert ctx.policy.n_candidates == 2 and ctx.state.extra["n_candidates"] == 2
+    assert ctx.policy.n_candidates == 2
 
-
-def test_constructor_candidates_beat_spec_options(tmp_path, settings):
-    spec = make_spec(options=RunOptions(candidates=2))
-    ws = Workspace(tmp_path / "runs" / "r").create()
-    track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.THREEJS), n_candidates=3)
+    ws = Workspace(tmp_path / "constructor").create()
+    track = StaticObjectTrack(services=FakeServices(), settings=settings,
+                              runtime=FakeRuntime(Language.THREEJS), n_candidates=3)
     ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState())
     assert ctx.policy.n_candidates == 3
 
 
-def test_legacy_run_state_width_survives_resume(tmp_path, settings):
-    spec = make_spec()  # no options.candidates
-    ws = Workspace(tmp_path / "runs" / "r").create()
-    state = RunState()
-    state.extra["n_candidates"] = 4  # persisted by an older run
-    track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.THREEJS))
-    ctx = track.build_context(spec, ws, EventLog(ws.events_path), state)
-    assert ctx.policy.n_candidates == 4
+
+def test_injected_policy_keeps_the_track_detail_round(tmp_path, settings):
+    """economy/quality inject RoundPolicy(judge_samples=n) and used to lose the static
+    track's detail round (a policy object stood in for 'detail_rounds was chosen')."""
+    from codeverse.orchestrator import RoundPolicy
+    from codeverse.tracks.lifecycle import DEFAULT_DETAIL_ROUNDS
+
+    ws = Workspace(tmp_path / "eco").create()
+    track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.THREEJS),
+                              policy=RoundPolicy(judge_samples=2))
+    ctx = track.build_context(make_spec(), ws, EventLog(ws.events_path), RunState())
+    assert ctx.policy.judge_samples == 2 and ctx.policy.detail_rounds == DEFAULT_DETAIL_ROUNDS == 1
+    # a chosen 0 still means off
+    track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.THREEJS),
+                              policy=RoundPolicy(judge_samples=2, detail_rounds=0))
+    assert track.build_context(make_spec(), ws, EventLog(ws.events_path), RunState()).policy.detail_rounds == 0
 
 
 def test_options_texture_triggers_texture_pass(tmp_path, chair_plan, settings, monkeypatch):
@@ -108,8 +111,10 @@ def _rs(flags: list[bool | None]) -> RenderSet:
     return RenderSet(views=views, renderer="fake")
 
 
-def test_scene_judge_views_prefers_stamped_flags():
+def test_judge_view_flags_and_path_reconstruction(tmp_path):
     from types import SimpleNamespace
+
+    from codeverse.judges.base import judged_subset, resolve_paths
 
     pipe = ScenePipeline()
     ctx = SimpleNamespace(services=FakeServices())
@@ -120,10 +125,6 @@ def test_scene_judge_views_prefers_stamped_flags():
     legacy = _rs([None, None])
     out2 = pipe.judge_views(ctx, legacy)
     assert len(out2.views) == 2
-
-
-def test_cli_judge_reconstructs_the_judged_subset(tmp_path):
-    from codeverse.judges.base import judged_subset, resolve_paths
 
     rs = _rs([True, False, None])
     sub = judged_subset(rs)
@@ -151,21 +152,18 @@ def test_judge_context_needs_no_run_context(tmp_path):
 def test_graphics_planner_hooks_charge_budget_on_planning_error(tmp_ws):
     import pytest
 
+    from codeverse.contracts.plan import GraphicsPlan
     from codeverse.contracts.spec import Budget
     from codeverse.orchestrator import BudgetGuard
-    from codeverse.tracks.graphics import plan_graphics
+    from codeverse.tracks.graphics import GraphicsTrack
     from codeverse.tracks.planner import PlanningError
+    from codeverse.tracks.planner import plan as run_planner
 
     spec = make_spec(Track.GRAPHICS, Language.GLSL_SHADER)
-    budget = BudgetGuard(Budget(max_usd=5.0, max_minutes=10))
+    budget = BudgetGuard(Budget(max_minutes=10))
     always_bad = FakeChatModel(lambda req: {"title": "x"})
     with pytest.raises(PlanningError):
-        plan_graphics(spec, "fake:planner", tmp_ws, model=always_bad, budget=budget)
+        run_planner(spec, "fake:planner", GraphicsPlan, tmp_ws, model=always_bad, budget=budget,
+                    **GraphicsTrack()._plan_kwargs(spec))
     assert budget.spent.cost_usd > 0, "a failed re-ask is still paid for"
 
-
-def test_scene_track_uses_track_info_rubric():
-    from codeverse.contracts.common import TRACK_INFO
-
-    assert SceneTrack.rubric == TRACK_INFO[Track.SCENE].rubric == "scene_v1"
-    assert StaticObjectTrack.rubric == "static_object_v1"

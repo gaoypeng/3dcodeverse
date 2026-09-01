@@ -4,8 +4,7 @@
 workspaces, same browser through the scene host) and the graphics build
 (``languages/_gl_common`` via ``gl_render``) all repeat the same four chores:
 resolve the output directory, turn ``ViewPreset``s into the driver's camera
-JSON, read a driver's JSON side-car back, and build the labelled contact sheet
-with the settings' grid.  They live here once so the flavours differ only in
+JSON, and build the labelled contact sheet with the settings' grid.  They live here once so the flavours differ only in
 what they actually drive.
 
 Nothing in here talks to node — see ``spatial.node.run_node`` (objects) and
@@ -20,7 +19,6 @@ from typing import Any
 
 from codeverse.config import get_settings
 from codeverse.conventions import ViewPreset
-from codeverse.proc import read_json_or_none
 from codeverse.spatial.sheet import contact_sheet
 
 
@@ -38,11 +36,6 @@ def view_specs(views: Sequence[ViewPreset]) -> list[dict[str, Any]]:
     """``ViewPreset``s → the ``[{name, azimuth, elevation}]`` payload every
     renderer driver takes (render_glb ``--views``, render_scene ``--orbit-views``)."""
     return [{"name": v.name, "azimuth": float(v.azimuth_deg), "elevation": float(v.elevation_deg)} for v in views]
-
-
-def read_json(path: Path | str) -> dict[str, Any]:
-    """Parse a driver side-car (views.json / metrics.json); ``{}`` when absent."""
-    return read_json_or_none(path) or {}
 
 
 def build_sheet(images: Sequence[tuple[str, str | Path]], out: Path | str) -> str | None:

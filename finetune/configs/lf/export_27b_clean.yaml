@@ -1,0 +1,12 @@
+### Merge a LoRA adapter into the base model (LLaMA-Factory): llamafactory-cli export <this file>
+model_name_or_path: /wekafs/ict/hx_624/models/Qwen3.8-27B
+adapter_name_or_path: /wekafs/ict/hx_624/llm-ft/runs/lf_qwen38_27b_clean
+template: qwen3_5
+enable_thinking: false
+trust_remote_code: true
+finetuning_type: lora
+
+export_dir: /wekafs/ict/hx_624/llm-ft/runs/lf_qwen38_27b_clean/merged
+export_size: 5
+export_device: cpu
+export_legacy_format: false

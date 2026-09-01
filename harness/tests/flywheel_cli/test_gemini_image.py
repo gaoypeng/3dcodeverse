@@ -95,9 +95,7 @@ def test_all_keys_dead_raises_the_key_error():
     assert ei.value.status == 403 and len(set(used)) == 2
 
 
-def test_a_small_image_budget_shortens_the_per_attempt_http_timeout():
-    """max_wait_s=60 must clip the attempt's HTTP read timeout below the 180 s
-    constant (floored at HTTP_TIMEOUT_FLOOR_S) — mirrors GeminiModel._attempt_config."""
+def _captured_timeout(max_wait_s: float | None = None) -> int:
     configs: list = []
 
     class _Capture(_Client):
@@ -110,24 +108,31 @@ def test_a_small_image_budget_shortens_the_per_attempt_http_timeout():
     pool = KeyPool(["key_a", "key_b"])
     m = GeminiImageModel("test-image", fallback=None, pool=pool, max_attempts=1,
                          sleep=lambda s: None, client_factory=lambda key: _Capture(key, script, used))
-    m.generate("a red cube", size=512, max_wait_s=60.0)
+    kw = {} if max_wait_s is None else {"max_wait_s": max_wait_s}
+    m.generate_with_usage("a red cube", size=512, **kw)
     assert len(configs) == 1
-    t_ms = configs[0].http_options.timeout
-    assert 20_000 <= t_ms <= 60_000, t_ms   # clipped to the budget, floored at 20 s
+    return configs[0].http_options.timeout
 
 
-def test_no_image_budget_keeps_the_configured_read_timeout():
-    configs: list = []
+def test_image_budget_bounds_the_per_attempt_http_timeout():
+    """A small budget clips the read timeout; no budget keeps the configured limit."""
+    clipped = _captured_timeout(60.0)
+    assert 20_000 <= clipped <= 60_000  # clipped to the budget, floored at 20 s
+    assert _captured_timeout() == 180_000
 
-    class _Capture(_Client):
-        def _generate(self, *, model, contents, config):
-            configs.append(config)
-            return super()._generate(model=model, contents=contents, config=config)
 
-    used: list[str] = []
-    script = [_image_response()]
-    pool = KeyPool(["key_a", "key_b"])
-    m = GeminiImageModel("test-image", fallback=None, pool=pool, max_attempts=1,
-                         sleep=lambda s: None, client_factory=lambda key: _Capture(key, script, used))
-    m.generate("a red cube", size=512)
-    assert configs[0].http_options.timeout == 180_000   # min(180 s, 900 s remaining) = the constant
+def test_images_are_priced_by_the_generated_size():
+    """A 2K request is billed at the 2K per-image price (it was billed at the 1K rate,
+    0.067 instead of 0.134); a 512 request generates a 1K image and is billed as one."""
+    from codeverse.models.pricing import per_image_usd
+
+    def cost(size: int) -> float:
+        used: list[str] = []
+        m, _pool = _model([_image_response()], used, [], max_attempts=1)
+        m.model = "gemini-3.1-flash-image"
+        m.fallback = None
+        _images, usage = m.generate_with_usage("brushed steel", size=size)
+        return usage.cost_usd
+
+    assert cost(2048) == pytest.approx(per_image_usd("gemini", "gemini-3.1-flash-image", size=2048)) == pytest.approx(0.134)
+    assert cost(512) == pytest.approx(0.067) and cost(1024) == pytest.approx(0.067)

@@ -34,6 +34,7 @@ from codeverse.agents.cli_common import (
     estimate_cost_safe,
     exists_on_path,
     failed,
+    find_json_object,
     finish_session,
     hardened_env,
     invoke,
@@ -106,22 +107,8 @@ def write_system_settings(path: Path | None = None, *, mcp_command: list[str] | 
 
 
 def parse_gemini_json(stdout: str) -> dict[str, Any] | None:
-    """The CLI prints one JSON object (possibly after log noise); find it."""
-    s = stdout.strip()
-    if not s:
-        return None
-    try:
-        return json.loads(s)
-    except json.JSONDecodeError:
-        pass
-    start = s.find("{")
-    while start != -1:
-        try:
-            obj = json.loads(s[start:])
-            return obj if isinstance(obj, dict) else None
-        except json.JSONDecodeError:
-            start = s.find("{", start + 1)
-    return None
+    """The CLI prints one (indented, multi-line) JSON object, possibly after log noise."""
+    return find_json_object(stdout, lambda d: True)
 
 
 def _model_usage(tok: dict[str, Any], name: str) -> Usage:
@@ -166,12 +153,20 @@ def _retry_key(pool: KeyPool, used: set[str]) -> str | None:
     return None
 
 
-class GeminiCliAgent:
-    kind = "gemini-cli"
+class _CliAgent:
+    """What all four vendor backends share.
 
-    def __init__(self, model: str, binary: str | None = None):
-        self.model = model
-        self.binary = binary or get_settings().binaries.gemini_cli
+    Everything that MATTERS about a CLI backend differs — argv vocabulary, JSON wire
+    format, usage/pricing shape, key handling — and stays in the subclass.  What they
+    share is their id and "is the binary there?", which was four and three verbatim
+    copies until 2026-08-28.  Subclasses set ``kind`` / ``cli_label`` and assign
+    ``model`` / ``binary`` in __init__.
+    """
+
+    kind: str
+    cli_label: str
+    model: str
+    binary: str
 
     @property
     def id(self) -> str:
@@ -179,9 +174,24 @@ class GeminiCliAgent:
 
     def available(self) -> tuple[bool, str]:
         if not exists_on_path(self.binary):
-            return False, f"gemini CLI not found: {self.binary!r}"
+            return False, f"{self.cli_label} CLI not found: {self.binary!r}"
+        return True, "ok"
+
+
+class GeminiCliAgent(_CliAgent):
+    kind = "gemini-cli"
+    cli_label = "gemini"
+
+    def __init__(self, model: str, binary: str | None = None):
+        self.model = model
+        self.binary = binary or get_settings().binaries.gemini_cli
+
+    def available(self) -> tuple[bool, str]:
+        ok, why = super().available()
+        if not ok:
+            return ok, why
         if not get_settings().gemini_api_keys:
-            return False, "no Gemini API keys configured"
+            return False, "no Gemini API keys configured"   # the only backend with a key pool
         return True, "ok"
 
     # ------------------------------------------------------------------ build
@@ -224,7 +234,8 @@ class GeminiCliAgent:
             while True:
                 attempts += 1
                 used.add(key)
-                proc = self._invoke(s, prompt, key, attempt=attempts, soft_timeout_s=next_soft)
+                proc = invoke(s, self.build_argv(prompt), self.build_env(s, key), prompt=prompt, attempt=attempts,
+                              soft_timeout_s=next_soft, model=self.model, key_tail=key[-4:])
                 outcome = self._interpret(s, proc)
                 usage_total = usage_total + outcome["usage"]
                 pool.report(key, "429" if outcome["quota"] else ("ok" if outcome["ok"] else "5xx"))
@@ -249,6 +260,7 @@ class GeminiCliAgent:
                 s.notes.append(f"attempt {attempts} transient failure ({outcome['exit_reason']}); retrying with {how}")
                 s.traj.append("retry", attempt=attempts, reason=outcome["errors"][:1])
             usage_total.cost_usd = round(usage_total.cost_usd, 6)
+            # turns stays 0: gemini-cli's stats carry tools.totalCalls only, no turn count
             return finish_session(
                 s, ok=outcome["ok"], exit_reason=outcome["exit_reason"], text=outcome["text"],
                 usage=usage_total, tool_calls=usage_total.tool_calls, errors=outcome["errors"],
@@ -256,11 +268,6 @@ class GeminiCliAgent:
             )
         finally:
             release_session(s)
-
-    def _invoke(self, s: Session, prompt: str, key: str, *, attempt: int,
-                soft_timeout_s: float | None = None) -> CompletedProc:
-        return invoke(s, self.build_argv(prompt), self.build_env(s, key), prompt=prompt, attempt=attempt,
-                      soft_timeout_s=soft_timeout_s, model=self.model, key_tail=key[-4:])
 
     def _interpret(self, s: Session, proc: CompletedProc) -> dict[str, Any]:
         parsed = parse_gemini_json(proc.stdout)
@@ -300,7 +307,6 @@ def _compose_prompt(job: AgentJob) -> str:
 
 
 # ===================================================================== claude_code
-# (merged from codeverse/agents/claude_code.py, 2026-08-28)
 #: ``--allowedTools``.  "Skill" is claude-code 2.1's model-invoked skill tool: without it
 #: the bundles the harness materialises into ``ws/.claude/skills/`` are listed at session
 #: start and then DENIED on activation, which reads in the transcript as the model
@@ -310,29 +316,12 @@ ALLOWED_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "Skill",
 
 
 def parse_claude_json(stdout: str) -> dict[str, Any] | None:
-    """Envelope is one JSON object; tolerate leading log noise and stream-json arrays."""
-    s = stdout.strip()
-    if not s:
-        return None
-    try:
-        obj = json.loads(s)
-    except json.JSONDecodeError:
-        obj = None
-        for line in reversed(s.splitlines()):
-            line = line.strip()
-            if line.startswith("{"):
-                try:
-                    cand = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(cand, dict) and cand.get("type") == "result":
-                    return cand
-                obj = obj or cand
-        return obj if isinstance(obj, dict) else None
-    if isinstance(obj, list):  # stream-json array: last result event wins
-        results = [e for e in obj if isinstance(e, dict) and e.get("type") == "result"]
-        return results[-1] if results else None
-    return obj if isinstance(obj, dict) else None
+    """The ``type == "result"`` envelope, else the last JSON line (a stream-json array
+    without a result event is no envelope)."""
+    env = find_json_object(stdout, lambda d: d.get("type") == "result")
+    if env is not None or stdout.lstrip().startswith("["):
+        return env
+    return find_json_object(stdout, lambda d: True)
 
 
 def usage_from_envelope(env: dict[str, Any], model: str) -> Usage:
@@ -377,21 +366,13 @@ def primary_served_model(env: dict[str, Any], model: str) -> str:
     return max(served, key=lambda n: float((served[n] or {}).get("costUSD") or 0.0))
 
 
-class ClaudeCodeAgent:
+class ClaudeCodeAgent(_CliAgent):
     kind = "claude-code"
+    cli_label = "claude"
 
     def __init__(self, model: str, binary: str | None = None):
         self.model = model
         self.binary = binary or get_settings().binaries.claude_cli
-
-    @property
-    def id(self) -> str:
-        return f"{self.kind}:{self.model}"
-
-    def available(self) -> tuple[bool, str]:
-        if not exists_on_path(self.binary):
-            return False, f"claude CLI not found: {self.binary!r}"
-        return True, "ok"
 
     def build_argv(self, s: Session, prompt: str) -> list[str]:
         job = s.job
@@ -450,7 +431,7 @@ class ClaudeCodeAgent:
             else:
                 reason, ok = "completed", True
             return finish_session(
-                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=max(turns - 1, 0),
+                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=max(turns - 1, 0), turns=turns,
                 errors=errors, rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns,
                 session_id=(env or {}).get("session_id", ""), subtype=(env or {}).get("subtype", ""),
                 model_usage=(env or {}).get("modelUsage", {}),
@@ -460,7 +441,6 @@ class ClaudeCodeAgent:
 
 
 # ===================================================================== codex
-# (merged from codeverse/agents/codex.py, 2026-08-28)
 STDIN_PROMPT_BYTES = 100_000
 _TOOL_ITEMS = ("command_execution", "file_change", "mcp_tool_call", "web_search", "tool_call")
 
@@ -555,21 +535,13 @@ def parse_codex_jsonl(stdout: str) -> CodexEvents:
     return ev
 
 
-class CodexAgent:
+class CodexAgent(_CliAgent):
     kind = "codex"
+    cli_label = "codex"
 
     def __init__(self, model: str, binary: str | None = None, reasoning_effort: str | None = None):
         self.model, self.reasoning_effort = split_model_effort(model, reasoning_effort)
         self.binary = binary or get_settings().binaries.codex_cli
-
-    @property
-    def id(self) -> str:
-        return f"{self.kind}:{self.model}"
-
-    def available(self) -> tuple[bool, str]:
-        if not exists_on_path(self.binary):
-            return False, f"codex CLI not found: {self.binary!r}"
-        return True, "ok"
 
     def build_argv(self, s: Session, prompt: str | None) -> list[str]:
         """``prompt=None`` means 'read it from stdin' (``-`` positional)."""
@@ -614,7 +586,8 @@ class CodexAgent:
             else:
                 ok, reason = True, "completed"
             return finish_session(
-                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=events.tool_calls, errors=errors,
+                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=events.tool_calls,
+                turns=events.turns_completed, errors=errors,
                 rc=proc.rc, killed_reason=proc.killed_reason, thread_id=events.thread_id,
                 turns_completed=events.turns_completed, usage_raw=events.usage_raw,
             )
@@ -623,8 +596,6 @@ class CodexAgent:
 
 
 # ===================================================================== antigravity
-# (merged from codeverse/agents/antigravity.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 #: reasoning efforts agy exposes for the models that have them
 EFFORTS = ("low", "medium", "high")
@@ -679,17 +650,8 @@ def resolve_model(model: str, binary: str) -> str:
 
 
 def parse_agy_json(stdout: str) -> dict[str, Any] | None:
-    s = stdout.strip()
-    if not s:
-        return None
-    for cand in (s, *reversed([ln for ln in s.splitlines() if ln.strip().startswith("{")])):
-        try:
-            obj = json.loads(cand)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(obj, dict) and ("response" in obj or "status" in obj):
-            return obj
-    return None
+    """agy's envelope is the JSON line carrying ``response`` or ``status``."""
+    return find_json_object(stdout, lambda d: "response" in d or "status" in d)
 
 
 def usage_from_agy(env: dict[str, Any], model: str) -> Usage:
@@ -705,25 +667,17 @@ def usage_from_agy(env: dict[str, Any], model: str) -> Usage:
     )
 
 
-class AntigravityAgent:
+class AntigravityAgent(_CliAgent):
     kind = "agy"
+    cli_label = "agy"
 
     def __init__(self, model: str, binary: str | None = None):
         self.model = model
         self.binary = binary or get_settings().binaries.agy_cli
 
-    @property
-    def id(self) -> str:
-        return f"{self.kind}:{self.model}"
-
     def served_model(self) -> str:
         """The id actually sent to agy (a bare one gains its effort suffix)."""
         return resolve_model(self.model, self.binary)
-
-    def available(self) -> tuple[bool, str]:
-        if not exists_on_path(self.binary):
-            return False, f"agy CLI not found: {self.binary!r}"
-        return True, "ok"
 
     def build_argv(self, s: Session, prompt: str) -> list[str]:
         minutes = max(1, int(s.job.timeout_s // 60) + 1)
@@ -767,7 +721,8 @@ class AntigravityAgent:
             else:
                 ok, reason = True, "completed"
             return finish_session(
-                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=0, errors=errors,
+                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=0,
+                turns=int((env or {}).get("num_turns") or 0), errors=errors,
                 rc=proc.rc, killed_reason=proc.killed_reason,
                 conversation_id=(env or {}).get("conversation_id", ""), num_turns=(env or {}).get("num_turns", 0),
             )

@@ -10,7 +10,7 @@ are relative to `/home/yipeng/3dcodeverse/harness` unless absolute.  The CLI is
 ```bash
 pip install -e /home/yipeng/3dcodeverse/harness      # once; entry points 3dcodeverse and 3dcv
 cd /home/yipeng/3dcodeverse/harness/runtime_js && npm install   # three@0.182, puppeteer (chrome cached)
-3dcv doctor            # python deps (incl. python-fcl, moderngl), blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, ffmpeg, mcp
+3dcv doctor            # python deps (incl. python-fcl, moderngl), blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, mcp
 3dcv doctor --live     # + one tiny Gemini call ("pong", ~$0.00001)
 python -m pytest tests -q                              # offline suite; live tests are opt-in (blender/node/GL run when the binaries exist)
 python -m pytest tests -q -m "not live and not blender and not node"   # pure-python subset
@@ -49,7 +49,7 @@ python -m pytest tests -q -m live                      # OPT-IN: real API calls
 # articulated object — bpy links + URDF
 3dcv make "a bedside cabinet with one hinged door and one drawer" --track articulated_object --language urdf_blender
 # scene — multi-file three.js + GLSL (+ optional bpy GLB assets chosen by the planner)
-3dcv make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs --rounds 2 --max-usd 3 --max-minutes 60
+3dcv make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs --rounds 2 --max-minutes 60
 # graphics — animated shader / raw OpenGL program
 3dcv make "neon cyberpunk rain on a window with bokeh city lights" --track graphics --language glsl_shader
 3dcv make "instanced pastel cubes with bloom" --track graphics --language opengl_python
@@ -60,7 +60,7 @@ silhouette gate + IoU refine tasks), `--rounds N` (refine rounds after the basel
 `--candidates N` (best-of-N baseline: N parallel candidates in `<ws>/_cand/`,
 quick-judged, pairwise tie-break, winner kept; multiplies baseline cost ≈ N;
 default from `settings.default_candidates`), `--texture` (run the texture pass after
-finalise; see §6), `--max-usd`, `--max-minutes`, `--dim height=0.45`, `--must`,
+finalise; see §6), `--max-minutes`, `--dim height=0.45`, `--must`,
 `--must-not`, `--style`, `--tag`, `--seed`, `--slug`, `--runs-dir`, `--force`,
 `--no-run` (workspace + spec.json only — except that `--reference` still runs its
 paid grounding pass first, since the grounded spec is what it writes).
@@ -68,21 +68,20 @@ paid grounding pass first, since the grounded spec is what it writes).
 Expected cost/time with gemini-3.7-flash: object tracks ≈ $0.7–0.9 and 12–36 min for
 baseline + 1 refine; best-of-2 single-shot ≈ $0.25 / 8 min; graphics single-shot
 ≈ $0.05 / 2 min per judged round; scenes ≈ $2.3 and 30 min before the first judged
-round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60 --max-usd 4`).
+round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 
 ## 3. Backends
 
 | id | what runs | notes |
 |---|---|---|
-| `gemini-cli:gemini-3.6-flash` (default) | in-process tool loop with file tools + every spatial tool | cheapest agentic path; the only backend whose transcripts feed repair-pair mining |
+| `gemini-cli:gemini-3.7-flash` (default) | `gemini -p … --approval-mode yolo --skip-trust --output-format json`; every spatial tool over MCP | cheapest agentic path; transcripts feed repair-pair mining; see gotchas below |
 | `single-shot:gemini:gemini-3.7-flash` | one structured-output call → multi-file envelope, no tools | fastest/cheapest; baseline for "raw model" deltas |
-| `gemini-cli:gemini-3.7-flash` | `gemini -p … --approval-mode yolo --skip-trust --output-format json` | see gotchas below |
 | `claude-code:<model>` | `claude -p … --dangerously-skip-permissions --mcp-config trajectories/<label>_rNN/mcp.json --strict-mcp-config …` | local subscription — test lightly |
 | `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high … -c mcp_servers.3dcv.…` | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id, `""` to defer to `~/.codex/config.toml`) |
 | `agy:<model>` | `agy --print … --add-dir ws` | no per-workspace MCP: tools via `3dcv tools <name> --json … --workspace .`; no served-model or cost reporting |
 | `gemini:* / anthropic:* / openai:*` | ChatModel for planner / judge / captioner / single-shot | Anthropic/OpenAI untested live here |
 
-### gemini-cli gotchas (handled by `agents/gemini_cli.py`; do not undo)
+### gemini-cli gotchas (handled by `agents/backends.py`; do not undo)
 * System settings file via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`: api-key auth,
   `experimental.dynamicModelConfiguration=true` (else unknown models are silently
   substituted → checked, `exit_reason=model_substituted`), `security.folderTrust.enabled=false`
@@ -146,7 +145,7 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 ```bash
 3dcv resume <slug> [--candidates N]     # continues from run_state + stages/*.json (input-hash cached).  The budget
                                         # SNAPSHOT is restored: money/calls/active-minutes already spent still count,
-                                        # so a raised --max-usd grants only the difference (downtime is never billed)
+                                        # so a raised --max-minutes grants only the difference (downtime never counts)
 3dcv render <slug> [--round N] [--mode shaded|wire|normals|clay|silhouette] [--out dir]
 3dcv judge <slug> [--round N] [--rubric static_object_v1] [--model gemini:gemini-3.1-pro-preview] [--n 3]
                                         # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json
@@ -184,7 +183,7 @@ call the `texture_pass` / `texture_preview` tools mid-session.
     --judge gemini:gemini-3.1-pro-preview --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out bench/out/x]
 3dcv bench report bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
-    --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
+    --arms harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
 ```
 Results stream to `results.jsonl` (resumable).  Batteries: `static_objects_v1` (24),
 `articulated_v1` (12), `scenes_v1` (12), `compare_v1` (8, harness-vs-one-shot).
@@ -214,6 +213,12 @@ round (clock_q4, lighthouse_1: `budget`, 0 rounds, "60.3 / 76.7 min elapsed").  
 tree is archived as `runs/<id>.attempt<N>` and the prompt runs from scratch with the new
 options, the way `ab_plan` has done since the skills wave.
 
+It is also the ONLY way: `bench run --no-resume` was deleted 2026-08-30.  It dropped the
+recorded rows and then resumed the workspace anyway — `resume = ws.exists()` never read the
+flag — so a "fresh" rerun carried the old spec, rounds, spend and clock and appended a second
+results row for the same tree.  `compare_backends --no-resume` kept its flag (it is documented
+and has three readers) and now archives the harness cell's `run/` before re-running it.
+
 ### 7.w One driver per out dir — a second `bench run` re-runs what the first is still running
 
 Measured 2026-08-26 (refs_v1_graphics): a redo driver (`--redo-status budget`) started while the
@@ -241,25 +246,27 @@ model, produced the zero — check `cell.json`'s `error`).
 
 * **New language**: enum in `contracts/common.py::Language` (+ `TRACK_LANGUAGES`,
   `ENTRY_FILE`, `LANGUAGE_LABEL`), frame in `conventions.LANGUAGE_FRAME`;
-  `languages/<lang>/{runtime.py, lint.py, skeleton.py, CONTRACT.md, wrappers/}`
-  implementing `LanguageRuntime`; branch in `languages/base.py::get_runtime`;
+  `languages/<lang>/{__init__.py, wrappers/}` (one merged module per language;
+  the contract text is `prompts/<lang>/contract.md`) implementing `LanguageRuntime`; branch in `languages/base.py::get_runtime`;
   `prompts/<lang>/contract.md` + `cookbook.md` (every snippet must run —
   `tests/prompts` executes them); part→file mapping via `runtime.file_for_part`
-  (blender and threejs have it; `tracks/prompting.file_for_target_factory` picks
-  it up).
+  (blender has it; `tracks/prompting.file_for_target_factory` picks it up and maps
+  every whole-object target to `[entry]` — no runtime `file_for_target` hook).
 * **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…),
-  languages=(…), cost_hint=…)` in `spatial/tools*.py` (imported from
-  `spatial/tools.py`); available to tracks, MCP, api-agent and prompt cards at once.
+  languages=(…), cost_hint=…)` in `spatial/tools.py`; available to tracks, MCP and prompt cards at once.
   Update `tests/spatial_tools` EXPECTED_TOOLS.
 * **New rubric**: `judges/rubrics/<name>.yaml` with `pass_threshold`,
   `criteria[{id, weight, floor, title, description, anchors, kind}]`,
   `caps[{id, cap, when: gate|acceptance|console|missing_views, gate, severity, kinds}]`,
   `defects[{id, text, penalty, cap}]`.  Tracks pick rubrics in `tracks/*.py`;
-  `3dcv judge` maps track → rubric in `cli/main.py`.
+  `3dcv judge` maps track → rubric in `cli/_judge.py::rubric_for`.
 * **New backend**: ChatModel → `models/<provider>.py` + registry + prices;
-  CodingAgent → `agents/<kind>.py` using `cli_common` + registry + `materialize.py`.
+  CodingAgent → `agents/backends.py` using `cli_common` + registry + `materialize.py`.
 * **New track**: subclass `tracks/lifecycle.py::BaseTrack` (hooks: `make_pipeline`,
-  `prepare`, `baseline_tasks`, `refine_tasks`, `round_files_hint`), a `RoundPipeline`,
+  `prepare`, `baseline_tasks`, `refine_tasks`, `round_files_hint`; `system_prompt`
+  defaults to `language_system_prompt(ctx.language, tools=not ctx.single_shot)` and
+  `refine_file_for_target` to `file_for_target_factory(ctx)` — override only for
+  role-specific prompts), a `RoundPipeline`,
   plan model in `contracts/plan.py`, `.j2` prompts, branch in `tracks/__init__.py`
   (`get_track` forwards `**options` to constructors).  `tracks/graphics.py` is the
   template for a track with its own planner and no GLB.

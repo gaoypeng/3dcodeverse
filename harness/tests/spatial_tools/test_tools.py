@@ -23,7 +23,7 @@ from codeverse.workspace import Workspace
 
 #: tools every workspace gets (no track/language restriction)
 CORE_TOOLS = {"build", "measure", "render_views", "render_sheet", "isolate", "cross_section", "check_connectivity",
-              "check_contract", "compare_silhouette", "compare_reference", "read_cookbook"}
+              "check_contract", "compare_silhouette", "compare_reference"}
 #: track- / language-scoped tools (documented; keep in sync when registering a new one)
 SCOPED_TOOLS = {
     "joint_sweep",  # articulated_object
@@ -41,10 +41,22 @@ def test_registry_has_every_tool() -> None:
         f"missing {sorted(EXPECTED_TOOLS - registered)} — update CORE_TOOLS/SCOPED_TOOLS above")
     static_blender = {t.name for t in list_tools(track="static_object", language="blender")}
     assert "joint_sweep" not in static_blender and "gl_probe" not in static_blender
-    assert "texture_pass" in static_blender
-    assert "shader_probe" in {t.name for t in list_tools(track="scene", language="scene_threejs")}
+    assert {"texture_pass", "texture_preview"} <= static_blender
+    scene = {t.name for t in list_tools(track="scene", language="scene_threejs")}
+    assert "shader_probe" in scene
+    assert not {"texture_pass", "texture_preview"} & {t.name for t in list_tools(track="scene")}
     graphics = {t.name for t in list_tools(track="graphics", language="glsl_shader")}
     assert {"gl_probe", "gl_frames"} <= graphics and "texture_pass" not in graphics and "scene_probe" not in graphics
+    # V11a: the object-GLB toolset never reaches scene/graphics agents — their builds
+    # never write artifacts/object.glb, so every one of these was a dead-end refusal
+    object_glb_tools = {"measure", "check_connectivity", "check_contract", "cross_section", "isolate",
+                        "render_views", "render_sheet", "compare_silhouette", "compare_reference"}
+    assert not object_glb_tools & scene and not object_glb_tools & graphics
+    assert "build" in scene and "build" in graphics  # build itself stays universal
+    articulated = {t.name for t in list_tools(track="articulated_object", language="urdf_blender")}
+    assert object_glb_tools | {"joint_sweep"} <= articulated  # articulated keeps the object toolset
+    texture_card = get_tool("texture_pass").card()
+    assert "judge" in texture_card and "texture_pass" in texture_card
     for t in list_tools():
         assert t.schema()["type"] == "object" and t.description
 
@@ -183,19 +195,6 @@ def test_hand_placed_glb_without_build_status_still_measures(stool_ctx: ToolCont
     assert get_tool("measure").call(stool_ctx, {}).ok
 
 
-def test_build_unavailable_runtime(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.spatial.tool_common as tc
-
-    def boom(module, attr):
-        raise tc.ToolUnavailable(f"{module} not importable")
-
-    monkeypatch.setattr(tc, "lazy", boom)
-    monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
-    obs = get_tool("build").call(stool_ctx, {})
-    assert not obs.ok and obs.text.startswith("tool build unavailable:")
-
-
-# --------------------------------------------------------------------------- rendering with a fake renderer
 def _fake_render_glb(glb, out_dir, *, views=None, mode="shaded", width=768, height=768, isolate=None, explode=0.0, sheet=True, background="studio", **_):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -229,21 +228,44 @@ def fake_renderer(monkeypatch: pytest.MonkeyPatch):
 def test_render_views_cached(stool_ctx: ToolContext, fake_renderer) -> None:
     obs = get_tool("render_views").call(stool_ctx, {})
     assert obs.ok and obs.images[0].endswith("sheet.png") and len(obs.images) == 5  # sheet + 4 views
-    assert obs.numbers["views"] == ["front_right_34", "back_left_34", "front", "top"]
+    assert obs.numbers["views"] == ["front_right_high", "back_left_high", "front", "top"]
     assert "artifacts/tool_renders/r00_" in obs.text and str(stool_ctx.workspace.root) not in obs.text
-    get_tool("render_views").call(stool_ctx, {})
-    assert fake_renderer.calls == 1  # second call served from the on-disk cache
+    again = get_tool("render_views").call(stool_ctx, {})
+    # same args → the same deterministic out_dir, which is what lets render_glb's OWN cache
+    # (sha256 of the glb + CACHE_VERSION + rig signature) skip the work.  It is reached every
+    # time: tool_common used to keep a second size+mtime marker here and short-circuit above
+    # it, which served stale PNGs.  This fake renderer has no cache, hence two calls.
+    assert again.images == obs.images and fake_renderer.calls == 2
     obs = get_tool("render_views").call(stool_ctx, {"views": ["front", "back", "left", "right", "top"]})
     assert obs.ok and len(obs.images) == 1  # > 4 views → sheet only
     obs = get_tool("render_views").call(stool_ctx, {"views": ["frontal"]})
-    assert not obs.ok and "front_right_34" in obs.text
+    assert not obs.ok and "front_right_high" in obs.text
     obs = get_tool("render_views").call(stool_ctx, {"mode": "xray"})
     assert not obs.ok and "shaded" in obs.text
+    # 'depth' was advertised from the first commit and never drawn by any renderer:
+    # a usage error with the mode list, not a RenderError from deep inside the rig
+    obs = get_tool("render_views").call(stool_ctx, {"mode": "depth"})
+    assert not obs.ok and "shaded" in obs.text and "failed" not in obs.text
+
+
+def test_render_modes_match_the_js_rig() -> None:
+    """One mode tuple: contracts.RENDER_MODES ↔ runtime_js/render_glb.mjs MODES ↔ the arg schema."""
+    import re
+
+    from codeverse.config import get_settings
+    from codeverse.contracts.artifacts import RENDER_MODES
+
+    src = (get_settings().runtime_js_dir() / "render_glb.mjs").read_text()
+    m = re.search(r"const MODES = \[([^\]]*)\]", src)
+    assert m and tuple(re.findall(r"'([a-z]+)'", m.group(1))) == RENDER_MODES
+    assert "depth" not in RENDER_MODES
+    for name in ("render_views", "render_sheet"):
+        assert get_tool(name).schema()["properties"]["mode"]["description"] == " | ".join(RENDER_MODES)
 
 
 def test_render_sheet_and_isolate(stool_ctx: ToolContext, fake_renderer) -> None:
     obs = get_tool("render_sheet").call(stool_ctx, {"mode": "wire"})
-    assert obs.ok and len(obs.images) == 1 and obs.numbers["n_views"] == 8
+    assert obs.ok and len(obs.images) == 1 and obs.numbers["n_views"] == 14
     obs = get_tool("isolate").call(stool_ctx, {"part": "Leg_3"})
     assert obs.ok and obs.numbers["part"] == "Leg_3" and "| Leg_3 |" in obs.text
     obs = get_tool("isolate").call(stool_ctx, {"part": "Nope"})
@@ -266,42 +288,9 @@ def test_compare_silhouette_tool(stool_ctx: ToolContext, fake_renderer) -> None:
     assert not obs.ok and "out of range" in obs.text
 
 
-def test_renderer_unavailable(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.spatial.tool_common as tc
-
-    def boom(module, attr):
-        raise tc.ToolUnavailable(f"{module} not importable")
-
-    monkeypatch.setattr(tc, "lazy", boom)
-    obs = get_tool("render_views").call(stool_ctx, {})
-    assert not obs.ok and obs.text.startswith("tool render_views unavailable:")
-
-
-# --------------------------------------------------------------------------- cookbook + scene tools
-def test_read_cookbook(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.prompts as prompts
-
-    md = "# Blender cookbook\n\nintro\n\n## Export\nharness exports\n\n## Pitfalls\n- no bpy.ops\n" + "x" * 7000
-    monkeypatch.setattr(prompts, "load_text", lambda rel: md if rel == "blender/cookbook.md" else (_ for _ in ()).throw(FileNotFoundError(rel)))
-    obs = get_tool("read_cookbook").call(stool_ctx, {})
-    assert obs.ok and obs.text.startswith("[prompts/blender/cookbook.md]") and obs.numbers["truncated"] and "sections: Blender cookbook | Export | Pitfalls" in obs.text
-    assert len(obs.text) < 6500
-    obs = get_tool("read_cookbook").call(stool_ctx, {"section": "pitfalls"})
-    assert obs.ok and "- no bpy.ops" in obs.text and "harness exports" not in obs.text
-    obs = get_tool("read_cookbook").call(stool_ctx, {"section": "materials"})
-    assert not obs.ok and "Export" in obs.text
-
-
-def test_read_cookbook_falls_back_to_contract(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.prompts as prompts
-
-    monkeypatch.setattr(prompts, "load_text", lambda rel: (_ for _ in ()).throw(FileNotFoundError(rel)))
-    _patch_runtime(monkeypatch, _FakeRuntime())
-    obs = get_tool("read_cookbook").call(stool_ctx, {"section": "export"})
-    assert obs.ok and "the harness exports" in obs.text and "contract_doc()" in obs.text
-
-
-def test_scene_tools_degrade_when_unavailable(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_texture_tools_degrade_when_texturing_is_unavailable(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`lazy` guards only the optional siblings (codeverse.languages / codeverse.texturing);
+    spatial-on-spatial imports are ordinary imports since 2026-08-29."""
     import codeverse.spatial.tool_common as tc
     import codeverse.spatial.tools as ts
 
@@ -309,37 +298,36 @@ def test_scene_tools_degrade_when_unavailable(stool_ctx: ToolContext, monkeypatc
         raise tc.ToolUnavailable(f"{module} not importable")
 
     monkeypatch.setattr(ts, "lazy", boom)
-    for name in ("joint_sweep", "shader_probe", "scene_probe", "scene_views"):
-        obs = get_tool(name).call(stool_ctx, {})
-        assert not obs.ok and obs.text.startswith(f"tool {name} unavailable:"), name
+    stool_ctx.workspace.write_json(stool_ctx.workspace.plan_path, _stool_plan_with_missing_backrest())
+    obs = get_tool("texture_pass").call(stool_ctx, {})
+    assert not obs.ok and obs.text.startswith("tool texture_pass unavailable:"), obs.text
 
 
 def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     import codeverse.spatial.tools as ts
-
-    calls = {}
+    from codeverse.spatial.probes import SceneProbeResult
 
     def fake_check_shaders(ws, *, module=None, timeout_s=90.0):
         return GateReport(gate="shaders", passed=False, findings=[GateFinding(gate="shaders", severity=Severity.ERROR, target="src/shaders/water.js", message="ERROR: 0:12: 'vUv' undeclared", fix_hint="declare varying vec2 vUv")])
 
+    failed = GateReport(gate="scene_probe", passed=False, findings=[
+        GateFinding(gate="scene_probe", severity=Severity.ERROR, target="src/scene.js", message="console: boom")])
+
     def fake_probe_scene(ws, **kw):
-        return {"census": {"meshes": 12, "lights": 2}, "fps": 58.0, "errors": []}
+        return SceneProbeResult(gate=failed, census={"meshes": 12, "lights": 2}, ok=True, findings=["[error] src/scene.js: console: boom"])
 
-    def fake_joint_sweep(ws, *, n_random=8, seed=0, render=True, out_dir=None, joint=None, expected_direction=None, joints=None):
-        calls["n_random"], calls["joint"] = n_random, joint
-        from codeverse.spatial.registry import Observation
-        return Observation(ok=True, text="sweep ok", numbers={"poses": n_random})
-
-    def fake_lazy(module, attr):
-        return {"check_shaders": fake_check_shaders, "probe_scene": fake_probe_scene, "joint_sweep_observation": fake_joint_sweep}[attr]
-
-    monkeypatch.setattr(ts, "lazy", fake_lazy)
+    monkeypatch.setattr(ts, "check_shaders", fake_check_shaders)
+    monkeypatch.setattr(ts, "probe_scene", fake_probe_scene)
     obs = get_tool("shader_probe").call(stool_ctx, {})
     assert not obs.ok and "vUv" in obs.text and "declare varying" in obs.text
     obs = get_tool("scene_probe").call(stool_ctx, {})
-    assert obs.ok and "meshes=12" in obs.text and obs.numbers["fps"] == 58.0
-    obs = get_tool("joint_sweep").call(stool_ctx, {"joints": ["hinge"], "n_samples": 5})
-    assert obs.ok and calls == {"n_random": 5, "joint": "hinge"}
+    # ok = the probe TOOL ran; the failed gate is a result, not a tool error (SceneProbeResult)
+    assert obs.ok and "meshes=12" in obs.text and "boom" in obs.text and obs.numbers["census"]["meshes"] == 12
+    monkeypatch.setattr(ts, "probe_scene", lambda ws, **kw: SceneProbeResult(gate=failed, errors=["driver died"], ok=False))
+    obs = get_tool("scene_probe").call(stool_ctx, {})
+    assert not obs.ok and "driver died" in obs.text
+    obs = get_tool("joint_sweep").call(stool_ctx, {})
+    assert not obs.ok and "run `build`" in obs.text          # no robot.urdf in a static workspace
 
 
 # --------------------------------------------------------------------------- build without a GLB (scene / graphics)
@@ -415,6 +403,24 @@ def _stool_plan_with_missing_backrest() -> StaticPlan:
                              PartPlan(name="Backrest", role="r", description="d", bbox=BBox(center=(0, 0.18, 0.6), extents=(0.4, 0.03, 0.3)))])
 
 
+def test_connectivity_tool_resolves_instance_names_like_the_track_does(stool_ctx: ToolContext) -> None:
+    """The plan says ``Leg`` attaches to ``Seat``; the GLB has ``Leg_0..3``.  The tool used to
+    hand the gate the raw plan names, so the agent-facing ledger listed ``Leg`` under
+    planned_unresolved while the track's gate resolved it (965 of 2 666 raw names over 357
+    stored rounds, 2026-08-30).  One resolver now: ``spatial.contract.planned_joins``."""
+    ws = stool_ctx.workspace
+    ws.write_json(ws.plan_path, StaticPlan(
+        object_name="Stool", summary="s", overall_bbox=BBox(center=(0, 0, 0.225), extents=(0.4, 0.4, 0.45)),
+        parts=[PartPlan(name="Seat", role="r", description="d", bbox=BBox(center=(0, 0, 0.43), extents=(0.4, 0.4, 0.04))),
+               PartPlan(name="Leg", role="r", description="d", bbox=BBox(center=(0, 0, 0.205), extents=(0.04, 0.04, 0.41)), attach_to="Seat", instances=4)]))
+    get_tool("check_connectivity").call(stool_ctx, {})
+    report = json.loads((ws.gates_dir(0) / "connectivity_tool.json").read_text())
+    ledger = next(f["data"] for f in report["findings"] if "planned" in (f.get("data") or {}))
+    assert ledger["planned_unresolved"] == []
+    assert {(a, b) for a, b, *_ in ledger["planned"]} == {(f"Leg_{i}", "Seat") for i in range(4)}
+    assert {row[3] for row in ledger["planned"] if row[0] == "Leg_3"} == {"open"}   # the 5 mm floating leg
+
+
 def test_build_folds_connectivity_and_contract_in_when_fewer_turns(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     """docs/COST.md §29: ~25 check_connectivity + ~19 check_contract calls per run, each a 4 s
     round trip for a < 0.5 s check.  With the switch on, one build observation carries both."""
@@ -460,11 +466,12 @@ def test_build_card_and_observation_are_unchanged_when_fewer_turns_is_off(stool_
     assert "CONNECTIVITY" not in obs.text and "CONTRACT" not in obs.text and "CHECKS:" not in obs.text
     assert "checks_passed" not in obs.numbers
     card_off = get_tool("build").card()
+    description = get_tool("build").description
     assert "check_connectivity" not in card_off
     monkeypatch.setenv("CV3D_FEWER_TURNS", "1")
     card_on = get_tool("build").card()
     assert "do not call those two tools separately" in card_on and card_on.startswith(card_off.splitlines()[0][:40])
-    assert get_tool("build").description == get_tool("build").description   # the static text never changes
+    assert get_tool("build").description == description                    # the static text never changes
 
 
 def test_a_failed_build_tells_the_agent_WHY_not_to_build_again(tmp_ws):

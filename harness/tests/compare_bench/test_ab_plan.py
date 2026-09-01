@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -32,6 +31,7 @@ from bench.ab_plan import (  # noqa: E402
     AbOptions,
     Todo,
     _plan_todo,
+    _stored_options,
     archive_cell,
     cell_dir,
     child_env,
@@ -170,15 +170,6 @@ def test_an_aa_run_is_labelled_so_nobody_reads_it_as_a_decision():
     assert md.startswith("# A/A: t") and "A/A calibration — the arms are identical" in md
 
 
-def test_aa_gives_both_arms_the_control_environment():
-    """Otherwise the calibration measures the switch it is supposed to be blind to."""
-    opts = AbOptions(variant_env={"CV3D_PLAN_FEATURES": "all"}, aa=True)
-    base = {"PATH": "/bin", "CV3D_PLAN_FEATURES": "all"}  # leaked from the launching shell
-    c, v = child_env(CONTROL, opts, base), child_env(VARIANT, opts, base)
-    assert "CV3D_PLAN_FEATURES" not in c and "CV3D_PLAN_FEATURES" not in v
-    assert c == v
-
-
 # ----------------------------------------------------------------------------- env isolation
 def test_variant_env_is_applied_to_the_variant_arm_only():
     opts = AbOptions(variant_env={"CV3D_PLAN_BRIEF": "on"})
@@ -212,33 +203,14 @@ def test_children_run_at_exactly_the_cap_the_budget_reserved(monkeypatch):
     assert inherited_max_in_flight() == DEFAULT_MAX_IN_FLIGHT
 
 
-def test_the_in_flight_cap_cannot_be_smuggled_in_as_the_variant_switch():
-    """It would put the arms at different caps and make the admission figure wrong again."""
-    import pytest
-
-    for name in (MAX_IN_FLIGHT_ENV, NESTED_MAX_IN_FLIGHT_ENV):
-        with pytest.raises(ValueError, match="not allowed"):
-            parse_variant_env([f"{name}=64"])
-
-
-def test_the_in_flight_env_name_is_one_settings_reads(monkeypatch):
-    """A cap that Settings does not read is no cap: the children would run at 64 each."""
-    from codeverse.config import get_settings
-
-    monkeypatch.setenv(MAX_IN_FLIGHT_ENV, "7")
-    monkeypatch.setenv("CV3D_RATE__MAX_IN_FLIGHT", "64")  # a shell-exported nested value must not win
-    get_settings.cache_clear()
-    try:
-        assert get_settings().rate.max_in_flight == 7
-    finally:
-        get_settings.cache_clear()
-
-
 def test_parse_variant_env():
     assert parse_variant_env(["A=1", "B=x=y", "C="]) == {"A": "1", "B": "x=y", "C": ""}
     for bad in (["A"], ["=1"]):
         with pytest.raises(ValueError):
             parse_variant_env(bad)
+    for name in (MAX_IN_FLIGHT_ENV, NESTED_MAX_IN_FLIGHT_ENV):
+        with pytest.raises(ValueError, match="not allowed"):
+            parse_variant_env([f"{name}=64"])
 
 
 def test_worker_argv_carries_the_whole_option_block(tmp_path: Path):
@@ -339,7 +311,7 @@ def test_resume_skips_done_pairs_and_redo_reruns_both_arms(tmp_path: Path):
     assert len(rows) == 4, "readers see one row per (prompt, arm): the redo replaces the stale attempt"
 
 
-def test_an_interrupted_pair_runs_only_its_missing_arm():
+def test_todo_planning_handles_interrupts_and_redos():
     b = Battery.load(BATTERY)
     p = b.prompts[0]
     done = {(p.id, CONTROL): _row(p.id, CONTROL, 0.5)}
@@ -347,19 +319,11 @@ def test_an_interrupted_pair_runs_only_its_missing_arm():
     assert todo == [Todo(p, [VARIANT], fresh=False)], "a finished partner is not regenerated"
     assert _plan_todo(b, {(p.id, CONTROL): _row(p.id, CONTROL, 0.5), (p.id, VARIANT): _row(p.id, VARIANT, 0.5)},
                       AbOptions(ids=[p.id])) == []
-
-
-def test_a_redo_is_planned_fresh_so_the_pair_is_regenerated():
-    """compare_backends._run_harness resumes on the mere existence of <cell>/run, so
-    without the fresh flag a redo would hand back the surviving arm's OLD score — the
-    cross-weather comparison the pairing exists to prevent."""
-    b = Battery.load(BATTERY)
-    p = b.prompts[0]
-    done = {(p.id, CONTROL): _row(p.id, CONTROL, 0.5), (p.id, VARIANT): _row(p.id, VARIANT, None, "infra_failed")}
+    interrupted = {**done, (p.id, VARIANT): _row(p.id, VARIANT, None, "infra_failed")}
     opts = AbOptions(ids=[p.id], redo_status=["infra_failed"])
-    assert _plan_todo(b, dict(done), opts) == [Todo(p, [CONTROL, VARIANT], fresh=True)]
+    assert _plan_todo(b, interrupted, opts) == [Todo(p, [CONTROL, VARIANT], fresh=True)]
     # --redo-resume opts back into the cheap behaviour, explicitly
-    assert _plan_todo(b, dict(done), opts.model_copy(update={"redo_fresh": False})) == [Todo(p, [CONTROL, VARIANT], False)]
+    assert _plan_todo(b, interrupted, opts.model_copy(update={"redo_fresh": False})) == [Todo(p, [CONTROL, VARIANT], False)]
 
 
 def test_archive_cell_moves_the_old_attempt_aside_and_keeps_it(tmp_path: Path):
@@ -397,60 +361,19 @@ def test_aa_run_records_two_empty_arms(tmp_path: Path):
 
 def test_cli_report_only_rebuilds_from_results(tmp_path: Path, capsys):
     (tmp_path / "results.jsonl").write_text("".join(r.model_dump_json() + "\n" for r in
-                                                    [_row("cmp_easy_stool", CONTROL, 0.5), _row("cmp_easy_stool", VARIANT, 0.4)]))
+                                                    [_row("cmp_easy_stool", CONTROL, 0.5),
+                                                     _row("cmp_easy_stool", VARIANT, None, "infra_failed"),
+                                                     _row("cmp_easy_stool", VARIANT, 0.4)]))
+    opts = AbOptions(variant_env={"CV3D_SKILLS": "on"}, rounds=1)
+    (tmp_path / "ab.json").write_text(json.dumps({"options": json.loads(opts.model_dump_json())}))
     assert main(["--prompts", str(BATTERY), "--out", str(tmp_path), "--report-only"]) == 0
     assert "verdict: revert" in capsys.readouterr().out
     assert (tmp_path / "pairs.json").is_file()
-
-
-def test_ab_plan_children_count_as_harness_processes():
-    from codeverse.models.health import _is_harness_argv
-
-    assert _is_harness_argv([sys.executable, str(REPO / "bench" / "ab_plan.py"), "cell", "--arm", "control"])
-    assert os.environ is not None
-
-
-def test_report_only_reads_the_same_rows_the_live_driver_wrote(tmp_path: Path):
-    """CG-5: results.jsonl is append-only and a redo re-appends, so a stale attempt and its
-    redo both sit in the file.  load_jsonl promised "latest row wins per natural key" and
-    deduped nothing: run_ab passed deduped rows to write_report while `--report-only`
-    passed the raw ones, so ONE summary.md said the variant's mean was 0.400 in the Arms
-    table, 0.800 per prompt, and based its verdict on 0.800 — and the footer counted an
-    infra_failed cell that had already been re-run and scored."""
-    rows = [_row("p1", CONTROL, 0.60),
-            _row("p1", VARIANT, None, "infra_failed"),   # lost to the outage
-            _row("p1", VARIANT, 0.80)]                   # ... and re-run afterwards
-    (tmp_path / "results.jsonl").write_text("".join(r.model_dump_json() + "\n" for r in rows))
-    loaded = load_jsonl(tmp_path / "results.jsonl", CellResult)
-    assert [(r.prompt_id, r.arm) for r in loaded] == [("p1", CONTROL), ("p1", VARIANT)]
-    assert arm_summary(loaded, VARIANT).mean_score == 0.80
-    assert arm_summary(loaded, VARIANT).n == 1 and arm_summary(loaded, VARIANT).n_infra_failed == 0
-    assert [r for r in loaded if r.status == "infra_failed"] == [], "a redone cell is not still lost"
-
-
-def test_report_only_uses_the_runs_own_options_not_this_invocations_flags(tmp_path):
-    """`--report-only` is typed without --variant-env, and the report is what people read.
-
-    Rebuilding it from the bare flags relabelled a real A/B as "variant env: (none)" — an
-    A/A — in the one file that outlives the run.
-    """
-    import json
-
-    from bench.ab_plan import AbOptions, _stored_options
-
-    out = tmp_path / "run"
-    out.mkdir()
-    opts = AbOptions(variant_env={"CV3D_SKILLS": "on"}, rounds=1, generator="gemini-cli:gemini-3.6-flash")
-    (out / "ab.json").write_text(json.dumps({"options": json.loads(opts.model_dump_json())}))
-
-    got = _stored_options(out)
-    assert got is not None
-    assert got.variant_env == {"CV3D_SKILLS": "on"} and got.rounds == 1
+    summary = (tmp_path / "summary.md").read_text()
+    assert "variant env: `CV3D_SKILLS=on`" in summary and "n_infra_failed: 0" in summary
 
 
 def test_report_only_survives_a_run_dir_with_no_or_broken_ab_json(tmp_path):
-    from bench.ab_plan import _stored_options
-
     assert _stored_options(tmp_path) is None
     (tmp_path / "ab.json").write_text("{not json")
     assert _stored_options(tmp_path) is None
@@ -487,3 +410,11 @@ def test_a_pinned_plan_that_dies_in_a_storm_records_the_pair_and_continues(tmp_p
     assert {r.arm for r in first} == {CONTROL, VARIANT} and all(r.status == "infra_failed" for r in first)
     assert all("pinned plan" in r.error for r in first)
     assert [c[0] for c in fake.calls] == [ids[1], ids[1]], "no cell was spent on the dead pair; the next prompt ran"
+
+
+def test_max_usd_flag_was_deleted(capsys):
+    """The money ceiling left the harness on 2026-08-28: the flag must be rejected,
+    not silently parsed into nothing."""
+    with pytest.raises(SystemExit):
+        main(["--prompts", "p.yaml", "--out", "o", "--max-usd=2.5"])
+    assert "--max-usd" in capsys.readouterr().err

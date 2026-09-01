@@ -2,7 +2,8 @@
 
 Every `js` snippet runs as-is in node (the harness test suite concatenates them with
 `THREE`, `mergeGeometries` and `RoundedBoxGeometry` in scope).  Y-up, +Z front, meters,
-PascalCase Group names.  Use `read_cookbook(section="<heading>")` for one chapter.
+PascalCase Group names.  The harness inlines the relevant chapters into your prompts;
+the full file is at `.3dcv/cookbook.md` in your workspace.
 
 ## Module structure (skeleton)
 

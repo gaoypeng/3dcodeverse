@@ -154,7 +154,6 @@ def is_flat(img: Image.Image, *, tol: float = 0.01) -> bool:
 
 
 # ===================================================================== uv
-# (merged from codeverse/texturing/uv.py, 2026-08-28)
 #: long/mid extent ratio above which ``auto`` picks a cylinder projection ...
 CYLINDER_ASPECT = 2.5
 #: ... provided the cross-section is roughly round (mid/min below this); slabs → box
@@ -318,7 +317,6 @@ def unwrap(
 
 
 # ===================================================================== apply
-# (merged from codeverse/texturing/apply.py, 2026-08-28)
 log = logging.getLogger(__name__)
 
 
@@ -356,8 +354,8 @@ def _material(
 ) -> trimesh.visual.material.PBRMaterial:
     """PBR material for one texture id.
 
-    Beyond the albedo the material carries two maps DERIVED from that albedo (see
-    ``texturing.maps``): a metallic/roughness texture so the grain also modulates
+    Beyond the albedo the material carries two maps DERIVED from that albedo
+    (``derived_maps`` below): a metallic/roughness texture so the grain also modulates
     the specular lobe, and a normal map so it catches light in relief.  They cost
     no extra image call and cannot disagree with the colour.  ``derived_maps=False``
     reproduces the albedo-only material the pass shipped before.
@@ -491,24 +489,7 @@ def verify_textured_glb(glb_in: Path, glb_out: Path, *, expected_textured: int) 
     return warnings
 
 
-def textured_summary(glb: Path | str) -> dict[str, int]:
-    """Counts for reports / tests: geometries, textured geometries, distinct images."""
-    s = load_scene(glb)
-    textured = 0
-    imgs: set[int] = set()
-    for g in s.geometry.values():
-        vis = getattr(g, "visual", None)
-        mat = getattr(vis, "material", None)
-        tex = getattr(mat, "baseColorTexture", None)
-        if tex is not None:
-            textured += 1
-            imgs.add(id(tex))
-    return {"geometries": len(s.geometry), "textured": textured, "images": len(imgs)}
-
-
 # ===================================================================== normalise
-# (merged from codeverse/texturing/normalise.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 
 class MaterialChange(BaseModel):

@@ -133,7 +133,11 @@ def sequence_stats(frames: Sequence[tuple[float, str | Path]], *, nan_counts: Se
         seq.mean_diff = float(np.mean(diffs))
         seq.max_diff = float(np.max(diffs))
         seq.n_duplicates = sum(1 for d in diffs if d < DUPLICATE_DIFF)
-        seq.static = seq.mean_diff < STATIC_DIFF
+        # MAX, not mean: 'static' is a scoring cap (shader_v2.yaml static_frames), so it must
+        # require that NO sampled pair changed.  With the mean, an effect whose motion is
+        # concentrated between two of the five sampled times (0/1/2.5/4/6 s) is averaged down
+        # by the three quiet pairs and convicted while animating.
+        seq.static = seq.max_diff < STATIC_DIFF
         seq.flicker = seq.max_diff > FLICKER_DIFF and len(diffs) >= 2
     return seq
 
@@ -163,7 +167,7 @@ def frame_gate(seq: SequenceStats, *, motion_expected: bool = True, gate: str = 
         add(Severity.ERROR, "blown", f"frames are blown out white (mean luminance {seq.mean_lum:.3f})",
             "tone-map and clamp: col = col / (1.0 + col); keep accumulated glow sums bounded")
     if seq.static and motion_expected:
-        add(Severity.WARN, "static", f"frames do not change over time (mean |Δ| {seq.mean_diff:.4f}); the shader looks static",
+        add(Severity.WARN, "static", f"frames do not change over time (largest |Δ| between any two sampled frames {seq.max_diff:.4f}); the shader looks static",
             "use u_time for motion: scroll uv, rotate, animate noise offsets, move lights — the judge compares frames at t=0..6s")
     elif seq.n_duplicates and motion_expected:
         add(Severity.INFO, "duplicate", f"{seq.n_duplicates} consecutive frame pair(s) are identical",

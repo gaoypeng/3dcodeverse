@@ -16,6 +16,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from bench._compare_report import _f as _fmt
+from bench._compare_report import _mean
 from bench._jsonl import read_jsonl
 from bench.run_bench import BenchItemResult
 from codeverse.flywheel.record import RecordError, load_record
@@ -63,10 +65,6 @@ def load_results(out_dir: Path) -> list[BenchItemResult]:
     raise FileNotFoundError(f"no results.jsonl / results.json in {out_dir}")
 
 
-def _mean(xs: list[float]) -> float | None:
-    return round(statistics.fmean(xs), 4) if xs else None
-
-
 def _stats(group: str, rs: list[BenchItemResult]) -> GroupStats:
     # A provider outage never tested the model, so it lands in NO rate — the same rule
     # bench/_compare_report.arm_stats has always applied ("an hour spent retrying a 503
@@ -96,10 +94,6 @@ def _grouped(rs: list[BenchItemResult], key: str) -> list[GroupStats]:
         groups.setdefault(getattr(r, key) or "(none)", []).append(r)
     names = sorted(groups, key=lambda g: (TIER_ORDER.get(g, 99), g))
     return [_stats(g, groups[g]) for g in names]
-
-
-def _fmt(v: float | None, spec: str = ".3f") -> str:
-    return "-" if v is None else format(v, spec)
 
 
 def _md_table(title: str, stats: list[GroupStats]) -> str:

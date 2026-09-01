@@ -78,9 +78,6 @@ class _FakeChat:
     def id(self):
         return "fake:fake"
 
-    def supports_vision(self):
-        return True
-
     def generate(self, req: ChatRequest) -> ChatResponse:
         self.calls.append(req)
         return ChatResponse(text=json.dumps(self.payload), parsed=self.payload, usage=Usage(cost_usd=0.002, input_tokens=100))

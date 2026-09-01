@@ -7,7 +7,14 @@ import pytest
 import trimesh
 
 from codeverse.contracts.artifacts import Severity
-from codeverse.spatial.connectivity import check_connectivity, pair_distance, penetration_depth
+from codeverse.spatial.connectivity import (
+    PENETRATION_ERROR_M,
+    PENETRATION_MIN_FRACTION,
+    THROUGH_FAR_SIDE_RATIO,
+    check_connectivity,
+    pair_distance,
+    penetration_depth,
+)
 from tests.spatial_tools.conftest import FLOAT_GAP_M
 
 
@@ -65,6 +72,10 @@ def test_penetration_is_flagged(tmp_path: Path) -> None:
     pen = [f for f in r.findings if "interpenetrate" in f.message]
     assert pen and pen[0].severity == Severity.ERROR
     assert pen[0].data["depth_m"] == pytest.approx(0.03, abs=0.004)
+    assert pen[0].data["kind"] == "penetration" and {pen[0].target, pen[0].data["other"]} == {"A", "B"}
+    assert {"depth_m", "fraction_inside", "local_fraction", "inside_count", "through_ratio", "thickness_m",
+            "container", "entering"} <= set(pen[0].data)
+    assert pen[0].data["thickness_m"] == pytest.approx(0.2, abs=1e-6)
 
 
 def test_hairline_overlap_is_fine(tmp_path: Path) -> None:
@@ -103,22 +114,15 @@ def test_missing_glb_is_error(tmp_path: Path) -> None:
 
 
 def test_pair_distance_sampled_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.spatial.connectivity as c
+    import codeverse.spatial.joints_collide as collide
 
-    monkeypatch.setattr(c, "_fcl_available", lambda: False)
+    monkeypatch.setattr(collide, "_fcl", None)
     a = trimesh.creation.box(extents=(1, 1, 1))
     b = trimesh.creation.box(extents=(1, 1, 1))
     b.apply_translation((1.02, 0, 0))
     pd = pair_distance("a", a, "b", b)
     assert pd.distance == pytest.approx(0.02, abs=1e-6)
     assert pd.gap_vector[0] == pytest.approx(0.02, abs=1e-6)
-
-
-def test_penetration_depth_zero_when_apart() -> None:
-    a = trimesh.creation.box(extents=(1, 1, 1))
-    b = trimesh.creation.box(extents=(1, 1, 1))
-    b.apply_translation((2, 0, 0))
-    assert penetration_depth(a, b) == (0.0, 0.0)
 
 
 def _open_bottom_box(extents, translation) -> trimesh.Trimesh:
@@ -244,10 +248,158 @@ def test_a_model_authored_below_the_floor_still_reports_its_floating_part(tmp_pa
     assert any("touches the ground" in f.message for f in sunk.findings)
 
 
-def test_a_part_resting_exactly_on_the_floor_is_still_grounded(tmp_path: Path) -> None:
-    """The abs() must not cost the ordinary case: y=0 and a hair above it are grounded."""
-    from codeverse.spatial.connectivity import check_connectivity as cc
+def _scene(path: Path, **meshes: trimesh.Trimesh) -> Path:
+    sc = trimesh.Scene()
+    for name, m in meshes.items():
+        sc.add_geometry(m, node_name=name, geom_name=name)
+    path.write_bytes(sc.export(file_type="glb"))
+    return path
 
-    for dy in (0.0, 0.001):
-        r = cc(_hat_and_body(tmp_path / f"f2_{dy}.glb", dy))
-        assert not any("touches the ground" in f.message for f in r.findings), dy
+
+def _cylinder_y(radius: float, height: float, center: tuple[float, float, float]) -> trimesh.Trimesh:
+    m = trimesh.creation.cylinder(radius=radius, height=height, sections=32)
+    m.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, (1, 0, 0)))
+    m.apply_translation(center)
+    return m
+
+
+def _penetrations(r) -> list:
+    return [f for f in r.findings if f.data.get("kind") == "penetration"]
+
+
+def _ledger(r):
+    led = [f for f in r.findings if f.message.startswith("contact ledger")]
+    assert len(led) == 1 and led[0].severity == Severity.INFO and led[0].target == ""
+    return led[0]
+
+
+def test_thin_rod_through_a_plate_is_measured_and_named_but_severity_stays_on_depth(tmp_path: Path) -> None:
+    """An 8 mm rod, 1 m long, standing through a 10 mm plate.  The overlap band is ~1 % of
+    the rod's surface, under PENETRATION_MIN_FRACTION, and its deepest point is 5 mm, under
+    PENETRATION_ERROR_M — so the 4ddde32 gate said nothing on this GLB (verified against
+    the committed module, 2026-08-30).  The dense local pass finds it and the through-ratio
+    says the rod reaches the plate's far side — as a MEASUREMENT: it is a WARN, because the
+    same number is what a stile through a seat or a boom seated in a mast reads, and the
+    picture, not the gate, decides whether that is a defect (corpus re-run: a 0.9 ERROR line
+    flipped 9 runs of designed joinery)."""
+    rod = _cylinder_y(0.004, 1.0, (0, 0.5, 0))
+    plate = trimesh.creation.box(extents=(0.3, 0.01, 0.3))
+    plate.apply_translation((0, 0.505, 0))
+
+    r = check_connectivity(_scene(tmp_path / "rod_plate.glb", Rod=rod, Plate=plate))
+
+    pen = _penetrations(r)
+    assert len(pen) == 1 and pen[0].severity == Severity.WARN and r.passed
+    d = pen[0].data
+    assert d["fraction_inside"] < PENETRATION_MIN_FRACTION, "the old floor would have silenced this"
+    assert d["depth_m"] < PENETRATION_ERROR_M, "depth alone keeps it a WARN"
+    assert d["depth_m"] == pytest.approx(0.005, abs=0.0005)
+    assert d["inside_count"] >= 4 and d["local_fraction"] >= 0.2
+    assert d["through_ratio"] >= THROUGH_FAR_SIDE_RATIO
+    assert d["entering"] == "Rod" and d["container"] == "Plate" and d["thickness_m"] == pytest.approx(0.01, abs=1e-6)
+    assert "reaches 93% of the way to the mid-plane of 'Plate' (10 mm thick)" in pen[0].message
+    assert "middle of 'Plate'" in pen[0].fix_hint and "shorten it" in pen[0].fix_hint
+    # the ledger carries the same pair with the same numbers, rounded
+    over = _ledger(r).data["overlaps"]
+    assert len(over) == 1 and set(over[0][:2]) == {"Rod", "Plate"}
+    assert over[0][2:] == [pytest.approx(5.0, abs=0.5), pytest.approx(d["through_ratio"], abs=0.01)]
+
+
+def test_a_designed_socket_stays_a_warn_with_a_low_through_ratio(tmp_path: Path) -> None:
+    """A branch neck seated 3 mm into a pipe block (pipe_tee's BranchPipeNeck x MainPipeRun):
+    above the 2 mm WARN line, nowhere near the far side of anything — WARN, and the message
+    does not talk about reaching through."""
+    pipe = trimesh.creation.box(extents=(0.3, 0.1, 0.1))
+    pipe.apply_translation((0, 0.05, 0))
+    neck = _cylinder_y(0.02, 0.1, (0, 0.1 - 0.003 + 0.05, 0))
+
+    r = check_connectivity(_scene(tmp_path / "socket.glb", MainPipeRun=pipe, BranchNeck=neck))
+
+    pen = _penetrations(r)
+    assert r.passed and len(pen) == 1 and pen[0].severity == Severity.WARN
+    d = pen[0].data
+    assert d["depth_m"] == pytest.approx(0.003, abs=0.0005)
+    assert d["through_ratio"] < 0.2
+    assert "reaches" not in pen[0].message and "where they meet" in pen[0].message
+
+
+def test_a_thin_part_sunk_into_a_thick_one_is_not_through(tmp_path: Path) -> None:
+    """h2h_microscope's FieldIlluminator: a 5 mm disc sunk 2.3 mm into the base.  Measured
+    one way, the base's top surface reaches 82 % of the way through the disc; the pair's
+    through-ratio is the min over both directions, so a designed inset stays a WARN."""
+    base = trimesh.creation.box(extents=(0.2, 0.05, 0.2))
+    base.apply_translation((0, 0.025, 0))
+    disc = _cylinder_y(0.02, 0.005, (0, 0.05 - 0.0023 + 0.0025, 0))
+
+    r = check_connectivity(_scene(tmp_path / "inset.glb", BaseStand=base, FieldIlluminator=disc))
+
+    pen = _penetrations(r)
+    assert r.passed and len(pen) == 1 and pen[0].severity == Severity.WARN
+    assert pen[0].data["through_ratio"] < 0.2, pen[0].data
+
+
+def test_contact_ledger_carries_contacts_overlaps_and_ground_gaps(tmp_path: Path) -> None:
+    """The 1 mm weld of test_hairline_overlap_is_fine is below the WARN line — no finding —
+    but the judge payload needs to know it is there to call it a weld, so the INFO ledger
+    lists it, with the contact and every part's height above the ground."""
+    a = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
+    a.apply_translation((0, 0.1, 0))
+    b = trimesh.creation.box(extents=(0.1, 0.1, 0.1))
+    b.apply_translation((0, 0.2 + 0.05 - 0.001, 0))
+
+    r = check_connectivity(_scene(tmp_path / "weld.glb", A=a, B=b))
+
+    assert r.passed and not _penetrations(r)
+    led = _ledger(r)
+    assert led.message == "contact ledger: 2 parts, 1 contacts, 1 overlaps"
+    d = led.data
+    assert sorted(d["parts"]) == ["A", "B"] and d["contact_gap_mm"] == 2.0
+    assert len(d["contacts"]) == 1 and set(d["contacts"][0][:2]) == {"A", "B"} and d["contacts"][0][2] == 0.0
+    assert len(d["overlaps"]) == 1 and set(d["overlaps"][0][:2]) == {"A", "B"}
+    assert d["overlaps"][0][2] == pytest.approx(1.0, abs=0.1)
+    assert d["ground_gap_mm"] == {"A": 0.0, "B": pytest.approx(199.0, abs=0.1)}
+    assert d["planned"] == [] and d["planned_unresolved"] == []
+
+
+def test_planned_edges_are_measured_regardless_of_the_aabb_prefilter(solid_stool_glb: Path) -> None:
+    """Leg_0-Seat is a contact; Leg_0-Leg_1 are 260 mm apart, a pair the AABB prefilter
+    never measures — a planned join is measured anyway and reported open, not as an ERROR
+    (whether it should fail the gate is the owner's call); a name the GLB does not have is
+    listed unresolved."""
+    r = check_connectivity(solid_stool_glb, planned_edges=[("Leg_0", "Seat"), ("Leg_0", "Leg_1"), ("Leg_0", "Ghost")])
+
+    assert r.passed
+    d = _ledger(r).data
+    assert d["planned"] == [["Leg_0", "Seat", 0.0, "contact"], ["Leg_0", "Leg_1", pytest.approx(260.0, abs=0.5), "open"]]
+    assert d["planned_unresolved"] == ["Ghost"]
+    assert sorted(d["parts"]) == ["Leg_0", "Leg_1", "Leg_2", "Leg_3", "Seat"]
+    assert len(d["contacts"]) == 4 and all(c[1] == "Seat" or c[0] == "Seat" for c in d["contacts"])
+
+
+def test_a_deep_overlap_only_the_dense_pass_can_see_is_a_warn_with_every_number(tmp_path: Path) -> None:
+    """A 40 mm square stile driven 17 mm into a 0.45 m seat slab — the corpus's commonest new
+    finding (rear stiles through seats on 14 dining chairs).  The overlap is ~1 % of either
+    surface, so the 4ddde32 gate never saw it; the dense pass measures it, but a member the
+    eye cannot see inside a slab must not cap the run at 0.7 on its own: WARN, depth and
+    through-ratio in data, and the judge decides from the picture (D46 d)."""
+    seat = trimesh.creation.box(extents=(0.45, 0.036, 0.45))
+    seat.apply_translation((0, 0.45, 0))                       # underside at y = 0.432
+    stile = trimesh.creation.box(extents=(0.03, 1.0, 0.03))    # a 1 m backrest post
+    stile.apply_translation((0.2, 0.432 + 0.017 - 0.5, 0.2))  # its top 17 mm inside the slab
+    r = check_connectivity(_scene(tmp_path / "stile_seat.glb", Seat=seat, Stile=stile))
+
+    pen = _penetrations(r)
+    assert len(pen) == 1
+    d = pen[0].data
+    assert d["depth_m"] > PENETRATION_ERROR_M, "deep — the old ERROR line by depth"
+    assert d["fraction_inside"] < PENETRATION_MIN_FRACTION, "…but a sliver of either surface"
+    assert pen[0].severity == Severity.WARN and r.passed
+    assert d["inside_count"] >= 4 and d["local_fraction"] >= 0.2 and 0.0 < d["through_ratio"] <= 2.0
+
+    # the same depth on a visible share of the part is still the ERROR it always was
+    post = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
+    post.apply_translation((0, 0.45 + 0.1 - 0.017 - 0.018, 0))  # 17 mm of a fat post into the seat
+    r2 = check_connectivity(_scene(tmp_path / "post_seat.glb", Seat=seat, Post=post))
+    pen2 = _penetrations(r2)
+    assert pen2 and pen2[0].severity == Severity.ERROR and not r2.passed
+    assert pen2[0].data["fraction_inside"] >= PENETRATION_MIN_FRACTION

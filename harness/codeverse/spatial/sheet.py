@@ -6,7 +6,7 @@ under its tile, fixed tile size so the VLM sees consistent scale.
 This module is also the one home for shared PIL drawing bits: ``load_font``,
 :func:`write_gif` and the sheet geometry/palette constants (``LABEL_H``,
 ``PAD``, ``BG``, ``LABEL_BG``, ``LABEL_FG``) are public and reused by
-``spatial.gl_render``, ``spatial.turntable``, ``spatial.sections`` and
+``spatial.gl_render``, ``spatial.sections`` and
 ``judges.images``.
 """
 
@@ -123,9 +123,8 @@ def contact_sheet(
 def write_gif(frames: Sequence[str | Path], out: Path | str, *, fps: int = 12, width: int | None = None) -> Path:
     """Animated GIF from ``frames`` (adaptive 128-colour palette, looping).
 
-    THE gif writer: turntables (full-size frames) and the graphics preview
-    (``width`` downscales with BILINEAR) both use it.  Raises ``ValueError``
-    without frames.
+    THE gif writer (the graphics preview; ``width`` downscales with BILINEAR).
+    Raises ``ValueError`` without frames.
     """
     if not frames:
         raise ValueError("write_gif: no frames")

@@ -131,6 +131,6 @@ belong to `cv3d-part-contact`.
 
 `references/form_recipes.md` — a runnable snippet per form word, including the
 cavity and shell profiles that replace the boolean you do not have.
-Longer code lives in the cookbook — `read_cookbook` with section "Geometry
-toolkit", "Detail (how to look good cheaply)", "Density: visual complexity
+Longer code lives in the cookbook — the cookbook section "Geometry
+toolkit", and "Detail (how to look good cheaply)", "Density: visual complexity
 without hand-modelling every screw" or "Raw BufferGeometry and a spoked wheel".

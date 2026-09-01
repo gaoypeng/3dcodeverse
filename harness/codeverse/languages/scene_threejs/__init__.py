@@ -15,11 +15,11 @@ from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, 
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
 from codeverse.conventions import to_pascal, to_snake
+from codeverse.languages._docs import RuntimeDocs
 from codeverse.languages._js_lint import ImportKind, ImportVerdict, check_imports, node_check_syntax
 from codeverse.workspace import Workspace
 
 # ===================================================================== lint
-# (merged from codeverse/languages/scene_threejs/lint.py, 2026-08-28)
 GATE = "lint:scene_threejs"
 MAX_LINES = 800
 
@@ -78,6 +78,16 @@ def _check_imports(rel: str, text: str, ws: Workspace, path: Path) -> list[GateF
     return check_imports(text, path, ws.src, make_finding=make_finding)[0]
 
 
+#: the env skeleton's own TODO line and its placeholder daylight palette.  An env.js that
+#: still carries them is a skeleton the env stage never rewrote — measured 2026-08-30 on the
+#: SOTA battery: izakaya_night (both arms) and nyc_dusk shipped the untouched skeleton, so a
+#: "cozy izakaya at NIGHT" rendered under 0xcfdcec sky over 0x4a5a2a ground and the run lost
+#: on brief fidelity while every other gate passed.  The plan was right and sat in the file's
+#: own ENV PLAN header; nobody acted on it.
+_ENV_SKELETON_TODO = "Rewrite the ground/sky/fog/sun below to match the plan"
+_ENV_SKELETON_DEFAULTS = ("0xbcd7ff", "0xcfdcec")
+
+
 def lint(ws: Workspace) -> GateReport:
     """Run all static checks; passed iff no ERROR findings."""
     t0 = time.time()
@@ -110,6 +120,16 @@ def lint(ws: Workspace) -> GateReport:
         if path.parent == ws.src / "zones" and not _BUILD_RE.search(text):
             findings.append(_f(Severity.ERROR, "zone module does not export build(ctx)", target=rel,
                                hint="export function build(ctx) { const g = new THREE.Group(); g.name = 'ZoneName'; ...; return g; }"))
+        if path == ws.src / "env.js":
+            stale = [d for d in _ENV_SKELETON_DEFAULTS if d in text]
+            if _ENV_SKELETON_TODO in text and stale:
+                findings.append(_f(Severity.ERROR,
+                                   f"src/env.js is still the untouched skeleton (its TODO line and the "
+                                   f"placeholder daylight palette {', '.join(stale)} are both present)",
+                                   target=rel,
+                                   hint="the ENV PLAN header at the top of env.js states the sky, sun, fog and "
+                                        "ground this scene needs — write those colours and angles into buildEnv, "
+                                        "then delete the TODO line"))
         if path.parent == ws.src / "assets" and not _BUILD_ANY_RE.search(text):
             findings.append(_f(Severity.WARN, "asset module exports no build<Pascal>(THREE) factory", target=rel,
                                hint="export function buildLamp(THREE) { ... return group; }"))
@@ -121,7 +141,6 @@ def lint(ws: Workspace) -> GateReport:
 
 
 # ===================================================================== skeleton
-# (merged from codeverse/languages/scene_threejs/skeleton.py, 2026-08-28)
 STARTER_DIR = Path(__file__).resolve().parent / "starter" / "src"
 #: pattern files copied verbatim in plan mode (shown as reusable examples)
 PATTERN_FILES = ("shaders/sky.js", "shaders/water.js", "assets/pine_tree.js", "assets/windmill.js")
@@ -312,7 +331,6 @@ def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
 
 
 # ===================================================================== assemble
-# (merged from codeverse/languages/scene_threejs/assemble.py, 2026-08-28)
 PROBE_REL = "src/_c3v_assemble_probe.js"
 _PREFIX = "[3dcv-assemble]"
 _SUN_RE = re.compile(r"export\s+const\s+SUN_AZIMUTH_DEG\s*=\s*(-?\d+(?:\.\d+)?)")
@@ -439,7 +457,10 @@ def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0, sun_azimuth_de
     zones = zone_files(ws)
     probe_path = ws.root / PROBE_REL
     probe_path.write_text(_probe_module(zones, glb_assets(ws)))
+    from codeverse.spatial.render_scene import probe_env_args
+
     args = ["--ws", str(ws.root), "--scene", PROBE_REL, "--timeout-ms", str(int(timeout_s * 1000))]
+    args += probe_env_args()  # the zone probe sees the same settle/repair/exposure world as the renders
     if sun_azimuth_deg is not None:
         args += ["--sun-azimuth", str(sun_azimuth_deg)]
     try:
@@ -602,12 +623,9 @@ def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "de
 
 
 # ===================================================================== runtime
-# (merged from codeverse/languages/scene_threejs/runtime.py, 2026-08-28)
-_HERE = Path(__file__).resolve().parent
-_PROMPTS = _HERE.parent.parent / "prompts" / "scene_threejs"
 
 
-class SceneThreeJsRuntime:
+class SceneThreeJsRuntime(RuntimeDocs):
     language = Language.SCENE_THREEJS
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.SCENE_THREEJS], "src/zones/*.js", "src/assets/*.js", "src/env.js", "src/shaders/*.js")
 
@@ -659,15 +677,6 @@ class SceneThreeJsRuntime:
         (ws.artifacts / "build.json").write_text(json.dumps(res.model_dump(mode="json"), indent=1))
         return res
 
-    def contract_doc(self) -> str:
-        p = _PROMPTS / "contract.md"
-        if p.is_file():
-            return p.read_text()
-        return (_HERE / "CONTRACT.md").read_text()
-
-    def cookbook_path(self) -> Path:
-        return _PROMPTS / "cookbook.md"
-
 
 def _probe_and_preflight(ws: Workspace, *, timeout_s: float) -> tuple[GateReport, GateReport, dict]:
     """One ``probe_scene.mjs --compile`` run → (scene_probe, shader_preflight, census).
@@ -678,7 +687,7 @@ def _probe_and_preflight(ws: Workspace, *, timeout_s: float) -> tuple[GateReport
     """
     from codeverse.contracts.artifacts import GateFinding
     from codeverse.spatial.probes import PROBE_GATE, SHADER_GATE, probe_report, shader_report
-    from codeverse.spatial.render_scene import SceneRenderError, run_scene_script
+    from codeverse.spatial.render_scene import SceneRenderError, probe_env_args, run_scene_script
 
     t0 = time.time()
     args = [
@@ -687,6 +696,10 @@ def _probe_and_preflight(ws: Workspace, *, timeout_s: float) -> tuple[GateReport
         "--shaders-out", str(ws.artifacts / "shader_preflight.json"),
         "--timeout-ms", str(int(timeout_s * 1000)),
     ]
+    # the production build probes under the SAME settle / camera-repair / auto-exposure
+    # policy every render uses (review-3 S4: it used to carry none of the flags, so the
+    # build gate measured a census the renders then contradicted)
+    args += probe_env_args()
     try:
         res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
     except SceneRenderError as e:

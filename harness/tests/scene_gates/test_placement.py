@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from codeverse.contracts.artifacts import BuildResult, Severity
 from codeverse.contracts.common import Language
-from codeverse.contracts.plan import BBox, CameraPlan, ScenePlan, ZonePlan
+from codeverse.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
 from codeverse.judges.rubrics import apply_caps, load_rubric
 from codeverse.orchestrator import build_refine_instructions
 from codeverse.spatial.scene_placement import (
@@ -142,7 +142,7 @@ def _plan():
 def test_error_findings_become_zone_routed_refine_tasks_one_per_asset():
     plan = _plan()
     r = placement_findings(_table(_row("Lantern", gap=0.3), _row("Bench", gap=0.4), _row("Vase", zone="House", gap=0.5)))
-    ctx = SimpleNamespace(runtime=SimpleNamespace(), plan=plan, language=Language.SCENE_THREEJS)
+    ctx = SimpleNamespace(runtime=SimpleNamespace(), plan=plan, language=Language.SCENE_THREEJS, extra={})
     tasks = build_refine_instructions(None, [r], [], plan, file_for_target=file_for_target_factory(ctx))
     assert sorted((t.target, tuple(t.files)) for t in tasks) == [("House/Vase", ("src/zones/house.js",)), ("Yard/Bench", ("src/zones/yard.js",)),
                                                                  ("Yard/Lantern", ("src/zones/yard.js",))]
@@ -151,7 +151,7 @@ def test_error_findings_become_zone_routed_refine_tasks_one_per_asset():
 
 def test_pipeline_gates_append_placement_after_census_and_never_raise():
     plan = _plan()
-    ctx = SimpleNamespace(runtime=SimpleNamespace(), plan=plan)
+    ctx = SimpleNamespace(runtime=SimpleNamespace(), plan=plan, extra={})
     build = BuildResult(ok=True, language="scene_threejs", census={"totals": {"meshes": 3}, "placement": _table(_row("Lantern", gap=0.3))})
     gates = ScenePipeline().gates(ctx, 0, build, None)
     assert [g.gate for g in gates] == ["scene_census", GATE] and not gates[-1].passed
@@ -175,3 +175,97 @@ def test_check_placement_reads_the_last_census_and_the_table_text(tmp_path):
     assert not r.passed and "indoor tolerance 2 cm" in r.findings[0].message
     text = placement_table_text(table)
     assert "Yard/Lantern | +0.300 | Ground | 0.000 | - | - | -" in text and "Yard/Rock | +0.000 | Ground | 0.300 | Terrain" in text
+
+
+# --------------------------------------------------------------------- plan-aware contract checks
+def _contract_plan() -> ScenePlan:
+    bb = BBox(center=(0, 0, 0), extents=(40, 8, 40))
+    zb = BBox(center=(0, 0, 0), extents=(20, 8, 20))
+    return ScenePlan(
+        title="t", summary="s", setting="meadow", mood="calm", bounds=bb, environment="sunny",
+        zones=[ZonePlan(name="Yard", description="d", bbox=zb, contents=["Lantern", "Bench"]),
+               ZonePlan(name="House", description="d", bbox=zb, contents=["Bench"])],
+        assets=[AssetPlan(name="Lantern", kind="threejs", description="d", approx_size_m=(0.4, 0.6, 0.4)),
+                AssetPlan(name="Bench", kind="threejs", description="d", approx_size_m=(1.6, 0.9, 0.6))],
+        cameras=[CameraPlan(name="overview", position=(1, 1, 1), look_at=(0, 0, 0), fov=50, purpose="p")])
+
+
+def test_contract_checks_fire_on_atmosphere_contents_scale_and_bounds():
+    """One census, five distinct deterministic failures the VLM used to carry alone."""
+    far = _row("FarCrate")
+    far["bbox"] = {"min": [100, 0, 100], "max": [101, 1, 101], "size": [1, 1, 1]}
+    census = {"fog": None, "background": None,
+              "placement": _table(_row("Lantern", h=3.0), far)}   # lantern 5x the planned 0.6 m
+    rep = placement_gate_safe(census, plan=_contract_plan())
+    kinds = {f.data.get("kind") for f in rep.findings}
+    assert {"no_fog", "no_background", "missing_content", "zone_empty", "scale", "out_of_bounds"} <= kinds
+    assert not rep.passed
+    missing = next(f for f in rep.findings if f.data.get("kind") == "missing_content")
+    assert missing.target == "Yard" and "Bench" in missing.message
+    empty = next(f for f in rep.findings if f.data.get("kind") == "zone_empty")
+    assert empty.target == "House"
+    scale = next(f for f in rep.findings if f.data.get("kind") == "scale")
+    assert scale.severity == Severity.ERROR and "5.0x" in scale.message
+
+
+def test_contract_checks_stay_quiet_on_a_dressed_in_bounds_scene():
+    census = {"fog": {"type": "Fog", "near": 10, "far": 60}, "background": "#aabbcc",
+              "placement": _table(_row("Lantern_3", h=0.6), _row("Bench", h=0.9),
+                                  _row("BenchB", zone="House", h=0.9))}
+    rep = placement_gate_safe(census, plan=_contract_plan())
+    contract_kinds = {"no_fog", "no_background", "missing_content", "zone_empty", "scale", "out_of_bounds"}
+    assert not [f for f in rep.findings if f.data.get("kind") in contract_kinds],         [(f.data.get("kind"), f.message) for f in rep.findings]
+    assert rep.passed
+
+
+def test_interpenetration_pairs_report_once_at_worst_overlap():
+    pair = {"a": "Planter", "b": "Arbor", "zone_a": "Yard", "zone_b": "Yard"}
+    r = placement_findings(_table(_row("Planter"), _row("Arbor"),
+                                  pairs=[{**pair, "aabb_overlap": 0.3, "inside_frac": 0.2},
+                                         {**pair, "aabb_overlap": 0.7, "inside_frac": 0.6},
+                                         {**pair, "aabb_overlap": 0.5, "inside_frac": 0.4}]))
+    inter = _by_kind(r, "interpenetration")
+    assert len(inter) == 1 and "70%" in inter[0].message and inter[0].severity == Severity.ERROR
+
+
+def test_density_gate_fires_on_a_zone_far_under_its_layout_budget():
+    """scene_final_v1's top standing defects (flat_ground 12 / undressed 11 / monotonous 10)
+    while every zone had a BINDING layout budget nobody enforced.  The census counts every
+    instance (InstancedMesh.count included), so the check is pure arithmetic."""
+    layouts = {"Yard": {"placements": [{"asset": "Lantern", "count": 6}],
+                        "mid_props": 20, "small_props": 40, "ground_cover": 400},
+               "House": {"placements": [], "mid_props": 2}}   # budget 2 < threshold: ignored
+    census = {"fog": {"type": "Fog"}, "background": "#aabbcc",
+              "groups": [{"name": "Yard", "instances": 30}, {"name": "House", "instances": 1}],
+              "placement": _table(_row("Lantern", h=0.6))}
+    rep = placement_gate_safe(census, plan=_contract_plan(), layouts=layouts)
+    under = [f for f in rep.findings if f.data.get("kind") == "underdressed"]
+    assert len(under) == 1 and under[0].target == "Yard"
+    assert "466" in under[0].message and "~30" in under[0].message
+    # the same zone with the budget met is quiet
+    census["groups"][0]["instances"] = 240   # >= half of 466
+    rep = placement_gate_safe(census, plan=_contract_plan(), layouts=layouts)
+    assert not [f for f in rep.findings if f.data.get("kind") == "underdressed"]
+
+
+def test_no_backdrop_fires_outdoors_and_stays_quiet_with_a_ring_or_indoors():
+    """world_edge_visible stood in 11/19 scene_final_v1 verdicts; the env contract's
+    silhouette ring is measurable: standing geometry must reach past the play area."""
+    base = {"fog": {"type": "Fog"}, "background": "#aabbcc",
+            "placement": _table(_row("Lantern_3", h=0.6), _row("Bench", h=0.9),
+                                _row("BenchB", zone="House", h=0.9))}
+    near_only = dict(base, groups=[
+        {"name": "Yard", "kind": "content", "bbox": {"min": [-10, 0, -10], "max": [10, 4, 10]}}])
+    rep = placement_gate_safe(near_only, plan=_contract_plan(), layouts=None)
+    hits = [f for f in rep.findings if f.data.get("kind") == "no_backdrop"]
+    assert len(hits) == 1 and hits[0].target == "env" and "25 m" in hits[0].message
+    # a silhouette ring past 1.25x the half-extent quiets it
+    ringed = dict(base, groups=near_only["groups"] + [
+        {"name": "BackdropHills", "kind": "content", "bbox": {"min": [-40, 0, -40], "max": [40, 5, 40]}}])
+    rep = placement_gate_safe(ringed, plan=_contract_plan(), layouts=None)
+    assert not [f for f in rep.findings if f.data.get("kind") == "no_backdrop"]
+    # an interior never asks for one
+    indoor = _contract_plan().model_copy(update={"setting": "a candlelit library interior"})
+    rep = placement_gate_safe(near_only, plan=indoor, layouts=None)
+    assert not [f for f in rep.findings if f.data.get("kind") == "no_backdrop"]
+

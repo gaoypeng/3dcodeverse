@@ -14,17 +14,21 @@ from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, 
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.conventions import to_pascal, to_snake
-from codeverse.languages._js_lint import ImportKind, ImportVerdict, check_imports
+from codeverse.languages._common import BUILD_TIMEOUT
+from codeverse.languages._docs import RuntimeDocs
+from codeverse.languages._js_lint import (
+    ImportKind,
+    ImportVerdict,
+    check_imports,
+)
 from codeverse.languages._js_lint import (
     node_check_syntax as check_syntax,  # module-level name: tests monkeypatch it
 )
 from codeverse.proc import read_json_or_none
-from codeverse.prompts import PROMPTS_DIR, load_text
 from codeverse.spatial.node import NodeError, NodeResult, run_node, runtime_js_dir
 from codeverse.workspace import Workspace
 
 # ===================================================================== templates
-# (merged from codeverse/languages/threejs/templates.py, 2026-08-28)
 PACKAGE_JSON = '{ "type": "module", "private": true }\n'
 
 OBJECT_HEADER = """\
@@ -88,46 +92,7 @@ export function build{pascal}(THREE_) {{
 PLACEHOLDER_COLORS = ("0x9aa5b1", "0xb08968", "0x7f8c8d", "0xc0a080", "0x6c7a89", "0xa0522d", "0x8fa3ad", "0xbfa27a")
 
 
-# ===================================================================== contract
-# (merged from codeverse/languages/threejs/contract.py, 2026-08-28)
-CONTRACT_FALLBACK = """\
-# three.js static-object contract (raw ESM, no SDK)
-
-Files (all under `src/`):
-* `src/parts/<snake_name>.js` — one file per part:
-  `export function build<PascalName>(THREE) { ...; return group; }`
-  The returned `THREE.Group` is named `<PascalName>` and already sits at its WORLD pose
-  (no re-positioning happens in object.js).
-* `src/object.js` — `export function build(THREE) { ... return root; }` imports every part
-  builder, adds each part group to one root `THREE.Group` whose `.name` is the object name,
-  and returns it.  Optional: `root.userData.tick = (t, dt) => { ... }` for idle animation.
-
-Frame & units: Y is UP, +Z is the FRONT (towards the default camera), +X is the right.
-Meters.  The object stands on the ground: lowest point at y = 0, footprint centred on
-the Y axis.  Real-world sizes (a chair seat is ~0.45 m high, not 45).
-
-Imports allowed: `import * as THREE from 'three'`, `three/addons/...` (e.g.
-`three/addons/utils/BufferGeometryUtils.js`, `three/addons/geometries/RoundedBoxGeometry.js`),
-and relative `./` files inside `src/`.  Nothing else: no CDN/http URLs, no npm packages,
-no `fetch`, no `document`/`window`, no WebGLRenderer/cameras/lights/scenes in object code —
-the harness renders and exports for you.
-
-Geometry & materials: BufferGeometry only; `MeshStandardMaterial`/`MeshPhysicalMaterial`
-with explicit `color`, `roughness`, `metalness`.  Textures are NOT exportable from node —
-use materials and vertex detail.  Every mesh gets a meaningful `.name`.  Keep total
-triangles well under 600k.  Parts must physically touch (no floating pieces) and must not
-interpenetrate visibly.
-
-Build: the harness runs `build(THREE)` in node, validates the group (≥1 mesh, finite
-bbox, no NaN), calls an optional exported `selfcheck(THREE, root)` (a throw fails the
-build with your message), bakes `InstancedMesh` copies into named meshes, and exports
-`artifacts/object.glb` with one named node per part — exactly where you placed it (no
-automatic drop-to-ground / re-centring; off-placement is warned and gated instead).
-"""
-
-
 # ===================================================================== lint
-# (merged from codeverse/languages/threejs/lint.py, 2026-08-28)
 GATE = "lint:threejs"
 
 _EXPORT_BUILD_RE = re.compile(r"\bexport\s+(?:async\s+)?function\s+(build[A-Za-z0-9_]*)\s*\(")
@@ -302,7 +267,6 @@ def lint_workspace(ws: Workspace) -> GateReport:
 
 
 # ===================================================================== skeleton
-# (merged from codeverse/languages/threejs/skeleton.py, 2026-08-28)
 def part_file(ws: Workspace, part_name: str) -> Path:
     """``src/parts/<snake>.js`` for a plan part name."""
     return ws.src / "parts" / f"{to_snake(part_name)}.js"
@@ -366,7 +330,6 @@ def write_skeleton(ws: Workspace, plan: Plan, *, overwrite: bool = False) -> lis
 
 
 # ===================================================================== runtime
-# (merged from codeverse/languages/threejs/runtime.py, 2026-08-28)
 ENTRY = "src/object.js"
 GLB_NAME = "object.glb"
 CENSUS_NAME = "census.json"
@@ -374,21 +337,11 @@ BUILD_JSON = "build.json"
 NODE_MEM_LIMIT_GB = 8.0  # RLIMIT_AS for the export process (geometry-bomb protection)
 
 
-class ThreeJsRuntime:
+class ThreeJsRuntime(RuntimeDocs):
     """LanguageRuntime for ``Language.THREEJS`` (raw ESM three.js, exported via node)."""
 
     language = Language.THREEJS
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.THREEJS], "src/parts/*.js")
-
-    # ------------------------------------------------------------------ contract
-    def contract_doc(self) -> str:
-        try:
-            return load_text("threejs/contract.md")
-        except FileNotFoundError:
-            return CONTRACT_FALLBACK
-
-    def cookbook_path(self) -> Path:
-        return PROMPTS_DIR / "threejs" / "cookbook.md"
 
     # ------------------------------------------------------------------ skeleton / lint
     def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:
@@ -426,7 +379,7 @@ class ThreeJsRuntime:
         except NodeError as e:
             if e.result is None:
                 raise  # harness problem (no node binary / script)
-            result = self._failure(e.result, "Timeout" if e.result.timed_out else "NodeError", str(e))
+            result = self._failure(e.result, BUILD_TIMEOUT if e.result.timed_out else "NodeError", str(e))
             self._write_build_json(ws, result)
             return result
 

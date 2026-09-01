@@ -32,31 +32,12 @@ from typing import Any
 from codeverse.contracts.artifacts import GateReport, RenderSet
 from codeverse.contracts.spec import Spec
 from codeverse.judges.base import JudgeInput, plan_digest
+from codeverse.judges.calibration import spearman
 from codeverse.judges.vlm_judge import VlmJudge
 from codeverse.tracks.graphics import frame_stats_text
 from codeverse.workspace import Workspace
 
 OUT_ROOT = Path(__file__).resolve().parent / "out"
-
-
-def spearman(a: list[float], b: list[float]) -> float:
-    def rank(v: list[float]) -> list[float]:
-        order = sorted(range(len(v)), key=lambda i: v[i])
-        r = [0.0] * len(v)
-        i = 0
-        while i < len(order):  # average ranks for ties
-            j = i
-            while j + 1 < len(order) and v[order[j + 1]] == v[order[i]]:
-                j += 1
-            for k in range(i, j + 1):
-                r[order[k]] = (i + j) / 2
-            i = j + 1
-        return r
-    ra, rb = rank(a), rank(b)
-    n = len(a)
-    if n < 3:
-        return float("nan")
-    return 1 - 6 * sum((x - y) ** 2 for x, y in zip(ra, rb, strict=True)) / (n * (n * n - 1))
 
 
 def best_round(run: Path) -> dict[str, Any] | None:
@@ -131,9 +112,10 @@ def main(argv: list[str] | None = None) -> int:
         js = [r["overall"] for r in ok]
         ey = [eye[r["key"]] for r in ok]
         rho = spearman(js, ey)
+        rho_s = "n/a" if rho is None else f"{rho:.2f}"
         loop = [r["loop_overall"] for r in ok if r.get("loop_overall") is not None]
         lines.append(f"\n## {rubric}\n")
-        lines.append(f"Spearman(judge, eye) = **{rho:.2f}** · mean judge {st.mean(js):.3f} · mean eye {st.mean(ey):.3f}"
+        lines.append(f"Spearman(judge, eye) = **{rho_s}** · mean judge {st.mean(js):.3f} · mean eye {st.mean(ey):.3f}"
                      + (f" · loop-time mean {st.mean(loop):.3f}" if loop else "") + f" · n={len(ok)}\n")
         fired: dict[str, int] = {}
         for r in ok:

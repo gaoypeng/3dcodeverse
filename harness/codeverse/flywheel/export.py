@@ -26,7 +26,6 @@ else ``<captions_dir>/<slug>.json`` (side-car written by ``3dcv flywheel caption
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import shutil
@@ -41,7 +40,8 @@ from codeverse.contracts.run import RunId, RunRecord
 from codeverse.flywheel import sample as S
 from codeverse.flywheel._git import CODE_ROOTS
 from codeverse.flywheel.quality import DuplicateGroup, code_sha256, mark_duplicates
-from codeverse.flywheel.record import FoundRun, iter_runs
+from codeverse.flywheel.record import FoundRun, best_round_record, iter_runs
+from codeverse.proc import sha256_file
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -107,14 +107,6 @@ class ExportedSample(NamedTuple):
     meta: S.SampleMeta
 
 
-def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def export_one(
     ws: Workspace, record: RunRecord, out_dir: Path, *, overwrite: bool = True,
     captions_dir: Path | None = None, run_id: RunId | None = None
@@ -126,7 +118,7 @@ def export_one(
     one the key falls back to the directory basename (flat layouts only)."""
     key = run_id.slug if run_id is not None else S.sample_key(ws)
     dest = out_dir / S.sample_rel_dir(record, key)
-    rnd = S.best_round_record(record)
+    rnd = best_round_record(record)
     files, code_source = S.code_files_for_round(ws, rnd)
     if not files:
         raise S.SampleError("no code files in src/ (nothing to export)")
@@ -151,7 +143,7 @@ def export_one(
     tmp = dest / "meta.json.tmp"
     tmp.write_text(meta.model_dump_json(indent=2))
     tmp.replace(dest / "meta.json")
-    hashes = {rel: _sha256_file(dest / rel) for rel in all_files}
+    hashes = {rel: sha256_file(dest / rel) for rel in all_files}
     return ExportedSample(dest=dest, file_hashes=hashes,
                           code_sha256=code_sha256(files), meta=meta)
 
@@ -213,7 +205,7 @@ def export_samples(
 
     for ws, rec, rid in found:
         rep.n_runs += 1
-        rnd = S.best_round_record(rec)
+        rnd = best_round_record(rec)
         j = S.effective_judgment(rnd) if rnd is not None else None
         score = j.overall if j is not None else None
         if rnd is None:
@@ -420,7 +412,6 @@ def write_jsonl(rows: list[dict[str, Any]], path: Path, *, commit: bool = True) 
 
 
 # ===================================================================== manifest
-# (merged from codeverse/flywheel/manifest.py, 2026-08-28)
 MANIFEST_NAME = "dataset_manifest.json"
 
 

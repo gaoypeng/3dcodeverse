@@ -31,7 +31,7 @@ CTX_KEY = "skills"  # ctx.extra slot holding this round's SkillsMaterialized
 def _previous_findings(ctx: RunContext, index: int) -> list[GateReport]:
     """The gates of the last completed round — the input no CLI's own loader can see.
 
-    Read straight off disk rather than through ``steps.load_round_records`` so the hook
+    Read straight off disk rather than through ``steps.load_round_journal`` so the hook
     stays independent of the round loop (and so a half-written record from a killed run
     costs this round its gate routing, not the round itself)."""
     if index <= 0:
@@ -72,7 +72,7 @@ def attach_for_round(ctx: RunContext, *, index: int, kind: str) -> Any | None:
             track=ctx.spec.track.value if hasattr(ctx.spec.track, "value") else str(ctx.spec.track),
             language=ctx.language.value,
             kind=kind,
-            agent_kind=ctx.agent_id.split(":", 1)[0],
+            agent_kind=ctx.agent_kind,
             plan=ctx.plan,
             findings=_previous_findings(ctx, index),
             single_shot=ctx.single_shot,
@@ -124,7 +124,7 @@ def repair_pointers(ctx: RunContext, lint: GateReport | None) -> str:
 
     kinds = set(finding_kinds([lint])) if lint is not None else set()
     answering = [s.name for s in got.selections if kinds & _matched(s, kinds)]
-    return _fmt(got.selections, agent_kind=ctx.agent_id.split(":", 1)[0], answering=answering)
+    return _fmt(got.selections, agent_kind=ctx.agent_kind, answering=answering)
 
 
 def _matched(selection: Any, kinds: set[str]) -> set[str]:

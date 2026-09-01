@@ -1,4 +1,4 @@
-"""ArticulatedPlan._normalise_raw: the three planner slips that cost compare_art_v2 5 of 14 prompts."""
+"""Articulated-plan normalization and safe repair."""
 
 from __future__ import annotations
 
@@ -54,22 +54,18 @@ def _joint(p: ArticulatedPlan, j: dict):
     return next(x for x in p.joints if x.name == j["name"])
 
 
-@pytest.mark.parametrize("lower,upper", [(0.0, 4 * math.pi), (-4 * math.pi, 4 * math.pi), (0.0, 6.5), (0.0, 10.0)])
-def test_a_revolute_joint_over_two_pi_in_radians_becomes_continuous(lower: float, upper: float):
-    """A radian range over 2π — including the ambiguous 2π..30 band (0..6.5, 0..10), which is read
-    as radians (contracts/plan.py DEGREES_MIN_SPAN) — is a free axle, never a degrees conversion."""
-    d = _raw()
-    j = _revolute(d, lower, upper)
-    p = ArticulatedPlan.model_validate(d)
-    fixed = _joint(p, j)
-    assert fixed.type == "continuous" and fixed.lower == fixed.upper == 0.0
-    assert any("> 2π → continuous" in n for n in p.normalisations)
-    assert not any("degrees" in n for n in p.normalisations)
+def test_a_revolute_joint_over_two_pi_in_radians_becomes_continuous():
+    for lower, upper in ((0.0, 4 * math.pi), (-4 * math.pi, 4 * math.pi), (0.0, 6.5), (0.0, 10.0)):
+        d = _raw()
+        j = _revolute(d, lower, upper)
+        p = ArticulatedPlan.model_validate(d)
+        fixed = _joint(p, j)
+        assert fixed.type == "continuous" and fixed.lower == fixed.upper == 0.0
+        assert any("> 2π → continuous" in n for n in p.normalisations)
+        assert not any("degrees" in n for n in p.normalisations)
 
 
 def test_a_door_planned_in_degrees_stays_a_quarter_turn_hinge():
-    """The review's case: `0..90` is degrees for radians; the old repair made it a free 360° axle
-    and the sweep drove the door through its cabinet.  It stays revolute, 0..1.5708 rad."""
     d = _raw()
     j = _revolute(d, 0.0, 90.0)
     p = ArticulatedPlan.model_validate(d)
@@ -80,16 +76,18 @@ def test_a_door_planned_in_degrees_stays_a_quarter_turn_hinge():
     assert not any("continuous" in n for n in p.normalisations)
 
 
-@pytest.mark.parametrize("lower,upper,rest", [(-180.0, 0.0, 0.0), (0.0, 90.0, 90.0), (-45.0, 45.0, 0.0), (0.0, 30.0, 0.0)])
-def test_degree_shaped_limits_and_rest_are_converted_together(lower: float, upper: float, rest: float):
-    d = _raw()
-    j = _revolute(d, lower, upper, rest)
-    p = ArticulatedPlan.model_validate(d)
-    fixed = _joint(p, j)
-    assert fixed.type == "revolute"
-    assert fixed.lower == pytest.approx(math.radians(lower)) and fixed.upper == pytest.approx(math.radians(upper))
-    assert fixed.rest == pytest.approx(math.radians(rest))
-    assert sum("looked like degrees" in n for n in p.normalisations) == 1
+def test_degree_shaped_limits_and_rest_are_converted_together():
+    cases = ((-180.0, 0.0, 0.0), (0.0, 90.0, 90.0), (-45.0, 45.0, 0.0), (0.0, 30.0, 0.0))
+    for lower, upper, rest in cases:
+        d = _raw()
+        j = _revolute(d, lower, upper, rest)
+        p = ArticulatedPlan.model_validate(d)
+        fixed = _joint(p, j)
+        assert fixed.type == "revolute"
+        assert fixed.lower == pytest.approx(math.radians(lower))
+        assert fixed.upper == pytest.approx(math.radians(upper))
+        assert fixed.rest == pytest.approx(math.radians(rest))
+        assert sum("looked like degrees" in n for n in p.normalisations) == 1
 
 
 def test_a_two_turn_degree_range_falls_through_to_continuous():
@@ -125,8 +123,7 @@ def test_unfixable_plans_still_fail():
 
 
 def test_planner_text_in_normalisations_is_dropped():
-    """articulated_v2 scissor_mirror (2026-08-26): the planner wrote two lines of design prose into
-    the harness-only field; they must not read as harness repairs in the record."""
+    """Planner prose cannot masquerade as harness repair history."""
     from codeverse.contracts.plan import ArticulatedPlan
 
     raw = ArticulatedPlan._normalise_raw({"parts": [{"name": "A", "bbox": {"center": [0, 0, 0], "extents": [1, 1, 1]}}],
@@ -136,9 +133,7 @@ def test_planner_text_in_normalisations_is_dropped():
 
 
 def test_a_joint_naming_a_part_by_a_unique_fragment_is_resolved():
-    """art_med_tool_chest, 2026-08-27: the planner named parts one way and referenced
-    them another in the joints, then repeated the identical mistake through both
-    re-asks — the run died at the planner with 0 rounds in 8 min."""
+    """A unique fragment is a safe repair for a mismatched joint reference."""
     d = _raw()
     d["parts"][1]["name"] = "ChestDrawer"        # the plan's own name ...
     d["joints"][0]["child"] = "Drawer"           # ... referenced by one word of it
@@ -149,8 +144,7 @@ def test_a_joint_naming_a_part_by_a_unique_fragment_is_resolved():
 
 
 def test_an_ambiguous_joint_reference_is_rejected_and_names_the_real_parts():
-    """Two parts match the fragment → no safe repair; the message must then tell the
-    planner what the real names are, which is what the two re-asks were missing."""
+    """An ambiguous fragment is rejected and names the available parts."""
     d = _raw()
     d["parts"][1]["name"] = "ChestDrawer"
     twin = dict(d["parts"][1])
@@ -172,7 +166,7 @@ def test_a_root_link_that_names_no_part_becomes_the_one_link_no_joint_moves():
     d["root_link"] = "040fbba3-b0f3-42e1-85b3-f61b0c034293"
     plan = ArticulatedPlan.model_validate(d)
     assert plan.root_link == "Cabinet"
-    assert any("is not a part" in n and "Cabinet" in n for n in plan.normalisations)
+    assert any("no joint moves" in n and "Cabinet" in n for n in plan.normalisations)
 
 
 def test_an_ambiguous_root_is_still_rejected():
@@ -182,3 +176,106 @@ def test_an_ambiguous_root_is_still_rejected():
                        "bbox": {"center": [0, 0, -0.05], "extents": [0.5, 0.6, 0.1]}})
     with pytest.raises(ValidationError, match="root_link nowhere is not a part"):
         ArticulatedPlan.model_validate(d)
+
+
+def test_swapped_limits_are_written_as_the_swap_they_are():
+    d = _raw()
+    j = d["joints"][0]
+    j["lower"], j["upper"] = 1.2, 0.0
+    j["rest"] = 0.5
+    p = ArticulatedPlan.model_validate(d)
+    fixed = next(x for x in p.joints if x.name == j["name"])
+    assert (fixed.lower, fixed.upper) == (0.0, 1.2)
+    assert any("swapped" in n for n in p.normalisations)
+
+
+def test_a_rest_outside_the_limits_is_clamped_not_fatal():
+    d = _raw()
+    j = d["joints"][0]
+    j["lower"], j["upper"], j["rest"] = 0.0, 1.0, 2.5
+    p = ArticulatedPlan.model_validate(d)
+    fixed = next(x for x in p.joints if x.name == j["name"])
+    assert fixed.rest == pytest.approx(1.0)
+    assert any("clamped" in n for n in p.normalisations)
+
+
+def test_a_zero_axis_still_fails_validation():
+    d = _raw()
+    d["joints"][0]["axis"] = [0, 0, 0]
+    with pytest.raises(ValidationError):
+        ArticulatedPlan.model_validate(d)
+
+
+def _rename_part(d: dict, old: str, new: str) -> None:
+    for part in d["parts"]:
+        if part["name"] == old:
+            part["name"] = new
+        if part.get("attach_to") == old:
+            part["attach_to"] = new
+    for j in d["joints"]:
+        for side in ("parent", "child"):
+            if j.get(side) == old:
+                j[side] = new
+    if d.get("root_link") == old:
+        d["root_link"] = new
+
+
+def test_a_root_link_naming_no_part_is_resolved_by_the_1b_word_rule():
+    """af_excavator (2026-08-31, 3.7-flash): root_link 'chassis' over a part list that
+    spelt it differently killed the run after two re-asks.  Same word-boundary match as
+    the joint-fragment repair — never a bare substring."""
+    d = _raw()
+    real_root = d["root_link"]
+    _rename_part(d, real_root, "TrackedChassis")
+    d["root_link"] = "Chassis"
+    p = ArticulatedPlan.model_validate(d)
+    assert p.root_link == "TrackedChassis"
+    assert any("root_link 'Chassis'" in n and "TrackedChassis" in n for n in p.normalisations)
+
+
+def test_an_ambiguous_root_link_still_fails_validation():
+    d = _raw()
+    real_root = d["root_link"]
+    _rename_part(d, real_root, "TrackedChassis")
+    other = next(x["name"] for x in d["parts"] if x["name"] != "TrackedChassis")
+    _rename_part(d, other, "ChassisMount")
+    d["root_link"] = "Chassis"
+    with pytest.raises(ValidationError, match="root_link"):
+        ArticulatedPlan.model_validate(d)
+
+
+def test_a_joint_naming_a_sub_part_by_word_subset_promotes_it():
+    """af_grandfather_clock: joint said GlazedDoor, the child was GlazedFrontDoor — no
+    affix match, so 1b could not save it.  1c matches by word subset and promotes."""
+    d = _raw()
+    parent = d["parts"][0]
+    parent.setdefault("children", []).append(
+        {"name": "GlazedFrontDoor", "role": "hinged door", "description": "a glazed door",
+         "bbox": {"center": list(parent["bbox"]["center"]), "extents": [e * 0.4 for e in parent["bbox"]["extents"]]},
+         "material": "oak and glass"})
+    d["joints"].append({"name": "CaseToGlazedDoor", "type": "revolute", "parent": parent["name"],
+                        "child": "GlazedDoor", "axis": [0, 1, 0], "pivot": [0.2, 0.5, 0],
+                        "lower": 0.0, "upper": 1.5, "rest": 0.0, "motion": "door swings open"})
+    p = ArticulatedPlan.model_validate(d)
+    names = [x.name for x in p.parts]
+    assert "GlazedFrontDoor" in names
+    j = next(x for x in p.joints if x.name == "CaseToGlazedDoor")
+    assert j.child == "GlazedFrontDoor"
+    assert any("resolved to sub-part GlazedFrontDoor" in n for n in p.normalisations)
+
+
+def test_the_unknown_link_complaint_lists_the_sub_parts():
+    """The re-ask used to see only top-level parts — with everything nested, it was blind
+    to the very children the joints meant, and both re-asks died the same way."""
+    d = _raw()
+    parent = d["parts"][0]
+    parent.setdefault("children", []).append(
+        {"name": "PendulumBob", "role": "bob", "description": "a brass disc",
+         "bbox": {"center": list(parent["bbox"]["center"]), "extents": [0.1, 0.1, 0.02]},
+         "material": "brass"})
+    d["joints"].append({"name": "Mystery", "type": "revolute", "parent": parent["name"],
+                        "child": "SomethingElse", "axis": [0, 1, 0], "pivot": [0, 0, 0],
+                        "lower": 0.0, "upper": 1.0, "rest": 0.0, "motion": "?"})
+    with pytest.raises(ValidationError, match=r"Sub-parts that exist but are NOT links:.*PendulumBob"):
+        ArticulatedPlan.model_validate(d)
+

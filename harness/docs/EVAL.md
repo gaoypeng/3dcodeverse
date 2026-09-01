@@ -14,7 +14,7 @@ fooling ourselves.  Tools: `3dcv bench`, `bench/compare_backends.py`,
    distinctions (overall std ≈ 0.08–0.12 at n=3) — its dynamic range comes from
    the rubric defect checklist, not the criteria.
 2. **Same evidence for every arm.**  The evaluator rebuilds from code: lint+build →
-   `measure_glb` → connectivity gate → canonical 8-view `render_glb` (`OBJECT_VIEWS`,
+   `measure_glb` → connectivity gate → canonical 14-view `render_glb` (`OBJECT_VIEWS`,
    studio rig) → `VlmJudge`.  A failed build scores 0 (error recorded).  Acceptance
    items come from the battery's `must_have` list for *all* arms (no plan-derived
    items, so harness and one-shot are judged alike).
@@ -54,8 +54,8 @@ deterministic contract check.
 
 ```bash
 3dcv bench run bench/prompts/static_objects_v1.yaml \
-    --generator gemini-cli:gemini-3.6-flash --judge gemini:gemini-3.1-pro-preview \
-    --rounds 2 --max-usd 2.5 --parallel 4 --out bench/out/static_v1_apiagent
+    --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview \
+    --rounds 2 --parallel 4 --out bench/out/static_v1_apiagent
 3dcv bench run bench/prompts/static_objects_v1.yaml --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
 3dcv bench report bench/out/static_v1_apiagent
 ```
@@ -82,11 +82,11 @@ cheaply.
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
     --arms harness:gemini-cli:gemini-3.6-flash,harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
     --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1 [--parallel 3] [--limit N] [--ids a,b]
-    [--rounds 3] [--max-usd 2.5] [--loop-judge gemini:gemini-3.7-flash] [--repair-attempts 2] [--gen-timeout 900]
+    [--rounds 3] [--loop-judge gemini:gemini-3.7-flash] [--repair-attempts 2] [--gen-timeout 900]
     [--no-pairwise] [--no-resume] [--report-only]
 ```
 Arms:
-* `harness:<generator-id>` — the full static_object track (rounds ≤ `--rounds`, ≤ `--max-usd`);
+* `harness:<generator-id>` — the full static_object track (rounds ≤ `--rounds`);
   its in-loop judge is `--loop-judge` (default: settings default); the loop's own score
   is **not** the reported score.
 * `oneshot:<x>` — ONE raw generation from prompt + minimal contract (no tools, cookbook,
@@ -96,10 +96,13 @@ Arms:
 
 Every arm ends with a `src/model.py` copied into a fresh eval workspace and scored by
 the same `FixedEvaluator` (`BlenderRuntime` lint+build → measure → connectivity →
-8-view render → `VlmJudge(static_object_v1, --judge, n_samples=2)`).  Then a pairwise
+14-view render → `VlmJudge(static_object_v1, --judge, n_samples=2)`).  Then a pairwise
 arena runs every harness arm against every one-shot arm per prompt (both orderings).
 Output under `--out`: `matrix.json`, `results.jsonl` (cells, resume source),
 `pairwise.jsonl`, `cells/<prompt>/<arm>/{run,gen,eval}`, `report.md`, `report.html`.
+`--no-resume` archives a harness cell's `run/` as `run.attempt<N>` and regenerates it
+(2026-08-30; before that it dropped the recorded row and then resumed the finished
+workspace anyway, so the "fresh" cell re-reported its old score).
 
 Report per arm: mean/median score, pass rate, build-failure rate, per-tier breakdown,
 cost and wall time per prompt; arena: wins/ties/losses with mean confidence.  Claim a
@@ -152,8 +155,9 @@ cross-backend candidate pairs keyed by prompt hash).
 `codeverse.judges.calibration` re-judges recorded rounds without touching the runs:
 
 ```bash
-python -m codeverse.judges.calibration runs/e2e_chair_blender runs/e2e_cabinet_urdf \
+python -m codeverse.judges.calibration <run-dir> [<run-dir> ...] \
     --model gemini:gemini-3.1-pro-preview --n 3 --out out/calib [--geometry clay|normals|none] [--rounds 0,1]
+# run dirs: any recorded run, e.g. bench/out/<battery>/runs/<slug>
 ```
 Output: `calibration_<model>.md/.json` with per-round mean±std (capped and uncapped),
 which caps/defects fired, pearson/spearman(gate errors vs score), correlation with the
@@ -175,30 +179,77 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
 "images beat gate text for visible facts" in the prompt fixed pro hallucinating
 "nothing moves" from contract-gate text.
 
-* Variance on your own runs: `3dcv judge <slug> --n k` and read `score_std` /
-  `judges.metrics.judge_agreement`.
+* Variance on your own runs: `3dcv judge <slug> --n k` and read `score_std`.
 * Sanity anchors: a skeleton placeholder should score ≈ 0.3–0.5; a deliberately wrong
   object should trip the `intent_fidelity` floor / `wrong_object` defect; a floating
   part should cap via `connectivity` findings with `data["kind"]="floating"`.
 * A better recurring smoke than re-judging e2e rounds: a separation set with
   deliberately broken variants (exploded / floating / primitive-only).
-* **A checklist defect a passed gate measured absent does not cap (7a9b6d3).**  The
-  judge's binary checklist feeds a per-item penalty and, for `floating_part` /
-  `interpenetration`-class items, a hard cap (`defect:<id>` in `caps_applied`).  Those are
-  also what the connectivity gate *measures*.  Measured 2026-08-26 on a plan-pinned pair
+* **A checklist defect a passed gate measured absent does not cap (7a9b6d3; repaired
+  2026-08-30).**  The judge's binary checklist feeds a per-item penalty and, for
+  `floating_part` and `interpenetration`, a hard cap (`defect:<id>` in `caps_applied`).
+  Those two are also what the connectivity gate *measures*, and since 2026-08-30 the veto
+  really reaches both: replayed over the 419 stored static_object verdicts
+  (`bench/rejudge_offline.py`) it switches off `interpenetration` on 163 and `floating_part`
+  on 72 — before the repair it had fired 10 times in total and never once for
+  interpenetration.  Measured 2026-08-26 on a plan-pinned pair
   (fancy_v1 `gas_street_lamp`, two lamps the eye cannot tell apart): the gate reported
   "all 9 parts connected, gap ≤ 2 mm" and was in the judge's input; both pro samples read
   the dark seam under the pedestal as "floating in mid-air, a clear daylight gap", and
   `defect:floating_part` capped the run at 0.600 (uncapped 0.720) against 0.962 for its
-  sibling.  `judges/caps.measured_absent`: when a `when=gate` cap rule with the same id
-  has all its watched gates passed with no ERROR finding of its `kinds`, the checklist
-  claim is switched off before the penalty and before `apply_caps`, and named in the verdict
-  tail ("checklist claims contradicted by a passed gate").  A failed gate, a gate that did
-  not run, or a defect nothing measures (`wrong_object`, `missing_named_part`) are
-  untouched.  Re-aggregating the eleven judged fancy_v1 cells from their stored samples
-  changed exactly one score (that lamp, 0.600 → 0.720); the other 0.600s are
-  `missing_must_acceptance` / interpenetration caps the gates agree with.  0b6f52b tells the
-  judge the same thing in its prompt; this holds when the judge does not listen.
+  sibling.  `judges/rubrics.measured_absent`: when a `when=gate` cap rule whose `measures`
+  names the defect (`penetration_error.measures: [interpenetration]`; `floating_part` by
+  default) has all its watched gates passed with no ERROR finding of its `kinds`, the
+  checklist claim is switched off before the penalty and before `apply_caps`, named in the
+  verdict tail ("checklist claims contradicted by a passed gate") and listed in
+  `raw.overridden`.  A failed gate, a gate that did not run, or a defect nothing measures
+  (`wrong_object`, `missing_named_part`) are untouched.  Two faults kept it dead until
+  2026-08-30: the rule was matched by *id* (`penetration_error` ≠ `interpenetration`, so 237
+  interpenetration flags — 110 of them citing only WARNs the rubric says to ignore — were
+  never vetoed), and the object rubrics' rules watched `gate: "*"`, so a failing contract gate
+  (53 of the 62 blocked cases) switched off a veto connectivity had earned; they now watch
+  `connectivity` alone, the only gate that emits floating / penetration ERRORs on this track
+  (540 findings over 356 records).  The veto is depth-aware (`VETO_PENETRATION_DEPTH_M`, 8 mm —
+  5 mm let the judge's tick on the pipe tee's 5.8 mm designed branch socket stand, −0.32 on that
+  side of the paired re-judge): a penetration WARN measured that deep is not "absent" — the
+  WARN-blind version switched off 163 interpenetration claims.  With the graded cap below the
+  final replay moves 230 of 419 stored verdicts (none down), pass rate 15.0 % → 21.0 %,
+  pearson(gate errors, overall) −0.219 → −0.301, vetoed: interpenetration 130, floating 72.  0b6f52b tells the judge the same thing in its prompt; this holds when the judge
+  does not listen.
+* **`missing_must_acceptance` is graded (2026-08-30).**  The flat 0.6 was the decisive cap on
+  121 of 424 static_object verdicts (28.6 %): one unverified must item out of ten scored
+  exactly like ten out of ten, and 130 of 419 stored scores sat on 0.600.  The cap is now
+  `0.6 + 0.4 · verified/total` over the must items (`CapRule.graded`; the ledger line says
+  "k of n must items verified").  Pass/fail is unchanged — any unverified must item still
+  fails — only the score keeps its gradient: the 0.600 spike drops 130 → 20 on replay, σ
+  0.206 → 0.224.  Every breakdown now carries `scoring_version` (`rubrics.SCORING_VERSION`,
+  2 for this batch); `rejudge_offline --identity` holds only same-version verdicts to 1e-9.
+* **The judge reads the contact ledger, not WARN prose (2026-08-30).**  Audited over 420
+  rounds: P(judge marks interpenetration | connectivity ERROR) = 69/69, and 110 of the 237
+  flags cited only WARNs the rubric excuses — the same images with the gate section removed
+  flipped the flag on 13/24 sides.  `gates_section` now renders the gate's contact ledger:
+  one measured overlap line (deepest pair, through-ratio, "these are welds, not the defect"),
+  a MEASURED STRUCTURE block with the plan's joins as contact/OPEN (312 stored rounds carry
+  joins; 171 have ≥ 1 OPEN one — the assembly_fit ground truth that did not exist), and the
+  lowest point above the floor with its number.  p50 307 / p90 484 tokens on the corpus.
+  It rides on the v1 `judge_prompt_hash` (per-run text is not hashed), so its effect is NOT
+  in any replay: the measurement is a paired re-judge.  **Run 2026-08-30** (42 matched items,
+  the 53-item σ battery as arm A vs the shipped bundle as arm B, fixed order, n=3, $6.12):
+  on old-gate-clean items the interpenetration claim rate moved 21 % → 18 % (n=28 —
+  underpowered against the corpus's 39 % criterion, which needs the 120 view-pruned rounds);
+  Δ(B−A) overall +0.059 mean (corpus rounds +0.141, h2h ours −0.040, h2h theirs +0.026);
+  within-arm σ unchanged (0.030 → 0.032).  Two case reads: the new gate's 12.7 mm ERROR on
+  clock_q4 is a real catch (0.912 → 0.700), and the pipe tee's −0.32 exposed the 5 mm veto
+  line marking a designed 5.8 mm branch socket — which is why the line is 8 mm.
+* **The judge's own re-judge σ is 0.035 (2026-08-30, fixed montage order).**  53 items — the
+  29 corpus rounds that still carry view PNGs + the 24 h2h object-sides re-rendered from their
+  GLBs — judged three times each with the identical prompt (`VlmJudge(fixed_order=True)`,
+  pro, $7.79): σ of the final overall mean 0.035, median 0.027, p90 0.060; per criterion
+  0.037 (intent) – 0.065 (structure).  That is the number `cost/routing.JUDGE_NOISE` already
+  tables (0.030, measured with per-sample view shuffles), so the loop's σ-keyed stops are
+  keyed to the right magnitude and the 0.072 round-to-round spread in the corpus is
+  generation variance, not the judge.  Untested: temperature 0.0 (brilliana measured 0.013
+  vs 0.035 between 0.0 and 0.2 on 512 calls) — one more $8 battery.
 * Never tune rubric text against the battery you report on; bump the rubric version
   (`*_v2`) instead and re-run.
 
@@ -211,7 +262,7 @@ same contact sheets ("would a curator screenshot it / does it look like the thin
 Three aurora versions nobody would take for an aurora scored 0.78 / 0.94 / 0.94 with empty issue
 lists; opaque pastel discs for bokeh 0.92; a lifted purple wash for a nebula 0.82; a crisp
 ukiyo-e wave 0.59 under planner must items.  The rubric scored the nouns of the brief being
-present.  `docs/GRAPHICS_LOOP.md` is the loop that fixes this (rubric `shader_v2`: likeness,
+present.  The graphics loop fixes this (rubric `shader_v2`: likeness,
 tonal range, an artefact checklist; reference photos via `bench/refs/<id>/`; `LikenessJudge`)
 and the ledger of turns; `bench/judge_calib_graphics.py` re-judges the corpus under two rubrics
 against the eye file and is the gate for switching the track default.  The rule from §6 holds:
@@ -477,8 +528,10 @@ settling before a larger n measures the rubric's preference with more precision.
 
 No such comparison existed before today; their scores are their own judges'.  Protocol:
 `bench/h2h_glb.py` (objects) takes 12 confirmed entries of astra3d-brilliana's gallery (prompt
-verbatim, `must_have` empty), our runs on the same prompts (flash, ≤ 3 rounds, on a 503-storm
-day), renders BOTH GLBs with our renderer, gates both, and judges both with one fixed pro judge
+verbatim, `must_have` empty), our runs on the same prompts (generator
+**`api-agent:gemini:gemini-3.7-flash`** — the in-process arm, retired two days later by `66175ec`;
+`candidates=1`, `texture=false`; ≤ 3 rounds, on a 503-storm day), renders BOTH GLBs with our
+renderer, gates both, and judges both with one fixed pro judge
 (`static_object_v1`, n=2) — twice: **visual only** (no gate text in the judge's context) and
 **gated** (the gate findings in the context, what the harness itself would say).  The gallery
 GLBs are merged, un-welded exports whose "floating" findings are export artefacts as often as
@@ -499,6 +552,31 @@ with geometry measured we are ahead on 10 of 12 (final, all twelve prompts judge
 counts, not the third decimal.  Scenes: ahead on 4 of 5 at less than half the minutes and a
 quarter of the dollars; the two landmark prompts (Big Ben, Colosseum) score near zero on both
 sides.  Sheets: `bench/out/h2h_brilliana_v1/pairs/`, `bench/out/h2h_scene_v1/sheets/`.
+
+**Re-read 2026-08-30, from the stored judgments rather than this table.**  Recomputing
+`overall_uncapped` — the rubric-weighted mean of the seven criteria, before any defect penalty or
+cap — gives theirs 0.848 against ours 0.843: **Δ = −0.005, 6 W / 6 L**.  So the +0.105 above is
+produced *entirely* by the binary defect checklist (their mean penalty −0.192, ours −0.082), and the
+checklist is perception, not our gates — `h2h_glb.py:170` judges the visual pass with `gates=[]`.
+Its dominant term is `wrong_orientation`: theirs 4/12, ours 0/12, because `contracts/conventions.py`
+pins a front axis per language and their pipeline pins only up-axis.  Per criterion we lead
+intent_fidelity +0.042 / structure +0.029 / proportions +0.025 and trail assembly_fit −0.069 /
+geometry_detail −0.046 / materials −0.042 / craftsmanship −0.029 — right object, plainer object.
+Both deltas sit inside the 0.202 floor, so **n = 12 separates neither**; what the run does establish
+is that unselected single runs (`candidates=1`, `texture=false`) draw level with twelve entries that
+rank **#2–#26 of the 120 scored entries in their gallery** (all ≥ 0.8085 by their own judge; gallery
+median 0.7747).  The comparison that would answer the question — our configured best
+(`gemini-cli:gemini-3.7-flash`, `--candidates 3 --texture`) against a *median* draw from their
+gallery — has not been run.
+**Measurement caveat found 2026-08-30 (evening):** the three THEIRS threejs sides (desk_lamp,
+clock, lighthouse — THREE.GLTFExporter files with a root ``pivot`` matrix, 21–173 unnamed nodes
+and duplicate names) were MIS-MEASURED by trimesh: an upright lamp read as lying on its side
+with a part 28 mm under the floor, and the judge saw that measurement table.  Their
+``wrong_orientation`` ticks and the ground-gap numbers on those three are suspect, and so is
+the threejs +0.335.  Our own 14 threejs GLBs are unaffected (0 mm difference between the
+graph walk and trimesh).  ``measure_glb`` now walks the edge matrices itself and flags
+duplicate/unnamed nodes; those three sides need a re-evaluation before the per-language
+threejs number is quoted again.
 
 ### 8.8 PR #1's articulated planner repair, verified (2026-08-26 evening)
 
@@ -522,3 +600,267 @@ rate, build-fail rate, cost, minutes); pairwise table; number of degraded verdic
 re-run; **cells dropped as `infra_failed` and `budget_exhausted`, per arm** (§7 — an
 omitted drop count is an unreadable table); links to `record.json` / `report.html`
 under `bench/out/`.
+
+## Judge experiments log
+
+**2026-08-29 — profiles and the detail round.**  `RoundPolicy.detail_rounds` is tri-state
+(`None` = the track default, `lifecycle.DEFAULT_DETAIL_ROUNDS=1` where supported; `0` = off).
+Until this date a profile that injected a `judge_samples>1` policy (economy, quality)
+silently zeroed the static track's surface-detail round while balanced kept it; all
+three profiles now get it, and `CV3D_DETAIL_ROUNDS` remains the A/B switch.  Any
+economy/quality-vs-balanced comparison straddling this commit compares different
+round counts.
+
+**2026-08-29 — per-language system prompts: NULL, three independent A/Bs.**  The
+one-line system prompts were replaced with evidence-grounded ones mined from each
+language's recorded failure corpus (the `CV3D_SYSPROMPT=v0` arm kept the old ones for
+the A/B; arm and `system_v0.md` files were deleted 2026-08-29 after the null).  Three
+paired A/Bs all read null: glsl CLI (n=10/arm, Δ+0.003, within-arm σ 0.18), blender
+single-shot (8 pairs, paired Δ−0.027), blender CLI on 3.6-flash (10/10 pairs, paired
+Δ−0.036, 4W/2T/4L, paired σ 0.403 — per-brief swings up to ±0.9 dwarf any prompt
+effect).  With the tool loop enforcing the self-check discipline anyway, prompt
+wording is not where static/graphics quality lives; run-to-run variance is.  The
+prompts stay (they cost nothing and encode true contracts), but no further wording
+A/Bs without a structural change to test.
+
+
+**2026-08-29 — flash "named-feature sweep" prompt variant: REJECTED.**  Re-judged 9 recorded
+runs spanning stored 0.02–0.98 with `gemini-3.7-flash` n=3, base prompt vs a variant that
+inserts an explicit present/absent sweep of brief-named features before scoring.  The one
+confirmed leniency case (a violin missing its f-holes, judged ~0.43 by pro; renders eyeballed)
+did not move (0.898 → 0.888) and mean overall σ doubled (0.014 → 0.032); espresso gained an
+honest interpenetration defect, chair/penny unchanged.  Root cause of the violin miss sits in
+the PLAN (no FHoles part — see the defining-features rule added to `plan_static.j2` the same
+day), not in judge prose.  Flash stays a ranking/fallback judge; pro stays the verdict judge.
+Two calibration-tool defects found the same day (colliding `run` labels overwriting judgment
+files; old records whose stored overall contradicts their own criterion scores) are fixed in
+`judges/calibration.py` and flagged in its report.
+
+### 2026-08-30 — scene stack iteration: five levers, four batteries, one honest ledger
+
+**Cross-project baseline (renders-only, our `scene_v1`, one judge):** scene_multifile_graphics
+mean **0.433** (n=29, max 0.936, six runs ≥ 0.7) vs our pre-iteration scenes **0.272**
+(n=24, max 0.516, zero ≥ 0.7).  Every number below is the same six ToD-explicit briefs at a
+110-minute window unless noted; per-brief deltas at n=1 carry judge noise σ≈0.4 — only arm
+means and mechanism evidence are read.
+
+**Levers landed** (each commit message carries the measured motivation):
+env-skeleton lint ERROR (251d099); boot-time settle (35168da) + slope-conformal guard
+(e71221a); assets ∥ env (1ddea7f); plan-aware contract gates (1bdfd32); L2 zone layouts
+(beb6605) + camera clearance (58da6b3) + `CV3D_ZONE_LAYOUTS` switch (020316d); opt-in camera
+repair (0365fef, `CV3D_CAMERA_REPAIR=1`); opt-in auto-exposure (78d397c,
+`CV3D_AUTO_EXPOSURE=1`).
+
+**Longitudinal arms:**
+
+| arm | config | vs prior arm |
+|---|---|---|
+| t36 | 3.6-flash, new ToD prompt | mean 0.483 (its own 75-min baseline was 0.259) |
+| s37 | 3.7-flash + settle | Δ+0.029 vs t36 (n=6, 4W2L; nyc_dusk 0.718 = first `passed`) |
+| fv  | + camera-BLIND layouts + gates + ∥ | Δ−0.161 vs s37 (n=4, 0W3L1T) |
+| fv2 | camera-AWARE layouts | Δ−0.036 vs s37 (n=5, 1W4L; izakaya **0.758 passed, best scene ever**) |
+
+**Settle A/B** (re-render six finished workspaces, only variable = settle): 3W2L, mean
++0.063 — inconclusive at n=1, but the mechanism evidence is decisive: the slope guard cut
+santorini's moves 17 → 3 (six hillside stairways, once lifted +1.3..+3.3 m and judged 0.0,
+now refused), and small uniform reseats (+0.06..0.26 m) are what the wins are made of.
+
+**Layout-layer anatomy** (why fv regressed, three distinct modes): camera-blindness — the
+director placed BarCounter 0.7 m from a lens, three rounds of camera_in_geometry, FIXED by
+putting cameras in the layout prompt + validator; internal overlap — RetainingWall ×
+PrayerBench interpenetration, OPEN (a naive pairwise-distance rule false-positives on
+legitimate adjacency like stools against a counter); richness variance with no caps at all.
+Contract-gate lifecycle verified end to end on fv_nyc_dusk: r0 `missing_content: 2` → the
+refine round fixed both → final round clean, settle moved nothing, 0.724 passed.
+
+**Standing verdict:** the layout layer is net ≈ null after the camera fix and stays ON
+(one-var off-switch exists); camera repair + auto-exposure ride in `scene_px_v1`
+(vs fv2 same-brief = their isolated read, in flight).  The honest gap to the baseline
+project is no longer the mean — it is the ceiling (their 0.936 vs our 0.758) and the
+floor (their 6 runs ≥ 0.7 vs our 2).
+
+**Addendum (same day, later).**  fv2 closed at n=6: the layout layer vs s37 is Δ−0.023 ≈ null (2W4L; izakaya +0.258 and alpine +0.047 are the wins).  scene_px_v1 (camera repair + auto-exposure armed — verified in /proc of the live workers): isolated px−fv2 Δ+0.055 (3W1L, n=4, taj pending), arm mean 0.579 with 3/4 runs ≥ 0.6. The trigger sweep attributes that delta to VARIANCE, not to the levers: camera repair fired zero times across the battery (the layout layer's camera clearance already keeps lenses out of furniture upstream), and auto-exposure fired only on taj, where halving the exposure left the blown frame's luminance unchanged (0.8369 → 0.8369 — effectiveness investigation open; suspects: NoToneMapping renderers, toneMapped=false materials).  Decisions: camera repair defaults ON (3f463ce — provably a no-op when healthy, and the class it insures against is fatal and unreachable by refine); auto-exposure stays opt-in; layouts stay ON behind the one-var switch.  Next: scene_final_v1 — all 20 briefs on frozen defaults (3.7-flash + settle + layouts + camera repair, AE off) to meet the baseline's n=29 at comparable sample size.
+
+**Addendum 2 (2026-08-31).**  scene_final_v1 closed: all 20 briefs on the frozen defaults, n=19 scored (fishing_harbor died at r1 on budget with no judgeable views), stored mean 0.533, four runs `passed`, four ≥ 0.7 (wormhole 0.784, alpine 0.761, eiffel 0.739, souk 0.715).  The same-scale verdict — renders only, one judge, our `scene_v1` on both corpora: **ours n=18 mean 0.488 med 0.467 max 0.802, ≥ 0.7: 3** vs the baseline project's n=29 mean 0.433 med 0.404 max 0.936, ≥ 0.7: 6.  Mean and median are AHEAD of the baseline for the first time (from 0.272 at the start of this iteration); the ceiling (0.802 vs 0.936) and the ≥ 0.7 rate remain theirs.  px closed with taj at 0.126 (budget), pulling the isolated P5+P6 read to null — consistent with the variance attribution above.  The closing defect histogram (flat_ground 12, world_edge 11, undressed 11, thin_atmosphere 10, monotonous 10) chose the next lever: the density gate (layout budgets vs census instance counts) shipped the same day.
+
+**2026-08-31 — judge payload v3: the 14-view rig ADOPTED (D47).**  4-arm A/B on 42 items
+(18 corpus rounds + 24 h2h sides) × n=3 `gemini-3.1-pro-preview`, plus full 3.7-flash and
+3.6-flash replicas, ≈ $47.  Arms: A = 8 views no clay (old baseline) · A2 =
+production-faithful 8 views + clay · B = 14 labelled 640 px single views · C = 14-view rig
++ clay through the montage machinery (5 montages + 2 crops).  C mean overall 0.6835 vs A
+0.6427 / A2 0.6558 / B 0.6308; the only multiplicity survivor is same-cap C−A +0.038
+(n=29, SE 0.013, t≈2.98) — raw C−B p=.041 / C−A p=.024 do not survive Holm because cap flips make
+the deltas heavy-tailed.  `untextured_flat` cap-rule fires: 11(A) / 6(A2) / 8(B) / 3(C).
+B rejected at $0.198 & 67.5k tok/verdict: its deficit is entirely cap flips (~half
+contradicting the pixels), and a defect-provenance pass over every PRESENT vote showed its
+defect-hunter halo was text-quoting — interpenetration pure-view TP is 0/14 in EVERY arm
+(the naive 14/14 measures reading comprehension of the shared gate text), and B's floating
+lead reduces to one genuinely visual item.  Flash replicas: payload Δ ≈ 0 on both 3.7 and
+3.6 — the rig pays only at pro tier.  C ships as D47 ($0.155/verdict, 40.9k input tok) — with the SHIPPED
+grouping re-measured (arm Cprod, $7.2): grouping alone moves the mean −0.044 vs C's
+accidental grouping (windmill 0.51 → 0.04; clean/dirty gap 0.134 → 0.155; ≈ A2 overall at
+−0.016) — a payload experiment must measure the exact grouping it ships.  Underside
+full-res singles (arm Cplus, $6.8): recovers the espresso underside catch (0.795 +
+render_artifacts vs 0.965 blind) but posts the worst clean/dirty gap (0.112), the highest
+row-σ (0.040) and a windmill relapse to 0.62 — rejected; the replace-the-bottom-crop
+variant stays queued.  Temperature A2 @ t=0 ($6.0): σ 0.037 → 0.022 (8/42 rows exactly
+deterministic) but mean −0.037 and pearson(gate errors) −0.195 → −0.126 — t = 0.2 stays.
+
+### 2026-08-31 — the loop goes four-track: objects, articulated, graphics join scenes
+
+Same methodology per track: a fancy battery → the defect histogram → deterministic
+levers → a paired validation arm.  First-day ledger (3.7-flash, stored scores):
+
+| track | battery | arm | standing defects |
+|---|---|---|---|
+| graphics | gfx_fancy_v1 n=6 | mean 0.692, max 0.910 (caustics) | banding 3/6, comb 1 |
+| articulated | art_fancy_v1 n=6 | mean 0.573, 3 ≥ 0.7 (lamp 0.892) | detail_below x3, wrong_motion x2, pivot x2, pose_clips x2 |
+| objects | obj_fancy_v1 (open) | birdcage 0.982 r1 | complex briefs blow the round-0 budget (40→60→90 min) |
+| scene | scene_dg_v1 n=6 | density-gate arm: 3W2T1L vs fs_ | gate fired ZERO times — quiet insurance; zone_empty x3 did the catching |
+
+**The graphics lever validated cleanly.**  'Dither last' (a scored-defect rule the
+cookbook buried mid-comment) moved into the system prompt's survive-every-brief rules
+after two placements were rejected by the tests themselves (a new always-on chapter —
+and even comment growth — eats the chapter-selection budget and squeezed the stars
+recipe out of the aurora prompt).  Validation re-ran the three weakest/strongest:
+accretion 0.846→0.911, aurora 0.478→0.617, campfire 0.328→0.726 — **+0.201 mean,
+3W0L, banding 3/6 → 0/3**.
+
+**Articulated planner repairs went live.**  Repair 4 (root_link that names no part)
+and repair 1c (a joint naming a sub-part by word subset — {glazed,door} ⊆
+{glazed,front,door}) each turned a twice-dead planning failure into a scored run:
+grandfather_clock 0.815 on its first repaired attempt; the excavator cleared planning
+and moved its death downstream to budget/model-timeout.  rc=247 (a gemini-cli
+process crash with an empty response) appeared twice on the heaviest sessions and did
+not reproduce on retry — judged transient.
+
+Next levers by histogram: articulated joint quality (pivot/pose/motion-type — the
+planned-motion and sweep machinery already measures most of it), object round-0
+budgets for ship-class briefs, and the scene ceiling (0.802 vs 0.936).
+
+**2026-08-31 — conditional cross-section slices ADOPTED (D48): three iterations under a
+pre-registered stopping rule.**  Question: can the judge be made to SEE interpenetration
+(D47's provenance pass: pure-view TP 0/14 in every arm — the 14/14 naive figure measured
+reading comprehension of the shared gate text)?  Instrument: the same 42-item battery,
+n=3 pro, 14 rows conn-dirty; the metric is the **guarded image-cited interp majority**
+on those 14, bar fixed at 8/14 BEFORE the last iteration ran.
+
+*Provenance-guard methodology.*  Every interp PRESENT vote that cites a slice is checked
+against the slice's own manifest and, where decisive, the PNG.  Citation classes:
+**A** = the slice is named AND the named part pair is verbatim in that slice's hatched
+list; **B** = the slice is named with no pair, but the slice genuinely carries hatch
+("slice 1 shows massive red hatched areas" over a slice that does).  A cited slice with
+no hatch, or a cited pair the manifest contradicts, is a FAIL and the vote is discarded.
+v3: 13 A votes + 8 B votes counted, 2 FAILs (a pair-swap parroted from the gate text; a
+citation into an empty slice) — 2/23 fabrication, 0 rows flipped by the guard.  Two rows
+reach majority through B votes only; both were PNG-read and the hatch is real, so 8/14
+stands (a pair-named-only reading gives 6/14 and discards PNG-true citations).
+
+*The three iterations.*  **v1** (slices always on, primed rig text): 8/14 but the wording
+primed the defect and clean rounds took damage — rejected.  **v2** (de-primed: hatch only
+gate-ERROR pairs, neutral legend, anti-over-read sentence, degenerate-slice drop): clean
+damage gone, but 5/14 — the seeing survived (catches retained), the narration did not.
+**v3** (conditional on a connectivity gate ERROR + one neutral elicitation sentence in
+the defect-checklist bullet; 28 clean rows byte-identical CPROD by construction): **8/14
+guard-verified**, honest negatives on the 4 rows whose error pairs miss both centre
+planes (10/12 present-votes there say text-only rather than inventing a citation), both
+real catches retained (gate_valve wrong_orientation 0.700→0.500 at 3/3; clock_theirs
+hatch-verified 3×A), dirty mean at CPROD parity excluding one row, clean−dirty gap
+0.155→0.198, dirty verdict $0.154 vs $0.172 (cheaper; docs/COST.md §14).  Caveat carried
+into D48 as a watch item: b36_v0_02 collapsed 0.54→0.008 — every added defect was a
+minority vote in the other arms and render-true, but the elicitation's per-defect sweep
+made three samples consistent and the multiplicative cap stack did the rest; the first
+production battery re-checks dirty-round defect rates and cap stacking before D48 is
+called done.
+
+**Day-two addendum (2026-08-31, later).**  The articulated lever landed: the
+motion gate now computes the EXACT axis from the pivot geometry (59d156d —
+anti-parallel keeps the provably-right negation, orthogonal states the computed
+`<axis xyz>` verbatim; URDF space is Z-up, learned the hard way in the test).
+Validation arm art_axis_v1 re-runs swiss_knife (0.356 — it failed the same joints
+three rounds straight under the generic hint), metronome (0.214) and umbrella
+(0.334) at the raised 95-minute budget.
+
+**The retirement board** — briefs that defeated every ceiling, each with a distinct
+death spectrum: excavator (PlanningError → 75.8-min budget → read-timeout →
+hard-watchdog, 4 deaths), drawbridge (rc=247 → hard-watchdog → read-timeout, 3),
+dragon_teapot (116/65+/95.2-min budget kills, 3), carousel (65/72/96.8, 3).  The
+reaper now saves each corpse's last three events before deleting, which is how
+these spectra exist at all.
+
+**The microscope autopsy** (obj_fancy_v1, scored 0.0): the render shows two floating
+grey boxes — a mid-session death shipped a stub, connectivity flagged the floating
+'Limb' at 290 mm, refine was planned correctly (6 tasks), and then the refine
+session itself died of rc=247 (a 503 inside gemini-cli) so no_change delivered the
+stub honestly.  That crash signature has now killed three sessions tonight; a
+one-retry-on-transport-failure policy in the round loop is queued behind the axis
+validation arm.
+
+Closing arm stats: articulated n=6 mean 0.573 (3 ≥ 0.7; histogram detail_below x3,
+wrong_motion/pivot/pose_clips x2 each), objects n=3 scored (birdcage 0.982,
+gramophone 0.909, microscope 0.0) with ship-class briefs consuming whole budgets
+unscored — the fancy-object round-0 cost lesson is now three budget raises deep
+(40 → 60 → 90 minutes).
+
+### 2026-08-31 — day three: both fancy arms closed; the axis-instruction verdict funds a deterministic repair
+
+**obj_fancy_v1 closed** (6/6, one retirement round earlier): scored n=4 —
+birdcage 0.982, gramophone 0.909, tall_ship 0.276, microscope 0.0 (mean 0.542);
+armillary + pipe_organ ended `budget` unscored.  tall_ship autopsy: blender lint
+findings exploded 1→4→14 across rounds while connectivity stayed at 3 and
+materials stayed flat — the brief survives (softened wording), the defect is
+execution depth, not planning.  Model note: tall_ship's scored run rode
+gemini-3.6-flash during the 3.7 outage.
+
+**art_axis_v1 closed — the exact-axis INSTRUCTION alone loses.**  0.542
+(metronome, best=r0) / 0.276 (swiss_knife) / 0.0 (umbrella, r2 budget) vs
+baselines 0.214 / 0.356 / 0.334: paired Δmean −0.028, 1W2L, and
+`wrong_motion_type` present in 3/3 final rounds.  The mechanism read is the
+real result: the gate's hints were correct and specific (metronome carried the
+negate hint r0–r2; swiss_knife carried verbatim `<axis xyz>` values all
+battery) and the agents applied none of them.  Measurement existed; execution
+didn't follow → shipped `dd88944` deterministic axis repair
+(`repair_motion_axes`: anti-parallel → negate authored axis, orthogonal →
+write suggested_axis; runs before the sweep so poses/renders/judge see the
+fix; INFO finding tells the agent not to undo it; `CV3D_AXIS_REPAIR=0`).
+Confounds recorded honestly: this arm ran on 3.6-flash (3.7 outage, 000×3
+probes), and `21c34c1` transport-retry landed mid-battery (these runs predate
+it).  Validation arm `art_axr_v1` (same briefs, 3.7, both levers live) is in
+flight; its row decides the lever.
+
+### 2026-08-31 — D48 watch item: it is the images, the caps never bind, and the channel is the more accurate arm
+
+Rebuilt corpus (the original scratchpad was destroyed by a `/tmp` cleanup — a fresh selection,
+not a replay): all 223 `static_object` runs under `bench/out` carrying a GLB + plan re-gated live
+(0 failures → 92 dirty / 131 clean); 16 dirty + 6 clean controls re-rendered on the D47 14+4 rig
+and judged through the UNPATCHED shipped code, three arms × n=3 `gemini-3.1-pro-preview`
+($11.45, 0 errors, every row `n_used=3`).  Payload drift vs the measured shim was closed at the
+implementation review, not re-run.
+
+| dirty n=16 | mean | median | marked/case | hard-cap loss | defect penalty |
+|---|---|---|---|---|---|
+| `off` (pre-D48 payload) | 0.468 | 0.546 | 2.50 | 0.0204 | 0.1888 |
+| `slices` (shipped) | 0.429 | 0.447 | 2.75 | **0.0149** | **0.2040** |
+| `elicit` (sentence only) | 0.471 | 0.506 | 2.38 | 0.0148 | 0.1819 |
+
+`elicit` is the shipped `slice_payload` returning `([], True)` — the state a crashed drawing
+already produces — so `elicit − off` isolates the SENTENCE and `slices − elicit` the IMAGES.  The
+sentence is inert on dirty rounds (+0.0035, and it *lowers* marked defects); the images carry the
+move.  The cap stack is not the mechanism the watch item feared: hard-cap loss FALLS, is exactly
+0.000 on 12 of 16 rows in both arms, no row loses > 0.1 to a cap `off` did not apply (max +0.032),
+and no cap brought by a new mark binds.  b36_v0_02 moves 0.579 → 0.202 (not 0.54 → 0.008) with a
+0.000 cap contribution.  The mean move is inside noise (bootstrap 95 % CI [−0.114, +0.035];
+9 down / 5 up / 2 tie).
+
+Every one of the 16 majority-marked disagreements was adjudicated against the rig renders and the
+exact slice PNGs the judge saw: **+6 true marks, −0 true marks, −6 false `off` marks, +4 false
+marks** — net true +6 / net false −2.  Two of the four false gains are D48's own drawing
+describing itself, and both are now fixed in slices-only text: the legend suffix
+`[outline: open section]` (read as a hole report; it alone moved `holes_or_inverted_faces` 0 → 2
+cases) is now `[outline only — not filled; NOT a hole]`, and the in-plane caveat now points at the
+shaded and geometry views for `floating_part` / `holes_or_inverted_faces` instead of denying the
+slice — a bare prohibition would suppress the true marks the channel exists to win.  Clean-row
+identity is now measured rather than inherited (all 6 controls rebuild byte-identical under both
+dials); forcing the sentence onto clean rows costs −0.092, which the on-error gate prevents.
+Open, not D48's: `untextured_flat` is over-applied by BOTH arms on shaded models with a uniform
+sensible colour — exactly what the rubric item's own text exempts.

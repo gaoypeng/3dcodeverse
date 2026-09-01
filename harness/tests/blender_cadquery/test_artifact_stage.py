@@ -83,7 +83,7 @@ def test_promote_replaces_an_existing_dir(tmp_ws: Workspace) -> None:
 
 def test_invalidate_standalone_and_name_validation(tmp_ws: Workspace) -> None:
     _seed(tmp_ws)
-    tmp_ws.stage_artifacts("build.json", "object.glb", "meshes").invalidate()  # the remove_stale replacement
+    tmp_ws.stage_artifacts("build.json", "object.glb", "meshes").invalidate()
     for name in ("build.json", "object.glb", "meshes"):
         assert not (tmp_ws.artifacts / name).exists(), name
     stage = tmp_ws.stage_artifacts("build.json")

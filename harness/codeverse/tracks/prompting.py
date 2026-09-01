@@ -15,16 +15,18 @@ from typing import TYPE_CHECKING, Any
 
 from codeverse.config import fewer_turns_enabled
 from codeverse.contracts.chat import ImagePart
-from codeverse.contracts.common import Language, Track
+from codeverse.contracts.common import HARNESS_OWNED_SRC, Language, Track
 from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import LANGUAGE_FRAME, Frame, frame_doc, to_snake
+from codeverse.prompts import render
+from codeverse.prompts.catalog import prompt_dir_for
 from codeverse.tracks.common import RunContext
 from codeverse.tracks.depth import DepthBudget, PartScope, depth_budget, interfaces_text
 from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
 
 if TYPE_CHECKING:
-    from codeverse.spatial.cookbook_tool import Section
+    from codeverse.prompts.sections import Section
 
 log = logging.getLogger(__name__)
 
@@ -153,7 +155,7 @@ def cookbook_sections(ctx: RunContext, names: Sequence[str], *, max_chars: int =
     so the chapters that decide the score (ground, horizon, vegetation, rocks, dressing,
     layering, motion) travel inside the prompt instead; the tool stays for everything else.
     """
-    from codeverse.spatial.cookbook_tool import find_section, split_sections
+    from codeverse.prompts.sections import find_section, split_sections
 
     md = ctx.cookbook_text or ""
     if not md.strip():
@@ -170,7 +172,7 @@ def cookbook_sections(ctx: RunContext, names: Sequence[str], *, max_chars: int =
     text = "\n\n".join(out)
     if len(text) > max_chars:
         text = (
-            text[:max_chars].rstrip() + "\n\n…[chapters clipped — call read_cookbook for the rest]"
+            text[:max_chars].rstrip() + "\n\n…[clipped — the whole cookbook is at .3dcv/cookbook.md]"
         )
     return text
 
@@ -207,13 +209,6 @@ def is_always_chapter(title: str, always: Sequence[str] = COOKBOOK_ALWAYS) -> bo
     return any(name.lower() in low for name in always)
 
 
-def select_cookbook_excerpt(ctx: RunContext, brief: str, *, budget: int = 9000,
-                            always: Sequence[str] = COOKBOOK_ALWAYS) -> str:
-    """Whole cookbook chapters chosen for ``brief``, never a blind prefix (see
-    :func:`select_cookbook_chapters` for the selection; this joins their bodies)."""
-    return "\n\n".join(s.body.rstrip() for s in select_cookbook_chapters(ctx, brief, budget=budget, always=always))
-
-
 def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,
                              always: Sequence[str] = COOKBOOK_ALWAYS) -> list[Section]:
     """The cookbook chapters (cookbook order) a brief calls for.
@@ -227,9 +222,9 @@ def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,
     ``COOKBOOK_SYNONYMS`` as the strong signal, until ``budget`` is spent.  A chapter is added
     whole or not at all; the output keeps cookbook order.  The default budget is the measured
     need of a night-sky brief: always-set 4.4 k + Light phenomena 3.2 k + Gradient sky 1.3 k.
-    ``tracks/graphics_recipes.py`` seeds the SAME selection's code into the harness-owned ``src/recipes.glsl``.
+    ``tracks/graphics.py:seed_recipes`` seeds the SAME selection's code into the harness-owned ``src/recipes.glsl``.
     """
-    from codeverse.spatial.cookbook_tool import Section, find_section, split_sections
+    from codeverse.prompts.sections import Section, find_section, split_sections
 
     md = ctx.cookbook_text or ""
     if not md.strip():
@@ -265,6 +260,31 @@ def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,
     return [chapters[i] for i in sorted(chosen)]
 
 
+def language_system_prompt(language: Language, *, role: str = "", tools: bool = True, **vars: Any) -> str:
+    """The generator's system prompt: ``prompts/<dir>/system.md``, or a role template.
+
+    These were f-strings inside each track class until 2026-08-28 — two sentences each,
+    and for the three static-object languages literally the SAME two sentences with the
+    language's name substituted, though bpy mesh modelling, CadQuery's B-rep workplanes
+    and three.js BufferGeometry share almost nothing but the word "3D".  Per language, in
+    the prompt corpus, so the seven can diverge and be edited without touching code.
+    """
+    d = prompt_dir_for(language)
+    # rendered, not read raw: a system prompt that tells a SINGLE-SHOT session to call
+    # gl_probe is instructing something it has no tools to do, and the self-check loop is
+    # the whole point of the graphics prompt.  `tools` lets the file say so itself.
+    # (The v0 two-sentence arm of the system-prompt A/B was retired 2026-08-29: a
+    # three-way null, docs/EVAL.md.)
+    base = render(f"{d}/system.md", tools=tools).strip()
+    if not role:
+        return base
+    # roles COMPOSE with the language base rather than replacing it.  Replacing was the
+    # shape inherited from the f-strings, and it left every fatal language-specific fact —
+    # the self-check loop, the sampled-time contract — absent from exactly the stages that
+    # violate it: the repair pass and the detail pass.
+    return base + "\n\n" + render(f"system/role_{role}.j2", language=language.value, **vars).strip()
+
+
 def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
     """Variables every tracks/*.j2 template may use (StrictUndefined → all present)."""
     plan = ctx.plan
@@ -275,7 +295,12 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "frame_doc": frame_doc(LANGUAGE_FRAME[ctx.language.value]),
         "contract": ctx.contract_text,
         "cookbook_rel": ctx.cookbook_rel,
-        "cookbook_excerpt": ctx.cookbook_text[:6000],
+        # the whole cookbook.  It used to be ctx.cookbook_text[:6000] — a blind byte
+        # prefix that delivered 13 % of blender's and 10 % of scene_threejs's, cutting
+        # mid-snippet, and the read_cookbook tool that was supposed to fetch the rest
+        # went uncalled in all 20 measured sessions.  Prompt material the harness wrote
+        # for the model is not summarised by byte offset.
+        "cookbook_excerpt": ctx.cookbook_text,
         "tool_cards": ctx.tool_cards,
         "single_shot": ctx.single_shot,
         "output_format": SINGLE_SHOT_FORMAT if ctx.single_shot else AGENT_OUTPUT_RULES,
@@ -381,7 +406,7 @@ def _likeness_note(ctx: RunContext, refs: list[Any]) -> str:
     the frame stays dark — and the judge sees the same photos beside the frames.
     """
     lines = [
-        f"REFERENCE PHOTOS ({len(refs)}) of the REAL thing are attached.  They are not a composition to copy; "
+        f"REFERENCE PHOTOS ({len(refs)}) of the REAL thing come with this task.  They are not a composition to copy; "
         "they show what the brief's subject actually looks like: its dominant colour and where the secondary "
         "colours sit, how its structure folds / layers / thins out, where the brightness concentrates and how "
         "much of the frame stays dark, its texture at fine scale.  Match THAT — it outranks the brief's "
@@ -392,7 +417,8 @@ def _likeness_note(ctx: RunContext, refs: list[Any]) -> str:
     for i, r in enumerate(refs, 1):
         lines.append(f"- reference {i}: `{r.path}`" + (f" — {r.note}" if r.note else ""))
     lines.append("The photos are attached to this message." if ctx.single_shot else
-                 "The photos are attached to your first message; look at them again before every `gl_frames` / `scene_views` comparison.")
+                 "Their paths are listed under 'Images for this task' at the end of this message: open them with "
+                 "your image/file-reading tool, and look again before every `gl_frames` / `scene_views` comparison.")
     return "\n".join(lines)
 
 
@@ -478,11 +504,16 @@ def refine_inline_files(ctx: RunContext, rels: Sequence[str], *, scoped: bool) -
 def current_files(
     ctx: RunContext, rels: Sequence[str], max_chars: int = MAX_SKELETON_CHARS
 ) -> dict[str, str]:
+    """``{rel: text}`` for the files that exist, trimmed to ``max_chars`` in total.  The
+    language's harness-owned files (``src/recipes.glsl``) are never inlined: the
+    single-shot prompt showed one as an editable skeleton file while every write to it
+    is refused (``generate_graphics.j2`` pastes its signatures separately)."""
+    owned = set(HARNESS_OWNED_SRC.get(ctx.language, ()))
     out: dict[str, str] = {}
     total = 0
     for rel in rels:
         p = ctx.ws.root / rel
-        if not p.is_file():
+        if not p.is_file() or rel in owned:
             continue
         text = p.read_text(errors="replace")
         room = max_chars - total
@@ -598,18 +629,6 @@ def file_for_target_factory(ctx: RunContext):
                         log.warning("runtime.file_for_part failed for %s: %s", target, e)
                 return [f"src/parts/{key}.js"] if lang is Language.THREEJS else [entry]
             if key in ("overall", "assembly", "object", ""):
-                whole = getattr(rt, "file_for_target", None)  # blender: 'overall' → src/model.py
-                if callable(whole):
-                    try:
-                        out = whole(target)
-                        if out:
-                            return (
-                                [str(out)]
-                                if isinstance(out, (str, Path))
-                                else [str(p) for p in out]
-                            )
-                    except Exception as e:  # noqa: BLE001
-                        log.warning("runtime.file_for_target failed for %s: %s", target, e)
                 return [entry]
             return []
 

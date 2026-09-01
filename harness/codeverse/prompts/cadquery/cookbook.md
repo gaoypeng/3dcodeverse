@@ -2,7 +2,8 @@
 
 Every snippet runs as-is (the harness test suite executes them in order with plain
 `python3`).  Z-up, −Y front, meters, PascalCase part names, `result = cq.Assembly`.
-Use `read_cookbook(section="<heading>")` to fetch one chapter.
+The harness inlines the relevant chapters into your prompts; the full file is at
+`.3dcv/cookbook.md` in your workspace.
 
 ## Skeleton
 

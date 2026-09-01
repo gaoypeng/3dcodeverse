@@ -49,14 +49,16 @@ ROUTES: tuple[Route, ...] = (
     # -------------------------------------------------------------- generator
     Route(Role.GENERATOR, "gemini-cli:gemini-3.6-flash", 0.52,
           "compare_v1: mean judge 0.835 on easy static objects (best arm measured)",
-          "default for every track that has tools (it is the loop, not the model, that scores)",
-          default=True),
+          "the arm compare_v1 was measured on; kept for comparison against those numbers"),
     Route(Role.GENERATOR, "single-shot:gemini:gemini-3.7-flash", 0.05,
           "graphics track: 5/6 passed, median 0.810, $0.099 per run",
           "glsl_shader / opengl_python — one file, compiler feedback, no tool loop needed"),
+    # the runtime default since 2026-08-28 (contracts.common.Backends.generator):
+    # default_route() must name what actually runs, not the arm we measured first
     Route(Role.GENERATOR, "gemini-cli:gemini-3.7-flash", 0.73,
           "compare_v1: 0.827 — statistically the same as the since-deleted api-agent arm at 2x the price",
-          "costs ~2x the 3.6-flash default for the same measured quality — prefer the default"),
+          "the default; ~2x the 3.6 arm's price for quality measured as the same, so the number to beat",
+          default=True),
     Route(Role.GENERATOR, "codex:gpt-5.6-sol", 1.93,
           "one-shot 0.786 for $0.20; inside the harness loop $1.93/run (long cached context at $0.40/M)",
           "strong one-shot baseline; expensive as a loop generator"),

@@ -17,7 +17,7 @@ from codeverse.tracks.planner import plan_example
 from codeverse.tracks.scene import SceneTrack
 from codeverse.tracks.static_object import StaticObjectTrack
 from codeverse.workspace import Workspace
-from tests.orchestrator_tracks.conftest import make_spec
+from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
     FAIL_MARK,
     FakeAgent,
@@ -25,11 +25,8 @@ from tests.orchestrator_tracks.fakes import (
     FakeJudge,
     FakeRuntime,
     FakeServices,
+    _planner,
 )
-
-
-def _planner(plan_dict):
-    return FakeChatModel(lambda req: plan_dict)
 
 
 def _agent_writer(job, ws):
@@ -86,7 +83,7 @@ def test_static_track_end_to_end_agent_path(tmp_path, chair_plan, settings):
 
 
 def test_static_track_single_shot_with_repair_and_budget_stop(tmp_path, chair_plan, settings):
-    spec = make_spec(generator="single-shot:gemini:fake", max_rounds=4, max_usd=0.03)
+    spec = make_spec(generator="single-shot:gemini:fake", max_rounds=4, max_minutes=6.0)
     ws = Workspace(tmp_path / "runs" / "chair2")
     n = {"gen": 0}
 
@@ -96,10 +93,11 @@ def test_static_track_single_shot_with_repair_and_budget_stop(tmp_path, chair_pl
             return f"=== FILE: src/object.js ===\n// {FAIL_MARK}\nexport function build(){{}}\n=== END FILE ==="
         return "=== FILE: src/object.js ===\nexport function build(THREE) { return new THREE.Group(); }\n=== END FILE ==="
 
-    model = FakeChatModel(responder, cost=0.004)
+    model = FakeChatModel(responder, cost=0.004, minutes=0.5)
     track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5, 0.55, 0.6, 0.62)), model=model,
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.THREEJS))
-    rec = track.run(spec, ws)
+    with fake_clock():
+        rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET and rec.rounds[0].build.ok and "repair attempts: 1/2 (fixed)" in rec.rounds[0].notes
     assert rec.rounds[0].score == pytest.approx(0.5)
     assert any(r.label.startswith("r00_baseline_repair") for r in model.requests) or any("Repair" in r.messages[0].text for r in model.requests)
@@ -176,7 +174,6 @@ def test_articulated_track_adds_pose_views_and_sweep_gate(tmp_path, settings):
     sweep = next(g for g in r0.gates if g.gate == "joint_sweep")
     assert not sweep.passed and rec.rounds[1].instructions[0].startswith("[gate/gate:joint_sweep] DrawerSlide")
     assert "Joints (the URDF must realise EXACTLY these" in agent.jobs[0].prompt and "| DrawerSlide |" in agent.jobs[0].prompt
-    assert "Articulation sheet" in services._judge.calls[0].extra_context if services._judge else True
 
 
 # ----------------------------------------------------------------------------- scene
@@ -211,7 +208,8 @@ def test_scene_track_stages_and_rounds(tmp_path, settings):
     rec = track.run(spec, ws)
     labels = [j.label for j in agent.jobs]
     # Quay and Water are both small zones (≤ 3 placements) → ONE batched session owning both files
-    assert set(labels[:2]) == {"asset_fishing_boat", "asset_bollard"} and "env" in labels and "zones_quay_water" in labels
+    # assets ∥ env: the combined stage's three sessions interleave freely; order resumes at zones
+    assert set(labels[:3]) == {"asset_fishing_boat", "asset_bollard", "env"} and "zones_quay_water" in labels
     assert "compose" in labels  # assembler unavailable → composer agent fallback
     assert labels.index("env") < labels.index("zones_quay_water") < labels.index("compose")
     assert (ws.src / "assets" / "fishing_boat.js").is_file() and (ws.src / "zones" / "quay.js").is_file() and (ws.src / "scene.js").is_file()
@@ -221,7 +219,7 @@ def test_scene_track_stages_and_rounds(tmp_path, settings):
     assert [r.kind for r in rec.rounds] == ["baseline", "refine"] and rec.rounds[0].renders is not None
     assert rec.rounds[0].renders.views and rec.status in (RunStatus.PLATEAU, RunStatus.PASSED)
     st = RunState.load(ws)
-    assert {"plan", "skeleton", "assets", "env", "zones", "assemble"} <= set(st.stages)
+    assert {"plan", "skeleton", "assets", "env", "layouts", "zones", "assemble"} <= set(st.stages)
     # scene refine tasks route by file ownership: zone → src/zones/<zone>.js
     assert any("src/zones/quay.js" in i for i in rec.rounds[1].instructions)
 
@@ -243,6 +241,67 @@ def test_scene_track_deterministic_assembler_and_resume(tmp_path, settings):
     rec2 = mk().run(spec, ws, resume=True)
     assert len(agent.jobs) == n_jobs  # all stages + baseline cached / loaded
     assert len(rec2.rounds) == 1 and rec2.rounds[0].commit == rec.rounds[0].commit
+
+
+def _small_scene_plan():
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
+    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
+    for z in plan.zones:
+        z.contents = [c for c in z.contents if c in {a.name for a in plan.assets}]
+    return plan
+
+
+def test_scene_children_are_stages_and_a_failed_env_never_repays_assets(tmp_path, settings):
+    """Review-3 V3-claim3: assets/env/layouts each cache as their OWN stage, so a
+    failing sibling leaves the paid asset results cached and resume re-runs only it."""
+    plan = _small_scene_plan()
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
+    ws = Workspace(tmp_path / "runs" / "harbour3")
+    boom = {"on": True}
+
+    def _writer(job, ws_):
+        if boom["on"] and job.label == "env":
+            raise RuntimeError("env agent session died")
+        return _scene_writer(job, ws_)
+
+    agent = FakeAgent(_writer)
+    mk = lambda: SceneTrack(services=FakeServices(assemble=True), judge=FakeJudge(scores=(0.6,)), agent=agent,  # noqa: E731
+                            planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
+                            runtime=FakeRuntime(Language.SCENE_THREEJS))
+    with pytest.raises(RuntimeError, match="env agent session died"):
+        mk().run(spec, ws)
+    st = RunState.load(ws)
+    assert "assets" in st.stages and "layouts" in st.stages and "env" not in st.stages
+    assert any(j.label.startswith("asset_") for j in agent.jobs)  # the siblings really ran before the failure
+    boom["on"] = False
+    agent.jobs.clear()
+    rec = mk().run(spec, ws, resume=True)
+    labels = [j.label for j in agent.jobs]
+    assert "env" in labels and not any(label.startswith("asset_") for label in labels)
+    assert len(rec.rounds) == 1
+
+
+def test_a_mood_only_replan_invalidates_the_env_stage(tmp_path, settings):
+    """Review-3 V4a: the stage key is the whole plan, so a re-plan differing only in
+    `mood` misses the cache (it used to serve an env generated under the old mood)."""
+    plan = _small_scene_plan()
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
+    ws = Workspace(tmp_path / "runs" / "harbour4")
+    agent = FakeAgent(_scene_writer)
+    mk = lambda: SceneTrack(services=FakeServices(assemble=True), judge=FakeJudge(scores=(0.6, 0.6)), agent=agent,  # noqa: E731
+                            planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
+                            runtime=FakeRuntime(Language.SCENE_THREEJS))
+    mk().run(spec, ws)
+    assert "env" in [j.label for j in agent.jobs]
+    # simulate a `resume --force` re-plan that changed ONLY the mood
+    stage_file = ws.root / "stages" / "plan.json"
+    data = json.loads(stage_file.read_text())
+    assert data["result"]["mood"] != "desolate, horror"
+    data["result"]["mood"] = "desolate, horror"
+    stage_file.write_text(json.dumps(data))
+    agent.jobs.clear()
+    mk().run(spec, ws, resume=True)
+    assert "env" in [j.label for j in agent.jobs]  # a stale cached env must not be served
 
 
 def test_get_track_dispatch():

@@ -1,4 +1,4 @@
-"""Regression tests for review fix batch 2 — tracks/generation.py findings."""
+"""Generation parsing, retry, write filtering, and agent attribution."""
 
 from __future__ import annotations
 
@@ -39,36 +39,29 @@ def test_parse_multifile_strips_header_from_unterminated_block():
     assert "=== FILE:" not in body
 
 
-def test_generate_files_retries_once_on_max_tokens_then_succeeds(tmp_path):
-    ws = Workspace(tmp_path / "ws").create()
+def test_generate_files_truncation_policy(tmp_path):
+    ws = Workspace(tmp_path / "success").create()
     model = ScriptedModel([(TRUNCATED, "MAX_TOKENS"), (FULL, "STOP")])
-    events = EventLog(tmp_path / "e.jsonl")
+    events = EventLog(tmp_path / "success.jsonl")
     task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"], max_output_tokens=32000)
     res = generate_files(ws, model=model, task=task, events=events)
     assert res.ok and (ws.root / "src" / "model.py").read_text().startswith("import bpy")
     assert len(model.requests) == 2 and model.requests[1].max_output_tokens == 64000
-    kinds = [e["event"] for e in events.read()]
-    assert "generate.truncated" in kinds
+    assert "generate.truncated" in [e["event"] for e in events.read()]
 
-
-def test_generate_files_still_truncated_after_retry_fails_cleanly(tmp_path):
-    ws = Workspace(tmp_path / "ws").create()
+    ws = Workspace(tmp_path / "failure").create()
     model = ScriptedModel([(TRUNCATED, "MAX_TOKENS"), (TRUNCATED, "length")])
     task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"], max_output_tokens=32000)
-    res = generate_files(ws, model=model, task=task, events=EventLog(tmp_path / "e.jsonl"))
+    res = generate_files(ws, model=model, task=task, events=EventLog(tmp_path / "failure.jsonl"))
     assert not res.ok and res.notes.startswith("truncated")
-    assert not (ws.root / "src" / "model.py").exists()  # never write a half-file
+    assert not (ws.root / "src" / "model.py").exists()
 
-
-def test_no_identical_retry_at_the_output_ceiling(tmp_path):
-    """A task already at the 65,536 model ceiling cannot 'double the budget' — the re-ask
-    would be byte-identical at full price, so it must not be bought (review 2026-08-28)."""
-    ws = Workspace(tmp_path / "ws").create()
+    ws = Workspace(tmp_path / "ceiling").create()
     model = ScriptedModel([(TRUNCATED, "MAX_TOKENS")])
-    task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"])  # default = ceiling
-    res = generate_files(ws, model=model, task=task, events=EventLog(tmp_path / "e.jsonl"))
+    task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"])
+    res = generate_files(ws, model=model, task=task, events=EventLog(tmp_path / "ceiling.jsonl"))
     assert not res.ok and res.notes.startswith("truncated")
-    assert len(model.requests) == 1, "an identical full-price retry must not be bought"
+    assert len(model.requests) == 1
 
 
 # --------------------------------------------------------------------- finding: out-of-root path aborted the whole write
@@ -77,6 +70,7 @@ def test_out_of_root_paths_are_skipped_not_fatal(tmp_path):
     answer = (
         "=== FILE: src/model.py ===\nimport bpy\n=== END FILE ===\n"
         "=== FILE: README.md ===\n# notes\n=== END FILE ===\n"
+        "=== FILE: package.json ===\n{}\n=== END FILE ===\n"
         "=== FILE: ../evil.py ===\nx = 1\n=== END FILE ==="
     )
     events = EventLog(tmp_path / "e.jsonl")
@@ -88,7 +82,9 @@ def test_out_of_root_paths_are_skipped_not_fatal(tmp_path):
     assert [c.path for c in res.files_changed] == ["src/model.py"]
     assert "README.md" in res.notes
     skipped = [e for e in events.read() if e["event"] == "generate.skipped_path"]
-    assert {e["path"] for e in skipped} == {"README.md", "../evil.py"}
+    assert {e["path"] for e in skipped} == {"README.md", "package.json", "../evil.py"}
+    done = next(e for e in events.read() if e["event"] == "generate.done")
+    assert done["files"] == ["src/model.py"]
 
 
 # --------------------------------------------------------------------- finding: whole-workspace diff claimed sibling tasks' files
@@ -135,24 +131,3 @@ def test_run_agent_task_that_wrote_nothing_is_not_ok(tmp_path):
     task = GenerationTask(label="asset_stone_lantern", prompt="p", files_hint=["src/assets/stone_lantern.js"])
     res = run_agent_task(ws, agent=agent, task=task, retry_silent_bail=False)
     assert not res.ok and res.files_changed == []
-
-
-# --------------------------------------------------------------------- guard: envelope round-trip still intact
-def test_parse_multifile_normal_envelope_unchanged():
-    text = ("=== FILE: src/object.js ===\nexport function build() {}\n=== END FILE ===\n"
-            "=== FILE: src/parts/leg.js ===\nexport function buildLeg() {}\n=== END FILE ===")
-    files = parse_multifile(text)
-    assert set(files) == {"src/object.js", "src/parts/leg.js"}
-    assert files["src/object.js"] == "export function build() {}"
-
-
-def test_generation_result_records_skip_in_events_payload(tmp_path):
-    """generate.done files list contains only the files actually written."""
-    ws = Workspace(tmp_path / "ws").create()
-    answer = "=== FILE: src/model.py ===\nimport bpy\n=== END FILE ===\n=== FILE: package.json ===\n{}\n=== END FILE ==="
-    events = EventLog(tmp_path / "e.jsonl")
-    res = generate_files(ws, model=ScriptedModel([(answer, "STOP")]),
-                         task=GenerationTask(label="baseline", prompt="p"), events=events)
-    done = next(e for e in events.read() if e["event"] == "generate.done")
-    assert done["files"] == ["src/model.py"] and res.ok
-    assert (ws.root / "src" / "model.py").read_text() == "import bpy\n"

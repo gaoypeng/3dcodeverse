@@ -26,6 +26,7 @@ from codeverse.config import get_settings
 from codeverse.contracts.common import Usage
 from codeverse.contracts.run import RoundRecord, RunId, RunRecord
 from codeverse.flywheel.code_quality import code_quality_block
+from codeverse.proc import version_line
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -39,12 +40,8 @@ class RecordError(RuntimeError):
 
 # --------------------------------------------------------------------------- environment
 def _cmd_first_line(cmd: list[str]) -> str:
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_VERSION_TIMEOUT_S, check=False)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return f"error: {type(e).__name__}"
-    out = (proc.stdout or proc.stderr).strip().splitlines()
-    return out[0].strip() if out else f"exit {proc.returncode}"
+    rc, line = version_line(cmd, timeout=_VERSION_TIMEOUT_S)
+    return line or f"exit {rc}"
 
 
 def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str] | None:
@@ -158,6 +155,11 @@ def best_round_index(record: RunRecord) -> int | None:
     return record.rounds[-1].index
 
 
+def best_round_record(record: RunRecord) -> RoundRecord | None:
+    idx = best_round_index(record)
+    return next((r for r in record.rounds if r.index == idx), None)
+
+
 def _n_gate_errors(r: RoundRecord) -> int:
     return sum(len(g.errors) for g in r.gates)
 
@@ -211,7 +213,7 @@ def fill_derived(record: RunRecord) -> RunRecord:
     if record.baseline_score is None and scored:
         record.baseline_score = effective_score(scored[0])
     if record.final_score is None and record.best_round is not None:
-        best = next((r for r in record.rounds if r.index == record.best_round), None)
+        best = best_round_record(record)
         record.final_score = effective_score(best) if best else None
     if record.total_usage.cost_usd == 0 and record.total_usage.input_tokens == 0 and record.rounds:
         record.total_usage = _sum_usage(record.rounds)
@@ -235,7 +237,7 @@ def complexity_block(record: RunRecord) -> dict[str, Any] | None:
     restored and rebuilt at finalise, so it describes the artifact actually
     shipped.  ``plan_parts`` / ``parts_per_plan_part`` say whether the build
     reached the plan's ambition or collapsed it (docs/COMPLEXITY.md)."""
-    best = next((r for r in record.rounds if r.index == record.best_round), None)
+    best = best_round_record(record)
     cx = round_complexity(best) if best is not None else None
     if cx is None:
         cx = next((c for c in (round_complexity(r) for r in reversed(record.rounds)) if c), None)

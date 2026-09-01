@@ -58,7 +58,7 @@ def test_make_no_run_creates_valid_workspace(tmp_path: Path):
     runs = tmp_path / "runs"
     r = runner.invoke(app, ["make", "a wooden dining chair", "--track", "static_object", "--language", "blender",
                             "--runs-dir", str(runs), "--no-run", "--dim", "width=0.5", "--must", "four legs",
-                            "--rounds", "2", "--max-usd", "1.5", "--generator", "gemini-cli:gemini-3.7-flash"])
+                            "--rounds", "2", "--generator", "gemini-cli:gemini-3.7-flash"])
     assert r.exit_code == 0, r.output
     # `.locks/` (runlock.exclusive) lives beside the run dirs on purpose — a lock inside
     # the directory a --force wipe deletes is no lock
@@ -68,7 +68,7 @@ def test_make_no_run_creates_valid_workspace(tmp_path: Path):
     assert ws.name.startswith("a_wooden_dining_chair_") and (ws / "spec.json").is_file() and (ws / ".git").is_dir()
     spec = Spec.model_validate_json((ws / "spec.json").read_text())
     assert spec.constraints.dimensions_m == {"width": 0.5} and spec.constraints.must_have == ["four legs"]
-    assert spec.budget.max_rounds == 2 and spec.budget.max_usd == 1.5
+    assert spec.budget.max_rounds == 2 and spec.budget.max_minutes == 60.0
     assert spec.backends.generator == "gemini-cli:gemini-3.7-flash"
     assert (ws / "src").is_dir() and (ws / "artifacts" / "renders").is_dir()
     # same prompt again → same slug → refuse without --force
@@ -76,9 +76,6 @@ def test_make_no_run_creates_valid_workspace(tmp_path: Path):
     assert r2.exit_code == 1 and "already exists" in (r2.output + str(r2.stderr if hasattr(r2, "stderr") else ""))
     r3 = runner.invoke(app, ["make", "a wooden dining chair", "--runs-dir", str(runs), "--no-run", "--force"])
     assert r3.exit_code == 0
-    # invalid language/track combination → typed error
-    r4 = runner.invoke(app, ["make", "x", "--track", "scene", "--language", "blender", "--runs-dir", str(runs), "--no-run", "--slug", "bad"])
-    assert r4.exit_code == 1
 
 
 def test_status_on_fake_run(runs_dir: Path):
@@ -106,7 +103,7 @@ def test_flywheel_commands(runs_dir: Path, tmp_path: Path):
     assert "batch 1" in (tmp_path / "g.html").read_text()
 
 
-def test_tools_list_and_unknown(tmp_path: Path):
+def test_tools_list_handles_an_optional_spatial_install():
     r = runner.invoke(app, ["tools", "list"])
     # spatial tools may or may not be installed yet; either a table or a clear message, never a traceback
     assert r.exit_code in (0, 2), r.output
@@ -118,12 +115,26 @@ def test_lazy_import_message():
         C.lazy("codeverse.definitely_missing_module")
 
 
-def test_doctor_json(tmp_path: Path):
+def test_doctor_json(monkeypatch):
+    """The CLI serialises doctor rows; the checks themselves are tested by install tests."""
+    import codeverse.cli.doctor as doctor_cli
+
+    seen = {}
+
+    def fake_doctor(*, live, gpu, skills):
+        seen.update(live=live, gpu=gpu, skills=skills)
+        return [("python", "OK", "3.x"), ("node", "WARN", "missing"), ("mcp", "FAIL", "broken")]
+
+    monkeypatch.setattr(doctor_cli, "run_doctor", fake_doctor)
     r = runner.invoke(app, ["doctor", "--no-gpu", "--json"])
-    assert r.exit_code in (0, 1), r.output
+    assert r.exit_code == 1, r.output
+    assert seen == {"live": False, "gpu": False, "skills": False}
     rows = json.loads(r.output[r.output.index("["):])
-    checks = {row["check"] for row in rows}
-    assert {"python", "python deps", "blender", "node", "three", "gemini keys", "git", "mcp"} <= checks
+    assert rows == [
+        {"check": "python", "status": "OK", "detail": "3.x"},
+        {"check": "node", "status": "WARN", "detail": "missing"},
+        {"check": "mcp", "status": "FAIL", "detail": "broken"},
+    ]
 
 
 # --------------------------------------------------------------------------- finding: `3dcv judge` inputs (main.py:204)
@@ -267,25 +278,21 @@ def test_make_invalid_combo_leaves_no_orphan_workspace(tmp_path: Path):
 
 
 def test_resume_budget_flags_rewrite_spec_and_emit_event(made_run, stub_track):
-    runs, ws = made_run("--max-usd", "1.0", "--rounds", "1")
+    runs, ws = made_run("--max-minutes", "1.0", "--rounds", "1")
     seen = {}
     stub_track(lambda spec, resume, force: seen.__setitem__("spec", spec))
-    r2 = runner.invoke(app, ["resume", ws.name, "--runs-dir", str(runs), "--max-usd", "4.5", "--rounds", "3"])
+    r2 = runner.invoke(app, ["resume", ws.name, "--runs-dir", str(runs), "--max-minutes", "60", "--rounds", "3"])
     assert r2.exit_code == 130
     spec = Spec.model_validate_json((ws / "spec.json").read_text())
-    assert spec.budget.max_usd == 4.5 and spec.budget.max_rounds == 3 and spec.budget.max_minutes == 60.0
-    assert seen["spec"].budget.max_usd == 4.5, "the resumed run must see the raised budget"
+    assert spec.budget.max_rounds == 3 and spec.budget.max_minutes == 60.0
+    assert seen["spec"].budget.max_minutes == 60.0, "the resumed run must see the raised ceiling"
     events = [json.loads(line) for line in (ws / "events.jsonl").read_text().splitlines()]
     raised = [e for e in events if e.get("event") == "budget.raised"]
-    assert raised and raised[0]["max_usd"] == 4.5 and raised[0]["max_rounds"] == 3
+    assert raised and raised[0]["max_rounds"] == 3
 
 
 def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_track):
-    """SMOKE1: `3dcv resume` called _run_track unconditionally, with no look at
-    run_state.  On a run that had ended stop_reason='pass' it re-entered the pipeline,
-    re-ran the plan stage as a real billed model call and rewrote status from 'passed'
-    back to 'planning' — a finished run left stuck mid-pipeline, and money spent, from
-    one accidental or scripted resume."""
+    """A finished run never re-enters the track unless forced."""
     from codeverse.contracts.run import RunStatus
     from codeverse.orchestrator import RunState
     from codeverse.workspace import Workspace
@@ -307,7 +314,7 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
     # a budget stop is the documented exception: it resumes when a cap is raised
     RunState(status=RunStatus.BUDGET, stop_reason="budget").save(ws)
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)]).exit_code == 1
-    assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--max-usd", "4.5"]).exit_code == 130
+    assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--max-minutes", "60"]).exit_code == 130
 
     # an interrupted run is untouched by the guard
     RunState(status=RunStatus.REFINING).save(ws)
@@ -315,9 +322,7 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
 
 
 def test_resume_threads_force_through_to_the_track(made_run, stub_track):
-    """reconcile_resume (tracks/lifecycle.py) needs the CLI's --force to decide between
-    refusing a spec edit (SpecChanged) and archiving the old rounds under
-    rounds/pre_force/ — so `3dcv resume --force` must reach BaseTrack.run(force=...)."""
+    """The CLI forwards resume's force flag to the track."""
     runs, ws = made_run()
     seen = {}
     stub_track(lambda spec, resume, force: seen.update(resume=resume, force=force))
@@ -328,8 +333,7 @@ def test_resume_threads_force_through_to_the_track(made_run, stub_track):
 
 
 def test_a_spec_change_refusal_is_a_clean_cli_error(made_run, stub_track):
-    """SpecChanged is a refusal with instructions (fork, or --force to archive), not a
-    crash: no traceback, and the CLI's typed configuration-error exit code."""
+    """Spec drift is a typed CLI refusal, not a traceback."""
     from codeverse.tracks.lifecycle import SpecChanged
 
     runs, ws = made_run()
@@ -389,12 +393,7 @@ def test_render_graphics_regenerates_frames(tmp_path: Path, monkeypatch):
 
 
 def test_reference_with_no_run_says_it_is_about_to_spend_money(tmp_path: Path, monkeypatch):
-    """SM-06: `--no-run` reads as "filesystem only" (its help said "only create the
-    workspace + spec.json"), but main.py grounds the reference BEFORE honouring it: 1
-    planner call + n_views image generations + n_views vision checks, ~$0.15, and a block
-    of up to model_timeout_s on a degraded provider.  The pass is not wasted — the
-    grounded spec is written back to spec.json — so it keeps running, but the command must
-    say so instead of looking offline."""
+    """Reference preprocessing under --no-run must disclose its paid work."""
     import codeverse.reference as REF
 
     calls = []
@@ -417,9 +416,7 @@ def test_reference_with_no_run_says_it_is_about_to_spend_money(tmp_path: Path, m
 
 
 def test_an_unknown_profile_is_a_clean_error_not_a_traceback(tmp_path: Path):
-    """SMOKE5: `--profile <unknown>` exited with a raw ValueError traceback out of
-    cost/profiles.py:153, while every other rejected value (a slug collision, a missing
-    battery) printed the clean "error: ..." line the CLI uses for user errors."""
+    """An unknown profile is a clean user error."""
     r = runner.invoke(app, ["make", "a chair", "--profile", "turbo", "--no-run",
                             "--runs-dir", str(tmp_path / "runs"), "--slug", "prof"])
     assert r.exit_code == 2, "the CLI's typed configuration-error code (see SM-10)"
@@ -429,21 +426,16 @@ def test_an_unknown_profile_is_a_clean_error_not_a_traceback(tmp_path: Path):
 
 
 def test_a_negative_budget_is_rejected_before_the_workspace_exists(tmp_path: Path):
-    """SM-11: --max-usd took any float.  A negative ceiling is not a small budget, it is
-    an unrunnable one — BudgetGuard.ok() is False before a single token is spent, the
-    first charge raises "cost $0.001 exceeds max_usd $-2.50", and grant_grace cannot
-    lift a hard ceiling back above zero.  `3dcv make` nonetheless printed
-    `max_usd -3.0`, created the workspace and git-committed the spec."""
+    """A negative ceiling is rejected before workspace creation."""
     runs = tmp_path / "runs"
-    for flag, value in (("--max-usd", "-3"), ("--max-minutes", "-10")):
-        r = runner.invoke(app, ["make", "a chair", flag, value, "--no-run",
-                                "--runs-dir", str(runs), "--slug", "neg"])
-        assert r.exit_code != 0, f"{flag} {value} was accepted"
-        assert "range x>=0" in r.output.replace("\n", "")
-        assert not (runs / "neg").exists(), "no workspace may be created for a rejected budget"
+    r = runner.invoke(app, ["make", "a chair", "--max-minutes", "-10", "--no-run",
+                            "--runs-dir", str(runs), "--slug", "neg"])
+    assert r.exit_code != 0
+    assert "range x>=0" in r.output.replace("\n", "")
+    assert not (runs / "neg").exists(), "no workspace may be created for a rejected budget"
 
     # 0 stays legal (documented: a run at 0 degrades from its first check) ...
-    r = runner.invoke(app, ["make", "a chair", "--max-usd", "0", "--no-run",
+    r = runner.invoke(app, ["make", "a chair", "--max-minutes", "0", "--no-run",
                             "--runs-dir", str(runs), "--slug", "zero"])
     assert r.exit_code == 0 and (runs / "zero" / "spec.json").is_file()
     # ... and the contract refuses a negative ceiling even when built directly
@@ -453,19 +445,12 @@ def test_a_negative_budget_is_rejected_before_the_workspace_exists(tmp_path: Pat
     from codeverse.contracts.common import Budget
 
     with _pytest.raises(ValidationError):
-        Budget(max_usd=-3.0)
-    assert Budget(max_usd=0.0).max_usd == 0.0
+        Budget(max_minutes=-3.0)
+    assert Budget(max_minutes=0.0).max_minutes == 0.0
 
 
 def test_texture_is_not_offered_on_tracks_that_have_no_glb(tmp_path: Path):
-    """SM-08: `--texture` (and `--profile quality`, which forces it) was accepted on the
-    scene and graphics tracks, frozen on the spec, and printed as `texture True` — but a
-    scene has no GLB deliverable and neither graphics language produces one, so the
-    finalise pass could ONLY raise FileNotFoundError('no GLB to texture'), swallowed by
-    BaseTrack._texture_pass into a spurious `texture.failed`.  quality's advertised
-    "+texture" was a guaranteed no-op on half the tracks, and scene runs never reached
-    the command that would work.  `3dcv texture pass` already guards this; `3dcv make`
-    did not."""
+    """Impossible explicit texturing fails early; profiles degrade cleanly by track."""
     from codeverse.contracts.common import Track
     from codeverse.texturing.run import texture_requested, texture_supported
 
@@ -513,12 +498,8 @@ def _round_guard_ws(tmp_path: Path, *, best: int, tree: int):
     return ws
 
 
-def test_render_refuses_when_the_tree_is_not_the_best_round(tmp_path: Path):
-    """`render` renders the WORKING TREE, and a run's tree sits at its LAST round — which
-    is not always its best.  Measured 2026-08-25 on tsr_scn_neon_alley: judge by round
-    0.338 / 0.375 / 0.529 / 0.632 / 0.000, round 4 rendering eight completely blank tiles.
-    The harness correctly kept r3, but a plain `3dcv render` re-rendered the blank r4 and
-    was very nearly published."""
+def test_render_only_labels_the_working_tree_round(tmp_path: Path):
+    """Implicit and explicit round selection must never label another tree's code."""
     from codeverse.cli._common import CliError
     from codeverse.cli.inspect_cmd import _render_round_or_refuse
 
@@ -530,24 +511,10 @@ def test_render_refuses_when_the_tree_is_not_the_best_round(tmp_path: Path):
     assert "deliverable" in msg, "it must point at the packaged best round"
     assert "--round 4" in msg, "and offer the explicit escape"
     assert ei.value.exit_code == 2
-
-
-def test_render_round_flag_cannot_mislabel_another_rounds_code(tmp_path: Path):
-    """--round only chose the OUTPUT FOLDER, so `render X --round 3` wrote r03-labelled
-    images of round 4's code.  Refuse rather than write a picture whose label is a lie."""
-    from codeverse.cli._common import CliError
-    from codeverse.cli.inspect_cmd import _render_round_or_refuse
-
-    ws = _round_guard_ws(tmp_path, best=3, tree=4)
     with pytest.raises(CliError):
         _render_round_or_refuse(ws, 3)
     assert _render_round_or_refuse(ws, 4) == 4, "rendering the tree's own round is fine"
-
-
-def test_render_is_unaffected_when_the_best_round_is_the_last(tmp_path: Path):
-    """The common case must not become noisier: no record, or best == tree, just renders."""
-    from codeverse.cli.inspect_cmd import _render_round_or_refuse
-
+    # The common case stays quiet: no record, or best == tree, just renders.
     assert _render_round_or_refuse(_round_guard_ws(tmp_path / "a", best=2, tree=2), None) == 2
     ws = _round_guard_ws(tmp_path / "b", best=1, tree=1)
     ws.record_path.unlink()  # a run that has not written a record yet

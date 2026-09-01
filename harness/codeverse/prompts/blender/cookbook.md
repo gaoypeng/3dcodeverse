@@ -3,7 +3,8 @@
 Every snippet below runs as-is in `blender -b --factory-startup` (they are executed in
 order by the harness test suite).  Z-up, −Y front, meters, PascalCase object names.
 Files: `src/model.py` (entry) + `src/parts/<snake>.py` (one `build_<snake>()` per plan part) —
-see "File layout".  Use `read_cookbook(section="<heading>")` to fetch one chapter.
+see "File layout".  The harness inlines the relevant chapters into your prompts; the full
+file is at `.3dcv/cookbook.md` in your workspace.
 
 ## File layout (multi-file: model.py + parts/<snake>.py)
 
@@ -441,6 +442,45 @@ Why: Principled inputs since 4.0 are named `"Specular IOR Level"`, `"Transmissio
 `"Coat Weight"`, `"Sheen Weight"`, `"Emission Color"` + `"Emission Strength"` — the old
 `"Specular"`, `"Transmission"`, `"Emission"` keys raise KeyError.
 
+### Several colours on ONE mesh (`material_index`)
+
+The contract is one mesh object per plan part, so a black collar on a white arm is a
+per-FACE material, not a second object: the slots live on the mesh, the index on the
+polygon, and every polygon starts on slot 0 — append the base material FIRST.
+
+```python
+def add_slot(obj, mat):
+    """Append a material to the mesh; returns the slot index you write per face."""
+    obj.data.materials.append(mat)
+    return len(obj.data.materials) - 1
+
+
+def new_faces(bm, op, **kw):
+    """`create_cube`/`create_cone` return {'verts'} ONLY, so `res["faces"]` raises and
+    `res.get("faces", [])` paints nothing — diff the face set instead."""
+    before = set(bm.faces)
+    op(bm, **kw)
+    return set(bm.faces) - before
+
+
+bm = bmesh.new()
+new_faces(bm, bmesh.ops.create_cube, size=0.04)                     # the tube stays on slot 0
+for f in new_faces(bm, bmesh.ops.create_cube, size=0.06,
+                   matrix=Matrix.Translation((0, 0, 0.04))):
+    f.material_index = 1                                # the collar; BEFORE bm.to_mesh(me)
+arm = obj_from_bmesh("DemoTwoTone", bm, (3.0, 0, 0.05))
+add_slot(arm, make_pbr("DemoWhite", (0.88, 0.88, 0.86), 0.45))      # slot 0 = the default
+add_slot(arm, make_pbr("DemoBlack", (0.02, 0.02, 0.02), 0.5))
+for poly in arm.data.polygons:                          # same thing on a finished mesh;
+    if poly.center.z > 0.03:                            # poly.center is in LOCAL space
+        poly.material_index = 1
+```
+
+Slots without indices are the silent failure: every material is there, the part exports in
+one flat colour, and the judge caps the run for `untextured_flat`.  The build census warns
+when a mesh carries slots no polygon uses — that warning means the assignment no-opped,
+not that a material is missing.
+
 ## Structure: names, collections, parenting, instancing, join/separate
 
 ```python
@@ -795,7 +835,7 @@ cast_part(housing)
 Before you finish, ask of each part: *what would tell a photograph of the real thing from this?*
 If the answer is "the edges are perfectly sharp" → bevel.  "It is one flat face" → panel line or
 inset.  "It has no fixings" → bolt ring.  "The repeats are identical" → `varied_copies`.  "It is
-all one grey" → split the materials.  Then measure: `measure` reports the triangle count — if you
+all one grey" → split the materials, per face if it is one part (`material_index`, above).  Then measure: `measure` reports the triangle count — if you
 are under the detail budget's floor, you have not detailed anything yet.
 
 ## Common objects — dimensions (metres) and decomposition

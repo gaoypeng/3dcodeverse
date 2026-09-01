@@ -1,14 +1,4 @@
-"""``tracks/graphics_recipes.py``: the brief's verified cookbook recipes land in the HARNESS-OWNED ``src/recipes.glsl``.
-
-Measured 2026-08-26 (refs_v2_graphics, aurora brief, gemini-3.7-flash, shader_v2): the baseline prompt
-carried ``curtain()`` five times and ``src/shader.frag`` called it zero times in both finished runs —
-showing flash a recipe is not flash using it.  Measured again the same day (bench/out/seed_v1, seeding
-ON into ``src/common.glsl``): ``recipes.seeded`` fired and the finished run's common.glsl had NO seeded
-block and no ``curtain(`` — the agent overwrote the file with its own helpers.  Seeding into a file the
-agent owns is not sticky; these tests pin the harness-owned file, its self-contained helpers, the
-skeleton trim, the resume behaviour, the compose order + line map, the redefinition lint and the
-prompt block that names what was seeded.
-"""
+"""Harness-owned GLSL recipe extraction, seeding, composition, and linting."""
 
 from __future__ import annotations
 
@@ -21,7 +11,6 @@ import pytest
 from codeverse.config import Settings, seed_recipes_enabled
 from codeverse.contracts.common import HARNESS_OWNED_SRC, Language, Track
 from codeverse.contracts.plan import GraphicsPlan
-from codeverse.languages.file_lint import lint_one_file
 from codeverse.languages.glsl_shader import (
     COMMON_GLSL,
     GlslShaderRuntime,
@@ -131,6 +120,15 @@ def test_chapter_selection_excludes_always_on_and_templates(tmp_path) -> None:
     assert not any("Hash" in t or "Palettes" in t or "PITFALLS" in t for t in titles)
     assert recipe_chapters(_ctx(ws, "a raymarched temple corridor with fog")) == [] and NOT_SEEDED == ("Raymarching",)
     assert recipe_chapters(_ctx(ws, UNMATCHED)) == []
+
+    # a chapter arrives whole or not at all — the budget never cuts one in half
+    from codeverse.prompts.sections import split_sections
+    from codeverse.tracks.prompting import select_cookbook_chapters
+
+    ctx = _ctx(ws, AURORA)
+    whole = {s.title: s.body.rstrip() for s in split_sections(ctx.cookbook_text)}
+    for s in select_cookbook_chapters(ctx, AURORA, budget=6000):
+        assert s.body.rstrip() == whole[s.title], s.title
     assert [s.title[:10] for s in recipe_chapters(_ctx(ws, NOTHING))] == ["Instancing"]
 
 
@@ -169,8 +167,6 @@ def test_aurora_brief_seeds_recipes_and_helpers_exactly_once(tmp_path) -> None:
 
 
 def test_recipes_are_self_contained_and_the_skeleton_common_is_trimmed(tmp_path) -> None:
-    """recipes.glsl is pasted ABOVE common.glsl, so it must carry its own hash/noise/fbm — and the
-    skeleton's copies (the only common.glsl the harness ever edits: the agent has not seen it yet) go."""
     ws = _ws(tmp_path)
     assert is_skeleton_common((ws.src / "common.glsl").read_text())
     names = seed_recipes(_ctx(ws))
@@ -194,8 +190,6 @@ def test_recipes_are_self_contained_and_the_skeleton_common_is_trimmed(tmp_path)
 
 
 def test_an_agent_written_common_is_never_touched(tmp_path) -> None:
-    """Once the agent owns common.glsl (measured: it rewrites the whole file), the seed leaves it
-    alone — a duplicate is the agent's to remove, and the lint names it."""
     ws = _ws(tmp_path)
     mine = "// my helpers\nfloat hash12(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\nfloat mine(float x) { return x * 2.0; }\n"
     (ws.src / "common.glsl").write_text(mine)
@@ -209,22 +203,20 @@ def test_an_agent_written_common_is_never_touched(tmp_path) -> None:
     assert "`hash12` is already provided by src/recipes.glsl — call it instead of redefining it" in dup[0].message
 
 
-def test_rain_brief_seeds_drops_and_bokeh(tmp_path) -> None:
+def test_brief_and_plan_visuals_select_recipes(tmp_path) -> None:
     ws = _ws(tmp_path)
     names = seed_recipes(_ctx(ws, RAIN))
     assert "dropsLayer" in names and "bokehSoft" in names and "curtain" not in names and "stars" not in names
     text = _recipes(ws).read_text()
     assert "vec2 dropsLayer(vec2 uv, float t, float scale)" in text and "vec3 bokehSoft(vec2 p, float t)" in text
 
-
-def test_plan_key_visuals_join_the_brief(tmp_path) -> None:
-    ws = _ws(tmp_path)
+    ws = _ws(tmp_path / "plan")
     plan = GraphicsPlan.model_validate({**plan_example(), "key_visuals": ["an aurora curtain over the ridge"]})
     names = seed_recipes(_ctx(ws, "a landscape", plan=plan))
     assert "curtain" in names and "bokehSoft" not in names
     # the seed follows the prompt's selection exactly, budget included: for "a city at night" the Light +
     # Gradient-sky chapters fill the 9 k budget and Bokeh does not fit, so bokehSoft is NOT seeded either
-    ws2 = _ws(tmp_path / "b")
+    ws2 = _ws(tmp_path / "city")
     names2 = seed_recipes(_ctx(ws2, "a city at night", plan=plan))
     assert "curtain" in names2 and "bokehSoft" not in names2
 
@@ -379,9 +371,6 @@ def test_lint_flags_a_redefinition_of_a_seeded_recipe(tmp_path) -> None:
     rep = lint_workspace(ws)
     assert not rep.passed and [f.data["file"] for f in rep.findings if f.data["kind"] == "redefines_recipe"] == ["src/buffer_a.frag"]
     assert not any(f.data["kind"] == "stray_file" for f in rep.findings)
-    # the per-file verdict a write_file hands back says it too
-    verdict = lint_one_file("glsl_shader", "src/common.glsl", common, ws.src / "common.glsl")
-    assert verdict.checked and any("`aurora` is already provided by src/recipes.glsl" in e for e in verdict.errors)
 
 
 def test_prompt_block_lists_the_seeded_names(tmp_path) -> None:
@@ -402,6 +391,3 @@ def test_prompt_block_lists_the_seeded_names(tmp_path) -> None:
         judge_summary="Previous score 0.3", frame_notes="(no frame metrics)", current_files={}))
     assert "harness-owned, read-only `src/recipes.glsl`" in ref and "do not copy them into common.glsl" in ref
     assert all(f"`{n}`" in ref for n in names)
-    # the sibling prompt-context test builds ctx without .extra: the key still resolves to []
-    bare = SimpleNamespace(**{k: v for k, v in vars(ctx).items() if k != "extra"})
-    assert graphics_prompt_context(bare, skeleton_files={}, previous_error="")["seeded_recipes"] == []

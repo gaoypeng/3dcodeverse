@@ -6,7 +6,7 @@ from pathlib import Path
 
 from codeverse.contracts.common import Usage
 from codeverse.cost import CostLedger, load_ledger, record_call, summarise
-from codeverse.cost.ledger import set_default_ledger
+from codeverse.cost.ledger import bound_ledger, existing_ledger_path, open_run_ledger
 from codeverse.cost.types import Role, Stage
 
 
@@ -78,10 +78,22 @@ def test_summarise_dimensions(tmp_path: Path):
     assert s.total.usd_per_1k_tokens > 0
 
 
-def test_default_ledger_env_and_setter(tmp_path: Path):
-    try:
-        set_default_ledger(tmp_path / "default.jsonl")
+def test_a_bound_ledger_takes_the_calls_that_name_no_file(tmp_path: Path):
+    with bound_ledger(tmp_path / "default.jsonl"):
         record_call(_usage(), run="r", stage="plan")
-        assert len(load_ledger(tmp_path / "default.jsonl")) == 1
-    finally:
-        set_default_ledger(None)
+    assert len(load_ledger(tmp_path / "default.jsonl")) == 1
+    record_call(_usage(), run="r", stage="plan", ledger=tmp_path / "after.jsonl")
+    assert len(load_ledger(tmp_path / "default.jsonl")) == 1  # the binding is gone with the block
+
+
+def test_a_run_has_exactly_one_ledger_file_and_the_root_name_is_its_symlink(tmp_path: Path):
+    """``open_run_ledger`` writes only ``telemetry/cost.jsonl``; the root
+    ``cost_ledger.jsonl`` others still open by name is a symlink to it, so the reader
+    must not treat that name as a second, separate ledger."""
+    led = open_run_ledger(tmp_path)
+    assert existing_ledger_path(tmp_path) is None  # nothing written yet
+    record_call(_usage(), run="r", stage="baseline", ledger=led)
+    assert existing_ledger_path(tmp_path) == tmp_path / "telemetry" / "cost.jsonl"
+    alias = tmp_path / "cost_ledger.jsonl"
+    assert alias.is_symlink() and len(load_ledger(alias)) == 1
+    assert len(load_ledger(tmp_path)) == 1  # the directory reads the one file, not two

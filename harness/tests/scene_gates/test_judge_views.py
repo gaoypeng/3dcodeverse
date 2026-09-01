@@ -37,9 +37,8 @@ def test_default_selection_is_authored_plus_overviews():
     assert len(rs.views) == 18 and sel.contact_sheet == rs.contact_sheet
 
 
-def test_small_sets_pass_through_and_nocustom_dropped():
+def test_small_sets_pass_through():
     rs = _rs(times=(0.0,), orbit=False)
-    rs.views.append(RenderView(name="Establishing_nocustom", path="/x/cf.png", time_s=0.0))
     sel = select_judge_views(rs, max_n=10)
     assert [v.name for v in sel.views] == AUTHORED
     assert select_judge_views(RenderSet(), max_n=10).views == []

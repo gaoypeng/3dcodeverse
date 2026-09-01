@@ -7,7 +7,7 @@ oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash \\
 
 Arms
 * ``harness:<generator-id>`` — the full static_object track (plan → generate →
-  build/repair → gates → render → judge → refine, rounds ≤ 3, ≤ $2.5).  Its
+  build/repair → gates → render → judge → refine, rounds ≤ ``--rounds``).  Its
   in-loop judge is ``--loop-judge`` (default: the settings default, flash); the
   loop's own score is NOT the reported score.
 * ``oneshot:<x>`` — ONE raw generation (prompt + minimal contract, no tools, no
@@ -18,7 +18,7 @@ Arms
 
 Every arm ends with a ``src/model.py`` that is copied into a fresh eval workspace
 and scored by the SAME fixed evaluator: BlenderRuntime lint+build → measure →
-connectivity gate → 8-view ``render_glb`` → ``VlmJudge(static_object_v1, judge,
+connectivity gate → 14-view ``render_glb`` → ``VlmJudge(static_object_v1, judge,
 n_samples=2)`` whose acceptance checklist is the battery's ``must_have`` list.
 A failed build (or unparseable answer) scores 0 with the error recorded.  Then a
 pairwise arena (``PairwiseJudge``, same judge model, both orders) runs every
@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import shutil
 import sys
 import time
@@ -75,6 +76,7 @@ from bench._oneshot import (  # noqa: E402
 from bench.run_bench import (  # noqa: E402
     Battery,
     BenchPrompt,
+    archive_attempt,
     build_spec,
     default_run_track,
     select_prompts,
@@ -89,6 +91,8 @@ from codeverse.proc import exclusive  # noqa: E402
 from codeverse.tracks.generation import MultiFileParseError  # noqa: E402
 from codeverse.tracks.planner import PlanningError  # noqa: E402
 from codeverse.workspace import Workspace  # noqa: E402
+
+log = logging.getLogger(__name__)
 
 ArmKind = Literal["harness", "oneshot", "oneshot+repair"]
 
@@ -127,7 +131,6 @@ class CompareOptions(BaseModel):
     loop_judge: str | None = Field(default=None, description="harness in-loop judge (None → settings default)")
     planner: str | None = None
     rounds: int = 3
-    max_usd: float = 2.5
     max_minutes: float = 45.0
     parallel: int = 8  # measured knee, see BenchOptions.parallel / docs/COST.md Part III
     limit: int | None = None
@@ -146,7 +149,7 @@ class CompareOptions(BaseModel):
 def spec_for(battery: Battery, item: BenchPrompt, arm: Arm, opts: CompareOptions) -> Spec:
     generator = arm.target if arm.kind == "harness" else f"single-shot:{arm.target}"
     backends = get_settings().backends(generator=generator, judge=opts.loop_judge, planner=opts.planner)
-    return build_spec(battery, item, backends=backends, rounds=opts.rounds, max_usd=opts.max_usd,
+    return build_spec(battery, item, backends=backends, rounds=opts.rounds,
                       max_minutes=opts.max_minutes, tag0="compare", extra_tags=(arm.kind,))
 
 
@@ -231,8 +234,17 @@ def entry_of(spec: Spec) -> str:
     return ENTRY_FILE[spec.language]
 
 
-def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, res: CellResult) -> None:
+def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOptions,
+                 deps: CompareDeps, res: CellResult) -> None:
     run_ws = Workspace(cell / "run")
+    if run_ws.exists() and not opts.resume:
+        # --no-resume regenerates every other arm (a recorded one-shot answer is not re-used
+        # either), so a harness arm that resumed its FINISHED workspace handed back its old
+        # score, generated in the old weather, against a partner generated in today's — the
+        # cross-weather comparison the pairing exists to prevent (ab_plan.archive_cell has
+        # the measured story).  The old tree is archived, never deleted: it holds that
+        # attempt's cost ledger.
+        archive_attempt(run_ws.root)
     resume = run_ws.exists()
     if not resume:
         run_ws.create()
@@ -255,12 +267,18 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, deps: CompareDeps, 
     shutil.copytree(run_ws.src, eval_ws.src, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 
 
-def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: CompareOptions, deps: CompareDeps) -> CellResult:
+def _new_cell(item: BenchPrompt, arm: Arm, out: Path, opts: CompareOptions) -> tuple[Path, CellResult]:
+    """The cell's directory and its identity row.  ONE place knows what identifies a row,
+    so run_matrix's synthesized last-resort row is shaped like every real one."""
     cell = out / "cells" / item.id / arm.slug
+    return cell, CellResult(prompt_id=item.id, tier=item.tier, arm=arm.raw, kind=arm.kind,
+                            target=arm.target, judge=opts.judge, workspace=str(cell))
+
+
+def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: CompareOptions, deps: CompareDeps) -> CellResult:
+    cell, res = _new_cell(item, arm, out, opts)
     cell.mkdir(parents=True, exist_ok=True)
     spec = spec_for(battery, item, arm, opts)
-    res = CellResult(prompt_id=item.id, tier=item.tier, arm=arm.raw, kind=arm.kind, target=arm.target,
-                     judge=opts.judge, workspace=str(cell))
     t0 = time.time()
     eval_ws = _fresh_ws(cell / "eval")
     eval_ws.write_json(eval_ws.spec_path, spec)
@@ -270,7 +288,7 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
         # of the per-process fallback log.  Context-local, so --parallel keeps cells apart.
         with run_ledger(cell, run=f"{item.id}:{arm.slug}"):
             if arm.kind == "harness":
-                _run_harness(spec, cell, eval_ws, deps, res)
+                _run_harness(spec, cell, eval_ws, opts, deps, res)
             else:
                 _generate_oneshot(arm, spec, cell, eval_ws, opts, deps, res)
             # A one-shot arm whose LAST attempt was lost to the provider has not finished
@@ -302,19 +320,17 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
         res.status, res.score, res.passed, res.build_ok = "no_code", 0.0, False, False
         res.error = f"PlanningError: {e}"
     except Exception as e:  # noqa: BLE001 — one cell must never kill the matrix
-        try:
-            infra = is_infra_failure(e)
-        except Exception as classify_error:  # noqa: BLE001 — a classifier bug is not a reason to lose the cell
-            infra = False
-            res.error = (res.error + "; " if res.error else "") + f"[classifier failed: {type(classify_error).__name__}] "
-        res.status = "infra_failed" if infra else "error"  # same rule as the no-code path
-        res.error = (res.error + "; " if res.error else "") + f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1200:]}"
+        # is_infra_failure is total (bench/_infra.py): a classifier bug answers False and
+        # logs, it does not raise out of this handler and take the matrix loop with it.
+        res.status = "infra_failed" if is_infra_failure(e) else "error"  # same rule as the no-code path
+        res.note(f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1200:]}")
     res.wall_s = round(time.time() - t0, 1)
     try:
         flag_degraded(res, opts)
         eval_ws.write_json(cell / "cell.json", res)
     except Exception as e:  # noqa: BLE001 — the row is the record of last resort
-        res.error = (res.error + "; " if res.error else "") + f"[cell.json not written: {type(e).__name__}: {e}]"
+        log.exception("cell.json not written for %s", res.workspace)
+        res.note(f"[cell.json not written: {type(e).__name__}: {e}]")
     return res
 
 
@@ -332,12 +348,11 @@ def flag_degraded(res: CellResult, opts: CompareOptions) -> None:
     """
     if res.kind != "harness" or res.status not in ("scored", "build_failed"):
         return
-    money_stop = res.gen_cost_usd >= 0.9 * opts.max_usd
-    if (res.harness_stop_reason == "budget" and not money_stop and res.harness_rounds <= opts.degraded_max_rounds
+    if (res.harness_stop_reason == "budget" and res.harness_rounds <= opts.degraded_max_rounds
             and res.wall_s >= opts.degraded_min_wall_s):
         res.degraded = True
         res.degraded_reason = (f"ceiling stop after {res.harness_rounds} completed round(s) in {res.wall_s / 60:.0f} min "
-                               f"with ${opts.max_usd - res.gen_cost_usd:.2f} of the budget unspent")
+                               f"having spent ${res.gen_cost_usd:.2f}")
 
 
 def _fill_from_outcome(res: CellResult, o: EvalOutcome) -> None:
@@ -348,12 +363,12 @@ def _fill_from_outcome(res: CellResult, o: EvalOutcome) -> None:
     res.glb = o.build.glb_path or ""
     if not o.build.ok:
         res.status, res.score, res.passed = "build_failed", 0.0, False
-        res.error = (res.error + "; " if res.error else "") + f"{o.build.error_type}: {o.build.error_message[:400]}"
+        res.note(f"{o.build.error_type}: {o.build.error_message[:400]}")
         return
     j = o.judgment
     if j is None or j.n_samples == 0:
         res.status, res.score, res.passed = "judge_error", None, None
-        res.error = (res.error + "; " if res.error else "") + (o.error or (j.summary if j else "no judgment"))[:400]
+        res.note((o.error or (j.summary if j else "no judgment"))[:400])
         return
     res.judge_cost_usd = j.usage.cost_usd
     res.score, res.passed, res.score_std, res.status = j.overall, j.passed, j.score_std, "scored"
@@ -435,8 +450,10 @@ def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm
                 r = fut.result()
             except Exception as e:  # noqa: BLE001 — run_cell must not raise; if it does, record the cell, keep the matrix
                 p, a = futs[fut]
-                r = CellResult(prompt_id=p.id, tier=p.tier, arm=a.raw, kind=a.kind, target=a.target, judge=opts.judge,
-                               status="error", error=f"run_cell raised {type(e).__name__}: {e}"[:800])
+                log.exception("run_cell raised for %s / %s", p.id, a.raw)
+                _, r = _new_cell(p, a, out, opts)
+                r.status = "error"
+                r.note(f"run_cell raised {type(e).__name__}: {e}"[:800])
             done[(r.prompt_id, r.arm)] = r
             fh.write(r.model_dump_json() + "\n")
             fh.flush()
@@ -503,7 +520,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--ids", default="", help="comma-separated prompt ids")
     ap.add_argument("--tiers", default="", help="comma-separated tiers (easy,medium,hard)")
     ap.add_argument("--rounds", type=int, default=3)
-    ap.add_argument("--max-usd", type=float, default=2.5)
     ap.add_argument("--max-minutes", type=float, default=45.0, help="wall-clock ceiling for ONE harness run")
     ap.add_argument("--loop-judge", default=None, help="harness in-loop judge (default: settings default)")
     ap.add_argument("--planner", default=None,
@@ -529,7 +545,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if ns.report_only:
         build_compare_report(Path(ns.out))
         return 0
-    opts = CompareOptions(judge=ns.judge, loop_judge=ns.loop_judge, planner=ns.planner, rounds=ns.rounds, max_usd=ns.max_usd,
+    opts = CompareOptions(judge=ns.judge, loop_judge=ns.loop_judge, planner=ns.planner, rounds=ns.rounds,
                           max_minutes=ns.max_minutes, parallel=ns.parallel,
                           limit=ns.limit, ids=[i for i in ns.ids.split(",") if i],
                           tiers=[t for t in ns.tiers.split(",") if t], resume=not ns.no_resume,

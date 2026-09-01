@@ -18,18 +18,14 @@ from codeverse.tracks.planner import plan_example
 from codeverse.tracks.scene import SceneTrack
 from codeverse.tracks.static_object import ObjectPipeline, StaticObjectTrack
 from codeverse.workspace import Workspace
-from tests.orchestrator_tracks.conftest import make_spec
+from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
-    FakeChatModel,
     FakeJudge,
     FakeRuntime,
     FakeServices,
+    _planner,
 )
-
-
-def _planner(plan_dict):
-    return FakeChatModel(lambda req: plan_dict)
 
 
 def _writer(job, ws):
@@ -66,13 +62,14 @@ class ScriptedJudge(FakeJudge):
 def test_judged_round_survives_budget_ceiling_crossed_by_judge(tmp_path, chair_plan, settings):
     """steps.py:148 — the judge's own charge used to raise BudgetExceeded BEFORE the round
     was committed/recorded, throwing away a complete judged round (scene r2 case)."""
-    spec = make_spec(max_rounds=3, max_usd=0.02)
+    spec = make_spec(max_rounds=3)
     ws = Workspace(tmp_path / "runs" / "r")
-    judge = FakeJudge(scores=(0.55,), cost=0.05)  # this single verdict crosses max_usd
+    judge = FakeJudge(scores=(0.55,), cost=0.05, minutes=12.0)  # this single verdict crosses max_minutes
     track = StaticObjectTrack(services=FakeServices(), judge=judge, agent=FakeAgent(_writer),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                               runtime=FakeRuntime(Language.THREEJS))
-    rec = track.run(spec, ws)
+    with fake_clock():
+        rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET and rec.extra["stop_reason"] == "budget"
     assert len(rec.rounds) == 1 and rec.rounds[0].judgment is not None
     assert rec.best_round == 0 and rec.final_score == pytest.approx(0.55)  # promoted BEFORE the budget stop
@@ -87,24 +84,68 @@ def test_judged_round_survives_budget_ceiling_crossed_by_judge(tmp_path, chair_p
 def test_finalise_restores_best_when_aborted_round_dirtied_src(tmp_path, chair_plan, settings):
     """lifecycle.py:263 — a refine round that wrote files but died on the generation charge
     left HEAD at the best commit with foreign src/: the run then shipped unjudged code."""
-    spec = make_spec(max_rounds=3, max_usd=0.02)
+    spec = make_spec(max_rounds=3)
     ws = Workspace(tmp_path / "runs" / "r")
     # planner 0.002 + baseline agent 0.01 + judge 0.003 = 0.015 < 0.02; the refine agent's
     # 0.01 charge crosses the ceiling AFTER its files hit the disk.
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.55, 0.7), targets=("Seat",)), agent=FakeAgent(_writer),
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.55, 0.7), targets=("Seat",)), agent=FakeAgent(_writer, minutes=6.0),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                               runtime=FakeRuntime(Language.THREEJS))
-    rec = track.run(spec, ws)
+    with fake_clock():
+        rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET and rec.best_round == 0 and len(rec.rounds) == 1
     text = (ws.src / "object.js").read_text()
     assert "baseline r0" in text and "refine" not in text  # restored, not the aborted round's edits
     assert ws.changed_files() == []  # tree clean at the delivered commit
     # finding lifecycle.py:256 — the aborted round's charges survive into run_state for resume
     state = RunState.load(ws)
-    spent = state.extra["spent_usage"]  # legacy mirror, kept one release
+    spent = state.extra["budget_snapshot"]["spent"]
     assert spent["cost_usd"] == pytest.approx(0.025, abs=1e-6)
     snap = state.extra["budget_snapshot"]
     assert snap["billed_usd"] == pytest.approx(0.025, abs=1e-6) and snap["calls"] > 0
+
+
+# --------------------------------------------------------------------- finding: finalise rebuild fails after invalidation
+def test_a_failed_finalise_rebuild_cannot_finalize_silently(tmp_path, chair_plan, settings, monkeypatch):
+    """Every real runtime invalidates the canonical artifact FIRST in build(), so a
+    failed rebuild of the restored best round leaves object.glb MISSING — yet the run
+    used to finalize with final_score set, ``record.error == ""`` and a deliverable
+    with no model file.  The earned status + judge scores are kept; the error and the
+    ``finalise_rebuild_failed`` flag must say what happened, and the texture pass
+    (whose input GLB is gone) must not charge image calls first."""
+    import subprocess
+
+    class RebuildFailsRuntime(FakeRuntime):
+        def build(self, ws, *, timeout_s=None):
+            msg = subprocess.run(["git", "-C", str(ws.root), "log", "-1", "--format=%s"],
+                                 capture_output=True, text=True).stdout.strip()
+            if msg.startswith("restore best round"):
+                ws.stage_artifacts("object.glb").invalidate()  # what the real runtimes do first
+                return BuildResult(ok=False, language=self.language.value, error_type="Timeout",
+                                   error_message="runtime crashed on rebuild", error_file="src/object.js")
+            return super().build(ws, timeout_s=timeout_s)
+
+    textured = []
+    from codeverse.tracks.lifecycle import BaseTrack
+    monkeypatch.setattr(BaseTrack, "_texture_wanted", staticmethod(lambda ctx: True))
+    monkeypatch.setattr(BaseTrack, "_texture_pass", lambda self, ctx: textured.append(True))
+
+    spec = make_spec(max_rounds=2)
+    ws = Workspace(tmp_path / "runs" / "r")
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.7, 0.5), targets=("Seat",)),
+                              agent=FakeAgent(_writer), planner_model=_planner(chair_plan.model_dump(mode="json")),
+                              settings=settings, runtime=RebuildFailsRuntime(Language.THREEJS))
+    rec = track.run(spec, ws)
+    assert rec.status is RunStatus.PLATEAU and rec.best_round == 0            # the earned status stays
+    assert rec.final_score == pytest.approx(0.7)                              # ...and so do the paid scores
+    assert rec.error.startswith("finalise rebuild failed: Timeout")
+    assert "runtime crashed on rebuild" in rec.extra["finalise_rebuild_failed"]
+    assert not (ws.artifacts / "object.glb").is_file()
+    assert textured == [], "the texture pass must not run against a missing GLB"
+    on_disk = json.loads(ws.record_path.read_text())
+    assert on_disk["error"].startswith("finalise rebuild failed") and on_disk["status"] == "plateau"
+    ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "finalise.rebuild"]
+    assert ev and ev[-1]["ok"] is False
 
 
 # --------------------------------------------------------------------- finding: spent usage persisted on crash paths
@@ -128,7 +169,7 @@ def test_spent_usage_saved_when_a_round_crashes(tmp_path, chair_plan, settings):
     with pytest.raises(RuntimeError, match="gate exploded"):
         track.run(spec, ws)
     state = RunState.load(ws)
-    spent = state.extra["spent_usage"]  # legacy mirror, kept one release
+    spent = state.extra["budget_snapshot"]["spent"]
     # planner 0.002 + r0 agent 0.01 + r0 judge 0.003 + r1 agent 0.01 — the r1 charge must not vanish
     assert spent["cost_usd"] == pytest.approx(0.025, abs=1e-6)
     assert state.extra["budget_snapshot"]["billed_usd"] == pytest.approx(0.025, abs=1e-6)
@@ -193,7 +234,7 @@ def test_degraded_verdict_recovers_via_rejudge_of_same_commit(tmp_path, chair_pl
 
 # --------------------------------------------------------------------- finding: plan stage hash covers the whole Spec
 def test_resume_with_raised_budget_does_not_replan_or_reskeleton(tmp_path, chair_plan, settings):
-    spec = make_spec(max_rounds=1, max_usd=5.0)
+    spec = make_spec(max_rounds=1)
     ws = Workspace(tmp_path / "runs" / "r")
     planner = _planner(chair_plan.model_dump(mode="json"))
     services = FakeServices()
@@ -204,7 +245,7 @@ def test_resume_with_raised_budget_does_not_replan_or_reskeleton(tmp_path, chair
     n_plan_calls = len(planner.requests)
     src_before = (ws.src / "object.js").read_text()
     # the only way to continue a BUDGET-stopped run: raise the budget in the spec
-    spec2 = make_spec(max_rounds=1, max_usd=50.0)
+    spec2 = make_spec(max_rounds=1)
     rec2 = mk().run(spec2, ws, resume=True)
     assert len(planner.requests) == n_plan_calls  # plan stage still cached
     assert (ws.src / "object.js").read_text() == src_before or "r0" in (ws.src / "object.js").read_text()
@@ -306,3 +347,42 @@ def test_scene_frames_gate_errors_flow_into_refine_instructions(tmp_path, settin
     assert tasks, "a scene_frames ERROR must produce a refine task"
     joined = "\n".join(instructions)
     assert "dark" in joined and "FIX: raise ambient" in joined
+
+
+def test_a_successful_re_finalise_clears_the_stale_rebuild_failed_flag(tmp_path, chair_plan, settings, monkeypatch):
+    """The prior-record merge carries extra keys the new record lacks — so a run that
+    once recorded ``finalise_rebuild_failed`` and is later resumed to a SUCCESSFUL
+    rebuild must clear the flag explicitly (a no-rebuild resume keeps it: the
+    artifact may still be the missing one)."""
+    import subprocess
+
+    fail_once = {"armed": True}
+
+    class FlakyRebuildRuntime(FakeRuntime):
+        def build(self, ws, *, timeout_s=None):
+            msg = subprocess.run(["git", "-C", str(ws.root), "log", "-1", "--format=%s"],
+                                 capture_output=True, text=True).stdout.strip()
+            if msg.startswith("restore best round") and fail_once["armed"]:
+                fail_once["armed"] = False
+                ws.stage_artifacts("object.glb").invalidate()
+                return BuildResult(ok=False, language=self.language.value, error_type="Timeout",
+                                   error_message="runtime crashed on rebuild", error_file="src/object.js")
+            return super().build(ws, timeout_s=timeout_s)
+
+    spec = make_spec(max_rounds=2)
+    ws = Workspace(tmp_path / "runs" / "r")
+
+    def track():
+        return StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.7, 0.5), targets=("Seat",)),
+                                 agent=FakeAgent(_writer), planner_model=_planner(chair_plan.model_dump(mode="json")),
+                                 settings=settings, runtime=FlakyRebuildRuntime(Language.THREEJS))
+
+    rec1 = track().run(spec, ws)
+    assert "runtime crashed on rebuild" in rec1.extra["finalise_rebuild_failed"]
+    # dirty the tree so the resume's finalise needs a restore (and hence a rebuild)
+    (ws.src / "object.js").write_text((ws.src / "object.js").read_text() + "\n// scribble\n")
+    ws.commit("scribble after the failed finalise")
+    rec2 = track().run(spec, ws, resume=True)
+    assert "finalise_rebuild_failed" not in rec2.extra, "a successful rebuild must clear the stale flag"
+    assert not rec2.error.startswith("finalise rebuild failed")
+    assert (ws.artifacts / "object.glb").is_file()

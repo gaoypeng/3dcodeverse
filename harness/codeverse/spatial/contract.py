@@ -13,6 +13,9 @@ Severity policy (``tol = max(tol_m, REL_TOL × plan extent)`` per axis):
 * bbox centre / extents off by > tol → WARN (exact delta in the hint);
   > ``ERROR_FACTOR × tol`` → ERROR
 * overall bbox vs ``overall_bbox`` → same policy
+* overall extents are the plan's with up swapped for a horizontal axis → ERROR
+  ``data["kind"] == "orientation"`` (lying down / stood on end); the two horizontal
+  extents swapped → WARN "turned" (the az-0 view then shows a side, not the front)
 * not standing on the ground / footprint off-centre → WARN
 * GLB parts the plan never mentioned → INFO
 * ScenePlan: zone groups missing → WARN; model outside ``bounds`` → WARN
@@ -34,7 +37,14 @@ from codeverse.contracts.artifacts import (
     Severity,
 )
 from codeverse.contracts.plan import BBox, PartPlan, Plan, ScenePlan, StaticPlan
-from codeverse.conventions import BBOX_TOLERANCE_M, LANGUAGE_FRAME, Frame, to_snake
+from codeverse.conventions import (
+    BBOX_TOLERANCE_M,
+    CONTACT_GAP_M,
+    FRAME_AXES,
+    LANGUAGE_FRAME,
+    Frame,
+    to_snake,
+)
 from codeverse.spatial.measure import fmt_extent_cm, fmt_vec
 
 GATE = "contract"
@@ -43,6 +53,30 @@ REL_TOL = 0.10
 #: a delta beyond ERROR_FACTOR × tolerance is an error, not a warning
 ERROR_FACTOR = 3.0
 _AXES = ("x", "y", "z")
+
+# Orientation (2026-08-30).  A 90° turn about a horizontal axis leaves the AABB of the
+# planned box with its up extent swapped for a horizontal one, so "lying down" is a
+# permutation test on extents — but planners size THIN axes badly (h2h c_clamp: 9.6 cm
+# planned for a 2.4 cm clamp), so only the planned LONG axis is required to reappear,
+# within ORIENT_FIT; the thin one may be over-planned by up to ORIENT_OVER (the h2h
+# clock: 26 cm planned, 34 cm real).  The up extent itself must have shrunk by
+# ORIENT_LYING; a build merely too short (fancy_v1 chamber_organ, 1.15 m for 3.2 m
+# planned, nothing sideways) or a 2× scale error is contract_violation, not this.
+# "Stood on end" (taller than planned, the planned width now up) needs ORIENT_STOOD:
+# planners under-size tall objects — loop_w7 orrery 0.32 m planned / 0.47 m built and
+# fancy_v1 smock_windmill 18.5 / 25.8 m are upright and sit at 1.4–1.5×.  The rotation
+# axis's own extent must not have moved by more than ORIENT_THIRD (sysprompt_ab
+# b36_v0_01r: a table 1.38 m wide for a 0.48 m chair — wrong object, not rotated), and
+# near-cubes say nothing (ORIENT_ANISO).  Over every measured static_object round under
+# bench/out (629 measurements: 435 rounds + 194 final measurement.json, 217 runs) these
+# fire 0 times; on the brilliana c_clamp and gate_valve GLBs (both lying, by eye) they
+# fire with the right axis.
+ORIENT_FIT = float(np.log(1.25))
+ORIENT_LYING = float(np.log(1.5))
+ORIENT_STOOD = float(np.log(2.0))
+ORIENT_THIRD = float(np.log(1.5))
+ORIENT_ANISO = 1.5
+ORIENT_OVER = 1.4
 
 
 # --------------------------------------------------------------------------- frames
@@ -112,6 +146,49 @@ def match_parts(plan_parts: list[PartPlan], measured: list[PartMeasure]) -> tupl
     return matched, list(remaining.values())
 
 
+def planned_joins(plan: Plan | None, measurement: Measurement | None) -> list[tuple[str, tuple[str, ...]]]:
+    """The plan's ``attach_to`` edges spelled in the GLB's part names, for the connectivity ledger.
+
+    The ONE resolver: the track's gate and the MCP ``check_connectivity`` / folded build
+    check all call this, so the agent-facing ledger and the judge's read the same pairs.
+    Names resolve the way ``check_contract`` resolves them (``match_parts``: the exact node
+    first, then the ``Name_0..N`` instances).  Counted 2026-08-30 over the 357 stored
+    static_object rounds that carry attach_to edges: 965 of 2 666 raw plan names are
+    instance parts absent from the mesh under their plan spelling (``FrontLeg`` →
+    ``FrontLeg_0``/``FrontLeg_1``) — feeding raw names listed them as unresolved.
+    Each child copy joins the copy of its parent it TOUCHES by AABB (gap ≤ CONTACT_GAP_M),
+    and every touching copy when several do: a brace spanning Leg_1→Leg_3 whose box also
+    grazes Leg_0 ties at 0 for all three, and picking the first by list order sent it to
+    Leg_0 alone — a false OPEN.  The gate measures every pair exactly and reduces per
+    child (the contact row wins, else the smallest gap), so emitting candidates costs
+    nothing but a guess.  A child touching no copy joins the nearest one — the full cross
+    product would report the far apron/leg pair of every chair as OPEN.
+    """
+    if plan is None or measurement is None or not measurement.parts:
+        return []
+    parts = list(getattr(plan, "parts", []) or [])
+    matched, _ = match_parts(parts, measurement.parts)
+    edges: list[tuple[str, str]] = []
+    for pp in parts:
+        if not pp.attach_to:
+            continue
+        parents = matched.get(pp.attach_to) or []
+        for child in matched.get(pp.name) or []:
+            gaps = {p.name: _aabb_gap(child, p) for p in parents if p.name != child.name}
+            if not gaps:
+                continue
+            touching = [n for n, g in gaps.items() if g <= CONTACT_GAP_M]
+            edges.append((child.name, tuple(touching or [min(gaps, key=gaps.__getitem__)])))
+    return edges
+
+
+def _aabb_gap(a: PartMeasure, b: PartMeasure) -> float:
+    """Euclidean distance between two axis-aligned boxes (0 when they overlap)."""
+    lo_a, hi_a = np.asarray(a.bbox_min, dtype=float), np.asarray(a.bbox_max, dtype=float)
+    lo_b, hi_b = np.asarray(b.bbox_min, dtype=float), np.asarray(b.bbox_max, dtype=float)
+    return float(np.linalg.norm(np.maximum(np.maximum(lo_a - hi_b, lo_b - hi_a), 0.0)))
+
+
 @dataclass
 class _BoxDelta:
     center: np.ndarray
@@ -136,11 +213,6 @@ def _fmt_delta(v: np.ndarray) -> str:
     return ", ".join(f"{a}{d * 100:+.1f}cm" for a, d in zip(_AXES, v, strict=True))
 
 
-#: shared formatters (``spatial.measure``): sizes in cm, translation vectors in m
-_fmt_ext = fmt_extent_cm
-_fmt_vec = fmt_vec
-
-
 def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, language: str,
                   check_center: bool = True) -> list[GateFinding]:
     """WARN/ERROR findings for one box comparison (empty when within tolerance).
@@ -159,7 +231,7 @@ def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, language:
     p_ctr = glb_vec_to_plan(plan.center, language)
     bits = []
     if ext_bad.any():
-        bits.append(f"size {_fmt_ext(p_ext + d_ext)} vs planned {_fmt_ext(p_ext)} cm (Δ {_fmt_delta(d_ext)})")
+        bits.append(f"size {fmt_extent_cm(p_ext + d_ext)} vs planned {fmt_extent_cm(p_ext)} cm (Δ {_fmt_delta(d_ext)})")
     if ctr_bad:
         bits.append(f"centre off by ({_fmt_delta(d_ctr)})")
     hint = f"{what}: " + ("; ".join(bits))
@@ -171,6 +243,72 @@ def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, language:
               "tol_m": glb_vec_to_plan(d.tol, language, extents=True).tolist(), "frame": language_frame(language).value},
     ))
     return out
+
+
+def _log_ratio(a: float, b: float) -> float:
+    return abs(float(np.log(a / b)))
+
+
+def _orientation_finding(m: Measurement, plan: StaticPlan, language: str) -> GateFinding | None:
+    """Is the object lying down / stood on end (ERROR) or turned 90° about up (WARN)?
+
+    Everything is in the plan frame: ``meas`` is the measured overall extents mapped back
+    with :func:`glb_vec_to_plan`, ``up`` the frame's up axis from ``conventions``.  One
+    finding at most; the thresholds and the corpus behind them are documented at the top."""
+    planned = np.asarray(plan.overall_bbox.extents, dtype=float)
+    meas = glb_vec_to_plan(m.extents, language, extents=True)
+    if np.any(planned <= 1e-6) or np.any(meas <= 1e-6):
+        return None
+    up = int(np.argmax(FRAME_AXES[language_frame(language)]["up"]))
+    label = frame_label(language)
+    horizontal = [a for a in range(3) if a != up]
+    best: tuple[float, str, int] | None = None  # (fit, pose, h)
+    for h in horizontal:
+        k = 3 - up - h  # the axis the object turned about keeps its extent
+        if _log_ratio(meas[k], planned[k]) > ORIENT_THIRD:
+            continue
+        shrink = _log_ratio(meas[up], planned[up])
+        if meas[up] < planned[up] and shrink >= ORIENT_LYING and planned[up] / planned[h] >= ORIENT_ANISO:
+            fit = _log_ratio(meas[h], planned[up])  # the planned height now runs along h
+            if fit <= ORIENT_FIT and meas[up] <= planned[h] * ORIENT_OVER and (best is None or fit < best[0]):
+                best = (fit, "lying", h)
+        elif meas[up] > planned[up] and shrink >= ORIENT_STOOD and planned[h] / planned[up] >= ORIENT_ANISO:
+            fit = _log_ratio(meas[up], planned[h])  # the planned h extent now runs up
+            if fit <= ORIENT_FIT and meas[h] <= planned[up] * ORIENT_OVER and (best is None or fit < best[0]):
+                best = (fit, "stood", h)
+    data = {"kind": "orientation", "planned_up_m": float(planned[up]), "measured_up_m": float(meas[up]),
+            "frame": language_frame(language).value}
+    if best is not None:
+        _, pose, h = best
+        k = 3 - up - h
+        # a disagreement with the PLANNED box, phrased as one: a plan that boxed a wall clock
+        # flat makes an upright build read "stood", and the judge treats ERROR text as fact
+        verb = "is lying down relative to the planned box" if pose == "lying" else "stands on end relative to the planned box"
+        return GateFinding(
+            gate=GATE, severity=Severity.ERROR, target="overall",
+            message=f"object {verb}: planned {planned[up] * 100:.1f} cm tall ({_AXES[up]}), measured "
+                    f"{meas[up] * 100:.1f} cm tall with {planned[h] * 100:.1f} cm along {_AXES[h]} planned "
+                    f"and {meas[h] * 100:.1f} cm measured — the {_AXES[up]} and {_AXES[h]} extents are swapped",
+            fix_hint=f"rotate the whole object 90° about {_AXES[k]} so its height runs along {_AXES[up]} "
+                     f"({label}); do not resize parts to fit the box",
+            data={**data, "best_axis": _AXES[h], "pose": pose},
+        )
+    h1, h2 = horizontal
+    if (_log_ratio(meas[up], planned[up]) <= ORIENT_THIRD
+            and max(planned[h1] / planned[h2], planned[h2] / planned[h1]) >= ORIENT_ANISO
+            and _log_ratio(meas[h1], planned[h2]) <= ORIENT_FIT and _log_ratio(meas[h2], planned[h1]) <= ORIENT_FIT
+            and _log_ratio(meas[h1], planned[h1]) >= ORIENT_LYING and _log_ratio(meas[h2], planned[h2]) >= ORIENT_LYING):
+        wide = h1 if planned[h1] > planned[h2] else h2
+        return GateFinding(
+            gate=GATE, severity=Severity.WARN, target="overall",
+            message=f"object is turned 90° about {_AXES[up]}: planned {planned[h1] * 100:.1f}×{planned[h2] * 100:.1f} cm "
+                    f"({_AXES[h1]}×{_AXES[h2]}), measured {meas[h1] * 100:.1f}×{meas[h2] * 100:.1f} cm — its front "
+                    f"faces sideways in the az-0 view",
+            fix_hint=f"rotate the whole object 90° about {_AXES[up]} so the {planned[wide] * 100:.1f} cm side runs "
+                     f"along {_AXES[wide]} ({label})",
+            data={**data, "best_axis": _AXES[wide], "pose": "turned"},
+        )
+    return None
 
 
 # --------------------------------------------------------------------------- gate
@@ -185,7 +323,7 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
                 gate=GATE, severity=Severity.ERROR, target=target,
                 message=f"plan part '{pp.name}' is missing from the GLB",
                 fix_hint=f"create a part named exactly '{pp.name}'" + (f" (×{pp.instances} as {pp.name}_0..{pp.instances - 1})" if pp.instances > 1 else "")
-                + f" — {pp.role}; planned size {_fmt_ext(pp.bbox.extents)} cm",
+                + f" — {pp.role}; planned size {fmt_extent_cm(pp.bbox.extents)} cm",
                 data={"expected_instances": pp.instances},
             ))
             continue
@@ -214,6 +352,8 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
     ob = plan_bbox_to_glb(plan.overall_bbox, language)
     d = _box_delta(np.asarray(m.bbox_min), np.asarray(m.bbox_max), ob, tol_m)
     findings.extend(_box_findings("overall", d, ob, what="overall", language=language))
+    if (orient := _orientation_finding(m, plan, language)) is not None:
+        findings.append(orient)
     # ground + footprint
     if abs(m.ground_gap_m) > tol_m:
         where = "above" if m.ground_gap_m > 0 else "below"
@@ -227,13 +367,13 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
         findings.append(GateFinding(
             gate=GATE, severity=Severity.WARN, target="overall",
             message=f"footprint centre is {m.footprint_offset_m * 100:.1f} cm off the up axis",
-            fix_hint=f"translate everything by {_fmt_vec(glb_vec_to_plan((-m.center[0], 0.0, -m.center[2]), language))} m "
+            fix_hint=f"translate everything by {fmt_vec(glb_vec_to_plan((-m.center[0], 0.0, -m.center[2]), language))} m "
                      f"({frame_label(language)}) to centre the footprint",
             data={"footprint_offset_m": m.footprint_offset_m, "frame": language_frame(language).value},
         ))
     for r in extra:
         findings.append(GateFinding(gate=GATE, severity=Severity.INFO, target=r.name,
-                                    message=f"GLB part '{r.name}' is not in the plan ({_fmt_ext(np.subtract(r.bbox_max, r.bbox_min))} cm)"))
+                                    message=f"GLB part '{r.name}' is not in the plan ({fmt_extent_cm(np.subtract(r.bbox_max, r.bbox_min))} cm)"))
     return findings
 
 

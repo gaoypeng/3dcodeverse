@@ -34,6 +34,25 @@ def backend_name() -> str:
     return "fcl" if _fcl is not None else "trimesh"
 
 
+def components(names: list[str], edges: set[tuple[str, str]]) -> list[set[str]]:
+    """Connected components of ``names`` under ``edges`` (union-find) — the contact
+    graph of the connectivity gate and the fixed-joint groups of the pose sweep."""
+    parent = {n: n for n in names}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for a, b in edges:
+        parent[find(a)] = find(b)
+    comps: dict[str, set[str]] = {}
+    for n in names:
+        comps.setdefault(find(n), set()).add(n)
+    return list(comps.values())
+
+
 def fcl_collision_object(mesh: trimesh.Trimesh):
     """``fcl.CollisionObject`` for ``mesh`` (identity transform; None when
     python-fcl is unavailable).  Convex meshes get the cheap ``fcl.Convex``

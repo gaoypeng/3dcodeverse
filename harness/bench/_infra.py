@@ -19,6 +19,11 @@ failure — that is a real capability result and keeps its zero.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterator
+
+log = logging.getLogger(__name__)
+
 #: substrings that identify a provider-side outage in a *stringified* error.  Kept
 #: narrow on purpose: anything matched here is excluded from the comparison, so a
 #: loose pattern would hide genuine model failures.
@@ -59,53 +64,68 @@ INFRA_MARKERS: tuple[str, ...] = (
 INFRA_STATUSES: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504, 529})
 
 
+def _has_marker(text: str) -> bool:
+    return any(marker in text.lower() for marker in INFRA_MARKERS)
+
+
+def _looks_infra(exc: BaseException) -> bool:
+    """The outage rules, applied to ONE exception.  Structured first — a ``ModelError`` /
+    ``KeyPoolExhausted`` carries its status, and trusting that beats guessing from prose —
+    with the string markers as the fallback.  ONE copy: this ran as two hand-kept copies
+    (head vs each wrapped cause) until 2026-08-28, which is how a rule reaches one path
+    and not the other."""
+    if type(exc).__name__ == "KeyPoolExhausted" or isinstance(exc, TimeoutError):
+        return True
+    status = getattr(exc, "status", None)
+    if isinstance(status, int) and status in INFRA_STATUSES:
+        return True
+    return _has_marker(f"{type(exc).__name__}: {exc}")
+
+
+def _chain(err: BaseException, limit: int = 32) -> Iterator[BaseException]:
+    """``err`` and every exception it was raised from, each yielded once.
+
+    A wrapped cause is common (``raise ModelError(...) from urllib.error.HTTPError``), and
+    retry.py's ``raise err from exc`` can close the chain into a CYCLE — classify() returns
+    an already-classified ModelError unchanged, so ``err is exc`` and ``err.__cause__ is
+    err``.  compare_art_v3 (2026-08-27): walking that chain recursively hit RecursionError
+    inside run_cell's except handler, the matrix loop died and 11 finished cells went
+    unrecorded.  Hence iterative, seen-set, bounded.
+    """
+    seen: set[int] = set()
+    exc: BaseException | None = err
+    while exc is not None and id(exc) not in seen and len(seen) < limit:
+        seen.add(id(exc))
+        yield exc
+        exc = exc.__cause__ if exc.__cause__ is not None else exc.__context__
+
+
 def is_infra_failure(err: object) -> bool:
     """True when ``err`` (an exception or an error string) is a provider outage.
 
-    Structured first — a ``ModelError``/``KeyPoolExhausted`` carries its status, and
-    trusting that beats guessing from prose.  The string markers are the fallback for
-    errors that reach the recorder already stringified.
+    TOTAL by contract: four bench drivers call this from inside an ``except`` handler,
+    where a raise escapes the handler itself and takes the driver's whole result loop
+    with it (compare_art_v3, 2026-08-27).  So anything the walk raises — a pathological
+    ``__str__``, a property behind ``.status`` — is logged and answered False.
     """
     if err is None:
         return False
-    if isinstance(err, BaseException):
-        if type(err).__name__ == "KeyPoolExhausted":
-            return True
-        status = getattr(err, "status", None)
-        if isinstance(status, int) and status in INFRA_STATUSES:
-            return True
-        if isinstance(err, TimeoutError):
-            return True
-        # a wrapped cause is common: `raise ModelError(...) from urllib.error.HTTPError`.
-        # Walk the chain ITERATIVELY with a visited set: retry.py's `raise err from exc`
-        # can close the chain into a cycle (compare_art_v3, 2026-08-27: a truncated plan's
-        # ModelError → RecursionError inside run_cell's except handler → the matrix loop
-        # died and 11 finished cells went unrecorded).
-        seen: set[int] = {id(err)}
-        cause = err.__cause__ if err.__cause__ is not None else err.__context__
-        while cause is not None and id(cause) not in seen and len(seen) < 32:
-            seen.add(id(cause))
-            if isinstance(cause, BaseException):
-                if type(cause).__name__ == "KeyPoolExhausted" or isinstance(cause, TimeoutError):
-                    return True
-                status = getattr(cause, "status", None)
-                if isinstance(status, int) and status in INFRA_STATUSES:
-                    return True
-                if any(marker in f"{type(cause).__name__}: {cause}".lower() for marker in INFRA_MARKERS):
-                    return True
-                cause = cause.__cause__ if cause.__cause__ is not None else cause.__context__
-            else:
-                break
-        err = f"{type(err).__name__}: {err}"
-    text = str(err).lower()
-    return any(marker in text for marker in INFRA_MARKERS)
+    try:
+        if isinstance(err, BaseException):
+            return any(_looks_infra(exc) for exc in _chain(err))
+        return _has_marker(str(err))
+    except Exception:  # noqa: BLE001 — a classifier bug must not cost the caller its cell
+        log.exception("is_infra_failure could not classify a %s; recording it as a real failure",
+                      type(err).__name__)
+        return False
 
 
-#: a run that hit its wall-clock / dollar ceiling before producing anything.  Distinct
-#: from an outage: we DID ask the model, it just never delivered inside the budget.
+#: a run that hit its ceiling before producing anything.  Distinct from an outage: we DID
+#: ask the model, it just never delivered inside the budget.  These match RECORDED runs,
+#: so the list keeps wordings the harness no longer emits.
 BUDGET_MARKERS: tuple[str, ...] = (
     "exceeds max_minutes",
-    "exceeds max_usd",
+    "exceeds max_usd",     # historical runs only
     "budget exhausted",
     "wall-clock ceiling",
 )

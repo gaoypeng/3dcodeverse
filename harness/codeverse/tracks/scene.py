@@ -1,4 +1,4 @@
-"""SceneTrack: plan → skeleton → assets → env → zones → assemble → rounds.
+"""SceneTrack: plan → skeleton → (assets ∥ env) → zones → assemble → rounds.
 
 Language: scene_threejs.  Generation is staged (each stage cached by
 ``StageRunner`` for resume); the round loop then builds (probe + shaders),
@@ -9,7 +9,7 @@ zone / asset / env / camera, in parallel when file-disjoint.
 Cost/latency shaping (the baseline used to eat the whole budget, leaving the
 refine rounds nothing):
 
-* assets are single-shot by default (``scene_assets`` / ``scene_asset_gen``);
+* assets are single-shot by default (``scene_assets``);
 * **small zones are batched** — a zone that places ≤ 3 assets is written
   together with its neighbour in ONE session that exclusively owns both files,
   while big zones keep the parallel fan-out;
@@ -52,10 +52,9 @@ from codeverse.tracks.prompting import (
     base_prompt_context,
     bbox_line,
     cookbook_sections,
-    current_files,
-    file_for_target_factory,
     judge_digest,
     reference_images,
+    refine_inline_files,
 )
 from codeverse.tracks.repair import format_error_report
 from codeverse.tracks.scene_assets import (
@@ -66,6 +65,7 @@ from codeverse.tracks.scene_assets import (
     select_assets,
     single_shot_ctx,
 )
+from codeverse.tracks.zone_layout import layout_block, layout_zones
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -102,9 +102,6 @@ class ScenePipeline:
 
     def gates(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> list[GateReport]:
         out: list[GateReport] = []
-        extra = getattr(ctx.runtime, "extra_gates", None)
-        if callable(extra):
-            out.extend(extra(ctx.ws, build))
         census_gate = census_gate_report(build)
         if census_gate is not None:
             out.append(census_gate)
@@ -115,7 +112,7 @@ class ScenePipeline:
         try:
             from codeverse.spatial.scene_placement import placement_gate_safe
 
-            placement = placement_gate_safe(build.census, plan=ctx.plan)
+            placement = placement_gate_safe(build.census, plan=ctx.plan, layouts=ctx.extra.get("layouts"))
         except Exception as e:  # noqa: BLE001
             log.warning("scene placement gate unavailable: %s", e)
             placement = GateReport(gate="scene_placement", passed=True, findings=[GateFinding(
@@ -195,17 +192,57 @@ class SceneTrack(BaseTrack):
         self.stage_skeleton(ctx, runner)
         self.ensure_materialized(ctx)
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
-        assets = runner.stage("assets", lambda: run_asset_stage(ctx), inputs={"assets": plan.assets, "agent": ctx.agent_id})
-        assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v for k, v in (assets or {}).items()}
+        # assets ∥ env (2026-08-30): the env brief is a pure function of the plan — the
+        # template references no asset output (0 uses of asset_api) and says "No assets/
+        # zones here" — yet the two stages ran back to back.  Measured on la_boulevard:
+        # assets 15 min + env 12 min sequential = 27 min of a 75-min budget; the pair
+        # runs in max(15, 12) and the ~12 saved minutes are a whole refine round
+        # (each measured at ~+0.13).  Workspace.commit serialises under its own lock,
+        # so the two stages' commits cannot race.
+        def _layouts() -> dict[str, Any]:
+            """L2 zone layouts (optional accelerator): planner-model calls, never fatal."""
+            from codeverse.config import env_flag
+
+            if not env_flag("CV3D_ZONE_LAYOUTS", True):   # A/B switch, default on; canonical words
+                return {}
+            try:
+                model = self._planner_model
+                if model is None:
+                    from codeverse.models import get_chat_model
+
+                    model = get_chat_model(ctx.spec.backends.planner)
+                layouts = layout_zones(plan, model, budget=ctx.budget, events=ctx.events)
+                return {k: v.model_dump(mode="json") for k, v in layouts.items()}
+            except Exception as e:  # noqa: BLE001 — layouts accelerate, they must never kill
+                ctx.events.emit("layout.stage_failed", error=f"{type(e).__name__}: {e}"[:300])
+                return {}
+
+        # each child is its OWN cached stage (2026-08-31): a failing sibling never
+        # invalidates a succeeded one's paid, committed result on resume.  The key is
+        # the WHOLE plan (+ agent) — correct-by-construction against future prompt
+        # fields; the old enumerated keys let a mood/title/bounds/camera-only re-plan
+        # hit a stale cached stage.  Old "assets+env" composite entries are ignored.
+        key = {"plan": plan, "agent": ctx.agent_id}
+        stage_fns: dict[str, Any] = {"assets": lambda: run_asset_stage(ctx),
+                                     "env": lambda: self._env_stage(ctx), "layouts": _layouts}
+        results = fan_out(list(stage_fns.items()), lambda kv: runner.stage(kv[0], kv[1], inputs=key),
+                          max_workers=2, label="assets+env", item_name=lambda kv: kv[0])
+        staged = dict(zip(stage_fns, results, strict=True))
+        first_exc = next((r for r in results if isinstance(r, Exception)), None)
+        if first_exc is not None:
+            raise first_exc   # after every sibling has finished and cached its own result
+        ctx.extra["layouts"] = staged["layouts"] or {}
+        assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v
+                  for k, v in (staged["assets"] or {}).items()}
         # the merge map is a pure function of the plan, so a RESUMED run (cached asset
         # stage) still tells the zones which builder+variant to call
         _, alias = select_assets(list(plan.assets), MAX_ASSETS)
         ctx.extra["assets"] = assets
         ctx.extra["asset_alias"] = alias
         ctx.extra["asset_api"] = asset_api_summary(plan, assets, alias)
-        runner.stage("env", lambda: self._env_stage(ctx), inputs={"plan_env": plan.environment, "setting": plan.setting, "agent": ctx.agent_id})
-        runner.stage("zones", lambda: self._zones_stage(ctx), inputs={"zones": plan.zones, "asset_api": ctx.extra["asset_api"], "agent": ctx.agent_id})
-        runner.stage("assemble", lambda: self._assemble_stage(ctx), inputs={"cameras": plan.cameras, "zones": [z.name for z in plan.zones]})
+        runner.stage("zones", lambda: self._zones_stage(ctx),
+                     inputs={"plan": plan, "asset_api": ctx.extra["asset_api"], "layouts": ctx.extra["layouts"], "agent": ctx.agent_id})
+        runner.stage("assemble", lambda: self._assemble_stage(ctx), inputs={"plan": plan})
 
     # ---- degradation ------------------------------------------------------
     def _strategy(self, ctx: RunContext, stage: str) -> RunContext:
@@ -288,9 +325,8 @@ class SceneTrack(BaseTrack):
         skills_hook.attach_for_round(zone_gen, index=0, kind="zone")
 
         def _one(batch: list[ZonePlan]) -> GenerationResult:
-            gen = self._strategy(ctx, "zones")
-            task = skills_hook.with_inlined_skill(gen, [self._zone_task(gen, batch)])[0]
-            return generate(ctx.ws, agent_id=gen.agent_id, task=task, agent=gen.agent, model=gen.model, settings=ctx.settings,
+            task = skills_hook.with_inlined_skill(zone_gen, [self._zone_task(zone_gen, batch)])[0]
+            return generate(ctx.ws, agent_id=zone_gen.agent_id, task=task, agent=zone_gen.agent, model=zone_gen.model, settings=ctx.settings,
                             budget=ctx.budget, events=ctx.events)
 
         results = fan_out(batches, _one, max_workers=ctx.settings.limits.max_parallel_agents, label="zones",
@@ -332,7 +368,8 @@ class SceneTrack(BaseTrack):
             # a batched session reads ONE copy of the recipes (they are identical per zone)
             briefs.append(render("tracks/scene_zone.j2", **self._ctx(ctx, recipes=recipes if i == 0 else "", zone_name=zone.name, zone_description=zone.description,
                                                                     zone_bbox=bbox_line(zone.bbox), zone_contents=zone.contents,
-                                                                    zone_file=zone_file(zone), neighbours=neighbours)))
+                                                                    zone_file=zone_file(zone), neighbours=neighbours,
+                                                                    layout=layout_block(ctx.extra.get("layouts", {}).get(zone.name)))))
         ctx.record_prompt("scene_zone", briefs[0])
         if len(batch) == 1:
             prompt, label = briefs[0], f"zone_{to_snake(names[0])}"
@@ -354,7 +391,7 @@ class SceneTrack(BaseTrack):
             result = ctx.services.assemble_scene(ctx.ws, ctx.plan)
             ctx.ws.commit("assemble")
             ctx.events.emit("assemble.done", deterministic=True)
-            return {"ok": True, "deterministic": True, "result": _jsonable(result)}
+            return {"ok": True, "deterministic": True, "result": result}  # StageRunner.stage jsonables it
         except ServiceUnavailable as e:
             ctx.events.emit("assemble.fallback", reason=str(e))
         prompt = render("tracks/scene_compose.j2", **self._ctx(ctx))
@@ -393,16 +430,13 @@ class SceneTrack(BaseTrack):
         return list(SCENE_FILES)
 
     # ------------------------------------------------------------------ refine (scaffold hooks)
-    def refine_file_for_target(self, ctx: RunContext) -> Any:
-        return file_for_target_factory(ctx)
-
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
         files = group.files or list(SCENE_FILES)
         lines = compact_instructions(group.tasks, max_lines=ctx.policy.max_instructions_per_task)
         prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes=refine_recipes(ctx, files), round_index=index, tasks=lines,
                                                               targets=group.targets, files=files, edit_only_these=parallel,
                                                               judge_summary=judge_digest(last),
-                                                              current_files=current_files(ctx, files) if ctx.single_shot else {}))
+                                                              current_files=refine_inline_files(ctx, files, scoped=False)))
         ctx.record_prompt("scene_refine", prompt)
         # parallel groups are file-disjoint by plan_refine_groups: enforce the split they promised
         return GenerationTask(label=f"refine_{group.label}" if parallel else "refine", prompt=prompt, system=self.system_prompt(ctx),
@@ -425,17 +459,13 @@ class SceneTrack(BaseTrack):
         prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes="", round_index=index, tasks=lines, targets=["build"],
                                                              files=files, edit_only_these=False,
                                                              judge_summary="(no judgment: the scene did not build — fix the errors above first)",
-                                                             current_files=current_files(ctx, files) if ctx.single_shot else {}))
+                                                             current_files=refine_inline_files(ctx, files, scoped=False)))
         ctx.record_prompt("scene_refine", prompt)
         return GenerationTask(label="rebuild", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
                               kind="rebuild", temperature=0.7, thinking="high",
                               timeout_s=ctx.budget.timeout_s(REFINE_TIMEOUT_S, floor_s=180, soft=False))
 
     # ------------------------------------------------------------------ helpers
-    def system_prompt(self, ctx: RunContext) -> str:
-        return ("You are an expert three.js + GLSL graphics programmer writing RAW ESM modules for a multi-file scene. "
-                "No SDKs, no DOM, no fetch, no CDN imports: `import * as THREE from 'three'` only. Exact numbers beat adjectives.")
-
     def _ctx(self, ctx: RunContext, **extra: Any) -> dict[str, Any]:
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         zones_table = "\n".join(f"- {z.name}: {z.description} — {bbox_line(z.bbox)}; contents: {', '.join(z.contents) or '-'}" for z in plan.zones)
@@ -522,15 +552,3 @@ def _guess_target(error: str, plan: Any) -> str:
     if "scene.js" in low:
         return "composition"
     return "overall"
-
-
-def _jsonable(obj: Any) -> Any:
-    if hasattr(obj, "model_dump"):
-        return obj.model_dump(mode="json")
-    if isinstance(obj, (str, int, float, bool)) or obj is None:
-        return obj
-    if isinstance(obj, (list, tuple)):
-        return [_jsonable(o) for o in obj]
-    if isinstance(obj, dict):
-        return {str(k): _jsonable(v) for k, v in obj.items()}
-    return str(obj)

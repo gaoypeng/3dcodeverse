@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -19,12 +20,12 @@ from pydantic import BaseModel, Field, ValidationError
 
 from codeverse.config import get_settings
 from codeverse.contracts.artifacts import RenderSet
-from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
+from codeverse.contracts.chat import ImagePart
 from codeverse.contracts.common import Usage
 from codeverse.contracts.plan import PartPlan, ScenePlan, StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import to_snake
-from codeverse.models.schema_utils import parse_json_lenient
+from codeverse.models.schema_utils import ask_structured
 from codeverse.prompts import load_text, prompt_hash, render
 from codeverse.texturing.generate import TextureSet, generate_textures
 
@@ -36,7 +37,6 @@ MaterialFamily = Literal[
 Projection = Literal["box", "cylinder", "planar_y", "planar_z", "auto"]
 
 PLAN_TEMPLATE = "texturing/material_plan.md"
-STYLE_DOC = "texturing/image_prompt_style.md"
 #: parts whose largest extent is below this keep their flat material
 TINY_PART_M = 0.03
 
@@ -317,22 +317,18 @@ def material_plan(
         model = get_chat_model(model_id)
     text = render(PLAN_TEMPLATE, spec_prompt=spec.prompt, style_notes=getattr(plan, "style_notes", ""),
                   n_parts=len(plan.parts), parts_table=parts_table(plan))
-    req = ChatRequest(
-        messages=[ChatMessage.user(text, images=[ImagePart(path=str(p), label=p.stem) for p in images])],
-        system="You plan PBR textures for 3D assets. Answer with JSON only.",
-        response_schema=PlannerOutput.model_json_schema(), temperature=temperature, thinking="low",
-        max_output_tokens=65_536, max_wait_s=900.0, label="texture_plan",
+    out, usage, err = ask_structured(
+        model, PlannerOutput, system="You plan PBR textures for 3D assets. Answer with JSON only.", text=text,
+        images=[ImagePart(path=str(p), label=p.stem) for p in images], temperature=temperature, label="texture_plan",
     )
-    resp = model.generate(req)
-    payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
-    try:
-        out = PlannerOutput.model_validate(payload)
-    except ValidationError as e:
-        raise ValueError(f"texture planner returned invalid JSON for the schema: {e}") from e
-    tp = finalize_plan(out, plan, model_id=model_id, usage=resp.usage, source="vlm")
+    if out is None:
+        raise ValueError(f"texture planner: {err}")
+    tp = finalize_plan(out, plan, model_id=model_id, usage=usage, source="vlm")
     if use_cache:
         cache_root.mkdir(parents=True, exist_ok=True)
-        cached.write_text(tp.model_dump_json(indent=2))
+        tmp = cached.with_suffix(f".{os.getpid()}.tmp")  # atomic: a torn sidecar re-bought the VLM call
+        tmp.write_text(tp.model_dump_json(indent=2))
+        tmp.replace(cached)
     return tp
 
 
@@ -346,8 +342,6 @@ def plan_table(tp: TexturePlan) -> str:
 
 
 # ===================================================================== scene_pack
-# (merged from codeverse/texturing/scene_pack.py, 2026-08-28)
-log = logging.getLogger(__name__)
 
 PACK_TEMPLATE = "texturing/scene_pack.md"
 DEFAULT_URL_PREFIX = "/public/textures"
@@ -461,15 +455,10 @@ def scene_pack_plan(
     assets = "\n".join(f"- {a.name} ({a.kind}): {a.description}" for a in plan.assets) or "- (none)"
     text = render(PACK_TEMPLATE, n_min=n_min, n_max=n_max, title=plan.title, setting=plan.setting, mood=plan.mood,
                   environment=plan.environment, zones=zones, assets=assets)
-    req = ChatRequest(messages=[ChatMessage.user(text)], system="You plan texture packs for 3D scenes. JSON only.",
-                      response_schema=PackOutput.model_json_schema(), temperature=temperature, thinking="low",
-                      max_output_tokens=65_536, max_wait_s=900.0, label="scene_texture_pack")
-    resp = model.generate(req)
-    payload = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
-    try:
-        out = PackOutput.model_validate(payload)
-    except ValidationError as e:
-        raise ValueError(f"scene pack planner returned invalid JSON: {e}") from e
+    out, usage, err = ask_structured(model, PackOutput, system="You plan texture packs for 3D scenes. JSON only.",
+                                     text=text, temperature=temperature, label="scene_texture_pack")
+    if out is None:
+        raise ValueError(f"scene pack planner: {err}")
     entries: list[PackEntry] = []
     seen: set[str] = set()
     for e in out.textures:
@@ -480,7 +469,7 @@ def scene_pack_plan(
         entries.append(fe)
     if not entries:
         raise ValueError("scene pack planner returned no textures")
-    return entries[:n_max], out.notes, resp.usage
+    return entries[:n_max], out.notes, usage
 
 
 # --------------------------------------------------------------------------- generation

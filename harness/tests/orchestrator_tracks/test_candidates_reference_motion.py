@@ -32,18 +32,14 @@ from tests.orchestrator_tracks.fakes import (
     FakePairwise,
     FakeRuntime,
     FakeServices,
+    _planner,
 )
-
-
-def _planner(plan_dict):
-    return FakeChatModel(lambda req: plan_dict)
 
 
 # ----------------------------------------------------------------------------- pure logic
 def test_round_policy_candidates_and_compaction():
     pol = RoundPolicy()
-    assert pol.n_candidates == 1 and pol.with_candidates(None) is pol and pol.with_candidates(3).n_candidates == 3
-    assert pol.with_candidates(0).n_candidates == 1 and pol.parallel_min_tasks == 2
+    assert pol.n_candidates == 1 and pol.parallel_min_tasks == 2
     tasks = [RefineTask(target=f"BackLeg_{i}", kind="gate:connectivity", instruction=f"leg {i} floats", priority=0, source="gate") for i in range(4)]
     tasks += [RefineTask(target="Seat", kind="geometry", instruction="thicker", priority=2)]
     tasks += [RefineTask(target=f"Spindle_{i}", kind="gate:contract", instruction="off", priority=0, source="gate") for i in range(3)]
@@ -96,14 +92,14 @@ def test_rank_candidates_and_decide_best():
     assert decide_best(None, 0.5, margin=0.03, min_confidence=0.6, compare=None) == ("score", None)
 
 
-@pytest.mark.parametrize("text,expected", [
-    ("drawer pulls out towards -Y", "-y"), ("lid opens upward", "up"), ("door swings to the left", "left"),
-    ("drawer slides out", "front"), ("opens to the front", "front"), ("seat folds down", "down"),
-    ("drawer pushes in", "back"), ("lid hinges up and out", None), ("spins around its axis", None),
-    ("", None), ("handle turns", None), ("does not move up", None), ("lower drawer pulls out", "front"),
-])
-def test_expected_direction(text, expected):
-    assert expected_direction(text) == expected
+def test_expected_direction():
+    cases = [
+        ("drawer pulls out towards -Y", "-y"), ("lid opens upward", "up"), ("door swings to the left", "left"),
+        ("drawer slides out", "front"), ("opens to the front", "front"), ("seat folds down", "down"),
+        ("drawer pushes in", "back"), ("lid hinges up and out", None), ("spins around its axis", None),
+        ("", None), ("handle turns", None), ("does not move up", None), ("lower drawer pulls out", "front"),
+    ]
+    assert [expected_direction(text) for text, _ in cases] == [expected for _, expected in cases]
 
 
 # ----------------------------------------------------------------------------- best-of-N track run
@@ -177,14 +173,17 @@ def test_best_of_two_pairwise_tiebreak_overrides_ranking(tmp_path, chair_plan, s
 
 
 def test_candidate_count_persists_for_resume_and_settings_default(tmp_path, chair_plan, settings):
-    spec = make_spec(language=Language.BLENDER, max_rounds=0)
+    from codeverse.contracts.spec import RunOptions
+
+    # the CLI writes --candidates into spec.options (the persisted carrier — spec.json travels
+    # with the run); run_state.json no longer mirrors it
+    spec = make_spec(language=Language.BLENDER, max_rounds=0, options=RunOptions(candidates=2))
     ws = Workspace(tmp_path / "runs" / "stool3")
     track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5,)), agent=FakeAgent(_writer_by_candidate),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
-                              runtime=FakeRuntime(Language.BLENDER), n_candidates=2)
+                              runtime=FakeRuntime(Language.BLENDER))
     track.run(spec, ws)
-    state = json.loads(ws.state_path.read_text())
-    assert state["extra"]["n_candidates"] == 2
+    assert json.loads(ws.state_path.read_text())["extra"].get("n_candidates") is None
     # a resume without the flag reads the persisted width
     t2 = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5,)), agent=FakeAgent(_writer_by_candidate),
                            planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.BLENDER))
@@ -196,7 +195,8 @@ def test_candidate_count_persists_for_resume_and_settings_default(tmp_path, chai
     settings2 = settings.model_copy()
     object.__setattr__(settings2, "default_candidates", 3)
     t3 = StaticObjectTrack(services=FakeServices(), settings=settings2, runtime=FakeRuntime(Language.BLENDER))
-    ctx3 = t3.build_context(spec, Workspace(tmp_path / "runs" / "fresh").create(), EventLog(tmp_path / "e.jsonl"), RunState())
+    ctx3 = t3.build_context(make_spec(language=Language.BLENDER, max_rounds=0), Workspace(tmp_path / "runs" / "fresh").create(),
+                            EventLog(tmp_path / "e.jsonl"), RunState())
     assert ctx3.policy.n_candidates == 3
     assert get_track("static_object", n_candidates=4)._n_candidates == 4
 
@@ -377,6 +377,22 @@ def test_default_motion_checks_on_real_urdf(tmp_path):
     bad = default_motion_checks(robot(tmp_path / "bad", 1), plan)
     assert bad is not None and not bad.passed and bad.errors[0].target == "DoorHinge"
     assert "WRONG" in bad.errors[0].message and '<axis xyz="-0 -0 -1"/>' in bad.errors[0].fix_hint
+    # orthogonal (the swiss-knife class): a prismatic joint sliding +x when the plan says
+    # up — cos = 0 exactly, and the hint states the computed axis verbatim
+    import copy
+    ortho = robot(tmp_path / "ortho", 1)
+    u = (ortho.artifacts / "robot.urdf").read_text()
+    u = u.replace('type="revolute"', 'type="prismatic"').replace('<axis xyz="0 0 1"/>', '<axis xyz="1 0 0"/>')
+    (ortho.artifacts / "robot.urdf").write_text(u)
+    slide_plan = copy.deepcopy(plan)
+    slide_plan.joints[0].type = "prismatic"
+    slide_plan.joints[0].motion = "slides straight up"
+    o = default_motion_checks(ortho, slide_plan)
+    assert o is not None and not o.passed
+    # URDF space is Z-up: 'up' is +z there (the harness converts frames at the boundary)
+    assert "computed from the pivot" in o.errors[0].fix_hint and '<axis xyz="0 0 1"/>' in o.errors[0].fix_hint
+    assert o.errors[0].data.get("suggested_axis") == [0.0, 0.0, 1.0]
+
     plan.joints[0].motion = "rotates"  # ambiguous → no gate
     assert default_motion_checks(robot(tmp_path / "none", 1), plan) is None
 
@@ -393,6 +409,7 @@ def test_a_track_without_a_glb_still_gets_candidate_renders():
     never reached, and every extra candidate was generated, paid for and discarded blind.
     """
     from pathlib import Path
+    from types import SimpleNamespace
 
     from codeverse.tracks.candidates import quick_render
 
@@ -409,17 +426,20 @@ def test_a_track_without_a_glb_still_gets_candidate_renders():
         ws = _WS()
 
     pipe = _Pipeline()
-    got = quick_render(_Ctx(), None, pipeline=pipe, build="BUILD", measurement="MEAS")
+    build = SimpleNamespace(glb_path=None)
+    got = quick_render(_Ctx(), 0, build, "MEAS", pipeline=pipe)
     assert got == "frames-renderset", "no GLB must fall back to the track's own renderer"
-    assert pipe.calls == [(0, "BUILD", "MEAS")]
+    assert pipe.calls == [(0, build, "MEAS")]
 
     # and with nothing to fall back to, it still degrades quietly rather than raising
-    assert quick_render(_Ctx(), None) is None
+    assert quick_render(_Ctx(), 0, build, None) is None
 
 
 def test_an_object_candidate_still_uses_the_cheap_rig(tmp_path):
     """The fallback must not make the object path more expensive: a GLB still goes through
     the reduced-view, reduced-resolution quick rig, not pipeline.render."""
+    from types import SimpleNamespace
+
     from codeverse.tracks.candidates import OBJECT_VIEWS_QUICK, QUICK_PX, quick_render
 
     seen = {}
@@ -427,7 +447,7 @@ def test_an_object_candidate_still_uses_the_cheap_rig(tmp_path):
     class _Services:
         def render_object(self, glb, out_dir, *, views, width, height):
             seen.update(glb=glb, views=views, width=width, height=height)
-            return "object-renderset"
+            return SimpleNamespace(views=[])
 
     class _WS:
         def renders_dir(self, i): return tmp_path
@@ -435,11 +455,12 @@ def test_an_object_candidate_still_uses_the_cheap_rig(tmp_path):
     class _Ctx:
         ws = _WS()
         services = _Services()
+        extra = {"pose_views": ["pose-view"]}  # what ArticulatedPipeline.gates() parked for render()
 
     class _Pipeline:
         def render(self, *a, **k):  # must not be reached
             raise AssertionError("an object candidate must not use pipeline.render")
 
-    got = quick_render(_Ctx(), "/x/object.glb", pipeline=_Pipeline(), build="B", measurement="M")
-    assert got == "object-renderset"
+    got = quick_render(_Ctx(), 0, SimpleNamespace(glb_path="/x/object.glb"), "M", pipeline=_Pipeline())
+    assert got.views == ["pose-view"]  # the quick rig still carries the articulated pose views to the judge
     assert seen["views"] == OBJECT_VIEWS_QUICK and seen["width"] == QUICK_PX

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -129,9 +128,6 @@ class FakeRuntime:
     def contract_doc(self) -> str:
         return f"FAKE CONTRACT for {self.language.value}"
 
-    def cookbook_path(self) -> Path:
-        return Path("/dev/null")
-
 
 # ----------------------------------------------------------------------------- agent / model
 class FakeAgent:
@@ -140,9 +136,11 @@ class FakeAgent:
     kind = "fake"
     model = "fake-model"
 
-    def __init__(self, writer: Callable[[AgentJob, Workspace], dict[str, str] | None], cost: float = 0.01):
+    def __init__(self, writer: Callable[[AgentJob, Workspace], dict[str, str] | None], cost: float = 0.01,
+                 minutes: float = 0.0):
         self.writer = writer
         self.cost = cost
+        self.minutes = minutes          # wall clock this session burns (see conftest.fake_clock)
         self.jobs: list[AgentJob] = []
 
     @property
@@ -164,6 +162,9 @@ class FakeAgent:
             p.write_text(content)
         traj = ws.trajectory_dir(job.label or "job", 0)
         (traj / "transcript.jsonl").write_text(json.dumps({"prompt": job.prompt[:200]}) + "\n")
+        from tests.orchestrator_tracks.conftest import FAKE_CLOCK
+
+        FAKE_CLOCK["minutes"] += self.minutes
         return AgentResult(ok=bool(files), exit_reason="completed" if files else "no_changes", files_changed=ws.changed_files(before),
                            transcript_path=str(traj / "transcript.jsonl"), usage=Usage(backend="fake", cost_usd=self.cost, input_tokens=100))
 
@@ -174,25 +175,31 @@ class FakeChatModel:
     provider = "fake"
     model = "fake-model"
 
-    def __init__(self, responder: Callable[[ChatRequest], Any], cost: float = 0.002):
+    def __init__(self, responder: Callable[[ChatRequest], Any], cost: float = 0.002, minutes: float = 0.0):
         self.responder = responder
         self.cost = cost
+        self.minutes = minutes          # wall clock each call burns (see conftest.fake_clock)
         self.requests: list[ChatRequest] = []
 
     @property
     def id(self) -> str:
         return "fake:fake-model"
 
-    def supports_vision(self) -> bool:
-        return True
-
     def generate(self, request: ChatRequest) -> ChatResponse:
+        from tests.orchestrator_tracks.conftest import FAKE_CLOCK
+
         self.requests.append(request)
+        FAKE_CLOCK["minutes"] += self.minutes
         out = self.responder(request)
         usage = Usage(backend="fake", model="fake-model", cost_usd=self.cost, input_tokens=500, output_tokens=200)
         if isinstance(out, (dict, list)):
             return ChatResponse(text=json.dumps(out), parsed=out, usage=usage)
         return ChatResponse(text=str(out), usage=usage)
+
+
+def _planner(payload: Any) -> FakeChatModel:
+    """A chat model that answers every planning request with ``payload``."""
+    return FakeChatModel(lambda req: payload)
 
 
 # ----------------------------------------------------------------------------- judge
@@ -201,14 +208,18 @@ class FakeJudge:
     prompt_hash = "fakejudge001"  # D37: BaseTrack.after_plan records it as prompt_hashes["judge"]
 
     def __init__(self, scores: Sequence[float] = (0.55, 0.7, 0.85), *, targets: Sequence[str] = ("Seat", "FrontLeg", "Backrest", "Armrest"),
-                 acceptance_fail: Sequence[str] = (), cost: float = 0.003):
+                 acceptance_fail: Sequence[str] = (), cost: float = 0.003, minutes: float = 0.0):
         self.scores = list(scores)
         self.targets = list(targets)
         self.acceptance_fail = list(acceptance_fail)
         self.cost = cost
+        self.minutes = minutes
         self.calls: list[Any] = []
 
     def judge(self, inp: Any) -> Judgment:
+        from tests.orchestrator_tracks.conftest import FAKE_CLOCK
+
+        FAKE_CLOCK["minutes"] += self.minutes
         i = min(len(self.calls), len(self.scores) - 1)
         self.calls.append(inp)
         s = self.scores[i]
@@ -261,6 +272,7 @@ class FakeServices(Services):
         self.reference_judges: list[tuple[str, int, str]] = []
         self.silhouette_calls: list[tuple[str, str]] = []
         self.connectivity_languages: list[str] = []
+        self.planned_edges: list[list[tuple[str, str]]] = []
         self.geometry_renders: list[str] = []
 
     def chat_model(self, model_id: str) -> Any:
@@ -317,8 +329,9 @@ class FakeServices(Services):
                            center=tuple(cen), tri_count=sum(p.tri_count for p in parts), n_meshes=len(parts), n_islands=len(parts),
                            parts=parts, ground_gap_m=float(bounds[0][1]), footprint_offset_m=float(np.hypot(cen[0], cen[2])))
 
-    def connectivity(self, glb: Path, language: str = "") -> GateReport:
+    def connectivity(self, glb: Path, language: str = "", planned_edges: Sequence[tuple[str, str]] = ()) -> GateReport:
         self.connectivity_languages.append(language)
+        self.planned_edges.append(list(planned_edges))
         return GateReport(gate="connectivity", passed=True)
 
     def contract(self, measurement: Measurement, plan: Plan, tol_m: float, language: str = "") -> GateReport:
@@ -373,7 +386,7 @@ class FakeServices(Services):
                                 fix_hint=f"shrink {j.child} by 17 mm along the axis") for j in list(getattr(plan, "joints", []))[: self.sweep_errors]]
         return GateReport(gate="joint_sweep", passed=not findings, findings=findings), views
 
-    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_rel: str, spatial_tools: bool, mcp_command: list[str]) -> None:
+    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_rel: str, spatial_tools: bool) -> None:
         (ws.root / "AGENTS.md").write_text(contract_md)
         self.materialized.append(agent_kind)
 
@@ -389,12 +402,3 @@ class FakeServices(Services):
     def finalize_record(self, ws: Workspace, record: RunRecord) -> None:
         self.records.append(record)
         ws.write_json(ws.record_path, record)
-
-
-def wait_for(pred: Callable[[], bool], timeout: float = 5.0) -> bool:
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        if pred():
-            return True
-        time.sleep(0.01)
-    return False

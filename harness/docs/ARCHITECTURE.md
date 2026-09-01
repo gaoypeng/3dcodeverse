@@ -51,7 +51,8 @@ the flywheel unit.
 5. **Evidence-based acceptance.**  Every plan carries an acceptance checklist;
    items are proved by measurements/probes/judge votes, not prose.
 6. **Typed everything.**  One contracts package; no regex-on-id control flow, no
-   stringly-typed dicts, no god files (hard cap 1 500 lines per file; owner's rule 2026-08-26).
+   stringly-typed dicts, no god files (cap 2 000 lines per file, 3 000 absolute; owner 2026-08-28).
+   A merge must delete code, not merely move it.
 7. **Cheap first.**  Lint → build → deterministic gates → montaged views → VLM.
 8. **Separate generator from judge.**  The judge sees spec + renders +
    measurements + acceptance list; never the generator's reasoning.
@@ -67,7 +68,7 @@ the flywheel unit.
 
 ```
 codeverse/
-  conventions.py      frames (LANGUAGE_FRAME, GLB_FRAME), units, OBJECT_VIEWS/_QUICK, SCENE_VIEWS,
+  conventions.py      frames (LANGUAGE_FRAME, GLB_FRAME), units, OBJECT_VIEWS/_QUICK/_CLAY_VIEWS, SCENE_VIEWS,
                       to_snake/to_pascal/slugify, MAX_TRIS_*, BBOX_TOLERANCE_M, CONTACT_GAP_M  (THE source)
   config.py           Settings (CV3D_* env, ~/.config/codeverse/config.yaml; role defaults come from
                       contracts Backends; Settings.backends(**overrides) builds a Spec's Backends;
@@ -82,24 +83,25 @@ codeverse/
                       node, GPU probe, keys, pool admission, vendor CLIs, MCP, skills)
   proc.py             stdlib-only subprocess + atomic-JSON primitives (ManagedProcess owns every
                       child's lifecycle: group kill on ANY exception, bounded pumps, stdin writer;
-                      run_subprocess, kill_group, tail, write_json_atomic, scrub_secrets) and the tolerant readers/writer
+                      run_subprocess, tail, write_json_atomic, scrub_secrets) and the tolerant readers/writer
                       (read_json_or_none, iter_jsonl_lines, read_jsonl_lenient, append_jsonl_line) —
                       shared by languages/spatial/cli/cost/flywheel/gallery/bench.  RULE: any
                       stdlib-only file / JSON / JSONL helper lives HERE; grep proc.py before writing a
                       try/except read (the 2026-08-26 review found the same tolerant read written
                       eight times because this module had not grown it).  Also home, since
-                      2026-08-28, to the JSONL event log (Events), the run lock (ONE writer per
+                      2026-08-28, to the JSONL event log (EventLog), the run lock (ONE writer per
                       run dir: an fcntl.flock at <runs>/.locks/<slug>.lock whose record NAMES the
                       holder, printed by `3dcv status`) and the bounded parallel fan-out
-                      (fan_out, split_results, FanOutReport) — still a leaf: imports nothing
-                      from codeverse
+                      (fan_out); sha256_file and version_line live here too — still a leaf:
+                      imports nothing from codeverse
   models/             ChatModel (base.py), parts.py; gemini.py (the whole Gemini stack:
                       request/response shapes, dead-key + free 429 rotation, the image model);
                       anthropic.py openai.py (each with its own request/response shapes);
-                      retry.py (the scheduling machine: key pool with 'dead' outcome + TPM
-                      reservation/reconcile, rotation with MAX_WAIT_S ≤ 3 s single waits, the
-                      shared 503 storm gate — ships OFF, docs/COST.md §21 — and the prompt-token
-                      estimate); pricing.py (version-suffix-only fallback), health.py (preflight
+                      retry.py (the scheduling machine: KeyPool with outcomes ok | 429 | 5xx |
+                      error | dead | skip + TPM reservation/reconcile, StormGate — ships OFF,
+                      docs/COST.md §21 — with_retries / rotate_with_retries, both bounded by
+                      max_total_s ≤ RETRY_DEADLINE_S with MAX_WAIT_S ≤ 3 s single waits, and the
+                      prompt-token estimate); pricing.py (version-suffix-only fallback), health.py (preflight
                       probe: no retries, no backoff), schema_utils.py (strict schema), registry.py
   agents/             registry.py (the CodingAgent protocol + dispatch — every backend is a
                       vendor CLI; the in-process api-agent died 2026-08-28), backends.py
@@ -109,20 +111,25 @@ codeverse/
   languages/          LanguageRuntime (base.py); one merged module per language since 2026-08-28 —
                       blender/ cadquery/ threejs/ urdf/ scene_threejs/ glsl_shader/ opengl_python/ are each
                       a single __init__.py (lint → skeleton → runtime, in dependency order) beside their
-                      data (wrappers/, starter/, CONTRACT.md — Path(__file__) assets unchanged);
-                      file_lint.py (one just-written file → syntax/lint verdict for write_file, COST.md §29)
-  spatial/            node.py, render.py, tool_common.py (shared tool plumbing), cookbook_tool.py
-                      (read_cookbook), render_scene.py (judge view subset, content-fitted orbit),
+                      data (wrappers/, starter/ — Path(__file__) assets unchanged; the contract text
+                      is prompts/<lang>/contract.md, read through RuntimeDocs)
+  spatial/            node.py, render.py, observe.py, tool_common.py (shared tool plumbing),
+                      render_scene.py (judge view subset, content-fitted orbit),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
                       scene_placement.py (scene_placement gate + check_placement tool: floating / sunken /
                       unsupported / interpenetration per placed asset from the probe census's placement
                       table, runtime_js/lib/host_placement.mjs; added 2026-08-26),
                       gl_render.py (GlHost), frame_stats.py (gl_frames),
-                      sheet.py (montage_2x2, crop_region), turntable.py, measure.py, connectivity.py,
+                      sheet.py (montage_2x2, crop_region), measure.py, connectivity.py,
                       contract.py (authoring-frame hints), sections.py, silhouette.py, probes.py,
                       complexity.py (objective complexity vector -> Measurement.extra, docs/COMPLEXITY.md),
                       joints*.py + joints_collide.py (deterministic penetration), registry.py,
-                      tools.py (every @tool registration since 2026-08-28), mcp_server.py (MCP name: 3dcv)
+                      tools.py (every @tool registration since 2026-08-28, the joint_sweep body included;
+                      spatial siblings are plain imports — lazy() guards only codeverse.languages /
+                      codeverse.texturing and tool_common's node renderer), mcp_server.py (MCP name: 3dcv).
+                      Render modes are contracts.artifacts.RENDER_MODES (shaded wire normals silhouette
+                      clay — no 'depth'); build error_type spellings are languages/_common.MISSING_ENTRY
+                      ("MissingEntryFile") and BUILD_TIMEOUT ("BuildTimeout") for every runtime
   skills/             registry.py (typed ROUTES + the router that evaluates them),
                       model.py (Skill/Selection + the SKILL.md loader), prompting.py
                       (per-backend delivery policy + the index/mandate text),
@@ -133,26 +140,33 @@ codeverse/
                       MeteredAgent — one row per ChatModel.generate; one session row only for a backend
                       that does NOT meter itself; run_ledger nests + is context-local so bench --parallel works)
                       profiles.py (economy|balanced|quality; cli._common.resolve_dial is THE resolver)
-                      caching.py (Block/order_blocks/session_cache — measurement only, docs/COST.md §13)
+                      caching.py (session_cache/session_key — measurement only, docs/COST.md §13)
                       billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
-                      so max_usd guards money and not list price; docs/COST.md §25)
+                      so the ledger bills real money and not list price; docs/COST.md §25)
                       guard.py routing.py reconstruct.py (old runs) audit.py report.py
-  judges/             base.py (Judge protocol + the pure round-replay pieces `3dcv judge` and
+  judges/             base.py (JudgeInput/Judgment helpers + the pure round-replay pieces `3dcv judge` and
                       calibration share), rubrics.py + rubrics/*.yaml (defect checklists, the wire
                       schema, caps and scoring), prompt_builder.py (image prep, montages, the
                       judge messages), vlm_judge.py (+ the reference/likeness judges),
-                      pairwise.py (compare_many), calibration.py
-  reference/          reference GROUNDING — give the pipeline a picture of what it is building:
-                      one module: synthesis, THE plausibility gate that makes a synthesized
+                      pairwise.py (compare_many), calibration.py.  No Judge Protocol: a judge is
+                      duck-typed `.judge(JudgeInput) -> Judgment`
+  reference.py        reference GROUNDING — give the pipeline a picture of what it is building:
+                      synthesis, THE plausibility gate that makes a synthesized
                       reference safe to use, Spec attachment + honesty guards, proportions
                       (does the picture agree with the brief?), render-vs-reference diff,
                       the content-addressed cache and ground_spec (the one call the CLI makes)
   texturing/          plan.py (VLM material plan + the scene texture pack), generate.py
                       (generation + the tileable seam fix + the seam/judge gate), apply.py
                       (world-metre unwrap, PBR map set, application + material normalisation),
-                      materials.py (named material library), run.py (texture_pass)
-  orchestrator.py     stage runner with resume, run state, round loop (RoundPolicy,
-                      StopPolicy, BestSelector), refine-task compilation + grouping, budget
+                      materials.py (named material library), run.py (texture_pass); __init__.py is
+                      docstring-only — import from the submodules
+  orchestrator.py     the round loop's LIBRARY, not the loop: round POLICIES (RoundPolicy /
+                      StopPolicy / BestSelector), refine-task compilation + grouping,
+                      StageRunner + RunState (resume), BudgetGuard.  The loop itself is
+                      tracks/lifecycle.py:_round_loop → tracks/steps.py:run_round.  A best-of-N
+                      candidate IS steps._run_round(kind='candidate') in a _cand/c<k> sub-workspace
+                      with two knobs (render=candidates.quick_render, geometry_views=False), its
+                      own _cand/c<k>/events.jsonl and a one-sample judge
   tracks/             __init__.py (get_track(track, **options) + the TrackPipeline protocol),
                       lifecycle.py, steps.py, candidates.py (best-of-N + the pure candidate/pairwise
                       decision logic), generation.py (agent + single-shot strategies + the file
@@ -160,22 +174,23 @@ codeverse/
                       common.py (RunContext, Services), static_object.py (+ the detail round and the
                       reference-image gates), articulated_object.py (+ the planned-motion gate),
                       scene.py, scene_assets.py (+ cheap single-shot asset generation),
+                      zone_layout.py (L2 zone director: per-zone structured layout calls + deterministic validator),
                       graphics.py (the whole graphics track: planner hooks, prompt context, frame
                       RenderSet, and recipe seeding into the harness-owned, read-only
                       src/recipes.glsl — measured: flash calls a recipe on disk, not one it is
-                      shown; AgentJob.read_only, CV3D_SEED_RECIPES, docs/GRAPHICS_LOOP.md §3),
+                      shown; AgentJob.read_only, CV3D_SEED_RECIPES),
                       planner.py (the ONE planner loop + the cached EngineeringBrief
                       (CV3D_PLAN_BRIEF), plan budgets and the worked examples),
                       plan_features.py (CV3D_PLAN_FEATURES: one switch per plan-loop change, so each
                       can be A/B'd alone, + pin_plan_blockers() deciding when two arms may share
-                      one plan — docs/PLAN_LOOP.md, docs/EVAL.md §8.1),
+                      one plan — docs/EVAL.md §8.1),
                       depth.py,
                       plan_checks.py (plan-time geometry checks on an ArticulatedPlan — attachment,
                       pivot placement, swept-box collision over the joint range — fed back to the
                       planner as a re-ask before any code is written),
                       skills_hook.py (the round's view of codeverse/skills: attach before generating,
                       probe reads after — a no-op unless CV3D_SKILLS is on)
-  flywheel/           record.py, export.py, pack.py, sample.py, pairs.py, migrate.py (schema moves),
+  flywheel/           record.py (+ best_round_record), export.py, pack.py, sample.py, pairs.py,
                       deliverable.py, telemetry.py, captions.py, quality.py (tiers + dedupe + code/mesh fingerprints), index.py,
                       code_quality.py (the delivered CODE's own vector — magic numbers per 100 LOC,
                       function length, dead functions, duplication, docstrings → record.extra
@@ -188,8 +203,17 @@ codeverse/
                       urls.py (server vs file:// targets + content types + the traversal guard),
                       server.py (stdlib http.server, loopback-only; page.py also renders the
                       static single-file form), theme.py (CSS + the index-page JS)
-  prompts/            system/*, <lang>/{contract,cookbook}.md (incl. glsl_shader/, opengl_python/),
-                      texturing/*.md, tracks/*.j2 (incl. plan/generate/refine_graphics.j2)
+  prompts/            EVERY piece of prompt material the harness writes, and the only place it
+                      lives: <lang>/{system,contract,cookbook}.md (incl. glsl_shader/,
+                      opengl_python/), system/* (harness contract, single-shot envelope,
+                      role_{scope,detail,repair}.j2), texturing/*.md, tracks/*.j2.
+                      catalog.py answers "what exists and how does each piece reach the model"
+                      — including the ONE language-id → prompts/<dir> mapping, which used to be
+                      copied four times and missing in a fifth.  sections.py splits that
+                      markdown into chapters so a STAGE can name the recipes it needs.
+                      The other half of the split: codeverse/skills/ is what an AGENT chooses
+                      to read (SKILL.md + references/ + a _claims file pinning its numbers to
+                      live constants).  A file that tries to be both is the bug this prevents.
   cli/                main.py (app wiring, make/resume/mcp + the tools/bench/gallery
                       commands), inspect_cmd.py (status/render/judge on one existing run),
                       flywheel_cmd.py, texture_cmd.py, cost_cmd.py (`3dcv cost`), layout_cmd.py, doctor.py
@@ -198,16 +222,15 @@ codeverse/
 bench/                run_bench.py, report.py (renders through codeverse/gallery), compare_backends.py
                       (preflights every model it needs; --wait-for-provider / --no-preflight),
                       _infra.py (outage vs model failure: infra_failed / budget_exhausted, docs/EVAL.md §7),
-                      ab_plan.py (the paired control/variant A/B rig, --aa calibration mode),
-                      ab_gate_rates.py (the same run's deterministic readouts, paired per prompt),
                       pin_plan.py (seed one plan into both arms so the paired delta stops carrying
                       the planner's spread — permitted only by plan_features.pin_plan_blockers),
                       _compare_report.py (arm table incl. the `dropped` / `over budget` loss columns;
                       dedups the append-only rows per (prompt, arm) so every reader agrees),
                       _jsonl.py (the ONE tolerant reader/append-sealer for the resumable
                       *.jsonl journals — a truncated last line never costs the paid rows),
-                      ab_plan.py (paired control/variant A/B for plan + brief switches; pins
-                      both children to the cap the §23 admission check reserved), _ab_report.py,
+                      ab_plan.py (paired control/variant A/B for plan + brief switches, --aa
+                      calibration mode; pins both children to the cap the §23 admission check
+                      reserved), _ab_report.py,
                       ab_gate_rates.py (the same run's DETERMINISTIC readouts, paired per
                       prompt: penetrating pairs, worst depth, floating parts, contract findings),
                       _oneshot.py, _fixed_eval.py, cost_report.py,
@@ -217,8 +240,10 @@ runtime_js/           export_glb.mjs (placement policy, instance baking, selfche
                       render_scene.mjs probe_scene.mjs check_shaders.mjs gpu_launch.cjs serve.cjs
                       lib/{resolve_three, scene_host, host_coverage, host_census, host_placement, orbit, instances,
                       census, glsl_audit, browser/…}
-tests/                core models agents blender_cadquery threejs_render urdf_joints scene_runtime scene_gates
-                      spatial_tools judges orchestrator_tracks flywheel_cli graphics texturing prompts (~860 offline)
+tests/                agents bench_prompts blender_cadquery compare_bench core cost flywheel_cli gallery graphics
+                      install judges languages models orchestrator_tracks prompts reference scene_gates
+                      scene_prompts scene_runtime skills spatial_tools texturing threejs_render urdf_joints
+                      (24 dirs; 2 077 offline, 1 950 of them pure python)
 ```
 
 ## 3. Workspace layout (one run, as observed)
@@ -229,9 +254,15 @@ runs/<slug>/
   src/            agent-authored RAW code (git repo; commits: spec, skeleton, pre:/agent:<label>, rNN <kind>)
   public/         (scene) compiled assets public/assets/<snake>.glb; (textured scenes) public/textures/*.png + manifest.json
   _assets/<snake>/  (scene) sub-workspaces for blender_glb assets (gitignored)
-  _cand/c<k>/     (--candidates N) throw-away best-of-N sub-workspaces (gitignored, kept for the flywheel)
+  _cand/c<k>/     (--candidates N) throw-away best-of-N sub-workspaces (gitignored, kept for the flywheel):
+                  each is a round of kind "candidate" — its own events.jsonl, rounds/r00.json, gates/,
+                  judge/r00.json (one-sample judge on quick_render views)
   stages/<name>.json   rounds/rNN.json   rounds/candidates.json   rounds/aborted_rNN.json (a round the
-                       budget/a crash cut: what it burned, never resumed from)   cost_ledger.jsonl (live ledger)
+                       budget/a crash cut: what it burned, never resumed from)
+  telemetry/cost.jsonl   live ledger: one row per metered call / CLI session, opened by BaseTrack.run
+                         (cost_ledger.jsonl at the root is a relative symlink to it, kept for the run-layout
+                         alias; runs before 2026-08-23 have the root file only)
+  run_state.json  stages + rounds done; extra carries budget_snapshot and spec_fingerprint only
   artifacts/      object.glb object.stl|step robot.urdf meshes/ articulation.json build.json census.json
                   measurement.json … ; graphics: frames/fNN_tT.png frames_sheet.png preview.gif metrics.json
                   texturing: object_textured.glb textures/{<id>.png, texture_plan.json, texturing.json, gate/}
@@ -254,7 +285,12 @@ summary:
   helpers) — pure bpy, Z-up, -Y front, meters; PascalCase object names = part
   names.  Small objects may stay single-file.  Harness wrapper (`run_bpy.py` +
   `_census.py`) puts `src/` on sys.path, maps errors to workspace-relative
-  `src/parts/<x>.py:line`, collects census, exports GLB (Y-up) + STL.
+  `src/parts/<x>.py:line`, collects census, exports GLB (Y-up) + STL.  The census
+  records `n_material_slots` + `material_indices_used` (read off the EVALUATED mesh,
+  so modifier-added indices count) and warns when a mesh carries slots no polygon
+  uses, or sits on an index past the last slot — one part is one mesh object, so
+  per-feature colour is per-polygon `material_index`, and an assignment that
+  silently no-ops ships the whole part in one flat colour (2026-08-30).
 * **cadquery**: `src/model.py` — `import cadquery as cq` (+math) only; module-level
   `result` = `cq.Assembly` or `Workplane`.  A chain ending in a selector exports the
   parent solid with a warning (ExportError when no solid exists); helper-module
@@ -294,23 +330,48 @@ summary:
 `@tool(name, ArgsModel, description, *, tracks=(), languages=(), cost_hint)` registers
 `fn(ctx, args) -> Observation` → (a) direct call from tracks, (b) the stdio MCP
 server (name `3dcv`) for the vendor CLIs, (c) a native tool schema for any embedder
-(`ToolDef.schema()`), (d) a prompt card.  Tools: `build`, `measure`, `render_views`,
-`render_sheet`, `isolate`, `cross_section`, `check_connectivity`, `check_contract`,
-`compare_silhouette`, `joint_sweep` (articulated), `shader_probe`, `scene_probe`,
-`scene_views` (scene), `gl_probe`, `gl_frames` (graphics), `texture_pass`,
-`texture_preview` (object tracks), `read_cookbook`.
+(`ToolDef.schema()`), (d) a prompt card.  The 19 tools: `build`, `measure`,
+`render_views`, `render_sheet`, `isolate`, `cross_section`, `check_connectivity`,
+`check_contract`, `check_placement`, `compare_silhouette`, `compare_reference`,
+`joint_sweep` (articulated), `shader_probe`, `scene_probe`, `scene_views` (scene),
+`gl_probe`, `gl_frames` (graphics), `texture_pass`, `texture_preview` (object tracks).
 
 ## 6. Judging (protocol v2)
 
-`VlmJudge(rubric, model_id, n_samples)` sends **montages, not loose views**: ≤ 3
+`VlmJudge(rubric, model_id, n_samples)` sends **montages, not loose views**: ≤ 5
 labelled 2×2 montages (shaded / geometry-only clay-or-normals / poses) + ≤ 2 detail
-crops at ≤ 1024 px, shuffled per sample.  The wire schema is **observe-then-score**
+crops at ≤ 1024 px, shuffled per sample — sized for the 14-view object rig + the
+clay montage (D47; was ≤ 3 under the 8-view rig).  The wire schema is **observe-then-score**
 (summary, strengths, issues, **defect checklist**, acceptance *before* criteria) —
 criteria-first measurably compressed flash to 0.6–0.7.  Every rubric carries binary
 `defects` (id/text/penalty/cap); defect and acceptance votes are majority (an exact
-tie — even `n_samples` only — follows the representative sample, D36) and
-`overall = caps(weighted_mean − Σ penalties)`.  Floors, deterministic caps from gate
-findings (`data["kind"]`), console errors, missing must-acceptance and
+tie — even `n_samples` only — reads as absent for a defect and follows the
+representative sample for an acceptance item, D36 as amended 2026-08-30) and
+`overall = caps(weighted_mean − Σ penalties)`.  On the static track the judge's structure
+facts come from the connectivity gate's **contact ledger** (2026-08-30): `gates_section`
+renders one measured overlap line instead of the per-pair "interpenetrate by ≈d mm"
+WARN prose (1 254 such sentences on 241 stored rounds → 0), a MEASURED STRUCTURE block
+(parts / contacts / floating / deepest overlap, the plan's PLANNED JOINS as contact or
+OPEN with the gap, the lowest point above the floor) and a CONNECTIVITY PASSED paragraph
+that also forbids the interpenetration checklist claim.  It is rendered from the stored
+`GateReport`, so `3dcv judge <slug>` and calibration see exactly what the in-run judge
+saw, and a round recorded before the ledger existed renders byte-identical to before
+(`ObjectPipeline.judge_context` stays empty on purpose — one source).  On an
+object-track round whose connectivity gate carries an ERROR, the payload
+conditionally grows **cross-section slices** (D48, `Settings.judge.slices =
+"on-error"`): `spatial.sections.judge_slices` cuts the round's GLB
+(`JudgeInput.glb_path`) on the two vertical centre planes — per-part fills with a
+legend, red hatch ONLY on the gate's ERROR penetration pairs, plain darkened blends
+for every other in-plane overlap, degenerate slices dropped — and the ≤ 2 PNGs are
+appended AFTER the montages and crops with a factual rig-text block (an in-plane gap
+is not evidence of disconnection) plus one provenance-elicitation sentence in the
+defect-checklist bullet ("say where it is visible … or state that it rests on the
+measured text alone").  A clean round's payload is **byte-identical** to the
+unconditional one (test-pinned; `judge_prompt_hash` unchanged), the render is local
+CPU, and the typed `SliceManifest` beside the PNGs keeps every "visible in slice n"
+citation auditable.  Floors,
+deterministic caps from gate findings (`data["kind"]`), console errors, missing
+must-acceptance and
 `missing_views` rules apply on top; degraded verdicts are glitches, not scores.
 `PairwiseJudge` (position-swapped, tie on disagreement) also ranks N candidates via
 `compare_many`; `ReferenceJudge` for image-conditioned specs.
@@ -329,7 +390,8 @@ in-loop option with `n_samples ≥ 2` for decisions.
 
 ```
 plan (structured output, one re-ask) → skeleton (buildable placeholder) → materialise workspace
-[scene only] assets (parallel; blender_glb assets get a sub-workspace + asset_v1 judge + one fix pass)
+[scene only] assets (parallel; blender_glb assets get a sub-workspace + asset_v1 judge + one fix pass; a degraded asset verdict leaves
+            score None / judged False, emits asset.judge_degraded and skips the fix pass)
              → env → zones (parallel) → assemble (deterministic scene.js)
 round 0 "baseline": generate → build_with_repair → measure → gates → render → post-render gates → judge
    (object tracks, ≥ 8 plan parts, a language with one file per part, an agent backend: the baseline FANS OUT
@@ -348,7 +410,8 @@ repeat while StopPolicy says continue (≤ max_rounds refine rounds, plateau_win
    refine tasks = gate ERRORS (fix hints, authoring-frame numbers) ∪ failed must-acceptance ∪ judge improvement plan
    (≤ 6 tasks, ≤ 6 compacted instruction lines each; reference runs add an IoU task when silhouette IoU < 0.6)
    fan out when ≥ 2 file-disjoint groups AND every task maps to files (threejs/blender parts, scene zones/assets/env)
-   generate (NO turn cap by default — 28 was A/B'd and rejected, +$0.02/−0.21 score, docs/COST.md §17;
+   generate (no HARNESS turn cap by default — claude-code runs under AgentJob.max_turns=60 (+6-turn wrap-up),
+             the other vendor CLIs have no turn cap at all; 28 was A/B'd and rejected, +$0.02/−0.21 score, docs/COST.md §17;
              a cap a caller sets (CV3D_AGENT_MAX_TURNS / task; no profile sets one) still buys a wrap-up session
              that lands a final build + summary instead of being killed) → build+repair (error-focused,
              escalates on identical signatures) → gates → … → judge (SKIPPED only where the verdict is never
@@ -416,7 +479,7 @@ margin so pairwise picked the winner at 0.915 confidence; r00 0.563 → r01 0.61
 total $0.24 / 7.6 min.  Graphics `neon_rain` (single-shot flash, glsl_shader):
 plan → 328-line shader compiled first try, `gl_frames` clean, judged 0.786 →
 stop=pass after round 0, $0.045.  Per-stage timings: plan 7–60 s; Blender build
-0.1–0.6 s; GL build + 12 frames ~2–5 s; 8-view GPU render ~1.5 s; judge verdict
+0.1–0.6 s; GL build + 12 frames ~2–5 s; GPU view-rig render ~1.5 s at 8 views (D47's 14-view rig scales with view count, not re-timed); judge verdict
 $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object round.
 
 ## 10. Known limits (as of 2026-08-23)
@@ -438,11 +501,11 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
 * agy exposes no per-workspace MCP, cost or served model.
 * Anthropic / OpenAI backends are mock-tested only (no keys on this box).
 * Budget checks run between steps: a refine round that finishes its judge and then
-  trips the budget is not promoted to best — give scenes `--max-minutes 60 --max-usd 4`.
+  trips the budget is not promoted to best — give scenes `--max-minutes 60`.
 * Gemini flash 503 storms happen; dead keys and 429s rotate freely now, but a
   sustained outage can still fail a round (`3dcv resume` re-uses cached stages).
-* `ffmpeg` absent here → turntables fall back to GIF.  A few single-file wrappers
-  were once over the old ~400-line guideline; the rule is now a 1 500-line cap.
+* A few single-file wrappers were once over the old ~400-line guideline; the rule
+  is now a 2 000-line cap (3 000 absolute).
 
 ## 11. Flywheel
 

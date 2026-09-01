@@ -119,10 +119,6 @@ class Pass:
     def prev_tex(self):
         return self.tex[1 - self.cur]
 
-    @property
-    def out_tex(self):
-        return self.tex[self.cur]
-
     def draw(self, ctx, *, w: int, h: int, t: float, frame: int, samplers: dict):
         units: dict = {}
         for unit, (name, tex) in enumerate(samplers.items()):

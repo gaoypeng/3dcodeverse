@@ -571,5 +571,32 @@
       "messages": "conversations",
       "system": "system"
     }
+  },
+  "md_bal9b_hard_train": {
+    "file_name": "md_bal9b_hard_train.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system"
+    }
+  },
+  "md_bal9b_hard_val": {
+    "file_name": "md_bal9b_hard_val.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system"
+    }
+  },
+  "stop_dpo_pairs": {
+    "file_name": "stop_dpo_pairs.json",
+    "ranking": true,
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system",
+      "chosen": "chosen",
+      "rejected": "rejected"
+    }
   }
 }

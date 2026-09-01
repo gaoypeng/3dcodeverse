@@ -18,17 +18,16 @@ import json
 import logging
 import os
 from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from codeverse.config import get_settings
+from codeverse.config import env_flag, get_settings
 from codeverse.contracts.artifacts import RenderSet, RenderView
 from codeverse.contracts.plan import BBox, CameraPlan
 from codeverse.conventions import SCENE_VIEWS, ViewPreset
+from codeverse.proc import read_json_or_none
 from codeverse.spatial._render_common import build_sheet, out_directory, view_specs
-from codeverse.spatial._render_common import read_json as _read_json
-from codeverse.spatial.node import NodeError, run_node, runtime_js_dir
+from codeverse.spatial.node import NodeError, NodeResult, run_node, runtime_js_dir
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -42,17 +41,6 @@ MAX_JUDGE_OVERVIEWS = 3
 
 class SceneRenderError(RuntimeError):
     """The node driver could not run (missing node/deps, timeout, crash)."""
-
-
-@dataclass
-class NodeResult:
-    """Outcome of one node driver run; ``summary`` is the last stdout JSON line."""
-
-    returncode: int
-    stdout: str
-    stderr: str
-    summary: dict[str, Any]
-    duration_ms: int
 
 
 def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd: Path | None = None) -> NodeResult:
@@ -75,13 +63,33 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
         if e.result is not None and e.result.timed_out:
             raise SceneRenderError(f"{script} timed out after {timeout_s:.0f}s\n{e.result.stderr_tail}") from e
         raise SceneRenderError(f"{script} could not run: {e}") from e
-    summary = r.last_json or {}
+    summary = r.summary
     if r.rc in (2, 3) or (r.rc != 0 and not summary):
         raise SceneRenderError(
             f"{script} failed (exit {r.rc}): {summary.get('error') if summary else ''}\n"
             f"stderr tail: {r.stderr_tail}\nstdout tail: {r.stdout[-1000:]}"
         )
-    return NodeResult(r.rc, r.stdout, r.stderr, summary, r.duration_ms)
+    return r
+
+
+def probe_env_args() -> list[str]:
+    """Scene-driver flags from the ``CV3D_*`` switches — the ONE parser (review-3 S4),
+    on the canonical ``env_flag`` words, so ``CV3D_CAMERA_REPAIR=false`` really
+    disables and ``CV3D_AUTO_EXPOSURE=true`` really enables.  Every driver
+    invocation — standalone probe, render, and the combined single-boot build —
+    appends these, so a census is always measured under the same settle /
+    camera-repair / auto-exposure policy the renders use."""
+    args: list[str] = []
+    if not env_flag("CV3D_SETTLE", True):   # A/B switch for the boot-time auto-seat
+        args.append("--no-settle")
+    if env_flag("CV3D_CAMERA_REPAIR", True):   # default ON since 2026-08-30: pure insurance —
+        # zero triggers across a whole healthy battery (scene_px_v1: layout camera-clearance
+        # already keeps lenses out of furniture), and the one class it exists for
+        # (fv_izakaya: three rounds of camera_in_geometry nobody could fix) is fatal.
+        args.append("--camera-repair")
+    if env_flag("CV3D_AUTO_EXPOSURE", False):   # opt-in: bounded scene-wide exposure into the healthy band
+        args.append("--auto-exposure")
+    return args
 
 
 def _camera_json(cams: Sequence[CameraPlan]) -> str:
@@ -122,7 +130,6 @@ def render_scene(
     sheet: bool = True,
     orbit_views: Sequence[ViewPreset] = SCENE_VIEWS,
     fps_seconds: float = 2.0,
-    counterfactual: bool = False,
     timeout_s: float | None = None,
     bounds: BBox | None = None,
     sheet_max_views: int = JUDGE_MAX_VIEWS,
@@ -148,13 +155,12 @@ def render_scene(
         "--width", str(width), "--height", str(height),
         "--fps-seconds", f"{fps_seconds:g}",
     ]
-    if counterfactual:
-        args.append("--counterfactual")
     bounds = bounds or plan_bounds(ws)
     if bounds is not None:
         args += ["--bounds", _bounds_json(bounds)]
     tmo = timeout_s or settings.limits.render_timeout_s
     args += ["--timeout-ms", str(int(tmo * 1000))]
+    args += probe_env_args()
     driver_error = ""
     try:
         res = run_scene_script("render_scene.mjs", args, timeout_s=tmo + 30)
@@ -165,8 +171,8 @@ def render_scene(
         if not (out_dir / "metrics.json").is_file():
             raise
         driver_error = str(e).splitlines()[0][:500]
-        res = NodeResult(returncode=2, stdout="", stderr="", summary={"error": driver_error}, duration_ms=0)
-    metrics = _read_json(out_dir / "metrics.json")
+        res = NodeResult(rc=2, stdout="", stderr="", last_json={"error": driver_error}, duration_ms=0)
+    metrics = read_json_or_none(out_dir / "metrics.json") or {}
     _store_motion(out_dir, metrics)
     views: list[RenderView] = []
     for v in metrics.get("views", []):
@@ -251,10 +257,9 @@ def select_judge_views(rs: RenderSet, max_n: int = JUDGE_MAX_VIEWS, *, orbit_nam
     """Copy of ``rs`` with the views a judge should see (≤ ``max_n``), in priority order:
     authored cameras at the first time · the first two overview orbit views at that time
     · the first two authored cameras at the last time · remaining orbit / authored /
-    other views.  Counterfactual ``*_nocustom`` views are never chosen.  Tracks call
-    this before judging; the full set stays on disk."""
+    other views.  Tracks call this before judging; the full set stays on disk."""
     orbit = set(orbit_names if orbit_names is not None else [v.name for v in SCENE_VIEWS])
-    views = [v for v in rs.views if "_nocustom" not in v.name]
+    views = list(rs.views)
     if not views or max_n <= 0:
         return rs.model_copy(update={"views": views[:max(max_n, 0)]})
     times = sorted({v.time_s if v.time_s is not None else 0.0 for v in views})
@@ -293,7 +298,7 @@ def _mark_judge_views(views_json: Path, views: Sequence[RenderView]) -> None:
 
 def read_metrics(out_dir: Path) -> dict[str, Any]:
     """Full instrument payload written by the driver (census, camera_checks, ...)."""
-    return _read_json(Path(out_dir) / "metrics.json")
+    return read_json_or_none(Path(out_dir) / "metrics.json") or {}
 
 
 def metrics_path_for(rs: RenderSet) -> Path | None:

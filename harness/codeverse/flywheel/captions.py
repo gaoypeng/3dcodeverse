@@ -28,7 +28,8 @@ from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse.contracts.common import ENTRY_FILE, Language, Track
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel import _git
-from codeverse.flywheel.sample import best_round_record, code_files_for_round
+from codeverse.flywheel.record import best_round_record
+from codeverse.flywheel.sample import code_files_for_round
 from codeverse.prompts import prompt_hash
 from codeverse.workspace import Workspace
 
@@ -107,12 +108,10 @@ def _round_images(ws: Workspace, record: RunRecord) -> tuple[list[ImagePart], li
     def _add(path: str | None, label: str) -> None:
         if not path or len(images) >= N_VIEWS + 1:
             return
-        p = Path(path)
-        if not p.is_absolute():
-            p = ws.root / p
+        p = ws.rebase(path)
         if p.is_file():
             images.append(ImagePart(path=str(p), label=label))
-            used.append(str(p))
+            used.append(p.relative_to(ws.root).as_posix() if p.is_relative_to(ws.root) else str(p))
 
     _add(rnd.renders.contact_sheet, "contact sheet (all views, labelled)")
     views = list(rnd.renders.views)
@@ -202,7 +201,7 @@ def caption_sample(
         raise CaptionError(f"{ws.root}: captions rejected after retry: {problems}")
     rnd = best_round_record(record)
     prov = CaptionProvenance(captioner=model_id, round_index=rnd.index if rnd else None,
-                             images_used=[_rel(ws, u) for u in used], code_chars=len(code),
+                             images_used=used, code_chars=len(code),
                              prompt_hash=prompt_hash(system), cost_usd=cost)
     payload = {**caps.model_dump(), "provenance": prov.model_dump(mode="json")}
     record.extra["captions"] = payload
@@ -217,13 +216,6 @@ def caption_sample(
     package_run(ws, record)  # captions.json + cost.json + the manifest all go stale otherwise
     ws.write_json(ws.record_path, record)
     return caps
-
-
-def _rel(ws: Workspace, path: str) -> str:
-    try:
-        return Path(path).relative_to(ws.root).as_posix()
-    except ValueError:
-        return path
 
 
 def _parse_json(text: str) -> dict:

@@ -1,13 +1,18 @@
-"""Shared track machinery: the run context, lazily-bound services, prompt context.
+"""Shared track machinery: the run context, the services seam, prompt context.
 
-``Services`` is the single seam between the tracks and the other packages
-(models, agents, runtimes, spatial tools, judges, flywheel).  Every method
-imports lazily and raises a clear ``ServiceUnavailable`` when the package is
-missing; tests subclass it with fakes.  Nothing here touches a network.
+``Services`` is the tracks' injection seam: every call into a sibling package
+(models, agents, runtimes, spatial tools, judges, flywheel) goes through one
+method here so a test can subclass it with fakes (``tests/orchestrator_tracks/
+fakes.py``) and an articulated test double can synthesise joint sweeps from the
+plan.  The targets are modules of this same package — never optional — and are
+imported lazily only to keep ``tracks`` importable without loading Blender,
+Chrome or a model client.  ``ServiceUnavailable`` is what a FAKE raises for a
+service the test did not provide.  Nothing here touches a network.
 """
 
 from __future__ import annotations
 
+import importlib
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -20,9 +25,11 @@ from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import CameraPlan, Plan
 from codeverse.contracts.run import RunRecord
 from codeverse.conventions import ViewPreset
+from codeverse.languages import get_runtime
 from codeverse.orchestrator import BudgetGuard, RoundPolicy, RunState
 from codeverse.proc import EventLog
 from codeverse.prompts import load_text, prompt_hash
+from codeverse.prompts.catalog import prompt_dir_for
 from codeverse.tracks.generation import is_single_shot
 from codeverse.workspace import Workspace
 
@@ -30,20 +37,12 @@ log = logging.getLogger(__name__)
 
 
 class ServiceUnavailable(RuntimeError):
-    """A sibling package this track depends on is not importable / not configured."""
+    """A test double has no implementation for this service (``scene._assemble_stage``
+    falls back to an agent compose session on it)."""
 
 
 def _import(path: str, name: str) -> Any:
-    import importlib
-
-    try:
-        mod = importlib.import_module(path)
-    except ImportError as e:
-        raise ServiceUnavailable(f"{path} is not available ({e}); cannot call {name}") from e
-    try:
-        return getattr(mod, name)
-    except AttributeError as e:
-        raise ServiceUnavailable(f"{path}.{name} does not exist") from e
+    return getattr(importlib.import_module(path), name)
 
 
 class Services:
@@ -75,19 +74,19 @@ class Services:
         return _import("codeverse.languages", "get_runtime")(language)
 
     def rubric_threshold(self, rubric: str) -> float | None:
-        try:
-            r = _import("codeverse.judges.rubrics", "load_rubric")(rubric)
-        except ServiceUnavailable:
-            return None
-        return getattr(r, "pass_threshold", None)
+        return getattr(_import("codeverse.judges.rubrics", "load_rubric")(rubric), "pass_threshold", None)
 
     # ---- spatial
     def measure(self, glb: Path) -> Measurement:
         return _import("codeverse.spatial.measure", "measure_glb")(glb)
 
-    def connectivity(self, glb: Path, language: str = "") -> GateReport:
-        """``language`` selects the frame of the fix hints (the author's frame, not the GLB's)."""
-        return _import("codeverse.spatial.connectivity", "check_connectivity")(glb, language=language)
+    def connectivity(self, glb: Path, language: str = "", planned_edges: Sequence[tuple[str, str | Sequence[str]]] = ()) -> GateReport:
+        """``language`` selects the frame of the fix hints (the author's frame, not the GLB's);
+        ``planned_edges`` are the plan's attach_to pairs spelled in GLB part names — the gate
+        measures each one and lists it contact/open in its contact ledger (the judge's
+        assembly_fit ground truth since 2026-08-30)."""
+        return _import("codeverse.spatial.connectivity", "check_connectivity")(
+            glb, language=language, planned_edges=tuple(planned_edges))
 
     def contract(self, measurement: Measurement, plan: Plan, tol_m: float, language: str = "") -> GateReport:
         return _import("codeverse.spatial.contract", "check_contract")(measurement, plan, language=language, tol_m=tol_m)
@@ -110,15 +109,8 @@ class Services:
         return _import("codeverse.spatial.frame_metrics", "frame_gate_from_renders")(renders)
 
     def select_judge_views(self, renders: RenderSet, max_n: int = 10) -> RenderSet:
-        """The ≤ ``max_n`` scene views a judge should see; identity when the helper is unavailable."""
-        try:
-            fn = _import("codeverse.spatial.render_scene", "select_judge_views")
-        except ServiceUnavailable:
-            return renders
-        return fn(renders, max_n=max_n)
-
-    def contact_sheet(self, images: list[tuple[str, Path]], out: Path) -> Path:
-        return _import("codeverse.spatial.sheet", "contact_sheet")(images, out)
+        """The ≤ ``max_n`` scene views a judge should see."""
+        return _import("codeverse.spatial.render_scene", "select_judge_views")(renders, max_n=max_n)
 
     def silhouette(self, render_png: Path | str, reference_png: Path | str) -> dict[str, Any]:
         """Outline IoU of a render vs a reference image (``{iou, reliable, ...}``)."""
@@ -137,11 +129,9 @@ class Services:
         return default_joint_sweep(ws, plan, out_dir)
 
     # ---- agents' workspace materialisation + tool cards
-    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_rel: str, spatial_tools: bool,
-                    mcp_command: list[str]) -> None:
+    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_rel: str, spatial_tools: bool) -> None:
         _import("codeverse.agents.materialize", "materialize_workspace")(
-            ws, agent_kind=agent_kind, contract_md=contract_md, cookbook_rel=cookbook_rel,
-            spatial_tools=spatial_tools, mcp_command=mcp_command)
+            ws, agent_kind=agent_kind, contract_md=contract_md, cookbook_rel=cookbook_rel, spatial_tools=spatial_tools)
 
     def tool_cards(self, track: str, language: str) -> str:
         try:
@@ -156,12 +146,7 @@ class Services:
         return fn(ws, plan, cameras="plan" if getattr(plan, "cameras", None) else "derive")
 
     def finalize_record(self, ws: Workspace, record: RunRecord) -> None:
-        try:
-            fn = _import("codeverse.flywheel.record", "finalize_record")
-        except ServiceUnavailable:
-            ws.write_json(ws.record_path, record)
-            return
-        fn(ws, record)
+        _import("codeverse.flywheel.record", "finalize_record")(ws, record)
 
 
 # ----------------------------------------------------------------------------- context
@@ -200,6 +185,11 @@ class RunContext:
     def single_shot(self) -> bool:
         return is_single_shot(self.agent_id)
 
+    @property
+    def agent_kind(self) -> str:
+        """``gemini-cli`` of ``gemini-cli:gemini-3.7-flash``."""
+        return self.agent_id.split(":", 1)[0]
+
     def record_prompt(self, name: str, text: str) -> None:
         self.prompt_hashes[name] = prompt_hash(text)
 
@@ -214,36 +204,17 @@ def load_prompt_or(rel: str, fallback: str) -> str:
 
 
 def language_contract(ctx_language: Language, runtime: Any) -> str:
-    """The language authoring contract: prompts/<lang>/contract.md → runtime.contract_doc() → minimal."""
-    text = load_prompt_or(f"{ctx_language.value}/contract.md", "")
-    if text.strip():
-        return text
-    doc = ""
-    if runtime is not None and hasattr(runtime, "contract_doc"):
-        try:
-            doc = runtime.contract_doc() or ""
-        except Exception as e:  # noqa: BLE001
-            log.warning("runtime.contract_doc failed: %s", e)
-    return doc.strip() or _MINIMAL_CONTRACT.get(ctx_language, "Write raw code in the language's native frame; meters; named parts.")
-
-
-_MINIMAL_CONTRACT: dict[Language, str] = {
-    Language.BLENDER: "src/model.py — pure bpy; Z-up, -Y front, meters; one named object per part (PascalCase); "
-                      "no camera/light/render/export calls; do not import anything but bpy, bmesh, math, mathutils, random.",
-    Language.CADQUERY: "src/model.py — `import cadquery as cq` only; module-level `result` = cq.Assembly with named parts "
-                       "(PascalCase) or a Workplane; Z-up, -Y front, meters.",
-    Language.THREEJS: "src/parts/<snake>.js each `export function build<Pascal>(THREE) → THREE.Group` at world pose; "
-                      "src/object.js `export function build(THREE) → THREE.Group` adding every part; Y-up, +Z front, meters; "
-                      "no DOM, no texture loading, no environment sniffing.",
-    Language.URDF_BLENDER: "src/model.py — pure bpy, one object per link named exactly as the link (PascalCase), Z-up, -Y front, "
-                           "meters, authored at rest pose in WORLD coordinates; src/robot.urdf — native URDF, meshes as "
-                           "meshes/<link>.glb, joint origins/axes in parent-link frames.",
-    Language.SCENE_THREEJS: "src/scene.js `export function createScene({THREE, renderer, loaders}) → {scene, cameras, update(t,dt)}`; "
-                            "src/env.js, src/zones/*.js, src/assets/*.js (`export function build<Pascal>(THREE, opts)`), "
-                            "src/shaders/*.js; Y-up, meters; `import * as THREE from 'three'` only; no DOM, no fetch.",
-}
+    """The language authoring contract, as the runtime states it (``LanguageRuntime.contract_doc``
+    reads prompts/<dir>/contract.md).  ONE lookup: a per-language prose fallback here restated
+    frames/units — conventions.py's job (law 2) — and was unreachable anyway."""
+    return (runtime or get_runtime(ctx_language)).contract_doc()
 
 
 def cookbook_rel_for(language: Language) -> str:
-    return f"{language.value}/cookbook.md"
+    """prompts/<dir>/cookbook.md.  ``language.value`` is NOT always the directory:
+    urdf_blender's prompts live in prompts/urdf/, so this returned a path that does not
+    exist and the articulated agent was told "No cookbook is available in this session"
+    while its 24 063-character cookbook sat on disk.  Unconditional since 2026-08-29
+    (the CV3D_URDF_COOKBOOK A/B switch is gone): every run gets the real cookbook."""
+    return f"{prompt_dir_for(language)}/cookbook.md"
 

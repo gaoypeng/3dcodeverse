@@ -71,45 +71,23 @@ class SweepReport(BaseModel):
     summary: SweepSummary
 
 
-#: cos(observed, expected) above this is the planned direction; between PARTIAL_COS and
-#: this the motion leans along it (WARN, not WRONG); below PARTIAL_COS it is wrong
-OK_COS = 0.5
-PARTIAL_COS = 0.2
-
-
 class MotionCheck(BaseModel):
     joint: str
     expected: str
     observed_dir: tuple[float, float, float]
     ok: bool
     message: str
+    #: how aligned the observed tangent is with the expected direction (dot product)
     cos: float = 0.0
-    partial: bool = Field(default=False, description="not ok, but the motion leans along the planned direction "
-                                                     "(PARTIAL_COS < cos <= OK_COS): a pivot / axis-line refinement, not a reversal")
+    #: an axis that WOULD send positive motion the expected way, computed from the
+    #: pivot geometry (revolute: normalize(r x want); prismatic: want) — None when the
+    #: lever arm is degenerate.  Added 2026-08-31: af_swiss_knife failed this check on
+    #: the same joints three rounds straight while the agent guessed; the geometry
+    #: admits an exact answer, so the hint should state it.
+    suggested_axis: tuple[float, float, float] | None = None
 
 
 # ------------------------------------------------------------------ sweep
-def _components(links: list[str], edges: set[tuple[str, str]]) -> dict[str, int]:
-    parent = {n: n for n in links}
-
-    def find(x: str) -> str:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    for a, b in edges:
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
-    roots = {}
-    out = {}
-    for n in links:
-        r = find(n)
-        out[n] = roots.setdefault(r, len(roots))
-    return out
-
-
 def sweep_collisions(
     robot: Robot,
     poses: list[dict[str, float]],
@@ -132,7 +110,8 @@ def sweep_collisions(
     islands = {n: len(bodies[n].islands) for n in names}
     # links joined only by fixed joints never move relative to each other: their overlap is
     # structural and is measured once (at rest when the sweep has a rest pose, else first pose)
-    rigid_group = _components(list(robot.links), {(j.parent, j.child) for j in robot.joints.values() if j.type == "fixed"})
+    comps = collide.components(list(robot.links), {(j.parent, j.child) for j in robot.joints.values() if j.type == "fixed"})
+    rigid_group = {n: i for i, comp in enumerate(comps) for n in comp}
     labels = [pose_label(robot, q) for q in poses]
     rigid_pose = labels.index("rest") if "rest" in labels else 0
 
@@ -298,6 +277,57 @@ def aggregate_findings(findings: list[GateFinding]) -> list[GateFinding]:
     return errors + warns
 
 
+#: share of a link's sampled surface that must lie inside ONE other link to call it buried
+BURIED_FRACTION = 0.98
+BURIED_SAMPLES = 200
+
+
+def _inside_fraction(body: Any, points_world: np.ndarray) -> float:
+    """Share of ``points_world`` inside any of ``body``'s islands (these LinkBodies are
+    built from world meshes, so the pose transform is the identity)."""
+    local = trimesh.transform_points(points_world, body.T_inv)
+    mask = np.zeros(len(local), dtype=bool)
+    for isl in body.islands:
+        mask |= np.asarray(collide.inside_island(isl, local), dtype=bool)
+    return float(mask.mean()) if len(mask) else 0.0
+
+
+def buried_links(robot: Robot, *, samples: int = BURIED_SAMPLES, fraction: float = BURIED_FRACTION) -> list[GateFinding]:
+    """Links whose surface lies (almost) entirely inside another link at rest — the part
+    can neither be seen nor move (compare_art_v4: a clamp's swivel pad was generated
+    inside the jaw and the judge reported it missing).  Uses the sweep's own
+    :class:`LinkBody` island containment, so this check and the collision sweep agree
+    about what "inside" means; works on the open meshes agents actually export."""
+    from codeverse.spatial.joints_model import link_world_meshes
+
+    meshes = link_world_meshes(robot, {})
+    bodies = {n: collide.LinkBody(n, m) for n, m in meshes.items() if not m.is_empty and m.area > 0}
+    out: list[GateFinding] = []
+    for name in bodies:
+        pts, _ = trimesh.sample.sample_surface(meshes[name], samples, seed=0)
+        lo, hi = meshes[name].bounds
+        for other, ob in bodies.items():
+            if other == name:
+                continue
+            olo, ohi = meshes[other].bounds
+            if not (np.all(olo <= lo + 1e-6) and np.all(hi <= ohi + 1e-6)):
+                continue  # not even inside its box
+            try:
+                frac = _inside_fraction(ob, pts)
+            except Exception:  # noqa: BLE001 — a degenerate mesh; skip, never fail the gate
+                continue
+            if frac >= fraction:
+                out.append(GateFinding(
+                    gate="articulation", severity=Severity.ERROR, target=name,
+                    message=f"link '{name}' lies entirely inside '{other}' at rest ({frac * 100:.0f}% of its surface): "
+                            f"it can neither be seen nor move",
+                    fix_hint=f"move '{name}' outside '{other}' (or cut a pocket in '{other}' where it sits) so the part "
+                             f"is visible in the rest pose; if it is really internal, merge it into '{other}'",
+                    data={"kind": "buried", "inside": other, "fraction": round(frac, 3)}))
+                break
+    return out
+
+
 # ------------------------------------------------------------------ motion direction
 _DIRS: dict[str, tuple[float, float, float]] = {
     "+x": (1, 0, 0), "-x": (-1, 0, 0), "+y": (0, 1, 0), "-y": (0, -1, 0), "+z": (0, 0, 1), "-z": (0, 0, -1),
@@ -332,18 +362,22 @@ def motion_direction_check(robot: Robot, joint: str, expected: str, *, probe: fl
     d = delta / n if n > 1e-9 else delta
     want = np.asarray(_DIRS[key], dtype=float)
     cos = float(d @ want)
-    ok = cos > OK_COS
-    partial = (not ok) and cos > PARTIAL_COS
-    # compare_art_v4 (2026-08-29): 6 of 23 round-0 "WRONG" findings sat at cos 0.17-0.41 — an
-    # arm pitching up-and-forward for "up" — and the judge repeated each as a critical
-    # defect.  That band is a pivot / axis-line refinement, reported as such.
-    verdict = ("ok" if ok else
-               f"MOSTLY along {expected} (cos {cos:.2f}) — move the pivot / axis line so the part moves squarely along it"
-               if partial else "WRONG — flip the axis sign or swap limits")
+    ok = cos > 0.5
+    suggested = None
+    if not ok:
+        if j.type == "prismatic":
+            suggested = tuple(round(float(v), 3) for v in want)
+        else:
+            pivot = fk(robot, {})[j.child][:3, 3]
+            r = c0 - pivot
+            s = np.cross(r, want)
+            n_s = float(np.linalg.norm(s))
+            if n_s > 1e-6:
+                suggested = tuple(round(float(v), 3) for v in s / n_s)
     return MotionCheck(joint=joint, expected=expected, observed_dir=tuple(round(float(v), 4) for v in d), ok=ok,
-                       cos=round(cos, 4), partial=partial,
+                       cos=round(cos, 4), suggested_axis=suggested,
                        message=(f"{joint}: child '{j.child}' moves {tuple(round(float(v),3) for v in d)} for q={probe:+.3g}; "
-                                f"expected {expected} ({verdict})"))
+                                f"expected {expected} ({'ok' if ok else 'WRONG — flip the axis sign or swap limits'})"))
 
 
 def summary_text(report: SweepReport) -> str:

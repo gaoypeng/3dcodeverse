@@ -1,0 +1,14 @@
+# dev environment + build artifacts — never commit secrets or local config
+.venv/
+.venv*/
+__pycache__/
+*.egg-info/
+build/
+dist/
+*.pyc
+.DS_Store
+
+# real credentials live in ~/.config/3dcode/config.toml, NEVER in the repo.
+# (config.toml.example, with placeholders, IS committed.)
+config.toml
+.env

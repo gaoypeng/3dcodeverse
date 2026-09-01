@@ -74,7 +74,7 @@ ENTRY_FILE: dict[Language, str] = {
 }
 
 #: source files the HARNESS writes under ``src/`` and owns: the agent reads them and calls what
-#: they define, never writes them (``AgentJob.read_only`` → ``FileTools`` refuses the write).
+#: they define, never writes them (``AgentJob.read_only`` — the agent's write scope excludes them).
 #: Measured 2026-08-26 (bench/out/seed_v1, aurora brief, gemini-3.7-flash api-agent): recipes
 #: seeded into the agent's own ``src/common.glsl`` were gone by the end of the run — it rewrote
 #: the file with its own helpers — so a seeded file has to be one the agent cannot rewrite.
@@ -133,13 +133,20 @@ class Budget(BaseModel):
 
     The ceilings are non-negative by construction.  A negative one is not a small
     budget, it is an unrunnable one: ``BudgetGuard.ok()`` is False before a single
-    token is spent, the first charge raises ``BudgetExceeded: cost $0.001 exceeds
-    max_usd $-2.50``, and ``grant_grace`` cannot lift a hard ceiling back above zero —
+    token is spent and ``grant_grace`` cannot lift a hard ceiling back above zero —
     so the workspace and the git-committed spec are created for a run that can only die.
+
+    A run is bounded by ``max_rounds`` and ``max_minutes``.  Cost is accumulated per call
+    for the ledger and the run record, and never gates anything.
+
+    ``extra="forbid"``: a caller still passing a retired ceiling (``max_usd``) or a typo
+    must raise, not be silently swallowed.  Old on-disk specs are migrated in ONE place:
+    ``Spec._strip_retired_budget_keys``.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     max_rounds: int = Field(default=4, ge=0)
-    max_usd: float = Field(default=5.0, ge=0)
     max_minutes: float = Field(default=60.0, ge=0)
     max_repair_attempts: int = Field(default=3, ge=0)  # per build failure before escalating
 
@@ -150,7 +157,7 @@ class Backends(BaseModel):
     * API chat models:  ``gemini:gemini-3.7-flash`` · ``anthropic:claude-sonnet-5``
       · ``openai:gpt-5.6-sol``
     * Coding agents:    ``gemini-cli:gemini-3.7-flash`` · ``claude-code:sonnet``
-      · ``codex:gpt-5.6-sol`` · ``agy:gemini-3.6-flash-high``
+      · ``codex:gpt-5.6-sol`` · ``agy:gemini-3.7-flash-high``
 
     The coding agent is always a VENDOR agent: the harness supplies the workspace, the
     prompt and its 3D tools (over MCP) and reads the result.  The in-process
@@ -159,7 +166,7 @@ class Backends(BaseModel):
     """
 
     planner: str = "gemini:gemini-3.7-flash"
-    generator: str = "gemini-cli:gemini-3.6-flash"
+    generator: str = "gemini-cli:gemini-3.7-flash"
     # The judge drives the refine loop: the pro tier has ~3x lower sample noise than
     # flash (calibration 2026-08-23: std 0.03 vs 0.08-0.12) for ~$0.07 per verdict.
     judge: str = "gemini:gemini-3.1-pro-preview"

@@ -23,8 +23,10 @@ import pytest
 
 HARNESS = Path(__file__).resolve().parents[2]
 BENCH = HARNESS / "bench"
+CODEVERSE_IMPORT = re.compile(r"^\s*(?:from|import)\s+codeverse\b", re.M)
 #: every bench module that bootstraps sys.path because it is also run as a script
-SCRIPTS = sorted(p for p in BENCH.glob("*.py") if "sys.path.insert" in p.read_text())
+SCRIPTS = sorted(p for p in BENCH.glob("*.py")
+                 if "sys.path.insert" in p.read_text() and CODEVERSE_IMPORT.search(p.read_text()))
 
 
 def test_there_is_at_least_one_such_script():
@@ -35,21 +37,13 @@ def test_there_is_at_least_one_such_script():
 def test_the_sys_path_bootstrap_comes_before_any_codeverse_import(script: Path):
     text = script.read_text()
     boot = text.index("sys.path.insert")
-    first = re.search(r"^\s*(?:from|import)\s+codeverse\b", text, re.M)
-    if first is None:
-        pytest.skip(f"{script.name} imports no codeverse")
+    first = CODEVERSE_IMPORT.search(text)
+    assert first is not None  # filtered by SCRIPTS
     assert first.start() > boot, (
         f"{script.name} imports codeverse at line {text[:first.start()].count(chr(10)) + 1}, "
         f"before its sys.path bootstrap at line {text[:boot].count(chr(10)) + 1}. A child "
         f"spawned by file path would resolve codeverse through the editable install instead "
         f"of this tree, and the A/B would compare a tree against itself.")
-
-
-def test_ab_plan_refuses_to_run_against_a_foreign_codeverse():
-    """The belt as well as the braces: ordering can regress, the guard cannot be silent."""
-    text = (BENCH / "ab_plan.py").read_text()
-    assert "_assert_local_codeverse" in text
-    assert "refusing to run" in text
 
 
 def test_the_guard_refuses_a_foreign_codeverse_for_real(tmp_path: Path):

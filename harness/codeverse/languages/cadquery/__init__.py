@@ -13,22 +13,21 @@ from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import PartPlan, Plan, StaticPlan
-from codeverse.conventions import MAX_TRIS_OBJECT, to_pascal, to_snake
-from codeverse.languages._ast_lint import (  # noqa: F401 — dotted re-exported
+from codeverse.conventions import MAX_TRIS_OBJECT, PASCAL_RE, to_pascal, to_snake
+from codeverse.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
     check_imports,
     describe_parse_failure,
     dotted,
     safe_parse,
 )
-from codeverse.languages._common import compose_build_result, run_subprocess
+from codeverse.languages._common import MISSING_ENTRY, compose_build_result
+from codeverse.languages._docs import RuntimeDocs
 from codeverse.languages.blender import finish_for, instance_centers
-from codeverse.proc import scrub_secrets
-from codeverse.prompts import PROMPTS_DIR
+from codeverse.proc import run_subprocess, scrub_secrets
 from codeverse.workspace import Workspace
 
 # ===================================================================== lint
-# (merged from codeverse/languages/cadquery/lint.py, 2026-08-28)
 GATE = "lint:cadquery"
 ALLOWED_IMPORTS = {"cadquery", "cq", "math", "random", "numpy", "np", "itertools", "functools", "collections",
                    "typing", "dataclasses", "enum", "copy", "statistics", "operator", "__future__"}
@@ -49,9 +48,6 @@ FORBIDDEN_CALLS: tuple[tuple[str, str], ...] = (
 )
 FORBIDDEN_METHODS = {"save": "no .save()/.export() on the assembly — the harness exports", "export": "no .export() — the harness exports",
                      "exportStep": "no export calls", "exportStl": "no export calls", "exportSvg": "no export calls"}
-PASCAL_RE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)*(?:_\d+)?$")
-
-
 RADIAN_CONSTS = {"pi", "tau"}
 TO_RADIANS_FUNCS = {"radians", "deg2rad"}
 TO_DEGREES_FUNCS = {"degrees", "rad2deg"}
@@ -224,7 +220,6 @@ def lint_cadquery_file(path: Path, *, target: str = "src/model.py") -> GateRepor
 
 
 # ===================================================================== skeleton
-# (merged from codeverse/languages/cadquery/skeleton.py, 2026-08-28)
 def _fmt(v: tuple[float, float, float]) -> str:
     return "(" + ", ".join(f"{x:.3f}" for x in v) + ")"
 
@@ -320,7 +315,6 @@ def write_cadquery_skeleton(ws: Workspace, plan: StaticPlan) -> list[Path]:
 
 
 # ===================================================================== runtime
-# (merged from codeverse/languages/cadquery/runtime.py, 2026-08-28)
 _PKG_DIR = Path(__file__).resolve().parent
 WRAPPER = _PKG_DIR / "wrappers" / "run_cq.py"
 
@@ -336,7 +330,7 @@ def cadquery_env() -> dict[str, str]:
     return env
 
 
-class CadQueryRuntime:
+class CadQueryRuntime(RuntimeDocs):
     """LanguageRuntime for ``Language.CADQUERY``."""
 
     language = Language.CADQUERY
@@ -376,7 +370,7 @@ class CadQueryRuntime:
         ws.stage_artifacts("build.json", "census.json", "object.glb", "object.step", "object.stl").invalidate()
         entry = self.entry_file(ws)
         if not entry.is_file():
-            result = BuildResult(ok=False, language=self.language.value, error_type="MissingEntryFile",
+            result = BuildResult(ok=False, language=self.language.value, error_type=MISSING_ENTRY,
                                  error_message="src/model.py does not exist", error_file="src/model.py")
             ws.write_json(build_json, result)
             return result
@@ -385,11 +379,3 @@ class CadQueryRuntime:
         return compose_build_result(language=self.language.value, proc=proc, build_json=build_json, census_json=census_json,
                                     glb_path=glb, extra_paths={"step": step, "stl": stl})
 
-    def contract_doc(self) -> str:
-        p = PROMPTS_DIR / "cadquery" / "contract.md"
-        if p.is_file():
-            return p.read_text()
-        return (_PKG_DIR / "CONTRACT.md").read_text()
-
-    def cookbook_path(self) -> Path:
-        return PROMPTS_DIR / "cadquery" / "cookbook.md"

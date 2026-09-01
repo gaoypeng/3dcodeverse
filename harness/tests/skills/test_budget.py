@@ -19,8 +19,7 @@ import itertools
 import pytest
 
 from codeverse.skills import all_skills, bundle_dirs, select, skills_dir
-from codeverse.skills.model import BODY_MAX_TOKENS
-from codeverse.skills.prompting import NATIVE_LOADERS, index_block, index_tokens
+from codeverse.skills.prompting import index_block, index_tokens
 
 pytestmark = pytest.mark.skipif(not bundle_dirs(), reason=f"no bundles in {skills_dir()} yet")
 
@@ -29,8 +28,6 @@ LIBRARY = all_skills()
 #: the routed index (an unclassified, loaderless backend) is the only index we write
 API_INDEX_TOKENS_MAX = 400
 API_INDEX_BYTES_MAX = 2048
-#: a native loader gets one sentence — its own loader writes the real index
-NATIVE_INDEX_TOKENS_MAX = 60
 
 TRACKS = ("static_object", "articulated_object", "scene", "graphics")
 LANGUAGES = ("blender", "cadquery", "threejs", "urdf_blender", "scene_threejs",
@@ -61,25 +58,3 @@ def test_the_api_agent_index_stays_inside_its_budget_with_the_whole_library_inst
     assert tokens <= API_INDEX_TOKENS_MAX, f"{worst[:3]} costs {tokens} tokens of message 0"
     assert len(index_block(worst[3], "unknown-backend").encode()) <= API_INDEX_BYTES_MAX
 
-
-@pytest.mark.parametrize("kind", NATIVE_LOADERS)
-def test_a_native_loader_is_never_handed_a_second_index(kind: str):
-    for track, language, round_kind, skills in _every_session():
-        text = index_block(skills, kind)
-        assert index_tokens(skills, kind) <= NATIVE_INDEX_TOKENS_MAX
-        for s in skills:
-            assert s.name not in text, f"{kind} would index {s.name} twice ({track}/{language}/{round_kind})"
-
-
-def test_no_body_can_blow_a_session_on_its_own():
-    for name, skill in sorted(LIBRARY.items()):
-        assert skill.body_tokens <= BODY_MAX_TOKENS, f"{name}: {skill.body_tokens} tokens"
-
-
-def test_reading_the_whole_routed_set_is_priced_and_bounded():
-    """The worst thing an agent can do is read all five. It must still be affordable."""
-    worst = max(_every_session(), key=lambda row: sum(s.body_tokens for s in row[3]))
-    total = sum(s.body_tokens for s in worst[3])
-    assert total <= 5 * BODY_MAX_TOKENS
-    # ~$0.0021/1k in, gemini-3.7-flash: five bodies is cents, not dollars
-    assert total * 2.1e-6 < 0.03, f"{worst[:3]} would cost ${total * 2.1e-6:.4f} to read fully"

@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codeverse.gallery.cards import TABLE_HEAD, render_card, render_row
+from codeverse.gallery.cards import TABLE_HEAD, fmt, render_card, render_row
 from codeverse.gallery.index import build_index
 from codeverse.gallery.model import (
     FILTER_KEYS,
@@ -32,10 +32,6 @@ from codeverse.gallery.model import (
 from codeverse.gallery.theme import INDEX_CSS, INDEX_JS, esc, footer, page_shell, top_bar
 from codeverse.gallery.urls import THUMB_PX, StaticUrls, UrlMaker
 from codeverse.proc import write_text_atomic
-
-
-def _fmt(value: float | None, digits: int = 3, dash: str = "—") -> str:
-    return dash if value is None else format(value, f".{digits}f")
 
 
 # --------------------------------------------------------------------------- summary
@@ -60,7 +56,7 @@ def _summary_strip(entries: list[RunEntry], total: int) -> str:
     chips = "".join(_verdict_chip(b, s.breakdown[b], total=s.n) for b in VERDICTS)
     per_pass = "—" if s.usd_per_pass is None else f"${s.usd_per_pass:.2f}"
     nums = (f"<span title='mean / median best score'>score <b class='num' id='s-score'>"
-            f"{_fmt(s.mean_score)} / {_fmt(s.median_score)}</b></span>"
+            f"{fmt(s.mean_score)} / {fmt(s.median_score)}</b></span>"
             f"<span>spend <b class='num' id='s-cost'>${s.total_usd:.2f}</b></span>"
             f"<span title='total spend divided by the number of passing runs'>per pass "
             f"<b class='num' id='s-perpass'>"
@@ -186,7 +182,6 @@ def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcv gall
 
 
 # ===================================================================== static_site
-# (merged from codeverse/gallery/static_site.py, 2026-08-28)
 def render_static(index: GalleryIndex, *, title: str = "3dcv gallery", embed: bool = False,
                   thumb_px: int = THUMB_PX, sort: str = "score", view: str = "cards",
                   extra_html: str = "") -> str:

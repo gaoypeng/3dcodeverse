@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import threading
 
 from codeverse.agents.cli_common import (
     Trajectory,
@@ -39,7 +38,7 @@ def test_hardened_env_strips_secrets_and_adds_guards(tmp_ws: Workspace, monkeypa
 
 
 def test_session_roundtrip_tracks_files_and_writes_result(tmp_ws: Workspace):
-    job = AgentJob(workspace=str(tmp_ws.root), prompt="do it", label="baseline", extra={"round": 2})
+    job = AgentJob(workspace=str(tmp_ws.root), prompt="do it", label="baseline", round=2)
     s = begin_session(job, "fake")
     assert s.traj.dir.name == "baseline_r02" and s.traj.prompt_path.read_text() == "do it"
     (tmp_ws.src / "model.py").write_text("print(1)\n")
@@ -53,7 +52,7 @@ def test_session_roundtrip_tracks_files_and_writes_result(tmp_ws: Workspace):
 
 def test_retry_same_label_round_keeps_first_attempt_trajectory(tmp_ws: Workspace):
     """run_agent_task re-runs a silently-bailing job with the same label+round: attempt 1's files must survive."""
-    job = AgentJob(workspace=str(tmp_ws.root), prompt="first", label="baseline", extra={"round": 0})
+    job = AgentJob(workspace=str(tmp_ws.root), prompt="first", label="baseline", round=0)
     s1 = begin_session(job, "fake")
     s1.traj.write_text("stdout.json", "attempt 1 stdout")
     r1 = finish_session(s1, ok=False, exit_reason="error", text="", usage=Usage(cost_usd=0.5), errors=["bailed"])
@@ -77,41 +76,7 @@ def test_attribute_changes_pure():
         "trajectories/zone_a_r00/result.json", "public/assets/y.glb", "README.md", "AGENTS.md")]
     got = attribute_changes(files, write_roots=["src", "public"])
     assert [f.path for f in got] == ["src/zones/a.js", "src/zones/b.js", "src/assets/x.js", "public/assets/y.glb"]
-    got = attribute_changes(files, write_roots=["src", "public"], own_hints=frozenset({"src/zones/a.js"}),
-                            sibling_hints=frozenset({"src/zones/b.js", "src/assets/"}))
-    assert [f.path for f in got] == ["src/zones/a.js", "public/assets/y.glb"]
-    # a file both sessions declared stays attributed to both
-    got = attribute_changes(files, write_roots=["src"], own_hints=frozenset({"src/zones/b.js"}), sibling_hints=frozenset({"src/zones/b.js"}))
-    assert "src/zones/b.js" in [f.path for f in got]
-
-
-def test_concurrent_sessions_in_one_workspace_attribute_their_own_files(tmp_ws: Workspace):
-    """Scene fan-out: zone sessions run in parallel in ONE workspace; each result must list only its own work
-    and a session that wrote nothing must report no changes even though siblings wrote files."""
-    (tmp_ws.src / "zones").mkdir(parents=True)
-    barrier = threading.Barrier(3)
-    results = {}
-
-    def session(name: str, write: bool):
-        job = AgentJob(workspace=str(tmp_ws.root), prompt="p", label=f"zone_{name}",
-                       extra={"round": 0, "files_hint": [f"src/zones/{name}.js"]})
-        s = begin_session(job, "fake")
-        barrier.wait(timeout=30)  # every session has started before anyone writes
-        if write:
-            (tmp_ws.src / "zones" / f"{name}.js").write_text(f"// {name}\n")
-        (tmp_ws.root / "events.jsonl").open("a").write(f"{name}\n")
-        barrier.wait(timeout=30)  # every write landed before anyone finishes
-        results[name] = finish_session(s, ok=True, exit_reason="completed", text="", usage=Usage())
-
-    threads = [threading.Thread(target=session, args=("koi", True)), threading.Thread(target=session, args=("gravel", True)),
-               threading.Thread(target=session, args=("lantern", False))]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=60)
-    assert [f.path for f in results["koi"].files_changed] == ["src/zones/koi.js"]
-    assert [f.path for f in results["gravel"].files_changed] == ["src/zones/gravel.js"]
-    assert results["lantern"].files_changed == []  # bailed agent: siblings' files are not its work
+    assert [f.path for f in attribute_changes(files, write_roots=["public"])] == ["public/assets/y.glb"]
 
 
 def test_deliver_prompt_uses_file_when_long(tmp_ws: Workspace):
@@ -146,10 +111,10 @@ def test_mcp_command_resolution(tmp_ws: Workspace):
     from codeverse.agents.cli_common import default_mcp_command, mcp_command_for
     from codeverse.agents.materialize import materialize_workspace
 
-    job = AgentJob(workspace=str(tmp_ws.root), prompt="p", extra={"language": "blender", "track": "static_object", "round": 2})
+    job = AgentJob(workspace=str(tmp_ws.root), prompt="p", language="blender", track="static_object", round=2)
     cmd = mcp_command_for(tmp_ws, job)
     assert cmd[1:3] == ["-m", "codeverse.spatial.mcp_server"] and "--language" in cmd and cmd[cmd.index("--round") + 1] == "2"
-    job2 = AgentJob(workspace=str(tmp_ws.root), prompt="p", extra={"mcp_command": ["python", "-m", "x"]})
+    job2 = AgentJob(workspace=str(tmp_ws.root), prompt="p", mcp_command=["python", "-m", "x"])
     assert mcp_command_for(tmp_ws, job2) == ["python", "-m", "x"]
     # a workspace .mcp.json NEVER wins: the agent works in that directory and could
     # otherwise choose what the next round's CLI launches (audit 2026-08-27)

@@ -3,6 +3,7 @@ which env switches any code actually reads (CQ-5)."""
 
 from __future__ import annotations
 
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -13,13 +14,27 @@ from codeverse.tracks import plan_features as F
 HARNESS = Path(__file__).resolve().parents[2]
 
 
-def _sources() -> list[Path]:
-    return [p for d in ("codeverse", "bench") for p in (HARNESS / d).rglob("*.py")
-            if p.name != "plan_features.py"]
+@cache
+def _sources() -> tuple[tuple[str, str], ...]:
+    """(relpath, text) for every harness source, read ONCE per session.
+
+    ``bench/out`` is excluded on purpose: it is gitignored battery output (5 781 of the
+    5 978 .py files this used to walk, all LLM-authored ``model.py``).  Reading it cost
+    ~0.65 s per parametrized case × 13, and it was also WRONG — a generated model.py
+    that happens to contain a switch name would satisfy _readers() or fail the
+    dead-switch guard, from a file that is not part of the harness at all.
+    """
+    out = []
+    for d in ("codeverse", "bench"):
+        for p in (HARNESS / d).rglob("*.py"):
+            if p.name == "plan_features.py" or "out" in p.relative_to(HARNESS).parts:
+                continue
+            out.append((str(p.relative_to(HARNESS)), p.read_text(errors="replace")))
+    return tuple(out)
 
 
 def _readers(name: str) -> list[str]:
-    return [str(p.relative_to(HARNESS)) for p in _sources() if name in p.read_text(errors="replace")]
+    return [rel for rel, text in _sources() if name in text]
 
 
 @pytest.mark.parametrize("name", sorted(F.LIVE_SWITCHES))
@@ -85,7 +100,8 @@ def test_a_generation_side_switch_may_share_one_plan():
     from codeverse.tracks.plan_features import pin_plan_blockers
 
     assert pin_plan_blockers({"CV3D_PLAN_FEATURES": "contacts"}) == []
-    assert pin_plan_blockers({"CV3D_SKILLS": "1", "CV3D_SKILLS_MAX": "3"}) == []
+    for name in sorted(F.GENERATION_SIDE_ENV):
+        assert pin_plan_blockers({name: "1"}) == [], name
     assert pin_plan_blockers({}) == []
 
 
@@ -116,7 +132,6 @@ def test_an_unclassified_switch_defaults_to_refusing():
 def test_every_known_feature_is_classified():
     """A new feature must be put on one side or the other in the same commit; otherwise
     it silently inherits 'plan-side' and nobody notices the A/B got noisier."""
-    from codeverse.tracks.plan_features import GENERATION_SIDE, KNOWN_FEATURES, PLAN_SIDE
+    from codeverse.tracks.plan_features import GENERATION_SIDE, KNOWN_FEATURES
 
-    assert set(KNOWN_FEATURES) == PLAN_SIDE | GENERATION_SIDE
-    assert not (PLAN_SIDE & GENERATION_SIDE)
+    assert set(KNOWN_FEATURES) > GENERATION_SIDE

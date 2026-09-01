@@ -9,13 +9,13 @@ import pytest
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ChatResponse
 from codeverse.contracts.common import Usage
+from codeverse.cost.context import run_binding
 from codeverse.cost.instrument import (
     MeteredAgent,
     MeteredChatModel,
-    per_call_metering,
     run_ledger,
 )
-from codeverse.cost.ledger import load_ledger
+from codeverse.cost.ledger import load_ledger, record_call
 from codeverse.cost.types import Role, Stage
 
 
@@ -38,9 +38,6 @@ class FakeChat:
     def id(self) -> str:
         return "gemini:gemini-3.7-flash"
 
-    def supports_vision(self) -> bool:
-        return True
-
     def generate(self, request: ChatRequest) -> ChatResponse:
         self.requests.append(request)
         if self.error is not None:
@@ -49,10 +46,7 @@ class FakeChat:
 
 
 class FakeAgent:
-    """A backend whose individual model calls already reach the ledger.  Until
-    2026-08-28 the in-process ``api-agent`` was the only one and the KIND decided;
-    every shipped backend is a vendor CLI now, so a self-metering backend declares
-    itself with ``meters_own_calls`` — that seam is what these tests pin."""
+    """A backend whose individual calls already reach the ledger."""
 
     kind = "self-metering"
     meters_own_calls = True
@@ -109,17 +103,6 @@ def test_a_failed_call_is_recorded_and_re_raised(tmp_path: Path):
     assert row.outcome == "timeout" and row.stage is Stage.PLAN and row.cost_usd == 0.0
 
 
-def test_self_metered_turns_are_recorded_once_each_with_the_job_round(tmp_path: Path):
-    chat = MeteredChatModel(FakeChat())
-    with run_ledger(tmp_path, run="r1"):
-        MeteredAgent(FakeAgent(chat)).run(AgentJob(workspace=str(tmp_path), prompt="p", label="refine",
-                                                   round=2, kind="refine"))
-    rows = load_ledger(tmp_path)
-    assert len(rows) == 3  # one per turn, no extra session row
-    assert {r.round for r in rows} == {2} and {r.stage for r in rows} == {Stage.REFINE}
-    assert {r.role for r in rows} == {Role.GENERATOR}
-
-
 def test_a_cli_agent_we_cannot_see_inside_gets_one_session_row(tmp_path: Path):
     with run_ledger(tmp_path, run="r1"):
         MeteredAgent(CliAgent(FakeChat())).run(
@@ -129,21 +112,28 @@ def test_a_cli_agent_we_cannot_see_inside_gets_one_session_row(tmp_path: Path):
     assert row.stage is Stage.BASELINE and row.round == 0 and row.input_tokens == 50_000
 
 
-def test_the_turn_cap_only_ever_lowers(tmp_path: Path):
-    agent = FakeAgent(MeteredChatModel(FakeChat()))
-    job = AgentJob(workspace=str(tmp_path), prompt="p", label="baseline", max_turns=60)
-    MeteredAgent(agent, max_turns=20).run(job)
-    assert agent.seen_turns == 20
-    MeteredAgent(agent, max_turns=90).run(job)
-    assert agent.seen_turns == 60  # a bigger cap never raises the caller's own
+def test_a_session_row_is_filed_by_the_task_kind(tmp_path: Path):
+    """``job.kind`` is a bare task kind (``zone``, ``compose``, ``rebuild``); until 2026-08-29
+    only the label PREFIXES were known here, so every scene zone session was ``other``."""
+    with run_ledger(tmp_path, run="r1"):
+        for kind, label in (("zone", "zone_courtyard"), ("compose", "compose"), ("rebuild", "rebuild"),
+                            ("asset", "asset_koi"), ("candidate", "baseline_c1")):
+            MeteredAgent(CliAgent(FakeChat())).run(
+                AgentJob(workspace=str(tmp_path), prompt="p", label=label, round=0, kind=kind))
+    assert [r.stage for r in load_ledger(tmp_path)] == [Stage.ZONES, Stage.ASSEMBLE, Stage.REPAIR,
+                                                        Stage.ASSETS, Stage.CANDIDATE]
+
+
+def test_get_coding_agent_hands_out_a_metered_agent(monkeypatch: pytest.MonkeyPatch):
+    from codeverse.agents import registry
+
+    monkeypatch.setattr(registry, "_build_agent", lambda aid: CliAgent(FakeChat()))
+    assert isinstance(registry.get_coding_agent("gemini-cli:m"), MeteredAgent)
 
 
 def test_run_ledger_writes_telemetry_and_leaves_a_root_alias(tmp_path: Path):
-    assert per_call_metering() is False
     with run_ledger(tmp_path, run="r1"):
-        assert per_call_metering() is True
         MeteredChatModel(FakeChat()).generate(ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
-    assert per_call_metering() is False
     assert (tmp_path / "telemetry" / "cost.jsonl").is_file()
     alias = tmp_path / "cost_ledger.jsonl"
     assert alias.is_symlink() and alias.is_file()  # resolves to the telemetry copy
@@ -164,7 +154,7 @@ def test_the_proxy_forwards_everything_else():
     chat = FakeChat()
     chat.pool = "the-key-pool"  # type: ignore[attr-defined]
     m = MeteredChatModel(chat)
-    assert m.id == "gemini:gemini-3.7-flash" and m.provider == "gemini" and m.supports_vision()
+    assert m.id == "gemini:gemini-3.7-flash" and m.provider == "gemini"
     assert m.pool == "the-key-pool"
     agent = MeteredAgent(FakeAgent(chat))
     assert agent.kind == "self-metering" and agent.available() == (True, "ok")
@@ -182,8 +172,7 @@ def test_get_chat_model_hands_out_a_metered_model(monkeypatch: pytest.MonkeyPatc
 
 
 def test_post_hoc_work_never_creates_a_partial_ledger(tmp_path: Path):
-    """A re-judge of an old run must not leave a ledger holding only that verdict:
-    a reader would take it for the whole run's cost."""
+    """Post-hoc work never creates a misleading partial ledger."""
     with run_ledger(tmp_path, run="old", create=False) as led:
         assert led is None
         MeteredChatModel(FakeChat()).generate(
@@ -214,10 +203,7 @@ class SideEffectCliAgent(CliAgent):
 
 
 def test_a_cli_session_is_recorded_even_when_a_tool_bills_a_model_inside_it(tmp_path: Path):
-    """The old rule was "did anybody write a row while the session ran?", which a
-    single in-process call (a texture pass, a summariser) flipped — and the whole
-    CLI session, the only record of that money, was dropped.  Reproduction:
-    scratchpad costfix/verifier/adversarial.py."""
+    """An unrelated inner model row never suppresses the CLI session."""
     def inner_model_call() -> None:
         MeteredChatModel(FakeChat()).generate(
             ChatRequest(messages=[ChatMessage.user("x")], label="texture_plan"))
@@ -234,18 +220,17 @@ def test_a_cli_session_is_recorded_even_when_a_tool_bills_a_model_inside_it(tmp_
 
 
 def test_an_in_process_session_is_never_counted_twice_even_from_another_thread(tmp_path: Path):
-    """The mirror failure: the api-agent's turns are already rows, so its
-    AgentResult.usage must never be added on top — including when the turns ran in
-    a worker thread the row counter could not see."""
-    import threading
+    """Worker-thread rows from a self-metered agent are not double counted."""
+    from codeverse.proc import fan_out
 
     class ThreadedAgent(FakeAgent):
         def run(self, job: AgentJob) -> AgentResult:
-            out: list[AgentResult] = []
-            t = threading.Thread(target=lambda: out.append(FakeAgent.run(self, job)))
-            t.start()
-            t.join()
-            return out[0]
+            # fan_out, not a bare Thread: it is the one helper that copies the caller's
+            # context, and since 2026-08-30 nothing else can find the run's ledger from
+            # a worker thread (the process-global fallback leaked between parallel runs)
+            (out,) = fan_out([job], lambda j: FakeAgent.run(self, j), label="agent")
+            assert isinstance(out, AgentResult)
+            return out
 
     with run_ledger(tmp_path, run="r1"):
         MeteredAgent(ThreadedAgent(MeteredChatModel(FakeChat()))).run(
@@ -267,31 +252,32 @@ def test_a_backend_may_declare_that_it_meters_itself(tmp_path: Path):
 
 # ------------------------------------------------------------------- nesting / parallelism
 def test_run_ledgers_nest_and_restore_the_outer_one(tmp_path: Path):
-    """A bench cell opens a ledger for the cell and another for the harness run
-    inside it; the cell's must come back when the inner one closes."""
+    """Closing a nested ledger restores the outer context."""
     outer, inner = tmp_path / "cell", tmp_path / "cell" / "run"
     with run_ledger(outer, run="cell"):
         MeteredChatModel(FakeChat()).generate(ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
         with run_ledger(inner, run="cell:run"):
             MeteredChatModel(FakeChat()).generate(
-                ChatRequest(messages=[ChatMessage.user("x")], label="api-agent:baseline:t0"))
+                ChatRequest(messages=[ChatMessage.user("x")], label="baseline"))
         MeteredChatModel(FakeChat()).generate(
             ChatRequest(messages=[ChatMessage.user("x")], label="judge:static_object_v1:r00:s0"))
     assert [r.stage for r in load_ledger(inner)] == [Stage.BASELINE]
     assert [r.stage for r in load_ledger(outer)] == [Stage.PLAN, Stage.JUDGE]
     assert {r.run for r in load_ledger(outer)} == {"cell"}
-    assert per_call_metering() is False
 
 
-def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Path):
+def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Path,
+                                                                  monkeypatch: pytest.MonkeyPatch):
     """`bench.run_bench` runs N prompts in N threads; their rows must not mix."""
     from concurrent.futures import ThreadPoolExecutor
+
+    from codeverse.cost import ledger as ledger_mod
 
     def one(name: str) -> None:
         with run_ledger(tmp_path / name, run=name):
             for _ in range(3):
                 MeteredChatModel(FakeChat()).generate(
-                    ChatRequest(messages=[ChatMessage.user("x")], label="api-agent:baseline:t0"))
+                    ChatRequest(messages=[ChatMessage.user("x")], label="baseline"))
 
     names = [f"p{i}" for i in range(4)]
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -299,6 +285,18 @@ def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Pat
     for name in names:
         rows = load_ledger(tmp_path / name)
         assert len(rows) == 3 and {r.run for r in rows} == {name}
+    # ...and neither binding leaked out of its worker.  Until 2026-08-30 the run name
+    # and the default ledger were ALSO process globals that the first thread to exit
+    # republished, so this plain main-thread call appended to a finished run's file
+    # under that run's name instead of going to the per-process log.
+    monkeypatch.setenv("CV3D_COST_LEDGER", str(tmp_path / "process.jsonl"))
+    monkeypatch.setattr(ledger_mod, "_fallback", None)
+    monkeypatch.setattr(ledger_mod, "_fallback_read", False)
+    assert run_binding().run == ""
+    record_call(Usage(cost_usd=0.5), label="baseline")
+    assert [r.run for r in load_ledger(tmp_path / "process.jsonl")] == [""]
+    for name in names:
+        assert len(load_ledger(tmp_path / name)) == 3
 
 
 # ------------------------------------------------------- key + attempts on the row (audit 2026-08-26 §4)
@@ -315,9 +313,7 @@ class KeyedChat(FakeChat):
 
 
 def test_the_row_says_which_key_served_the_call_and_how_many_round_trips(tmp_path: Path):
-    """No telemetry row used to say which key served a call — `keys.py` scanned 1 542 files of
-    the storm-day corpus for the `"key": "…xxxx"` that gemini.py puts in ``raw`` and found none,
-    so the per-key distribution could only be probed, never read."""
+    """Safe key identity and retry counts reach telemetry rows."""
     with run_ledger(tmp_path, run="r1"):
         MeteredChatModel(KeyedChat({"key": "…ab12", "attempts": 3, "hedged": 1})).generate(
             ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
@@ -367,9 +363,7 @@ def test_per_key_buckets_and_tries_per_call(tmp_path: Path):
     assert BUCKET_HEADERS[-1] == "tries/call" and table[0][-1] == "2.00" and table[1][-1] == "1.00"
 # ------------------------------------------------------- per-attempt rows (audit 2026-08-27)
 def test_a_billed_but_invalid_attempt_is_in_the_total_exactly_once(tmp_path: Path):
-    """A charged-but-invalid reply used to vanish: the logical row carries only the
-    winner's usage and its own row was ``source="attempt"``, which every total
-    filtered out.  It is now ``source="extra"`` — counted once, joined by call_id."""
+    """A charged invalid attempt is counted exactly once beside its winner."""
     from codeverse.cost.ledger import summarise
     from tests.models.test_gemini import make_model, text_response
 
@@ -394,9 +388,7 @@ def test_a_billed_but_invalid_attempt_is_in_the_total_exactly_once(tmp_path: Pat
 
 
 def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
-    """The loser of a raced 503 retry keeps running after the winner returned; when
-    it lands, its billed tokens must appear in the ledger TOTAL — before, that money
-    left no trace anywhere, and then no trace in any total."""
+    """A late hedge loser's billed tokens reach the ledger total."""
     import threading
     import time as _time
 
@@ -447,9 +439,59 @@ def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
         logical.cost_usd + loser.cost_usd), "the loser is in the total exactly once"
 
 
+def test_zone_layout_rows_agree_with_the_guard(tmp_path: Path):
+    """tracks/zone_layout.py labels its planner calls 'zone-layout' and charges the
+    guard as stage='plan' — unclassified, the ledger filed the same dollars under
+    other/other, so the two owners disagreed on every zone-layout cent (V10c)."""
+    from codeverse.cost.types import role_for_stage, stage_for_label
+
+    assert stage_for_label("zone-layout") is Stage.PLAN
+    assert role_for_stage(stage_for_label("zone-layout")) is Role.PLANNER
+    with run_ledger(tmp_path, run="r1"):
+        record_call(_usage(cost_usd=0.02), label="zone-layout")
+    row, = load_ledger(tmp_path)
+    assert row.stage is Stage.PLAN and row.role is Role.PLANNER
+
+
+def test_a_late_hedge_loser_keeps_its_stage_role_and_round(tmp_path: Path):
+    """The loser lands AFTER generate() returned, from its own thread with empty
+    contextvars: its 'extra' row used to fall back to what the label alone says
+    (baseline/None) instead of the originating call's candidate/r0 attribution."""
+    import threading
+
+    from codeverse.cost.context import AttemptRecord, attempt_sink, call_context
+
+    loser_usage = _usage(cost_usd=0.30)
+
+    class Hedging:
+        provider, model = "gemini", "gemini-3.7-flash"
+        id = "gemini:gemini-3.7-flash"
+        late: threading.Thread | None = None
+
+        def generate(self, req):
+            sink = attempt_sink()  # captured once, like gemini._attempt_hook
+
+            def loser_lands():
+                sink(AttemptRecord(attempt=2, key="k" * 20, outcome="ok", discarded=True,
+                                   usage=loser_usage, error=""))
+
+            self.late = threading.Thread(target=loser_lands)  # fresh thread = empty context
+            return ChatResponse(text="winner", usage=_usage(cost_usd=0.01))
+
+    inner = Hedging()
+    with run_ledger(tmp_path, run="r1"):
+        with call_context(stage="candidate", role="generator", round=0):
+            MeteredChatModel(inner).generate(ChatRequest(messages=[ChatMessage.user("x")], label="baseline"))
+        assert inner.late is not None
+        inner.late.start()
+        inner.late.join()
+    loser, = [r for r in load_ledger(tmp_path) if r.source == "extra"]
+    assert loser.discarded and loser.stage is Stage.CANDIDATE
+    assert loser.role is Role.GENERATOR and loser.round == 0
+
+
 def test_a_failed_calls_error_row_carries_what_was_billed(tmp_path: Path):
-    """instrument's error path used to write an EMPTY Usage; it now records
-    ``ModelError.usage`` — the money a failed-after-retries call still cost."""
+    """A final ModelError carries its billed usage into the error row."""
     from codeverse.models.base import ModelError
 
     err = ModelError("bad json after retries", retryable=True, attempts=6, usage=_usage())

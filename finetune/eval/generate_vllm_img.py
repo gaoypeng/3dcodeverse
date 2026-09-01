@@ -7,12 +7,46 @@ import argparse, json, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from extract import extract, summarize
 
+
+def auto_gpu_mem(requested, tp=1, headroom_gib=4.0, model_dir=None):
+    """`gpu_memory_utilization` is a fraction of the card's TOTAL memory, but this box is shared — asking for
+    0.88 of a card that another user already half fills makes vLLM refuse to start, and asking for exactly what
+    is free makes its KV-cache profiling OOM instead. Derive the fraction from what is actually free, and scale
+    the headroom with the model: a 51 GB checkpoint needs far more slack than a 18 GB one."""
+    try:
+        import subprocess, glob, os
+        if model_dir and os.path.isdir(model_dir):
+            gib = sum(os.path.getsize(f) for f in glob.glob(os.path.join(model_dir, "*.safetensors"))) / 1024**3
+            if gib > 30:
+                headroom_gib = max(headroom_gib, 10.0)
+        out = subprocess.run(["nvidia-smi", "--query-gpu=memory.total,memory.used", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=30).stdout.strip().splitlines()
+        vis = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+        idx = [int(x) for x in vis.split(",") if x.strip().isdigit()] or list(range(len(out)))
+        worst = 1.0
+        for i in idx[:max(1, tp)]:
+            tot, used = (int(v) for v in out[i].split(","))
+            free_gib = (tot - used) / 1024.0
+            worst = min(worst, max(0.10, (free_gib - headroom_gib) / (tot / 1024.0)))
+        if worst < requested:
+            print(f"[gen] gpu_memory_utilization {requested} -> {worst:.2f} (shared card, {headroom_gib:.0f} GiB headroom)", flush=True)
+            return round(worst, 2)
+    except Exception as e:
+        print(f"[gen] auto_gpu_mem failed ({e}); keeping {requested}", flush=True)
+    return requested
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True); ap.add_argument("--prompts", required=True); ap.add_argument("--out", required=True)
-    ap.add_argument("--max_new_tokens", type=int, default=6144); ap.add_argument("--max_model_len", type=int, default=12288)
+    ap.add_argument("--max_new_tokens", type=int, default=32768); ap.add_argument("--max_model_len", type=int, default=12288)
     ap.add_argument("--temperature", type=float, default=0.0); ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tp", type=int, default=1); ap.add_argument("--gpu_mem", type=float, default=0.88)
+    # Qwen3.5/3.8 carry linear-attention layers and vLLM needs one Mamba cache block per concurrent sequence;
+    # the default 1024 exceeds the blocks a 27B leaves free and the engine refuses to start
+    ap.add_argument("--max_num_seqs", type=int, default=None)
+    ap.add_argument("--presence_penalty", type=float, default=0.0)
+    ap.add_argument("--repetition_penalty", type=float, default=1.0)
     ap.add_argument("--dialect", default="blender"); ap.add_argument("--limit", type=int, default=None)
     a = ap.parse_args()
     from vllm import LLM, SamplingParams
@@ -21,8 +55,10 @@ def main():
     if a.limit: rows = rows[:a.limit]
     os.makedirs(a.out, exist_ok=True)
     llm = LLM(model=a.model, dtype="bfloat16", tensor_parallel_size=a.tp, max_model_len=a.max_model_len,
-              gpu_memory_utilization=a.gpu_mem, limit_mm_per_prompt={"image": 4, "video": 0}, trust_remote_code=True)
+              gpu_memory_utilization=auto_gpu_mem(a.gpu_mem, getattr(a, 'tp', 1), model_dir=a.model), limit_mm_per_prompt={"image": 4, "video": 0}, trust_remote_code=True,
+              **({"max_num_seqs": a.max_num_seqs} if a.max_num_seqs else {}))
     sp = SamplingParams(temperature=a.temperature, top_p=0.95 if a.temperature > 0 else 1.0,
+                        presence_penalty=a.presence_penalty, repetition_penalty=a.repetition_penalty,
                         max_tokens=a.max_new_tokens, seed=a.seed)
     import base64, io
     def data_url(path):

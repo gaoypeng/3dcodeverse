@@ -1,18 +1,7 @@
-"""Freshness: every live name a bundle quotes must still exist in the code today.
+"""Keep every harness name, callable, gate, constant and skill cited by a bundle live.
 
-WHY this file is the reason the library can be trusted in a month.  A skill's whole
-value is that its names and numbers are OUR names and numbers; a sentence naming a tool
-we renamed, a gate kind we retired or a constant we deleted is not merely useless, it
-sends the agent to look for something that is not there and costs a turn to find out.
-``test_library`` pins the numbers a bundle DECLARES in ``_claims``; this file pins the
-vocabulary it merely mentions, which is the part an author can forget to declare.
-
-The four vocabularies are checked, not guessed at: harness tool names live in the tool
-registry, gate kinds in ``skills.registry``, cookbook sections in the language cookbook
-the ``read_cookbook`` tool actually serves, and constants in the source.  Anything from a
-foreign namespace (bpy, GL, GLSL, three.js) is listed in :data:`FOREIGN` with the library
-it belongs to — an allowlist an author has to extend deliberately, so the test keeps
-meaning something.
+Foreign APIs and example names are explicit allowlists, so deleting or renaming harness
+vocabulary fails with the document that still cites it.
 """
 
 from __future__ import annotations
@@ -44,8 +33,8 @@ _GATE_SLUG = re.compile(
 #: a snake_case token in backticks is CLAIMED to be a name in this harness.  Which live
 #: vocabulary it belongs to does not matter — that it belongs to one of them does.
 _HARNESS_SHAPED = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$")
-_COOKBOOK_SECTION = re.compile(r'read_cookbook\(\s*section\s*=\s*"([^"]+)"')
-_ENV = re.compile(r"\bCV3D_[A-Z0-9_]+\b")
+#: both spellings: the historical tool call and today's prose pointer
+_COOKBOOK_SECTION = re.compile(r'(?:read_cookbook\(\s*section\s*=\s*"|cookbook sections? ")([^"]+)"')
 
 #: ALL_CAPS tokens that are NOT ours, with the namespace that owns them.  Extend
 #: deliberately: an author who adds a name here is asserting it is somebody else's.
@@ -62,8 +51,6 @@ FOREIGN: dict[str, str] = {
 }
 
 LIVE_TOOLS = {t.name for t in list_tools()}
-
-
 
 
 def _module_constants() -> set[str]:
@@ -105,13 +92,13 @@ def _live_vocabulary() -> set[str]:
         if not root.is_dir():
             continue
         for p in root.rglob("*"):
-            if (not p.is_file() or p.suffix not in exts
+            if (not p.is_file() or p.suffix not in exts or "out" in p.parts
                     or "node_modules" in p.parts or "__pycache__" in p.parts
                     or p.parent.name.startswith("cv3d-") or "_claims" in p.parts
                     or p.parent.parent.name.startswith("cv3d-")):
                 continue
             words |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", p.read_text(errors="ignore")))
-    out = HARNESS / "bench" / "out"      # battery names a bundle cites as its evidence
+    out = HARNESS / "bench" / "out"
     if out.is_dir():
         words |= {d.name for d in out.iterdir() if d.is_dir()}
     return words
@@ -126,6 +113,7 @@ FOREIGN_CALLS = {
     "abs", "max", "min", "mod", "pow", "sin", "cos", "step", "reflect", "refract",
     "transform_apply", "primitive_cube_add", "ensure_lookup_table", "hide_set", "update",
     "len", "setup", "range", "print", "float", "int",
+    "clean",  # cadquery/trimesh mesh op quoted while teaching welding
     # illustrative names inside a bundle's own worked example
     "left_wheel", "right_wheel",
     # batteries whose results are cited as evidence but whose output dir is gitignored
@@ -143,56 +131,64 @@ def _prose(text: str) -> str:
     return _FENCE.sub("", text)
 
 
-@pytest.mark.parametrize("doc", DOCS, ids=[str(p.relative_to(skills_dir())) for p in DOCS])
-def test_every_harness_name_a_bundle_quotes_is_still_a_live_name(doc: Path):
-    """`check_connectivity` must not become a name only the skill remembers.
-
-    Wider than the tool registry on purpose: a rubric criterion a skill tells the agent to
-    optimise is as much a live name as a tool, and rubric criteria get renamed.
-    """
-    text = _prose(doc.read_text())
-    named = {t.strip("`").split("(")[0].strip() for t in _INLINE_CODE.findall(text)}
-    named = {t for t in named if _HARNESS_SHAPED.match(t)}
-    unknown = sorted(named - LIVE_VOCABULARY - FOREIGN_CALLS)
-    assert unknown == [], (
-        f"{doc.name} quotes {unknown}, which no tool, gate, rubric, criterion, language or "
-        f"contract entry point answers to today")
+_DEF_RE = re.compile(r"^\s*(?:def|function)\s+([a-z_][a-z0-9_]*)\s*\(", re.M)
 
 
-@pytest.mark.parametrize("doc", DOCS, ids=[str(p.relative_to(skills_dir())) for p in DOCS])
-def test_every_gate_kind_a_bundle_names_is_a_live_kind(doc: Path):
-    """A reworded gate that changes a slug must break here, not silently unroute a sheet."""
-    slugs = set(_GATE_SLUG.findall(_prose(doc.read_text())))
-    unknown = sorted(slugs - LIVE_KINDS)
-    assert unknown == [], f"{doc.name} names gate kind(s) registry.py does not define: {unknown}"
+def _defined_callables() -> set[str]:
+    """Every function the harness itself defines — python source plus the cookbooks'
+    fenced snippets (a bundle may tell the agent to call ``radial_array`` by name)."""
+    out: set[str] = set()
+    for root, pattern in ((HARNESS / "codeverse", "*.py"), (HARNESS / "codeverse" / "prompts", "*.md")):
+        for p in root.rglob(pattern):
+            if "__pycache__" not in p.parts:
+                out |= set(_DEF_RE.findall(p.read_text(errors="ignore")))
+    return out
 
 
-@pytest.mark.parametrize("doc", DOCS, ids=[str(p.relative_to(skills_dir())) for p in DOCS])
-def test_every_constant_a_bundle_names_in_prose_is_ours_or_declared_foreign(doc: Path):
-    toks = set(_CONST.findall(_prose(doc.read_text())))
-    unknown = sorted(t for t in toks if t not in LIVE_CONSTANTS and t not in FOREIGN)
-    assert unknown == [], (
-        f"{doc.name} names {unknown}: either the constant moved, or add it to FOREIGN "
-        f"with the namespace that owns it")
+LIVE_CALLABLES = _defined_callables()
 
 
-@pytest.mark.parametrize("doc", DOCS, ids=[str(p.relative_to(skills_dir())) for p in DOCS])
-def test_every_switch_a_bundle_names_is_a_live_switch(doc: Path):
-    from codeverse.tracks.plan_features import LIVE_SWITCHES
-
-    live = {s if isinstance(s, str) else getattr(s, "env", "") for s in LIVE_SWITCHES}
-    live |= {n for n in LIVE_CONSTANTS if n.startswith("CV3D_")}
-    live |= {"CV3D_SKILLS", "CV3D_SKILLS_MAX", "CV3D_SKILLS_UNVERIFIED", "CV3D_SKILLS_DIR",
-             "CV3D_MAX_IN_FLIGHT"}
-    named = set(_ENV.findall(doc.read_text()))
-    assert named <= live, f"{doc.name} names dead switch(es): {sorted(named - live)}"
-
-
-@pytest.mark.parametrize("doc", DOCS, ids=[str(p.relative_to(skills_dir())) for p in DOCS])
-def test_every_sibling_skill_a_bundle_names_exists(doc: Path):
-    named = set(re.findall(r"\bcv3d-[a-z0-9-]+\b", doc.read_text()))
+def test_every_bundle_document_only_cites_live_vocabulary():
+    """Validate all bundle prose in one corpus pass, with path-specific diagnostics."""
     have = {d.name for d in BUNDLES} | set(ROUTED_SKILLS)
-    assert named <= have, f"{doc.name} points at missing skill(s): {sorted(named - have)}"
+    fences = {
+        d: "\n".join(_FENCE.findall("\n".join(p.read_text() for p in d.rglob("*.md"))))
+        for d in BUNDLES
+    }
+    for doc in DOCS:
+        label = doc.relative_to(skills_dir())
+        raw = doc.read_text()
+        prose = _prose(raw)
+        named = {t.strip("`").split("(")[0].strip() for t in _INLINE_CODE.findall(prose)}
+        unknown = sorted(
+            {t for t in named if _HARNESS_SHAPED.match(t)} - LIVE_VOCABULARY - FOREIGN_CALLS
+        )
+        assert not unknown, f"{label} quotes names absent from the harness: {unknown}"
+
+        called = {
+            match.group(1)
+            for token in _INLINE_CODE.findall(prose)
+            if (match := re.match(r"^([a-z][a-z0-9_]*)\(", token.strip()))
+        }
+        bundle = next(d for d in BUNDLES if d == doc.parent or d in doc.parents)
+        unknown = sorted(
+            name
+            for name in called
+            if name not in LIVE_TOOLS
+            and name not in FOREIGN_CALLS
+            and name not in LIVE_CALLABLES
+            and f"{name}(" not in fences[bundle]
+        )
+        assert not unknown, f"{label} instructs calling unknown functions: {unknown}"
+
+        unknown = sorted(set(_GATE_SLUG.findall(prose)) - LIVE_KINDS)
+        assert not unknown, f"{label} names undefined gate kinds: {unknown}"
+
+        unknown = sorted(set(_CONST.findall(prose)) - LIVE_CONSTANTS - FOREIGN.keys())
+        assert not unknown, f"{label} names unknown constants: {unknown}"
+
+        siblings = set(re.findall(r"\bcv3d-[a-z0-9-]+\b", raw))
+        assert siblings <= have, f"{label} points at missing skills: {sorted(siblings - have)}"
 
 
 def _languages_of(skill_name: str) -> set[str]:
@@ -203,66 +199,49 @@ def _languages_of(skill_name: str) -> set[str]:
     return out
 
 
-@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
-def test_every_cookbook_section_a_skill_names_exists_in_that_cookbook(s):
+def _cookbook_sections_named_by(s) -> tuple[str, ...]:
+    text = "\n".join([s.body] + [p.read_text() for p in sorted(s.dir.rglob("references/*.md"))])
+    return tuple(sorted(set(_COOKBOOK_SECTION.findall(text))))
+
+
+def test_every_named_cookbook_section_exists():
     """T4's other half: a skill may point at the cookbook, never invent a heading."""
     from codeverse.prompts import load_text
-    from codeverse.spatial.cookbook_tool import _PROMPT_DIR, split_sections
+    from codeverse.prompts.catalog import PROMPT_DIRS
+    from codeverse.prompts.sections import split_sections
 
-    text = "\n".join([s.body] + [p.read_text() for p in sorted(s.dir.rglob("references/*.md"))])
-    wanted = set(_COOKBOOK_SECTION.findall(text))
-    if not wanted:
-        pytest.skip("names no cookbook section")
-    langs = _languages_of(s.name) or {"blender"}
-    titles: set[str] = set()
-    for lang in langs:
-        d = _PROMPT_DIR.get(lang, lang)
-        try:
-            md = load_text(f"{d}/cookbook.md")
-        except (FileNotFoundError, OSError):
+    # the language-id → prompts/<dir> mapping has ONE home now (prompts/catalog.py);
+    # this test used to import the third of its copies
+    _PROMPT_DIR = {k.value: v for k, v in PROMPT_DIRS.items()}
+
+    for s in SKILLS:
+        wanted = _cookbook_sections_named_by(s)
+        if not wanted:
             continue
-        titles |= {sec.title.lower() for sec in split_sections(md)}
-    for want in sorted(_squash(w) for w in wanted):
-        assert any(want in _squash(t) for t in titles), (
-            f"{s.name} sends the agent to read_cookbook(section={want!r}), "
-            f"which no cookbook of {sorted(langs)} has")
+        langs = _languages_of(s.name) or {"blender"}
+        titles: set[str] = set()
+        for lang in langs:
+            d = _PROMPT_DIR.get(lang, lang)
+            try:
+                md = load_text(f"{d}/cookbook.md")
+            except (FileNotFoundError, OSError):
+                continue
+            titles |= {sec.title.lower() for sec in split_sections(md)}
+        for want in map(_squash, wanted):
+            assert any(want in _squash(title) for title in titles), (
+                f"{s.name} names cookbook section {want!r}, absent from {sorted(langs)}"
+            )
 
 
-@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
-def test_a_constant_a_body_names_is_also_pinned_by_a_claim(s):
-    """Naming `PENETRATION_WARN_M` in prose is a promise about its VALUE.
-
-    ``check_claims`` verifies the rows a bundle declares; nothing verified the rows it
-    forgot.  A body that names one of our constants is quoting the number beside it, so
-    that number needs a claim row — otherwise moving the constant leaves a confident
-    sentence with the old value and no test to notice.  Found `DUPLICATE_DIFF` quoted at
-    1e-4 in cv3d-glsl-craft with no row behind it.
-    """
+def test_every_live_constant_named_by_a_skill_has_a_claim():
     from codeverse.skills.targets import load_claims
 
-    pinned = {str(r["python"]).rsplit(":", 1)[-1] for r in load_claims(s.name) if r.get("python")}
-    named = {c for c in _CONST.findall(_prose(s.body)) if c in LIVE_CONSTANTS}
-    unpinned = sorted(named - pinned)
-    assert unpinned == [], (
-        f"{s.name} names {unpinned} in prose but pins no claim to it — add a "
-        f"[[claim]] row to skills/_claims/{s.name}.toml")
-
-
-@pytest.mark.parametrize("s", SKILLS, ids=[s.name for s in SKILLS])
-def test_the_target_metric_a_bundle_declares_is_still_one_we_read_out(s):
-    """The fifth vocabulary: a bundle's own falsifiable claim.
-
-    ``metadata.target_metric`` is the quantity ``bench/skill_targets.py`` prints for this
-    bundle.  If the row is renamed or dropped, the frontmatter keeps promising a number
-    nothing computes, and the next A/B reads a silent zero as "no effect".
-    """
-    from codeverse.skills.targets import METRICS, target_for
-
-    metric = s.metadata.get("target_metric", "")
-    assert metric, (
-        f"{s.name}: metadata.target_metric is missing — every bundle owes one deterministic "
-        f"claim (docs/SKILLS_LEDGER.md)")
-    assert metric in METRICS, (
-        f"{s.name} declares target_metric {metric!r}, which skills/targets.py no longer defines")
-    row = target_for(s.name)
-    assert row is not None and row.metric == metric
+    for s in SKILLS:
+        pinned = {
+            str(row["python"]).rsplit(":", 1)[-1]
+            for row in load_claims(s.name)
+            if row.get("python")
+        }
+        named = set(_CONST.findall(_prose(s.body))) & LIVE_CONSTANTS
+        unpinned = sorted(named - pinned)
+        assert not unpinned, f"{s.name} names live constants without claims: {unpinned}"

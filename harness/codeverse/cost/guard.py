@@ -1,8 +1,8 @@
 """Estimate what a call will cost **before** sending it, and pick a tier.
 
-The budget guard in ``orchestrator/budget.py`` stops a run *after* the money is
-gone.  This is the cheap estimate that belongs in front of a call: how many
-tokens am I about to send, and what will they cost on this model?
+``orchestrator.BudgetGuard`` accounts for money *after* it is spent (and stops a
+run only on wall clock).  This is the cheap estimate that belongs in front of a
+call: how many tokens am I about to send, and what will they cost on this model?
 
 Token counts are estimates (≈4 characters per token for prose/code, a flat
 per-image count for vision parts) — good to ±15% for prompt sizing, which is all
@@ -53,10 +53,6 @@ class CostEstimate:
     usd: float = 0.0
     price_source: str = "unknown"
     approximate: bool = True
-
-    @property
-    def known(self) -> bool:
-        return self.price_source != "unknown"
 
     def line(self) -> str:
         flag = " (approx)" if self.approximate else ""

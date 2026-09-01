@@ -1,14 +1,11 @@
-"""``CV3D_FEWER_TURNS`` (docs/COST.md §29): the refine prompt carries the files it names, the
-baseline prompt asks for every file in turn one, and the control arm is byte-identical."""
+"""The fewer-turns switch inlines owned files and adds prompt discipline."""
 
 from __future__ import annotations
 
-import pytest
-
-from codeverse.config import FEWER_TURNS_ENV, Settings, fewer_turns_enabled
+from codeverse.config import FEWER_TURNS_ENV, Settings, fewer_turns_enabled, get_settings
 from codeverse.contracts.common import Language
 from codeverse.orchestrator import RefineTask, TaskGroup
-from codeverse.tracks.plan_features import LIVE_SWITCHES, pin_plan_blockers
+from codeverse.tracks.plan_features import LIVE_SWITCHES
 from codeverse.tracks.prompting import INLINE_MAX_CHARS, INLINE_MAX_FILES, TURN_DISCIPLINE
 
 from .conftest import make_spec
@@ -46,29 +43,24 @@ def _write(ws, files):
 
 
 # --------------------------------------------------------------------------- the switch
-def test_switch_reads_env_at_call_time_and_is_off_by_default(monkeypatch):
+def test_switch_contract(monkeypatch):
     monkeypatch.delenv(FEWER_TURNS_ENV, raising=False)
-    assert fewer_turns_enabled() is False
-    monkeypatch.setenv(FEWER_TURNS_ENV, "1")
-    assert fewer_turns_enabled() is True
-    monkeypatch.setenv(FEWER_TURNS_ENV, "off")
-    assert fewer_turns_enabled() is False
-    monkeypatch.setenv(FEWER_TURNS_ENV, "maybe")            # garbage = control run, not a crash
-    assert fewer_turns_enabled() is False
+    assert not fewer_turns_enabled()
+    for raw in ("1", "on", "true", "YES"):
+        monkeypatch.setenv(FEWER_TURNS_ENV, raw)
+        assert fewer_turns_enabled()
+    for raw in ("off", "maybe"):
+        monkeypatch.setenv(FEWER_TURNS_ENV, raw)
+        assert not fewer_turns_enabled()
 
-
-def test_switch_is_a_settings_field_with_a_flat_alias(monkeypatch):
     monkeypatch.setenv(FEWER_TURNS_ENV, "on")
     assert Settings().limits.fewer_turns is True
     monkeypatch.delenv(FEWER_TURNS_ENV)
+    get_settings.cache_clear()
     assert Settings().limits.fewer_turns is False
     monkeypatch.setenv("CV3D_LIMITS__FEWER_TURNS", "true")
     assert Settings().limits.fewer_turns is True
-
-
-def test_switch_is_live_and_generation_side():
     assert LIVE_SWITCHES[FEWER_TURNS_ENV] == "codeverse/config.py"
-    assert pin_plan_blockers({FEWER_TURNS_ENV: "1"}) == []       # ab_plan --pin-plan may share one plan
 
 
 # --------------------------------------------------------------------------- refine: the files ride along
@@ -125,6 +117,7 @@ def test_baseline_prompt_carries_the_turn_discipline_block(tmp_path, chair_plan,
     assert "write EVERY file" in task.prompt and "do not call those two tools separately".lower() in task.prompt.lower()
     assert task.prompt.index("## Turn discipline") < task.prompt.index("## Output")
     monkeypatch.delenv(FEWER_TURNS_ENV)
+    get_settings.cache_clear()  # setenv baked fewer_turns=True into the cached Settings; the fallback must not read it
     (off,) = _ctx(tmp_path / "off", chair_plan, settings)[0].baseline_tasks(_ctx(tmp_path / "off", chair_plan, settings)[1])
     assert "Turn discipline" not in off.prompt
     # single-shot has no tools to discipline
@@ -146,12 +139,7 @@ def test_scoped_baseline_and_assembly_prompts_carry_it_too(tmp_path, settings, m
     assert "Read the CONNECTIVITY and CONTRACT sections of the `build` result" in assemble
     assert "Run `check_connectivity` and `check_contract`" not in assemble
     monkeypatch.delenv(FEWER_TURNS_ENV)
+    get_settings.cache_clear()  # setenv baked fewer_turns=True into the cached Settings; the fallback must not read it
     t2, c2 = _ctx(tmp_path / "off", big_plan(), settings, language=Language.THREEJS)
     off = t2.baseline_tasks(c2)[-1].prompt
     assert "Run `check_connectivity` and `check_contract`" in off and "Turn discipline" not in off
-
-
-@pytest.mark.parametrize("raw", ["1", "on", "true", "YES"])
-def test_every_truthy_spelling_turns_it_on(monkeypatch, raw):
-    monkeypatch.setenv(FEWER_TURNS_ENV, raw)
-    assert fewer_turns_enabled()

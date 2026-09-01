@@ -80,6 +80,12 @@ class CellResult(BaseModel):
         a resume / ``--redo-status`` re-run appends a SECOND row for the same key."""
         return (self.prompt_id, self.arm)
 
+    def note(self, msg: str) -> None:
+        """Append to the error trail.  The row is the record of last resort: the failure,
+        classifying it and writing cell.json can each go wrong in one cell, and every one
+        of them has to survive into results.jsonl."""
+        self.error = f"{self.error}; {msg}" if self.error else msg
+
 
 class PairRow(BaseModel):
     prompt_id: str
@@ -231,7 +237,7 @@ def compare_markdown(out: Path, rows: list[CellResult], pairs: list[PairRow], me
     md = [f"# harness vs one-shot — {meta.get('battery', {}).get('name', out.name)}", "",
           f"fixed judge: **{opts.get('judge', '?')}** (rubric {battery_rubric(meta)}, n_samples={opts.get('n_samples', 2)}, "
           f"acceptance = must_have list) · harness loop judge: {opts.get('loop_judge') or 'settings default'} · "
-          f"harness rounds ≤ {opts.get('rounds', '?')}, ≤ ${opts.get('max_usd', '?')} · cells: {len(rows)}", "",
+          f"harness rounds ≤ {opts.get('rounds', '?')} · cells: {len(rows)}", "",
           "Every arm's final `src/model.py` is re-built, re-rendered and judged by the same evaluator; a failed "
           "build scores 0.  `$gen` for harness arms is the whole run (planner + generator + its loop judge); for "
           "one-shot arms it is the single call (subscription CLIs report 0 unless the CLI returns a cost).  "

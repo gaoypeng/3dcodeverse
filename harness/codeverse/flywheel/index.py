@@ -12,7 +12,13 @@ from typing import Any
 
 from codeverse.contracts.run import RoundRecord, RunId, RunRecord
 from codeverse.flywheel.quality import prompt_hash, quality_tier
-from codeverse.flywheel.record import effective_judgment, iter_runs
+from codeverse.flywheel.record import (
+    best_round_index,
+    best_round_record,
+    effective_judgment,
+    iter_runs,
+)
+from codeverse.flywheel.sample import gate_error_summary
 from codeverse.workspace import Workspace
 
 _SCHEMA = """
@@ -43,17 +49,17 @@ CREATE INDEX idx_rounds_slug ON rounds(slug);
 
 
 def _run_row(ws: Workspace, rec: RunRecord, rid: RunId) -> tuple:
-    best = next((r for r in rec.rounds if r.index == rec.best_round), None)
+    best = best_round_record(rec)
     best_j = effective_judgment(best) if best is not None else None  # degraded → unjudged
     passed = None if best_j is None else int(best_j.passed)
     dur = (rec.finished_at - rec.started_at).total_seconds() if rec.finished_at else None
-    n_err = sum(len(g.errors) for g in best.gates) if best is not None else 0
+    n_err = sum(gate_error_summary(best).values())
     score = best_j.overall if best_j is not None else None
     tier = quality_tier(passed=None if passed is None else bool(passed), gate_errors=n_err, score=score)
     return (
         rid.slug, str(ws.root), rec.spec.track.value, rec.spec.language.value, rec.spec.prompt,
         prompt_hash(rec.spec.prompt), rec.spec.backends.generator, rec.spec.backends.planner,
-        rec.spec.backends.judge, rec.status.value, rec.baseline_score, rec.final_score, rec.best_round,
+        rec.spec.backends.judge, rec.status.value, rec.baseline_score, rec.final_score, best_round_index(rec),
         len(rec.rounds), passed, rec.total_usage.cost_usd, rec.total_usage.input_tokens,
         rec.total_usage.output_tokens, rec.started_at.isoformat(),
         rec.finished_at.isoformat() if rec.finished_at else None, dur, rec.error,
@@ -143,15 +149,3 @@ def summary(db: Path | str) -> list[dict[str, Any]]:
         "AVG(n_rounds) AS rounds_mean, SUM(quality_tier = 'A') AS n_tier_a, SUM(quality_tier = 'B') AS n_tier_b "
         "FROM runs GROUP BY track, language, generator ORDER BY track, language",
     )
-
-
-def top_runs(db: Path | str, n: int = 20, *, track: str | None = None) -> list[dict[str, Any]]:
-    where = "WHERE track = ?" if track else ""
-    params: tuple = (track, n) if track else (n,)
-    return query(db, f"SELECT slug, track, language, generator, final_score, passed, quality_tier, cost_usd, n_rounds "
-                     f"FROM runs {where} ORDER BY final_score DESC LIMIT ?", params)
-
-
-def round_curve(db: Path | str, slug: str) -> list[dict[str, Any]]:
-    return query(db, "SELECT round_index, kind, score, passed, build_ok, gate_errors, cost_usd FROM rounds "
-                     "WHERE slug = ? ORDER BY round_index", (slug,))

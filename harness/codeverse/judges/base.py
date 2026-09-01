@@ -1,8 +1,8 @@
-"""Judge protocol + inputs."""
+"""``JudgeInput`` + the pure round-replay helpers ``3dcv judge`` and calibration share."""
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -10,6 +10,10 @@ from codeverse.contracts.artifacts import GateReport, Judgment, Measurement, Ren
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.spec import Spec
 from codeverse.workspace import Workspace
+
+#: tracks whose rounds have one canonical GLB the judge slice channel (D48) may cut;
+#: scene and graphics have none and are unaffected.
+SLICE_TRACKS = ("static_object", "articulated_object")
 
 
 class JudgeInput(BaseModel):
@@ -25,16 +29,14 @@ class JudgeInput(BaseModel):
     geometry_views: RenderSet | None = Field(
         default=None, description="clay/normals renders for the geometry-only montage (holes, intersections)"
     )
+    glb_path: str | None = Field(
+        default=None,
+        description="the round's canonical GLB (object tracks fill it; `3dcv judge` fills it from the stored "
+        "build) — the D48 slice channel cuts it on gate-ERROR rounds; None disables the channel",
+    )
 
 
-class Judge(Protocol):
-    name: str
-
-    def judge(self, inp: JudgeInput) -> Judgment: ...
-
-
-# ===================================================================== replay_input
-# (merged from codeverse/judges/replay_input.py, 2026-08-28)
+# ===================================================================== round replay
 def plan_digest(plan: dict[str, Any]) -> str:
     """A track-agnostic plan summary (parts / joints / zones / assets / cameras) from ``plan.json``."""
     bits: list[str] = []

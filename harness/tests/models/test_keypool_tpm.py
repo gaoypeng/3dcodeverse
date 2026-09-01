@@ -42,19 +42,17 @@ def test_a_big_call_and_a_small_call_are_scheduled_differently():
         pool.acquire(tokens_hint=200_000, timeout_s=0.0)
 
 
-def test_reservation_is_reconciled_down_when_the_call_was_smaller():
-    pool, _ = make(keys=("a",), tpm_per_key=100_000)
-    pool.acquire(tokens_hint=60_000)
-    assert tpm_left(pool, "a") == pytest.approx(40_000)
-    pool.report("a", "ok", tokens=10_000, reserved=60_000)  # over-estimated by 50k
-    assert tpm_left(pool, "a") == pytest.approx(90_000)
-
-
-def test_reservation_is_reconciled_up_when_the_call_was_bigger():
-    pool, _ = make(keys=("a",), tpm_per_key=100_000)
-    pool.acquire(tokens_hint=10_000)
-    pool.report("a", "ok", tokens=95_000, reserved=10_000)  # under-estimated by 85k
-    assert tpm_left(pool, "a") == pytest.approx(5_000)
+def test_reservations_reconcile_to_actual_provider_consumption():
+    for reserved, outcome, actual, expected in (
+        (60_000, "ok", 10_000, 90_000),
+        (10_000, "ok", 95_000, 5_000),
+        (90_000, "5xx", 0, 100_000),
+        (50_000, "error", 42_000, 58_000),
+    ):
+        pool, _ = make(keys=("a",), tpm_per_key=100_000, cooldown_s=0.0)
+        pool.acquire(tokens_hint=reserved)
+        pool.report("a", outcome, tokens=actual, reserved=reserved)
+        assert tpm_left(pool, "a") == pytest.approx(expected)
 
 
 def test_the_bucket_may_go_negative_and_is_paid_off_by_refill():
@@ -68,42 +66,15 @@ def test_the_bucket_may_go_negative_and_is_paid_off_by_refill():
     assert pool.acquire(tokens_hint=1_000) == "a"
 
 
-def test_a_call_that_never_reached_the_model_is_refunded():
-    """429 / capacity storm: nothing was spent, so the reservation comes back.
-    (A charged-but-invalid reply is NOT this case — retry.py reports its real
-    ``ModelError.usage`` prompt tokens; see the next test.)"""
-    pool, _ = make(keys=("a",), tpm_per_key=100_000, cooldown_s=0.0)
-    pool.acquire(tokens_hint=90_000)
-    pool.report("a", "5xx", reserved=90_000)
-    assert tpm_left(pool, "a") == pytest.approx(100_000)
-
-
-def test_a_charged_but_invalid_reply_keeps_its_consumption():
-    """A bad-JSON reply is billed like a good one: reporting its real tokens must
-    reconcile the reservation instead of refunding it (the 42k-TPM-giveback bug,
-    fixed 2026-08-27 — retry.run_one now passes ``tokens=err.usage.input_tokens``)."""
-    pool, _ = make(keys=("a",), tpm_per_key=100_000)
-    pool.acquire(tokens_hint=50_000)
-    pool.report("a", "error", tokens=42_000, reserved=50_000)
-    assert tpm_left(pool, "a") == pytest.approx(58_000)
-
-
-def test_tokens_used_counter_is_reported():
-    pool, _ = make(keys=("a",), tpm_per_key=100_000)
-    pool.acquire(tokens_hint=1_000)
-    pool.report("a", "ok", tokens=7_500, reserved=1_000)
-    st = pool.stats()
-    assert st["tokens_used"] == 7_500
-    assert st["tpm_capacity"] == 100_000
-    assert 0.0 <= st["tpm_headroom"] <= 1.0
-
-
-def test_headroom_reflects_spend():
+def test_tpm_stats_reflect_capacity_and_spend():
     pool, _ = make(keys=("a", "b"), tpm_per_key=100_000)
     assert pool.stats()["tpm_headroom"] == 1.0
     pool.acquire(tokens_hint=50_000)
-    # one of two keys is half spent → pool headroom 0.75
-    assert pool.stats()["tpm_headroom"] == pytest.approx(0.75)
+    pool.report("a", "ok", tokens=7_500, reserved=50_000)
+    stats = pool.stats()
+    assert stats["tokens_used"] == 7_500
+    assert stats["tpm_capacity"] == 200_000
+    assert stats["tpm_headroom"] == pytest.approx(0.963)
 
 
 def test_no_tpm_bucket_means_no_tpm_accounting():
