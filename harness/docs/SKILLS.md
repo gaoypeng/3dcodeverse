@@ -125,7 +125,7 @@ This is the difference between a metric and a number that would have read 100% f
 | `cv3d-cadquery-forms` | any | cadquery | **inherited-unverified** | 82 | 1,482 | R10 |
 | `cv3d-threejs-forms` | static_object | threejs | **inherited-unverified** | 120 | 1,929 | R11 |
 
-**All thirteen ship OFF** (`CV3D_SKILLS` unset). Zero have a measured effect; see
+**All seventeen ship OFF** (`CV3D_SKILLS` unset). Zero have a measured effect; see
 `docs/SKILLS_LEDGER.md` §5 for why that is the honest default and what flips one on.
 Shipping a subset needs no new machinery — `CV3D_SKILLS_ONLY` restricts the library before
 routing, so `CV3D_SKILLS=1 CV3D_SKILLS_ONLY=<names>` is the vehicle when a bundle earns it.
@@ -409,7 +409,7 @@ line in a long markdown file plus a generic `read_file`.
    — **cannot be cleared by anything on this rig at n = 8**: the A/A of two identical arms
    fails it, twice over (−0.038, −0.206).
 3. The deterministic readouts are not an escape hatch either (below).
-4. Two of thirteen bundles have no graded runs behind them at all and are already routed off.
+4. Two of the original thirteen bundles have no graded runs behind them at all and are already routed off; the four 2026-09-01 scene-graphics ports are `inherited-unverified` by construction until the sceneloop A/B grades them.
 
 Nothing here says the library is wrong. The CLI evidence says the opposite. It says the
 delivery mechanism for `api-agent` is a pointer nobody follows, and that is fixable.

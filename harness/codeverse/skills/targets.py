@@ -240,6 +240,60 @@ TARGETS: tuple[Target, ...] = (
         why="every gl_frames finding in the whole graphics corpus (3 flicker, 1 low detail) came "
             "from opengl_python, and flicker is trap 1 (a sampled solver) showing up in pixels",
     ),
+    # ------------------------------------------------------------- 2026-09-01 recipe port
+    # The four bundles ported from the scene_multifile_graphics reference carry that
+    # harness's measured findings; OUR baselines attach when the sceneloop A/B lands.
+    # Until then the honest target is the same frame-gate family the recipes serve.
+    Target(
+        skill="cv3d-scene-atmosphere",
+        metric="env_bake_orientation_flags",
+        direction=DOWN,
+        unit="inverted bakes per run (prospective census)",
+        source=SRC_ARTIFACT,
+        languages=("scene_threejs",),
+        measurable=False,
+        why="the sky bake IS the scene's light source; the reference audit found the bake "
+            "inverted in 4 of 9 delivered scenes and every reflective surface went dark",
+        caveat="ported claim: reference-harness evidence, our own A/B pending (sceneloop).",
+    ),
+    Target(
+        skill="cv3d-scene-water",
+        metric="metallic_water_planes",
+        direction=DOWN,
+        unit="water materials with metalness above 0.3 (prospective census)",
+        source=SRC_ARTIFACT,
+        languages=("scene_threejs",),
+        measurable=False,
+        why="dielectric water against a live environment bake is the reference's most-shipped "
+            "material fix; no deterministic gate measures water quality yet",
+        caveat="NOT yet measurable here: judged quality only. The sceneloop A/B attaches numbers; "
+               "a water-specific instrument (fresnel/metalness census) is a candidate follow-up.",
+    ),
+    Target(
+        skill="cv3d-scene-night",
+        metric="overbright_shaft_findings",
+        direction=DOWN,
+        unit="solid-reading light shafts per run (prospective census)",
+        source=SRC_ARTIFACT,
+        languages=("scene_threejs",),
+        measurable=False,
+        why="night briefs are the dark_or_flat gate's richest source; the bundle is the "
+            "reference's measured shaft/emissive discipline plus our linear-luminance table",
+        caveat="ported claim: reference-harness evidence, our own A/B pending (sceneloop).",
+    ),
+    Target(
+        skill="cv3d-scene-materials",
+        metric="flat_albedo_surfaces",
+        direction=DOWN,
+        unit="large surfaces with zero value variance (prospective census)",
+        source=SRC_ARTIFACT,
+        languages=("scene_threejs",),
+        measurable=False,
+        why="flat albedo and identical twins are the reference audit's most-cited surface "
+            "defects; no deterministic gate measures material variance yet",
+        caveat="NOT yet measurable here: judged quality only. A variance census (per-material "
+               "value spread over sampled texels) is the candidate instrument.",
+    ),
 )
 
 BY_SKILL: dict[str, Target] = {t.skill: t for t in TARGETS}

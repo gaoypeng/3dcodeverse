@@ -5,7 +5,9 @@ the maintenance surface: **one row per bundle**, naming the single deterministic
 claims to move, the direction, the number it has to beat, and what it owes before it can be
 called earned.
 
-**Library: 13 bundles.** All 13 ship **OFF** (`CV3D_SKILLS` unset). Zero have a measured
+**Library: 17 bundles** (13 + the 2026-09-01 scene-graphics port: atmosphere, water,
+night, materials — routes R25-R28, evidence `inherited-unverified` from the
+scene_multifile_graphics reference ledger). All 17 ship **OFF** (`CV3D_SKILLS` unset). Zero have a measured
 effect. §5 says why that is the honest default and what would change it.
 
 Three files hold it up:
@@ -274,7 +276,7 @@ The library does **not** have to share one switch. `CV3D_SKILLS_ONLY` restricts 
 CV3D_SKILLS=1 CV3D_SKILLS_ONLY=cv3d-part-contact,cv3d-bbox-contract   # the vehicle
 ```
 
-**Today that list is empty, and all 13 bundles default OFF.** Not for lack of a mechanism,
+**Today that list is empty, and all 17 bundles default OFF.** Not for lack of a mechanism,
 and not because the wave ran out of time — because **zero bundles have a measured effect**,
 and every candidate default-on is a token cost per session against an unmeasured benefit.
 

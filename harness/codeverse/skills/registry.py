@@ -235,6 +235,21 @@ ROUTES: tuple[Route, ...] = (
           findings=(GL_MOTION_OR_DETAIL,), why="the frame gate saw no motion or no detail"),
     Route("R24-opengl", "cv3d-opengl-pipeline", 90, tracks=("graphics",), languages=("opengl_python",),
           findings=(GL_MOTION_OR_DETAIL,), why="the frame gate saw no motion or no detail"),
+    # R25-R28 (2026-09-01): the graphics-recipe port from the scene_multifile_graphics
+    # reference (docs/EVAL.md sceneloop entry).  Atmosphere and materials ride every
+    # env/baseline build; water and night only when the plan's own words ask for them.
+    Route("R25", "cv3d-scene-atmosphere", 70, tracks=("scene",), languages=("scene_threejs",),
+          kinds=("baseline", "env", "refine"),
+          why="the sky bake is the light source every PBR surface reflects; 4/9 reference scenes shipped it inverted"),
+    Route("R26", "cv3d-scene-water", 85, tracks=("scene",), languages=("scene_threejs",),
+          kinds=("baseline", "env", "zone", "compose", "refine"), requires_any=("wants_water",),
+          why="the plan's own words ask for water; metallic water is the reference's most-shipped material mistake"),
+    Route("R27", "cv3d-scene-night", 85, tracks=("scene",), languages=("scene_threejs",),
+          kinds=("baseline", "env", "zone", "compose", "refine"), requires_any=("wants_night",),
+          why="the plan's own words ask for night; shafts/emissive discipline is measured in the reference ledger"),
+    Route("R28", "cv3d-scene-materials", 65, tracks=("scene",), languages=("scene_threejs",),
+          kinds=("baseline", "zone", "compose", "refine"),
+          why="flat albedo and identical twins are the reference audit's most-cited surface defects"),
 )
 
 #: every skill the table can attach — the Author phase's contract for which bundles must exist
@@ -251,6 +266,12 @@ SIGNAL_KEYS = ("n_parts", "multi_part", "has_instances", "has_symmetry", "has_as
 
 _SHADER_WORDS = ("shader", "glsl", "onbeforecompile", "shadermaterial", "custom material",
                  "raymarch", "postprocess", "post-process")
+
+
+_WATER_WORDS = ("water", "pond", "lake", "river", "ocean", "sea", "harbor", "harbour",
+                "canal", "pool", "waterfall", "fountain", "shore", "beach", "koi")
+_NIGHT_WORDS = ("night", "neon", "dusk", "evening", "moonlit", "moonlight", "lamplit",
+                "midnight", "nocturnal", "starlit")
 
 
 def plan_signals(plan: Any | None) -> dict[str, Any]:
@@ -277,6 +298,10 @@ def plan_signals(plan: Any | None) -> dict[str, Any]:
         "has_joints": bool(joints),
         "joint_types": sorted({str(getattr(j, "type", "")) for j in joints if getattr(j, "type", "")}),
         "has_custom_shader": bool(effects) or any(w in text for w in _SHADER_WORDS),
+        # scene-content signals (2026-09-01, the graphics-recipe port): matched against the
+        # plan's own words so the water/night recipes ride only when the brief wants them
+        "wants_water": any(w in text for w in _WATER_WORDS),
+        "wants_night": any(w in text for w in _NIGHT_WORDS),
     }
 
 

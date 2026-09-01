@@ -187,6 +187,24 @@ move the mover into frame. Do not ship on the strength of having written the
 code — and if nothing at all moved, run `scene_probe` first: a frozen scene is
 more often a thrown `update` than a small amplitude.
 
+## People, vehicles, weather
+
+* **A walking figure**: hierarchy person -> hips -> legs, torso -> arms,
+  pivots AT the joints, posed from t: `ph = t*3.2 + seed*6.283;
+  legL.rotation.x = sin(ph)*0.6; legR = -legL;` arms opposite-phase at 0.4x;
+  bob hips by `abs(cos(ph))*0.04`. Per-person seed on phase and speed
+  (+-20%) prevents lockstep; frozen mid-stride reads perfectly.
+* **Paths**: people and vehicles ride a `CatmullRomCurve3` —
+  `getPointAt((t*speed/len + u0) % 1)`, face the tangent; distinct `u0`
+  offsets space the traffic; wheels spin `t*speed/wheelR`.
+* **Rain is streaks, not dots**: `LineSegments` pairs `[p, p+vec3(.1,-1.4,0)]`
+  at opacity 0.3-0.5 — elongation IS the motion cue. Snow: soft-sprite
+  `Points` with per-flake sine sway. Every particle gets a random phase so a
+  frozen frame is mid-motion, never at a synchronized extreme.
+* **Fire additive, smoke normal** — never swap: fire is crossed planes
+  scrolling fbm through a flame mask (`AdditiveBlending`) plus a flickering
+  orange PointLight; smoke is gray soft sprites, NORMAL blending.
+
 ## Depth
 
 `references/motion_recipes.md` — the sway pivot, the recycling particle field,
