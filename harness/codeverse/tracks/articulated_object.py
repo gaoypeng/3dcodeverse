@@ -287,10 +287,17 @@ def _set_axis_in_urdf_text(text: str, urdf_joint: str, axis: tuple[float, float,
     block = text[start:end]
     a0 = block.find("<axis")
     if a0 != -1:
-        close = block.find("/>", a0)
-        if close == -1:
+        gt = block.find(">", a0)
+        if gt == -1:
             return None
-        new_block = block[:a0] + f'<axis xyz="{xyz}"/>' + block[close + 2:]
+        if block[gt - 1] == "/":                       # <axis .../>
+            axis_end = gt + 1
+        else:                                          # <axis ...>...</axis> — "/>" never occurs
+            close_pair = block.find("</axis>", gt)     # in "</axis>", so searching for it would
+            if close_pair == -1:                       # land on the NEXT self-closing tag and
+                return None                            # splice away the joint's <limit/>
+            axis_end = close_pair + len("</axis>")
+        new_block = block[:a0] + f'<axis xyz="{xyz}"/>' + block[axis_end:]
     else:
         head_end = block.find(">")
         if head_end == -1:

@@ -365,15 +365,21 @@ def motion_direction_check(robot: Robot, joint: str, expected: str, *, probe: fl
     ok = cos > 0.5
     suggested = None
     if not ok:
+        # ``want``/``s`` are WORLD vectors, but URDF <axis> lives in the JOINT frame
+        # (fk composes parent @ origin @ motion(q), so the axis acts after origin) —
+        # express the suggestion there, or a rotated origin / rotated ancestor chain
+        # makes the "exact" repair install a provably wrong axis (repro: a hinge with
+        # rpy="0 0 1.57" kept its motion ERROR after installing the world-frame value).
+        R_joint = fk(robot, {})[j.child][:3, :3]  # motion(0) = I, so this is rot(parent @ origin)
         if j.type == "prismatic":
-            suggested = tuple(round(float(v), 3) for v in want)
+            suggested = tuple(round(float(v), 3) for v in R_joint.T @ want)
         else:
             pivot = fk(robot, {})[j.child][:3, 3]
             r = c0 - pivot
             s = np.cross(r, want)
             n_s = float(np.linalg.norm(s))
             if n_s > 1e-6:
-                suggested = tuple(round(float(v), 3) for v in s / n_s)
+                suggested = tuple(round(float(v), 3) for v in R_joint.T @ (s / n_s))
     return MotionCheck(joint=joint, expected=expected, observed_dir=tuple(round(float(v), 4) for v in d), ok=ok,
                        cos=round(cos, 4), suggested_axis=suggested,
                        message=(f"{joint}: child '{j.child}' moves {tuple(round(float(v),3) for v in d)} for q={probe:+.3g}; "

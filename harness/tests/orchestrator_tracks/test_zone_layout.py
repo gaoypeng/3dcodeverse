@@ -42,6 +42,21 @@ def test_validator_accepts_a_buildable_layout_and_names_every_problem():
     assert "no placement for planned contents: FishingBoat" in complaint
 
 
+def test_an_aerial_camera_does_not_reject_the_placements_beneath_it():
+    """PR #3 review: the clearance check is 2D, so an establishing camera 8 m up
+    rejected every large cluster under it and the zone lost its whole layout.
+    A lens above the cluster top (+ margin) cannot be inside the geometry; a lens
+    AT stall height directly above the cluster is still rejected."""
+    plan = _plan()
+    plan.cameras = [CameraPlan(name="aerial", position=(10, 8, 0), look_at=(10, 0, 0), fov=50, purpose="p")]
+    under = _layout(placements=[{"asset": "Stall", "count": 4, "cluster": (10.0, 0.0), "spread_m": 3.0}],
+                    zone="Market")
+    assert validate_layout(under, plan.zones[1], plan) == ""
+    plan.cameras = [CameraPlan(name="low", position=(10, 2.0, 0), look_at=(10, 0, 0), fov=50, purpose="p")]
+    complaint = validate_layout(under, plan.zones[1], plan)
+    assert "camera low" in complaint, "a lens at stall height above the cluster is still inside its reach"
+
+
 def test_validator_rejects_a_cluster_that_swallows_a_camera():
     """fv_izakaya_night: BarCounter 0.7 m from the PotDetail camera — the lens sat inside
     the counter and camera_in_geometry capped all three rounds.  The camera list is an

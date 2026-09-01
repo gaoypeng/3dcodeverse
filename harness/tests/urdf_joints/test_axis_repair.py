@@ -93,3 +93,49 @@ def test_artifacts_copy_is_kept_in_step(tmp_path):
     (ws.artifacts / "robot.urdf").write_text(URDF)
     assert repair_motion_axes(ws, _report(_finding("Hinge", cos=-1.0))) == ["Hinge"]
     assert (ws.artifacts / "robot.urdf").read_text() == (ws.src / "robot.urdf").read_text()
+
+
+def test_a_paired_axis_tag_keeps_the_joints_limit():
+    """PR #3 review: '/>' never occurs inside '</axis>', so the old splice searched past
+    the paired tag, landed on the NEXT self-closing element and deleted the joint's
+    <limit/> — an invalid revolute joint shipped to src/ and artifacts/."""
+    from codeverse.tracks.articulated_object import _set_axis_in_urdf_text
+
+    for axis_form in ('<axis xyz="1 0 0"></axis>', '<axis xyz="1 0 0"/>'):
+        urdf = ('<robot name="r"><joint name="h" type="revolute">\n'
+                '<parent link="a"/><child link="b"/>\n' + axis_form + '\n'
+                '<limit lower="0" upper="1.57" effort="10" velocity="1"/>\n</joint></robot>')
+        out = _set_axis_in_urdf_text(urdf, "h", (0.0, 0.0, 1.0))
+        assert out is not None and '<axis xyz="0 0 1"/>' in out
+        assert "<limit" in out, f"the splice ate the limit for {axis_form!r}"
+
+
+def test_suggested_axis_is_expressed_in_the_joint_frame(tmp_path):
+    """PR #3 review: the suggestion was a WORLD vector written into the JOINT-frame
+    <axis>; with a rotated joint origin the 'exact' repair installed a provably wrong
+    axis and the motion gate kept its ERROR every round.  The suggestion must FIX the
+    motion when installed."""
+    import numpy as np
+
+    from codeverse.spatial.joints_model import load_urdf
+    from codeverse.spatial.joints_sweep import motion_direction_check
+
+    urdf = tmp_path / "r.urdf"
+    urdf.write_text(
+        '<robot name="r">\n'
+        '  <link name="base"><visual><geometry><box size="0.2 0.2 0.2"/></geometry></visual>\n'
+        '    <collision><geometry><box size="0.2 0.2 0.2"/></geometry></collision></link>\n'
+        '  <link name="door"><visual><origin xyz="0.3 0 0"/><geometry><box size="0.6 0.05 0.4"/></geometry></visual>\n'
+        '    <collision><origin xyz="0.3 0 0"/><geometry><box size="0.6 0.05 0.4"/></geometry></collision></link>\n'
+        '  <joint name="hinge" type="revolute">\n'
+        '    <parent link="base"/><child link="door"/>\n'
+        '    <origin xyz="0.1 0 0" rpy="0 0 1.5708"/>\n'
+        '    <axis xyz="1 0 0"/>\n'
+        '    <limit lower="0" upper="1.57" effort="10" velocity="1"/>\n'
+        '  </joint>\n</robot>')
+    robot = load_urdf(urdf, load_meshes=True)
+    chk = motion_direction_check(robot, "hinge", "up")
+    assert not chk.ok and chk.suggested_axis is not None
+    robot.joints["hinge"].axis = np.asarray(chk.suggested_axis, dtype=float)
+    after = motion_direction_check(robot, "hinge", "up")
+    assert after.ok and after.cos > 0.9, "installing the suggestion must actually fix the motion"

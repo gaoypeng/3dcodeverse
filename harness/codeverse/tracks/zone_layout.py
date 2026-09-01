@@ -78,7 +78,15 @@ def validate_layout(layout: ZoneLayout, zone: ZonePlan, plan: ScenePlan) -> str:
         # puts geometry inside the lens (fv_izakaya_night), and nothing downstream can fix it
         foot = max(known[k].approx_size_m[0], known[k].approx_size_m[2])
         need = max(CAMERA_CLEAR_FLOOR_M, foot / 2 + p.spread_m / 2 + CAMERA_CLEAR_M)
+        base = known[to_snake(p.support)].approx_size_m[1] if to_snake(p.support) in known else 0.0
+        top = base + known[k].approx_size_m[1]
         for cam in plan.cameras:
+            if cam.position[1] > top + CAMERA_CLEAR_M:
+                # the check is 2D by design (clusters stand on the floor), so an aerial /
+                # establishing camera must escape it vertically: a lens this far above the
+                # cluster's top cannot be inside it, and rejecting every large placement
+                # under a high camera dropped the whole zone's layout (review of PR #3)
+                continue
             dist = math.hypot(x - cam.position[0], z - cam.position[2])
             if dist < need:
                 problems.append(f"{p.asset} cluster ({x:.1f}, {z:.1f}) reaches camera {cam.name} "
