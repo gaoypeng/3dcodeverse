@@ -185,6 +185,9 @@ codeverse/
                       can be A/B'd alone, + pin_plan_blockers() deciding when two arms may share
                       one plan — docs/EVAL.md §8.1),
                       depth.py,
+                      plan_checks.py (plan-time geometry checks on an ArticulatedPlan — attachment,
+                      pivot placement, swept-box collision over the joint range — fed back to the
+                      planner as a re-ask before any code is written),
                       skills_hook.py (the round's view of codeverse/skills: attach before generating,
                       probe reads after — a no-op unless CV3D_SKILLS is on)
   flywheel/           record.py (+ best_round_record), export.py, pack.py, sample.py, pairs.py,

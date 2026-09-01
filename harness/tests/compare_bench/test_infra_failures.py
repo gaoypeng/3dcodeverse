@@ -301,6 +301,14 @@ def test_a_classifier_crash_still_records_the_cell(tmp_path):
 
 
 
+def test_stream_attempt_budget_and_504_are_infra():
+    from bench._infra import is_infra_failure
+
+    assert is_infra_failure(RuntimeError("ModelError: Gemini stream exceeded its attempt budget after 293 chunks"))
+    assert is_infra_failure(RuntimeError("Gemini API error 504: Deadline expired before operation could complete."))
+    assert is_infra_failure(RuntimeError("ModelError: structured output unavailable (finish_reason=PROHIBITED_CONTENT; raise max_output_tokens if truncated)"))
+
+
 def test_the_ab_viewer_refuses_to_call_a_winner_it_cannot_support():
     from bench.ab_view import Run, verdict
 

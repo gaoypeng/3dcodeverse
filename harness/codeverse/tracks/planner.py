@@ -32,7 +32,7 @@ from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse.contracts.common import Language, Track, Usage
 from codeverse.contracts.plan import AcceptanceItem, EngineeringBrief
 from codeverse.contracts.spec import Spec
-from codeverse.conventions import LANGUAGE_FRAME, frame_doc, to_pascal
+from codeverse.conventions import LANGUAGE_FRAME, frame_doc, to_pascal, to_snake
 from codeverse.models.schema_utils import parse_json_lenient
 from codeverse.proc import sha256_file
 from codeverse.prompts import load_text, prompt_hash, render
@@ -563,6 +563,19 @@ P = TypeVar("P", bound=BaseModel)
 #: different failures and get separate chances (see ``plan_with_usage``).
 MAX_VALIDATION_REASKS = 2  # was 1: compare_art_v2 lost 5 of 14 articulated prompts at this gate (2026-08-25)
 MAX_QUALITY_REASKS = 1
+#: a plan whose boxes / pivots / ranges contradict each other (tracks/plan_checks.py) is
+#: re-asked with the numbers; after this many it ships anyway and the joint sweep decides
+MAX_GEOMETRY_REASKS = 2
+#: ``CV3D_PLAN_GEOMETRY=1`` turns the geometry re-ask ON (registered in
+#: tracks/plan_features.LIVE_SWITCHES).  OFF by default since the 2026-08-28 A/B
+#: (compare_art_v4 pf vs pf0, n = 14): score Δ +0.064 [−0.188, +0.315], wins 6/6/2,
+#: final gate errors 0.00 vs 0.25, round-0 sweep targets 0.54 vs 0.25 — no measurable
+#: gain for 7/14 re-asks; the plan-loop rule (docs/PLAN_LOOP.md) keeps such a change off.
+PLAN_GEOMETRY_ENV = "CV3D_PLAN_GEOMETRY"
+
+
+def geometry_check_enabled() -> bool:
+    return os.environ.get(PLAN_GEOMETRY_ENV, "0").strip().lower() in ("1", "true", "on", "yes")
 #: Output room for the plan call, sized from the plan budget.  A deep plan is much longer
 #: JSON than a flat one AND Gemini 3.x bills its thinking against the same ceiling, so the
 #: flat 24 000 that served 8 box-parts truncates a 12-part plan with sub-parts —
@@ -589,12 +602,17 @@ PLAN_SLOW_TOKENS_PER_S = 60.0
 PLAN_WAIT_OVERHEAD_S = 60.0
 
 
-def plan_wait_s(tokens: int, guard: object | None = None) -> float:
+#: a retry after truncation may wait this much longer than the size rule says (the pro
+#: planner streams a 55k-token answer slower than PLAN_SLOW_TOKENS_PER_S, 2026-08-28)
+TRUNCATION_WAIT_SCALE = 1.5
+
+
+def plan_wait_s(tokens: int, guard: object | None = None, *, scale: float = 1.0) -> float:
     """How long one planner call may take, given the answer size it asked for.
 
     Never below :data:`PLAN_MAX_WAIT_S`, and clipped to the wall clock the run has left
     (``BudgetGuard.timeout_s``) so a big plan cannot outlive its own run."""
-    want = max(PLAN_MAX_WAIT_S, tokens / PLAN_SLOW_TOKENS_PER_S + PLAN_WAIT_OVERHEAD_S)
+    want = max(PLAN_MAX_WAIT_S, tokens / PLAN_SLOW_TOKENS_PER_S + PLAN_WAIT_OVERHEAD_S) * scale
     fn = getattr(guard, "timeout_s", None)
     return float(fn(want, floor_s=PLAN_MAX_WAIT_S)) if callable(fn) else want
 
@@ -603,6 +621,50 @@ def plan_tokens(budget: PlanBudget, floor: int) -> int:
     """Output-token ceiling for a plan of this size (never below the caller's ``floor``)."""
     want = floor + PLAN_TOKENS_PER_PART * budget.target_parts + PLAN_TOKENS_PER_LEAF * budget.target_leaves
     return min(PLAN_TOKENS_MAX, max(floor, want))
+
+
+TRUNCATION_NOTE = ("\n\nCOMPACT ANSWER REQUIRED: your previous answer did not fit in the output budget "
+                   "({tokens} tokens). Return the same plan with every `description` at most 25 words, at most 6 "
+                   "`children` per part and nothing outside the JSON. Answer directly without long deliberation.")
+
+
+def _with_note(msg: ChatMessage, note: str) -> ChatMessage:
+    """The same user message with ``note`` appended to its text (images kept)."""
+    images = [p for p in msg.parts if isinstance(p, ImagePart)] or None
+    return ChatMessage.user(msg.text + note, images=images)
+
+
+_PLACEHOLDERS = {"string", "str", "name", "text", "..."}
+
+
+def _schema_echo(raw: dict[str, Any]) -> str:
+    """"" or what in ``raw`` is a JSON-schema placeholder (``"name": "string"``) rather than content.
+
+    compare_art_v4_pf0 (2026-08-28): flash answered a casement-window brief with a plan
+    whose joint was ``{"name": "string", "axis": [0, 0, 0], ...}`` and failed the zero-axis
+    validator three times; the re-ask echoed 'zero axis', which was not the problem."""
+    bad: list[str] = []
+    if str(raw.get("object_name", "")).strip().lower() in _PLACEHOLDERS:
+        bad.append("object_name")
+    for key in ("parts", "joints", "zones", "assets", "passes"):
+        for i, item in enumerate(raw.get(key) or []):
+            if isinstance(item, dict) and str(item.get("name", "")).strip().lower() in _PLACEHOLDERS:
+                bad.append(f"{key}[{i}].name")
+    return ", ".join(bad[:6])
+
+
+def _thin_plan_note(raw: Any, budget: PlanBudget) -> str:
+    """A second line for the validation re-ask when the invalid plan is also far too small.
+
+    compare_art_v4_pf0 (2026-08-28): flash answered an architect-lamp brief with ONE part
+    ("base") and a joint naming a link it never listed, three times in a row — the re-ask
+    only echoed the unknown-link error, so the model kept fixing the wrong thing."""
+    parts = raw.get("parts") if isinstance(raw, dict) else None
+    # only a degenerate plan (a third of the floor or less) — the quality complaint owns the rest
+    if not isinstance(parts, list) or len(parts) > max(2, budget.min_parts // 3):
+        return ""
+    return (f"\nAlso: this plan lists only {len(parts)} part(s) but the request needs about {budget.target_parts} "
+            f"({budget.reason}). Put EVERY link a joint references under `parts` with its own bbox.")
 
 
 def _truncated(exc: Exception) -> bool:
@@ -710,10 +772,13 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     last_error = ""
     invalid = requeried = grown = 0
     tokens = plan_tokens(budget, max_output_tokens)
-    for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS):
+    thinking = "medium"
+    wait_scale = 1.0
+    geo_reasked = 0
+    for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_GEOMETRY_REASKS):
         req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=temperature,
-                          thinking="medium", max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
-                          max_wait_s=plan_wait_s(tokens, guard))
+                          thinking=thinking, max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
+                          max_wait_s=plan_wait_s(tokens, guard, scale=wait_scale))
         try:
             resp = model.generate(req)
         except Exception as e:  # noqa: BLE001 — a truncated plan is retryable; anything else is not
@@ -721,8 +786,15 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
                 raise  # not a truncation, or already at the model ceiling: nothing to grow
             grown += 1
             tokens = min(PLAN_TOKENS_MAX, int(tokens * TRUNCATION_GROWTH))
+            # A bigger budget alone does not help when thinking ate the last one: with the pro
+            # planner a 55k-token retry ran ~16 min into the provider's deadline (504) and the
+            # cell was lost (compare_art_v4_pp, 2026-08-28).  Retry with low thinking and a
+            # compact-answer note on the last user turn.
+            thinking = "off"  # "low" still streamed past a 990 s attempt budget on 2 of 6 pro cells
+            wait_scale = TRUNCATION_WAIT_SCALE
+            messages = messages[:-1] + [_with_note(messages[-1], TRUNCATION_NOTE.format(tokens=tokens))]
             if events is not None:
-                events.emit("plan.truncated", attempt=attempt, max_output_tokens=tokens)
+                events.emit("plan.truncated", attempt=attempt, max_output_tokens=tokens, thinking=thinking)
             continue
         usage = usage + resp.usage
         if guard is not None:
@@ -732,6 +804,10 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
         try:
             if not isinstance(raw, dict):
                 raise ValueError(f"planner returned {type(raw).__name__}, expected a JSON object")
+            echoed = _schema_echo(raw)
+            if echoed:
+                raise ValueError(f"the plan echoes the schema's placeholders instead of describing the object: {echoed}. "
+                                 "Write the REAL plan: actual part names, real numbers, a unit axis for every joint.")
             result = plan_model.model_validate(raw)
         except (ValidationError, ValueError) as e:
             last_error = str(e)[:4000]
@@ -743,7 +819,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
             messages = messages + [
                 _echo(raw, resp.text),
                 ChatMessage.user("Your plan failed validation. Fix EXACTLY these problems and return the full corrected "
-                                 f"plan JSON again (same schema):\n{last_error}"),
+                                 f"plan JSON again (same schema):\n{last_error}" + _thin_plan_note(raw, budget)),
             ]
             continue
         complaint = plan_quality_complaint(result, budget, unit=unit) if requeried < MAX_QUALITY_REASKS else ""
@@ -754,6 +830,22 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
                             target_parts=budget.target_parts, complaint=complaint[:400])
             messages = messages + [_echo(raw, resp.text), ChatMessage.user(complaint)]
             continue
+        if geo_reasked < MAX_GEOMETRY_REASKS and getattr(result, "joints", None) and geometry_check_enabled():
+            from codeverse.tracks.plan_checks import plan_geometry_complaint
+
+            try:
+                geo = plan_geometry_complaint(result)
+            except Exception as e:  # noqa: BLE001 — a pre-check must never cost the plan
+                geo = ""
+                log.warning("plan geometry check failed (%s); skipping", e)
+                if events is not None:
+                    events.emit("plan.geometry_error", attempt=attempt, error=str(e)[:300])
+            if geo:
+                geo_reasked += 1
+                if events is not None:
+                    events.emit("plan.geometry", attempt=attempt, reask=geo_reasked, complaint=geo[:600])
+                messages = messages + [_echo(raw, resp.text), ChatMessage.user(geo)]
+                continue
         normalised = list(getattr(result, "normalisations", None) or [])
         if normalised and events is not None:
             events.emit("plan.normalised", attempt=attempt, n=len(normalised), items=normalised[:8])
@@ -867,8 +959,36 @@ def ensure_acceptance[P: BaseModel](plan_obj: P, spec: Spec) -> P:
         add_acceptance_item(items, "not", f"Does NOT include: {m}", "visual")
     if spec.track is not Track.SCENE and not any(a.how == "measure" for a in items):
         add_acceptance_item(items, "ground", "Object stands on the ground plane (lowest point at up=0) with its footprint centred", "measure")
+    items.extend(articulation_acceptance(plan_obj, items))
     plan_obj.acceptance = items
     return plan_obj
+
+
+def articulation_acceptance(plan_obj: Any, items: list[AcceptanceItem]) -> list[AcceptanceItem]:
+    """One ``articulation`` item per moving joint the planner's own checklist does not cover
+    (2026-08-28, phase 4 item 6): the judge reads the pose sheet — rest, lower, upper — so the
+    plan's rest-pose and motion statements become questions it answers per joint instead of
+    prose it may skip.  ``should`` priority: an unverified item steers the refine loop's
+    judge tasks but never fails the run (a *must* the judge cannot verify does)."""
+    joints = [j for j in (getattr(plan_obj, "joints", None) or []) if j.type != "fixed"]
+    if not joints:
+        return []
+    covered = " ".join(a.text.lower() for a in items if a.how == "articulation")
+    words = set(re.findall(r"[a-z0-9]+", covered.replace("_", " ")))
+    out: list[AcceptanceItem] = []
+    for j in joints:
+        # whole-word match on the joint's or the child's name ("lid" must not match "slides")
+        keys = {j.name.lower(), to_snake(j.child).replace("_", " "), j.child.lower()}
+        if any(k and all(w in words for w in re.findall(r"[a-z0-9]+", k)) for k in keys):
+            continue
+        unit = "m" if j.type == "prismatic" else "rad"
+        rest = "closed / stowed" if abs(j.rest) < 1e-9 else f"at {j.rest:.2f} {unit}"
+        rng = "turns freely" if j.type == "continuous" else f"moves over [{j.lower:.2f}, {j.upper:.2f}] {unit}"
+        out.append(AcceptanceItem(
+            id=f"art_{to_snake(j.child)}"[:40], how="articulation", priority="should",
+            text=f"Joint {j.name}: at rest {j.child} sits {rest} against {j.parent}; it {rng} — {j.motion} — "
+                 f"without passing through {j.parent} or any other link (pose_* views)"))
+    return out
 
 
 def normalise_names[P: BaseModel](plan_obj: P) -> P:
@@ -888,6 +1008,6 @@ def normalise_names[P: BaseModel](plan_obj: P) -> P:
     return plan_obj
 
 
-__all__ = ["MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS", "PLAN_TOKENS_MAX", "PlanningError", "plan",
+__all__ = ["MAX_GEOMETRY_REASKS", "articulation_acceptance", "PLAN_GEOMETRY_ENV", "geometry_check_enabled", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS", "PLAN_TOKENS_MAX", "PlanningError", "plan",
            "plan_tokens", "plan_with_usage", "plan_example", "ensure_acceptance", "add_acceptance_item",
            "default_event_stats", "normalise_names", "build_system_prompt", "build_user_prompt"]

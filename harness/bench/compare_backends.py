@@ -522,6 +522,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--max-minutes", type=float, default=45.0, help="wall-clock ceiling for ONE harness run")
     ap.add_argument("--loop-judge", default=None, help="harness in-loop judge (default: settings default)")
+    ap.add_argument("--planner", default=None,
+                    help="harness planner model id (default: settings default) — e.g. gemini:gemini-3.1-pro-preview "
+                         "to plan with a stronger model than the generator (compare_art_v4, 2026-08-28)")
     ap.add_argument("--repair-attempts", type=int, default=2)
     ap.add_argument("--gen-timeout", type=float, default=900.0)
     ap.add_argument("--judge-samples", type=int, default=2,
@@ -542,7 +545,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if ns.report_only:
         build_compare_report(Path(ns.out))
         return 0
-    opts = CompareOptions(judge=ns.judge, loop_judge=ns.loop_judge, rounds=ns.rounds,
+    opts = CompareOptions(judge=ns.judge, loop_judge=ns.loop_judge, planner=ns.planner, rounds=ns.rounds,
                           max_minutes=ns.max_minutes, parallel=ns.parallel,
                           limit=ns.limit, ids=[i for i in ns.ids.split(",") if i],
                           tiers=[t for t in ns.tiers.split(",") if t], resume=not ns.no_resume,

@@ -241,6 +241,9 @@ written) that were accepted because the code works that way and the tests pin it
   a one-shot arm whose LAST attempt was lost to the provider is `infra_failed` (redone);
   a harness `PlanningError` is `no_code` / 0.0, like a one-shot answer in the wrong
   format; "Error creating WebGL context" (a saturated shared GPU) is an infra marker.
+  Added 2026-08-28/29 (pro planner + gemini-cli runs): a Gemini stream that exceeds its
+  attempt budget, a 504 "Deadline expired", and a `finish_reason=PROHIBITED_CONTENT`
+  (the content filter tripping mid-JSON on a furniture plan) are provider failures too.
 * **D42 `compare_backends` follows the battery's track (2026-08-25).**  Context: the
   fixed evaluator was static_object-only.  Decision: `FixedEvaluator(track=, language=)`
   picks the runtime from the battery and the rubric per cell (`_fixed_eval.rubric_for`, the
@@ -547,6 +550,37 @@ written) that were accepted because the code works that way and the tests pin it
   Separately fundable, NOT D48's: `untextured_flat` is over-applied by BOTH arms on
   shaded models with a uniform sensible colour, which the rubric item's own text
   exempts.
+
+* **D49 An articulated plan is checked for geometric self-consistency before any code is
+  written — measured, ships OFF (2026-08-28/29).**  Context: compare_art_v3's low scorers
+  failed on kinematics the plan already contradicted, and the joint sweep only reported it
+  after a full build round.  Decision: `tracks/plan_checks.geometry_complaints` runs three
+  box-arithmetic checks on the plan's own numbers (attachment gap ≤ 15 mm; hinge pivot
+  within 25 mm of BOTH links; the child's box posed at q=lower/upper as a point lattice
+  against every link that is neither its subtree, a housing holding ≥ 80 % of it at rest,
+  interlocked with it at rest, nor — for a slide — its parent), and the planner re-asks
+  with the numbers (`MAX_GEOMETRY_REASKS = 2`, event `plan.geometry`).  After the cap the
+  plan ships; this never raises `PlanningError` (the plan-loop wave's C1 died that way).
+  **Measured** (compare_art_v4, 14 prompts, check ON vs OFF as paired arms, flash planner,
+  gemini-cli generator, judge pro n = 3): score Δ +0.064 [−0.188, +0.315]; final gate
+  errors 0.00 vs 0.25; round-0 distinct joint_sweep targets 0.54 vs 0.25; the re-ask fired
+  in 7/14 cells.  No measurable gain — with gemini-cli generation round-0 sweep errors are
+  near zero either way — so `CV3D_PLAN_GEOMETRY` ships OFF (=1 enables;
+  `plan_features.LIVE_SWITCHES`).
+* **D50 Joint-sweep findings reach the fixer aggregated per link pair (2026-08-28).**
+  Context: one compare_art_v3 run produced 59 penetration findings for a handful of pairs
+  — one per sampled pose — and `build_refine_instructions` de-duplicates by (target, kind)
+  keeping the FIRST pose's line, so the agent saw a pair's shallowest instance and the loop
+  burnt its budget without converging.  Decision:
+  `spatial/joints_sweep.aggregate_findings` merges a pair's poses into one line (how many
+  poses, worst depth and at which q, rest count), ranks ERRORs by depth, keeps the deepest
+  `MAX_PAIR_FINDINGS = 8` and folds the rest into one WARN `penetration_summary`;
+  `default_joint_sweep` applies it, and adds `buried_links` — a link whose sampled surface
+  lies ≥ 98 % inside another link at rest is an ERROR (invisible to every view, reported
+  "missing" by the judge).  The raw sweep report is unchanged.  Companion measurement: a
+  deterministic-repairs bundle (axis flip + buried check) A/B'd at Δ −0.039 ± 0.105 over
+  12 paired prompts, the flip firing in 1 cell of 12 — the aggregation ships on rationale,
+  not on a resolved score delta.
 
 ## Rejected / deferred
 

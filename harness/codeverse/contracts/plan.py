@@ -442,6 +442,15 @@ class ArticulatedPlan(StaticPlan):
                 if len(hits) == 1:
                     notes.append(f"root_link '{root}' named no part; rewrote to '{hits[0]}'")
                     data["root_link"] = hits[0]
+                elif not hits:
+                    # 4b. nothing even loosely matches (a UUID, prose — ab_repairs
+                    #     grand_piano 2026-08-29, three plans in a row): the one part no
+                    #     joint names as a child is the root; unique → unambiguous
+                    children = {to_snake(str(j.get("child", ""))) for j in joints}
+                    roots = [orig for k, orig in names.items() if k not in children]
+                    if len(roots) == 1:
+                        notes.append(f"root_link '{root}' named no part; rewrote to the one link no joint moves: '{roots[0]}'")
+                        data["root_link"] = roots[0]
 
         data["parts"], data["joints"], data["normalisations"] = parts, joints, notes
         return data

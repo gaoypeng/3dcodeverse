@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import shutil
 import threading
@@ -28,6 +29,9 @@ from codeverse.spatial.node import NodeError, run_node, runtime_js_dir
 
 BACKGROUNDS = ("studio", "white", "transparent")
 CACHE_VERSION = 4  # bump when the rig changes in a way that invalidates cached PNGs
+
+
+log = logging.getLogger(__name__)
 
 
 class RenderError(RuntimeError):
@@ -127,7 +131,17 @@ def render_glb(
     if use_cache and (cache_dir / "views.json").is_file():
         record = _restore_from_cache(cache_dir, out_dir)
     if record is None:
-        record = _run_render(glb, out_dir, params, gpu=gpu, timeout_s=timeout_s)
+        try:
+            record = _run_render(glb, out_dir, params, gpu=gpu, timeout_s=timeout_s)
+        except RenderError as e:
+            if not _transient(e):
+                raise
+            # compare_art_v4 (2026-08-28): under 12 concurrent cells the browser took 7.5 s to
+            # open a page and the viewer's wait expired ("Waiting failed"); the cell lost its
+            # in-loop judge for the round.  One retry with twice the time is cheap next to that.
+            log.warning("render_glb transient failure, retrying once with %.0f s: %s", timeout_s * 2, str(e)[:160])
+            time.sleep(RETRY_PAUSE_S)
+            record = _run_render(glb, out_dir, params, gpu=gpu, timeout_s=timeout_s * 2)
         if use_cache:
             _store_in_cache(cache_dir, out_dir, record)
 
@@ -153,6 +167,16 @@ def render_glb(
         duration_ms=int((time.time() - t0) * 1000),
         console_errors=[str(e) for e in record.get("console_errors", [])],
     )
+
+
+#: render failures that are the box, not the model: a retry is worth one more timeout
+TRANSIENT_MARKERS = ("waiting failed", "timed out", "timeout", "produced no result", "target closed", "session closed")
+RETRY_PAUSE_S = 3.0
+
+
+def _transient(e: Exception) -> bool:
+    text = str(e).lower()
+    return any(m in text for m in TRANSIENT_MARKERS)
 
 
 def _run_render(glb: Path, out_dir: Path, params: dict[str, Any], *, gpu: str, timeout_s: float) -> dict[str, Any]:

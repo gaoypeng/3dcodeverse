@@ -34,6 +34,9 @@ INFRA_MARKERS: tuple[str, ...] = (
     "internal server error",
     "request timed out",
     "read operation timed out",
+    "deadline expired",  # Gemini 504
+    "finish_reason=prohibited_content",  # the provider's content filter tripped mid-JSON on a furniture plan (2026-08-28): provider behaviour, redone
+    "exceeded its attempt budget",  # models/gemini.py streaming: the provider held the socket past the attempt budget (2026-08-28, pro planner)
     "deadline exceeded",
     "connection reset",
     "connection aborted",

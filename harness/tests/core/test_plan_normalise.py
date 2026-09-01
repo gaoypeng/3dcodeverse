@@ -159,6 +159,25 @@ def test_an_ambiguous_joint_reference_is_rejected_and_names_the_real_parts():
     assert "chest_drawer" in msg and "spare_drawer" in msg, "the planner must be told the real names"
 
 
+def test_a_root_link_that_names_no_part_becomes_the_one_link_no_joint_moves():
+    """ab_repairs grand_piano, 2026-08-29: flash wrote a UUID as root_link three times and
+    the pinned plan died with 'root_link … is not a part'."""
+    d = _raw()
+    d["root_link"] = "040fbba3-b0f3-42e1-85b3-f61b0c034293"
+    plan = ArticulatedPlan.model_validate(d)
+    assert plan.root_link == "Cabinet"
+    assert any("no joint moves" in n and "Cabinet" in n for n in plan.normalisations)
+
+
+def test_an_ambiguous_root_is_still_rejected():
+    d = _raw()
+    d["root_link"] = "nowhere"
+    d["parts"].append({"name": "Pedestal", "role": "base", "description": "a plinth", "material": "oak",
+                       "bbox": {"center": [0, 0, -0.05], "extents": [0.5, 0.6, 0.1]}})
+    with pytest.raises(ValidationError, match="root_link nowhere is not a part"):
+        ArticulatedPlan.model_validate(d)
+
+
 def test_swapped_limits_are_written_as_the_swap_they_are():
     d = _raw()
     j = d["joints"][0]

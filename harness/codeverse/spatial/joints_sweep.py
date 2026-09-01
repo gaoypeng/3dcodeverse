@@ -226,6 +226,108 @@ def sweep_findings(report: SweepReport, *, rest_max_m: float = 0.005, hinge_clea
     return out
 
 
+#: ERROR findings kept after aggregation (the deepest pairs); the rest fold into one WARN
+MAX_PAIR_FINDINGS = 8
+
+
+def aggregate_findings(findings: list[GateFinding]) -> list[GateFinding]:
+    """One finding per link pair (or per floating link), the worst pose first.
+
+    compare_art_v3 (2026-08-28): a run produced 59 penetration findings for a handful of
+    pairs — one per sampled pose — and the refine prompt carried them as 59 lines the
+    agent could not act on; the loop burnt its budget without converging.  Merge the
+    poses of a pair into one line that says how many poses, the worst depth and where,
+    keep the deepest ``MAX_PAIR_FINDINGS`` as ERRORs and summarise the remainder.
+    """
+    groups: dict[tuple[str, str | None], list[GateFinding]] = {}
+    order: list[tuple[str, str | None]] = []
+    for f in findings:
+        key = (f.data.get("kind", ""), f.target)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(f)
+    merged: list[GateFinding] = []
+    for key in order:
+        fs = groups[key]
+        if len(fs) == 1 or key[0] != "penetration":
+            merged.extend(fs if key[0] != "penetration" else [fs[0]])
+            continue
+        worst = max(fs, key=lambda f: float(f.data.get("depth_m") or 0.0))
+        rest = [f for f in fs if not f.data.get("pose")]
+        moved = [f for f in fs if f.data.get("pose")]
+        sev = Severity.ERROR if any(f.severity == Severity.ERROR for f in fs) else Severity.WARN
+        worst_pose = worst.data.get("pose") or {}
+        where = "at rest" if not worst_pose else "at " + ", ".join(f"{k}={v:.2f}" for k, v in worst_pose.items())
+        msg = (f"links '{key[1]}' overlap in {len(fs)} of the sampled poses (worst {float(worst.data.get('depth_m') or 0) * 1000:.1f} mm "
+               f"{where}" + (f"; {len(rest)} at rest" if rest and moved else "") + ")")
+        merged.append(GateFinding(gate=worst.gate, severity=sev, target=worst.target, message=msg, fix_hint=worst.fix_hint,
+                                  data={**worst.data, "n_poses": len(fs), "poses": [f.data.get("pose") for f in fs][:12],
+                                        "max_depth_m": float(worst.data.get("depth_m") or 0.0)}))
+    errors = sorted([f for f in merged if f.severity == Severity.ERROR],
+                    key=lambda f: -float(f.data.get("max_depth_m") or f.data.get("depth_m") or f.data.get("gap_m") or 0.0))
+    warns = [f for f in merged if f.severity != Severity.ERROR]
+    if len(errors) > MAX_PAIR_FINDINGS:
+        extra = errors[MAX_PAIR_FINDINGS:]
+        errors = errors[:MAX_PAIR_FINDINGS]
+        warns.append(GateFinding(gate=extra[0].gate, severity=Severity.WARN, target="overall",
+                                 message=f"{len(extra)} more overlapping pair(s) not listed: " + ", ".join(str(f.target) for f in extra[:10]),
+                                 fix_hint="fix the listed pairs first; the rest are re-measured after the next build",
+                                 data={"kind": "penetration_summary", "pairs": [f.target for f in extra]}))
+    return errors + warns
+
+
+#: share of a link's sampled surface that must lie inside ONE other link to call it buried
+BURIED_FRACTION = 0.98
+BURIED_SAMPLES = 200
+
+
+def _inside_fraction(body: Any, points_world: np.ndarray) -> float:
+    """Share of ``points_world`` inside any of ``body``'s islands (these LinkBodies are
+    built from world meshes, so the pose transform is the identity)."""
+    local = trimesh.transform_points(points_world, body.T_inv)
+    mask = np.zeros(len(local), dtype=bool)
+    for isl in body.islands:
+        mask |= np.asarray(collide.inside_island(isl, local), dtype=bool)
+    return float(mask.mean()) if len(mask) else 0.0
+
+
+def buried_links(robot: Robot, *, samples: int = BURIED_SAMPLES, fraction: float = BURIED_FRACTION) -> list[GateFinding]:
+    """Links whose surface lies (almost) entirely inside another link at rest — the part
+    can neither be seen nor move (compare_art_v4: a clamp's swivel pad was generated
+    inside the jaw and the judge reported it missing).  Uses the sweep's own
+    :class:`LinkBody` island containment, so this check and the collision sweep agree
+    about what "inside" means; works on the open meshes agents actually export."""
+    from codeverse.spatial.joints_model import link_world_meshes
+
+    meshes = link_world_meshes(robot, {})
+    bodies = {n: collide.LinkBody(n, m) for n, m in meshes.items() if not m.is_empty and m.area > 0}
+    out: list[GateFinding] = []
+    for name in bodies:
+        pts, _ = trimesh.sample.sample_surface(meshes[name], samples, seed=0)
+        lo, hi = meshes[name].bounds
+        for other, ob in bodies.items():
+            if other == name:
+                continue
+            olo, ohi = meshes[other].bounds
+            if not (np.all(olo <= lo + 1e-6) and np.all(hi <= ohi + 1e-6)):
+                continue  # not even inside its box
+            try:
+                frac = _inside_fraction(ob, pts)
+            except Exception:  # noqa: BLE001 — a degenerate mesh; skip, never fail the gate
+                continue
+            if frac >= fraction:
+                out.append(GateFinding(
+                    gate="articulation", severity=Severity.ERROR, target=name,
+                    message=f"link '{name}' lies entirely inside '{other}' at rest ({frac * 100:.0f}% of its surface): "
+                            f"it can neither be seen nor move",
+                    fix_hint=f"move '{name}' outside '{other}' (or cut a pocket in '{other}' where it sits) so the part "
+                             f"is visible in the rest pose; if it is really internal, merge it into '{other}'",
+                    data={"kind": "buried", "inside": other, "fraction": round(frac, 3)}))
+                break
+    return out
+
+
 # ------------------------------------------------------------------ motion direction
 _DIRS: dict[str, tuple[float, float, float]] = {
     "+x": (1, 0, 0), "-x": (-1, 0, 0), "+y": (0, 1, 0), "-y": (0, -1, 0), "+z": (0, 0, 1), "-z": (0, 0, -1),
