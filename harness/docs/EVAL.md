@@ -864,3 +864,26 @@ identity is now measured rather than inherited (all 6 controls rebuild byte-iden
 dials); forcing the sentence onto clean rows costs −0.092, which the on-error gate prevents.
 Open, not D48's: `untextured_flat` is over-applied by BOTH arms on shaded models with a uniform
 sensible colour — exactly what the rubric item's own text exempts.
+
+### 2026-09-01 — `untextured_flat` wording: the exemption becomes an operable test (adopted)
+
+Both D48-battery arms over-applied `untextured_flat` to shaded models with a uniform sensible
+colour — the case the item's own text exempts; the judges were reading it as "no texture map".
+Wording A/B on the same 22-case corpus, OLD = the stored `off` arm ($0), NEW = one re-judge with
+the sharpened text (n=3 pro, $3.99), drift calibrated against the near-A/A band (`elicit−off`:
+same payload plus one inert sentence).
+
+Pre-registered gates: (1) adjudicated-false marks drop — sv2 violin 2/3 → **0/3**, clean-control
+minority 1/3 → **0/3**, but the lapstrake boat holds 2/3 → 2/3 (its per-plank tone variation is
+invisible at montage scale — a payload-resolution limit, not wording); (2) the true default-grey
+mark holds — office chair 3/3 → 3/3, protected by the new "a defect even when lit" clause;
+(3) collateral drift is NOISE: newword−off meanΔ −0.0212 with 4 movers > |0.1| vs the near-A/A
+band's −0.0225 with 6 movers, and the big movers are the SAME cases moving the SAME way in both
+re-rolls (c02 −0.254 in both; d10 −0.337/−0.338 — the re-rolls both catch the armrest floating
+the original `off` roll missed, so the "drift" is the baseline's own vote variance).
+`untextured_flat` votes overall: 8 → 5, the drop landing exactly on the adjudicated-false cases.
+New text: default grey / magenta placeholder (the untinted "nothing was assigned" look — a defect
+even when lit), or UNLIT fills where differently-angled faces render the SAME brightness; "no
+texture map" is never the test.  `judge_prompt_hash` moves for `static_object_v1`, as any wording
+change does; scoring is untouched.
+

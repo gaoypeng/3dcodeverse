@@ -217,7 +217,11 @@ defects:
     text: The object has TEN or more nameable parts but fewer than THREE distinct refinement kinds (the numbered list in the rubric notes) are visible across all of them together — many primitives, little shape. Count kinds, not instances; do not count colour.
     penalty: 0.05
   - id: untextured_flat
-    text: Default grey / magenta placeholder materials are visible, or surfaces are unlit flat fills with no shading response. A uniform but sensible colour (an all-walnut chair, an all-oak cabinet) is NOT this defect.
+    text: Default grey / magenta placeholder materials are visible (the untinted "nothing was
+      assigned" look — a defect even when lit), or surfaces are UNLIT flat fills, i.e.
+      differently-angled faces render the SAME brightness. "No texture map" is NOT the test —
+      a lit uniform sensible colour (an all-walnut chair, an all-oak cabinet) shades normally
+      across faces and is NOT this defect.
     penalty: 0.05
     cap: 0.75
   - id: holes_or_inverted_faces

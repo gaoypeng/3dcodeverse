@@ -547,9 +547,14 @@ written) that were accepted because the code works that way and the tests pin it
   Clean-row invariant now MEASURED, not inherited: all 6 controls rebuild
   byte-identical under both dials.  Forcing the sentence onto clean rows costs −0.092,
   so it must never be promoted to unconditional — the on-error gate is load-bearing.
-  Separately fundable, NOT D48's: `untextured_flat` is over-applied by BOTH arms on
+  Separately fundable, NOT D48's: `untextured_flat` was over-applied by BOTH arms on
   shaded models with a uniform sensible colour, which the rubric item's own text
-  exempts.
+  exempts — funded and FIXED 2026-09-01 (wording A/B on the same 22 cases, see
+  docs/EVAL.md): the item now states the operable test ("differently-angled faces
+  render the SAME brightness"; "no texture map is NOT the test") and keeps default
+  grey/magenta a defect even when lit.  Both adjudicated-false marks of the
+  shaded-uniform class dropped to 0/3, the true default-grey mark held 3/3, and the
+  arm's drift is SMALLER than the near-A/A band (elicit−off) — noise, not wording.
 
 * **D49 An articulated plan is checked for geometric self-consistency before any code is
   written — measured, ships OFF (2026-08-28/29).**  Context: compare_art_v3's low scorers
