@@ -178,3 +178,36 @@ def test_get_track_graphics_accepts_options(settings):
     t = get_track("graphics", settings=settings, n_candidates=2)
     assert isinstance(t, GraphicsTrack) and t._n_candidates == 2
     assert isinstance(get_track(Track.GRAPHICS), GraphicsTrack)
+
+
+def test_a_tool_textured_run_is_not_double_bought_and_still_records(tmp_path, chair_plan, settings, monkeypatch):
+    """PR #3 review: the double-buy guard read ``artifacts/texturing.json`` while the
+    report is written to ``artifacts/textures/texturing.json`` — dead code, so every
+    re-finalise re-bought the pack; and the mid-session ``record.json`` write the tool
+    used to make is now forbidden (control files have ONE owner during a session), so
+    finalise must collect the report into ``extra['texturing']`` itself."""
+    import codeverse.texturing.run as trun
+
+    calls = []
+
+    def fake_texture_pass(ws, spec, plan, **kw):
+        calls.append(1)
+        report = trun.TextureReport(
+            plan=trun.TexturePlan(), textures=trun.TextureSet(), seam=trun.SeamGateResult(),
+            glb_in=str(ws.artifacts / "object.glb"), shipped=True)
+        ws.write_json(trun.report_path(ws), report.model_dump(mode="json"))
+        return SimpleNamespace(usage=Usage(backend="fake", cost_usd=0.02),
+                               summary=lambda: {"shipped": True, "n_textures": 1})
+
+    monkeypatch.setattr(trun, "texture_pass", fake_texture_pass)
+    rec, ws, judge, services = _static_run(tmp_path, chair_plan, settings, tags=["texture"])
+    assert calls == [1] and rec.extra["texturing"]["shipped"] is True
+
+    # a resume re-finalises: the guard must SKIP the pass (report's glb matches) and
+    # still carry extra['texturing'] built from the report on disk
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(_agent_writer),
+                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
+                              runtime=FakeRuntime(Language.THREEJS))
+    rec2 = track.run(make_spec(max_rounds=0, tags=["texture"]), ws, resume=True)
+    assert calls == [1], "the pack must not be bought a second time"
+    assert rec2.extra["texturing"]["shipped"] is True, "the report is collected into the record at finalise"

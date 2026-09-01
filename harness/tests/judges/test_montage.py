@@ -141,3 +141,15 @@ def test_sheet_helpers(tmp_path):
         assert im.size == (600, 600)
     with pytest.raises(ValueError):
         crop_region(src, tmp_path / "c2.png", (0.5, 0.5, 0.5, 0.9))
+
+
+def test_a_stored_pre_d47_render_set_still_leads_with_its_hero_views():
+    """PR #3 review: OBJECT_RANK forgot the legacy names, so a re-judged stored 8-view
+    run put {top, front, right, back} in montage 1 and anchored the centre crop on
+    'top' — its four sibling constants all kept the legacy names for stored runs."""
+    from codeverse.contracts.artifacts import RenderView
+    from codeverse.judges.prompt_builder import rank_views
+
+    legacy = ["front_right_34", "back_left_34", "front", "right", "back", "left", "top", "low_front_left"]
+    ranked = [v.name for v in rank_views([RenderView(name=n, path=f"/x/{n}.png") for n in legacy], scene=False)]
+    assert ranked[:2] == ["front_right_34", "back_left_34"], ranked

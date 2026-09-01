@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -26,6 +25,7 @@ from codeverse.contracts.plan import PartPlan, ScenePlan, StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import to_snake
 from codeverse.models.schema_utils import ask_structured
+from codeverse.proc import write_text_atomic
 from codeverse.prompts import load_text, prompt_hash, render
 from codeverse.texturing.generate import TextureSet, generate_textures
 
@@ -325,10 +325,9 @@ def material_plan(
         raise ValueError(f"texture planner: {err}")
     tp = finalize_plan(out, plan, model_id=model_id, usage=usage, source="vlm")
     if use_cache:
-        cache_root.mkdir(parents=True, exist_ok=True)
-        tmp = cached.with_suffix(f".{os.getpid()}.tmp")  # atomic: a torn sidecar re-bought the VLM call
-        tmp.write_text(tp.model_dump_json(indent=2))
-        tmp.replace(cached)
+        # pid+thread tmp + rename (a torn sidecar re-bought the VLM call; a pid-only
+        # name raced between threads of one process — review of PR #3)
+        write_text_atomic(cached, tp.model_dump_json(indent=2))
     return tp
 
 

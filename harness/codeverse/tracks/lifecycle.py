@@ -820,8 +820,16 @@ class BaseTrack:
         if self._already_textured(ctx):
             # An agent can call the `texture_pass` spatial tool during a round; the
             # finalise hook must not buy the same pack a second time (a texture pass
-            # is $0.10-0.30 and the input GLB is unchanged).
+            # is $0.10-0.30 and the input GLB is unchanged).  The tool no longer writes
+            # record.json mid-session (control files have one owner), so the report is
+            # collected into the record here.
             ctx.events.emit("texture.skipped", reason="already_textured_this_artifact")
+            try:  # a malformed report must not block finalise
+                from codeverse.texturing.run import load_report, texturing_extra
+
+                ctx.extra["texturing"] = texturing_extra(ctx.ws, load_report(ctx.ws))
+            except Exception:  # noqa: BLE001
+                log.warning("tool-textured report could not be collected into the record")
             return
         try:
             from codeverse.texturing.run import texture_pass
@@ -847,13 +855,17 @@ class BaseTrack:
     def _already_textured(ctx: RunContext) -> bool:
         """True when a texture pass already ran against the current ``object.glb``.
 
-        The report (``artifacts/texturing.json``) records the GLB it consumed; the
+        The report (``artifacts/textures/texturing.json``) records the GLB it consumed
+        — reading it at ``artifacts/texturing.json`` made this guard dead code and the
+        finalise pass double-bought every tool-textured pack (review of PR #3); the
         hook compares content hashes so a texture pass from an EARLIER round (whose
         GLB has since been rebuilt) does not suppress the final one."""
         import hashlib
         import json as _json
 
-        report = ctx.ws.artifacts / "texturing.json"
+        from codeverse.texturing.run import report_path
+
+        report = report_path(ctx.ws)
         glb = ctx.ws.artifacts / "object.glb"
         if not report.is_file() or not glb.is_file():
             return False

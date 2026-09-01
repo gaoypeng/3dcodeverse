@@ -85,6 +85,7 @@ def test_all_track_templates_exist_and_render(tmp_ws, settings, chair_plan):
 
 
 @pytest.mark.blender
+@pytest.mark.node   # its threejs sibling asset runs the node import check
 def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS)

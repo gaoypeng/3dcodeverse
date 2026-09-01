@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import shutil
 import time
 from collections.abc import Callable, Sequence
@@ -32,7 +31,7 @@ from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
 from codeverse.judges.base import JudgeInput, plan_digest
 from codeverse.judges.rubrics import is_degraded
-from codeverse.proc import fan_out
+from codeverse.proc import fan_out, unique_tmp
 
 #: seam score above which a texture is considered NOT tileable (after make_tileable)
 SEAM_MAX = 0.08
@@ -186,9 +185,15 @@ def generate_one(
         raw = images[0].convert("RGB")
         asset.usage = usage
         if use_cache:
-            tmp = raw_path.with_suffix(f".{os.getpid()}.tmp.png")  # per-writer: a cross-process collision poisoned the shared cache
-            raw.save(tmp, "PNG")
-            tmp.replace(raw_path)
+            # per-writer tmp (pid AND thread — candidates fan out over threads in ONE
+            # process, so a pid-only name is still a race: review of PR #3); tolerant
+            # replace like every other cache publish
+            tmp = unique_tmp(raw_path)
+            try:
+                raw.save(tmp, "PNG")
+                tmp.replace(raw_path)
+            finally:
+                tmp.unlink(missing_ok=True)
     asset.seam_score_raw = seam_score(raw)
     img = fit_size(raw, size)
     if tileable:

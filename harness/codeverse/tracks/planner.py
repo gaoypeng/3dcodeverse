@@ -575,7 +575,9 @@ PLAN_GEOMETRY_ENV = "CV3D_PLAN_GEOMETRY"
 
 
 def geometry_check_enabled() -> bool:
-    return os.environ.get(PLAN_GEOMETRY_ENV, "0").strip().lower() in ("1", "true", "on", "yes")
+    from codeverse.config import env_flag  # ONE flag vocabulary (review-3 S4)
+
+    return env_flag(PLAN_GEOMETRY_ENV, False)
 #: Output room for the plan call, sized from the plan budget.  A deep plan is much longer
 #: JSON than a flat one AND Gemini 3.x bills its thinking against the same ceiling, so the
 #: flat 24 000 that served 8 box-parts truncates a 12-part plan with sub-parts —

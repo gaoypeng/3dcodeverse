@@ -698,8 +698,12 @@ def texture_pass_tool(ctx: ToolContext, args: TexturePassArgs) -> Observation:
             "3dcv make ... --texture   # or `3dcv texture pass <slug>` after the run")
     texture_pass = lazy("codeverse.texturing.run", "texture_pass")
     services = ctx.extra.get("texture_services")  # the ONE injection point (TextureServices)
+    # update_record=False: during an agent session the control files have ONE owner
+    # (finalise); a mid-session record.json write is reverted by the tamper enforcement
+    # and fails the paid session — finalise collects the report into the record instead
     rep = texture_pass(ctx.workspace, spec, plan, model_id=args.model or spec.backends.planner,
-                       judge=args.judge, glb_in=glb, size=args.size, services=services)
+                       judge=args.judge, glb_in=glb, size=args.size, services=services,
+                       update_record=False)
     s = rep.summary()
     root = ctx.workspace.root
     lines = [

@@ -304,3 +304,25 @@ def test_the_last_attempt_still_gets_a_real_try(judge_input, cache_dir, monkeypa
     model = FakeChatModel([nearly_spent, good_reply(R, IDS, 0.8)])
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
     assert j.passed and [r.max_wait_s for r in model.requests] == [SAMPLE_BUDGET_S, SAMPLE_MIN_WAIT_S]
+
+
+def test_scene_and_graphics_keep_the_pre_d47_montage_ceiling():
+    """PR #3 review: montages 3→5 was measured only on the D47 object rig; the other
+    tracks keep 3 until someone measures them, and an explicit caller value wins."""
+    from codeverse.contracts.artifacts import RenderSet
+    from codeverse.contracts.common import Language, Track
+    from codeverse.contracts.spec import Spec
+    from codeverse.judges.base import JudgeInput
+    from codeverse.judges.vlm_judge import VlmJudge
+
+    def inp(track, language):
+        spec = Spec(id="t", track=track, language=language, prompt="p")
+        return JudgeInput(spec=spec, renders=RenderSet(), gates=[], acceptance=[])
+
+    j = VlmJudge("scene_v1", model_id="fake:fake-1")
+    assert j._montages_for(inp(Track.SCENE, Language.SCENE_THREEJS)) == 3
+    assert j._montages_for(inp(Track.GRAPHICS, Language.GLSL_SHADER)) == 3
+    jo = VlmJudge("static_object_v1", model_id="fake:fake-1")
+    assert jo._montages_for(inp(Track.STATIC_OBJECT, Language.BLENDER)) == 5
+    explicit = VlmJudge("scene_v1", model_id="fake:fake-1", max_montages=5)
+    assert explicit._montages_for(inp(Track.SCENE, Language.SCENE_THREEJS)) == 5

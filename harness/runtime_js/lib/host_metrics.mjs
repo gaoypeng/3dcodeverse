@@ -103,8 +103,9 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3) {
 }
 
 /**
- * Deterministic camera repair, added 2026-08-30 and OFF by default
- * (drivers pass --camera-repair; python gates it behind CV3D_CAMERA_REPAIR=1).
+ * Deterministic camera repair, added 2026-08-30; ON by default since 3f463ce
+ * (drivers pass --camera-repair; python's probe_env_args() disables it only when
+ * CV3D_CAMERA_REPAIR says false/off/no/0).
  *
  * Why: cameras belong to the PLAN — no refine agent owns a file that could fix
  * one, so camera_in_geometry stood in final rounds across whole batteries

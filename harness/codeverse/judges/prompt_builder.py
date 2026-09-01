@@ -145,9 +145,13 @@ GEOMETRY_MODES = tuple(m for m in RENDER_MODES if m != "shaded")
 #: montage 1 = {front_right_high, back_left_high, top, bottom}, so a montage-cap
 #: truncation still sees the underside; then the eye ring, then the remaining rings.
 OBJECT_RANK = (
-    "front_right_high", "back_left_high", "top", "bottom",
+    # legacy pre-D47 names ride beside their D47 twins so a STORED 8-view run
+    # re-judges with the same montage shape the in-run judge saw (3/4 heroes first)
+    # — DIFF_VIEW_NAMES / CANDIDATE_VIEWS / FRONT_VIEW_NAMES / HERO_PREFERENCE all
+    # kept them; this one had forgotten (review of PR #3)
+    "front_right_high", "front_right_34", "back_left_high", "back_left_34", "top", "bottom",
     "front", "right", "back", "left",
-    "front_right_low", "back_left_low", "front_left_high", "back_right_high",
+    "front_right_low", "low_front_left", "back_left_low", "front_left_high", "back_right_high",
     "front_left_low", "back_right_low",
 )
 #: scene rig: authored cameras first (graded for composition), then the overview rig.

@@ -128,11 +128,21 @@ class VlmJudge:
         # payload size: the profile's dial (Settings.judge) unless the caller states one
         jd = get_settings().judge
         self.max_montages = max(1, int(jd.montages if max_montages is None else max_montages))
+        self._montages_explicit = max_montages is not None
         self.detail_crops = max(0, int(jd.detail_crops if detail_crops is None else detail_crops))
         self.max_px = int(jd.max_px if max_px is None else max_px)
         self._model = chat_model
         self.cache_dir = cache_dir
         self.label = label
+
+    def _montages_for(self, inp: JudgeInput) -> int:
+        """Per-track montage cap: the 3→5 default was measured ONLY on the D47 object
+        rig (docs/DECISIONS.md D47); scene and graphics keep the pre-D47 ceiling of 3
+        until a battery measures them at 5 (review of PR #3).  An explicit
+        ``max_montages`` from the caller always wins."""
+        if self._montages_explicit or inp.spec.track.value in SLICE_TRACKS:
+            return self.max_montages
+        return min(self.max_montages, 3)
 
     # ------------------------------------------------------------------ provenance
     @property
@@ -167,7 +177,7 @@ class VlmJudge:
             seed = None if (self.fixed_order or (self.n_samples == 1 and k == 0)) else (inp.round_index * 1000 + k)
             # a missing render is a pipeline bug, not a judge glitch → JudgeImageError propagates
             system, messages = build_judge_messages(
-                inp, self.rubric, shuffle_seed=seed, geometry_views=geometry_views, max_montages=self.max_montages,
+                inp, self.rubric, shuffle_seed=seed, geometry_views=geometry_views, max_montages=self._montages_for(inp),
                 detail_crops=self.detail_crops, max_px=self.max_px, cache_dir=self.cache_dir,
                 extra_images=extra_images, extra_text=extra_text,
                 slice_images=slice_images, provenance_elicitation=elicit,

@@ -309,6 +309,11 @@ def _finish(ws: Workspace, report: TextureReport, t0: float, events: EventLog, u
     return report
 
 
+def report_path(ws: Workspace) -> Path:
+    """THE location of the texture report — the finalise double-buy guard reads it too."""
+    return ws.artifacts / TEXTURES_DIR / REPORT_NAME
+
+
 def record_texturing(ws: Workspace, report: TextureReport) -> bool:
     """``record.json`` extra["texturing"] = summary (+ asset paths) when a record exists."""
     if not ws.record_path.is_file():
@@ -318,19 +323,25 @@ def record_texturing(ws: Workspace, report: TextureReport) -> bool:
     except json.JSONDecodeError:
         return False
     extra = data.setdefault("extra", {})
-    extra["texturing"] = {
+    extra["texturing"] = texturing_extra(ws, report)
+    ws.write_json(ws.record_path, data)
+    return True
+
+
+def texturing_extra(ws: Workspace, report: TextureReport) -> dict[str, Any]:
+    """The ``extra["texturing"]`` payload — ONE builder for the record write here and the
+    finalise-side collect (a tool-textured session no longer writes record.json itself)."""
+    return {
         **report.summary(),
         "glb_textured": str(Path(report.glb_out).relative_to(ws.root)) if report.glb_out else "",
         "textures_dir": f"artifacts/{TEXTURES_DIR}",
         "textures": {tid: Path(a.path).name for tid, a in report.textures.textures.items() if a.ok},
         "texture_plan": {p.part: p.texture_id for p in report.plan.textured()},
     }
-    ws.write_json(ws.record_path, data)
-    return True
 
 
 def load_report(ws: Workspace) -> TextureReport:
-    p = ws.artifacts / TEXTURES_DIR / REPORT_NAME
+    p = report_path(ws)
     if not p.is_file():
         raise FileNotFoundError(f"no texturing report at {p}")
     return TextureReport.model_validate_json(p.read_text())
