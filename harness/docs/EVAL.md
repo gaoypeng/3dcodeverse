@@ -887,3 +887,40 @@ even when lit), or UNLIT fills where differently-angled faces render the SAME br
 texture map" is never the test.  `judge_prompt_hash` moves for `static_object_v1`, as any wording
 change does; scoring is untouched.
 
+### 2026-09-01 — sceneloop: the scene-track efficiency ledger, the first skills A/B (inconclusive), and two refuted hypotheses
+
+An 8-hour self-paced loop over the scene/graphics track.  What was MEASURED (all artifacts in
+the session sceneloop scratchpad; runs under its runs/ dir):
+
+* **Efficiency ledger, 124 stored scene runs** ($349 total): $2.82/run, 76 min model latency.
+  assets $112.7 (32%, 60 calls/run, 64% cached) is the money whale and 39 min/run the time
+  whale; refine/zones agent sessions carry 0.4-2.2M input tokens each at ~90% cache; judge
+  $28 total.  Decomposition: asset first-shots $80.2 / retries $32.6 (rate 0.27 on 3.7-flash)
+  — RETRY-RATE REDUCTION is the ranked lever.
+* **Refuted from stored data ($0):** 3.6-flash for asset single-shots — retry-rate 0.39 vs
+  3.7's 0.27 AND $/first 0.0184 vs 0.0116 (era confound noted).  3.7 stays the asset model.
+* **First skills A/B** (the 4 ported bundles, CV3D_SKILLS_ONLY, 6 prompts x {off,on},
+  generator gemini-cli:3.6-flash under provider degradation, planner pro, single run per arm):
+  meanΔ(on−off) = −0.068, pairs [koi −0.07, neon −0.49, lake +0.25, alley −0.53, ruins 0.00,
+  snow +0.45], sd(d) ≈ 0.39 → a ±0.1 effect is UNRESOLVABLE at n=6.  Attach integrity was
+  verified (on-arms 2-4 skills.attached events, off-arms zero).  Low on-arm rounds died of
+  classic camera/dark failures, not visibly of the recipes.  VERDICT: inconclusive — the
+  bundles stay `inherited-unverified` and OFF; the next attempt should be n≥20 pairs or
+  per-recipe instruments (bake-orientation census, metallic-water census) instead of
+  end-to-end score.
+* **codex generators on scene (n=2, planner+judge pro):** gpt-5.6-sol 0.0, terra 0.008 vs the
+  flash corpus mean 0.412/median 0.399 — structurally complete scenes that are visually dead
+  (dark frames, placeholder materials, white-box assets); sol needed >55 min for round 0.
+  Suggestive that the recipe/skill layer matters MORE for codex; not proof at n=2.
+* **Trap parity vs scene_multifile_graphics**: their extra check_shaders audits (logdepth
+  chunks, fog chunks) are THEIR renderer's contract (log-depth on, fog mandatory); ours
+  defaults logDepth=false and detects fog handling already — coverage ≥ theirs for our
+  contract, no code change.
+* **QUIET_KINDS lesson**: asset sessions attach no standing skills BY DESIGN (prompt tax on
+  ~60 calls/run); the asset-side lever is a compact signal-conditional excerpt in
+  scene_asset.j2 — designed, not yet built or measured.
+* **Watch item (n=1)**: a codex plan's scene-wide translucent volume (HazeBands) drew 6/10
+  placement sunken-into ERRORs; 0/120 stored errors have non-solid targets, so no fix yet —
+  the designed fix (material-evidence non-solid container exemption in host_placement.mjs)
+  ships only if this recurs.
+
