@@ -639,5 +639,16 @@
       "messages": "conversations",
       "system": "system"
     }
+  },
+  "stop_dpo_pairs_plus": {
+    "file_name": "stop_dpo_pairs_plus.json",
+    "ranking": true,
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system",
+      "chosen": "chosen",
+      "rejected": "rejected"
+    }
   }
 }

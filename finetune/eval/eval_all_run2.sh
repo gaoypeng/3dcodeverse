@@ -52,9 +52,28 @@ for s in suites:
 json.dump(jobs, open(spec_path, "w"))
 print("[eval_all] suites:", [j["name"] for j in jobs])
 PY
-python eval/generate_multi.py --model $MODEL --spec @$SPEC --tp $TP $NOTHINK \
-    --max_new_tokens $MAXNEW --max_model_len $MAXLEN --temperature $TEMP --seed $SEED 2>&1 \
-    | grep -E "gen-multi|extract\]|Error|Traceback" | tail -40
+# On a shared box a card that was free when it was picked can be full by the time vLLM starts, and the engine
+# dies with no generations at all. Re-check right before launching, and fall back to whichever card is free now.
+for ATTEMPT in 1 2 3; do
+  FREE_NOW=$(scripts/free_gpus.sh 40000)
+  case ",$FREE_NOW," in
+    *",$GPU,"*) ;;
+    *) NEW=$(echo "$FREE_NOW" | cut -d, -f1)
+       if [ -n "$NEW" ]; then
+         echo "[eval_all] GPU $GPU filled up since it was picked; switching to $NEW"
+         GPU=$NEW; export CUDA_VISIBLE_DEVICES=$GPU
+       else
+         echo "[eval_all] no card has 40 GB free; waiting 120s (attempt $ATTEMPT/3)"; sleep 120; continue
+       fi;;
+  esac
+  python eval/generate_multi.py --model $MODEL --spec @$SPEC --tp $TP $NOTHINK \
+      --max_new_tokens $MAXNEW --max_model_len $MAXLEN --temperature $TEMP --seed $SEED 2>&1 \
+      | grep -E "gen-multi|extract\]|Error|Traceback" | tail -40
+  # one generation directory per task; anything less means the engine never ran
+  if [ "$(find eval/out/${NAME}_$(echo $SUITES | awk '{print $1}') -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)" -ge 5 ]; then break; fi
+  echo "[eval_all] generation produced nothing on attempt $ATTEMPT; retrying"
+  sleep 60
+done
 rm -f $SPEC
 
 # ---------- execution + metrics (llmft env) ----------
