@@ -1,0 +1,40 @@
+### Trains straight from the published dataset, exercising the path an outside user takes:
+### dataset_dir: REMOTE:<repo> makes LLaMA-Factory fetch dataset_info.json from the Hub, and media_dir points at
+### the downloaded pair_renders tree. If this runs, the artifact works as published.
+model_name_or_path: /wekafs/ict/hx_624/models/Qwen3.5-9B
+trust_remote_code: true
+flash_attn: fa2
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_rank: 64
+lora_alpha: 128
+lora_dropout: 0.05
+lora_target: all
+freeze_vision_tower: true
+freeze_multi_modal_projector: true
+dataset_dir: REMOTE:ilabai/3dcodeverse
+dataset: 3dcv_3dcodebench__factories_geo_imgtext,3dcv_3dcodebench__factories_tex_imgtext,3dcv_3dcodebench__instances_geo_full_imgtext,3dcv_3dcodebench__instances_geo_imgtext,3dcv_3dcodebench__instances_tex_full_imgtext,3dcv_3dcodebench__instances_tex_imgtext,3dcv_bioinspired3d__bpy_structures_geo_imgtext,3dcv_bioinspired3d__bpy_structures_tex_imgtext
+media_dir: /wekafs/ict/hx_624/data/pair_media_root
+template: qwen3_5
+enable_thinking: false
+cutoff_len: 8192
+packing: false
+neat_packing: false
+preprocessing_num_workers: 16
+dataloader_num_workers: 8
+output_dir: /wekafs/ict/hx_624/llm-ft/runs/lf_qwen35_9b_remote
+overwrite_output_dir: true
+logging_steps: 10
+save_steps: 500
+save_only_model: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+learning_rate: 0.0001
+num_train_epochs: 1.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.05
+bf16: true
+gradient_checkpointing: true
+ddp_timeout: 180000000
+report_to: none

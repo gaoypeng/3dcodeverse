@@ -12,6 +12,7 @@ Writes <out>/<name>_{text,img,imgtext}/train.parquet + dataset_info.json + qc.js
 """
 import argparse
 import collections
+import glob
 import io
 import json
 import os
@@ -25,33 +26,51 @@ import requests
 META = "/wekafs/ict/hx_624/data/3dcodeverse_meta"
 REPO = "ilabai/3dcodeverse"
 SYS = {
+    "web": "You are an expert creative web developer. Write a complete, standalone HTML page (inline CSS/JS, no local assets) that reproduces the requested animation. Output ONLY the code in one ```html block.",
+    "threejs": "You are an expert three.js developer. Write a complete, standalone HTML page that renders the requested scene with three.js. Output ONLY the code in one ```html block.",
+    "openscad": "You are an expert in OpenSCAD. Write a complete, standalone OpenSCAD program that builds the requested object. Output ONLY the code in one ```scad block.",
+    "cadquery": "You are an expert in parametric CAD with CadQuery. Write a complete, standalone CadQuery script that builds the requested part. Output ONLY the code in one ```python block.",
     "blender": "You are an expert in procedural 3D modeling with Blender Python (bpy). Write a complete, standalone Blender 5 Python script that builds the requested object from scratch (clear the default scene first). Output ONLY the code in one ```python block.",
     "glsl": "You are an expert GLSL shader programmer. Write a complete Shadertoy-style fragment shader. Output ONLY the code in one ```glsl block.",
 }
-FENCE = {"blender": "python", "glsl": "glsl"}
-ASK_TEXT = {"blender": "Write the Blender Python code that builds this object: ",
+FENCE_RE = __import__('re').compile(r'^```[a-zA-Z]*\n|\n?```$')
+FENCE = {"web": "html", "threejs": "html", "openscad": "scad", "cadquery": "python", "blender": "python", "glsl": "glsl"}
+ASK_TEXT = {"web": "Write a single-file animated web page that reproduces: ", "threejs": "Write a single-file three.js page that renders: ", "openscad": "Write the OpenSCAD program that builds this object: ", "cadquery": "Write the CadQuery script that builds this part: ", "blender": "Write the Blender Python code that builds this object: ",
             "glsl": "Write the shader described here: "}
-ASK_IMG = {"blender": "These are reference renders of one object. Write the Blender Python code that builds it.",
+ASK_IMG = {"web": "These are frames of one animation. Write the single-file animated web page that reproduces it.", "threejs": "These are reference renders of one scene. Write the single-file three.js page that renders it.", "openscad": "These are reference renders of one object. Write the OpenSCAD program that builds it.", "cadquery": "These are reference renders of one part. Write the CadQuery script that builds it.", "blender": "These are reference renders of one object. Write the Blender Python code that builds it.",
            "glsl": "These are frames rendered by one shader. Write the shader that produces them."}
-ASK_BOTH = {"blender": "These are reference renders of one object. Write the Blender Python code that builds it.\n\nThe object: ",
+ASK_BOTH = {"web": "These are frames of one animation. Write the single-file animated web page that reproduces it.\n\nThe animation: ", "threejs": "These are reference renders of one scene. Write the single-file three.js page that renders it.\n\nThe scene: ", "openscad": "These are reference renders of one object. Write the OpenSCAD program that builds it.\n\nThe object: ", "cadquery": "These are reference renders of one part. Write the CadQuery script that builds it.\n\nThe part: ", "blender": "These are reference renders of one object. Write the Blender Python code that builds it.\n\nThe object: ",
             "glsl": "These are frames rendered by one shader. Write the shader that produces them.\n\nThe shader: "}
 IMPERATIVE = ("write", "create", "implement", "make", "build", "generate", "design", "produce")
 
 
-def caption_of(caps):
-    """the best human description, reduced to a noun phrase because the ASK_* strings already supply the verb"""
+def _to_noun_phrase(v):
+    """the ASK_* strings already supply the verb, so an imperative caption is reduced to what follows it"""
+    low = v.lower()
+    if low.startswith(IMPERATIVE):
+        for sep in (" that builds ", " that renders ", " that reproduces ", " of ", " for "):
+            if sep in low:
+                return v[low.index(sep) + len(sep):].strip()[:1200]
+        return None
+    return v[:1200]
+
+
+def captions_of(caps):
+    """-> [(caption_type, text)] for EVERY usable variant.
+
+    One program often carries three descriptions (`instruction`, `detailed`, `factory`) written from different
+    angles. Keeping only the best one makes a smaller corpus, and three separate runs here showed the extra
+    variants do not raise execution rate — but that is a finding about one training mix, not a property of the
+    data, so the dataset ships all of them and a training run decides which to use (`caption_type` selects)."""
+    out = []
     for k in ("user_instruction", "instruction", "detailed", "brief", "factory"):
         v = (caps.get(k) or "").strip()
         if not v or len(v) < 15:
             continue
-        low = v.lower()
-        if low.startswith(IMPERATIVE):
-            for sep in (" that builds ", " that renders ", " that reproduces ", " of ", " for "):
-                if sep in low:
-                    return v[low.index(sep) + len(sep):].strip()[:1200]
-            continue
-        return v[:1200]
-    return None
+        n = _to_noun_phrase(v)
+        if n:
+            out.append((k, n))
+    return out
 
 
 def fetch_sample(row, token, local_tars=None):
@@ -109,6 +128,87 @@ def read_renders(blob):
     return out
 
 
+
+def renders_by_scanning(subdir, sample_ids, views, token, local_tars=None, cache_root="/wekafs/ict/hx_624/data/pair_tars"):
+    """Index every sample's renders by walking each tar once.
+
+    The byte offsets in metadata.parquet cannot be trusted: for 3dcodebench/instances_geo only 577 of 1,953 point
+    at a real tar header (checked by reading 512 bytes at each offset and looking for the ustar magic), because
+    the archives were repacked after the metadata was written. Sequential scanning ignores the offsets entirely,
+    and for a whole-subdirectory conversion it is also cheaper -- one pass per tar instead of one request per
+    sample.
+    """
+    import glob as _glob
+    from huggingface_hub import hf_hub_download
+    want = {sid.split("/")[-1] for sid in sample_ids}
+    found = {}
+    tars = sorted({r for r in _tars_of(subdir)})
+    for i, tar_rel in enumerate(tars, 1):
+        if local_tars:
+            path = os.path.join(local_tars, os.path.basename(tar_rel))
+            if not os.path.exists(path):
+                path = None
+        else:
+            path = None
+        if path is None:
+            path = hf_hub_download(REPO, tar_rel, repo_type="dataset", token=token, cache_dir=cache_root)
+        n_before = len(found)
+        try:
+            with tarfile.open(path) as tf:
+                for m in tf:
+                    if not (m.isfile() and "/renders/" in m.name and m.name.endswith(".png")):
+                        continue
+                    key = m.name.split("/")[0]
+                    if key not in want:
+                        continue
+                    lst = found.setdefault(key, [])
+                    if len(lst) >= views:
+                        continue
+                    f = tf.extractfile(m)
+                    if f:
+                        lst.append((os.path.basename(m.name), f.read()))
+        except Exception as e:
+            print(f"[pairs] tar {os.path.basename(tar_rel)} unreadable: {type(e).__name__}", flush=True)
+        print(f"[pairs] scanned {i}/{len(tars)} {os.path.basename(tar_rel)}: "
+              f"+{len(found)-n_before} samples ({len(found):,}/{len(want):,})", flush=True)
+    return found
+
+
+def _has_verify_cols(path):
+    import pyarrow.parquet as _pq
+    try:
+        return {"compiles", "repair"} <= set(_pq.ParquetFile(path).schema_arrow.names)
+    except Exception:
+        return False
+
+
+def _tars_of(subdir):
+    from huggingface_hub import HfApi
+    api = HfApi(token=os.environ.get("HF_TOKEN", ""))
+    return [f for f in api.list_repo_files(REPO, repo_type="dataset")
+            if f.startswith(f"{subdir}/") and f.endswith(".tar")]
+
+
+def load_file_tree(subdir, files_root="/wekafs/ict/hx_624/data/3dcodeverse_files"):
+    """Sources kept as a directory per sample rather than a parquet: animation2code, blender_distill,
+    threejs_distill. Each sample directory holds the code, captions.json, meta.json and a renders/ folder, so the
+    renders need no tar scan at all."""
+    rows = []
+    for cp in sorted(glob.glob(f"{files_root}/{subdir}/*/*/code.py") + glob.glob(f"{files_root}/{subdir}/*/*/code.html")
+                     + glob.glob(f"{files_root}/{subdir}/*/*/index.html")):
+        d = os.path.dirname(cp)
+        caps = {}
+        cj = os.path.join(d, "captions.json")
+        if os.path.exists(cj):
+            try:
+                caps = json.load(open(cj))
+            except Exception:
+                caps = {}
+        rows.append({"id": os.path.relpath(d, files_root), "code": open(cp, encoding="utf-8", errors="replace").read(),
+                     "captions": caps, "_renders": sorted(glob.glob(os.path.join(d, "renders", "*.png")))})
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--subdir", required=True)
@@ -119,9 +219,18 @@ def main():
     ap.add_argument("--local_tars", default=None)
     ap.add_argument("--img_root", default="/wekafs/ict/hx_624/data/pair_images")
     ap.add_argument("--dialect", default="blender")
+    # the compile verification lives in the *_llamafactory parquets; carrying it into the pair datasets is the
+    # difference between "here is some GLSL" and "here is GLSL that a compiler accepted"
+    # some sources carry no code in metadata at all -- articraft's two URDF subdirs have 6,146 samples whose
+    # `code` column is empty because the URDF lives in the tar; it was recovered once into the *_llamafactory
+    # parquets, and this reads it back rather than recovering it a second time
+    ap.add_argument("--code_from", default=None, help="dir with <name>_llamafactory/train.parquet to take code from")
+    ap.add_argument("--verified_from", default=None, help="dir with <name>_llamafactory/train.parquet holding compiles/repair")
     a = ap.parse_args()
     token = os.environ.get("HF_TOKEN", "")
-    rows = pq.read_table(f"{META}/{a.subdir}/metadata.parquet").to_pylist()
+    mp = f"{META}/{a.subdir}/metadata.parquet"
+    from_tree = not os.path.exists(mp)
+    rows = load_file_tree(a.subdir) if from_tree else pq.read_table(mp).to_pylist()
     if a.limit:
         rows = rows[: a.limit]
     print(f"[pairs] {a.subdir}: {len(rows):,} source samples", flush=True)
@@ -132,32 +241,89 @@ def main():
     os.makedirs(img_dir, exist_ok=True)
     qc = collections.Counter()
 
+    verified = {}
+    if a.verified_from:
+        # the verification lives in two places depending on the shard: the 68 that could be flattened carry it in
+        # <sub>_llamafactory_flat, the 44 that could not are in the separately verified tree
+        base = os.path.basename(a.subdir)
+        cands = []
+        for root in a.verified_from.split(","):
+            cands += [os.path.join(root, f"{base}_llamafactory_flat", "train.parquet"),
+                      os.path.join(root, f"{base}_llamafactory", "train.parquet")]
+        vp = next((c for c in cands if os.path.exists(c) and _has_verify_cols(c)), None)
+        if vp:
+            vdf = pd.read_parquet(vp, columns=["id", "compiles", "repair", "conversations"])
+            for t in vdf.itertuples():
+                # one row per caption variant; the code is identical across them, so first wins
+                verified.setdefault(str(t.id), (bool(t.compiles), t.repair, t.conversations[1]["value"]))
+            print(f"[pairs] verification joined for {len(verified):,} ids from {vp}", flush=True)
+        else:
+            print(f"[pairs] WARNING no parquet with compiles/repair for {base} — pairs carry no compiles column", flush=True)
+    if a.code_from and not verified:
+        cp = os.path.join(a.code_from, f"{os.path.basename(a.subdir)}_llamafactory", "train.parquet")
+        if os.path.exists(cp):
+            cdf = pd.read_parquet(cp, columns=["id", "conversations"])
+            for t in cdf.itertuples():
+                verified.setdefault(str(t.id), (None, None, t.conversations[1]["value"]))
+            print(f"[pairs] code recovered for {len(verified):,} ids from {cp}", flush=True)
+        else:
+            print(f"[pairs] WARNING --code_from given but {cp} is absent", flush=True)
+    ids = [str(r["id"]) for r in rows]
+    # a rebuild should not re-download 200 GB of tars just to re-emit rows; if the renders are already extracted
+    # for every sample, use them
+    on_disk = {}
+    for r in rows:
+        key = str(r["id"]).replace("/", "_")
+        got = sorted(glob.glob(os.path.join(img_dir, key, "*")))[: a.views]
+        if got:
+            on_disk[str(r["id"]).split("/")[-1]] = [(os.path.basename(x), None) for x in got]
+    # a coverage threshold cannot work here: the samples that have no renders never will, so "98% of rows" is
+    # unreachable for a source where 12% legitimately lack them. A marker written after a completed scan is the
+    # only honest signal that the extraction already ran to the end.
+    if from_tree:
+        render_index = {str(r["id"]): [(x, None) for x in r["_renders"]] for r in rows}
+        print(f"[pairs] file-tree source: renders read in place for "
+              f"{sum(1 for v in render_index.values() if v):,}/{len(rows):,} samples", flush=True)
+    marker = os.path.join(img_dir, ".scan_complete")
+    if from_tree:
+        pass
+    elif os.path.exists(marker) and on_disk:
+        print(f"[pairs] renders already extracted ({len(on_disk):,} samples) — skipping the tar scan", flush=True)
+        render_index = on_disk
+    else:
+        render_index = renders_by_scanning(a.subdir, ids, a.views, token, a.local_tars)
+        os.makedirs(img_dir, exist_ok=True)
+        open(marker, "w").write(f"{len(render_index)}\n")
+
     def one(r):
         code = r.get("code") or ""
+        # the recovered/verified code has to be substituted BEFORE the length test: the URDF subdirs carry an
+        # empty `code` column by design, and checking first rejected all 6,146 of them as "short_code"
+        v = verified.get(str(r["id"]))
+        if v and v[2]:
+            code = FENCE_RE.sub("", v[2].strip()) or code
         if len(code.strip()) < 40:
             qc["short_code"] += 1
             return None
         caps = r.get("captions")
         caps = dict(caps) if isinstance(caps, dict) else (json.loads(caps) if isinstance(caps, str) else {})
-        cap = caption_of(caps)
-        try:
-            renders = fetch_sample(r, token, a.local_tars)[: a.views]
-        except FetchError as e:
-            qc[f"fetch_failed"] += 1
-            renders = []
+        caps_list = captions_of(caps)
+        renders = render_index.get(str(r["id"]) if from_tree else str(r["id"]).split("/")[-1], [])[: a.views]
         paths = []
         for fname, blob in renders:
             d = os.path.join(img_dir, str(r["id"]).replace("/", "_"))
-            os.makedirs(d, exist_ok=True)
-            p = os.path.join(d, fname)
-            if not os.path.exists(p):
+            p = fname if os.path.isabs(fname) else os.path.join(d, fname)
+            if blob is not None and not os.path.exists(p):
+                os.makedirs(d, exist_ok=True)
                 open(p, "wb").write(blob)
-            paths.append(p)
+            if os.path.exists(p):
+                paths.append(p)
         if not paths:
             qc["no_renders"] += 1
-        if not cap:
+        if not caps_list:
             qc["no_caption"] += 1
-        return {"id": str(r["id"]), "code": code, "caption": cap, "images": paths}
+        return {"id": str(r["id"]), "code": code, "captions": caps_list, "images": paths,
+                "compiles": (v[0] if v else None), "repair": (v[1] if v else None)}
 
     with ThreadPoolExecutor(a.workers) as ex:
         got = [x for x in ex.map(one, rows) if x]
@@ -171,15 +337,19 @@ def main():
     for g in got:
         gpt = {"from": "gpt", "value": f"```{fence}\n{g['code'].strip()}\n```"}
         base = {"id": g["id"], "system": SYS[d]}
-        if g["caption"]:
-            out["text"].append(dict(base, conversations=[{"from": "human", "value": ASK_TEXT[d] + g["caption"]}, gpt]))
+        if g["compiles"] is not None:
+            base["compiles"] = g["compiles"]; base["repair"] = g["repair"]
+        for ctype, cap in g["captions"]:
+            out["text"].append(dict(base, caption_type=ctype,
+                                    conversations=[{"from": "human", "value": ASK_TEXT[d] + cap}, gpt]))
         if g["images"]:
             ph = "<image>" * len(g["images"])
-            out["img"].append(dict(base, images=list(g["images"]),
+            # image->code has no caption to vary, so it stays one row per sample by construction
+            out["img"].append(dict(base, caption_type=None, images=list(g["images"]),
                                    conversations=[{"from": "human", "value": ph + "\n" + ASK_IMG[d]}, gpt]))
-            if g["caption"]:
-                out["imgtext"].append(dict(base, images=list(g["images"]),
-                                           conversations=[{"from": "human", "value": ph + "\n" + ASK_BOTH[d] + g["caption"]}, gpt]))
+            for ctype, cap in g["captions"]:
+                out["imgtext"].append(dict(base, caption_type=ctype, images=list(g["images"]),
+                                           conversations=[{"from": "human", "value": ph + "\n" + ASK_BOTH[d] + cap}, gpt]))
     info = {}
     for kind, rowsk in out.items():
         if not rowsk:

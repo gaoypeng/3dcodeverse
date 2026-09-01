@@ -598,5 +598,46 @@
       "chosen": "chosen",
       "rejected": "rejected"
     }
+  },
+  "stop_dpo_pairs_best": {
+    "file_name": "stop_dpo_pairs_best.json",
+    "ranking": true,
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system",
+      "chosen": "chosen",
+      "rejected": "rejected"
+    }
+  },
+  "stop_dpo_pairs_r2": {
+    "file_name": "stop_dpo_pairs_r2.json",
+    "ranking": true,
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system",
+      "chosen": "chosen",
+      "rejected": "rejected"
+    }
+  },
+  "stop_dpo_pairs_27bv2": {
+    "file_name": "stop_dpo_pairs_27bv2.json",
+    "ranking": true,
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system",
+      "chosen": "chosen",
+      "rejected": "rejected"
+    }
+  },
+  "md_9b_plus_train": {
+    "file_name": "md_9b_plus_train.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "system": "system"
+    }
   }
 }

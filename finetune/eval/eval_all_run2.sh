@@ -61,6 +61,14 @@ rm -f $SPEC
 conda activate llmft
 for S in $SUITES; do
   OUT=eval/out/${NAME}_${S}
+  # An engine that never started leaves an empty directory, and every scorer below reports that as 0%. A real
+  # 0% and a failed launch then look identical -- which is how a rescore of two healthy models came back as
+  # 0/200 on every suite. Refuse to score instead.
+  NGEN=$(find $OUT -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+  if [ "${NGEN:-0}" -lt 5 ]; then
+    echo "[eval_all] $S PRODUCED NOTHING ($NGEN generations) — not scoring. See the generation log above."
+    continue
+  fi
   echo "[eval_all] exec $S"
   case $S in
     bench)    python eval/run_bench.py --gen_dir $OUT --workers 32 --timeout 300 2>&1 | grep -E "status counts" | tail -1
