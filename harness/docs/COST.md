@@ -1373,3 +1373,34 @@ the write verdict) — they cost nothing and remove a class of turn; the next tu
 caps refine fan-out per round and inlines the whole part set under a size budget, and A/Bs the
 turn-discipline prompt on its own, since "finish in fewer turns" is where the must-item misses
 come from.
+
+## 30. A tool's FAIL verdict is not an MCP error (2026-09-02)
+
+`spatial/mcp_server.py` returned `is_error = not obs.ok`, and `obs.ok` was the tool's
+**verdict** — so every gate that ran and answered FAIL reached the model as a broken call.
+From the tool stats of 217 recorded gemini-cli sessions (`run/trajectories/*/stdout.json`):
+
+| tool | calls | reported as an error | the harness's own gate, for comparison |
+|---|---|---|---|
+| `joint_sweep` | 1 404 | 63 % | end-of-round sweep gate fails 16 % of 243 rounds |
+| `build` | 2 073 | 23 % | — (a build that does not compile IS the answer) |
+| `check_contract` | 877 | 16 % | — |
+| `check_connectivity` | 888 | 15 % | — |
+
+A vendor CLI treats an errored tool call as a call that did not happen and retries it; a
+retried request carries the whole session context, ~117 000 prompt tokens ≈ **$0.034**.
+
+The fix is a second flag, not a threshold: `Observation.failed` (set only by
+`Observation.error` — exception, missing artefact, unusable arguments, `ToolUnavailable` /
+`ToolUsageError`) is what the MCP server reports as `is_error`; `ok` stays the verdict, and
+every negative verdict now LEADS its text with `… FAIL` (`gate_observation` for the gates,
+`JOINT SWEEP: FAIL — penetration …`, `FRAME GATE: FAIL — …`, `BUILD FAILED` as before) so the
+model reads the answer instead of retrying the question.
+
+What to watch on the next battery: in `tools stats`, `joint_sweep` / `build` /
+`check_*` error counts → near zero (only genuine failures — no URDF, unreadable GLB,
+bad arguments), calls per run down by the retries that used to follow each of them, and
+`telemetry/cost.jsonl` prompt tokens per session down accordingly.  The 63 % vs 16 % gap
+between the sweep TOOL's verdict and the round's sweep GATE is a separate question — the tool
+flags any overlap past `tol_m` and any floating link, while `sweep_findings` downgrades small
+rest overlaps and hinge gaps to WARN.

@@ -336,6 +336,14 @@ server (name `3dcv`) for the vendor CLIs, (c) a native tool schema for any embed
 `joint_sweep` (articulated), `shader_probe`, `scene_probe`, `scene_views` (scene),
 `gl_probe`, `gl_frames` (graphics), `texture_pass`, `texture_preview` (object tracks).
 
+An `Observation` carries two different answers: `ok` is the **verdict** and `failed`
+says the tool **could not run** (exception, missing artefact, unusable arguments —
+`Observation.error` is the only constructor that sets it).  MCP `is_error` is `failed`
+alone: a negative verdict is a result whose text leads with FAIL, because a vendor CLI
+retries an errored call, and over 217 recorded gemini-cli sessions `is_error = not ok`
+made 63 % of 1 404 `joint_sweep` calls, 23 % of 2 073 `build`s and ~15 % of the
+connectivity/contract calls look broken (~117 k prompt tokens ≈ $0.034 a retry).
+
 ## 6. Judging (protocol v2)
 
 `VlmJudge(rubric, model_id, n_samples)` sends **montages, not loose views**: ≤ 5

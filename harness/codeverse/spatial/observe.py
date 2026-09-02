@@ -105,6 +105,7 @@ def text_observation(
     lines: Sequence[str] | str,
     *,
     ok: bool = True,
+    failed: bool = False,
     numbers: dict[str, Any] | None = None,
     images: Sequence[str | Path] = (),
     limit: int = MAX_TEXT,
@@ -114,10 +115,12 @@ def text_observation(
     The plain-text counterpart of :func:`gate_observation` / :func:`render_observation`
     — every tool that assembles its own report (build, gl_probe, gl_frames,
     texture_pass, …) goes through here so truncation and the image budget are
-    applied exactly once, in one place.
+    applied exactly once, in one place.  ``ok=False`` is a verdict (LINT/BUILD
+    FAILED is the answer, and the text says so first); ``failed`` is only for a
+    tool that could not run.
     """
     body = lines if isinstance(lines, str) else "\n".join(str(x) for x in lines)
-    return Observation(ok=ok, text=truncate(body, limit), numbers=dict(numbers or {}),
+    return Observation(ok=ok, failed=failed, text=truncate(body, limit), numbers=dict(numbers or {}),
                        images=image_budget([str(i) for i in images]))
 
 
@@ -168,11 +171,16 @@ def build_failure_lines(br: BuildResult, root: Path, lint_warns: Sequence[str], 
 
 
 def gate_observation(report: GateReport, *, title: str = "", max_findings: int = 20, images: Iterable[str] = ()) -> Observation:
-    """Errors first, each with its fix hint; counts in ``numbers``."""
+    """Errors first, each with its fix hint; counts in ``numbers``.
+
+    The verdict leads the text for every gate, ``title`` or not: a failing gate is a
+    result, not a tool error (``Observation.failed`` stays False), so PASS/FAIL is all
+    the model has to go on.  ``title`` names the gate, never the verdict.
+    """
     findings = sorted(report.findings, key=lambda f: _SEV_ORDER.get(f.severity, 3))
     n_err = sum(1 for f in findings if f.severity == Severity.ERROR)
     n_warn = sum(1 for f in findings if f.severity == Severity.WARN)
-    head = title or f"{report.gate}: {'PASS' if report.passed else 'FAIL'}"
+    head = f"{title or report.gate}: {'PASS' if report.passed else 'FAIL'}"
     lines = [f"{head} — {n_err} error(s), {n_warn} warning(s)"]
     for f in findings[:max_findings]:
         tgt = f" [{f.target}]" if f.target else ""

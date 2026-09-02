@@ -310,6 +310,8 @@ GlHost(gpu="auto|on|off", timeout_s=240, fps=30, max_steps=240)
 from codeverse.spatial.frame_stats import sequence_stats, frame_gate    # gate "gl_frames"; data.kind ∈ nan | black | blown |
                                                                         # static | flicker | low_detail | duplicate | no_frames
 from codeverse.spatial.registry import tool, get_tool, list_tools, tool_cards, ToolContext, Observation
+Observation{ok: VERDICT, failed: the tool could not run, text, numbers, images, duration_ms}   # is_error == failed,
+    # never `not ok`; Observation.error(...) is the ONE constructor that sets failed
 import codeverse.spatial.tools   # registers: build, measure, render_views, render_sheet, isolate, cross_section,
     # check_connectivity, check_contract, compare_silhouette, joint_sweep [articulated], shader_probe, scene_probe,
     # scene_views + check_placement [scene], gl_probe + gl_frames [graphics], texture_pass + texture_preview [object tracks]

@@ -74,7 +74,8 @@ def test_tools_without_glb(tmp_ws: Workspace) -> None:
     ctx = ToolContext(workspace=tmp_ws, language="blender")
     for name in ("measure", "check_connectivity", "cross_section", "render_views", "isolate"):
         obs = get_tool(name).call(ctx, {"part": "x"} if name == "isolate" else {})
-        assert not obs.ok and "run `build` first" in obs.text, name
+        # a missing artefact IS a failure: the tool could not run at all
+        assert not obs.ok and obs.failed and "run `build` first" in obs.text, name
 
 
 def test_connectivity_and_section_tools(stool_ctx: ToolContext) -> None:
@@ -157,6 +158,49 @@ def test_build_tool_lint_blocks(stool_ctx: ToolContext, monkeypatch: pytest.Monk
     obs = get_tool("build").call(stool_ctx, {})
     assert not obs.ok and obs.text.startswith("LINT FAILED") and "close the bracket" in obs.text
     assert obs.numbers["stage"] == "lint"
+
+
+def test_a_negative_verdict_is_not_a_tool_failure(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``ok`` is the VERDICT, ``failed`` is 'the tool could not run', and only ``failed``
+    reaches the model as an MCP error.  Over 217 recorded gemini-cli sessions the old
+    ``is_error = not ok`` reported 63% of 1404 joint_sweep calls and 23% of 2073 builds as
+    broken calls, and the model retries a broken call at ~117k prompt tokens each.  Both
+    directions here, plus the rule that makes it safe: the FAIL verdict LEADS the text."""
+    import codeverse.spatial.tools as ts
+
+    ws = stool_ctx.workspace
+    ws.write_json(ws.plan_path, _stool_plan_with_missing_backrest())
+    for name, head in (("check_connectivity", "connectivity: FAIL"), ("check_contract", "contract: FAIL")):
+        obs = get_tool(name).call(stool_ctx, {})
+        assert not obs.ok and not obs.failed, name          # the gate ran and answered FAIL
+        assert obs.text.startswith(head), obs.text
+
+    # the other direction: a tool that could not run stays an error
+    obs = get_tool("measure").call(stool_ctx, {"parts": ["Nope"]})           # ToolUsageError
+    assert not obs.ok and obs.failed and "Seat" in obs.text
+    def boom(*_a, **_k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ts, "measure_glb", boom)
+    obs = get_tool("measure").call(stool_ctx, {})
+    assert not obs.ok and obs.failed and "measure failed: RuntimeError: boom" in obs.text
+    monkeypatch.undo()
+
+    _patch_runtime(monkeypatch, _FakeRuntime(build_ok=False))               # code that will not run
+    obs = get_tool("build").call(stool_ctx, {})
+    assert not obs.ok and not obs.failed and obs.text.startswith("BUILD FAILED")
+    _patch_runtime(monkeypatch, _FakeRuntime(lint_errors=True))
+    obs = get_tool("build").call(stool_ctx, {})
+    assert not obs.ok and not obs.failed and obs.text.startswith("LINT FAILED")
+
+
+def test_build_that_leaves_no_readable_glb_is_a_failure(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The runtime reported success and left nothing measurable: the tool could not
+    answer (a real error), and the headline must not read BUILD OK."""
+    _patch_runtime(monkeypatch, _FakeRuntime(glb=stool_ctx.workspace.artifacts / "gone.glb"))
+    obs = get_tool("build").call(stool_ctx, {})
+    assert not obs.ok and obs.failed
+    assert obs.text.startswith("BUILD PRODUCED NO USABLE GLB") and "GLB unreadable" in obs.text
 
 
 def test_build_failure_refuses_stale_glb(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -319,15 +363,19 @@ def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pyt
     monkeypatch.setattr(ts, "check_shaders", fake_check_shaders)
     monkeypatch.setattr(ts, "probe_scene", fake_probe_scene)
     obs = get_tool("shader_probe").call(stool_ctx, {})
-    assert not obs.ok and "vUv" in obs.text and "declare varying" in obs.text
+    assert not obs.ok and not obs.failed and "vUv" in obs.text and "declare varying" in obs.text
+    assert obs.text.startswith("shader probe: FAIL")        # a shader that will not compile is a verdict
     obs = get_tool("scene_probe").call(stool_ctx, {})
-    # ok = the probe TOOL ran; the failed gate is a result, not a tool error (SceneProbeResult)
-    assert obs.ok and "meshes=12" in obs.text and "boom" in obs.text and obs.numbers["census"]["meshes"] == 12
+    # ok = the gate verdict; failed = the probe TOOL could not run.  The gate fails on
+    # agent-fixable findings here, so the observation is a FAIL, not a tool error
+    assert not obs.ok and not obs.failed
+    assert obs.text.startswith("scene probe: FAIL")
+    assert "meshes=12" in obs.text and "boom" in obs.text and obs.numbers["census"]["meshes"] == 12
     monkeypatch.setattr(ts, "probe_scene", lambda ws, **kw: SceneProbeResult(gate=failed, errors=["driver died"], ok=False))
     obs = get_tool("scene_probe").call(stool_ctx, {})
-    assert not obs.ok and "driver died" in obs.text
+    assert not obs.ok and obs.failed and "driver died" in obs.text
     obs = get_tool("joint_sweep").call(stool_ctx, {})
-    assert not obs.ok and "run `build`" in obs.text          # no robot.urdf in a static workspace
+    assert not obs.ok and obs.failed and "run `build`" in obs.text   # no robot.urdf in a static workspace
 
 
 # --------------------------------------------------------------------------- build without a GLB (scene / graphics)

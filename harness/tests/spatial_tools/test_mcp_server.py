@@ -64,14 +64,19 @@ def test_stdio_roundtrip(stool_ctx: ToolContext, tmp_path: Path) -> None:
             assert by_name["render_views"].input_schema["properties"]["views"]["type"] == "array"
             conn = await s.call_tool("check_connectivity", {})
             assert conn.content and conn.content[0].type == "text"
-            assert "connectivity" in conn.content[0].text          # the gate's own header
+            # the gate ran and answered FAIL: a RESULT, not a protocol error the model retries
+            assert not conn.is_error
+            assert conn.content[0].text.startswith("connectivity: FAIL")   # the verdict leads
             assert "Leg_3" in conn.content[0].text                 # the fixture's floating leg
             meas = await s.call_tool("measure", {})
             assert not meas.is_error and "Leg ×4" in meas.content[0].text
             sec = await s.call_tool("cross_section", {"axis": "y", "at": 0.5})
             assert [c.type for c in sec.content] == ["text", "image"]
+            # ... and a tool that could NOT run is still an error, whichever way it broke
             bad = await s.call_tool("measure", {"parts": 3})
             assert bad.is_error and "invalid arguments" in bad.content[0].text
+            unusable = await s.call_tool("isolate", {"part": "Nope"})
+            assert unusable.is_error and "unknown part" in unusable.content[0].text
             unknown = await s.call_tool("nope", {})
             assert unknown.is_error
 

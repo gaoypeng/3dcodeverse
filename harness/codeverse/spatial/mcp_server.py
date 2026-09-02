@@ -6,6 +6,8 @@ One MCP tool per registry tool (name, description, JSON schema from
 ``ToolDef.schema()``).  Results are content blocks: one ``TextContent`` with the
 observation text (+ compact numbers when small) and one ``ImageContent`` per
 observation image (base64 PNG, long side ≤ 1024 px, at most ``MAX_IMAGES``).
+``is_error`` is ``Observation.failed`` (the tool could not run) — never a
+negative verdict, which is an ordinary result whose text leads with FAIL.
 Track / language default to ``<ws>/spec.json`` so agents need no flags.
 """
 
@@ -90,7 +92,10 @@ def make_server(ctx: ToolContext):
         if tdef is None:
             return types.CallToolResult(content=[types.TextContent(type="text", text=f"unknown tool {params.name!r}; known: {sorted(defs)}")], is_error=True)
         obs = await asyncio.to_thread(tdef.call, ctx, params.arguments or {})
-        return types.CallToolResult(content=observation_content(obs), is_error=not obs.ok)
+        # is_error is Observation.failed, NOT `not ok`: a tool that RAN and answered FAIL
+        # is a result the model must read, and an MCP error is a call it retries instead
+        # (~117k prompt tokens a retry).  The FAIL verdict leads the text.
+        return types.CallToolResult(content=observation_content(obs), is_error=obs.failed)
 
     return Server(SERVER_NAME, version="0.1.0",
                   instructions="3dcodeverse spatial tools: build, measure, render and check the 3D object in this workspace.",

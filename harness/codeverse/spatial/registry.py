@@ -13,7 +13,9 @@ Usage::
 Observation, ``ToolUnavailable`` (a missing sibling package) an "unavailable"
 one, anything else a failed Observation — a tool body never needs try/except.
 Observations: ``text`` (what the agent reads), ``numbers`` (machine-readable),
-``images`` (paths, small PNGs the agent may view), ``ok``.
+``images`` (paths, small PNGs the agent may view), ``ok`` (the VERDICT) and
+``failed`` (the tool could not run).  The two are different answers and only
+``failed`` may reach the model as a protocol error — see :class:`Observation`.
 """
 
 from __future__ import annotations
@@ -33,7 +35,20 @@ class NoArgs(BaseModel):
 
 
 class Observation(BaseModel):
+    """A tool's answer.  ``ok`` is the VERDICT (the gate passed, the build compiled,
+    nothing penetrates); ``failed`` says the tool could not run at all.
+
+    Only ``failed`` becomes MCP ``is_error`` (``spatial.mcp_server``).  Measured over
+    217 recorded gemini-cli sessions: with ``is_error = not ok``, 63% of 1404
+    joint_sweep calls, 23% of 2073 builds and ~15% of the connectivity/contract calls
+    reached the model as broken calls, and the model retries a broken call — ~117k
+    prompt tokens ≈ $0.034 each.  A negative verdict is a result: it keeps
+    ``failed=False`` and leads its ``text`` with the FAIL verdict instead.
+    """
+
     ok: bool = True
+    failed: bool = Field(default=False, description="the tool could not run: exception, missing "
+                                                    "artefact, unusable arguments (NOT a negative verdict)")
     text: str = Field(description="human/LLM-readable summary (≤ ~2k chars)")
     numbers: dict[str, Any] = Field(default_factory=dict)
     images: list[str] = Field(default_factory=list, description="PNG paths (small, labelled)")
@@ -41,7 +56,8 @@ class Observation(BaseModel):
 
     @classmethod
     def error(cls, text: str, **numbers: Any) -> Observation:
-        return cls(ok=False, text=text, numbers=numbers)
+        """The tool could not run — the ONE constructor for a genuine failure."""
+        return cls(ok=False, failed=True, text=text, numbers=numbers)
 
 
 class ToolUnavailable(RuntimeError):
