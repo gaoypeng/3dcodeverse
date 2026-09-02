@@ -82,6 +82,10 @@ After editing run `build`, then `scene_views` and LOOK: is the horizon hazy, is 
 multi-coloured, is the shade coloured rather than black?  Read the frame table it prints:
 every authored camera needs mean luminance >= 0.15 with dark <= 35 %.
 {% endif %}
+{% if effects_catalog is defined and effects_catalog %}
+
+{{ effects_catalog }}
+{% endif %}
 {% if recipes is defined and recipes %}
 
 # Recipes (from the scene cookbook — copy these numbers and snippets)

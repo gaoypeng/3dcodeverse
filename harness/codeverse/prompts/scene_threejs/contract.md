@@ -8,6 +8,7 @@ src/env.js          export const BOUNDS; export function heightAt(x, z); export 
 src/zones/<snake>.js   export function build<Zone>(THREE, ctx) → THREE.Group   (ctx = { heightAt, loaders, ... })
 src/assets/<snake>.js  export function build<Asset>(THREE, opts = {}) → THREE.Group   (procedural, Y-up, on y = 0)
 src/shaders/<snake>.js export function make<Name>Material(THREE, opts = {}) → THREE.ShaderMaterial | patched material
+src/lib/*.js        HARNESS-OWNED effect library (52 modules) — import and call, never rewrite
 public/assets/<snake>.glb   (optional) Blender-built assets, loaded via loaders.gltf.loadAsync('/assets/<snake>.glb')
 ```
 The harness serves the workspace root over http (`public/assets/` is mounted at
@@ -35,10 +36,17 @@ content pixels (rest sky/ground) = content too small.  Dusk/night = coloured, ne
 
 ## Imports (only these resolve)
 `three`, `three/addons/*` (GLTFLoader, BufferGeometryUtils, Sky, Water, EffectComposer…).
-Relative imports between your own files.  No CDN, no other packages, no `three/webgpu`,
-no `three/tsl`.  Post-processing (EffectComposer) is optional and described in the
-cookbook; the default harness renders the scene directly, so lighting and emissives must
-look right WITHOUT bloom.
+Relative imports between your own files, and `src/lib/*.js`.  No CDN, no other packages,
+no `three/webgpu`, no `three/tsl`.
+
+`src/lib/` is NOT a helper SDK and the "raw language only" law does not exclude it: it is
+harness-owned source shipped into this workspace, every module compiled and rendered on
+this renderer, and writes to it are reverted.  Reach for it before writing your own
+version of the same effect — the want → call table ships with this brief.
+
+The harness renders scene pictures THROUGH a post chain (GTAO + a selective emissive
+bloom + a grade that is identity unless `scene.userData.grade` is set).  So emissives DO
+bloom: author them at peak 1.5–4, not 20.  `--no-post` / `CV3D_POST=0` turns it off.
 
 ## Forbidden
 `document.*` / `window.*` except `window.innerWidth` — never create canvases or DOM;

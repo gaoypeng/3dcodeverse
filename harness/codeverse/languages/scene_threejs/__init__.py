@@ -54,6 +54,21 @@ def _js_files(ws: Workspace) -> list[Path]:
     return sorted(p for p in ws.src.rglob("*.js") if "node_modules" not in p.parts) + sorted(ws.src.rglob("*.mjs"))
 
 
+def _is_lib(path: Path, ws: Workspace) -> bool:
+    """Is this one of the harness's own effect modules (``src/lib/*.js``)?
+
+    They ship into every workspace (D51) and are verified by the harness's own
+    suite — ``tests/scene_runtime/lib/`` — not by the workspace gate, whose job
+    is to police the code the AGENT writes.  Linting them as agent code was
+    three hard ERRORs (signage.js's node-only font fallback imports
+    ``node:module`` / ``node:fs/promises`` / ``node:url``, which the browser
+    half never touches) plus twelve "large file" WARNs telling the agent to
+    split files it does not own.  Syntax is still checked below: a library file
+    the agent broke must still fail loudly.
+    """
+    return path.parent == ws.src / "lib"
+
+
 def _node_check(path: Path, rel: str) -> GateFinding | None:
     p = node_check_syntax(path, get_settings().binaries.node or "node")
     if p is None:
@@ -105,6 +120,8 @@ def lint(ws: Workspace) -> GateReport:
         if syntax:
             findings.append(syntax)
             continue
+        if _is_lib(path, ws):
+            continue
         findings.extend(_check_imports(rel, text, ws, path))
         for pat, sev, msg, hint in _PATTERNS:
             m = pat.search(text)
@@ -144,12 +161,27 @@ def lint(ws: Workspace) -> GateReport:
 STARTER_DIR = Path(__file__).resolve().parent / "starter" / "src"
 #: pattern files copied verbatim in plan mode (shown as reusable examples)
 PATTERN_FILES = ("shaders/sky.js", "shaders/water.js", "assets/pine_tree.js", "assets/windmill.js")
+#: the harness-owned effect library (``src/lib/*.js``), shipped into EVERY workspace.
+#: Plan mode copied only PATTERN_FILES, so a planned run got the effects catalog in its
+#: prompt and no ``src/lib/`` to import from — every ``from './lib/grass.js'`` a 2026-09-01
+#: agent wrote would have been a build error.  Both skeleton paths write it now.
+LIB_DIR = STARTER_DIR / "lib"
+
+
+def lib_files() -> list[Path]:
+    """The effect-library modules shipped into a workspace, sorted."""
+    return sorted(LIB_DIR.glob("*.js"))
 
 
 def _write(path: Path, text: str, written: list[Path]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     written.append(path)
+
+
+def _write_lib(ws: Workspace, written: list[Path]) -> None:
+    for src in lib_files():
+        _write(ws.src / "lib" / src.name, src.read_text(), written)
 
 
 def write_example(ws: Workspace) -> list[Path]:
@@ -318,6 +350,7 @@ def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
     written: list[Path] = []
     for rel in PATTERN_FILES:
         _write(ws.src / rel, (STARTER_DIR / rel).read_text(), written)
+    _write_lib(ws, written)
     _write(ws.src / "env.js", _env_for_plan(plan), written)
     assets = {to_snake(a.name): a for a in plan.assets}
     for a in plan.assets:
@@ -649,6 +682,8 @@ class SceneThreeJsRuntime(RuntimeDocs):
         # census.json is only rewritten `if census:` below, so it MUST be wiped here
         ws.stage_artifacts("census.json", "scene_probe.json", "shader_preflight.json", "build.json").invalidate()
         probe, shaders, census = _probe_and_preflight(ws, timeout_s=tmo)
+        if census and probe.passed:
+            _ablation_into(ws, census)
         if census:
             (ws.artifacts / "census.json").write_text(json.dumps(census, indent=1))
         gates_dir = ws.artifacts / "gates"
@@ -676,6 +711,27 @@ class SceneThreeJsRuntime(RuntimeDocs):
         )
         (ws.artifacts / "build.json").write_text(json.dumps(res.model_dump(mode="json"), indent=1))
         return res
+
+
+def _ablation_into(ws: Workspace, census: dict[str, Any]) -> None:
+    """Opt-in (``CV3D_ABLATION``): measure how much of the frame the scene's custom
+    shaders actually paint and put it in the census, so the scene gates and the
+    judge context read "the effect contributes N%" instead of "N custom materials
+    compiled".  A second browser boot with its own renders, hence a switch and not
+    a default; instrumentation never breaks a build, so every failure is swallowed
+    into a census note.  Details: ``spatial/ablation.py``."""
+    from codeverse.config import env_flag
+
+    if not env_flag("CV3D_ABLATION", False):
+        return
+    from codeverse.spatial.ablation import CENSUS_FIELD, ablate_scene
+
+    try:
+        report = ablate_scene(ws, frames=False)
+    except Exception as e:  # noqa: BLE001 — an instrument must never fail a build
+        census[CENSUS_FIELD] = {"error": f"{type(e).__name__}: {e}"[:300]}
+        return
+    census[CENSUS_FIELD] = report.census_field()
 
 
 def _probe_and_preflight(ws: Workspace, *, timeout_s: float) -> tuple[GateReport, GateReport, dict]:

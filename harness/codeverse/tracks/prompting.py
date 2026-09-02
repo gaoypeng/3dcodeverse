@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from codeverse.config import fewer_turns_enabled
 from codeverse.contracts.chat import ImagePart
-from codeverse.contracts.common import HARNESS_OWNED_SRC, Language, Track
+from codeverse.contracts.common import HARNESS_OWNED_SRC, Language, Track, is_harness_owned
 from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import LANGUAGE_FRAME, Frame, frame_doc, to_snake
@@ -285,6 +285,25 @@ def language_system_prompt(language: Language, *, role: str = "", tools: bool = 
     return base + "\n\n" + render(f"system/role_{role}.j2", language=language.value, **vars).strip()
 
 
+#: the want -> call table for the shipped effect library, per language.  Only
+#: scene_threejs ships one (D51); everything else gets "" and its templates render
+#: byte-identically to before.
+EFFECTS_CATALOG_REL: dict[Language, str] = {
+    Language.SCENE_THREEJS: "scene_threejs/effects_catalog.md",
+}
+
+
+def effects_catalog_text(language: Language) -> str:
+    """``prompts/<lang>/effects_catalog.md`` — the library table, or "" for a
+    language that ships no library."""
+    rel = EFFECTS_CATALOG_REL.get(language)
+    if not rel:
+        return ""
+    from codeverse.tracks.common import load_prompt_or
+
+    return load_prompt_or(rel, "")
+
+
 def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
     """Variables every tracks/*.j2 template may use (StrictUndefined → all present)."""
     plan = ctx.plan
@@ -322,6 +341,10 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         # a string, "" when off: templates render it with one {% if %} and stay byte-identical
         # for the control arm
         "turn_discipline": TURN_DISCIPLINE if (fewer_turns_enabled() and not ctx.single_shot) else "",
+        # The want -> call table for the effect library that ships in every
+        # scene_threejs workspace (D51).  "" for every other language, so the
+        # templates that carry it stay byte-identical elsewhere.
+        "effects_catalog": effects_catalog_text(ctx.language),
     }
     d.update(extra)
     return d
@@ -513,7 +536,7 @@ def current_files(
     total = 0
     for rel in rels:
         p = ctx.ws.root / rel
-        if not p.is_file() or rel in owned:
+        if not p.is_file() or is_harness_owned(rel, owned):
             continue
         text = p.read_text(errors="replace")
         room = max_chars - total
