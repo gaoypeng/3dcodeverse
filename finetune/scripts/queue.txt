@@ -1,20 +1,3 @@
-mm_ablation|scripts/run_mm_ablation.sh
-mm_eval_fixed|bash scripts/run_mm_eval_fixed.sh
-mm_multisuite|bash scripts/run_mm_multisuite.sh
-mmmix2|scripts/run_9b_mmmix2.sh
-mmvis|scripts/run_9b_mmvis.sh
-img_budget2|scripts/eval_img_budget.sh
-27b_mm|bash scripts/run_27b_mm.sh
-img_decoding|bash scripts/run_img_decoding.sh
-mm1_singleview|bash scripts/run_9b_mm1.sh
-mmmix2_eval|bash scripts/run_mmmix2_eval.sh
+pubimg|bash -c 'cd /wekafs/ict/hx_624/llm-ft; GPUS=$(scripts/free_gpus.sh 60000) scripts/lf_train.sh configs/lf/sft_9b_lora64_lr1e-4_len8k_pubimg.yaml > logs/train_pubimg.log 2>&1'
+stopdpo_r2_plus|bash scripts/run_stopdpo_r2_plus.sh
 noise_profile|bash scripts/run_noise_profile.sh
-27b_mm_eval|bash scripts/run_27b_mm_eval.sh
-bal9b|bash scripts/run_9b_balanced.sh
-stopdpo_train|bash scripts/run_stop_dpo_train.sh
-best_dual|bash scripts/run_best_dual_decode.sh
-27b_dual|bash scripts/run_27b_dual_decode.sh
-stopdpo_r2|bash scripts/run_stop_dpo_r2.sh
-mmvis_eval|bash scripts/run_mmvis_eval.sh
-rescore|bash scripts/run_rescore_sampled.sh
-stop_transfer|bash scripts/run_stopdpo_transfer.sh
