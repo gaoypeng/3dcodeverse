@@ -349,8 +349,9 @@ class StaticObjectTrack(BaseTrack):
                 # set is ≤ 3 files / ≤ 12 k chars — the first turn is then the edit
                 current_files=refine_inline_files(ctx, files, scoped=scoped),
                 # lean switch only, {} when off: the failed acceptance items in full with
-                # the rest as ids, and the plan rows the heading already promises — this
-                # group's targets, not every part in the plan
+                # the rest as ids, the plan rows the heading already promises (this group's
+                # targets, when every one of them IS a part), and a pointer to plan.json
+                # for whatever that dropped
                 **refine_focus(ctx, last, group.targets),
             ),
         )

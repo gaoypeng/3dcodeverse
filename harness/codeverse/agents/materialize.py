@@ -44,6 +44,11 @@ log = logging.getLogger(__name__)
 CV3D_DIR = ".3dcv"  # harness-owned read-only docs inside the workspace
 MCP_SERVER_NAME = "3dcv"
 MCP_TOOL_TIMEOUT_MS = 600_000
+#: backends that get NO MCP server, so the 3dcv tools never appear as declarations in the
+#: session's own tool list — this file's ``_tool_section`` is their only tool documentation
+#: and they call the tools from the shell.  A prompt may point at "your tool list" only for
+#: the kinds NOT in here (``tracks/prompting.tools_declared``).
+MCPLESS_KINDS: frozenset[str] = frozenset({"agy"})
 #: ``.geminiignore`` / ``.aiexclude`` — gemini-cli's read_file/glob REFUSE ignored paths, so the
 #: agent-facing artefacts must stay readable: ``artifacts/*.json`` (the build tool advertises
 #: ``census.json`` etc.), ``artifacts/tool_renders/`` and ``trajectories/<label>_rNN/task_prompt.md``
@@ -87,7 +92,7 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], 
     prove = [n for n in ("measure", "check_contract", "scene_probe", "gl_probe") if n in names]
     if agent_kind == "claude-code":
         how = "Tools are exposed by the MCP server `3dcv`; their names appear as `mcp__c3v__<name>` (e.g. `mcp__c3v__build`)."
-    elif agent_kind == "agy":
+    elif agent_kind in MCPLESS_KINDS:
         how = (
             "This session has no MCP server. Call a tool from the shell instead:\n"
             "`python -m codeverse.cli.main tools <name> --json '{\"arg\": \"value\"}'` "

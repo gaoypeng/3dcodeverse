@@ -17,8 +17,9 @@ Constraints:
 {{ frame_doc }}
 {% if lean %}
 The language contract is already in this workspace's agent instructions file (`AGENTS.md` =
-`GEMINI.md` = `CLAUDE.md`, loaded for you), and your 3dcv tools are declared in your tool
-list — read them there; neither is repeated below.
+`GEMINI.md` = `CLAUDE.md`, loaded for you){% if tools_declared %}, and your 3dcv tools are declared in your
+tool list{% else %}, which is also where your 3dcv tools are documented — this session has no MCP server,
+so you call them from the shell as that file shows{% endif %} — read them there; neither is repeated below.
 {% else %}
 {{ contract }}
 {% endif %}

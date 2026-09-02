@@ -19,6 +19,7 @@ from codeverse.contracts.common import HARNESS_OWNED_SRC, Language, Track
 from codeverse.contracts.plan import Plan, StaticPlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import LANGUAGE_FRAME, Frame, frame_doc, to_snake
+from codeverse.orchestrator import instance_base
 from codeverse.prompts import render
 from codeverse.prompts.catalog import prompt_dir_for
 from codeverse.tracks.common import RunContext
@@ -291,6 +292,18 @@ def lean_prompt(ctx: RunContext) -> bool:
             and lean_prompt_enabled())
 
 
+def tools_declared(ctx: RunContext) -> bool:
+    """Does this session see the 3dcv tools as declarations of its own?
+
+    True for every backend the harness gives an MCP server; false for the mcp-less ones
+    (:data:`agents.materialize.MCPLESS_KINDS`), whose materialised instructions say the
+    opposite — "This session has no MCP server", call them from the shell.  A prompt that
+    drops the tool cards has to point at whichever of the two the session actually got."""
+    from codeverse.agents.materialize import MCPLESS_KINDS  # local: tracks -> agents stays lazy
+
+    return ctx.agent_kind not in MCPLESS_KINDS
+
+
 def articulated_brief(ctx: RunContext) -> str:
     """What ranks the cookbook's worked examples: the request plus the plan's own vocabulary.
 
@@ -327,9 +340,11 @@ def acceptance_lines_focused(plan: Plan | None, failed: Sequence[Any]) -> str:
     """Acceptance for a refine prompt: the FAILED items in full, the rest as their ids.
 
     A refine round is told to change exactly the listed targets, so the items that already
-    pass are there to be preserved, not re-read — one id line each says that in 4 % of the
-    chars.  Empty ``failed`` (no judgment, or everything passed) keeps the full list: with
-    nothing to focus on, focusing would only remove information."""
+    pass are there to be preserved, not re-read — one id line each says that in a third of
+    the chars (median 2 625 -> 885 over the 48 recorded refine prompts of aa_articulated:
+    20 items, 6 of them failed on the round that precedes the prompt).  Empty ``failed``
+    (no judgment, or everything passed) keeps the full list: with nothing to focus on,
+    focusing would only remove information."""
     items = getattr(plan, "acceptance", None) or []
     ids = {getattr(a, "id", "") for a in failed}
     if not items or not ids:
@@ -342,24 +357,47 @@ def acceptance_lines_focused(plan: Plan | None, failed: Sequence[Any]) -> str:
 
 
 def parts_table_for_targets(plan: Plan | None, targets: Sequence[str]) -> str:
-    """The plan rows for the refine targets — the whole table when none of them is a part.
+    """The plan rows for the refine targets — the whole table unless EVERY target is a part.
 
     The template's heading has always said "Plan rows for the targets"; the table under it
-    was every part in the plan (1 605 chars for a median of 3 targets, aa_articulated)."""
-    keys = {to_snake(t) for t in targets}
-    scoped = [p for p in (getattr(plan, "parts", None) or ()) if to_snake(p.name) in keys]
-    return parts_table_for(scoped) if scoped else parts_table(plan)
+    was every part in the plan (median 1 532 chars over the 48 recorded refine prompts of
+    aa_articulated).  Narrowing is only honest when the round is ABOUT those parts: a group
+    that also carries the whole-artifact target (``overall`` — where a gate error with no
+    part of its own lands) is about the assembly, and an assembly is judged against rows
+    this would have dropped.  That is most rounds — 39 of those 48 prompts carry ``overall``
+    and only 4 narrow — which is the price of not lying about what the table is.  Instance
+    suffixes come off first: ``_canon_target`` hands on the plan's spelling but keeps the
+    ``Leg_1``, and the plan has no such row."""
+    keys = {to_snake(instance_base(t)) for t in targets}
+    parts = list(getattr(plan, "parts", None) or ())
+    if not keys or not keys <= {to_snake(p.name) for p in parts}:
+        return parts_table(plan)
+    return parts_table_for([p for p in parts if to_snake(p.name) in keys])
 
 
 def refine_focus(ctx: RunContext, last: RoundRecord, targets: Sequence[str]) -> dict[str, Any]:
     """Refine-prompt overrides under the lean switch: focused acceptance + targeted parts.
-    ``{}`` when the switch is off, so the control arm renders byte-identically."""
+    ``{}`` when the switch is off, so the control arm renders byte-identically.
+
+    Whatever is dropped gets a pointer to ``plan.json``, which is in the workspace and is
+    neither git- nor agent-ignored.  Measured precedent says the model will not fetch it
+    (the ``read_cookbook`` tool went uncalled in all 20 sessions of the excerpt study), so
+    the pointer buys nothing when nothing was dropped — hence it names only what actually
+    went, and is empty when the two helpers returned the full text anyway."""
     if not lean_prompt(ctx):
         return {}
     from codeverse.tracks.steps import failed_acceptance  # local: steps -> repair -> here
 
-    return {"acceptance": acceptance_lines_focused(ctx.plan, failed_acceptance(ctx, last.judgment)),
-            "parts_table": parts_table_for_targets(ctx.plan, targets)}
+    acceptance = acceptance_lines_focused(ctx.plan, failed_acceptance(ctx, last.judgment))
+    parts = parts_table_for_targets(ctx.plan, targets)
+    dropped: list[str] = []
+    if acceptance != acceptance_lines(ctx.plan):
+        dropped.append("the text of the acceptance items listed by id only")
+    if parts != parts_table(ctx.plan):
+        dropped.append("the rows of the parts this round does not name")
+    pointer = (f"Elided from this prompt and readable in `{ctx.ws.plan_path.name}` at the workspace "
+               f"root: {'; '.join(dropped)}." if dropped else "")
+    return {"acceptance": acceptance, "parts_table": parts, "plan_pointer": pointer}
 
 
 def language_system_prompt(language: Language, *, role: str = "", tools: bool = True, **vars: Any) -> str:
@@ -407,8 +445,13 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "cookbook_excerpt": cookbook_excerpt(ctx, lean=lean),
         "tool_cards": ctx.tool_cards,
         "single_shot": ctx.single_shot,
-        # templates drop with it only what the workspace already carries (see lean_prompt)
+        # templates drop with it only what the workspace already carries (see lean_prompt),
+        # and say where it went: the tools in the session's own declarations or, for an
+        # mcp-less backend, in the instructions file; the elided plan material in plan.json
+        # (refine only, so "" here — refine_focus fills it when something was actually cut)
         "lean": lean,
+        "tools_declared": tools_declared(ctx),
+        "plan_pointer": "",
         "output_format": SINGLE_SHOT_FORMAT if ctx.single_shot else AGENT_OUTPUT_RULES,
         "spec_prompt": ctx.spec.prompt,
         "constraints": constraints_text(ctx.spec),

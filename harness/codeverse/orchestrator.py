@@ -373,7 +373,7 @@ def compact_instructions(tasks: Sequence[RefineTask], max_lines: int = 6) -> lis
         return []
     groups: dict[str, list[RefineTask]] = {}
     for t in sorted(tasks, key=lambda t: t.priority):
-        groups.setdefault(_instance_base(t.target), []).append(t)
+        groups.setdefault(instance_base(t.target), []).append(t)
     lines: list[str] = []
     for target, members in groups.items():
         if len(members) == 1:
@@ -403,7 +403,12 @@ def _split_instance(target: str) -> tuple[str, str]:
     return target or "overall", ""
 
 
-def _instance_base(target: str) -> str:
+def instance_base(target: str) -> str:
+    """The plan name behind a refine target: ``Leg_1`` → ``Leg``, anything else unchanged.
+
+    ``_canon_target`` keeps the suffix, so every consumer that matches a target against
+    plan part names has to strip it here rather than inventing its own rule
+    (``tracks/prompting.parts_table_for_targets`` is the other one)."""
     return _split_instance(target)[0]
 
 

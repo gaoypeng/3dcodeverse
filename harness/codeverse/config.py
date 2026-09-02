@@ -115,8 +115,9 @@ class Limits(BaseModel):
         "(7 150 chars) rides in the baseline prompt AND byte-for-byte in the materialised "
         "AGENTS.md/GEMINI.md; the tool list arrives three times (prompt 4 088 + GEMINI.md + "
         "the MCP declarations); the whole 24 k cookbook is inlined though a brief-driven "
-        "chapter selector exists; and a refine prompt carries all acceptance items and all "
-        "part rows for a median of 3 targets.  OFF until the A/B reads out; "
+        "chapter selector exists; and a refine prompt (median 18 604 chars over the 48 "
+        "recorded there) carries all 20 acceptance items when 6 failed, and every part row "
+        "for a median of 4 targets.  OFF until the A/B reads out; "
         "`CV3D_LEAN_PROMPT=1` (read at call time by `lean_prompt_enabled`) is the variant arm.",
     )
 
