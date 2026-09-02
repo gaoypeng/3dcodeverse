@@ -152,6 +152,9 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 3dcv texture pass <slug> [--no-judge] [--model …] [--judge-model …] [--image-model …] [--size 1024]
 3dcv texture scene-pack <slug> [--n 10] · 3dcv texture show <slug>
 3dcv tools list [--cards] · 3dcv tools measure --workspace runs/<slug> · 3dcv tools gl_frames --workspace … --json '{"times":[0,1,2.5]}'
+                                        # panel says ok | FAIL (the verdict) | error (the tool could not run);
+                                        # exit 1 on either non-ok state — `scene_probe` included since 2026-09-02
+                                        # (COST.md §30), where a failing scene gate used to exit 0
 3dcv flywheel export runs/ dataset/ [--min-score 0.7] [--only-passed] [--pack] [--include-unbuilt]
                                      [--captions-dir caps/] [--drop-duplicates]
 3dcv flywheel pairs runs/ pairs.jsonl [--min-delta 0.05]

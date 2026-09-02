@@ -8,6 +8,9 @@ observation text (+ compact numbers when small) and one ``ImageContent`` per
 observation image (base64 PNG, long side ≤ 1024 px, at most ``MAX_IMAGES``).
 ``is_error`` is ``Observation.failed`` (the tool could not run) — never a
 negative verdict, which is an ordinary result whose text leads with FAIL.
+Every result is bounded here — ``MAX_TEXT_CHARS`` of text and a per-outcome image
+budget (:func:`max_images_for`) — because this is the last place the harness owns
+before the payload becomes the vendor's prompt.
 Track / language default to ``<ws>/spec.json`` so agents need no flags.
 """
 
@@ -24,7 +27,7 @@ from typing import Any
 
 from PIL import Image
 
-from codeverse.spatial.observe import fmt_numbers
+from codeverse.spatial.observe import fmt_numbers, truncate
 from codeverse.spatial.registry import Observation, ToolContext, list_tools
 from codeverse.spatial.tool_common import spec_dict
 from codeverse.workspace import Workspace
@@ -32,6 +35,11 @@ from codeverse.workspace import Workspace
 MAX_IMAGES = 4
 MAX_IMAGE_SIDE = 1024
 MAX_NUMBERS_CHARS = 1200
+#: hard ceiling on the text block of ONE result (text + numbers), twice the largest
+#: per-tool limit in ``observe`` — an Observation built by hand (``joint_sweep``,
+#: ``compare_reference``) never goes through those, and nothing may hand the model an
+#: unbounded payload from here.
+MAX_TEXT_CHARS = 6000
 SERVER_NAME = "3dcv"
 
 
@@ -59,16 +67,34 @@ def encode_image(path: str, max_side: int = MAX_IMAGE_SIDE) -> str | None:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def max_images_for(obs: Observation) -> int:
+    """Image budget for ONE result, by outcome — the guard on the error path.
+
+    A vendor CLI that receives ``is_error`` stringifies the WHOLE result, image parts
+    included: gemini-cli's error branch prints ``safeJsonStringify(rawResponseParts)``,
+    so a 275 kB contact sheet arrives as ~366 k characters of base64 TEXT (~261 k prompt
+    tokens) instead of ~516 as an inline image, and its own 40 000-char truncation does
+    not fire for a multi-part MCP result (docs/COST.md §30).  So a failed observation
+    ships no image (nothing rendered is evidence about a tool that could not run), and a
+    FAIL verdict ships one — the sheet, which ``image_budget`` keeps first.
+    """
+    if obs.failed:
+        return 0
+    return MAX_IMAGES if obs.ok else 1
+
+
 def observation_content(obs: Observation) -> list[Any]:
-    """Observation → MCP content blocks (text first, then images)."""
+    """Observation → MCP content blocks (text first, then images), both bounded."""
     from mcp import types
 
     text = obs.text
     if obs.numbers:
         nums = json.dumps(obs.numbers, default=str)
         text += "\n" + (nums if len(nums) <= MAX_NUMBERS_CHARS else fmt_numbers(obs.numbers))
-    blocks: list[Any] = [types.TextContent(type="text", text=text)]
-    for p in obs.images[:MAX_IMAGES]:
+    # the slice makes the ceiling hard: truncate's "N chars omitted" marker overshoots its
+    # own budget by a few characters, and this is the last bound before the vendor's prompt
+    blocks: list[Any] = [types.TextContent(type="text", text=truncate(text, MAX_TEXT_CHARS)[:MAX_TEXT_CHARS])]
+    for p in obs.images[:max_images_for(obs)]:
         b64 = encode_image(p)
         if b64:
             blocks.append(types.ImageContent(type="image", data=b64, mime_type="image/png"))
@@ -93,8 +119,9 @@ def make_server(ctx: ToolContext):
             return types.CallToolResult(content=[types.TextContent(type="text", text=f"unknown tool {params.name!r}; known: {sorted(defs)}")], is_error=True)
         obs = await asyncio.to_thread(tdef.call, ctx, params.arguments or {})
         # is_error is Observation.failed, NOT `not ok`: a tool that RAN and answered FAIL
-        # is a result the model must read, and an MCP error is a call it retries instead
-        # (~117k prompt tokens a retry).  The FAIL verdict leads the text.
+        # is a result the model must read, and an MCP error is a call the vendor retries
+        # instead (a mean 119k prompt tokens, $0.030 blended) — and, on gemini-cli, one
+        # whose images it re-sends as base64 TEXT.  The FAIL verdict leads the text.
         return types.CallToolResult(content=observation_content(obs), is_error=obs.failed)
 
     return Server(SERVER_NAME, version="0.1.0",

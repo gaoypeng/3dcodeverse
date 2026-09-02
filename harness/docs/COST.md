@@ -1378,29 +1378,106 @@ come from.
 
 `spatial/mcp_server.py` returned `is_error = not obs.ok`, and `obs.ok` was the tool's
 **verdict** — so every gate that ran and answered FAIL reached the model as a broken call.
-From the tool stats of 217 recorded gemini-cli sessions (`run/trajectories/*/stdout.json`):
+
+**Selector** (every number in this section, unless another one is named): the files
+`bench/out/*/**/run/trajectories/*/stdout.json`, 386 of them, of which **224 are
+non-empty** — one per gemini-cli session that reported stats; the other 162 are
+zero-byte (the CLI died or was killed before printing its JSON) and every one of the
+386 belongs to a gemini-cli arm.  `run/telemetry/trajectories` is a symlink to the same directory:
+count it once (a glob that follows it doubles every number).  Per file, sum
+`stats.tools.byName["mcp_3dcv_<tool>"]`'s `count` and `fail`; `fail` is gemini-cli's
+own tally of results that arrived with `is_error`.  Over those 224 sessions: **6 127
+MCP tool calls, 1 720 (28 %) reported as errors.**
 
 | tool | calls | reported as an error | the harness's own gate, for comparison |
 |---|---|---|---|
-| `joint_sweep` | 1 404 | 63 % | end-of-round sweep gate fails 16 % of 243 rounds |
-| `build` | 2 073 | 23 % | — (a build that does not compile IS the answer) |
-| `check_contract` | 877 | 16 % | — |
-| `check_connectivity` | 888 | 15 % | — |
+| `joint_sweep` | 1 445 | 62 % | the round's `joint_sweep` GATE fails 57 of the 299 rounds that ran it (19 %) |
+| `build` | 2 144 | 23 % | — (a build that does not compile IS the answer) |
+| `check_contract` | 895 | 17 % | — |
+| `check_connectivity` | 923 | 14 % | — |
+| `isolate` | 35 | 49 % | — (these ARE mostly real usage errors: an unknown part name) |
 
-A vendor CLI treats an errored tool call as a call that did not happen and retries it; a
-retried request carries the whole session context, ~117 000 prompt tokens ≈ **$0.034**.
+(The gate column is a second selector: all 239 `run/record.json` under `bench/out/`,
+411 rounds.  An earlier draft of this section quoted 217 sessions / 1 404 sweeps / 63 %
+— that was the same corpus minus the `.attempt1` retry sessions and did not reproduce;
+these numbers do, with the glob above.)
 
-The fix is a second flag, not a threshold: `Observation.failed` (set only by
-`Observation.error` — exception, missing artefact, unusable arguments, `ToolUnavailable` /
-`ToolUsageError`) is what the MCP server reports as `is_error`; `ok` stays the verdict, and
-every negative verdict now LEADS its text with `… FAIL` (`gate_observation` for the gates,
-`JOINT SWEEP: FAIL — penetration …`, `FRAME GATE: FAIL — …`, `BUILD FAILED` as before) so the
-model reads the answer instead of retrying the question.
+A vendor CLI treats an errored tool call as a call that did not happen and retries it.
+A retried request carries the whole session context: **a mean 118 700 prompt tokens**
+(9 250 main-role requests over the 224 sessions), 73 % of them cache hits, so
+**$0.030 per retry** at `gemini-3.7-flash`'s $0.75/M input + $0.075/M cached — a
+*cache-blended* rate, not the list price ($0.089 at full input rate), and ~$0.040 with
+the response the retry also pays for.
 
-What to watch on the next battery: in `tools stats`, `joint_sweep` / `build` /
-`check_*` error counts → near zero (only genuine failures — no URDF, unreadable GLB,
-bad arguments), calls per run down by the retries that used to follow each of them, and
-`telemetry/cost.jsonl` prompt tokens per session down accordingly.  The 63 % vs 16 % gap
-between the sweep TOOL's verdict and the round's sweep GATE is a separate question — the tool
-flags any overlap past `tol_m` and any floating link, while `sweep_findings` downgrades small
-rest overlaps and hinge gaps to WARN.
+### The expensive half: an errored result re-sends its images as TEXT
+
+An independent offline investigation of the recorded requests (its own selector: the
+per-request logs, not the session stats above) found the retry is not the main bill.
+`observation_content` attaches PNGs as MCP `ImageContent`.  On the success path
+gemini-cli calls `transformMcpContentToParts` and sends a real `inlineData` part; on the
+**error** path (bundle `chunk-DFPYJMVX.js:274288`) it builds
+`"MCP tool '<name>' reported tool error ... with response: " + safeJsonStringify(rawResponseParts)`
+— the image's base64 goes into the prompt as text:
+
+| the same articulation contact sheet | bytes / chars | prompt tokens |
+|---|---|---|
+| `inlineData` part (success path) | 274 572 B | ≈ 516 |
+| base64 inside an error string (error path) | 366 096 chars | ≈ 261 497 (**~507×**) |
+
+It also escapes gemini-cli's own 40 000-char truncation (bundle `:349408`), which only
+fires for a single-text-part MCP result or the shell tool.  The predicted jump matches
+recorded per-request prompt jumps of +260 421, +256 907, +258 997, +257 840, +260 364 and
++261 477 tokens.  ~10 % of requests carried ~225 000 freshly *uncacheable* tokens, and that
+10 % is **67 % of the whole uncached bill (~$400 of $873)** on the corpus it measured.
+Non-blob requests already cache as well as the old in-process agent did (median 4 946
+uncached tokens vs 5 639 per turn), so nothing about settings, tool ordering or `GEMINI.md`
+needs changing — the blob is the whole anomaly.
+
+`joint_sweep` is exactly where the two findings meet: it always attaches the articulation
+contact sheet, and 900 of its 1 445 calls were errors.  Corroboration inside the session
+stats above: the 205 sessions with ≥ 1 errored `joint_sweep` have a 73 % cache-hit rate and
+a median session averaging 106 250 prompt tokens per request, against 88 % and 78 349 for
+the 19 without (confounded — those are also the articulated runs — but it points the same way).
+
+### The fix
+
+A second flag, not a threshold.  `Observation.failed` is what the MCP server reports as
+`is_error`; `ok` stays the verdict.  `Observation.error` builds every failure caught at the
+`ToolDef.call` boundary (exception, `ToolUnavailable`, `ToolUsageError`, missing or
+unreadable artefact), and three tools set `failed` on a result they compose themselves,
+where the failure is a fact about the result rather than an exception: `build` (the runtime
+reported success and left no readable GLB), `scene_probe` (the probe driver died) and
+`observe.render_observation` (no view AND nothing logged — a render with no picture and no
+reason is not a verdict; console errors ARE one, empty RenderSet or not, because a scene
+that fails to boot returns exactly that and the errors say what to fix).  Those four places
+are the whole list.
+
+Every negative verdict now LEADS its text with `… FAIL` (`gate_observation` for the gates,
+`JOINT SWEEP: FAIL — penetration …`, `FRAME GATE: FAIL — n error(s)`, `RENDER: FAIL — n
+console error(s)`, `BUILD FAILED` as before) so the model reads the answer instead of
+retrying the question.
+
+And because the harness now decides what is an error, `mcp_server` bounds what one result
+can hand over: `MAX_TEXT_CHARS` = 6 000 characters of text (twice the largest per-tool
+limit — an Observation built by hand never passes through `observe`'s truncation), and
+`max_images_for`: 4 images on an `ok` result, **1** on a FAIL verdict, **0** on a `failed`
+one.  The vendor's own 40 000-char guard does not fire for a multi-part result, so this is
+the only ceiling on the error path.
+
+### Exit codes DID change for one command
+
+`3dcv tools <name>` exits 1 on `not obs.ok` — the rule is unchanged, but `scene_probe`'s
+`ok` changed meaning (it used to mean "the probe tool ran", the workaround for this bug),
+so **`3dcv tools scene_probe` on a failing scene gate now exits 1 where it exited 0**.
+Kept deliberately: every other gate tool already exited 1 on a FAIL, and the exit code
+speaks to the human or script at the terminal, not to the model — the MCP boundary is the
+one place where calling a verdict an error costs money.  The CLI panel prints three states
+(`ok` / `FAIL` / `error`) to match.
+
+What to watch on the next battery: in `tools stats`, `joint_sweep` / `build` / `check_*`
+error counts → near zero (only genuine failures — no URDF, unreadable GLB, bad arguments),
+calls per run down by the retries that used to follow each of them, per-request prompt
+tokens without the ~260 k spikes, and the uncached share of `telemetry/cost.jsonl` down
+with them.  The 62 % vs 19 % gap between the sweep TOOL's verdict and the round's sweep
+GATE is a separate question — the tool flags any overlap past `tol_m` and any floating
+link, while `sweep_findings` downgrades small rest overlaps and hinge gaps to WARN.

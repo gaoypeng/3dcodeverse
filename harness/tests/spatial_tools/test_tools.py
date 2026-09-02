@@ -292,6 +292,18 @@ def test_render_views_cached(stool_ctx: ToolContext, fake_renderer) -> None:
     assert not obs.ok and "shaded" in obs.text and "failed" not in obs.text
 
 
+def test_render_tool_with_no_view_is_a_tool_failure(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A renderer that comes back with nothing left the agent no picture and no verdict:
+    ``failed`` (an MCP error), not an ordinary result whose text happens to say '0 view(s)'."""
+    import codeverse.spatial.render as render
+
+    monkeypatch.setattr(render, "render_glb", lambda *a, **k: RenderSet(views=[], renderer="fake"))
+    for name, args in (("render_views", {}), ("render_sheet", {}), ("isolate", {"part": "Leg_3"})):
+        obs = get_tool(name).call(stool_ctx, args)
+        assert not obs.ok and obs.failed, name
+        assert obs.text.startswith("RENDER PRODUCED NO VIEWS"), name
+
+
 def test_render_modes_match_the_js_rig() -> None:
     """One mode tuple: contracts.RENDER_MODES ↔ runtime_js/render_glb.mjs MODES ↔ the arg schema."""
     import re
@@ -430,6 +442,41 @@ def test_build_tool_graphics_reports_frames(tmp_ws: Workspace, monkeypatch: pyte
     monkeypatch.setattr(gl_build, "read_metrics", lambda ws: (stats, bad))
     obs = get_tool("build").call(ctx, {})
     assert not obs.ok and "static image" in obs.text
+
+
+class _GlRuntime(_NoGlbRuntime):
+    """Graphics runtime whose build takes the gl tools' kwargs (times / preview / size)."""
+
+    def build(self, ws, **_kw):
+        return BuildResult(ok=True, language=self.language, glb_path=None, duration_ms=9,
+                           census=self.census, extra_paths=self.extra_paths)
+
+
+def test_gl_tools_lead_with_the_frame_gate_verdict(tmp_ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The shader compiled and the frames rendered, and the ``gl_frames`` gate still failed.
+    All three tools that print an "… OK" headline over that gate (``build`` on a graphics
+    workspace, ``gl_probe``, ``gl_frames``) must put the FAIL verdict ABOVE it — otherwise
+    the only verdict the model reads is "PROBE OK" — and none of them is a tool failure:
+    the code ran, and re-running it blind is exactly the retry this costs money."""
+    import codeverse.languages._gl_common as gl_build  # the one metrics reader
+    from codeverse.spatial.frame_stats import FrameStat, SequenceStats
+
+    ctx = ToolContext(workspace=tmp_ws, language="glsl_shader", track="graphics")
+    _patch_runtime(monkeypatch, _GlRuntime("glsl_shader", {"renderer": "moderngl"}))
+    stats = SequenceStats(frames=[FrameStat(time=0.0, path="f0.png", mean_lum=0.4, std_lum=0.2, pct_black=0.01,
+                                            pct_blown=0.01, colourfulness=0.3, edge_density=0.05)], mean_diff=0.0)
+    bad = GateReport(gate="gl_frames", passed=False, findings=[
+        GateFinding(gate="gl_frames", severity=Severity.ERROR, message="static image", data={"kind": "static"},
+                    fix_hint="animate with u_time")])
+    monkeypatch.setattr(gl_build, "read_metrics", lambda ws: (stats, bad))
+    for name, args, ok_headline in (("build", {}, "BUILD OK"), ("gl_probe", {}, "PROBE OK"),
+                                    ("gl_frames", {"times": [0.0, 1.0]}, "FRAMES OK")):
+        obs = get_tool(name).call(ctx, args)
+        assert not obs.ok and not obs.failed, name
+        assert obs.text.splitlines()[0].startswith("FRAME GATE: FAIL — 1 error(s)"), (name, obs.text)
+        assert "do not re-run blind" in obs.text.splitlines()[0], name
+        assert ok_headline in obs.text and "static image" in obs.text, name
+        assert obs.numbers["gate_errors"] == 1, name
 
 
 def test_load_plan_recognises_graphics_plan(tmp_ws: Workspace) -> None:

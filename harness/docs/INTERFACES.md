@@ -311,7 +311,11 @@ from codeverse.spatial.frame_stats import sequence_stats, frame_gate    # gate "
                                                                         # static | flicker | low_detail | duplicate | no_frames
 from codeverse.spatial.registry import tool, get_tool, list_tools, tool_cards, ToolContext, Observation
 Observation{ok: VERDICT, failed: the tool could not run, text, numbers, images, duration_ms}   # is_error == failed,
-    # never `not ok`; Observation.error(...) is the ONE constructor that sets failed
+    # never `not ok`.  failed is set by Observation.error(...) and by exactly three tools that compose
+    # their own result: build (no readable GLB), scene_probe (driver died), render_observation (no view
+    # and no console error — with one it is a verdict)
+from codeverse.spatial.mcp_server import observation_content, max_images_for, MAX_TEXT_CHARS
+    # payload bound at the MCP boundary: text truncated; images 4 (ok) | 1 (FAIL verdict) | 0 (failed)
 import codeverse.spatial.tools   # registers: build, measure, render_views, render_sheet, isolate, cross_section,
     # check_connectivity, check_contract, compare_silhouette, joint_sweep [articulated], shader_probe, scene_probe,
     # scene_views + check_placement [scene], gl_probe + gl_frames [graphics], texture_pass + texture_preview [object tracks]

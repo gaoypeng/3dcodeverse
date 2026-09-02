@@ -197,13 +197,34 @@ def gate_observation(report: GateReport, *, title: str = "", max_findings: int =
 
 
 def render_observation(rs: RenderSet, root: Path, *, note: str = "", max_individual: int = 4) -> Observation:
-    """Contact sheet first, individual views when few; text lists views + cameras."""
+    """Contact sheet first, individual views when few; text lists views + cameras.
+
+    The negative outcomes are NOT one answer.  **Console errors** are a verdict
+    (``ok=False``, ``failed=False``) whether or not any view came back: the scene ran
+    far enough to log them and the agent fixes them in ``src/`` — a scene that fails to
+    boot returns an empty RenderSet whose ``console_errors`` say why (``render_scene``),
+    and reporting that as a broken call would buy a blind retry of the very thing that
+    just explained itself.  **No views and nothing logged** is a failure
+    (``failed=True``): the tool's product is pictures, it has none and no reason, and
+    nothing the agent edits changes that.  Either way the verdict leads the text, since
+    a negative verdict now only reaches the model as text.
+    """
     images: list[str] = []
     if rs.contact_sheet:
         images.append(rs.contact_sheet)
     if len(rs.views) <= max_individual:
         images.extend(v.path for v in rs.views)
-    lines = [note] if note else []
+    lines: list[str] = []
+    if rs.console_errors:
+        lines.append(f"RENDER: FAIL — {len(rs.console_errors)} console error(s)"
+                     + (" and no view rendered; the errors below say why" if not rs.views
+                        else "; the views below rendered anyway"))
+    elif not rs.views:
+        lines.append("RENDER PRODUCED NO VIEWS" + (f" ({rs.renderer})" if rs.renderer else "")
+                     + " — nothing to look at and nothing logged: the renderer failed, "
+                       "there is no finding here to fix in src/")
+    if note:
+        lines.append(note)
     lines.append(f"{len(rs.views)} view(s)" + (f" via {rs.renderer}" if rs.renderer else "") + (", contact sheet first" if rs.contact_sheet else ""))
     for v in rs.views:
         cam = ""
@@ -223,5 +244,6 @@ def render_observation(rs: RenderSet, root: Path, *, note: str = "", max_individ
         numbers["fps"] = rs.fps
     if rs.console_errors:
         numbers["console_errors"] = len(rs.console_errors)
-    return Observation(ok=not rs.console_errors, text=truncate("\n".join(lines)), numbers=numbers,
-                       images=image_budget(images))
+    return Observation(ok=bool(rs.views) and not rs.console_errors,
+                       failed=not rs.views and not rs.console_errors,
+                       text=truncate("\n".join(lines)), numbers=numbers, images=image_budget(images))

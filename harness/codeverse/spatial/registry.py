@@ -39,11 +39,12 @@ class Observation(BaseModel):
     nothing penetrates); ``failed`` says the tool could not run at all.
 
     Only ``failed`` becomes MCP ``is_error`` (``spatial.mcp_server``).  Measured over
-    217 recorded gemini-cli sessions: with ``is_error = not ok``, 63% of 1404
-    joint_sweep calls, 23% of 2073 builds and ~15% of the connectivity/contract calls
-    reached the model as broken calls, and the model retries a broken call — ~117k
-    prompt tokens ≈ $0.034 each.  A negative verdict is a result: it keeps
-    ``failed=False`` and leads its ``text`` with the FAIL verdict instead.
+    224 recorded gemini-cli sessions (selector + full table in docs/COST.md §30): with
+    ``is_error = not ok``, 62% of 1445 joint_sweep calls, 23% of 2144 builds and ~15%
+    of the connectivity/contract calls reached the model as broken calls, and the model
+    retries a broken call — a mean 119k prompt tokens, $0.030 at the measured 73% cache
+    hit rate.  A negative verdict is a result: it keeps ``failed=False`` and leads its
+    ``text`` with the FAIL verdict instead.
     """
 
     ok: bool = True
@@ -56,7 +57,17 @@ class Observation(BaseModel):
 
     @classmethod
     def error(cls, text: str, **numbers: Any) -> Observation:
-        """The tool could not run — the ONE constructor for a genuine failure."""
+        """The tool could not run: every failure caught at the :meth:`ToolDef.call`
+        boundary and every missing / unreadable artefact is built here.
+
+        It is not the only thing that sets ``failed``.  Three results are failures
+        the tool computed rather than exceptions it caught, and they set the flag on
+        an observation they compose themselves: ``build`` (the runtime reported
+        success and left no readable GLB), ``scene_probe`` (the probe driver died)
+        and ``observe.render_observation`` (no view AND no console error — with one
+        it is a verdict).  Those four places are the whole list; nothing else may set
+        ``failed``.
+        """
         return cls(ok=False, failed=True, text=text, numbers=numbers)
 
 

@@ -337,12 +337,19 @@ server (name `3dcv`) for the vendor CLIs, (c) a native tool schema for any embed
 `gl_probe`, `gl_frames` (graphics), `texture_pass`, `texture_preview` (object tracks).
 
 An `Observation` carries two different answers: `ok` is the **verdict** and `failed`
-says the tool **could not run** (exception, missing artefact, unusable arguments —
-`Observation.error` is the only constructor that sets it).  MCP `is_error` is `failed`
-alone: a negative verdict is a result whose text leads with FAIL, because a vendor CLI
-retries an errored call, and over 217 recorded gemini-cli sessions `is_error = not ok`
-made 63 % of 1 404 `joint_sweep` calls, 23 % of 2 073 `build`s and ~15 % of the
-connectivity/contract calls look broken (~117 k prompt tokens ≈ $0.034 a retry).
+says the tool **could not run** (exception, missing artefact, unusable arguments).
+`Observation.error` builds every failure caught at the `ToolDef.call` boundary; three
+tools set `failed` on an observation they compose themselves, where the failure is a
+fact about the result rather than an exception — `build` (runtime success, no readable
+GLB), `scene_probe` (the probe driver died) and `observe.render_observation` (no view AND
+no console error; with one it is a verdict).  Those four places are the whole list.  MCP `is_error` is `failed` alone: a
+negative verdict is a result whose text leads with FAIL, because a vendor CLI retries an
+errored call, and over 224 recorded gemini-cli sessions `is_error = not ok` made 62 % of
+1 445 `joint_sweep` calls, 23 % of 2 144 `build`s and ~15 % of the connectivity/contract
+calls look broken (a mean 119 k prompt tokens ≈ $0.030 blended a retry — docs/COST.md §30
+for the selector, and for what an errored result costs when it carries an image).
+The MCP server also bounds every payload it hands over (`MAX_TEXT_CHARS`,
+`max_images_for`): no image at all on a `failed` result, one on a FAIL verdict.
 
 ## 6. Judging (protocol v2)
 

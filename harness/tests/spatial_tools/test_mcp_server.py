@@ -37,6 +37,33 @@ def test_observation_content_blocks(tmp_path: Path) -> None:
     assert encode_image(str(tmp_path / "missing.png")) is None
 
 
+def test_result_payload_is_bounded_by_outcome(tmp_path: Path) -> None:
+    """Since the harness decides what is an error, no single result may hand the model an
+    unbounded blob.  Text is capped here (an Observation built by hand never passes through
+    ``observe``'s truncation), and the image budget shrinks with the outcome: gemini-cli's
+    error path re-sends the WHOLE result as text, base64 images included — a 275 kB contact
+    sheet arrives as ~261k prompt tokens instead of ~516 (docs/COST.md §30) — and its own
+    40 000-char truncation does not fire for a multi-part MCP result."""
+    from PIL import Image
+
+    from codeverse.spatial.mcp_server import MAX_TEXT_CHARS, max_images_for
+
+    pngs = []
+    for i in range(5):
+        p = tmp_path / f"v{i}.png"
+        Image.new("RGB", (32, 32), (10 * i, 0, 0)).save(p)
+        pngs.append(str(p))
+    huge = "x" * 200_000
+    cases = ((Observation(ok=True, text=huge, images=pngs), 4),
+             (Observation(ok=False, text=huge, images=pngs), 1),               # a FAIL verdict
+             (Observation(ok=False, failed=True, text=huge, images=pngs), 0))  # the tool could not run
+    for obs, n_images in cases:
+        assert max_images_for(obs) == n_images
+        blocks = observation_content(obs)
+        assert len(blocks[0].text) <= MAX_TEXT_CHARS
+        assert sum(1 for b in blocks if b.type == "image") == n_images
+
+
 def test_cli_list(stool_ctx: ToolContext, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--workspace", str(stool_ctx.workspace.root), "--list"]) == 0
     data = json.loads(capsys.readouterr().out)

@@ -469,7 +469,7 @@ def _sweep_verdict(report: SweepReport) -> tuple[bool, str]:
     """(passed, headline) of a collision sweep — the ONE place that decides both.
 
     The headline leads the observation because a sweep that finds a penetration is a
-    RESULT, not a tool error (63% of 1404 recorded joint_sweep calls answered FAIL):
+    RESULT, not a tool error (62% of 1445 recorded joint_sweep calls answered FAIL):
     without it the model reads 'pose sweep: 12 poses…' and has to infer the verdict.
     """
     s = report.summary
