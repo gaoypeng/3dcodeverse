@@ -93,6 +93,32 @@ def read_tree_at(ws: Workspace, commit: str) -> dict[str, bytes]:
     return files
 
 
+def diff_between(ws: Workspace, before: str, after: str, *, max_bytes: int | None = None) -> tuple[str, int, bool]:
+    """Unified diff of the code roots between two commits: ``(text, total_bytes, truncated)``.
+
+    ``total_bytes`` is what git actually produced, so a capped row still records the
+    size it was capped from.  Both commits are checked first because the useful shas
+    are the ones recorded on the rounds, never ``HEAD`` — a finished run ends on a
+    "restore best round rNN" commit — and a sha the repository no longer holds must
+    fail loudly rather than diff against an empty tree.
+    """
+    for c in (before, after):
+        if not commit_exists(ws, c):
+            raise GitReadError(f"commit {c!r} not found in {ws.root}")
+    raw = _run(ws, "diff", "--no-ext-diff", before, after, "--", *CODE_ROOTS).stdout
+    total = len(raw)
+    if max_bytes is not None and total > max_bytes:
+        head = raw[:max_bytes].decode("utf-8", errors="replace")
+        return f"{head}\n... [truncated {total - max_bytes} bytes]\n", total, True
+    return raw.decode("utf-8", errors="replace"), total, False
+
+
+def changed_files_between(ws: Workspace, before: str, after: str) -> list[str]:
+    """Sorted code-root paths that differ between two commits."""
+    out = _run(ws, "diff", "--no-ext-diff", "--name-only", "-z", before, after, "--", *CODE_ROOTS).stdout
+    return sorted(p for p in out.decode("utf-8", errors="replace").split("\0") if p and _keep(p))
+
+
 def read_working_tree(ws: Workspace) -> dict[str, bytes]:
     """Fallback when a round has no commit: the current ``src/`` + ``public/``."""
     files: dict[str, bytes] = {}
