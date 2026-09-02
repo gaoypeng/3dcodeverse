@@ -27,7 +27,7 @@ CORE_TOOLS = {"build", "measure", "render_views", "render_sheet", "isolate", "cr
 #: track- / language-scoped tools (documented; keep in sync when registering a new one)
 SCOPED_TOOLS = {
     "joint_sweep",  # articulated_object
-    "shader_probe", "scene_probe", "scene_views", "check_placement",  # scene_threejs
+    "shader_probe", "scene_probe", "scene_views", "check_placement", "effect_ablation",  # scene_threejs
     "gl_probe", "gl_frames",  # graphics (glsl_shader / opengl_python)
     "texture_pass", "texture_preview",  # object tracks (texturing)
 }

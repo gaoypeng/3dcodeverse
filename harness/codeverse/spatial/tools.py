@@ -21,6 +21,8 @@ from codeverse.contracts.common import Language, Track
 from codeverse.contracts.plan import StaticPlan
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import OBJECT_VIEWS, OBJECT_VIEWS_QUICK
+from codeverse.spatial.ablation import ablate_scene as _ablate_scene
+from codeverse.spatial.ablation import merge_into_census as _merge_ablation_census
 from codeverse.spatial.connectivity import check_connectivity as _check_connectivity
 from codeverse.spatial.contract import check_contract as _check_contract
 from codeverse.spatial.contract import planned_joins
@@ -502,6 +504,31 @@ def scene_probe(ctx: ToolContext, args: NoArgs) -> Observation:
         obs.numbers["census"] = res.census
     obs.text = truncate(obs.text)
     return obs
+
+
+class EffectAblationArgs(BaseModel):
+    time_s: float = Field(default=1.5, description="animation time (s) to freeze the scene at (mid-phase, not an extreme)")
+    frames: bool = Field(default=True, description="also write the authored/ablated PNG pair per camera")
+
+
+@tool("effect_ablation", EffectAblationArgs,
+      "Does your custom GLSL actually reach the picture? Renders every camera twice — as authored, and with every "
+      "ShaderMaterial / onBeforeCompile patch replaced by a neutral material of the same base colour — and reports "
+      "the fraction of the frame your shaders paint, per camera and per material. 0% means the effect is not in the "
+      "frame (behind the camera, occluded, alpha 0) or you retreated to a flat material. LOOK at the returned pair.",
+      languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
+def effect_ablation(ctx: ToolContext, args: EffectAblationArgs) -> Observation:
+    if not 0.0 <= args.time_s <= 60.0:
+        raise ToolUsageError("time_s must be between 0 and 60 seconds", "effect_ablation(time_s=1.5)")
+    report = _ablate_scene(ctx.workspace, out_dir=tool_out_dir(ctx, "ablation"),
+                           time_s=args.time_s, frames=args.frames)
+    # the census is what the gates and the judge read: keep them on this number
+    _merge_ablation_census(ctx.workspace, report)
+    text = "\n".join(report.summary_lines())
+    if report.console_errors:
+        text += "\nconsole:\n" + "\n".join(f"  ! {sanitize_text(e, ctx.workspace.root)}" for e in report.console_errors[:5])
+    return Observation(ok=report.ok, text=truncate(text), numbers=report.census_field(),
+                       images=image_budget(report.images))
 
 
 class SceneViewsArgs(BaseModel):
