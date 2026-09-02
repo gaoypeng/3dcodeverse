@@ -52,13 +52,13 @@ def main():
             if not str(r.get("system") or "").strip():
                 bad["empty_system"] += 1
             if kind == "text":
-                if "<image>" in conv[0]["value"]:
+                if any("<image>" in t["value"] for t in conv):
                     bad["placeholder_in_text_pair"] += 1
                 continue
             # `or []` on a numpy array raises rather than defaulting; the same numpy-vs-list confusion as above
             raw = r.get("images")
             imgs = [str(x) for x in raw] if raw is not None else []
-            if conv[0]["value"].count("<image>") != len(imgs):
+            if sum(t["value"].count("<image>") for t in conv) != len(imgs):
                 bad["placeholder_mismatch"] += 1
             for x in imgs:
                 tot += 1
