@@ -56,8 +56,17 @@ _GITIGNORE_LINES = (
 )
 
 
-#: prepended to every workspace git argv: an agent-planted hook / fsmonitor never runs.
-_GIT_SAFE_FLAGS = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false")
+#: prepended to every git argv run against a run workspace: an agent-planted hook,
+#: fsmonitor or unnamed external diff driver never runs, and the GLOBAL attributes file
+#: cannot name one either.  ``-c`` outranks ``.git/config``, so these hold even in a
+#: repository the agent has written to.
+GIT_SAFE_FLAGS = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
+                  "-c", "core.attributesFile=/dev/null", "-c", "diff.external=")
+#: added to every git command that RENDERS file content (diff / show / log -p).  A
+#: NAMED driver — ``.gitattributes`` "*.bin diff=x" plus ``[diff "x"] textconv``/``command``
+#: in .git/config, both agent-writable — is not reachable by ``-c``, and ``--no-ext-diff``
+#: alone does not disable textconv: without ``--no-textconv`` that driver EXECUTES.
+GIT_SAFE_DIFF_FLAGS = ("--no-ext-diff", "--no-textconv")
 #: local (.git/config) config that makes git EXECUTE a program.  ``-c`` cannot override a
 #: local ``filter.*`` / ``diff.*`` driver, so these are unset in place before every commit.
 _GIT_EXEC_SECTIONS = ("filter", "diff", "alias", "gpg", "credential")
@@ -72,6 +81,15 @@ def _git_home() -> str:
     with contextlib.suppress(OSError):  # a missing HOME is harmless; an unwritable one must not sink git
         d.mkdir(parents=True, exist_ok=True)
     return str(d)
+
+
+def git_safe_env(**extra: str) -> dict[str, str]:
+    """Environment for git in an agent-writable repository: no system or global config
+    (``.gitconfig`` written into the workspace is git's GLOBAL config when HOME is the
+    workspace), a fixed PATH, and no credential prompt.  ``extra`` adds identity."""
+    return {"PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": _git_home(),
+            "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_TERMINAL_PROMPT": "0", **extra}
 
 
 class WorkspaceGitError(subprocess.CalledProcessError):
@@ -305,11 +323,9 @@ class Workspace:
         with self._lock:
             for attempt in range(4):
                 proc = subprocess.run(
-                    ["git", *_GIT_SAFE_FLAGS, *args], cwd=self.root, text=True, capture_output=True, check=False,
-                    env={"GIT_AUTHOR_NAME": "3dcv", "GIT_AUTHOR_EMAIL": "3dcv@local",
-                         "GIT_COMMITTER_NAME": "3dcv", "GIT_COMMITTER_EMAIL": "3dcv@local",
-                         "PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": _git_home(),
-                         "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"},
+                    ["git", *GIT_SAFE_FLAGS, *args], cwd=self.root, text=True, capture_output=True, check=False,
+                    env=git_safe_env(GIT_AUTHOR_NAME="3dcv", GIT_AUTHOR_EMAIL="3dcv@local",
+                                     GIT_COMMITTER_NAME="3dcv", GIT_COMMITTER_EMAIL="3dcv@local"),
                 )
                 if proc.returncode == 0 or "index.lock" not in (proc.stderr or ""):
                     break
@@ -379,12 +395,12 @@ class Workspace:
     def changed_files(self, since: str | None = None) -> list[FileChange]:
         """Files changed vs ``since`` (a commit) or vs HEAD (uncommitted work)."""
         with self._lock:  # add -N + two diffs are one unit: a sibling commit between them mislabels a status
-            self._sanitise_git_config()  # `add`/`diff` apply clean + textconv drivers
+            self._sanitise_git_config()  # `add` applies clean filters; -c cannot unset a local one
             self._git("add", "-A", "-N")  # register untracked so they show up in diff
-            args = ["diff", "--numstat", "--diff-filter=ADM"] + ([since] if since else ["HEAD"])
+            args = ["diff", *GIT_SAFE_DIFF_FLAGS, "--numstat", "--diff-filter=ADM"] + ([since] if since else ["HEAD"])
             out = self._git(*args).stdout
             status = {}
-            for line in self._git("diff", "--name-status", since or "HEAD").stdout.splitlines():
+            for line in self._git("diff", *GIT_SAFE_DIFF_FLAGS, "--name-status", since or "HEAD").stdout.splitlines():
                 if "\t" in line:
                     st, path = line.split("\t", 1)
                     status[path] = {"A": "added", "D": "deleted"}.get(st[0], "modified")

@@ -3,9 +3,10 @@
 Every case builds a corpus in the real on-disk layout — ``<root>/<battery>/runs/<slug>``,
 a git repo with two commits and two round records — because the exporter's whole job is
 to survive that layout: the recorded round shas rather than ``HEAD`` (a finished run ends
-on a "restore best round rNN" commit), one row per resolved run path (a battery's
-symlinked cells make runs reachable twice), and a named reason for every transition it
-cannot export.
+on a "restore best round rNN" commit), one row per resolved run path labelled with the
+battery it physically lives in (``bench/out``'s cell symlinks point ACROSS batteries), the
+brief the agent sessions were really handed rather than the pre-grouping task list, and a
+named reason for every run and transition it cannot export.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import pytest
 from bench.refine_pairs import (
     DROP_REASONS,
     Report,
+    changes_block,
     export,
     iter_rows,
     main,
@@ -27,9 +29,10 @@ from bench.refine_pairs import (
     scan_roots,
     transition_row,
 )
-from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.contracts.run import RunRecord
+from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Judgment, Severity
+from codeverse.contracts.run import RoundRecord, RunRecord
 from codeverse.flywheel.record import load_record, run_id_for
+from codeverse.judges.rubrics import is_degraded
 from codeverse.workspace import Workspace
 from tests.flywheel_cli.conftest import make_fake_run
 
@@ -38,6 +41,28 @@ def _corpus(root: Path, *, battery: str = "batt", slug: str = "chair") -> Worksp
     """One battery holding one run: two judged rounds, ``src/`` committed twice."""
     ws, _ = make_fake_run(root / battery / "runs", slug)
     return ws
+
+
+def _degraded() -> Judgment:
+    """What ``judges.rubrics.degraded_judgment`` writes when the judge call fails: a
+    0.0 verdict flagged both ways.  ``is_degraded`` below keeps this honest."""
+    return Judgment(rubric="static_object_v1", judge_backend="gemini:gemini-3.1-pro-preview",
+                    scores={"fidelity": 0.0}, overall=0.0, passed=False,
+                    summary="judge_error: 503 from the judge", n_samples=0,
+                    raw=json.dumps({"status": "degraded", "error": "503"}))
+
+
+def _prompt(ws: Workspace, session: str, round_index: int, lines: list[str]) -> None:
+    """One session's prompt file, in the shape ``agents.cli_common.begin_session`` writes
+    and ``prompts/tracks/refine_object.j2`` renders."""
+    d = ws.root / "trajectories" / f"{session}_r{round_index:02d}"
+    d.mkdir(parents=True, exist_ok=True)
+    numbered = "\n".join(f"{i}. {ln}" for i, ln in enumerate(lines, 1))
+    (d / "prompt.md").write_text(
+        f"<!-- system -->\nYou are a Blender author\n\n<!-- prompt -->\n"
+        f"# Refine `Chair` — round {round_index}\n\nThe object already builds.\n\n"
+        f"## Changes to make (in priority order; `[gate/...]` items are hard failures — fix them first)\n\n"
+        f"{numbered}\n\nTargets: Leg\n\n## What the judge saw\n1. not an instruction\n")
 
 
 def _patch(ws: Workspace, edit: Callable[[RunRecord], None]) -> RunRecord:
@@ -94,8 +119,21 @@ def test_scan_roots_picks_batteries_not_the_parent(tmp_path):
     root = tmp_path / "out"
     _corpus(root, battery="batt_a")
     _corpus(root, battery="batt_b")
-    assert scan_roots(root) == [root / "batt_a", root / "batt_b"]
-    assert scan_roots(root / "batt_a") == [root / "batt_a"]
+    (root / "merged_report").mkdir()  # neither a run nor a battery: reported, not silent
+    assert scan_roots(root) == ([root / "batt_a", root / "batt_b"], [root / "merged_report"])
+    assert scan_roots(root / "batt_a") == ([root / "batt_a"], [])
+
+
+def test_changes_block_reads_the_numbered_list_and_stops_at_the_next_section():
+    """The refine templates number ``compact_instructions``' lines and follow them with
+    ``Targets:``; a numbered line in a LATER section is not an instruction."""
+    prompt = ("# Refine `Chair` — round 1\n\n"
+              "## Changes to make (in priority order)\n\n"
+              "1. Leg: (a) [judge/geometry] thicken\n\n2. [judge/material] Seat: oak,\n   quarter-sawn\n\n"
+              "Targets: Leg, Seat\n\n## What the judge saw\n1. legs too thin\n")
+    assert changes_block(prompt) == ["Leg: (a) [judge/geometry] thicken",
+                                     "[judge/material] Seat: oak, quarter-sawn"]
+    assert changes_block("# Rebuild `Chair`\n\n1. fix the syntax error\n") == []
 
 
 # --------------------------------------------------------------------------- rows
@@ -110,7 +148,7 @@ def test_row_carries_brief_diff_and_delta(tmp_path):
     # the brief is the PREVIOUS round's verdict, the change is this round's
     assert [i["target"] for i in row["issues"]] == ["Leg"]
     assert [i["instruction"] for i in row["improvement_plan"]] == ["thicken the legs", "add a back rail"]
-    assert row["instructions"] == ["thicken the legs"]
+    assert row["refine_tasks"] == ["thicken the legs"]
     assert row["before"]["files"] == ["src/model.py"]
     assert row["after"]["files"] == ["src/model.py", "src/parts/leg.py"]
     assert row["changed_files"] == ["src/model.py", "src/parts/leg.py"]
@@ -149,11 +187,197 @@ def test_gate_error_findings_carry_fix_hints(tmp_path):
 
 
 def test_diff_is_capped_and_says_so(tmp_path):
+    """The cap must actually cut the text: a row that carries the WHOLE diff and merely
+    says "truncated" is the failure the cap exists to prevent."""
     root = tmp_path / "out"
     _corpus(root)
     (row,), _ = _rows(root, max_diff_bytes=120)
     assert row["diff_truncated"] and row["diff_max_bytes"] == 120
     assert row["diff_bytes"] > 120 and "[truncated" in row["diff"]
+    head, marker, _rest = row["diff"].partition("\n... [truncated ")
+    assert marker and len(head.encode()) == 120, "the kept head is exactly the cap"
+    assert f"{row['diff_bytes'] - 120} bytes" in row["diff"], "and it names what it dropped"
+    (whole,), _ = _rows(root)  # the same diff uncapped: same prefix, more of it
+    assert whole["diff"].startswith(head) and len(whole["diff"]) > len(head)
+    assert not whole["diff_truncated"] and whole["diff_bytes"] == row["diff_bytes"]
+
+
+def test_diff_lines_count_content_not_file_headers(tmp_path):
+    """``+++``/``---`` are one pair per changed FILE.  Counting them inflates every row's
+    churn by the number of files the round touched — the label a preference model reads."""
+    root = tmp_path / "out"
+    _corpus(root)
+    (row,), _ = _rows(root)
+    # round 1 rewrites 3 of the 4 lines of src/model.py and adds the 1-line src/parts/leg.py
+    assert (row["diff_added"], row["diff_removed"]) == (4, 3)
+    naive_added = sum(1 for ln in row["diff"].splitlines() if ln.startswith("+"))
+    naive_removed = sum(1 for ln in row["diff"].splitlines() if ln.startswith("-"))
+    assert (naive_added, naive_removed) == (6, 5), "two file header pairs sit in that diff"
+
+
+def test_changed_files_are_the_ones_this_round_touched(tmp_path):
+    """Per-file attribution is the round's OWN diff, not the file list at its commit: a
+    round that edits one of two files must not be recorded as having rewritten both."""
+    root = tmp_path / "out"
+    ws = _corpus(root)
+    (ws.src / "parts" / "leg.py").write_text("LEG = 0.06\n")
+    commit = ws.commit("round 2")
+    _patch(ws, lambda rec: rec.rounds.append(RoundRecord(
+        index=2, kind="refine", commit=commit, instructions=["thicken the legs again"],
+        build=BuildResult(ok=True, language="blender"), judgment=rec.rounds[1].judgment)))
+    rows, _ = _rows(root)
+    second = rows[-1]
+    assert second["round"] == 2
+    assert second["changed_files"] == ["src/parts/leg.py"]
+    assert second["after"]["files"] == ["src/model.py", "src/parts/leg.py"], "both exist, one changed"
+    assert "src/model.py" not in second["diff"]
+
+
+def test_only_refine_kind_rounds_are_transitions(tmp_path):
+    """A texture pass edits ``src/`` and has everything a row needs — a judged
+    predecessor, a commit, instructions.  It is still not a refine transition: nothing
+    derived it from a verdict, so it is a round SEEN and a row not written, with no drop
+    to explain (the drop reasons are for transitions that should have been exportable)."""
+    root = tmp_path / "out"
+    ws = _corpus(root)
+    (ws.src / "model.py").write_text("# textured\nimport bpy\n")
+    commit = ws.commit("texture pass")
+    _patch(ws, lambda rec: rec.rounds.append(RoundRecord(
+        index=2, kind="texture", commit=commit, instructions=["bake a quarter-sawn oak albedo"],
+        build=BuildResult(ok=True, language="blender"))))
+    rows, report = _rows(root)
+    assert [r["round_kind"] for r in rows] == ["refine"]
+    assert report.kinds == {"baseline": 1, "refine": 1, "texture": 1}
+    assert report.transitions == 1 and not report.drops
+
+
+def test_a_degraded_verdict_is_unscored_not_a_zero(tmp_path):
+    """A judge outage writes a 0.0 ``judge_error:`` Judgment.  Read as a score it turns a
+    fine round into the corpus's worst regression (0.0 - 0.55), and the sign of that row
+    is exactly what the pairs are for."""
+    assert is_degraded(_degraded()), "the fixture must stay the real degraded shape"
+    root = tmp_path / "out"
+    ws = _corpus(root)
+    _patch(ws, lambda rec: setattr(rec.rounds[1], "judgment", _degraded()))
+    (row,), report = _rows(root)
+    assert row["score_before"] == 0.55
+    assert row["score_after"] is None and row["score_delta"] is None
+    assert row["outcome"] == "unscored"
+    assert row["after"]["score"] is None and row["after"]["passed"] is None
+    assert not report.drops
+
+
+def test_a_degraded_previous_verdict_drops_the_transition(tmp_path):
+    """The brief is the PREVIOUS round's verdict.  A judge outage wrote no verdict, so
+    there is no brief — and a 0.0 one would make every issue list empty on purpose."""
+    root = tmp_path / "out"
+    ws = _corpus(root)
+    _patch(ws, lambda rec: setattr(rec.rounds[0], "judgment", _degraded()))
+    rows, report = _rows(root)
+    assert rows == [] and dict(report.drops) == {"missing_prev_judgment": 1}
+
+
+# --------------------------------------------------------------------------- instructions
+def test_instruction_lines_are_the_ones_the_sessions_were_handed(tmp_path):
+    """``RoundRecord.instructions`` is the COMPILED task list; each file-disjoint group's
+    agent session is handed its own ``compact_instructions`` output, folded by target and
+    capped.  The two differ for 167 of the corpus's 205 transitions, so the row carries
+    both and says which one ``instruction_tasks`` was parsed from."""
+    root = tmp_path / "out"
+    ws = _corpus(root)
+    compiled = ["[judge/geometry] Leg_0: thicken it (files: src/parts/leg.py)",
+                "[judge/geometry] Leg_1: thicken it (files: src/parts/leg.py)",
+                "[judge/material] Seat: quarter-sawn oak (files: src/model.py)"]
+    _patch(ws, lambda rec: setattr(rec.rounds[1], "instructions", compiled))
+    leg = "Leg: (a) [judge/geometry] thicken it; (b) [Leg_1] [judge/geometry] thicken it (files: src/parts/leg.py)"
+    seat = "[judge/material] Seat: quarter-sawn oak (files: src/model.py)"
+    _prompt(ws, "refine_leg", 1, [leg])
+    _prompt(ws, "refine_seat", 1, [seat])
+
+    (row,), _ = _rows(root)
+    assert row["instruction_source"] == "prompt"
+    assert [s["session"] for s in row["sent_instructions"]] == ["refine_leg", "refine_seat"]
+    assert row["instruction_lines"] == [leg, seat]
+    assert row["refine_tasks"] == compiled
+    assert row["instruction_lines"] != row["refine_tasks"]
+    assert [t["target"] for t in row["instruction_tasks"]] == ["Leg", "Leg_1", "Seat"]
+
+
+def test_a_retry_session_is_not_a_second_brief(tmp_path):
+    """``<label>.a2`` is the SAME brief re-sent after a silent bail (``_session_label``);
+    counting it twice would double every task in the row."""
+    root = tmp_path / "out"
+    ws = _corpus(root)
+    line = "Leg: (a) [judge/geometry] thicken it (files: src/parts/leg.py)"
+    _prompt(ws, "refine", 1, [line])
+    _prompt(ws, "refine.a2", 1, [line])
+    (row,), _ = _rows(root)
+    assert row["instruction_lines"] == [line]
+    assert [s["session"] for s in row["sent_instructions"]] == ["refine"]
+
+
+def test_instruction_lines_fall_back_to_the_record_when_no_prompt_survives(tmp_path):
+    """10 of the corpus's 205 transitions have no prompt file left.  The compiled task
+    list is then all there is, and the row says so rather than shipping an empty brief."""
+    root = tmp_path / "out"
+    _corpus(root)
+    (row,), _ = _rows(root)
+    assert row["sent_instructions"] == [] and row["instruction_source"] == "record"
+    assert row["instruction_lines"] == row["refine_tasks"] == ["thicken the legs"]
+
+
+# --------------------------------------------------------------------------- identity
+def test_a_cross_battery_alias_is_labelled_with_the_physical_battery(tmp_path):
+    """``bench/out``'s aliases point ACROSS batteries (``compare_v4_calm/cells/*`` is a
+    symlink into ``compare_v4`` and ``compare_v4_harness_calm``) and the alias sorts
+    FIRST, so labelling by the root that reached a run first credits it to a battery it
+    never ran in.  The label is the battery the run physically lives in; the alias is
+    reported, not lost."""
+    root = tmp_path / "out"
+    ws = _corpus(root, battery="zz_physical", slug="chair")
+    alias = root / "aa_alias" / "runs"
+    alias.mkdir(parents=True)
+    (alias / "chair").symlink_to(ws.root, target_is_directory=True)
+
+    rows, report = _rows(root)
+    assert report.roots == [str(root / "aa_alias"), str(root / "zz_physical")]
+    assert [r["battery"] for r in rows] == ["zz_physical"]
+    assert rows[0]["run_dir"] == str(ws.root)
+    assert dict(report.drops) == {"duplicate_run": 1}
+    assert dict(report.aliases) == {"aa_alias -> zz_physical": 1}
+
+
+def test_a_single_run_directory_exports_with_the_identity_a_full_scan_gives_it(tmp_path):
+    """The documented one-run input.  ``iter_runs`` searches strictly BELOW its argument,
+    so the run itself was invisible and the export reported zero rows as a success."""
+    root = tmp_path / "out"
+    ws = _corpus(root, battery="batt", slug="chair")
+    whole, _ = _rows(root)
+    alone, report = _rows(ws.root)
+    assert len(alone) == 1 and report.runs == 1 and not report.drops
+    assert (alone[0]["battery"], alone[0]["run"]) == ("batt", "chair")
+    assert alone[0] == whole[0]
+
+
+def test_a_single_nested_run_keeps_the_whole_battery_path(tmp_path):
+    """The same for the deepest layout, ``<battery>/arms/<arm>/cells/<cell>/<slug>``,
+    where the battery is the OUTERMOST marker on the path: stopping at the first one up
+    (``<arm>``, which owns a ``cells/``) labels the run with its arm instead."""
+    root = tmp_path / "out"
+    ws, _ = make_fake_run(root / "batt" / "arms" / "control" / "cells" / "chair_cell", "harness_arm")
+    whole, _ = _rows(root)
+    (row,), report = _rows(ws.root)
+    assert (row["battery"], row["arm"], row["cell"]) == ("batt", "control", "chair_cell")
+    assert row["run"] == "control__chair_cell__harness_arm"
+    assert report.roots == [str(ws.root)]
+    assert row == whole[0]
+
+
+def test_main_accepts_one_run_directory(tmp_path, capsys):
+    root = tmp_path / "out"
+    ws = _corpus(root)
+    assert main([str(ws.root), "--summary"]) == 0
+    assert "1 row(s) from 1 run(s) in 1 root(s)" in capsys.readouterr().out
 
 
 def test_diff_uses_the_recorded_shas_not_head(tmp_path):
@@ -187,6 +411,11 @@ def test_transition_row_is_callable_on_one_run(tmp_path):
 
 
 # --------------------------------------------------------------------------- drops
+def _drop_not_a_battery(root: Path) -> None:
+    _corpus(root)
+    (root / "merged_report").mkdir()  # bench/out holds three of these
+
+
 def _drop_empty_battery(root: Path) -> None:
     (root / "batt" / "cells").mkdir(parents=True)
 
@@ -229,6 +458,7 @@ def _drop_empty_diff(root: Path) -> None:
 
 #: one corpus per reason; the parametrisation below fails loudly if a reason has none
 DROP_CORPUS: dict[str, Callable[[Path], None]] = {
+    "not_a_battery": _drop_not_a_battery,
     "empty_battery": _drop_empty_battery,
     "unreadable_record": _drop_unreadable_record,
     "duplicate_run": _drop_duplicate_run,
@@ -239,8 +469,8 @@ DROP_CORPUS: dict[str, Callable[[Path], None]] = {
     "git_read_failed": _drop_git_read_failed,
     "empty_diff": _drop_empty_diff,
 }
-#: the two run-level drops leave the run itself exportable
-KEEPS_ROW = {"unreadable_record", "duplicate_run"}
+#: the scan-level drops leave the run itself exportable
+KEEPS_ROW = {"not_a_battery", "unreadable_record", "duplicate_run"}
 
 
 @pytest.mark.parametrize("reason", DROP_REASONS)
@@ -250,6 +480,19 @@ def test_every_drop_reason_is_counted(tmp_path, reason):
     rows, report = _rows(root)
     assert dict(report.drops) == {reason: 1}
     assert len(rows) == report.rows == (1 if reason in KEEPS_ROW else 0)
+
+
+def test_a_skipped_child_is_named_in_the_report(tmp_path, capsys):
+    """Counting it is half the job: "every drop is counted" has to say WHICH directory
+    was passed over, or a mistyped battery name reads as an empty corpus."""
+    from bench.refine_pairs import scan_report
+
+    root = tmp_path / "out"
+    _drop_not_a_battery(root)
+    _, report = _rows(root)
+    assert report.skipped == [str(root / "merged_report")]
+    assert str(root / "merged_report") in scan_report(report)
+    assert "not_a_battery" in scan_report(report)
 
 
 def test_drop_corpus_covers_every_declared_reason():
