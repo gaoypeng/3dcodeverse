@@ -5,15 +5,18 @@
  * sRGB, shadow maps), imports the agent's `src/scene.js` through the import
  * map, calls `createScene({THREE, renderer, loaders})`, validates the returned
  * shape and exposes `window.__c3v` with deterministic instruments:
+ * Scene renders go through the post chain (browser/post.js: GTAO + soft bloom +
+ * grade, `post: false` to disable); the coverage mask passes stay raw.
  *   boot(opts) · renderAt(cameraSpec, t) · census() · fps(seconds)
  *   cameraChecks(cameraSpec) (near geometry + luminance + content coverage)
- *   compileAll(cameraSpec) · shaderErrors()
+ *   compileAll(cameraSpec) · shaderErrors() · ablation(opts) (shader presence)
  * Node drivers (render_scene / probe_scene / check_shaders) call these via
  * page.evaluate.  Agent code never imports this file.
  */
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { ablationReport, frameSampler } from './host_ablation.mjs';
 import { sceneCensus } from './host_census.mjs';
 import { placementTable, settleScene } from './host_placement.mjs';
 import { frameStats, nearGeometry, repairCameraSpec } from './host_metrics.mjs';
@@ -52,6 +55,8 @@ const state = {
   repairedSpecs: new Map(),
   autoExposure: false,
   autoExposureInfo: null,
+  post: null,
+  postInfo: null,
 };
 
 /**
@@ -236,6 +241,29 @@ async function boot(opts) {
     state.simTime = 0;
     state.scene.updateMatrixWorld(true);
 
+    // post chain (browser/post.js): ON for scene renders unless `post: false`.
+    // Built here — after the first update, so a scene that sets its grade hint
+    // while building has already set it — and before auto-exposure, which must
+    // measure the frame that will actually be judged.  A chain that cannot be
+    // built is a host WARNING, never a boot failure: the raw path still renders.
+    if (opts.post !== false) {
+      info.stage = 'post';
+      try {
+        const { makePostChain } = await import('./browser/post.js');
+        state.post = makePostChain(state.renderer, state.scene, {
+          width: state.width, height: state.height, options: opts.postOptions || {},
+        });
+        state.postInfo = state.post.info;
+        for (const w of state.post.info.warnings) state.hostWarnings.push(`post: ${w}`);
+      } catch (e) {
+        state.post = null;
+        state.postInfo = { enabled: false, error: String((e && e.message) || e).slice(0, 300) };
+        state.hostWarnings.push(`post chain unavailable, plain render: ${state.postInfo.error}`);
+      }
+    } else {
+      state.postInfo = { enabled: false };
+    }
+
     // settle (2026-08-30): deterministically seat floating / sunken assets before any
     // census or render — the placement gate measured the errors for two batteries and
     // the refine agent left 38 sunken + 22 floating standing in final rounds.  Runs on
@@ -279,6 +307,14 @@ async function boot(opts) {
     }
     state.booted = true;
     info.ok = cameras.length > 0;
+    // A camera-less scene used to fail with info.error EMPTY, so the caller
+    // reported `scene did not boot at stage 'ready': ` and named no reason —
+    // ~20 minutes of blind bisecting down to a two-line scene, twice.
+    // validateCameras already said WHY; carry it into the error.
+    if (!info.ok) {
+      info.error = 'createScene() returned no usable cameras'
+        + (problems.length ? ': ' + problems.join('; ') : '');
+    }
     info.stage = 'ready';
   } catch (e) {
     info.error = formatError(e);
@@ -391,8 +427,14 @@ function advanceTo(t) {
   }
 }
 
+/** One frame to the canvas — through the post chain when it is armed. */
 function renderOnce(cam) {
-  state.renderer.render(state.scene, cam);
+  if (state.post) {
+    state.post.refreshGrade();   // a scene may set userData.grade from update()
+    state.post.render(cam);
+  } else {
+    state.renderer.render(state.scene, cam);
+  }
   try { const gl = state.renderer.getContext(); if (gl && gl.finish) gl.finish(); } catch (e) { /* ignore */ }
 }
 
@@ -466,13 +508,48 @@ function fps(seconds, spec) {
   while (performance.now() < deadline) {
     state.simTime += FIXED_DT;
     runUpdate(state.simTime, FIXED_DT);
-    state.renderer.render(state.scene, cam);
+    if (state.post) state.post.render(cam); else state.renderer.render(state.scene, cam);
     frames += 1;
   }
   try { state.renderer.getContext().finish(); } catch (e) { /* ignore */ }
   const elapsed = (performance.now() - t0) / 1000;
+  // draw calls / triangles must stay the SCENE's numbers: renderer.info resets on
+  // every render() call, so after a composer frame it holds the last full-screen
+  // quad.  One plain render refills it with what the agent's budget is about.
+  if (state.post) state.renderer.render(state.scene, cam);
   const r = state.renderer.info.render;
   return { fps: frames / Math.max(elapsed, 1e-3), frames, seconds: elapsed, draw_calls: r.calls, triangles: r.triangles };
+}
+
+/**
+ * Ablation instrument (host_ablation.mjs): render each camera as authored and
+ * again with every custom shader replaced by a neutral material, and report the
+ * fraction of the frame the shaders actually paint.
+ *
+ * Time is advanced ONCE, before any render, and never again: every frame in the
+ * report — authored, fully ablated, leave-one-out — is the same instant of the
+ * same scene, so the only thing that differs between two frames is the shader
+ * under test.  Frames go through `renderOnce`, so the post chain (when armed)
+ * is included: the measurement is of the DELIVERED picture, not of a raw pass
+ * nobody sees.
+ *
+ * @param {{t?:number, cameras?:object[], maxMaterials?:number, threshold?:number, frames?:boolean}} opts
+ */
+function ablation(opts = {}) {
+  if (!state.booted) throw new Error('host not booted');
+  const t = Number.isFinite(opts.t) ? opts.t : 1.5;
+  advanceTo(t);
+  state.scene.updateMatrixWorld(true);
+  const cameras = (Array.isArray(opts.cameras) && opts.cameras.length) ? opts.cameras : state.cameras;
+  const sample = frameSampler(state.canvas);
+  const renderFrame = (spec) => { renderOnce(buildCamera(spec)); return sample(); };
+  const snapshot = opts.frames ? () => state.canvas.toDataURL('image/png') : null;
+  const report = ablationReport(state.scene, THREE, {
+    renderFrame, snapshot, cameras, grid: sample.grid,
+    maxMaterials: opts.maxMaterials, threshold: opts.threshold, maxRenders: opts.maxRenders,
+  });
+  report.sim_time = state.simTime;
+  return report;
 }
 
 /** Per-asset placement table (host_placement.mjs) — never throws: a failure is `{error}`. */
@@ -491,6 +568,7 @@ function census() {
   if (state.settleInfo) c.settle = state.settleInfo;
   if (state.cameraRepairs.length) c.camera_repair = state.cameraRepairs.slice();
   if (state.autoExposureInfo) c.auto_exposure = state.autoExposureInfo;
+  if (state.postInfo) c.post = state.postInfo;
   state.contentBox = c.content_bbox;
   state.fullBox = c.bbox;
   c.cameras = state.cameras.length;
@@ -506,8 +584,14 @@ window.__c3v = {
   compileAll,
   census,
   placement,
+  ablation,
   fps,
-  setViewport(w, h) { state.width = w; state.height = h; state.renderer.setSize(w, h, false); },
+  setViewport(w, h) {
+    state.width = w; state.height = h;
+    state.renderer.setSize(w, h, false);
+    if (state.post) state.post.setSize(w, h);
+  },
+  post: () => (state.postInfo ? { ...state.postInfo } : null),
   shaderErrors: () => state.shaderErrors.slice(),
   loadErrors: () => state.loadErrors.slice(),
   updateErrors: () => state.updateErrors.slice(),

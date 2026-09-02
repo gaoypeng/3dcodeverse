@@ -92,6 +92,15 @@ def probe_env_args() -> list[str]:
     return args
 
 
+def post_chain_args() -> list[str]:
+    """``--no-post`` when ``CV3D_POST`` is off.  The post chain (GTAO + selective
+    bloom + grade, ``runtime_js/lib/browser/post.js``) is ON by default for scene
+    PICTURES only: object renders never touch this driver, and the scene probe runs
+    raw because it is a 320x180 geometry instrument, not a judged frame.  Kept out
+    of :func:`probe_env_args` for exactly that reason."""
+    return [] if env_flag("CV3D_POST", True) else ["--no-post"]
+
+
 def _camera_json(cams: Sequence[CameraPlan]) -> str:
     return json.dumps([
         {"name": c.name, "position": list(c.position), "lookAt": list(c.look_at), "fov": c.fov} for c in cams
@@ -161,6 +170,7 @@ def render_scene(
     tmo = timeout_s or settings.limits.render_timeout_s
     args += ["--timeout-ms", str(int(tmo * 1000))]
     args += probe_env_args()
+    args += post_chain_args()
     driver_error = ""
     try:
         res = run_scene_script("render_scene.mjs", args, timeout_s=tmo + 30)
