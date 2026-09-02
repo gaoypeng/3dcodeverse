@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from codeverse.config import fewer_turns_enabled
+from codeverse.config import fewer_turns_enabled, lean_prompt_enabled
 from codeverse.contracts.chat import ImagePart
 from codeverse.contracts.common import HARNESS_OWNED_SRC, Language, Track
 from codeverse.contracts.plan import Plan, StaticPlan
@@ -104,11 +104,15 @@ def joints_table(plan: Plan) -> str:
     return "\n".join(rows)
 
 
+def acceptance_line(item: Any) -> str:
+    return f"- [{item.id}] ({item.priority}, {item.how}) {item.text}"
+
+
 def acceptance_lines(plan: Plan | None) -> str:
     items = getattr(plan, "acceptance", None) or []
     if not items:
         return "(none)"
-    return "\n".join(f"- [{a.id}] ({a.priority}, {a.how}) {a.text}" for a in items)
+    return "\n".join(acceptance_line(a) for a in items)
 
 
 def bbox_line(bbox: Any) -> str:
@@ -260,6 +264,104 @@ def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,
     return [chapters[i] for i in sorted(chosen)]
 
 
+# --------------------------------------------------------------------- lean articulated prompt
+#: urdf cookbook chapters an articulated prompt carries whatever the brief says: the frame
+#: recipe, both skeletons, joint semantics, clearances, pitfalls and the self-check.  What is
+#: NOT here is the three worked examples — they are the 12 446 chars the brief chooses between.
+URDF_COOKBOOK_ALWAYS: tuple[str, ...] = (
+    "The frame recipe", "Skeleton (`src/model.py`", "Joint types, axes, limits",
+    "Clearances, rest pose, hardware", "URDF skeleton", "Pitfalls", "Self-check",
+)
+#: measured on prompts/urdf/cookbook.md: the always-set above is 11 680 chars and the worked
+#: examples are 4 976 (cabinet) / 4 677 (hand cart) / 2 793 (laptop).  This budget admits the
+#: always-set plus exactly ONE example — the one the brief ranks first — and never a second.
+URDF_COOKBOOK_BUDGET = 16_700
+
+
+def lean_prompt(ctx: RunContext) -> bool:
+    """May this session's prompt drop what the workspace already carries?
+
+    Measured on aa_articulated (2026-09-02): the materialised AGENTS.md/GEMINI.md repeats
+    prompts/urdf/contract.md byte for byte, and the tool list reaches the model a third time
+    as MCP declarations — 11 k chars of the 53 k baseline prompt, on every turn.  A
+    single-shot envelope has neither file nor tool declarations, so it keeps everything;
+    only the articulated track is measured, so only it is trimmed.
+    """
+    return (ctx.track is Track.ARTICULATED_OBJECT and not ctx.single_shot
+            and lean_prompt_enabled())
+
+
+def articulated_brief(ctx: RunContext) -> str:
+    """What ranks the cookbook's worked examples: the request plus the plan's own vocabulary.
+
+    Part and joint names are snake-cased back into words first — ``_words`` splits on
+    non-alphanumerics, so a raw ``DrawerFront`` is one token that matches nothing.
+    """
+    plan = ctx.plan
+    bits: list[str] = [ctx.spec.prompt, getattr(plan, "summary", "") or ""]
+    for p in getattr(plan, "parts", None) or ():
+        bits.append(to_snake(p.name).replace("_", " "))
+    for j in getattr(plan, "joints", None) or ():
+        bits += [to_snake(j.name).replace("_", " "), j.type, j.motion or ""]
+    return " ".join(b for b in bits if b)
+
+
+def cookbook_excerpt(ctx: RunContext, *, lean: bool) -> str:
+    """The cookbook the prompt inlines: the whole file, or the chapters this brief calls for.
+
+    The whole file is right when it is the ONLY copy the session has (single-shot, and every
+    track whose duplication is not measured).  An articulated agent session also has it at
+    ``.3dcv/cookbook.md``, which the cookbook's own preamble — an always-carried chapter —
+    already points at, so nothing has to say where the unselected chapters went.
+    """
+    if not lean:
+        return ctx.cookbook_text
+    chapters = select_cookbook_chapters(ctx, articulated_brief(ctx), budget=URDF_COOKBOOK_BUDGET,
+                                        always=URDF_COOKBOOK_ALWAYS)
+    if not chapters:
+        return ctx.cookbook_text
+    return "\n\n".join(s.body.rstrip() for s in chapters)
+
+
+def acceptance_lines_focused(plan: Plan | None, failed: Sequence[Any]) -> str:
+    """Acceptance for a refine prompt: the FAILED items in full, the rest as their ids.
+
+    A refine round is told to change exactly the listed targets, so the items that already
+    pass are there to be preserved, not re-read — one id line each says that in 4 % of the
+    chars.  Empty ``failed`` (no judgment, or everything passed) keeps the full list: with
+    nothing to focus on, focusing would only remove information."""
+    items = getattr(plan, "acceptance", None) or []
+    ids = {getattr(a, "id", "") for a in failed}
+    if not items or not ids:
+        return acceptance_lines(plan)
+    lines = [acceptance_line(a) for a in items if a.id in ids]
+    passing = [a.id for a in items if a.id not in ids]
+    if passing:
+        lines.append(f"- already verified, keep them true: {', '.join(passing)}")
+    return "\n".join(lines)
+
+
+def parts_table_for_targets(plan: Plan | None, targets: Sequence[str]) -> str:
+    """The plan rows for the refine targets — the whole table when none of them is a part.
+
+    The template's heading has always said "Plan rows for the targets"; the table under it
+    was every part in the plan (1 605 chars for a median of 3 targets, aa_articulated)."""
+    keys = {to_snake(t) for t in targets}
+    scoped = [p for p in (getattr(plan, "parts", None) or ()) if to_snake(p.name) in keys]
+    return parts_table_for(scoped) if scoped else parts_table(plan)
+
+
+def refine_focus(ctx: RunContext, last: RoundRecord, targets: Sequence[str]) -> dict[str, Any]:
+    """Refine-prompt overrides under the lean switch: focused acceptance + targeted parts.
+    ``{}`` when the switch is off, so the control arm renders byte-identically."""
+    if not lean_prompt(ctx):
+        return {}
+    from codeverse.tracks.steps import failed_acceptance  # local: steps -> repair -> here
+
+    return {"acceptance": acceptance_lines_focused(ctx.plan, failed_acceptance(ctx, last.judgment)),
+            "parts_table": parts_table_for_targets(ctx.plan, targets)}
+
+
 def language_system_prompt(language: Language, *, role: str = "", tools: bool = True, **vars: Any) -> str:
     """The generator's system prompt: ``prompts/<dir>/system.md``, or a role template.
 
@@ -289,6 +391,7 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
     """Variables every tracks/*.j2 template may use (StrictUndefined → all present)."""
     plan = ctx.plan
     object_name = getattr(plan, "object_name", None) or getattr(plan, "title", None) or "Object"
+    lean = lean_prompt(ctx)
     d: dict[str, Any] = {
         "track": ctx.track.value,
         "language": ctx.language.value,
@@ -299,10 +402,13 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         # prefix that delivered 13 % of blender's and 10 % of scene_threejs's, cutting
         # mid-snippet, and the read_cookbook tool that was supposed to fetch the rest
         # went uncalled in all 20 measured sessions.  Prompt material the harness wrote
-        # for the model is not summarised by byte offset.
-        "cookbook_excerpt": ctx.cookbook_text,
+        # for the model is not summarised by byte offset — CHAPTERS are the unit under
+        # the lean switch, and only where the session has the whole file on disk.
+        "cookbook_excerpt": cookbook_excerpt(ctx, lean=lean),
         "tool_cards": ctx.tool_cards,
         "single_shot": ctx.single_shot,
+        # templates drop with it only what the workspace already carries (see lean_prompt)
+        "lean": lean,
         "output_format": SINGLE_SHOT_FORMAT if ctx.single_shot else AGENT_OUTPUT_RULES,
         "spec_prompt": ctx.spec.prompt,
         "constraints": constraints_text(ctx.spec),

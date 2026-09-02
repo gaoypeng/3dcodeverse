@@ -34,7 +34,8 @@ GENERATION_SIDE: frozenset[str] = frozenset({CONTACTS})
 GENERATION_SIDE_ENV: frozenset[str] = frozenset({"CV3D_SKILLS", "CV3D_SKILLS_MAX", "CV3D_SKILLS_UNVERIFIED",
                                                  "CV3D_SKILLS_ONLY",
                                                  "CV3D_DETAIL_ROUNDS", "CV3D_REFERENCE_DIFF",
-                                                 "CV3D_FEWER_TURNS", "CV3D_SEED_RECIPES"})
+                                                 "CV3D_FEWER_TURNS", "CV3D_SEED_RECIPES",
+                                                 "CV3D_LEAN_PROMPT"})
 
 
 def pin_plan_blockers(variant_env: dict[str, str]) -> list[str]:
@@ -78,6 +79,11 @@ LIVE_SWITCHES: dict[str, str] = {
     # switch, read at call time by config.fewer_turns_enabled; acts after planning.
     "CV3D_FEWER_TURNS": "codeverse/config.py",
     "CV3D_SEED_RECIPES": "codeverse/config.py",
+    # lean articulated prompt: drop from the per-turn prompt what the materialised
+    # AGENTS.md/GEMINI.md and the MCP tool declarations already carry, select cookbook
+    # chapters, focus the refine prompt.  Read at call time by config.lean_prompt_enabled;
+    # it only ever changes the BUILDER's prompt, so an A/B over it may --pin-plan.
+    "CV3D_LEAN_PROMPT": "codeverse/config.py",
     # model-transport switches (2026-08-28, the hung-read waves): streaming with
     # inter-chunk stall detection, and the IPv4-only transport.  Read at call time
     # by every gemini request, so a control arm can set either to 0.

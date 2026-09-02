@@ -108,6 +108,17 @@ class Limits(BaseModel):
         "recipes seeded into the agent's own common.glsl were overwritten before the end of the run.  "
         "`CV3D_SEED_RECIPES=0` (read at call time by `seed_recipes_enabled`) is the control arm.",
     )
+    lean_prompt: bool = Field(
+        default=False,
+        description="articulated_object AGENT sessions: stop re-sending what the session "
+        "already has.  Measured on aa_articulated (2026-09-02): prompts/urdf/contract.md "
+        "(7 150 chars) rides in the baseline prompt AND byte-for-byte in the materialised "
+        "AGENTS.md/GEMINI.md; the tool list arrives three times (prompt 4 088 + GEMINI.md + "
+        "the MCP declarations); the whole 24 k cookbook is inlined though a brief-driven "
+        "chapter selector exists; and a refine prompt carries all acceptance items and all "
+        "part rows for a median of 3 targets.  OFF until the A/B reads out; "
+        "`CV3D_LEAN_PROMPT=1` (read at call time by `lean_prompt_enabled`) is the variant arm.",
+    )
 
 
 class Rate(BaseModel):
@@ -174,6 +185,8 @@ class Judge(BaseModel):
 FEWER_TURNS_ENV = "CV3D_FEWER_TURNS"
 #: The recipe-seeding switch (Limits.seed_recipes); same call-time contract as FEWER_TURNS_ENV.
 SEED_RECIPES_ENV = "CV3D_SEED_RECIPES"
+#: The lean-articulated-prompt switch (Limits.lean_prompt); same call-time contract.
+LEAN_PROMPT_ENV = "CV3D_LEAN_PROMPT"
 _TRUE_WORDS = frozenset({"1", "on", "true", "yes", "y"})
 _FALSE_WORDS = frozenset({"0", "off", "false", "no", "n"})
 
@@ -215,6 +228,13 @@ def seed_recipes_enabled() -> bool:
     return env_flag(SEED_RECIPES_ENV, get_settings().limits.seed_recipes)
 
 
+def lean_prompt_enabled() -> bool:
+    """Is the lean articulated prompt on for THIS call?  ``$CV3D_LEAN_PROMPT`` when it is
+    set, else ``Settings.limits.lean_prompt`` (default OFF).  ``tracks/prompting.lean_prompt``
+    is the only gate that consults it, and it also requires an articulated AGENT session."""
+    return env_flag(LEAN_PROMPT_ENV, get_settings().limits.lean_prompt)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CV3D_", env_nested_delimiter="__", extra="ignore")
 
@@ -229,6 +249,7 @@ class Settings(BaseSettings):
         "CV3D_RENDER_GPU": ("render", "gpu"),
         FEWER_TURNS_ENV: ("limits", "fewer_turns"),
         SEED_RECIPES_ENV: ("limits", "seed_recipes"),
+        LEAN_PROMPT_ENV: ("limits", "lean_prompt"),
     }
 
     @model_validator(mode="after")

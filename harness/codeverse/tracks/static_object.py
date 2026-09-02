@@ -56,6 +56,7 @@ from codeverse.tracks.prompting import (
     language_system_prompt,
     measurement_vs_plan,
     reference_images,
+    refine_focus,
     refine_inline_files,
     scope_context,
     skeleton_files,
@@ -347,6 +348,10 @@ class StaticObjectTrack(BaseTrack):
                 # single-shot: always; agent session: under fewer_turns, when the scoped
                 # set is ≤ 3 files / ≤ 12 k chars — the first turn is then the edit
                 current_files=refine_inline_files(ctx, files, scoped=scoped),
+                # lean switch only, {} when off: the failed acceptance items in full with
+                # the rest as ids, and the plan rows the heading already promises — this
+                # group's targets, not every part in the plan
+                **refine_focus(ctx, last, group.targets),
             ),
         )
         ctx.record_prompt("refine", prompt)
