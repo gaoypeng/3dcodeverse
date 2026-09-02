@@ -120,8 +120,13 @@ def test_a_crashing_geometry_check_never_costs_the_plan(tmp_ws, monkeypatch):
 
 
 def test_validation_reask_names_the_missing_parts_when_the_plan_is_thin(tmp_ws):
+    """A thin plan whose joints stay INSIDE the part list: the in-context re-ask still owns
+    it (a plan that also references links it never lists is a restart — see
+    test_planner_restart.py, which measured that editing that one in context reproduces it)."""
     thin = _good()
-    thin["parts"] = thin["parts"][:1]  # only the cabinet; the joint still references the drawer
+    thin["parts"] = thin["parts"][:1]        # only the cabinet ...
+    thin["joints"] = []                      # ... and no joint references the dropped link
+    thin["root_link"] = "NoSuchLink"         # a plain validation failure to trigger the re-ask
     answers = [thin, _good()]
     model = FakeChatModel(lambda req: answers.pop(0))
     p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model, runtime=FakeRuntime(Language.URDF_BLENDER))

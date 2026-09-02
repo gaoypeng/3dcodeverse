@@ -64,6 +64,8 @@ LIVE_SWITCHES: dict[str, str] = {
     # plan-time geometry re-ask for articulated plans (tracks/plan_checks.py); plan-side,
     # so an A/B over it can never --pin-plan.  Off by default (A/B 2026-08-28: no gain).
     "CV3D_PLAN_GEOMETRY": "codeverse/tracks/planner.py",
+    # re-sample a degenerate plan from the original prompt instead of editing it in context
+    "CV3D_PLAN_RESTART": "codeverse/tracks/planner.py",
     "CV3D_SCOPED_PARTS": "codeverse/tracks/depth.py",
     "CV3D_DETAIL_ROUNDS": "codeverse/tracks/lifecycle.py",
     "CV3D_REFERENCE_DIFF": "codeverse/judges/vlm_judge.py",  # reference.py merged in, 2026-08-28

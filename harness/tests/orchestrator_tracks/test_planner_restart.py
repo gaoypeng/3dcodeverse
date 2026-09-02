@@ -1,0 +1,100 @@
+"""A degenerate plan is re-sampled from the original prompt, not edited in context.
+
+Measured 2026-09-02 over 200 plan calls on two trees: 3-4 % of articulated plan calls end
+in `PlanningError`, always the same way — one top-level part, joints naming links the plan
+never lists — and both in-context re-asks come back with that same answer."""
+
+from __future__ import annotations
+
+import copy
+
+import pytest
+
+from codeverse.contracts.common import Language, Track
+from codeverse.contracts.plan import ArticulatedPlan
+from codeverse.proc import EventLog
+from codeverse.tracks.planner import (
+    MAX_PLAN_RESTARTS,
+    PLAN_RESTART_ENV,
+    PlanningError,
+    missing_link_names,
+    plan,
+    plan_example,
+)
+from tests.orchestrator_tracks.conftest import make_spec
+from tests.orchestrator_tracks.fakes import FakeChatModel, FakeRuntime
+
+
+def _good() -> dict:
+    return copy.deepcopy(plan_example(Track.ARTICULATED_OBJECT))
+
+
+def _degenerate() -> dict:
+    """One part; the joint still moves a link the plan never lists (the measured shape)."""
+    d = _good()
+    d["parts"] = [p for p in d["parts"] if p["name"] == "Cabinet"]
+    return d
+
+
+def _spec():
+    return make_spec(track=Track.ARTICULATED_OBJECT, language=Language.URDF_BLENDER, prompt="a desk drawer unit")
+
+
+def _run(tmp_ws, answers, events=None):
+    model = FakeChatModel(lambda req: answers.pop(0))
+    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model, events=events,
+             runtime=FakeRuntime(Language.URDF_BLENDER))
+    return p, model
+
+
+def test_missing_link_names_reports_what_the_joints_reference_and_parts_lack():
+    assert missing_link_names(_degenerate()) == ["Drawer"]
+    assert missing_link_names(_good()) == []
+    assert missing_link_names({"parts": [], "joints": []}) == []
+    assert missing_link_names("not a dict") == []
+    nested = _good()
+    nested["parts"] = [nested["parts"][0]]
+    nested["parts"][0]["children"] = [{"name": "Drawer"}]
+    assert missing_link_names(nested) == []  # a sub-part IS a name the plan defines
+
+
+def test_a_degenerate_plan_is_resampled_without_its_own_answer_in_context(tmp_ws):
+    events = EventLog(tmp_ws.events_path)
+    p, model = _run(tmp_ws, [_degenerate(), _good()], events=events)
+    assert isinstance(p, ArticulatedPlan) and len(model.requests) == 2
+    first, second = model.requests
+    assert len(second.messages) == len(first.messages) == 1  # no echo, no accumulated turns
+    text = second.messages[-1].text
+    assert text.startswith(first.messages[-1].text)  # the original request is kept verbatim
+    assert "listed only 1 top-level part(s)" in text and "Drawer" in text
+    assert "must contain EVERY link a joint names" in text
+    ev = [e for e in events.read() if e["event"] == "plan.restart"]
+    assert len(ev) == 1 and ev[0]["n_parts"] == 1 and ev[0]["missing"] == ["Drawer"]
+    assert [e for e in events.read() if e["event"] == "plan.done"][0]["restarts"] == 1
+
+
+def test_an_ordinary_validation_error_still_edits_in_context(tmp_ws):
+    """Nothing changes for the failures a re-ask does fix: the model sees its own answer."""
+    bad = _good()
+    bad["joints"][0]["axis"] = [0, 0, 0]  # a real slip, not a degenerate plan
+    p, model = _run(tmp_ws, [bad, _good()])
+    assert isinstance(p, ArticulatedPlan) and len(model.requests) == 2
+    assert len(model.requests[1].messages) == 3  # user + echoed answer + complaint
+    assert "failed validation" in model.requests[1].messages[-1].text
+
+
+def test_the_kill_switch_restores_the_in_context_reask(tmp_ws, monkeypatch):
+    monkeypatch.setenv(PLAN_RESTART_ENV, "0")
+    p, model = _run(tmp_ws, [_degenerate(), _good()])
+    assert isinstance(p, ArticulatedPlan) and len(model.requests[1].messages) == 3
+
+
+def test_one_restart_per_plan_then_the_normal_reask_budget(tmp_ws):
+    """Two degenerate answers: restart once, then edit in context, then give up as before."""
+    model = FakeChatModel(lambda req: _degenerate())
+    with pytest.raises(PlanningError):
+        plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model,
+             runtime=FakeRuntime(Language.URDF_BLENDER))
+    assert len(model.requests) == 3  # first + one restart + one in-context re-ask
+    assert MAX_PLAN_RESTARTS == 1
+    assert len(model.requests[1].messages) == 1 and len(model.requests[2].messages) == 3
