@@ -8,9 +8,10 @@ observation text (+ compact numbers when small) and one ``ImageContent`` per
 observation image (base64 PNG, long side ≤ 1024 px, at most ``MAX_IMAGES``).
 ``is_error`` is ``Observation.failed`` (the tool could not run) — never a
 negative verdict, which is an ordinary result whose text leads with FAIL.
-Every result is bounded here — ``MAX_TEXT_CHARS`` of text and a per-outcome image
-budget (:func:`max_images_for`) — because this is the last place the harness owns
-before the payload becomes the vendor's prompt.
+Every result is bounded here — ``MAX_TEXT_CHARS`` of text, at most
+:func:`max_images_for` images, and ``MAX_IMAGE_BYTES`` of encoded image data across
+them — because this is the last place the harness owns before the payload becomes
+the vendor's prompt.
 Track / language default to ``<ws>/spec.json`` so agents need no flags.
 """
 
@@ -40,6 +41,11 @@ MAX_NUMBERS_CHARS = 1200
 #: ``compare_reference``) never goes through those, and nothing may hand the model an
 #: unbounded payload from here.
 MAX_TEXT_CHARS = 6000
+#: ceiling on the encoded image data of ONE result.  The count and the 1024 px long side
+#: bound pixels, not bytes: the largest recorded articulation sheet (1,966,609 B,
+#: 1176x3350) still encodes to 394,988 base64 characters after the downscale, so without
+#: this a legal result could hand the model ~280 k tokens of image.
+MAX_IMAGE_BYTES = 400_000
 SERVER_NAME = "3dcv"
 
 
@@ -68,15 +74,21 @@ def encode_image(path: str, max_side: int = MAX_IMAGE_SIDE) -> str | None:
 
 
 def max_images_for(obs: Observation) -> int:
-    """Image budget for ONE result, by outcome — the guard on the error path.
+    """Image budget for ONE result, by outcome.
 
-    A vendor CLI that receives ``is_error`` stringifies the WHOLE result, image parts
-    included: gemini-cli's error branch prints ``safeJsonStringify(rawResponseParts)``,
-    so a 275 kB contact sheet arrives as ~366 k characters of base64 TEXT (~261 k prompt
-    tokens) instead of ~516 as an inline image, and its own 40 000-char truncation does
-    not fire for a multi-part MCP result (docs/COST.md §30).  So a failed observation
-    ships no image (nothing rendered is evidence about a tool that could not run), and a
-    FAIL verdict ships one — the sheet, which ``image_budget`` keeps first.
+    A tool that could not run ships no image: nothing was rendered that is evidence
+    about it, and a vendor CLI that receives ``is_error`` stringifies the WHOLE result,
+    image parts included — gemini-cli's error branch prints
+    ``safeJsonStringify(rawResponseParts)``, so a 275 kB contact sheet would arrive as
+    ~366 k characters of base64 TEXT (~261 k prompt tokens) instead of ~516 as an inline
+    image, and its own 40 000-char truncation does not fire for a multi-part MCP result
+    (docs/COST.md §30).  A FAIL verdict is NOT an error here (``is_error`` is
+    ``obs.failed``), so it takes the vendor's ordinary image path; it still ships one
+    image rather than four because the first is the sheet ``image_budget`` keeps, the
+    rest are per-view repeats of a result the agent is being told to fix, and the
+    one-image rule is also what keeps the blow-up bounded if ``is_error`` is ever
+    re-coupled to ``not ok`` (``test_is_error_is_failed_not_the_verdict`` pins that
+    coupling).
     """
     if obs.failed:
         return 0
@@ -94,10 +106,13 @@ def observation_content(obs: Observation) -> list[Any]:
     # the slice makes the ceiling hard: truncate's "N chars omitted" marker overshoots its
     # own budget by a few characters, and this is the last bound before the vendor's prompt
     blocks: list[Any] = [types.TextContent(type="text", text=truncate(text, MAX_TEXT_CHARS)[:MAX_TEXT_CHARS])]
+    spent = 0
     for p in obs.images[:max_images_for(obs)]:
         b64 = encode_image(p)
-        if b64:
-            blocks.append(types.ImageContent(type="image", data=b64, mime_type="image/png"))
+        if not b64 or spent + len(b64) > MAX_IMAGE_BYTES:
+            continue  # pixels are bounded by the downscale; bytes are bounded here
+        spent += len(b64)
+        blocks.append(types.ImageContent(type="image", data=b64, mime_type="image/png"))
     return blocks
 
 

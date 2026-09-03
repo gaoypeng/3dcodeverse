@@ -64,6 +64,39 @@ def test_result_payload_is_bounded_by_outcome(tmp_path: Path) -> None:
         assert sum(1 for b in blocks if b.type == "image") == n_images
 
 
+def test_image_bytes_are_bounded_not_only_the_count(tmp_path: Path) -> None:
+    """The count and the 1024 px downscale bound PIXELS, not bytes: the largest recorded
+    articulation sheet still encodes to ~395 k base64 characters, so four of them would be
+    a bigger payload than the text cap the same result respects."""
+    from PIL import Image
+
+    from codeverse.spatial.mcp_server import MAX_IMAGE_BYTES, encode_image
+
+    noisy = tmp_path / "noise.png"
+    rnd = __import__("random").Random(0)
+    img = Image.new("RGB", (1024, 1024))
+    img.putdata([(rnd.randrange(256), rnd.randrange(256), rnd.randrange(256)) for _ in range(1024 * 1024)])
+    img.save(noisy)
+    one = encode_image(str(noisy))
+    assert one is not None and len(one) > MAX_IMAGE_BYTES / 3  # a real sheet is this heavy
+    blocks = observation_content(Observation(ok=True, text="t", images=[str(noisy)] * 4))
+    images = [b for b in blocks if b.type == "image"]
+    assert sum(len(b.data) for b in images) <= MAX_IMAGE_BYTES
+    assert len(images) < 4  # the byte budget, not the count, is what stopped it
+
+
+def test_is_error_is_failed_not_the_verdict(tmp_path: Path) -> None:
+    """The one coupling every other bound assumes: a FAIL verdict is an ordinary result,
+    so the vendor sends its images as images.  Re-couple this to ``not obs.ok`` and the
+    base64-as-text blow-up of docs/COST.md §30 comes back."""
+    import inspect
+
+    from codeverse.spatial import mcp_server
+
+    src = inspect.getsource(mcp_server.make_server)
+    assert "is_error=obs.failed" in src and "is_error=not obs.ok" not in src
+
+
 def test_cli_list(stool_ctx: ToolContext, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--workspace", str(stool_ctx.workspace.root), "--list"]) == 0
     data = json.loads(capsys.readouterr().out)

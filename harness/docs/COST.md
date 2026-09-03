@@ -1380,8 +1380,10 @@ come from.
 **verdict** — so every gate that ran and answered FAIL reached the model as a broken call.
 
 **Selector** (every number in this section, unless another one is named): the files
-`bench/out/*/**/run/trajectories/*/stdout.json`, 386 of them, of which **224 are
-non-empty** — one per gemini-cli session that reported stats; the other 162 are
+`bench/out/*/**/run/trajectories/*/stdout.json` **as they stood at 2026-09-02 20:20 UTC**
+— the corpus is live and grows with every battery, so a later re-run reads larger
+numbers (2026-09-03 00:30: 390 files, 6 154 calls, 60 of 302 rounds) — 386 of them, of
+which **224 are non-empty** — one per gemini-cli session that reported stats; the other 162 are
 zero-byte (the CLI died or was killed before printing its JSON) and every one of the
 386 belongs to a gemini-cli arm.  `run/telemetry/trajectories` is a symlink to the same directory:
 count it once (a glob that follows it doubles every number).  Per file, sum
