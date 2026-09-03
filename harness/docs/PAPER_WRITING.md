@@ -204,6 +204,10 @@ reached the model as a *broken call*, which it retried.  Recorded rate, 224 sess
 | `check_contract` | 895 | 17 % | — |
 | `check_connectivity` | 923 | 14 % | — |
 
+The rate replicates per battery (`bench/session_stats.py`): over `aa_articulated`,
+`ab_fewer_turns`, `ab_repairs`, `compare_art_v4_pf0` and `compare_art_v4_pp` the sweep is
+55–66 % and the build 20–28 %, so this is the mechanism, not one bad window.
+
 **The amplifier.**  `observation_content` attaches PNGs as MCP image parts.  gemini-cli's
 *error* path stringifies the whole result (`safeJsonStringify(rawResponseParts)`), so a
 275 kB articulation sheet arrived as **~366 k characters of base64 text ≈ 261 k prompt
