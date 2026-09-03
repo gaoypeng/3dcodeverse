@@ -19,7 +19,7 @@ import numpy as np
 
 from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
-from codeverse.contracts.common import ENTRY_FILE, Language
+from codeverse.contracts.common import ENTRY_FILE, Language, MimicSpec, mimic_issues
 from codeverse.contracts.plan import ArticulatedPlan, JointPlan, PartPlan, Plan
 from codeverse.conventions import to_snake
 from codeverse.languages._ast_lint import (
@@ -191,9 +191,6 @@ def lint_urdf_text(text: str, *, label: str = URDF_REL) -> tuple[list[GateFindin
 
     joint_names: list[str] = []
     parent_of: dict[str, str] = {}
-    # <mimic> may name a joint declared later in the file, so the whole name set is
-    # collected before any joint is linted
-    all_joint_names = {el.get("name", "") for el in joints if el.get("name")}
     for el in joints:
         jname = el.get("name", "")
         if not jname:
@@ -202,7 +199,9 @@ def lint_urdf_text(text: str, *, label: str = URDF_REL) -> tuple[list[GateFindin
         if jname in joint_names:
             out.append(_f(Severity.ERROR, f"duplicate joint name '{jname}'", target=jname, fix="Joint names must be unique."))
         joint_names.append(jname)
-        _lint_joint(el, jname, link_names, parent_of, out, all_joint_names)
+        _lint_joint(el, jname, link_names, parent_of, out)
+
+    _lint_mimics(joints, out)
 
     # tree structure
     children = set(parent_of)
@@ -220,6 +219,58 @@ def lint_urdf_text(text: str, *, label: str = URDF_REL) -> tuple[list[GateFindin
                 out.append(_f(Severity.ERROR, f"link '{link}' does not reach the root '{roots[0]}' (cycle or detached)", target=link,
                               fix="Joints must form a single tree rooted at the base link."))
     return out, link_names
+
+
+def _lint_mimics(joints: list[ET.Element], out: list[GateFinding]) -> None:
+    """``<mimic>`` couplings, over the whole file: a declaration may name a joint that is
+    written later, and a cycle is only visible on the graph.  The RULES are
+    ``contracts.common.mimic_issues`` — shared with the plan validator and the URDF
+    loader, which rejected different multipliers from this lint until 2026-09-03."""
+    # EVERY named joint becomes a spec, coupled or not: an uncoupled joint is what the
+    # coupled ones are allowed to name, and mimic_issues resolves targets against the set
+    # it is given.
+    specs: list[MimicSpec] = []
+    for el in joints:
+        jname = el.get("name", "")
+        if not jname:
+            continue
+        movable = el.get("type", "") != "fixed"
+        mim = el.find("mimic")
+        src = (mim.get("joint") or "").strip() if mim is not None else ""
+        mult = 1.0
+        if mim is not None and not src:
+            out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> without joint=", target=jname,
+                          fix='<mimic joint="runner_slide" multiplier="1" offset="0"/>'))
+            src = ""
+        elif mim is not None:
+            try:
+                mult = float(mim.get("multiplier", 1) or 1)
+                float(mim.get("offset", 0) or 0)
+            except ValueError:
+                out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> multiplier/offset must be numbers", target=jname))
+                src = ""
+        specs.append(MimicSpec(key=jname, name=jname, movable=movable,
+                               target=src or None, multiplier=mult))
+    known = sorted({el.get("name", "") for el in joints if el.get("name")})
+    for i in mimic_issues(specs):
+        j, t = i.joint, i.target
+        if i.kind == "immobile":
+            out.append(_f(Severity.ERROR, f"joint '{j}': a fixed joint has nothing to mimic", target=j,
+                          fix="give it a type and a limit, or drop the <mimic>"))
+        elif i.kind == "zero_multiplier":
+            out.append(_f(Severity.ERROR, f"joint '{j}': <mimic multiplier=\"0\"> — the joint cannot move",
+                          target=j, fix="use type=fixed, or a non-zero multiplier"))
+        elif i.kind == "self":
+            out.append(_f(Severity.ERROR, f"joint '{j}': <mimic> names itself", target=j))
+        elif i.kind == "unknown_target":
+            out.append(_f(Severity.ERROR, f"joint '{j}': <mimic joint=\"{t}\"> names no joint in this file",
+                          target=j, fix=f"one of: {', '.join(known)}"))
+        elif i.kind == "immobile_target":
+            out.append(_f(Severity.ERROR, f"joint '{j}': mimics '{t}', which is fixed and never moves", target=j,
+                          fix="mimic a joint that moves, or give that joint a type and a limit"))
+        else:
+            out.append(_f(Severity.ERROR, f"joint '{j}': <mimic> chain is a cycle through '{i.detail or j}'",
+                          target=j, fix="one joint drives the chain; the rest follow it, directly or in a line"))
 
 
 def _lint_link(el: ET.Element, name: str, out: list[GateFinding]) -> None:
@@ -288,7 +339,7 @@ def _lint_origin(o: ET.Element | None, what: str, target: str, out: list[GateFin
 
 
 def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: dict[str, str],
-                out: list[GateFinding], joint_names: set[str] | None = None) -> None:
+                out: list[GateFinding]) -> None:
     jtype = el.get("type", "")
     if jtype not in JOINT_TYPES:
         out.append(_f(Severity.ERROR, f"joint '{jname}': type '{jtype}' must be one of {JOINT_TYPES}", target=jname,
@@ -353,26 +404,6 @@ def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: di
     elif jtype == "continuous" and lim is not None and (lim.get("lower") is not None or lim.get("upper") is not None):
         out.append(_f(Severity.WARN, f"joint '{jname}': continuous joints have no lower/upper (ignored)", target=jname,
                       fix='<limit effort="10" velocity="1"/> or use type=revolute'))
-    mim = el.find("mimic")
-    if mim is not None:
-        src = (mim.get("joint") or "").strip()
-        if not src:
-            out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> without joint=", target=jname,
-                          fix='<mimic joint="runner_slide" multiplier="1" offset="0"/>'))
-        elif src == jname:
-            out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> names itself", target=jname))
-        elif joint_names is not None and src not in joint_names:
-            out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic joint=\"{src}\"> names no joint in this file",
-                          target=jname, fix=f"one of: {', '.join(sorted(joint_names))}"))
-        if jtype == "fixed":
-            out.append(_f(Severity.ERROR, f"joint '{jname}': a fixed joint has nothing to mimic", target=jname,
-                          fix="give it a type and a limit, or drop the <mimic>"))
-        try:
-            if abs(float(mim.get("multiplier", 1) or 1)) < 1e-12:
-                out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic multiplier=\"0\"> — the joint cannot move",
-                              target=jname, fix="use type=fixed, or a non-zero multiplier"))
-        except ValueError:
-            out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> multiplier/offset must be numbers", target=jname))
 
 
 # ------------------------------------------------------------------ model.py

@@ -217,3 +217,55 @@ def test_a_mimic_of_an_instanced_driver_follows_the_first_instance():
     names = {ln.split('"')[1] for ln in urdf.splitlines() if "<joint name=" in ln}
     refs = {ln.split('"')[1] for ln in urdf.splitlines() if "<mimic joint=" in ln}
     assert refs <= names, f"dangling mimic reference: {refs - names}"
+
+
+# ------------------------------------------------------------------ one rule set, three layers
+def test_the_three_layers_reject_the_same_near_zero_multiplier(tmp_path):
+    """A multiplier of 1e-10 is a coupling that transmits nothing.
+
+    The plan validator refused it (< 1e-9) while the loader and the lint accepted it
+    (< 1e-12), so a coupling the planner could not write was one the URDF path took.
+    All three read ``MIMIC_MIN_MULTIPLIER`` now.
+    """
+    from codeverse.contracts.common import MIMIC_MIN_MULTIPLIER
+    from codeverse.workspace import Workspace
+
+    dead = 1e-10  # under the shared floor, over the 1e-12 the loader and the lint used
+    assert dead < MIMIC_MIN_MULTIPLIER
+    with pytest.raises(Exception, match="multiplier 0"):
+        ArticulatedPlan.model_validate(_plan(mimic={"joint": "DrawerSlide", "multiplier": dead}))
+
+    text = RIB.replace('multiplier="4"', f'multiplier="{dead}"')
+    with pytest.raises(UrdfError, match="cannot move"):
+        _robot(tmp_path, text)
+
+    ws = Workspace(tmp_path / "lint_ws").create()
+    (ws.src / "robot.urdf").write_text(text)
+    (ws.src / "model.py").write_text("import bpy\n")
+    assert [f for f in lint_workspace(ws).findings if "cannot move" in f.message]
+
+
+def test_the_lint_sees_a_cycle_the_per_joint_pass_could_not(tmp_path):
+    """``rib_a`` follows ``rib_b`` follows ``rib_a``: no single <mimic> element is wrong,
+    only the graph is.  The lint checked one joint at a time and passed this file; the
+    loader then refused it, so the failure landed after the build instead of before."""
+    from codeverse.workspace import Workspace
+
+    ws = Workspace(tmp_path / "ws").create()
+    (ws.src / "robot.urdf").write_text(RIB.replace('<mimic joint="runner_slide" multiplier="4" offset="0"/>',
+                                                   '<mimic joint="rib_b_hinge" multiplier="1" offset="0"/>'))
+    (ws.src / "model.py").write_text("import bpy\n")
+    cycles = [f for f in lint_workspace(ws).findings if "cycle" in f.message]
+    assert cycles and {f.target for f in cycles} == {"rib_a_hinge", "rib_b_hinge"}
+
+
+def test_an_unknown_target_is_reported_once_not_once_per_follower():
+    """The chain walk exists to find cycles.  Every joint it walks through is itself in
+    the set and reports its own broken target, so the walk must not report it again."""
+    from codeverse.contracts.common import MimicSpec, mimic_issues
+
+    issues = mimic_issues([
+        MimicSpec(key="a", name="a", movable=True, target="ghost"),
+        MimicSpec(key="b", name="b", movable=True, target="a"),
+    ])
+    assert [(i.joint, i.kind) for i in issues] == [("a", "unknown_target")]

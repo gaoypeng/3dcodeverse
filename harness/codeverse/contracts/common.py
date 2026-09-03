@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -185,3 +185,79 @@ class Backends(BaseModel):
     # flash (calibration 2026-08-23: std 0.03 vs 0.08-0.12) for ~$0.07 per verdict.
     judge: str = "gemini:gemini-3.1-pro-preview"
     captioner: str = "gemini:gemini-3.7-flash"
+
+
+# ------------------------------------------------------------------ joint coupling
+#: |multiplier| below this is a coupling that transmits no motion.  ONE value: the plan
+#: validator used 1e-9 while the URDF loader and lint used 1e-12, so a coupling the
+#: planner was forbidden to write was one the loader accepted.
+MIMIC_MIN_MULTIPLIER = 1e-9
+
+
+class MimicSpec(BaseModel):
+    """One joint as the coupling rules see it, in whatever vocabulary the caller has.
+
+    ``key`` is the caller's canonical name (the plan folds case and underscores, URDF
+    does not); ``name`` is what its messages should print.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    key: str
+    name: str
+    movable: bool
+    target: str | None = None  # key of the joint this one follows; None = drives itself
+    multiplier: float = 1.0
+
+
+class MimicIssue(BaseModel):
+    """One broken coupling rule.  ``kind`` is what is wrong, ``joint``/``target`` are
+    names as written, ``detail`` carries the joint a cycle closes through."""
+
+    model_config = ConfigDict(frozen=True)
+
+    joint: str
+    kind: Literal["immobile", "zero_multiplier", "self", "unknown_target", "immobile_target", "cycle"]
+    target: str
+    detail: str = ""
+
+
+def mimic_issues(specs: Collection[MimicSpec]) -> list[MimicIssue]:
+    """Every rule a ``<mimic>`` has to satisfy, checked once over the whole joint set.
+
+    Three layers reject the same bad couplings — ``ArticulatedPlan._check_mimics``,
+    ``languages/urdf.lint`` and ``spatial.joints_model.load_urdf`` — and they had three
+    copies of the walk that disagreed on the multiplier floor.  The rules live here; each
+    caller renders the issues in its own vocabulary (``ValueError`` / gate finding /
+    ``UrdfError``) and picks the first one when it reports only one.
+    """
+    order = list(specs)
+    by_key = {s.key: s for s in order}
+    out: list[MimicIssue] = []
+    for s in order:
+        if s.target is None:
+            continue
+        if not s.movable:
+            out.append(MimicIssue(joint=s.name, kind="immobile", target=s.target))
+        if abs(s.multiplier) < MIMIC_MIN_MULTIPLIER:
+            out.append(MimicIssue(joint=s.name, kind="zero_multiplier", target=s.target))
+        if s.target == s.key:
+            out.append(MimicIssue(joint=s.name, kind="self", target=s.name))
+            continue
+        src = by_key.get(s.target)
+        if src is None:
+            out.append(MimicIssue(joint=s.name, kind="unknown_target", target=s.target))
+            continue
+        if not src.movable:
+            out.append(MimicIssue(joint=s.name, kind="immobile_target", target=src.name))
+        seen, cur = {s.key}, src
+        while cur.target is not None:
+            if cur.key in seen:
+                out.append(MimicIssue(joint=s.name, kind="cycle", target=s.target, detail=cur.name))
+                break
+            seen.add(cur.key)
+            nxt = by_key.get(cur.target)
+            if nxt is None:
+                break  # that joint reports its own unknown target on its own turn
+            cur = nxt
+    return out

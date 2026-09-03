@@ -24,6 +24,8 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
+from codeverse.contracts.common import MIMIC_MIN_MULTIPLIER, MimicIssue, MimicSpec, mimic_issues
+
 MOVABLE_TYPES = ("revolute", "prismatic", "continuous")
 JOINT_TYPES = MOVABLE_TYPES + ("fixed",)
 #: link names that cannot become GLB nodes: glTF readers (trimesh) use ``world`` as the
@@ -324,10 +326,24 @@ def _joint_from_xml(el: ET.Element) -> Joint:
             off = float(mim.get("offset", 0.0) or 0.0)
         except ValueError as e:
             raise UrdfError(f"joint {name}: <mimic> multiplier/offset must be numbers") from e
-        if abs(mult) < 1e-12:
+        if abs(mult) < MIMIC_MIN_MULTIPLIER:
             raise UrdfError(f"joint {name}: <mimic multiplier=\"0\"> — the joint cannot move; use type=fixed")
         j.mimic = Mimic(joint=src, multiplier=mult, offset=off)
     return j
+
+
+def _mimic_message(issue: MimicIssue, joints: dict[str, Joint]) -> str:
+    """A coupling rule broken by this URDF, in URDF words (rules: contracts.common)."""
+    j, t, kind = issue.joint, issue.target, issue.kind
+    if kind == "immobile":
+        return f"joint {j}: <mimic> on a {joints[j].type} joint has nothing to follow"
+    if kind == "zero_multiplier":
+        return f'joint {j}: <mimic multiplier="0"> — the joint cannot move; use type=fixed'
+    if kind == "unknown_target":
+        return f'joint {j}: <mimic joint="{t}"> names no joint; known: {sorted(joints)}'
+    if kind == "immobile_target":
+        return f"joint {j}: mimics {t!r}, which is {joints[t].type} and never moves"
+    return f"joint {j}: <mimic> chain is a cycle through {(issue.detail or j)!r}"
 
 
 def load_urdf(urdf_path: Path | str, meshes_dir: Path | str | None = None, *, load_meshes: bool = True) -> Robot:
@@ -366,26 +382,12 @@ def load_urdf(urdf_path: Path | str, meshes_dir: Path | str | None = None, *, lo
     if len(set(children)) != len(children):
         dup = sorted({c for c in children if children.count(c) > 1})
         raise UrdfError(f"links with more than one parent joint: {dup}")
-    for j in joints.values():
-        if j.mimic is None:
-            continue
-        if not j.movable:
-            raise UrdfError(f"joint {j.name}: <mimic> on a {j.type} joint has nothing to follow")
-        src = joints.get(j.mimic.joint)
-        if src is None:
-            raise UrdfError(f"joint {j.name}: <mimic joint=\"{j.mimic.joint}\"> names no joint; known: {sorted(joints)}")
-        if not src.movable:
-            raise UrdfError(f"joint {j.name}: mimics {src.name!r}, which is {src.type} and never moves")
-        seen = {j.name}
-        cur = src
-        while cur.mimic is not None:
-            if cur.name in seen:
-                raise UrdfError(f"joint {j.name}: <mimic> chain is a cycle through {cur.name!r}")
-            seen.add(cur.name)
-            nxt = joints.get(cur.mimic.joint)
-            if nxt is None:
-                raise UrdfError(f"joint {cur.name}: <mimic joint=\"{cur.mimic.joint}\"> names no joint")
-            cur = nxt
+    for issue in mimic_issues([
+            MimicSpec(key=j.name, name=j.name, movable=j.movable,
+                      target=j.mimic.joint if j.mimic else None,
+                      multiplier=j.mimic.multiplier if j.mimic else 1.0)
+            for j in joints.values()]):
+        raise UrdfError(_mimic_message(issue, joints))
     roots = [n for n in links if n not in children]
     if len(roots) != 1:
         raise UrdfError(f"expected exactly one root link, found {roots}")

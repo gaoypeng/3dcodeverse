@@ -16,7 +16,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from codeverse.contracts.common import Vec3
+from codeverse.contracts.common import (
+    MIMIC_MIN_MULTIPLIER,
+    MimicSpec,
+    Vec3,
+    mimic_issues,
+)
 from codeverse.conventions import to_snake
 
 
@@ -188,7 +193,7 @@ class MimicPlan(BaseModel):
 
     @model_validator(mode="after")
     def _sane(self) -> MimicPlan:
-        if abs(self.multiplier) < 1e-9:
+        if abs(self.multiplier) < MIMIC_MIN_MULTIPLIER:
             raise ValueError(f"mimic of {self.joint}: multiplier 0 means the joint cannot move; use type=fixed")
         return self
 
@@ -509,33 +514,27 @@ class ArticulatedPlan(StaticPlan):
         return self
 
     def _check_mimics(self) -> None:
-        """Every declared coupling must name a joint that exists, moves, and does not
-        lead back to the joint that follows it."""
-        by_key = {to_snake(j.name): j for j in self.joints}
-        for j in self.joints:
-            if j.mimic is None:
-                continue
-            if j.type == "fixed":
-                raise ValueError(f"joint {j.name}: a fixed joint cannot mimic {j.mimic.joint}")
-            src = by_key.get(to_snake(j.mimic.joint))
-            if src is None:
-                raise ValueError(
-                    f"joint {j.name}: mimic joint {j.mimic.joint} is not a joint in this plan; the joints are: "
-                    f"{', '.join(sorted(x.name for x in self.joints))}")
-            if src.type == "fixed":
-                raise ValueError(f"joint {j.name}: mimics {src.name}, which is fixed and never moves")
-            if to_snake(src.name) == to_snake(j.name):
-                raise ValueError(f"joint {j.name}: mimics itself")
-            seen, cur = {to_snake(j.name)}, src
-            while cur.mimic is not None:
-                key = to_snake(cur.name)
-                if key in seen:
-                    raise ValueError(f"joint {j.name}: mimic chain loops back through {cur.name}")
-                seen.add(key)
-                nxt = by_key.get(to_snake(cur.mimic.joint))
-                if nxt is None:
-                    raise ValueError(f"joint {cur.name}: mimic joint {cur.mimic.joint} is not a joint in this plan")
-                cur = nxt
+        """Every declared coupling must name a joint that exists, moves, and does not lead
+        back to the joint that follows it — the rules are ``common.mimic_issues`` so the
+        plan, the lint and the URDF loader cannot drift apart."""
+        by_name = {j.name: j for j in self.joints}
+        issues = mimic_issues([
+            MimicSpec(key=to_snake(j.name), name=j.name, movable=j.type != "fixed",
+                      target=to_snake(j.mimic.joint) if j.mimic else None,
+                      multiplier=j.mimic.multiplier if j.mimic else 1.0)
+            for j in self.joints])
+        for i in issues:
+            follower = by_name.get(i.joint)
+            wanted = follower.mimic.joint if follower is not None and follower.mimic else i.target
+            raise ValueError({
+                "immobile": f"joint {i.joint}: a fixed joint cannot mimic {wanted}",
+                "zero_multiplier": f"mimic of {wanted}: multiplier 0 means the joint cannot move; use type=fixed",
+                "self": f"joint {i.joint}: mimics itself",
+                "unknown_target": f"joint {i.joint}: mimic joint {wanted} is not a joint in this plan; "
+                                  f"the joints are: {', '.join(sorted(x.name for x in self.joints))}",
+                "immobile_target": f"joint {i.joint}: mimics {i.target}, which is fixed and never moves",
+                "cycle": f"joint {i.joint}: mimic chain loops back through {i.detail}",
+            }[i.kind])
 
 
 class ZonePlan(BaseModel):
