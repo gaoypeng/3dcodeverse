@@ -15,7 +15,14 @@ Constraints:
 
 ## The contract (hard rules)
 {{ frame_doc }}
+{% if lean %}
+The language contract is already in this workspace's agent instructions file (`AGENTS.md` =
+`GEMINI.md` = `CLAUDE.md`, loaded for you){% if tools_declared %}, and your 3dcv tools are declared in your
+tool list{% else %}, which is also where your 3dcv tools are documented — this session has no MCP server,
+so you call them from the shell as that file shows{% endif %} — read them there; neither is repeated below.
+{% else %}
 {{ contract }}
+{% endif %}
 {% if cookbook_rel %}Copyable snippets live in `{{ cookbook_rel }}`.{% endif %}
 {% if cookbook_excerpt %}
 Cookbook excerpt:
@@ -75,7 +82,7 @@ Joints (the URDF must realise EXACTLY these; pivots are WORLD points at rest):
 {{ previous_error }}
 {% endif %}
 
-{% if tool_cards and not single_shot %}
+{% if tool_cards and not single_shot and not lean %}
 ## Tools available to you
 {{ tool_cards }}
 {% endif %}
