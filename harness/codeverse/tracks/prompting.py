@@ -104,15 +104,11 @@ def joints_table(plan: Plan) -> str:
     return "\n".join(rows)
 
 
-def acceptance_line(item: Any) -> str:
-    return f"- [{item.id}] ({item.priority}, {item.how}) {item.text}"
-
-
 def acceptance_lines(plan: Plan | None) -> str:
     items = getattr(plan, "acceptance", None) or []
     if not items:
         return "(none)"
-    return "\n".join(acceptance_line(a) for a in items)
+    return "\n".join(f"- [{a.id}] ({a.priority}, {a.how}) {a.text}" for a in items)
 
 
 def bbox_line(bbox: Any) -> str:

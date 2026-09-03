@@ -46,7 +46,7 @@ def test_every_track_sends_the_whole_cookbook(monkeypatch) -> None:
                                                           dims={}, reference_images=[], reference_notes=""),
                           track=Track.GRAPHICS, language=Language.GLSL_SHADER,
                           contract_text="CONTRACT", cookbook_rel="glsl_shader/cookbook.md",
-                          cookbook_text=big, tool_cards="", single_shot=True, agent_kind="single-shot", extra={},
+                          cookbook_text=big, tool_cards="", single_shot=True, extra={},
                           runtime=SimpleNamespace(entry_globs=()))
     monkeypatch.setattr(graphics_steps, "constraints_text", lambda spec: "")
     monkeypatch.setattr(graphics_steps, "reference_note", lambda ctx: "")
