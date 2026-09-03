@@ -3,6 +3,13 @@
 The exporter / pairs builder must never touch the working tree of a run
 (another process may be resuming it), so everything here goes through
 ``git archive`` / ``git ls-tree`` on the run's repository.
+
+Read-only is not the same as safe: a run's ``.git/config`` and ``.gitattributes``
+were writable by the agent, and git config can name a program to RUN.  Every
+invocation therefore goes through the same sanitised argv + environment the
+workspace's own git uses (:data:`~codeverse.workspace.GIT_SAFE_FLAGS`,
+:func:`~codeverse.workspace.git_safe_env`), and every content-rendering command
+adds :data:`~codeverse.workspace.GIT_SAFE_DIFF_FLAGS`.
 """
 
 from __future__ import annotations
@@ -12,10 +19,9 @@ import subprocess
 import tarfile
 from pathlib import Path
 
-from codeverse.workspace import Workspace
+from codeverse.workspace import GIT_SAFE_DIFF_FLAGS, GIT_SAFE_FLAGS, Workspace, git_safe_env
 
 _GIT_TIMEOUT_S = 60
-_ENV = {"PATH": "/usr/bin:/bin:/usr/local/bin", "GIT_TERMINAL_PROMPT": "0"}
 
 #: directories of a workspace that hold agent-authored code
 CODE_ROOTS: tuple[str, ...] = ("src", "public")
@@ -29,7 +35,8 @@ class GitReadError(RuntimeError):
 def _run(ws: Workspace, *args: str) -> subprocess.CompletedProcess[bytes]:
     try:
         proc = subprocess.run(
-            ["git", *args], cwd=ws.root, capture_output=True, check=False, env=_ENV, timeout=_GIT_TIMEOUT_S
+            ["git", *GIT_SAFE_FLAGS, *args], cwd=ws.root, capture_output=True, check=False,
+            env=git_safe_env(), timeout=_GIT_TIMEOUT_S,
         )
     except subprocess.TimeoutExpired as e:  # pragma: no cover - defensive
         raise GitReadError(f"git {' '.join(args)} timed out in {ws.root}") from e
@@ -91,6 +98,29 @@ def read_tree_at(ws: Workspace, commit: str) -> dict[str, bytes]:
             if fh is not None:
                 files[m.name] = fh.read()
     return files
+
+
+def diff_between(ws: Workspace, before: str, after: str, *, max_bytes: int | None = None) -> tuple[str, int, bool]:
+    """Unified diff of the code roots between two commits: ``(text, total_bytes, truncated)``.
+
+    ``total_bytes`` is what git actually produced, so a capped row still records the
+    size it was capped from.  The useful shas are the ones recorded on the rounds,
+    never ``HEAD`` — a finished run ends on a "restore best round rNN" commit — and a
+    sha the repository no longer holds raises rather than diffing against an empty
+    tree: ``git diff`` itself refuses an unknown object, so no pre-check is needed.
+    """
+    raw = _run(ws, "diff", *GIT_SAFE_DIFF_FLAGS, before, after, "--", *CODE_ROOTS).stdout
+    total = len(raw)
+    if max_bytes is not None and total > max_bytes:
+        head = raw[:max_bytes].decode("utf-8", errors="replace")
+        return f"{head}\n... [truncated {total - max_bytes} bytes]\n", total, True
+    return raw.decode("utf-8", errors="replace"), total, False
+
+
+def changed_files_between(ws: Workspace, before: str, after: str) -> list[str]:
+    """Sorted code-root paths that differ between two commits."""
+    out = _run(ws, "diff", *GIT_SAFE_DIFF_FLAGS, "--name-only", "-z", before, after, "--", *CODE_ROOTS).stdout
+    return sorted(p for p in out.decode("utf-8", errors="replace").split("\0") if p and _keep(p))
 
 
 def read_working_tree(ws: Workspace) -> dict[str, bytes]:
