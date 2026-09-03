@@ -175,6 +175,24 @@ class StaticPlan(BaseModel):
         return sum(p.leaf_count for p in self.parts)
 
 
+class MimicPlan(BaseModel):
+    """This joint is driven by another: ``q = multiplier * q[joint] + offset``.
+
+    A coupled mechanism (umbrella ribs on one runner, a pantograph, a tambour) has ONE
+    input and many moving links.  Declaring the coupling lets the sweep pose it the way
+    it really moves; without it every link is driven independently."""
+
+    joint: str = Field(description="the joint this one follows, by name")
+    multiplier: float = Field(default=1.0, description="q_this = multiplier * q_that + offset")
+    offset: float = Field(default=0.0)
+
+    @model_validator(mode="after")
+    def _sane(self) -> MimicPlan:
+        if abs(self.multiplier) < 1e-9:
+            raise ValueError(f"mimic of {self.joint}: multiplier 0 means the joint cannot move; use type=fixed")
+        return self
+
+
 class JointPlan(BaseModel):
     name: str
 
@@ -191,6 +209,7 @@ class JointPlan(BaseModel):
     upper: float = Field(default=0.0)
     rest: float = Field(default=0.0, description="joint value in the authored rest pose")
     motion: str = Field(default="", description="what moving this joint does, one line")
+    mimic: MimicPlan | None = Field(default=None, description="set when this joint is driven by another")
 
     @model_validator(mode="after")
     def _sane(self) -> JointPlan:
@@ -486,7 +505,37 @@ class ArticulatedPlan(StaticPlan):
                     raise ValueError(f"link {link} is not connected to root {self.root_link} (single-root tree required)")
                 seen.add(cur)
                 cur = parent_of[cur]
+        self._check_mimics()
         return self
+
+    def _check_mimics(self) -> None:
+        """Every declared coupling must name a joint that exists, moves, and does not
+        lead back to the joint that follows it."""
+        by_key = {to_snake(j.name): j for j in self.joints}
+        for j in self.joints:
+            if j.mimic is None:
+                continue
+            if j.type == "fixed":
+                raise ValueError(f"joint {j.name}: a fixed joint cannot mimic {j.mimic.joint}")
+            src = by_key.get(to_snake(j.mimic.joint))
+            if src is None:
+                raise ValueError(
+                    f"joint {j.name}: mimic joint {j.mimic.joint} is not a joint in this plan; the joints are: "
+                    f"{', '.join(sorted(x.name for x in self.joints))}")
+            if src.type == "fixed":
+                raise ValueError(f"joint {j.name}: mimics {src.name}, which is fixed and never moves")
+            if to_snake(src.name) == to_snake(j.name):
+                raise ValueError(f"joint {j.name}: mimics itself")
+            seen, cur = {to_snake(j.name)}, src
+            while cur.mimic is not None:
+                key = to_snake(cur.name)
+                if key in seen:
+                    raise ValueError(f"joint {j.name}: mimic chain loops back through {cur.name}")
+                seen.add(key)
+                nxt = by_key.get(to_snake(cur.mimic.joint))
+                if nxt is None:
+                    raise ValueError(f"joint {cur.name}: mimic joint {cur.mimic.joint} is not a joint in this plan")
+                cur = nxt
 
 
 class ZonePlan(BaseModel):

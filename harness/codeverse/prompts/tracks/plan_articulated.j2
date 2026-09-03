@@ -40,6 +40,11 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
    * Count the moving parts the brief names (doors, drawers, lids, arms, wheels): that is the number of
      non-fixed joints, give or take one. Do not add joints to reach a part count — a rigid feature is a
      sub-part, not a link.
+   * A mechanism with ONE input and several moving links (umbrella ribs on a runner, scissor/
+     pantograph arms, a tambour's slats, folding legs braced together) declares the coupling:
+     give every follower joint `mimic: {joint: "<the driving joint>", multiplier: <ratio>, offset: 0}`.
+     The harness then moves the driver and lets the followers follow; without it the sweep poses
+     each link on its own and the mechanism is judged in states it cannot reach.
    * `parent` / `child` name top-level `parts` (links) — NEVER a sub-part: anything a joint moves must be
      its own link (the harness promotes a referenced sub-part to a link, but plan it as a link yourself).
      A `revolute` range stays within 2π; a part that turns freely (swivel, wheel) is `continuous`.

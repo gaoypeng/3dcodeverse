@@ -191,6 +191,9 @@ def lint_urdf_text(text: str, *, label: str = URDF_REL) -> tuple[list[GateFindin
 
     joint_names: list[str] = []
     parent_of: dict[str, str] = {}
+    # <mimic> may name a joint declared later in the file, so the whole name set is
+    # collected before any joint is linted
+    all_joint_names = {el.get("name", "") for el in joints if el.get("name")}
     for el in joints:
         jname = el.get("name", "")
         if not jname:
@@ -199,7 +202,7 @@ def lint_urdf_text(text: str, *, label: str = URDF_REL) -> tuple[list[GateFindin
         if jname in joint_names:
             out.append(_f(Severity.ERROR, f"duplicate joint name '{jname}'", target=jname, fix="Joint names must be unique."))
         joint_names.append(jname)
-        _lint_joint(el, jname, link_names, parent_of, out)
+        _lint_joint(el, jname, link_names, parent_of, out, all_joint_names)
 
     # tree structure
     children = set(parent_of)
@@ -284,7 +287,8 @@ def _lint_origin(o: ET.Element | None, what: str, target: str, out: list[GateFin
                           fix=f'<origin {attr}="0 0 0"/>'))
 
 
-def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: dict[str, str], out: list[GateFinding]) -> None:
+def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: dict[str, str],
+                out: list[GateFinding], joint_names: set[str] | None = None) -> None:
     jtype = el.get("type", "")
     if jtype not in JOINT_TYPES:
         out.append(_f(Severity.ERROR, f"joint '{jname}': type '{jtype}' must be one of {JOINT_TYPES}", target=jname,
@@ -349,8 +353,26 @@ def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: di
     elif jtype == "continuous" and lim is not None and (lim.get("lower") is not None or lim.get("upper") is not None):
         out.append(_f(Severity.WARN, f"joint '{jname}': continuous joints have no lower/upper (ignored)", target=jname,
                       fix='<limit effort="10" velocity="1"/> or use type=revolute'))
-    if el.find("mimic") is not None:
-        out.append(_f(Severity.WARN, f"joint '{jname}': <mimic> is ignored by the harness (sweeps move it independently)", target=jname))
+    mim = el.find("mimic")
+    if mim is not None:
+        src = (mim.get("joint") or "").strip()
+        if not src:
+            out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> without joint=", target=jname,
+                          fix='<mimic joint="runner_slide" multiplier="1" offset="0"/>'))
+        elif src == jname:
+            out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> names itself", target=jname))
+        elif joint_names is not None and src not in joint_names:
+            out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic joint=\"{src}\"> names no joint in this file",
+                          target=jname, fix=f"one of: {', '.join(sorted(joint_names))}"))
+        if jtype == "fixed":
+            out.append(_f(Severity.ERROR, f"joint '{jname}': a fixed joint has nothing to mimic", target=jname,
+                          fix="give it a type and a limit, or drop the <mimic>"))
+        try:
+            if abs(float(mim.get("multiplier", 1) or 1)) < 1e-12:
+                out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic multiplier=\"0\"> — the joint cannot move",
+                              target=jname, fix="use type=fixed, or a non-zero multiplier"))
+        except ValueError:
+            out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> multiplier/offset must be numbers", target=jname))
 
 
 # ------------------------------------------------------------------ model.py
@@ -471,6 +493,7 @@ class JointRow:
     lower: float | None
     upper: float | None
     rest: float = 0.0  # plan rest value the limits were shifted by (0 → limits == plan limits)
+    mimic: tuple[str, float, float] | None = None  # (driving joint, multiplier, offset)
 
 
 @dataclass
@@ -525,9 +548,13 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
         lower = upper = None
         if j.type in ("revolute", "prismatic"):
             lower, upper = j.lower - j.rest, j.upper - j.rest
+        mim = None
+        if j.mimic is not None:
+            # instanced links get one joint each; each copy follows the same driver
+            mim = (to_snake(j.mimic.joint), float(j.mimic.multiplier), float(j.mimic.offset))
         joints.append(JointRow(name=to_snake(j.name) + suffix, type=j.type, parent=parent, child=child,
                                origin_xyz=(0.0, 0.0, 0.0), axis=tuple(float(v) for v in j.axis), lower=lower, upper=upper,
-                               rest=float(j.rest) if lower is not None else 0.0))
+                               rest=float(j.rest) if lower is not None else 0.0, mimic=mim))
 
     for j in plan.joints:
         parent, child = to_snake(j.parent), to_snake(j.child)
@@ -550,7 +577,7 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
         cf = links[jr.child].frame_xyz
         fixed.append(JointRow(name=jr.name, type=jr.type, parent=jr.parent, child=jr.child,
                               origin_xyz=tuple(c - p for c, p in zip(cf, pf, strict=True)), axis=jr.axis,
-                              lower=jr.lower, upper=jr.upper, rest=jr.rest))
+                              lower=jr.lower, upper=jr.upper, rest=jr.rest, mimic=jr.mimic))
     return UrdfFrames(robot_name=to_snake(plan.object_name), root=root, links=links, joints=fixed)
 
 
@@ -585,6 +612,10 @@ def render_urdf(frames: UrdfFrames) -> str:
             if jr.lower is not None and jr.upper is not None:
                 lim = f'lower="{_fmt(jr.lower)}" upper="{_fmt(jr.upper)}" ' + lim
             lines.append(f"    <limit {lim}/>" + _limit_note(jr))
+            if jr.mimic is not None:
+                src, mult, off = jr.mimic
+                lines.append(f'    <mimic joint="{src}" multiplier="{_fmt(mult)}" offset="{_fmt(off)}"/>'
+                             "  <!-- driven: the sweep moves the driver, this joint follows -->")
         lines.append("  </joint>")
     lines.append("</robot>")
     return "\n".join(lines) + "\n"

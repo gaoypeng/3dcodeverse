@@ -1,0 +1,134 @@
+"""Coupled mechanisms: a <mimic> joint follows the joint it names, everywhere.
+
+compare_art_v3/v4: umbrella, scissor_mirror and folding_workbench are the lowest scorers
+on the battery, and all three are one-input mechanisms with many moving links. Before
+this the sweep drove every link independently and posed them in states the mechanism
+cannot reach."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from codeverse.languages.urdf import lint_workspace, render_urdf
+from codeverse.spatial.joints import (
+    UrdfError,
+    load_urdf,
+    motion_direction_check,
+    pose_samples,
+    sweep_collisions,
+)
+from codeverse.spatial.joints_model import fk, resolve_q
+from tests.urdf_joints.conftest import box_glb
+
+RIB = """<?xml version="1.0"?>
+<robot name="umbrella">
+  <link name="shaft"><visual><geometry><mesh filename="meshes/shaft.glb"/></geometry></visual></link>
+  <link name="runner"><visual><geometry><mesh filename="meshes/runner.glb"/></geometry></visual></link>
+  <link name="rib_a"><visual><geometry><mesh filename="meshes/rib_a.glb"/></geometry></visual></link>
+  <link name="rib_b"><visual><geometry><mesh filename="meshes/rib_b.glb"/></geometry></visual></link>
+  <joint name="runner_slide" type="prismatic">
+    <parent link="shaft"/><child link="runner"/>
+    <origin xyz="0 0 0.5" rpy="0 0 0"/><axis xyz="0 0 1"/>
+    <limit lower="0" upper="0.3" effort="10" velocity="1"/>
+  </joint>
+  <joint name="rib_a_hinge" type="revolute">
+    <parent link="shaft"/><child link="rib_a"/>
+    <origin xyz="0 0 1" rpy="0 0 0"/><axis xyz="0 1 0"/>
+    <limit lower="0" upper="1.2" effort="10" velocity="1"/>
+    <mimic joint="runner_slide" multiplier="4" offset="0"/>
+  </joint>
+  <joint name="rib_b_hinge" type="revolute">
+    <parent link="shaft"/><child link="rib_b"/>
+    <origin xyz="0 0 1" rpy="0 0 0"/><axis xyz="0 -1 0"/>
+    <limit lower="0" upper="1.2" effort="10" velocity="1"/>
+    <mimic joint="rib_a_hinge" multiplier="1" offset="0"/>
+  </joint>
+</robot>
+"""
+
+
+def _robot(tmp_path: Path, urdf_text: str = RIB):
+    meshes = tmp_path / "meshes"
+    box_glb(meshes / "shaft.glb", (0, 0, 0.6), (0.04, 0.04, 1.2))
+    box_glb(meshes / "runner.glb", (0, 0, 0.5), (0.08, 0.08, 0.06))
+    box_glb(meshes / "rib_a.glb", (0.25, 0, 1.0), (0.5, 0.02, 0.02))
+    box_glb(meshes / "rib_b.glb", (-0.25, 0, 1.0), (0.5, 0.02, 0.02))
+    urdf = tmp_path / "robot.urdf"
+    urdf.write_text(urdf_text)
+    return load_urdf(urdf, meshes)
+
+
+def test_a_driven_joint_follows_its_driver_through_the_chain(tmp_path):
+    r = _robot(tmp_path)
+    assert [j.name for j in r.independent_joints()] == ["runner_slide"]
+    assert r.joints["rib_a_hinge"].driven and r.joints["rib_b_hinge"].driven
+    q = resolve_q(r, {"runner_slide": 0.2})
+    assert q["rib_a_hinge"] == pytest.approx(0.8)      # multiplier 4
+    assert q["rib_b_hinge"] == pytest.approx(0.8)      # follows rib_a_hinge, multiplier 1
+    # a value handed in for a driven joint is ignored: the mechanism has one input
+    assert resolve_q(r, {"runner_slide": 0.1, "rib_a_hinge": 99.0})["rib_a_hinge"] == pytest.approx(0.4)
+    # the rib hinges about its own frame origin, so the coupling shows in the rotation
+    assert fk(r, {"runner_slide": 0.1})["rib_a"][:3, :3].tolist() != fk(r, {})["rib_a"][:3, :3].tolist()
+    assert fk(r, {"runner_slide": 0.1})["runner"][2, 3] == pytest.approx(fk(r, {})["runner"][2, 3] + 0.1)
+
+
+def test_pose_samples_drive_only_the_degrees_of_freedom(tmp_path):
+    r = _robot(tmp_path)
+    poses = pose_samples(r)
+    assert all(set(p) <= {"runner_slide"} for p in poses), poses
+    assert any(p.get("runner_slide") == pytest.approx(0.3) for p in poses)
+    # the ribs still move: the sweep sees the coupled pose, not a frozen one
+    opened = [p for p in poses if p.get("runner_slide")][0]
+    assert fk(r, opened)["rib_a"][:3, :3].tolist() != fk(r, {})["rib_a"][:3, :3].tolist()
+
+
+def test_the_sweep_poses_the_mechanism_the_way_it_moves(tmp_path):
+    r = _robot(tmp_path)
+    rep = sweep_collisions(r, pose_samples(r))
+    assert {p.label for p in rep.per_pose} == {"rest", "runner_slide@upper", "runner_slide@mid"}
+    assert rep.summary.n_poses == 3  # one input, not three
+
+
+def test_a_driven_joint_is_probed_through_its_driver(tmp_path):
+    r = _robot(tmp_path)
+    chk = motion_direction_check(r, "rib_a_hinge", "up")
+    assert "driven by runner_slide" in chk.message
+    assert chk.observed_dir != (0.0, 0.0, 0.0)
+
+
+@pytest.mark.parametrize("bad,msg", [
+    ('<mimic joint="nope"/>', "names no joint"),
+    ('<mimic joint="rib_a_hinge" multiplier="0"/>', "cannot move"),
+    ('<mimic joint="rib_b_hinge"/>', "cycle"),
+])
+def test_a_broken_coupling_is_refused_at_load(tmp_path, bad, msg):
+    text = RIB.replace('<mimic joint="runner_slide" multiplier="4" offset="0"/>', bad)
+    with pytest.raises(UrdfError, match=msg):
+        _robot(tmp_path, text)
+
+
+def test_the_skeleton_writes_the_plan_s_coupling(cabinet_plan):
+    from codeverse.contracts.plan import MimicPlan
+    from codeverse.languages.urdf import compute_urdf_frames
+
+    plan = cabinet_plan.model_copy(deep=True)
+    plan.joints[0].mimic = MimicPlan(joint="handle_mount", multiplier=2.0, offset=0.1)
+    plan.joints[1].type = "revolute"
+    plan.joints[1].lower, plan.joints[1].upper, plan.joints[1].rest = 0.0, 1.0, 0.0
+    urdf = render_urdf(compute_urdf_frames(plan))
+    assert '<mimic joint="handle_mount" multiplier="2" offset="0.1"/>' in urdf
+
+
+def test_the_lint_accepts_a_real_coupling_and_names_a_broken_one(tmp_path, monkeypatch):
+    from codeverse.workspace import Workspace
+
+    ws = Workspace(tmp_path / "ws").create()
+    (ws.src / "robot.urdf").write_text(RIB)
+    (ws.src / "model.py").write_text("import bpy\n")
+    findings = [f for f in lint_workspace(ws).findings if "mimic" in f.message]
+    assert findings == []
+    (ws.src / "robot.urdf").write_text(RIB.replace('joint="runner_slide" multiplier="4"', 'joint="ghost" multiplier="4"'))
+    errs = [f for f in lint_workspace(ws).findings if "mimic" in f.message and f.severity.value == "error"]
+    assert len(errs) == 1 and "names no joint" in errs[0].message
