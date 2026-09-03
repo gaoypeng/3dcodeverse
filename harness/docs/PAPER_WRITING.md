@@ -261,11 +261,27 @@ driven joint is ignored); `pose_samples` drives `independent_joints()` only; the
 check probes a driven joint **through its driver**; `JointPlan.mimic` makes the coupling a
 planner decision and the skeleton writes it; the lint checks it instead of dismissing it.
 
-**Measured** (`wave2_lean`, both arms): the planner and agent declared couplings in **8 of
-14 prompts** (umbrella 6 joints, folding workbench 4, step ladder 4, scissor mirror 3,
-rolltop desk 3, one each on casement window / grand piano / architect lamp), and the sampled
-poses now drive **1–2 joints** where the same prompts previously produced **5–6-joint**
-random combinations.  The score effect on the three coupled prompts is inside the noise band
+**Measured** (`wave2_lean`, both arms; `python bench/coupling_stats.py bench/out/wave2_lean
+--per-prompt` recomputes every number here from the recorded URDFs — what the sampler used
+to drive is every movable joint, what it drives now is the independent ones, and both are
+properties of the file):
+
+| prompt | coupled URDFs | movable joints (median) | driven per pose (median) |
+|---|--:|--:|--:|
+| umbrella | 12 | 7 | **1** |
+| step ladder | 12 | 5 | **1** |
+| folding workbench | 12 | 6 | **2** |
+| scissor mirror | 12 | 6 | **3** |
+| grand piano | 12 | 4 | 3 |
+| architect lamp | 20 | 5 | 4 |
+| rolltop desk | 12 | 8 | 5 |
+| casement window | 6 | 7 | 6 |
+
+**8 of 14 prompts** declared a coupling at all (98 of 176 built URDFs); across those the
+median goes **6 → 3** driven joints, and 24 URDFs are fully one-input.  The mechanisms the
+support was built for — umbrella, step ladder, folding workbench — are the ones that collapse
+to 1–2.  The pre-mimic batteries (`aa_articulated`, `compare_art_v4_pf0`) contain **zero**
+couplings, so nothing else on the battery changed shape.  The score effect on the three coupled prompts is inside the noise band
 at n = 2 per side (umbrella 0.35/0.65 → 0.54/0.64, scissor 0.46/0.54 → 0.49/0.60, workbench
 0.91/0.60 → 0.60/0.60); the **pose count is the readout that resolves.**
 
@@ -328,8 +344,8 @@ instructions nor a diff.
    plausible levers landed inside that band; none of them is thereby shown to do nothing.
 3. **The changes that mattered were found by counting loss events, not by scoring artefacts.**
    Planner mortality 4.7 % → 0.7 % (p = 0.0067); retried tool calls 26.6 % → 1.3 %; uncached
-   tokens −64 %; dollars per round −38 %; sampled poses of a coupled mechanism from 5–6
-   joints to 1–2.  Every one of these is invisible to the judge mean at this n.
+   tokens −64 %; dollars per round −40 %; driven joints per sampled pose on a coupled
+   mechanism 6 → 3 (1 on the umbrella and the step ladder).  Every one of these is invisible to the judge mean at this n.
 4. **The biggest single defect was in the harness's own plumbing**, not in the model or the
    prompt: one line mapping a tool's verdict to a protocol error cost a quarter of all tool
    calls to retries and two thirds of the uncached token bill.  It was found by reading
@@ -387,7 +403,7 @@ instructions nor a diff.
 | generator $ per round | median 1.572 → 0.950 | round records of both runs | same |
 | base64 amplification | 261 k tokens vs 516 for one 275 kB sheet | measured on a recorded blob + vendor bundle | arithmetic + matching recorded prompt jumps |
 | token growth in turns | input(t) = 12 364 + 1 822·t; total ∝ n^1.60; dollars ∝ n^1.19–1.34 | 1 063 in-process sessions, 30 401 turns | the in-process agent, since gemini-cli emits no per-turn usage |
-| coupled mechanisms declared | 8 of 14 prompts; poses drive 1–2 joints (was 5–6) | `wave2_lean` URDFs and round records | — |
+| coupled mechanisms declared | 8 of 14 prompts; driven joints per pose 6 → 3 (1–2 on the one-input mechanisms) | `bench/coupling_stats.py bench/out/wave2_lean --per-prompt` | recomputed from the recorded URDFs |
 | refine corpus | 254 transitions, 112 SFT samples (2026-09-03) | `3dcv flywheel refine`, `toolkits/llamafactory/build_refine_sft.py` over `bench/out` | corpus grows with every battery |
 
 ## 9.2 Open questions

@@ -720,12 +720,14 @@ written) that were accepted because the code works that way and the tests pin it
     the measurement, a toolkit writes whatever a trainer wants (owner's boundary,
     2026-09-03).
   * **`<mimic>` is used and it changes the sweep, which is what it was for.**  In the same
-    battery the planner and agent declared couplings in 8 of 14 prompts (umbrella 6 joints,
-    workbench 4, step ladder 4, scissor mirror 3, rolltop desk 3), and the sampled poses
-    now drive 1-2 joints where the same prompts previously produced 5-6-joint random
-    combinations — the mechanism is posed through its own input.  The score effect on the
-    three coupled prompts is inside the noise band at n=2 per side, as expected; the pose
-    count is the readout that resolves.
+    battery the planner and agent declared couplings in 8 of 14 prompts (98 of 176 built
+    URDFs), and on those the sampler drives a median of 3 joints per pose against the 6 it
+    would have driven before — 1 on the umbrella and the step ladder, 2 on the folding
+    workbench, the mechanisms the support was built for.  The pre-mimic batteries contain
+    zero couplings, so nothing else changed shape.  `bench/coupling_stats.py --per-prompt`
+    recomputes all of it from the recorded URDFs (both counts are properties of the file).
+    The score effect on the three coupled prompts is inside the noise band at n=2 per side,
+    as expected; the pose count is the readout that resolves.
 
 ## Rejected / deferred
 

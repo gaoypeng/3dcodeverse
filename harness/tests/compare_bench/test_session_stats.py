@@ -68,3 +68,33 @@ def test_a_dead_session_is_skipped_not_fatal(tmp_path: Path) -> None:
     assert len(_sessions(tmp_path)) == 2
     calls, _ = tool_rates(_sessions(tmp_path))
     assert calls == {"build": 3}
+
+
+def test_the_coupling_survey_counts_degrees_of_freedom_not_joints(tmp_path: Path) -> None:
+    """``bench/coupling_stats.py`` reads the mechanism claim off the recorded URDFs: what
+    the sampler used to drive (every movable joint) against what it drives now (the
+    independent ones).  Both are properties of the file, so no re-run is needed."""
+    from bench.coupling_stats import per_prompt, report, survey
+
+    urdf = """<?xml version="1.0"?>
+<robot name="rig">
+  <link name="base"/><link name="a"/><link name="b"/>
+  <joint name="drive" type="revolute"><parent link="base"/><child link="a"/>
+    <axis xyz="0 0 1"/><limit lower="0" upper="1" effort="1" velocity="1"/></joint>
+  <joint name="follow" type="revolute"><parent link="a"/><child link="b"/>
+    <axis xyz="0 0 1"/><limit lower="0" upper="1" effort="1" velocity="1"/>
+    <mimic joint="drive" multiplier="1" offset="0"/></joint>
+</robot>
+"""
+    cell = tmp_path / "cells" / "art_hard_umbrella" / "arm" / "run" / "artifacts"
+    cell.mkdir(parents=True)
+    (cell / "robot.urdf").write_text(urdf)
+    (tmp_path / "cells" / "plain" / "arm" / "run" / "artifacts").mkdir(parents=True)
+    (tmp_path / "cells" / "plain" / "arm" / "run" / "artifacts" / "robot.urdf").write_text(
+        urdf.replace('<mimic joint="drive" multiplier="1" offset="0"/>', ""))
+
+    s = survey(tmp_path)
+    assert s["urdfs"] == 2 and s["prompts"] == 2 and s["coupled_prompts"] == 1
+    assert s["coupled"] == [(2, 1)]                       # 2 movable joints, 1 degree of freedom
+    assert "| 2 | 2 | 1 | 1 | 2 | 1 | 1 |" in report([tmp_path])
+    assert "| art_hard_umbrella | 1 | 2 | 1 | 1 |" in per_prompt(tmp_path)
