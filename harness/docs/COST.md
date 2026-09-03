@@ -1485,17 +1485,26 @@ GATE is a separate question — the tool flags any overlap past `tol_m` and any 
 link, while `sweep_findings` downgrades small rest overlaps and hinge gaps to WARN.
 
 **Measured after the fix** (`bench/out/wave2_lean`, the same battery and config as the
-`aa_articulated` A/A above, 2026-09-03; 108 sessions / 5 082 requests against the before
-run's 120 / 5 188):
+`aa_articulated` A/A above, 2026-09-03).  Both columns are printed by
+`bench/session_stats.py aa_articulated wave2_lean`, which reads each session's own stats
+block and each round's recorded `usage`:
 
-| per generator request | before | after |
+| per generator request | before (`aa_articulated`) | after (`wave2_lean`) |
 |---|--:|--:|
-| MCP tool calls reported as errors | 26.6 % (964 / 3 628) | **1.4 %** (48 / 3 480) |
-| cache hit | 69 % | **89 %** |
-| uncached prompt tokens | 38 390 | **13 736** (−64 %) |
-| generator $ per round | mean 1.900, median 1.572 | **mean 1.293, median 0.967** (−32 % / −38 %) |
+| sessions / requests | 111 / 2 594 | 102 / 2 722 |
+| MCP tool calls reported as errors | 26.6 % (482 / 1 814) | **1.3 %** (25 / 1 863) |
+| cache hit | 68.8 % | **89.2 %** |
+| uncached prompt tokens | 38 390 | **13 945** (−64 %) |
+| generator $ per round | mean 1.900, median 1.572 | **mean 1.242, median 0.950** (−35 % / −40 %) |
 
-The residual 1.4 % are genuine `Observation.error` cases: `joint_sweep` with no
+**Correction (2026-09-03):** the after column first read 1.4 % (48 / 3 480), 13 736
+uncached tokens, median \$0.967 over "108 sessions / 5 082 requests".  Those counts were
+inflated by the `run/telemetry/trajectories` symlink this section warns about — the same
+sessions counted about twice.  The before column was unaffected and is unchanged.  The
+script deduplicates by resolved path and a test plants the symlink, so the mistake cannot
+come back.
+
+The residual 1.3 % are genuine `Observation.error` cases: `joint_sweep` with no
 `artifacts/robot.urdf` yet or an unparseable one, `check_connectivity` / `check_contract`
 with no readable GLB.  The cache recovery is the larger half of the saving and was NOT
 predicted by the retry argument alone: the base64 blobs were breaking the implicit-cache

@@ -685,11 +685,14 @@ written) that were accepted because the code works that way and the tests pin it
     errored result — turned a 275 kB articulation sheet into ~261 k prompt tokens of
     base64 instead of ~516 as an image; ~10 % of requests carried ~225 k uncacheable
     tokens, 67 % of the uncached bill.  That is a mechanism fault with no score signature
-    at n=14, found by reading the recorded tool stats.  **Measured after the fix** (same
-    battery and config, 108 sessions vs 120): calls reported as errors 26.6 % → **1.4 %**
-    (the remainder are genuine `Observation.error` cases), cache hit 69 % → **89 %**,
-    uncached prompt tokens per request 38 390 → **13 736**, generator dollars per round
-    median 1.572 → **0.967** (−38 %).  docs/COST.md §30 carries the selector.
+    at n=14, found by reading the recorded tool stats.  **Measured after the fix**
+    (`aa_articulated` before, `wave2_lean` after, same battery and config): calls reported
+    as errors 26.6 % (482/1 814) → **1.3 %** (25/1 863; the remainder are genuine
+    `Observation.error` cases), cache hit 68.8 % → **89.2 %**, uncached prompt tokens per
+    request 38 390 → **13 945**, generator dollars per round median 1.572 → **0.950**
+    (−40 %).  `bench/session_stats.py` computes both columns from the recorded sessions —
+    the first hand-computed after column double-counted the telemetry symlink (docs/COST.md
+    §30 carries the correction and the selector).
   * **`CV3D_LEAN_PROMPT` stays OFF, now with a number.**  Paired battery on
     `articulated_v2` (12 pairs, plan pinned, same fixed judge): mean Δ **+0.030**, paired
     sd 0.131, **2 SE ±0.076**, 8 up / 3 down (p 0.227), one regression — inconclusive by

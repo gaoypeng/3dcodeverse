@@ -226,17 +226,22 @@ implicit-cache prefix.  Non-blob requests already cached as well as the old agen
 its verdict (`JOINT SWEEP: FAIL — penetration 3.0 mm > tolerance 1.0 mm`); the MCP boundary
 bounds one result's text characters, image count and encoded image bytes.
 
-**Measured after** (`bench/out/wave2_lean`, the same battery and config as the A/A above;
-108 sessions / 5 082 requests against the before run's 120 / 5 188):
+**Measured after** (`bench/out/wave2_lean`, the same battery and config as the A/A above).
+Both columns come from `bench/session_stats.py`, which is in the repo with its own tests:
 
-| per generator request | before | after |
+| per generator request | before (`aa_articulated`) | after (`wave2_lean`) |
 |---|--:|--:|
-| MCP tool calls reported as errors | 26.6 % (964 / 3 628) | **1.4 %** (48 / 3 480) |
-| cache hit | 69 % | **89 %** |
-| uncached prompt tokens | 38 390 | **13 736** (−64 %) |
-| generator $ per round | mean 1.900 / median 1.572 | **mean 1.293 / median 0.967** (−38 % median) |
+| sessions / requests | 111 / 2 594 | 102 / 2 722 |
+| MCP tool calls reported as errors | 26.6 % (482 / 1 814) | **1.3 %** (25 / 1 863) |
+| cache hit | 68.8 % | **89.2 %** |
+| uncached prompt tokens | 38 390 | **13 945** (−64 %) |
+| generator $ per round | mean 1.900, median 1.572 | **mean 1.242, median 0.950** (−35 % / −40 %) |
 
-The residual 1.4 % are genuine `Observation.error` cases (`joint_sweep` before a build,
+(The after column first read 1.4 % / 13 736 / \$0.967 over "108 sessions"; those counts
+double-counted the `run/telemetry/trajectories` symlink.  Rates barely move, the counts do;
+the script deduplicates and a test plants the symlink.)
+
+The residual 1.3 % are genuine `Observation.error` cases (`joint_sweep` before a build,
 `check_*` with no readable GLB).  **This is the largest effect found in the whole effort,
 and it has no signature in the judge mean at n = 14.**
 
@@ -322,7 +327,7 @@ instructions nor a diff.
    floor at ±0.13 with a paired sd of 0.225 and asks for ~506 pairs to resolve ±0.02.  Four
    plausible levers landed inside that band; none of them is thereby shown to do nothing.
 3. **The changes that mattered were found by counting loss events, not by scoring artefacts.**
-   Planner mortality 4.7 % → 0.7 % (p = 0.0067); retried tool calls 26.6 % → 1.4 %; uncached
+   Planner mortality 4.7 % → 0.7 % (p = 0.0067); retried tool calls 26.6 % → 1.3 %; uncached
    tokens −64 %; dollars per round −38 %; sampled poses of a coupled mechanism from 5–6
    joints to 1–2.  Every one of these is invisible to the judge mean at this n.
 4. **The biggest single defect was in the harness's own plumbing**, not in the model or the
@@ -376,10 +381,10 @@ instructions nor a diff.
 | fewer turns | +0.015 ±0.126, −12 % tool calls, $/cell flat | `ab_fewer_turns` | plan pinned |
 | lean prompt | +0.030 ±0.076, $3.51 vs $3.66 | `wave2_lean` | plan pinned |
 | planner mortality | 4.7 % → 0.7 %, Fisher p = 0.0067, n = 560 calls | `local/out/plandeg_restart_{on,off}.jsonl` | plan stage only, both arms same window |
-| tool calls reported as errors | 26.6 % → 1.4 % | `aa_articulated` vs `wave2_lean` stats envelopes | same battery/config, different weather |
+| tool calls reported as errors | 26.6 % → 1.3 % | `aa_articulated` vs `wave2_lean` stats envelopes | same battery/config, different weather |
 | cache hit | 69 % → 89 % | same | same |
-| uncached tokens per request | 38 390 → 13 736 | same | same |
-| generator $ per round | median 1.572 → 0.967 | round records of both runs | same |
+| uncached tokens per request | 38 390 → 13 945 | same | same |
+| generator $ per round | median 1.572 → 0.950 | round records of both runs | same |
 | base64 amplification | 261 k tokens vs 516 for one 275 kB sheet | measured on a recorded blob + vendor bundle | arithmetic + matching recorded prompt jumps |
 | token growth in turns | input(t) = 12 364 + 1 822·t; total ∝ n^1.60; dollars ∝ n^1.19–1.34 | 1 063 in-process sessions, 30 401 turns | the in-process agent, since gemini-cli emits no per-turn usage |
 | coupled mechanisms declared | 8 of 14 prompts; poses drive 1–2 joints (was 5–6) | `wave2_lean` URDFs and round records | — |
