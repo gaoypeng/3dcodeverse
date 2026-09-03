@@ -90,6 +90,10 @@ again, then `scene_views` and LOOK at the frames: count the silhouettes, look
 for a flat colour under your props, and read the MEASURED MOTION line it prints — if your zone's
 motion is under 0.4 % of the frame, double the amplitude and render again.
 {% endif %}
+{% if effects_catalog is defined and effects_catalog %}
+
+{{ effects_catalog }}
+{% endif %}
 {% if recipes is defined and recipes %}
 
 # Recipes (from the scene cookbook — copy these numbers and snippets)

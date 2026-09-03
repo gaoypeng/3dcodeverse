@@ -119,6 +119,13 @@ codeverse/
                       scene_placement.py (scene_placement gate + check_placement tool: floating / sunken /
                       unsupported / interpenetration per placed asset from the probe census's placement
                       table, runtime_js/lib/host_placement.mjs; added 2026-08-26),
+                      ablation.py (effect_ablation tool + census.effect_ablation: the scene rendered as
+                      authored vs with every custom shader replaced by a neutral material of the same
+                      base colour — changed-pixel fraction per camera and per material,
+                      runtime_js/lib/host_ablation.mjs + ablate_scene.mjs; rebuilt 2026-09-01 as an
+                      instrument after the 08-28 cleanup deleted the unused counterfactual path.
+                      The scene build folds the field into its census only under CV3D_ABLATION=1 —
+                      a second browser boot, so opt-in; the tool always writes it to census.json),
                       gl_render.py (GlHost), frame_stats.py (gl_frames),
                       sheet.py (montage_2x2, crop_region), measure.py, connectivity.py,
                       contract.py (authoring-frame hints), sections.py, silhouette.py, probes.py,
@@ -240,6 +247,12 @@ runtime_js/           export_glb.mjs (placement policy, instance baking, selfche
                       render_scene.mjs probe_scene.mjs check_shaders.mjs gpu_launch.cjs serve.cjs
                       lib/{resolve_three, scene_host, host_coverage, host_census, host_placement, orbit, instances,
                       census, glsl_audit, browser/…}
+                      browser/post.js — scene post chain: GTAO + SELECTIVE bloom (an emissive
+                      mask, not a luminance bright-pass: on our renderer the sky dome at 1.88
+                      linear outshines every authored emissive, so a threshold cannot separate
+                      them) + a colour grade that is the identity unless the scene sets
+                      `scene.userData.grade`.  ON for scene renders, `CV3D_POST=0` / `--no-post`
+                      to disable; object renders never come through this driver.
 tests/                agents bench_prompts blender_cadquery compare_bench core cost flywheel_cli gallery graphics
                       install judges languages models orchestrator_tracks prompts reference scene_gates
                       scene_prompts scene_runtime skills spatial_tools texturing threejs_render urdf_joints
@@ -313,6 +326,11 @@ summary:
 * **scene_threejs**: `src/scene.js` `createScene({THREE, renderer, loaders}) → {scene, cameras, update(t,dt)}`;
   `src/env.js`, `src/zones/*.js`, `src/assets/*.js`, `src/shaders/*.js`; GLBs at
   `public/assets/<name>.glb`.  The harness assembles `scene.js` deterministically.
+  Plus the harness-owned, read-only **effect library** `src/lib/*.js` — 52 modules,
+  28.8k lines, shipped into every workspace by BOTH skeleton paths and listed in
+  `HARNESS_OWNED_SRC` so agent writes to it are reverted (D51).  The starter tree is
+  therefore 60 `.js` files / 29.3k lines, of which 8 are the example scene.  The
+  want → call table the prompts carry is `prompts/scene_threejs/effects_catalog.md`.
 * **glsl_shader**: `src/shader.frag` (+ optional `src/common.glsl`,
   `src/buffer_a.frag` for feedback; the harness-owned, read-only `src/recipes.glsl`
   is pasted above them when the track seeded recipes) — the agent never writes

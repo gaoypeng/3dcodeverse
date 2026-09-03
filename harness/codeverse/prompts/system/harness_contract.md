@@ -19,6 +19,9 @@ artifacts/  harness output (object.glb, renders/, gates/, measurement.json).  RE
   imports are listed in the language contract (bpy/bmesh/mathutils/math/random/… ;
   `cadquery` + stdlib ; `three` + `three/addons/*`).  Nothing else.  No network, no DOM,
   no file I/O from generated code (except `src/robot.urdf` for the articulated track).
+  A language contract may ALSO ship harness-owned modules inside your own `src/` and tell
+  you to call them (`scene_threejs`: `src/lib/*.js`).  Those are not an SDK import — they
+  are code the harness wrote into your workspace.  Call them; never rewrite them.
 
 ## 2. Code is truth
 

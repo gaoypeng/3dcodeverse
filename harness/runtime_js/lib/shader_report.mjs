@@ -30,6 +30,17 @@ export function listSources(root, sub = 'src') {
   }));
 }
 
+/** `src/lib/*.js` — the harness's own effect library, shipped into every
+ * scene workspace (D51).  The STATIC audits skip it: its GLSL is written for
+ * `shader.js patchStandard`, which declares and binds `uTime` itself (see
+ * `withTime`), and no string-level audit can see that — it fired the
+ * undeclared/unbound uTime PAIR on six shipped modules, and once a workspace
+ * carried the library that pair outranked the agent's own real shader error
+ * in the build report.  These files are verified on the GPU by
+ * `tests/scene_runtime/lib/`, not by the workspace gate.  They stay in
+ * `files`, so a COMPILE error inside one still maps back to its file:line. */
+const LIB_RE = /^src\/lib\//;
+
 /**
  * Static-audit stage: build the report skeleton with the node-side GLSL
  * findings.  `module` (optional) restricts the audit to one source file.
@@ -38,7 +49,9 @@ export function listSources(root, sub = 'src') {
 export function staticShaderReport(ws, module = null) {
   const files = listSources(ws);
   const sceneUsesFog = files.some((f) => /new\s+THREE\.(Fog|FogExp2)\b|\.fog\s*=/.test(f.text));
-  const auditTargets = module ? files.filter((f) => f.file === module.replace(/^\.?\//, '')) : files;
+  const auditTargets = module
+    ? files.filter((f) => f.file === module.replace(/^\.?\//, ''))
+    : files.filter((f) => !LIB_RE.test(f.file));
   if (module && !auditTargets.length) throw new Error(`--module ${module} not found under ${ws}`);
   const errors = [], warnings = [];
   for (const f of auditTargets) {

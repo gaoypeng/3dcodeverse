@@ -19,7 +19,7 @@ from tests.scene_runtime.conftest import needs_node
 
 pytestmark = [pytest.mark.node, needs_node]
 
-FLAGS = ["--no-settle", "--camera-repair", "--auto-exposure"]
+FLAGS = ["--no-settle", "--camera-repair", "--auto-exposure", "--no-post"]
 
 
 @pytest.mark.parametrize("driver", ["render_scene.mjs", "probe_scene.mjs"])

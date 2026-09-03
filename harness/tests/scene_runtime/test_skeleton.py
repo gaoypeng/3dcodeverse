@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from codeverse.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
 from codeverse.languages.scene_threejs import STARTER_DIR, lint, write_example, write_skeleton
+from codeverse.workspace import Workspace
 from tests.scene_runtime.conftest import needs_node
 
 
@@ -65,3 +66,113 @@ def test_plan_skeleton_writes_zone_and_asset_stubs_and_lints(ws):
     # what catches an env stage that never ran); everything else must already be legal.
     other = [(f.target, f.message) for f in rep.errors if "untouched skeleton" not in f.message]
     assert not other, other
+
+
+# ------------------------------------------------------- the effect library (D51)
+
+
+def test_both_skeleton_paths_ship_the_effect_library(tmp_path):
+    """The library is only usable if it is IN the workspace, and plan mode is the
+    PRODUCTION path.  It shipped `PATTERN_FILES` only, so a planned run would have
+    carried the effects catalog in its prompt with no `src/lib/` to import from —
+    every `from './lib/grass.js'` an agent wrote would have been a build error."""
+    from codeverse.languages.scene_threejs import lib_files
+
+    names = {p.name for p in lib_files()}
+    assert len(names) >= 50 and "grass.js" in names and "shader.js" in names
+
+    for label, plan in (("example", None), ("plan", make_plan())):
+        ws = Workspace(tmp_path / label)
+        written = write_skeleton(ws, plan)
+        got = {p.name for p in written if p.parent == ws.src / "lib"}
+        assert got == names, (label, sorted(names - got))
+        assert (ws.src / "lib" / "grass.js").is_file(), label
+
+
+def test_the_library_is_harness_owned_so_an_agent_cannot_rewrite_it():
+    """`src/lib/` is starter code the agent CALLS.  Registering it in
+    HARNESS_OWNED_SRC is what makes `_enforce_scope` revert a session's write to
+    it — the same protection `src/recipes.glsl` has had since 2026-08-26, when a
+    seeded file the agent COULD rewrite was measured gone by the end of the run."""
+    from codeverse.contracts.common import HARNESS_OWNED_SRC, Language, is_harness_owned
+
+    owned = HARNESS_OWNED_SRC[Language.SCENE_THREEJS]
+    assert owned == ("src/lib/",)
+    assert is_harness_owned("src/lib/grass.js", owned)
+    assert is_harness_owned("src/lib/nested/x.js", owned)
+    # the agent's OWN files stay writable
+    for rel in ("src/scene.js", "src/env.js", "src/zones/meadow.js", "src/libx.js"):
+        assert not is_harness_owned(rel, owned), rel
+    # a plain entry is still an exact match, not a prefix
+    glsl = HARNESS_OWNED_SRC[Language.GLSL_SHADER]
+    assert is_harness_owned("src/recipes.glsl", glsl)
+    assert not is_harness_owned("src/recipes.glsl.bak", glsl)
+
+
+def test_the_lint_does_not_judge_the_library_as_agent_code(tmp_path):
+    """The workspace gate polices what the AGENT writes.  Once the library shipped
+    inside `src/`, linting it as agent code was 3 hard ERRORs (signage.js's
+    node-only font fallback imports `node:module` / `node:fs/promises` / `node:url`,
+    which the browser half never reaches) plus 12 "large file" WARNs telling the
+    agent to split files it does not own — a red gate on every scene run."""
+    from codeverse.contracts.artifacts import Severity
+
+    ws = Workspace(tmp_path / "ws")
+    write_example(ws)
+    report = lint(ws)
+    assert report.passed, [f.message for f in report.findings if f.severity == Severity.ERROR]
+    assert not [f for f in report.findings if f.target.startswith("src/lib/")], \
+        [f.target for f in report.findings if f.target.startswith("src/lib/")]
+
+
+def test_the_effects_catalog_reaches_the_scene_prompts_and_only_those():
+    """A catalog the prompt never carries teaches nothing (the same failure the
+    inlined cookbook chapters exist for).  It is keyed on LANGUAGE: a blender
+    asset session inside a scene run must not be told to import three.js modules."""
+    from codeverse.contracts.common import Language
+    from codeverse.prompts import PROMPTS_DIR
+    from codeverse.tracks.prompting import effects_catalog_text
+
+    text = effects_catalog_text(Language.SCENE_THREEJS)
+    assert "makeGrass" in text and "makeCanopy" in text and "lib/shader.js" in text
+    assert effects_catalog_text(Language.BLENDER) == ""
+    assert effects_catalog_text(Language.GLSL_SHADER) == ""
+
+    tpl = PROMPTS_DIR / "tracks"
+    for name in ("scene_env.j2", "scene_zone.j2", "scene_refine.j2", "scene_compose.j2"):
+        assert "effects_catalog" in (tpl / name).read_text(), name
+    # the asset session authors BLENDER bpy, so it must NOT carry the table
+    assert "effects_catalog" not in (tpl / "scene_asset.j2").read_text()
+
+
+def test_every_call_the_catalog_advertises_is_a_real_export():
+    """The catalog is the agent's only index of 52 modules.  One stale name and a
+    session writes an import that cannot resolve — and the reference catalog this
+    was ported from already carried five (`makeFigure`, `makeCreature`, `place`,
+    `instanceAll`, `hash` are none of them exports here)."""
+    import re
+
+    from codeverse.languages.scene_threejs import lib_files
+    from codeverse.prompts import PROMPTS_DIR
+
+    exports: set[str] = set()
+    modules = {p.name for p in lib_files()}
+    for p in lib_files():
+        src = p.read_text()
+        exports |= set(re.findall(r"^export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)", src, re.M))
+        exports |= set(re.findall(r"^export\s+const\s+([A-Za-z0-9_]+)", src, re.M))
+
+    catalog = (PROMPTS_DIR / "scene_threejs" / "effects_catalog.md").read_text()
+    # option names and prose words that appear in backticks but name no export
+    prose = {"js", "true", "false", "material", "scene", "g", "t", "dt", "update", "tick",
+             "logarithmicDepthBuffer", "sunDir", "ambient", "elevation", "keyElevation", "color"}
+    unknown, named = [], set()
+    for row in catalog.splitlines():
+        if not row.startswith("|") or row.startswith(("| ---", "| Want")):
+            continue
+        named |= set(re.findall(r"`lib/([a-z_]+\.js)`", row))
+        for fn in re.findall(r"`([a-zA-Z][A-Za-z0-9_]*)(?:\(|`| )", row):
+            if fn not in prose and fn not in exports:
+                unknown.append(fn)
+    assert not unknown, sorted(set(unknown))
+    assert named == modules, sorted(modules - named)

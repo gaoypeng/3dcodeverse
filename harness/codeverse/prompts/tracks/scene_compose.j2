@@ -44,5 +44,10 @@ Animation: {{ animation }}
 {{ tool_cards }}
 {% endif %}
 
+{% if effects_catalog is defined and effects_catalog %}
+
+{{ effects_catalog }}
+{% endif %}
+
 ## Output
 {{ output_format }}

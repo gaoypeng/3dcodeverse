@@ -12,6 +12,19 @@ export function parseCli(spec, argv = process.argv.slice(2)) {
   return values;
 }
 
+/**
+ * Boolean env switch with a default: '0'/'off'/'false'/'no' are OFF,
+ * '1'/'on'/'true'/'yes' are ON, anything else (including unset) keeps `fallback`.
+ * THE spelling for every driver env flag, so `CV3D_POST=0` reads the same way
+ * `CV3D_RENDER_GPU=off` does.
+ */
+export function envFlag(name, fallback) {
+  const raw = String(process.env[name] ?? '').trim().toLowerCase();
+  if (raw === '0' || raw === 'off' || raw === 'false' || raw === 'no') return false;
+  if (raw === '1' || raw === 'on' || raw === 'true' || raw === 'yes') return true;
+  return fallback;
+}
+
 /** Print the final JSON summary as the LAST stdout line and exit. */
 export function finish(summary, code = 0) {
   process.stdout.write(JSON.stringify(summary) + '\n');

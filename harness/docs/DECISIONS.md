@@ -586,6 +586,73 @@ written) that were accepted because the code works that way and the tests pin it
   deterministic-repairs bundle (axis flip + buried check) A/B'd at Δ −0.039 ± 0.105 over
   12 paired prompts, the flip firing in 1 cell of 12 — the aggregation ships on rationale,
   not on a resolved score delta.
+* **D51 The effect library is HARNESS-OWNED STARTER CODE, not an SDK import
+  (2026-09-01).**  Context: `scene_multifile_graphics` shipped 52 three.js effect modules
+  (21.7k lines) that this harness had no equivalent of — canopies, water, weather, aging,
+  neon, night windows — and every scene run was re-deriving worse versions of them inside
+  a 60-minute budget.  Law 1 says generated code is raw language, never an SDK/helper
+  import.  **Decision — an amendment, not an exception**: law 1 forbids the AGENT from
+  reaching outside its workspace for someone else's abstraction.  Modules the HARNESS
+  writes into `src/`, verifies on its own renderer, and forbids the agent to rewrite are
+  not that: they are the same thing `src/recipes.glsl` already was for `glsl_shader`
+  (D-precedent: `contracts.common.HARNESS_OWNED_SRC`, `AgentJob.read_only`), one order of
+  magnitude larger.  So `src/lib/*.js` ships into every scene workspace, is listed in
+  `HARNESS_OWNED_SRC[SCENE_THREEJS]` (a new DIRECTORY-prefix entry form, predicate
+  `is_harness_owned`), and a post-session write to it is reverted like any other
+  harness-owned file.  Generated code stays raw three.js + GLSL: the library IS raw
+  three.js, and it is in the workspace, in the agent's git history, readable and
+  debuggable.
+
+  **What shipped.**  52 modules / 28.8k lines under
+  `codeverse/languages/scene_threejs/starter/src/lib/`, ported module-by-module against
+  the reference's own test per module, adapted to OUR renderer contract (their exposure
+  1.1 → our 1.0; their log-depth on → ours off, so their logdepth chunks are harmless
+  no-ops; their renderer-contract assertions dropped).  Every module was rendered through
+  the real host on the showcase harness and LOOKED at, most of them twice (a `before` port
+  and an `after` improvement pass): 53 modules carry a before/after pair on disk and 77
+  night renders were taken.  Aesthetic changes were measured, not asserted — linear albedo
+  band 0.02–0.8, hue variance inside every effect, emissives re-scaled to a bloom-friendly
+  1.5–4, fresnel on water/glass, fog in the sky's hue family.  678 node-marked tests
+  (`tests/scene_runtime/lib/`, one file per module) pin the physics claims, the shared-name
+  contracts and the option-is-a-uniform law; the GPU compile in them is real
+  (headless ANGLE/D3D12, e.g. godrays 21 programs / 6 custom materials).
+
+  **Companion side track**: a post chain for scene renders
+  (`runtime_js/lib/browser/post.js`, ON by default, `--no-post` / `CV3D_POST=0`):
+  RenderPass → finite clamp → GTAO → SELECTIVE emissive bloom → grade → OutputPass, 18
+  tests.  The bloom is NOT the reference's luminance bright-pass: measured on this
+  renderer every daylight scene tops out at 1.883 linear (the sky dome) while the
+  brightest authored emissive in the whole library is 1.231, so a global bright-pass
+  cannot separate a neon sign from the sky — at the reference's 0.85 threshold a daylit
+  grass frame lost a quarter of its saturation (0.3132 → 0.0699).  The mask is a second
+  cheap render of emission only; a scene with nothing emissive pays nothing.
+
+  **Consolidation (same day).**  `_probe.shader_check` could never work — it staged only
+  `src/fixture.js` while `check_shaders.mjs` boots the workspace's `src/scene.js` — so 32
+  module tests had each hand-rolled the same 17-line workaround.  Replaced by
+  `_probe.compile_scene`; **843 lines deleted**, and two further inline copies
+  (`test_lights`, `test_foliage_shade`) and `test_shader.compile_fixture` fold into it
+  too.  Also fixed: `scene_host.mjs` failed a camera-less boot with `info.error` EMPTY
+  (message named no reason at all); plan-mode `write_skeleton` shipped `PATTERN_FILES`
+  only, so a PLANNED run — the production path — would have got the catalog in its prompt
+  and no `src/lib/` to import from; `signage.js` carried a `unpkg.com` CDN font pin that
+  violates the no-network law (dead since `import.meta.resolve` landed); and both the
+  workspace lint and the static shader audit now skip `src/lib/`, which was 3 hard lint
+  ERRORs (signage's node-only font fallback) + 12 "large file" WARNs + a uTime
+  false-positive pair that outranked the agent's own real shader error in the build report.
+  `patchStandard` gained three opt-in injection hooks — `roughnessBody` / `metalnessBody`
+  (after `<roughnessmap_fragment>` / `<metalnessmap_fragment>`) and `outputBody` (after
+  `<opaque_fragment>`, where the colour is still linear) — the gap three module agents
+  reported independently, since `<color_fragment>` reaches only the albedo and a 30 %
+  rust crust could until now only be sold by dematting 100 % of the material.
+
+  **Evidence label — honest.**  Everything above is RENDERED AND EYEBALLED plus
+  deterministic metrics and 2 809 offline tests green.  It is **NOT yet A/B-judged**: no
+  paired battery has scored scenes with the library against scenes without it, so the
+  claim "this raises scene scores" is unproven.  The shader.js hook change was isolated by
+  rendering all six shader.js-dependent modules (grass, water, canopy, godrays, neon,
+  clouds) against a control build with the hooks cut out: mean luminance identical to five
+  decimals on all 12 frames.  Funding the A/B is the next call.
 
 * **D51 The articulated wave measured its own instrument first, and then only the loss
   events (2026-09-02/03).**  Context: four articulated levers (the D49 geometry re-ask, a

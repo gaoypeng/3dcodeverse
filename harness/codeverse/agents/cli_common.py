@@ -22,7 +22,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from codeverse.contracts.agent import AgentJob, AgentResult, FileChange
-from codeverse.contracts.common import Usage
+from codeverse.contracts.common import Usage, is_harness_owned
 from codeverse.models.pricing import estimate_cost
 from codeverse.proc import ManagedProcess, append_jsonl_line, read_jsonl_lenient, scrub_secrets
 from codeverse.workspace import Workspace
@@ -457,7 +457,7 @@ def _enforce_scope(s: Session) -> dict[str, str]:
             continue
         if f.path in HARNESS_OWNED_FILES:  # was a silent skip: the tamper survived AND went unreported
             why = "harness control file: never agent-writable"
-        elif f.path in frozen:
+        elif is_harness_owned(f.path, frozen):
             why = "harness-owned: call its functions, never rewrite it"
         elif roots and not any(f.path == r or f.path.startswith(r + "/") for r in roots):
             why = f"outside write_roots {sorted(roots)}"

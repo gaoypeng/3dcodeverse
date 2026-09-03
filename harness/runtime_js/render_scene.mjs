@@ -8,6 +8,7 @@
  *        [--bounds '{"min":[x,y,z],"max":[x,y,z]}'|none]   (plan bounds: orbit framing guard)
  *        [--times 0,1.5] [--width 1024] [--height 576] [--gpu auto|on|off]
  *        [--fps-seconds 2] [--timeout-ms 240000]
+ *        [--no-post] [--post-options '{"ao":0.45,"bloomStrength":0.22}']
  *
  * Writes PNG per (camera, time), views.json, metrics.json
  * {console_errors, shader_errors, fps, census, camera_checks, ...}.
@@ -15,7 +16,7 @@
  */
 
 import path from 'node:path';
-import { armWatchdog, dataUrlToPng, ensureDir, fail, finish, parseCli, readJsonArg, safeName, writeJson } from './lib/cli.mjs';
+import { armWatchdog, dataUrlToPng, ensureDir, envFlag, fail, finish, parseCli, readJsonArg, safeName, writeJson } from './lib/cli.mjs';
 import { createTimeoutMs, errorSummary, openHost } from './lib/host_page.mjs';
 import { fitOrbitCameras, framingBox } from './lib/orbit.mjs';
 
@@ -23,6 +24,10 @@ const args = parseCli({
   'no-settle': { type: 'boolean', default: false },
   'camera-repair': { type: 'boolean', default: false },
   'auto-exposure': { type: 'boolean', default: false },
+  // post chain (GTAO + soft bloom + grade): ON for scene pictures, `--no-post` /
+  // CV3D_POST=0 to render raw.  Object renders never come through here.
+  'no-post': { type: 'boolean', default: false },
+  'post-options': { default: '' },
   ws: {}, out: {}, cameras: { default: 'authored' }, 'orbit-views': { default: 'none' }, bounds: { default: 'none' },
   times: { default: '0,1.5' }, width: { default: '1024' }, height: { default: '576' },
   gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' }, 'fps-seconds': { default: '2' },
@@ -59,6 +64,8 @@ async function main() {
       settle: !args['no-settle'],
       cameraRepair: !!args['camera-repair'],
       autoExposure: !!args['auto-exposure'],
+      post: args['no-post'] ? false : envFlag('CV3D_POST', true),
+      postOptions: readJsonArg(args['post-options'], 'post-options'),
     });
   } catch (e) {
     return fail(`host failed: ${e.message}`);
@@ -128,6 +135,12 @@ async function main() {
       const reps = await page.evaluate(() => window.__c3v.cameraRepairs());
       if (reps.length && metrics.census) metrics.census.camera_repair = reps;
     } catch (e) { sceneErr('camera repair readback failed', e); }
+    // same story for the post chain: it counts its bloom sources while RENDERING,
+    // so the census captured above always reported zero of them
+    try {
+      const post = await page.evaluate(() => window.__c3v.post());
+      if (post && metrics.census) metrics.census.post = post;
+    } catch (e) { sceneErr('post readback failed', e); }
     metrics.shader_errors = (await page.evaluate(() => window.__c3v.shaderErrors())).map(({ _key, ...e }) => e);
     metrics.update_errors = await page.evaluate(() => window.__c3v.updateErrors());
     Object.assign(metrics, errorSummary(host.errors, boot));

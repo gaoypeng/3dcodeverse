@@ -185,9 +185,11 @@ sessions on one workspace are serialised, so there is no sibling filter),
 `edit_only` / `always_writable` (a scoped refine may overwrite only its hinted files +
 the entry file), `read_only: list[str]` (harness-owned files INSIDE the write roots the
 session may read but never write — `contracts.common.HARNESS_OWNED_SRC[language]`, i.e.
-`src/recipes.glsl` for glsl_shader; `tracks/generation.py` sets it on every job of the
-run and `agents/cli_common._enforce_scope` reverts a post-session write to one and
-fails that session).  **Δ legacy lift**: the job keys (`round`, `kind`, `language`,
+`src/recipes.glsl` for glsl_shader and `src/lib/` for scene_threejs; `tracks/generation.py`
+sets it on every job of the run and `agents/cli_common._enforce_scope` reverts a
+post-session write to one and fails that session.  **Δ** an entry ending in `/` is a
+DIRECTORY prefix — `contracts.common.is_harness_owned(rel, owned)` is the predicate, and
+it is what names the 52-module effect library without listing 52 paths).  **Δ legacy lift**: the job keys (`round`, `kind`, `language`,
 `track`, `files_hint`, `mcp_command`) passed inside `extra={...}` are lifted into
 the typed fields at validation (extra itself is left untouched), so old constructors
 and serialized jobs keep working; `extra` stays for one-off backend hints.

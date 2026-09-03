@@ -31,6 +31,11 @@ const args = parseCli({
   'no-settle': { type: 'boolean', default: false },
   'camera-repair': { type: 'boolean', default: false },
   'auto-exposure': { type: 'boolean', default: false },
+  // The probe is a 320x180 GEOMETRY instrument, never a judged picture: it runs raw
+  // so its shader report names the scene's own programs and nothing of ours.  The
+  // flags parse (drivers share a switch list) but only `--post` turns the chain on.
+  'no-post': { type: 'boolean', default: false },
+  post: { type: 'boolean', default: false },
   ws: {}, out: {}, gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' }, 'timeout-ms': { default: '60000' },
   'create-timeout-ms': { default: '' }, 'update-steps': { default: '10' }, scene: { default: 'src/scene.js' },
   compile: { type: 'boolean', default: false }, 'shaders-out': { default: '' }, 'sun-azimuth': { default: '' },
@@ -62,6 +67,7 @@ async function main() {
       settle: !args['no-settle'],
       cameraRepair: !!args['camera-repair'],
       autoExposure: !!args['auto-exposure'],
+      post: !!args.post && !args['no-post'],
     });
   } catch (e) {
     return fail(`host failed: ${e.message}`);

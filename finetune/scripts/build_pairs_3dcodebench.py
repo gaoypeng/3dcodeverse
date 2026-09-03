@@ -305,6 +305,12 @@ def main():
         if len(code.strip()) < 40:
             qc["short_code"] += 1
             return None
+        # LLaMA-Factory counts <image> placeholders across EVERY turn, so a literal "<image>" in the answer
+        # (Shadertoy writes "// <image>" as a multipass section marker) reads as one more image than the row
+        # carries and aborts the whole run hours in. Seven such rows shipped once; drop them at the source.
+        if "<image>" in code:
+            qc["literal_image_token"] += 1
+            return None
         caps = r.get("captions")
         caps = dict(caps) if isinstance(caps, dict) else (json.loads(caps) if isinstance(caps, str) else {})
         caps_list = captions_of(caps)

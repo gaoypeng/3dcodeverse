@@ -8,7 +8,11 @@
 //   • update(t, dt): t = seconds since start, dt = step; animate here (no requestAnimationFrame).
 //   • loaders.gltf is a GLTFLoader: loaders.gltf.loadAsync('/assets/<name>.glb') for Blender-built assets.
 //   • Imports allowed: 'three', 'three/addons/*', relative files.  No CDN, no network, no DOM access.
-//   • Raw three.js + GLSL only: never import any helper SDK.
+//   • Raw three.js + GLSL only: never import a helper SDK or any npm package.
+//     ./lib/ is the ONE exception and is not an SDK: 52 harness-owned effect modules
+//     shipped INTO this workspace, already compiled and rendered on this renderer.
+//     Import and call them (`import { makeGrass } from './lib/grass.js'`); do not
+//     rewrite them — writes to src/lib/ are reverted.  Table: prompts effects_catalog.
 import * as THREE from 'three';
 import { buildEnv, heightAt, SUN_AZIMUTH_DEG } from './env.js';
 import { build as buildMeadow } from './zones/meadow.js';

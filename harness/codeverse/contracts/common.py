@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from enum import StrEnum
 from typing import Annotated
 
@@ -78,9 +79,22 @@ ENTRY_FILE: dict[Language, str] = {
 #: Measured 2026-08-26 (bench/out/seed_v1, aurora brief, gemini-3.7-flash api-agent): recipes
 #: seeded into the agent's own ``src/common.glsl`` were gone by the end of the run — it rewrote
 #: the file with its own helpers — so a seeded file has to be one the agent cannot rewrite.
+#: An entry ending in ``/`` is a DIRECTORY prefix: every file under it is owned.  That is
+#: how the 52-module effect library is named without listing 52 paths — and the list is
+#: the library's contents, so an entry per file would go stale the day one is added.
 HARNESS_OWNED_SRC: dict[Language, tuple[str, ...]] = {
     Language.GLSL_SHADER: ("src/recipes.glsl",),
+    # the effect library (D51): the agent imports and calls it, never rewrites it.
+    Language.SCENE_THREEJS: ("src/lib/",),
 }
+
+
+def is_harness_owned(rel: str, owned: Collection[str]) -> bool:
+    """Is ``rel`` a harness-owned source file, given a language's ``HARNESS_OWNED_SRC``?
+
+    Exact match, or under a directory entry (one ending in ``/``).
+    """
+    return any(rel == o or (o.endswith("/") and rel.startswith(o)) for o in owned)
 
 #: human label per language (galleries, captions, reports)
 LANGUAGE_LABEL: dict[Language, str] = {
