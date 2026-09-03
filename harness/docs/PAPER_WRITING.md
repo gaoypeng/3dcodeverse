@@ -396,11 +396,16 @@ instructions nor a diff.
   prompts, all one-input) would let the pose count and the score be read together.
 * **The static regression in wave 2 is confounded** by the api-agent → gemini-cli change; a
   clean static before/after on one generator has not been run.
-* **The refine corpus has not been trained on.**  87 samples is a probe, not a training set;
+* **The refine corpus has not been trained on.**  112 samples is a probe, not a training set;
   the interesting experiment is whether a model finetuned on refine transitions repairs
   better than one finetuned on one-shot pairs.
 * **Planner mortality is now 0.7 %, not 0.**  The residue is two calls in 276 that still
-  failed after a restart; nobody has looked at what they wrote.
+  failed after a restart; both died at the validation cap, which the 2026-09-03 change
+  (a restart no longer spends a re-ask slot) addresses without being measured yet.
+* **The restart trigger was narrowed after the readout.**  The measured arm restarted on any
+  dangling link reference; it now also requires a collapsed plan, which is the class the
+  200-call survey found.  A same-window re-measurement (narrow vs the wide trigger, 280
+  calls each) is what decides whether §5.1's number carries over unchanged.
 
 ## 9.3 The switches this work added, and their state
 
@@ -411,7 +416,7 @@ a test enforces by grepping the tree; a switch nothing reads once produced "keep
 | switch | what it does | default | why |
 |---|---|---|---|
 | `CV3D_PLAN_GEOMETRY` | plan-time geometry re-ask (attachment gap, hinge pivot, swept collision) | **off** | +0.064 ±0.25, no measurable gain (§4) |
-| `CV3D_PLAN_RESTART` | re-sample a degenerate plan from the original request | **on**, kill switch | 4.7 % → 0.7 % planner mortality, p = 0.0067 (§5.1) |
+| `CV3D_PLAN_RESTART` | re-sample a collapsed plan (one top-level part **and** dangling links) from the original request | **on**, kill switch | 4.7 % → 0.7 % planner mortality, p = 0.0067 (§5.1); trigger narrowed 2026-09-03, re-measurement in flight |
 | `CV3D_ART_REPAIRS` | axis flip on a reversed joint + buried-link check | **off** | −0.039 ±0.105, fired 1/12 (§4) |
 | `CV3D_LEAN_PROMPT` | drop duplicated contract/tool cards, select cookbook chapters, focus the refine prompt | **off** | +0.030 ±0.076, no cost saving (§4); **removed from the tree 2026-09-03**; last carried on `ziyao/articulated-wave-2` before commit `554b52b`. |
 | `CV3D_FEWER_TURNS` (pre-existing) | fold gate checks into build, inline refine files | **off** | +0.015 ±0.126, dollars flat (§4) |
