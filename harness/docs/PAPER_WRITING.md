@@ -383,6 +383,14 @@ instructions nor a diff.
 
 ## 9.1 Claim → evidence index
 
+Four of these are recomputed by a script in the repo, so a reviewer can re-derive the
+number rather than trust the row: `bench/plan_stage_report.py` (planner mortality and its
+Fisher p, over the committed `bench/data/plan_stage/*.jsonl`), `bench/session_stats.py`
+(tool-error, cache and dollar columns), `bench/coupling_stats.py` (the mechanism counts)
+and `bench/paired_compare.py` (every paired score row).  The rest — the base64
+amplification arithmetic and the in-process token-growth model — were measured once, on
+data the repo does not carry; they are marked in the caveat column.
+
 | claim | number | where the data is | caveat |
 |---|---|---|---|
 | harness > one-shot+repair, static | +0.146 [+0.077, +0.215], n=40 | `bench/out/compare_v4_calm` | calm provider window; the storm run of the same battery gives +0.028 with a CI crossing 0 |
@@ -401,8 +409,8 @@ instructions nor a diff.
 | cache hit | 69 % → 89 % | same | same |
 | uncached tokens per request | 38 390 → 13 945 | same | same |
 | generator $ per round | median 1.572 → 0.950 | round records of both runs | same |
-| base64 amplification | 261 k tokens vs 516 for one 275 kB sheet | measured on a recorded blob + vendor bundle | arithmetic + matching recorded prompt jumps |
-| token growth in turns | input(t) = 12 364 + 1 822·t; total ∝ n^1.60; dollars ∝ n^1.19–1.34 | 1 063 in-process sessions, 30 401 turns | the in-process agent, since gemini-cli emits no per-turn usage |
+| base64 amplification | 261 k tokens vs 516 for one 275 kB sheet | measured on a recorded blob + vendor bundle | arithmetic + matching recorded prompt jumps; **no repo script** |
+| token growth in turns | input(t) = 12 364 + 1 822·t; total ∝ n^1.60; dollars ∝ n^1.19–1.34 | 1 063 in-process sessions, 30 401 turns | **no repo script** — the in-process agent, since gemini-cli emits no per-turn usage |
 | coupled mechanisms declared | 8 of 14 prompts; driven joints per pose 6 → 3 (1–2 on the one-input mechanisms) | `bench/coupling_stats.py bench/out/wave2_lean --per-prompt` | recomputed from the recorded URDFs |
 | refine corpus | 254 transitions, 112 SFT samples (2026-09-03) | `3dcv flywheel refine`, `toolkits/llamafactory/build_refine_sft.py` over `bench/out` | corpus grows with every battery |
 
