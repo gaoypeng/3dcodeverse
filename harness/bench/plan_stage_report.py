@@ -83,14 +83,19 @@ def report(arms: dict[str, list[dict]]) -> str:
                 failures[f"{name}: {r['error'].split('Value error, ')[-1][:90]}"] += 1
     if failures:
         lines += ["", "validation failures:"] + [f"  {n}x {msg}" for msg, n in failures.most_common()]
-    if len(arms) == 2:
-        (n1, rows1), (n2, rows2) = arms.items()
-        c1, c2 = Counter(outcome(r) for r in rows1), Counter(outcome(r) for r in rows2)
-        j1, j2 = len(rows1) - c1["provider"], len(rows2) - c2["provider"]
-        p = fisher_exact(c1["planning_error"], j1 - c1["planning_error"],
-                         c2["planning_error"], j2 - c2["planning_error"])
-        lines += ["", f"Fisher exact two-sided p = {p:.4f}  ({n1} {c1['planning_error']}/{j1} vs "
-                     f"{n2} {c2['planning_error']}/{j2})"]
+    if len(arms) > 1:
+        # every pair, because a three-arm run (off / old trigger / new trigger) asks two
+        # questions at once: did the mechanism still work, and did narrowing it cost anything
+        counts = {name: Counter(outcome(r) for r in rows) for name, rows in arms.items()}
+        judged = {name: len(arms[name]) - c["provider"] for name, c in counts.items()}
+        names = list(arms)
+        lines.append("")
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                ea, eb = counts[a]["planning_error"], counts[b]["planning_error"]
+                p = fisher_exact(ea, judged[a] - ea, eb, judged[b] - eb)
+                lines.append(f"Fisher exact two-sided p = {p:.4f}  ({a} {ea}/{judged[a]} vs "
+                             f"{b} {eb}/{judged[b]})")
     fired = {name: [r for r in rows if r.get("restarts")] for name, rows in arms.items()}
     if any(fired.values()):
         lines += ["", "restarts:"] + [
