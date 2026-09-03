@@ -12,3 +12,40 @@ is identical.  One row per call: `ok`, the error text, `invalid_reasks`, `restar
 `missing` (the links a degenerate plan referenced but never listed), `seconds`, `cost_usd`.
 Kept in the repo rather than under `bench/out/` because a paper cites the p-value, and a
 number whose data is not in the tree is not reproducible.
+
+## The trigger, narrowed (2026-09-03)
+
+Review narrowed the restart to the class the 200-call survey actually found — a
+**collapsed** plan (one top-level part, a third of the floor or less) that ALSO references
+links it never lists — and stopped it spending one of the two validation re-ask slots.
+Three arms, **one window**, same battery and planner:
+
+    python bench/plan_stage_report.py bench/data/plan_stage/trigger_{off,wide,narrow}.jsonl
+
+`trigger_off.jsonl` is `CV3D_PLAN_RESTART=0` (140 calls, 14 prompts x 10 reps);
+`trigger_wide.jsonl` is the trigger as D52 measured it, run from a worktree at commit
+9506737 (280); `trigger_narrow.jsonl` is the narrowed one (280).
+
+| arm | judged | `PlanningError` | rate | dangling-link class | `parent == child` class |
+|---|--:|--:|--:|--:|--:|
+| off    | 140 | 4 | 2.9 % | 3 | 1 |
+| wide   | 275 | 6 | 2.2 % | 4 | 2 |
+| narrow | 275 | 4 | 1.5 % | **0** | 4 |
+
+**No pair separates on the overall rate** (Fisher 0.45–0.75), and this window did not
+reproduce D52's headline at all: its own control arm loses 2.9 %, not 4.7 %.  The
+separation is inside the class the mechanism targets: **off 3/140 vs narrow 0/275,
+p = 0.038**.  Read the class column, not the total.
+
+Two secondary readings, both consistent with the change:
+
+* All four of `wide`'s dangling-link deaths carry `restarts=1` and died at the validation
+  cap — the re-ask slot the restart used to consume.  `narrow` has none.
+* The narrowed trigger fires on 28 of 280 calls against 38, and recovers 27 of 28 (96 %)
+  against 33 of 38 (87 %): it stops re-sampling plans an ordinary re-ask repairs.
+
+The residue is a **different failure class** that nothing here addresses: a joint whose
+`parent` and `child` are the same link (1 / 2 / 4 across the arms, flat).  Those calls
+never restart — the plan lists every link it names — and the model rewrites the same
+joint through all three re-asks.  That is the next thing to measure, not a regression of
+this one.

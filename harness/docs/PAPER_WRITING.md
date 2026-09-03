@@ -191,6 +191,32 @@ Fisher exact two-sided **p = 0.0067**.  The restart fires on **14 %** of calls a
 lower (82 s vs 86 s): one extra sample replaces two doomed re-asks.  Failures under OFF are
 spread over six prompts, so this is not one pathological request.
 
+**Re-measured after review narrowed the trigger** (2026-09-03; the trigger now also
+requires a collapsed plan, and a restart no longer spends one of the two validation re-ask
+slots).  Three arms in ONE window, 700 calls,
+`bench/data/plan_stage/trigger_{off,wide,narrow}.jsonl`:
+
+| arm | judged | `PlanningError` | rate | dangling-link class | `parent == child` class |
+|---|--:|--:|--:|--:|--:|
+| restart off | 140 | 4 | 2.9 % | 3 | 1 |
+| trigger as measured above | 275 | 6 | 2.2 % | 4 | 2 |
+| trigger narrowed | 275 | 4 | 1.5 % | **0** | 4 |
+
+**No pair separates on the overall rate** (Fisher 0.45–0.75) — and this window's own
+control loses 2.9 %, not 4.7 %, so the headline above is a property of its window as much
+as of the switch.  The separation is inside the class the mechanism targets: **3/140 off
+vs 0/275 narrowed, p = 0.038**.  All four of the old trigger's dangling-link deaths carry
+`restarts=1` and died at the validation cap — the re-ask slot the restart used to consume.
+The narrowed trigger fires on 28 of 280 calls against 38 and recovers 27 of 28 (96 %)
+against 33 of 38 (87 %).
+
+**A second failure class, unaddressed.**  The residue in every arm is a joint whose
+`parent` and `child` are the same link (1 / 2 / 4, flat).  Those calls never restart — the
+plan lists every link it names — and the model rewrites the same joint through all three
+re-asks, which is the same shape as the collapsed-plan class before it was handled.  Two
+lessons for a paper: report a loss rate WITH its window, because the class mix moves; and
+report the class, because the total dilutes a mechanism that only removes one of them.
+
 ### 5.2 Tool calls the model retried, and the token blow-up behind them
 
 **The fault.** `spatial/mcp_server.py` returned `is_error = not obs.ok`, and `obs.ok` was
@@ -435,10 +461,13 @@ data the repo does not carry; they are marked in the caveat column.
 * **Planner mortality is now 0.7 %, not 0.**  The residue is two calls in 276 that still
   failed after a restart; both died at the validation cap, which the 2026-09-03 change
   (a restart no longer spends a re-ask slot) addresses without being measured yet.
-* **The restart trigger was narrowed after the readout.**  The measured arm restarted on any
-  dangling link reference; it now also requires a collapsed plan, which is the class the
-  200-call survey found.  A same-window re-measurement (narrow vs the wide trigger, 280
-  calls each) is what decides whether §5.1's number carries over unchanged.
+* **What kills a plan call now is `parent == child`, not a collapsed plan.**  The 2026-09-03
+  three-arm run leaves that class at 1 / 2 / 4 across the arms with nothing acting on it
+  (§5.1).  It never restarts and it survives all three re-asks — the same shape the
+  collapsed-plan class had before it was handled, and the obvious next measurement.
+* **A loss rate is a property of its window.**  The same control arm measured 4.7 % on
+  2026-09-02/03 and 2.9 % on 2026-09-03; single-arm comparisons across windows are not
+  safe, which is why the re-measurement ran all three arms at once.
 
 ## 9.3 The switches this work added, and their state
 
@@ -449,7 +478,7 @@ a test enforces by grepping the tree; a switch nothing reads once produced "keep
 | switch | what it does | default | why |
 |---|---|---|---|
 | `CV3D_PLAN_GEOMETRY` | plan-time geometry re-ask (attachment gap, hinge pivot, swept collision) | **off** | +0.064 ±0.25, no measurable gain (§4) |
-| `CV3D_PLAN_RESTART` | re-sample a collapsed plan (one top-level part **and** dangling links) from the original request | **on**, kill switch | 4.7 % → 0.7 % planner mortality, p = 0.0067 (§5.1); trigger narrowed 2026-09-03, re-measurement in flight |
+| `CV3D_PLAN_RESTART` | re-sample a collapsed plan (one top-level part **and** dangling links) from the original request | **on**, kill switch | 4.7 % → 0.7 % planner mortality, p = 0.0067 (§5.1); narrowed 2026-09-03 and re-measured three-arm: dangling-link deaths 3/140 off vs 0/275, p = 0.038 |
 | `CV3D_ART_REPAIRS` | axis flip on a reversed joint + buried-link check | **off** | −0.039 ±0.105, fired 1/12 (§4) |
 | `CV3D_LEAN_PROMPT` | drop duplicated contract/tool cards, select cookbook chapters, focus the refine prompt | **off** | +0.030 ±0.076, no cost saving (§4); **removed from the tree 2026-09-03**; last carried on `ziyao/articulated-wave-2` before commit `554b52b`. |
 | `CV3D_FEWER_TURNS` (pre-existing) | fold gate checks into build, inline refine files | **off** | +0.015 ±0.126, dollars flat (§4) |

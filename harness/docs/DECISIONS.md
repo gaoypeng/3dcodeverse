@@ -679,6 +679,22 @@ written) that were accepted because the code works that way and the tests pin it
     is large enough for the judge mean.  The 560 rows live in
     `bench/data/plan_stage/*.jsonl` with `bench/plan_stage_report.py`: a p-value whose
     data is not in the tree is not reproducible (review, 2026-09-03).
+  * **The trigger, narrowed and re-measured (2026-09-03).**  Review's point was that the
+    trigger fired on any dangling link reference while the measured class is narrower, and
+    that a restart spent one of the two validation re-ask slots.  Both changed; three arms
+    in ONE window (700 calls, `bench/data/plan_stage/trigger_{off,wide,narrow}.jsonl`) say:
+    overall loss 2.9 % (off, 4/140) / 2.2 % (old trigger, 6/275) / 1.5 % (narrowed, 4/275),
+    **no pair separating** (Fisher 0.45–0.75) — this window's control loses 2.9 %, not the
+    4.7 % above, so the headline is a property of that window as much as of the switch.
+    The separation is inside the class the mechanism targets: dangling-link deaths **3/140
+    off vs 0/275 narrowed, p = 0.038**, with the old trigger still at 4/275 — and all four
+    of those carry `restarts=1` and died at the validation cap, which is exactly the slot
+    the restart used to consume.  The narrowed trigger fires on 28 of 280 calls against 38
+    and recovers 27 of 28 against 33 of 38.  Ships narrowed: same effect on the class it
+    exists for, a quarter fewer plans thrown away.  The residue is a class nothing here
+    addresses — a joint whose parent and child are the same link (1/2/4 across the arms,
+    flat, never restarted, repeated through all three re-asks).  That is the next
+    measurement, not a regression of this one.
   * **What the judge channel could not have found.**  `is_error = not obs.ok` (§30 of
     docs/COST.md) made 62 % of 1 445 `joint_sweep` calls and 23 % of 2 144 `build` calls
     arrive as broken calls the model retried, and — because gemini-cli stringifies an
