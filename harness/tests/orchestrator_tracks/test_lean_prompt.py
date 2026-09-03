@@ -4,7 +4,7 @@ Measured on aa_articulated (2026-09-02, prompts dated 2026-09-01): the baseline 
 53 562 chars and the CLI additionally loads GEMINI.md (18 444 B) plus 6 618 chars of MCP tool
 declarations on EVERY turn — with prompts/urdf/contract.md in both GEMINI.md and the prompt,
 the tool list in all three, the whole 24 k cookbook inlined, and a refine prompt (median
-18 604 chars over the 48 recorded there) carrying all 20 acceptance items when 6 had failed,
+18 604 chars over the 48 recorded there) carrying all 21 acceptance items when 6 had failed,
 and every part row for a median of 4 targets.
 
 The switch is an A/B arm, so the control must be untouched: every test here renders the SAME

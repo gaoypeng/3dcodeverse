@@ -364,8 +364,8 @@ def parts_table_for_targets(plan: Plan | None, targets: Sequence[str]) -> str:
     aa_articulated).  Narrowing is only honest when the round is ABOUT those parts: a group
     that also carries the whole-artifact target (``overall`` — where a gate error with no
     part of its own lands) is about the assembly, and an assembly is judged against rows
-    this would have dropped.  That is most rounds — 39 of those 48 prompts carry ``overall``
-    and only 4 narrow — which is the price of not lying about what the table is.  Instance
+    this would have dropped.  That is most rounds — 40 of those 48 prompts carry ``overall``
+    and only 3 narrow — which is the price of not lying about what the table is.  Instance
     suffixes come off first: ``_canon_target`` hands on the plan's spelling but keeps the
     ``Leg_1``, and the plan has no such row."""
     keys = {to_snake(instance_base(t)) for t in targets}
