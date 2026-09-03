@@ -524,14 +524,17 @@ from codeverse.flywheel.quality import quality_tier, prompt_hash, find_duplicate
                                                                                     # C best ≥ 0.6, D else; dedupe = (code fingerprint, prompt)
 from codeverse.flywheel.pairs import build_pairs       # (runs_dir, out_jsonl, *, min_delta=0.05) -> n
 from codeverse.flywheel.refine import build_refine, transitions, RefineTransition, REFINE_KINDS, outcome_of
-    # build_refine(runs_dir, out_jsonl, *, with_code=False) -> n; transitions(rec, ws, *, with_code) -> list[RefineTransition]
+    # build_refine(runs_dir, out_jsonl, **kw) -> (rows written, Counter of drop reasons); writes via a .part file
+    # transitions(runs_dir, *, threshold=MIN_PREFERENCE_DELTA, max_diff_bytes=200_000, with_code=False,
+    #             drops=None) -> Iterator[RefineTransition];  outcome_of(delta, threshold) -> the label
     # one row per round i -> i+1 the harness asked to change; outcome improved|regressed|unchanged|unscored
     # (threshold: pairs.MIN_PREFERENCE_DELTA); dropped rows carry the reason (no_predecessor / no_commit /
     # predecessor_build_failed / predecessor_unjudged / git_read_failed / duplicate_run)
 from codeverse.flywheel._git import read_tree_at, diff_between, changed_files_between, commit_exists, GitReadError
     # read_tree_at(ws, commit) -> {path: bytes} via ls-tree + cat-file --batch — NEVER `git archive`, which
     # renders content through a planted filter.<name>.smudge and has no --no-filters (tests/flywheel_cli)
-    # diff_between(ws, before, after, *, max_bytes=None) -> (text, truncated); changed_files_between -> [path]
+    # diff_between(ws, before, after, *, max_bytes=None) -> (text, untruncated size, was_truncated)
+    # changed_files_between(ws, before, after) -> [path];  commit_exists(ws, commit) -> bool
     # both under GIT_SAFE_DIFF_FLAGS (--no-ext-diff --no-textconv) on top of workspace.GIT_SAFE_FLAGS
 from codeverse.workspace import GIT_SAFE_FLAGS, GIT_SAFE_DIFF_FLAGS, git_safe_env
     # every read of an agent-written repo goes through these: no repo config, no external diff/textconv,
