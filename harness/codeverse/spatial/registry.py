@@ -25,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from codeverse.workspace import Workspace
 
@@ -35,16 +35,10 @@ class NoArgs(BaseModel):
 
 
 class Observation(BaseModel):
-    """A tool's answer.  ``ok`` is the VERDICT (the gate passed, the build compiled,
-    nothing penetrates); ``failed`` says the tool could not run at all.
+    """A tool's answer: ``ok`` is the VERDICT, ``failed`` says the tool could not run.
 
-    Only ``failed`` becomes MCP ``is_error`` (``spatial.mcp_server``).  Measured over
-    224 recorded gemini-cli sessions (selector + full table in docs/COST.md §30): with
-    ``is_error = not ok``, 62% of 1445 joint_sweep calls, 23% of 2144 builds and ~15%
-    of the connectivity/contract calls reached the model as broken calls, and the model
-    retries a broken call — a mean 119k prompt tokens, $0.030 at the measured 73% cache
-    hit rate.  A negative verdict is a result: it keeps ``failed=False`` and leads its
-    ``text`` with the FAIL verdict instead.
+    Only ``failed`` becomes MCP ``is_error``; a negative verdict is a result, not a
+    broken call (what that cost when the two were one flag: docs/COST.md §30).
     """
 
     ok: bool = True
@@ -54,6 +48,14 @@ class Observation(BaseModel):
     numbers: dict[str, Any] = Field(default_factory=dict)
     images: list[str] = Field(default_factory=list, description="PNG paths (small, labelled)")
     duration_ms: int = 0
+
+    @model_validator(mode="after")
+    def _a_failure_is_never_a_pass(self) -> Observation:
+        """``failed`` implies ``not ok``: a tool that could not run has no verdict to
+        report, and ``Observation(ok=True, failed=True)`` was representable."""
+        if self.failed and self.ok:
+            raise ValueError("Observation(ok=True, failed=True): a tool that could not run has no verdict")
+        return self
 
     @classmethod
     def error(cls, text: str, **numbers: Any) -> Observation:

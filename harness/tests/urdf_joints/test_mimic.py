@@ -269,3 +269,22 @@ def test_an_unknown_target_is_reported_once_not_once_per_follower():
         MimicSpec(key="b", name="b", movable=True, target="a"),
     ])
     assert [(i.joint, i.kind) for i in issues] == [("a", "unknown_target")]
+
+
+def test_the_lint_warns_when_a_coupling_drives_past_the_follower_s_own_limits(tmp_path):
+    """``rib_a_hinge`` is limited to 1.2 and follows a 0–0.3 slide at multiplier 4 — the
+    coupling reaches exactly 1.2, so the file that ships is silent.  At multiplier 5 it
+    reaches 1.5 and the limits and the multiplier disagree; the sweep then poses the joint
+    where its own <limit> says it cannot go."""
+    from codeverse.workspace import Workspace
+
+    ws = Workspace(tmp_path / "ws").create()
+    (ws.src / "model.py").write_text("import bpy\n")
+    (ws.src / "robot.urdf").write_text(RIB)
+    assert not [f for f in lint_workspace(ws).findings if "drives it over" in f.message]
+
+    (ws.src / "robot.urdf").write_text(RIB.replace('joint="runner_slide" multiplier="4"',
+                                                   'joint="runner_slide" multiplier="5"'))
+    warns = [f for f in lint_workspace(ws).findings if "drives it over" in f.message]
+    assert len(warns) == 1 and warns[0].severity.value == "warn" and warns[0].target == "rib_a_hinge"
+    assert "1.5" in warns[0].message

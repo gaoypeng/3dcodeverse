@@ -703,7 +703,10 @@ def restart_note(raw: Any, missing: list[str], budget: PlanBudget) -> str:
 
 
 def restart_enabled() -> bool:
-    return os.environ.get(PLAN_RESTART_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+    """Kill switch for the degenerate-plan restart, ON by default (docs/COST.md §30)."""
+    from codeverse.config import env_flag  # ONE flag vocabulary (review-3 S4)
+
+    return env_flag(PLAN_RESTART_ENV, True)
 
 
 def _thin_plan_note(raw: Any, budget: PlanBudget) -> str:

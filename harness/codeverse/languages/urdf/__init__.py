@@ -4,6 +4,7 @@ consistency and the ``UrdfBlenderRuntime`` around ``wrappers/run_bpy_links.py``.
 from __future__ import annotations
 
 import ast
+import contextlib
 import json
 import math
 import os
@@ -235,9 +236,14 @@ def _lint_mimics(joints: list[ET.Element], out: list[GateFinding]) -> None:
         if not jname:
             continue
         movable = el.get("type", "") != "fixed"
+        lim = el.find("limit")
+        lo = hi = None
+        if lim is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                lo, hi = float(lim.get("lower")), float(lim.get("upper"))
         mim = el.find("mimic")
         src = (mim.get("joint") or "").strip() if mim is not None else ""
-        mult = 1.0
+        mult, off = 1.0, 0.0
         if mim is not None and not src:
             out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> without joint=", target=jname,
                           fix='<mimic joint="runner_slide" multiplier="1" offset="0"/>'))
@@ -245,12 +251,12 @@ def _lint_mimics(joints: list[ET.Element], out: list[GateFinding]) -> None:
         elif mim is not None:
             try:
                 mult = float(mim.get("multiplier", 1) or 1)
-                float(mim.get("offset", 0) or 0)
+                off = float(mim.get("offset", 0) or 0)
             except ValueError:
                 out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> multiplier/offset must be numbers", target=jname))
                 src = ""
-        specs.append(MimicSpec(key=jname, name=jname, movable=movable,
-                               target=src or None, multiplier=mult))
+        specs.append(MimicSpec(key=jname, name=jname, movable=movable, target=src or None,
+                               multiplier=mult, offset=off, lower=lo, upper=hi))
     known = sorted({el.get("name", "") for el in joints if el.get("name")})
     for i in mimic_issues(specs):
         j, t = i.joint, i.target
@@ -268,6 +274,11 @@ def _lint_mimics(joints: list[ET.Element], out: list[GateFinding]) -> None:
         elif i.kind == "immobile_target":
             out.append(_f(Severity.ERROR, f"joint '{j}': mimics '{t}', which is fixed and never moves", target=j,
                           fix="mimic a joint that moves, or give that joint a type and a limit"))
+        elif i.kind == "out_of_range":
+            out.append(_f(Severity.WARN, f"joint '{j}': following '{t}' drives it over {i.detail}, "
+                                         "outside its own <limit>", target=j,
+                          fix="Make the limits and the multiplier agree: multiplier * driver range "
+                              "+ offset is the range this joint really has."))
         else:
             out.append(_f(Severity.ERROR, f"joint '{j}': <mimic> chain is a cycle through '{i.detail or j}'",
                           target=j, fix="one joint drives the chain; the rest follow it, directly or in a line"))

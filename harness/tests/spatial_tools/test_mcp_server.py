@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from codeverse.spatial.mcp_server import build_context, encode_image, main, observation_content
 from codeverse.spatial.registry import Observation, ToolContext
@@ -110,6 +111,18 @@ def test_is_error_is_failed_not_the_verdict(tmp_path: Path) -> None:
 
     src = inspect.getsource(mcp_server.make_server)
     assert "is_error=obs.failed" in src and "is_error=not obs.ok" not in src
+
+
+def test_a_failure_cannot_also_be_a_pass() -> None:
+    """``failed`` implies ``not ok``.  The pair was two independent booleans, so
+    ``Observation(ok=True, failed=True)`` was constructible — an is_error result whose
+    verdict says the gate passed, which nothing downstream can read consistently."""
+
+
+    with pytest.raises(ValidationError, match="has no verdict"):
+        Observation(ok=True, failed=True, text="both")
+    assert Observation(ok=False, failed=True, text="could not run").failed
+    assert not Observation(ok=False, failed=False, text="FAIL: the gate ran").failed
 
 
 def test_cli_list(stool_ctx: ToolContext, capsys: pytest.CaptureFixture[str]) -> None:

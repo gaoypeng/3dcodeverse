@@ -74,21 +74,12 @@ def encode_image(path: str, max_side: int = MAX_IMAGE_SIDE) -> str | None:
 
 
 def max_images_for(obs: Observation) -> int:
-    """Image budget for ONE result, by outcome.
+    """Image budget for ONE result, by outcome: none for a call that failed, one for a
+    FAIL verdict, ``MAX_IMAGES`` for a pass.
 
-    A tool that could not run ships no image: nothing was rendered that is evidence
-    about it, and a vendor CLI that receives ``is_error`` stringifies the WHOLE result,
-    image parts included — gemini-cli's error branch prints
-    ``safeJsonStringify(rawResponseParts)``, so a 275 kB contact sheet would arrive as
-    ~366 k characters of base64 TEXT (~261 k prompt tokens) instead of ~516 as an inline
-    image, and its own 40 000-char truncation does not fire for a multi-part MCP result
-    (docs/COST.md §30).  A FAIL verdict is NOT an error here (``is_error`` is
-    ``obs.failed``), so it takes the vendor's ordinary image path; it still ships one
-    image rather than four because the first is the sheet ``image_budget`` keeps, the
-    rest are per-view repeats of a result the agent is being told to fix, and the
-    one-image rule is also what keeps the blow-up bounded if ``is_error`` is ever
-    re-coupled to ``not ok`` (``test_is_error_is_failed_not_the_verdict`` pins that
-    coupling).
+    A failed call ships none because the vendor CLI stringifies an ``is_error`` result
+    whole, base64 included — 275 kB of contact sheet arrives as ~261 k prompt tokens of
+    text (docs/COST.md §30, which also has the one-image rule's reasoning).
     """
     if obs.failed:
         return 0

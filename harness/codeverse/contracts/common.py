@@ -208,6 +208,9 @@ class MimicSpec(BaseModel):
     movable: bool
     target: str | None = None  # key of the joint this one follows; None = drives itself
     multiplier: float = 1.0
+    offset: float = 0.0
+    lower: float | None = None  # this joint's own limits, when it declares them
+    upper: float | None = None
 
 
 class MimicIssue(BaseModel):
@@ -217,7 +220,8 @@ class MimicIssue(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     joint: str
-    kind: Literal["immobile", "zero_multiplier", "self", "unknown_target", "immobile_target", "cycle"]
+    kind: Literal["immobile", "zero_multiplier", "self", "unknown_target", "immobile_target",
+                  "cycle", "out_of_range"]
     target: str
     detail: str = ""
 
@@ -229,7 +233,9 @@ def mimic_issues(specs: Collection[MimicSpec]) -> list[MimicIssue]:
     ``languages/urdf.lint`` and ``spatial.joints_model.load_urdf`` — and they had three
     copies of the walk that disagreed on the multiplier floor.  The rules live here; each
     caller renders the issues in its own vocabulary (``ValueError`` / gate finding /
-    ``UrdfError``) and picks the first one when it reports only one.
+    ``UrdfError``), picks the first one when it reports only one, and decides what is
+    fatal: ``out_of_range`` is a warning in the lint and ignored by the loader, because
+    the coupling still poses the mechanism — the follower's own limits are what disagree.
     """
     order = list(specs)
     by_key = {s.key: s for s in order}
@@ -250,6 +256,10 @@ def mimic_issues(specs: Collection[MimicSpec]) -> list[MimicIssue]:
             continue
         if not src.movable:
             out.append(MimicIssue(joint=s.name, kind="immobile_target", target=src.name))
+        reach = _driven_range(s, src)
+        if reach is not None:
+            out.append(MimicIssue(joint=s.name, kind="out_of_range", target=src.name,
+                                  detail=f"[{reach[0]:.4g}, {reach[1]:.4g}]"))
         seen, cur = {s.key}, src
         while cur.target is not None:
             if cur.key in seen:
@@ -261,3 +271,22 @@ def mimic_issues(specs: Collection[MimicSpec]) -> list[MimicIssue]:
                 break  # that joint reports its own unknown target on its own turn
             cur = nxt
     return out
+
+
+def _driven_range(follower: MimicSpec, driver: MimicSpec) -> tuple[float, float] | None:
+    """Where the coupling actually takes ``follower`` when both declare limits, if that
+    is outside the follower's own — ``None`` when it fits or the limits are unknown.
+
+    Slack is 1 % of the follower's span: the one case in 94 recorded couplings
+    (wave2_lean, a folding brace) overshot 2.248 against 2.2, which is the multiplier and
+    the limit rounded from different numbers rather than a mechanism that jams.
+    """
+    if None in (follower.lower, follower.upper, driver.lower, driver.upper):
+        return None
+    ends = (follower.multiplier * driver.lower + follower.offset,
+            follower.multiplier * driver.upper + follower.offset)
+    lo, hi = min(ends), max(ends)
+    slack = max(1e-6, 0.01 * (follower.upper - follower.lower))
+    if lo < follower.lower - slack or hi > follower.upper + slack:
+        return lo, hi
+    return None
