@@ -296,15 +296,18 @@ that moved the bill.
 round's judge issues and improvement plan, the gate ERROR findings with their fix hints, the
 instruction lines the sessions were actually handed, the unified `src/` diff between the two
 recorded commits, and the score delta with an improved/unchanged/regressed label.  On the
-recorded corpus: **205 rows from 239 runs**, coverage 1.00 (drops only at run level: 54
-cross-battery symlink aliases, 3 non-batteries, 2 empty), median diff 26 kB / 313 changed
-lines, **87 improved / 73 unchanged / 44 regressed**.  Both sides come from the round's own
-recorded commit — only 54 of 239 runs have `HEAD` at their last round.
+recorded corpus, re-exported through the shipped CLI on 2026-09-03 (`bench/out`, 21
+batteries): **254 rows from 87 runs across 13 batteries**, the only drops being 54
+cross-battery symlink aliases (`duplicate_run`), median diff 26.2 kB over 2 changed files,
+**112 improved / 81 unchanged / 59 regressed / 2 unscored**, median gain on an improved
+round +0.197, 119 rows carrying gate ERRORs.  Both sides come from the round's own recorded
+commit, not from `HEAD`.  (The same export read 205 rows on 2026-09-02; the corpus grows
+with every battery, so the selector is the date.)
 
 `toolkits/llamafactory/build_refine_sft.py` turns the improved transitions into the message
-shape the finetune pipeline consumes: **87 samples** (71 articulated, 16 static; median answer 26.6 kB, median
-brief 28.6 kB), answered with the files the round produced in the `=== FILE: path ===`
-envelope.  This is the one thing the harness produces that a one-shot corpus cannot: *given
+shape the finetune pipeline consumes: **112 samples** (92 articulated, 20 static; median
+answer 25.4 kB, median brief 28.2 kB), answered with the files the round produced in the
+`=== FILE: path ===` envelope.  This is the one thing the harness produces that a one-shot corpus cannot: *given
 a judged, gated object and a list of what is wrong with it, write the corrected files.*
 
 The pre-existing `flywheel/pairs.py` saw 57 % fewer transitions and carried neither the
@@ -380,7 +383,7 @@ instructions nor a diff.
 | base64 amplification | 261 k tokens vs 516 for one 275 kB sheet | measured on a recorded blob + vendor bundle | arithmetic + matching recorded prompt jumps |
 | token growth in turns | input(t) = 12 364 + 1 822·t; total ∝ n^1.60; dollars ∝ n^1.19–1.34 | 1 063 in-process sessions, 30 401 turns | the in-process agent, since gemini-cli emits no per-turn usage |
 | coupled mechanisms declared | 8 of 14 prompts; poses drive 1–2 joints (was 5–6) | `wave2_lean` URDFs and round records | — |
-| refine corpus | 205 transitions, 87 SFT samples | `3dcv flywheel refine`, `toolkits/llamafactory/build_refine_sft.py` over `bench/out` | corpus grows with every battery |
+| refine corpus | 254 transitions, 112 SFT samples (2026-09-03) | `3dcv flywheel refine`, `toolkits/llamafactory/build_refine_sft.py` over `bench/out` | corpus grows with every battery |
 
 ## 9.2 Open questions
 
