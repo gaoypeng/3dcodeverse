@@ -33,10 +33,11 @@ _BOOT_HINTS = {
 class SceneProbeResult(BaseModel):
     """``probe_scene`` result: unpacks as ``gate, census = probe_scene(ws)`` and also
     dumps to a dict generic tool adapters can read.  Tool semantics: ``ok`` /
-    ``errors`` describe whether the PROBE TOOL ran (``is_error`` in MCP terms) —
-    a gate that fails on agent-fixable findings keeps ``ok=True`` with the
-    finding lines under ``findings``; ``errors`` holds only harness/driver
-    failures.  Gate truth stays on ``gate.passed``."""
+    ``errors`` describe whether the PROBE TOOL ran — a gate that fails on
+    agent-fixable findings keeps ``ok=True`` with the finding lines under
+    ``findings``; ``errors`` holds only harness/driver failures and is what the
+    tool maps to ``Observation.failed`` (MCP ``is_error``).  Gate truth stays on
+    ``gate.passed``, which is the observation's verdict."""
 
     gate: GateReport
     census: dict[str, Any] = Field(default_factory=dict)

@@ -73,6 +73,32 @@ def test_render_observation(tmp_path: Path) -> None:
     assert "cam=(0, 1, 2)" in obs.text
 
 
+def test_render_with_no_views_is_a_failure_console_errors_are_a_verdict(tmp_path: Path) -> None:
+    """The negative renders are not one answer.  Nothing rendered and nothing logged: the
+    tool's product is pictures, it has none and no reason, and nothing the agent edits
+    changes that — an MCP error (``failed``).  Console errors: the scene RAN far enough to
+    log them, so it is a verdict the agent fixes, even when the boot failure left zero
+    views (`render_scene` returns exactly that) — reporting THAT as a broken call buys a
+    blind retry of the thing that just explained itself.  Both lead the text."""
+    empty = render_observation(RenderSet(views=[], renderer="fake"), tmp_path, note="shaded render")
+    assert not empty.ok and empty.failed
+    assert empty.text.startswith("RENDER PRODUCED NO VIEWS (fake)")
+    assert empty.numbers["n_views"] == 0
+
+    rs = RenderSet(views=[RenderView(name="front", path=str(tmp_path / "v.png"))], renderer="fake",
+                   console_errors=["TypeError: x is undefined"])
+    obs = render_observation(rs, tmp_path, note="scene views")
+    assert not obs.ok and not obs.failed
+    assert obs.text.startswith("RENDER: FAIL — 1 console error(s); the views below rendered anyway")
+    assert "scene views" in obs.text and "TypeError" in obs.text
+
+    booted = render_observation(RenderSet(views=[], renderer="fake", console_errors=["SyntaxError: scene.js:12"]),
+                                tmp_path)
+    assert not booted.ok and not booted.failed          # the scene told the agent what to fix
+    assert booted.text.startswith("RENDER: FAIL — 1 console error(s) and no view rendered")
+    assert "SyntaxError" in booted.text
+
+
 def test_lint_lines_split_by_severity(tmp_path: Path) -> None:
     rep = GateReport(gate="lint:x", passed=False, findings=[
         GateFinding(gate="lint:x", severity=Severity.ERROR, target=str(tmp_path / "src" / "a.py"), message="bad", fix_hint="fix it"),

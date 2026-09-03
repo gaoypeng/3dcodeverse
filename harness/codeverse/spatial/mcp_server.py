@@ -6,6 +6,12 @@ One MCP tool per registry tool (name, description, JSON schema from
 ``ToolDef.schema()``).  Results are content blocks: one ``TextContent`` with the
 observation text (+ compact numbers when small) and one ``ImageContent`` per
 observation image (base64 PNG, long side ≤ 1024 px, at most ``MAX_IMAGES``).
+``is_error`` is ``Observation.failed`` (the tool could not run) — never a
+negative verdict, which is an ordinary result whose text leads with FAIL.
+Every result is bounded here — ``MAX_TEXT_CHARS`` of text, at most
+:func:`max_images_for` images, and ``MAX_IMAGE_BYTES`` of encoded image data across
+them — because this is the last place the harness owns before the payload becomes
+the vendor's prompt.
 Track / language default to ``<ws>/spec.json`` so agents need no flags.
 """
 
@@ -22,7 +28,7 @@ from typing import Any
 
 from PIL import Image
 
-from codeverse.spatial.observe import fmt_numbers
+from codeverse.spatial.observe import fmt_numbers, truncate
 from codeverse.spatial.registry import Observation, ToolContext, list_tools
 from codeverse.spatial.tool_common import spec_dict
 from codeverse.workspace import Workspace
@@ -30,6 +36,16 @@ from codeverse.workspace import Workspace
 MAX_IMAGES = 4
 MAX_IMAGE_SIDE = 1024
 MAX_NUMBERS_CHARS = 1200
+#: hard ceiling on the text block of ONE result (text + numbers), twice the largest
+#: per-tool limit in ``observe`` — an Observation built by hand (``joint_sweep``,
+#: ``compare_reference``) never goes through those, and nothing may hand the model an
+#: unbounded payload from here.
+MAX_TEXT_CHARS = 6000
+#: ceiling on the encoded image data of ONE result.  The count and the 1024 px long side
+#: bound pixels, not bytes: the largest recorded articulation sheet (1,966,609 B,
+#: 1176x3350) still encodes to 394,988 base64 characters after the downscale, so without
+#: this a legal result could hand the model ~280 k tokens of image.
+MAX_IMAGE_BYTES = 400_000
 SERVER_NAME = "3dcv"
 
 
@@ -57,19 +73,46 @@ def encode_image(path: str, max_side: int = MAX_IMAGE_SIDE) -> str | None:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def max_images_for(obs: Observation) -> int:
+    """Image budget for ONE result, by outcome.
+
+    A tool that could not run ships no image: nothing was rendered that is evidence
+    about it, and a vendor CLI that receives ``is_error`` stringifies the WHOLE result,
+    image parts included — gemini-cli's error branch prints
+    ``safeJsonStringify(rawResponseParts)``, so a 275 kB contact sheet would arrive as
+    ~366 k characters of base64 TEXT (~261 k prompt tokens) instead of ~516 as an inline
+    image, and its own 40 000-char truncation does not fire for a multi-part MCP result
+    (docs/COST.md §30).  A FAIL verdict is NOT an error here (``is_error`` is
+    ``obs.failed``), so it takes the vendor's ordinary image path; it still ships one
+    image rather than four because the first is the sheet ``image_budget`` keeps, the
+    rest are per-view repeats of a result the agent is being told to fix, and the
+    one-image rule is also what keeps the blow-up bounded if ``is_error`` is ever
+    re-coupled to ``not ok`` (``test_is_error_is_failed_not_the_verdict`` pins that
+    coupling).
+    """
+    if obs.failed:
+        return 0
+    return MAX_IMAGES if obs.ok else 1
+
+
 def observation_content(obs: Observation) -> list[Any]:
-    """Observation → MCP content blocks (text first, then images)."""
+    """Observation → MCP content blocks (text first, then images), both bounded."""
     from mcp import types
 
     text = obs.text
     if obs.numbers:
         nums = json.dumps(obs.numbers, default=str)
         text += "\n" + (nums if len(nums) <= MAX_NUMBERS_CHARS else fmt_numbers(obs.numbers))
-    blocks: list[Any] = [types.TextContent(type="text", text=text)]
-    for p in obs.images[:MAX_IMAGES]:
+    # the slice makes the ceiling hard: truncate's "N chars omitted" marker overshoots its
+    # own budget by a few characters, and this is the last bound before the vendor's prompt
+    blocks: list[Any] = [types.TextContent(type="text", text=truncate(text, MAX_TEXT_CHARS)[:MAX_TEXT_CHARS])]
+    spent = 0
+    for p in obs.images[:max_images_for(obs)]:
         b64 = encode_image(p)
-        if b64:
-            blocks.append(types.ImageContent(type="image", data=b64, mime_type="image/png"))
+        if not b64 or spent + len(b64) > MAX_IMAGE_BYTES:
+            continue  # pixels are bounded by the downscale; bytes are bounded here
+        spent += len(b64)
+        blocks.append(types.ImageContent(type="image", data=b64, mime_type="image/png"))
     return blocks
 
 
@@ -90,7 +133,11 @@ def make_server(ctx: ToolContext):
         if tdef is None:
             return types.CallToolResult(content=[types.TextContent(type="text", text=f"unknown tool {params.name!r}; known: {sorted(defs)}")], is_error=True)
         obs = await asyncio.to_thread(tdef.call, ctx, params.arguments or {})
-        return types.CallToolResult(content=observation_content(obs), is_error=not obs.ok)
+        # is_error is Observation.failed, NOT `not ok`: a tool that RAN and answered FAIL
+        # is a result the model must read, and an MCP error is a call the vendor retries
+        # instead (a mean 119k prompt tokens, $0.030 blended) — and, on gemini-cli, one
+        # whose images it re-sends as base64 TEXT.  The FAIL verdict leads the text.
+        return types.CallToolResult(content=observation_content(obs), is_error=obs.failed)
 
     return Server(SERVER_NAME, version="0.1.0",
                   instructions="3dcodeverse spatial tools: build, measure, render and check the 3D object in this workspace.",

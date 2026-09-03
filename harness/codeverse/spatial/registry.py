@@ -13,7 +13,9 @@ Usage::
 Observation, ``ToolUnavailable`` (a missing sibling package) an "unavailable"
 one, anything else a failed Observation — a tool body never needs try/except.
 Observations: ``text`` (what the agent reads), ``numbers`` (machine-readable),
-``images`` (paths, small PNGs the agent may view), ``ok``.
+``images`` (paths, small PNGs the agent may view), ``ok`` (the VERDICT) and
+``failed`` (the tool could not run).  The two are different answers and only
+``failed`` may reach the model as a protocol error — see :class:`Observation`.
 """
 
 from __future__ import annotations
@@ -33,7 +35,21 @@ class NoArgs(BaseModel):
 
 
 class Observation(BaseModel):
+    """A tool's answer.  ``ok`` is the VERDICT (the gate passed, the build compiled,
+    nothing penetrates); ``failed`` says the tool could not run at all.
+
+    Only ``failed`` becomes MCP ``is_error`` (``spatial.mcp_server``).  Measured over
+    224 recorded gemini-cli sessions (selector + full table in docs/COST.md §30): with
+    ``is_error = not ok``, 62% of 1445 joint_sweep calls, 23% of 2144 builds and ~15%
+    of the connectivity/contract calls reached the model as broken calls, and the model
+    retries a broken call — a mean 119k prompt tokens, $0.030 at the measured 73% cache
+    hit rate.  A negative verdict is a result: it keeps ``failed=False`` and leads its
+    ``text`` with the FAIL verdict instead.
+    """
+
     ok: bool = True
+    failed: bool = Field(default=False, description="the tool could not run: exception, missing "
+                                                    "artefact, unusable arguments (NOT a negative verdict)")
     text: str = Field(description="human/LLM-readable summary (≤ ~2k chars)")
     numbers: dict[str, Any] = Field(default_factory=dict)
     images: list[str] = Field(default_factory=list, description="PNG paths (small, labelled)")
@@ -41,7 +57,18 @@ class Observation(BaseModel):
 
     @classmethod
     def error(cls, text: str, **numbers: Any) -> Observation:
-        return cls(ok=False, text=text, numbers=numbers)
+        """The tool could not run: every failure caught at the :meth:`ToolDef.call`
+        boundary and every missing / unreadable artefact is built here.
+
+        It is not the only thing that sets ``failed``.  Three results are failures
+        the tool computed rather than exceptions it caught, and they set the flag on
+        an observation they compose themselves: ``build`` (the runtime reported
+        success and left no readable GLB), ``scene_probe`` (the probe driver died)
+        and ``observe.render_observation`` (no view AND no console error — with one
+        it is a verdict).  Those four places are the whole list; nothing else may set
+        ``failed``.
+        """
+        return cls(ok=False, failed=True, text=text, numbers=numbers)
 
 
 class ToolUnavailable(RuntimeError):
