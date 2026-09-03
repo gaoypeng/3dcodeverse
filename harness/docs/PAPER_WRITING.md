@@ -148,7 +148,7 @@ They are recorded so nobody re-runs them expecting a different answer.
 | **Pro planner** (`gemini-3.1-pro` vs `3.7-flash`) | `compare_art_v4` pp vs pf | 13 | +0.090 | ±0.23 | 9/2/2 | keep flash: 2–10× plan cost, 5/14 cells lost to provider limits |
 | **Deterministic repairs** (`CV3D_ART_REPAIRS`) | `ab_repairs`, plan pinned | 12 | −0.039 | ±0.105 | 2/5/5 | ships **OFF**; the axis flip fired in 1 of 12 cells |
 | **Fewer turns** (`CV3D_FEWER_TURNS`) | `ab_fewer_turns`, plan pinned | 14 | +0.015 | ±0.126 | 6/5/3 | ships **OFF**; −12 % tool calls, $/cell unchanged |
-| **Lean prompt** (`CV3D_LEAN_PROMPT`) | `wave2_lean`, plan pinned | 12 | +0.030 | ±0.076 | 8/3/1 | ships **OFF**; −45.7 % generate prompt chars, $3.51 vs $3.66 per cell |
+| **Lean prompt** (`CV3D_LEAN_PROMPT`) | `wave2_lean`, plan pinned | 12 | +0.030 | ±0.076 | 8/3/1 | ships **OFF**; −45.7 % generate prompt chars, $3.51 vs $3.66 per cell; code removed 2026-09-03 in review (D52); the numbers stand, the second prompt path does not. |
 
 Two of these carry a second, non-score reading worth keeping:
 
@@ -406,7 +406,7 @@ a test enforces by grepping the tree; a switch nothing reads once produced "keep
 | `CV3D_PLAN_GEOMETRY` | plan-time geometry re-ask (attachment gap, hinge pivot, swept collision) | **off** | +0.064 ±0.25, no measurable gain (§4) |
 | `CV3D_PLAN_RESTART` | re-sample a degenerate plan from the original request | **on**, kill switch | 4.7 % → 0.7 % planner mortality, p = 0.0067 (§5.1) |
 | `CV3D_ART_REPAIRS` | axis flip on a reversed joint + buried-link check | **off** | −0.039 ±0.105, fired 1/12 (§4) |
-| `CV3D_LEAN_PROMPT` | drop duplicated contract/tool cards, select cookbook chapters, focus the refine prompt | **off** | +0.030 ±0.076, no cost saving (§4) |
+| `CV3D_LEAN_PROMPT` | drop duplicated contract/tool cards, select cookbook chapters, focus the refine prompt | **off** | +0.030 ±0.076, no cost saving (§4); **removed from the tree 2026-09-03**; last carried on `ziyao/articulated-wave-2` before commit `554b52b`. |
 | `CV3D_FEWER_TURNS` (pre-existing) | fold gate checks into build, inline refine files | **off** | +0.015 ±0.126, dollars flat (§4) |
 | `CV3D_AXIS_REPAIR` (upstream) | deterministic axis rewrite from the measured motion | on | upstream's, kept |
 
@@ -424,7 +424,7 @@ python bench/ab_plan.py --prompts bench/prompts/articulated_v2.yaml --aa --pin-p
     --n-samples 3 --rounds 3 --out bench/out/aa_articulated
 # a switch A/B (generation-side switches only; plan-side is refused for --pin-plan)
 python bench/ab_plan.py --prompts bench/prompts/articulated_v2.yaml \
-    --variant-env CV3D_LEAN_PROMPT=1 --pin-plan --out bench/out/lean
+    --variant-env CV3D_FEWER_TURNS=1 --pin-plan --out bench/out/fewer_turns
 # harness vs one-shot
 python bench/compare_backends.py --prompts bench/prompts/articulated_v2.yaml \
     --arms harness:gemini-cli:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \

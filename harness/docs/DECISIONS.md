@@ -693,8 +693,10 @@ written) that were accepted because the code works that way and the tests pin it
     sd 0.131, **2 SE ±0.076**, 8 up / 3 down (p 0.227), one regression — inconclusive by
     the rig's own rule — and no cost saving ($3.51 vs $3.66 per scored cell), which is the
     second time a prompt/turn-shape change has moved tokens without moving dollars
-    (docs/COST.md §29).  The switch and its measured character savings stay for the day a
-    larger battery can resolve them.
+    (docs/COST.md §29).  The switch itself was DELETED in review (2026-09-03, −569 lines):
+    an inconclusive lever with no cost saving is not worth a second prompt path through
+    three templates, and the measurement above is the record of what it was worth.  To
+    re-run it, restore the branch commit named in docs/PAPER_WRITING.md §9.3.
   * **`<mimic>` is used and it changes the sweep, which is what it was for.**  In the same
     battery the planner and agent declared couplings in 8 of 14 prompts (umbrella 6 joints,
     workbench 4, step ladder 4, scissor mirror 3, rolltop desk 3), and the sampled poses
