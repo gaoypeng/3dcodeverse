@@ -115,6 +115,31 @@ def test_a_planted_diff_driver_never_runs(fake_run, tmp_path):
     assert files == ["src/blob.bin"] and "src/blob.bin" in text
 
 
+def test_a_planted_smudge_filter_never_runs(fake_run, tmp_path):
+    """The same window, the other content-rendering command: ``git archive`` renders
+    blobs through ``convert_to_working_tree``, so a planted ``filter.<name>.smudge``
+    RUNS — and archive has no ``--no-filters``, while ``-c core.attributesFile`` only
+    silences the GLOBAL attributes file.  ``read_tree_at`` therefore reads the object
+    database directly (``ls-tree`` + ``cat-file --batch``), which applies no filter.
+
+    Planted with ``.git/info/attributes`` — no commit needed, nothing the harness
+    sanitises on the read path."""
+    ws, _rec = fake_run
+    fired = tmp_path / "smudged"
+    (ws.src / "model.py").write_text("# real content\n")
+    commit = ws.commit("content")
+    (ws.root / ".git" / "info").mkdir(parents=True, exist_ok=True)
+    (ws.root / ".git" / "info" / "attributes").write_text("* filter=evil\n")
+    (ws.root / ".gitattributes").write_text("* filter=evil\n")
+    ws._git("config", "--local", "filter.evil.smudge", f"sh -c 'echo pwned >> {fired}; cat'")
+    ws._git("config", "--local", "filter.evil.required", "false")
+
+    files = _git.read_tree_at(ws, commit)
+
+    assert not fired.exists(), f"a planted smudge filter ran: {fired.read_text()!r}"
+    assert files["src/model.py"] == b"# real content\n"  # the raw blob, unfiltered
+
+
 def test_diff_between_refuses_a_sha_the_repo_does_not_have(fake_run):
     """The recorded round shas are the only usable handles, and one the repository no
     longer holds must raise rather than diff against an empty tree."""

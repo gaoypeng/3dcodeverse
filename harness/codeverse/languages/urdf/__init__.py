@@ -11,7 +11,7 @@ import re
 import shutil
 import time
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -550,7 +550,8 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
             lower, upper = j.lower - j.rest, j.upper - j.rest
         mim = None
         if j.mimic is not None:
-            # instanced links get one joint each; each copy follows the same driver
+            # every copy of an instanced follower follows the SAME driver; the driver's own
+            # name is resolved after emission, when the instance suffixes are known
             mim = (to_snake(j.mimic.joint), float(j.mimic.multiplier), float(j.mimic.offset))
         joints.append(JointRow(name=to_snake(j.name) + suffix, type=j.type, parent=parent, child=child,
                                origin_xyz=(0.0, 0.0, 0.0), axis=tuple(float(v) for v in j.axis), lower=lower, upper=upper,
@@ -563,6 +564,19 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
         children = [n for n, p, _ in parts if n == child or (n in instance_links and n.rsplit("_", 1)[0] == child)]
         for k, c in enumerate(children):
             add_joint(j, c, parent, "" if len(children) == 1 else f"_{k + 1}")
+
+    # A driver whose child is instanced exists only as <name>_1..._n, so the plan's name
+    # names no joint in the file: follow the first instance, the rule an instanced PARENT
+    # link already uses above.  The plan validator guarantees the target is a plan joint,
+    # so anything unresolved here is a bug in this function, not in the plan.
+    emitted = {jr.name for jr in joints}
+    for i, jr in enumerate(joints):
+        if jr.mimic is None or jr.mimic[0] in emitted:
+            continue
+        target, mult, off = jr.mimic
+        if f"{target}_1" not in emitted:
+            raise ValueError(f"joint {jr.name}: mimic target {target!r} was not emitted; joints are {sorted(emitted)}")
+        joints[i] = replace(jr, mimic=(f"{target}_1", mult, off))
 
     # link frames: root at origin, others at their pivot
     for name, p, center in parts:

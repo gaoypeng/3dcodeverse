@@ -1,8 +1,8 @@
 """Read-only git helpers for the flywheel: file trees at a commit, binary-safe.
 
 The exporter / pairs builder must never touch the working tree of a run
-(another process may be resuming it), so everything here goes through
-``git archive`` / ``git ls-tree`` on the run's repository.
+(another process may be resuming it), so everything here reads the object database
+of the run's repository (``ls-tree`` / ``cat-file`` / ``diff``).
 
 Read-only is not the same as safe: a run's ``.git/config`` and ``.gitattributes``
 were writable by the agent, and git config can name a program to RUN.  Every
@@ -14,9 +14,7 @@ adds :data:`~codeverse.workspace.GIT_SAFE_DIFF_FLAGS`.
 
 from __future__ import annotations
 
-import io
 import subprocess
-import tarfile
 from pathlib import Path
 
 from codeverse.workspace import GIT_SAFE_DIFF_FLAGS, GIT_SAFE_FLAGS, Workspace, git_safe_env
@@ -29,7 +27,21 @@ _SKIP_PARTS = {"node_modules", "__pycache__", ".git"}
 
 
 class GitReadError(RuntimeError):
-    """A git read (ls-tree / archive) failed or the commit does not exist."""
+    """A git read (ls-tree / cat-file / diff) failed or the commit does not exist."""
+
+
+def _run_stdin(ws: Workspace, stdin: bytes, *args: str) -> subprocess.CompletedProcess[bytes]:
+    """:func:`_run` with input on stdin (``cat-file --batch`` reads its object list there)."""
+    try:
+        proc = subprocess.run(
+            ["git", *GIT_SAFE_FLAGS, *args], cwd=ws.root, capture_output=True, check=False,
+            env=git_safe_env(), timeout=_GIT_TIMEOUT_S, input=stdin,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        raise GitReadError(f"git {' '.join(args)} in {ws.root}: {e}") from e
+    if proc.returncode != 0:
+        raise GitReadError(f"git {' '.join(args)} in {ws.root}: {proc.stderr.decode('utf-8', errors='replace')[:400]}")
+    return proc
 
 
 def _run(ws: Workspace, *args: str) -> subprocess.CompletedProcess[bytes]:
@@ -80,23 +92,41 @@ def list_files_at(ws: Workspace, commit: str) -> list[str]:
 
 
 def read_tree_at(ws: Workspace, commit: str) -> dict[str, bytes]:
-    """``{repo-relative path: bytes}`` for every code file at ``commit`` (binary-safe)."""
+    """``{repo-relative path: bytes}`` for every code file at ``commit`` (binary-safe).
+
+    ``ls-tree`` + ``cat-file --batch``, never ``git archive``: archive renders content
+    through ``convert_to_working_tree``, so an agent-planted ``filter.<name>.smudge``
+    RUNS — and unlike textconv there is no flag to turn it off (``-c
+    core.attributesFile=/dev/null`` only silences the GLOBAL attributes file; the
+    in-repo ``.gitattributes`` and ``.git/info/attributes`` are still read).
+    ``cat-file`` hands back the raw blob and applies no filter unless asked."""
     if not commit_exists(ws, commit):
         raise GitReadError(f"commit {commit!r} not found in {ws.root}")
-    # `git archive` errors on a pathspec that matches nothing, so only pass roots that exist.
-    listed = list_files_at(ws, commit)
-    present = [r for r in CODE_ROOTS if any(p.startswith(r + "/") for p in listed)]
-    if not present:
+    entries: list[tuple[str, str]] = []  # (blob sha, path)
+    out = _run(ws, "ls-tree", "-r", "-z", commit, "--", *CODE_ROOTS).stdout
+    for rec in out.decode("utf-8", errors="replace").split("\0"):
+        if not rec:
+            continue
+        meta, _, path = rec.partition("\t")
+        parts = meta.split()
+        if len(parts) < 3 or parts[1] != "blob" or not _keep(path):
+            continue
+        entries.append((parts[2], path))
+    if not entries:
         return {}
-    data = _run(ws, "archive", "--format=tar", commit, "--", *present).stdout
+    proc = _run_stdin(ws, b"".join(f"{sha}\n".encode() for sha, _ in entries), "cat-file", "--batch")
     files: dict[str, bytes] = {}
-    with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tar:
-        for m in tar.getmembers():
-            if not m.isfile() or not _keep(m.name):
-                continue
-            fh = tar.extractfile(m)
-            if fh is not None:
-                files[m.name] = fh.read()
+    buf, pos = proc.stdout, 0
+    for _, path in entries:
+        nl = buf.find(b"\n", pos)
+        if nl < 0:
+            raise GitReadError(f"cat-file --batch ended early reading {path!r} from {ws.root}")
+        header = buf[pos:nl].decode("utf-8", errors="replace").split()
+        if len(header) != 3:
+            raise GitReadError(f"cat-file --batch: unreadable object for {path!r}: {' '.join(header)}")
+        size = int(header[2])
+        files[path] = buf[nl + 1:nl + 1 + size]
+        pos = nl + 1 + size + 1  # the trailing newline git writes after every object
     return files
 
 

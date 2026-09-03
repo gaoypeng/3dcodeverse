@@ -67,10 +67,15 @@ def pose_label(robot: Robot, q: dict[str, float]) -> str:
 
 
 def limit_poses(robot: Robot) -> list[tuple[str, dict[str, float]]]:
-    """``rest`` + every movable joint at its lower and upper limit (deduped) —
-    the pose set used for the articulation contact sheet."""
+    """``rest`` + every INPUT joint at its lower and upper limit (deduped) — the pose set
+    behind the articulation contact sheet and ``joint_sweep(joints=...)``.
+
+    Independent joints only, for the same reason as :func:`pose_samples`: ``fk`` resolves a
+    driven joint from the one it follows and ignores a value handed in for it, so a tile
+    labelled ``<driven>@upper`` would render the rest pose under a label that says it moved
+    (an 8-rib umbrella: 16 mislabelled duplicates)."""
     out: list[tuple[str, dict[str, float]]] = [("rest", {})]
-    for j in robot.movable_joints():
+    for j in robot.independent_joints():
         if j.type == "continuous":
             cands = [("half", math.pi / 2)]
         else:

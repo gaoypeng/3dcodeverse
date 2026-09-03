@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from codeverse.contracts.plan import ArticulatedPlan
 from codeverse.languages.urdf import lint_workspace, render_urdf
 from codeverse.spatial.joints import (
     UrdfError,
@@ -84,6 +85,21 @@ def test_pose_samples_drive_only_the_degrees_of_freedom(tmp_path):
     assert fk(r, opened)["rib_a"][:3, :3].tolist() != fk(r, {})["rib_a"][:3, :3].tolist()
 
 
+def test_the_contact_sheet_and_joint_narrowing_show_only_input_joints(tmp_path):
+    """`limit_poses` feeds the articulation sheet and `joint_sweep(joints=...)`: a tile for
+    a driven joint would be the rest pose with a label saying it moved."""
+    from codeverse.spatial.joints_model import fk
+    from codeverse.spatial.joints_poses import limit_poses
+
+    r = _robot(tmp_path)
+    labels = [lab for lab, _ in limit_poses(r)]
+    assert labels == ["rest", "runner_slide@upper"], labels
+    assert not any("rib_" in lab for lab in labels)
+    # and the one non-rest pose really moves the ribs, through the driver
+    _, q = limit_poses(r)[1]
+    assert fk(r, q)["rib_a"][:3, :3].tolist() != fk(r, {})["rib_a"][:3, :3].tolist()
+
+
 def test_the_sweep_poses_the_mechanism_the_way_it_moves(tmp_path):
     r = _robot(tmp_path)
     rep = sweep_collisions(r, pose_samples(r))
@@ -132,3 +148,72 @@ def test_the_lint_accepts_a_real_coupling_and_names_a_broken_one(tmp_path, monke
     (ws.src / "robot.urdf").write_text(RIB.replace('joint="runner_slide" multiplier="4"', 'joint="ghost" multiplier="4"'))
     errs = [f for f in lint_workspace(ws).findings if "mimic" in f.message and f.severity.value == "error"]
     assert len(errs) == 1 and "names no joint" in errs[0].message
+
+
+# ------------------------------------------------------------------ the plan's own rules
+def _plan(**joint_overrides):
+    """The worked articulated example with a second joint that can carry a coupling."""
+    import copy
+
+    from codeverse.contracts.common import Track
+    from codeverse.tracks.planner import plan_example
+
+    d = copy.deepcopy(plan_example(Track.ARTICULATED_OBJECT))
+    d["parts"].append({"name": "Lid", "role": "top lid", "description": "a flat lid", "attach_to": "Cabinet",
+                       "bbox": {"center": [0, 0, 0.61], "extents": [0.4, 0.5, 0.02]}, "material": "oak"})
+    d["joints"].append({"name": "LidHinge", "type": "revolute", "parent": "Cabinet", "child": "Lid",
+                        "axis": [1, 0, 0], "pivot": [0, 0.21, 0.6], "lower": 0.0, "upper": 1.2, "rest": 0.0,
+                        "motion": "the lid tilts up"})
+    d["joints"][1].update(joint_overrides)
+    return d
+
+
+def test_a_declared_coupling_validates_and_survives_the_round_trip():
+    d = _plan(mimic={"joint": "DrawerSlide", "multiplier": 2.0, "offset": 0.1})
+    plan = ArticulatedPlan.model_validate(d)
+    assert plan.joints[1].mimic is not None and plan.joints[1].mimic.joint == "DrawerSlide"
+    assert plan.joints[1].mimic.multiplier == 2.0 and plan.joints[1].mimic.offset == 0.1
+
+
+@pytest.mark.parametrize("mimic,msg", [
+    ({"joint": "NoSuchJoint"}, "is not a joint in this plan"),
+    ({"joint": "LidHinge"}, "mimics itself"),
+    ({"joint": "DrawerSlide", "multiplier": 0.0}, "multiplier 0"),
+])
+def test_a_broken_coupling_is_refused_by_the_plan(mimic, msg):
+    with pytest.raises(Exception, match=msg):
+        ArticulatedPlan.model_validate(_plan(mimic=mimic))
+
+
+def test_a_coupling_that_names_a_fixed_joint_is_refused():
+    d = _plan(mimic={"joint": "CabinetWeld"})
+    d["parts"].append({"name": "Plinth", "role": "base", "description": "a plinth", "attach_to": "Cabinet",
+                       "bbox": {"center": [0, 0, -0.05], "extents": [0.4, 0.5, 0.1]}, "material": "oak"})
+    d["joints"].append({"name": "CabinetWeld", "type": "fixed", "parent": "Cabinet", "child": "Plinth",
+                        "axis": [0, 0, 1], "pivot": [0, 0, 0], "lower": 0.0, "upper": 0.0, "motion": "rigid"})
+    with pytest.raises(Exception, match="which is fixed and never moves"):
+        ArticulatedPlan.model_validate(d)
+
+
+def test_a_mimic_cycle_is_refused():
+    d = _plan(mimic={"joint": "DrawerSlide"})
+    d["joints"][0]["mimic"] = {"joint": "LidHinge"}
+    with pytest.raises(Exception, match="loops back through"):
+        ArticulatedPlan.model_validate(d)
+
+
+def test_a_mimic_of_an_instanced_driver_follows_the_first_instance():
+    """An instanced driver exists only as ``<name>_1..._n``; writing the plan's bare name
+    made the skeleton fail its own lint and `load_urdf` (a scissor/pantograph plan is the
+    likely place to hit it)."""
+    from codeverse.languages.urdf import compute_urdf_frames
+
+    d = _plan()
+    d["parts"][1]["instances"] = 2                      # the drawer, driven by DrawerSlide
+    d["joints"][1]["mimic"] = {"joint": "DrawerSlide", "multiplier": 0.5}
+    urdf = render_urdf(compute_urdf_frames(ArticulatedPlan.model_validate(d)))
+    assert '<mimic joint="drawer_slide_1" multiplier="0.5" offset="0"/>' in urdf
+    assert "drawer_slide_1" in urdf and "drawer_slide_2" in urdf
+    names = {ln.split('"')[1] for ln in urdf.splitlines() if "<joint name=" in ln}
+    refs = {ln.split('"')[1] for ln in urdf.splitlines() if "<mimic joint=" in ln}
+    assert refs <= names, f"dangling mimic reference: {refs - names}"

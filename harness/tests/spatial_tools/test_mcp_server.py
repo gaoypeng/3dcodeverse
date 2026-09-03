@@ -64,25 +64,40 @@ def test_result_payload_is_bounded_by_outcome(tmp_path: Path) -> None:
         assert sum(1 for b in blocks if b.type == "image") == n_images
 
 
-def test_image_bytes_are_bounded_not_only_the_count(tmp_path: Path) -> None:
-    """The count and the 1024 px downscale bound PIXELS, not bytes: the largest recorded
-    articulation sheet still encodes to ~395 k base64 characters, so four of them would be
-    a bigger payload than the text cap the same result respects."""
+def test_the_byte_bound_keeps_the_sheet_drops_the_rest_and_says_so(tmp_path: Path) -> None:
+    """The count and the 1024 px downscale bound PIXELS, not bytes.  images[0] is the
+    contact sheet and the rest are per-view repeats of it, so the budget must stop at the
+    first image that does not fit — dropping the sheet and shipping the views would be the
+    worst of both — and the text must say what did not come."""
     from PIL import Image
 
     from codeverse.spatial.mcp_server import MAX_IMAGE_BYTES, encode_image
 
-    noisy = tmp_path / "noise.png"
-    rnd = __import__("random").Random(0)
-    img = Image.new("RGB", (1024, 1024))
-    img.putdata([(rnd.randrange(256), rnd.randrange(256), rnd.randrange(256)) for _ in range(1024 * 1024)])
-    img.save(noisy)
-    one = encode_image(str(noisy))
-    assert one is not None and len(one) > MAX_IMAGE_BYTES / 3  # a real sheet is this heavy
-    blocks = observation_content(Observation(ok=True, text="t", images=[str(noisy)] * 4))
+    def noise(name: str, side: int) -> str:
+        rnd = __import__("random").Random(len(name))
+        img = Image.new("RGB", (side, side))
+        img.putdata([(rnd.randrange(256), rnd.randrange(256), rnd.randrange(256)) for _ in range(side * side)])
+        p = tmp_path / name
+        img.save(p)
+        return str(p)
+
+    small, heavy = noise("small.png", 64), noise("heavy.png", 1024)
+    assert len(encode_image(small) or "") < MAX_IMAGE_BYTES / 4 < len(encode_image(heavy) or "")
+
+    # an in-budget sheet is KEPT (the bug this pins: it used to be skipped for the views)
+    blocks = observation_content(Observation(ok=True, text="t", images=[small, small, small, small]))
+    assert sum(1 for b in blocks if b.type == "image") == 4 and "not attached" not in blocks[0].text
+
+    # the budget stops at the first image that does not fit, and the text says how many
+    blocks = observation_content(Observation(ok=True, text="t", images=[small, heavy, small, small]))
     images = [b for b in blocks if b.type == "image"]
-    assert sum(len(b.data) for b in images) <= MAX_IMAGE_BYTES
-    assert len(images) < 4  # the byte budget, not the count, is what stopped it
+    assert len(images) == 1 and sum(len(b.data) for b in images) <= MAX_IMAGE_BYTES
+    assert "3 image(s) not attached" in blocks[0].text
+
+    # a FAIL verdict ships one image; if that one is over budget it ships none WITH a note
+    blocks = observation_content(Observation(ok=False, text="t", images=[heavy, small]))
+    assert not [b for b in blocks if b.type == "image"]
+    assert "1 image(s) not attached" in blocks[0].text
 
 
 def test_is_error_is_failed_not_the_verdict(tmp_path: Path) -> None:

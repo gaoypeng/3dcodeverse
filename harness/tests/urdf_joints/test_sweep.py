@@ -162,6 +162,7 @@ def test_joints_argument_narrows_the_render_to_those_joints(monkeypatch, tmp_pat
     class _Robot:
         joints = {n: _J(n, -1.0, 1.0) for n in ("hinge", "slide", "knob")}
         def movable_joints(self): return list(self.joints.values())
+        def independent_joints(self): return list(self.joints.values())  # no coupling in this fake
 
     full = ts._poses_for(_Robot(), None)
     assert full is None, "no filter = the full articulation sheet, unchanged"

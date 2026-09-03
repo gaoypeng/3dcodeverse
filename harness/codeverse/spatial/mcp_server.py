@@ -106,12 +106,28 @@ def observation_content(obs: Observation) -> list[Any]:
     # the slice makes the ceiling hard: truncate's "N chars omitted" marker overshoots its
     # own budget by a few characters, and this is the last bound before the vendor's prompt
     blocks: list[Any] = [types.TextContent(type="text", text=truncate(text, MAX_TEXT_CHARS)[:MAX_TEXT_CHARS])]
-    spent = 0
+    # images[0] is the contact sheet (image_budget keeps it first) and every later image is
+    # a per-view repeat of it, so the budget STOPS at the first one that does not fit rather
+    # than skipping it: dropping the sheet and shipping three views of the same thing would
+    # be the worst of both.  Whatever is dropped is said in the text — a FAIL verdict that
+    # silently shipped no picture is the case this guards.
+    kept, spent, dropped = [], 0, 0
     for p in obs.images[:max_images_for(obs)]:
         b64 = encode_image(p)
-        if not b64 or spent + len(b64) > MAX_IMAGE_BYTES:
-            continue  # pixels are bounded by the downscale; bytes are bounded here
+        if b64 is None:
+            dropped += 1
+            continue
+        if spent + len(b64) > MAX_IMAGE_BYTES:
+            dropped += len(obs.images[:max_images_for(obs)]) - len(kept) - dropped
+            break
         spent += len(b64)
+        kept.append(b64)
+    if dropped:
+        blocks[0] = types.TextContent(
+            type="text",
+            text=f"{blocks[0].text}\n[{dropped} image(s) not attached: over the "
+                 f"{MAX_IMAGE_BYTES}-byte payload bound or unreadable; the files are in the workspace]")
+    for b64 in kept:
         blocks.append(types.ImageContent(type="image", data=b64, mime_type="image/png"))
     return blocks
 
