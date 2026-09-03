@@ -587,6 +587,42 @@ written) that were accepted because the code works that way and the tests pin it
   12 paired prompts, the flip firing in 1 cell of 12 — the aggregation ships on rationale,
   not on a resolved score delta.
 
+* **D51 The articulated wave measured its own instrument first, and then only the loss
+  events (2026-09-02/03).**  Context: four articulated levers (the D49 geometry re-ask, a
+  pro planner, a deterministic repair bundle, `CV3D_FEWER_TURNS`) all measured inside
+  ±0.13 on 12-14 paired prompts, which is not evidence that they do nothing.  Decision:
+  calibrate, then change the channel.
+  * **The instrument.**  A/A on `articulated_v2` (`bench/ab_plan.py --aa --pin-plan`,
+    identical arms, generator `gemini-cli:gemini-3.7-flash`, fixed judge
+    `gemini:gemini-3.1-pro-preview`, `n_samples=3`, rubric `articulated_v1`, 3 rounds,
+    60 min/cell): 12 paired prompts (2 pairs dropped at the pinned plan to provider read
+    timeouts, redone; 0 budget_exhausted), mean Δ **−0.046**, median −0.048, paired sd
+    **0.225**, SE 0.065, **2 SE ±0.130**, sign 3 up / 8 down, p 0.227, separated from
+    noise **NO**; the rig's own n_for_power is ~506 pairs for ±0.02.  Every phase-4/5
+    result sat inside that band, and the rig printed "revert" from identical arms.
+  * **The channel that works.**  `local/scripts/plan_degeneracy.py` runs the plan stage
+    ALONE (≈$0.03 and ≈85 s per call), so a 280-call arm is affordable where a 14-cell
+    battery is not.  `CV3D_PLAN_RESTART` (a plan that names links it never lists is
+    re-sampled from the original request instead of edited in context) measured on 560
+    calls, both arms in the same window: planner losses **4.7 % (13/277) → 0.7 % (2/276)**,
+    Fisher exact two-sided **p = 0.0067**; the restart fires on 14 % of calls and recovers
+    39 of 40; cost per call unchanged ($0.0345 vs $0.0337).  Ships ON with a kill switch.
+    The rule this sets: measure the loss event (a run that produced nothing, a retried
+    tool call, a pose the mechanism cannot reach), not the judge mean, unless the battery
+    is large enough for the judge mean.
+  * **What the judge channel could not have found.**  `is_error = not obs.ok` (§30 of
+    docs/COST.md) made 62 % of 1 445 `joint_sweep` calls and 23 % of 2 144 `build` calls
+    arrive as broken calls the model retried, and — because gemini-cli stringifies an
+    errored result — turned a 275 kB articulation sheet into ~261 k prompt tokens of
+    base64 instead of ~516 as an image; ~10 % of requests carried ~225 k uncacheable
+    tokens, 67 % of the uncached bill.  That is a mechanism fault with no score signature
+    at n=14, found by reading the recorded tool stats.
+  * **Unmeasured, shipped OFF or on rationale:** `CV3D_LEAN_PROMPT` (duplicated contract,
+    tool cards and cookbook out of the agent prompt: generate −45.7 %, refine −56.4 % on
+    the worked plan; OFF until a battery says otherwise) and `<mimic>` support (a coupled
+    mechanism is now posed through its one input; the umbrella / scissor / workbench
+    prompts are the intended read).  Both name their metric before the run, not after.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven
