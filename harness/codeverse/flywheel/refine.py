@@ -68,6 +68,8 @@ class RefineTransition(BaseModel):
     score_after: float | None
     score_delta: float | None
     outcome: str = Field(description="improved | unchanged | regressed | unscored")
+    #: --with-code: the WHOLE tree before (the state the brief describes) and only the
+    #: files the round changed after (the answer), so a converter needs no run access
     before_files: dict[str, str] | None = None
     after_files: dict[str, str] | None = None
 

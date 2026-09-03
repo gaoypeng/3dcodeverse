@@ -556,10 +556,11 @@ vendor CLIs log raw stdout, not structured tool turns); `flywheel refine` emits 
 i+1) where the harness asked for a change: the failing round's gate findings and
 judge complaint, the refine instructions the harness wrote, both code snapshots (git
 `before`/`after` commits, `--with-code` inlines the files), the score before and
-after, and `outcome` (`improved` when the judge gained ≥ 0.05, `regressed` when it
-lost as much, `flat` otherwise, `build_failed` when the after-round did not build).
-Rows are dropped, with the reason recorded, when a predecessor has no commit, no
-verdict or did not build.  That is the supervision the harness produces that a
+after, and `outcome` (`improved` when the judge gained ≥ 0.05 — the same threshold
+`flywheel/pairs.py` calls a preference — `regressed` when it lost as much,
+`unchanged` in between, `unscored` when either side has no verdict).  Rows are
+dropped, with the reason recorded, when a predecessor has no commit, no verdict or
+did not build.  That is the supervision the harness produces that a
 one-shot corpus cannot: what a failing artefact looked like, what was wrong with it
 in the harness's own words, and what the fix changed.  `toolkits/llamafactory/`
 turns those rows into training files; the harness writes the measurement, not the

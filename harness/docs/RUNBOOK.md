@@ -162,8 +162,8 @@ unless you type `--host` yourself; it never serves a path outside the declared r
                                      # one row per round i -> i+1 the harness asked to change:
                                      # gate findings + judge complaint + the refine instructions,
                                      # before/after commits (--with-code inlines the files),
-                                     # score_before/score_after, outcome improved|regressed|flat|
-                                     # build_failed, and dropped rows with the reason
+                                     # score_before/score_after, outcome improved|regressed|
+                                     # unchanged|unscored, and dropped rows with the reason
                                      # (no_predecessor / no_commit / predecessor_unjudged / ...).
                                      # Training formats live in toolkits/llamafactory/, not here.
 3dcv flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched

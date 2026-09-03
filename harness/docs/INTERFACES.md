@@ -523,9 +523,9 @@ from codeverse.flywheel.export import export_samples   # (runs_dir, out_dir, *, 
 from codeverse.flywheel.quality import quality_tier, prompt_hash, find_duplicates   # tiers: A passed & 0 gate errors, B passed,
                                                                                     # C best ≥ 0.6, D else; dedupe = (code fingerprint, prompt)
 from codeverse.flywheel.pairs import build_pairs       # (runs_dir, out_jsonl, *, min_delta=0.05) -> n
-from codeverse.flywheel.refine import build_refine, transitions, RefineTransition, REFINE_KINDS
+from codeverse.flywheel.refine import build_refine, transitions, RefineTransition, REFINE_KINDS, outcome_of
     # build_refine(runs_dir, out_jsonl, *, with_code=False) -> n; transitions(rec, ws, *, with_code) -> list[RefineTransition]
-    # one row per round i -> i+1 the harness asked to change; outcome improved|regressed|flat|build_failed
+    # one row per round i -> i+1 the harness asked to change; outcome improved|regressed|unchanged|unscored
     # (threshold: pairs.MIN_PREFERENCE_DELTA); dropped rows carry the reason (no_predecessor / no_commit /
     # predecessor_build_failed / predecessor_unjudged / git_read_failed / duplicate_run)
 from codeverse.flywheel._git import read_tree_at, diff_between, changed_files_between, commit_exists, GitReadError
