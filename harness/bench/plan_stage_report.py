@@ -33,6 +33,25 @@ def wilson(hits: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return (max(0.0, centre - half), min(1.0, centre + half))
 
 
+def fisher_exact(a: int, b: int, c: int, d: int) -> float:
+    """Two-sided Fisher exact p for the 2x2 table ((a, b), (c, d)), no scipy.
+
+    The failure counts here are single digits out of a few hundred, where the normal
+    approximation is not usable and the exact sum is cheap: every table with the same
+    margins, keeping those no more likely than the observed one.  The paper cites this
+    number, so it is computed in the repo from the rows in the repo.
+    """
+    n = a + b + c + d
+    row1, col1 = a + b, a + c
+    lo, hi = max(0, col1 - (n - row1)), min(row1, col1)
+
+    def prob(x: int) -> float:
+        return (math.comb(row1, x) * math.comb(n - row1, col1 - x)) / math.comb(n, col1)
+
+    observed = prob(a)
+    return min(1.0, sum(prob(x) for x in range(lo, hi + 1) if prob(x) <= observed * (1 + 1e-9)))
+
+
 def load(path: Path) -> list[dict]:
     return [json.loads(x) for x in path.read_text().splitlines() if x.strip()] if path.is_file() else []
 
@@ -64,6 +83,14 @@ def report(arms: dict[str, list[dict]]) -> str:
                 failures[f"{name}: {r['error'].split('Value error, ')[-1][:90]}"] += 1
     if failures:
         lines += ["", "validation failures:"] + [f"  {n}x {msg}" for msg, n in failures.most_common()]
+    if len(arms) == 2:
+        (n1, rows1), (n2, rows2) = arms.items()
+        c1, c2 = Counter(outcome(r) for r in rows1), Counter(outcome(r) for r in rows2)
+        j1, j2 = len(rows1) - c1["provider"], len(rows2) - c2["provider"]
+        p = fisher_exact(c1["planning_error"], j1 - c1["planning_error"],
+                         c2["planning_error"], j2 - c2["planning_error"])
+        lines += ["", f"Fisher exact two-sided p = {p:.4f}  ({n1} {c1['planning_error']}/{j1} vs "
+                     f"{n2} {c2['planning_error']}/{j2})"]
     fired = {name: [r for r in rows if r.get("restarts")] for name, rows in arms.items()}
     if any(fired.values()):
         lines += ["", "restarts:"] + [
