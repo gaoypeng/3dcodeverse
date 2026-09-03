@@ -77,6 +77,20 @@ def pairs_cmd(
     ok(f"{n} pairs → {out_jsonl}")
 
 
+@flywheel_app.command("refine")
+def refine_cmd(
+    runs_dir: Annotated[Path, typer.Argument()],
+    out_jsonl: Annotated[Path, typer.Argument()],
+    with_code: Annotated[bool, typer.Option("--with-code", help="inline the changed files, so a "
+                                            "format converter needs no access to the runs")] = False,
+) -> None:
+    """Refine rounds as transitions (brief → diff → score delta) → JSONL."""
+    from codeverse.flywheel.refine import build_refine
+
+    n, drops = build_refine(runs_dir, out_jsonl, with_code=with_code)
+    ok(f"{n} transitions → {out_jsonl}" + (f"; not exported: {dict(drops)}" if drops else ""))
+
+
 @flywheel_app.command("caption")
 def caption_cmd(
     target: Annotated[str, typer.Argument(help="run slug/dir, or a runs root with --all")],

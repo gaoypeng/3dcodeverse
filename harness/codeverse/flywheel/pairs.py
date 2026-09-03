@@ -79,6 +79,12 @@ def _base(ws: Workspace, rec: RunRecord, kind: str, *, slug: str | None = None) 
     }
 
 
+#: the judge Δ at which two rounds are a preference pair — and, in
+#: :mod:`codeverse.flywheel.refine`, the Δ at which a transition counts as improved.  One
+#: constant, so a Δ that is a preference pair here is never "unchanged" there.
+MIN_PREFERENCE_DELTA = 0.05
+
+
 def preference_pairs(ws: Workspace, rec: RunRecord, *, min_delta: float,
                      slug: str | None = None) -> list[dict[str, Any]]:
     cache: dict[str, dict[str, Any]] = {}
