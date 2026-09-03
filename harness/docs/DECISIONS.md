@@ -667,7 +667,7 @@ written) that were accepted because the code works that way and the tests pin it
     **0.225**, SE 0.065, **2 SE ±0.130**, sign 3 up / 8 down, p 0.227, separated from
     noise **NO**; the rig's own n_for_power is ~506 pairs for ±0.02.  Every phase-4/5
     result sat inside that band, and the rig printed "revert" from identical arms.
-  * **The channel that works.**  `local/scripts/plan_degeneracy.py` runs the plan stage
+  * **The channel that works.**  `bench/plan_stage_bench.py` runs the plan stage
     ALONE (≈$0.03 and ≈85 s per call), so a 280-call arm is affordable where a 14-cell
     battery is not.  `CV3D_PLAN_RESTART` (a plan that names links it never lists is
     re-sampled from the original request instead of edited in context) measured on 560
@@ -676,7 +676,9 @@ written) that were accepted because the code works that way and the tests pin it
     39 of 40; cost per call unchanged ($0.0345 vs $0.0337).  Ships ON with a kill switch.
     The rule this sets: measure the loss event (a run that produced nothing, a retried
     tool call, a pose the mechanism cannot reach), not the judge mean, unless the battery
-    is large enough for the judge mean.
+    is large enough for the judge mean.  The 560 rows live in
+    `bench/data/plan_stage/*.jsonl` with `bench/plan_stage_report.py`: a p-value whose
+    data is not in the tree is not reproducible (review, 2026-09-03).
   * **What the judge channel could not have found.**  `is_error = not obs.ok` (§30 of
     docs/COST.md) made 62 % of 1 445 `joint_sweep` calls and 23 % of 2 144 `build` calls
     arrive as broken calls the model retried, and — because gemini-cli stringifies an
@@ -697,6 +699,23 @@ written) that were accepted because the code works that way and the tests pin it
     an inconclusive lever with no cost saving is not worth a second prompt path through
     three templates, and the measurement above is the record of what it was worth.  To
     re-run it, restore the branch commit named in docs/PAPER_WRITING.md §9.3.
+  * **Reading an agent's repo is a sandbox boundary, and `git archive` is not inside it.**
+    Every flywheel read of a workspace already ran under `GIT_SAFE_FLAGS` (no repo config,
+    no hooks, no user config) plus `--no-ext-diff --no-textconv` for diffs, because a
+    `.gitattributes` the agent writes can name a `diff.<name>.textconv` command that git
+    RUNS on our side.  `read_tree_at` still used `git archive`, which renders every blob
+    through `convert_to_working_tree` — so a planted `filter.<name>.smudge` executes, and
+    unlike textconv there is no flag that turns it off.  It reads through `ls-tree -r -z`
+    + `cat-file --batch` now: same bytes, no filter path.  Pinned by a test that plants a
+    smudge filter and fails on the old implementation (`tests/flywheel_cli`).
+  * **The refine transitions are the corpus this harness is for.**  `3dcv flywheel refine`
+    emits one row per round the loop asked to change: the gate findings and judge
+    complaint that condemned round i, the instructions the harness wrote, both code
+    snapshots, and whether the score moved.  A one-shot corpus cannot contain that pair;
+    the loop produces it as a by-product of running.  Format conversion (LLaMA-Factory
+    messages) lives in `toolkits/llamafactory/`, not in the harness — the harness writes
+    the measurement, a toolkit writes whatever a trainer wants (owner's boundary,
+    2026-09-03).
   * **`<mimic>` is used and it changes the sweep, which is what it was for.**  In the same
     battery the planner and agent declared couplings in 8 of 14 prompts (umbrella 6 joints,
     workbench 4, step ladder 4, scissor mirror 3, rolltop desk 3), and the sampled poses

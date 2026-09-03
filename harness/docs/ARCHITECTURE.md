@@ -552,7 +552,18 @@ passed, C best ≥ 0.6, D else), acceptance checklists, gate summaries and
 errors, cost, fingerprints, `duplicate_of`; `--pack` tars with byte-range locators.
 `flywheel pairs` emits preference pairs (round i < j by judge Δ ≥ τ) and round-level
 repair pairs (in-session trajectory mining died with the api-agent, 2026-08-28 —
-vendor CLIs log raw stdout, not structured tool turns); `flywheel caption` adds
+vendor CLIs log raw stdout, not structured tool turns); `flywheel refine` emits the loop's OWN transitions — one row per (round i → round
+i+1) where the harness asked for a change: the failing round's gate findings and
+judge complaint, the refine instructions the harness wrote, both code snapshots (git
+`before`/`after` commits, `--with-code` inlines the files), the score before and
+after, and `outcome` (`improved` when the judge gained ≥ 0.05, `regressed` when it
+lost as much, `flat` otherwise, `build_failed` when the after-round did not build).
+Rows are dropped, with the reason recorded, when a predecessor has no commit, no
+verdict or did not build.  That is the supervision the harness produces that a
+one-shot corpus cannot: what a failing artefact looked like, what was wrong with it
+in the harness's own words, and what the fix changed.  `toolkits/llamafactory/`
+turns those rows into training files; the harness writes the measurement, not the
+trainer's format.  `flywheel caption` adds
 {detailed, instruction, factory} captions (image-grounded, brand-free, `--out` for
 side-car mode); `flywheel gallery` is an alias of `3dcv gallery build --embed`
 (the flywheel package has no renderer of its own).

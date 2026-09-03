@@ -523,6 +523,19 @@ from codeverse.flywheel.export import export_samples   # (runs_dir, out_dir, *, 
 from codeverse.flywheel.quality import quality_tier, prompt_hash, find_duplicates   # tiers: A passed & 0 gate errors, B passed,
                                                                                     # C best ≥ 0.6, D else; dedupe = (code fingerprint, prompt)
 from codeverse.flywheel.pairs import build_pairs       # (runs_dir, out_jsonl, *, min_delta=0.05) -> n
+from codeverse.flywheel.refine import build_refine, transitions, RefineTransition, REFINE_KINDS
+    # build_refine(runs_dir, out_jsonl, *, with_code=False) -> n; transitions(rec, ws, *, with_code) -> list[RefineTransition]
+    # one row per round i -> i+1 the harness asked to change; outcome improved|regressed|flat|build_failed
+    # (threshold: pairs.MIN_PREFERENCE_DELTA); dropped rows carry the reason (no_predecessor / no_commit /
+    # predecessor_build_failed / predecessor_unjudged / git_read_failed / duplicate_run)
+from codeverse.flywheel._git import read_tree_at, diff_between, changed_files_between, commit_exists, GitReadError
+    # read_tree_at(ws, commit) -> {path: bytes} via ls-tree + cat-file --batch — NEVER `git archive`, which
+    # renders content through a planted filter.<name>.smudge and has no --no-filters (tests/flywheel_cli)
+    # diff_between(ws, before, after, *, max_bytes=None) -> (text, truncated); changed_files_between -> [path]
+    # both under GIT_SAFE_DIFF_FLAGS (--no-ext-diff --no-textconv) on top of workspace.GIT_SAFE_FLAGS
+from codeverse.workspace import GIT_SAFE_FLAGS, GIT_SAFE_DIFF_FLAGS, git_safe_env
+    # every read of an agent-written repo goes through these: no repo config, no external diff/textconv,
+    # no hooks, no user config (git_safe_env strips GIT_CONFIG*, GIT_DIR, GIT_EXEC_PATH, ...)
 from codeverse.flywheel.captions import caption_sample # Δ (ws, record, model_id, *, model=None, out_dir=None) -> Captions;
                                                        # out_dir → side-car <out_dir>/<slug>.json, run untouched
 from codeverse.gallery import build_index, default_roots, build_static, serve, GalleryApp   # THE local gallery
@@ -537,7 +550,7 @@ from codeverse.flywheel.index import build_index, query, summary   # sqlite + pa
                                                                    # rounds, status, code_fingerprint, prompt_hash, duplicate_of, has_captions
 3dcodeverse make [--profile economy|balanced|quality]|resume|status|show|render|judge|tools|mcp
              |texture {pass,scene-pack,show}|cost {<slug>,show,cache,prices,profiles,estimate}
-             |flywheel {export,pairs,caption,index,dedupe,gallery}|gallery {serve,build}
+             |flywheel {export,pairs,refine,caption,index,dedupe,gallery}|gallery {serve,build}
              |bench {run,report}|doctor    # alias: 3dcv
 ```
 

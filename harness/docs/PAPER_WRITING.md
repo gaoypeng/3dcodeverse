@@ -10,8 +10,10 @@ The same facts live, in their own idiom, in `DECISIONS.md` (D36–D52, the decis
 noise floor) and `ARCHITECTURE.md`.  Tools referenced throughout:
 `bench/prompts/{compare_v4,articulated_v2}.yaml` (batteries), `bench/ab_plan.py` (paired
 A/B with an A/A mode), `bench/compare_backends.py` (harness vs one-shot),
-`bench/paired_compare.py` (paired statistics), `bench/refine_pairs.py` and
-`bench/refine_sft.py` (corpus export).
+`bench/paired_compare.py` (paired statistics), `bench/plan_stage_bench.py` +
+`bench/plan_stage_report.py` (the loss-event channel, data in `bench/data/plan_stage/`),
+`3dcv flywheel refine` (the transition corpus) and `toolkits/llamafactory/` (its training
+format).
 
 ## 0. The system, in one paragraph
 
@@ -163,9 +165,11 @@ Two of these carry a second, non-score reading worth keeping:
 
 ### 5.1 Planner mortality (the one significant single-switch result)
 
-**Method.** `local/scripts/plan_degeneracy.py` runs the **plan stage alone** — no build, no
+**Method.** `bench/plan_stage_bench.py` runs the **plan stage alone** — no build, no
 judge — at ≈$0.03 and ≈85 s per call, so 280 calls per arm is affordable where 14 judged
-cells is not.  Both arms run in the same window against the same provider.
+cells is not.  Both arms run in the same window against the same provider.  The 560 rows
+are in the tree (`bench/data/plan_stage/*.jsonl`, `bench/plan_stage_report.py` prints the
+table): a paper cites the p-value, so the data it comes from is committed.
 
 **Failure class, measured first.** 200 calls over two code trees showed one class: the
 planner writes **one top-level part** and hangs its joints off links it never lists, and
@@ -288,7 +292,7 @@ that moved the bill.
 
 ## 7. The corpus the loop produces
 
-`bench/refine_pairs.py` exports every refine round as the transition it was: the previous
+`3dcv flywheel refine` exports every refine round as the transition it was: the previous
 round's judge issues and improvement plan, the gate ERROR findings with their fix hints, the
 instruction lines the sessions were actually handed, the unified `src/` diff between the two
 recorded commits, and the score delta with an improved/unchanged/regressed label.  On the
@@ -297,8 +301,8 @@ cross-battery symlink aliases, 3 non-batteries, 2 empty), median diff 26 kB / 31
 lines, **87 improved / 73 unchanged / 44 regressed**.  Both sides come from the round's own
 recorded commit — only 54 of 239 runs have `HEAD` at their last round.
 
-`bench/refine_sft.py` turns the improved transitions into the message shape the finetune
-pipeline consumes: **87 samples** (71 articulated, 16 static; median answer 26.6 kB, median
+`toolkits/llamafactory/build_refine_sft.py` turns the improved transitions into the message
+shape the finetune pipeline consumes: **87 samples** (71 articulated, 16 static; median answer 26.6 kB, median
 brief 28.6 kB), answered with the files the round produced in the `=== FILE: path ===`
 envelope.  This is the one thing the harness produces that a one-shot corpus cannot: *given
 a judged, gated object and a list of what is wrong with it, write the corrected files.*
@@ -376,7 +380,7 @@ instructions nor a diff.
 | base64 amplification | 261 k tokens vs 516 for one 275 kB sheet | measured on a recorded blob + vendor bundle | arithmetic + matching recorded prompt jumps |
 | token growth in turns | input(t) = 12 364 + 1 822·t; total ∝ n^1.60; dollars ∝ n^1.19–1.34 | 1 063 in-process sessions, 30 401 turns | the in-process agent, since gemini-cli emits no per-turn usage |
 | coupled mechanisms declared | 8 of 14 prompts; poses drive 1–2 joints (was 5–6) | `wave2_lean` URDFs and round records | — |
-| refine corpus | 205 transitions, 87 SFT samples | `bench/refine_pairs.py`, `bench/refine_sft.py` over `bench/out` | corpus grows with every battery |
+| refine corpus | 205 transitions, 87 SFT samples | `3dcv flywheel refine`, `toolkits/llamafactory/build_refine_sft.py` over `bench/out` | corpus grows with every battery |
 
 ## 9.2 Open questions
 
@@ -429,10 +433,13 @@ python bench/ab_plan.py --prompts bench/prompts/articulated_v2.yaml \
 python bench/compare_backends.py --prompts bench/prompts/articulated_v2.yaml \
     --arms harness:gemini-cli:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
     --judge gemini:gemini-3.1-pro-preview --judge-samples 3 --out bench/out/art
-# the loss-event channel: the plan stage alone (see local/scripts/plan_degeneracy.py)
-# the corpus
-python bench/refine_pairs.py bench/out --summary
-python bench/refine_sft.py  bench/out --out refine_sft.jsonl --summary
+# the loss-event channel: the plan stage alone, one row per call
+python bench/plan_stage_bench.py --tree . --label restart_on --reps 20 \
+    --out bench/data/plan_stage/restart_on.jsonl --env CV3D_PLAN_RESTART=1
+python bench/plan_stage_report.py bench/data/plan_stage/*.jsonl
+# the corpus the loop produces
+3dcv flywheel refine bench/out refine.jsonl --with-code
+python toolkits/llamafactory/build_refine_sft.py refine.jsonl --out refine_sft.jsonl
 ```
 
 Recorded runs referenced above (not committed): `bench/out/{compare_v4_calm, compare_art_v2,
