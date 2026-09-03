@@ -5,7 +5,7 @@ built, every experiment with its setup and numbers, the null results, the mechan
 the methodology, and a claim → evidence index.  Written 2026-09-03 over the work of
 2026-08-25 → 09-03; each number names the run directory that produced it.
 
-The same facts live, in their own idiom, in `DECISIONS.md` (D36–D51, the decision log),
+The same facts live, in their own idiom, in `DECISIONS.md` (D36–D52, the decision log),
 `COST.md` (§23, §29, §30, the cost measurements), `EVAL.md` (§8–§9, the protocol and the
 noise floor) and `ARCHITECTURE.md`.  Tools referenced throughout:
 `bench/prompts/{compare_v4,articulated_v2}.yaml` (batteries), `bench/ab_plan.py` (paired

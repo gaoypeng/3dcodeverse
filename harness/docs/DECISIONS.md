@@ -654,7 +654,7 @@ written) that were accepted because the code works that way and the tests pin it
   clouds) against a control build with the hooks cut out: mean luminance identical to five
   decimals on all 12 frames.  Funding the A/B is the next call.
 
-* **D51 The articulated wave measured its own instrument first, and then only the loss
+* **D52 The articulated wave measured its own instrument first, and then only the loss
   events (2026-09-02/03).**  Context: four articulated levers (the D49 geometry re-ask, a
   pro planner, a deterministic repair bundle, `CV3D_FEWER_TURNS`) all measured inside
   ±0.13 on 12-14 paired prompts, which is not evidence that they do nothing.  Decision:
