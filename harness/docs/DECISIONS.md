@@ -616,12 +616,25 @@ written) that were accepted because the code works that way and the tests pin it
     errored result — turned a 275 kB articulation sheet into ~261 k prompt tokens of
     base64 instead of ~516 as an image; ~10 % of requests carried ~225 k uncacheable
     tokens, 67 % of the uncached bill.  That is a mechanism fault with no score signature
-    at n=14, found by reading the recorded tool stats.
-  * **Unmeasured, shipped OFF or on rationale:** `CV3D_LEAN_PROMPT` (duplicated contract,
-    tool cards and cookbook out of the agent prompt: generate −45.7 %, refine −56.4 % on
-    the worked plan; OFF until a battery says otherwise) and `<mimic>` support (a coupled
-    mechanism is now posed through its one input; the umbrella / scissor / workbench
-    prompts are the intended read).  Both name their metric before the run, not after.
+    at n=14, found by reading the recorded tool stats.  **Measured after the fix** (same
+    battery and config, 108 sessions vs 120): calls reported as errors 26.6 % → **1.4 %**
+    (the remainder are genuine `Observation.error` cases), cache hit 69 % → **89 %**,
+    uncached prompt tokens per request 38 390 → **13 736**, generator dollars per round
+    median 1.572 → **0.967** (−38 %).  docs/COST.md §30 carries the selector.
+  * **`CV3D_LEAN_PROMPT` stays OFF, now with a number.**  Paired battery on
+    `articulated_v2` (12 pairs, plan pinned, same fixed judge): mean Δ **+0.030**, paired
+    sd 0.131, **2 SE ±0.076**, 8 up / 3 down (p 0.227), one regression — inconclusive by
+    the rig's own rule — and no cost saving ($3.51 vs $3.66 per scored cell), which is the
+    second time a prompt/turn-shape change has moved tokens without moving dollars
+    (docs/COST.md §29).  The switch and its measured character savings stay for the day a
+    larger battery can resolve them.
+  * **`<mimic>` is used and it changes the sweep, which is what it was for.**  In the same
+    battery the planner and agent declared couplings in 8 of 14 prompts (umbrella 6 joints,
+    workbench 4, step ladder 4, scissor mirror 3, rolltop desk 3), and the sampled poses
+    now drive 1-2 joints where the same prompts previously produced 5-6-joint random
+    combinations — the mechanism is posed through its own input.  The score effect on the
+    three coupled prompts is inside the noise band at n=2 per side, as expected; the pose
+    count is the readout that resolves.
 
 ## Rejected / deferred
 

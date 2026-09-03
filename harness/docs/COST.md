@@ -1483,3 +1483,25 @@ tokens without the ~260 k spikes, and the uncached share of `telemetry/cost.json
 with them.  The 62 % vs 19 % gap between the sweep TOOL's verdict and the round's sweep
 GATE is a separate question — the tool flags any overlap past `tol_m` and any floating
 link, while `sweep_findings` downgrades small rest overlaps and hinge gaps to WARN.
+
+**Measured after the fix** (`bench/out/wave2_lean`, the same battery and config as the
+`aa_articulated` A/A above, 2026-09-03; 108 sessions / 5 082 requests against the before
+run's 120 / 5 188):
+
+| per generator request | before | after |
+|---|--:|--:|
+| MCP tool calls reported as errors | 26.6 % (964 / 3 628) | **1.4 %** (48 / 3 480) |
+| cache hit | 69 % | **89 %** |
+| uncached prompt tokens | 38 390 | **13 736** (−64 %) |
+| generator $ per round | mean 1.900, median 1.572 | **mean 1.293, median 0.967** (−32 % / −38 %) |
+
+The residual 1.4 % are genuine `Observation.error` cases: `joint_sweep` with no
+`artifacts/robot.urdf` yet or an unparseable one, `check_connectivity` / `check_contract`
+with no readable GLB.  The cache recovery is the larger half of the saving and was NOT
+predicted by the retry argument alone: the base64 blobs were breaking the implicit-cache
+prefix, so a request after one cost ~5x a normal request even when nothing was retried.
+
+Secondary observation, not a controlled comparison: the paired sd of the battery run on
+this code is 0.131 against the A/A's 0.225 on the old code (n_for_power for ±0.02: ~172
+pairs against ~506).  Different runs and different arms, so it is an observation — but the
+direction is the one the fix predicts, since a retry storm is variance.
