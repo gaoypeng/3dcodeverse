@@ -89,12 +89,33 @@ def test_the_kill_switch_restores_the_in_context_reask(tmp_ws, monkeypatch):
     assert isinstance(p, ArticulatedPlan) and len(model.requests[1].messages) == 3
 
 
-def test_one_restart_per_plan_then_the_normal_reask_budget(tmp_ws):
-    """Two degenerate answers: restart once, then edit in context, then give up as before."""
+def test_a_restart_costs_an_attempt_not_one_of_the_two_reask_slots(tmp_ws):
+    """Every answer degenerate: restart once, then still get BOTH in-context re-asks.
+
+    The restart used to increment the same counter as a re-ask, so a run that restarted
+    had one re-ask left instead of two — visible in the recorded battery as deaths with
+    ``restarts=1`` at the validation cap (bench/data/plan_stage/restart_on.jsonl)."""
     model = FakeChatModel(lambda req: _degenerate())
     with pytest.raises(PlanningError):
         plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model,
              runtime=FakeRuntime(Language.URDF_BLENDER))
-    assert len(model.requests) == 3  # first + one restart + one in-context re-ask
     assert MAX_PLAN_RESTARTS == 1
-    assert len(model.requests[1].messages) == 1 and len(model.requests[2].messages) == 3
+    assert len(model.requests) == 4  # first + restart + two re-asks
+    # 1 = the request alone (a restart replaces the conversation), then one echo+complaint pair each
+    assert [len(r.messages) for r in model.requests] == [1, 1, 3, 5]
+
+
+def test_a_full_plan_with_one_dangling_link_is_edited_in_context_not_resampled(tmp_ws):
+    """The restart's trigger is the MEASURED class: collapsed AND dangling.  A plan with
+    every part in place and one misspelled link is what the re-ask is good at, and
+    re-sampling it throws away the parts that were right."""
+    typo = _good()
+    for i in range(4):  # a full-sized plan, well over the degeneracy floor
+        typo["parts"].append({"name": f"Filler{i}", "role": "trim", "description": "a rail",
+                              "bbox": {"center": [0, 0, 0.1 * i], "extents": [0.02, 0.4, 0.02]},
+                              "material": "oak", "attach_to": "Cabinet"})
+    typo["joints"][0]["child"] = "Drawerr"
+    p, model = _run(tmp_ws, [typo, _good()])
+    assert isinstance(p, ArticulatedPlan) and len(model.requests) == 2
+    assert len(model.requests[1].messages) == 3  # user + echoed answer + complaint, no restart
+    assert "failed validation" in model.requests[1].messages[-1].text

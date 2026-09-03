@@ -709,16 +709,25 @@ def restart_enabled() -> bool:
     return env_flag(PLAN_RESTART_ENV, True)
 
 
+def degenerate_plan(raw: Any, budget: PlanBudget) -> bool:
+    """A plan too small to be an attempt at this request: a third of the floor or less.
+
+    The quality complaint owns everything above that line — this is only the collapsed
+    answer (usually ONE top-level part) that the in-context re-ask reproduces instead of
+    fixing, which is why it is also the restart's trigger."""
+    parts = raw.get("parts") if isinstance(raw, dict) else None
+    return isinstance(parts, list) and len(parts) <= max(2, budget.min_parts // 3)
+
+
 def _thin_plan_note(raw: Any, budget: PlanBudget) -> str:
     """A second line for the validation re-ask when the invalid plan is also far too small.
 
     compare_art_v4_pf0 (2026-08-28): flash answered an architect-lamp brief with ONE part
     ("base") and a joint naming a link it never listed, three times in a row — the re-ask
     only echoed the unknown-link error, so the model kept fixing the wrong thing."""
-    parts = raw.get("parts") if isinstance(raw, dict) else None
-    # only a degenerate plan (a third of the floor or less) — the quality complaint owns the rest
-    if not isinstance(parts, list) or len(parts) > max(2, budget.min_parts // 3):
+    if not degenerate_plan(raw, budget):
         return ""
+    parts = raw.get("parts")
     return (f"\nAlso: this plan lists only {len(parts)} part(s) but the request needs about {budget.target_parts} "
             f"({budget.reason}). Put EVERY link a joint references under `parts` with its own bbox.")
 
@@ -832,7 +841,8 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     thinking = "medium"
     wait_scale = 1.0
     geo_reasked = 0
-    for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_GEOMETRY_REASKS):
+    for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_GEOMETRY_REASKS
+                          + MAX_PLAN_RESTARTS):
         req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=temperature,
                           thinking=thinking, max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
                           max_wait_s=plan_wait_s(tokens, guard, scale=wait_scale))
@@ -868,16 +878,19 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
             result = plan_model.model_validate(raw)
         except (ValidationError, ValueError) as e:
             last_error = str(e)[:4000]
-            invalid += 1
             if events is not None:
                 events.emit("plan.invalid", attempt=attempt, error=last_error[:500])
-            if invalid > MAX_VALIDATION_REASKS:
-                break
             missing = missing_link_names(raw)
-            if missing and restarts < MAX_PLAN_RESTARTS and restart_enabled():
+            # The measured class is BOTH conditions: a collapsed plan (one top-level part)
+            # whose joints name links it never listed.  A full plan with one misspelled
+            # link is the re-ask's job — restarting throws away parts that were right.
+            if (missing and degenerate_plan(raw, budget)
+                    and restarts < MAX_PLAN_RESTARTS and restart_enabled()):
                 # Editing a degenerate answer in context reproduces it: the model reads its
                 # own one-part plan and returns it again (measured, both re-asks, 2026-09-02).
-                # Re-sample from the original request instead, with the rule it broke.
+                # Re-sample from the original request instead, with the rule it broke.  This
+                # replaces the conversation rather than extending it, so it spends an
+                # ATTEMPT, not one of the two re-ask slots the next invalid answer needs.
                 restarts += 1
                 if events is not None:
                     events.emit("plan.restart", attempt=attempt, n_parts=len(raw.get("parts") or []),
@@ -887,6 +900,9 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
                                      images=images or None),
                 ]
                 continue
+            invalid += 1
+            if invalid > MAX_VALIDATION_REASKS:
+                break
             messages = messages + [
                 _echo(raw, resp.text),
                 ChatMessage.user("Your plan failed validation. Fix EXACTLY these problems and return the full corrected "
@@ -1083,4 +1099,5 @@ __all__ = ["MAX_GEOMETRY_REASKS", "MAX_PLAN_RESTARTS", "MAX_QUALITY_REASKS", "MA
            "PLAN_GEOMETRY_ENV", "PLAN_RESTART_ENV", "PLAN_TOKENS_MAX", "PlanningError", "add_acceptance_item",
            "articulation_acceptance", "build_system_prompt", "build_user_prompt", "default_event_stats",
            "ensure_acceptance", "geometry_check_enabled", "missing_link_names", "normalise_names", "plan",
-           "plan_example", "plan_tokens", "plan_with_usage", "restart_enabled", "restart_note"]
+           "degenerate_plan", "plan_example", "plan_tokens", "plan_with_usage", "restart_enabled",
+           "restart_note"]
