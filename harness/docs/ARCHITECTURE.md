@@ -494,7 +494,8 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
   cannot verify caps a run at 0.60 AND fails it, so on the scene track only the spec's
   `must_have` list keeps that priority (the plan's own checklist is `should`).
 * Articulated: candidate selection uses the quick 4-view sheet (not pose views);
-  mimic joints ignored; sweep is O(links² × poses).
+  mimic joints are honoured (the sweep drives independent joints only and resolves
+  followers through the chain); sweep is O(links² × poses).
 * Scenes: fps is a relative cost; camera-in-geometry can miss open-back enclosures.
 * threejs: textures are stripped on GLB export (the texture pass re-adds them as a
   derived pack); `userData.tick` cannot survive export.

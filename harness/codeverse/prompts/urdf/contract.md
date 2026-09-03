@@ -52,7 +52,10 @@ You never export.
 ## Allowed / forbidden
 Same as the blender contract for `model.py` (bpy, bmesh, mathutils, math, random).
 URDF: no `<gazebo>`, `<transmission>`, `<sensor>`, xacro, `package://`, mesh scale,
-inline primitives, `mimic` (unless the plan has it).  Inertial blocks are optional.
+inline primitives.  Inertial blocks are optional.  `<mimic joint="..." multiplier="..."
+offset="..."/>` IS honoured: the sweep drives the named joint and every follower follows it,
+so a one-input mechanism (umbrella ribs, scissor arms, coupled folding legs) must declare it
+— write one `<mimic>` per follower, naming the joint that drives the mechanism.
 
 ## COMPLETE minimal example (verified: harness build + FK check + joint sweep)
 A pedal bin: body + lid hinged at the back edge, knob fixed on the lid.  q = 0 = lid closed.

@@ -143,9 +143,11 @@ collision geometry. Planning groups, end effectors, group states and disabled co
 are SRDF concepts; this harness has no SRDF, so do not invent them. The URDF contract also
 forbids `gazebo`, `transmission`, `sensor`, xacro, `package://` and inline primitives. Two of
 these the linter measures directly: a `mesh scale` attribute is a WARN ("model in meters in
-model.py instead"), and a `mimic` joint is a WARN because **the harness ignores it — the sweep
-moves the mimicking joint independently**, so a mechanism that depends on mimic will be posed
-in states you never intended.
+model.py instead"), and a `mimic` joint is checked, not dismissed: the sweep drives the
+joint a `<mimic>` names and every follower follows it, so a one-input mechanism (umbrella
+ribs, scissor arms, coupled folding legs) is posed the way it really moves. Declare one
+`<mimic joint="<driver>" multiplier="<ratio>" offset="0"/>` per follower; a coupling that
+names no joint, names itself, or closes a loop is a lint ERROR.
 
 ## Finish
 

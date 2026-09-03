@@ -346,17 +346,24 @@ def motion_direction_check(robot: Robot, joint: str, expected: str, *, probe: fl
     j = robot.joints.get(joint)
     if j is None or not j.movable:
         raise UrdfError(f"motion_direction_check: {joint!r} is not a movable joint")
+    driven_by = None
+    if j.mimic is not None:  # a driven joint has no input of its own: probe what drives it
+        driven_by = j
+        while driven_by.mimic is not None:
+            driven_by = robot.joints[driven_by.mimic.joint]
     mesh = robot.links[j.child].mesh
     if mesh is None:
         raise UrdfError(f"motion_direction_check: link {j.child!r} has no mesh")
+    src = driven_by or j          # the joint the probe is applied to
     if probe is None:
-        hi = j.upper if j.upper is not None else math.pi
-        lo = j.lower if j.lower is not None else -math.pi
+        hi = src.upper if src.upper is not None else math.pi
+        lo = src.lower if src.lower is not None else -math.pi
         probe = hi if abs(hi) >= abs(lo) else lo
-        if j.type != "prismatic":
+        if src.type != "prismatic":
             probe = math.copysign(min(abs(probe), 0.35), probe) if probe else 0.35
+    drive = src.name
     c0 = trimesh.transform_points([mesh.centroid], fk(robot, {})[j.child])[0]
-    c1 = trimesh.transform_points([mesh.centroid], fk(robot, {joint: probe})[j.child])[0]
+    c1 = trimesh.transform_points([mesh.centroid], fk(robot, {drive: probe})[j.child])[0]
     delta = c1 - c0
     n = float(np.linalg.norm(delta))
     d = delta / n if n > 1e-9 else delta
@@ -382,7 +389,8 @@ def motion_direction_check(robot: Robot, joint: str, expected: str, *, probe: fl
                 suggested = tuple(round(float(v), 3) for v in R_joint.T @ (s / n_s))
     return MotionCheck(joint=joint, expected=expected, observed_dir=tuple(round(float(v), 4) for v in d), ok=ok,
                        cos=round(cos, 4), suggested_axis=suggested,
-                       message=(f"{joint}: child '{j.child}' moves {tuple(round(float(v),3) for v in d)} for q={probe:+.3g}; "
+                       message=((f"{joint} (driven by {drive})" if driven_by is not None else f"{joint}")
+                                + f": child '{j.child}' moves {tuple(round(float(v),3) for v in d)} for q={probe:+.3g}; "
                                 f"expected {expected} ({'ok' if ok else 'WRONG — flip the axis sign or swap limits'})"))
 
 

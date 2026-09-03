@@ -25,7 +25,10 @@ def pose_samples(robot: Robot, n_random: int = 8, seed: int = 0) -> list[dict[st
     """Deterministic pose set: rest, each joint at lower/mid/upper (others at 0),
     then ``n_random`` seeded random combinations within limits.
     Continuous joints sample 0, ±π/2, π and random in [-π, π]."""
-    movable = robot.movable_joints()
+    # only the degrees of freedom are driven: a mimicking joint follows its source
+    # through fk, so sampling it independently would pose a coupled mechanism in a
+    # state the mechanism cannot reach
+    movable = robot.independent_joints()
     poses: list[dict[str, float]] = [{}]
     for j in movable:
         for v in _joint_values(j):
