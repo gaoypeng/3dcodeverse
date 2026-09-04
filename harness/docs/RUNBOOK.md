@@ -152,15 +152,44 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 3dcv texture pass <slug> [--no-judge] [--model …] [--judge-model …] [--image-model …] [--size 1024]
 3dcv texture scene-pack <slug> [--n 10] · 3dcv texture show <slug>
 3dcv tools list [--cards] · 3dcv tools measure --workspace runs/<slug> · 3dcv tools gl_frames --workspace … --json '{"times":[0,1,2.5]}'
+                                        # panel says ok | FAIL (the verdict) | error (the tool could not run);
+                                        # exit 1 on either non-ok state — `scene_probe` included since 2026-09-02
+                                        # (COST.md §30), where a failing scene gate used to exit 0
 3dcv flywheel export runs/ dataset/ [--min-score 0.7] [--only-passed] [--pack] [--include-unbuilt]
                                      [--captions-dir caps/] [--drop-duplicates]
 3dcv flywheel pairs runs/ pairs.jsonl [--min-delta 0.05]
+3dcv flywheel refine runs/ refine.jsonl [--with-code]
+                                     # one row per round the harness asked to change; the row
+                                     # schema is codeverse/flywheel/refine.RefineTransition and
+                                     # INTERFACES has the call signatures.  Training formats live
+                                     # in toolkits/llamafactory/, not here.
 3dcv flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
 3dcv flywheel gallery runs/ gallery.html [--title …]        # alias of `3dcv gallery build --embed` (§4)
 3dcv flywheel index runs/ runs_index.sqlite · 3dcv flywheel dedupe dataset/
 python -m codeverse.judges.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```
+**Two arms at once need separate `CV3D_CACHE_DIR`, not just separate `--out`.**  The
+browser daemon advertises its endpoint in `CACHE_DIR/browser_<backend>.json` and a newer
+daemon supersedes an older one, so two worktrees sharing a cache end up on ONE browser:
+the arm that did not launch it renders through a server rooted in the other tree, its GLB
+is outside that root, and `render_glb` returns "produced no result" — on one side only,
+looking like random flakiness (2026-09-04).  Give each arm its own cache dir; the render
+cache separates with it, which an A/B wants anyway.
+
+Also halve each arm's `--parallel`: two arms at 3 workers is six concurrent renders, and a
+round with no renders skips the judge, so the loop stops at `judge_unavailable` and the
+cell is finished with no score (`bench run` will not re-run it: the row exists).  Redo the
+scoreless cells afterwards — delete the row from `results.jsonl` and the run directory,
+then `bench run --id <prompt>`.
+
+**A new worktree needs `runtime_js/node_modules` before it can run a battery.**  Without it
+`render_glb` dies on every round, the judge is skipped for want of renders, and the cells
+come back `status=plateau` with `score=None` — an arm that reads as healthy and measures
+nothing (2026-09-04, the mimic-off arm).  `npm ci` in `runtime_js/`, or symlink the
+directory from a worktree that has it (the `package.json` is the same file).  The row now
+says `no verdict in any of N round(s)` when this happens.
+
 A run that crashed outside its own handling leaves `record.json` with `status=failed`;
 `3dcv resume` retries from the last completed stage/round (cached plan/skeleton/scene
 stages are reused — this also recovers from Gemini 503 storms).  Ctrl-C is safe.

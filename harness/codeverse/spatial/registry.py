@@ -13,7 +13,9 @@ Usage::
 Observation, ``ToolUnavailable`` (a missing sibling package) an "unavailable"
 one, anything else a failed Observation — a tool body never needs try/except.
 Observations: ``text`` (what the agent reads), ``numbers`` (machine-readable),
-``images`` (paths, small PNGs the agent may view), ``ok``.
+``images`` (paths, small PNGs the agent may view), ``ok`` (the VERDICT) and
+``failed`` (the tool could not run).  The two are different answers and only
+``failed`` may reach the model as a protocol error — see :class:`Observation`.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from codeverse.workspace import Workspace
 
@@ -33,15 +35,46 @@ class NoArgs(BaseModel):
 
 
 class Observation(BaseModel):
+    """A tool's answer: ``ok`` is the VERDICT, ``failed`` says the tool could not run.
+
+    Only ``failed`` becomes MCP ``is_error``; a negative verdict is a result, not a
+    broken call (what that cost when the two were one flag: docs/COST.md §30).
+    """
+
+    # validate_assignment: the invariant below has to hold for `obs.failed = ...` at a call
+    # site as well, not only at construction (spatial/tools.scene_probe did exactly that)
+    model_config = ConfigDict(validate_assignment=True)
+
     ok: bool = True
+    failed: bool = Field(default=False, description="the tool could not run: exception, missing "
+                                                    "artefact, unusable arguments (NOT a negative verdict)")
     text: str = Field(description="human/LLM-readable summary (≤ ~2k chars)")
     numbers: dict[str, Any] = Field(default_factory=dict)
     images: list[str] = Field(default_factory=list, description="PNG paths (small, labelled)")
     duration_ms: int = 0
 
+    @model_validator(mode="after")
+    def _a_failure_is_never_a_pass(self) -> Observation:
+        """``failed`` implies ``not ok``: a tool that could not run has no verdict to
+        report, and ``Observation(ok=True, failed=True)`` was representable."""
+        if self.failed and self.ok:
+            raise ValueError("Observation(ok=True, failed=True): a tool that could not run has no verdict")
+        return self
+
     @classmethod
     def error(cls, text: str, **numbers: Any) -> Observation:
-        return cls(ok=False, text=text, numbers=numbers)
+        """The tool could not run: every failure caught at the :meth:`ToolDef.call`
+        boundary and every missing / unreadable artefact is built here.
+
+        It is not the only thing that sets ``failed``.  Three results are failures
+        the tool computed rather than exceptions it caught, and they set the flag on
+        an observation they compose themselves: ``build`` (the runtime reported
+        success and left no readable GLB), ``scene_probe`` (the probe driver died)
+        and ``observe.render_observation`` (no view AND no console error — with one
+        it is a verdict).  Those four places are the whole list; nothing else may set
+        ``failed``.
+        """
+        return cls(ok=False, failed=True, text=text, numbers=numbers)
 
 
 class ToolUnavailable(RuntimeError):

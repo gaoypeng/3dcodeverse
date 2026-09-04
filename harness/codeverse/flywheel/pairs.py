@@ -79,6 +79,12 @@ def _base(ws: Workspace, rec: RunRecord, kind: str, *, slug: str | None = None) 
     }
 
 
+#: the judge Δ at which two rounds are a preference pair — and, in
+#: :mod:`codeverse.flywheel.refine`, the Δ at which a transition counts as improved.  One
+#: constant, so a Δ that is a preference pair here is never "unchanged" there.
+MIN_PREFERENCE_DELTA = 0.05
+
+
 def preference_pairs(ws: Workspace, rec: RunRecord, *, min_delta: float,
                      slug: str | None = None) -> list[dict[str, Any]]:
     cache: dict[str, dict[str, Any]] = {}
@@ -237,7 +243,7 @@ def cross_backend_pairs(
     return out
 
 
-def build_pairs(runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float = 0.05) -> int:
+def build_pairs(runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float = MIN_PREFERENCE_DELTA) -> int:
     """Write all pair kinds for the runs under ``runs_dir``; returns the number written."""
     out = Path(out_jsonl)
     out.parent.mkdir(parents=True, exist_ok=True)

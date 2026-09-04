@@ -654,6 +654,109 @@ written) that were accepted because the code works that way and the tests pin it
   clouds) against a control build with the hooks cut out: mean luminance identical to five
   decimals on all 12 frames.  Funding the A/B is the next call.
 
+* **D52 The articulated wave measured its own instrument first, and then only the loss
+  events (2026-09-02/03).**  Context: four articulated levers (the D49 geometry re-ask, a
+  pro planner, a deterministic repair bundle, `CV3D_FEWER_TURNS`) all measured inside
+  ±0.13 on 12-14 paired prompts, which is not evidence that they do nothing.  Decision:
+  calibrate, then change the channel.
+  * **The instrument.**  A/A on `articulated_v2` (`bench/ab_plan.py --aa --pin-plan`,
+    identical arms, generator `gemini-cli:gemini-3.7-flash`, fixed judge
+    `gemini:gemini-3.1-pro-preview`, `n_samples=3`, rubric `articulated_v1`, 3 rounds,
+    60 min/cell): 12 paired prompts (2 pairs dropped at the pinned plan to provider read
+    timeouts, redone; 0 budget_exhausted), mean Δ **−0.046**, median −0.048, paired sd
+    **0.225**, SE 0.065, **2 SE ±0.130**, sign 3 up / 8 down, p 0.227, separated from
+    noise **NO**; the rig's own n_for_power is ~506 pairs for ±0.02.  Every phase-4/5
+    result sat inside that band, and the rig printed "revert" from identical arms.
+  * **The channel that works.**  `bench/plan_stage_bench.py` runs the plan stage
+    ALONE (≈$0.03 and ≈85 s per call), so a 280-call arm is affordable where a 14-cell
+    battery is not.  `CV3D_PLAN_RESTART` (a plan that names links it never lists is
+    re-sampled from the original request instead of edited in context) measured on 560
+    calls, both arms in the same window: planner losses **4.7 % (13/277) → 0.7 % (2/276)**,
+    Fisher exact two-sided **p = 0.0067**; the restart fires on 14 % of calls and recovers
+    39 of 40; cost per call unchanged ($0.0345 vs $0.0337).  Ships ON with a kill switch.
+    The rule this sets: measure the loss event (a run that produced nothing, a retried
+    tool call, a pose the mechanism cannot reach), not the judge mean, unless the battery
+    is large enough for the judge mean.  The 560 rows live in
+    `bench/data/plan_stage/*.jsonl` with `bench/plan_stage_report.py`: a p-value whose
+    data is not in the tree is not reproducible (review, 2026-09-03).
+  * **The trigger, narrowed and re-measured (2026-09-03).**  Review's point was that the
+    trigger fired on any dangling link reference while the measured class is narrower, and
+    that a restart spent one of the two validation re-ask slots.  Both changed; three arms
+    in ONE window (700 calls, `bench/data/plan_stage/trigger_{off,wide,narrow}.jsonl`) say:
+    overall loss 2.9 % (off, 4/140) / 2.2 % (old trigger, 6/275) / 1.8 % (narrowed, 5/276,
+    the fifth being a harness budget ceiling that the first pass had filed as weather),
+    **no pair separating** (Fisher 0.45–0.75) — this window's control loses 2.9 %, not the
+    4.7 % above, so the headline is a property of that window as much as of the switch.
+    The separation is inside the class the mechanism targets: dangling-link deaths **3/140
+    off vs 0/276 narrowed, p = 0.038** — exploratory, in that the three overall-rate tests
+    were run first and came back null — with the old trigger still at 4/275 — and all four
+    of those carry `restarts=1` and died at the validation cap, which is exactly the slot
+    the restart used to consume.  The narrowed trigger fires on 28 of 280 calls against 38
+    and recovers 27 of 28 against 33 of 38.  Ships narrowed: same effect on the class it
+    exists for, a quarter fewer plans thrown away.  The residue is a class nothing here
+    addresses — a joint whose parent and child are the same link (1/2/4 across the arms,
+    flat, never restarted, repeated through all three re-asks).  That is the next
+    measurement, not a regression of this one.
+  * **What the judge channel could not have found.**  `is_error = not obs.ok` (§30 of
+    docs/COST.md) made 62 % of 1 445 `joint_sweep` calls and 23 % of 2 144 `build` calls
+    arrive as broken calls the model retried, and — because gemini-cli stringifies an
+    errored result — turned a 275 kB articulation sheet into ~261 k prompt tokens of
+    base64 instead of ~516 as an image; ~10 % of requests carried ~225 k uncacheable
+    tokens, 67 % of the uncached bill.  That is a mechanism fault with no score signature
+    at n=14, found by reading the recorded tool stats.  **Measured after the fix**
+    (`aa_articulated` before, `wave2_lean` after, same battery and config): calls reported
+    as errors 26.6 % (482/1 814) → **1.3 %** (25/1 863; the remainder are genuine
+    `Observation.error` cases), cache hit 69 % → **90 %**, uncached prompt tokens per
+    main-role request 38 521 → **13 480**, generator dollars per round median 1.572 → **0.950**
+    (−40 %).  `bench/session_stats.py` computes both columns from the recorded sessions —
+    the first, hand-computed after column (1.4 %, 13 736, $0.967 over "108 sessions") is
+    NOT reproduced by it and is withdrawn: no tested mechanism explains its shape (1.87x on
+    calls and requests against 1.06x on sessions), while the before column reproduces to
+    the digit.  docs/COST.md §30 carries that and the selector.
+  * **`CV3D_LEAN_PROMPT` stays OFF, now with a number.**  Paired battery on
+    `articulated_v2` (12 pairs, plan pinned, same fixed judge): mean Δ **+0.030**, paired
+    sd 0.131, **2 SE ±0.076**, 8 up / 3 down (p 0.227), one regression — inconclusive by
+    the rig's own rule — and no cost saving ($3.51 vs $3.66 per scored cell), which is the
+    second time a prompt/turn-shape change has moved tokens without moving dollars
+    (docs/COST.md §29).  The switch itself was DELETED in review (2026-09-03, −569 lines):
+    an inconclusive lever with no cost saving is not worth a second prompt path through
+    three templates, and the measurement above is the record of what it was worth.  To
+    re-run it, restore the branch commit named in docs/PAPER_WRITING.md §9.3.
+  * **Reading an agent's repo is a sandbox boundary, and `git archive` is not inside it.**
+    Every flywheel read of a workspace already ran under `GIT_SAFE_FLAGS` (five `-c`
+    overrides — hooks, fsmonitor, the global attributes file, `diff.external` — plus no
+    system/global config from `git_safe_env`; `.git/config` itself is still read in full,
+    which is the whole reason the tests plant there) and `--no-ext-diff --no-textconv` for
+    diffs, because a
+    `.gitattributes` the agent writes can name a `diff.<name>.textconv` command that git
+    RUNS on our side.  `read_tree_at` still used `git archive`, which renders every blob
+    through `convert_to_working_tree` — so a planted `filter.<name>.smudge` executes, and
+    unlike textconv there is no flag that turns it off.  It reads through `ls-tree -r -z`
+    + `cat-file --batch` now: same bytes, no filter path.  Pinned by a test that plants a
+    smudge filter and fails on the old implementation (`tests/flywheel_cli`).
+  * **The refine transitions are the corpus this harness is for.**  `3dcv flywheel refine`
+    emits one row per round the loop asked to change: the gate findings and judge
+    complaint that condemned round i, the instructions the harness wrote, both code
+    snapshots, and whether the score moved.  A one-shot corpus cannot contain that pair;
+    the loop produces it as a by-product of running.  Format conversion (LLaMA-Factory
+    messages) lives in `toolkits/llamafactory/`, not in the harness — the harness writes
+    the measurement, a toolkit writes whatever a trainer wants (owner's boundary,
+    2026-09-03).
+  * **`<mimic>` is used and it changes the sweep, which is what it was for.**  In the same
+    battery the planner and agent declared couplings in 8 of 14 prompts (98 of 176 built
+    URDFs), and on those the sampler drives a median of 3 joints per pose against the 6 it
+    would have driven before — 1 on the umbrella and the step ladder, 2 on the folding
+    workbench, the mechanisms the support was built for.  The pre-mimic batteries contain
+    zero couplings, so nothing else changed shape.  `bench/coupling_stats.py --per-prompt`
+    recomputes all of it from the recorded URDFs (both counts are properties of the file).
+    The score effect on the three coupled prompts is inside the noise band at n=2 per side,
+    as expected; the pose count is the readout that resolves.  What does NOT resolve, and
+    is recorded so nobody claims it: the `joint_sweep` gate fails 30 % of the coupled
+    prompts' rounds with couplings (11/37) against 31 % without (12/39), and the spread
+    across pre-mimic batteries (19–31 %) is wider than that difference.  Fewer poses, all
+    reachable — but the gate still finds overlaps in them, and the two arms are not the
+    same artefacts measured twice (a pre-mimic plan declares no coupling at all).
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

@@ -4,6 +4,7 @@ consistency and the ``UrdfBlenderRuntime`` around ``wrappers/run_bpy_links.py``.
 from __future__ import annotations
 
 import ast
+import contextlib
 import json
 import math
 import os
@@ -11,7 +12,7 @@ import re
 import shutil
 import time
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ import numpy as np
 
 from codeverse.config import Settings, get_settings
 from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
-from codeverse.contracts.common import ENTRY_FILE, Language
+from codeverse.contracts.common import ENTRY_FILE, Language, MimicSpec, mimic_issues
 from codeverse.contracts.plan import ArticulatedPlan, JointPlan, PartPlan, Plan
 from codeverse.conventions import to_snake
 from codeverse.languages._ast_lint import (
@@ -201,6 +202,8 @@ def lint_urdf_text(text: str, *, label: str = URDF_REL) -> tuple[list[GateFindin
         joint_names.append(jname)
         _lint_joint(el, jname, link_names, parent_of, out)
 
+    _lint_mimics(joints, out)
+
     # tree structure
     children = set(parent_of)
     roots = [n for n in link_names if n not in children]
@@ -217,6 +220,82 @@ def lint_urdf_text(text: str, *, label: str = URDF_REL) -> tuple[list[GateFindin
                 out.append(_f(Severity.ERROR, f"link '{link}' does not reach the root '{roots[0]}' (cycle or detached)", target=link,
                               fix="Joints must form a single tree rooted at the base link."))
     return out, link_names
+
+
+def _lint_mimics(joints: list[ET.Element], out: list[GateFinding]) -> None:
+    """``<mimic>`` couplings, over the whole file: a declaration may name a joint that is
+    written later, and a cycle is only visible on the graph.  The RULES are
+    ``contracts.common.mimic_issues`` — shared with the plan validator and the URDF
+    loader, which rejected different multipliers from this lint until 2026-09-03."""
+    # EVERY named joint becomes a spec, coupled or not: an uncoupled joint is what the
+    # coupled ones are allowed to name, and mimic_issues resolves targets against the set
+    # it is given.
+    specs: list[MimicSpec] = []
+    for el in joints:
+        jname = el.get("name", "")
+        if not jname:
+            continue
+        movable = el.get("type", "") != "fixed"
+        lim = el.find("limit")
+        lo = hi = None
+        if lim is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                lo, hi = float(lim.get("lower")), float(lim.get("upper"))
+        mim = el.find("mimic")
+        src = (mim.get("joint") or "").strip() if mim is not None else ""
+        mult, off = 1.0, 0.0
+        if mim is not None and not src:
+            out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> without joint=", target=jname,
+                          fix='<mimic joint="runner_slide" multiplier="1" offset="0"/>'))
+            src = ""
+        elif mim is not None:
+            try:
+                mult = float(mim.get("multiplier", 1) or 1)
+                off = float(mim.get("offset", 0) or 0)
+            except ValueError:
+                out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> multiplier/offset must be numbers", target=jname))
+                src = ""
+        specs.append(MimicSpec(key=jname, name=jname, movable=movable, target=src or None,
+                               multiplier=mult, offset=off, lower=lo, upper=hi))
+    known = sorted({el.get("name", "") for el in joints if el.get("name")})
+    # An instanced driver emits <driver>_1 .. _n and the skeleton binds followers to _1
+    # only, so _2..n stay independent inputs and the sweep drives them: real for the
+    # mechanism (each instance has its own coupling to declare), silent until now.
+    instanced = {n.rsplit("_", 1)[0] for n in known if n.rsplit("_", 1)[-1].isdigit()}
+    for spec in specs:
+        base = (spec.target or "").rsplit("_", 1)
+        if len(base) == 2 and base[1] == "1" and base[0] in instanced:
+            siblings = sorted(n for n in known if n.startswith(f"{base[0]}_") and n != spec.target)
+            if siblings:
+                out.append(_f(Severity.WARN, f"joint '{spec.name}': follows '{spec.target}' only; "
+                                             f"{', '.join(siblings)} stay independent inputs and the "
+                                             "sweep drives them separately", target=spec.name,
+                              fix="give each instance its own <mimic>, or make the followers "
+                                  "follow one shared driver"))
+    for i in mimic_issues(specs):
+        j, t = i.joint, i.target
+        if i.kind == "immobile":
+            out.append(_f(Severity.ERROR, f"joint '{j}': a fixed joint has nothing to mimic", target=j,
+                          fix="give it a type and a limit, or drop the <mimic>"))
+        elif i.kind == "zero_multiplier":
+            out.append(_f(Severity.ERROR, f"joint '{j}': <mimic multiplier=\"0\"> — the joint cannot move",
+                          target=j, fix="use type=fixed, or a non-zero multiplier"))
+        elif i.kind == "self":
+            out.append(_f(Severity.ERROR, f"joint '{j}': <mimic> names itself", target=j))
+        elif i.kind == "unknown_target":
+            out.append(_f(Severity.ERROR, f"joint '{j}': <mimic joint=\"{t}\"> names no joint in this file",
+                          target=j, fix=f"one of: {', '.join(known)}"))
+        elif i.kind == "immobile_target":
+            out.append(_f(Severity.ERROR, f"joint '{j}': mimics '{t}', which is fixed and never moves", target=j,
+                          fix="mimic a joint that moves, or give that joint a type and a limit"))
+        elif i.kind == "out_of_range":
+            out.append(_f(Severity.WARN, f"joint '{j}': following '{t}' drives it over {i.detail}, "
+                                         "outside its own <limit>", target=j,
+                          fix="Make the limits and the multiplier agree: multiplier * driver range "
+                              "+ offset is the range this joint really has."))
+        else:
+            out.append(_f(Severity.ERROR, f"joint '{j}': <mimic> chain is a cycle through '{i.detail or j}'",
+                          target=j, fix="one joint drives the chain; the rest follow it, directly or in a line"))
 
 
 def _lint_link(el: ET.Element, name: str, out: list[GateFinding]) -> None:
@@ -284,7 +363,8 @@ def _lint_origin(o: ET.Element | None, what: str, target: str, out: list[GateFin
                           fix=f'<origin {attr}="0 0 0"/>'))
 
 
-def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: dict[str, str], out: list[GateFinding]) -> None:
+def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: dict[str, str],
+                out: list[GateFinding]) -> None:
     jtype = el.get("type", "")
     if jtype not in JOINT_TYPES:
         out.append(_f(Severity.ERROR, f"joint '{jname}': type '{jtype}' must be one of {JOINT_TYPES}", target=jname,
@@ -349,8 +429,6 @@ def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: di
     elif jtype == "continuous" and lim is not None and (lim.get("lower") is not None or lim.get("upper") is not None):
         out.append(_f(Severity.WARN, f"joint '{jname}': continuous joints have no lower/upper (ignored)", target=jname,
                       fix='<limit effort="10" velocity="1"/> or use type=revolute'))
-    if el.find("mimic") is not None:
-        out.append(_f(Severity.WARN, f"joint '{jname}': <mimic> is ignored by the harness (sweeps move it independently)", target=jname))
 
 
 # ------------------------------------------------------------------ model.py
@@ -471,6 +549,7 @@ class JointRow:
     lower: float | None
     upper: float | None
     rest: float = 0.0  # plan rest value the limits were shifted by (0 → limits == plan limits)
+    mimic: tuple[str, float, float] | None = None  # (driving joint, multiplier, offset)
 
 
 @dataclass
@@ -525,9 +604,14 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
         lower = upper = None
         if j.type in ("revolute", "prismatic"):
             lower, upper = j.lower - j.rest, j.upper - j.rest
+        mim = None
+        if j.mimic is not None:
+            # every copy of an instanced follower follows the SAME driver; the driver's own
+            # name is resolved after emission, when the instance suffixes are known
+            mim = (to_snake(j.mimic.joint), float(j.mimic.multiplier), float(j.mimic.offset))
         joints.append(JointRow(name=to_snake(j.name) + suffix, type=j.type, parent=parent, child=child,
                                origin_xyz=(0.0, 0.0, 0.0), axis=tuple(float(v) for v in j.axis), lower=lower, upper=upper,
-                               rest=float(j.rest) if lower is not None else 0.0))
+                               rest=float(j.rest) if lower is not None else 0.0, mimic=mim))
 
     for j in plan.joints:
         parent, child = to_snake(j.parent), to_snake(j.child)
@@ -536,6 +620,19 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
         children = [n for n, p, _ in parts if n == child or (n in instance_links and n.rsplit("_", 1)[0] == child)]
         for k, c in enumerate(children):
             add_joint(j, c, parent, "" if len(children) == 1 else f"_{k + 1}")
+
+    # A driver whose child is instanced exists only as <name>_1..._n, so the plan's name
+    # names no joint in the file: follow the first instance, the rule an instanced PARENT
+    # link already uses above.  The plan validator guarantees the target is a plan joint,
+    # so anything unresolved here is a bug in this function, not in the plan.
+    emitted = {jr.name for jr in joints}
+    for i, jr in enumerate(joints):
+        if jr.mimic is None or jr.mimic[0] in emitted:
+            continue
+        target, mult, off = jr.mimic
+        if f"{target}_1" not in emitted:
+            raise ValueError(f"joint {jr.name}: mimic target {target!r} was not emitted; joints are {sorted(emitted)}")
+        joints[i] = replace(jr, mimic=(f"{target}_1", mult, off))
 
     # link frames: root at origin, others at their pivot
     for name, p, center in parts:
@@ -550,7 +647,7 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
         cf = links[jr.child].frame_xyz
         fixed.append(JointRow(name=jr.name, type=jr.type, parent=jr.parent, child=jr.child,
                               origin_xyz=tuple(c - p for c, p in zip(cf, pf, strict=True)), axis=jr.axis,
-                              lower=jr.lower, upper=jr.upper, rest=jr.rest))
+                              lower=jr.lower, upper=jr.upper, rest=jr.rest, mimic=jr.mimic))
     return UrdfFrames(robot_name=to_snake(plan.object_name), root=root, links=links, joints=fixed)
 
 
@@ -585,6 +682,10 @@ def render_urdf(frames: UrdfFrames) -> str:
             if jr.lower is not None and jr.upper is not None:
                 lim = f'lower="{_fmt(jr.lower)}" upper="{_fmt(jr.upper)}" ' + lim
             lines.append(f"    <limit {lim}/>" + _limit_note(jr))
+            if jr.mimic is not None:
+                src, mult, off = jr.mimic
+                lines.append(f'    <mimic joint="{src}" multiplier="{_fmt(mult)}" offset="{_fmt(off)}"/>'
+                             "  <!-- driven: the sweep moves the driver, this joint follows -->")
         lines.append("  </joint>")
     lines.append("</robot>")
     return "\n".join(lines) + "\n"

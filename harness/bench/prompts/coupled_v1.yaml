@@ -1,0 +1,145 @@
+# coupled_v1 — ten mechanisms with ONE input and many moving links.
+#
+# WHY a battery of its own: `articulated_v2` asks for 3-8 independent DoF, and its
+# coupled cases (umbrella, scissor mirror, folding workbench) are the three prompts it
+# scores lowest on.  A mechanism with one input is a different problem: the plan has to
+# say WHICH joint is the input and that the rest follow it (`joints[].mimic`), or the
+# sweep drives every link independently and poses states the mechanism cannot reach.
+#
+# Every prompt here is a real one-input linkage.  `must_have` names (a) the single input
+# and its range, (b) how many links follow it, and (c) a condition that only holds when
+# they follow it together — a folded thickness, a closed silhouette, slats that all lie
+# flat.  A plan that declares no coupling can still satisfy (a) and (b); (c) is what it
+# cannot fake, and the pose sampler is what checks it.
+#
+# Read this battery through the LOSS-EVENT channel first (docs/PAPER_WRITING.md §2): the
+# rate at which the planner declares a coupling at all, the joints driven per sampled
+# pose, plan-stage deaths.  Ten prompts cannot resolve a score difference — the A/A band
+# on this generator is +-0.13.
+name: coupled_v1
+track: articulated_object
+language: urdf_blender
+description: >
+  10 one-input mechanisms (URDF + bpy link meshes): one driving joint, 2-8 links that
+  follow it.  must_have names the input, the follower count and one condition that only
+  holds when the followers move with the input.
+prompts:
+  - id: cpl_umbrella
+    tier: hard
+    category: mechanism
+    prompt: >
+      a stick umbrella whose runner slides up the shaft and pushes six ribs open through
+      six stretchers, one input driving all twelve moving links
+    must_have:
+      - "central shaft about 0.9 m long with a handle at the bottom and a crown at the top"
+      - "runner slides 0.25 m up the shaft — this is the ONLY input"
+      - "six ribs hinge at the crown, each driven by a stretcher from the runner"
+      - "ribs open from folded (within 0.06 m of the shaft) to spread about 0.5 m radius"
+      - "with the runner at its lower limit every rib lies alongside the shaft and no rib crosses another"
+  - id: cpl_scissor_lift
+    tier: hard
+    category: mechanism
+    prompt: >
+      a scissor lift table with three crossing arm pairs, raised by one prismatic screw
+      at the base, deck staying level
+    must_have:
+      - "base frame about 0.8 x 0.5 m and a deck of the same footprint"
+      - "screw slider travels 0.3 m along the base — this is the ONLY input"
+      - "three crossing arm pairs, each arm about 0.45 m, pinned at its centre"
+      - "deck rises from 0.15 m to 0.75 m and stays parallel to the base at every height"
+      - "at the lowest position the arms stack within 0.12 m of total thickness"
+  - id: cpl_venetian_blind
+    tier: medium
+    category: mechanism
+    prompt: >
+      a venetian blind with eight slats that all tilt together from one tilt rod
+    must_have:
+      - "head rail about 0.9 m wide with a bottom rail below"
+      - "tilt rod rotates 180 degrees — this is the ONLY input"
+      - "eight slats about 0.9 x 0.05 m, evenly spaced 0.07 m apart"
+      - "every slat tilts by the same angle as the rod"
+      - "at the closed position the slats overlap into a solid face with no gap wider than 0.005 m"
+  - id: cpl_drafting_arm
+    tier: medium
+    category: mechanism
+    prompt: >
+      a parallelogram drafting arm that keeps its board level: two link bars per segment
+      so the head stays horizontal whatever the elbow does
+    must_have:
+      - "table clamp, two arm segments about 0.4 m each, and a board head"
+      - "shoulder revolute is the input; the elbow and the head follow it through the parallel bars"
+      - "twin parallel bars alongside BOTH segments"
+      - "the board stays horizontal (within 3 degrees) through the whole range"
+      - "at full fold the two segments lie alongside each other without the bars touching"
+  - id: cpl_step_ladder
+    tier: medium
+    category: mechanism
+    prompt: >
+      an A-frame step ladder whose rear frame and spreader bar open together with the
+      front frame, one hinge driving both
+    must_have:
+      - "front frame with four steps, about 1.2 m tall"
+      - "top hinge is the ONLY input, opening 0 to 30 degrees"
+      - "rear frame follows the hinge by the same angle in the opposite direction"
+      - "spreader bar between the frames follows the same input"
+      - "closed, the two frames lie within 0.1 m of each other and the spreader lies flat between them"
+  - id: cpl_folding_pram
+    tier: hard
+    category: mechanism
+    prompt: >
+      a folding pram frame: one fold hinge collapses the handle, the seat back and both
+      leg pairs together
+    must_have:
+      - "handle bar, seat back, front legs with wheels and rear legs with wheels"
+      - "fold hinge at the seat pivot is the ONLY input, 0 to 110 degrees"
+      - "handle, seat back and both leg pairs each follow the fold hinge"
+      - "open, the frame stands about 1.0 m tall with the wheels 0.6 m apart"
+      - "folded, the whole frame fits within a 0.9 x 0.35 x 0.25 m box"
+  - id: cpl_garage_door
+    tier: hard
+    category: mechanism
+    prompt: >
+      a four-panel sectional garage door: lifting the bottom panel rolls the panels up
+      onto the horizontal track, each panel following the one below it
+    must_have:
+      - "opening about 2.2 m wide, four panels each 0.55 m tall"
+      - "bottom panel slides 2.2 m up the vertical track — this is the ONLY input"
+      - "each upper panel follows the bottom panel's travel"
+      - "closed, the four panels form a flat face with gaps under 0.01 m"
+      - "open, no panel is left standing in the opening"
+  - id: cpl_treadle_drive
+    tier: hard
+    category: mechanism
+    prompt: >
+      a sewing machine treadle drive: the foot plate rocks, the pitman rod follows it and
+      turns the flywheel, one input through three links
+    must_have:
+      - "cast stand about 0.7 m tall, treadle plate about 0.4 x 0.25 m at the bottom"
+      - "treadle rocks +-12 degrees — this is the ONLY input"
+      - "pitman rod connects the treadle to the flywheel crank pin and follows the treadle"
+      - "flywheel about 0.35 m diameter turns as the treadle rocks"
+      - "at both treadle limits the pitman stays clear of the stand by at least 0.01 m"
+  - id: cpl_pantograph_mirror
+    tier: hard
+    category: mechanism
+    prompt: >
+      a wall shaving mirror on a two-stage pantograph: pulling the head out extends both
+      scissor stages together
+    must_have:
+      - "wall bracket, two scissor stages of about 0.25 m arms, and a round mirror head"
+      - "the first stage's hinge is the ONLY input"
+      - "the second stage follows the first by the same angle"
+      - "the head reaches from 0.12 m to 0.55 m from the wall"
+      - "fully folded, the stages stack within 0.09 m of the wall and the head faces outward"
+  - id: cpl_folding_table_leg
+    tier: medium
+    category: mechanism
+    prompt: >
+      a drop-leaf table with a folding gate leg: swinging the gate out also swings its
+      brace and lifts the leaf support
+    must_have:
+      - "table top about 0.9 x 0.6 m with one drop leaf 0.3 m wide"
+      - "gate leg swings 90 degrees out from under the top — this is the ONLY input"
+      - "the brace and the leaf support both follow the gate leg"
+      - "with the gate out, the support sits under the raised leaf"
+      - "with the gate closed, the leg, brace and support all lie within 0.05 m of the underside"

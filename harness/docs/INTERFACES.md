@@ -312,6 +312,12 @@ GlHost(gpu="auto|on|off", timeout_s=240, fps=30, max_steps=240)
 from codeverse.spatial.frame_stats import sequence_stats, frame_gate    # gate "gl_frames"; data.kind ∈ nan | black | blown |
                                                                         # static | flicker | low_detail | duplicate | no_frames
 from codeverse.spatial.registry import tool, get_tool, list_tools, tool_cards, ToolContext, Observation
+Observation{ok: VERDICT, failed: the tool could not run, text, numbers, images, duration_ms}   # is_error == failed,
+    # never `not ok`.  failed is set by Observation.error(...) and by exactly three tools that compose
+    # their own result: build (no readable GLB), scene_probe (driver died), render_observation (no view
+    # and no console error — with one it is a verdict)
+from codeverse.spatial.mcp_server import observation_content, max_images_for, MAX_TEXT_CHARS
+    # payload bound at the MCP boundary: text truncated; images 4 (ok) | 1 (FAIL verdict) | 0 (failed)
 import codeverse.spatial.tools   # registers: build, measure, render_views, render_sheet, isolate, cross_section,
     # check_connectivity, check_contract, compare_silhouette, joint_sweep [articulated], shader_probe, scene_probe,
     # scene_views + check_placement [scene], gl_probe + gl_frames [graphics], texture_pass + texture_preview [object tracks]
@@ -517,6 +523,26 @@ from codeverse.flywheel.export import export_samples   # (runs_dir, out_dir, *, 
 from codeverse.flywheel.quality import quality_tier, prompt_hash, find_duplicates   # tiers: A passed & 0 gate errors, B passed,
                                                                                     # C best ≥ 0.6, D else; dedupe = (code fingerprint, prompt)
 from codeverse.flywheel.pairs import build_pairs       # (runs_dir, out_jsonl, *, min_delta=0.05) -> n
+from codeverse.flywheel.refine import build_refine, transitions, RefineTransition, REFINE_KINDS, outcome_of
+    # build_refine(runs_dir, out_jsonl, **kw) -> (rows written, Counter of drop reasons); writes via a .part file
+    # transitions(runs_dir, *, threshold=MIN_PREFERENCE_DELTA, max_diff_bytes=200_000, with_code=False,
+    #             drops=None) -> Iterator[RefineTransition];  outcome_of(delta, threshold) -> the label
+    # one row per round i -> i+1 the harness asked to change; outcome improved|regressed|unchanged|unscored
+    # (threshold: pairs.MIN_PREFERENCE_DELTA); dropped rows carry the reason (no_predecessor / no_commit /
+    # predecessor_build_failed / predecessor_unjudged / git_read_failed / duplicate_run)
+from codeverse.flywheel._git import read_tree_at, diff_between, changed_files_between, commit_exists, GitReadError
+    # read_tree_at(ws, commit) -> {path: bytes} via ls-tree + cat-file --batch — NEVER `git archive`, which
+    # renders content through a planted filter.<name>.smudge and has no --no-filters (tests/flywheel_cli)
+    # diff_between(ws, before, after, *, max_bytes=None) -> (text, untruncated size, was_truncated)
+    # changed_files_between(ws, before, after) -> [path];  commit_exists(ws, commit) -> bool
+    # both under GIT_SAFE_DIFF_FLAGS (--no-ext-diff --no-textconv) on top of workspace.GIT_SAFE_FLAGS
+from codeverse.workspace import GIT_SAFE_FLAGS, GIT_SAFE_DIFF_FLAGS, git_safe_env
+    # every read of an agent-written repo goes through these.  They do NOT disable .git/config —
+    # git reads it in full; `-c` only OVERRIDES five keys (hooksPath, fsmonitor, attributesFile,
+    # diff.external, plus the diff flags), which is why a NAMED filter./diff. driver in .git/config
+    # is still live and why read_tree_at avoids every content-rendering command.  git_safe_env drops
+    # the SYSTEM and GLOBAL config (GIT_CONFIG_NOSYSTEM, GIT_CONFIG_GLOBAL=/dev/null) and the
+    # inherited environment (HOME, PATH, GIT_TERMINAL_PROMPT)
 from codeverse.flywheel.captions import caption_sample # Δ (ws, record, model_id, *, model=None, out_dir=None) -> Captions;
                                                        # out_dir → side-car <out_dir>/<slug>.json, run untouched
 from codeverse.gallery import build_index, default_roots, build_static, serve, GalleryApp   # THE local gallery
@@ -531,7 +557,7 @@ from codeverse.flywheel.index import build_index, query, summary   # sqlite + pa
                                                                    # rounds, status, code_fingerprint, prompt_hash, duplicate_of, has_captions
 3dcodeverse make [--profile economy|balanced|quality]|resume|status|show|render|judge|tools|mcp
              |texture {pass,scene-pack,show}|cost {<slug>,show,cache,prices,profiles,estimate}
-             |flywheel {export,pairs,caption,index,dedupe,gallery}|gallery {serve,build}
+             |flywheel {export,pairs,refine,caption,index,dedupe,gallery}|gallery {serve,build}
              |bench {run,report}|doctor    # alias: 3dcv
 ```
 

@@ -24,6 +24,8 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
+from codeverse.contracts.common import MimicIssue, MimicSpec, mimic_issues
+
 MOVABLE_TYPES = ("revolute", "prismatic", "continuous")
 JOINT_TYPES = MOVABLE_TYPES + ("fixed",)
 #: link names that cannot become GLB nodes: glTF readers (trimesh) use ``world`` as the
@@ -113,6 +115,21 @@ def parse_origin(elem: ET.Element | None, what: str) -> np.ndarray:
 
 
 # ------------------------------------------------------------------ model
+@dataclass(frozen=True)
+class Mimic:
+    """A joint driven by another: ``q = multiplier * q[joint] + offset`` (URDF <mimic>).
+
+    Coupled mechanisms (umbrella ribs on one runner, a pantograph's crossing arms, a
+    tambour's slats) have one degree of freedom and many moving links; without this the
+    sweep drives every link independently and poses the mechanism in states it cannot
+    reach (compare_art_v3/v4: umbrella, scissor_mirror and folding_workbench are the
+    lowest-scoring prompts on the battery)."""
+
+    joint: str
+    multiplier: float = 1.0
+    offset: float = 0.0
+
+
 @dataclass
 class Joint:
     name: str
@@ -125,10 +142,16 @@ class Joint:
     upper: float | None = None
     effort: float = 0.0
     velocity: float = 0.0
+    mimic: Mimic | None = None
 
     @property
     def movable(self) -> bool:
         return self.type in MOVABLE_TYPES
+
+    @property
+    def driven(self) -> bool:
+        """Moves, but not on its own: its value follows another joint's."""
+        return self.movable and self.mimic is not None
 
     def motion(self, q: float) -> np.ndarray:
         """Local motion transform for joint value ``q`` (identity for fixed)."""
@@ -173,6 +196,10 @@ class Robot:
 
     def movable_joints(self) -> list[Joint]:
         return [j for j in self.joints.values() if j.movable]
+
+    def independent_joints(self) -> list[Joint]:
+        """The degrees of freedom: movable joints that do not follow another one."""
+        return [j for j in self.joints.values() if j.movable and j.mimic is None]
 
     def link_order(self) -> list[str]:
         """Links in parent-before-child order (DFS from root)."""
@@ -289,7 +316,36 @@ def _joint_from_xml(el: ET.Element) -> Joint:
             raise UrdfError(f"joint {name}: {jtype} joints need <limit lower upper>")
         if j.upper < j.lower:
             raise UrdfError(f"joint {name}: upper {j.upper} < lower {j.lower}")
+    mim = el.find("mimic")
+    if mim is not None:
+        src = mim.get("joint")
+        if not src:
+            raise UrdfError(f"joint {name}: <mimic> needs joint=\"<other joint>\"")
+        try:
+            mult = float(mim.get("multiplier", 1.0) or 1.0)
+            off = float(mim.get("offset", 0.0) or 0.0)
+        except ValueError as e:
+            raise UrdfError(f"joint {name}: <mimic> multiplier/offset must be numbers") from e
+        # the multiplier floor is NOT checked here: mimic_issues owns every coupling rule,
+        # and a copy at parse time makes the shared one unreachable (review, 2026-09-03)
+        j.mimic = Mimic(joint=src, multiplier=mult, offset=off)
     return j
+
+
+def _mimic_message(issue: MimicIssue, joints: dict[str, Joint]) -> str:
+    """A coupling rule broken by this URDF, in URDF words (rules: contracts.common)."""
+    j, t, kind = issue.joint, issue.target, issue.kind
+    if kind == "immobile":
+        return f"joint {j}: <mimic> on a {joints[j].type} joint has nothing to follow"
+    if kind == "zero_multiplier":
+        return f'joint {j}: <mimic multiplier="0"> — the joint cannot move; use type=fixed'
+    if kind == "unknown_target":
+        return f'joint {j}: <mimic joint="{t}"> names no joint; known: {sorted(joints)}'
+    if kind == "immobile_target":
+        return f"joint {j}: mimics {t!r}, which is {joints[t].type} and never moves"
+    if kind == "self":
+        return f'joint {j}: <mimic joint="{j}"> names itself'
+    return f"joint {j}: <mimic> chain is a cycle through {(issue.detail or j)!r}"
 
 
 def load_urdf(urdf_path: Path | str, meshes_dir: Path | str | None = None, *, load_meshes: bool = True) -> Robot:
@@ -328,6 +384,12 @@ def load_urdf(urdf_path: Path | str, meshes_dir: Path | str | None = None, *, lo
     if len(set(children)) != len(children):
         dup = sorted({c for c in children if children.count(c) > 1})
         raise UrdfError(f"links with more than one parent joint: {dup}")
+    for issue in mimic_issues([
+            MimicSpec(key=j.name, name=j.name, movable=j.movable,
+                      target=j.mimic.joint if j.mimic else None,
+                      multiplier=j.mimic.multiplier if j.mimic else 1.0)
+            for j in joints.values()]):
+        raise UrdfError(_mimic_message(issue, joints))
     roots = [n for n in links if n not in children]
     if len(roots) != 1:
         raise UrdfError(f"expected exactly one root link, found {roots}")
@@ -338,12 +400,35 @@ def load_urdf(urdf_path: Path | str, meshes_dir: Path | str | None = None, *, lo
 
 
 # ------------------------------------------------------------------ FK
+def resolve_q(robot: Robot, q: dict[str, float] | None = None) -> dict[str, float]:
+    """``q`` with every mimicking joint's value computed from the joint it follows.
+
+    A value given for a driven joint is ignored: the mechanism has one input, and the
+    sweep must not be able to pose it out of its own coupling."""
+    out = {k: float(v) for k, v in (q or {}).items()}
+    for j in robot.joints.values():
+        if j.mimic is None:
+            continue
+        cur, chain = j, []
+        while cur.mimic is not None:
+            chain.append(cur)
+            cur = robot.joints[cur.mimic.joint]
+        v = float(out.get(cur.name, 0.0))
+        for link_j in reversed(chain):
+            assert link_j.mimic is not None
+            v = link_j.mimic.multiplier * v + link_j.mimic.offset
+        out[j.name] = v
+    return out
+
+
 def fk(robot: Robot, q: dict[str, float] | None = None) -> dict[str, np.ndarray]:
-    """World transform of every link frame for joint values ``q`` (missing → 0)."""
+    """World transform of every link frame for joint values ``q`` (missing → 0).
+    Mimicking joints follow the joint they name, whatever ``q`` says about them."""
     q = q or {}
     unknown = set(q) - set(robot.joints)
     if unknown:
         raise UrdfError(f"fk: unknown joints {sorted(unknown)}; known: {sorted(robot.joints)}")
+    q = resolve_q(robot, q)
     out: dict[str, np.ndarray] = {robot.root: np.eye(4)}
     for name in robot.link_order():
         if name == robot.root:

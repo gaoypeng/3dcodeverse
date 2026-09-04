@@ -120,9 +120,31 @@ def test_joint_sweep_tool_offline(tmp_path, monkeypatch):
     monkeypatch.setattr(ts, "render_poses", fake_render_poses)
     obs = get_tool("joint_sweep").call(ctx, {"joints": ["hinge"], "n_samples": 5})
     assert obs.ok and obs.numbers["max_penetration_m"] == 0.0
+    assert obs.text.startswith("JOINT SWEEP: PASS")
     assert rendered == [["rest", "hinge@upper"]] and obs.images[0].endswith(ARTICULATION_SHEET_NAME)  # lower=0 dedupes into rest
     obs = get_tool("joint_sweep").call(ctx, {})
     assert rendered[-1] is None          # empty joints = the full sheet (render_poses default)
+
+
+def test_joint_sweep_penetration_is_a_verdict_not_an_mcp_error(tmp_path, monkeypatch):
+    """A sweep that finds a penetration RAN: ``failed`` stays False (63% of 1404 recorded
+    joint_sweep calls answered FAIL, and each one reported as an MCP error bought a retry
+    at ~117k prompt tokens), and the FAIL verdict leads the text."""
+    import codeverse.spatial.tools as ts
+    from codeverse.spatial.registry import ToolContext, get_tool
+    from codeverse.workspace import Workspace
+    from tests.urdf_joints.conftest import write_prims_robot
+
+    ws = Workspace(tmp_path / "ws").create()
+    write_prims_robot(ws.artifacts / "robot.urdf", axis_z=+1)   # the door swings into the body
+    monkeypatch.setattr(ts, "render_poses", lambda robot, out_dir, poses=None, **kw: [
+        Image.new("RGB", (8, 8), "gray").save(out_dir / ARTICULATION_SHEET_NAME)])
+    ctx = ToolContext(workspace=ws, language="urdf_blender", track="articulated_object")
+    obs = get_tool("joint_sweep").call(ctx, {})
+    assert not obs.ok and not obs.failed
+    assert obs.text.startswith("JOINT SWEEP: FAIL — penetration ") and "tolerance" in obs.text
+    assert "pose sweep:" in obs.text                     # the detail the agent acts on is still there
+    assert obs.numbers["max_penetration_m"] > 0.1
 
 
 def test_robot_named_like_a_link_keeps_frame_and_placement(tmp_path):

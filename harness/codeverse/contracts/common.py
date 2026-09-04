@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -185,3 +185,108 @@ class Backends(BaseModel):
     # flash (calibration 2026-08-23: std 0.03 vs 0.08-0.12) for ~$0.07 per verdict.
     judge: str = "gemini:gemini-3.1-pro-preview"
     captioner: str = "gemini:gemini-3.7-flash"
+
+
+# ------------------------------------------------------------------ joint coupling
+#: |multiplier| below this is a coupling that transmits no motion.  ONE value: the plan
+#: validator used 1e-9 while the URDF loader and lint used 1e-12, so a coupling the
+#: planner was forbidden to write was one the loader accepted.
+MIMIC_MIN_MULTIPLIER = 1e-9
+
+
+class MimicSpec(BaseModel):
+    """One joint as the coupling rules see it, in whatever vocabulary the caller has.
+
+    ``key`` is the caller's canonical name (the plan folds case and underscores, URDF
+    does not); ``name`` is what its messages should print.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    key: str
+    name: str
+    movable: bool
+    target: str | None = None  # key of the joint this one follows; None = drives itself
+    multiplier: float = 1.0
+    offset: float = 0.0
+    lower: float | None = None  # this joint's own limits, when it declares them
+    upper: float | None = None
+
+
+class MimicIssue(BaseModel):
+    """One broken coupling rule.  ``kind`` is what is wrong, ``joint``/``target`` are
+    names as written, ``detail`` carries the joint a cycle closes through."""
+
+    model_config = ConfigDict(frozen=True)
+
+    joint: str
+    kind: Literal["immobile", "zero_multiplier", "self", "unknown_target", "immobile_target",
+                  "cycle", "out_of_range"]
+    target: str
+    detail: str = ""
+
+
+def mimic_issues(specs: Collection[MimicSpec]) -> list[MimicIssue]:
+    """Every rule a ``<mimic>`` has to satisfy, checked once over the whole joint set.
+
+    Three layers reject the same bad couplings — ``ArticulatedPlan._check_mimics``,
+    ``languages/urdf.lint`` and ``spatial.joints_model.load_urdf`` — and they had three
+    copies of the walk that disagreed on the multiplier floor.  The rules live here; each
+    caller renders the issues in its own vocabulary (``ValueError`` / gate finding /
+    ``UrdfError``), picks the first one when it reports only one, and decides what is
+    fatal: ``out_of_range`` is a warning in the lint and ignored by the loader, because
+    the coupling still poses the mechanism — the follower's own limits are what disagree.
+    """
+    order = list(specs)
+    by_key = {s.key: s for s in order}
+    out: list[MimicIssue] = []
+    for s in order:
+        if s.target is None:
+            continue
+        if not s.movable:
+            out.append(MimicIssue(joint=s.name, kind="immobile", target=s.target))
+        if abs(s.multiplier) < MIMIC_MIN_MULTIPLIER:
+            out.append(MimicIssue(joint=s.name, kind="zero_multiplier", target=s.target))
+        if s.target == s.key:
+            out.append(MimicIssue(joint=s.name, kind="self", target=s.name))
+            continue
+        src = by_key.get(s.target)
+        if src is None:
+            out.append(MimicIssue(joint=s.name, kind="unknown_target", target=s.target))
+            continue
+        if not src.movable:
+            out.append(MimicIssue(joint=s.name, kind="immobile_target", target=src.name))
+        reach = _driven_range(s, src)
+        if reach is not None:
+            out.append(MimicIssue(joint=s.name, kind="out_of_range", target=src.name,
+                                  detail=f"[{reach[0]:.4g}, {reach[1]:.4g}]"))
+        seen, cur = {s.key}, src
+        while cur.target is not None:
+            if cur.key in seen:
+                out.append(MimicIssue(joint=s.name, kind="cycle", target=s.target, detail=cur.name))
+                break
+            seen.add(cur.key)
+            nxt = by_key.get(cur.target)
+            if nxt is None:
+                break  # that joint reports its own unknown target on its own turn
+            cur = nxt
+    return out
+
+
+def _driven_range(follower: MimicSpec, driver: MimicSpec) -> tuple[float, float] | None:
+    """Where the coupling actually takes ``follower`` when both declare limits, if that
+    is outside the follower's own — ``None`` when it fits or the limits are unknown.
+
+    Slack is 1 % of the follower's span: the one case in 94 recorded couplings
+    (wave2_lean, a folding brace) overshot 2.248 against 2.2, which is the multiplier and
+    the limit rounded from different numbers rather than a mechanism that jams.
+    """
+    if None in (follower.lower, follower.upper, driver.lower, driver.upper):
+        return None
+    ends = (follower.multiplier * driver.lower + follower.offset,
+            follower.multiplier * driver.upper + follower.offset)
+    lo, hi = min(ends), max(ends)
+    slack = max(1e-6, 0.01 * (follower.upper - follower.lower))
+    if lo < follower.lower - slack or hi > follower.upper + slack:
+        return lo, hi
+    return None

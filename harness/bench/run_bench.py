@@ -169,11 +169,20 @@ def spec_for(battery: Battery, item: BenchPrompt, opts: BenchOptions) -> Spec:
 
 def result_from_record(item: BenchPrompt, rec: RunRecord, minutes: float, ws: Workspace) -> BenchItemResult:
     best = next((r for r in rec.rounds if r.index == rec.best_round), None)
+    # A run whose rounds all lost their verdict still reports a normal status (`plateau`
+    # after three unjudged rounds), so a whole ARM can read as healthy and score nothing —
+    # what a worktree without node_modules did on 2026-09-04: render_glb died, every round
+    # skipped the judge, ten cells came back with score=None and status=plateau.  Say it
+    # where the row is read.
+    unjudged = bool(rec.rounds) and all(r.judgment is None for r in rec.rounds)
+    error = rec.error
+    if unjudged and not error:
+        error = f"no verdict in any of {len(rec.rounds)} round(s) — the judge was skipped every time"
     return BenchItemResult(
         id=item.id, tier=item.tier, category=item.category, score_baseline=rec.baseline_score,
         score_final=rec.final_score, passed=None if best is None or best.judgment is None else best.judgment.passed,
         rounds=len(rec.rounds), cost_usd=rec.total_usage.cost_usd, minutes=round(minutes, 2),
-        status=rec.status.value, errors=rec.error, workspace=str(ws.root),
+        status=rec.status.value, errors=error, workspace=str(ws.root),
         generator=rec.spec.backends.generator, judge=rec.spec.backends.judge,
     )
 

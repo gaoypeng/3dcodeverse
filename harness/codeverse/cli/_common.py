@@ -108,8 +108,10 @@ def print_observation(obs: Any, *, as_json: bool) -> None:
     if as_json:
         console.print_json(obs.model_dump_json())
         return
-    style = "green" if obs.ok else "red"
-    console.print(Panel(obs.text, title=f"[{style}]{'ok' if obs.ok else 'error'}[/{style}] ({obs.duration_ms} ms)", expand=False))
+    # three states, not two: a FAIL verdict is an answer the tool computed, an error is a
+    # tool that could not run (the same split the MCP server reports as is_error)
+    state, style = ("ok", "green") if obs.ok else (("error", "red") if obs.failed else ("FAIL", "yellow"))
+    console.print(Panel(obs.text, title=f"[{style}]{state}[/{style}] ({obs.duration_ms} ms)", expand=False))
     if obs.numbers:
         console.print(kv_table("numbers", obs.numbers))
     for img in obs.images:

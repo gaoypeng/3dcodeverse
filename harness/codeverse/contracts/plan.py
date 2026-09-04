@@ -16,7 +16,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from codeverse.contracts.common import Vec3
+from codeverse.contracts.common import (
+    MimicSpec,
+    Vec3,
+    mimic_issues,
+)
 from codeverse.conventions import to_snake
 
 
@@ -175,6 +179,17 @@ class StaticPlan(BaseModel):
         return sum(p.leaf_count for p in self.parts)
 
 
+class MimicPlan(BaseModel):
+    """This joint is driven by another: ``q = multiplier * q[joint] + offset``.
+
+    A coupled mechanism (umbrella ribs on one runner, a pantograph, a tambour) has ONE
+    input and many moving links.  Declaring the coupling lets the sweep pose it the way
+    it really moves; without it every link is driven independently."""
+
+    joint: str = Field(description="the joint this one follows, by name")
+    multiplier: float = Field(default=1.0, description="q_this = multiplier * q_that + offset")
+    offset: float = Field(default=0.0)
+
 class JointPlan(BaseModel):
     name: str
 
@@ -191,6 +206,7 @@ class JointPlan(BaseModel):
     upper: float = Field(default=0.0)
     rest: float = Field(default=0.0, description="joint value in the authored rest pose")
     motion: str = Field(default="", description="what moving this joint does, one line")
+    mimic: MimicPlan | None = Field(default=None, description="set when this joint is driven by another")
 
     @model_validator(mode="after")
     def _sane(self) -> JointPlan:
@@ -209,7 +225,15 @@ class JointPlan(BaseModel):
             if self.type == "prismatic" and (self.upper - self.lower) > 5.0:
                 raise ValueError(f"joint {self.name}: prismatic range > 5 m is implausible")
         if to_snake(self.parent) == to_snake(self.child):
-            raise ValueError(f"joint {self.name}: parent == child")
+            # name BOTH sides: pydantic truncates the offending value right after the
+            # joint name, so "parent == child" was all the model ever saw, and it rewrote
+            # the same joint through every re-ask (7 runs lost that way, 2026-09-03).
+            same = "" if self.parent == self.child else (
+                f" ('{self.parent}' and '{self.child}' are the same name once normalised)")
+            raise ValueError(
+                f"joint {self.name}: parent and child are both '{self.parent}'{same} — a joint "
+                f"connects TWO different links; name the moving link as child and what it is "
+                f"attached to as parent, or drop the joint if nothing moves")
         return self
 
 
@@ -486,7 +510,34 @@ class ArticulatedPlan(StaticPlan):
                     raise ValueError(f"link {link} is not connected to root {self.root_link} (single-root tree required)")
                 seen.add(cur)
                 cur = parent_of[cur]
+        self._check_mimics()
         return self
+
+    def _check_mimics(self) -> None:
+        """Every declared coupling must name a joint that exists, moves, and does not lead
+        back to the joint that follows it — the rules are ``common.mimic_issues`` so the
+        plan, the lint and the URDF loader cannot drift apart."""
+        by_name = {j.name: j for j in self.joints}
+        issues = mimic_issues([
+            MimicSpec(key=to_snake(j.name), name=j.name, movable=j.type != "fixed",
+                      target=to_snake(j.mimic.joint) if j.mimic else None,
+                      multiplier=j.mimic.multiplier if j.mimic else 1.0)
+            for j in self.joints])
+        for i in issues:
+            follower = by_name.get(i.joint)
+            wanted = follower.mimic.joint if follower is not None and follower.mimic else i.target
+            if i.kind == "out_of_range":
+                continue  # the plan does not reject a coupling for overshooting a limit;
+                          # the lint warns (contracts.common._driven_range says why)
+            raise ValueError({
+                "immobile": f"joint {i.joint}: a fixed joint cannot mimic {wanted}",
+                "zero_multiplier": f"mimic of {wanted}: multiplier 0 means the joint cannot move; use type=fixed",
+                "self": f"joint {i.joint}: mimics itself",
+                "unknown_target": f"joint {i.joint}: mimic joint {wanted} is not a joint in this plan; "
+                                  f"the joints are: {', '.join(sorted(x.name for x in self.joints))}",
+                "immobile_target": f"joint {i.joint}: mimics {i.target}, which is fixed and never moves",
+                "cycle": f"joint {i.joint}: mimic chain loops back through {i.detail}",
+            }[i.kind])
 
 
 class ZonePlan(BaseModel):

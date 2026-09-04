@@ -25,7 +25,10 @@ def pose_samples(robot: Robot, n_random: int = 8, seed: int = 0) -> list[dict[st
     """Deterministic pose set: rest, each joint at lower/mid/upper (others at 0),
     then ``n_random`` seeded random combinations within limits.
     Continuous joints sample 0, ±π/2, π and random in [-π, π]."""
-    movable = robot.movable_joints()
+    # only the degrees of freedom are driven: a mimicking joint follows its source
+    # through fk, so sampling it independently would pose a coupled mechanism in a
+    # state the mechanism cannot reach
+    movable = robot.independent_joints()
     poses: list[dict[str, float]] = [{}]
     for j in movable:
         for v in _joint_values(j):
@@ -64,10 +67,15 @@ def pose_label(robot: Robot, q: dict[str, float]) -> str:
 
 
 def limit_poses(robot: Robot) -> list[tuple[str, dict[str, float]]]:
-    """``rest`` + every movable joint at its lower and upper limit (deduped) —
-    the pose set used for the articulation contact sheet."""
+    """``rest`` + every INPUT joint at its lower and upper limit (deduped) — the pose set
+    behind the articulation contact sheet and ``joint_sweep(joints=...)``.
+
+    Independent joints only, for the same reason as :func:`pose_samples`: ``fk`` resolves a
+    driven joint from the one it follows and ignores a value handed in for it, so a tile
+    labelled ``<driven>@upper`` would render the rest pose under a label that says it moved
+    (an 8-rib umbrella: 16 mislabelled duplicates)."""
     out: list[tuple[str, dict[str, float]]] = [("rest", {})]
-    for j in robot.movable_joints():
+    for j in robot.independent_joints():
         if j.type == "continuous":
             cands = [("half", math.pi / 2)]
         else:

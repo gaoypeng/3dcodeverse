@@ -74,7 +74,8 @@ def test_tools_without_glb(tmp_ws: Workspace) -> None:
     ctx = ToolContext(workspace=tmp_ws, language="blender")
     for name in ("measure", "check_connectivity", "cross_section", "render_views", "isolate"):
         obs = get_tool(name).call(ctx, {"part": "x"} if name == "isolate" else {})
-        assert not obs.ok and "run `build` first" in obs.text, name
+        # a missing artefact IS a failure: the tool could not run at all
+        assert not obs.ok and obs.failed and "run `build` first" in obs.text, name
 
 
 def test_connectivity_and_section_tools(stool_ctx: ToolContext) -> None:
@@ -157,6 +158,49 @@ def test_build_tool_lint_blocks(stool_ctx: ToolContext, monkeypatch: pytest.Monk
     obs = get_tool("build").call(stool_ctx, {})
     assert not obs.ok and obs.text.startswith("LINT FAILED") and "close the bracket" in obs.text
     assert obs.numbers["stage"] == "lint"
+
+
+def test_a_negative_verdict_is_not_a_tool_failure(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``ok`` is the VERDICT, ``failed`` is 'the tool could not run', and only ``failed``
+    reaches the model as an MCP error.  Over 217 recorded gemini-cli sessions the old
+    ``is_error = not ok`` reported 63% of 1404 joint_sweep calls and 23% of 2073 builds as
+    broken calls, and the model retries a broken call at ~117k prompt tokens each.  Both
+    directions here, plus the rule that makes it safe: the FAIL verdict LEADS the text."""
+    import codeverse.spatial.tools as ts
+
+    ws = stool_ctx.workspace
+    ws.write_json(ws.plan_path, _stool_plan_with_missing_backrest())
+    for name, head in (("check_connectivity", "connectivity: FAIL"), ("check_contract", "contract: FAIL")):
+        obs = get_tool(name).call(stool_ctx, {})
+        assert not obs.ok and not obs.failed, name          # the gate ran and answered FAIL
+        assert obs.text.startswith(head), obs.text
+
+    # the other direction: a tool that could not run stays an error
+    obs = get_tool("measure").call(stool_ctx, {"parts": ["Nope"]})           # ToolUsageError
+    assert not obs.ok and obs.failed and "Seat" in obs.text
+    def boom(*_a, **_k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ts, "measure_glb", boom)
+    obs = get_tool("measure").call(stool_ctx, {})
+    assert not obs.ok and obs.failed and "measure failed: RuntimeError: boom" in obs.text
+    monkeypatch.undo()
+
+    _patch_runtime(monkeypatch, _FakeRuntime(build_ok=False))               # code that will not run
+    obs = get_tool("build").call(stool_ctx, {})
+    assert not obs.ok and not obs.failed and obs.text.startswith("BUILD FAILED")
+    _patch_runtime(monkeypatch, _FakeRuntime(lint_errors=True))
+    obs = get_tool("build").call(stool_ctx, {})
+    assert not obs.ok and not obs.failed and obs.text.startswith("LINT FAILED")
+
+
+def test_build_that_leaves_no_readable_glb_is_a_failure(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The runtime reported success and left nothing measurable: the tool could not
+    answer (a real error), and the headline must not read BUILD OK."""
+    _patch_runtime(monkeypatch, _FakeRuntime(glb=stool_ctx.workspace.artifacts / "gone.glb"))
+    obs = get_tool("build").call(stool_ctx, {})
+    assert not obs.ok and obs.failed
+    assert obs.text.startswith("BUILD PRODUCED NO USABLE GLB") and "GLB unreadable" in obs.text
 
 
 def test_build_failure_refuses_stale_glb(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -248,6 +292,18 @@ def test_render_views_cached(stool_ctx: ToolContext, fake_renderer) -> None:
     assert not obs.ok and "shaded" in obs.text and "failed" not in obs.text
 
 
+def test_render_tool_with_no_view_is_a_tool_failure(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A renderer that comes back with nothing left the agent no picture and no verdict:
+    ``failed`` (an MCP error), not an ordinary result whose text happens to say '0 view(s)'."""
+    import codeverse.spatial.render as render
+
+    monkeypatch.setattr(render, "render_glb", lambda *a, **k: RenderSet(views=[], renderer="fake"))
+    for name, args in (("render_views", {}), ("render_sheet", {}), ("isolate", {"part": "Leg_3"})):
+        obs = get_tool(name).call(stool_ctx, args)
+        assert not obs.ok and obs.failed, name
+        assert obs.text.startswith("RENDER PRODUCED NO VIEWS"), name
+
+
 def test_render_modes_match_the_js_rig() -> None:
     """One mode tuple: contracts.RENDER_MODES ↔ runtime_js/render_glb.mjs MODES ↔ the arg schema."""
     import re
@@ -319,15 +375,19 @@ def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pyt
     monkeypatch.setattr(ts, "check_shaders", fake_check_shaders)
     monkeypatch.setattr(ts, "probe_scene", fake_probe_scene)
     obs = get_tool("shader_probe").call(stool_ctx, {})
-    assert not obs.ok and "vUv" in obs.text and "declare varying" in obs.text
+    assert not obs.ok and not obs.failed and "vUv" in obs.text and "declare varying" in obs.text
+    assert obs.text.startswith("shader probe: FAIL")        # a shader that will not compile is a verdict
     obs = get_tool("scene_probe").call(stool_ctx, {})
-    # ok = the probe TOOL ran; the failed gate is a result, not a tool error (SceneProbeResult)
-    assert obs.ok and "meshes=12" in obs.text and "boom" in obs.text and obs.numbers["census"]["meshes"] == 12
+    # ok = the gate verdict; failed = the probe TOOL could not run.  The gate fails on
+    # agent-fixable findings here, so the observation is a FAIL, not a tool error
+    assert not obs.ok and not obs.failed
+    assert obs.text.startswith("scene probe: FAIL")
+    assert "meshes=12" in obs.text and "boom" in obs.text and obs.numbers["census"]["meshes"] == 12
     monkeypatch.setattr(ts, "probe_scene", lambda ws, **kw: SceneProbeResult(gate=failed, errors=["driver died"], ok=False))
     obs = get_tool("scene_probe").call(stool_ctx, {})
-    assert not obs.ok and "driver died" in obs.text
+    assert not obs.ok and obs.failed and "driver died" in obs.text
     obs = get_tool("joint_sweep").call(stool_ctx, {})
-    assert not obs.ok and "run `build`" in obs.text          # no robot.urdf in a static workspace
+    assert not obs.ok and obs.failed and "run `build`" in obs.text   # no robot.urdf in a static workspace
 
 
 # --------------------------------------------------------------------------- build without a GLB (scene / graphics)
@@ -382,6 +442,41 @@ def test_build_tool_graphics_reports_frames(tmp_ws: Workspace, monkeypatch: pyte
     monkeypatch.setattr(gl_build, "read_metrics", lambda ws: (stats, bad))
     obs = get_tool("build").call(ctx, {})
     assert not obs.ok and "static image" in obs.text
+
+
+class _GlRuntime(_NoGlbRuntime):
+    """Graphics runtime whose build takes the gl tools' kwargs (times / preview / size)."""
+
+    def build(self, ws, **_kw):
+        return BuildResult(ok=True, language=self.language, glb_path=None, duration_ms=9,
+                           census=self.census, extra_paths=self.extra_paths)
+
+
+def test_gl_tools_lead_with_the_frame_gate_verdict(tmp_ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The shader compiled and the frames rendered, and the ``gl_frames`` gate still failed.
+    All three tools that print an "… OK" headline over that gate (``build`` on a graphics
+    workspace, ``gl_probe``, ``gl_frames``) must put the FAIL verdict ABOVE it — otherwise
+    the only verdict the model reads is "PROBE OK" — and none of them is a tool failure:
+    the code ran, and re-running it blind is exactly the retry this costs money."""
+    import codeverse.languages._gl_common as gl_build  # the one metrics reader
+    from codeverse.spatial.frame_stats import FrameStat, SequenceStats
+
+    ctx = ToolContext(workspace=tmp_ws, language="glsl_shader", track="graphics")
+    _patch_runtime(monkeypatch, _GlRuntime("glsl_shader", {"renderer": "moderngl"}))
+    stats = SequenceStats(frames=[FrameStat(time=0.0, path="f0.png", mean_lum=0.4, std_lum=0.2, pct_black=0.01,
+                                            pct_blown=0.01, colourfulness=0.3, edge_density=0.05)], mean_diff=0.0)
+    bad = GateReport(gate="gl_frames", passed=False, findings=[
+        GateFinding(gate="gl_frames", severity=Severity.ERROR, message="static image", data={"kind": "static"},
+                    fix_hint="animate with u_time")])
+    monkeypatch.setattr(gl_build, "read_metrics", lambda ws: (stats, bad))
+    for name, args, ok_headline in (("build", {}, "BUILD OK"), ("gl_probe", {}, "PROBE OK"),
+                                    ("gl_frames", {"times": [0.0, 1.0]}, "FRAMES OK")):
+        obs = get_tool(name).call(ctx, args)
+        assert not obs.ok and not obs.failed, name
+        assert obs.text.splitlines()[0].startswith("FRAME GATE: FAIL — 1 error(s)"), (name, obs.text)
+        assert "do not re-run blind" in obs.text.splitlines()[0], name
+        assert ok_headline in obs.text and "static image" in obs.text, name
+        assert obs.numbers["gate_errors"] == 1, name
 
 
 def test_load_plan_recognises_graphics_plan(tmp_ws: Workspace) -> None:

@@ -30,7 +30,12 @@ from codeverse.spatial.frame_metrics import frame_summary_text
 from codeverse.spatial.joints_export import ARTICULATION_SHEET_NAME, render_poses
 from codeverse.spatial.joints_model import UrdfError, load_urdf
 from codeverse.spatial.joints_poses import limit_poses, pose_samples
-from codeverse.spatial.joints_sweep import report_numbers, summary_text, sweep_collisions
+from codeverse.spatial.joints_sweep import (
+    SweepReport,
+    report_numbers,
+    summary_text,
+    sweep_collisions,
+)
 from codeverse.spatial.measure import GlbLoadError, measure_glb, measure_summary_table
 from codeverse.spatial.observe import (
     build_failure_lines,
@@ -115,6 +120,20 @@ def _no_glb_summary(ctx: ToolContext, br: BuildResult, language: str) -> tuple[b
     return True, lines, {"census": keep}
 
 
+def _gl_gate_verdict(numbers: dict[str, Any]) -> list[str]:
+    """The FRAME GATE line that goes ABOVE the '… OK' headline, or [] when it passed.
+
+    The shader compiled and the frames rendered, so the gate verdict is the answer and
+    not an error to retry (``Observation.failed`` stays False) — it has to be readable
+    at the top of the text, where the '… OK' headline would otherwise be the only
+    verdict the model sees.  Shared by ``build`` (graphics), ``gl_probe``, ``gl_frames``.
+    """
+    n = int(numbers.get("gate_errors", 0))
+    if not n:
+        return []
+    return [f"FRAME GATE: FAIL — {n} error(s) listed below (the code ran; fix the frames, do not re-run blind)"]
+
+
 #: what `build` says about itself when the gates ride along (docs/COST.md §29): the agent
 #: must not spend two more round trips asking for what the build observation already holds.
 _BUILD_INCLUDES_CHECKS = ("On success it ALSO runs check_connectivity and check_contract and reports them "
@@ -135,8 +154,7 @@ def _folded_checks(ctx: ToolContext, glb: Path, m: Measurement, language: str) -
 
     def fold(name: str, report: GateReport) -> None:
         ws.write_json(ws.gates_dir(ctx.round_index) / f"{name.lower()}_tool.json", report)
-        obs = gate_observation(report, title=f"{name}: {'PASS' if report.passed else 'FAIL'}",
-                               max_findings=_FOLDED_MAX_FINDINGS)
+        obs = gate_observation(report, title=name, max_findings=_FOLDED_MAX_FINDINGS)
         n_err = int(obs.numbers["errors"])
         lines.append(truncate(obs.text, _FOLDED_SECTION_CHARS))
         numbers[f"{name.lower()}_errors"] = n_err
@@ -207,19 +225,25 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     if not br.ok:
         return _build_failed(ctx, br, lint_warns)
     numbers: dict[str, Any] = {"stage": "build", "ok": br.ok, "duration_ms": br.duration_ms}
+    broken = False
     if not br.glb_path and language in _SCENE_LANGS + _GL_LANGS:
         # languages without a GLB deliverable: report the language's own artifacts
         ok, extra_lines, extra_numbers = _no_glb_summary(ctx, br, language)
-        lines = [f"BUILD OK ({br.duration_ms} ms)"] + extra_lines
+        lines = _gl_gate_verdict(extra_numbers) + [f"BUILD OK ({br.duration_ms} ms)"] + extra_lines
         numbers.update(extra_numbers)
         m = None
     else:
         m, table = _measure_after_build(ctx, br)
         ok = m is not None
-        lines = [f"BUILD OK ({br.duration_ms} ms) → {rel_path(br.glb_path, ws.root)}"]
+        # the runtime reported success and left nothing measurable: the tool could not
+        # answer (not a verdict on the code), and the headline must not read BUILD OK
+        broken = m is None
+        lines = [f"BUILD OK ({br.duration_ms} ms) → {rel_path(br.glb_path, ws.root)}" if ok
+                 else f"BUILD PRODUCED NO USABLE GLB ({br.duration_ms} ms): {table}"]
         if br.extra_paths:
             lines.append("extras: " + ", ".join(f"{k}={rel_path(v, ws.root)}" for k, v in br.extra_paths.items()))
-        lines.append(table)
+        if ok:
+            lines.append(table)
     if m is not None:
         numbers.update({"extents_m": list(m.extents), "tri_count": m.tri_count, "n_parts": len(m.parts),
                         "n_islands": m.n_islands, "ground_gap_m": m.ground_gap_m,
@@ -240,7 +264,7 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
         # the head/tail truncation eats the middle of the measurement table, never a gate error
         lines[1:1] = folded
         numbers.update(folded_numbers)
-    return text_observation(lines, ok=ok, numbers=numbers, limit=3000)
+    return text_observation(lines, ok=ok, failed=broken, numbers=numbers, limit=3000)
 
 
 #: the object-GLB toolset (everything that reads artifacts/object.glb): scene and
@@ -443,6 +467,24 @@ class JointSweepArgs(BaseModel):
     n_samples: int = Field(default=8, ge=2, le=32, description="poses per joint across its range")
 
 
+def _sweep_verdict(report: SweepReport) -> tuple[bool, str]:
+    """(passed, headline) of a collision sweep — the ONE place that decides both.
+
+    The headline leads the observation because a sweep that finds a penetration is a
+    RESULT, not a tool error (62% of 1445 recorded joint_sweep calls answered FAIL):
+    without it the model reads 'pose sweep: 12 poses…' and has to infer the verdict.
+    """
+    s = report.summary
+    reasons = []
+    if s.max_penetration_m > report.tol_m:
+        reasons.append(f"penetration {s.max_penetration_m * 1000:.1f} mm > tolerance {report.tol_m * 1000:.1f} mm")
+    if s.floating_links:
+        reasons.append(f"{len(s.floating_links)} floating link(s): {', '.join(s.floating_links[:6])}")
+    if reasons:
+        return False, "JOINT SWEEP: FAIL — " + "; ".join(reasons) + " (the sweep ran; fix the links below)"
+    return True, "JOINT SWEEP: PASS — no penetration beyond tolerance, every link attached"
+
+
 def _poses_for(robot, joints: list[str] | None) -> list[tuple[str, dict[str, float]]] | None:
     """``limit_poses`` narrowed to ``joints`` (rest kept); ``None`` = the full sheet.
 
@@ -477,8 +519,8 @@ def joint_sweep(ctx: ToolContext, args: JointSweepArgs) -> Observation:
         return Observation.error(f"joint_sweep: {e}")
     out_dir = tool_out_dir(ctx, "joints")
     render_poses(robot, out_dir, poses=_poses_for(robot, args.joints or None))
-    ok = report.summary.max_penetration_m <= report.tol_m and not report.summary.floating_links
-    return Observation(ok=ok, text=summary_text(report), numbers=report_numbers(report),
+    ok, headline = _sweep_verdict(report)
+    return Observation(ok=ok, text=f"{headline}\n{summary_text(report)}", numbers=report_numbers(report),
                        images=[str(out_dir / ARTICULATION_SHEET_NAME)])
 
 
@@ -493,10 +535,9 @@ def shader_probe(ctx: ToolContext, args: NoArgs) -> Observation:
       languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
 def scene_probe(ctx: ToolContext, args: NoArgs) -> Observation:
     res = probe_scene(ctx.workspace)
-    # ok = the probe TOOL ran (SceneProbeResult semantics): a gate that fails on
-    # agent-fixable findings stays ok; only harness/driver failures flip it
-    obs = gate_observation(res.gate, title="scene probe")
-    obs.ok = not res.errors
+    # ok = the gate verdict; failed = the probe TOOL could not run (SceneProbeResult
+    # semantics): agent-fixable findings are a FAIL the agent must read, not an error
+    obs = gate_observation(res.gate, title="scene probe", failed=bool(res.errors))
     if res.errors:
         obs.text += "\nerrors:\n" + "\n".join(f"  ! {e[:200]}" for e in res.errors[:10])
     if res.census:
@@ -655,7 +696,7 @@ def gl_probe(ctx: ToolContext, args: GlProbeArgs) -> Observation:
     assert br is not None
     text, numbers = _stats_text(ctx)
     frames = sorted(Path(br.extra_paths["frames"]).glob("f*_t*.png")) if br.extra_paths.get("frames") else []
-    lines = [f"PROBE OK ({br.duration_ms} ms, {br.census.get('renderer', 'GL')}) — frame at t={args.t:g}s", text]
+    lines = _gl_gate_verdict(numbers) + [f"PROBE OK ({br.duration_ms} ms, {br.census.get('renderer', 'GL')}) — frame at t={args.t:g}s", text]
     if warns:
         lines.append("lint warnings:\n" + "\n".join(warns[:_LINT_WARNS_SHOWN]))
     numbers.update({"stage": "probe", "t": args.t, "duration_ms": br.duration_ms})
@@ -682,7 +723,7 @@ def gl_frames(ctx: ToolContext, args: GlFramesArgs) -> Observation:
         dst = out_dir / "sheet.png"
         shutil.copy2(sheet, dst)
         images.append(str(dst))
-    lines = [f"FRAMES OK ({br.duration_ms} ms, {br.census.get('renderer', 'GL')}) — sheet tiles labelled t=<s>; compare them for motion", text]
+    lines = _gl_gate_verdict(numbers) + [f"FRAMES OK ({br.duration_ms} ms, {br.census.get('renderer', 'GL')}) — sheet tiles labelled t=<s>; compare them for motion", text]
     if warns:
         lines.append("lint warnings:\n" + "\n".join(warns[:_LINT_WARNS_SHOWN]))
     numbers.update({"stage": "frames", "times": args.times, "duration_ms": br.duration_ms, "sheet": rel_path(images[0], ctx.workspace.root) if images else ""})

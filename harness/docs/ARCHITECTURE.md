@@ -354,6 +354,19 @@ server (name `3dcv`) for the vendor CLIs, (c) a native tool schema for any embed
 `joint_sweep` (articulated), `shader_probe`, `scene_probe`, `scene_views` (scene),
 `gl_probe`, `gl_frames` (graphics), `texture_pass`, `texture_preview` (object tracks).
 
+An `Observation` carries two different answers: `ok` is the **verdict** and `failed`
+says the tool **could not run** (exception, missing artefact, unusable arguments).
+`Observation.error` builds every failure caught at the `ToolDef.call` boundary; three
+tools set `failed` on an observation they compose themselves; the list of those places
+lives with the field, in `spatial/registry.Observation.error`.  MCP `is_error` is `failed` alone: a
+negative verdict is a result whose text leads with FAIL, because a vendor CLI retries an
+errored call, and over 224 recorded gemini-cli sessions `is_error = not ok` made 62 % of
+1 445 `joint_sweep` calls, 23 % of 2 144 `build`s and ~15 % of the connectivity/contract
+calls look broken (a mean 119 k prompt tokens ≈ $0.030 blended a retry — docs/COST.md §30
+for the selector, and for what an errored result costs when it carries an image).
+The MCP server also bounds every payload it hands over (`MAX_TEXT_CHARS`,
+`max_images_for`): no image at all on a `failed` result, one on a FAIL verdict.
+
 ## 6. Judging (protocol v2)
 
 `VlmJudge(rubric, model_id, n_samples)` sends **montages, not loose views**: ≤ 5
@@ -512,7 +525,8 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
   cannot verify caps a run at 0.60 AND fails it, so on the scene track only the spec's
   `must_have` list keeps that priority (the plan's own checklist is `should`).
 * Articulated: candidate selection uses the quick 4-view sheet (not pose views);
-  mimic joints ignored; sweep is O(links² × poses).
+  mimic joints are honoured (the sweep drives independent joints only and resolves
+  followers through the chain); sweep is O(links² × poses).
 * Scenes: fps is a relative cost; camera-in-geometry can miss open-back enclosures.
 * threejs: textures are stripped on GLB export (the texture pass re-adds them as a
   derived pack); `userData.tick` cannot survive export.
@@ -536,7 +550,15 @@ passed, C best ≥ 0.6, D else), acceptance checklists, gate summaries and
 errors, cost, fingerprints, `duplicate_of`; `--pack` tars with byte-range locators.
 `flywheel pairs` emits preference pairs (round i < j by judge Δ ≥ τ) and round-level
 repair pairs (in-session trajectory mining died with the api-agent, 2026-08-28 —
-vendor CLIs log raw stdout, not structured tool turns); `flywheel caption` adds
+vendor CLIs log raw stdout, not structured tool turns); `flywheel refine` emits the loop's OWN transitions — one row per (round i → round
+i+1) where the harness asked for a change, carrying what condemned the round, the
+instructions written in response, both code snapshots and whether the score moved
+(the row is `flywheel/refine.RefineTransition`; INTERFACES has the fields and the
+drop reasons).  That is the supervision the harness produces that a
+one-shot corpus cannot: what a failing artefact looked like, what was wrong with it
+in the harness's own words, and what the fix changed.  `toolkits/llamafactory/`
+turns those rows into training files; the harness writes the measurement, not the
+trainer's format.  `flywheel caption` adds
 {detailed, instruction, factory} captions (image-grounded, brand-free, `--out` for
 side-car mode); `flywheel gallery` is an alias of `3dcv gallery build --embed`
 (the flywheel package has no renderer of its own).

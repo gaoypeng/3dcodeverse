@@ -105,6 +105,7 @@ def text_observation(
     lines: Sequence[str] | str,
     *,
     ok: bool = True,
+    failed: bool = False,
     numbers: dict[str, Any] | None = None,
     images: Sequence[str | Path] = (),
     limit: int = MAX_TEXT,
@@ -114,10 +115,12 @@ def text_observation(
     The plain-text counterpart of :func:`gate_observation` / :func:`render_observation`
     — every tool that assembles its own report (build, gl_probe, gl_frames,
     texture_pass, …) goes through here so truncation and the image budget are
-    applied exactly once, in one place.
+    applied exactly once, in one place.  ``ok=False`` is a verdict (LINT/BUILD
+    FAILED is the answer, and the text says so first); ``failed`` is only for a
+    tool that could not run.
     """
     body = lines if isinstance(lines, str) else "\n".join(str(x) for x in lines)
-    return Observation(ok=ok, text=truncate(body, limit), numbers=dict(numbers or {}),
+    return Observation(ok=ok, failed=failed, text=truncate(body, limit), numbers=dict(numbers or {}),
                        images=image_budget([str(i) for i in images]))
 
 
@@ -167,12 +170,20 @@ def build_failure_lines(br: BuildResult, root: Path, lint_warns: Sequence[str], 
     return lines
 
 
-def gate_observation(report: GateReport, *, title: str = "", max_findings: int = 20, images: Iterable[str] = ()) -> Observation:
-    """Errors first, each with its fix hint; counts in ``numbers``."""
+def gate_observation(report: GateReport, *, title: str = "", max_findings: int = 20,
+                     images: Iterable[str] = (), failed: bool = False) -> Observation:
+    """Errors first, each with its fix hint; counts in ``numbers``.
+
+    The verdict leads the text for every gate, ``title`` or not: a failing gate is a
+    result, not a tool error (``Observation.failed`` stays False), so PASS/FAIL is all
+    the model has to go on.  ``title`` names the gate, never the verdict.  ``failed`` is
+    for the one caller whose gate report can also mean the tool did not run (the scene
+    probe driver dying); it forces ``ok=False``, because a call that failed has no verdict.
+    """
     findings = sorted(report.findings, key=lambda f: _SEV_ORDER.get(f.severity, 3))
     n_err = sum(1 for f in findings if f.severity == Severity.ERROR)
     n_warn = sum(1 for f in findings if f.severity == Severity.WARN)
-    head = title or f"{report.gate}: {'PASS' if report.passed else 'FAIL'}"
+    head = f"{title or report.gate}: {'PASS' if report.passed else 'FAIL'}"
     lines = [f"{head} — {n_err} error(s), {n_warn} warning(s)"]
     for f in findings[:max_findings]:
         tgt = f" [{f.target}]" if f.target else ""
@@ -185,17 +196,39 @@ def gate_observation(report: GateReport, *, title: str = "", max_findings: int =
     for f in findings:
         if f.severity == Severity.ERROR and f.data:
             numbers.setdefault("error_data", {})[f.target or f.message[:40]] = f.data
-    return Observation(ok=report.passed, text=truncate("\n".join(lines)), numbers=numbers, images=list(images))
+    return Observation(ok=report.passed and not failed, failed=failed,
+                       text=truncate("\n".join(lines)), numbers=numbers, images=list(images))
 
 
 def render_observation(rs: RenderSet, root: Path, *, note: str = "", max_individual: int = 4) -> Observation:
-    """Contact sheet first, individual views when few; text lists views + cameras."""
+    """Contact sheet first, individual views when few; text lists views + cameras.
+
+    The negative outcomes are NOT one answer.  **Console errors** are a verdict
+    (``ok=False``, ``failed=False``) whether or not any view came back: the scene ran
+    far enough to log them and the agent fixes them in ``src/`` — a scene that fails to
+    boot returns an empty RenderSet whose ``console_errors`` say why (``render_scene``),
+    and reporting that as a broken call would buy a blind retry of the very thing that
+    just explained itself.  **No views and nothing logged** is a failure
+    (``failed=True``): the tool's product is pictures, it has none and no reason, and
+    nothing the agent edits changes that.  Either way the verdict leads the text, since
+    a negative verdict now only reaches the model as text.
+    """
     images: list[str] = []
     if rs.contact_sheet:
         images.append(rs.contact_sheet)
     if len(rs.views) <= max_individual:
         images.extend(v.path for v in rs.views)
-    lines = [note] if note else []
+    lines: list[str] = []
+    if rs.console_errors:
+        lines.append(f"RENDER: FAIL — {len(rs.console_errors)} console error(s)"
+                     + (" and no view rendered; the errors below say why" if not rs.views
+                        else "; the views below rendered anyway"))
+    elif not rs.views:
+        lines.append("RENDER PRODUCED NO VIEWS" + (f" ({rs.renderer})" if rs.renderer else "")
+                     + " — nothing to look at and nothing logged: the renderer failed, "
+                       "there is no finding here to fix in src/")
+    if note:
+        lines.append(note)
     lines.append(f"{len(rs.views)} view(s)" + (f" via {rs.renderer}" if rs.renderer else "") + (", contact sheet first" if rs.contact_sheet else ""))
     for v in rs.views:
         cam = ""
@@ -215,5 +248,6 @@ def render_observation(rs: RenderSet, root: Path, *, note: str = "", max_individ
         numbers["fps"] = rs.fps
     if rs.console_errors:
         numbers["console_errors"] = len(rs.console_errors)
-    return Observation(ok=not rs.console_errors, text=truncate("\n".join(lines)), numbers=numbers,
-                       images=image_budget(images))
+    return Observation(ok=bool(rs.views) and not rs.console_errors,
+                       failed=not rs.views and not rs.console_errors,
+                       text=truncate("\n".join(lines)), numbers=numbers, images=image_budget(images))

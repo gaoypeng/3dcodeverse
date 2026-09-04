@@ -566,6 +566,13 @@ MAX_QUALITY_REASKS = 1
 #: a plan whose boxes / pivots / ranges contradict each other (tracks/plan_checks.py) is
 #: re-asked with the numbers; after this many it ships anyway and the joint sweep decides
 MAX_GEOMETRY_REASKS = 2
+#: a validation failure whose plan is DEGENERATE (joints naming links the plan never lists)
+#: is answered by re-sampling from the original prompt instead of editing the broken answer
+#: in context; at most this many times per plan.  Measured 2026-09-02: 3-4 % of plan calls
+#: end this way, and both in-context re-asks reproduce the same broken plan verbatim.
+MAX_PLAN_RESTARTS = 1
+#: kill-switch for that restart (default ON, mirrors CV3D_AXIS_REPAIR)
+PLAN_RESTART_ENV = "CV3D_PLAN_RESTART"
 #: ``CV3D_PLAN_GEOMETRY=1`` turns the geometry re-ask ON (registered in
 #: tracks/plan_features.LIVE_SWITCHES).  OFF by default since the 2026-08-28 A/B
 #: (compare_art_v4 pf vs pf0, n = 14): score Δ +0.064 [−0.188, +0.315], wins 6/6/2,
@@ -655,16 +662,93 @@ def _schema_echo(raw: dict[str, Any]) -> str:
     return ", ".join(bad[:6])
 
 
+def missing_link_names(raw: Any) -> list[str]:
+    """Link names the joints reference that ``parts`` does not define (snake-compared).
+
+    The one failure class measured on 200 plan calls (2026-09-02, both trees, 3-4 %): the
+    planner writes ONE top-level part and hangs every joint off links it never lists, then
+    reproduces that answer through both in-context re-asks."""
+    if not isinstance(raw, dict):
+        return []
+    parts = raw.get("parts")
+    joints = raw.get("joints")
+    if not isinstance(parts, list) or not isinstance(joints, list):
+        return []
+    known = {to_snake(str(p.get("name", ""))) for p in parts if isinstance(p, dict)}
+    known |= {to_snake(str(c.get("name", ""))) for p in parts if isinstance(p, dict)
+              for c in (p.get("children") or []) if isinstance(c, dict)}
+    missing: list[str] = []
+    for j in joints:
+        if not isinstance(j, dict):
+            continue
+        for side in ("parent", "child"):
+            name = str(j.get(side, "")).strip()
+            if name and to_snake(name) not in known and name not in missing:
+                missing.append(name)
+    return missing
+
+
+def restart_note(raw: Any, missing: list[str], budget: PlanBudget) -> str:
+    """The user turn that replaces the whole conversation when a plan comes back degenerate."""
+    n_parts = len(raw.get("parts") or []) if isinstance(raw, dict) else 0
+    return (
+        "\n\nYour previous attempt listed only "
+        f"{n_parts} top-level part(s) and then referenced links it never defined: "
+        f"{', '.join(missing[:10])}. Start again from this request. Rules that answer is missing:\n"
+        f"- `parts` must contain EVERY link a joint names, each with its own name, bbox and material "
+        f"(about {budget.target_parts} parts for this request).\n"
+        "- `joints[].parent` and `joints[].child` must be spelled exactly like those part names.\n"
+        "- Nothing that a joint moves may live in `children`; sub-parts are rigid detail only."
+    )
+
+
+def restart_enabled() -> bool:
+    """Kill switch for the degenerate-plan restart, ON by default (docs/COST.md §30)."""
+    from codeverse.config import env_flag  # ONE flag vocabulary (review-3 S4)
+
+    return env_flag(PLAN_RESTART_ENV, True)
+
+
+#: an invalid plan attempt is written here, so a run that DIES at the plan stage still says
+#: what the model wrote.  Pydantic truncates the offending value in its message, so the
+#: event log alone cannot answer "what did it actually write?" — the question every
+#: plan-stage failure class starts from (docs/PAPER_WRITING.md §5.1).
+INVALID_PLAN_DIR = "stages/plan/invalid"
+#: bound per file: a plan is a few kB; anything larger is a runaway answer and the head of
+#: it is what says so
+MAX_INVALID_PLAN_BYTES = 200_000
+
+
+def _record_invalid(ws: Workspace, attempt: int, raw: Any, text: str) -> None:
+    """Write the rejected answer beside the run.  Never raises: this is a diagnostic."""
+    try:
+        body = json.dumps(raw, indent=1, default=str) if isinstance(raw, dict) else (text or "")
+        out = ws.root / INVALID_PLAN_DIR
+        out.mkdir(parents=True, exist_ok=True)
+        (out / f"attempt{attempt:02d}.json").write_text(body[:MAX_INVALID_PLAN_BYTES])
+    except (OSError, TypeError, ValueError) as e:  # noqa: BLE001 — a diagnostic never fails a run
+        log.debug("could not record the invalid plan attempt: %s", e)
+
+
+def degenerate_plan(raw: Any, budget: PlanBudget) -> bool:
+    """A plan too small to be an attempt at this request: a third of the floor or less.
+
+    The quality complaint owns everything above that line — this is only the collapsed
+    answer (usually ONE top-level part) that the in-context re-ask reproduces instead of
+    fixing, which is why it is also the restart's trigger."""
+    parts = raw.get("parts") if isinstance(raw, dict) else None
+    return isinstance(parts, list) and len(parts) <= max(2, budget.min_parts // 3)
+
+
 def _thin_plan_note(raw: Any, budget: PlanBudget) -> str:
     """A second line for the validation re-ask when the invalid plan is also far too small.
 
     compare_art_v4_pf0 (2026-08-28): flash answered an architect-lamp brief with ONE part
     ("base") and a joint naming a link it never listed, three times in a row — the re-ask
     only echoed the unknown-link error, so the model kept fixing the wrong thing."""
-    parts = raw.get("parts") if isinstance(raw, dict) else None
-    # only a degenerate plan (a third of the floor or less) — the quality complaint owns the rest
-    if not isinstance(parts, list) or len(parts) > max(2, budget.min_parts // 3):
+    if not degenerate_plan(raw, budget):
         return ""
+    parts = raw.get("parts")
     return (f"\nAlso: this plan lists only {len(parts)} part(s) but the request needs about {budget.target_parts} "
             f"({budget.reason}). Put EVERY link a joint references under `parts` with its own bbox.")
 
@@ -770,14 +854,16 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     user = build_user_prompt(spec, brief=brief, budget=budget, unit=unit)
     images = [ImagePart(path=r.path, label=f"{r.role}: {r.note}".strip(": ")) for r in spec.references]
     messages = [ChatMessage.user(user, images=images or None)]
+    base_messages = list(messages)
     schema = plan_model.model_json_schema()
     last_error = ""
-    invalid = requeried = grown = 0
+    invalid = requeried = grown = restarts = 0
     tokens = plan_tokens(budget, max_output_tokens)
     thinking = "medium"
     wait_scale = 1.0
     geo_reasked = 0
-    for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_GEOMETRY_REASKS):
+    for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_GEOMETRY_REASKS
+                          + MAX_PLAN_RESTARTS):
         req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=temperature,
                           thinking=thinking, max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
                           max_wait_s=plan_wait_s(tokens, guard, scale=wait_scale))
@@ -813,9 +899,35 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
             result = plan_model.model_validate(raw)
         except (ValidationError, ValueError) as e:
             last_error = str(e)[:4000]
-            invalid += 1
+            _record_invalid(ws, attempt, raw, resp.text)
             if events is not None:
                 events.emit("plan.invalid", attempt=attempt, error=last_error[:500])
+            missing = missing_link_names(raw)
+            # The measured class is BOTH conditions: a collapsed plan (one top-level part)
+            # whose joints name links it never listed.  A full plan with one misspelled
+            # link is the re-ask's job — restarting throws away parts that were right.
+            if (missing and degenerate_plan(raw, budget)
+                    and restarts < MAX_PLAN_RESTARTS and restart_enabled()):
+                # Editing a degenerate answer in context reproduces it: the model reads its
+                # own one-part plan and returns it again (measured, both re-asks, 2026-09-02).
+                # Re-sample from the original request instead, with the rule it broke.  This
+                # replaces the conversation rather than extending it, so it spends an
+                # ATTEMPT, not one of the two re-ask slots the next invalid answer needs.
+                restarts += 1
+                if events is not None:
+                    events.emit("plan.restart", attempt=attempt, n_parts=len(raw.get("parts") or []),
+                                missing=missing[:10])
+                # rebuilt from the ORIGINAL request, so a compact-answer note an earlier
+                # truncation retry added is rebuilt with it: this attempt keeps that
+                # retry's smaller `tokens` and thinking="off", and dropping the note
+                # while keeping the budget asks for the answer that did not fit.
+                note = TRUNCATION_NOTE.format(tokens=tokens) if thinking == "off" else ""
+                messages = base_messages[:-1] + [
+                    ChatMessage.user(base_messages[-1].text + restart_note(raw, missing, budget) + note,
+                                     images=images or None),
+                ]
+                continue
+            invalid += 1
             if invalid > MAX_VALIDATION_REASKS:
                 break
             messages = messages + [
@@ -858,7 +970,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
             stats = (event_stats or default_event_stats)(result)
             events.emit("plan.done", model=model_id, **stats,
                         cost_usd=round(usage.cost_usd, 4), prompt_hash=prompt_hash(system), attempt=attempt,
-                        brief=brief is not None, quality_reasks=requeried, **budget.as_dict())
+                        brief=brief is not None, quality_reasks=requeried, restarts=restarts, **budget.as_dict())
         return result, usage
     raise PlanningError(f"plan did not validate after re-ask: {last_error}", usage)
 
@@ -1010,6 +1122,9 @@ def normalise_names[P: BaseModel](plan_obj: P) -> P:
     return plan_obj
 
 
-__all__ = ["MAX_GEOMETRY_REASKS", "articulation_acceptance", "PLAN_GEOMETRY_ENV", "geometry_check_enabled", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS", "PLAN_TOKENS_MAX", "PlanningError", "plan",
-           "plan_tokens", "plan_with_usage", "plan_example", "ensure_acceptance", "add_acceptance_item",
-           "default_event_stats", "normalise_names", "build_system_prompt", "build_user_prompt"]
+__all__ = ["MAX_GEOMETRY_REASKS", "MAX_PLAN_RESTARTS", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS",
+           "PLAN_GEOMETRY_ENV", "PLAN_RESTART_ENV", "PLAN_TOKENS_MAX", "PlanningError", "add_acceptance_item",
+           "articulation_acceptance", "build_system_prompt", "build_user_prompt", "default_event_stats",
+           "ensure_acceptance", "geometry_check_enabled", "missing_link_names", "normalise_names", "plan",
+           "degenerate_plan", "plan_example", "plan_tokens", "plan_with_usage", "restart_enabled",
+           "restart_note"]

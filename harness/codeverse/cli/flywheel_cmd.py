@@ -11,6 +11,7 @@ from rich.markup import escape
 
 from codeverse.cli import _common as C
 from codeverse.cli._common import console, kv_table, ok, warn
+from codeverse.flywheel.pairs import MIN_PREFERENCE_DELTA
 
 flywheel_app = typer.Typer(no_args_is_help=True)
 
@@ -68,13 +69,27 @@ def export_cmd(
 def pairs_cmd(
     runs_dir: Annotated[Path, typer.Argument()],
     out_jsonl: Annotated[Path, typer.Argument()],
-    min_delta: Annotated[float, typer.Option("--min-delta")] = 0.05,
+    min_delta: Annotated[float, typer.Option("--min-delta")] = MIN_PREFERENCE_DELTA,
 ) -> None:
     """Preference / repair (round + in-session) / cross-backend pairs → JSONL."""
     from codeverse.flywheel.pairs import build_pairs
 
     n = build_pairs(runs_dir, out_jsonl, min_delta=min_delta)
     ok(f"{n} pairs → {out_jsonl}")
+
+
+@flywheel_app.command("refine")
+def refine_cmd(
+    runs_dir: Annotated[Path, typer.Argument()],
+    out_jsonl: Annotated[Path, typer.Argument()],
+    with_code: Annotated[bool, typer.Option("--with-code", help="inline the changed files, so a "
+                                            "format converter needs no access to the runs")] = False,
+) -> None:
+    """Refine rounds as transitions (brief → diff → score delta) → JSONL."""
+    from codeverse.flywheel.refine import build_refine
+
+    n, drops = build_refine(runs_dir, out_jsonl, with_code=with_code)
+    ok(f"{n} transitions → {out_jsonl}" + (f"; not exported: {dict(drops)}" if drops else ""))
 
 
 @flywheel_app.command("caption")

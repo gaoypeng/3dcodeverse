@@ -86,6 +86,90 @@ def test_git_tree_at_commit(fake_run):
         _git.read_tree_at(ws, "deadbeef")
 
 
+def test_a_planted_diff_driver_never_runs(fake_run, tmp_path):
+    """``.git/config`` and ``.gitattributes`` in a run workspace were writable by the
+    agent, and a git diff driver is a program git RUNS.
+
+    ``--no-ext-diff`` does not cover textconv: with only that flag, a ``.gitattributes``
+    entry ``*.bin diff=evil`` plus ``[diff "evil"] textconv = sh -c …`` executes the
+    command while the exporter merely reads the repository (reproduced on git 2.34).
+    ``-c`` cannot unset a LOCAL named driver, so the flag is the fix, not the config.
+    """
+    ws, _rec = fake_run
+    fired = tmp_path / "fired"
+    payload = f"sh -c 'echo pwned >> {fired}; cat'"
+    (ws.src / "blob.bin").write_bytes(b"\x00\x01before\n")
+    before = ws.commit("binary before")
+    (ws.src / "blob.bin").write_bytes(b"\x00\x01after\n")
+    after = ws.commit("binary after")
+    # planted AFTER the last commit: ws.commit() sanitises .git/config on the way past
+    (ws.root / ".gitattributes").write_text("*.bin diff=evil\n*.py diff=evil\n")
+    for key in ("textconv", "command"):
+        ws._git("config", "--local", f"diff.evil.{key}", payload)
+    ws._git("config", "--local", "diff.external", payload)
+
+    text, _total, _truncated = _git.diff_between(ws, before, after)
+    files = _git.changed_files_between(ws, before, after)
+
+    assert not fired.exists(), f"a planted diff driver ran: {fired.read_text()!r}"
+    assert files == ["src/blob.bin"] and "src/blob.bin" in text
+
+
+def test_a_symlink_is_not_exported_as_a_file_of_its_target(fake_run) -> None:
+    """``git archive`` skipped symlinks (a tar member, not a file); ``ls-tree`` lists one
+    as a blob whose content IS the link target, so ``src/link.py -> model.py`` came back
+    as a one-line file saying ``model.py`` — and with ``--with-code`` that goes into a
+    training sample."""
+    from codeverse.flywheel._git import read_tree_at
+
+    ws, _rec = fake_run
+    (ws.src / "model.py").write_text("import bpy\n")
+    (ws.src / "link.py").symlink_to("model.py")
+    commit = ws.commit("with a symlink")
+
+    tree = read_tree_at(ws, commit)
+    assert "src/model.py" in tree
+    assert "src/link.py" not in tree, "a symlink is not a file the agent wrote"
+
+
+def test_a_planted_smudge_filter_never_runs(fake_run, tmp_path):
+    """The same window, the other content-rendering command: ``git archive`` renders
+    blobs through ``convert_to_working_tree``, so a planted ``filter.<name>.smudge``
+    RUNS — and archive has no ``--no-filters``, while ``-c core.attributesFile`` only
+    silences the GLOBAL attributes file.  ``read_tree_at`` therefore reads the object
+    database directly (``ls-tree`` + ``cat-file --batch``), which applies no filter.
+
+    Planted with ``.git/info/attributes`` — no commit needed, nothing the harness
+    sanitises on the read path."""
+    ws, _rec = fake_run
+    fired = tmp_path / "smudged"
+    (ws.src / "model.py").write_text("# real content\n")
+    commit = ws.commit("content")
+    (ws.root / ".git" / "info").mkdir(parents=True, exist_ok=True)
+    (ws.root / ".git" / "info" / "attributes").write_text("* filter=evil\n")
+    (ws.root / ".gitattributes").write_text("* filter=evil\n")
+    ws._git("config", "--local", "filter.evil.smudge", f"sh -c 'echo pwned >> {fired}; cat'")
+    ws._git("config", "--local", "filter.evil.required", "false")
+
+    files = _git.read_tree_at(ws, commit)
+
+    assert not fired.exists(), f"a planted smudge filter ran: {fired.read_text()!r}"
+    assert files["src/model.py"] == b"# real content\n"  # the raw blob, unfiltered
+
+
+def test_diff_between_refuses_a_sha_the_repo_does_not_have(fake_run):
+    """The recorded round shas are the only usable handles, and one the repository no
+    longer holds must raise rather than diff against an empty tree."""
+    ws, rec = fake_run
+    good = rec.rounds[1].commit
+    with pytest.raises(_git.GitReadError):
+        _git.diff_between(ws, "0" * 40, good)
+    with pytest.raises(_git.GitReadError):
+        _git.diff_between(ws, good, "0" * 40)
+    with pytest.raises(_git.GitReadError):
+        _git.changed_files_between(ws, good, "0" * 40)
+
+
 # --------------------------------------------------------------------------- export + pack
 
 
