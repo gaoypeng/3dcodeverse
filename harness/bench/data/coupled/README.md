@@ -44,16 +44,22 @@ the battery, and nothing else.  So making the coupling a plan field is not teach
 model a concept it lacks; it is turning something it volunteers only in the obvious cases
 into a question it has to answer every time.
 
-**What this does not show.**  Whether the poses the sampler now avoids were ever the
-reason a mechanism scored badly: the `joint_sweep` gate's failure rate is not detectably
-different between the arms at n = 10 (5/10 vs 4/10, Wilson 0.24–0.76 vs 0.17–0.69; 26 vs
-23 ERROR findings) — which is not the same as "the same rate".  The gate finds overlaps
-in reachable poses just as it found them in unreachable ones.  The rows in this directory
-carry score / cost / status only; the mechanical counts above were read from the two arms'
-`artifacts/robot.urdf` files, which are not in the tree.
+**Why the gate rate did not move, answered.**  In the `mimic` arm every sampled pose is
+reachable by construction: eight of the ten models have exactly ONE free joint, so their
+poses lie on a one-dimensional path, and the other two add a real second freedom (the
+pram's wheel spins, the mirror's tilt).  Every overlap the gate reports there is therefore
+an overlap the mechanism can actually reach.  Over both arms' 20 runs the gate raised **49
+ERROR findings across 47 DISTINCT link pairs** — not one pair repeating — at a median
+penetration of **5.8 mm** (max 16.7) against a 1 mm tolerance, and some are already
+present at rest: `base_frame|screw_slider` on the scissor lift overlaps in 3 sampled poses,
+worst 8.8 mm, one of them the rest pose.
 
-**Caveat (2026-09-04).**  Both arms were rendered before the fix in
-`spatial/joints_export.robot_scene`: the per-pose GLBs behind the articulation sheet posed
-every `<mimic>` follower at rest, so the judge scored sheets in which the coupled links did
-not move.  The declaring / one-input counts come from the URDFs and stand; the score row and
-the sweep-gate row need a re-run on the corrected export.
+So the coupling support did not reduce gate errors because those errors were not mostly
+artefacts of unreachable poses: **the mechanisms genuinely self-intersect**.  The defect
+these prompts expose is in generation, not in the sampler and not in the gate — which is
+consistent with the scores (median 0.241) and with the judge's leading complaint on the
+scissor lift, "the deck does not rise".
+
+One caveat the construction argument does not remove: reachable means reachable in the
+KINEMATIC MODEL.  A plan with wrong joint limits lets the model reach poses the real
+object could not.
