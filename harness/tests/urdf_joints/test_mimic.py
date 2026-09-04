@@ -316,3 +316,13 @@ def test_the_lint_says_when_only_the_first_instance_of_a_driver_is_followed(tmp_
     warns = [f for f in lint_workspace(ws).findings if "stay independent inputs" in f.message]
     assert len(warns) == 1 and warns[0].target == "rib_a_hinge"
     assert "runner_slide_2" in warns[0].message and warns[0].severity.value == "warn"
+
+
+def test_a_self_mimic_says_it_names_itself(tmp_path):
+    """The loader reported a self-coupling as "chain is a cycle", which is true of the
+    graph and useless to whoever wrote ``<mimic joint="itself">``.  The shared rules have a
+    ``self`` kind; the URDF renderer now has the sentence for it."""
+    text = RIB.replace('<mimic joint="runner_slide" multiplier="4" offset="0"/>',
+                       '<mimic joint="rib_a_hinge" multiplier="1" offset="0"/>')
+    with pytest.raises(UrdfError, match="names itself"):
+        _robot(tmp_path, text)

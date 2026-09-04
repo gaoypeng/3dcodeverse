@@ -1447,12 +1447,9 @@ A second flag, not a threshold.  `Observation.failed` is what the MCP server rep
 `is_error`; `ok` stays the verdict.  `Observation.error` builds every failure caught at the
 `ToolDef.call` boundary (exception, `ToolUnavailable`, `ToolUsageError`, missing or
 unreadable artefact), and three tools set `failed` on a result they compose themselves,
-where the failure is a fact about the result rather than an exception: `build` (the runtime
-reported success and left no readable GLB), `scene_probe` (the probe driver died) and
-`observe.render_observation` (no view AND nothing logged — a render with no picture and no
-reason is not a verdict; console errors ARE one, empty RenderSet or not, because a scene
-that fails to boot returns exactly that and the errors say what to fix).  Those four places
-are the whole list.
+where the failure is a fact about the result rather than an exception.  Which places those
+are is a property of the code, so the list lives there (`spatial/registry.Observation.error`)
+and not in three documents.
 
 Every negative verdict now LEADS its text with `… FAIL` (`gate_observation` for the gates,
 `JOINT SWEEP: FAIL — penetration …`, `FRAME GATE: FAIL — n error(s)`, `RENDER: FAIL — n

@@ -343,6 +343,8 @@ def _mimic_message(issue: MimicIssue, joints: dict[str, Joint]) -> str:
         return f'joint {j}: <mimic joint="{t}"> names no joint; known: {sorted(joints)}'
     if kind == "immobile_target":
         return f"joint {j}: mimics {t!r}, which is {joints[t].type} and never moves"
+    if kind == "self":
+        return f'joint {j}: <mimic joint="{j}"> names itself'
     return f"joint {j}: <mimic> chain is a cycle through {(issue.detail or j)!r}"
 
 

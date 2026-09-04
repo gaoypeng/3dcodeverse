@@ -159,13 +159,10 @@ unless you type `--host` yourself; it never serves a path outside the declared r
                                      [--captions-dir caps/] [--drop-duplicates]
 3dcv flywheel pairs runs/ pairs.jsonl [--min-delta 0.05]
 3dcv flywheel refine runs/ refine.jsonl [--with-code]
-                                     # one row per round i -> i+1 the harness asked to change:
-                                     # gate findings + judge complaint + the refine instructions,
-                                     # before/after commits (--with-code inlines the files),
-                                     # score_before/score_after, outcome improved|regressed|
-                                     # unchanged|unscored, and dropped rows with the reason
-                                     # (no_predecessor / no_commit / predecessor_unjudged / ...).
-                                     # Training formats live in toolkits/llamafactory/, not here.
+                                     # one row per round the harness asked to change; the row
+                                     # schema is codeverse/flywheel/refine.RefineTransition and
+                                     # INTERFACES has the call signatures.  Training formats live
+                                     # in toolkits/llamafactory/, not here.
 3dcv flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
 3dcv flywheel gallery runs/ gallery.html [--title …]        # alias of `3dcv gallery build --embed` (§4)
 3dcv flywheel index runs/ runs_index.sqlite · 3dcv flywheel dedupe dataset/

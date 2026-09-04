@@ -357,10 +357,8 @@ server (name `3dcv`) for the vendor CLIs, (c) a native tool schema for any embed
 An `Observation` carries two different answers: `ok` is the **verdict** and `failed`
 says the tool **could not run** (exception, missing artefact, unusable arguments).
 `Observation.error` builds every failure caught at the `ToolDef.call` boundary; three
-tools set `failed` on an observation they compose themselves, where the failure is a
-fact about the result rather than an exception — `build` (runtime success, no readable
-GLB), `scene_probe` (the probe driver died) and `observe.render_observation` (no view AND
-no console error; with one it is a verdict).  Those four places are the whole list.  MCP `is_error` is `failed` alone: a
+tools set `failed` on an observation they compose themselves; the list of those places
+lives with the field, in `spatial/registry.Observation.error`.  MCP `is_error` is `failed` alone: a
 negative verdict is a result whose text leads with FAIL, because a vendor CLI retries an
 errored call, and over 224 recorded gemini-cli sessions `is_error = not ok` made 62 % of
 1 445 `joint_sweep` calls, 23 % of 2 144 `build`s and ~15 % of the connectivity/contract
@@ -553,14 +551,10 @@ errors, cost, fingerprints, `duplicate_of`; `--pack` tars with byte-range locato
 `flywheel pairs` emits preference pairs (round i < j by judge Δ ≥ τ) and round-level
 repair pairs (in-session trajectory mining died with the api-agent, 2026-08-28 —
 vendor CLIs log raw stdout, not structured tool turns); `flywheel refine` emits the loop's OWN transitions — one row per (round i → round
-i+1) where the harness asked for a change: the failing round's gate findings and
-judge complaint, the refine instructions the harness wrote, both code snapshots (git
-`before`/`after` commits, `--with-code` inlines the files), the score before and
-after, and `outcome` (`improved` when the judge gained ≥ 0.05 — the same threshold
-`flywheel/pairs.py` calls a preference — `regressed` when it lost as much,
-`unchanged` in between, `unscored` when either side has no verdict).  Rows are
-dropped, with the reason recorded, when a predecessor has no commit, no verdict or
-did not build.  That is the supervision the harness produces that a
+i+1) where the harness asked for a change, carrying what condemned the round, the
+instructions written in response, both code snapshots and whether the score moved
+(the row is `flywheel/refine.RefineTransition`; INTERFACES has the fields and the
+drop reasons).  That is the supervision the harness produces that a
 one-shot corpus cannot: what a failing artefact looked like, what was wrong with it
 in the harness's own words, and what the fix changed.  `toolkits/llamafactory/`
 turns those rows into training files; the harness writes the measurement, not the
