@@ -292,6 +292,36 @@ properties of the file):
 **8 of 14 prompts** declared a coupling at all (98 of 176 built URDFs); across those the
 median goes **6 → 3** driven joints, and 24 URDFs are fully one-input.
 
+**A battery built for the question** (`coupled_v1`, ten one-input linkages, 2026-09-04)
+separates what the planner does from what the agent does.  Plan stage alone, 200 calls:
+196 valid plans, **zero** planning losses, **193 declare a coupling**; the strict
+one-input mechanisms collapse to a single degree of freedom and the branching ones (a
+pram's fold hinge driving handle, seat back and two leg pairs) declare 3 of 8.  Then two
+build-and-judge arms, baseline round only, differing by two edits — the `mimic` field
+typed to `None` so the planner cannot fill it, and the paragraph asking for it removed
+from the plan prompt (`bench/data/coupled/`):
+
+| readout | planner may declare | planner may not |
+|---|--:|--:|
+| URDFs declaring a coupling | **10 / 10** | **3 / 10** |
+| left with one degree of freedom | 8 / 10 | 3 / 10 |
+| `joint_sweep` rounds failed | 5 / 10 | 4 / 10 |
+| ERROR findings per round | 2.60 | 2.30 |
+| fixed-judge score (9 pairs) | 0.248 | 0.254, Δ −0.006 [−0.193, +0.181], **unsupported** |
+
+Three things follow.  The **score cannot resolve it** — nine pairs against an A/A band of
+±0.13, exactly as §2 predicts, and the battery was not run for that.  The **mechanical
+difference is structural**.  And the three couplings in the second arm are **the agent's,
+not the planner's**: the field is gone, so it wrote `<mimic>` into `robot.urdf` by hand —
+for the umbrella, the venetian blind and the step ladder, the three most textbook
+mechanisms on the battery, and nothing else.  Making the coupling a plan field is not
+teaching a concept the model lacks; it turns something it volunteers in the obvious cases
+into a question it answers every time.
+
+What this still does not show: the `joint_sweep` gate fails at the same rate in both arms,
+so the poses the sampler now avoids are not demonstrably the ones that were costing
+score.
+
 **What did NOT move: the sweep gate's own failure rate.**  On those eight prompts the
 `joint_sweep` gate fails 30 % of the rounds with couplings declared (11 of 37,
 `wave2_lean`) against 31 % without them (12 of 39, `aa_articulated`; `ab_fewer_turns` 19 %
@@ -445,8 +475,10 @@ data the repo does not carry; they are marked in the caveat column.
   for the prompts or find a judge-free readout for each.
 * **The judge is one model.**  No cross-judge check has been run (it needs a non-Gemini key).
   `judge_prompt_hash` makes the comparison auditable but does not remove the dependence.
-* **The mimic result is mechanical, not scored.**  A battery of coupled mechanisms (say 10
-  prompts, all one-input) would let the pose count and the score be read together.
+* ~~**The mimic result is mechanical, not scored.**~~  Answered 2026-09-04: `coupled_v1`
+  is that battery, and the score still cannot resolve it (9 pairs, Δ −0.006, CI ±0.19).
+  What the battery did produce is the planner/agent split in §5.3 — the agent supplies a
+  coupling for 3 of 10 one-input mechanisms on its own, the planner for 10 of 10.
 * **The static regression in wave 2 is confounded** by the api-agent → gemini-cli change; a
   clean static before/after on one generator has not been run.
 * **The refine corpus has not been trained on.**  112 samples is a probe, not a training set;
