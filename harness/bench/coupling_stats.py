@@ -30,7 +30,12 @@ SUBRUN_DIRS = frozenset({"_cand", "_assets"})
 
 
 def _urdfs(root: Path) -> list[Path]:
-    """Every built ``robot.urdf`` under ``root``, once per file on disk.
+    """The BUILT ``robot.urdf`` of each run under ``root``, once per run.
+
+    A run holds the same file three times — ``src/`` (what the agent wrote),
+    ``artifacts/`` (what the build produced) and ``deliverable/`` (what finalise copied) —
+    so counting files instead of runs multiplies every mechanical number by three.  The
+    artefact is the one the sweep actually posed.
 
     ``recurse_symlinks=True`` + resolve-dedupe for the same reason as
     ``bench/session_stats._sessions``: batteries symlink each other's cells, and a walk
@@ -38,14 +43,23 @@ def _urdfs(root: Path) -> list[Path]:
     how the tree happens to be laid out."""
     seen: dict[Path, Path] = {}
     for p in sorted(root.rglob("robot.urdf", recurse_symlinks=True)):
+        if p.parent.name != "artifacts" or SUBRUN_DIRS & set(p.parts):
+            continue
         seen.setdefault(p.resolve(), p)
     return sorted(seen.values())
 
 
 def _prompt_of(path: Path) -> str:
-    """The battery cell a URDF belongs to (``cells/<prompt>/<arm>/run/...``)."""
+    """The battery cell a URDF belongs to.
+
+    Two layouts: ``ab_plan``/``compare_backends`` write ``cells/<prompt>/<arm>/run/...``
+    and ``bench run`` writes ``runs/<prompt>/...``.  Falling back to the parent directory
+    named every URDF "artifacts"."""
     parts = path.parts
-    return parts[parts.index("cells") + 1] if "cells" in parts else path.parent.name
+    for marker in ("cells", "runs"):
+        if marker in parts:
+            return parts[parts.index(marker) + 1]
+    return path.parent.name
 
 
 def per_prompt(root: Path) -> str:

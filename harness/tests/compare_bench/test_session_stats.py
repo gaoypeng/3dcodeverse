@@ -138,3 +138,26 @@ def test_the_coupling_survey_also_reads_the_gate_that_judges_the_poses(tmp_path:
     g = gate_stats(tmp_path)
     assert g == {"rounds": 2, "sweep_ran": 2, "sweep_failed": 1, "sweep_errors": 1}
     assert "| 2 | 2 | 1 | 1 | 0.50 |" in report([tmp_path])
+
+
+def test_the_coupling_survey_counts_runs_not_copies_of_the_same_urdf(tmp_path: Path) -> None:
+    """A run holds robot.urdf three times — src/ (written), artifacts/ (built) and
+    deliverable/ (finalised) — and `bench run` lays cells out as runs/<id>/, not
+    cells/<id>/.  Counting files tripled every mechanical number and named every prompt
+    "artifacts"."""
+    from bench.coupling_stats import _prompt_of, _urdfs
+
+    urdf = """<?xml version="1.0"?>
+<robot name="rig"><link name="base"/><link name="a"/>
+  <joint name="drive" type="revolute"><parent link="base"/><child link="a"/>
+    <axis xyz="0 0 1"/><limit lower="0" upper="1" effort="1" velocity="1"/></joint>
+</robot>
+"""
+    run = tmp_path / "runs" / "cpl_umbrella"
+    for where in ("src", "artifacts", "deliverable"):
+        (run / where).mkdir(parents=True)
+        (run / where / "robot.urdf").write_text(urdf)
+
+    found = _urdfs(tmp_path)
+    assert [p.parent.name for p in found] == ["artifacts"], "one URDF per run, the built one"
+    assert _prompt_of(found[0]) == "cpl_umbrella"
