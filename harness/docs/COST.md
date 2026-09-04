@@ -1491,10 +1491,11 @@ block and each round's recorded `usage`:
 
 | per generator request | before (`aa_articulated`) | after (`wave2_lean`) |
 |---|--:|--:|
-| sessions / requests | 111 / 2 594 | 102 / 2 722 |
+| sessions with stats / killed before printing | 60 / 102 | 59 / 86 |
+| main-role requests | 2 537 | 2 657 |
 | MCP tool calls reported as errors | 26.6 % (482 / 1 814) | **1.3 %** (25 / 1 863) |
-| cache hit | 68.8 % | **89.2 %** |
-| uncached prompt tokens | 38 390 | **13 945** (−64 %) |
+| cache hit | 69 % | **90 %** |
+| uncached prompt tokens per request | 38 521 | **13 480** (−65 %) |
 | generator $ per round | mean 1.900, median 1.572 | **mean 1.242, median 0.950** (−35 % / −40 %) |
 
 **Correction (2026-09-03), and what it does NOT explain.**  The after column first read

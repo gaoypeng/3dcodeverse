@@ -58,16 +58,35 @@ def test_rates_and_costs_over_two_sessions(tmp_path: Path) -> None:
     assert "| 3.000 |" in report([tmp_path])                 # the median round, not the mean
 
 
-def test_a_dead_session_is_skipped_not_fatal(tmp_path: Path) -> None:
+def test_a_killed_session_is_counted_as_killed_not_as_a_session(tmp_path: Path) -> None:
+    """An empty stdout.json is the CLI dying before it printed its stats.  Counting it as a
+    session makes every per-session number smaller for a reason that has nothing to do with
+    the code under test — 102 of aa_articulated's 162 files are that."""
+    from bench.session_stats import _killed
+
     run = _run(tmp_path, "cell_a", [2.0])
     _session(run, "baseline_r00", tools={"build": (3, 0)}, prompt=100, cached=50, requests=1)
     dead = run / "trajectories" / "refine_r01"
     dead.mkdir(parents=True)
-    (dead / "stdout.json").write_text("")                    # the CLI was killed before it printed
+    (dead / "stdout.json").write_text("")
 
-    assert len(_sessions(tmp_path)) == 2
+    assert len(_sessions(tmp_path)) == 1 and _killed(tmp_path) == 1
     calls, _ = tool_rates(_sessions(tmp_path))
     assert calls == {"build": 3}
+    assert "| 1 | 1 |" in report([tmp_path])                  # sessions | killed
+
+
+def test_a_sub_workspace_is_not_the_battery_cell_above_it(tmp_path: Path) -> None:
+    """A scene asset's own run lives under ``_cand/`` / ``_assets/`` with its own
+    trajectories; ``flywheel.record.find_runs`` skips those and so must this, or one cell's
+    numbers absorb every candidate it rejected."""
+    run = _run(tmp_path, "cell_a", [1.0])
+    _session(run, "baseline_r00", tools={"build": (2, 0)}, prompt=100, cached=50, requests=1)
+    sub = run / "_cand" / "c1" / "run"
+    _session(sub, "baseline_r00", tools={"build": (99, 9)}, prompt=999, cached=0, requests=9)
+
+    calls, failed = tool_rates(_sessions(tmp_path))
+    assert dict(calls) == {"build": 2} and failed["build"] == 0
 
 
 def test_the_coupling_survey_counts_degrees_of_freedom_not_joints(tmp_path: Path) -> None:

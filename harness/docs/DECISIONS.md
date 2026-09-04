@@ -706,8 +706,8 @@ written) that were accepted because the code works that way and the tests pin it
     at n=14, found by reading the recorded tool stats.  **Measured after the fix**
     (`aa_articulated` before, `wave2_lean` after, same battery and config): calls reported
     as errors 26.6 % (482/1 814) → **1.3 %** (25/1 863; the remainder are genuine
-    `Observation.error` cases), cache hit 68.8 % → **89.2 %**, uncached prompt tokens per
-    request 38 390 → **13 945**, generator dollars per round median 1.572 → **0.950**
+    `Observation.error` cases), cache hit 69 % → **90 %**, uncached prompt tokens per
+    main-role request 38 521 → **13 480**, generator dollars per round median 1.572 → **0.950**
     (−40 %).  `bench/session_stats.py` computes both columns from the recorded sessions —
     the first, hand-computed after column (1.4 %, 13 736, $0.967 over "108 sessions") is
     NOT reproduced by it and is withdrawn: no tested mechanism explains its shape (1.87x on

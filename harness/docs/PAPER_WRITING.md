@@ -249,7 +249,7 @@ paper needs from this section:
   verdict; the MCP boundary bounds text characters, image count and encoded image bytes.
 * **The readout** (`bench/session_stats.py aa_articulated wave2_lean`, both columns
   printed by the script): calls reported as errors **26.6 % → 1.3 %**, cache
-  **68.8 % → 89.2 %**, uncached prompt tokens per request **38 390 → 13 945**, generator
+  **69 % → 90 %**, uncached prompt tokens per request **38 521 → 13 480**, generator
   dollars per round median **1.572 → 0.950**.  The residual 1.3 % are genuine
   `Observation.error` cases.  An earlier hand-computed after column (1.4 %, 13 736,
   \$0.967) is **withdrawn**: the script does not reproduce it and no tested mechanism
@@ -420,7 +420,7 @@ data the repo does not carry; they are marked in the caveat column.
 | planner mortality | 4.7 % → 0.7 %, Fisher p = 0.0067, n = 560 calls | `bench/data/plan_stage/restart_{on,off}.jsonl` (in the repo) | plan stage only, both arms same window |
 | tool calls reported as errors | 26.6 % → 1.3 % | `aa_articulated` vs `wave2_lean` stats envelopes | same battery/config, different weather |
 | cache hit | 69 % → 89 % | same | same |
-| uncached tokens per request | 38 390 → 13 945 | same | same |
+| uncached tokens per request | 38 521 → 13 480 (main-role) | same | same |
 | generator $ per round | median 1.572 → 0.950 | round records of both runs | same |
 | base64 amplification | 261 k tokens vs 516 for one 275 kB sheet | measured on a recorded blob + vendor bundle | arithmetic + matching recorded prompt jumps; **no repo script** |
 | token growth in turns | input(t) = 12 364 + 1 822·t; total ∝ n^1.60; dollars ∝ n^1.19–1.34 | 1 063 in-process sessions, 30 401 turns | **no repo script** — the in-process agent, since gemini-cli emits no per-turn usage |
