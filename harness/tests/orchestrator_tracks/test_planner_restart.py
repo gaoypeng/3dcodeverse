@@ -7,6 +7,7 @@ never lists — and both in-context re-asks come back with that same answer."""
 from __future__ import annotations
 
 import copy
+import json
 
 import pytest
 
@@ -119,3 +120,21 @@ def test_a_full_plan_with_one_dangling_link_is_edited_in_context_not_resampled(t
     assert isinstance(p, ArticulatedPlan) and len(model.requests) == 2
     assert len(model.requests[1].messages) == 3  # user + echoed answer + complaint, no restart
     assert "failed validation" in model.requests[1].messages[-1].text
+
+
+def test_a_rejected_plan_is_written_where_a_dead_run_can_be_read(tmp_ws):
+    """A run that dies at the plan stage used to leave nothing but the pydantic message,
+    which truncates the offending value — so "what did the model actually write?", the
+    question every plan-stage failure class starts from, had no answer at all."""
+    from codeverse.tracks.planner import INVALID_PLAN_DIR
+
+    model = FakeChatModel(lambda req: _degenerate())
+    with pytest.raises(PlanningError):
+        plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model,
+             runtime=FakeRuntime(Language.URDF_BLENDER))
+
+    written = sorted((tmp_ws.root / INVALID_PLAN_DIR).glob("attempt*.json"))
+    assert len(written) == 4, [p.name for p in written]      # one per rejected answer
+    first = json.loads(written[0].read_text())
+    assert [p["name"] for p in first["parts"]] == ["Cabinet"]  # the answer, not the error text
+    assert first["joints"][0]["child"] == "Drawer"             # the link it named and never listed

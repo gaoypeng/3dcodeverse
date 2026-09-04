@@ -121,8 +121,11 @@ def run_one(battery, item, backends, label: str, rep: int, provenance: dict[str,
            "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
            "seconds": round(time.time() - started, 1), **(provenance or {}), **_stats(root / "ws")}
     if not ok and keep_failed is not None:
+        # name what it was: a provider block says nothing about the code under test, and a
+        # harvest of validation failures should not have to be filtered by hand
+        kind = "planning" if "PlanningError" in error else "provider"
         keep_failed.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(root), str(keep_failed / f"{label}_{item.id}_r{rep}"))
+        shutil.move(str(root), str(keep_failed / f"{kind}_{item.id}_r{rep}"))
     else:
         shutil.rmtree(root, ignore_errors=True)
     return row

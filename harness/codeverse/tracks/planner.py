@@ -709,6 +709,27 @@ def restart_enabled() -> bool:
     return env_flag(PLAN_RESTART_ENV, True)
 
 
+#: an invalid plan attempt is written here, so a run that DIES at the plan stage still says
+#: what the model wrote.  Pydantic truncates the offending value in its message, so the
+#: event log alone cannot answer "what did it actually write?" — the question every
+#: plan-stage failure class starts from (docs/PAPER_WRITING.md §5.1).
+INVALID_PLAN_DIR = "stages/plan/invalid"
+#: bound per file: a plan is a few kB; anything larger is a runaway answer and the head of
+#: it is what says so
+MAX_INVALID_PLAN_BYTES = 200_000
+
+
+def _record_invalid(ws: Workspace, attempt: int, raw: Any, text: str) -> None:
+    """Write the rejected answer beside the run.  Never raises: this is a diagnostic."""
+    try:
+        body = json.dumps(raw, indent=1, default=str) if isinstance(raw, dict) else (text or "")
+        out = ws.root / INVALID_PLAN_DIR
+        out.mkdir(parents=True, exist_ok=True)
+        (out / f"attempt{attempt:02d}.json").write_text(body[:MAX_INVALID_PLAN_BYTES])
+    except (OSError, TypeError, ValueError) as e:  # noqa: BLE001 — a diagnostic never fails a run
+        log.debug("could not record the invalid plan attempt: %s", e)
+
+
 def degenerate_plan(raw: Any, budget: PlanBudget) -> bool:
     """A plan too small to be an attempt at this request: a third of the floor or less.
 
@@ -878,6 +899,7 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
             result = plan_model.model_validate(raw)
         except (ValidationError, ValueError) as e:
             last_error = str(e)[:4000]
+            _record_invalid(ws, attempt, raw, resp.text)
             if events is not None:
                 events.emit("plan.invalid", attempt=attempt, error=last_error[:500])
             missing = missing_link_names(raw)
