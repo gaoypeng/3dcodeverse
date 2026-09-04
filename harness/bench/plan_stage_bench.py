@@ -96,8 +96,16 @@ def tree_provenance(tree: Path, codeverse_file: str) -> dict[str, str]:
     return out
 
 
-def run_one(battery, item, backends, label: str, rep: int, provenance: dict[str, str] | None = None) -> dict:
-    """One plan-stage call in a throwaway workspace; never raises."""
+def run_one(battery, item, backends, label: str, rep: int, provenance: dict[str, str] | None = None,
+            keep_failed: Path | None = None) -> dict:
+    """One plan-stage call in a throwaway workspace; never raises.
+
+    ``plan_once`` deliberately bypasses ``Track.run``: there is no build, no judge and no
+    run ledger, so the JSONL row IS the record (it carries the call's own ``cost_usd``
+    from the plan events, and the totals are printed at the end).  ``keep_failed`` moves a
+    workspace that produced no plan out of the temp dir instead of deleting it, which is
+    the only way to read what the model actually wrote.
+    """
     from bench.pin_plan import plan_once
     from bench.run_bench import build_spec
 
@@ -112,7 +120,11 @@ def run_one(battery, item, backends, label: str, rep: int, provenance: dict[str,
     row = {"tree": label, "prompt": item.id, "rep": rep, "ok": ok, "error": error,
            "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
            "seconds": round(time.time() - started, 1), **(provenance or {}), **_stats(root / "ws")}
-    shutil.rmtree(root, ignore_errors=True)
+    if not ok and keep_failed is not None:
+        keep_failed.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(root), str(keep_failed / f"{label}_{item.id}_r{rep}"))
+    else:
+        shutil.rmtree(root, ignore_errors=True)
     return row
 
 
@@ -127,6 +139,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ids", default="", help="comma list; default every prompt in the battery")
     ap.add_argument("--planner", default=DEFAULT_PLANNER)
     ap.add_argument("--env", default="", help="comma list of KEY=VALUE applied to this arm")
+    ap.add_argument("--keep-failed", type=Path, default=None,
+                    help="move the workspace of any call that produced no plan here (plan stage "
+                         "only, so they are small) instead of deleting it")
     ns = ap.parse_args(argv)
 
     for kv in (x for x in ns.env.split(",") if x.strip()):
@@ -159,14 +174,18 @@ def main(argv: list[str] | None = None) -> int:
         # imap-style ordering: pool.map yields in submission order, so one slow call holds
         # back every finished row behind it.  Rows are the journal, so they go out as they
         # land instead (resume reads what is on disk, order does not matter).
-        futures = [pool.submit(run_one, battery, item, backends, ns.label, rep, prov) for item, rep in jobs]
+        futures = [pool.submit(run_one, battery, item, backends, ns.label, rep, prov, ns.keep_failed)
+                   for item, rep in jobs]
         for fut in cf.as_completed(futures):
             row = fut.result()
             fh.write(json.dumps(row) + "\n")
             fh.flush()
             print(f"  {row['prompt']:28} r{row['rep']:<3} ok={row['ok']} restart={row['restarts']} {row['error'][:60]}")
     rows = [json.loads(x) for x in ns.out.read_text().splitlines() if x.strip()]
-    print(f"{ns.label}: {sum(1 for r in rows if r['ok'])}/{len(rows)} plans valid")
+    spent = sum(float(r.get("cost_usd") or 0.0) for r in rows)
+    print(f"{ns.label}: {sum(1 for r in rows if r['ok'])}/{len(rows)} plans valid, "
+          f"${spent:.2f} over {len(rows)} calls (the rows are the ledger: plan_once does not "
+          f"open one)")
     return 0
 
 

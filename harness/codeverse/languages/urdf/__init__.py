@@ -258,6 +258,20 @@ def _lint_mimics(joints: list[ET.Element], out: list[GateFinding]) -> None:
         specs.append(MimicSpec(key=jname, name=jname, movable=movable, target=src or None,
                                multiplier=mult, offset=off, lower=lo, upper=hi))
     known = sorted({el.get("name", "") for el in joints if el.get("name")})
+    # An instanced driver emits <driver>_1 .. _n and the skeleton binds followers to _1
+    # only, so _2..n stay independent inputs and the sweep drives them: real for the
+    # mechanism (each instance has its own coupling to declare), silent until now.
+    instanced = {n.rsplit("_", 1)[0] for n in known if n.rsplit("_", 1)[-1].isdigit()}
+    for spec in specs:
+        base = (spec.target or "").rsplit("_", 1)
+        if len(base) == 2 and base[1] == "1" and base[0] in instanced:
+            siblings = sorted(n for n in known if n.startswith(f"{base[0]}_") and n != spec.target)
+            if siblings:
+                out.append(_f(Severity.WARN, f"joint '{spec.name}': follows '{spec.target}' only; "
+                                             f"{', '.join(siblings)} stay independent inputs and the "
+                                             "sweep drives them separately", target=spec.name,
+                              fix="give each instance its own <mimic>, or make the followers "
+                                  "follow one shared driver"))
     for i in mimic_issues(specs):
         j, t = i.joint, i.target
         if i.kind == "immobile":

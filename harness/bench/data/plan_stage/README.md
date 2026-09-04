@@ -13,6 +13,12 @@ is identical.  One row per call: `ok`, the error text, `invalid_reasks`, `restar
 Kept in the repo rather than under `bench/out/` because a paper cites the p-value, and a
 number whose data is not in the tree is not reproducible.
 
+`plan_once` runs the plan stage WITHOUT `Track.run`, so there is no run ledger and the
+workspace is deleted: these rows are the record, and each carries its own `cost_usd` (the
+script prints the total).  `--keep-failed DIR` keeps the workspace of a call that produced
+no plan, which is how the `parent == child` class below can be read.  Rows recorded before
+2026-09-03 carry no `started_at` / `tree_commit`; later ones do.
+
 ## The trigger, narrowed (2026-09-03)
 
 Review narrowed the restart to the class the 200-call survey actually found — a

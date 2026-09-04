@@ -288,3 +288,31 @@ def test_the_lint_warns_when_a_coupling_drives_past_the_follower_s_own_limits(tm
     warns = [f for f in lint_workspace(ws).findings if "drives it over" in f.message]
     assert len(warns) == 1 and warns[0].severity.value == "warn" and warns[0].target == "rib_a_hinge"
     assert "1.5" in warns[0].message
+
+
+EXTRA_RUNNER = """  <link name="runner2"><visual><geometry><mesh filename="meshes/rib_b.glb"/></geometry></visual></link>
+  <joint name="runner_slide_2" type="prismatic">
+    <parent link="shaft"/><child link="runner2"/>
+    <origin xyz="0 0 0.6" rpy="0 0 0"/><axis xyz="0 0 1"/>
+    <limit lower="0" upper="0.3" effort="10" velocity="1"/>
+  </joint>
+</robot>"""
+
+
+def test_the_lint_says_when_only_the_first_instance_of_a_driver_is_followed(tmp_path):
+    """The skeleton binds a coupling to ``<driver>_1``, so with an INSTANCED driver the
+    other instances stay independent inputs and the sweep drives them separately.  The
+    emitter's comment said so; the file that ships did not, so the over-driving was silent.
+    """
+    from codeverse.workspace import Workspace
+
+    urdf = (RIB.replace('joint name="runner_slide"', 'joint name="runner_slide_1"')
+               .replace('<mimic joint="runner_slide" ', '<mimic joint="runner_slide_1" ')
+               .replace("</robot>", EXTRA_RUNNER))
+    ws = Workspace(tmp_path / "ws").create()
+    (ws.src / "model.py").write_text("import bpy\n")
+    (ws.src / "robot.urdf").write_text(urdf)
+
+    warns = [f for f in lint_workspace(ws).findings if "stay independent inputs" in f.message]
+    assert len(warns) == 1 and warns[0].target == "rib_a_hinge"
+    assert "runner_slide_2" in warns[0].message and warns[0].severity.value == "warn"
