@@ -5,9 +5,12 @@ built, every experiment with its setup and numbers, the null results, the mechan
 the methodology, and a claim → evidence index.  Written 2026-09-03 over the work of
 2026-08-25 → 09-03; each number names the run directory that produced it.
 
-The same facts live, in their own idiom, in `DECISIONS.md` (D36–D52, the decision log),
-`COST.md` (§23, §29, §30, the cost measurements), `EVAL.md` (§8–§9, the protocol and the
-noise floor) and `ARCHITECTURE.md`.  Tools referenced throughout:
+**This file is the LEDGER, not a second copy of the measurements.**  Each entry says what
+was claimed, which script recomputes it, which data it reads and what its status is; the
+measurement itself lives once, in `COST.md` (§23, §29, §30, the cost measurements),
+`DECISIONS.md` (D36–D52, the decision log), `EVAL.md` (§8–§9, the protocol and the noise
+floor) or `ARCHITECTURE.md`.  A table repeated here is a table that will drift from the one
+that owns it — §5.2 was exactly that until 2026-09-03 (review) and is now a pointer.  Tools referenced throughout:
 `bench/prompts/{compare_v4,articulated_v2}.yaml` (batteries), `bench/ab_plan.py` (paired
 A/B with an A/A mode), `bench/compare_backends.py` (harness vs one-shot),
 `bench/paired_compare.py` (paired statistics), `bench/plan_stage_bench.py` +
@@ -46,7 +49,8 @@ full battery were `joint_sweep`.
    count the loss event, run n in the hundreds (§5.1).
 6. **Coupled-mechanism support for URDF articulation** with a mechanism-level readout (§5.3).
 7. **A refine corpus**: (judge issues + gate findings + instructions) → code diff → score
-   delta, exported in the finetune pipeline's own format (§7).
+   delta; `toolkits/llamafactory/` converts those rows into the finetune pipeline's format,
+   which the harness itself never writes (§7).
 
 ## 0.2 Evaluation-protocol work that predates the measurements
 
@@ -148,7 +152,7 @@ They are recorded so nobody re-runs them expecting a different answer.
 |---|---|--:|--:|---|---|---|
 | **Plan-time geometry re-ask** (`CV3D_PLAN_GEOMETRY`, D49) | `compare_art_v4` pf vs pf0 | 14 | +0.064 | ±0.25 | 6/6/2 | ships **OFF** |
 | **Pro planner** (`gemini-3.1-pro` vs `3.7-flash`) | `compare_art_v4` pp vs pf | 13 | +0.090 | ±0.23 | 9/2/2 | keep flash: 2–10× plan cost, 5/14 cells lost to provider limits |
-| **Deterministic repairs** (`CV3D_ART_REPAIRS`) | `ab_repairs`, plan pinned | 12 | −0.039 | ±0.105 | 2/5/5 | ships **OFF**; the axis flip fired in 1 of 12 cells |
+| **Deterministic repairs** (`CV3D_AXIS_REPAIR`) | `ab_repairs`, plan pinned | 12 | −0.039 | ±0.105 | 2/5/5 | ships **OFF**; the axis flip fired in 1 of 12 cells |
 | **Fewer turns** (`CV3D_FEWER_TURNS`) | `ab_fewer_turns`, plan pinned | 14 | +0.015 | ±0.126 | 6/5/3 | ships **OFF**; −12 % tool calls, $/cell unchanged |
 | **Lean prompt** (`CV3D_LEAN_PROMPT`) | `wave2_lean`, plan pinned | 12 | +0.030 | ±0.076 | 8/3/1 | ships **OFF**; −45.7 % generate prompt chars, $3.51 vs $3.66 per cell; code removed 2026-09-03 in review (D52); the numbers stand, the second prompt path does not. |
 
@@ -219,63 +223,36 @@ report the class, because the total dilutes a mechanism that only removes one of
 
 ### 5.2 Tool calls the model retried, and the token blow-up behind them
 
-**The fault.** `spatial/mcp_server.py` returned `is_error = not obs.ok`, and `obs.ok` was
-the tool's **verdict**.  So a joint sweep that ran correctly and reported a penetration
-reached the model as a *broken call*, which it retried.  Recorded rate, 224 sessions:
+**docs/COST.md §30 is the measurement; this is the ledger entry.**  The tables live there
+once — the per-tool error rates, the base64 arithmetic, the before/after table and the
+selector — and repeating them here is how four copies of one number drift apart.  What a
+paper needs from this section:
 
-| tool | calls | reported as an error | the harness's own gate, for comparison |
-|---|--:|--:|---|
-| `joint_sweep` | 1 445 | **62 %** | the round's `joint_sweep` gate fails 57 of 299 rounds (19 %) |
-| `build` | 2 144 | 23 % | — (a build that does not compile *is* the answer) |
-| `check_contract` | 895 | 17 % | — |
-| `check_connectivity` | 923 | 14 % | — |
-
-The rate replicates per battery (`bench/session_stats.py`): over `aa_articulated`,
-`ab_fewer_turns`, `ab_repairs`, `compare_art_v4_pf0` and `compare_art_v4_pp` the sweep is
-55–66 % and the build 20–28 %, so this is the mechanism, not one bad window.
-
-**The amplifier.**  `observation_content` attaches PNGs as MCP image parts.  gemini-cli's
-*error* path stringifies the whole result (`safeJsonStringify(rawResponseParts)`), so a
-275 kB articulation sheet arrived as **~366 k characters of base64 text ≈ 261 k prompt
-tokens**, against **~516 tokens** as an inline image on the success path — a ~507× blow-up
-that also escapes the vendor's own 40 000-character truncation (it fires only for a
-single-text-part result).  Recorded per-request prompt jumps match the prediction
-(+260 421, +256 907, +258 997, +257 840, +260 364, +261 477).  About **10 % of requests
-carried ~225 k uncacheable tokens, 67 % of the entire uncached bill.**
-
-This also explains an anomaly that looked like a caching defect: gemini-cli's uncached
-tokens per request were flat at ~30 k regardless of session length, while the deleted
-in-process agent converged to ~5.6 k.  It was not the CLI — a 260 k blob pushes the session
-past the vendor's history-compaction thresholds, which rewrite the head and invalidate the
-implicit-cache prefix.  Non-blob requests already cached as well as the old agent
-(4 946 vs 5 639 uncached tokens per turn).  **Nothing about settings, tool ordering or
-`GEMINI.md` needed to change** — a negative finding that saved an A/B budget.
-
-**The change.**  `Observation` carries `failed` ("the tool could not run") beside `ok`
-(the verdict); MCP `is_error` is `failed` alone; every affected tool's text now leads with
-its verdict (`JOINT SWEEP: FAIL — penetration 3.0 mm > tolerance 1.0 mm`); the MCP boundary
-bounds one result's text characters, image count and encoded image bytes.
-
-**Measured after** (`bench/out/wave2_lean`, the same battery and config as the A/A above).
-Both columns come from `bench/session_stats.py`, which is in the repo with its own tests:
-
-| per generator request | before (`aa_articulated`) | after (`wave2_lean`) |
-|---|--:|--:|
-| sessions / requests | 111 / 2 594 | 102 / 2 722 |
-| MCP tool calls reported as errors | 26.6 % (482 / 1 814) | **1.3 %** (25 / 1 863) |
-| cache hit | 68.8 % | **89.2 %** |
-| uncached prompt tokens | 38 390 | **13 945** (−64 %) |
-| generator $ per round | mean 1.900, median 1.572 | **mean 1.242, median 0.950** (−35 % / −40 %) |
-
-(The after column first read 1.4 % / 13 736 / \$0.967 over "108 sessions".  That was
-hand-computed, `bench/session_stats.py` does not reproduce it, and no mechanism tested
-explains its shape — 1.87x on calls and requests against 1.06x on sessions.  It is
-withdrawn, not corrected; docs/COST.md §30 carries the detail.  The before column
-reproduces exactly.)
-
-The residual 1.3 % are genuine `Observation.error` cases (`joint_sweep` before a build,
-`check_*` with no readable GLB).  **This is the largest effect found in the whole effort,
-and it has no signature in the judge mean at n = 14.**
+* **The fault.** `spatial/mcp_server.py` returned `is_error = not obs.ok`, and `obs.ok` is
+  the tool's **verdict**, so a joint sweep that ran correctly and reported a penetration
+  reached the model as a *broken call* it then retried — 62 % of 1 445 sweep calls and
+  23 % of 2 144 builds, against a harness gate failure rate of 19 %.  The rate replicates
+  across five recorded batteries (sweep 55–66 %, build 20–28 %,
+  `bench/session_stats.py`), so it is the mechanism and not one window.
+* **The amplifier.**  gemini-cli's *error* path stringifies the whole result, so a 275 kB
+  articulation sheet arrives as ≈261 k prompt tokens of base64 text instead of ≈516 as an
+  inline image (≈507×), escaping the vendor's own truncation.  ~10 % of requests carried
+  ~225 k uncacheable tokens — two thirds of the entire uncached bill.
+* **Not a caching defect.**  Non-blob requests already cached as well as the deleted
+  in-process agent (4 946 vs 5 639 uncached tokens per turn); nothing about settings, tool
+  ordering or `GEMINI.md` needed to change.  A negative finding that saved an A/B budget.
+* **The change.**  `Observation.failed` ("the tool could not run") beside `ok` (the
+  verdict); MCP `is_error` is `failed` alone; every affected tool leads its text with the
+  verdict; the MCP boundary bounds text characters, image count and encoded image bytes.
+* **The readout** (`bench/session_stats.py aa_articulated wave2_lean`, both columns
+  printed by the script): calls reported as errors **26.6 % → 1.3 %**, cache
+  **68.8 % → 89.2 %**, uncached prompt tokens per request **38 390 → 13 945**, generator
+  dollars per round median **1.572 → 0.950**.  The residual 1.3 % are genuine
+  `Observation.error` cases.  An earlier hand-computed after column (1.4 %, 13 736,
+  \$0.967) is **withdrawn**: the script does not reproduce it and no tested mechanism
+  explains its shape — COST §30 carries that note.
+* **Why it matters here:** this is the largest effect found in the whole effort, and it has
+  no signature in the judge mean at n = 14.
 
 ### 5.3 Coupled mechanisms
 
@@ -347,7 +324,8 @@ that moved the bill.
 
 `3dcv flywheel refine` exports every refine round as the transition it was: the previous
 round's judge issues and improvement plan, the gate ERROR findings with their fix hints, the
-instruction lines the sessions were actually handed, the unified `src/` diff between the two
+instruction lines `build_refine_instructions` compiled for the round (the task list, not the
+per-group prompt text rendered from it), the unified `src/` diff between the two
 recorded commits, and the score delta with an improved/unchanged/regressed label.  On the
 recorded corpus, re-exported through the shipped CLI on 2026-09-03 (`bench/out`, 21
 batteries): **254 rows from 87 runs across 13 batteries**, the only drops being 54
@@ -416,8 +394,8 @@ instructions nor a diff.
 ## 9.1 Claim → evidence index
 
 Four of these are recomputed by a script in the repo, so a reviewer can re-derive the
-number rather than trust the row: `bench/plan_stage_report.py` (planner mortality and its
-Fisher p, over the committed `bench/data/plan_stage/*.jsonl`), `bench/session_stats.py`
+number rather than trust the row: `bench/plan_stage_report.py` (planner mortality, the failure-class split and a Fisher
+p for every pair of arms, over the committed `bench/data/plan_stage/*.jsonl`), `bench/session_stats.py`
 (tool-error, cache and dollar columns), `bench/coupling_stats.py` (the mechanism counts)
 and `bench/paired_compare.py` (every paired score row).  The rest — the base64
 amplification arithmetic and the in-process token-growth model — were measured once, on
@@ -436,7 +414,7 @@ data the repo does not carry; they are marked in the caveat column.
 | deterministic repairs | −0.039 ±0.105, fired 1/12 | `ab_repairs` | plan pinned |
 | fewer turns | +0.015 ±0.126, −12 % tool calls, $/cell flat | `ab_fewer_turns` | plan pinned |
 | lean prompt | +0.030 ±0.076, $3.51 vs $3.66 | `wave2_lean` | plan pinned |
-| planner mortality | 4.7 % → 0.7 %, Fisher p = 0.0067, n = 560 calls | `local/out/plandeg_restart_{on,off}.jsonl` | plan stage only, both arms same window |
+| planner mortality | 4.7 % → 0.7 %, Fisher p = 0.0067, n = 560 calls | `bench/data/plan_stage/restart_{on,off}.jsonl` (in the repo) | plan stage only, both arms same window |
 | tool calls reported as errors | 26.6 % → 1.3 % | `aa_articulated` vs `wave2_lean` stats envelopes | same battery/config, different weather |
 | cache hit | 69 % → 89 % | same | same |
 | uncached tokens per request | 38 390 → 13 945 | same | same |
@@ -481,8 +459,8 @@ a test enforces by grepping the tree; a switch nothing reads once produced "keep
 |---|---|---|---|
 | `CV3D_PLAN_GEOMETRY` | plan-time geometry re-ask (attachment gap, hinge pivot, swept collision) | **off** | +0.064 ±0.25, no measurable gain (§4) |
 | `CV3D_PLAN_RESTART` | re-sample a collapsed plan (one top-level part **and** dangling links) from the original request | **on**, kill switch | 4.7 % → 0.7 % planner mortality, p = 0.0067 (§5.1); narrowed 2026-09-03 and re-measured three-arm: dangling-link deaths 3/140 off vs 0/275, p = 0.038 |
-| `CV3D_ART_REPAIRS` | axis flip on a reversed joint + buried-link check | **off** | −0.039 ±0.105, fired 1/12 (§4) |
-| `CV3D_LEAN_PROMPT` | drop duplicated contract/tool cards, select cookbook chapters, focus the refine prompt | **off** | +0.030 ±0.076, no cost saving (§4); **removed from the tree 2026-09-03**; last carried on `ziyao/articulated-wave-2` before commit `554b52b`. |
+| `CV3D_AXIS_REPAIR` (upstream, `tracks/articulated_object.py`) | axis flip on a reversed joint + buried-link check | **on** (upstream default; the A/B ran it against off) | −0.039 ±0.105, fired 1/12 (§4) |
+| `CV3D_LEAN_PROMPT` | drop duplicated contract/tool cards, select cookbook chapters, focus the refine prompt | **off** | +0.030 ±0.076, no cost saving (§4); **removed from the tree 2026-09-03**; last carried on `ziyao/articulated-wave-2` before commit `4cbb28c`. |
 | `CV3D_FEWER_TURNS` (pre-existing) | fold gate checks into build, inline refine files | **off** | +0.015 ±0.126, dollars flat (§4) |
 | `CV3D_AXIS_REPAIR` (upstream) | deterministic axis rewrite from the measured motion | on | upstream's, kept |
 
@@ -511,7 +489,7 @@ python bench/plan_stage_bench.py --tree . --label restart_on --reps 20 \
 python bench/plan_stage_report.py bench/data/plan_stage/*.jsonl
 # the corpus the loop produces
 3dcv flywheel refine bench/out refine.jsonl --with-code
-python toolkits/llamafactory/build_refine_sft.py refine.jsonl --out refine_sft.jsonl
+python ../toolkits/llamafactory/build_refine_sft.py refine.jsonl --out refine_sft.jsonl  # repo root, not harness/
 ```
 
 Recorded runs referenced above (not committed): `bench/out/{compare_v4_calm, compare_art_v2,
