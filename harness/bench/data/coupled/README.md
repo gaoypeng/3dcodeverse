@@ -29,7 +29,9 @@ have exactly the shape of noise.  The battery was run for the mechanical readout
 
 **The mechanical difference is structural**: asked for the coupling, the planner declares
 it every time and eight of ten mechanisms come out with one degree of freedom; not asked,
-three do.
+three do.  The two that keep more than one degree of freedom keep the right ones — the
+pram's four wheel spins beside its fold hinge, the pantograph mirror's tilt beside its
+extension — so `movable − mimic` counts DOF, not missed couplings.
 
 **The three are the interesting part.**  `nomimic`'s couplings are not the planner's —
 they cannot be, the field is gone — they are the AGENT's, written by hand into
