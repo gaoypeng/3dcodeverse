@@ -225,7 +225,15 @@ class JointPlan(BaseModel):
             if self.type == "prismatic" and (self.upper - self.lower) > 5.0:
                 raise ValueError(f"joint {self.name}: prismatic range > 5 m is implausible")
         if to_snake(self.parent) == to_snake(self.child):
-            raise ValueError(f"joint {self.name}: parent == child")
+            # name BOTH sides: pydantic truncates the offending value right after the
+            # joint name, so "parent == child" was all the model ever saw, and it rewrote
+            # the same joint through every re-ask (7 runs lost that way, 2026-09-03).
+            same = "" if self.parent == self.child else (
+                f" ('{self.parent}' and '{self.child}' are the same name once normalised)")
+            raise ValueError(
+                f"joint {self.name}: parent and child are both '{self.parent}'{same} — a joint "
+                f"connects TWO different links; name the moving link as child and what it is "
+                f"attached to as parent, or drop the joint if nothing moves")
         return self
 
 

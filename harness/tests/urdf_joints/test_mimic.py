@@ -326,3 +326,22 @@ def test_a_self_mimic_says_it_names_itself(tmp_path):
                        '<mimic joint="rib_a_hinge" multiplier="1" offset="0"/>')
     with pytest.raises(UrdfError, match="names itself"):
         _robot(tmp_path, text)
+
+
+def test_a_self_joint_says_which_links_collided():
+    """`parent == child` was the whole message, and pydantic truncates the offending value
+    right after the joint name — so a model that wrote one had nothing to act on and
+    rewrote the same joint through every re-ask (7 plan calls died that way on
+    2026-09-03).  Both sides are named now, and a collision that only exists after
+    normalisation says so."""
+    import pytest as _pytest
+
+    from codeverse.contracts.plan import JointPlan
+
+    common = {"type": "revolute", "axis": [0, 0, 1], "pivot": [0, 0, 0],
+              "lower": 0.0, "upper": 1.0, "rest": 0.0}
+    with _pytest.raises(Exception, match="parent and child are both 'Sash'"):
+        JointPlan.model_validate({"name": "SashHinge", "parent": "Sash", "child": "Sash", **common})
+    with _pytest.raises(Exception, match="same name once normalised"):
+        JointPlan.model_validate({"name": "SashHinge", "parent": "SashFrame", "child": "sash_frame",
+                                  **common})
