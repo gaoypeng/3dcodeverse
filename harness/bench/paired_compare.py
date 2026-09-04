@@ -252,11 +252,42 @@ def render_markdown(stats: list[PairedStats], title: str, gates: list[ArmGateSta
     return out
 
 
+def rows_from_bench_run(out_dir: Path, arm: str) -> list[CellResult]:
+    """A ``bench run`` battery read as cells of one arm.
+
+    ``compare_backends`` writes one journal with an ``arm`` column; ``bench run`` writes a
+    directory per arm with ``id`` / ``score_final``.  Two of those directories are a paired
+    comparison — same prompts, one thing different — and this lets the statistics below
+    (paired CI, exact sign test, the "unsupported when the interval crosses zero" rule) be
+    the same for both shapes rather than recomputed by hand.
+    """
+    rows: list[CellResult] = []
+    for line in (out_dir / "results.jsonl").read_text().splitlines():
+        if not line.strip():
+            continue
+        raw = json.loads(line)
+        rows.append(CellResult(prompt_id=raw["id"], arm=arm, tier=raw.get("tier", ""),
+                               score=raw.get("score_final"), status=raw.get("status", ""),
+                               build_ok=raw.get("score_final") is not None,
+                               gen_cost_usd=float(raw.get("cost_usd") or 0.0), kind="harness"))
+    return rows
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("out_dir", help="a compare_backends output directory (holds results.jsonl)")
+    ap.add_argument("--against", type=Path, default=None,
+                    help="a SECOND `bench run` output directory: pair the two by prompt id "
+                         "(out_dir is then also read as a `bench run` battery)")
     ns = ap.parse_args(argv)
     out = Path(ns.out_dir)
+    if ns.against is not None:
+        rows = rows_from_bench_run(out, out.name) + rows_from_bench_run(ns.against, ns.against.name)
+        stats = [paired(latest_cells(rows), out.name, ns.against.name)]
+        md = render_markdown(stats, f"{out.name} vs {ns.against.name}")
+        (out / "paired.md").write_text(md)
+        print(md)
+        return 0
     rows = read_jsonl(out / "results.jsonl", CellResult)
     stats = analyse(rows)
     gates = gate_stats(latest_cells(rows))
