@@ -50,6 +50,22 @@ def _done(out: Path) -> set[tuple[str, int]]:
     return seen
 
 
+def _plan_shape(ws_root: Path) -> dict:
+    """What the plan the call produced actually contains.
+
+    The workspace is deleted after the call, so anything the row does not carry is gone.
+    ``n_mimic`` is why the coupled battery exists: a mechanism with one input is only
+    planned as one if the plan SAYS the followers follow (``joints[].mimic``)."""
+    try:
+        plan = json.loads((ws_root / "plan.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    joints = plan.get("joints") or []
+    movable = [j for j in joints if isinstance(j, dict) and j.get("type") != "fixed"]
+    return {"n_parts": len(plan.get("parts") or []), "n_joints": len(movable),
+            "n_mimic": sum(1 for j in movable if j.get("mimic"))}
+
+
 def _stats(ws_root: Path) -> dict:
     """What the plan stage's event log says about the call that just ran."""
     out: dict = {"invalid_reasks": 0, "geometry_reasks": 0, "restarts": 0, "missing": [], "cost_usd": 0.0}
@@ -119,7 +135,8 @@ def run_one(battery, item, backends, label: str, rep: int, provenance: dict[str,
         ok, error = False, f"{type(e).__name__}: {e}"[:300].replace("\n", " ")
     row = {"tree": label, "prompt": item.id, "rep": rep, "ok": ok, "error": error,
            "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
-           "seconds": round(time.time() - started, 1), **(provenance or {}), **_stats(root / "ws")}
+           "seconds": round(time.time() - started, 1), **(provenance or {}),
+           **_plan_shape(root / "ws"), **_stats(root / "ws")}
     if not ok and keep_failed is not None:
         # name what it was: a provider block says nothing about the code under test, and a
         # harvest of validation failures should not have to be filtered by hand

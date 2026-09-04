@@ -62,3 +62,47 @@ The residue is a **different failure class** that nothing here addresses: a join
 never restart — the plan lists every link it names — and the model rewrites the same
 joint through all three re-asks.  That is the next thing to measure, not a regression of
 this one.
+
+## `coupled_v1`: does the planner say a mechanism has one input? (2026-09-04)
+
+`bench/prompts/coupled_v1.yaml` is ten one-input linkages — an umbrella, a scissor lift,
+a venetian blind, a garage door, a treadle drive, a pram frame, a pantograph mirror, a
+drafting arm, a step ladder and a gate-leg table.  200 plan-stage calls (10 x 20), one
+arm, `\$7.55`, median 35 s:
+
+    python bench/plan_stage_bench.py --tree . --label coupled_plan --reps 20 \
+        --battery bench/prompts/coupled_v1.yaml --out bench/data/plan_stage/coupled_plan.jsonl
+
+**196 valid plans (4 provider blocks), ZERO planning losses, and 193 of the 196 declare a
+coupling.**  Rows carry `n_parts` / `n_joints` / `n_mimic`, so the shape of the plan is on
+the row and not only in a workspace that is deleted.
+
+| prompt | valid | declared | movable joints (median) | followers | inputs left |
+|---|--:|--:|--:|--:|--:|
+| `cpl_drafting_arm` | 19 | 19 | 6 | 4 | 2 |
+| `cpl_folding_pram` | 20 | 20 | 8 | 3 | 5 |
+| `cpl_folding_table_leg` | 19 | 17 | 2 | 1 | 1 |
+| `cpl_garage_door` | 20 | 20 | 5 | 4 | 1 |
+| `cpl_pantograph_mirror` | 20 | 20 | 6 | 4 | 2 |
+| `cpl_scissor_lift` | 20 | 19 | 8 | 7 | 1 |
+| `cpl_step_ladder` | 20 | 20 | 6 | 5 | 1 |
+| `cpl_treadle_drive` | 20 | 20 | 3 | 2 | 1 |
+| `cpl_umbrella` | 19 | 19 | 7 | 6 | 1 |
+| `cpl_venetian_blind` | 19 | 19 | 8 | 7 | 1 |
+
+Two readings:
+
+* **Declaring the coupling is not the bottleneck on this battery.**  `articulated_v2`, whose
+  prompts do not say "this is the only input", gets couplings in 8 of 14 prompts and a
+  median of 3 followers per 6 movable joints; here it is 10 of 10 and the strict one-input
+  mechanisms collapse to a single degree of freedom.  The difference is in the prompt, not
+  the planner.
+* **Branching couplings are still under-declared.**  Where one input drives one chain
+  (umbrella, blind, scissor lift, ladder, garage door, treadle) the plan leaves exactly one
+  input.  Where it drives several chains at once — the pram's fold hinge moving the handle,
+  the seat back and two leg pairs — it declares 3 of 8 and leaves 5 inputs standing.  That
+  is the case the sweep still over-drives, and the one a build-and-judge battery has to
+  look at.
+
+The plan stage is therefore NOT what a full run of this battery would be measuring: it
+loses nothing here.
