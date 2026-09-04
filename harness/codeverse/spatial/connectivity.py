@@ -62,7 +62,12 @@ GATE = "connectivity"
 PlannedEdge = tuple[str, "str | Sequence[str]"]
 #: parts smaller than this (max extent) are ignored for floating checks (INFO only)
 MIN_PART_SIZE_M = 0.01
-#: penetration depth that is reported as WARN / ERROR
+#: penetration depth that is reported as WARN / ERROR.  These bound the REST pose only,
+#: and with a 600-point surface draw per part: this check asks "do these two surfaces sit
+#: inside each other as built".  ``joint_sweep`` asks a different question with a denser
+#: probe — "does moving a joint drive one link through another" — at a 1 mm tolerance, and
+#: the two agree on only 7 of 50 link pairs at 2 mm (bench/penetration_thresholds.py,
+#: D-entry 2026-09-04).  They are not one check with two dials; do not align the numbers.
 PENETRATION_WARN_M = 0.002
 PENETRATION_ERROR_M = 0.010
 #: fraction of one part's samples inside the other before we call it penetration ...
