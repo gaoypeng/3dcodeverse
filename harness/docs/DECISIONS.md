@@ -763,6 +763,24 @@ written) that were accepted because the code works that way and the tests pin it
     from the URDFs and stand; the scores and gate rates need a re-run on the corrected
     export.
 
+* **The harness measures interpenetration twice, and the laxer probe is the one that
+  gates (found 2026-09-04, NOT changed).**  `spatial/connectivity` samples 600 points per
+  surface, requires a minimum share of them inside the other part, and calls 2 mm a WARN
+  and **10 mm** an ERROR; `spatial/joints_collide` (the `joint_sweep` gate) probes the
+  posed meshes densely and reports at **1 mm**.  Same quantity, different sensitivity —
+  and the sparse probe is behind the gate that fails a round.  Measured over 374 recorded
+  articulated rounds (`bench/penetration_thresholds.py`): the connectivity penetration
+  ERROR has fired **0 times**, its WARN 50; the depths it records are median 2.0 mm, max
+  9.9 mm, so its ERROR threshold is unreachable in practice.  On the same link pairs the
+  sweep measures 2–3x deeper (8.8 vs 3.0 mm, 5.9 vs 3.8, 8.0 vs 3.0) and sometimes finds
+  an overlap connectivity does not report at all (15.0 mm on `base_frame|slider_crosshead`).
+  The visible consequence: on `coupled_v1`, 11 sweep ERRORs about the REST pose were
+  raised in rounds where the connectivity gate PASSED — the harness told the agent two
+  different things about one pose.  Blast radius of a change, already computed: an ERROR
+  at 5 mm moves 1 round of 374, at 2 mm it moves 36 (10 %).  Left as it ships: a gate
+  threshold is a behaviour change and this branch is under review, so the finding, the
+  numbers and the script land first.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven
