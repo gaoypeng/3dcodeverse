@@ -169,6 +169,13 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 python -m codeverse.judges.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```
+**A new worktree needs `runtime_js/node_modules` before it can run a battery.**  Without it
+`render_glb` dies on every round, the judge is skipped for want of renders, and the cells
+come back `status=plateau` with `score=None` — an arm that reads as healthy and measures
+nothing (2026-09-04, the mimic-off arm).  `npm ci` in `runtime_js/`, or symlink the
+directory from a worktree that has it (the `package.json` is the same file).  The row now
+says `no verdict in any of N round(s)` when this happens.
+
 A run that crashed outside its own handling leaves `record.json` with `status=failed`;
 `3dcv resume` retries from the last completed stage/round (cached plan/skeleton/scene
 stages are reused — this also recovers from Gemini 503 storms).  Ctrl-C is safe.

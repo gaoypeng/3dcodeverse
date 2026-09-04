@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import bench.compare_backends as cb
@@ -73,3 +74,26 @@ def test_the_harness_arm_looks_for_each_languages_own_entry_file():
     assert {lang.value for lang, e in ENTRY_FILE.items() if e != "src/model.py"} == {
         "threejs", "scene_threejs", "glsl_shader", "opengl_python"}
     assert entry_of(SimpleNamespace(language=Language.GLSL_SHADER)) == "src/shader.frag"
+
+
+def test_a_run_that_scored_nothing_says_so_in_its_row() -> None:
+    """A worktree without node_modules made render_glb die, every round skip the judge and
+    ten cells come back `status=plateau, score=None` — an arm that reads as healthy and
+    measures nothing (2026-09-04).  The row carries the reason now."""
+    from bench.run_bench import result_from_record
+
+    item = SimpleNamespace(id="cpl_umbrella", tier="hard", category="mechanism")
+    rounds = [SimpleNamespace(index=i, judgment=None) for i in range(3)]
+    rec = SimpleNamespace(
+        rounds=rounds, best_round=0, baseline_score=None, final_score=None, error="",
+        total_usage=SimpleNamespace(cost_usd=1.76), status=SimpleNamespace(value="plateau"),
+        spec=SimpleNamespace(backends=SimpleNamespace(generator="g", judge="j")))
+    ws = SimpleNamespace(root=Path("/tmp/ws"))
+
+    row = result_from_record(item, rec, 16.0, ws)
+    assert row.score_final is None and row.status == "plateau"
+    assert "no verdict in any of 3 round(s)" in row.errors
+
+    judged = SimpleNamespace(index=0, judgment=SimpleNamespace(passed=True))
+    rec.rounds = [judged, rounds[1]]
+    assert result_from_record(item, rec, 16.0, ws).errors == ""   # one verdict is enough
