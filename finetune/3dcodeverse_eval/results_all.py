@@ -8,7 +8,7 @@ import sys
 
 SUITES = [("bench", "3DCodeBench (212)"), ("blender", "Blender held-out (103)"), ("cadquery", "CadQuery (200)"),
           ("openscad", "OpenSCAD (50)"), ("glsl", "GLSL (200)"), ("threejs", "three.js (40)")]
-ROOT = "/wekafs/ict/hx_624/llm-ft/eval/out"
+ROOT = os.environ.get("EVAL_OUT", "/wekafs/ict/hx_624/llm-ft/eval/out")
 
 
 def suite_row(name, suite):

@@ -3,7 +3,7 @@ import argparse, json, os, re, subprocess, sys, numpy as np
 from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from metrics import load_points, chamfer_f, rot_y
-BLENDER = "/wekafs/ict/hx_624/tools/blender-5.0.1-linux-x64/blender"; RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "blender_runner.py")
+BLENDER = os.environ.get("BLENDER_BIN", "/wekafs/ict/hx_624/tools/blender-5.0.1-linux-x64/blender"); RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "blender_runner.py")
 ap = argparse.ArgumentParser(); ap.add_argument("--test", required=True); ap.add_argument("--gen_dir", required=True); ap.add_argument("--workers", type=int, default=32); a = ap.parse_args()
 tests = [json.loads(l) for l in open(a.test)]; ref_cache = os.path.join(os.path.dirname(a.test), "ref_exec_blender")
 def code_of(msg):

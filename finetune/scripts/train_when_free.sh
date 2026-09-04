@@ -5,8 +5,9 @@
 #   scripts/train_when_free.sh <config.yaml> [need_free_mib] [logfile]
 set -u
 CFG=$1; NEED=${2:-60000}; LOG=${3:-logs/$(basename "${CFG%.yaml}").log}
+ONLY=${GPU_LIST:-}   # optional: restrict to these cards, e.g. GPU_LIST=6,7
 for attempt in $(seq 1 200); do
-  G=$(scripts/free_gpus.sh "$NEED" | cut -d, -f1)
+  G=$(scripts/free_gpus.sh "$NEED" ${ONLY:+"$ONLY"} | cut -d, -f1)
   if [ -n "$G" ]; then
     sleep 45                                                   # let any competing job finish allocating
     STILL=$(scripts/free_gpus.sh "$NEED" "$G" | cut -d, -f1)    # ...and confirm the card is still free

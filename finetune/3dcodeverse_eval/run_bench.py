@@ -1,7 +1,8 @@
 """Execute every <gen_dir>/<task>/code.py in headless Blender (parallel), export GLB, collect reports -> <gen_dir>/exec_results.jsonl"""
+import os
 import argparse, json, os, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-BLENDER = "/wekafs/ict/hx_624/tools/blender-5.0.1-linux-x64/blender"
+BLENDER = os.environ.get("BLENDER_BIN", "/wekafs/ict/hx_624/tools/blender-5.0.1-linux-x64/blender")
 RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "blender_runner.py")
 
 def run_one(task_dir, timeout):

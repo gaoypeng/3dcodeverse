@@ -22,7 +22,11 @@ rsync -a --delete --exclude '__pycache__' --exclude '*.pyc' "$SRC/scripts/" "$DS
 # --delete on configs too: without it a config retired into configs/lf/archive/ was copied to its new
 # location but the old copy lingered in the repo forever, so a tidy-up never actually reached GitHub.
 rsync -a --delete --exclude '__pycache__' "$SRC/configs/" "$DST/configs/"
-rsync -a --delete --exclude '__pycache__' --exclude 'out' --exclude '_test' --exclude 'ref_oracle' --exclude '*.pyc' "$SRC/eval/" "$DST/eval/"
+rm -rf "$DST/eval"   # superseded by 3dcodeverse_eval/; without this the old copy lingers forever
+# The evaluation stack is managed as a self-contained folder under LLaMA-Factory now; llm-ft/eval keeps the
+# working generations (out/) and is no longer what the repo mirrors.
+rsync -a --delete --exclude '__pycache__' --exclude '*.pyc' \
+  /wekafs/ict/hx_624/tools/LLaMA-Factory/3dcodeverse_eval/ "$DST/3dcodeverse_eval/"
 cp "$SRC/env.sh" "$DST/env.sh"
 cp "$SRC/REPORT.md" "$DST/docs/REPORT.md"
 cp "$SRC/README.md" "$DST/docs/PROJECT_README.md" 2>/dev/null || true

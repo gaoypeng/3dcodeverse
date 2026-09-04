@@ -1,8 +1,8 @@
 """Executors for non-Blender dialects. Each run_* returns dict(status, error, mesh_path or None, latency_s)."""
 import os, subprocess, sys, time, json, tempfile, re
-OPENSCAD = "/wekafs/ict/hx_624/tools/openscad/squashfs-root/AppRun"
-GLSLANG = "/wekafs/ict/hx_624/anaconda3/envs/llmft/bin/glslangValidator"
-PY = "/wekafs/ict/hx_624/anaconda3/envs/llmft/bin/python"
+OPENSCAD = os.environ.get("OPENSCAD_BIN", "/wekafs/ict/hx_624/tools/openscad/squashfs-root/AppRun")
+GLSLANG = os.environ.get("GLSLANG_BIN", "/wekafs/ict/hx_624/anaconda3/envs/llmft/bin/glslangValidator")
+PY = os.environ.get("EVAL_PYTHON", "/wekafs/ict/hx_624/anaconda3/envs/llmft/bin/python")
 CQ_RUNNER = r'''
 import sys, json, runpy, traceback, os
 os.environ.setdefault("OMP_NUM_THREADS","1")

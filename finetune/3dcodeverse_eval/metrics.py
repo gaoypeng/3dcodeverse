@@ -5,7 +5,7 @@ import argparse, json, os, numpy as np
 import trimesh
 from scipy.spatial import cKDTree
 
-BENCH = "/wekafs/ict/hx_624/data/3dcodebench/data"
+BENCH = os.environ.get("BENCH_DATA", "/wekafs/ict/hx_624/data/3dcodebench/data")
 
 def load_points(path, n):
     m = trimesh.load(path, force="mesh")
