@@ -683,11 +683,13 @@ written) that were accepted because the code works that way and the tests pin it
     trigger fired on any dangling link reference while the measured class is narrower, and
     that a restart spent one of the two validation re-ask slots.  Both changed; three arms
     in ONE window (700 calls, `bench/data/plan_stage/trigger_{off,wide,narrow}.jsonl`) say:
-    overall loss 2.9 % (off, 4/140) / 2.2 % (old trigger, 6/275) / 1.5 % (narrowed, 4/275),
+    overall loss 2.9 % (off, 4/140) / 2.2 % (old trigger, 6/275) / 1.8 % (narrowed, 5/276,
+    the fifth being a harness budget ceiling that the first pass had filed as weather),
     **no pair separating** (Fisher 0.45–0.75) — this window's control loses 2.9 %, not the
     4.7 % above, so the headline is a property of that window as much as of the switch.
     The separation is inside the class the mechanism targets: dangling-link deaths **3/140
-    off vs 0/275 narrowed, p = 0.038**, with the old trigger still at 4/275 — and all four
+    off vs 0/276 narrowed, p = 0.038** — exploratory, in that the three overall-rate tests
+    were run first and came back null — with the old trigger still at 4/275 — and all four
     of those carry `restarts=1` and died at the validation cap, which is exactly the slot
     the restart used to consume.  The narrowed trigger fires on 28 of 280 calls against 38
     and recovers 27 of 28 against 33 of 38.  Ships narrowed: same effect on the class it
@@ -721,8 +723,11 @@ written) that were accepted because the code works that way and the tests pin it
     three templates, and the measurement above is the record of what it was worth.  To
     re-run it, restore the branch commit named in docs/PAPER_WRITING.md §9.3.
   * **Reading an agent's repo is a sandbox boundary, and `git archive` is not inside it.**
-    Every flywheel read of a workspace already ran under `GIT_SAFE_FLAGS` (no repo config,
-    no hooks, no user config) plus `--no-ext-diff --no-textconv` for diffs, because a
+    Every flywheel read of a workspace already ran under `GIT_SAFE_FLAGS` (five `-c`
+    overrides — hooks, fsmonitor, the global attributes file, `diff.external` — plus no
+    system/global config from `git_safe_env`; `.git/config` itself is still read in full,
+    which is the whole reason the tests plant there) and `--no-ext-diff --no-textconv` for
+    diffs, because a
     `.gitattributes` the agent writes can name a `diff.<name>.textconv` command that git
     RUNS on our side.  `read_tree_at` still used `git archive`, which renders every blob
     through `convert_to_working_tree` — so a planted `filter.<name>.smudge` executes, and

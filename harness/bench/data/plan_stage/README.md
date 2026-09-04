@@ -26,16 +26,23 @@ Three arms, **one window**, same battery and planner:
 `trigger_wide.jsonl` is the trigger as D52 measured it, run from a worktree at commit
 9506737 (280); `trigger_narrow.jsonl` is the narrowed one (280).
 
-| arm | judged | `PlanningError` | rate | dangling-link class | `parent == child` class |
-|---|--:|--:|--:|--:|--:|
-| off    | 140 | 4 | 2.9 % | 3 | 1 |
-| wide   | 275 | 6 | 2.2 % | 4 | 2 |
-| narrow | 275 | 4 | 1.5 % | **0** | 4 |
+| arm | judged | losses | rate | dangling-link | `parent == child` | other |
+|---|--:|--:|--:|--:|--:|--:|
+| off    | 140 | 4 | 2.9 % | 3 | 1 | 0 |
+| wide   | 275 | 6 | 2.2 % | 4 | 2 | 0 |
+| narrow | 276 | 5 | 1.8 % | **0** | 4 | 1 |
+
+(`other` is one `BudgetExceeded`: a harness budget ceiling, which the first pass had filed
+as provider weather and dropped from the denominator.  `outcome()` now counts anything
+that is neither a `PlanningError` nor a named provider failure as a loss.)
 
 **No pair separates on the overall rate** (Fisher 0.45–0.75), and this window did not
 reproduce D52's headline at all: its own control arm loses 2.9 %, not 4.7 %.  The
-separation is inside the class the mechanism targets: **off 3/140 vs narrow 0/275,
-p = 0.038**.  Read the class column, not the total.
+separation is inside the class the mechanism targets: **off 3/140 vs narrow 0/276,
+p = 0.038** (the `dangling_link` column of the class table the report prints).  Read the
+class, not the total — and read the order it was found in: the three overall-rate tests
+came back at 0.45–0.75 FIRST, and the class split was looked at afterwards, so 0.038 is an
+exploratory result on a pre-specified mechanism, not a pre-registered test.
 
 Two secondary readings, both consistent with the change:
 

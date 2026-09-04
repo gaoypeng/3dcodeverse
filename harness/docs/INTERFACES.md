@@ -537,8 +537,12 @@ from codeverse.flywheel._git import read_tree_at, diff_between, changed_files_be
     # changed_files_between(ws, before, after) -> [path];  commit_exists(ws, commit) -> bool
     # both under GIT_SAFE_DIFF_FLAGS (--no-ext-diff --no-textconv) on top of workspace.GIT_SAFE_FLAGS
 from codeverse.workspace import GIT_SAFE_FLAGS, GIT_SAFE_DIFF_FLAGS, git_safe_env
-    # every read of an agent-written repo goes through these: no repo config, no external diff/textconv,
-    # no hooks, no user config (git_safe_env strips GIT_CONFIG*, GIT_DIR, GIT_EXEC_PATH, ...)
+    # every read of an agent-written repo goes through these.  They do NOT disable .git/config —
+    # git reads it in full; `-c` only OVERRIDES five keys (hooksPath, fsmonitor, attributesFile,
+    # diff.external, plus the diff flags), which is why a NAMED filter./diff. driver in .git/config
+    # is still live and why read_tree_at avoids every content-rendering command.  git_safe_env drops
+    # the SYSTEM and GLOBAL config (GIT_CONFIG_NOSYSTEM, GIT_CONFIG_GLOBAL=/dev/null) and the
+    # inherited environment (HOME, PATH, GIT_TERMINAL_PROMPT)
 from codeverse.flywheel.captions import caption_sample # Δ (ws, record, model_id, *, model=None, out_dir=None) -> Captions;
                                                        # out_dir → side-car <out_dir>/<slug>.json, run untouched
 from codeverse.gallery import build_index, default_roots, build_static, serve, GalleryApp   # THE local gallery

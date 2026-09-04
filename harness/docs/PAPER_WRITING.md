@@ -204,12 +204,15 @@ slots).  Three arms in ONE window, 700 calls,
 |---|--:|--:|--:|--:|--:|
 | restart off | 140 | 4 | 2.9 % | 3 | 1 |
 | trigger as measured above | 275 | 6 | 2.2 % | 4 | 2 |
-| trigger narrowed | 275 | 4 | 1.5 % | **0** | 4 |
+| trigger narrowed | 276 | 5 | 1.8 % | **0** | 4 (+1 budget ceiling) |
 
 **No pair separates on the overall rate** (Fisher 0.45–0.75) — and this window's own
 control loses 2.9 %, not 4.7 %, so the headline above is a property of its window as much
 as of the switch.  The separation is inside the class the mechanism targets: **3/140 off
-vs 0/275 narrowed, p = 0.038**.  All four of the old trigger's dangling-link deaths carry
+vs 0/276 narrowed, p = 0.038**.  Order matters for how that is read: the three overall-rate
+tests were run first and came back null, and the class split was examined afterwards, so
+this is exploratory evidence on a pre-specified mechanism rather than a pre-registered
+test.  `bench/plan_stage_report.py` prints the class table and the per-class p.  All four of the old trigger's dangling-link deaths carry
 `restarts=1` and died at the validation cap — the re-ask slot the restart used to consume.
 The narrowed trigger fires on 28 of 280 calls against 38 and recovers 27 of 28 (96 %)
 against 33 of 38 (87 %).
