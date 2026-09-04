@@ -171,10 +171,13 @@ python -m codeverse.judges.calibration runs/<slug> [runs/<slug2> …] --model ge
 ```
 **Two arms at once need separate `CV3D_CACHE_DIR`, not just separate `--out`.**  The
 browser daemon advertises its endpoint in `CACHE_DIR/browser_<backend>.json` and a newer
-daemon supersedes an older one, so two worktrees sharing a cache end up on ONE browser:
-the arm that did not launch it renders through a server rooted in the other tree, its GLB
-is outside that root, and `render_glb` returns "produced no result" — on one side only,
-looking like random flakiness (2026-09-04).  Give each arm its own cache dir; the render
+daemon supersedes an older one (`runtime_js/browser_daemon.cjs`), so two worktrees sharing
+a cache fight over ONE browser, and `render_glb` returns "produced no result" on one side
+only, looking like random flakiness (2026-09-04).  The mechanism is not confirmed: each
+render serves its GLB from its own process (`render_glb.mjs` `serveDirs`), so it is not a
+server-root mismatch; the likely cause is the superseded daemon exiting while the other
+arm's render is still in flight on its browser, which is a race in shared code that a
+separate cache dir avoids rather than fixes.  Give each arm its own cache dir; the render
 cache separates with it, which an A/B wants anyway.
 
 Also halve each arm's `--parallel`: two arms at 3 workers is six concurrent renders, and a

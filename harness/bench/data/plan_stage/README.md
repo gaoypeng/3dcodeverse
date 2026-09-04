@@ -16,8 +16,9 @@ number whose data is not in the tree is not reproducible.
 `plan_once` runs the plan stage WITHOUT `Track.run`, so there is no run ledger and the
 workspace is deleted: these rows are the record, and each carries its own `cost_usd` (the
 script prints the total).  `--keep-failed DIR` keeps the workspace of a call that produced
-no plan, which is how the `parent == child` class below can be read.  Rows recorded before
-2026-09-03 carry no `started_at` / `tree_commit`; later ones do.
+no plan, which is how the `parent == child` class below can be read.  The `restart_*` and
+`trigger_*` rows (2026-09-02/03) carry no `started_at` / `tree_commit`; `coupled_plan.jsonl`
+and everything recorded after it do (plus `tree_dirty` when the tree had uncommitted edits).
 
 ## The trigger, narrowed (2026-09-03)
 

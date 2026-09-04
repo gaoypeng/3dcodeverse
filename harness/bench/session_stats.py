@@ -18,42 +18,35 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
+import sys
 from collections import Counter
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # `python bench/session_stats.py` from the repo root
+
+from codeverse.flywheel.record import unique_files  # noqa: E402
+
 #: gemini-cli names an MCP tool ``mcp_<server>_<tool>``; ours is the ``3dcv`` server.
 MCP_PREFIX = "mcp_3dcv_"
-#: run-layout directories that hold a SUB-workspace (a scene asset candidate, a rejected
-#: candidate): their sessions belong to that sub-run, not to the battery cell above them,
-#: and ``flywheel.record.find_runs`` skips them for the same reason.
-SUBRUN_DIRS = frozenset({"_cand", "_assets"})
+
+
+def _stdouts(root: Path) -> list[Path]:
+    """Every session's ``stdout.json`` under ``root``, once per file on disk — the walk is
+    ``flywheel.record.unique_files`` (follows the ``telemetry/trajectories`` symlink and
+    collapses it; skips sub-workspaces), so no count here can double by layout."""
+    return [p for p in unique_files(root, "stdout.json") if "trajectories" in p.parts]
 
 
 def _killed(root: Path) -> int:
     """Sessions whose ``stdout.json`` is empty: the CLI died or was killed before printing
     its stats block.  They carry no numbers, so they are not sessions for the rates above —
     but they are not nothing either, and a battery with many of them was a bad window."""
-    return sum(1 for p in root.rglob("stdout.json", recurse_symlinks=True)
-               if "trajectories" in p.parts and not SUBRUN_DIRS & set(p.parts) and p.stat().st_size <= 2)
+    return sum(1 for p in _stdouts(root) if p.stat().st_size <= 2)
 
 
 def _sessions(root: Path) -> list[Path]:
-    """Every ``stdout.json`` under ``root``, once per file on disk.
-
-    ``run/telemetry/trajectories`` is a symlink to ``run/trajectories``, so the walk has
-    to say what it does about symlinks rather than inherit it: ``recurse_symlinks=True``
-    reaches both paths and the resolve-dedupe collapses them.  Walking with the default
-    (no descent into symlinked directories) would give the same answer here by accident,
-    and would silently double every number the day a battery is laid out differently.
-    """
-    seen: dict[Path, Path] = {}
-    for p in sorted(root.rglob("stdout.json", recurse_symlinks=True)):
-        if "trajectories" not in p.parts or SUBRUN_DIRS & set(p.parts):
-            continue
-        if p.stat().st_size <= 2:
-            continue  # the CLI was killed before printing its stats: not a session's worth
-        seen.setdefault(p.resolve(), p)
-    return sorted(seen.values())
+    """The sessions with a stats block (a killed one is counted by :func:`_killed`)."""
+    return [p for p in _stdouts(root) if p.stat().st_size > 2]
 
 
 def tool_rates(sessions: list[Path]) -> tuple[Counter, Counter]:
@@ -109,11 +102,7 @@ def token_rates(sessions: list[Path]) -> dict[str, float]:
 def round_costs(root: Path) -> list[float]:
     """Generator dollars per round, from the run records (judging is billed elsewhere)."""
     out: list[float] = []
-    seen: set[Path] = set()
-    for rec in root.rglob("record.json", recurse_symlinks=True):
-        if rec.resolve() in seen or SUBRUN_DIRS & set(rec.parts):
-            continue
-        seen.add(rec.resolve())
+    for rec in unique_files(root, "record.json"):
         try:
             rounds = (json.loads(rec.read_text()) or {}).get("rounds") or []
         except (OSError, ValueError):

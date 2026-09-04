@@ -23,10 +23,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # `python bench/coupling_stats.py` from the repo root
 
+from codeverse.flywheel.record import unique_files  # noqa: E402
 from codeverse.spatial.joints_model import UrdfError, load_urdf  # noqa: E402
-
-#: run-layout directories holding a SUB-workspace, as in bench/session_stats
-SUBRUN_DIRS = frozenset({"_cand", "_assets"})
 
 
 def _urdfs(root: Path) -> list[Path]:
@@ -35,18 +33,9 @@ def _urdfs(root: Path) -> list[Path]:
     A run holds the same file three times — ``src/`` (what the agent wrote),
     ``artifacts/`` (what the build produced) and ``deliverable/`` (what finalise copied) —
     so counting files instead of runs multiplies every mechanical number by three.  The
-    artefact is the one the sweep actually posed.
-
-    ``recurse_symlinks=True`` + resolve-dedupe for the same reason as
-    ``bench/session_stats._sessions``: batteries symlink each other's cells, and a walk
-    that leaves symlink behaviour to the default counts a run once or twice depending on
-    how the tree happens to be laid out."""
-    seen: dict[Path, Path] = {}
-    for p in sorted(root.rglob("robot.urdf", recurse_symlinks=True)):
-        if p.parent.name != "artifacts" or SUBRUN_DIRS & set(p.parts):
-            continue
-        seen.setdefault(p.resolve(), p)
-    return sorted(seen.values())
+    artefact is the one the sweep actually posed.  The walk is
+    ``flywheel.record.unique_files``, so a cell symlinked from another battery is one run."""
+    return [p for p in unique_files(root, "robot.urdf") if p.parent.name == "artifacts"]
 
 
 def _prompt_of(path: Path) -> str:
@@ -114,11 +103,7 @@ def gate_stats(root: Path) -> dict:
     The mechanical counts below say which poses were SAMPLED; this says what the gate that
     judges those poses reported, which is the loss event a coupled battery is run for."""
     rounds = ran = failed = errors = 0
-    seen: set[Path] = set()
-    for rec in root.rglob("record.json"):
-        if rec.resolve() in seen or SUBRUN_DIRS & set(rec.parts):
-            continue
-        seen.add(rec.resolve())
+    for rec in unique_files(root, "record.json"):  # the same cells _urdfs saw, symlinks included
         try:
             data = json.loads(rec.read_text())
         except (OSError, ValueError):

@@ -723,8 +723,8 @@ written) that were accepted because the code works that way and the tests pin it
     three templates, and the measurement above is the record of what it was worth.  To
     re-run it, restore the branch commit named in docs/PAPER_WRITING.md §9.3.
   * **Reading an agent's repo is a sandbox boundary, and `git archive` is not inside it.**
-    Every flywheel read of a workspace already ran under `GIT_SAFE_FLAGS` (five `-c`
-    overrides — hooks, fsmonitor, the global attributes file, `diff.external` — plus no
+    Every flywheel read of a workspace already ran under `GIT_SAFE_FLAGS` (three `-c`
+    overrides — hooks, fsmonitor, the global attributes file — plus no
     system/global config from `git_safe_env`; `.git/config` itself is still read in full,
     which is the whole reason the tests plant there) and `--no-ext-diff --no-textconv` for
     diffs, because a
@@ -751,11 +751,17 @@ written) that were accepted because the code works that way and the tests pin it
     recomputes all of it from the recorded URDFs (both counts are properties of the file).
     The score effect on the three coupled prompts is inside the noise band at n=2 per side,
     as expected; the pose count is the readout that resolves.  What does NOT resolve, and
-    is recorded so nobody claims it: the `joint_sweep` gate fails 30 % of the coupled
-    prompts' rounds with couplings (11/37) against 31 % without (12/39), and the spread
-    across pre-mimic batteries (19–31 %) is wider than that difference.  Fewer poses, all
-    reachable — but the gate still finds overlaps in them, and the two arms are not the
-    same artefacts measured twice (a pre-mimic plan declares no coupling at all).
+    is recorded so nobody claims it: the `joint_sweep` gate's failure rate is not
+    detectably different with couplings (11/37, 30 %) and without (12/39, 31 %) — a hand
+    count, no script prints the per-prompt subset — and the spread across pre-mimic
+    batteries (19–31 %) is wider than that difference.  Fewer poses, all reachable — but
+    the gate still finds overlaps in them, and the two arms are not the same artefacts
+    measured twice (a pre-mimic plan declares no coupling at all).  Caveat (2026-09-04):
+    every judge- and gate-side readout above was produced before
+    `spatial/joints_export.robot_scene` resolved `<mimic>` followers — the sheets the judge
+    saw posed them at rest while the sweep posed them through `fk`.  The pose counts come
+    from the URDFs and stand; the scores and gate rates need a re-run on the corrected
+    export.
 
 ## Rejected / deferred
 

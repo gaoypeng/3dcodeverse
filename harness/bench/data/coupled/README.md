@@ -7,7 +7,10 @@ Ten one-input linkages (`bench/prompts/coupled_v1.yaml`), baseline round only
   one-input mechanism to declare its coupling, the skeleton emits `<mimic>`.
 * **nomimic** — the same tree with two edits and nothing else: the `mimic` field typed to
   `None` so the planner cannot fill it, and the paragraph that asks for it removed from
-  `prompts/tracks/plan_articulated.j2`.
+  `codeverse/prompts/tracks/plan_articulated.j2`.  That tree predates the `bench run`
+  change that reports an all-unjudged run as an error, which is why `base_nomimic.jsonl`'s
+  umbrella row reads `score_final: null, status: plateau, errors: ""` — the lost pair
+  behind "9 paired prompts" below.
 
     python bench/coupling_stats.py <mimic_dir> <nomimic_dir> --per-prompt
     python bench/paired_compare.py <mimic_dir> --against <nomimic_dir>
@@ -40,6 +43,15 @@ model a concept it lacks; it is turning something it volunteers only in the obvi
 into a question it has to answer every time.
 
 **What this does not show.**  Whether the poses the sampler now avoids were ever the
-reason a mechanism scored badly: the `joint_sweep` gate fails at the same rate in both
-arms (5/10 vs 4/10, 26 vs 23 ERROR findings).  The gate finds overlaps in reachable poses
-just as it found them in unreachable ones.
+reason a mechanism scored badly: the `joint_sweep` gate's failure rate is not detectably
+different between the arms at n = 10 (5/10 vs 4/10, Wilson 0.24–0.76 vs 0.17–0.69; 26 vs
+23 ERROR findings) — which is not the same as "the same rate".  The gate finds overlaps
+in reachable poses just as it found them in unreachable ones.  The rows in this directory
+carry score / cost / status only; the mechanical counts above were read from the two arms'
+`artifacts/robot.urdf` files, which are not in the tree.
+
+**Caveat (2026-09-04).**  Both arms were rendered before the fix in
+`spatial/joints_export.robot_scene`: the per-pose GLBs behind the articulation sheet posed
+every `<mimic>` follower at rest, so the judge scored sheets in which the coupled links did
+not move.  The declaring / one-input counts come from the URDFs and stand; the score row and
+the sweep-gate row need a re-run on the corrected export.

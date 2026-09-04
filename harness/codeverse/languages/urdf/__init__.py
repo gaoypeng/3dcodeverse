@@ -258,20 +258,10 @@ def _lint_mimics(joints: list[ET.Element], out: list[GateFinding]) -> None:
         specs.append(MimicSpec(key=jname, name=jname, movable=movable, target=src or None,
                                multiplier=mult, offset=off, lower=lo, upper=hi))
     known = sorted({el.get("name", "") for el in joints if el.get("name")})
-    # An instanced driver emits <driver>_1 .. _n and the skeleton binds followers to _1
-    # only, so _2..n stay independent inputs and the sweep drives them: real for the
-    # mechanism (each instance has its own coupling to declare), silent until now.
-    instanced = {n.rsplit("_", 1)[0] for n in known if n.rsplit("_", 1)[-1].isdigit()}
-    for spec in specs:
-        base = (spec.target or "").rsplit("_", 1)
-        if len(base) == 2 and base[1] == "1" and base[0] in instanced:
-            siblings = sorted(n for n in known if n.startswith(f"{base[0]}_") and n != spec.target)
-            if siblings:
-                out.append(_f(Severity.WARN, f"joint '{spec.name}': follows '{spec.target}' only; "
-                                             f"{', '.join(siblings)} stay independent inputs and the "
-                                             "sweep drives them separately", target=spec.name,
-                              fix="give each instance its own <mimic>, or make the followers "
-                                  "follow one shared driver"))
+    # NOT checked here: whether a follower of `<driver>_1` should also follow `_2..n`.
+    # Only the skeleton knows which `_N` names are instances of one plan joint (an agent
+    # names joints `hinge_1` / `hinge_2` by hand all the time), so that note is written
+    # where the instancing happens — compute_urdf_frames — as a comment in the file.
     for i in mimic_issues(specs):
         j, t = i.joint, i.target
         if i.kind == "immobile":
@@ -550,6 +540,7 @@ class JointRow:
     upper: float | None
     rest: float = 0.0  # plan rest value the limits were shifted by (0 → limits == plan limits)
     mimic: tuple[str, float, float] | None = None  # (driving joint, multiplier, offset)
+    mimic_note: str = ""  # written beside the <mimic> as a comment (an instanced driver's other copies)
 
 
 @dataclass
@@ -632,7 +623,12 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
         target, mult, off = jr.mimic
         if f"{target}_1" not in emitted:
             raise ValueError(f"joint {jr.name}: mimic target {target!r} was not emitted; joints are {sorted(emitted)}")
-        joints[i] = replace(jr, mimic=(f"{target}_1", mult, off))
+        # the other instances stay independent inputs the sweep drives on their own; say so
+        # in the file, here where the instancing is known, rather than guessing from names
+        others = sorted(n for n in emitted if n.startswith(f"{target}_") and n != f"{target}_1")
+        joints[i] = replace(jr, mimic=(f"{target}_1", mult, off),
+                            mimic_note=f"follows {target}_1 only; {', '.join(others)} stay independent inputs "
+                                       "(add a <mimic> per instance if they move together)")
 
     # link frames: root at origin, others at their pivot
     for name, p, center in parts:
@@ -647,7 +643,8 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
         cf = links[jr.child].frame_xyz
         fixed.append(JointRow(name=jr.name, type=jr.type, parent=jr.parent, child=jr.child,
                               origin_xyz=tuple(c - p for c, p in zip(cf, pf, strict=True)), axis=jr.axis,
-                              lower=jr.lower, upper=jr.upper, rest=jr.rest, mimic=jr.mimic))
+                              lower=jr.lower, upper=jr.upper, rest=jr.rest, mimic=jr.mimic,
+                              mimic_note=jr.mimic_note))
     return UrdfFrames(robot_name=to_snake(plan.object_name), root=root, links=links, joints=fixed)
 
 
@@ -685,7 +682,8 @@ def render_urdf(frames: UrdfFrames) -> str:
             if jr.mimic is not None:
                 src, mult, off = jr.mimic
                 lines.append(f'    <mimic joint="{src}" multiplier="{_fmt(mult)}" offset="{_fmt(off)}"/>'
-                             "  <!-- driven: the sweep moves the driver, this joint follows -->")
+                             f"  <!-- driven: the sweep moves the driver, this joint follows"
+                             f"{'; ' + jr.mimic_note if jr.mimic_note else ''} -->")
         lines.append("  </joint>")
     lines.append("</robot>")
     return "\n".join(lines) + "\n"

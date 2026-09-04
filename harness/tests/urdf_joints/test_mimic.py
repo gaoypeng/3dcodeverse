@@ -299,11 +299,25 @@ EXTRA_RUNNER = """  <link name="runner2"><visual><geometry><mesh filename="meshe
 </robot>"""
 
 
-def test_the_lint_says_when_only_the_first_instance_of_a_driver_is_followed(tmp_path):
+def test_the_skeleton_says_when_only_the_first_instance_of_a_driver_is_followed():
     """The skeleton binds a coupling to ``<driver>_1``, so with an INSTANCED driver the
     other instances stay independent inputs and the sweep drives them separately.  The
-    emitter's comment said so; the file that ships did not, so the over-driving was silent.
+    file that ships says so, beside the ``<mimic>`` — written where the instancing is
+    known, because a lint cannot tell an instance from a joint an agent named ``hinge_2``.
     """
+    from codeverse.languages.urdf import compute_urdf_frames
+
+    d = _plan()
+    d["parts"][1]["instances"] = 2
+    d["joints"][1]["mimic"] = {"joint": "DrawerSlide", "multiplier": 0.5}
+    urdf = render_urdf(compute_urdf_frames(ArticulatedPlan.model_validate(d)))
+    line = next(ln for ln in urdf.splitlines() if "<mimic joint=" in ln)
+    assert "follows drawer_slide_1 only; drawer_slide_2 stay independent inputs" in line
+
+
+def test_the_lint_does_not_mistake_hand_named_joints_for_instances(tmp_path):
+    """``hinge_1`` / ``hinge_2`` named by an agent are two joints, not one instanced
+    driver: a follower of ``hinge_1`` must not be told to couple ``hinge_2`` too."""
     from codeverse.workspace import Workspace
 
     urdf = (RIB.replace('joint name="runner_slide"', 'joint name="runner_slide_1"')
@@ -313,9 +327,40 @@ def test_the_lint_says_when_only_the_first_instance_of_a_driver_is_followed(tmp_
     (ws.src / "model.py").write_text("import bpy\n")
     (ws.src / "robot.urdf").write_text(urdf)
 
-    warns = [f for f in lint_workspace(ws).findings if "stay independent inputs" in f.message]
-    assert len(warns) == 1 and warns[0].target == "rib_a_hinge"
-    assert "runner_slide_2" in warns[0].message and warns[0].severity.value == "warn"
+    findings = lint_workspace(ws).findings
+    assert not [f for f in findings if "independent inputs" in f.message]
+    assert not [f for f in findings if "mimic" in f.message and f.severity.value == "error"]
+
+
+def test_the_exported_pose_glb_moves_the_followers_like_fk_does(tmp_path):
+    """The articulation sheet and the sweep must pose ONE mechanism: ``urdf_to_glb`` posed
+    the followers at rest (it read the raw pose dict, not the resolved one) while
+    ``sweep_collisions`` posed them through ``fk`` — the judge scored a closed umbrella
+    over a sweep that reported its open ribs colliding (review, 2026-09-04)."""
+    import numpy as np
+    import trimesh
+
+    from codeverse.spatial.joints_export import ZUP_TO_YUP, urdf_to_glb
+
+    robot = _robot(tmp_path)
+    q = {"runner_slide": 0.3}
+
+    def rib_a_world(glb):
+        scene = trimesh.load(glb, force="scene")
+        node = next(n for n in scene.graph.nodes_geometry if scene.graph[n][1] == "rib_a")
+        T, _ = scene.graph[node]
+        return trimesh.transform_points([scene.geometry["rib_a"].centroid], T)[0]
+
+    rest = rib_a_world(urdf_to_glb(robot, tmp_path / "rest.glb", {}))
+    posed = rib_a_world(urdf_to_glb(robot, tmp_path / "posed.glb", q))
+    assert not np.allclose(rest, posed), "rib_a did not follow runner_slide in the exported scene"
+    # and it lands exactly where fk puts that point: undo the export's Y-up, move the rest
+    # centroid by fk's rib_a motion for the same q, re-apply Y-up
+    T0, T1 = fk(robot, {})["rib_a"], fk(robot, q)["rib_a"]
+    rest_zup = trimesh.transform_points([rest], np.linalg.inv(ZUP_TO_YUP))[0]
+    moved_zup = trimesh.transform_points([rest_zup], T1 @ np.linalg.inv(T0))[0]
+    expected = trimesh.transform_points([moved_zup], ZUP_TO_YUP)[0]
+    assert np.allclose(posed, expected, atol=1e-6), (posed, expected)
 
 
 def test_a_self_mimic_says_it_names_itself(tmp_path):

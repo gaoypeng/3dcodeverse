@@ -107,6 +107,12 @@ def tree_provenance(tree: Path, codeverse_file: str) -> dict[str, str]:
                               capture_output=True, text=True, check=False, timeout=30)
         if proc.returncode == 0:
             out["tree_commit"] = proc.stdout.strip()
+        # an arm made of "the same commit plus two uncommitted edits" would otherwise carry
+        # the other arm's commit and read as identical code
+        dirty = subprocess.run(["git", "-C", str(tree), "status", "--porcelain", "--untracked-files=no"],
+                               capture_output=True, text=True, check=False, timeout=30)
+        if dirty.returncode == 0 and dirty.stdout.strip():
+            out["tree_dirty"] = f"{len(dirty.stdout.splitlines())} modified file(s)"
     except (OSError, subprocess.SubprocessError):  # a tree that is not a checkout is fine
         pass
     return out
@@ -138,9 +144,12 @@ def run_one(battery, item, backends, label: str, rep: int, provenance: dict[str,
            "seconds": round(time.time() - started, 1), **(provenance or {}),
            **_plan_shape(root / "ws"), **_stats(root / "ws")}
     if not ok and keep_failed is not None:
-        # name what it was: a provider block says nothing about the code under test, and a
-        # harvest of validation failures should not have to be filtered by hand
-        kind = "planning" if "PlanningError" in error else "provider"
+        # name what it was, by the same rule the report classifies the row: a provider block
+        # says nothing about the code under test, everything else (a validation failure, a
+        # budget ceiling) is a loss worth reading
+        from bench.plan_stage_report import outcome
+
+        kind = "provider" if outcome(row) == "provider" else "planning"
         keep_failed.mkdir(parents=True, exist_ok=True)
         shutil.move(str(root), str(keep_failed / f"{kind}_{item.id}_r{rep}"))
     else:
@@ -172,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import codeverse
     from bench._jsonl import seal_for_append  # after the path insert: `python bench/x.py`
-    from bench.run_bench import Battery  # puts bench/ on sys.path, not the tree
+    from bench.run_bench import Battery
     from codeverse.config import get_settings
     if not Path(codeverse.__file__).resolve().is_relative_to(ns.tree.resolve()):
         raise SystemExit(f"--tree {ns.tree} but `codeverse` imported from {codeverse.__file__}: "

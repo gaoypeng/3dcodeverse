@@ -56,12 +56,15 @@ _GITIGNORE_LINES = (
 )
 
 
-#: prepended to every git argv run against a run workspace: an agent-planted hook,
-#: fsmonitor or unnamed external diff driver never runs, and the GLOBAL attributes file
-#: cannot name one either.  ``-c`` outranks ``.git/config``, so these hold even in a
-#: repository the agent has written to.
+#: prepended to every git argv run against a run workspace: an agent-planted hook or
+#: fsmonitor never runs, and the GLOBAL attributes file cannot name a driver either.
+#: ``-c`` outranks ``.git/config``, so these hold even in a repository the agent has
+#: written to.  ``diff.external`` is deliberately NOT here: ``-c diff.external=`` sets
+#: it to the empty string, which git tries to EXECUTE (``fatal: external diff died``) on
+#: any diff that forgets ``GIT_SAFE_DIFF_FLAGS`` — and ``--no-ext-diff`` there is what
+#: neutralises a planted driver in the first place.
 GIT_SAFE_FLAGS = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
-                  "-c", "core.attributesFile=/dev/null", "-c", "diff.external=")
+                  "-c", "core.attributesFile=/dev/null")
 #: added to every git command that RENDERS file content (diff / show / log -p).  A
 #: NAMED driver — ``.gitattributes`` "*.bin diff=x" plus ``[diff "x"] textconv``/``command``
 #: in .git/config, both agent-writable — is not reachable by ``-c``, and ``--no-ext-diff``

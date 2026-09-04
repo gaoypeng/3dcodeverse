@@ -22,7 +22,7 @@ import trimesh
 from codeverse.contracts.artifacts import RenderSet
 from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
 from codeverse.spatial._render_common import out_directory
-from codeverse.spatial.joints_model import Joint, Robot, fk
+from codeverse.spatial.joints_model import Joint, Robot, fk, resolve_q
 from codeverse.spatial.joints_poses import limit_poses
 from codeverse.spatial.render import render_glb
 from codeverse.spatial.sheet import contact_sheet
@@ -56,8 +56,11 @@ def robot_node_name(robot: Robot) -> str:
 
 def robot_scene(robot: Robot, pose: dict[str, float] | None = None, *, joint_extras_on: bool = True) -> trimesh.Scene:
     """Build the trimesh.Scene (hierarchical, Y-up) for ``robot`` at ``pose``."""
-    pose = pose or {}
-    T = fk(robot, pose)  # validates joint names
+    fk(robot, pose or {})  # validates joint names
+    # the RESOLVED pose: a <mimic> follower moves with its driver in the export too, not
+    # only in fk.  The sheet the judge sees and the sweep's collision check are the same
+    # mechanism only if both pose it the same way (review, 2026-09-04: they did not).
+    pose = resolve_q(robot, pose or {})
     scene = trimesh.Scene(base_frame=SCENE_BASE_FRAME)  # never a link name (a link 'world' would close a cycle)
     robot_node = robot_node_name(robot)
     meta = {"links": robot.link_order(), "frame": "y_up_pos_z_front", "pose": dict(pose), "units": "meters"}
@@ -83,7 +86,6 @@ def robot_scene(robot: Robot, pose: dict[str, float] | None = None, *, joint_ext
                 scene.add_geometry(piece.copy(), node_name=f"{name}__{i}", geom_name=f"{name}__{i}", parent_node_name=name,
                                    transform=np.eye(4))
     scene.metadata.update(meta)
-    del T
     return scene
 
 

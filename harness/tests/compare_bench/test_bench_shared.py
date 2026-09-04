@@ -124,4 +124,4 @@ def test_two_bench_run_batteries_pair_by_prompt(tmp_path: Path) -> None:
     st = paired(latest_cells(rows), "arm_a", "arm_b")
     assert st.n == 3 and st.mean_delta == pytest.approx(0.0667, abs=1e-3)
     assert st.wins == 2 and st.losses == 0 and st.ties == 1
-    assert st.verdict in {"supported", "unsupported", "too few pairs"}
+    assert st.verdict == "unsupported"  # CI [-0.077, +0.21] crosses zero at n = 3

@@ -69,6 +69,9 @@ def test_a_killed_session_is_counted_as_killed_not_as_a_session(tmp_path: Path) 
     dead = run / "trajectories" / "refine_r01"
     dead.mkdir(parents=True)
     (dead / "stdout.json").write_text("")
+    # the telemetry symlink reaches the dead session too: killed must not double either
+    (run / "telemetry").mkdir()
+    (run / "telemetry" / "trajectories").symlink_to(run / "trajectories", target_is_directory=True)
 
     assert len(_sessions(tmp_path)) == 1 and _killed(tmp_path) == 1
     calls, _ = tool_rates(_sessions(tmp_path))

@@ -2,8 +2,8 @@
 
 Everything a paper about this harness would need in one file: what the system is, what was
 built, every experiment with its setup and numbers, the null results, the mechanism findings,
-the methodology, and a claim → evidence index.  Written 2026-09-03 over the work of
-2026-08-25 → 09-03; each number names the run directory that produced it.
+the methodology, and a claim → evidence index.  Written 2026-09-03/04 over the work of
+2026-08-25 → 09-04; each number names the run directory that produced it.
 
 **This file is the LEDGER, not a second copy of the measurements.**  Each entry says what
 was claimed, which script recomputes it, which data it reads and what its status is; the
@@ -152,7 +152,7 @@ They are recorded so nobody re-runs them expecting a different answer.
 |---|---|--:|--:|---|---|---|
 | **Plan-time geometry re-ask** (`CV3D_PLAN_GEOMETRY`, D49) | `compare_art_v4` pf vs pf0 | 14 | +0.064 | ±0.25 | 6/6/2 | ships **OFF** |
 | **Pro planner** (`gemini-3.1-pro` vs `3.7-flash`) | `compare_art_v4` pp vs pf | 13 | +0.090 | ±0.23 | 9/2/2 | keep flash: 2–10× plan cost, 5/14 cells lost to provider limits |
-| **Deterministic repairs** (`CV3D_AXIS_REPAIR`) | `ab_repairs`, plan pinned | 12 | −0.039 | ±0.105 | 2/5/5 | ships **OFF**; the axis flip fired in 1 of 12 cells |
+| **Deterministic repairs** (`CV3D_ART_REPAIRS`, a bundle since removed; its axis flip lives on as upstream's `CV3D_AXIS_REPAIR`, ON by default) | `ab_repairs`, plan pinned | 12 | −0.039 | ±0.105 | 2/5/5 | the bundle does not ship; the axis flip fired in 1 of 12 cells |
 | **Fewer turns** (`CV3D_FEWER_TURNS`) | `ab_fewer_turns`, plan pinned | 14 | +0.015 | ±0.126 | 6/5/3 | ships **OFF**; −12 % tool calls, $/cell unchanged |
 | **Lean prompt** (`CV3D_LEAN_PROMPT`) | `wave2_lean`, plan pinned | 12 | +0.030 | ±0.076 | 8/3/1 | ships **OFF**; −45.7 % generate prompt chars, $3.51 vs $3.66 per cell; code removed 2026-09-03 in review (D52); the numbers stand, the second prompt path does not. |
 
@@ -200,11 +200,11 @@ requires a collapsed plan, and a restart no longer spends one of the two validat
 slots).  Three arms in ONE window, 700 calls,
 `bench/data/plan_stage/trigger_{off,wide,narrow}.jsonl`:
 
-| arm | judged | `PlanningError` | rate | dangling-link class | `parent == child` class |
-|---|--:|--:|--:|--:|--:|
-| restart off | 140 | 4 | 2.9 % | 3 | 1 |
-| trigger as measured above | 275 | 6 | 2.2 % | 4 | 2 |
-| trigger narrowed | 276 | 5 | 1.8 % | **0** | 4 (+1 budget ceiling) |
+| arm | judged | losses | rate | `dangling_link` | `parent_eq_child` | other |
+|---|--:|--:|--:|--:|--:|--:|
+| restart off | 140 | 4 | 2.9 % | 3 | 1 | 0 |
+| trigger as measured above | 275 | 6 | 2.2 % | 4 | 2 | 0 |
+| trigger narrowed | 276 | 5 | 1.8 % | **0** | 4 | 1 (budget ceiling) |
 
 **No pair separates on the overall rate** (Fisher 0.45–0.75) — and this window's own
 control loses 2.9 %, not 4.7 %, so the headline above is a property of its window as much
@@ -233,10 +233,9 @@ paper needs from this section:
 
 * **The fault.** `spatial/mcp_server.py` returned `is_error = not obs.ok`, and `obs.ok` is
   the tool's **verdict**, so a joint sweep that ran correctly and reported a penetration
-  reached the model as a *broken call* it then retried — 62 % of 1 445 sweep calls and
-  23 % of 2 144 builds, against a harness gate failure rate of 19 %.  The rate replicates
-  across five recorded batteries (sweep 55–66 %, build 20–28 %,
-  `bench/session_stats.py`), so it is the mechanism and not one window.
+  reached the model as a *broken call* it then retried.  The per-tool rates are COST §30's
+  first table; they replicate across five recorded batteries (`bench/session_stats.py`),
+  so it is the mechanism and not one window.
 * **The amplifier.**  gemini-cli's *error* path stringifies the whole result, so a 275 kB
   articulation sheet arrives as ≈261 k prompt tokens of base64 text instead of ≈516 as an
   inline image (≈507×), escaping the vendor's own truncation.  ~10 % of requests carried
@@ -247,8 +246,8 @@ paper needs from this section:
 * **The change.**  `Observation.failed` ("the tool could not run") beside `ok` (the
   verdict); MCP `is_error` is `failed` alone; every affected tool leads its text with the
   verdict; the MCP boundary bounds text characters, image count and encoded image bytes.
-* **The readout** (`bench/session_stats.py aa_articulated wave2_lean`, both columns
-  printed by the script): calls reported as errors **26.6 % → 1.3 %**, cache
+* **The readout** (`python bench/session_stats.py bench/out/aa_articulated bench/out/wave2_lean`,
+  both columns printed by the script): calls reported as errors **26.6 % → 1.3 %**, cache
   **69 % → 90 %**, uncached prompt tokens per request **38 521 → 13 480**, generator
   dollars per round median **1.572 → 0.950**.  The residual 1.3 % are genuine
   `Observation.error` cases.  An earlier hand-computed after column (1.4 %, 13 736,
@@ -290,7 +289,25 @@ properties of the file):
 | casement window | 6 | 7 | 6 |
 
 **8 of 14 prompts** declared a coupling at all (98 of 176 built URDFs); across those the
-median goes **6 → 3** driven joints, and 24 URDFs are fully one-input.
+median goes **6 → 3** driven joints, and 24 URDFs are fully one-input.  (The absolute
+counts in this table and this line are per URDF *file*, taken before `coupling_stats.py`
+was made per-run on 2026-09-04 — each run holds the file three times, so they are about
+3× the run counts; the medians and the 8-of-14 are unaffected.  Not recomputed: the
+corpus is not in the tree.)  The mechanisms the support was built for — umbrella, step
+ladder, folding workbench — are the ones that collapse to 1–2.  The pre-mimic batteries
+(`aa_articulated`, `compare_art_v4_pf0`) contain **zero** couplings, so nothing else on
+the battery changed shape.  The score effect on the three coupled prompts is inside the
+noise band at n = 2 per side (umbrella 0.35/0.65 → 0.54/0.64, scissor 0.46/0.54 →
+0.49/0.60, workbench 0.91/0.60 → 0.60/0.60); the **pose count is the readout that
+resolves.**
+
+**Caveat on every judge- and gate-side number in this section (2026-09-04).**  Until the
+fix in `spatial/joints_export.robot_scene`, the per-pose GLBs behind the articulation
+sheet posed every `<mimic>` follower at rest — only `fk` (and so the collision sweep)
+resolved the coupling.  The mechanical counts above come from the URDFs and stand; the
+score readouts and the `joint_sweep` gate rates below were produced on sheets where the
+followers did not move, and need a re-run on the corrected export before either is cited
+as evidence for or against `<mimic>`.
 
 **A battery built for the question** (`coupled_v1`, ten one-input linkages, 2026-09-04)
 separates what the planner does from what the agent does.  Plan stage alone, 200 calls:
@@ -299,7 +316,9 @@ one-input mechanisms collapse to a single degree of freedom and the branching on
 pram's fold hinge driving handle, seat back and two leg pairs) declare 3 of 8.  Then two
 build-and-judge arms, baseline round only, differing by two edits — the `mimic` field
 typed to `None` so the planner cannot fill it, and the paragraph asking for it removed
-from the plan prompt (`bench/data/coupled/`):
+from `codeverse/prompts/tracks/plan_articulated.j2` (`bench/data/coupled/`; the nomimic
+umbrella cell scored nothing — no verdict in any round, the shape `bench run` now reports
+as an error — so the score row has nine pairs, not ten):
 
 | readout | planner may declare | planner may not |
 |---|--:|--:|
@@ -318,25 +337,21 @@ mechanisms on the battery, and nothing else.  Making the coupling a plan field i
 teaching a concept the model lacks; it turns something it volunteers in the obvious cases
 into a question it answers every time.
 
-What this still does not show: the `joint_sweep` gate fails at the same rate in both arms,
-so the poses the sampler now avoids are not demonstrably the ones that were costing
-score.
-
-**What did NOT move: the sweep gate's own failure rate.**  On those eight prompts the
-`joint_sweep` gate fails 30 % of the rounds with couplings declared (11 of 37,
-`wave2_lean`) against 31 % without them (12 of 39, `aa_articulated`; `ab_fewer_turns` 19 %
-of 37, `compare_art_v4_pf0` 25 % of 8 — the spread across pre-mimic batteries is wider than
-the before/after difference).  The sampler drives fewer joints and every pose it drives is
-reachable, but the gate still finds links overlapping in them.  The comparison is also
-confounded at the source: a pre-mimic URDF declares no couplings at all, so the two arms
-are not the same artefacts measured twice.  What can be said is the mechanical claim (which
-poses are sampled); the claim that the gate's findings became *truer* is not measured, and
-this readout does not support it.  The mechanisms the
-support was built for — umbrella, step ladder, folding workbench — are the ones that collapse
-to 1–2.  The pre-mimic batteries (`aa_articulated`, `compare_art_v4_pf0`) contain **zero**
-couplings, so nothing else on the battery changed shape.  The score effect on the three coupled prompts is inside the noise band
-at n = 2 per side (umbrella 0.35/0.65 → 0.54/0.64, scissor 0.46/0.54 → 0.49/0.60, workbench
-0.91/0.60 → 0.60/0.60); the **pose count is the readout that resolves.**
+**What is NOT shown: that the sweep gate's failure rate moved.**  Two comparisons, both
+null and both too small to be equivalence claims.  On `coupled_v1` the gate fails 5/10
+rounds with the coupling declared against 4/10 without (Wilson 0.24–0.76 vs 0.17–0.69, a
+hand count over the two arms' records).  Across batteries, on the eight coupled prompts,
+it fails 30 % of the rounds with couplings declared (11 of 37, `wave2_lean`) against 31 %
+without (12 of 39, `aa_articulated`; `ab_fewer_turns` 19 % of 37, `compare_art_v4_pf0`
+25 % of 8 — the spread across pre-mimic batteries is wider than the before/after
+difference).  Neither number is printed by a script: `coupling_stats.py --per-prompt`
+reports the gate per battery, not per prompt subset, and the batteries are not in the
+tree.  The sampler drives fewer joints and every pose it drives is reachable, but the gate
+still finds links overlapping in them — and the cross-battery comparison is confounded at
+the source, since a pre-mimic URDF declares no couplings at all.  What can be said is the
+mechanical claim (which poses are sampled); "not detectably different at this n" is what
+the gate data carries, and the claim that the gate's findings became *truer* is not
+measured.
 
 ### 5.4 Provider-failure accounting
 
@@ -398,7 +413,7 @@ instructions nor a diff.
    plausible levers landed inside that band; none of them is thereby shown to do nothing.
 3. **The changes that mattered were found by counting loss events, not by scoring artefacts.**
    Planner mortality 4.7 % → 0.7 % (p = 0.0067); retried tool calls 26.6 % → 1.3 %; uncached
-   tokens −64 %; dollars per round −40 %; driven joints per sampled pose on a coupled
+   tokens −65 %; dollars per round −40 %; driven joints per sampled pose on a coupled
    mechanism 6 → 3 (1 on the umbrella and the step ladder).  Every one of these is invisible to the judge mean at this n.
 4. **The biggest single defect was in the harness's own plumbing**, not in the model or the
    prompt: one line mapping a tool's verdict to a protocol error cost a quarter of all tool
@@ -460,7 +475,7 @@ data the repo does not carry; they are marked in the caveat column.
 | lean prompt | +0.030 ±0.076, $3.51 vs $3.66 | `wave2_lean` | plan pinned |
 | planner mortality | 4.7 % → 0.7 %, Fisher p = 0.0067, n = 560 calls | `bench/data/plan_stage/restart_{on,off}.jsonl` (in the repo) | plan stage only, both arms same window |
 | tool calls reported as errors | 26.6 % → 1.3 % | `aa_articulated` vs `wave2_lean` stats envelopes | same battery/config, different weather |
-| cache hit | 69 % → 89 % | same | same |
+| cache hit | 69 % → 90 % | same | same |
 | uncached tokens per request | 38 521 → 13 480 (main-role) | same | same |
 | generator $ per round | median 1.572 → 0.950 | round records of both runs | same |
 | base64 amplification | 261 k tokens vs 516 for one 275 kB sheet | measured on a recorded blob + vendor bundle | arithmetic + matching recorded prompt jumps; **no repo script** |
@@ -504,7 +519,7 @@ a test enforces by grepping the tree; a switch nothing reads once produced "keep
 | switch | what it does | default | why |
 |---|---|---|---|
 | `CV3D_PLAN_GEOMETRY` | plan-time geometry re-ask (attachment gap, hinge pivot, swept collision) | **off** | +0.064 ±0.25, no measurable gain (§4) |
-| `CV3D_PLAN_RESTART` | re-sample a collapsed plan (one top-level part **and** dangling links) from the original request | **on**, kill switch | 4.7 % → 0.7 % planner mortality, p = 0.0067 (§5.1); narrowed 2026-09-03 and re-measured three-arm: dangling-link deaths 3/140 off vs 0/275, p = 0.038 |
+| `CV3D_PLAN_RESTART` | re-sample a collapsed plan (one top-level part **and** dangling links) from the original request | **on**, kill switch | 4.7 % → 0.7 % planner mortality, p = 0.0067 (§5.1); narrowed 2026-09-03 and re-measured three-arm: dangling-link deaths 3/140 off vs 0/276, p = 0.038 (exploratory, after three null overall-rate tests — §5.1) |
 | `CV3D_AXIS_REPAIR` (upstream, `tracks/articulated_object.py`) | axis flip on a reversed joint + buried-link check | **on** (upstream default; the A/B ran it against off) | −0.039 ±0.105, fired 1/12 (§4) |
 | `CV3D_LEAN_PROMPT` | drop duplicated contract/tool cards, select cookbook chapters, focus the refine prompt | **off** | +0.030 ±0.076, no cost saving (§4); **removed from the tree 2026-09-03**; last carried on `ziyao/articulated-wave-2` before commit `4cbb28c`. |
 | `CV3D_FEWER_TURNS` (pre-existing) | fold gate checks into build, inline refine files | **off** | +0.015 ±0.126, dollars flat (§4) |

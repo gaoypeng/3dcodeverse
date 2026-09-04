@@ -31,7 +31,12 @@ from codeverse.contracts.artifacts import Severity
 from codeverse.contracts.run import RoundRecord, RunRecord
 from codeverse.flywheel._git import GitReadError, changed_files_between, diff_between, read_tree_at
 from codeverse.flywheel.pairs import MIN_PREFERENCE_DELTA
-from codeverse.flywheel.record import effective_judgment, effective_score, iter_runs
+from codeverse.flywheel.record import (
+    BATTERY_MARKERS,
+    effective_judgment,
+    effective_score,
+    iter_runs,
+)
 from codeverse.workspace import Workspace
 
 #: rounds that answer a judgment.  A texture or asset round is driven by its own pass, and
@@ -108,9 +113,7 @@ def _transition(ws: Workspace, rec: RunRecord, prev: RoundRecord, cur: RoundReco
     if with_code:
         def _text(commit: str, keep: list[str] | None) -> dict[str, str]:
             out = {}
-            for path, raw in read_tree_at(ws, commit).items():
-                if keep is not None and path not in keep:
-                    continue
+            for path, raw in read_tree_at(ws, commit, paths=keep).items():
                 try:
                     out[path] = raw.decode("utf-8")
                 except UnicodeDecodeError:
@@ -128,9 +131,9 @@ def _transition(ws: Workspace, rec: RunRecord, prev: RoundRecord, cur: RoundReco
         outcome=outcome_of(delta, threshold), before_files=files_before, after_files=files_after)
 
 
-#: path segments that are run LAYOUT, not a battery name (compare_backends and ab_plan
-#: bury their runs this deep)
-_LAYOUT_DIRS = frozenset({"cells", "runs", "arms"})
+#: path segments that are run LAYOUT, not a battery name — the same markers ``iter_runs``
+#: discovers batteries by
+_LAYOUT_DIRS = frozenset(BATTERY_MARKERS)
 
 
 def _identity(root: Path, found: Any) -> tuple[str, str]:
