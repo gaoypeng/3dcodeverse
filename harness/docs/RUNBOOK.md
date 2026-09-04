@@ -169,6 +169,20 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 python -m codeverse.judges.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```
+**Two arms at once need separate `CV3D_CACHE_DIR`, not just separate `--out`.**  The
+browser daemon advertises its endpoint in `CACHE_DIR/browser_<backend>.json` and a newer
+daemon supersedes an older one, so two worktrees sharing a cache end up on ONE browser:
+the arm that did not launch it renders through a server rooted in the other tree, its GLB
+is outside that root, and `render_glb` returns "produced no result" — on one side only,
+looking like random flakiness (2026-09-04).  Give each arm its own cache dir; the render
+cache separates with it, which an A/B wants anyway.
+
+Also halve each arm's `--parallel`: two arms at 3 workers is six concurrent renders, and a
+round with no renders skips the judge, so the loop stops at `judge_unavailable` and the
+cell is finished with no score (`bench run` will not re-run it: the row exists).  Redo the
+scoreless cells afterwards — delete the row from `results.jsonl` and the run directory,
+then `bench run --id <prompt>`.
+
 **A new worktree needs `runtime_js/node_modules` before it can run a battery.**  Without it
 `render_glb` dies on every round, the judge is skipped for want of renders, and the cells
 come back `status=plateau` with `score=None` — an arm that reads as healthy and measures
