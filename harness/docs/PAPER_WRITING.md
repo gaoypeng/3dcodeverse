@@ -290,7 +290,18 @@ properties of the file):
 | casement window | 6 | 7 | 6 |
 
 **8 of 14 prompts** declared a coupling at all (98 of 176 built URDFs); across those the
-median goes **6 → 3** driven joints, and 24 URDFs are fully one-input.  The mechanisms the
+median goes **6 → 3** driven joints, and 24 URDFs are fully one-input.
+
+**What did NOT move: the sweep gate's own failure rate.**  On those eight prompts the
+`joint_sweep` gate fails 30 % of the rounds with couplings declared (11 of 37,
+`wave2_lean`) against 31 % without them (12 of 39, `aa_articulated`; `ab_fewer_turns` 19 %
+of 37, `compare_art_v4_pf0` 25 % of 8 — the spread across pre-mimic batteries is wider than
+the before/after difference).  The sampler drives fewer joints and every pose it drives is
+reachable, but the gate still finds links overlapping in them.  The comparison is also
+confounded at the source: a pre-mimic URDF declares no couplings at all, so the two arms
+are not the same artefacts measured twice.  What can be said is the mechanical claim (which
+poses are sampled); the claim that the gate's findings became *truer* is not measured, and
+this readout does not support it.  The mechanisms the
 support was built for — umbrella, step ladder, folding workbench — are the ones that collapse
 to 1–2.  The pre-mimic batteries (`aa_articulated`, `compare_art_v4_pf0`) contain **zero**
 couplings, so nothing else on the battery changed shape.  The score effect on the three coupled prompts is inside the noise band

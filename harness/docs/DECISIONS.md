@@ -750,7 +750,12 @@ written) that were accepted because the code works that way and the tests pin it
     zero couplings, so nothing else changed shape.  `bench/coupling_stats.py --per-prompt`
     recomputes all of it from the recorded URDFs (both counts are properties of the file).
     The score effect on the three coupled prompts is inside the noise band at n=2 per side,
-    as expected; the pose count is the readout that resolves.
+    as expected; the pose count is the readout that resolves.  What does NOT resolve, and
+    is recorded so nobody claims it: the `joint_sweep` gate fails 30 % of the coupled
+    prompts' rounds with couplings (11/37) against 31 % without (12/39), and the spread
+    across pre-mimic batteries (19–31 %) is wider than that difference.  Fewer poses, all
+    reachable — but the gate still finds overlaps in them, and the two arms are not the
+    same artefacts measured twice (a pre-mimic plan declares no coupling at all).
 
 ## Rejected / deferred
 
