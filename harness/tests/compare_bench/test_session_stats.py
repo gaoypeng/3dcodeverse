@@ -117,3 +117,24 @@ def test_the_coupling_survey_counts_degrees_of_freedom_not_joints(tmp_path: Path
     assert s["coupled"] == [(2, 1)]                       # 2 movable joints, 1 degree of freedom
     assert "| 2 | 2 | 1 | 1 | 2 | 1 | 1 |" in report([tmp_path])
     assert "| art_hard_umbrella | 1 | 2 | 1 | 1 |" in per_prompt(tmp_path)
+
+
+def test_the_coupling_survey_also_reads_the_gate_that_judges_the_poses(tmp_path: Path) -> None:
+    """The mechanical counts say which poses were sampled; a coupled battery is run for
+    what the ``joint_sweep`` gate then reports about them, so the survey prints both."""
+    from bench.coupling_stats import gate_stats, report
+
+    run = tmp_path / "cells" / "cpl_umbrella" / "arm" / "run"
+    run.mkdir(parents=True)
+    (run / "record.json").write_text(json.dumps({"rounds": [
+        {"index": 0, "gates": [{"gate": "joint_sweep", "passed": False, "findings": [
+            {"severity": "error", "message": "links a|b overlap"},
+            {"severity": "warn", "message": "shallow rest overlap"}]}]},
+        {"index": 1, "gates": [{"gate": "joint_sweep", "passed": True, "findings": []},
+                               {"gate": "connectivity", "passed": False, "findings": [
+                                   {"severity": "error", "message": "not this gate"}]}]},
+    ]}))
+
+    g = gate_stats(tmp_path)
+    assert g == {"rounds": 2, "sweep_ran": 2, "sweep_failed": 1, "sweep_errors": 1}
+    assert "| 2 | 2 | 1 | 1 | 0.50 |" in report([tmp_path])
