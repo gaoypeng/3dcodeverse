@@ -109,7 +109,10 @@ def read_tree_at(ws: Workspace, commit: str) -> dict[str, bytes]:
             continue
         meta, _, path = rec.partition("\t")
         parts = meta.split()
-        if len(parts) < 3 or parts[1] != "blob" or not _keep(path):
+        # mode 120000 is a SYMLINK, stored as a blob whose content is the link target:
+        # `git archive` filtered it (tar member, not a file) and this path must too, or
+        # `src/link.py -> model.py` comes back as a one-line file saying "model.py".
+        if len(parts) < 3 or parts[1] != "blob" or parts[0] == "120000" or not _keep(path):
             continue
         entries.append((parts[2], path))
     if not entries:

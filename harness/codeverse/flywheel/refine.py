@@ -175,7 +175,7 @@ def transitions(runs_dir: Path | str, *, threshold: float = MIN_PREFERENCE_DELTA
                 drops["no_predecessor"] += 1
             elif not (prev.commit and cur.commit):
                 drops["no_commit"] += 1
-            elif not prev.build.ok:
+            elif prev.build is None or not prev.build.ok:
                 drops["predecessor_build_failed"] += 1
             elif effective_judgment(prev) is None:
                 drops["predecessor_unjudged"] += 1

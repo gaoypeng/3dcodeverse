@@ -77,6 +77,9 @@ def test_a_run_reached_through_a_symlink_is_exported_once_under_its_physical_bat
 
 @pytest.mark.parametrize("break_it,reason", [
     ("kind", None), ("commit", "no_commit"), ("build", "predecessor_build_failed"),
+    # RoundRecord.build is optional: a round that never reached the build stage carries
+    # None, and reading .ok on it took the whole export down with an AttributeError
+    ("no_build", "predecessor_build_failed"),
     ("judgment", "predecessor_unjudged"),
 ])
 def test_every_unexportable_round_is_counted_under_a_named_reason(tmp_path, break_it, reason):
@@ -88,6 +91,8 @@ def test_every_unexportable_round_is_counted_under_a_named_reason(tmp_path, brea
         rec.rounds[0].commit = ""
     elif break_it == "build":
         rec.rounds[0].build.ok = False
+    elif break_it == "no_build":
+        rec.rounds[0].build = None
     else:
         rec.rounds[0].judgment = None
     ws.write_json(ws.record_path, rec)

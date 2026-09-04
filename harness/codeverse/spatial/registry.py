@@ -25,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from codeverse.workspace import Workspace
 
@@ -40,6 +40,10 @@ class Observation(BaseModel):
     Only ``failed`` becomes MCP ``is_error``; a negative verdict is a result, not a
     broken call (what that cost when the two were one flag: docs/COST.md §30).
     """
+
+    # validate_assignment: the invariant below has to hold for `obs.failed = ...` at a call
+    # site as well, not only at construction (spatial/tools.scene_probe did exactly that)
+    model_config = ConfigDict(validate_assignment=True)
 
     ok: bool = True
     failed: bool = Field(default=False, description="the tool could not run: exception, missing "

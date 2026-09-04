@@ -115,6 +115,23 @@ def test_a_planted_diff_driver_never_runs(fake_run, tmp_path):
     assert files == ["src/blob.bin"] and "src/blob.bin" in text
 
 
+def test_a_symlink_is_not_exported_as_a_file_of_its_target(fake_run) -> None:
+    """``git archive`` skipped symlinks (a tar member, not a file); ``ls-tree`` lists one
+    as a blob whose content IS the link target, so ``src/link.py -> model.py`` came back
+    as a one-line file saying ``model.py`` — and with ``--with-code`` that goes into a
+    training sample."""
+    from codeverse.flywheel._git import read_tree_at
+
+    ws, _rec = fake_run
+    (ws.src / "model.py").write_text("import bpy\n")
+    (ws.src / "link.py").symlink_to("model.py")
+    commit = ws.commit("with a symlink")
+
+    tree = read_tree_at(ws, commit)
+    assert "src/model.py" in tree
+    assert "src/link.py" not in tree, "a symlink is not a file the agent wrote"
+
+
 def test_a_planted_smudge_filter_never_runs(fake_run, tmp_path):
     """The same window, the other content-rendering command: ``git archive`` renders
     blobs through ``convert_to_working_tree``, so a planted ``filter.<name>.smudge``

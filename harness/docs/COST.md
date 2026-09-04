@@ -1497,12 +1497,18 @@ block and each round's recorded `usage`:
 | uncached prompt tokens | 38 390 | **13 945** (−64 %) |
 | generator $ per round | mean 1.900, median 1.572 | **mean 1.242, median 0.950** (−35 % / −40 %) |
 
-**Correction (2026-09-03):** the after column first read 1.4 % (48 / 3 480), 13 736
-uncached tokens, median \$0.967 over "108 sessions / 5 082 requests".  Those counts were
-inflated by the `run/telemetry/trajectories` symlink this section warns about — the same
-sessions counted about twice.  The before column was unaffected and is unchanged.  The
-script deduplicates by resolved path and a test plants the symlink, so the mistake cannot
-come back.
+**Correction (2026-09-03), and what it does NOT explain.**  The after column first read
+1.4 % (48 / 3 480), 13 736 uncached tokens and median \$0.967 over "108 sessions / 5 082
+requests".  It was computed by hand, by a method that is not in the tree, and
+`bench/session_stats.py` does not reproduce it: the ratios are 1.87x on MCP calls and on
+requests but only 1.06x on sessions, and no mechanism tested accounts for that shape —
+following the `run/telemetry/trajectories` symlink doubles the file count exactly (2.0x on
+both batteries), counting every tool instead of the MCP ones gives 2 756 not 3 480, and no
+union of recorded batteries lands on those totals.  The BEFORE column reproduces to the
+digit, which says the method changed between the columns rather than the data.  The
+hand-computed after column is therefore **withdrawn**, not explained; the table above is
+what the committed script prints, and the script is what a later run should be compared
+against.
 
 The residual 1.3 % are genuine `Observation.error` cases: `joint_sweep` with no
 `artifacts/robot.urdf` yet or an unparseable one, `check_connectivity` / `check_contract`

@@ -170,12 +170,15 @@ def build_failure_lines(br: BuildResult, root: Path, lint_warns: Sequence[str], 
     return lines
 
 
-def gate_observation(report: GateReport, *, title: str = "", max_findings: int = 20, images: Iterable[str] = ()) -> Observation:
+def gate_observation(report: GateReport, *, title: str = "", max_findings: int = 20,
+                     images: Iterable[str] = (), failed: bool = False) -> Observation:
     """Errors first, each with its fix hint; counts in ``numbers``.
 
     The verdict leads the text for every gate, ``title`` or not: a failing gate is a
     result, not a tool error (``Observation.failed`` stays False), so PASS/FAIL is all
-    the model has to go on.  ``title`` names the gate, never the verdict.
+    the model has to go on.  ``title`` names the gate, never the verdict.  ``failed`` is
+    for the one caller whose gate report can also mean the tool did not run (the scene
+    probe driver dying); it forces ``ok=False``, because a call that failed has no verdict.
     """
     findings = sorted(report.findings, key=lambda f: _SEV_ORDER.get(f.severity, 3))
     n_err = sum(1 for f in findings if f.severity == Severity.ERROR)
@@ -193,7 +196,8 @@ def gate_observation(report: GateReport, *, title: str = "", max_findings: int =
     for f in findings:
         if f.severity == Severity.ERROR and f.data:
             numbers.setdefault("error_data", {})[f.target or f.message[:40]] = f.data
-    return Observation(ok=report.passed, text=truncate("\n".join(lines)), numbers=numbers, images=list(images))
+    return Observation(ok=report.passed and not failed, failed=failed,
+                       text=truncate("\n".join(lines)), numbers=numbers, images=list(images))
 
 
 def render_observation(rs: RenderSet, root: Path, *, note: str = "", max_individual: int = 4) -> Observation:

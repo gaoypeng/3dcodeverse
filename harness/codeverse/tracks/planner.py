@@ -895,8 +895,13 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
                 if events is not None:
                     events.emit("plan.restart", attempt=attempt, n_parts=len(raw.get("parts") or []),
                                 missing=missing[:10])
+                # rebuilt from the ORIGINAL request, so a compact-answer note an earlier
+                # truncation retry added is rebuilt with it: this attempt keeps that
+                # retry's smaller `tokens` and thinking="off", and dropping the note
+                # while keeping the budget asks for the answer that did not fit.
+                note = TRUNCATION_NOTE.format(tokens=tokens) if thinking == "off" else ""
                 messages = base_messages[:-1] + [
-                    ChatMessage.user(base_messages[-1].text + restart_note(raw, missing, budget),
+                    ChatMessage.user(base_messages[-1].text + restart_note(raw, missing, budget) + note,
                                      images=images or None),
                 ]
                 continue

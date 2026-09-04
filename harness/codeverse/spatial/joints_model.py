@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
-from codeverse.contracts.common import MIMIC_MIN_MULTIPLIER, MimicIssue, MimicSpec, mimic_issues
+from codeverse.contracts.common import MimicIssue, MimicSpec, mimic_issues
 
 MOVABLE_TYPES = ("revolute", "prismatic", "continuous")
 JOINT_TYPES = MOVABLE_TYPES + ("fixed",)
@@ -326,8 +326,8 @@ def _joint_from_xml(el: ET.Element) -> Joint:
             off = float(mim.get("offset", 0.0) or 0.0)
         except ValueError as e:
             raise UrdfError(f"joint {name}: <mimic> multiplier/offset must be numbers") from e
-        if abs(mult) < MIMIC_MIN_MULTIPLIER:
-            raise UrdfError(f"joint {name}: <mimic multiplier=\"0\"> — the joint cannot move; use type=fixed")
+        # the multiplier floor is NOT checked here: mimic_issues owns every coupling rule,
+        # and a copy at parse time makes the shared one unreachable (review, 2026-09-03)
         j.mimic = Mimic(joint=src, multiplier=mult, offset=off)
     return j
 

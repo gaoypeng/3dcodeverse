@@ -26,9 +26,16 @@ MCP_PREFIX = "mcp_3dcv_"
 
 
 def _sessions(root: Path) -> list[Path]:
-    """Every ``stdout.json`` under ``root``, deduplicated by resolved path."""
+    """Every ``stdout.json`` under ``root``, once per file on disk.
+
+    ``run/telemetry/trajectories`` is a symlink to ``run/trajectories``, so the walk has
+    to say what it does about symlinks rather than inherit it: ``recurse_symlinks=True``
+    reaches both paths and the resolve-dedupe collapses them.  Walking with the default
+    (no descent into symlinked directories) would give the same answer here by accident,
+    and would silently double every number the day a battery is laid out differently.
+    """
     seen: dict[Path, Path] = {}
-    for p in root.rglob("stdout.json"):
+    for p in sorted(root.rglob("stdout.json", recurse_symlinks=True)):
         if "trajectories" not in p.parts:
             continue
         seen.setdefault(p.resolve(), p)
@@ -74,7 +81,7 @@ def round_costs(root: Path) -> list[float]:
     """Generator dollars per round, from the run records (judging is billed elsewhere)."""
     out: list[float] = []
     seen: set[Path] = set()
-    for rec in root.rglob("record.json"):
+    for rec in root.rglob("record.json", recurse_symlinks=True):
         if rec.resolve() in seen:
             continue
         seen.add(rec.resolve())

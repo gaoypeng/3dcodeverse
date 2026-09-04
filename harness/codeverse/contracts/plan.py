@@ -17,7 +17,6 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from codeverse.contracts.common import (
-    MIMIC_MIN_MULTIPLIER,
     MimicSpec,
     Vec3,
     mimic_issues,
@@ -190,13 +189,6 @@ class MimicPlan(BaseModel):
     joint: str = Field(description="the joint this one follows, by name")
     multiplier: float = Field(default=1.0, description="q_this = multiplier * q_that + offset")
     offset: float = Field(default=0.0)
-
-    @model_validator(mode="after")
-    def _sane(self) -> MimicPlan:
-        if abs(self.multiplier) < MIMIC_MIN_MULTIPLIER:
-            raise ValueError(f"mimic of {self.joint}: multiplier 0 means the joint cannot move; use type=fixed")
-        return self
-
 
 class JointPlan(BaseModel):
     name: str
@@ -526,6 +518,9 @@ class ArticulatedPlan(StaticPlan):
         for i in issues:
             follower = by_name.get(i.joint)
             wanted = follower.mimic.joint if follower is not None and follower.mimic else i.target
+            if i.kind == "out_of_range":
+                continue  # the plan does not reject a coupling for overshooting a limit;
+                          # the lint warns (contracts.common._driven_range says why)
             raise ValueError({
                 "immobile": f"joint {i.joint}: a fixed joint cannot mimic {wanted}",
                 "zero_multiplier": f"mimic of {wanted}: multiplier 0 means the joint cannot move; use type=fixed",

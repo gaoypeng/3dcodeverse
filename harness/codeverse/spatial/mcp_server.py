@@ -44,8 +44,12 @@ MAX_TEXT_CHARS = 6000
 #: ceiling on the encoded image data of ONE result.  The count and the 1024 px long side
 #: bound pixels, not bytes: the largest recorded articulation sheet (1,966,609 B,
 #: 1176x3350) still encodes to 394,988 base64 characters after the downscale, so without
-#: this a legal result could hand the model ~280 k tokens of image.
+#: this a legal result could hand the model ~280 k tokens of image.  That leaves only ~1 %
+#: of headroom, so a slightly taller sheet is DOWNSCALED to fit rather than dropped
+#: (``_fit_first``): shipping no picture at all is the worse failure.
 MAX_IMAGE_BYTES = 400_000
+#: long sides tried, in order, when the first image does not fit the byte bound
+IMAGE_FALLBACK_SIDES = (768, 512, 384)
 SERVER_NAME = "3dcv"
 
 
@@ -86,6 +90,23 @@ def max_images_for(obs: Observation) -> int:
     return MAX_IMAGES if obs.ok else 1
 
 
+def _fit_first(path: str, budget: int) -> tuple[str | None, int]:
+    """The first image, re-encoded smaller until it fits ``budget``.
+
+    Returns ``(base64, long side used)`` or ``(None, 0)``.  ``images[0]`` is the contact
+    sheet — the one picture the round is about — and the byte bound has ~1 % of headroom
+    over the largest recorded sheet, so "over budget" means "a bit taller than last time",
+    not "unreasonable"."""
+    b64 = encode_image(path)
+    if b64 is not None and len(b64) <= budget:
+        return b64, MAX_IMAGE_SIDE
+    for side in IMAGE_FALLBACK_SIDES:
+        smaller = encode_image(path, max_side=side)
+        if smaller is not None and len(smaller) <= budget:
+            return smaller, side
+    return None, 0
+
+
 def observation_content(obs: Observation) -> list[Any]:
     """Observation → MCP content blocks (text first, then images), both bounded."""
     from mcp import types
@@ -102,25 +123,59 @@ def observation_content(obs: Observation) -> list[Any]:
     # than skipping it: dropping the sheet and shipping three views of the same thing would
     # be the worst of both.  Whatever is dropped is said in the text — a FAIL verdict that
     # silently shipped no picture is the case this guards.
-    kept, spent, dropped = [], 0, 0
-    for p in obs.images[:max_images_for(obs)]:
+    wanted = obs.images[:max_images_for(obs)]
+    kept, spent, dropped, shrunk = [], 0, 0, 0
+    for i, p in enumerate(wanted):
         b64 = encode_image(p)
+        if i == 0 and b64 is not None and len(b64) > MAX_IMAGE_BYTES:
+            b64, side = _fit_first(p, MAX_IMAGE_BYTES)
+            shrunk = side
         if b64 is None:
             dropped += 1
             continue
         if spent + len(b64) > MAX_IMAGE_BYTES:
-            dropped += len(obs.images[:max_images_for(obs)]) - len(kept) - dropped
+            dropped += len(wanted) - len(kept) - dropped
             break
         spent += len(b64)
         kept.append(b64)
+    notes = []
+    if shrunk:
+        notes.append(f"[the sheet was re-encoded at {shrunk} px to fit the "
+                     f"{MAX_IMAGE_BYTES}-byte payload bound]")
     if dropped:
-        blocks[0] = types.TextContent(
-            type="text",
-            text=f"{blocks[0].text}\n[{dropped} image(s) not attached: over the "
-                 f"{MAX_IMAGE_BYTES}-byte payload bound or unreadable; the files are in the workspace]")
+        notes.append(f"[{dropped} image(s) not attached: over the {MAX_IMAGE_BYTES}-byte "
+                     "payload bound or unreadable; the files are in the workspace]")
+    if notes:
+        # inside the ceiling, not appended past it: this is the last bound before the
+        # vendor's prompt, so the note takes room from the body rather than adding to it
+        tail = "\n" + "\n".join(notes)
+        body = blocks[0].text[:max(0, MAX_TEXT_CHARS - len(tail))]
+        blocks[0] = types.TextContent(type="text", text=body + tail)
     for b64 in kept:
         blocks.append(types.ImageContent(type="image", data=b64, mime_type="image/png"))
     return blocks
+
+
+async def call_tool(ctx: ToolContext, defs: dict[str, Any], params: Any) -> Any:
+    """One MCP tool call → a ``CallToolResult``.
+
+    Module level, not a closure inside :func:`make_server`, so the coupling below can be
+    driven by a test instead of grepped for: ``is_error`` is ``Observation.failed``, NOT
+    ``not ok``.  A tool that RAN and answered FAIL is a result the model must read; an MCP
+    error is a call the vendor retries instead (a mean 119k prompt tokens, $0.030 blended)
+    — and, on gemini-cli, one whose images it re-sends as base64 TEXT.  The FAIL verdict
+    leads the text.
+    """
+    from mcp import types
+
+    tdef = defs.get(params.name)
+    if tdef is None:
+        return types.CallToolResult(
+            content=[types.TextContent(type="text",
+                                       text=f"unknown tool {params.name!r}; known: {sorted(defs)}")],
+            is_error=True)
+    obs = await asyncio.to_thread(tdef.call, ctx, params.arguments or {})
+    return types.CallToolResult(content=observation_content(obs), is_error=obs.failed)
 
 
 def make_server(ctx: ToolContext):
@@ -136,15 +191,7 @@ def make_server(ctx: ToolContext):
         return types.ListToolsResult(tools=tools)
 
     async def on_call_tool(_req_ctx: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
-        tdef = defs.get(params.name)
-        if tdef is None:
-            return types.CallToolResult(content=[types.TextContent(type="text", text=f"unknown tool {params.name!r}; known: {sorted(defs)}")], is_error=True)
-        obs = await asyncio.to_thread(tdef.call, ctx, params.arguments or {})
-        # is_error is Observation.failed, NOT `not ok`: a tool that RAN and answered FAIL
-        # is a result the model must read, and an MCP error is a call the vendor retries
-        # instead (a mean 119k prompt tokens, $0.030 blended) — and, on gemini-cli, one
-        # whose images it re-sends as base64 TEXT.  The FAIL verdict leads the text.
-        return types.CallToolResult(content=observation_content(obs), is_error=obs.failed)
+        return await call_tool(ctx, defs, params)
 
     return Server(SERVER_NAME, version="0.1.0",
                   instructions="3dcodeverse spatial tools: build, measure, render and check the 3D object in this workspace.",

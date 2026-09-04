@@ -11,6 +11,7 @@ from rich.markup import escape
 
 from codeverse.cli import _common as C
 from codeverse.cli._common import console, kv_table, ok, warn
+from codeverse.flywheel.pairs import MIN_PREFERENCE_DELTA
 
 flywheel_app = typer.Typer(no_args_is_help=True)
 
@@ -68,7 +69,7 @@ def export_cmd(
 def pairs_cmd(
     runs_dir: Annotated[Path, typer.Argument()],
     out_jsonl: Annotated[Path, typer.Argument()],
-    min_delta: Annotated[float, typer.Option("--min-delta")] = 0.05,
+    min_delta: Annotated[float, typer.Option("--min-delta")] = MIN_PREFERENCE_DELTA,
 ) -> None:
     """Preference / repair (round + in-session) / cross-backend pairs → JSONL."""
     from codeverse.flywheel.pairs import build_pairs

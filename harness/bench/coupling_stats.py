@@ -26,9 +26,14 @@ from codeverse.spatial.joints_model import UrdfError, load_urdf  # noqa: E402
 
 
 def _urdfs(root: Path) -> list[Path]:
-    """Every built ``robot.urdf`` under ``root``, deduplicated by resolved path."""
+    """Every built ``robot.urdf`` under ``root``, once per file on disk.
+
+    ``recurse_symlinks=True`` + resolve-dedupe for the same reason as
+    ``bench/session_stats._sessions``: batteries symlink each other's cells, and a walk
+    that leaves symlink behaviour to the default counts a run once or twice depending on
+    how the tree happens to be laid out."""
     seen: dict[Path, Path] = {}
-    for p in root.rglob("robot.urdf"):
+    for p in sorted(root.rglob("robot.urdf", recurse_symlinks=True)):
         seen.setdefault(p.resolve(), p)
     return sorted(seen.values())
 

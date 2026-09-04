@@ -15,11 +15,41 @@ import math
 from collections import Counter
 from pathlib import Path
 
+#: what a validation failure was ABOUT, read off the error text.  The mechanism under test
+#: (``CV3D_PLAN_RESTART``) only ever addresses ``dangling_link``; every other class is a
+#: bystander, and a total that mixes them hides both the effect and its residue.
+FAILURE_CLASSES: dict[str, str] = {
+    "dangling_link": "references unknown link",
+    "parent_eq_child": "parent == child",
+    "disconnected": "not connected to root",
+}
+
 
 def outcome(row: dict) -> str:
+    """``valid`` | ``planning_error`` (the code under test lost the call) | ``provider``.
+
+    ``provider`` is dropped from the denominator, so it is deliberately narrow: only the
+    model-side failures the harness cannot help.  A harness-side death — a budget ceiling,
+    an unexpected exception — is a loss of the run and must NOT be hidden here, so anything
+    that is neither a ``PlanningError`` nor a known provider failure counts as a loss.
+    """
     if row["ok"]:
         return "valid"
-    return "planning_error" if "PlanningError" in row.get("error", "") else "provider"
+    err = row.get("error", "")
+    if "PlanningError" in err:
+        return "planning_error"
+    if any(w in err for w in ("ModelError", "BlockedReason", "429", "503", "Deadline", "RESOURCE_EXHAUSTED")):
+        return "provider"
+    return "planning_error"
+
+
+def failure_class(row: dict) -> str:
+    """Which validation rule the plan broke (``other`` when none of the known ones)."""
+    err = row.get("error", "")
+    for name, needle in FAILURE_CLASSES.items():
+        if needle in err:
+            return name
+    return "other"
 
 
 def wilson(hits: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -76,6 +106,24 @@ def report(arms: dict[str, list[dict]]) -> str:
                 judged = [r for r in rows if r["prompt"] == prompt and outcome(r) != "provider"]
                 cells.append(f"{sum(1 for r in judged if r['ok'])}/{len(judged)}")
             lines.append(f"| {prompt} | " + " | ".join(cells) + " |")
+    classes = {name: Counter(failure_class(r) for r in rows if outcome(r) == "planning_error")
+               for name, rows in arms.items()}
+    if any(classes.values()):
+        seen = [k for k in (*FAILURE_CLASSES, "other") if any(c[k] for c in classes.values())]
+        lines += ["", "| arm | " + " | ".join(seen) + " |", "|---|" + "--:|" * len(seen)]
+        for name, c in classes.items():
+            lines.append(f"| {name} | " + " | ".join(str(c[k]) for k in seen) + " |")
+        names = list(arms)
+        judged_n = {n: len(arms[n]) - Counter(outcome(r) for r in arms[n])["provider"] for n in names}
+        for k in seen:
+            for i, a in enumerate(names):
+                for b in names[i + 1:]:
+                    x, y = classes[a][k], classes[b][k]
+                    if not (x or y):
+                        continue
+                    p = fisher_exact(x, judged_n[a] - x, y, judged_n[b] - y)
+                    lines.append(f"  {k}: {a} {x}/{judged_n[a]} vs {b} {y}/{judged_n[b]}  "
+                                 f"Fisher p = {p:.4f}")
     failures = Counter()
     for name, rows in arms.items():
         for r in rows:

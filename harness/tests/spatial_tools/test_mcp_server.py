@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from PIL import Image
 from pydantic import ValidationError
 
 from codeverse.spatial.mcp_server import build_context, encode_image, main, observation_content
@@ -101,16 +102,66 @@ def test_the_byte_bound_keeps_the_sheet_drops_the_rest_and_says_so(tmp_path: Pat
     assert "1 image(s) not attached" in blocks[0].text
 
 
-def test_is_error_is_failed_not_the_verdict(tmp_path: Path) -> None:
-    """The one coupling every other bound assumes: a FAIL verdict is an ordinary result,
-    so the vendor sends its images as images.  Re-couple this to ``not obs.ok`` and the
-    base64-as-text blow-up of docs/COST.md §30 comes back."""
-    import inspect
+def test_an_oversized_sheet_is_downscaled_not_dropped(tmp_path: Path) -> None:
+    """The byte bound had ~1 % of headroom over the largest recorded sheet, so a slightly
+    taller one lost EVERY image and the round was judged on text alone.  The first image
+    is the sheet; it gets re-encoded smaller until it fits, and the text says so."""
+    from PIL import Image
+
+    from codeverse.spatial.mcp_server import MAX_IMAGE_BYTES
+
+    big = tmp_path / "sheet.png"
+    Image.effect_noise((1600, 4200), 90).convert("RGB").save(big)   # noise: PNG cannot shrink it
+    assert len(encode_image(str(big))) > MAX_IMAGE_BYTES
+
+    blocks = observation_content(Observation(ok=True, text="t", images=[str(big)]))
+    images = [b for b in blocks if b.type == "image"]
+    assert len(images) == 1 and len(images[0].data) <= MAX_IMAGE_BYTES
+    assert "re-encoded at" in blocks[0].text
+
+
+def test_every_bound_holds_including_the_note(tmp_path: Path) -> None:
+    """The "not attached" note used to be appended AFTER the hard slice, so the ceiling
+    was soft by the length of the note."""
+    from codeverse.spatial.mcp_server import MAX_TEXT_CHARS
+
+    heavy = tmp_path / "heavy.png"
+    Image.effect_noise((1600, 4200), 90).convert("RGB").save(heavy)
+    blocks = observation_content(Observation(ok=True, text="x" * 20_000,
+                                             images=[str(heavy), str(heavy)]))
+    assert len(blocks[0].text) <= MAX_TEXT_CHARS
+    assert "not attached" in blocks[0].text or "re-encoded" in blocks[0].text
+
+
+def test_is_error_is_failed_not_the_verdict(stool_ctx: ToolContext) -> None:
+    """The one coupling every other bound assumes, checked through the server itself.
+
+    A tool that RAN and answered FAIL must reach the model as an ordinary result, so the
+    vendor sends its images as images; re-couple this to ``not obs.ok`` and the
+    base64-as-text blow-up of docs/COST.md §30 comes back.  This used to be a grep over
+    ``make_server``'s source, which passes for any code that merely mentions the name."""
+    from mcp import types
 
     from codeverse.spatial import mcp_server
+    from codeverse.spatial.registry import NoArgs, ToolDef
 
-    src = inspect.getsource(mcp_server.make_server)
-    assert "is_error=obs.failed" in src and "is_error=not obs.ok" not in src
+    fakes = [
+        ToolDef(name="verdict", args_model=NoArgs, description="a gate that answers FAIL",
+                fn=lambda ctx, args: Observation(ok=False, failed=False, text="GATE: FAIL — one error")),
+        ToolDef(name="broken", args_model=NoArgs, description="a tool that cannot run",
+                fn=lambda ctx, args: Observation.error("no readable GLB")),
+    ]
+    defs = {t.name: t for t in fakes}
+
+    async def call(name: str) -> types.CallToolResult:
+        return await mcp_server.call_tool(stool_ctx, defs,
+                                          types.CallToolRequestParams(name=name, arguments={}))
+
+    verdict = asyncio.run(call("verdict"))
+    broken = asyncio.run(call("broken"))
+    assert verdict.is_error is False, "a FAIL verdict is a result, not a protocol error"
+    assert "FAIL" in verdict.content[0].text
+    assert broken.is_error is True, "a tool that could not run IS a protocol error"
 
 
 def test_a_failure_cannot_also_be_a_pass() -> None:

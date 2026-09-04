@@ -267,9 +267,11 @@ Both columns come from `bench/session_stats.py`, which is in the repo with its o
 | uncached prompt tokens | 38 390 | **13 945** (−64 %) |
 | generator $ per round | mean 1.900, median 1.572 | **mean 1.242, median 0.950** (−35 % / −40 %) |
 
-(The after column first read 1.4 % / 13 736 / \$0.967 over "108 sessions"; those counts
-double-counted the `run/telemetry/trajectories` symlink.  Rates barely move, the counts do;
-the script deduplicates and a test plants the symlink.)
+(The after column first read 1.4 % / 13 736 / \$0.967 over "108 sessions".  That was
+hand-computed, `bench/session_stats.py` does not reproduce it, and no mechanism tested
+explains its shape — 1.87x on calls and requests against 1.06x on sessions.  It is
+withdrawn, not corrected; docs/COST.md §30 carries the detail.  The before column
+reproduces exactly.)
 
 The residual 1.3 % are genuine `Observation.error` cases (`joint_sweep` before a build,
 `check_*` with no readable GLB).  **This is the largest effect found in the whole effort,

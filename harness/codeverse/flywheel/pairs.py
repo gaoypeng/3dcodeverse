@@ -243,7 +243,7 @@ def cross_backend_pairs(
     return out
 
 
-def build_pairs(runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float = 0.05) -> int:
+def build_pairs(runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float = MIN_PREFERENCE_DELTA) -> int:
     """Write all pair kinds for the runs under ``runs_dir``; returns the number written."""
     out = Path(out_jsonl)
     out.parent.mkdir(parents=True, exist_ok=True)

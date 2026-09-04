@@ -537,8 +537,7 @@ def scene_probe(ctx: ToolContext, args: NoArgs) -> Observation:
     res = probe_scene(ctx.workspace)
     # ok = the gate verdict; failed = the probe TOOL could not run (SceneProbeResult
     # semantics): agent-fixable findings are a FAIL the agent must read, not an error
-    obs = gate_observation(res.gate, title="scene probe")
-    obs.failed = bool(res.errors)
+    obs = gate_observation(res.gate, title="scene probe", failed=bool(res.errors))
     if res.errors:
         obs.text += "\nerrors:\n" + "\n".join(f"  ! {e[:200]}" for e in res.errors[:10])
     if res.census:

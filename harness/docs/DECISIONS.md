@@ -707,8 +707,10 @@ written) that were accepted because the code works that way and the tests pin it
     `Observation.error` cases), cache hit 68.8 % → **89.2 %**, uncached prompt tokens per
     request 38 390 → **13 945**, generator dollars per round median 1.572 → **0.950**
     (−40 %).  `bench/session_stats.py` computes both columns from the recorded sessions —
-    the first hand-computed after column double-counted the telemetry symlink (docs/COST.md
-    §30 carries the correction and the selector).
+    the first, hand-computed after column (1.4 %, 13 736, $0.967 over "108 sessions") is
+    NOT reproduced by it and is withdrawn: no tested mechanism explains its shape (1.87x on
+    calls and requests against 1.06x on sessions), while the before column reproduces to
+    the digit.  docs/COST.md §30 carries that and the selector.
   * **`CV3D_LEAN_PROMPT` stays OFF, now with a number.**  Paired battery on
     `articulated_v2` (12 pairs, plan pinned, same fixed judge): mean Δ **+0.030**, paired
     sd 0.131, **2 SE ±0.076**, 8 up / 3 down (p 0.227), one regression — inconclusive by

@@ -24,6 +24,7 @@ import concurrent.futures as cf
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -75,7 +76,27 @@ def _stats(ws_root: Path) -> dict:
     return out
 
 
-def run_one(battery, item, backends, label: str, rep: int) -> dict:
+def tree_provenance(tree: Path, codeverse_file: str) -> dict[str, str]:
+    """What was actually running, on every row: the imported package and the commit.
+
+    Two arms that differ by a worktree are only comparable if the rows say which tree
+    they came from — ``--label`` is a name the caller chose, and ``sys.path`` order is
+    not visible after the fact (a stale editable install would silently make both arms
+    the same code).  ``codeverse_file`` is passed in, never imported here: this module is
+    run as a file, so every ``import codeverse`` must sit below the sys.path bootstrap
+    (tests/compare_bench/test_worktree_import.py)."""
+    out = {"codeverse_file": codeverse_file}
+    try:
+        proc = subprocess.run(["git", "-C", str(tree), "rev-parse", "--short", "HEAD"],
+                              capture_output=True, text=True, check=False, timeout=30)
+        if proc.returncode == 0:
+            out["tree_commit"] = proc.stdout.strip()
+    except (OSError, subprocess.SubprocessError):  # a tree that is not a checkout is fine
+        pass
+    return out
+
+
+def run_one(battery, item, backends, label: str, rep: int, provenance: dict[str, str] | None = None) -> dict:
     """One plan-stage call in a throwaway workspace; never raises."""
     from bench.pin_plan import plan_once
     from bench.run_bench import build_spec
@@ -89,7 +110,8 @@ def run_one(battery, item, backends, label: str, rep: int) -> dict:
     except Exception as e:  # noqa: BLE001 — the failure IS the measurement
         ok, error = False, f"{type(e).__name__}: {e}"[:300].replace("\n", " ")
     row = {"tree": label, "prompt": item.id, "rep": rep, "ok": ok, "error": error,
-           "seconds": round(time.time() - started, 1), **_stats(root / "ws")}
+           "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
+           "seconds": round(time.time() - started, 1), **(provenance or {}), **_stats(root / "ws")}
     shutil.rmtree(root, ignore_errors=True)
     return row
 
@@ -113,8 +135,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"env {key.strip()}={value.strip()}")
     sys.path.insert(0, str(ns.tree.resolve()))
 
-    from bench.run_bench import Battery
+    import codeverse
+    from bench._jsonl import seal_for_append  # after the path insert: `python bench/x.py`
+    from bench.run_bench import Battery  # puts bench/ on sys.path, not the tree
     from codeverse.config import get_settings
+    if not Path(codeverse.__file__).resolve().is_relative_to(ns.tree.resolve()):
+        raise SystemExit(f"--tree {ns.tree} but `codeverse` imported from {codeverse.__file__}: "
+                         "an editable install won the path race, so both arms would run the "
+                         "same code (ab_plan.py's header documents this failure)")
 
     battery = Battery.load(ns.tree / ns.battery)
     backends = get_settings().backends(generator=DEFAULT_GENERATOR, planner=ns.planner, judge=DEFAULT_JUDGE)
@@ -124,8 +152,16 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{ns.label}: {len(jobs)} plan call(s) — {len(wanted)} prompt(s) x {ns.reps} rep(s), {len(done)} already recorded")
 
     ns.out.parent.mkdir(parents=True, exist_ok=True)
+    seal_for_append(ns.out)  # a killed run leaves a partial last line; do not glue onto it
+    prov = tree_provenance(ns.tree, codeverse.__file__)
+    print(f"{ns.label}: {prov}")
     with ns.out.open("a") as fh, cf.ThreadPoolExecutor(ns.workers) as pool:
-        for row in pool.map(lambda job: run_one(battery, job[0], backends, ns.label, job[1]), jobs):
+        # imap-style ordering: pool.map yields in submission order, so one slow call holds
+        # back every finished row behind it.  Rows are the journal, so they go out as they
+        # land instead (resume reads what is on disk, order does not matter).
+        futures = [pool.submit(run_one, battery, item, backends, ns.label, rep, prov) for item, rep in jobs]
+        for fut in cf.as_completed(futures):
+            row = fut.result()
             fh.write(json.dumps(row) + "\n")
             fh.flush()
             print(f"  {row['prompt']:28} r{row['rep']:<3} ok={row['ok']} restart={row['restarts']} {row['error'][:60]}")
