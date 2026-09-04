@@ -98,12 +98,12 @@ Two readings:
   median of 3 followers per 6 movable joints; here it is 10 of 10 and the strict one-input
   mechanisms collapse to a single degree of freedom.  The difference is in the prompt, not
   the planner.
-* **Branching couplings are still under-declared.**  Where one input drives one chain
-  (umbrella, blind, scissor lift, ladder, garage door, treadle) the plan leaves exactly one
-  input.  Where it drives several chains at once — the pram's fold hinge moving the handle,
-  the seat back and two leg pairs — it declares 3 of 8 and leaves 5 inputs standing.  That
-  is the case the sweep still over-drives, and the one a build-and-judge battery has to
-  look at.
+* **`inputs left` is a DOF count, not a defect count.**  Read joint by joint on the ten
+  recorded plans, eight leave exactly one free joint and it IS the input; the pram's five
+  are its fold hinge plus four wheel spins (the fold itself couples handle, seat back and
+  both leg pairs), and the pantograph mirror's second is the mirror tilt.  The planner
+  declared the coupling correctly in all ten — an earlier reading of this table called the
+  pram "3 of 8 declared" and was wrong.
 
 The plan stage is therefore NOT what a full run of this battery would be measuring: it
 loses nothing here.

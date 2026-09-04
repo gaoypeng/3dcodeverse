@@ -311,9 +311,12 @@ as evidence for or against `<mimic>`.
 
 **A battery built for the question** (`coupled_v1`, ten one-input linkages, 2026-09-04)
 separates what the planner does from what the agent does.  Plan stage alone, 200 calls:
-196 valid plans, **zero** planning losses, **193 declare a coupling**; the strict
-one-input mechanisms collapse to a single degree of freedom and the branching ones (a
-pram's fold hinge driving handle, seat back and two leg pairs) declare 3 of 8.  Then two
+196 valid plans, **zero** planning losses, **193 declare a coupling**; the ten
+mechanisms each come back with the coupling declared, and the free joints left over are
+the input itself (eight of ten) or a real second degree of freedom — the pram's four wheel
+spins, the pantograph mirror's tilt.  (An earlier reading of the same table treated
+`movable − mimic` as undeclared couplings and reported a branching-coupling gap; joint by
+joint there is none.)  Then two
 build-and-judge arms, baseline round only, differing by two edits — the `mimic` field
 typed to `None` so the planner cannot fill it, and the paragraph asking for it removed
 from `codeverse/prompts/tracks/plan_articulated.j2` (`bench/data/coupled/`; the nomimic
