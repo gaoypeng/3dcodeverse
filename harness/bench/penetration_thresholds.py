@@ -90,6 +90,42 @@ def survey(recs: list[dict]) -> dict:
     return {"rounds": len(worst_per_round), "worst": worst_per_round, "fired": fired, "both": both}
 
 
+def corroborate(recs: list[dict], threshold_m: float) -> dict:
+    """Would an ERROR at ``threshold_m`` fire on real defects?
+
+    The dense probe is the reference: for every link pair connectivity records at or over
+    the threshold, ask whether the SAME round's ``joint_sweep`` also reported that pair.
+    ``both`` = a new failure the dense probe corroborates, ``conn_only`` = one it does not,
+    ``sweep_only`` = an overlap the sparse probe never saw (today's silent misses).
+    """
+    both = conn_only = sweep_only = 0
+    examples: list[str] = []
+    for data in recs:
+        for rnd in data.get("rounds") or []:
+            gates = {g["gate"]: g for g in (rnd.get("gates") or [])}
+            conn, sweep = gates.get("connectivity"), gates.get("joint_sweep")
+            if conn is None or sweep is None:
+                continue
+            deep = set()
+            for f in conn.get("findings") or []:
+                d = f.get("data") or {}
+                if d.get("kind") == "penetration" and float(d.get("depth_m") or 0.0) >= threshold_m:
+                    deep.add(tuple(sorted([f.get("target", ""), str(d.get("other") or "")])))
+            flagged = set()
+            for f in sweep.get("findings") or []:
+                if f.get("severity") != "error":
+                    continue
+                m = _PAIR.search(f.get("message", ""))
+                if m:
+                    flagged.add(tuple(sorted([m.group(1), m.group(2)])))
+            both += len(deep & flagged)
+            conn_only += len(deep - flagged)
+            sweep_only += len(flagged - deep)
+            for pair in sorted(deep - flagged)[:1]:
+                examples.append(f"{data.get('spec', {}).get('id', '?')}: {'|'.join(pair)}")
+    return {"both": both, "conn_only": conn_only, "sweep_only": sweep_only, "examples": examples}
+
+
 def report(root: Path) -> str:
     s = survey(records(root))
     rounds, worst = s["rounds"], s["worst"]
@@ -105,6 +141,16 @@ def report(root: Path) -> str:
     for th in sorted(CANDIDATES):
         n = sum(1 for w in worst if w >= th)
         lines.append(f"| {th * 1000:.0f} mm | {n} | {n / max(1, rounds):.0%} |")
+    recs = records(root)
+    for th in (0.002, 0.005):
+        c = corroborate(recs, th)
+        total = c["both"] + c["conn_only"]
+        lines += ["", f"an ERROR at {th * 1000:.0f} mm would fire on {total} link pair(s): "
+                      f"**{c['both']} corroborated** by the dense probe in the same round, "
+                      f"{c['conn_only']} not; the dense probe additionally flags {c['sweep_only']} "
+                      f"pair(s) this threshold still misses."]
+        if c["examples"]:
+            lines.append(f"  uncorroborated examples: {', '.join(c['examples'][:4])}")
     if s["both"]:
         lines += ["", f"the two probes on the same link pair ({len(s['both'])} sweep ERROR findings; "
                       f"sweep tolerance {SWEEP_TOLERANCE_M * 1000:.0f} mm):",

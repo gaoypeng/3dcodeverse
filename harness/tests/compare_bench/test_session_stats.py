@@ -164,3 +164,31 @@ def test_the_coupling_survey_counts_runs_not_copies_of_the_same_urdf(tmp_path: P
     found = _urdfs(tmp_path)
     assert [p.parent.name for p in found] == ["artifacts"], "one URDF per run, the built one"
     assert _prompt_of(found[0]) == "cpl_umbrella"
+
+
+def test_the_two_penetration_probes_are_compared_not_merged(tmp_path: Path) -> None:
+    """The corroboration view is what stopped a threshold change: for every pair
+    connectivity records at or over a candidate depth, did the same round's sweep flag it?
+    Aligning the numbers would have created failures the dense probe does not support."""
+    from bench.penetration_thresholds import corroborate
+
+    rec = {"spec": {"id": "b/p", "track": "articulated_object"}, "rounds": [{
+        "gates": [
+            {"gate": "connectivity", "passed": True, "findings": [
+                {"severity": "warn", "target": "knob", "data": {"kind": "penetration", "other": "post",
+                                                                "depth_m": 0.004}},
+                {"severity": "warn", "target": "arm", "data": {"kind": "penetration", "other": "deck",
+                                                               "depth_m": 0.003}},
+            ]},
+            {"gate": "joint_sweep", "passed": False, "findings": [
+                {"severity": "error", "message": "links 'arm|deck' overlap in 2 of the sampled poses (worst 6.0 mm)"},
+                {"severity": "error", "message": "links 'rod|frame' overlap in 1 of the sampled poses (worst 9.0 mm)"},
+            ]},
+        ]}]}
+
+    c = corroborate([rec], 0.002)
+    assert c["both"] == 1                      # arm|deck: both probes
+    assert c["conn_only"] == 1                 # knob|post: a static contact only the sparse draw calls penetration
+    assert c["sweep_only"] == 1                # rod|frame: the sparse draw never saw it
+    assert c["examples"] == ["b/p: knob|post"]
+    assert corroborate([rec], 0.005)["both"] == 0     # nothing that deep on the sparse side

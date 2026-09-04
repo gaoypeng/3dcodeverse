@@ -777,9 +777,21 @@ written) that were accepted because the code works that way and the tests pin it
   The visible consequence: on `coupled_v1`, 11 sweep ERRORs about the REST pose were
   raised in rounds where the connectivity gate PASSED — the harness told the agent two
   different things about one pose.  Blast radius of a change, already computed: an ERROR
-  at 5 mm moves 1 round of 374, at 2 mm it moves 36 (10 %).  Left as it ships: a gate
-  threshold is a behaviour change and this branch is under review, so the finding, the
-  numbers and the script land first.
+  at 5 mm moves 1 round of 374, at 2 mm it moves 36 (10 %).
+
+  **And then the threshold experiment answered itself, offline (2026-09-04): do not
+  change it.**  Using the dense probe as the reference — for every pair connectivity
+  records at or over a candidate threshold, did the SAME round's sweep flag that pair? —
+  an ERROR at 2 mm would fire on 50 pairs of which only **7 are corroborated**, while the
+  43 uncorroborated ones are static contacts the design intends (`shoulder_lock_knob|
+  swivel_post`, `base_underframe|center_top`) that a 600-point surface draw reads as
+  penetration; and the dense probe would still be alone on **120** pairs.  At 5 mm: 2
+  pairs, 0 corroborated.  The two probes are not measuring the same thing at different
+  sensitivities — one asks "do these surfaces sit inside each other at rest", the other
+  "does moving this joint drive one link through another".  A shared threshold would
+  create uncorroborated failures and still miss what the sweep finds.  What is wrong is
+  that the two read as one check with two dials; the fix belongs in what each is called
+  and documented to do, not in the numbers.
 
 ## Rejected / deferred
 
