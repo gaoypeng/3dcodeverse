@@ -321,9 +321,14 @@ mechanisms on the battery, and nothing else.  Making the coupling a plan field i
 teaching a concept the model lacks; it turns something it volunteers in the obvious cases
 into a question it answers every time.
 
-What this still does not show: the `joint_sweep` gate fails at the same rate in both arms,
-so the poses the sampler now avoids are not demonstrably the ones that were costing
-score.
+**Why the gate rate did not move.**  In the coupled arm every sampled pose is reachable by
+construction — eight of ten models have exactly one free joint — so each overlap the gate
+reports is one the mechanism can reach.  Across both arms' 20 runs it raised 49 ERROR
+findings over 47 distinct link pairs at a median 5.8 mm penetration (1 mm tolerance), some
+already present at rest.  The errors were never mostly artefacts of unreachable poses:
+these mechanisms genuinely self-intersect, and the defect the battery exposes is in
+generation rather than in the sampler or the gate.  (Reachable here means reachable in the
+kinematic model; wrong limits still let a model reach what the object could not.)
 
 **What did NOT move: the sweep gate's own failure rate.**  On those eight prompts the
 `joint_sweep` gate fails 30 % of the rounds with couplings declared (11 of 37,
