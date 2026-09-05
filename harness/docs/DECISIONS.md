@@ -846,6 +846,22 @@ written) that were accepted because the code works that way and the tests pin it
   path works end to end and only lost a name; an argument for a Blender assembly layer has
   to be made on other grounds.
 
+* **D56 A frame rate is a measurement of the renderer that produced it (2026-09-05).**
+  Inside one `scenes_v1` battery `fps` was measured on two different backends — 11.5 fps on
+  an RTX 6000 Ada for one cell, 2.0 / 5.1 / 7.1 on SwiftShader for the next three, because
+  `gpu_launch.cjs` caches a negative GPU verdict for 20 minutes and the box's GPUs were at
+  ~100 % from other work.  `render_console` raised "low frame rate … merge static geometry"
+  for all four, and the judge was handed "PROBE: measured N fps" as a fact; two of the four
+  **critical** judge issues across the scored cells were frame-rate complaints.  Decision:
+  `RenderSet.hardware_fps` is the only form a gate or a judge may read, and
+  `RenderSet.software_rendered` reads the renderer string with the same words
+  `gpu_launch.cjs` uses to decide whether a GPU attempt is trusted at all.  The judge prompt
+  keeps a software number but LABELS it, rather than dropping it silently — a genuinely
+  heavy scene should still be visible to a reader — and an unrecognised renderer string is
+  never claimed as software.  Consequence: an fps comparison across cells is only valid
+  within one backend, which is a property of any battery run on a shared machine, not of
+  this one.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven
