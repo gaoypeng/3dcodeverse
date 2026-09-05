@@ -169,6 +169,12 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 python -m codeverse.judges.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```
+**Do not run the offline suite while a battery is running.**  The suite is 2 300+ tests on
+24 cores under xdist; a battery holds Blender, a browser pool and several agent sessions.
+Twice on 2026-09-04/05 that produced 11 and 21 spurious failures that vanished on a clean
+re-run (`tests/scene_runtime/lib/*` first, since those hold the renderer longest).  A red
+suite during a battery says nothing; re-run it when the battery is done.
+
 **Two arms at once need separate `CV3D_CACHE_DIR`, not just separate `--out`.**  The
 browser daemon advertises its endpoint in `CACHE_DIR/browser_<backend>.json` and a newer
 daemon supersedes an older one, so two worktrees sharing a cache end up on ONE browser:
