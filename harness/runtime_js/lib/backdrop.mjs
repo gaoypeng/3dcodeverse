@@ -16,6 +16,29 @@
  *   content  everything else
  */
 
+/**
+ * A mesh that does not WRITE DEPTH is a volumetric pass, not matter: haze shells,
+ * god rays, light shafts, glow cards.  It cannot support anything, nothing can sink
+ * into it, and overlapping it is what it is FOR.
+ *
+ * Measured on bench/out/scene_baseline (2026-09-05): every scene the generator wrote
+ * uses `depthWrite: false` 34-42 times, and two of the six cells failed
+ * `scene_placement` on nothing else — "BlackPine_5 is sunken 3.46 m into
+ * AtmosphereHaze" (MeshBasicMaterial, opacity 0.035) and "WindowSnowView/Mesh_49 and
+ * Environment/MoonlightShaft overlap 100%" (opacity 0.04, AdditiveBlending).  Both
+ * scenes were correct; the gate was measuring fog.
+ *
+ * Opacity is deliberately NOT part of the rule: glass sits at 0.3-0.6 and keeps
+ * writing depth, and a greenhouse pane really is a surface.  A solid wall the model
+ * mistakenly wrote `depthWrite: false` on stops being a support — a missed defect,
+ * which is the cheaper error, and one that matches how the frame actually renders.
+ */
+export function nonSolid(mesh) {
+  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  const real = mats.filter(Boolean);
+  return real.length > 0 && real.every((m) => m.depthWrite === false);
+}
+
 export const SKY_NAME_RE = /\b(sky|skydome|skybox|stars|clouds?|sun|moon|atmosphere)\b/i;
 export const GROUND_NAME_RE = /\b(ground|terrain|floor|water|ocean|sea|lake|river|plane|sand|grass|land)\b/i;
 
