@@ -910,6 +910,34 @@ written) that were accepted because the code works that way and the tests pin it
   `medieval_cobblestone` first — against a judge complaint reading "no cobblestone
   texture or material blending".)
 
+* **D59 A check that reads the scene graph by name walks the whole zone subtree
+  (2026-09-06).**  All five `scene_placement` ERRORs left in the fixed arm were
+  "zone X is missing planned contents", and none of them was absent content.  A zone
+  typically wraps what it builds in one group — floating_islands puts Windmill,
+  FloatingRock and SkyPine inside `IslandAssembly`; cozy_cabin's `PineSway_0` and
+  snowy_hut's `LanternPost1` are the ZONE's names for objects whose own roots, one level
+  further down, are `SnowyPineTree` and `HutPorchLantern`.  The placement table lists
+  direct children of a zone, so the contract check saw one row per wrapper and called the
+  plan unmet.  Each row now carries its named descendants (`inner`, capped at
+  `MAX_INNER_NAMES = 24`) and the check reads them; re-probing the three recorded
+  workspaces takes the contract from 5 ERRORs to 0.  This is the third variant of one
+  defect — a glTF root called `Scene` (D56), a wrapper group, a behaviour-named parent —
+  so the rule is now: **a by-name check on the scene graph names a SUBTREE, never a
+  child.**
+
+* **D60 A harness failure is never handed to the agent as a repair (2026-09-06).**
+  `probes.probe_report` labels a driver that produced no output with
+  `harness_failure: True` and the hint "this is a harness/driver failure, not your code",
+  and `build_with_repair` did not read the flag.  Measured on `bench/out/scene_textures`
+  (japanese_garden): three repairs against that message rewrote 5, then **14**, then 3
+  files — the 14 included `env.js` and every zone — and the fourth build passed on its
+  own.  The 14-file rewrite deleted the texture use the arm existed to measure; that cell
+  scored 0.496 where the same prompt scored 0.636 without the detour.  `BuildResult`
+  carries the flag now and the loop re-runs the BUILD instead, bounded by
+  `MAX_HARNESS_REBUILDS = 2` and costing no model call, since the node driver has already
+  retried once itself.  Rare (1 cell of 12 in each of two arms) and expensive when it
+  fires.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

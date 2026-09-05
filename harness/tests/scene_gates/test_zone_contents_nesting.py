@@ -7,11 +7,15 @@ module built each one and named it exactly that — `windmill.name = 'Windmill'`
 The placement table lists direct children of a zone, so the check saw one row named
 `IslandAssembly` and called the plan unmet.
 
-All five of arm B's remaining `scene_placement` ERRORs were this family; the other two are
-the model naming the object after its behaviour (`PineSway_0..11` for a SnowyPineTree,
-`LanternPost1/2` for a HutPorchLantern).  Those stay ERRORs — naming an object after the
-plan's content IS part of the contract, because that is how every gate and the judge find
-it — but the hint now says so.
+**All five** of arm B's remaining `scene_placement` ERRORs were this family, including the
+two that looked like the model renaming things.  `PineSway_0` and `LanternPost1` are the
+names the ZONE gave the placed objects, but each contains the asset module's own root one
+level further down — `inner` reads `['SnowyPineTree', 'Trunk', 'Boughs', …]` and
+`['HutPorchLantern']`.  Re-probing all three recorded workspaces takes the contract from
+5 ERRORs to **0**.
+
+The last test below still pins the rule for a subtree that genuinely does not carry the
+planned name; that shape did not occur in this corpus.
 """
 
 from __future__ import annotations
@@ -52,9 +56,9 @@ def test_content_that_really_is_absent_is_still_reported():
     assert _missing(out) == ["RopeBridge"]
 
 
-def test_an_object_named_after_its_behaviour_still_reads_as_missing():
-    """`buildSnowyPineTree` was called and the objects were named `PineSway_N`.  The tree is
-    there, and the gate still says so — naming it for the plan is what makes it findable."""
+def test_a_subtree_that_carries_the_name_nowhere_still_reads_as_missing():
+    """The rule is "somewhere under this row", not "anywhere in the scene": a zone whose
+    whole subtree never mentions the planned content is still missing it."""
     row = {"name": "Trees", "zone": "WindmillIsland", "inner": ["PineSway_0", "PineSway_1"]}
     out = contract_findings(_census(row), _plan(["SnowyPineTree"]))
     assert _missing(out) == ["SnowyPineTree"]
