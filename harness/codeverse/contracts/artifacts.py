@@ -128,6 +128,13 @@ class RenderView(BaseModel):
     )
 
 
+#: A renderer string that means "no hardware did this".  Same words as
+#: `runtime_js/gpu_launch.cjs` SOFTWARE_RE, which is what decides whether a GPU attempt
+#: is trusted; kept here because `fps` is only a fact about the scene when hardware
+#: measured it.
+SOFTWARE_RENDERERS = ("swiftshader", "llvmpipe", "softpipe", "software", "basic render")
+
+
 class RenderSet(BaseModel):
     views: list[RenderView] = Field(default_factory=list)
     contact_sheet: str | None = Field(default=None, description="one labelled grid image of all views")
@@ -136,6 +143,25 @@ class RenderSet(BaseModel):
     console_errors: list[str] = Field(default_factory=list, description="(scenes) JS/WebGL errors seen")
     fps: float | None = None
     out_dir: str = Field(default="", description="directory the views (+ views.json/metrics.json) were written to")
+
+    @property
+    def software_rendered(self) -> bool:
+        """True when these pixels came from a CPU rasteriser.
+
+        Measured on bench/out/scene_baseline (2026-09-05): with the box's eight GPUs at
+        ~100 % from other work, the GPU probe's negative verdict is cached for 20 minutes,
+        so cells fell back to SwiftShader one at a time and `fps` was measured on a
+        DIFFERENT renderer per cell — 11.5 fps on an RTX 6000 Ada for one, 5.1 / 7.1 / 2.0
+        on SwiftShader for the next three.  A CPU number is not comparable with a GPU one
+        and is not a property of the scene, so nothing may gate or judge on it.
+        """
+        low = self.renderer.lower()
+        return any(word in low for word in SOFTWARE_RENDERERS)
+
+    @property
+    def hardware_fps(self) -> float | None:
+        """`fps` when hardware measured it, else None — the only form worth reporting."""
+        return None if (self.fps is None or self.software_rendered) else self.fps
 
 
 # ===================================================================== judgment
