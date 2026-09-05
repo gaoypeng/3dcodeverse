@@ -76,3 +76,48 @@ def test_the_same_slab_WITH_depth_write_is_still_counted():
     solid_shaft = _run("true")
     assert solid_shaft["inside_mesh_bbox"] == ["SunShaft_0"]
     assert solid_shaft["camera_in_geometry"] is True
+
+
+REPAIR_JS = """
+import * as THREE from 'three';
+import { repairCameraSpec } from './lib/host_metrics.mjs';
+const solid = new THREE.MeshStandardMaterial();
+const fog = new THREE.MeshBasicMaterial({
+  transparent: true, opacity: 0.04, depthWrite: DEPTH_WRITE, side: THREE.DoubleSide,
+});
+const scene = new THREE.Scene();
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60, 2, 2), solid);
+ground.name = 'Ground'; ground.rotation.x = -Math.PI / 2; scene.add(ground);
+const shaft = new THREE.Mesh(new THREE.BoxGeometry(3, 5, 3), fog);
+shaft.name = 'MoonlightShaft'; shaft.position.set(0, 2.5, 0); scene.add(shaft);
+const chair = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.9, 0.8), solid);
+chair.name = 'Armchair'; chair.position.set(0, 0.45, -2.4); scene.add(chair);
+scene.updateMatrixWorld(true);
+const makeCam = (spec) => {
+  const cam = new THREE.PerspectiveCamera(spec.fov || 50, 16 / 9, 0.1, 500);
+  cam.position.set(...spec.position);
+  cam.lookAt(...spec.lookAt);
+  cam.updateMatrixWorld(true);
+  return cam;
+};
+// the cozy_cabin shape: an eye standing IN the moonbeam, 2.4 m from the nearest thing
+const spec = { name: 'ArmchairHearthEye', position: [0, 1.6, 0], lookAt: [0, 1.2, -2.4], fov: 50 };
+console.log(JSON.stringify({ fix: repairCameraSpec(scene, spec, THREE, makeCam) }));
+"""
+
+
+def test_a_camera_standing_in_a_moonbeam_is_not_retreated():
+    """`repairCameraSpec` is driven by `camera_in_geometry`, so a false "inside" does not
+    only print a finding — it RETREATS the authored lens.  bench/out/scene_baseline
+    (2026-09-05) recorded seven repairs, three of them triggered by fog: cozy_cabin's
+    ArmchairHearthEye and WindowFrostSnow were each moved back 4 m and up 2 m because
+    they stood in a `MoonlightShaft`, and the first of those ended NEARER geometry than
+    it started (2.358 m -> 0.916 m).  The judge then scored a shot nobody asked for."""
+    out = run_node_json(REPAIR_JS.replace("DEPTH_WRITE", "false").replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    assert out["fix"] in (None, False), "standing in a light shaft is the shot, not a defect"
+
+
+def test_a_camera_buried_in_a_solid_slab_is_still_retreated():
+    """The control: the same geometry that writes depth is matter, and the lens moves."""
+    out = run_node_json(REPAIR_JS.replace("DEPTH_WRITE", "true").replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    assert out["fix"], "a lens inside a solid slab must still be repaired"
