@@ -862,6 +862,28 @@ written) that were accepted because the code works that way and the tests pin it
   within one backend, which is a property of any battery run on a shared machine, not of
   this one.
 
+* **D57 The scene texture pack is wired into the loop, behind a switch that is off
+  (2026-09-05).**  Of 24 judge issues over the five scored cells of the first `scenes_v1`
+  battery, four say the GROUND is a flat untextured colour, in near-identical words —
+  "single flat brown color", "single flat color with no cobblestone texture", "flat,
+  untextured blueish plane with no material blending", "a hard, unblended circular seam".
+  It is the most consistent defect in the battery.  It is also a harness gap:
+  `texturing.plan.scene_texture_pack` writes a tileable pack and `texture_pack_prompt`
+  renders the list plus the loading idiom — its docstring says "Prompt snippet for
+  zone/env generation" — and NOTHING in `tracks/scene.py` called either.  The pack was
+  reachable only through `3dcv texture scene-pack`, whose output `cli/texture_cmd.py`
+  prints for a human to paste, and `Spec.options.texture` does nothing on this track.
+  Decision: a `textures` stage runs before env and zones (they can only name files that
+  exist when their prompts are built) and `_ctx` — the one place both prompts get their
+  context — carries the manifest.  **`CV3D_SCENE_TEXTURES` is off by default**: it costs
+  an image-model call per run, measured at $0.15 for two 512 px textures (seam score
+  0.001) and an estimated $1-2 per run at ten 1024 px ones, and what that buys is a
+  measurement nobody has made.  Consequence for the Blender question: the material class
+  cannot be counted as evidence for changing renderer until this arm has run.  (The
+  pack planner, given medieval_market's plan and told nothing about its judgment, planned
+  `medieval_cobblestone` first — against a judge complaint reading "no cobblestone
+  texture or material blending".)
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven
