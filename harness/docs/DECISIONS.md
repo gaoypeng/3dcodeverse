@@ -832,6 +832,24 @@ written) that were accepted because the code works that way and the tests pin it
   0.044 m embed and the gate now fails on a real defect it had been reporting alongside
   the fog (`SubmergedRock_1 is sunken 0.48 m into ArchedBridge`).
 
+  The same rule belongs in `nearGeometry`, and there it does more than quiet a report.
+  `repairCameraSpec` is driven by `camera_in_geometry`, so a false "inside" RETREATS the
+  authored lens: of the battery's seven recorded camera repairs, three were triggered by
+  fog, and cozy_cabin's two were each moved back 4 m and up 2 m for standing in a
+  `MoonlightShaft` — one of them ending NEARER geometry than it started (2.358 → 0.916 m).
+  Re-rendering that workspace under the battery's own `--camera-repair` flag with the rule
+  in place: `ArmchairHearthEye` goes from mean luminance 0.126 / 48 % near black to
+  **0.263 / 0.5 %**, `WindowFrostSnow` from 0.149 / 56 % to **0.298 / 17 %**, and both
+  cross from `dark_frame` ERROR to passing, while the two cameras that were never moved
+  are unchanged (one of them still genuinely dark).  So **two of that cell's three
+  dark-frame ERRORs were manufactured by the harness**: fog → a false "camera in
+  geometry" → a 4 m retreat → a dark frame → a second gate's ERROR → a judge complaint.
+  Since "the frame is too dark" is this track's most recorded defect (153 findings over 32
+  runs, per the scene prompt itself), some unknown share of that history is the
+  instrument rather than the model.  Across all 113 recorded camera checks in the battery
+  the RAY term (`nearest < 0.3 m`) never fired once; every `camera_in_geometry` finding
+  came from the bbox term, and every one of those was a volumetric or a scatter field.
+
 * **D55 A loaded GLB root is named after its asset (2026-09-05).**  rooftop_garden's plan
   asked for one `blender_glb` asset; the Blender sub-run built it, the assembler wrote the
   loader, the browser loaded it and the census confirmed it was in the scene
