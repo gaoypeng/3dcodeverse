@@ -44,7 +44,8 @@
  * of which writes no depth, i.e. haze, god rays, glow (`nonSolid`) — and anything
  * the author tags `userData.placement = 'free'` on the asset or its zone (a bird, a
  * hanging lantern, a drone).  A volumetric mesh is not indexed at all, so it is
- * never a support, never something to sink into and never an overlap partner.  First 400 assets, 4 s budget; the table says when it cut.
+ * never a support, never something to sink into and never an overlap partner.
+ * First 400 assets, 4 s budget; the table says when it cut.
  *
  * Vertical rays only, so every mesh gets a "column index": world vertices once
  * and, above 1 500 triangles, a uniform XZ grid of triangle buckets.  A column
@@ -241,8 +242,10 @@ function collectAssets(scene, indices, volumetrics, contentBox) {
       if (assets.length >= MAX_ASSETS) continue;
       const a = { obj: child, name: child.name || `${child.type}_${total}`, zone: zone === child ? '' : (zone.name || zone.type), meshes, instanced, exempt: '' };
       if (isFree(zone) || isFree(child)) a.exempt = 'free';
+      // instanced first: an asset that is scatter PLUS a haze shell is exempt because its
+      // instances cannot be sampled at this budget, which is the more informative reason
+      else if (!meshes.length && instanced) a.exempt = 'instanced';
       else if (!meshes.length && volumetric) a.exempt = 'volumetric';
-      else if (!meshes.length) a.exempt = 'instanced';
       else {
         a.min = [Infinity, Infinity, Infinity]; a.max = [-Infinity, -Infinity, -Infinity];
         let backdrop = 0;

@@ -119,3 +119,34 @@ def test_the_same_shells_WITH_depth_write_are_still_measured(solid_control):
     # every one of them is a solid object against fog — which is the whole point
     assert all("AtmosphereHaze" in p or "MoonlightShaft" in p for p in pairs)
     assert ["AtmosphereHaze", "BlackPine"] in pairs
+
+
+SCATTER_JS = """
+import * as THREE from 'three';
+import { sceneCensus } from './lib/host_census.mjs';
+const solid = new THREE.MeshStandardMaterial();
+const fog = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.04, depthWrite: false });
+const scene = new THREE.Scene();
+const env = new THREE.Group(); env.name = 'Environment'; scene.add(env);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60, 8, 8), solid);
+ground.name = 'Ground'; ground.rotation.x = -Math.PI / 2; env.add(ground);
+const zone = new THREE.Group(); zone.name = 'Meadow'; scene.add(zone);
+// scatter AND a haze shell in one asset: both reasons apply, the instanced one is better
+const mixed = new THREE.Group(); mixed.name = 'TuftsAndHaze';
+mixed.add(new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), solid, 40));
+const shell = new THREE.Mesh(new THREE.BoxGeometry(20, 4, 20), fog);
+shell.position.y = 2; mixed.add(shell);
+zone.add(mixed);
+scene.updateMatrixWorld(true);
+const t = sceneCensus(scene, THREE, { placement: true }).placement;
+console.log(JSON.stringify({ exempt: t.exempt,
+  rows: t.assets.map((a) => ({ name: a.name, exempt: a.exempt })) }));
+"""
+
+
+def test_scatter_that_also_carries_fog_is_exempt_as_instanced():
+    """Both reasons are true; `instanced` says the useful thing (its instances cannot be
+    sampled at this budget), so it wins."""
+    out = run_node_json(SCATTER_JS.replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    row = [a for a in out["rows"] if a["name"] == "TuftsAndHaze"]
+    assert row and row[0]["exempt"] == "instanced"
