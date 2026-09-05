@@ -70,3 +70,26 @@ def test_a_retry_that_loses_the_browser_again_raises(monkeypatch):
     with pytest.raises(SceneRenderError, match="detached Frame"):
         run_scene_script("render_scene.mjs", ["--ws", "x"], timeout_s=10)
     assert len(envs) == 2, "exactly one retry — a box out of memory stays out of memory"
+
+
+def test_a_driver_that_exits_0_with_no_summary_is_retried(monkeypatch):
+    """Every scene driver ends with a JSON summary line, so a run that produced none had
+    its stdout tail dropped (`proc._ABANDONED`) — transient, and worth one more attempt.
+    Without the retry the empty summary reached `probes.probe_report`, which rendered it
+    as "[?] scene did not boot"; desert_canyon then spent all three repair attempts on a
+    defect that was never there, while its own artifacts recorded `boot.ok: true`."""
+    envs = _record(monkeypatch, [
+        _result(0, None),
+        _result(0, {"ok": True, "boot": {"ok": True, "stage": "ready"}}),
+    ])
+    r = run_scene_script("probe_scene.mjs", ["--ws", "x"], timeout_s=10)
+    assert r.summary["boot"]["ok"] is True
+    assert len(envs) == 2 and envs[1]["CV3D_BROWSER_REUSE"] == "off"
+
+
+def test_a_driver_that_answered_is_not_retried_for_a_failing_verdict(monkeypatch):
+    """Exit 1 WITH a summary is a scene that failed — a verdict, and complete."""
+    envs = _record(monkeypatch, [_result(1, {"ok": False, "boot": {"ok": False, "stage": "createScene",
+                                                                  "error": "TypeError: x is not a function"}})])
+    r = run_scene_script("probe_scene.mjs", ["--ws", "x"], timeout_s=10)
+    assert r.summary["boot"]["stage"] == "createScene" and len(envs) == 1

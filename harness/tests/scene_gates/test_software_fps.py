@@ -79,3 +79,24 @@ def test_the_judge_is_told_a_cpu_number_is_not_the_scene() -> None:
     gpu = view_rig_section(RenderSet(renderer=GPU, fps=11.5), [], scene=True)
     assert "CPU rasteriser" in cpu and "do not raise a performance issue" in cpu
     assert "measured 12 fps." in gpu and "CPU rasteriser" not in gpu
+
+
+def test_a_probe_with_no_boot_record_is_a_harness_failure_not_a_verdict() -> None:
+    """`probe_scene.mjs` always carries `boot` in its summary, so an absent one means the
+    driver produced no parsable output — not that the scene failed to boot.  desert_canyon
+    (bench/out/scene_baseline, 2026-09-05) spent three repair attempts on
+    "[?] scene did not boot" with an identical signature while its own
+    artifacts/scene_probe.json recorded `ok: true, boot.ok: true, stage: ready`, and the
+    workspace boots in 600 ms today, unchanged."""
+    from codeverse.spatial.probes import probe_report
+
+    report, census = probe_report({})
+    assert not report.passed and census == {}
+    assert len(report.findings) == 1
+    f = report.findings[0]
+    assert "no result" in f.message and "did not boot" not in f.message
+    assert f.data.get("harness_failure") is True
+
+    # a REAL boot failure still reads as one, with its stage
+    real, _ = probe_report({"boot": {"ok": False, "stage": "createScene", "error": "TypeError: x"}})
+    assert not real.passed and "[createScene] TypeError: x" in real.findings[0].message

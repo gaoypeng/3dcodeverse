@@ -86,10 +86,20 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
             raise SceneRenderError(f"{script} could not run: {e}") from e
 
     r = attempt(env_extra)
-    if _driver_failed(r) and browser_was_lost(r.summary.get("error", "")):
+    lost_browser = _driver_failed(r) and browser_was_lost(r.summary.get("error", ""))
+    # Every scene driver ends with a JSON summary line (`lib/cli.finish` / `fail`), so a run
+    # that produced none had its stdout tail dropped — `proc._ABANDONED`, which a loaded box
+    # makes routine.  That is transient and worth one more attempt; without it the empty
+    # summary reaches `probes.probe_report`, which used to render it as "[?] scene did not
+    # boot" and spend the round's repair budget on a defect that was never there
+    # (desert_canyon, bench/out/scene_baseline, 2026-09-05).
+    lost_output = not lost_browser and not r.summary
+    if lost_browser or lost_output:
         log.warning(
-            "%s lost its browser (%s); retrying once on an owned browser",
-            script, str(r.summary.get("error"))[:200],
+            "%s %s; retrying once on an owned browser",
+            script,
+            f"lost its browser ({str(r.summary.get('error'))[:200]})" if lost_browser
+            else f"exited {r.rc} with no summary line (output lost)",
         )
         r = attempt({**env_extra, **OWN_BROWSER_ENV})
     summary = r.summary

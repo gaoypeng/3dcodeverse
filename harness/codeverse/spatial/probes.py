@@ -92,6 +92,21 @@ def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[Gate
     findings: list[GateFinding] = []
     s = summary
     boot = s.get("boot") or {}
+    if "boot" not in s:
+        # NO boot record at all is not a verdict about the scene: `probe_scene.mjs` always
+        # carries `boot` in its summary, so an absent one means the driver produced no
+        # parsable summary line — its stdout tail was dropped (`proc._ABANDONED`), or it
+        # died in a way `run_scene_script` let through with exit 0.  Saying "scene did not
+        # boot" here hands the agent a defect that does not exist and names nothing it can
+        # fix: on desert_canyon (bench/out/scene_baseline, 2026-09-05) the run spent three
+        # repair attempts on `[?] scene did not boot` with an identical signature, while the
+        # driver's own artifacts/scene_probe.json recorded `ok: true, boot.ok: true,
+        # stage: ready` — and the workspace boots in 600 ms today, unchanged.
+        findings.append(_f(gate, Severity.ERROR, "scene probe produced no result (driver output lost)",
+                           target="src/scene.js",
+                           hint="this is a harness/driver failure, not your code; retry or report",
+                           harness_failure=True))
+        return GateReport(gate=gate, passed=False, findings=findings, duration_ms=duration_ms), {}
     if not boot.get("ok"):
         stage = boot.get("stage", "?")
         msg = boot.get("error") or "scene did not boot"

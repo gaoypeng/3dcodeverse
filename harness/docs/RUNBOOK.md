@@ -183,7 +183,14 @@ its own cache dir passed 787/787.  Check `uptime` and `free -g` before believing
 browser test.  One test is flaky by construction under CPU contention and is NOT to be
 "fixed" by weakening it: `test_studio_render_is_reproducible_and_stamps_the_rig_version`
 compares two renders byte for byte, and SwiftShader is not bit-reproducible when the box
-is busy — it failed 2 runs in 3 on an unmodified tree at load 129.
+is busy — it failed 2 runs in 3 on an unmodified tree at load 129.  A second one behaves
+the same way: `test_example_scene_passes_frame_gate_and_judge_subset` asserts that a
+frame's content / ground / sky coverage fractions sum to 1 +- 0.02, and at `-n 4` under
+load ~100 it fails on `content 0.644 + ground 0.000 + sky 0.549 = 1.193`.  An interleaved
+A/B — six runs each, alternating so both arms see the same load — gave **5/6 failures on
+the unmodified tree and 4/6 with the branch's changes**, i.e. the box, not the code.  What
+produces a ground fraction of exactly zero on a scene that has a ground is an open
+question; it needs an idle machine to look at, not a guess.
 
 **Two arms at once still want separate `CV3D_CACHE_DIR`, though the browser no longer
 depends on it.**  Until 2026-09-05 the daemon advertised its endpoint at
