@@ -94,14 +94,14 @@ motion is under 0.4 % of the frame, double the amplitude and render again.
 
 {{ effects_catalog }}
 {% endif %}
-{% if textures is defined and textures %}
-
-{{ textures }}
-{% endif %}
 {% if recipes is defined and recipes %}
 
 # Recipes (from the scene cookbook — copy these numbers and snippets)
 {{ recipes }}
+{% endif %}
+{% if textures is defined and textures %}
+
+{{ textures }}
 {% endif %}
 
 ## Output

@@ -111,3 +111,46 @@ def test_the_prompt_context_carries_the_manifest_the_stage_produced(monkeypatch)
     seen.clear()
     S.SceneTrack()._ctx(ctx_none)  # type: ignore[arg-type]
     assert seen["textures"] == "", "no pack, no prompt block"
+
+
+GROUND_MANIFEST = {
+    "raked_zen_gravel": {"file": "raked_zen_gravel.png", "family": "stone", "role": "ground",
+                         "tile_size_m": 1.0, "roughness": 0.95},
+    "dark_slate_flagstone": {"file": "dark_slate_flagstone.png", "family": "stone", "role": "path",
+                             "tile_size_m": 1.5, "roughness": 0.8},
+    "aged_cedar_planks": {"file": "aged_cedar_planks.png", "family": "wood", "role": "prop",
+                          "tile_size_m": 0.8, "roughness": 0.75},
+}
+
+
+def test_the_pack_says_outright_that_the_ground_is_what_it_is_for():
+    """Measured 2026-09-05: the first two cells of the texture arm generated 8 and 9
+    textures, carried the block verbatim in their env prompt, and used ZERO of them across
+    `env.js` and six zone modules.  Three things told the model to write a procedural
+    colour blend — the plan's own ground sentence, the cookbook chapter "Ground that reads
+    real (blend, paths, edges — never one flat colour)", and that chapter's position after
+    the block — against one passive list.  A passive offer loses."""
+    from codeverse.texturing.plan import texture_pack_prompt
+
+    text = texture_pack_prompt(GROUND_MANIFEST)
+    assert "The ground is what this pack is for" in text
+    # it names the ground/path maps, and only those
+    assert "`raked_zen_gravel`" in text and "`dark_slate_flagstone`" in text
+    tail = text.split("The ground is what this pack is for")[1]
+    assert "`aged_cedar_planks`" not in tail, "a prop texture is not a ground map"
+
+
+def test_a_pack_with_no_ground_map_makes_no_ground_claim():
+    from codeverse.texturing.plan import texture_pack_prompt
+
+    props = {k: v for k, v in GROUND_MANIFEST.items() if v["role"] == "prop"}
+    text = texture_pack_prompt(props)
+    assert "aged_cedar_planks.png" in text
+    assert "The ground is what this pack is for" not in text
+
+
+@pytest.mark.parametrize("template", ["scene_env.j2", "scene_zone.j2"])
+def test_the_pack_has_the_last_word_over_the_recipes(template: str):
+    """The cookbook's ground chapter is long and specific; whichever comes last wins."""
+    out = _render(template, textures="TEXTURE_BLOCK_MARKER", recipes="RECIPE_MARKER")
+    assert out.index("RECIPE_MARKER") < out.index("TEXTURE_BLOCK_MARKER")
