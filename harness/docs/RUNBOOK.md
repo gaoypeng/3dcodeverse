@@ -190,7 +190,11 @@ load ~100 it fails on `content 0.644 + ground 0.000 + sky 0.549 = 1.193`.  An in
 A/B — six runs each, alternating so both arms see the same load — gave **5/6 failures on
 the unmodified tree and 4/6 with the branch's changes**, i.e. the box, not the code.  What
 produces a ground fraction of exactly zero on a scene that has a ground is an open
-question; it needs an idle machine to look at, not a guess.
+question; it needs an idle machine to look at, not a guess.  A third is a plain wall-clock
+assertion: `test_cabinet_door_end_to_end` requires the URDF build to finish in under 30 s
+and measured 38 970 ms at load ~100 with `ok=True` — the build succeeded, the box was
+busy.  All three are the same story, and none of them is to be "fixed" by loosening what
+it asserts.
 
 **Two arms at once still want separate `CV3D_CACHE_DIR`, though the browser no longer
 depends on it.**  Until 2026-09-05 the daemon advertised its endpoint at
