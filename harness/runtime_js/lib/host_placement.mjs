@@ -63,6 +63,9 @@ export const CONTACT_TOL_M = 0.02;
 export const FLOATING_M = 0.05;
 export const SUNK_M = 0.10;
 export const OVERLAP_MIN_FRAC = 0.20;
+//: named descendants recorded per row, so the plan-contents check can see through one
+//: wrapper group without the table growing without bound
+export const MAX_INNER_NAMES = 24;
 export const WATER_RE = /\b(water|ocean|sea|lake|river|pond|pool|stream|canal)\b/i;
 const FOOT_BAND_MIN_M = 0.02;
 const FOOT_BAND_FRAC = 0.05;
@@ -231,8 +234,15 @@ function collectAssets(scene, indices, volumetrics, contentBox) {
       const meshes = [];
       let instanced = 0;
       let volumetric = 0;
+      // Named descendants, not just this row's own name: a zone often wraps its content in
+      // one group ("IslandAssembly"), and the plan-contents check reads names off these
+      // rows.  Measured 2026-09-05 (scene_fixed/floating_islands): Windmill, FloatingRock
+      // and SkyPine were built and named correctly, added to `IslandAssembly`, and three
+      // zones were reported as "missing planned contents".
+      const inner = [];
       child.traverse((o) => {
         if (!o.visible) return;
+        if (o !== child && o.name && inner.length < MAX_INNER_NAMES && !inner.includes(o.name)) inner.push(o.name);
         if (o.isInstancedMesh) instanced += 1;
         else if (indices.has(o)) meshes.push(indices.get(o));
         else if (volumetrics.has(o)) volumetric += 1;
@@ -240,7 +250,7 @@ function collectAssets(scene, indices, volumetrics, contentBox) {
       if (!meshes.length && !instanced && !volumetric) continue;
       total += 1;
       if (assets.length >= MAX_ASSETS) continue;
-      const a = { obj: child, name: child.name || `${child.type}_${total}`, zone: zone === child ? '' : (zone.name || zone.type), meshes, instanced, exempt: '' };
+      const a = { obj: child, name: child.name || `${child.type}_${total}`, zone: zone === child ? '' : (zone.name || zone.type), meshes, instanced, inner, exempt: '' };
       if (isFree(zone) || isFree(child)) a.exempt = 'free';
       // instanced first: an asset that is scatter PLUS a haze shell is exempt because its
       // instances cannot be sampled at this budget, which is the more informative reason
@@ -396,7 +406,7 @@ export function placementTable(scene, THREE, opts = {}) {
   let timeCut = false;
   const rows = [];
   for (const a of assets) {
-    const row = { name: a.name, zone: a.zone, meshes: a.meshes.length, instanced: a.instanced, exempt: a.exempt,
+    const row = { name: a.name, zone: a.zone, meshes: a.meshes.length, instanced: a.instanced, inner: a.inner || [], exempt: a.exempt,
       bbox: a.min ? boxJson(a.min, a.max) : null };
     if (a.exempt) { rows.push(row); continue; }
     if (Date.now() - t0 > TIME_BUDGET_MS) { row.exempt = 'time_budget'; timeCut = true; rows.push(row); continue; }

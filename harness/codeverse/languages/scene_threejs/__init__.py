@@ -738,6 +738,10 @@ class SceneThreeJsRuntime(RuntimeDocs):
             error_line=_target_line(first.target) if first else None,
             duration_ms=int((time.time() - t0) * 1000),
             census=census,
+            # a driver that could not run is not a defect in the scene; `probes.probe_report`
+            # and `_probe_and_preflight` already mark it, and `build_with_repair` reads this
+            # so the round does not spend its repair budget rewriting working code
+            harness_failure=bool(first is not None and first.data.get("harness_failure")),
         )
         (ws.artifacts / "build.json").write_text(json.dumps(res.model_dump(mode="json"), indent=1))
         return res

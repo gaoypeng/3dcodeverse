@@ -76,6 +76,11 @@ class BuildResult(BaseModel):
     error_line: int | None = None
     duration_ms: int = 0
     census: dict[str, Any] = Field(default_factory=dict, description="language-native census (objects, materials ...)")
+    harness_failure: bool = Field(
+        default=False,
+        description="the build did not fail on the model's code — the harness could not run it "
+                    "(driver output lost, browser gone). Never handed to the agent as a repair.",
+    )
 
 
 class PartMeasure(BaseModel):
