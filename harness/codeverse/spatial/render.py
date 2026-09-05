@@ -25,7 +25,14 @@ from codeverse.contracts.artifacts import RENDER_MODES, RenderSet, RenderView
 from codeverse.conventions import OBJECT_VIEWS, ViewPreset
 from codeverse.proc import sha256_file
 from codeverse.spatial._render_common import build_sheet, out_directory, view_specs
-from codeverse.spatial.node import NodeError, run_node, runtime_js_dir
+from codeverse.spatial.node import (
+    BROWSER_LOST_MARKERS,
+    OWN_BROWSER_ENV,
+    NodeError,
+    browser_was_lost,
+    run_node,
+    runtime_js_dir,
+)
 
 BACKGROUNDS = ("studio", "white", "transparent")
 CACHE_VERSION = 4  # bump when the rig changes in a way that invalidates cached PNGs
@@ -139,9 +146,15 @@ def render_glb(
             # compare_art_v4 (2026-08-28): under 12 concurrent cells the browser took 7.5 s to
             # open a page and the viewer's wait expired ("Waiting failed"); the cell lost its
             # in-loop judge for the round.  One retry with twice the time is cheap next to that.
-            log.warning("render_glb transient failure, retrying once with %.0f s: %s", timeout_s * 2, str(e)[:160])
+            # A browser LOSS is retried on a browser of our own: the shared one
+            # advertised in the cache is the suspect, so re-using it repeats the failure.
+            own = browser_was_lost(e)
+            log.warning(
+                "render_glb transient failure, retrying once with %.0f s%s: %s",
+                timeout_s * 2, " on an owned browser" if own else "", str(e)[:160],
+            )
             time.sleep(RETRY_PAUSE_S)
-            record = _run_render(glb, out_dir, params, gpu=gpu, timeout_s=timeout_s * 2)
+            record = _run_render(glb, out_dir, params, gpu=gpu, timeout_s=timeout_s * 2, own_browser=own)
         if use_cache:
             _store_in_cache(cache_dir, out_dir, record)
 
@@ -169,8 +182,10 @@ def render_glb(
     )
 
 
-#: render failures that are the box, not the model: a retry is worth one more timeout
-TRANSIENT_MARKERS = ("waiting failed", "timed out", "timeout", "produced no result", "target closed", "session closed")
+#: render failures that are the box, not the model: a retry is worth one more timeout.
+#: The browser-loss half is shared with the scene drivers, which had no retry at all
+#: until 2026-09-05 and lost four baseline cells to a marker missing from this tuple.
+TRANSIENT_MARKERS = ("waiting failed", "timed out", "timeout", "produced no result", *BROWSER_LOST_MARKERS)
 RETRY_PAUSE_S = 3.0
 
 
@@ -179,7 +194,9 @@ def _transient(e: Exception) -> bool:
     return any(m in text for m in TRANSIENT_MARKERS)
 
 
-def _run_render(glb: Path, out_dir: Path, params: dict[str, Any], *, gpu: str, timeout_s: float) -> dict[str, Any]:
+def _run_render(
+    glb: Path, out_dir: Path, params: dict[str, Any], *, gpu: str, timeout_s: float, own_browser: bool = False
+) -> dict[str, Any]:
     args = [
         "--glb", str(glb), "--out", str(out_dir), "--views", json.dumps(params["views"]),
         "--mode", params["mode"], "--width", str(params["width"]), "--height", str(params["height"]),
@@ -191,7 +208,10 @@ def _run_render(glb: Path, out_dir: Path, params: dict[str, Any], *, gpu: str, t
     if params["anim_time"] is not None:
         args += ["--anim-time", str(params["anim_time"])]
     try:
-        res = run_node(runtime_js_dir() / "render_glb.mjs", args, timeout_s=timeout_s + 30)
+        res = run_node(
+            runtime_js_dir() / "render_glb.mjs", args, timeout_s=timeout_s + 30,
+            env_extra=OWN_BROWSER_ENV if own_browser else None,
+        )
     except NodeError as e:
         detail = ""
         if e.result and e.result.last_json:

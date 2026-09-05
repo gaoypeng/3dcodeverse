@@ -27,7 +27,14 @@ from codeverse.contracts.plan import BBox, CameraPlan
 from codeverse.conventions import SCENE_VIEWS, ViewPreset
 from codeverse.proc import read_json_or_none
 from codeverse.spatial._render_common import build_sheet, out_directory, view_specs
-from codeverse.spatial.node import NodeError, NodeResult, run_node, runtime_js_dir
+from codeverse.spatial.node import (
+    OWN_BROWSER_ENV,
+    NodeError,
+    NodeResult,
+    browser_was_lost,
+    run_node,
+    runtime_js_dir,
+)
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -43,11 +50,22 @@ class SceneRenderError(RuntimeError):
     """The node driver could not run (missing node/deps, timeout, crash)."""
 
 
+def _driver_failed(r: NodeResult) -> bool:
+    """The DRIVER could not run (exit 2/3, or a non-zero exit with no summary line).
+    Exit 1 is a scene that failed, which is a verdict, not a driver failure."""
+    return r.rc in (2, 3) or (r.rc != 0 and not r.summary)
+
+
 def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd: Path | None = None) -> NodeResult:
     """Run ``runtime_js/<script>`` via ``codeverse.spatial.node.run_node`` (which
     delegates to ``codeverse.proc.run_subprocess``: own process group, group kill
     on timeout).  The driver prints a JSON summary as its LAST stdout line; a
     timeout or exit code 2/3 means the driver itself failed → ``SceneRenderError``.
+
+    A driver that lost its BROWSER (``node.BROWSER_LOST_MARKERS``) is retried once on
+    a browser of its own.  That failure is the box, not the workspace, and without the
+    retry it costs the round every render and therefore its judge — the object path
+    has retried it since 2026-08-28 (``spatial/render.py``), the scene path did not.
     """
     rt = runtime_js_dir()
     path = rt / script
@@ -57,14 +75,25 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
     gpu = get_settings().render.gpu
     if gpu and "CV3D_RENDER_GPU" not in os.environ:
         env_extra["CV3D_RENDER_GPU"] = gpu
-    try:
-        r = run_node(path, list(map(str, args)), cwd=cwd or rt, timeout_s=timeout_s, env_extra=env_extra, check=False)
-    except NodeError as e:
-        if e.result is not None and e.result.timed_out:
-            raise SceneRenderError(f"{script} timed out after {timeout_s:.0f}s\n{e.result.stderr_tail}") from e
-        raise SceneRenderError(f"{script} could not run: {e}") from e
+    argv = [str(a) for a in args]
+
+    def attempt(env: dict[str, str]) -> NodeResult:
+        try:
+            return run_node(path, argv, cwd=cwd or rt, timeout_s=timeout_s, env_extra=env, check=False)
+        except NodeError as e:
+            if e.result is not None and e.result.timed_out:
+                raise SceneRenderError(f"{script} timed out after {timeout_s:.0f}s\n{e.result.stderr_tail}") from e
+            raise SceneRenderError(f"{script} could not run: {e}") from e
+
+    r = attempt(env_extra)
+    if _driver_failed(r) and browser_was_lost(r.summary.get("error", "")):
+        log.warning(
+            "%s lost its browser (%s); retrying once on an owned browser",
+            script, str(r.summary.get("error"))[:200],
+        )
+        r = attempt({**env_extra, **OWN_BROWSER_ENV})
     summary = r.summary
-    if r.rc in (2, 3) or (r.rc != 0 and not summary):
+    if _driver_failed(r):
         raise SceneRenderError(
             f"{script} failed (exit {r.rc}): {summary.get('error') if summary else ''}\n"
             f"stderr tail: {r.stderr_tail}\nstdout tail: {r.stdout[-1000:]}"

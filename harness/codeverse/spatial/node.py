@@ -74,6 +74,34 @@ class NodeResult:
         return self.stderr[-TAIL_CHARS:]
 
 
+#: A render failure that is the BOX, not the scene: the browser or the page died
+#: under the driver — the renderer process crashed, the tab was reaped under memory
+#: pressure, the shared browser was retired mid-call.  The same workspace renders on
+#: the next attempt, so one retry is worth its wall clock.  Measured 2026-09-05: four
+#: cells of the `scenes_v1` baseline lost every render — and with it the judge, after
+#: the models had already been paid for — to "Attempted to use detached Frame" while
+#: the box sat at load 93 with swap full.
+BROWSER_LOST_MARKERS = (
+    "detached frame",
+    "target closed",
+    "target crashed",
+    "session closed",
+    "page crashed",
+    "browser has disconnected",
+    "connection closed",
+)
+
+#: Env for a retry after a browser loss: take an OWNED browser, because the shared
+#: one advertised in the cache is the suspect (`runtime_js/gpu_launch.cjs`).
+OWN_BROWSER_ENV: dict[str, str] = {"CV3D_BROWSER_REUSE": "off"}
+
+
+def browser_was_lost(text: object) -> bool:
+    """True when ``text`` names a browser or page that died under the driver."""
+    lowered = str(text).lower()
+    return any(marker in lowered for marker in BROWSER_LOST_MARKERS)
+
+
 def runtime_js_dir() -> Path:
     return get_settings().runtime_js_dir()
 
