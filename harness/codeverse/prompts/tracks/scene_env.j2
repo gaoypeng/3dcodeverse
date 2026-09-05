@@ -86,6 +86,10 @@ every authored camera needs mean luminance >= 0.15 with dark <= 35 %.
 
 {{ effects_catalog }}
 {% endif %}
+{% if textures is defined and textures %}
+
+{{ textures }}
+{% endif %}
 {% if recipes is defined and recipes %}
 
 # Recipes (from the scene cookbook — copy these numbers and snippets)
