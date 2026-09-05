@@ -223,6 +223,18 @@ in a `lost to the box` column instead of counting them as gate failures.  A batt
 report shows that column non-zero has to be re-run for those cells before it is read as a
 statement about the generator.
 
+**A battery launched with `3dcv` from a worktree runs the MAIN checkout's code.**  `3dcv`
+is a console script, so `sys.path[0]` is the venv's `bin`, never the cwd, and `import
+codeverse` finds the editable install.  `--out bench/out/<name>` IS relative to the cwd,
+so the OUTPUT lands in the worktree while the CODE that produced it is the main tree's —
+an arm that looks like it is testing your branch and is testing `main` (measured
+2026-09-05: the first `scenes_v1` battery, launched from `local/worktrees/integrate`, ran
+entirely on the main checkout).  `python -c` and `pytest` do not have this problem because
+they put the cwd on the path.  Export `PYTHONPATH=<worktree>/harness` before the command,
+and have the arm script REFUSE TO RUN when `codeverse.__file__` and `runtime_js_dir()` are
+not the tree you meant — `local/scripts/run_scene_fixed.sh` is the pattern, and it also
+asserts that the specific fixes the arm exists to measure are present.
+
 **A new worktree needs `runtime_js/node_modules` before it can run a battery.**  Without it
 `render_glb` dies on every round, the judge is skipped for want of renders, and the cells
 come back `status=plateau` with `score=None` — an arm that reads as healthy and measures
