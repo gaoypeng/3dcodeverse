@@ -105,5 +105,11 @@ Two readings:
   declared the coupling correctly in all ten — an earlier reading of this table called the
   pram "3 of 8 declared" and was wrong.
 
+  **This is a hand reading, and it is not reproducible from this directory.**  The rows
+  carry `n_parts` / `n_joints` / `n_mimic` only, so the joint-by-joint check was done on
+  plan JSON that is not in the tree.  `plan_stage_bench.py --keep-plans` now writes each
+  call's `plan.json` beside its row so the next such reading can be re-done; the ten plans
+  behind THIS sentence pre-date that flag.
+
 The plan stage is therefore NOT what a full run of this battery would be measuring: it
 loses nothing here.

@@ -763,35 +763,158 @@ written) that were accepted because the code works that way and the tests pin it
     from the URDFs and stand; the scores and gate rates need a re-run on the corrected
     export.
 
-* **The harness measures interpenetration twice, and the laxer probe is the one that
-  gates (found 2026-09-04, NOT changed).**  `spatial/connectivity` samples 600 points per
-  surface, requires a minimum share of them inside the other part, and calls 2 mm a WARN
-  and **10 mm** an ERROR; `spatial/joints_collide` (the `joint_sweep` gate) probes the
-  posed meshes densely and reports at **1 mm**.  Same quantity, different sensitivity —
-  and the sparse probe is behind the gate that fails a round.  Measured over 374 recorded
-  articulated rounds (`bench/penetration_thresholds.py`): the connectivity penetration
-  ERROR has fired **0 times**, its WARN 50; the depths it records are median 2.0 mm, max
-  9.9 mm, so its ERROR threshold is unreachable in practice.  On the same link pairs the
-  sweep measures 2–3x deeper (8.8 vs 3.0 mm, 5.9 vs 3.8, 8.0 vs 3.0) and sometimes finds
-  an overlap connectivity does not report at all (15.0 mm on `base_frame|slider_crosshead`).
-  The visible consequence: on `coupled_v1`, 11 sweep ERRORs about the REST pose were
-  raised in rounds where the connectivity gate PASSED — the harness told the agent two
-  different things about one pose.  Blast radius of a change, already computed: an ERROR
-  at 5 mm moves 1 round of 374, at 2 mm it moves 36 (10 %).
+* **D53 Interpenetration is measured twice, and the two probes are asking different
+  questions (found 2026-09-04, corrected 2026-09-06, NOT changed).**  `spatial/connectivity`
+  draws 600 points per surface, requires a minimum share of them inside the other part, and
+  calls **2 mm** a WARN and **10 mm** an ERROR at the REST pose.  `joint_sweep` poses the
+  mechanism through fk and probes densely: it records an overlap from **2 mm**
+  (`sweep_collisions(tol_m=)`, the default every caller takes) and treats a REST overlap as
+  an ERROR only above **5 mm** (`sweep_findings(rest_max_m=)`, which
+  `urdf.REST_PENETRATION_MAX_M` matches).  So at rest the two share a WARN line and differ
+  2x on ERROR — not 10x, and `bench/penetration_thresholds.py` now imports both numbers
+  instead of restating them.
 
-  **And then the threshold experiment answered itself, offline (2026-09-04): do not
-  change it.**  Using the dense probe as the reference — for every pair connectivity
-  records at or over a candidate threshold, did the SAME round's sweep flag that pair? —
-  an ERROR at 2 mm would fire on 50 pairs of which only **7 are corroborated**, while the
-  43 uncorroborated ones are static contacts the design intends (`shoulder_lock_knob|
-  swivel_post`, `base_underframe|center_top`) that a 600-point surface draw reads as
-  penetration; and the dense probe would still be alone on **120** pairs.  At 5 mm: 2
-  pairs, 0 corroborated.  The two probes are not measuring the same thing at different
-  sensitivities — one asks "do these surfaces sit inside each other at rest", the other
-  "does moving this joint drive one link through another".  A shared threshold would
-  create uncorroborated failures and still miss what the sweep finds.  What is wrong is
-  that the two read as one check with two dials; the fix belongs in what each is called
-  and documented to do, not in the numbers.
+  Measured over 374 recorded articulated rounds: the connectivity ERROR has fired **0
+  times**, its WARN 50, and the depths it records are median 2.0 mm, max 9.9 mm — its ERROR
+  threshold is unreachable in practice.  The sweep raises **295 ERROR findings across 191
+  distinct link pairs**, median 5.0 mm, max 34.3.
+
+  **A correction to how that gap was first read.**  This entry used to say the sweep
+  measures "2-3x deeper on the same link pairs (8.8 vs 3.0 mm, 5.9 vs 3.8, 8.0 vs 3.0)".
+  That comparison was not about one pose: the sweep number was its worst over ALL sampled
+  poses and the connectivity number was the rest pose.  Restricted to the pairs whose worst
+  sweep pose IS the rest pose — `data["pose"]` empty, which is the filter that makes the
+  comparison mean what it says — there are 19 such pairs in the corpus, 4 of them also
+  recorded by connectivity in the same round, and on those four **the two probes agree
+  exactly**: 4.4/4.4, 4.4/4.4, 2.2/2.2, 2.5/2.5 mm.  The probes do not disagree about depth.
+  What differs is the question: 288 of the sweep's pairs are overlaps that exist only in a
+  moved pose, which a rest-pose check cannot see by construction.
+
+  **And the threshold experiment answered itself, offline: do not change it.**  Using the
+  dense probe as the reference — for every pair connectivity records at or over a candidate
+  threshold, did the SAME round's sweep flag that pair? — an ERROR at 2 mm would fire on 50
+  pairs of which only **7 are corroborated**, while the 43 uncorroborated ones are static
+  contacts the design intends (`shoulder_lock_knob|swivel_post`, `base_underframe|center_top`)
+  that a 600-point surface draw reads as penetration; the dense probe would still be alone on
+  **288** pairs.  At 5 mm: 2 pairs, 0 corroborated.  A shared threshold would create
+  uncorroborated failures and still miss what the sweep finds.  What was wrong is that the
+  two read as one check with two dials; the fix belongs in what each is called and documented
+  to do, not in the numbers.
+
+* **D54 A gate never reports the machine as a defect, and a render is retried once when
+  the browser dies (2026-09-05).**  The first recorded `scenes_v1` battery produced six
+  cells of which three built, passed every gate that does not need pixels, and kept ZERO
+  renders: `driver: Attempted to use detached Frame '<id>'` — Chrome reaping the render
+  tab on a box at load 93 with swap full and all eight GPUs at ~100 %.  The judge was
+  skipped for want of images, so $6.75 of already-paid generation produced no verdict, and
+  `bench/scene_stats.py` attributed the whole thing to `render_console`.  Three separate
+  rules came out of it, and they are the general form, not three patches:
+  1. **A driver that lost its browser is retried once, on a browser of its own.**  The
+     scene funnel (`spatial/render_scene.run_scene_script`) had no retry at all; the object
+     path had one since 2026-08-28 but its marker tuple knew only the "Target closed"
+     spelling.  One vocabulary, `spatial/node.BROWSER_LOST_MARKERS`, now serves both, and
+     the retry runs with `CV3D_BROWSER_REUSE=off` because the shared browser advertised in
+     the cache is the suspect.  Exactly one retry: a box out of memory stays out of memory.
+  2. **Two runtime trees never share a browser.**  The daemon endpoint, its spawn lock and
+     its failure file carry a digest of the `runtime_js` that spawned them, so a worktree
+     and the main checkout cannot advertise over each other inside one `CV3D_CACHE_DIR`.
+     RUNBOOK had asked operators to remember this since the coupled battery lost an arm to
+     it; nothing enforced it.
+  3. **A finding that names a dead browser is reported apart from a defect.**
+     `scene_stats.py` puts it in a `lost to the box` column and does not count the gate as
+     failed.  A battery whose report shows that column non-zero is not yet a statement
+     about the generator.
+  Consequence: a red browser test is checked against `uptime` and `free -g` before it is
+  believed, and `test_studio_render_is_reproducible_and_stamps_the_rig_version` is
+  documented as flaky-by-construction under CPU contention (SwiftShader is not
+  bit-reproducible when the box is busy) rather than weakened.
+
+* **D55 `scene_placement` measures matter, and matter writes depth (2026-09-05).**  Two of
+  the first six recorded scene cells failed the gate on nothing but their own atmosphere:
+  "BlackPine_5 is sunken 3.46 m into AtmosphereHaze" and "WindowSnowView/Mesh_49 and
+  Environment/MoonlightShaft overlap (100 % of the smaller box)".  Both scenes were
+  correct; both offenders are `MeshBasicMaterial` at opacity 0.035-0.04 with
+  `depthWrite: false`, and all nine recorded scenes use that idiom 34-42 times each.  A
+  pass that writes no depth occludes nothing, so it cannot support an object, nothing can
+  sink into it, and passing through it is what it is for.  `host_placement.nonSolid` keeps
+  such meshes out of the column index entirely; an asset made only of them is listed with
+  the exempt reason `volumetric` rather than dropped.  **Opacity is deliberately not part
+  of the rule** — glass sits at 0.3-0.6 and keeps writing depth, and a greenhouse pane
+  really is a surface; a solid wall the model mistakenly marked `depthWrite: false` stops
+  being a support, which is the cheaper error and matches what the frame shows.  Measured
+  on the recorded workspaces: cozy_cabin FAIL → PASS, japanese_garden's 3.46 m becomes a
+  0.044 m embed and the gate now fails on a real defect it had been reporting alongside
+  the fog (`SubmergedRock_1 is sunken 0.48 m into ArchedBridge`).
+
+  The same rule belongs in `nearGeometry`, and there it does more than quiet a report.
+  `repairCameraSpec` is driven by `camera_in_geometry`, so a false "inside" RETREATS the
+  authored lens: of the battery's seven recorded camera repairs, three were triggered by
+  fog, and cozy_cabin's two were each moved back 4 m and up 2 m for standing in a
+  `MoonlightShaft` — one of them ending NEARER geometry than it started (2.358 → 0.916 m).
+  Re-rendering that workspace under the battery's own `--camera-repair` flag with the rule
+  in place: `ArmchairHearthEye` goes from mean luminance 0.126 / 48 % near black to
+  **0.263 / 0.5 %**, `WindowFrostSnow` from 0.149 / 56 % to **0.298 / 17 %**, and both
+  cross from `dark_frame` ERROR to passing, while the two cameras that were never moved
+  are unchanged (one of them still genuinely dark).  So **two of that cell's three
+  dark-frame ERRORs were manufactured by the harness**: fog → a false "camera in
+  geometry" → a 4 m retreat → a dark frame → a second gate's ERROR → a judge complaint.
+  Since "the frame is too dark" is this track's most recorded defect (153 findings over 32
+  runs, per the scene prompt itself), some unknown share of that history is the
+  instrument rather than the model.  Across all 113 recorded camera checks in the battery
+  the RAY term (`nearest < 0.3 m`) never fired once; every `camera_in_geometry` finding
+  came from the bbox term, and every one of those was a volumetric or a scatter field.
+
+* **D56 A loaded GLB root is named after its asset (2026-09-05).**  rooftop_garden's plan
+  asked for one `blender_glb` asset; the Blender sub-run built it, the assembler wrote the
+  loader, the browser loaded it and the census confirmed it was in the scene
+  (`meshes_in_scene: 1, in_scene: true`) — and `scene_placement` still reported
+  "zone PergolaLounge is missing planned contents: LoungeSofa", because the object was
+  called `Scene`.  A glTF root carries whatever the exporter wrote and Blender writes
+  "Scene".  The three assembled entry points that load GLBs (`render_scene_js`, the
+  assembler's probe module, and the plan-written `scene.js`) had drifted into three copies
+  of the same loop with three different error messages; they are now one emitter,
+  `_glb_preload_js`, which stamps `to_pascal(key)` on the loaded root.  Consequence for the
+  Blender-scene question: **the cross-language seam is not what fails.**  The Blender asset
+  path works end to end and only lost a name; an argument for a Blender assembly layer has
+  to be made on other grounds.
+
+* **D57 A frame rate is a measurement of the renderer that produced it (2026-09-05).**
+  Inside one `scenes_v1` battery `fps` was measured on two different backends — 11.5 fps on
+  an RTX 6000 Ada for one cell, 2.0 / 5.1 / 7.1 on SwiftShader for the next three, because
+  `gpu_launch.cjs` caches a negative GPU verdict for 20 minutes and the box's GPUs were at
+  ~100 % from other work.  `render_console` raised "low frame rate … merge static geometry"
+  for all four, and the judge was handed "PROBE: measured N fps" as a fact; two of the four
+  **critical** judge issues across the scored cells were frame-rate complaints.  Decision:
+  `RenderSet.hardware_fps` is the only form a gate or a judge may read, and
+  `RenderSet.software_rendered` reads the renderer string with the same words
+  `gpu_launch.cjs` uses to decide whether a GPU attempt is trusted at all.  The judge prompt
+  keeps a software number but LABELS it, rather than dropping it silently — a genuinely
+  heavy scene should still be visible to a reader — and an unrecognised renderer string is
+  never claimed as software.  Consequence: an fps comparison across cells is only valid
+  within one backend, which is a property of any battery run on a shared machine, not of
+  this one.
+
+* **D58 The scene texture pack is wired into the loop, behind a switch that is off
+  (2026-09-05).**  Of 24 judge issues over the five scored cells of the first `scenes_v1`
+  battery, four say the GROUND is a flat untextured colour, in near-identical words —
+  "single flat brown color", "single flat color with no cobblestone texture", "flat,
+  untextured blueish plane with no material blending", "a hard, unblended circular seam".
+  It is the most consistent defect in the battery.  It is also a harness gap:
+  `texturing.plan.scene_texture_pack` writes a tileable pack and `texture_pack_prompt`
+  renders the list plus the loading idiom — its docstring says "Prompt snippet for
+  zone/env generation" — and NOTHING in `tracks/scene.py` called either.  The pack was
+  reachable only through `3dcv texture scene-pack`, whose output `cli/texture_cmd.py`
+  prints for a human to paste, and `Spec.options.texture` does nothing on this track.
+  Decision: a `textures` stage runs before env and zones (they can only name files that
+  exist when their prompts are built) and `_ctx` — the one place both prompts get their
+  context — carries the manifest.  **`CV3D_SCENE_TEXTURES` is off by default**: it costs
+  an image-model call per run, measured at $0.15 for two 512 px textures (seam score
+  0.001) and an estimated $1-2 per run at ten 1024 px ones, and what that buys is a
+  measurement nobody has made.  Consequence for the Blender question: the material class
+  cannot be counted as evidence for changing renderer until this arm has run.  (The
+  pack planner, given medieval_market's plan and told nothing about its judgment, planned
+  `medieval_cobblestone` first — against a judge complaint reading "no cobblestone
+  texture or material blending".)
 
 ## Rejected / deferred
 

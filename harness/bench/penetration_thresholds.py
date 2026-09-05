@@ -17,8 +17,8 @@ link pair.  A threshold change is a behaviour change; this is the blast radius f
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
-import re
 import statistics
 import sys
 from collections import Counter
@@ -26,24 +26,41 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from codeverse.languages.urdf import REST_PENETRATION_MAX_M  # noqa: E402
 from codeverse.spatial.connectivity import (  # noqa: E402
     PENETRATION_ERROR_M,
     PENETRATION_WARN_M,
 )
+from codeverse.spatial.joints_sweep import sweep_collisions, sweep_findings  # noqa: E402
 
 #: candidate ERROR thresholds in metres, including the one that ships
 CANDIDATES = (0.001, 0.002, 0.005, PENETRATION_ERROR_M)
-#: `joint_sweep` reports a rest-pose overlap at this depth (joints_collide's tolerance)
-SWEEP_TOLERANCE_M = 0.001
-_PAIR = re.compile(r"links '([^|]+)\|([^']+)'")
-_WORST = re.compile(r"worst ([\d.]+) mm")
+#: The sweep's own two numbers, IMPORTED rather than restated — this file used to carry a
+#: third copy of a constant the two probes already disagree on, and it had it wrong.
+#: `sweep_collisions(tol_m=)` is the depth at which a moved-pose overlap is recorded at
+#: all; `sweep_findings(rest_max_m=)` is the depth above which a REST overlap is an ERROR
+#: rather than a WARN.  Every caller takes both defaults.
+SWEEP_TOLERANCE_M = float(inspect.signature(sweep_collisions).parameters["tol_m"].default)
+SWEEP_REST_ERROR_M = float(inspect.signature(sweep_findings).parameters["rest_max_m"].default)
+assert SWEEP_REST_ERROR_M == REST_PENETRATION_MAX_M, "the urdf runtime disagrees with the sweep default"
+
+
+#: sub-workspaces a run owns; their records are not runs of their own (`find_runs` skips
+#: both, and `scene_stats.runs` did while this file skipped only `_cand`)
+SUB_WORKSPACES = ("_cand", "_assets")
 
 
 def records(root: Path) -> list[dict]:
-    """Every articulated run record under ``root``, once per run."""
+    """Every articulated run record under ``root``, once per run.
+
+    `resolve()` before the dedupe so a symlinked cell (`run/telemetry/trajectories` is the
+    documented one) is counted once, not twice — the trap that inflated COST §30.  The
+    review branch adds `flywheel.record.unique_files` for exactly this; both bench walkers
+    should move to it when that lands.
+    """
     out, seen = [], set()
     for rec in root.rglob("record.json"):
-        if rec.resolve() in seen or "_cand" in rec.parts:
+        if rec.resolve() in seen or any(w in rec.parts for w in SUB_WORKSPACES):
             continue
         seen.add(rec.resolve())
         try:
@@ -55,11 +72,42 @@ def records(root: Path) -> list[dict]:
     return out
 
 
+def sweep_pairs(sweep: dict | None, *, rest_only: bool) -> dict[tuple[str, ...], float]:
+    """``{link pair: worst depth}`` from a ``joint_sweep`` gate's ERROR findings.
+
+    Read off the structured finding, never the message: ``target`` IS the pair key and
+    ``data["max_depth_m"]`` the worst depth (``depth_m`` when the pair was not aggregated).
+    A wording change in ``aggregate_findings`` used to zero this whole report.
+
+    ``rest_only`` keeps the findings whose WORST pose is the rest pose — ``data["pose"]``
+    falsy, which is what ``aggregate_findings`` writes for rest.  Without it this compares
+    the sweep's worst-over-all-poses depth against connectivity's rest-pose depth, and
+    "2-3x deeper on the same pairs" is then not a statement about one pose.
+    """
+    out: dict[tuple[str, ...], float] = {}
+    for f in (sweep or {}).get("findings") or []:
+        if f.get("severity") != "error":
+            continue
+        d = f.get("data") or {}
+        if d.get("kind") != "penetration":
+            continue
+        if rest_only and d.get("pose"):
+            continue
+        target = str(f.get("target") or "")
+        if "|" not in target:
+            continue
+        key = tuple(sorted(target.split("|", 1)))
+        depth = float(d.get("max_depth_m") or d.get("depth_m") or 0.0)
+        out[key] = max(out.get(key, 0.0), depth)
+    return out
+
+
 def survey(recs: list[dict]) -> dict:
     """Per-round worst connectivity depth, and how the two probes compare where both ran."""
     worst_per_round: list[float] = []
     fired: Counter[str] = Counter()
     both: list[tuple[str, str, float, float | None]] = []
+    all_sweep_pairs: list[tuple[str, float]] = []
     for data in recs:
         for rnd in data.get("rounds") or []:
             gates = {g["gate"]: g for g in (rnd.get("gates") or [])}
@@ -78,16 +126,18 @@ def survey(recs: list[dict]) -> dict:
                 fired[f.get("severity", "")] += 1
             worst_per_round.append(worst)
             sweep = gates.get("joint_sweep")
-            for f in (sweep or {}).get("findings") or []:
-                if f.get("severity") != "error":
-                    continue
-                pair, mm = _PAIR.search(f.get("message", "")), _WORST.search(f.get("message", ""))
-                if not (pair and mm):
-                    continue
-                key = tuple(sorted([pair.group(1), pair.group(2)]))
-                both.append((data.get("spec", {}).get("id", "?"), "|".join(key),
-                             float(mm.group(1)) / 1000, depths.get(key)))
-    return {"rounds": len(worst_per_round), "worst": worst_per_round, "fired": fired, "both": both}
+            # every ERROR pair, for the corpus counts the docs cite
+            for key, depth in sweep_pairs(sweep, rest_only=False).items():
+                all_sweep_pairs.append(("|".join(key), depth))
+            # and only the pairs whose worst pose IS rest, for the depth comparison
+            for key, depth in sweep_pairs(sweep, rest_only=True).items():
+                both.append((data.get("spec", {}).get("id", "?"), "|".join(key), depth, depths.get(key)))
+    n_rest = sum(1 for _, _, _, c in both if c is not None)
+    return {"rounds": len(worst_per_round), "worst": worst_per_round, "fired": fired, "both": both,
+            "sweep_findings": len(all_sweep_pairs),
+            "sweep_distinct": len({p for p, _ in all_sweep_pairs}),
+            "sweep_depths": [d for _, d in all_sweep_pairs],
+            "rest_comparable": n_rest}
 
 
 def corroborate(recs: list[dict], threshold_m: float) -> dict:
@@ -111,13 +161,7 @@ def corroborate(recs: list[dict], threshold_m: float) -> dict:
                 d = f.get("data") or {}
                 if d.get("kind") == "penetration" and float(d.get("depth_m") or 0.0) >= threshold_m:
                     deep.add(tuple(sorted([f.get("target", ""), str(d.get("other") or "")])))
-            flagged = set()
-            for f in sweep.get("findings") or []:
-                if f.get("severity") != "error":
-                    continue
-                m = _PAIR.search(f.get("message", ""))
-                if m:
-                    flagged.add(tuple(sorted([m.group(1), m.group(2)])))
+            flagged = set(sweep_pairs(sweep, rest_only=False))
             both += len(deep & flagged)
             conn_only += len(deep - flagged)
             sweep_only += len(flagged - deep)
@@ -127,7 +171,8 @@ def corroborate(recs: list[dict], threshold_m: float) -> dict:
 
 
 def report(root: Path) -> str:
-    s = survey(records(root))
+    recs = records(root)          # read once: this used to walk every record.json twice
+    s = survey(recs)
     rounds, worst = s["rounds"], s["worst"]
     nonzero = [w for w in worst if w > 0]
     lines = [f"# penetration thresholds over {rounds} articulated round(s) under {root}", "",
@@ -137,11 +182,21 @@ def report(root: Path) -> str:
     if nonzero:
         lines.append(f"depth recorded by connectivity: median {statistics.median(nonzero) * 1000:.1f} mm, "
                      f"max {max(nonzero) * 1000:.1f} mm")
+    sd = s["sweep_depths"]
+    lines += ["",
+              f"joint_sweep ERROR findings: {s['sweep_findings']} across {s['sweep_distinct']} distinct link "
+              f"pair(s) (records an overlap at {SWEEP_TOLERANCE_M * 1000:.0f} mm; a REST overlap is an ERROR "
+              f"only above {SWEEP_REST_ERROR_M * 1000:.0f} mm)"]
+    if sd:
+        lines.append(f"depth recorded by the sweep: median {statistics.median(sd) * 1000:.1f} mm, "
+                     f"max {max(sd) * 1000:.1f} mm")
+    lines.append(f"pairs whose WORST sweep pose is rest (the only ones comparable with connectivity "
+                 f"pose-for-pose): {len(s['both'])}, of which {s['rest_comparable']} were also recorded "
+                 f"by connectivity in the same round")
     lines += ["", "| ERROR threshold | rounds at or over it | share |", "|---|--:|--:|"]
     for th in sorted(CANDIDATES):
         n = sum(1 for w in worst if w >= th)
         lines.append(f"| {th * 1000:.0f} mm | {n} | {n / max(1, rounds):.0%} |")
-    recs = records(root)
     for th in (0.002, 0.005):
         c = corroborate(recs, th)
         total = c["both"] + c["conn_only"]
@@ -152,8 +207,8 @@ def report(root: Path) -> str:
         if c["examples"]:
             lines.append(f"  uncorroborated examples: {', '.join(c['examples'][:4])}")
     if s["both"]:
-        lines += ["", f"the two probes on the same link pair ({len(s['both'])} sweep ERROR findings; "
-                      f"sweep tolerance {SWEEP_TOLERANCE_M * 1000:.0f} mm):",
+        lines += ["", "the two probes on the same link pair AT REST — the sweep rows below are all "
+                      "findings whose worst pose is the rest pose, so both columns describe one pose:",
                   "", "| run | pair | sweep | connectivity |", "|---|---|--:|--:|"]
         for run, pair, sw, cn in s["both"][:20]:
             lines.append(f"| {run} | `{pair}` | {sw * 1000:.1f} mm | "
