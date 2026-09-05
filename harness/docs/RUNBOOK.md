@@ -173,7 +173,11 @@ python -m codeverse.judges.calibration runs/<slug> [runs/<slug2> …] --model ge
 24 cores under xdist; a battery holds Blender, a browser pool and several agent sessions.
 Twice on 2026-09-04/05 that produced 11 and 21 spurious failures that vanished on a clean
 re-run (`tests/scene_runtime/lib/*` first, since those hold the renderer longest).  A red
-suite during a battery says nothing; re-run it when the battery is done.
+suite during a battery is **not evidence until it reproduces on a quiet machine** — re-run
+it there before pushing, and if the same tests are red again, it is real.  The mechanism is
+the one the next paragraph describes: `tests/scene_runtime/lib/*` reach the battery's
+browser daemon through a shared `CV3D_CACHE_DIR`, so giving the suite its own cache dir may
+let the two coexist.
 
 The same holds for a box loaded by OTHER work.  On 2026-09-05, with 12 `proseg` processes
 holding 528 GB, swap full and all eight GPUs at ~100 %, the offline suite failed 12, then

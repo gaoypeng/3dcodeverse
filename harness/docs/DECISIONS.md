@@ -757,37 +757,45 @@ written) that were accepted because the code works that way and the tests pin it
     reachable — but the gate still finds overlaps in them, and the two arms are not the
     same artefacts measured twice (a pre-mimic plan declares no coupling at all).
 
-* **The harness measures interpenetration twice, and the laxer probe is the one that
-  gates (found 2026-09-04, NOT changed).**  `spatial/connectivity` samples 600 points per
-  surface, requires a minimum share of them inside the other part, and calls 2 mm a WARN
-  and **10 mm** an ERROR; `spatial/joints_collide` (the `joint_sweep` gate) probes the
-  posed meshes densely and reports at **1 mm**.  Same quantity, different sensitivity —
-  and the sparse probe is behind the gate that fails a round.  Measured over 374 recorded
-  articulated rounds (`bench/penetration_thresholds.py`): the connectivity penetration
-  ERROR has fired **0 times**, its WARN 50; the depths it records are median 2.0 mm, max
-  9.9 mm, so its ERROR threshold is unreachable in practice.  On the same link pairs the
-  sweep measures 2–3x deeper (8.8 vs 3.0 mm, 5.9 vs 3.8, 8.0 vs 3.0) and sometimes finds
-  an overlap connectivity does not report at all (15.0 mm on `base_frame|slider_crosshead`).
-  The visible consequence: on `coupled_v1`, 11 sweep ERRORs about the REST pose were
-  raised in rounds where the connectivity gate PASSED — the harness told the agent two
-  different things about one pose.  Blast radius of a change, already computed: an ERROR
-  at 5 mm moves 1 round of 374, at 2 mm it moves 36 (10 %).
+* **D53 Interpenetration is measured twice, and the two probes are asking different
+  questions (found 2026-09-04, corrected 2026-09-06, NOT changed).**  `spatial/connectivity`
+  draws 600 points per surface, requires a minimum share of them inside the other part, and
+  calls **2 mm** a WARN and **10 mm** an ERROR at the REST pose.  `joint_sweep` poses the
+  mechanism through fk and probes densely: it records an overlap from **2 mm**
+  (`sweep_collisions(tol_m=)`, the default every caller takes) and treats a REST overlap as
+  an ERROR only above **5 mm** (`sweep_findings(rest_max_m=)`, which
+  `urdf.REST_PENETRATION_MAX_M` matches).  So at rest the two share a WARN line and differ
+  2x on ERROR — not 10x, and `bench/penetration_thresholds.py` now imports both numbers
+  instead of restating them.
 
-  **And then the threshold experiment answered itself, offline (2026-09-04): do not
-  change it.**  Using the dense probe as the reference — for every pair connectivity
-  records at or over a candidate threshold, did the SAME round's sweep flag that pair? —
-  an ERROR at 2 mm would fire on 50 pairs of which only **7 are corroborated**, while the
-  43 uncorroborated ones are static contacts the design intends (`shoulder_lock_knob|
-  swivel_post`, `base_underframe|center_top`) that a 600-point surface draw reads as
-  penetration; and the dense probe would still be alone on **120** pairs.  At 5 mm: 2
-  pairs, 0 corroborated.  The two probes are not measuring the same thing at different
-  sensitivities — one asks "do these surfaces sit inside each other at rest", the other
-  "does moving this joint drive one link through another".  A shared threshold would
-  create uncorroborated failures and still miss what the sweep finds.  What is wrong is
-  that the two read as one check with two dials; the fix belongs in what each is called
-  and documented to do, not in the numbers.
+  Measured over 374 recorded articulated rounds: the connectivity ERROR has fired **0
+  times**, its WARN 50, and the depths it records are median 2.0 mm, max 9.9 mm — its ERROR
+  threshold is unreachable in practice.  The sweep raises **295 ERROR findings across 191
+  distinct link pairs**, median 5.0 mm, max 34.3.
 
-* **D53 A gate never reports the machine as a defect, and a render is retried once when
+  **A correction to how that gap was first read.**  This entry used to say the sweep
+  measures "2-3x deeper on the same link pairs (8.8 vs 3.0 mm, 5.9 vs 3.8, 8.0 vs 3.0)".
+  That comparison was not about one pose: the sweep number was its worst over ALL sampled
+  poses and the connectivity number was the rest pose.  Restricted to the pairs whose worst
+  sweep pose IS the rest pose — `data["pose"]` empty, which is the filter that makes the
+  comparison mean what it says — there are 19 such pairs in the corpus, 4 of them also
+  recorded by connectivity in the same round, and on those four **the two probes agree
+  exactly**: 4.4/4.4, 4.4/4.4, 2.2/2.2, 2.5/2.5 mm.  The probes do not disagree about depth.
+  What differs is the question: 288 of the sweep's pairs are overlaps that exist only in a
+  moved pose, which a rest-pose check cannot see by construction.
+
+  **And the threshold experiment answered itself, offline: do not change it.**  Using the
+  dense probe as the reference — for every pair connectivity records at or over a candidate
+  threshold, did the SAME round's sweep flag that pair? — an ERROR at 2 mm would fire on 50
+  pairs of which only **7 are corroborated**, while the 43 uncorroborated ones are static
+  contacts the design intends (`shoulder_lock_knob|swivel_post`, `base_underframe|center_top`)
+  that a 600-point surface draw reads as penetration; the dense probe would still be alone on
+  **288** pairs.  At 5 mm: 2 pairs, 0 corroborated.  A shared threshold would create
+  uncorroborated failures and still miss what the sweep finds.  What was wrong is that the
+  two read as one check with two dials; the fix belongs in what each is called and documented
+  to do, not in the numbers.
+
+* **D54 A gate never reports the machine as a defect, and a render is retried once when
   the browser dies (2026-09-05).**  The first recorded `scenes_v1` battery produced six
   cells of which three built, passed every gate that does not need pixels, and kept ZERO
   renders: `driver: Attempted to use detached Frame '<id>'` — Chrome reaping the render
@@ -815,7 +823,7 @@ written) that were accepted because the code works that way and the tests pin it
   documented as flaky-by-construction under CPU contention (SwiftShader is not
   bit-reproducible when the box is busy) rather than weakened.
 
-* **D54 `scene_placement` measures matter, and matter writes depth (2026-09-05).**  Two of
+* **D55 `scene_placement` measures matter, and matter writes depth (2026-09-05).**  Two of
   the first six recorded scene cells failed the gate on nothing but their own atmosphere:
   "BlackPine_5 is sunken 3.46 m into AtmosphereHaze" and "WindowSnowView/Mesh_49 and
   Environment/MoonlightShaft overlap (100 % of the smaller box)".  Both scenes were
@@ -850,7 +858,7 @@ written) that were accepted because the code works that way and the tests pin it
   the RAY term (`nearest < 0.3 m`) never fired once; every `camera_in_geometry` finding
   came from the bbox term, and every one of those was a volumetric or a scatter field.
 
-* **D55 A loaded GLB root is named after its asset (2026-09-05).**  rooftop_garden's plan
+* **D56 A loaded GLB root is named after its asset (2026-09-05).**  rooftop_garden's plan
   asked for one `blender_glb` asset; the Blender sub-run built it, the assembler wrote the
   loader, the browser loaded it and the census confirmed it was in the scene
   (`meshes_in_scene: 1, in_scene: true`) — and `scene_placement` still reported
@@ -864,7 +872,7 @@ written) that were accepted because the code works that way and the tests pin it
   path works end to end and only lost a name; an argument for a Blender assembly layer has
   to be made on other grounds.
 
-* **D56 A frame rate is a measurement of the renderer that produced it (2026-09-05).**
+* **D57 A frame rate is a measurement of the renderer that produced it (2026-09-05).**
   Inside one `scenes_v1` battery `fps` was measured on two different backends — 11.5 fps on
   an RTX 6000 Ada for one cell, 2.0 / 5.1 / 7.1 on SwiftShader for the next three, because
   `gpu_launch.cjs` caches a negative GPU verdict for 20 minutes and the box's GPUs were at
@@ -880,7 +888,7 @@ written) that were accepted because the code works that way and the tests pin it
   within one backend, which is a property of any battery run on a shared machine, not of
   this one.
 
-* **D57 The scene texture pack is wired into the loop, behind a switch that is off
+* **D58 The scene texture pack is wired into the loop, behind a switch that is off
   (2026-09-05).**  Of 24 judge issues over the five scored cells of the first `scenes_v1`
   battery, four say the GROUND is a flat untextured colour, in near-identical words —
   "single flat brown color", "single flat color with no cobblestone texture", "flat,

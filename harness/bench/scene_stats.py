@@ -35,8 +35,10 @@ STAGES = ("plan", "skeleton", "assets", "env", "layouts", "assemble", "generate"
 def runs(root: Path) -> list[tuple[str, dict, list[dict]]]:
     """``(prompt id, record, events)`` per scene run under ``root``, once per run."""
     out, seen = [], set()
+    # same rule as `penetration_thresholds.records`; both move to
+    # `flywheel.record.unique_files` when the review branch lands
     for rec in root.rglob("record.json"):
-        if rec.resolve() in seen or "_assets" in rec.parts or "_cand" in rec.parts:
+        if rec.resolve() in seen or any(w in rec.parts for w in ("_cand", "_assets")):
             continue
         seen.add(rec.resolve())
         try:
@@ -115,8 +117,10 @@ def layers(rows: list[tuple[str, dict, list[dict]]]) -> dict:
             if round_lost:
                 gates["rounds_lost_to_the_box"] += 1
             j = rnd.get("judgment") or {}
-            if j.get("score") is not None:
-                scores.append(float(j["score"]))
+            # `overall`, not `score`: `Judgment` has no `score` field (contracts/artifacts),
+            # so this line never fired on a real record and the median was never printed.
+            if j.get("overall") is not None:
+                scores.append(float(j["overall"]))
             for issue in j.get("issues") or []:
                 judge[f"{issue.get('severity', '?')}/{issue.get('kind', '?')}"] += 1
     return {"plan": plan, "assets": assets, "asset_kind": asset_kind, "tris": tris,

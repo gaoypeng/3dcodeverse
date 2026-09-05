@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from bench.scene_stats import layers, runs
+from bench.scene_stats import layers, report, runs
 
 DETACHED = "driver: Attempted to use detached Frame '10276B428E350BFA074A02AF37D52E6C'."
 
@@ -65,3 +65,28 @@ def test_a_gate_that_failed_ONLY_on_the_browser_is_not_a_failure(tmp_path: Path)
     d = layers(runs(tmp_path))
     assert d["gates"]["scene_frames:FAILED"] == 0 and d["gates"]["scene_frames:LOST"] == 1
     assert sum(d["gate_errors"].values()) == 0
+
+
+def test_the_median_score_is_read_off_the_real_Judgment_shape(tmp_path: Path) -> None:
+    """`Judgment` has `overall`, never `score`.  The script read `score`, so on every real
+    record the median line was silently skipped — and no test caught it, because the
+    fixtures wrote `judgment: {}`.  Building the fixture from the model itself is what
+    stops that drifting again."""
+    from codeverse.contracts.artifacts import Judgment
+
+    def judged(name: str, overall: float) -> None:
+        d = tmp_path / name / "run"
+        d.mkdir(parents=True, exist_ok=True)
+        j = Judgment(rubric="scene_v1", scores={"a": overall}, overall=overall, passed=overall > 0.5)
+        (d / "record.json").write_text(json.dumps({
+            "spec": {"track": "scene", "id": name},
+            "plan": {"assets": []},
+            "rounds": [{"index": 0, "gates": [], "judgment": j.model_dump(mode="json")}],
+        }))
+
+    judged("low", 0.30)
+    judged("high", 0.50)
+    d = layers(runs(tmp_path))
+    assert d["scores"] == [0.30, 0.50] or d["scores"] == [0.50, 0.30]
+    text = report(tmp_path)
+    assert "scored rounds: 2" in text and "median 0.400" in text

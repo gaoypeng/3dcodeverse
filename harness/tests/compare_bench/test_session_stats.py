@@ -163,6 +163,17 @@ def test_the_coupling_survey_counts_runs_not_copies_of_the_same_urdf(tmp_path: P
     assert _prompt_of(found[0]) == "cpl_umbrella"
 
 
+def _sweep(pair: str, depth_m: float, *, poses: list[dict], worst_pose: dict) -> dict:
+    """An aggregated `joint_sweep` penetration finding, in the shape `aggregate_findings`
+    really emits: the pair is `target`, the worst depth is `data["max_depth_m"]`, and
+    `data["pose"]` is the pose that worst depth was measured in ({} = rest).  The message
+    is deliberately junk here — reading it was the bug."""
+    return {"gate": "articulation", "severity": "error", "target": pair,
+            "message": "(wording changes; nothing may parse this)",
+            "data": {"kind": "penetration", "depth_m": depth_m, "max_depth_m": depth_m,
+                     "pose": worst_pose, "poses": poses, "n_poses": len(poses)}}
+
+
 def test_the_two_penetration_probes_are_compared_not_merged(tmp_path: Path) -> None:
     """The corroboration view is what stopped a threshold change: for every pair
     connectivity records at or over a candidate depth, did the same round's sweep flag it?
@@ -178,8 +189,8 @@ def test_the_two_penetration_probes_are_compared_not_merged(tmp_path: Path) -> N
                                                                "depth_m": 0.003}},
             ]},
             {"gate": "joint_sweep", "passed": False, "findings": [
-                {"severity": "error", "message": "links 'arm|deck' overlap in 2 of the sampled poses (worst 6.0 mm)"},
-                {"severity": "error", "message": "links 'rod|frame' overlap in 1 of the sampled poses (worst 9.0 mm)"},
+                _sweep("arm|deck", 0.006, poses=[{}, {"j": 0.15}], worst_pose={"j": 0.15}),
+                _sweep("rod|frame", 0.009, poses=[{"j": 0.3}], worst_pose={"j": 0.3}),
             ]},
         ]}]}
 
@@ -228,3 +239,41 @@ def test_scene_stats_attributes_a_failure_to_a_layer(tmp_path: Path) -> None:
 
     text = report(tmp_path)
     assert "| scene_placement | 1 | 1 | 1 |" in text and "'threejs': 1" in text
+
+
+def test_the_depth_comparison_is_restricted_to_one_pose() -> None:
+    """`survey`'s two-probe table used to compare the sweep's worst-over-ALL-poses depth
+    with connectivity's rest-pose depth, so "2-3x deeper on the same pairs" was not a
+    statement about one pose at all.  Over the 374-round corpus, restricted to the pairs
+    whose worst sweep pose IS rest, the two probes agree exactly (4.4/4.4, 4.4/4.4,
+    2.2/2.2, 2.5/2.5 mm)."""
+    from bench.penetration_thresholds import survey, sweep_pairs
+
+    moved = _sweep("a|b", 0.0088, poses=[{}, {"j": 0.15}], worst_pose={"j": 0.15})
+    at_rest = _sweep("c|d", 0.0044, poses=[{}], worst_pose={})
+    gate = {"gate": "joint_sweep", "findings": [moved, at_rest]}
+
+    assert set(sweep_pairs(gate, rest_only=False)) == {("a", "b"), ("c", "d")}
+    assert set(sweep_pairs(gate, rest_only=True)) == {("c", "d")}, "the 8.8 mm is a moved pose"
+
+    rec = {"spec": {"id": "b/p", "track": "articulated_object"}, "rounds": [{"gates": [
+        {"gate": "connectivity", "passed": True, "findings": [
+            {"severity": "warn", "target": "c", "data": {"kind": "penetration", "other": "d", "depth_m": 0.0044}},
+            {"severity": "warn", "target": "a", "data": {"kind": "penetration", "other": "b", "depth_m": 0.0030}},
+        ]},
+        gate,
+    ]}]}
+    s = survey([rec])
+    assert s["sweep_findings"] == 2 and s["sweep_distinct"] == 2
+    assert [(p, sw, cn) for _, p, sw, cn in s["both"]] == [("c|d", 0.0044, 0.0044)], \
+        "only the rest-worst pair is comparable, and there the two probes agree"
+
+
+def test_a_finding_whose_message_changes_still_counts() -> None:
+    """The whole point of reading `target` / `data`: a wording change in
+    `aggregate_findings` used to silently zero this report."""
+    from bench.penetration_thresholds import sweep_pairs
+
+    f = _sweep("x|y", 0.01, poses=[{}], worst_pose={})
+    f["message"] = "completely different wording"
+    assert sweep_pairs({"gate": "joint_sweep", "findings": [f]}, rest_only=False) == {("x", "y"): 0.01}

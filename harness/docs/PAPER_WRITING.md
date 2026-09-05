@@ -324,11 +324,22 @@ into a question it answers every time.
 **Why the gate rate did not move.**  In the coupled arm every sampled pose is reachable by
 construction — eight of ten models have exactly one free joint — so each overlap the gate
 reports is one the mechanism can reach.  Across both arms' 20 runs it raised 49 ERROR
-findings over 47 distinct link pairs at a median 5.8 mm penetration (1 mm tolerance), some
-already present at rest.  The errors were never mostly artefacts of unreachable poses:
-these mechanisms genuinely self-intersect, and the defect the battery exposes is in
-generation rather than in the sampler or the gate.  (Reachable here means reachable in the
-kinematic model; wrong limits still let a model reach what the object could not.)
+findings over 47 distinct link pairs at a median 5.8 mm penetration, some already present
+at rest; all of those are printed by `bench/penetration_thresholds.py`.  The errors were
+never mostly artefacts of unreachable poses: these mechanisms genuinely self-intersect, and
+the defect the battery exposes is in generation rather than in the sampler or the gate.
+
+Three caveats, two of them corrections (2026-09-06).  Reachable means reachable in the
+KINEMATIC MODEL; wrong limits still let a model reach what the object could not.  "Every
+sampled pose is reachable" holds for the eight one-DOF models — for the pram and the mirror
+the sampler still combines the second freedom at random.  And the sweep's tolerance is
+**2 mm**, with a rest-pose ERROR line at **5 mm** (`sweep_collisions(tol_m=)` and
+`sweep_findings(rest_max_m=)`, both defaults every caller takes); an earlier version of this
+paragraph said 1 mm.  The judge's "the deck does not rise" was cited here as corroboration
+and has been removed: until `joints_export.robot_scene` resolves `<mimic>` followers, the
+articulation sheet posed every follower at rest, so that complaint is evidence about the
+sheet, not about the generation.  The sweep poses through fk, which does resolve followers,
+so the sweep-side evidence stands on its own.
 
 **What did NOT move: the sweep gate's own failure rate.**  On those eight prompts the
 `joint_sweep` gate fails 30 % of the rounds with couplings declared (11 of 37,
@@ -516,7 +527,7 @@ data the repo does not carry; they are marked in the caveat column.
   too dark" is this track's most-cited defect (153 findings over 32 runs), some share of
   that history is the instrument; **the share is unknowable because those records are
   gone**, so no number should be put on it.  The fixes are on `ziyao/scene-placement`
-  (D53–D57); arm B (`local/scripts/run_scene_fixed.sh`) is the measurement, and until it
+  (D53–D58); arm B (`local/scripts/run_scene_fixed.sh`) is the measurement, and until it
   lands the paper should not cite a scene result.  Handover note:
   `local/docs/PAPER-scene-track-correction.md`.
 
@@ -538,7 +549,7 @@ a test enforces by grepping the tree; a switch nothing reads once produced "keep
 | `CV3D_LEAN_PROMPT` | drop duplicated contract/tool cards, select cookbook chapters, focus the refine prompt | **off** | +0.030 ±0.076, no cost saving (§4); **removed from the tree 2026-09-03**; last carried on `ziyao/articulated-wave-2` before commit `4cbb28c`. |
 | `CV3D_FEWER_TURNS` (pre-existing) | fold gate checks into build, inline refine files | **off** | +0.015 ±0.126, dollars flat (§4) |
 | `CV3D_AXIS_REPAIR` (upstream) | deterministic axis rewrite from the measured motion | on | upstream's, kept |
-| `CV3D_SCENE_TEXTURES` | wire the scene texture pack into the loop: a stage before env/zones, and `texture_pack_prompt` in both prompts | **off** | added 2026-09-05 (D57) and NOT yet measured.  Four of five scored cells of the first scene battery complain the ground is a flat untextured colour, in near-identical words; the pack generator existed and had never been called from the loop.  Costs an image-model call per run (measured $0.15 for two 512 px textures, seam 0.001) |
+| `CV3D_SCENE_TEXTURES` | wire the scene texture pack into the loop: a stage before env/zones, and `texture_pack_prompt` in both prompts | **off** | added 2026-09-05 (D58) and NOT yet measured.  Four of five scored cells of the first scene battery complain the ground is a flat untextured colour, in near-identical words; the pack generator existed and had never been called from the loop.  Costs an image-model call per run (measured $0.15 for two 512 px textures, seam 0.001) |
 
 Not switched, because they are bug fixes rather than levers: the MCP verdict/failed split
 (§5.2), `<mimic>` support (§5.3), the provider-failure markers and retries (§5.4), the
