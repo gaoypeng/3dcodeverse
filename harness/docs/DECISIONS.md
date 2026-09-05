@@ -787,6 +787,65 @@ written) that were accepted because the code works that way and the tests pin it
   that the two read as one check with two dials; the fix belongs in what each is called
   and documented to do, not in the numbers.
 
+* **D53 A gate never reports the machine as a defect, and a render is retried once when
+  the browser dies (2026-09-05).**  The first recorded `scenes_v1` battery produced six
+  cells of which three built, passed every gate that does not need pixels, and kept ZERO
+  renders: `driver: Attempted to use detached Frame '<id>'` — Chrome reaping the render
+  tab on a box at load 93 with swap full and all eight GPUs at ~100 %.  The judge was
+  skipped for want of images, so $6.75 of already-paid generation produced no verdict, and
+  `bench/scene_stats.py` attributed the whole thing to `render_console`.  Three separate
+  rules came out of it, and they are the general form, not three patches:
+  1. **A driver that lost its browser is retried once, on a browser of its own.**  The
+     scene funnel (`spatial/render_scene.run_scene_script`) had no retry at all; the object
+     path had one since 2026-08-28 but its marker tuple knew only the "Target closed"
+     spelling.  One vocabulary, `spatial/node.BROWSER_LOST_MARKERS`, now serves both, and
+     the retry runs with `CV3D_BROWSER_REUSE=off` because the shared browser advertised in
+     the cache is the suspect.  Exactly one retry: a box out of memory stays out of memory.
+  2. **Two runtime trees never share a browser.**  The daemon endpoint, its spawn lock and
+     its failure file carry a digest of the `runtime_js` that spawned them, so a worktree
+     and the main checkout cannot advertise over each other inside one `CV3D_CACHE_DIR`.
+     RUNBOOK had asked operators to remember this since the coupled battery lost an arm to
+     it; nothing enforced it.
+  3. **A finding that names a dead browser is reported apart from a defect.**
+     `scene_stats.py` puts it in a `lost to the box` column and does not count the gate as
+     failed.  A battery whose report shows that column non-zero is not yet a statement
+     about the generator.
+  Consequence: a red browser test is checked against `uptime` and `free -g` before it is
+  believed, and `test_studio_render_is_reproducible_and_stamps_the_rig_version` is
+  documented as flaky-by-construction under CPU contention (SwiftShader is not
+  bit-reproducible when the box is busy) rather than weakened.
+
+* **D54 `scene_placement` measures matter, and matter writes depth (2026-09-05).**  Two of
+  the first six recorded scene cells failed the gate on nothing but their own atmosphere:
+  "BlackPine_5 is sunken 3.46 m into AtmosphereHaze" and "WindowSnowView/Mesh_49 and
+  Environment/MoonlightShaft overlap (100 % of the smaller box)".  Both scenes were
+  correct; both offenders are `MeshBasicMaterial` at opacity 0.035-0.04 with
+  `depthWrite: false`, and all nine recorded scenes use that idiom 34-42 times each.  A
+  pass that writes no depth occludes nothing, so it cannot support an object, nothing can
+  sink into it, and passing through it is what it is for.  `host_placement.nonSolid` keeps
+  such meshes out of the column index entirely; an asset made only of them is listed with
+  the exempt reason `volumetric` rather than dropped.  **Opacity is deliberately not part
+  of the rule** — glass sits at 0.3-0.6 and keeps writing depth, and a greenhouse pane
+  really is a surface; a solid wall the model mistakenly marked `depthWrite: false` stops
+  being a support, which is the cheaper error and matches what the frame shows.  Measured
+  on the recorded workspaces: cozy_cabin FAIL → PASS, japanese_garden's 3.46 m becomes a
+  0.044 m embed and the gate now fails on a real defect it had been reporting alongside
+  the fog (`SubmergedRock_1 is sunken 0.48 m into ArchedBridge`).
+
+* **D55 A loaded GLB root is named after its asset (2026-09-05).**  rooftop_garden's plan
+  asked for one `blender_glb` asset; the Blender sub-run built it, the assembler wrote the
+  loader, the browser loaded it and the census confirmed it was in the scene
+  (`meshes_in_scene: 1, in_scene: true`) — and `scene_placement` still reported
+  "zone PergolaLounge is missing planned contents: LoungeSofa", because the object was
+  called `Scene`.  A glTF root carries whatever the exporter wrote and Blender writes
+  "Scene".  The three assembled entry points that load GLBs (`render_scene_js`, the
+  assembler's probe module, and the plan-written `scene.js`) had drifted into three copies
+  of the same loop with three different error messages; they are now one emitter,
+  `_glb_preload_js`, which stamps `to_pascal(key)` on the loaded root.  Consequence for the
+  Blender-scene question: **the cross-language seam is not what fails.**  The Blender asset
+  path works end to end and only lost a name; an argument for a Blender assembly layer has
+  to be made on other grounds.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

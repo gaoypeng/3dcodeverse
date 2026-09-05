@@ -175,19 +175,42 @@ Twice on 2026-09-04/05 that produced 11 and 21 spurious failures that vanished o
 re-run (`tests/scene_runtime/lib/*` first, since those hold the renderer longest).  A red
 suite during a battery says nothing; re-run it when the battery is done.
 
-**Two arms at once need separate `CV3D_CACHE_DIR`, not just separate `--out`.**  The
-browser daemon advertises its endpoint in `CACHE_DIR/browser_<backend>.json` and a newer
-daemon supersedes an older one, so two worktrees sharing a cache end up on ONE browser:
-the arm that did not launch it renders through a server rooted in the other tree, its GLB
-is outside that root, and `render_glb` returns "produced no result" — on one side only,
-looking like random flakiness (2026-09-04).  Give each arm its own cache dir; the render
-cache separates with it, which an A/B wants anyway.
+The same holds for a box loaded by OTHER work.  On 2026-09-05, with 12 `proseg` processes
+holding 528 GB, swap full and all eight GPUs at ~100 %, the offline suite failed 12, then
+44, then 17 tests in three runs at `-n 12 / 6 / 4`, every one of them a browser test
+reporting `Session closed` or `Target closed`; `tests/scene_runtime` alone at `-n 4` with
+its own cache dir passed 787/787.  Check `uptime` and `free -g` before believing a red
+browser test.  One test is flaky by construction under CPU contention and is NOT to be
+"fixed" by weakening it: `test_studio_render_is_reproducible_and_stamps_the_rig_version`
+compares two renders byte for byte, and SwiftShader is not bit-reproducible when the box
+is busy — it failed 2 runs in 3 on an unmodified tree at load 129.
+
+**Two arms at once still want separate `CV3D_CACHE_DIR`, though the browser no longer
+depends on it.**  Until 2026-09-05 the daemon advertised its endpoint at
+`CACHE_DIR/browser_<backend>.json`, a newer daemon superseded an older one, and two
+worktrees sharing a cache ended up on ONE browser: the arm that did not launch it
+rendered through a server rooted in the other tree, its GLB was outside that root, and
+`render_glb` returned "produced no result" — on one side only, looking like random
+flakiness (2026-09-04).  The endpoint, its lock and its failure file now carry a digest of
+the `runtime_js` that spawned the daemon, so two trees keep separate browsers inside one
+cache dir and neither can retire the other's.  Give each arm its own cache dir anyway: the
+render cache separates with it, which an A/B wants.
 
 Also halve each arm's `--parallel`: two arms at 3 workers is six concurrent renders, and a
 round with no renders skips the judge, so the loop stops at `judge_unavailable` and the
 cell is finished with no score (`bench run` will not re-run it: the row exists).  Redo the
 scoreless cells afterwards — delete the row from `results.jsonl` and the run directory,
 then `bench run --id <prompt>`.
+
+**A cell can also lose its renders to the box rather than to itself.**  When the machine
+runs out of memory Chrome reaps the render tab and the driver reports
+`Attempted to use detached Frame '<id>'`: the scene built, every gate ran, and the judge
+was skipped for want of pixels — three of six cells of `scenes_v1` on 2026-09-05, $6.75 of
+generation already paid for.  The scene drivers now retry once on a browser of their own
+(`spatial/render_scene.run_scene_script`), and `bench/scene_stats.py` reports such rounds
+in a `lost to the box` column instead of counting them as gate failures.  A battery whose
+report shows that column non-zero has to be re-run for those cells before it is read as a
+statement about the generator.
 
 **A new worktree needs `runtime_js/node_modules` before it can run a battery.**  Without it
 `render_glb` dies on every round, the judge is skipped for want of renders, and the cells
