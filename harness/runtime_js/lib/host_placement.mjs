@@ -40,9 +40,11 @@
  * Exempt (listed with a reason, never scored): lights, cameras, ground / sky
  * meshes (`backdrop.mjs` rules), enclosures whose AABB swallows the content box,
  * instanced-only assets (scatter cannot be sampled per instance at this budget;
- * instanced meshes are also never used as support), and anything the author tags
- * `userData.placement = 'free'` on the asset or its zone (a bird, a hanging
- * lantern, a drone).  First 400 assets, 4 s budget; the table says when it cut.
+ * instanced meshes are also never used as support), VOLUMETRIC assets — every mesh
+ * of which writes no depth, i.e. haze, god rays, glow (`nonSolid`) — and anything
+ * the author tags `userData.placement = 'free'` on the asset or its zone (a bird, a
+ * hanging lantern, a drone).  A volumetric mesh is not indexed at all, so it is
+ * never a support, never something to sink into and never an overlap partner.  First 400 assets, 4 s budget; the table says when it cut.
  *
  * Vertical rays only, so every mesh gets a "column index": world vertices once
  * and, above 1 500 triangles, a uniform XZ grid of triangle buckets.  A column
@@ -71,6 +73,29 @@ const EPS = 1e-3;
 const BARY_TOL = 1e-4;
 
 const r3 = (v) => +v.toFixed(3);
+
+/**
+ * A mesh that does not WRITE DEPTH is a volumetric pass, not matter: haze shells,
+ * god rays, light shafts, glow cards.  It cannot support anything, nothing can sink
+ * into it, and overlapping it is what it is FOR.
+ *
+ * Measured on bench/out/scene_baseline (2026-09-05): every scene the generator wrote
+ * uses `depthWrite: false` 34-42 times, and two of the six cells failed
+ * `scene_placement` on nothing else — "BlackPine_5 is sunken 3.46 m into
+ * AtmosphereHaze" (MeshBasicMaterial, opacity 0.035) and "WindowSnowView/Mesh_49 and
+ * Environment/MoonlightShaft overlap 100%" (opacity 0.04, AdditiveBlending).  Both
+ * scenes were correct; the gate was measuring fog.
+ *
+ * Opacity is deliberately NOT part of the rule: glass sits at 0.3-0.6 and keeps
+ * writing depth, and a greenhouse pane really is a surface.  A solid wall the model
+ * mistakenly wrote `depthWrite: false` on stops being a support — a missed defect,
+ * which is the cheaper error, and one that matches how the frame actually renders.
+ */
+export function nonSolid(mesh) {
+  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  const real = mats.filter(Boolean);
+  return real.length > 0 && real.every((m) => m.depthWrite === false);
+}
 
 /** World-space vertices + XZ triangle buckets for vertical column queries on one mesh. */
 class ColumnIndex {
@@ -193,22 +218,29 @@ function spaced(name) { return String(name || '').replace(/([a-z0-9])([A-Z])/g, 
 
 function isWaterLike(mesh) { return !!mesh && (WATER_RE.test(spaced(mesh.name)) || WATER_RE.test(spaced(materialNames(mesh))) || WATER_RE.test(spaced(nearestName(mesh)))); }
 
-/** Every visible, non-instanced Mesh with a position attribute → ColumnIndex (skipping giants). */
+/**
+ * Every visible, non-instanced Mesh with a position attribute → ColumnIndex (skipping
+ * giants and volumetrics).  A `nonSolid` mesh is collected into `volumetric` instead:
+ * it is neither a support, nor something to sink into, nor an overlap partner, but an
+ * asset made only of them still has to appear in the table with a reason.
+ */
 function indexMeshes(scene, notes) {
   const map = new Map();
+  const volumetric = new Set();
   scene.traverse((o) => {
     if (!o.visible || !o.isMesh || o.isInstancedMesh || !o.geometry || !o.geometry.attributes || !o.geometry.attributes.position) return;
     if (geometryTriangles(o.geometry) > MAX_INDEXED_TRIS) { notes.push(`skipped ${nearestName(o)}: > ${MAX_INDEXED_TRIS} triangles`); return; }
+    if (nonSolid(o)) { volumetric.add(o); return; }
     const ci = new ColumnIndex(o);
     if (!ci.empty) map.set(o, ci);
   });
-  return map;
+  return { map, volumetric };
 }
 
 function isFree(obj) { return !!(obj && obj.userData && obj.userData.placement === 'free'); }
 
 /** The placed assets: direct children of each top-level scene child (or a top-level mesh itself). */
-function collectAssets(scene, indices, contentBox) {
+function collectAssets(scene, indices, volumetrics, contentBox) {
   const assets = [];
   let total = 0;
   const seen = new Set();
@@ -220,12 +252,19 @@ function collectAssets(scene, indices, contentBox) {
       seen.add(child);
       const meshes = [];
       let instanced = 0;
-      child.traverse((o) => { if (!o.visible) return; if (o.isInstancedMesh) instanced += 1; else if (indices.has(o)) meshes.push(indices.get(o)); });
-      if (!meshes.length && !instanced) continue;
+      let volumetric = 0;
+      child.traverse((o) => {
+        if (!o.visible) return;
+        if (o.isInstancedMesh) instanced += 1;
+        else if (indices.has(o)) meshes.push(indices.get(o));
+        else if (volumetrics.has(o)) volumetric += 1;
+      });
+      if (!meshes.length && !instanced && !volumetric) continue;
       total += 1;
       if (assets.length >= MAX_ASSETS) continue;
       const a = { obj: child, name: child.name || `${child.type}_${total}`, zone: zone === child ? '' : (zone.name || zone.type), meshes, instanced, exempt: '' };
       if (isFree(zone) || isFree(child)) a.exempt = 'free';
+      else if (!meshes.length && volumetric) a.exempt = 'volumetric';
       else if (!meshes.length) a.exempt = 'instanced';
       else {
         a.min = [Infinity, Infinity, Infinity]; a.max = [-Infinity, -Infinity, -Infinity];
@@ -368,8 +407,8 @@ export function placementTable(scene, THREE, opts = {}) {
   const groundY = Number.isFinite(opts.groundY) ? opts.groundY : null;
   const notes = [];
   scene.updateMatrixWorld(true);
-  const indices = indexMeshes(scene, notes);
-  const { assets, total } = collectAssets(scene, indices, opts.contentBox || null);
+  const { map: indices, volumetric } = indexMeshes(scene, notes);
+  const { assets, total } = collectAssets(scene, indices, volumetric, opts.contentBox || null);
   const meshOwner = new Map();
   for (const a of assets) { a.meshSet = new Set(a.meshes); for (const ci of a.meshes) meshOwner.set(ci.mesh, a.name); }
   const owner = (mesh) => meshOwner.get(mesh) || nearestName(mesh);
@@ -455,8 +494,8 @@ export function settleScene(scene, THREE, opts = {}) {
   const groundY = Number.isFinite(opts.groundY) ? opts.groundY : null;
   const notes = [];
   scene.updateMatrixWorld(true);
-  const indices = indexMeshes(scene, notes);
-  const { assets } = collectAssets(scene, indices, opts.contentBox || null);
+  const { map: indices, volumetric } = indexMeshes(scene, notes);
+  const { assets } = collectAssets(scene, indices, volumetric, opts.contentBox || null);
   const checked = assets.filter((a) => !a.exempt);
   for (const a of checked) { a.meshSet = new Set(a.meshes); }
   const meshOwner = new Map();
