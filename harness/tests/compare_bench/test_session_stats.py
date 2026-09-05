@@ -189,3 +189,42 @@ def test_the_two_penetration_probes_are_compared_not_merged(tmp_path: Path) -> N
     assert c["sweep_only"] == 1                # rod|frame: the sparse draw never saw it
     assert c["examples"] == ["b/p: knob|post"]
     assert corroborate([rec], 0.005)["both"] == 0     # nothing that deep on the sparse side
+
+
+def test_scene_stats_attributes_a_failure_to_a_layer(tmp_path: Path) -> None:
+    """"The scene track does not work" is not actionable until the failure is attributed to
+    a layer: a defect in the plan or in the assets follows any change to the assembly
+    language, a defect in assembly does not."""
+    from bench.scene_stats import layers, report, runs
+
+    run = tmp_path / "runs" / "scn_easy_garden"
+    run.mkdir(parents=True)
+    (run / "record.json").write_text(json.dumps({
+        "spec": {"id": "scenes_v1/scn_easy_garden", "track": "scene"},
+        "plan": {"assets": [{"name": "Lantern", "kind": "threejs"},
+                            {"name": "Bridge", "kind": "blender_glb"}]},
+        "rounds": [{"index": 0, "gates": [
+            {"gate": "scene_placement", "passed": False, "findings": [
+                {"severity": "error", "message": "Lantern floats 0.4 m"}]},
+            {"gate": "scene_frames", "passed": True, "findings": []}],
+            "judgment": {"score": 0.3, "issues": [{"severity": "critical", "kind": "layout"}]}}],
+    }))
+    (run / "events.jsonl").write_text("\n".join(json.dumps(e) for e in [
+        {"t": 1, "event": "plan.invalid", "attempt": 0},
+        {"t": 2, "event": "plan.done", "n_zones": 3},
+        {"t": 3, "event": "asset.generated", "asset": "Lantern", "ok": True, "strategy": "single-shot", "tris": 1200},
+        {"t": 4, "event": "asset.generated", "asset": "Bridge", "ok": False, "strategy": "single-shot+repair"},
+        {"t": 5, "event": "layout.done", "zone": "Court", "placements": 6, "reasked": True},
+    ]))
+
+    assert len(runs(tmp_path)) == 1
+    d = layers(runs(tmp_path))
+    assert d["plan"]["invalid"] == 1 and d["plan"]["zones"] == 3 and d["plan"]["layout_reask"] == 1
+    assert d["assets"]["ok"] == 1 and d["assets"]["failed"] == 1
+    assert dict(d["asset_kind"]) == {"threejs": 1, "blender_glb": 1}
+    assert d["gates"]["scene_placement:FAILED"] == 1 and d["gate_errors"]["scene_placement"] == 1
+    assert d["gates"]["scene_frames:FAILED"] == 0
+    assert d["judge"]["critical/layout"] == 1
+
+    text = report(tmp_path)
+    assert "| scene_placement | 1 | 1 | 1 |" in text and "'threejs': 1" in text
