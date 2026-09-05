@@ -20,8 +20,13 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
+import sys
 from collections import Counter
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # this tree's codeverse, not the editable install
+
+from codeverse.spatial.node import browser_was_lost  # noqa: E402
 
 #: pipeline stages in the order the scene track runs them
 STAGES = ("plan", "skeleton", "assets", "env", "layouts", "assemble", "generate", "build")
@@ -89,14 +94,26 @@ def layers(rows: list[tuple[str, dict, list[dict]]]) -> dict:
         for a in (rec.get("plan") or {}).get("assets") or []:
             asset_kind[str(a.get("kind"))] += 1
         for rnd in rec.get("rounds") or []:
+            round_lost = False
             for g in rnd.get("gates") or []:
                 name = g.get("gate", "?")
                 gates[name] += 1
+                errors = [f for f in (g.get("findings") or []) if f.get("severity") == "error"]
+                # A finding that names a browser which died under the driver measures the
+                # BOX, not the scene (`node.BROWSER_LOST_MARKERS`).  Counting it as a gate
+                # failure makes every battery run on a loaded machine look like a defective
+                # generator: on scene_baseline (2026-09-05) three of six cells kept zero
+                # renders and lost their judge that way.  Reported, never mixed in.
+                lost = [f for f in errors if browser_was_lost(f.get("message", ""))]
+                real = [f for f in errors if f not in lost]
+                gate_errors[name] += len(real)
+                if lost:
+                    gates[f"{name}:LOST"] += len(lost)
+                    round_lost = True
                 if not g.get("passed"):
-                    gates[f"{name}:FAILED"] += 1
-                for f in g.get("findings") or []:
-                    if f.get("severity") == "error":
-                        gate_errors[name] += 1
+                    gates[f"{name}:FAILED" if real or not lost else f"{name}:BOX"] += 1
+            if round_lost:
+                gates["rounds_lost_to_the_box"] += 1
             j = rnd.get("judgment") or {}
             if j.get("score") is not None:
                 scores.append(float(j["score"]))
@@ -126,9 +143,15 @@ def report(root: Path) -> str:
     if d["placements"]:
         out.append(f"\n## layout\n  placements per zone: median {statistics.median(d['placements']):.0f}, "
                    f"zones {len(d['placements'])}")
-    out += ["", "## gates", "| gate | ran | failed | ERROR findings |", "|---|--:|--:|--:|"]
-    for name in sorted(n for n in d["gates"] if not n.endswith(":FAILED")):
-        out.append(f"| {name} | {d['gates'][name]} | {d['gates'][f'{name}:FAILED']} | {d['gate_errors'][name]} |")
+    out += ["", "## gates", "| gate | ran | failed | ERROR findings | lost to the box |", "|---|--:|--:|--:|--:|"]
+    skip = (":FAILED", ":LOST", ":BOX")
+    for name in sorted(n for n in d["gates"] if not n.endswith(skip) and n != "rounds_lost_to_the_box"):
+        out.append(f"| {name} | {d['gates'][name]} | {d['gates'][f'{name}:FAILED']} | "
+                   f"{d['gate_errors'][name]} | {d['gates'][f'{name}:LOST']} |")
+    lost_rounds = d["gates"]["rounds_lost_to_the_box"]
+    if lost_rounds:
+        out.append(f"\n  {lost_rounds} round(s) lost their browser mid-render: those findings are the "
+                   f"machine, not the scene, and are counted in the last column only.")
     if d["judge"]:
         out += ["", "## judge issues (severity/kind)"]
         out += [f"  {n:3}x {k}" for k, n in d["judge"].most_common(12)]
