@@ -100,3 +100,28 @@ def test_a_probe_with_no_boot_record_is_a_harness_failure_not_a_verdict() -> Non
     # a REAL boot failure still reads as one, with its stage
     real, _ = probe_report({"boot": {"ok": False, "stage": "createScene", "error": "TypeError: x"}})
     assert not real.passed and "[createScene] TypeError: x" in real.findings[0].message
+
+
+def test_a_harness_failure_finding_makes_the_probe_result_not_ok() -> None:
+    """`SceneProbeResult.ok` is "the tool could run" (`Observation.failed = not ok`), and
+    the agent-facing `findings` deliberately exclude harness failures.  A report carrying
+    one and nothing else therefore used to come back ok / no errors / no findings — a probe
+    that reads healthy and measured nothing, the exact shape that let desert_canyon's lost
+    output pass as a verdict about the scene."""
+    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+    from codeverse.spatial.probes import _result
+
+    harness = GateReport(gate="scene_probe", passed=False, findings=[GateFinding(
+        gate="scene_probe", severity=Severity.ERROR, target="src/scene.js",
+        message="scene probe produced no result (driver output lost)",
+        fix_hint="retry or report", data={"harness_failure": True})])
+    r = _result(harness, {})
+    assert r.ok is False
+    assert r.errors == ["scene probe produced no result (driver output lost)"]
+    assert r.findings == [], "a harness failure is never handed to the agent as a defect"
+
+    real = GateReport(gate="scene_probe", passed=False, findings=[GateFinding(
+        gate="scene_probe", severity=Severity.ERROR, target="src/scene.js",
+        message="[createScene] TypeError: x is not a function", fix_hint="fix it")])
+    r2 = _result(real, {"totals": {}})
+    assert r2.ok is True and r2.errors == [] and len(r2.findings) == 1

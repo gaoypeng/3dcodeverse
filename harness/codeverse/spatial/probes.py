@@ -51,10 +51,18 @@ class SceneProbeResult(BaseModel):
 
 
 def _result(gate: GateReport, census: dict[str, Any], *, driver_failure: str = "") -> SceneProbeResult:
+    """A ``harness_failure`` finding IS a driver failure, wherever it was raised.
+
+    ``ok`` is "the tool could run" (``registry.Observation.failed = not ok``) and the
+    agent-facing ``findings`` deliberately exclude harness failures — so a report that
+    carries one and nothing else used to come back ok, with no errors and no findings: a
+    probe that reads healthy and measured nothing.  Deriving it here means every caller
+    gets the rule, not only the one that remembers to pass ``driver_failure``."""
+    harness = [f.message for f in gate.findings if f.data.get("harness_failure")]
     lines = [f"[{f.severity.value}] {f.target or ''}: {f.message}" for f in gate.findings
              if f.severity != Severity.INFO and not f.data.get("harness_failure")]
-    return SceneProbeResult(gate=gate, census=census, ok=not driver_failure,
-                            errors=[driver_failure] if driver_failure else [], findings=lines)
+    errors = [driver_failure] if driver_failure else harness
+    return SceneProbeResult(gate=gate, census=census, ok=not errors, errors=errors, findings=lines)
 
 
 def _f(gate: str, sev: Severity, msg: str, *, target: str | None = None, hint: str = "", **data: Any) -> GateFinding:
