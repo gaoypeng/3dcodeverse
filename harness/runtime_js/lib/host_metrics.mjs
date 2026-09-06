@@ -3,6 +3,8 @@
  * readback of the render canvas and near-geometry tests for a camera.
  */
 
+import { nonSolid } from './backdrop.mjs';
+
 export const SAMPLE_W = 96;
 export const SAMPLE_H = 54;
 
@@ -63,7 +65,12 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3) {
   let nearest = Infinity;
   let nearestName = '';
   const targets = [];
-  scene.traverse((o) => { if ((o.isMesh || o.isInstancedMesh) && o.visible) targets.push(o); });
+  // A volumetric pass is not something a lens can be "inside": greenhouse's
+  // `camera inside ['SunShaft_0','SunShaft_3']` (bench/out/scene_baseline, 2026-09-05)
+  // was three god-ray slabs of MeshBasicMaterial at opacity 0.075 with
+  // `depthWrite: false` — you see straight through them, which is their whole job.
+  // Same rule as the placement gate, one spelling, in backdrop.mjs.
+  scene.traverse((o) => { if ((o.isMesh || o.isInstancedMesh) && o.visible && !nonSolid(o)) targets.push(o); });
   const pts = [];
   for (let gy = -1; gy <= 1; gy++) for (let gx = -1; gx <= 1; gx++) pts.push([gx * 0.6, gy * 0.6]);
   let hits = 0;

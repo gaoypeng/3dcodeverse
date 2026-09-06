@@ -852,8 +852,15 @@ def view_rig_section(renders: RenderSet, montages: list[Montage], *, scene: bool
         bits.append(RIG_RULES["object"])
     if renders.console_errors:
         bits.append(f"PROBE: {len(renders.console_errors)} console error(s) during rendering, first: {_clip(renders.console_errors[0], 200)}")
-    if renders.fps is not None:
-        bits.append(f"PROBE: measured {renders.fps:.0f} fps.")
+    # Only a hardware measurement is a fact about the scene; a SwiftShader number is the
+    # box's, and the judge has no way to know which it was handed.  Rather than drop it
+    # silently, say what it is, so a genuinely heavy scene is still visible to a reader.
+    if renders.hardware_fps is not None:
+        bits.append(f"PROBE: measured {renders.hardware_fps:.0f} fps.")
+    elif renders.fps is not None:
+        bits.append(f"PROBE: {renders.fps:.0f} fps, but on a CPU rasteriser "
+                    f"({_clip(renders.renderer, 60)}) — NOT a statement about this scene's cost; "
+                    f"do not raise a performance issue from it.")
     bits.append("Images in send order:\n" + describe_montages(montages))
     return "\n".join(bits)
 

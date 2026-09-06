@@ -63,7 +63,9 @@ def test_render_scene_js_contents():
     src = render_scene_js(["harbour", "fish_market"], cams, ["crane"], env_ok=True)
     assert "import { build as buildHarbour } from './zones/harbour.js';" in src
     assert "addZone(buildFishMarket, 'FishMarket');" in src
-    assert "crane: '/assets/crane.glb'" in src
+    # the loader carries the URL *and* the name to stamp on the loaded root
+    assert "crane: { name: 'Crane', url: '/assets/crane.glb' }" in src
+    assert "root.name = a.name;" in src
     assert "name: 'overview', position: [1, 2, 3]" in src
     assert "import { buildEnv, heightAt } from './env.js';" in src
     assert "const addZone = async (build, name) => {" in src

@@ -26,6 +26,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
+from codeverse.config import scene_textures_enabled
 from codeverse.contracts.artifacts import (
     BuildResult,
     GateFinding,
@@ -43,6 +44,7 @@ from codeverse.proc import fan_out
 from codeverse.prompts import render
 from codeverse.spatial.frame_motion import motion_text_for
 from codeverse.spatial.render_scene import JUDGE_MAX_VIEWS, perf_detail
+from codeverse.texturing.plan import texture_pack_prompt
 from codeverse.tracks import skills_hook
 from codeverse.tracks.common import RunContext, ServiceUnavailable
 from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
@@ -132,9 +134,14 @@ class ScenePipeline:
         findings = [GateFinding(gate="render_console", severity=Severity.ERROR, target=_guess_target(e, ctx.plan), message=e[:300],
                                 fix_hint="open the named module, fix the thrown error; run the build/probe tool until no console errors")
                     for e in errs[:MAX_CONSOLE_ERRORS]]
-        if renders.fps is not None and renders.fps < 20:
+        # `hardware_fps`, not `fps`: a number measured on SwiftShader is the box's, and
+        # telling the agent to merge geometry because the CPU rasteriser is slow sends it
+        # optimising a scene that was never the problem (2026-09-05, three cells of
+        # scenes_v1 measured 2-7 fps on SwiftShader while a fourth measured 11.5 on an
+        # RTX 6000 — four different renderers, one gate threshold).
+        if renders.hardware_fps is not None and renders.hardware_fps < 20:
             findings.append(GateFinding(gate="render_console", severity=Severity.WARN, target="overall",
-                                        message=f"low frame rate {renders.fps:.0f} fps" + perf_detail(renders),
+                                        message=f"low frame rate {renders.hardware_fps:.0f} fps" + perf_detail(renders),
                                         fix_hint="the budget is <= 200 draw calls and <= 2 M triangles: merge static geometry "
                                                  "(BufferGeometryUtils.mergeGeometries) and put anything repeated > 5x in ONE "
                                                  "InstancedMesh per material — a per-object mesh loop is what costs the frame rate"))
@@ -223,6 +230,11 @@ class SceneTrack(BaseTrack):
         # fields; the old enumerated keys let a mood/title/bounds/camera-only re-plan
         # hit a stale cached stage.  Old "assets+env" composite entries are ignored.
         key = {"plan": plan, "agent": ctx.agent_id}
+        # textures first and alone: env and zones can only name the files if they exist by
+        # the time those prompts are built (config.scene_textures_enabled explains why this
+        # is off by default and what it costs)
+        if scene_textures_enabled():
+            ctx.extra["textures"] = runner.stage("textures", lambda: self._textures_stage(ctx), inputs={"plan": plan}) or {}
         stage_fns: dict[str, Any] = {"assets": lambda: run_asset_stage(ctx),
                                      "env": lambda: self._env_stage(ctx), "layouts": _layouts}
         results = fan_out(list(stage_fns.items()), lambda kv: runner.stage(kv[0], kv[1], inputs=key),
@@ -296,6 +308,27 @@ class SceneTrack(BaseTrack):
         never, which reads in ``3dcv skills report`` as "listed, unread" — the same false
         signal the delivery gap itself produced."""
         skills_hook.record_usage(gen, index=0, kind=stage_kind)
+
+    def _textures_stage(self, ctx: RunContext) -> dict[str, Any]:
+        """Generate the scene's tileable texture pack into ``public/textures/``.
+
+        Runs BEFORE env / zones, because its whole point is that those prompts can name
+        the files.  Advisory: a pack that cannot be generated leaves the run exactly as it
+        was before this stage existed (an empty manifest renders no prompt block)."""
+        from codeverse.reference import _image_model
+        from codeverse.texturing.plan import scene_texture_pack
+
+        plan: ScenePlan = ctx.plan  # type: ignore[assignment]
+        try:
+            pack = scene_texture_pack(plan, ctx.ws.public / "textures", _image_model(""),
+                                      ctx.spec.backends.planner, cache_dir=ctx.settings.cache_dir / "textures")
+        except Exception as e:  # noqa: BLE001 — textures accelerate, they must never kill a run
+            ctx.events.emit("textures.stage_failed", error=f"{type(e).__name__}: {e}"[:300])
+            return {}
+        manifest = pack.manifest()
+        ctx.ws.commit("textures")
+        ctx.events.emit("textures.done", n=len(manifest), cost_usd=round(pack.usage.cost_usd, 4), source=pack.source)
+        return manifest
 
     def _env_stage(self, ctx: RunContext) -> dict[str, Any]:
         gen = self._strategy(ctx, "env")
@@ -475,7 +508,8 @@ class SceneTrack(BaseTrack):
         return base_prompt_context(
             ctx, title=plan.title, setting=plan.setting, mood=plan.mood, bounds=bbox_line(plan.bounds), environment=plan.environment,
             zones_table=zones_table, cameras=cameras, effects=effects, animation="; ".join(plan.animation) or "(none)",
-            asset_api=ctx.extra.get("asset_api", "(no assets)"), **extra)
+            asset_api=ctx.extra.get("asset_api", "(no assets)"),
+            textures=texture_pack_prompt(ctx.extra.get("textures") or {}), **extra)
 
 
 # ----------------------------------------------------------------------------- helpers

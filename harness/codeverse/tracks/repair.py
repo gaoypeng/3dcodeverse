@@ -26,6 +26,11 @@ from codeverse.tracks.prompting import base_prompt_context, language_system_prom
 
 log = logging.getLogger(__name__)
 
+#: How many times a build that failed IN THE HARNESS is simply re-run before the round
+#: gives up.  Cheap (no model call) and bounded: the node driver already retries once
+#: itself, so a failure that survives this many rebuilds is not transient.
+MAX_HARNESS_REBUILDS = 2
+
 MAX_REPAIR_CONTEXT_CHARS = 40_000
 _TRACEBACK_TAIL_LINES = 40
 
@@ -161,7 +166,30 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
     prev_sig = ""
     repeats = 0
     attempt = 0
+    rebuilds = 0
     while not outcome.ok and attempt < max_attempts:
+        # A build that failed because the HARNESS could not run it is not a defect the
+        # agent can fix, and handing it over costs the round its whole repair budget on
+        # working code.  Measured 2026-09-05 (scene_textures/japanese_garden): three
+        # repairs against "scene probe produced no result (driver output lost)" rewrote
+        # 5, then 14, then 3 files — the 14 included env.js and every zone — and deleted
+        # the texture use the arm existed to measure, before the fourth build passed on
+        # its own.  Re-run the build instead; the driver's own retry has already fired,
+        # so this is the second line, bounded and cheap (no model call).
+        if build.harness_failure:
+            if rebuilds >= MAX_HARNESS_REBUILDS:
+                log.warning("build kept failing in the harness (%s); giving up without a repair",
+                            build.error_message[:160])
+                break
+            rebuilds += 1
+            ctx.events.emit("build.harness_retry", round=round_index, attempt=rebuilds,
+                            error=build.error_message[:200])
+            build, lint = build_once(ctx)
+            outcome.build, outcome.lint = build, lint
+            ctx.events.emit("build.done", round=round_index, ok=build.ok, lint_errors=len(lint.errors),
+                            harness_retry=rebuilds, error=build.error_message[:200],
+                            duration_ms=build.duration_ms)
+            continue
         attempt += 1
         sig = error_signature(build, lint)
         repeats = repeats + 1 if sig == prev_sig else 0
