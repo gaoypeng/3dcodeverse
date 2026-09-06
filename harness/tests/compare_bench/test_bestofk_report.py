@@ -19,6 +19,8 @@ from bench.bestofk_report import (
     JUDGE_SIGMA,
     best_of,
     curve,
+    equal_compute_k,
+    gen_costs,
     harness_scores,
     one_shot_samples,
     report,
@@ -90,3 +92,48 @@ def test_a_prompt_the_harness_never_ran_is_not_paired(tmp_path: Path):
     assert rows[0]["n"] == 1, "only prompts both arms ran are a pair"
     text = report(tmp_path / "reps", tmp_path)
     assert "| 1 | 1 |" in text
+
+
+def test_equal_compute_k_is_taken_per_prompt_not_per_row(tmp_path: Path):
+    """k is the whole experiment's parameter, and the first pass got it wrong: taking the
+    median over every appended row (resumed cells, failed cells) gave 28 where the per-prompt
+    basis — the one `paired_compare` pairs on — gives 40.  Understating k gives the baseline
+    less money than the harness, an error in the harness's favour."""
+    rows = [
+        # prompt a: a cheap failed first attempt, then the real one.  Per row the median
+        # would be dragged down; per prompt only the last row counts.
+        {"prompt_id": "a", "arm": "harness:x", "gen_cost_usd": 0.10},
+        {"prompt_id": "a", "arm": "harness:x", "gen_cost_usd": 2.00},
+        {"prompt_id": "b", "arm": "harness:x", "gen_cost_usd": 2.00},
+        {"prompt_id": "a", "arm": "oneshot:x", "gen_cost_usd": 0.05},
+        {"prompt_id": "b", "arm": "oneshot:x", "gen_cost_usd": 0.05},
+    ]
+    (tmp_path / "results.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
+
+    assert sorted(gen_costs(tmp_path, "harness:")) == [2.00, 2.00], "last row per prompt"
+    h, b, k = equal_compute_k(tmp_path, "oneshot:")
+    assert (h, b, k) == (2.00, 0.05, 40)
+
+
+def test_a_zero_cost_row_is_not_counted_as_free(tmp_path: Path):
+    """A row with no recorded generation cost is missing data, not a free sample; averaging
+    it in would inflate k without bound."""
+    rows = [
+        {"prompt_id": "a", "arm": "oneshot:x", "gen_cost_usd": 0.05},
+        {"prompt_id": "b", "arm": "oneshot:x", "gen_cost_usd": 0},
+        {"prompt_id": "c", "arm": "oneshot:x"},
+    ]
+    (tmp_path / "results.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
+    assert gen_costs(tmp_path, "oneshot:") == [0.05]
+
+
+def test_the_report_says_when_k_has_not_been_reached(tmp_path: Path):
+    """A curve that stops short of equal compute answers a different question, so the table
+    says so instead of letting the last row read as the verdict."""
+    _rep(tmp_path / "reps", "rep01", {"a": 0.2})
+    (tmp_path / "results.jsonl").write_text("\n".join(json.dumps(r) for r in [
+        {"prompt_id": "a", "arm": "harness:x", "score": 0.6, "gen_cost_usd": 2.00},
+        {"prompt_id": "a", "arm": "oneshot:x", "score": 0.1, "gen_cost_usd": 0.05},
+    ]))
+    text = report(tmp_path / "reps", tmp_path)
+    assert "**k = 40**" in text and "NOT reached yet — 1 of 40 reps" in text
