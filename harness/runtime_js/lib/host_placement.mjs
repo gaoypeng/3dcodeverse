@@ -40,9 +40,12 @@
  * Exempt (listed with a reason, never scored): lights, cameras, ground / sky
  * meshes (`backdrop.mjs` rules), enclosures whose AABB swallows the content box,
  * instanced-only assets (scatter cannot be sampled per instance at this budget;
- * instanced meshes are also never used as support), and anything the author tags
- * `userData.placement = 'free'` on the asset or its zone (a bird, a hanging
- * lantern, a drone).  First 400 assets, 4 s budget; the table says when it cut.
+ * instanced meshes are also never used as support), VOLUMETRIC assets — every mesh
+ * of which writes no depth, i.e. haze, god rays, glow (`nonSolid`) — and anything
+ * the author tags `userData.placement = 'free'` on the asset or its zone (a bird, a
+ * hanging lantern, a drone).  A volumetric mesh is not indexed at all, so it is
+ * never a support, never something to sink into and never an overlap partner.
+ * First 400 assets, 4 s budget; the table says when it cut.
  *
  * Vertical rays only, so every mesh gets a "column index": world vertices once
  * and, above 1 500 triangles, a uniform XZ grid of triangle buckets.  A column
@@ -51,7 +54,7 @@
  * below, which is exactly the sunk case).
  */
 
-import { classifyBackdrop, GROUND_NAME_RE } from './backdrop.mjs';
+import { classifyBackdrop, GROUND_NAME_RE, nonSolid } from './backdrop.mjs';
 import { geometryTriangles } from './census.mjs';
 
 export const MAX_ASSETS = 400;
@@ -60,6 +63,9 @@ export const CONTACT_TOL_M = 0.02;
 export const FLOATING_M = 0.05;
 export const SUNK_M = 0.10;
 export const OVERLAP_MIN_FRAC = 0.20;
+//: named descendants recorded per row, so the plan-contents check can see through one
+//: wrapper group without the table growing without bound
+export const MAX_INNER_NAMES = 24;
 export const WATER_RE = /\b(water|ocean|sea|lake|river|pond|pool|stream|canal)\b/i;
 const FOOT_BAND_MIN_M = 0.02;
 const FOOT_BAND_FRAC = 0.05;
@@ -193,22 +199,29 @@ function spaced(name) { return String(name || '').replace(/([a-z0-9])([A-Z])/g, 
 
 function isWaterLike(mesh) { return !!mesh && (WATER_RE.test(spaced(mesh.name)) || WATER_RE.test(spaced(materialNames(mesh))) || WATER_RE.test(spaced(nearestName(mesh)))); }
 
-/** Every visible, non-instanced Mesh with a position attribute → ColumnIndex (skipping giants). */
+/**
+ * Every visible, non-instanced Mesh with a position attribute → ColumnIndex (skipping
+ * giants and volumetrics).  A `nonSolid` mesh is collected into `volumetric` instead:
+ * it is neither a support, nor something to sink into, nor an overlap partner, but an
+ * asset made only of them still has to appear in the table with a reason.
+ */
 function indexMeshes(scene, notes) {
   const map = new Map();
+  const volumetric = new Set();
   scene.traverse((o) => {
     if (!o.visible || !o.isMesh || o.isInstancedMesh || !o.geometry || !o.geometry.attributes || !o.geometry.attributes.position) return;
     if (geometryTriangles(o.geometry) > MAX_INDEXED_TRIS) { notes.push(`skipped ${nearestName(o)}: > ${MAX_INDEXED_TRIS} triangles`); return; }
+    if (nonSolid(o)) { volumetric.add(o); return; }
     const ci = new ColumnIndex(o);
     if (!ci.empty) map.set(o, ci);
   });
-  return map;
+  return { map, volumetric };
 }
 
 function isFree(obj) { return !!(obj && obj.userData && obj.userData.placement === 'free'); }
 
 /** The placed assets: direct children of each top-level scene child (or a top-level mesh itself). */
-function collectAssets(scene, indices, contentBox) {
+function collectAssets(scene, indices, volumetrics, contentBox) {
   const assets = [];
   let total = 0;
   const seen = new Set();
@@ -220,13 +233,29 @@ function collectAssets(scene, indices, contentBox) {
       seen.add(child);
       const meshes = [];
       let instanced = 0;
-      child.traverse((o) => { if (!o.visible) return; if (o.isInstancedMesh) instanced += 1; else if (indices.has(o)) meshes.push(indices.get(o)); });
-      if (!meshes.length && !instanced) continue;
+      let volumetric = 0;
+      // Named descendants, not just this row's own name: a zone often wraps its content in
+      // one group ("IslandAssembly"), and the plan-contents check reads names off these
+      // rows.  Measured 2026-09-05 (scene_fixed/floating_islands): Windmill, FloatingRock
+      // and SkyPine were built and named correctly, added to `IslandAssembly`, and three
+      // zones were reported as "missing planned contents".
+      const inner = [];
+      child.traverse((o) => {
+        if (!o.visible) return;
+        if (o !== child && o.name && inner.length < MAX_INNER_NAMES && !inner.includes(o.name)) inner.push(o.name);
+        if (o.isInstancedMesh) instanced += 1;
+        else if (indices.has(o)) meshes.push(indices.get(o));
+        else if (volumetrics.has(o)) volumetric += 1;
+      });
+      if (!meshes.length && !instanced && !volumetric) continue;
       total += 1;
       if (assets.length >= MAX_ASSETS) continue;
-      const a = { obj: child, name: child.name || `${child.type}_${total}`, zone: zone === child ? '' : (zone.name || zone.type), meshes, instanced, exempt: '' };
+      const a = { obj: child, name: child.name || `${child.type}_${total}`, zone: zone === child ? '' : (zone.name || zone.type), meshes, instanced, inner, exempt: '' };
       if (isFree(zone) || isFree(child)) a.exempt = 'free';
-      else if (!meshes.length) a.exempt = 'instanced';
+      // instanced first: an asset that is scatter PLUS a haze shell is exempt because its
+      // instances cannot be sampled at this budget, which is the more informative reason
+      else if (!meshes.length && instanced) a.exempt = 'instanced';
+      else if (!meshes.length && volumetric) a.exempt = 'volumetric';
       else {
         a.min = [Infinity, Infinity, Infinity]; a.max = [-Infinity, -Infinity, -Infinity];
         let backdrop = 0;
@@ -368,8 +397,8 @@ export function placementTable(scene, THREE, opts = {}) {
   const groundY = Number.isFinite(opts.groundY) ? opts.groundY : null;
   const notes = [];
   scene.updateMatrixWorld(true);
-  const indices = indexMeshes(scene, notes);
-  const { assets, total } = collectAssets(scene, indices, opts.contentBox || null);
+  const { map: indices, volumetric } = indexMeshes(scene, notes);
+  const { assets, total } = collectAssets(scene, indices, volumetric, opts.contentBox || null);
   const meshOwner = new Map();
   for (const a of assets) { a.meshSet = new Set(a.meshes); for (const ci of a.meshes) meshOwner.set(ci.mesh, a.name); }
   const owner = (mesh) => meshOwner.get(mesh) || nearestName(mesh);
@@ -377,7 +406,7 @@ export function placementTable(scene, THREE, opts = {}) {
   let timeCut = false;
   const rows = [];
   for (const a of assets) {
-    const row = { name: a.name, zone: a.zone, meshes: a.meshes.length, instanced: a.instanced, exempt: a.exempt,
+    const row = { name: a.name, zone: a.zone, meshes: a.meshes.length, instanced: a.instanced, inner: a.inner || [], exempt: a.exempt,
       bbox: a.min ? boxJson(a.min, a.max) : null };
     if (a.exempt) { rows.push(row); continue; }
     if (Date.now() - t0 > TIME_BUDGET_MS) { row.exempt = 'time_budget'; timeCut = true; rows.push(row); continue; }
@@ -455,8 +484,8 @@ export function settleScene(scene, THREE, opts = {}) {
   const groundY = Number.isFinite(opts.groundY) ? opts.groundY : null;
   const notes = [];
   scene.updateMatrixWorld(true);
-  const indices = indexMeshes(scene, notes);
-  const { assets } = collectAssets(scene, indices, opts.contentBox || null);
+  const { map: indices, volumetric } = indexMeshes(scene, notes);
+  const { assets } = collectAssets(scene, indices, volumetric, opts.contentBox || null);
   const checked = assets.filter((a) => !a.exempt);
   for (const a of checked) { a.meshSet = new Set(a.meshes); }
   const meshOwner = new Map();

@@ -174,6 +174,10 @@ class Judge(BaseModel):
 FEWER_TURNS_ENV = "CV3D_FEWER_TURNS"
 #: The recipe-seeding switch (Limits.seed_recipes); same call-time contract as FEWER_TURNS_ENV.
 SEED_RECIPES_ENV = "CV3D_SEED_RECIPES"
+#: wire the scene texture pack into the scene loop (a stage before env/zones, and the
+#: pack description in both prompts).  OFF by default: it adds an image-model call per
+#: run, and whether it earns that is a measurement nobody has made yet.
+SCENE_TEXTURES_ENV = "CV3D_SCENE_TEXTURES"
 _TRUE_WORDS = frozenset({"1", "on", "true", "yes", "y"})
 _FALSE_WORDS = frozenset({"0", "off", "false", "no", "n"})
 
@@ -207,6 +211,21 @@ def fewer_turns_enabled() -> bool:
     """Is the fewer-turns bundle on for THIS call?  ``$CV3D_FEWER_TURNS`` when it is set,
     else ``Settings.limits.fewer_turns``."""
     return env_flag(FEWER_TURNS_ENV, get_settings().limits.fewer_turns)
+
+
+def scene_textures_enabled() -> bool:
+    """Is the scene texture stage on for THIS call?  ``$CV3D_SCENE_TEXTURES``, else off.
+
+    The pack generator (``texturing.plan.scene_texture_pack``) and the prompt snippet that
+    describes it (``texture_pack_prompt`` — whose docstring already says "for zone/env
+    generation") have existed since the texturing work, but nothing in ``tracks/scene.py``
+    called either: the switch `Spec.options.texture` does nothing on this track and the
+    generator was never told a pack could exist.  Measured on bench/out/scene_baseline
+    (2026-09-05): four of the five scored cells' judge complaints are the GROUND being a
+    flat untextured colour, in near-identical words, and that is the most consistent
+    defect in the battery.
+    """
+    return env_flag(SCENE_TEXTURES_ENV, False)
 
 
 def seed_recipes_enabled() -> bool:

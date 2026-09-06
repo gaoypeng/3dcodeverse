@@ -80,6 +80,10 @@ LIVE_SWITCHES: dict[str, str] = {
     # switch, read at call time by config.fewer_turns_enabled; acts after planning.
     "CV3D_FEWER_TURNS": "codeverse/config.py",
     "CV3D_SEED_RECIPES": "codeverse/config.py",
+    # wire the scene texture pack into the scene loop: a stage before env/zones, and the
+    # pack description (texturing.plan.texture_pack_prompt) in both prompts.  OFF by
+    # default — it costs an image-model call per run and nobody has measured what it buys.
+    "CV3D_SCENE_TEXTURES": "codeverse/config.py",
     # model-transport switches (2026-08-28, the hung-read waves): streaming with
     # inter-chunk stall detection, and the IPv4-only transport.  Read at call time
     # by every gemini request, so a control arm can set either to 0.

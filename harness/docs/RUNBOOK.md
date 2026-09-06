@@ -200,22 +200,44 @@ and measured 38 970 ms at load ~100 with `ok=True` — the build succeeded, the 
 busy.  All three are the same story, and none of them is to be "fixed" by loosening what
 it asserts.
 
-**Two arms at once need separate `CV3D_CACHE_DIR`, not just separate `--out`.**  The
-browser daemon advertises its endpoint in `CACHE_DIR/browser_<backend>.json` and a newer
-daemon supersedes an older one (`runtime_js/browser_daemon.cjs`), so two worktrees sharing
-a cache fight over ONE browser, and `render_glb` returns "produced no result" on one side
-only, looking like random flakiness (2026-09-04).  The mechanism is not confirmed: each
-render serves its GLB from its own process (`render_glb.mjs` `serveDirs`), so it is not a
-server-root mismatch; the likely cause is the superseded daemon exiting while the other
-arm's render is still in flight on its browser, which is a race in shared code that a
-separate cache dir avoids rather than fixes.  Give each arm its own cache dir; the render
-cache separates with it, which an A/B wants anyway.
+**Two arms at once still want separate `CV3D_CACHE_DIR`, though the browser no longer
+depends on it.**  Until 2026-09-05 the daemon advertised its endpoint at
+`CACHE_DIR/browser_<backend>.json`, a newer daemon superseded an older one, and two
+worktrees sharing a cache ended up on ONE browser: the arm that did not launch it
+rendered through a server rooted in the other tree, its GLB was outside that root, and
+`render_glb` returned "produced no result" — on one side only, looking like random
+flakiness (2026-09-04).  The endpoint, its lock and its failure file now carry a digest of
+the `runtime_js` that spawned the daemon, so two trees keep separate browsers inside one
+cache dir and neither can retire the other's.  Give each arm its own cache dir anyway: the
+render cache separates with it, which an A/B wants.
 
 Also halve each arm's `--parallel`: two arms at 3 workers is six concurrent renders, and a
 round with no renders skips the judge, so the loop stops at `judge_unavailable` and the
 cell is finished with no score (`bench run` will not re-run it: the row exists).  Redo the
 scoreless cells afterwards — delete the row from `results.jsonl` and the run directory,
 then `bench run --id <prompt>`.
+
+**A cell can also lose its renders to the box rather than to itself.**  When the machine
+runs out of memory Chrome reaps the render tab and the driver reports
+`Attempted to use detached Frame '<id>'`: the scene built, every gate ran, and the judge
+was skipped for want of pixels — three of six cells of `scenes_v1` on 2026-09-05, $6.75 of
+generation already paid for.  The scene drivers now retry once on a browser of their own
+(`spatial/render_scene.run_scene_script`), and `bench/scene_stats.py` reports such rounds
+in a `lost to the box` column instead of counting them as gate failures.  A battery whose
+report shows that column non-zero has to be re-run for those cells before it is read as a
+statement about the generator.
+
+**A battery launched with `3dcv` from a worktree runs the MAIN checkout's code.**  `3dcv`
+is a console script, so `sys.path[0]` is the venv's `bin`, never the cwd, and `import
+codeverse` finds the editable install.  `--out bench/out/<name>` IS relative to the cwd,
+so the OUTPUT lands in the worktree while the CODE that produced it is the main tree's —
+an arm that looks like it is testing your branch and is testing `main` (measured
+2026-09-05: the first `scenes_v1` battery, launched from `local/worktrees/integrate`, ran
+entirely on the main checkout).  `python -c` and `pytest` do not have this problem because
+they put the cwd on the path.  Export `PYTHONPATH=<worktree>/harness` before the command,
+and have the arm script REFUSE TO RUN when `codeverse.__file__` and `runtime_js_dir()` are
+not the tree you meant — `local/scripts/run_scene_fixed.sh` is the pattern, and it also
+asserts that the specific fixes the arm exists to measure are present.
 
 **A new worktree needs `runtime_js/node_modules` before it can run a battery.**  Without it
 `render_glb` dies on every round, the judge is skipped for want of renders, and the cells

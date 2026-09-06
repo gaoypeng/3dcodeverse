@@ -519,10 +519,22 @@ def load_manifest(path: Path) -> dict[str, dict[str, Any]]:
 
 
 def texture_pack_prompt(manifest: dict[str, dict[str, Any]], *, url_prefix: str = DEFAULT_URL_PREFIX) -> str:
-    """Prompt snippet for zone/env generation: what exists and the exact loading idiom."""
+    """Prompt snippet for zone/env generation: what exists and the exact loading idiom.
+
+    Rendered AFTER the cookbook recipes (``tracks/scene_env.j2`` / ``scene_zone.j2``), and
+    it says outright that the ground blend is what the pack is for.  Measured 2026-09-05:
+    the first two cells of the texture arm generated 8 and 9 textures, carried this block
+    verbatim in their env prompt, and used **zero** of them across `env.js` and six zone
+    modules.  Three things were telling the model to write a procedural colour blend — the
+    plan's own ground sentence ("blends velvet moss, raked gravel, packed earth and slate
+    by height, slope and normal noise"), the cookbook chapter "Ground that reads real
+    (blend, paths, edges — never one flat colour)", and that chapter's position AFTER this
+    block — against one passive list offering an alternative.  A passive offer loses.
+    """
     if not manifest:
         return ""
-    lines = ["## Available textures (seamless tileable albedo PNGs, generated for this scene)"]
+    ground = [n for n, e in manifest.items() if str(e.get("role", "")).lower() in ("ground", "path")]
+    lines = ["## Available textures (seamless tileable albedo PNGs, generated FOR THIS SCENE — use them)"]
     for name, e in manifest.items():
         lines.append(f"- `{url_prefix}/{e['file']}` — {name} ({e.get('family', 'other')}, {e.get('role', '')}; "
                      f"one tile = {float(e['tile_size_m']):.2f} m; roughness {float(e.get('roughness', 0.8)):.2f})")
@@ -537,6 +549,16 @@ def texture_pack_prompt(manifest: dict[str, dict[str, Any]], *, url_prefix: str 
         "const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8, metalness: 0.0 });\n"
         "```\n"
         "Use `texture.clone()` (+ `needsUpdate = true`) when the same image needs a different repeat. "
-        "Keep vertex-colour / procedural materials where no texture fits; never invent texture URLs."
+        "Never invent texture URLs, and keep procedural materials where no texture fits."
     )
+    if ground:
+        lines.append(
+            "\n**The ground is what this pack is for.** The single most repeated defect on this "
+            "track is a ground that reads as one flat untextured colour. The recipe above "
+            "blends ground COLOURS by height, slope and noise — keep that logic exactly, and "
+            "blend these MAPS instead of (or multiplied by) the flat colours: "
+            + ", ".join(f"`{n}`" for n in ground)
+            + ". Sample each with its own `repeat`, mix them with the same masks the recipe "
+            "builds, and keep the vertex-colour term as a tint rather than the whole albedo."
+        )
     return "\n".join(lines)

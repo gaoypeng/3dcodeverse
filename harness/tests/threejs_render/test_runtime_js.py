@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -120,6 +121,39 @@ const {{ launchBrowser, rendererInfo }} = require({json.dumps(str(runtime_js_dir
     _reap_daemons(tmp_path / "cache")
 
 
+def test_two_runtime_trees_never_share_one_browser_endpoint(tmp_path: Path):
+    """A git worktree and the main checkout run their own runtime_js but share
+    ~/.cache/codeverse unless the operator remembers CV3D_CACHE_DIR.  Measured
+    2026-09-05: two daemons, one endpoint file, `Session closed` across the scene
+    suite.  The endpoint name carries the runtime_js that spawned it, so the two
+    trees keep separate browsers inside the SAME cache dir — no env var required."""
+    cache = tmp_path / "cache"
+    paths = []
+    for tree in ("worktree", "checkout"):
+        d = tmp_path / tree
+        d.mkdir()
+        shutil.copy(runtime_js_dir() / "gpu_launch.cjs", d / "gpu_launch.cjs")
+        script = tmp_path / f"{tree}.cjs"
+        script.write_text(f"""
+const {{ _internal }} = require({json.dumps(str(d / 'gpu_launch.cjs'))});
+console.log(JSON.stringify({{
+  endpoint: _internal.endpointPath('cpu'),
+  lock: _internal.spawnLockPath('cpu'),
+  failed: _internal.daemonFailPath('cpu'),
+}}));
+""")
+        paths.append(run_node(script, [], timeout_s=60, env_extra={"CV3D_CACHE_DIR": str(cache)}).last_json)
+
+    a, b = paths
+    for key in ("endpoint", "lock", "failed"):
+        assert a[key] != b[key], f"both trees would advertise into the same {key}"
+        # the separation must be the NAME: one cache dir is still one cache dir
+        assert Path(a[key]).parent == Path(b[key]) .parent == cache
+    # the reaper and the daemon-failure skip both key off these shapes
+    assert Path(a["endpoint"]).name.startswith("browser_cpu_")
+    assert a["failed"].endswith(".failed.json")
+
+
 def _reap_daemons(cache_dir: Path) -> None:
     """Kill any shared browser advertised under an ephemeral test cache dir."""
     import contextlib
@@ -160,7 +194,10 @@ const {{ launchBrowser }} = require({json.dumps(str(runtime_js_dir() / 'gpu_laun
     out = run_node(script, [], timeout_s=120, env_extra=env).last_json
     assert out["a_shared"] is True and out["b_shared"] is True and out["alive"]
     assert out["reconnect_ms"] < 1000  # connect, not a fresh ~550ms+ launch
-    assert (tmp_path / "cache" / "browser_cpu.json").is_file()
+    # the endpoint is keyed by the runtime_js that spawned the daemon, so a worktree
+    # and the main checkout sharing one cache dir cannot advertise over each other
+    endpoints = list((tmp_path / "cache").glob("browser_cpu_*.json"))
+    assert len(endpoints) == 1 and not endpoints[0].name.endswith(".failed.json")
     off = run_node(script, [], timeout_s=120, env_extra={**env, "CV3D_BROWSER_REUSE": "off"}).last_json
     assert off["a_shared"] is False and off["b_shared"] is False
     _reap_daemons(tmp_path / "cache")

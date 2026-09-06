@@ -24,6 +24,7 @@
 'use strict';
 
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -132,12 +133,33 @@ async function tryGpu(puppeteer) {
 }
 
 // --------------------------------------------------------------------- sharing
+// A git worktree and the main checkout each run THEIR OWN runtime_js but share
+// ~/.cache/codeverse unless the operator remembers CV3D_CACHE_DIR, so both daemons
+// used to advertise into one `browser_<backend>.json`: the second overwrote the
+// first, the first exited on its superseded-endpoint check, and clients of both
+// trees landed on a single browser whose page budget and canary were sized for one.
+// Measured 2026-09-05 — two live daemons from two trees, `Session closed` across the
+// scene suite, passing again the moment the trees were given separate cache dirs.
+// Keying the endpoint by the runtime_js that spawned it makes that structural: two
+// trees never share a browser, and neither can retire the other's.
+const RUNTIME_KEY = crypto.createHash('sha1').update(__dirname).digest('hex').slice(0, 8);
+
+/** Base name for this runtime's per-backend daemon files (endpoint, lock, failure). */
+function endpointBase(backend) {
+  return path.join(CACHE_DIR, `browser_${backend}_${RUNTIME_KEY}`);
+}
+
 function endpointPath(backend) {
-  return path.join(CACHE_DIR, `browser_${backend}.json`);
+  return `${endpointBase(backend)}.json`;
 }
 
 function daemonFailPath(backend) {
-  return path.join(CACHE_DIR, `browser_${backend}.failed.json`);
+  return `${endpointBase(backend)}.failed.json`;
+}
+
+/** Single-flight spawn lock; the daemon deletes it once it has advertised. */
+function spawnLockPath(backend) {
+  return `${endpointBase(backend)}.lock`;
 }
 
 function reuseEnabled() {
@@ -226,7 +248,7 @@ async function connectShared(puppeteer, backend) {
 /** Spawn the detached daemon for `backend` (single flight via a lock file). */
 function spawnDaemon(backend) {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
-  const lock = path.join(CACHE_DIR, `browser_${backend}.lock`);
+  const lock = spawnLockPath(backend);
   try {
     const st = fs.statSync(lock);
     if (Date.now() - st.mtimeMs < SPAWN_LOCK_STALE_MS) return; // someone else is spawning
@@ -322,5 +344,8 @@ async function launchBrowser(opts = {}) {
 module.exports = {
   launchBrowser, rendererInfo, GPU_ARGS, CPU_ARGS, GPU_ENV, CACHE_PATH,
   // internals shared with browser_daemon.cjs (not a public surface)
-  _internal: { launchCpu, tryGpu, loadPuppeteer, endpointPath, daemonFailPath, CACHE_DIR, SOFTWARE_RE },
+  _internal: {
+    launchCpu, tryGpu, loadPuppeteer, endpointPath, daemonFailPath, spawnLockPath,
+    CACHE_DIR, RUNTIME_KEY, SOFTWARE_RE,
+  },
 };

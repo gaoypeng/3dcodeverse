@@ -13,7 +13,6 @@
 'use strict';
 
 const fs = require('fs');
-const path = require('path');
 const { _internal } = require('./gpu_launch.cjs');
 
 const IDLE_REAP_MS = 90 * 1000;
@@ -34,7 +33,7 @@ async function main() {
   if (!['gpu', 'cpu'].includes(backend)) throw new Error(`--backend must be gpu|cpu, got ${backend}`);
   const puppeteer = _internal.loadPuppeteer();
   const epPath = _internal.endpointPath(backend);
-  const lockPath = path.join(_internal.CACHE_DIR, `browser_${backend}.lock`);
+  const lockPath = _internal.spawnLockPath(backend);   // one spelling, in gpu_launch.cjs
   fs.mkdirSync(_internal.CACHE_DIR, { recursive: true });
 
   let browser = null;

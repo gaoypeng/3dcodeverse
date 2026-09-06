@@ -25,10 +25,23 @@ export function envFlag(name, fallback) {
   return fallback;
 }
 
-/** Print the final JSON summary as the LAST stdout line and exit. */
+/**
+ * Print the final JSON summary as the LAST stdout line and exit.
+ *
+ * `process.exit()` does NOT flush a pending stdout write when stdout is a PIPE — node's
+ * stdout is asynchronous there — so a summary larger than the pipe buffer is cut mid-JSON
+ * and the caller sees no parsable last line.  Measured 2026-09-06 on the starter scene:
+ * to a file the summary is 10 462 bytes and parses; through a pipe it is **exactly 8192**
+ * and does not.  That is the real mechanism behind every "driver output lost" /
+ * "[?] scene did not boot" in `bench/out/scene_baseline` and `scene_textures` — it depends
+ * on the census size, not on how busy the box is, which is why it looked like weather.
+ *
+ * Write with a completion callback and exit from it; `exitCode` is set first so that a
+ * process with nothing else pending still ends with the right code.
+ */
 export function finish(summary, code = 0) {
-  process.stdout.write(JSON.stringify(summary) + '\n');
-  process.exit(code);
+  process.exitCode = code;
+  process.stdout.write(JSON.stringify(summary) + '\n', () => process.exit(code));
 }
 
 /** Fail loudly with a JSON summary line (code 2 = could not run). */
@@ -77,8 +90,7 @@ export function armWatchdog(ms, onFire) {
   const t = setTimeout(() => {
     try { onFire && onFire(); } catch (e) { /* ignore */ }
     process.stderr.write(`error: driver exceeded ${ms} ms budget\n`);
-    process.stdout.write(JSON.stringify({ ok: false, error: `timeout after ${ms} ms` }) + '\n');
-    process.exit(3);
+    finish({ ok: false, error: `timeout after ${ms} ms` }, 3);   // flushes; see finish()
   }, ms);
   t.unref();
   return t;

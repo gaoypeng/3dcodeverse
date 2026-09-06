@@ -80,6 +80,12 @@ class AssetRow(BaseModel):
     sunk_into: str = ""
     on_water: bool = False
     attached: list[str] = Field(default_factory=list)
+    inner: list[str] = Field(
+        default_factory=list,
+        description="named descendants of this row (host_placement.MAX_INNER_NAMES) — a zone "
+                    "often wraps its content in one group, and the plan-contents check has to "
+                    "see through it",
+    )
 
     @property
     def qualified(self) -> str:
@@ -330,6 +336,17 @@ def _layout_budget(layout: Any) -> int:
     return n
 
 
+def _row_names(row: AssetRow) -> str:
+    """The row's own name plus its named descendants, snake-cased for loose matching.
+
+    A zone that wraps its content in one group ("IslandAssembly") used to hide every
+    planned asset from this check: `bench/out/scene_fixed` (2026-09-05) reported three
+    floating_islands zones as "missing planned contents: FloatingRock, Windmill, SkyPine"
+    while the zone module built each one and named it exactly that, one level down.
+    """
+    return " ".join(to_snake(n) for n in [row.name, *row.inner])
+
+
 def contract_findings(census: dict[str, Any] | None, plan: Any,
                       layouts: dict[str, Any] | None = None) -> list[GateFinding]:
     """Deterministic plan-vs-census checks: env atmosphere present, every zone dressed
@@ -400,7 +417,7 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
     by_zone: dict[str, list[AssetRow]] = {}
     for r in rows:
         by_zone.setdefault(to_snake(r.zone), []).append(r)
-    all_names = " ".join(to_snake(r.name) for r in rows)
+    all_names = " ".join(_row_names(r) for r in rows)
     for zone_name, contents in _plan_zones(plan):
         zk = to_snake(zone_name)
         placed = by_zone.get(zk, [])
@@ -409,14 +426,16 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
                           target=zone_name, kind="zone_empty",
                           hint=f"build the zone group named '{zone_name}' and place its planned contents"))
             continue
-        zone_names = " ".join(to_snake(r.name) for r in placed)
+        zone_names = " ".join(_row_names(r) for r in placed)
         missing = [c for c in contents if to_snake(c) not in zone_names and to_snake(c) not in all_names]
         if missing:
             out.append(_f(Severity.ERROR,
                           f"zone {zone_name} is missing planned contents: {', '.join(missing[:5])}"
                           + (f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""),
                           target=zone_name, kind="missing_content", missing=missing[:8],
-                          hint="place each listed asset (import its builder / clone its GLB) inside this zone's bbox"))
+                          hint="place each listed asset (import its builder / clone its GLB) inside this "
+                               "zone's bbox AND give the object the plan's name for it — every gate and the "
+                               "judge find it by that name, so a lantern called 'LanternPost1' reads as absent"))
     # -- plausible scale vs the plan's approx_size_m
     sizes = _plan_asset_sizes(plan)
     for r in rows:

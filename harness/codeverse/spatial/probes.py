@@ -51,10 +51,18 @@ class SceneProbeResult(BaseModel):
 
 
 def _result(gate: GateReport, census: dict[str, Any], *, driver_failure: str = "") -> SceneProbeResult:
+    """A ``harness_failure`` finding IS a driver failure, wherever it was raised.
+
+    ``ok`` is "the tool could run" (``registry.Observation.failed = not ok``) and the
+    agent-facing ``findings`` deliberately exclude harness failures — so a report that
+    carries one and nothing else used to come back ok, with no errors and no findings: a
+    probe that reads healthy and measured nothing.  Deriving it here means every caller
+    gets the rule, not only the one that remembers to pass ``driver_failure``."""
+    harness = [f.message for f in gate.findings if f.data.get("harness_failure")]
     lines = [f"[{f.severity.value}] {f.target or ''}: {f.message}" for f in gate.findings
              if f.severity != Severity.INFO and not f.data.get("harness_failure")]
-    return SceneProbeResult(gate=gate, census=census, ok=not driver_failure,
-                            errors=[driver_failure] if driver_failure else [], findings=lines)
+    errors = [driver_failure] if driver_failure else harness
+    return SceneProbeResult(gate=gate, census=census, ok=not errors, errors=errors, findings=lines)
 
 
 def _f(gate: str, sev: Severity, msg: str, *, target: str | None = None, hint: str = "", **data: Any) -> GateFinding:
@@ -92,6 +100,21 @@ def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[Gate
     findings: list[GateFinding] = []
     s = summary
     boot = s.get("boot") or {}
+    if "boot" not in s:
+        # NO boot record at all is not a verdict about the scene: `probe_scene.mjs` always
+        # carries `boot` in its summary, so an absent one means the driver produced no
+        # parsable summary line — its stdout tail was dropped (`proc._ABANDONED`), or it
+        # died in a way `run_scene_script` let through with exit 0.  Saying "scene did not
+        # boot" here hands the agent a defect that does not exist and names nothing it can
+        # fix: on desert_canyon (bench/out/scene_baseline, 2026-09-05) the run spent three
+        # repair attempts on `[?] scene did not boot` with an identical signature, while the
+        # driver's own artifacts/scene_probe.json recorded `ok: true, boot.ok: true,
+        # stage: ready` — and the workspace boots in 600 ms today, unchanged.
+        findings.append(_f(gate, Severity.ERROR, "scene probe produced no result (driver output lost)",
+                           target="src/scene.js",
+                           hint="this is a harness/driver failure, not your code; retry or report",
+                           harness_failure=True))
+        return GateReport(gate=gate, passed=False, findings=findings, duration_ms=duration_ms), {}
     if not boot.get("ok"):
         stage = boot.get("stage", "?")
         msg = boot.get("error") or "scene did not boot"
