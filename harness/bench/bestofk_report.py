@@ -71,6 +71,28 @@ def harness_scores(root: Path, *, arm_prefix: str = "harness:") -> dict[str, flo
     return out
 
 
+def harness_repeat_spread(root: Path, *, arm_prefix: str = "harness:") -> tuple[int, int, float]:
+    """``(rows, prompts, worst within-prompt score spread)`` for the recorded arm.
+
+    The battery appends a row per report pass, so a prompt can carry several harness rows.
+    If those are re-runs the aggregation choice matters; if they are duplicates it cannot.
+    On `compare_v4` the spread is 0.000 on all 40 prompts, so last-row-wins is safe — and
+    it also means the harness has NO repeat measurement here, which is the asymmetry worth
+    stating: best-of-k selects over k draws while the harness gets one, carrying the
+    generator's own +-0.13 A/A repeat noise unaveraged.
+    """
+    per: dict[str, list[float]] = {}
+    rows = 0
+    for r in _rows(root / "results.jsonl"):
+        if not str(r.get("arm", "")).startswith(arm_prefix):
+            continue
+        rows += 1
+        if r.get("score") is not None:
+            per.setdefault(r["prompt_id"], []).append(float(r["score"]))
+    spreads = [max(v) - min(v) for v in per.values() if len(v) > 1]
+    return rows, len(per), (max(spreads) if spreads else 0.0)
+
+
 def gen_costs(root: Path, arm_prefix: str) -> list[float]:
     """Generation cost per PROMPT for an arm — last row per prompt, the basis
     `paired_compare` pairs on.  Taken over every appended row instead, resumed and failed
@@ -129,6 +151,12 @@ def report(root: Path, against: Path, *, baseline_prefix: str = "oneshot:") -> s
         mark = "reached" if eq[2] <= reps else f"NOT reached yet — {reps} of {eq[2]} reps"
         lines += [f"Equal compute: harness ${eq[0]:.4f} per prompt against ${eq[1]:.4f}, so **k = {eq[2]}** ({mark}).",
                   "Costs are the last row per prompt, the basis `paired_compare` pairs on.", ""]
+    rows, prompts, spread = harness_repeat_spread(against)
+    if prompts:
+        lines += [f"Harness arm: {rows} rows over {prompts} prompts, worst within-prompt score spread "
+                  f"{spread:.3f} — {'duplicates, so the aggregation choice cannot move this' if spread == 0 else 're-runs, so it can'}.",
+                  "It is ONE draw against best-of-k's k, carrying the generator's own A/A repeat noise "
+                  "(+-0.13) unaveraged. That asymmetry runs against the harness.", ""]
     lines += [
              f"Winner's-curse bound: judge sigma {JUDGE_SIGMA:.3f}, so a best-of-k maximum carries",
              "about `sigma*sqrt(2 ln k)` of selection noise. It inflates the BASELINE, never the harness.",

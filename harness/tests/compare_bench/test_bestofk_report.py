@@ -137,3 +137,26 @@ def test_the_report_says_when_k_has_not_been_reached(tmp_path: Path):
     ]))
     text = report(tmp_path / "reps", tmp_path)
     assert "**k = 40**" in text and "NOT reached yet — 1 of 40 reps" in text
+
+
+def test_repeated_harness_rows_are_reported_as_duplicates_or_reruns(tmp_path: Path):
+    """Whether the aggregation choice can move the comparison is a fact about the data, so
+    the report states it.  On `compare_v4` the 117 harness rows over 40 prompts have a
+    within-prompt spread of exactly 0.000 — they are the same cell written by successive
+    report passes, not re-runs — so last-row-wins is safe there."""
+    from bench.bestofk_report import harness_repeat_spread
+
+    (tmp_path / "results.jsonl").write_text("\n".join(json.dumps(r) for r in [
+        {"prompt_id": "a", "arm": "harness:x", "score": 0.5},
+        {"prompt_id": "a", "arm": "harness:x", "score": 0.5},   # duplicate
+        {"prompt_id": "b", "arm": "harness:x", "score": 0.4},
+        {"prompt_id": "c", "arm": "oneshot:x", "score": 0.9},   # other arms ignored
+    ]))
+    assert harness_repeat_spread(tmp_path) == (3, 2, 0.0)
+
+    (tmp_path / "results.jsonl").write_text("\n".join(json.dumps(r) for r in [
+        {"prompt_id": "a", "arm": "harness:x", "score": 0.5},
+        {"prompt_id": "a", "arm": "harness:x", "score": 0.8},   # a real re-run
+    ]))
+    rows, prompts, spread = harness_repeat_spread(tmp_path)
+    assert (rows, prompts) == (2, 1) and spread == pytest.approx(0.3)
