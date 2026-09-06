@@ -121,3 +121,4 @@ def test_a_camera_buried_in_a_solid_slab_is_still_retreated():
     """The control: the same geometry that writes depth is matter, and the lens moves."""
     out = run_node_json(REPAIR_JS.replace("DEPTH_WRITE", "true").replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
     assert out["fix"], "a lens inside a solid slab must still be repaired"
+

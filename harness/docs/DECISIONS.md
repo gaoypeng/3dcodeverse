@@ -938,6 +938,44 @@ written) that were accepted because the code works that way and the tests pin it
   retried once itself.  Rare (1 cell of 12 in each of two arms) and expensive when it
   fires.
 
+* **D61 A driver's summary is flushed before it exits (2026-09-06).**  `lib/cli.finish()`
+  wrote the JSON summary and then called `process.exit()`.  Node's stdout to a PIPE is
+  asynchronous and `process.exit` does not flush it, so any summary larger than the pipe
+  buffer was cut mid-JSON and the caller saw no parsable last line.  Measured on the
+  starter scene, `probe_scene.mjs --compile`: to a file the summary is **10 462 bytes and
+  parses**, through a pipe it was **exactly 8192 and did not**.
+
+  **This is the real mechanism behind every "driver output lost" and "[?] scene did not
+  boot" in the scene batteries, and D54 attributed them to the wrong cause.**  They do not
+  depend on how busy the machine is — they depend on how big the census is, which is why
+  they read as weather across two batteries.  desert_canyon spent three repair attempts on
+  it in `scene_baseline`; `scene_textures/japanese_garden` spent three more and lost the
+  texture use that arm existed to measure.  The retries D54 added are still right (they
+  cost nothing and cover a genuinely transient loss) but they could never fix this one:
+  a deterministic truncation reproduces on every attempt.
+
+  `finish()` now sets `process.exitCode` and exits from the write's completion callback;
+  the watchdog goes through it too.  Pinned by a driver whose summary is 64 KiB.
+
+* **D62 The `inside_mesh_bbox` term was NOT narrowed, and here is the counter-example
+  (2026-09-06).**  Over the 113 recorded camera checks of `scene_baseline` the ray term
+  (`nearest < 0.3 m`) never fired once and all ten firings came from the bbox term with the
+  lens 1.3-10.0 m clear of anything — sparse scattered fields (`Drift`, `FoliageMass`,
+  `Midges`) whose box spans the scene while their geometry is nowhere near the eye.  A
+  candidate rule ("the bbox flag counts only when a ray also lands within 1 m, or when no
+  ray lands at all") took those ten firings to zero and added none, so it was written and
+  validated against the corpus.
+
+  **It was then reverted, because the corpus could not see what it broke.**
+  `test_a_lens_inside_geometry_retreats_until_clear` puts a lens inside a `BarCounter`
+  whose material is FrontSide: the rays are culled by the box itself, escape, and land on
+  the floor 1.2 m away — so `nearest` is neither null nor under 1 m, and a genuinely buried
+  camera stops being repaired.  The recorded corpus contains no buried camera at all, which
+  is exactly why validating on it was not enough.  The measurement stands and is worth
+  redoing with a discriminator that asks the right question (how far the eye is from the
+  CONTAINING mesh's own surface, not from anything at all); the rule does not ship on this
+  evidence.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven
