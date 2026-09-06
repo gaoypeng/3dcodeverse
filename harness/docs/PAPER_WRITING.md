@@ -360,21 +360,21 @@ articulation sheet posed every follower at rest, so that complaint is evidence a
 sheet, not about the generation.  The sweep poses through fk, which does resolve followers,
 so the sweep-side evidence stands on its own.
 
-**What did NOT move: the sweep gate's own failure rate.**  On those eight prompts the
-`joint_sweep` gate fails 30 % of the rounds with couplings declared (11 of 37,
-`wave2_lean`) against 31 % without them (12 of 39, `aa_articulated`; `ab_fewer_turns` 19 %
-of 37, `compare_art_v4_pf0` 25 % of 8 — the spread across pre-mimic batteries is wider than
-the before/after difference).  The sampler drives fewer joints and every pose it drives is
-reachable, but the gate still finds links overlapping in them.  The comparison is also
-confounded at the source: a pre-mimic URDF declares no couplings at all, so the two arms
-are not the same artefacts measured twice.  What can be said is the mechanical claim (which
-poses are sampled); the claim that the gate's findings became *truer* is not measured, and
-this readout does not support it.  The mechanisms the
-support was built for — umbrella, step ladder, folding workbench — are the ones that collapse
-to 1–2.  The pre-mimic batteries (`aa_articulated`, `compare_art_v4_pf0`) contain **zero**
-couplings, so nothing else on the battery changed shape.  The score effect on the three coupled prompts is inside the noise band
-at n = 2 per side (umbrella 0.35/0.65 → 0.54/0.64, scissor 0.46/0.54 → 0.49/0.60, workbench
-0.91/0.60 → 0.60/0.60); the **pose count is the readout that resolves.**
+**What is NOT shown: that the sweep gate's failure rate moved.**  Two comparisons, both
+null and both too small to be equivalence claims.  On `coupled_v1` the gate fails 5/10
+rounds with the coupling declared against 4/10 without (Wilson 0.24–0.76 vs 0.17–0.69, a
+hand count over the two arms' records).  Across batteries, on the eight coupled prompts,
+it fails 30 % of the rounds with couplings declared (11 of 37, `wave2_lean`) against 31 %
+without (12 of 39, `aa_articulated`; `ab_fewer_turns` 19 % of 37, `compare_art_v4_pf0`
+25 % of 8 — the spread across pre-mimic batteries is wider than the before/after
+difference).  Neither number is printed by a script: `coupling_stats.py --per-prompt`
+reports the gate per battery, not per prompt subset, and the batteries are not in the
+tree.  The sampler drives fewer joints and every pose it drives is reachable, but the gate
+still finds links overlapping in them — and the cross-battery comparison is confounded at
+the source, since a pre-mimic URDF declares no couplings at all.  What can be said is the
+mechanical claim (which poses are sampled); "not detectably different at this n" is what
+the gate data carries, and the claim that the gate's findings became *truer* is not
+measured.
 
 ### 5.4 Provider-failure accounting
 

@@ -200,16 +200,16 @@ and measured 38 970 ms at load ~100 with `ok=True` — the build succeeded, the 
 busy.  All three are the same story, and none of them is to be "fixed" by loosening what
 it asserts.
 
-**Two arms at once still want separate `CV3D_CACHE_DIR`, though the browser no longer
-depends on it.**  Until 2026-09-05 the daemon advertised its endpoint at
-`CACHE_DIR/browser_<backend>.json`, a newer daemon superseded an older one, and two
-worktrees sharing a cache ended up on ONE browser: the arm that did not launch it
-rendered through a server rooted in the other tree, its GLB was outside that root, and
-`render_glb` returned "produced no result" — on one side only, looking like random
-flakiness (2026-09-04).  The endpoint, its lock and its failure file now carry a digest of
-the `runtime_js` that spawned the daemon, so two trees keep separate browsers inside one
-cache dir and neither can retire the other's.  Give each arm its own cache dir anyway: the
-render cache separates with it, which an A/B wants.
+**Two arms at once need separate `CV3D_CACHE_DIR`, not just separate `--out`.**  The
+browser daemon advertises its endpoint in `CACHE_DIR/browser_<backend>.json` and a newer
+daemon supersedes an older one (`runtime_js/browser_daemon.cjs`), so two worktrees sharing
+a cache fight over ONE browser, and `render_glb` returns "produced no result" on one side
+only, looking like random flakiness (2026-09-04).  The mechanism is not confirmed: each
+render serves its GLB from its own process (`render_glb.mjs` `serveDirs`), so it is not a
+server-root mismatch; the likely cause is the superseded daemon exiting while the other
+arm's render is still in flight on its browser, which is a race in shared code that a
+separate cache dir avoids rather than fixes.  Give each arm its own cache dir; the render
+cache separates with it, which an A/B wants anyway.
 
 Also halve each arm's `--parallel`: two arms at 3 workers is six concurrent renders, and a
 round with no renders skips the judge, so the loop stops at `judge_unavailable` and the

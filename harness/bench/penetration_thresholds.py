@@ -26,6 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from codeverse.flywheel.record import unique_files  # noqa: E402
 from codeverse.languages.urdf import REST_PENETRATION_MAX_M  # noqa: E402
 from codeverse.spatial.connectivity import (  # noqa: E402
     PENETRATION_ERROR_M,
@@ -45,24 +46,17 @@ SWEEP_REST_ERROR_M = float(inspect.signature(sweep_findings).parameters["rest_ma
 assert SWEEP_REST_ERROR_M == REST_PENETRATION_MAX_M, "the urdf runtime disagrees with the sweep default"
 
 
-#: sub-workspaces a run owns; their records are not runs of their own (`find_runs` skips
-#: both, and `scene_stats.runs` did while this file skipped only `_cand`)
-SUB_WORKSPACES = ("_cand", "_assets")
 
 
 def records(root: Path) -> list[dict]:
     """Every articulated run record under ``root``, once per run.
 
-    `resolve()` before the dedupe so a symlinked cell (`run/telemetry/trajectories` is the
-    documented one) is counted once, not twice — the trap that inflated COST §30.  The
-    review branch adds `flywheel.record.unique_files` for exactly this; both bench walkers
-    should move to it when that lands.
+    The walk is ``flywheel.record.unique_files``: it follows symlinked cells and the
+    ``run/telemetry/trajectories`` link and counts each file once, and skips the
+    sub-workspaces a run owns — the trap that inflated COST §30, handled in one place.
     """
-    out, seen = [], set()
-    for rec in root.rglob("record.json"):
-        if rec.resolve() in seen or any(w in rec.parts for w in SUB_WORKSPACES):
-            continue
-        seen.add(rec.resolve())
+    out = []
+    for rec in unique_files(root, "record.json"):
         try:
             data = json.loads(rec.read_text())
         except (OSError, ValueError):
