@@ -107,20 +107,30 @@ def tree_provenance(tree: Path, codeverse_file: str) -> dict[str, str]:
                               capture_output=True, text=True, check=False, timeout=30)
         if proc.returncode == 0:
             out["tree_commit"] = proc.stdout.strip()
+        # an arm made of "the same commit plus two uncommitted edits" would otherwise carry
+        # the other arm's commit and read as identical code
+        dirty = subprocess.run(["git", "-C", str(tree), "status", "--porcelain", "--untracked-files=no"],
+                               capture_output=True, text=True, check=False, timeout=30)
+        if dirty.returncode == 0 and dirty.stdout.strip():
+            out["tree_dirty"] = f"{len(dirty.stdout.splitlines())} modified file(s)"
     except (OSError, subprocess.SubprocessError):  # a tree that is not a checkout is fine
         pass
     return out
 
 
 def run_one(battery, item, backends, label: str, rep: int, provenance: dict[str, str] | None = None,
-            keep_failed: Path | None = None) -> dict:
+            keep_failed: Path | None = None, keep_plans: Path | None = None) -> dict:
     """One plan-stage call in a throwaway workspace; never raises.
 
     ``plan_once`` deliberately bypasses ``Track.run``: there is no build, no judge and no
     run ledger, so the JSONL row IS the record (it carries the call's own ``cost_usd``
     from the plan events, and the totals are printed at the end).  ``keep_failed`` moves a
     workspace that produced no plan out of the temp dir instead of deleting it, which is
-    the only way to read what the model actually wrote.
+    the only way to read what the model actually wrote.  ``keep_plans`` copies the plan
+    JSON of a call that SUCCEEDED beside its row: the rows carry `n_parts` / `n_joints` /
+    `n_mimic` only, so any joint-level reading of a committed arm ("eight of ten leave
+    exactly one free joint and it IS the input") is otherwise a hand reading nobody can
+    redo — review round 3 asked for this.
     """
     from bench.pin_plan import plan_once
     from bench.run_bench import build_spec
@@ -137,10 +147,18 @@ def run_one(battery, item, backends, label: str, rep: int, provenance: dict[str,
            "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
            "seconds": round(time.time() - started, 1), **(provenance or {}),
            **_plan_shape(root / "ws"), **_stats(root / "ws")}
+    if ok and keep_plans is not None:
+        src = root / "ws" / "plan.json"
+        if src.is_file():
+            keep_plans.mkdir(parents=True, exist_ok=True)
+            shutil.copy(src, keep_plans / f"{item.id}_r{rep}.json")
     if not ok and keep_failed is not None:
-        # name what it was: a provider block says nothing about the code under test, and a
-        # harvest of validation failures should not have to be filtered by hand
-        kind = "planning" if "PlanningError" in error else "provider"
+        # name what it was, by the same rule the report classifies the row: a provider block
+        # says nothing about the code under test, everything else (a validation failure, a
+        # budget ceiling) is a loss worth reading
+        from bench.plan_stage_report import outcome
+
+        kind = "provider" if outcome(row) == "provider" else "planning"
         keep_failed.mkdir(parents=True, exist_ok=True)
         shutil.move(str(root), str(keep_failed / f"{kind}_{item.id}_r{rep}"))
     else:
@@ -162,6 +180,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--keep-failed", type=Path, default=None,
                     help="move the workspace of any call that produced no plan here (plan stage "
                          "only, so they are small) instead of deleting it")
+    ap.add_argument("--keep-plans", type=Path, default=None,
+                    help="copy each SUCCESSFUL call's plan.json here, so a joint-level reading of "
+                         "the arm can be redone from the tree (the rows carry shape counts only)")
     ns = ap.parse_args(argv)
 
     for kv in (x for x in ns.env.split(",") if x.strip()):
@@ -172,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import codeverse
     from bench._jsonl import seal_for_append  # after the path insert: `python bench/x.py`
-    from bench.run_bench import Battery  # puts bench/ on sys.path, not the tree
+    from bench.run_bench import Battery
     from codeverse.config import get_settings
     if not Path(codeverse.__file__).resolve().is_relative_to(ns.tree.resolve()):
         raise SystemExit(f"--tree {ns.tree} but `codeverse` imported from {codeverse.__file__}: "
@@ -194,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
         # imap-style ordering: pool.map yields in submission order, so one slow call holds
         # back every finished row behind it.  Rows are the journal, so they go out as they
         # land instead (resume reads what is on disk, order does not matter).
-        futures = [pool.submit(run_one, battery, item, backends, ns.label, rep, prov, ns.keep_failed)
+        futures = [pool.submit(run_one, battery, item, backends, ns.label, rep, prov, ns.keep_failed, ns.keep_plans)
                    for item, rep in jobs]
         for fut in cf.as_completed(futures):
             row = fut.result()

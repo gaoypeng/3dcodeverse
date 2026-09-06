@@ -266,11 +266,28 @@ def rows_from_bench_run(out_dir: Path, arm: str) -> list[CellResult]:
         if not line.strip():
             continue
         raw = json.loads(line)
+        # a bench-run row records no build flag: a cell with a verdict was built and judged,
+        # one without (score None, passed None) was not — so `build_ok` here means "judged",
+        # and `gen_cost_usd` is the run's WHOLE cost (plan + loop judge), as the field says
         rows.append(CellResult(prompt_id=raw["id"], arm=arm, tier=raw.get("tier", ""),
                                score=raw.get("score_final"), status=raw.get("status", ""),
-                               build_ok=raw.get("score_final") is not None,
+                               passed=raw.get("passed"), build_ok=raw.get("passed") is not None,
                                gen_cost_usd=float(raw.get("cost_usd") or 0.0), kind="harness"))
     return rows
+
+
+def arm_names(a: Path, b: Path) -> tuple[str, str]:
+    """Two distinct labels for two battery directories: the basenames, or — when those
+    collide (``x/out`` vs ``y/out``) — enough of the path to tell them apart.  Two arms
+    with one name would silently pair every cell with itself."""
+    a, b = a.resolve(), b.resolve()
+    if a == b:
+        raise SystemExit(f"--against names the same battery as out_dir: {a}")
+    pa, pb = list(a.parts), list(b.parts)
+    depth = 1
+    while depth < min(len(pa), len(pb)) and pa[-depth:] == pb[-depth:]:
+        depth += 1
+    return "/".join(pa[-depth:]), "/".join(pb[-depth:])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -282,9 +299,10 @@ def main(argv: list[str] | None = None) -> int:
     ns = ap.parse_args(argv)
     out = Path(ns.out_dir)
     if ns.against is not None:
-        rows = rows_from_bench_run(out, out.name) + rows_from_bench_run(ns.against, ns.against.name)
-        stats = [paired(latest_cells(rows), out.name, ns.against.name)]
-        md = render_markdown(stats, f"{out.name} vs {ns.against.name}")
+        name_a, name_b = arm_names(out, ns.against)
+        rows = rows_from_bench_run(out, name_a) + rows_from_bench_run(ns.against, name_b)
+        stats = [paired(latest_cells(rows), name_a, name_b)]
+        md = render_markdown(stats, f"{name_a} vs {name_b}")
         (out / "paired.md").write_text(md)
         print(md)
         return 0

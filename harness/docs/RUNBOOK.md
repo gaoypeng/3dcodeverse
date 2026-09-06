@@ -169,12 +169,46 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 python -m codeverse.judges.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```
+**Do not run the offline suite while a battery is running.**  The suite is 2 300+ tests on
+24 cores under xdist; a battery holds Blender, a browser pool and several agent sessions.
+Twice on 2026-09-04/05 that produced 11 and 21 spurious failures that vanished on a clean
+re-run (`tests/scene_runtime/lib/*` first, since those hold the renderer longest).  A red
+suite during a battery is **not evidence until it reproduces on a quiet machine** — re-run
+it there before pushing, and if the same tests are red again, it is real.  The mechanism is
+the one the next paragraph describes: `tests/scene_runtime/lib/*` reach the battery's
+browser daemon through a shared `CV3D_CACHE_DIR`, so giving the suite its own cache dir may
+let the two coexist.
+
+The same holds for a box loaded by OTHER work.  On 2026-09-05, with 12 `proseg` processes
+holding 528 GB, swap full and all eight GPUs at ~100 %, the offline suite failed 12, then
+44, then 17 tests in three runs at `-n 12 / 6 / 4`, every one of them a browser test
+reporting `Session closed` or `Target closed`; `tests/scene_runtime` alone at `-n 4` with
+its own cache dir passed 787/787.  Check `uptime` and `free -g` before believing a red
+browser test.  One test is flaky by construction under CPU contention and is NOT to be
+"fixed" by weakening it: `test_studio_render_is_reproducible_and_stamps_the_rig_version`
+compares two renders byte for byte, and SwiftShader is not bit-reproducible when the box
+is busy — it failed 2 runs in 3 on an unmodified tree at load 129.  A second one behaves
+the same way: `test_example_scene_passes_frame_gate_and_judge_subset` asserts that a
+frame's content / ground / sky coverage fractions sum to 1 +- 0.02, and at `-n 4` under
+load ~100 it fails on `content 0.644 + ground 0.000 + sky 0.549 = 1.193`.  An interleaved
+A/B — six runs each, alternating so both arms see the same load — gave **5/6 failures on
+the unmodified tree and 4/6 with the branch's changes**, i.e. the box, not the code.  What
+produces a ground fraction of exactly zero on a scene that has a ground is an open
+question; it needs an idle machine to look at, not a guess.  A third is a plain wall-clock
+assertion: `test_cabinet_door_end_to_end` requires the URDF build to finish in under 30 s
+and measured 38 970 ms at load ~100 with `ok=True` — the build succeeded, the box was
+busy.  All three are the same story, and none of them is to be "fixed" by loosening what
+it asserts.
+
 **Two arms at once need separate `CV3D_CACHE_DIR`, not just separate `--out`.**  The
 browser daemon advertises its endpoint in `CACHE_DIR/browser_<backend>.json` and a newer
-daemon supersedes an older one, so two worktrees sharing a cache end up on ONE browser:
-the arm that did not launch it renders through a server rooted in the other tree, its GLB
-is outside that root, and `render_glb` returns "produced no result" — on one side only,
-looking like random flakiness (2026-09-04).  Give each arm its own cache dir; the render
+daemon supersedes an older one (`runtime_js/browser_daemon.cjs`), so two worktrees sharing
+a cache fight over ONE browser, and `render_glb` returns "produced no result" on one side
+only, looking like random flakiness (2026-09-04).  The mechanism is not confirmed: each
+render serves its GLB from its own process (`render_glb.mjs` `serveDirs`), so it is not a
+server-root mismatch; the likely cause is the superseded daemon exiting while the other
+arm's render is still in flight on its browser, which is a race in shared code that a
+separate cache dir avoids rather than fixes.  Give each arm its own cache dir; the render
 cache separates with it, which an A/B wants anyway.
 
 Also halve each arm's `--parallel`: two arms at 3 workers is six concurrent renders, and a

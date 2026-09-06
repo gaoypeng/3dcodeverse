@@ -16,8 +16,9 @@ number whose data is not in the tree is not reproducible.
 `plan_once` runs the plan stage WITHOUT `Track.run`, so there is no run ledger and the
 workspace is deleted: these rows are the record, and each carries its own `cost_usd` (the
 script prints the total).  `--keep-failed DIR` keeps the workspace of a call that produced
-no plan, which is how the `parent == child` class below can be read.  Rows recorded before
-2026-09-03 carry no `started_at` / `tree_commit`; later ones do.
+no plan, which is how the `parent == child` class below can be read.  The `restart_*` and
+`trigger_*` rows (2026-09-02/03) carry no `started_at` / `tree_commit`; `coupled_plan.jsonl`
+and everything recorded after it do (plus `tree_dirty` when the tree had uncommitted edits).
 
 ## The trigger, narrowed (2026-09-03)
 
@@ -97,12 +98,18 @@ Two readings:
   median of 3 followers per 6 movable joints; here it is 10 of 10 and the strict one-input
   mechanisms collapse to a single degree of freedom.  The difference is in the prompt, not
   the planner.
-* **Branching couplings are still under-declared.**  Where one input drives one chain
-  (umbrella, blind, scissor lift, ladder, garage door, treadle) the plan leaves exactly one
-  input.  Where it drives several chains at once — the pram's fold hinge moving the handle,
-  the seat back and two leg pairs — it declares 3 of 8 and leaves 5 inputs standing.  That
-  is the case the sweep still over-drives, and the one a build-and-judge battery has to
-  look at.
+* **`inputs left` is a DOF count, not a defect count.**  Read joint by joint on the ten
+  recorded plans, eight leave exactly one free joint and it IS the input; the pram's five
+  are its fold hinge plus four wheel spins (the fold itself couples handle, seat back and
+  both leg pairs), and the pantograph mirror's second is the mirror tilt.  The planner
+  declared the coupling correctly in all ten — an earlier reading of this table called the
+  pram "3 of 8 declared" and was wrong.
+
+  **This is a hand reading, and it is not reproducible from this directory.**  The rows
+  carry `n_parts` / `n_joints` / `n_mimic` only, so the joint-by-joint check was done on
+  plan JSON that is not in the tree.  `plan_stage_bench.py --keep-plans` now writes each
+  call's `plan.json` beside its row so the next such reading can be re-done; the ten plans
+  behind THIS sentence pre-date that flag.
 
 The plan stage is therefore NOT what a full run of this battery would be measuring: it
 loses nothing here.

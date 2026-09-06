@@ -531,15 +531,20 @@ from codeverse.flywheel.refine import build_refine, transitions, RefineTransitio
     # (threshold: pairs.MIN_PREFERENCE_DELTA); dropped rows carry the reason (no_predecessor / no_commit /
     # predecessor_build_failed / predecessor_unjudged / git_read_failed / duplicate_run)
 from codeverse.flywheel._git import read_tree_at, diff_between, changed_files_between, commit_exists, GitReadError
-    # read_tree_at(ws, commit) -> {path: bytes} via ls-tree + cat-file --batch — NEVER `git archive`, which
-    # renders content through a planted filter.<name>.smudge and has no --no-filters (tests/flywheel_cli)
+    # read_tree_at(ws, commit, *, paths=None) -> {path: bytes} via ls-tree + cat-file --batch — NEVER
+    # `git archive`, which renders content through a planted filter.<name>.smudge and has no --no-filters
+    # (tests/flywheel_cli); symlinks (mode 120000) are skipped; `paths` reads only those files
+from codeverse.flywheel.record import unique_files, SUBRUN_DIRS, BATTERY_MARKERS
+    # unique_files(root, name) -> [Path]: every file called `name` under root ONCE per file on disk (follows
+    # the run/telemetry/trajectories symlink and collapses it; skips SUBRUN_DIRS = {_cand, _assets}) — the
+    # one walker behind bench/session_stats.py, bench/coupling_stats.py and cost.reconstruct.find_runs
     # diff_between(ws, before, after, *, max_bytes=None) -> (text, untruncated size, was_truncated)
     # changed_files_between(ws, before, after) -> [path];  commit_exists(ws, commit) -> bool
     # both under GIT_SAFE_DIFF_FLAGS (--no-ext-diff --no-textconv) on top of workspace.GIT_SAFE_FLAGS
 from codeverse.workspace import GIT_SAFE_FLAGS, GIT_SAFE_DIFF_FLAGS, git_safe_env
     # every read of an agent-written repo goes through these.  They do NOT disable .git/config —
-    # git reads it in full; `-c` only OVERRIDES five keys (hooksPath, fsmonitor, attributesFile,
-    # diff.external, plus the diff flags), which is why a NAMED filter./diff. driver in .git/config
+    # git reads it in full; `-c` only OVERRIDES three keys (hooksPath, fsmonitor, attributesFile)
+    # and the diff flags cover ext-diff/textconv, which is why a NAMED filter./diff. driver in .git/config
     # is still live and why read_tree_at avoids every content-rendering command.  git_safe_env drops
     # the SYSTEM and GLOBAL config (GIT_CONFIG_NOSYSTEM, GIT_CONFIG_GLOBAL=/dev/null) and the
     # inherited environment (HOME, PATH, GIT_TERMINAL_PROMPT)

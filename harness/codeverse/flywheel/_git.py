@@ -15,6 +15,7 @@ adds :data:`~codeverse.workspace.GIT_SAFE_DIFF_FLAGS`.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Collection
 from pathlib import Path
 
 from codeverse.workspace import GIT_SAFE_DIFF_FLAGS, GIT_SAFE_FLAGS, Workspace, git_safe_env
@@ -30,8 +31,11 @@ class GitReadError(RuntimeError):
     """A git read (ls-tree / cat-file / diff) failed or the commit does not exist."""
 
 
-def _run_stdin(ws: Workspace, stdin: bytes, *args: str) -> subprocess.CompletedProcess[bytes]:
-    """:func:`_run` with input on stdin (``cat-file --batch`` reads its object list there)."""
+def _run(ws: Workspace, *args: str, stdin: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
+    """One sanitised git invocation; ``stdin`` feeds ``cat-file --batch`` its object list.
+
+    Every way the call can fail — no git binary, a timeout, a non-zero exit — is one
+    :class:`GitReadError`, so a caller catches one thing."""
     try:
         proc = subprocess.run(
             ["git", *GIT_SAFE_FLAGS, *args], cwd=ws.root, capture_output=True, check=False,
@@ -40,20 +44,8 @@ def _run_stdin(ws: Workspace, stdin: bytes, *args: str) -> subprocess.CompletedP
     except (OSError, subprocess.SubprocessError) as e:
         raise GitReadError(f"git {' '.join(args)} in {ws.root}: {e}") from e
     if proc.returncode != 0:
-        raise GitReadError(f"git {' '.join(args)} in {ws.root}: {proc.stderr.decode('utf-8', errors='replace')[:400]}")
-    return proc
-
-
-def _run(ws: Workspace, *args: str) -> subprocess.CompletedProcess[bytes]:
-    try:
-        proc = subprocess.run(
-            ["git", *GIT_SAFE_FLAGS, *args], cwd=ws.root, capture_output=True, check=False,
-            env=git_safe_env(), timeout=_GIT_TIMEOUT_S,
-        )
-    except subprocess.TimeoutExpired as e:  # pragma: no cover - defensive
-        raise GitReadError(f"git {' '.join(args)} timed out in {ws.root}") from e
-    if proc.returncode != 0:
-        raise GitReadError(f"git {' '.join(args)} failed in {ws.root}: {proc.stderr.decode(errors='replace').strip()}")
+        raise GitReadError(f"git {' '.join(args)} failed in {ws.root}: "
+                           f"{proc.stderr.decode('utf-8', errors='replace').strip()[:400]}")
     return proc
 
 
@@ -85,14 +77,9 @@ def _keep(rel: str) -> bool:
     return bool(parts) and parts[0] in CODE_ROOTS and not any(p in _SKIP_PARTS for p in parts)
 
 
-def list_files_at(ws: Workspace, commit: str) -> list[str]:
-    """Sorted repo-relative paths under the code roots at ``commit``."""
-    out = _run(ws, "ls-tree", "-r", "--name-only", "-z", commit, "--", *CODE_ROOTS).stdout
-    return sorted(p for p in out.decode("utf-8", errors="replace").split("\0") if p and _keep(p))
-
-
-def read_tree_at(ws: Workspace, commit: str) -> dict[str, bytes]:
-    """``{repo-relative path: bytes}`` for every code file at ``commit`` (binary-safe).
+def read_tree_at(ws: Workspace, commit: str, *, paths: Collection[str] | None = None) -> dict[str, bytes]:
+    """``{repo-relative path: bytes}`` for every code file at ``commit`` (binary-safe);
+    ``paths`` narrows it to those files, so a caller after two of forty streams two.
 
     ``ls-tree`` + ``cat-file --batch``, never ``git archive``: archive renders content
     through ``convert_to_working_tree``, so an agent-planted ``filter.<name>.smudge``
@@ -114,10 +101,12 @@ def read_tree_at(ws: Workspace, commit: str) -> dict[str, bytes]:
         # `src/link.py -> model.py` comes back as a one-line file saying "model.py".
         if len(parts) < 3 or parts[1] != "blob" or parts[0] == "120000" or not _keep(path):
             continue
+        if paths is not None and path not in paths:
+            continue
         entries.append((parts[2], path))
     if not entries:
         return {}
-    proc = _run_stdin(ws, b"".join(f"{sha}\n".encode() for sha, _ in entries), "cat-file", "--batch")
+    proc = _run(ws, "cat-file", "--batch", stdin=b"".join(f"{sha}\n".encode() for sha, _ in entries))
     files: dict[str, bytes] = {}
     buf, pos = proc.stdout, 0
     for _, path in entries:

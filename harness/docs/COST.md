@@ -1483,8 +1483,8 @@ link, while `sweep_findings` downgrades small rest overlaps and hinge gaps to WA
 
 **Measured after the fix** (`bench/out/wave2_lean`, the same battery and config as the
 `aa_articulated` A/A above, 2026-09-03).  Both columns are printed by
-`bench/session_stats.py aa_articulated wave2_lean`, which reads each session's own stats
-block and each round's recorded `usage`:
+`python bench/session_stats.py bench/out/aa_articulated bench/out/wave2_lean`, which reads
+each session's own stats block and each round's recorded `usage`:
 
 | per generator request | before (`aa_articulated`) | after (`wave2_lean`) |
 |---|--:|--:|
@@ -1493,7 +1493,7 @@ block and each round's recorded `usage`:
 | MCP tool calls reported as errors | 26.6 % (482 / 1 814) | **1.3 %** (25 / 1 863) |
 | cache hit | 69 % | **90 %** |
 | uncached prompt tokens per request | 38 521 | **13 480** (−65 %) |
-| generator $ per round | mean 1.900, median 1.572 | **mean 1.242, median 0.950** (−35 % / −40 %) |
+| generator $ per round (median; the script prints medians only) | 1.572 | **0.950** (−40 %) |
 
 **Correction (2026-09-03), and what it does NOT explain.**  The after column first read
 1.4 % (48 / 3 480), 13 736 uncached tokens and median \$0.967 over "108 sessions / 5 082
