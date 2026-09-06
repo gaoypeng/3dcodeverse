@@ -154,3 +154,32 @@ def test_the_pack_has_the_last_word_over_the_recipes(template: str):
     """The cookbook's ground chapter is long and specific; whichever comes last wins."""
     out = _render(template, textures="TEXTURE_BLOCK_MARKER", recipes="RECIPE_MARKER")
     assert out.index("RECIPE_MARKER") < out.index("TEXTURE_BLOCK_MARKER")
+
+
+def test_the_stage_puts_the_pack_on_the_run_budget(monkeypatch, tmp_path):
+    """The pack is an image-model call the run pays for; every other paid stage goes
+    through the guard (`BudgetGuard.add`, post-hoc, like the object texture pass), so a
+    ceiling can be crossed by a paid stage the run never saw."""
+    from types import SimpleNamespace
+
+    import codeverse.reference as reference
+    import codeverse.texturing.plan as plan_mod
+    import codeverse.tracks.scene as S
+    from codeverse.contracts.common import Usage
+
+    usage = Usage(cost_usd=0.07)
+    pack = SimpleNamespace(manifest=lambda: MANIFEST, usage=usage, source="vlm")
+    monkeypatch.setattr(plan_mod, "scene_texture_pack", lambda *a, **k: pack)
+    monkeypatch.setattr(reference, "_image_model", lambda _m: None)
+
+    added: list[tuple[Usage, str]] = []
+    ctx = SimpleNamespace(
+        plan=None,
+        ws=SimpleNamespace(public=tmp_path / "public", commit=lambda *_a, **_k: None),
+        spec=SimpleNamespace(backends=SimpleNamespace(planner=None)),
+        settings=SimpleNamespace(cache_dir=tmp_path / "cache"),
+        events=SimpleNamespace(emit=lambda *a, **k: None),
+        budget=SimpleNamespace(add=lambda u, *, stage: added.append((u, stage))),
+    )
+    assert S.SceneTrack()._textures_stage(ctx) == MANIFEST  # type: ignore[arg-type]
+    assert added == [(usage, "texture")]

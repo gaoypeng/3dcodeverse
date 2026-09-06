@@ -326,6 +326,9 @@ class SceneTrack(BaseTrack):
             ctx.events.emit("textures.stage_failed", error=f"{type(e).__name__}: {e}"[:300])
             return {}
         manifest = pack.manifest()
+        # post-hoc, like the object texture pass (lifecycle): the images are on disk either
+        # way, and the round loop's next ok() check is where a crossed ceiling stops the run
+        ctx.budget.add(pack.usage, stage="texture")
         ctx.ws.commit("textures")
         ctx.events.emit("textures.done", n=len(manifest), cost_usd=round(pack.usage.cost_usd, 4), source=pack.source)
         return manifest

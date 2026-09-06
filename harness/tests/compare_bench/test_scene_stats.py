@@ -90,3 +90,38 @@ def test_the_median_score_is_read_off_the_real_Judgment_shape(tmp_path: Path) ->
     assert d["scores"] == [0.30, 0.50] or d["scores"] == [0.50, 0.30]
     text = report(tmp_path)
     assert "scored rounds: 2" in text and "median 0.400" in text
+
+
+def test_two_runs_of_one_prompt_do_not_break_the_walk(tmp_path: Path) -> None:
+    """A battery with reps records the same prompt id twice.  `runs` used to sort the
+    (id, record, events) tuples bare, which on a tied id compares two dicts and raises;
+    the report never printed for exactly the batteries with enough runs to be worth one."""
+    for rep in ("r0", "r1"):
+        d = tmp_path / "scn_garden" / rep
+        d.mkdir(parents=True)
+        (d / "record.json").write_text(json.dumps({
+            "spec": {"track": "scene", "id": "scenes_v1/scn_garden"},
+            "plan": {"assets": []}, "rounds": [],
+        }))
+    rows = runs(tmp_path)
+    assert [r[0] for r in rows] == ["scn_garden", "scn_garden"]
+
+
+def test_the_build_layer_is_attributed(tmp_path: Path) -> None:
+    """Between assembly and the gates sits the build: a harness retry and an agent repair
+    are different defects (`tracks/repair.build_with_repair`), and a survey that skips the
+    layer reads both as "the gates failed"."""
+    d = tmp_path / "scn_cliff" / "run"
+    d.mkdir(parents=True)
+    (d / "record.json").write_text(json.dumps({"spec": {"track": "scene", "id": "scn_cliff"},
+                                               "plan": {"assets": []}, "rounds": []}))
+    (d / "events.jsonl").write_text("\n".join(json.dumps(e) for e in [
+        {"event": "build.done", "ok": False},
+        {"event": "build.harness_retry", "attempt": 1},
+        {"event": "build.done", "ok": False, "harness_retry": 1},
+        {"event": "repair.attempt", "attempt": 1},
+        {"event": "build.done", "ok": True, "attempt": 1},
+    ]))
+    b = layers(runs(tmp_path))["build"]
+    assert dict(b) == {"failed": 2, "harness_retry": 1, "repair": 1, "ok": 1}
+    assert "## build" in report(tmp_path)

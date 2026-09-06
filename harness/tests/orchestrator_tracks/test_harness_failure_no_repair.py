@@ -108,3 +108,22 @@ def test_a_real_build_failure_is_still_repaired(monkeypatch):
     monkeypatch.setattr(R, "build_once", fake_build_once)
     out = R.build_with_repair(_ctx(), round_index=0, label="r00")
     assert out.ok is True and len(seen) == 1, "a real error still gets one repair"
+
+
+def test_a_harness_failure_is_rebuilt_even_with_no_repair_budget(monkeypatch, no_generate):
+    """The rebuilds are bounded by MAX_HARNESS_REBUILDS, not by the repair budget: a
+    baseline arm that runs with max_repair_attempts=0 must still get its retries, or a
+    dropped stdout tail costs it the whole round."""
+    seq = [(_build(ok=False, harness=True, msg="scene probe produced no result (driver output lost)"),
+            GateReport(gate="lint", passed=True, findings=[])),
+           (_build(ok=True), GateReport(gate="lint", passed=True, findings=[]))]
+    calls = {"n": 0}
+
+    def fake_build_once(ctx):
+        calls["n"] += 1
+        return seq[min(calls["n"] - 1, len(seq) - 1)]
+
+    monkeypatch.setattr(R, "build_once", fake_build_once)
+    ctx = _ctx(spec=SimpleNamespace(budget=SimpleNamespace(max_repair_attempts=0)))
+    out = R.build_with_repair(ctx, round_index=0, label="r00")
+    assert out.ok is True and calls["n"] == 2 and out.attempts == []

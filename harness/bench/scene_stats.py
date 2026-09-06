@@ -26,6 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # this tree's codeverse, not the editable install
 
+from codeverse.flywheel.record import unique_files  # noqa: E402
 from codeverse.spatial.node import browser_was_lost  # noqa: E402
 
 #: pipeline stages in the order the scene track runs them
@@ -34,13 +35,8 @@ STAGES = ("plan", "skeleton", "assets", "env", "layouts", "assemble", "generate"
 
 def runs(root: Path) -> list[tuple[str, dict, list[dict]]]:
     """``(prompt id, record, events)`` per scene run under ``root``, once per run."""
-    out, seen = [], set()
-    # same rule as `penetration_thresholds.records`; both move to
-    # `flywheel.record.unique_files` when the review branch lands
-    for rec in root.rglob("record.json"):
-        if rec.resolve() in seen or any(w in rec.parts for w in ("_cand", "_assets")):
-            continue
-        seen.add(rec.resolve())
+    out = []
+    for rec in unique_files(root, "record.json"):
         try:
             data = json.loads(rec.read_text())
         except (OSError, ValueError):
@@ -56,12 +52,17 @@ def runs(root: Path) -> list[tuple[str, dict, list[dict]]]:
                 except ValueError:
                     continue
         out.append((str((data.get("spec") or {}).get("id", rec.parent.name)).split("/")[-1], data, events))
-    return sorted(out)
+    # by id, then by path: two runs of one prompt (a battery with reps) share the id, and a
+    # bare sorted() would then compare their record dicts and raise.  unique_files yields
+    # paths sorted, and the sort is stable, so the key is the id alone.
+    out.sort(key=lambda row: row[0])
+    return out
 
 
 def layers(rows: list[tuple[str, dict, list[dict]]]) -> dict:
     """One counter per layer, over every run."""
     plan = Counter()
+    build = Counter()
     assets = Counter()
     asset_kind = Counter()
     tris: list[int] = []
@@ -91,6 +92,12 @@ def layers(rows: list[tuple[str, dict, list[dict]]]) -> dict:
                 placements.append(int(e.get("placements") or 0))
                 if e.get("reasked"):
                     plan["layout_reask"] += 1
+            elif kind == "build.done":
+                build["ok" if e.get("ok") else "failed"] += 1
+            elif kind == "build.harness_retry":
+                build["harness_retry"] += 1
+            elif kind == "repair.attempt":
+                build["repair"] += 1
             elif kind == "render.failed":
                 gates["render_failed"] += 1
         for a in (rec.get("plan") or {}).get("assets") or []:
@@ -123,7 +130,7 @@ def layers(rows: list[tuple[str, dict, list[dict]]]) -> dict:
                 scores.append(float(j["overall"]))
             for issue in j.get("issues") or []:
                 judge[f"{issue.get('severity', '?')}/{issue.get('kind', '?')}"] += 1
-    return {"plan": plan, "assets": assets, "asset_kind": asset_kind, "tris": tris,
+    return {"plan": plan, "build": build, "assets": assets, "asset_kind": asset_kind, "tris": tris,
             "placements": placements, "gates": gates, "gate_errors": gate_errors,
             "judge": judge, "scores": scores}
 
@@ -147,6 +154,10 @@ def report(root: Path) -> str:
     if d["placements"]:
         out.append(f"\n## layout\n  placements per zone: median {statistics.median(d['placements']):.0f}, "
                    f"zones {len(d['placements'])}")
+    # the layer between assembly and the gates: a build that failed in the harness and was
+    # re-run, and a build that failed in the scene and went to a repair, are different
+    # defects (tracks/repair.build_with_repair)
+    out += ["", "## build", f"  {dict(d['build'])}"]
     out += ["", "## gates", "| gate | ran | failed | ERROR findings | lost to the box |", "|---|--:|--:|--:|--:|"]
     skip = (":FAILED", ":LOST", ":BOX")
     for name in sorted(n for n in d["gates"] if not n.endswith(skip) and n != "rounds_lost_to_the_box"):

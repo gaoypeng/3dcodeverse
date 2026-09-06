@@ -167,7 +167,9 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
     repeats = 0
     attempt = 0
     rebuilds = 0
-    while not outcome.ok and attempt < max_attempts:
+    # the rebuilds are gated by their OWN bound, not by the repair budget: a round run
+    # with max_repair_attempts=0 (a baseline arm) still gets its harness retries
+    while not outcome.ok and (attempt < max_attempts or build.harness_failure):
         # A build that failed because the HARNESS could not run it is not a defect the
         # agent can fix, and handing it over costs the round its whole repair budget on
         # working code.  Measured 2026-09-05 (scene_textures/japanese_garden): three
