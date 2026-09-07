@@ -220,3 +220,18 @@ def test_a_fix_that_judges_worse_is_undone(tmp_ws, settings):
     events = [json.loads(line) for line in tmp_ws.events_path.read_text().splitlines()]
     assert any(e["event"] == "asset.fix_reverted" and e["before"] == 0.6 and e["after"] == 0.4 for e in events)
     assert (tmp_ws.public / "assets" / f"{snake}.glb").is_file()
+
+
+def test_the_largest_module_is_judged_and_the_small_ones_are_not(tmp_ws, settings):
+    """`render_asset` makes a threejs verdict possible; the share rule alone judged nothing
+    (no prop reaches 5 % of a scene's volume), so the plan's largest module keeps its
+    verdict and the rest skip with the same event as before."""
+    ctx, _hero = _scene(tmp_ws, settings, services=CardedServices(), agent=FakeAgent(_writer(GOOD_MODEL)))
+    mods = [a for a in ctx.plan.assets if a.kind == "threejs"]
+    big = max(mods, key=lambda a: a.approx_size_m[0] * a.approx_size_m[1] * a.approx_size_m[2])
+    small = min(mods, key=lambda a: a.approx_size_m[0] * a.approx_size_m[1] * a.approx_size_m[2])
+    ok = SA.AssetCheck(ok=True, ran=True, tris=500, meshes=3, materials=2)
+    assert SA._judge_wanted(ctx, big, ok, judge=True) is True
+    assert SA._judge_wanted(ctx, small, ok, judge=True) is False
+    events = [json.loads(line) for line in tmp_ws.events_path.read_text().splitlines()]
+    assert [e["asset"] for e in events if e["event"] == "asset.judge_skipped"] == [small.name]

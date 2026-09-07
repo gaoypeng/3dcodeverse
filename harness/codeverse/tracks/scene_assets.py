@@ -538,11 +538,22 @@ def _judge_wanted(ctx: RunContext, asset: AssetPlan, chk: AssetCheck | None, *, 
     if asset.kind == "blender_glb":
         return True
     frac = _volume_fraction(ctx, asset)
-    if chk is not None and chk.ok and chk.ran and frac < JUDGE_VOLUME_FRACTION:
+    # the plan's LARGEST module keeps its verdict whatever its share: no prop reaches 5 % of
+    # a scene's volume (measured 2026-09-07 over two scenes: 1e-5 .. 2e-3), so the share
+    # rule alone judged nothing, and the biggest prop is the one that dominates frames
+    if chk is not None and chk.ok and chk.ran and frac < JUDGE_VOLUME_FRACTION and asset.name != _largest_module(ctx):
         ctx.events.emit("asset.judge_skipped", asset=asset.name, reason="gates_ok_and_small",
                         volume_fraction=round(frac, 5), tris=chk.tris, meshes=chk.meshes)
         return False
     return True
+
+
+def _largest_module(ctx: RunContext) -> str:
+    """The name of the plan's biggest ``threejs`` asset by planned volume ('' when none)."""
+    mods = [a for a in (getattr(ctx.plan, "assets", None) or []) if a.kind == "threejs"]
+    if not mods:
+        return ""
+    return max(mods, key=lambda a: a.approx_size_m[0] * a.approx_size_m[1] * a.approx_size_m[2]).name
 
 
 def _volume_fraction(ctx: RunContext, asset: AssetPlan) -> float:
