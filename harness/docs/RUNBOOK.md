@@ -242,8 +242,8 @@ asserts that the specific fixes the arm exists to measure are present.
 **A new worktree needs `runtime_js/node_modules` before it can run a battery.**  Without it
 `render_glb` dies on every round, the judge is skipped for want of renders, and the cells
 come back `status=plateau` with `score=None` — an arm that reads as healthy and measures
-nothing (2026-09-04, the mimic-off arm).  `npm ci` in `runtime_js/`, or symlink the
-directory from a worktree that has it (the `package.json` is the same file).  The row now
+nothing (2026-09-04, the mimic-off arm).  `npm ci` in `runtime_js/`, or COPY the
+directory from a worktree that has it (the `package.json` is the same file).  The row now (a symlink gave two 404s on every render of one worktree on 2026-09-07 — `serve.cjs` refuses a real path outside its root — while another probe served through one; copy and be sure)
 says `no verdict in any of N round(s)` when this happens.
 
 A run that crashed outside its own handling leaves `record.json` with `status=failed`;

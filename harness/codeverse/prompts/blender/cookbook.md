@@ -864,6 +864,48 @@ Decomposition recipe (any object): 1 main mass → 2–6 secondary masses that T
 attachments (handles, feet, trim) that overlap ≥ 2 mm → detail pass (bevels, seams,
 fasteners).  Name every mass as the plan does; instances by `linked_copy`.
 
+## Keyframed motion for a scene hero (the harness exports it as a glTF clip)
+
+A scene hero may carry ONE 2 s loop (24 fps, frames 1–49, ends where it starts); the
+scene plays it by itself.  Keyframe the moving object's OWN transform, and build that
+object's mesh AROUND ITS PIVOT so the rotation happens where the hinge is — an object whose
+origin sits at its centre swings about its centre, and the sails fly off the hub.
+
+```python
+import bpy, bmesh, math
+from mathutils import Matrix
+
+def build_sail_rotor() -> bpy.types.Object:
+    """Four lattice sails on a hub; the mesh is centred on the hub axis so rotation is about it."""
+    bm = bmesh.new()
+    for i in range(4):                                   # sails built AROUND (0, 0, 0)
+        a = i * math.pi / 2
+        sail = bmesh.new()
+        bmesh.ops.create_cube(sail, size=1.0)
+        sail.transform(Matrix.Diagonal((11.0, 0.15, 1.6, 1.0)))       # a lattice sail, 11 m long
+        sail.transform(Matrix.Translation((5.5, 0.0, 0.0)))          # out from the hub
+        sail.transform(Matrix.Rotation(a, 4, "Y"))                    # around the hub axis
+        me_s = bpy.data.meshes.new("_sail"); sail.to_mesh(me_s); sail.free()
+        bm.from_mesh(me_s); bpy.data.meshes.remove(me_s)
+    me = bpy.data.meshes.new("SailRotor"); bm.to_mesh(me); bm.free()
+    rotor = bpy.data.objects.new("SailRotor", me)
+    rotor.location = (0.0, -3.2, 18.0)                   # the HUB's world position = the pivot
+    bpy.context.scene.collection.objects.link(rotor)
+    sc = bpy.context.scene; sc.frame_start, sc.frame_end = 1, 49
+    for frame, ang in ((1, 0.0), (25, math.pi / 4), (49, math.pi / 2)):   # a quarter turn: 4 sails loop seamlessly
+        rotor.rotation_euler = (0.0, ang, 0.0)           # about the hub axis (-Y is the front: the axis is Y here)
+        rotor.keyframe_insert("rotation_euler", index=1, frame=frame)
+    return rotor
+```
+
+* Keep the moving part a normal named MESH object (no Empty pivots — an Empty is not a
+  part and the census counts it as junk); parent nothing to it.
+* A loop of a quarter turn for 4-fold sails, a half turn for 2-fold, a full turn for a
+  wheel; a swing goes −a → +a → −a.  Amplitude must read at scene distance (≥ 0.15 rad or
+  ≥ 0.05 m); the scene samples t = 0 and t = 1.5 s.
+* Linear interpolation for a wheel (`kp.interpolation = 'LINEAR'` on the fcurve's
+  keyframe points) so it does not ease at the loop seam.
+
 ## Pitfalls (symptom → cause → fix)
 
 1. **`bm.verts[i]` raises "outdated internal index table"** → call

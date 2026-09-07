@@ -982,6 +982,62 @@ written) that were accepted because the code works that way and the tests pin it
   CONTAINING mesh's own surface, not from anything at all); the rule does not ship on this
   evidence.
 
+* **D63 A scene hero climbs the same ladder as a module, and its GLB is checked like one
+  (2026-09-07).**  Measured over the 18 `blender_glb` heroes in the recorded batteries
+  (2026-08-25 → 09-05): 15 of 19 first agent sessions were killed at the 420 s asset clip
+  and booked at $0 (a killed gemini-cli reports no usage); 12 of 18 GLBs were ONE joined
+  mesh with vertex-painted colour, because `asset_plan()` gave the sub-run a one-part plan
+  and the Blender contract demands one object per plan part; every fix prompt read "Style
+  of the whole scene: (none)" because the sub-spec's prompt IS the asset sheet; nothing
+  measured the GLB (a module gets sink / tri-budget / size findings and one repair); repair
+  sessions took the 1 800 s agent default (a 25-minute scene could spend 70 minutes on one
+  hero); the fix pass was never re-judged.  Live on 6768aae the same day, 3 of 4 heroes in
+  an asset A/B and 3 of 4 in a scene A/B produced nothing before the clip.  Decision: ONE
+  ladder for both asset kinds (`scene_assets._ladder`: single-shot → deterministic check →
+  one feedback repair → agent session), the static-object planner's part list for the hero
+  (one call; the sheet is the fallback), `_soft_findings` from one measurement of the GLB,
+  `build_with_repair(timeout_s=)` clipping every repair to the asset window, a re-judged
+  fix that is UNDONE when it judges worse (loop 1's BronzeCenser went 0.526 → 0.43 and
+  shipped that way), the scene brief and Blender's tool cards in the hero prompt, a 20 mm
+  ground self-check for a hero (the module's own sink rule; the scene seats every clone).
+  Measured after: 15 of 15 heroes built across eight scenes against 1 of 4 the same
+  morning; like-for-like re-judge (n=3) of four recorded hero descriptions 0.501 vs 0.358
+  for the same props as modules; `asset_v1` passes on 9 of 13 judged (0.70–0.88) against
+  2 of 18 recorded.  Whole-scene verdicts still swing 0.0–0.75 on one prompt for zone,
+  camera and judge reasons and do not measure this.
+
+* **D64 A keyframed Blender part reaches the scene as a clip, and the assembled scene
+  plays it (2026-09-07).**  The wrapper exports animations (an object nobody keyframed
+  exports exactly as before), the preload keeps `gltf.animations` on the root — which
+  `.clone()` copies — and the assembled `scene.js` drives one mixer per clone by ABSOLUTE
+  time from `update(t)`, so t = 0 / 1.5 s are deterministic frames.  The first attempt gave
+  the zone a `clipPlayer` helper and a sentence; the windmill zone placed the clone and
+  played nothing, so the harness took the job and the helper was deleted.  Measured: the
+  windmill's `MillCapDetail` frames a quarter turn apart (19.3 % of the frame changed; the
+  judge: "the windmill sails animate correctly"), the lighthouse lens sweeping its beam
+  (61 %).  A zone de-phases a copy with `clone.userData.clipOffset`.
+
+* **D65 The starter `env.js` lights through `sunRig` and assigns its environment map; a
+  small thing kilometres away is backdrop (2026-09-07).**  0 of 127 recorded `env.js` and
+  0 of 4 written that morning set `scene.environment`, although the effects catalog asks
+  for it; every recorded hero carried Blender metalness 0.7–0.9 into such a scene.  On the
+  example scene a metalness-0.9 sphere's region reads 0.24 (black with one highlight)
+  without the map and 0.55 (metal, reflecting the sky) with `sunRig`'s.  The starter now
+  uses the rig (13 lines of its own sun + hemisphere deleted) and the env prompt says to
+  keep it.  `sunRig`'s 'SunDisc' at 3.6 km (no word boundary for `SKY_NAME_RE`) blew the
+  content bbox to 2.5 km and put the overview rig kilometres up (`overview_top` ground
+  0.0008); `backdrop.mjs` now calls anything small and > 1.5 km from the origin sky.
+
+* **D66 A procedural module is judged on the hero's rig, and the plan's largest one keeps
+  its verdict (2026-09-07).**  `scene_assets` had judged threejs assets through
+  `runtime.render_asset` since the stage was written and nothing defined it: 0 of 860
+  recorded modules were judged while every hero was, so no paired verdict existed.
+  `SceneThreeJsRuntime.render_asset` exports the module with the object track's
+  `export_glb.mjs` and renders the same quick sheet.  With it live the 5 % share rule alone
+  still judged nothing (measured over two scenes: 1e-5 .. 2e-3 of the scene volume), so
+  the plan's largest module of at least 1 m³ is judged whatever its share — one extra
+  verdict per scene at most; a bollard is not a hero, a boat is.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven
@@ -992,7 +1048,7 @@ written) that were accepted because the code works that way and the tests pin it
 * Registering `single-shot` as a CodingAgent kind (rejected: it has no tools/session).
 * A free-form `dict` judge schema (rejected: flash skips criteria).
 * Storing URDF meshes Y-up and converting on load (rejected: breaks foreign loaders).
-* Per-asset judging for threejs scene assets (deferred: needs a `render_asset` hook).
+* Per-asset judging for threejs scene assets — done 2026-09-07 (D66: `render_asset` on the scene runtime).
 * Proposed and not yet done (owner-level files): `ToolCallPart.extra` for provider
   state; `n_samples` in Settings.  (Done since first written: `Workspace._git`
   lock + index.lock retry; the `languages/**` package-data globs.)
