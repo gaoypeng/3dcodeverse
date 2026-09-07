@@ -1,0 +1,206 @@
+"""The blender hero of the scene track climbs the same ladder as a threejs asset, with the
+scene in its prompt and its GLB checked (2026-09-07 review of PR #7).
+
+Offline: fake agent / chat model / judge / runtime (a trimesh box per plan part) / services.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from codeverse.contracts.common import Language, Track
+from codeverse.contracts.plan import ScenePlan
+from codeverse.contracts.spec import Constraints
+from codeverse.tracks import scene_assets as SA
+from codeverse.tracks.planner import plan_example
+from tests.orchestrator_tracks.conftest import make_spec
+from tests.orchestrator_tracks.fakes import (
+    FAIL_MARK,
+    FakeAgent,
+    FakeChatModel,
+    FakeJudge,
+    FakeServices,
+)
+from tests.orchestrator_tracks.test_prompts_assets import _ctx
+
+SCENE_PROMPT = "Harbour at dusk: a weathered fishing quay with nets and crates"
+GOOD_MODEL = "import bpy\n# AGENT_WROTE a crate\n"
+
+
+class CardedServices(FakeServices):
+    """Tool cards that say which (track, language) they were asked for."""
+
+    def tool_cards(self, track: str, language: str) -> str:
+        return f"CARDS({track}/{language})"
+
+
+class SingleShotServices(CardedServices):
+    """A chat model: a canned StaticPlan for plan requests, a file envelope for asset prompts."""
+
+    def __init__(self, *, model_text: str = f"=== FILE: src/model.py ===\n{GOOD_MODEL}=== END FILE ===", **kw):
+        super().__init__(**kw)
+        self.model_text = model_text
+        self.chat = FakeChatModel(self._answer)
+
+    def _answer(self, req):
+        if req.response_schema is not None:      # the planner
+            return plan_example(Track.STATIC_OBJECT)
+        return self.model_text
+
+    def chat_model(self, model_id: str):
+        return self.chat
+
+
+def _scene(tmp_ws, settings, *, services, agent=None, agent_id="fake:x"):
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, prompt=SCENE_PROMPT)
+    spec = spec.model_copy(update={"constraints": Constraints(style="weathered, hand-painted", must_have=["a crate stack"])})
+    ctx = _ctx(tmp_ws, settings, spec, plan, agent_id=agent_id, services=services, agent=agent)
+    ctx.runtime.skeleton(tmp_ws, plan)
+    tmp_ws.commit("skeleton")
+    hero = next(a for a in plan.assets if a.kind == "blender_glb")
+    return ctx, hero
+
+
+def _writer(text: str):
+    """Every session writes something NEW (a fix that changes nothing is not a fix)."""
+    return lambda job, ws: {"src/model.py": f"{text}# session {job.label}\n"}
+
+
+def test_hero_prompt_carries_the_scene_and_blenders_own_tools(tmp_ws, settings):
+    agent = FakeAgent(_writer(GOOD_MODEL))
+    ctx, hero = _scene(tmp_ws, settings, services=CardedServices(), agent=agent)
+    res = SA.build_blender_asset(ctx, hero, judge=False)
+    assert res.ok and res.strategy == "agent"
+    job = agent.jobs[0]
+    assert job.label == f"asset_{SA.to_snake(hero.name)}"
+    # the SCENE, not the asset sheet, is the scene; its style reaches the prop
+    assert f"Scene: {SCENE_PROMPT}" in job.prompt and "weathered, hand-painted" in job.prompt
+    assert f"Scene: {hero.description}" not in job.prompt and "(none)" not in job.prompt.split("## The asset")[0]
+    # the hero's tools are Blender's (check_contract, cross_section …), not the scene's
+    assert "CARDS(static_object/blender)" in job.prompt and "CARDS(scene/" not in job.prompt
+    # the plan's detail budget, not a flat number; the layout it must fill
+    assert "40k" not in job.prompt and "DETAIL BUDGET" in job.prompt
+    assert job.files_hint == ["src/model.py"] and job.timeout_s <= SA.asset_timeout_s(ctx, 180)
+    # the sub-run's plan.json is the plan the prompt was built from
+    sub = tmp_ws.root / "_assets" / SA.to_snake(hero.name)
+    assert json.loads((sub / "plan.json").read_text())["object_name"] == hero.name
+    events = [json.loads(line) for line in tmp_ws.events_path.read_text().splitlines()]
+    gen = [e for e in events if e["event"] == "asset.generated" and e["asset"] == hero.name]
+    assert gen and gen[0]["strategy"] == "agent" and gen[0]["ok"] is True
+
+
+def _crate_plan(asset):
+    """A two-part plan the fake runtime builds at the crate's size (one box per part)."""
+    from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
+
+    w, h, d = asset.approx_size_m
+    return StaticPlan(object_name=asset.name, summary=asset.description, overall_bbox=BBox(center=(0, h / 2, 0), extents=(w, h, d)),
+                      parts=[PartPlan(name="Body", role="body", description="slatted box", bbox=BBox(center=(0, (h - 0.02) / 2, 0), extents=(w, h - 0.02, d))),
+                             PartPlan(name="Lid", role="lid", description="plank lid", bbox=BBox(center=(0, h - 0.01, 0), extents=(w, 0.02, d)), attach_to="Body")],
+                      acceptance=[])
+
+
+def test_hero_tries_single_shot_before_an_agent_session(tmp_ws, settings, monkeypatch):
+    services = SingleShotServices()
+    agent = FakeAgent(_writer(GOOD_MODEL))
+    monkeypatch.setattr(SA, "hero_plan", lambda sub, asset: _crate_plan(asset))   # two parts → two boxes → not "one low-poly box"
+    ctx, hero = _scene(tmp_ws, settings, services=services, agent=agent)
+    res = SA.build_blender_asset(ctx, hero, judge=False)
+    assert res.ok and res.strategy == "single-shot" and res.path == f"public/assets/{SA.to_snake(hero.name)}.glb"
+    assert agent.jobs == [] and len(services.chat.requests) == 1
+    req = services.chat.requests[0]
+    assert req.response_schema is None and "=== FILE:" in req.system + " ".join(p.text for m in req.messages for p in m.parts if getattr(p, "text", ""))
+    assert (tmp_ws.public / "assets" / f"{SA.to_snake(hero.name)}.glb").is_file() and res.size_m is not None
+
+
+def test_hero_plan_is_the_static_planners_part_list(tmp_ws, settings):
+    services = SingleShotServices()
+    ctx, hero = _scene(tmp_ws, settings, services=services, agent=FakeAgent(_writer(GOOD_MODEL)))
+    res = SA.build_blender_asset(ctx, hero, judge=False)
+    assert res.ok
+    sub = tmp_ws.root / "_assets" / SA.to_snake(hero.name)
+    plan = json.loads((sub / "plan.json").read_text())
+    assert len(plan["parts"]) > 1, "a hero gets a real part list, not the one-part sheet"
+    events = [json.loads(line) for line in tmp_ws.events_path.read_text().splitlines()]
+    assert any(e["event"] == "asset.planned" and e["n_parts"] == len(plan["parts"]) for e in events)
+
+
+def test_hero_glb_soft_findings_trigger_one_feedback_repair_then_escalate(tmp_ws, settings):
+    # the one-part sheet (planner unavailable → fallback) builds ONE tiny box: "still a single
+    # low-poly box" is exactly the finding a threejs module gets; single-shot gets one repair
+    # with that feedback, then the agent session takes over
+    class NoPlanner(SingleShotServices):
+        def _answer(self, req):
+            if req.response_schema is not None:
+                raise RuntimeError("planner down")
+            return self.model_text
+
+    services = NoPlanner()
+    agent = FakeAgent(_writer(GOOD_MODEL))
+    ctx, hero = _scene(tmp_ws, settings, services=services, agent=agent)
+    res = SA.build_blender_asset(ctx, hero, judge=False)
+    assert res.strategy == "escalated" and res.ok
+    texts = [" ".join(p.text for m in r.messages for p in m.parts if getattr(p, "text", "")) for r in services.chat.requests
+             if r.response_schema is None]
+    assert len(texts) == 2 and "did NOT pass the deterministic asset check" in texts[1] and "single low-poly box" in texts[1]
+    assert "## Current file(s)" in texts[1] and [j.label for j in agent.jobs] == [f"asset_{SA.to_snake(hero.name)}"]
+    events = [json.loads(line) for line in tmp_ws.events_path.read_text().splitlines()]
+    assert any(e["event"] == "asset.escalated" for e in events) and any(e["event"] == "asset.plan_failed" for e in events)
+
+
+def test_hero_repair_sessions_are_clipped_to_the_asset_window_and_capped_at_one(tmp_ws, settings):
+    agent = FakeAgent(_writer(f"import bpy\n# {FAIL_MARK}\n"))   # every session leaves a build that fails
+    ctx, hero = _scene(tmp_ws, settings, services=CardedServices(), agent=agent)
+    res = SA.build_blender_asset(ctx, hero, judge=False)
+    assert not res.ok and "build failed" in res.notes
+    labels = [j.label for j in agent.jobs]
+    snake = SA.to_snake(hero.name)
+    assert labels == [f"asset_{snake}", f"asset_{snake}_repair1"], labels   # max_repair_attempts is 2 in the spec
+    window = SA.asset_timeout_s(ctx, 180)
+    assert all(j.timeout_s <= window for j in agent.jobs), [(j.label, j.timeout_s) for j in agent.jobs]
+
+
+def test_hero_fix_is_rejudged_committed_and_carries_a_system_prompt(tmp_ws, settings):
+    judge = FakeJudge(scores=(0.5, 0.9))
+    agent = FakeAgent(_writer(GOOD_MODEL))
+    ctx, hero = _scene(tmp_ws, settings, services=CardedServices(judge=judge), agent=agent)
+    res = SA.build_blender_asset(ctx, hero, judge=True)
+    assert res.ok and res.fixed and res.judged
+    assert res.score_before == 0.5 and res.score == 0.9 and len(judge.calls) == 2
+    snake = SA.to_snake(hero.name)
+    fix = next(j for j in agent.jobs if j.label == f"asset_{snake}_fix")
+    assert fix.system_append and "PROP" in fix.system_append.upper()
+    sub = tmp_ws.root / "_assets" / snake
+    out = SA.Workspace(sub).renders_dir(0) / "assets"          # the hero is judged in ITS workspace
+    assert (out / snake / "judge.json").is_file() and (out / f"{snake}_fix" / "judge.json").is_file()
+    status = subprocess.run(["git", "status", "--porcelain", "--", "src"], cwd=sub, capture_output=True, text=True).stdout
+    assert status.strip() == "", status
+
+
+def test_hero_reentry_keeps_the_previous_sessions_src(tmp_ws, settings):
+    agent = FakeAgent(_writer(GOOD_MODEL))
+    ctx, hero = _scene(tmp_ws, settings, services=CardedServices(), agent=agent)
+    assert SA.build_blender_asset(ctx, hero, judge=False).ok
+    snake = SA.to_snake(hero.name)
+    (tmp_ws.public / "assets" / f"{snake}.glb").unlink()          # the reuse guard cannot fire
+    silent = FakeAgent(lambda job, ws: None)                       # this session writes nothing
+    ctx2 = SA.replace(ctx, agent=silent)
+    res = SA.build_blender_asset(ctx2, hero, judge=False)
+    model = (tmp_ws.root / "_assets" / snake / "src" / "model.py").read_text()
+    assert "AGENT_WROTE" in model, "the skeleton must not overwrite an earlier session's work"
+    assert res.ok and (tmp_ws.public / "assets" / f"{snake}.glb").is_file()   # the kept src builds again
+
+
+@pytest.mark.parametrize("kind", ["threejs", "blender_glb"])
+def test_asset_check_soft_findings_share_one_rule_set(kind):
+    chk = SA.AssetCheck(ok=True, ran=True, size_m=(0.6, 0.4, 0.3), min_y=-0.1, tris=50_000, meshes=1, materials=1)
+    SA._soft_findings(chk, (0.6, 0.4, 0.3), max_tris=SA.HERO_MAX_TRIS if kind == "blender_glb" else SA.ASSET_MAX_TRIS)
+    assert not chk.ok and any("sinks" in e for e in chk.errors)
+    limit = SA.HERO_MAX_TRIS if kind == "blender_glb" else SA.ASSET_MAX_TRIS
+    assert any(f"{limit} budget" in e for e in chk.errors)
+    assert not Path("nonexistent").exists()

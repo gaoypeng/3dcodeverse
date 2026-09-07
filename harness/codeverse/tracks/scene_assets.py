@@ -378,6 +378,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
                   tool_cards=ctx.services.tool_cards(Track.STATIC_OBJECT.value, Language.BLENDER.value),
                   extra={"scene_brief": ctx.spec.prompt, "scene_style": constraints_text(ctx.spec)})
     sub.plan = hero_plan(sub, asset)
+    sub_ws.write_json(sub_ws.plan_path, sub.plan)  # the sub-run's plan.json IS this plan (tools, contract gate, build)
     if not (sub_ws.root / HERO_ENTRY).is_file():  # a re-entry keeps the previous session's work
         runtime.skeleton(sub_ws, sub.plan)
         sub_ws.commit("skeleton")
@@ -434,7 +435,8 @@ def hero_plan(sub: RunContext, asset: AssetPlan) -> StaticPlan:
 
     track = StaticObjectTrack(services=sub.services, settings=sub.settings)
     try:
-        plan = run_planner(sub.spec, sub.spec.backends.planner, StaticPlan, sub.ws, events=sub.events,
+        model = sub.services.chat_model(sub.spec.backends.planner)
+        plan = run_planner(sub.spec, sub.spec.backends.planner, StaticPlan, sub.ws, model=model, events=sub.events,
                            budget=sub.budget, runtime=sub.runtime, **track._plan_kwargs(sub.spec))
     except Exception as e:  # noqa: BLE001 — PlanningError / outage: the sheet still says what the prop is
         from codeverse.orchestrator import BudgetExceeded
