@@ -100,3 +100,22 @@ def test_the_clone_the_zone_places_carries_the_name_too(loaded):
 def test_a_plan_without_glb_assets_emits_no_loader():
     src = render_scene_js(["z"], [], [], env_ok=False)
     assert "assetFiles" not in src and "loadAsync" not in src
+
+
+def test_a_procedural_asset_is_rendered_on_the_hero_rig(tmp_ws):
+    """`render_asset` is the hook `scene_assets` judges a threejs asset through: the module is
+    exported by the object track's exporter and rendered on the quick rig a hero's GLB gets.
+    Nothing defined it until 2026-09-07, so 0 of 860 recorded procedural assets were judged."""
+    from codeverse.languages.scene_threejs import SceneThreeJsRuntime
+
+    (tmp_ws.src / "assets").mkdir(parents=True, exist_ok=True)
+    (tmp_ws.src / "assets" / "crate.js").write_text(
+        "import * as THREE from 'three';\n"
+        "export function buildCrate(THREE, opts = {}) {\n"
+        "  const g = new THREE.Group(); g.name = 'Crate';\n"
+        "  const box = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.3), new THREE.MeshStandardMaterial({ color: 0x886644 }));\n"
+        "  box.position.y = 0.2; box.name = 'Body'; g.add(box); return g;\n}\n")
+    out = tmp_ws.artifacts / "renders" / "assets" / "crate"
+    rs = SceneThreeJsRuntime().render_asset(tmp_ws, "Crate", out)
+    assert rs.contact_sheet and (out / "sheet.png").is_file() and len(rs.views) >= 4
+    assert (tmp_ws.artifacts / "asset_export" / "crate" / "object.glb").is_file()

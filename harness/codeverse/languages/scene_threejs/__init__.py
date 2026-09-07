@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse.config import get_settings
-from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
+from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, RenderSet, Severity
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
 from codeverse.conventions import to_pascal, to_snake
@@ -675,6 +675,35 @@ class SceneThreeJsRuntime(RuntimeDocs):
 
     def lint(self, ws: Workspace) -> GateReport:
         return lint(ws)  # the module-level gates function (class ns is not in method scope)
+
+    def render_asset(self, ws: Workspace, name: str, out_dir: Path, *, timeout_s: float = 180.0) -> RenderSet:
+        """Quick sheet of ONE procedural asset module, on the rig a Blender hero's GLB gets.
+
+        ``src/assets/<snake>.js`` is exported to a GLB by ``runtime_js/export_glb.mjs`` (the
+        object track's exporter, through a two-line entry that calls ``build<Pascal>``) and
+        rendered with ``spatial.render.render_glb``.  This is the hook ``scene_assets`` looks
+        for before judging a threejs asset; nothing defined it until 2026-09-07, so no
+        procedural asset was ever judged (0 of 860 recorded) while every hero was.
+        """
+        from codeverse.conventions import OBJECT_VIEWS_QUICK
+        from codeverse.spatial.node import run_node, runtime_js_dir
+        from codeverse.spatial.render import RenderError, render_glb
+
+        snake, pascal = to_snake(name), to_pascal(name)
+        tmp = ws.artifacts / "asset_export" / snake
+        (tmp / "src").mkdir(parents=True, exist_ok=True)
+        module = (ws.src / "assets" / f"{snake}.js").resolve().as_posix()
+        (tmp / "src" / "object.js").write_text(
+            f"import {{ build{pascal} }} from '{module}';\n"
+            f"export function build(THREE) {{ return build{pascal}(THREE, {{}}); }}\n")
+        (tmp / "package.json").write_text('{"type": "module"}\n')
+        glb = tmp / "object.glb"
+        res = run_node(runtime_js_dir() / "export_glb.mjs",
+                       ["--ws", str(tmp), "--entry", "src/object.js", "--out", str(glb), "--census", str(tmp / "census.json")],
+                       cwd=tmp, three_hook=True, timeout_s=timeout_s, check=False)
+        if not glb.is_file():
+            raise RenderError(f"asset export failed for {name}: {(res.stderr or res.stdout or '')[-600:]}")
+        return render_glb(glb, out_dir, views=list(OBJECT_VIEWS_QUICK), width=512, height=512, sheet=True)
 
     def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:
         """Probe + shader preflight (one browser boot); ok iff the module loads
