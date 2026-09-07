@@ -52,7 +52,7 @@ def test_plan_skeleton_writes_zone_and_asset_stubs_and_lints(ws):
     scene = (ws.src / "scene.js").read_text()
     assert "export async function createScene" in scene
     assert "'/assets/crane.glb'" in scene
-    assert "buildPier(ctx)" in scene and "buildFishMarket(ctx)" in scene
+    assert "addZone(buildPier, 'Pier')" in scene and "addZone(buildFishMarket, 'FishMarket')" in scene
     assert "name: 'pier_low'" in scene
     pier = (ws.src / "zones" / "pier.js").read_text()
     assert "zone.name = 'Pier'" in pier and "buildCrate" in pier and "ctx.assets.crane" in pier
