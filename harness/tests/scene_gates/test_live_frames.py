@@ -29,8 +29,11 @@ pytestmark = [pytest.mark.node, needs_browser]
 def _darken(ws: Workspace) -> None:
     env = ws.src / "env.js"
     text = env.read_text()
-    text = text.replace("new THREE.DirectionalLight(0xfff1d6, 2.6)", "new THREE.DirectionalLight(0xfff1d6, 0.05)")
-    text = text.replace("new THREE.HemisphereLight(0xbcd7ff, 0x4a5a2a, 0.9)", "new THREE.HemisphereLight(0x101018, 0x000000, 0.02)")
+    # the starter lights through lib/environment.js sunRig (2026-09-07): crush the rig's sun and
+    # fill AFTER it is built (its `fill` option is clamped UP to a readability floor) and drop
+    # the env map, which lights metals and glass on its own
+    text = text.replace("  scene.environment = rig.envTex;",
+                        "  scene.environment = null; sun.intensity = 0.05; hemi.intensity = 0.02; hemi.color.set(0x101018); hemi.groundColor.set(0x000000);")
     text = text.replace("scene.background = new THREE.Color(0xcfdcec)", "scene.background = new THREE.Color(0x000000)")
     assert "0.05" in text and "0x000000" in text
     env.write_text(text)

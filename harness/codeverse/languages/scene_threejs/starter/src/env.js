@@ -3,6 +3,7 @@
 //   export function heightAt(x, z) → ground height (m) so zones can seat objects.
 import * as THREE from 'three';
 import { makeSkyMaterial } from './shaders/sky.js';
+import { sunRig } from './lib/environment.js';
 
 export const SUN_AZIMUTH_DEG = 60;    // where the sun is (0 = +Z front, CCW from above); cameras on the sun side are front-lit
 export const SUN_ELEVATION_DEG = 38;
@@ -48,19 +49,16 @@ export function buildEnv(ctx) {
   sky.frustumCulled = false;
   group.add(sky);
 
-  // --- lights: one shadow-casting sun + hemisphere fill (sky/ground colours)
-  const sun = new THREE.DirectionalLight(0xfff1d6, 2.6);
-  sun.position.set(Math.sin(az) * Math.cos(el) * 80, Math.sin(el) * 80, Math.cos(az) * Math.cos(el) * 80);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.near = 10; sun.shadow.camera.far = 220;
-  sun.shadow.camera.left = -45; sun.shadow.camera.right = 45;
-  sun.shadow.camera.top = 45; sun.shadow.camera.bottom = -45;
-  sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02;
-  sun.target.position.set(0, 0, 0);
-  group.add(sun, sun.target);
-  const hemi = new THREE.HemisphereLight(0xbcd7ff, 0x4a5a2a, 0.9);
-  group.add(hemi);
+  // --- lights + the baked environment: the library's rig — sun, hemisphere fill, the env map
+  // metals read from, the visible disc.  Measured 2026-09-07 on this renderer: a metalness-0.9
+  // sphere renders near black under hand-rolled sun + hemi (no scene.environment) and reads as
+  // metal with this rig; every recorded Blender hero carried metalness 0.7-0.9 into a scene
+  // whose env.js set no environment map (0 of 127).
+  const rig = sunRig({ azimuth: SUN_AZIMUTH_DEG, elevation: SUN_ELEVATION_DEG, bounds: 45 });
+  const sun = rig.sun, hemi = rig.fill;
+  group.add(sun, sun.target, hemi);
+  if (rig.sunDisc) group.add(rig.sunDisc);
+  scene.environment = rig.envTex;
 
   // --- fog + background matched to the sky horizon colour
   scene.fog = new THREE.Fog(0xcfdcec, FOG_NEAR, FOG_FAR);

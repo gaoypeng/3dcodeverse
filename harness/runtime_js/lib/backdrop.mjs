@@ -54,6 +54,12 @@ export function classifyBackdrop(obj, box, contentSpan = 0) {
   const span = Math.max(sx, sz);
   if (SKY_NAME_RE.test(name) && span > 50) return 'sky';
   if (span > 2000 || (sy > 300 && span > 300)) return 'sky';
+  // a small thing kilometres from the origin is a backdrop whatever it is called: the sun/moon
+  // disc `sunRig` parks at 0.9 × the sky radius ('SunDisc' — no word boundary for the regex)
+  // blew the content bbox to 2.5 km and put the overview rig 5 km up (measured 2026-09-07)
+  const far = Math.max(Math.abs(box.min.x), Math.abs(box.max.x), Math.abs(box.min.y), Math.abs(box.max.y),
+                       Math.abs(box.min.z), Math.abs(box.max.z));
+  if (far > 1500 && span < 0.1 * far) return 'sky';
   if (obj.isInstancedMesh) return 'content';   // scattered instances span the map but are not ground
   if (span > 20 && sy < 0.06 * span && GROUND_NAME_RE.test(name)) return 'ground';
   if (span > 40 && sy < 0.02 * span) return 'ground';
