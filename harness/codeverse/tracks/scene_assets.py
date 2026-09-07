@@ -58,6 +58,9 @@ MAX_ASSETS = 8
 DEGRADED_MAX_ASSETS = 4
 #: an asset smaller than this share of the scene bbox volume is not worth a judge call
 JUDGE_VOLUME_FRACTION = 0.05
+#: the plan's largest module is judged whatever its share of the scene — once it is at least
+#: this big (a bollard is not a hero, a boat is)
+JUDGE_MIN_VOLUME_M3 = 1.0
 ASSET_AGENT_TIMEOUT_S = 420
 #: no SINGLE asset session may take more than this share of the whole run.  The stage
 #: waits for its slowest asset, and budget.timeout_s only bites near the ceiling: on a
@@ -538,10 +541,13 @@ def _judge_wanted(ctx: RunContext, asset: AssetPlan, chk: AssetCheck | None, *, 
     if asset.kind == "blender_glb":
         return True
     frac = _volume_fraction(ctx, asset)
-    # the plan's LARGEST module keeps its verdict whatever its share: no prop reaches 5 % of
-    # a scene's volume (measured 2026-09-07 over two scenes: 1e-5 .. 2e-3), so the share
-    # rule alone judged nothing, and the biggest prop is the one that dominates frames
-    if chk is not None and chk.ok and chk.ran and frac < JUDGE_VOLUME_FRACTION and asset.name != _largest_module(ctx):
+    # the plan's LARGEST module (of at least JUDGE_MIN_VOLUME_M3) keeps its verdict whatever its
+    # share: no prop reaches 5 % of a scene's volume (measured 2026-09-07 over two scenes:
+    # 1e-5 .. 2e-3), so the share rule alone judged nothing, and the biggest prop is the one
+    # that dominates frames
+    w, h, d = asset.approx_size_m
+    dominant = asset.name == _largest_module(ctx) and w * h * d >= JUDGE_MIN_VOLUME_M3
+    if chk is not None and chk.ok and chk.ran and frac < JUDGE_VOLUME_FRACTION and not dominant:
         ctx.events.emit("asset.judge_skipped", asset=asset.name, reason="gates_ok_and_small",
                         volume_fraction=round(frac, 5), tris=chk.tris, meshes=chk.meshes)
         return False
