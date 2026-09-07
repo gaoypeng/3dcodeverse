@@ -249,8 +249,17 @@ def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
                 result.ok, result.path = False, ""
             return c.ok
 
+        def _snapshot() -> Callable[[], None]:
+            before = (ctx.ws.root / rel).read_text()
+
+            def _restore() -> None:
+                (ctx.ws.root / rel).write_text(before)
+                result.ok, result.path = True, rel
+
+            return _restore
+
         result = _judge_and_fix(ctx, asset, result, lambda out_dir: render_asset(ctx.ws, asset.name, out_dir), files=[rel],
-                                language=Language.SCENE_THREEJS, after_fix=_after_fix)
+                                language=Language.SCENE_THREEJS, after_fix=_after_fix, snapshot=_snapshot)
     return result
 
 
@@ -432,8 +441,24 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
             result.clips = glb_clip_count(dest)
             return True
 
+        def _snapshot() -> Callable[[], None]:
+            keep = sub_ws.artifacts / "object.before_fix.glb"
+            shutil.copyfile(dest, keep)
+            src = {f: _read(sub_ws, f) for f in files}
+
+            def _restore() -> None:
+                shutil.copyfile(keep, dest)
+                for f, body in src.items():
+                    if body:
+                        (sub_ws.root / f).write_text(body)
+                sub_ws.commit("asset fix reverted (judged worse)")
+                result.size_m = _measure_size(ctx, dest) or result.size_m
+                result.clips = glb_clip_count(dest)
+
+            return _restore
+
         result = _judge_and_fix(sub, asset, result, _render, files=files, language=Language.BLENDER, after_fix=_after_fix,
-                                measure_fn=lambda: ctx.services.measure(dest))
+                                measure_fn=lambda: ctx.services.measure(dest), snapshot=_snapshot)
     return result
 
 
@@ -535,7 +560,8 @@ def _volume_fraction(ctx: RunContext, asset: AssetPlan) -> float:
 
 def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, render_fn: Any, *, files: list[str],
                    language: Language, after_fix: Callable[[RunContext], bool] | None = None,
-                   measure_fn: Callable[[], Any] | None = None) -> AssetResult:
+                   measure_fn: Callable[[], Any] | None = None,
+                   snapshot: Callable[[], Callable[[], None]] | None = None) -> AssetResult:
     """Quick-sheet judge with asset_v1 (n_samples=1); ONE fix pass when below threshold,
     then the fix is checked (``after_fix(gen_ctx)``) and JUDGED AGAIN — ``score`` describes
     the asset that ships, ``score_before`` the one that was fixed.  The fix climbs the
@@ -596,6 +622,7 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
     task = GenerationTask(label=f"asset_{to_snake(asset.name)}_fix", prompt=prompt, system=_asset_system(gen, language),
                           files_hint=files, round=1, kind="asset_fix", temperature=0.4,
                           edit_only=language is Language.SCENE_THREEJS, timeout_s=asset_timeout_s(ctx, 120))
+    restore = snapshot() if snapshot is not None else None   # BEFORE the fix rewrites the files
     res = generate(gen.ws, agent_id=gen.agent_id, task=task, agent=gen.agent, model=gen.model, settings=gen.settings,
                    budget=gen.budget, events=gen.events)
     if not res.ok:
@@ -604,8 +631,16 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
     if not result.fixed:
         return result
     again = _verdict(1)
-    if again is not None:
-        result.score_before, result.score = result.score, again.overall
+    if again is None:
+        return result
+    if again.overall < (result.score or 0.0) and restore is not None:
+        # a fix that judges WORSE is undone (loop 1's BronzeCenser went 0.526 → 0.43 through
+        # its fix and shipped that way); `snapshot()` before the fix returned the restore
+        restore()
+        result.fixed = False
+        events.emit("asset.fix_reverted", asset=asset.name, before=round(result.score or 0.0, 3), after=round(again.overall, 3))
+        return result
+    result.score_before, result.score = result.score, again.overall
     return result
 
 

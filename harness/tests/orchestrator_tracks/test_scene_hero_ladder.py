@@ -204,3 +204,19 @@ def test_asset_check_soft_findings_share_one_rule_set(kind):
     limit = SA.HERO_MAX_TRIS if kind == "blender_glb" else SA.ASSET_MAX_TRIS
     assert any(f"{limit} budget" in e for e in chk.errors)
     assert not Path("nonexistent").exists()
+
+
+def test_a_fix_that_judges_worse_is_undone(tmp_ws, settings):
+    """The judge's fix pass is one more model answer: when the re-judge says it made the
+    asset worse, the pre-fix GLB and src ship (loop 1, 2026-09-07: BronzeCenser 0.526 → 0.43)."""
+    judge = FakeJudge(scores=(0.6, 0.4))
+    agent = FakeAgent(_writer(GOOD_MODEL))
+    ctx, hero = _scene(tmp_ws, settings, services=CardedServices(judge=judge), agent=agent)
+    res = SA.build_blender_asset(ctx, hero, judge=True)
+    assert res.ok and res.judged and not res.fixed and res.score == 0.6 and res.score_before is None
+    snake = SA.to_snake(hero.name)
+    model = (tmp_ws.root / "_assets" / snake / "src" / "model.py").read_text()
+    assert f"session asset_{snake}\n" in model and "_fix" not in model, "src is back at the pre-fix session"
+    events = [json.loads(line) for line in tmp_ws.events_path.read_text().splitlines()]
+    assert any(e["event"] == "asset.fix_reverted" and e["before"] == 0.6 and e["after"] == 0.4 for e in events)
+    assert (tmp_ws.public / "assets" / f"{snake}.glb").is_file()
