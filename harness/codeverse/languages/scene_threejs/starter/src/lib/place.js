@@ -16,6 +16,23 @@ const _v = new THREE.Vector3();
 const _t = new THREE.Vector3();
 const DEG = Math.PI / 180;
 
+/**
+ * Play the clips a Blender hero carries (`obj.animations`, exported from its
+ * keyframes and kept by `.clone()`).  Returns `tick(t)` for the zone's `update(t)`,
+ * or null when the object has no clip.  The mixer is set to ABSOLUTE time, so the
+ * same t always gives the same pose (the harness samples t = 0 and 1.5 s).
+ *   const cart = ctx.assets.donkey_cart.clone(); const tick = clipPlayer(cart, { offset: 0.7 });
+ *   zone.userData.update = (t) => { if (tick) tick(t); };
+ */
+export function clipPlayer(obj, opts = {}) {
+  const clips = obj.animations || [];
+  if (!clips.length) return null;
+  const mixer = new THREE.AnimationMixer(obj);
+  for (const c of clips) mixer.clipAction(c).play();
+  const speed = opts.speed ?? 1, offset = opts.offset ?? 0;
+  return (t) => { mixer.setTime((t + offset) * speed); };
+}
+
 /** Unit vector for a `forward` string as reported by assets_api.json. */
 function fwdVec(forward) {
   switch (forward) {

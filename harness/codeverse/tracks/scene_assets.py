@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import shutil
+import struct
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -86,6 +87,7 @@ class AssetResult(BaseModel):
     strategy: str = Field(default="", description="single-shot | single-shot+repair | agent | escalated")
     judged: bool = Field(default=False, description="a non-degraded verdict was recorded in `score`")
     score_before: float | None = Field(default=None, description="the verdict the fix pass improved on (score = after)")
+    clips: int = Field(default=0, description="glTF animation clips the hero GLB carries (a keyframed Blender part)")
 
 
 def is_model_outage(e: BaseException) -> bool:
@@ -126,7 +128,9 @@ def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: d
         elif a.kind == "threejs":
             lines.append(f"- {a.name}: `import {{ build{to_pascal(a.name)} }} from './assets/{to_snake(a.name)}.js'` → Group, base at y=0, {s}{status}")
         else:
-            lines.append(f"- {a.name}: GLB at `public/assets/{to_snake(a.name)}.glb` (load via loaders.gltf), base at y=0, {s}{status}")
+            motion = f", carries {r.clips} motion clip(s): `clipPlayer(clone)` from '../lib/place.js' in the zone's update" if r and r.clips else ""
+            lines.append(f"- {a.name}: preloaded at `ctx.assets['{to_snake(a.name)}']` (clone it; GLB public/assets/{to_snake(a.name)}.glb), "
+                         f"base at y=0, {s}{motion}{status}")
     return "\n".join(lines) or "(no assets)"
 
 
@@ -238,7 +242,7 @@ def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
                     errors=(chk.errors[:2] if chk and not chk.ok else []))
     render_asset = getattr(ctx.runtime, "render_asset", None)
     if ok and callable(render_asset) and _judge_wanted(ctx, asset, chk, judge=judge):
-        def _after_fix() -> bool:
+        def _after_fix(gen: RunContext) -> bool:
             # a fix that breaks the module makes it NOT AVAILABLE — the zones must not import it
             c = check(ctx)
             if c.ran and c.fatal:
@@ -337,6 +341,7 @@ def _current_files_block(ws: Workspace, files: list[str], limit: int = 24_000) -
 #: a hero may spend more triangles than an instanced prop (the number the prompt states)
 HERO_MAX_TRIS = 40_000
 HERO_ENTRY = "src/model.py"
+HERO_GROUND_TOL_M = 0.02
 
 
 def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
@@ -380,7 +385,12 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     sub.plan = hero_plan(sub, asset)
     sub_ws.write_json(sub_ws.plan_path, sub.plan)  # the sub-run's plan.json IS this plan (tools, contract gate, build)
     if not (sub_ws.root / HERO_ENTRY).is_file():  # a re-entry keeps the previous session's work
-        runtime.skeleton(sub_ws, sub.plan)
+        from codeverse.languages.blender import write_blender_skeleton
+
+        # the object skeleton with the hero's ground tolerance: the scene seats every clone,
+        # and 20 mm is the sink rule its module twin gets (measured 2026-09-07: 2.9 mm and
+        # 4.0 mm cost two single-shot rungs and an agent escalation each)
+        write_blender_skeleton(sub_ws, sub.plan, ground_tol_m=HERO_GROUND_TOL_M)
         sub_ws.commit("skeleton")
     if not ctx.single_shot:
         ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=sub.contract_text, cookbook_rel=sub.cookbook_rel,
@@ -405,19 +415,21 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     sub_ws.commit("asset built")
     rel = asset_file(asset)
     dest = _copy_glb(ctx.ws, Path(chk.glb), rel)
-    result = AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=chk.size_m, strategy=strategy, notes=notes)
+    result = AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=chk.size_m, strategy=strategy, notes=notes,
+                         clips=glb_clip_count(dest))
     if _judge_wanted(ctx, asset, chk, judge=judge):
         def _render(out_dir: Path):
             return ctx.services.render_object(dest, out_dir, views=OBJECT_VIEWS_QUICK, width=512, height=512)
 
-        def _after_fix() -> bool:
-            oc = build_with_repair(sub, round_index=1, label=f"{label}_fix", files_hint=files, max_attempts=1,
-                                   timeout_s=timeout_s)
+        def _after_fix(gen: RunContext) -> bool:
+            oc = build_with_repair(gen, round_index=1, label=f"{label}_fix", files_hint=files,
+                                   max_attempts=0 if gen.single_shot else 1, timeout_s=timeout_s)
             if not (oc.build.ok and oc.build.glb_path):
                 return False
             _copy_glb(ctx.ws, Path(oc.build.glb_path), rel)
             sub_ws.commit("asset fix")
             result.size_m = _measure_size(ctx, dest) or result.size_m
+            result.clips = glb_clip_count(dest)
             return True
 
         result = _judge_and_fix(sub, asset, result, _render, files=files, language=Language.BLENDER, after_fix=_after_fix)
@@ -521,10 +533,12 @@ def _volume_fraction(ctx: RunContext, asset: AssetPlan) -> float:
 
 
 def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, render_fn: Any, *, files: list[str],
-                   language: Language, after_fix: Callable[[], bool] | None = None) -> AssetResult:
+                   language: Language, after_fix: Callable[[RunContext], bool] | None = None) -> AssetResult:
     """Quick-sheet judge with asset_v1 (n_samples=1); ONE fix pass when below threshold,
-    then the fix is checked (``after_fix``) and JUDGED AGAIN — ``score`` describes the
-    asset that ships, ``score_before`` the one that was fixed."""
+    then the fix is checked (``after_fix(gen_ctx)``) and JUDGED AGAIN — ``score`` describes
+    the asset that ships, ``score_before`` the one that was fixed.  The fix climbs the
+    same cheap rung as the generation: one chat call when the run has a chat model
+    (measured 2026-09-07: an agent fix session for a single-shot hero timed out at $0)."""
     from codeverse.judges.base import JudgeInput
 
     events = ctx.events
@@ -567,19 +581,20 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
     if verdict.passed or not verdict.improvement_plan:
         return result
     instructions = [f"- {i.target}: {i.instruction}" for i in verdict.improvement_plan[:4]]
-    current = "\n\n".join(f"--- {f} ---\n{_read(ctx.ws, f)}" for f in files if _read(ctx.ws, f)) if ctx.single_shot else ""
+    gen = single_shot_ctx(ctx) or ctx
+    current = "\n\n".join(f"--- {f} ---\n{_read(ctx.ws, f)}" for f in files if _read(ctx.ws, f)) if gen.single_shot else ""
     prompt = render("tracks/scene_asset.j2", **base_prompt_context(
-        ctx, asset_name=asset.name, asset_kind=asset.kind, asset_description=asset.description,
+        gen, asset_name=asset.name, asset_kind=asset.kind, asset_description=asset.description,
         asset_size=asset.approx_size_m, asset_file=files[0], asset_files=files, asset_language=language.value,
         fix_instructions=instructions, current_code=current, skeleton_files={}, **_scene_context(ctx)))
-    task = GenerationTask(label=f"asset_{to_snake(asset.name)}_fix", prompt=prompt, system=_asset_system(ctx, language),
+    task = GenerationTask(label=f"asset_{to_snake(asset.name)}_fix", prompt=prompt, system=_asset_system(gen, language),
                           files_hint=files, round=1, kind="asset_fix", temperature=0.4,
                           edit_only=language is Language.SCENE_THREEJS, timeout_s=asset_timeout_s(ctx, 120))
-    res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
-                   budget=ctx.budget, events=ctx.events)
+    res = generate(gen.ws, agent_id=gen.agent_id, task=task, agent=gen.agent, model=gen.model, settings=gen.settings,
+                   budget=gen.budget, events=gen.events)
     if not res.ok:
         return result
-    result.fixed = after_fix() if after_fix is not None else True
+    result.fixed = after_fix(gen) if after_fix is not None else True
     if not result.fixed:
         return result
     again = _verdict(1)
@@ -627,6 +642,18 @@ def _asset_prompt(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Lang
         **_scene_context(ctx)))
     ctx.record_prompt("scene_asset", prompt)
     return prompt
+
+
+def glb_clip_count(glb: Path) -> int:
+    """How many animation clips a GLB carries (its JSON chunk; no loader needed)."""
+    try:
+        b = glb.read_bytes()
+        if b[:4] != b"glTF":
+            return 0
+        (ln,) = struct.unpack_from("<I", b, 12)
+        return len(json.loads(b[20:20 + ln]).get("animations") or [])
+    except (OSError, ValueError, struct.error):
+        return 0
 
 
 def _copy_glb(ws: Workspace, src: Path, rel: str) -> Path:

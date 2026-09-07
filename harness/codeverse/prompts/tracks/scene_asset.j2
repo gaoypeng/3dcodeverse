@@ -24,6 +24,10 @@ Scene: {{ spec_prompt }}
   material per material class (wood / iron / cloth …), never one vertex-painted mesh.
 {{ detail_budget }}
 - No camera/light/render/export calls.
+- MOTION (only when the description names a moving part — a swinging lamp, a turning wheel, a lid
+  that rocks): keyframe that object's OWN rotation/location over frames 1-48 (24 fps = a 2 s loop,
+  ends where it starts; put the object's origin at its pivot; no Empties). The harness exports the
+  clip and the scene loops it. Amplitude must read at scene distance (>= 0.15 rad or >= 0.05 m).
 {% if asset_files is defined and asset_files|length > 1 %}
 - Files you must produce: {% for f in asset_files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}
   (the skeleton's layout: `src/model.py` is the entry, one part per `src/parts/*.py`).

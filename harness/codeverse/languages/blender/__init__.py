@@ -529,7 +529,7 @@ def _selfcheck():
     for o in meshes:
         assert "." not in o.name, f"auto-suffixed name {o.name!r}: give every instance its own name"
     z_min = min((o.matrix_world @ Vector(c)).z for o in meshes for c in o.bound_box)
-    assert abs(z_min) < 0.002, f"lowest point z={z_min:.4f}: the object must stand on z=0"
+    assert abs(z_min) < __GROUND_TOL__, f"lowest point z={z_min:.4f}: the object must stand on z=0"
     print(f"[selfcheck] {len(meshes)} mesh objects, z_min={z_min:.4f}")
 
 '''
@@ -646,7 +646,12 @@ def part_file_source(p: PartPlan) -> str:
     return doc + IMPORTS + "\n" + _constants(p) + HELPERS + "\n# ----------------------------------------------------------------------------- part\n" + _part_function(p)
 
 
-def model_file_source(plan: StaticPlan) -> str:
+def selfcheck_source(ground_tol_m: float = 0.002) -> str:
+    """The entry's self-check with its "stands on z=0" tolerance filled in."""
+    return SELFCHECK.replace("__GROUND_TOL__", f"{ground_tol_m:g}")
+
+
+def model_file_source(plan: StaticPlan, *, ground_tol_m: float = 0.002) -> str:
     """Complete multi-file entry ``src/model.py``: imports, ordered calls, self-check."""
     imports = "\n".join(f"from {PARTS_DIR}.{to_snake(p.name)} import {build_fn_name(p.name)}" for p in plan.parts)
     calls = "\n".join(f"    {build_fn_name(p.name)}()" for p in plan.parts)
@@ -654,32 +659,37 @@ def model_file_source(plan: StaticPlan) -> str:
         _plan_header(plan, multi_file=True)
         + "import bpy\nfrom mathutils import Vector\n\n"
         + imports + "\n\n"
-        + SELFCHECK
+        + selfcheck_source(ground_tol_m)
         + "\ndef main():\n    # build every part (order = plan order); parts are placed at world pose by their builders\n"
         + calls + "\n    _selfcheck()\n\n\nmain()\n"
     )
 
 
-def blender_skeleton_source(plan: StaticPlan) -> str:
+def blender_skeleton_source(plan: StaticPlan, *, ground_tol_m: float = 0.002) -> str:
     """The same model as ONE ``src/model.py`` (small objects may use a single file)."""
     body = "\n# ----------------------------------------------------------------------------- parts\n"
     for p in plan.parts:
         body += _constants(p) + "\n\n" + _part_function(p) + "\n\n"
     calls = "\n".join(f"    {build_fn_name(p.name)}()" for p in plan.parts)
     return (
-        _plan_header(plan, multi_file=False) + IMPORTS + HELPERS + body + SELFCHECK
+        _plan_header(plan, multi_file=False) + IMPORTS + HELPERS + body + selfcheck_source(ground_tol_m)
         + "\ndef main():\n" + calls + "\n    _selfcheck()\n\n\nmain()\n"
     )
 
 
-def write_blender_skeleton(ws: Workspace, plan: StaticPlan, *, multi_file: bool = True) -> list[Path]:
-    """Write the starter files (overwrites) and return the written paths (entry first)."""
+def write_blender_skeleton(ws: Workspace, plan: StaticPlan, *, multi_file: bool = True,
+                           ground_tol_m: float = 0.002) -> list[Path]:
+    """Write the starter files (overwrites) and return the written paths (entry first).
+
+    ``ground_tol_m`` is the self-check's "stands on z=0" tolerance: 2 mm for an object
+    (the contract's ±1 mm, measured by check_contract), looser for a scene hero, which
+    the scene seats anyway (`lib/place.js seat`) and whose module twin is allowed 20 mm."""
     ws.src.mkdir(parents=True, exist_ok=True)
     entry = ws.src / "model.py"
     if not multi_file:
-        entry.write_text(blender_skeleton_source(plan))
+        entry.write_text(blender_skeleton_source(plan, ground_tol_m=ground_tol_m))
         return [entry]
-    entry.write_text(model_file_source(plan))
+    entry.write_text(model_file_source(plan, ground_tol_m=ground_tol_m))
     written = [entry]
     for p in plan.parts:
         path = ws.root / part_file_rel(p.name)

@@ -39,6 +39,7 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 | placing a camera or a prop by intent | `seat` · `establishingShot` · `faceToward` · `alongPath` · `crowdOn` — `lib/place.js` |
 | a cliff that reads as rock | `patchRockStrata` · `patchErosionStreaks` — `lib/strata.js`; bedding by world altitude, so every cliff in a scene shares one bedding plane |
 | the land between the content and the horizon | `makeOutskirts({ inner, baseY, heightAt, shellRadius, colors, seed })` — `lib/environment.js`; seam-matched relief, field patchwork and wooded clusters.  A bare oversized ground plane measured as "a diorama on a vast, empty flat plane" |
+| a Blender hero's own keyframed motion (the GLB carries a clip) | `clipPlayer(clone, { offset })` — `lib/place.js`; returns `tick(t)`, call it from the zone's `update(t)` |
 | the sun, the fill and the baked environment | `sunRig({ azimuth, elevation })` — `lib/environment.js`; returns `{ sun, fill, sunDisc, envTex, sunDir }`.  Add the lights, assign `scene.environment = rig.envTex` |
 | the sky itself | `makeSky(scene, { rig })` — `lib/sky.js`; the dome IS the backdrop, so `scene.background` stays null |
 | cloud, cirrus | `makeClouds({ preset, sunDir })` · `makeCirrus()` — `lib/clouds.js` |

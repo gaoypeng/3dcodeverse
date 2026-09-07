@@ -408,7 +408,9 @@ def _glb_preload_js(glbs: list[str], *, target: str, on_error: str, indent: str 
         f"const assetFiles = {{ {files} }};",
         "for (const [key, a] of Object.entries(assetFiles)) {",
         "  try {",
-        "    const root = (await loaders.gltf.loadAsync(a.url)).scene;",
+        "    const gltf = await loaders.gltf.loadAsync(a.url);",
+        "    const root = gltf.scene;",
+        "    root.animations = gltf.animations || [];   // a keyframed Blender part is a clip; .clone() keeps it (lib/place.js clipPlayer)",
         "    root.name = a.name;   // a glTF root is called 'Scene' until someone names it",
         # what every procedural asset sets on its meshes; GLTFLoader leaves both false, so a
         # hero neither cast nor received a shadow in any recorded scene (8/8 GLBs, 2026-09-07)

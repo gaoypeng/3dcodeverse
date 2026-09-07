@@ -246,7 +246,10 @@ def export_glb(bpy: Any, path: str) -> None:
         export_image_format="AUTO",
         export_cameras=False,
         export_lights=False,
-        export_animations=False,
+        # a keyframed object becomes a glTF clip the scene loops (scene heroes, 2026-09-07);
+        # an object nobody keyframed exports exactly as before
+        export_animations=True,
+        export_frame_range=True,
         export_extras=False,
         export_normals=True,
         export_texcoords=True,

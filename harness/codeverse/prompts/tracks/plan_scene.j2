@@ -53,7 +53,8 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
      +/-30 % scale jitter and +/-0.03 hue jitter — never one shape stamped in a ring or grid.
 5. `assets` — 4 to 8 reusable things placed in zones. PascalCase `name`; `kind` = `threejs` for
    procedural shapes (fences, lanterns, rocks, benches, trees, boats) or `blender_glb` ONLY for
-   1-2 hero objects that need sculpted/bevelled detail; `description` with construction numbers
+   1-2 hero objects that need sculpted/bevelled detail (a hero may also carry ONE 2 s keyframed
+   motion — a swinging lamp, a turning wheel — say so in its description); `description` with construction numbers
    and colours; `approx_size_m` = width x height x depth in meters (a stone lantern
    0.5 x 1.6 x 0.5; a bench 1.6 x 0.9 x 0.6; a pine 3 x 7 x 3); `instances_hint` = how many
    appear in total.  Prefer FEWER asset modules with a `variant` range (say "5 variants via
