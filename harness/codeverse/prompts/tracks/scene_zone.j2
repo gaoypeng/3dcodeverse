@@ -25,8 +25,8 @@ Those paths are written relative to `src/`; **from `src/zones/` prefix them with
 (`import { buildStoneLantern } from '../assets/stone_lantern.js';`).  Shared materials and the
 terrain come from the environment: `import { MATS, heightAt } from '../env.js';` (or use
 `ctx.heightAt`).  A GLB asset is already loaded for you at `ctx.assets['<snake_name>']` — add
-`.clone()` of it, never `loaders.gltf` again.  A clone that carries clips (`clone.animations.length`) is
-played with `clipPlayer(clone)` from '../lib/place.js': call the returned `tick(t)` from this zone's `update(t)`.  There is no `ctx.rand` and no `ctx.MATS`.
+`.clone()` of it, never `loaders.gltf` again.  A clone that carries clips (a keyframed Blender part) plays
+them by itself; set `clone.userData.clipOffset = <seconds>` to de-phase copies.  There is no `ctx.rand` and no `ctx.MATS`.
 
 ## Contract
 {{ frame_doc }}

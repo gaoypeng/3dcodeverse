@@ -45,11 +45,22 @@ export function build(ctx) {
 DRIVER_JS = """
 import * as THREE from 'three';
 import { createScene } from './src/scene.js';
-const loaders = { gltf: { loadAsync: async () => ({ scene: new THREE.Group() }) } };
-const { scene } = await createScene({ renderer: null, loaders });
+const loaders = { gltf: { loadAsync: async () => {
+  // a Blender export whose one keyframed part became a clip: a 2 s swing on 'Lid'
+  const root = new THREE.Group(); const lid = new THREE.Group(); lid.name = 'Lid'; root.add(lid);
+  const track = new THREE.NumberKeyframeTrack('Lid.rotation[x]', [0, 1, 2], [-0.35, 0.35, -0.35]);
+  return { scene: root, animations: [new THREE.AnimationClip('Swing', 2, [track])] };
+} } };
+const { scene, update } = await createScene({ renderer: null, loaders });
+const lids = []; scene.traverse((o) => { if (o.name === 'Lid') lids.push(o); });
+update(0, 0); const at0 = lids.map((l) => +l.rotation.x.toFixed(3));
+update(1.0, 0.016); const at1 = lids.map((l) => +l.rotation.x.toFixed(3));
+update(0, 0); const again0 = lids.map((l) => +l.rotation.x.toFixed(3));
 console.log(JSON.stringify({
   zoneSees: scene.children.map((c) => c.userData.sofaName),
   cloneNames: scene.children.flatMap((c) => c.children.map((k) => k.name)),
+  clipsOnClone: scene.children.flatMap((c) => c.children.map((k) => (k.animations || []).length)),
+  at0, at1, again0,
 }));
 """
 
@@ -70,6 +81,14 @@ def loaded(tmp_path) -> dict:
 
 def test_the_zone_sees_the_asset_under_its_planned_name(loaded):
     assert loaded["zoneSees"] == ["LoungeSofa"], "a glTF root is called 'Scene' until someone names it"
+
+
+def test_the_clone_plays_its_blender_clip_by_absolute_time(loaded):
+    """A keyframed Blender part arrives as a clip on the preloaded root, `.clone()` keeps it,
+    and the assembled scene plays it from `update(t)` with no zone code — the same t gives
+    the same pose (the harness samples t = 0 and 1.5 s)."""
+    assert loaded["clipsOnClone"] == [1]
+    assert loaded["at0"] == [-0.35] and loaded["at1"] == [0.35] and loaded["again0"] == loaded["at0"]
 
 
 def test_the_clone_the_zone_places_carries_the_name_too(loaded):

@@ -128,7 +128,7 @@ def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: d
         elif a.kind == "threejs":
             lines.append(f"- {a.name}: `import {{ build{to_pascal(a.name)} }} from './assets/{to_snake(a.name)}.js'` → Group, base at y=0, {s}{status}")
         else:
-            motion = f", carries {r.clips} motion clip(s): `clipPlayer(clone)` from '../lib/place.js' in the zone's update" if r and r.clips else ""
+            motion = f", carries {r.clips} motion clip(s) (played automatically; `clone.userData.clipOffset` de-phases copies)" if r and r.clips else ""
             lines.append(f"- {a.name}: preloaded at `ctx.assets['{to_snake(a.name)}']` (clone it; GLB public/assets/{to_snake(a.name)}.glb), "
                          f"base at y=0, {s}{motion}{status}")
     return "\n".join(lines) or "(no assets)"

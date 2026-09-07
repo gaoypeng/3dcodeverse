@@ -594,6 +594,18 @@ export async function createScene({{ renderer, loaders }}) {{
   }};
 {calls}
 
+  // a placed GLB clone that carries clips (a keyframed Blender part; `.clone()` copies them)
+  // plays them here, driven by ABSOLUTE time so t=0 / t=1.5 are deterministic frames; a zone
+  // de-phases copies with `clone.userData.clipOffset` (seconds).  Measured 2026-09-07: told
+  // how to play a clip itself, the windmill zone placed the clone and played nothing.
+  const players = [];
+  scene.traverse((o) => {{
+    if (!o.animations || !o.animations.length) return;
+    const mixer = new THREE.AnimationMixer(o);
+    for (const clip of o.animations) mixer.clipAction(clip).play();
+    players.push([mixer, +(o.userData.clipOffset || 0)]);
+  }});
+
   const cameras = [
 {cams}
   ];
@@ -601,6 +613,7 @@ export async function createScene({{ renderer, loaders }}) {{
   function update(t, dt) {{
     if (env.update) env.update(t, dt);
     for (const z of zones) if (z.userData.update) z.userData.update(t, dt);
+    for (const [mixer, offset] of players) mixer.setTime(t + offset);
   }}
   return {{ scene, cameras, update }};
 }}
