@@ -155,8 +155,12 @@ def build_once(ctx: RunContext) -> tuple[BuildResult, GateReport]:
 
 
 def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hint: list[str] | None = None,
-                      max_attempts: int | None = None) -> RepairOutcome:
-    """Lint+build; on failure run up to ``max_repair_attempts`` error-focused repairs."""
+                      max_attempts: int | None = None, timeout_s: int | None = None) -> RepairOutcome:
+    """Lint+build; on failure run up to ``max_repair_attempts`` error-focused repairs.
+
+    ``timeout_s`` clips every repair session (a scene asset's window is a share of the
+    run, not the 1 800 s agent default: measured 2026-09-07, a 25-minute scene could
+    spend 70 minutes on one hero's three repairs)."""
     files_hint = list(files_hint or [])
     max_attempts = ctx.spec.budget.max_repair_attempts if max_attempts is None else max_attempts
     build, lint = build_once(ctx)
@@ -197,7 +201,7 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
         repeats = repeats + 1 if sig == prev_sig else 0
         prev_sig = sig
         task = make_repair_task(ctx, build, lint, round_index=round_index, attempt=attempt, repeats=repeats,
-                                label=f"{label}_repair{attempt}", files_hint=files_hint)
+                                label=f"{label}_repair{attempt}", files_hint=files_hint, timeout_s=timeout_s)
         ctx.events.emit("repair.attempt", round=round_index, attempt=attempt, repeats=repeats, signature=sig[:200])
         res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model,
                        settings=ctx.settings, budget=ctx.budget, events=ctx.events,
@@ -215,7 +219,7 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
 
 
 def make_repair_task(ctx: RunContext, build: BuildResult, lint: GateReport, *, round_index: int, attempt: int,
-                     repeats: int, label: str, files_hint: list[str]) -> GenerationTask:
+                     repeats: int, label: str, files_hint: list[str], timeout_s: int | None = None) -> GenerationTask:
     """Render prompts/tracks/repair.j2 for the current strategy."""
     report = format_error_report(build, lint, ctx.cookbook_text, skills_hook.repair_pointers(ctx, lint))
     files = files_for_repair(ctx, build, lint, files_hint) if ctx.single_shot else {}
@@ -226,7 +230,7 @@ def make_repair_task(ctx: RunContext, build: BuildResult, lint: GateReport, *, r
     temperature = min(1.0, 0.3 + 0.25 * repeats)
     thinking = ("medium", "high", "high")[min(repeats, 2)]
     return GenerationTask(label=label, prompt=prompt, system=_repair_system(ctx), files_hint=sorted(files) or files_hint,
-                          round=round_index, kind="repair", temperature=temperature, thinking=thinking)
+                          round=round_index, kind="repair", temperature=temperature, thinking=thinking, timeout_s=timeout_s)
 
 
 def _repair_system(ctx: RunContext) -> str:

@@ -290,55 +290,15 @@ export function build(ctx) {{
 
 
 def _scene_for_plan(plan: ScenePlan) -> str:
-    zones = [(to_snake(z.name), to_pascal(z.name)) for z in plan.zones]
-    glbs = [to_snake(a.name) for a in plan.assets if a.kind == "blender_glb"]
-    zone_imports = "\n".join(f"import {{ build as build{p} }} from './zones/{s}.js';" for s, p in zones)
-    zone_calls = ", ".join(f"build{p}(ctx)" for _, p in zones)
-    cams = ",\n".join(
-        f"    {{ name: '{to_snake(c.name)}', position: [{c.position[0]:g}, {c.position[1]:g}, {c.position[2]:g}], "
-        f"lookAt: [{c.look_at[0]:g}, {c.look_at[1]:g}, {c.look_at[2]:g}], fov: {c.fov:g} }}"
-        + (f"  // {c.purpose}" if c.purpose else "")
-        for c in plan.cameras[:6]
-    )
-    glb_block = ""
-    if glbs:
-        preload = _glb_preload_js(
-            glbs, target="ctx.assets",
-            on_error="console.warn(`[assets] missing ${a.url} (${e && e.message}) — build it with Blender into public/assets/`);",
-        )
-        glb_block = (
-            "\n  // Blender-built assets (public/assets/*.glb) are preloaded once, NAMED after the\n"
-            "  // plan's asset, and cloned by the zones from ctx.assets.<key>.\n"
-            + preload + "\n"
-        )
-    async_kw = "async " if glbs else ""
+    """The skeleton's entry point IS the assembled shape (``render_scene_js`` over the
+    plan's zones, cameras and GLB assets) under the starter's contract header: the
+    assemble stage overwrites this file with that very emitter, so the env / zone
+    sessions author against the ``createScene`` they will actually ship with."""
     header = (STARTER_DIR / "scene.js").read_text().split("import * as THREE")[0]
-    return f'''{header}// PLAN: {plan.title} — {plan.summary.strip()}
-// setting: {plan.setting.strip()}   animation: {"; ".join(plan.animation) or "-"}
-import * as THREE from 'three';
-import {{ buildEnv, heightAt, SUN_AZIMUTH_DEG }} from './env.js';
-{zone_imports}
-
-export {async_kw}function createScene({{ THREE: T = THREE, renderer, loaders }}) {{
-  const scene = new THREE.Scene();
-  const ctx = {{ THREE, scene, renderer, loaders, heightAt, sunAzimuthDeg: SUN_AZIMUTH_DEG, assets: {{}} }};
-  const env = buildEnv(ctx);
-  ctx.env = env;
-{glb_block}
-  const zones = [{zone_calls}];
-  for (const z of zones) scene.add(z);
-
-  const cameras = [
-{cams}
-  ];
-
-  function update(t, dt) {{
-    if (env.update) env.update(t, dt);
-    for (const z of zones) if (z.userData.update) z.userData.update(t, dt);
-  }}
-  return {{ scene, cameras, update }};
-}}
-'''
+    glbs = [to_snake(a.name) for a in plan.assets if a.kind == "blender_glb"]
+    body = render_scene_js([to_snake(z.name) for z in plan.zones], list(plan.cameras[:6]), glbs, env_ok=True)
+    return (f"{header}// PLAN: {plan.title} — {plan.summary.strip()}\n"
+            f"// setting: {plan.setting.strip()}   animation: {'; '.join(plan.animation) or '-'}\n" + body)
 
 
 def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
@@ -450,6 +410,9 @@ def _glb_preload_js(glbs: list[str], *, target: str, on_error: str, indent: str 
         "  try {",
         "    const root = (await loaders.gltf.loadAsync(a.url)).scene;",
         "    root.name = a.name;   // a glTF root is called 'Scene' until someone names it",
+        # what every procedural asset sets on its meshes; GLTFLoader leaves both false, so a
+        # hero neither cast nor received a shadow in any recorded scene (8/8 GLBs, 2026-09-07)
+        "    root.traverse((o) => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });",
         f"    {target}[key] = root;",
         "  } catch (e) { " + on_error + " }",
         "}",

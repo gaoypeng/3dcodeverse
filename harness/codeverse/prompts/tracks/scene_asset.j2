@@ -19,9 +19,25 @@ Scene: {{ spec_prompt }}
 {{ frame_doc }}
 {{ contract }}
 - Build the asset standing on the ground (lowest point at z=0), footprint centred on the origin,
-  total size as stated (±5%). Several named objects are fine; join sub-shapes that touch.
-- Materials with colours (Principled BSDF base colour), roughness 0.4-0.8 for wood/stone.
-- Keep it light: ≤ 40k triangles. No camera/light/render/export calls.
+  total size as stated (±5%). One Blender object per plan part, named exactly as the plan says.
+- Materials with colours (Principled BSDF base colour), roughness 0.4-0.8 for wood/stone; one
+  material per material class (wood / iron / cloth …), never one vertex-painted mesh.
+{{ detail_budget }}
+- No camera/light/render/export calls.
+{% if asset_files is defined and asset_files|length > 1 %}
+- Files you must produce: {% for f in asset_files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}
+  (the skeleton's layout: `src/model.py` is the entry, one part per `src/parts/*.py`).
+{% endif %}
+{% if skeleton_files is defined and skeleton_files %}
+
+## Current files (skeleton already in src/ — keep its structure, fill in every stub)
+{% for path, body in skeleton_files.items() %}
+--- {{ path }} ---
+```
+{{ body }}
+```
+{% endfor %}
+{% endif %}
 {% else %}
 ## Contract (raw three.js ESM module)
 {{ frame_doc }}
@@ -53,7 +69,7 @@ Scene: {{ spec_prompt }}
 - DON'T model a flat plane with a colour where the thing has real thickness (a fence is stalks and
   rails, not a textured quad) — closeups are judged.
 - DON'T leave floating pieces: every sub-shape overlaps a neighbour by ≥ 2 mm.
-- DON'T write anything but the asset file.
+- DON'T write anything outside the listed file(s).
 {% if current_code %}
 
 ## Current file (edit and return COMPLETE)
