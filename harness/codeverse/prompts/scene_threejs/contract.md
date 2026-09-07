@@ -9,7 +9,7 @@ src/zones/<snake>.js   export function build<Zone>(THREE, ctx) → THREE.Group  
 src/assets/<snake>.js  export function build<Asset>(THREE, opts = {}) → THREE.Group   (procedural, Y-up, on y = 0)
 src/shaders/<snake>.js export function make<Name>Material(THREE, opts = {}) → THREE.ShaderMaterial | patched material
 src/lib/*.js        HARNESS-OWNED effect library (52 modules) — import and call, never rewrite
-public/assets/<snake>.glb   (optional) Blender-built assets, loaded via loaders.gltf.loadAsync('/assets/<snake>.glb')
+public/assets/<snake>.glb   (optional) Blender-built assets — the assembled scene.js preloads each into ctx.assets['<snake>']; zones clone it (its clips play by themselves)
 ```
 The harness serves the workspace root over http (`public/assets/` is mounted at
 `/assets/`), imports `src/scene.js` in headless Chrome with the real `THREE`, a configured

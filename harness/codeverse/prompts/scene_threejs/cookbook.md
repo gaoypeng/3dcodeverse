@@ -666,12 +666,12 @@ function buildLantern(THREE, opts = {}) {
   glow.position.y = 2.33; g.add(glow);
   return g;
 }
-// GLB asset (built by src/assets/<name>.py in Blender, compiled to public/assets/<name>.glb):
-async function loadAsset(loaders, name) {
-  const gltf = await loaders.gltf.loadAsync(`/assets/${name}.glb`);
-  const root = gltf.scene; root.name = name;
-  root.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
-  return root;   // clone() per placement; GLB is Y-up meters already
+// GLB asset (built in Blender, compiled to public/assets/<snake>.glb): the assembled scene.js
+// preloads it — named, shadowed, its clips kept — into ctx.assets['<snake>'].  A zone only clones:
+function placeHero(ctx, key, x, z) {
+  const hero = ctx.assets[key] && ctx.assets[key].clone();   // Y-up meters, base at y = 0, clips play by themselves
+  if (hero) hero.position.set(x, ctx.heightAt(x, z), z);
+  return hero;   // null when the hero was NOT AVAILABLE — build a procedural stand-in instead
 }
 console.log('lantern ok', buildLantern(THREE).children.length);
 ```
@@ -873,8 +873,8 @@ Only if the plan asks for bloom, and the scene must still read without it
    scene; never near 1/far 10.
 9. **Sky dome black or fogged** → sky material needs `fog: false`, `side: BackSide`,
    `depthWrite: false`, and the tonemap/colorspace includes (see the env recipe).
-10. **GLB asset invisible** → wrong URL (must be `/assets/<name>.glb`), or its pivot is not
-    at the base; re-export from Blender with the object on z = 0.
+10. **GLB asset invisible** → the zone never cloned `ctx.assets['<snake>']` (nothing loads a GLB
+    itself), or its pivot is not at the base; re-export from Blender with the object on z = 0.
 11. **Camera inside a tree / wall** → positions are guesses; compute from `heightAt` +
     known object positions, then check with `render_sheet` (the harness flags
     camera-inside-geometry).

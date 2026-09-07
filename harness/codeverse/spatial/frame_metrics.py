@@ -243,8 +243,8 @@ def _motion_findings(rows: list[MotionRow]) -> list[GateFinding]:
 
 
 _UNUSED_GLB_HINT = (
-    "the GLB is fetched and then thrown away — either place it (add the loaded scene, or clone it: "
-    "`const g = await loaders.gltf.loadAsync(url); zone.add(g.scene.clone())`) or stop loading it. "
+    "the GLB is preloaded by the assembled scene.js and nothing places it — clone `ctx.assets['<key>']` "
+    "inside the zone the plan puts it in (every GLB under public/assets is preloaded; a zone never loads one itself). "
     "If a refine round replaced the asset with a procedural rebuild, DELETE the dead load: leaving it in "
     "makes plan.json's `assets[].kind: blender_glb` claim a Blender hero the rendered scene does not contain."
 )

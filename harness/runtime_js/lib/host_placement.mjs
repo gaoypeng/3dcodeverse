@@ -242,7 +242,10 @@ function collectAssets(scene, indices, volumetrics, contentBox) {
       const inner = [];
       child.traverse((o) => {
         if (!o.visible) return;
-        if (o !== child && o.name && inner.length < MAX_INNER_NAMES && !inner.includes(o.name)) inner.push(o.name);
+        // one slot per FAMILY (Planter_3 / Planter.003 → Planter): the by-name check matches on
+        // the plan's word, and 30 numbered props must not push the hero behind them past the cap
+        const family = o.name ? o.name.replace(/[_.]\d+$/, '') : '';
+        if (o !== child && family && inner.length < MAX_INNER_NAMES && !inner.includes(family)) inner.push(family);
         if (o.isInstancedMesh) instanced += 1;
         else if (indices.has(o)) meshes.push(indices.get(o));
         else if (volumetrics.has(o)) volumetric += 1;

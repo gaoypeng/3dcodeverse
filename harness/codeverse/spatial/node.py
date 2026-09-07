@@ -91,6 +91,19 @@ BROWSER_LOST_MARKERS = (
     "connection closed",
 )
 
+#: Render failures that are the box, not the model — worth exactly one more attempt.  One
+#: tuple for both render paths: `render.py` had it since 2026-08-28, the scene drivers
+#: retried only the browser-loss half and lost 14 renders to "Waiting failed: 60000ms
+#: exceeded" under contention on 2026-09-07 (all green when re-run alone).
+TRANSIENT_MARKERS = ("waiting failed", "timed out", "timeout", "produced no result", *BROWSER_LOST_MARKERS)
+
+
+def transient_failure(text: object) -> bool:
+    """True when ``text`` names a failure of the box (timeouts, lost output, a dead browser)."""
+    lowered = str(text).lower()
+    return any(marker in lowered for marker in TRANSIENT_MARKERS)
+
+
 #: Env for a retry after a browser loss: take an OWNED browser, because the shared
 #: one advertised in the cache is the suspect (`runtime_js/gpu_launch.cjs`).
 OWN_BROWSER_ENV: dict[str, str] = {"CV3D_BROWSER_REUSE": "off"}

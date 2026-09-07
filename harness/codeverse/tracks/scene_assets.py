@@ -140,9 +140,9 @@ def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, 
     cap = MAX_ASSETS if ctx.budget.soft_ok() else DEGRADED_MAX_ASSETS
     planned = list(plan.assets)
     assets, alias = select_assets(planned, cap)
+    write_dedupe_note(ctx.ws, alias)
     if alias:
         ctx.events.emit("assets.deduped", merged=alias, kept=[a.name for a in assets])
-        write_dedupe_note(ctx.ws, alias)
     built = {a.name for a in assets} | set(alias)
     if len(planned) > len(built):
         ctx.events.emit("assets.capped", n=len(planned), cap=cap, dropped=[a.name for a in planned if a.name not in built])
@@ -333,7 +333,8 @@ def _generate_asset(ctx: RunContext, asset: AssetPlan, rel: str, *, language: La
                           # zones/env); blender heroes own their whole sub-workspace
                           edit_only=language is Language.SCENE_THREEJS)
     return generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
-                    budget=ctx.budget, events=ctx.events)
+                    budget=ctx.budget, events=ctx.events,
+                    max_turns=ctx.policy.agent_max_turns, wrapup_turns=ctx.policy.agent_wrapup_turns)
 
 
 def _current_files_block(ws: Workspace, files: list[str], limit: int = 24_000) -> str:
@@ -624,7 +625,8 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
                           edit_only=language is Language.SCENE_THREEJS, timeout_s=asset_timeout_s(ctx, 120))
     restore = snapshot() if snapshot is not None else None   # BEFORE the fix rewrites the files
     res = generate(gen.ws, agent_id=gen.agent_id, task=task, agent=gen.agent, model=gen.model, settings=gen.settings,
-                   budget=gen.budget, events=gen.events)
+                   budget=gen.budget, events=gen.events,
+                   max_turns=gen.policy.agent_max_turns, wrapup_turns=gen.policy.agent_wrapup_turns)
     if not res.ok:
         return result
     result.fixed = after_fix(gen) if after_fix is not None else True
@@ -987,9 +989,18 @@ def variant_index(alias: dict[str, str], name: str) -> int:
 
 
 def write_dedupe_note(ws: Workspace, alias: dict[str, str]) -> None:
-    """Persist the merge map next to the other stage artifacts (flywheel + debugging)."""
-    if alias:
-        write_json_atomic(ws.root / "stages" / "asset_aliases.json", {"alias": alias})
+    """Persist the merge map the stage USED: `prepare` reads it back, because the cap that
+    made it (`MAX_ASSETS` or `DEGRADED_MAX_ASSETS`) depends on the soft budget at the time."""
+    write_json_atomic(ws.root / "stages" / "asset_aliases.json", {"alias": alias})
+
+
+def read_dedupe_note(ws: Workspace) -> dict[str, str] | None:
+    """The merge map the asset stage used, or None when no stage has run in this workspace."""
+    p = ws.root / "stages" / "asset_aliases.json"
+    try:
+        return dict(json.loads(p.read_text()).get("alias") or {})
+    except (OSError, ValueError):
+        return None
 
 
 def write_variant_shims(ws: Workspace, alias: dict[str, str], available: set[str]) -> list[str]:
