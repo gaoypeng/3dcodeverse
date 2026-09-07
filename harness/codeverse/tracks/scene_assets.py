@@ -432,7 +432,8 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
             result.clips = glb_clip_count(dest)
             return True
 
-        result = _judge_and_fix(sub, asset, result, _render, files=files, language=Language.BLENDER, after_fix=_after_fix)
+        result = _judge_and_fix(sub, asset, result, _render, files=files, language=Language.BLENDER, after_fix=_after_fix,
+                                measure_fn=lambda: ctx.services.measure(dest))
     return result
 
 
@@ -533,7 +534,8 @@ def _volume_fraction(ctx: RunContext, asset: AssetPlan) -> float:
 
 
 def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, render_fn: Any, *, files: list[str],
-                   language: Language, after_fix: Callable[[RunContext], bool] | None = None) -> AssetResult:
+                   language: Language, after_fix: Callable[[RunContext], bool] | None = None,
+                   measure_fn: Callable[[], Any] | None = None) -> AssetResult:
     """Quick-sheet judge with asset_v1 (n_samples=1); ONE fix pass when below threshold,
     then the fix is checked (``after_fix(gen_ctx)``) and JUDGED AGAIN — ``score`` describes
     the asset that ships, ``score_before`` the one that was fixed.  The fix climbs the
@@ -554,7 +556,11 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
         d.mkdir(parents=True, exist_ok=True)
         try:
             renders = render_fn(d)
+            # the measurement the rubric's proportions criterion reads (a hero's quick sheet used to
+            # arrive with "MEASUREMENTS: (none available)"); re-measured after a fix
+            measurement = measure_fn() if measure_fn is not None else None
             verdict: Judgment = judge.judge(JudgeInput(spec=ctx.spec, renders=renders, round_index=round_index,
+                                                      measurement=measurement,
                                                       plan_summary=f"{asset.name}: {asset.description}",
                                                       extra_context=f"Expected size ≈ {asset.approx_size_m} m (w×h×d)."))
         except Exception as e:  # noqa: BLE001

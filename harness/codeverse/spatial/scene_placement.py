@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -348,10 +349,16 @@ def _row_names(row: AssetRow) -> str:
 
 
 def contract_findings(census: dict[str, Any] | None, plan: Any,
-                      layouts: dict[str, Any] | None = None) -> list[GateFinding]:
+                      layouts: dict[str, Any] | None = None, unavailable: Sequence[str] = ()) -> list[GateFinding]:
     """Deterministic plan-vs-census checks: env atmosphere present, every zone dressed
     with its planned contents, plausible scale, content inside the world bounds — and,
-    when the zone has an L2 layout, its density budget actually met."""
+    when the zone has an L2 layout, its density budget actually met.
+
+    ``unavailable`` = assets the asset stage could not build (the zones were told
+    "NOT AVAILABLE — do not reference"): a zone is not missing what it was told not to
+    place.  Measured 2026-09-07 (ab_temple_hero): the ERROR "missing planned contents:
+    BronzeCenser" recurred every round for a hero that never existed, with the hint
+    "clone its GLB"."""
     if not isinstance(census, dict) or plan is None:
         return []
     out: list[GateFinding] = []
@@ -427,7 +434,9 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
                           hint=f"build the zone group named '{zone_name}' and place its planned contents"))
             continue
         zone_names = " ".join(_row_names(r) for r in placed)
-        missing = [c for c in contents if to_snake(c) not in zone_names and to_snake(c) not in all_names]
+        gone = {to_snake(u) for u in unavailable}
+        missing = [c for c in contents if to_snake(c) not in zone_names and to_snake(c) not in all_names
+                   and to_snake(c) not in gone]
         if missing:
             out.append(_f(Severity.ERROR,
                           f"zone {zone_name} is missing planned contents: {', '.join(missing[:5])}"
@@ -510,7 +519,7 @@ def check_placement(ws: Workspace, *, indoor: bool | None = None, force_probe: b
 
 
 def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None,
-                        layouts: dict[str, Any] | None = None) -> GateReport | None:
+                        layouts: dict[str, Any] | None = None, unavailable: Sequence[str] = ()) -> GateReport | None:
     """Round-gate entry: ``None`` when the census has no placement table (scene did not
     boot, or an older driver), a WARN-only report when anything raises — never an
     exception, so the placement check cannot kill a round."""
@@ -519,7 +528,7 @@ def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None,
         if not isinstance(table, dict):
             return None
         report = placement_findings(table, indoor=infer_indoor(setting_text(plan)))
-        extra = _cap_per_kind(contract_findings(census, plan, layouts=layouts))
+        extra = _cap_per_kind(contract_findings(census, plan, layouts=layouts, unavailable=unavailable))
         if extra:
             findings = report.findings + extra
             passed = not any(f.severity == Severity.ERROR for f in findings)

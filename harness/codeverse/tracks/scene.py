@@ -114,7 +114,8 @@ class ScenePipeline:
         try:
             from codeverse.spatial.scene_placement import placement_gate_safe
 
-            placement = placement_gate_safe(build.census, plan=ctx.plan, layouts=ctx.extra.get("layouts"))
+            placement = placement_gate_safe(build.census, plan=ctx.plan, layouts=ctx.extra.get("layouts"),
+                                            unavailable=[n for n, r in (ctx.extra.get("assets") or {}).items() if not getattr(r, "ok", True)])
         except Exception as e:  # noqa: BLE001
             log.warning("scene placement gate unavailable: %s", e)
             placement = GateReport(gate="scene_placement", passed=True, findings=[GateFinding(
