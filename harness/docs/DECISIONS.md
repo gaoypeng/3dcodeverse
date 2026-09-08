@@ -1071,21 +1071,27 @@ written) that were accepted because the code works that way and the tests pin it
   lighthouse did exactly that.
 
 * **D68 A session that died in a 503 storm is retried through the single-shot path
-  (2026-09-07).**  Loops 10–12 ran in an evening-long Gemini 503 storm: 23 of 24 gemini-cli
-  sessions (env, zones, escalated heroes, refines) ended `timeout / 0 turns / $0` after
-  8–17 consecutive "Attempt N failed with status 503" inside the CLI's own retry loop —
-  gemini-cli never gives up before the harness's wall — while every single-shot call in the
-  same minutes got through (hedged across the 22 keys) and `codex:gpt-6-astra` sessions
-  completed.  The stages that lost their session shipped the skeleton env and empty zones
-  and judged 0.00–0.14 (clockmaker: "the hero LongcaseClock is completely missing").  The
-  session result now says why it died (`AgentResult.transient`: timed out, nothing produced,
-  a transient streak in stderr), the generation result carries `storm`, and the ONE call
-  every stage makes — `tracks.common.generate_for(ctx, task)`, which replaced seven identical
-  eleven-argument `generate(...)` sites — retries a storm-dead task through
-  `single_shot_ctx`, the same degradation the soft budget already used.  The owner's rule for
-  the storm (2026-09-07 evening): keep querying, keep retrying.  Not a second agent session:
-  that is another 12 minutes at the wall while the storm lasts; the cheap path is the retry
-  that answers.  `single_shot_agent_id` / `single_shot_ctx` moved from `scene_assets` to
+  (2026-09-07; counts corrected the same night).**  Loops 10–13 ran in an evening-long
+  Gemini 503 storm.  Counted over their 40 gemini-cli sessions that ended `timeout`
+  (env, zones, escalated heroes, refines): 0 produced a final answer, 14 wrote nothing at
+  all, 26 wrote partial files and died at the wall mid-work — 1–15 "Attempt N failed with
+  status 503" each inside the CLI's own retry loop, which never gives up before the
+  harness's wall (gemini-cli exposes no turn count, so "0 turns" in the events says
+  nothing).  Every single-shot call in the same minutes got through (hedged across the 22
+  keys) and `codex:gpt-6-astra` sessions completed.  The stages whose session wrote
+  nothing shipped the skeleton env and empty zones and judged 0.00–0.14 (clockmaker: "the
+  hero LongcaseClock is completely missing").  The session result now says why it died
+  (`AgentResult.transient`: timed out, no final answer, a transient streak in stderr),
+  the generation result carries `transient` and `storm` (transient AND nothing written),
+  and the ONE call every stage makes — `tracks.common.generate_for(ctx, task)`, which
+  replaced seven identical eleven-argument `generate(...)` sites — retries a storm-dead
+  task through `single_shot_ctx`, the degradation the soft budget already used.  A session
+  that died with partial files keeps them: the build gates and repairs judge that work as
+  they judge any other.  A hero's escalated session that died transient with a failing
+  check gets ONE more single-shot repair with that check's feedback (`asset.storm_repair`)
+  before the hero is given up — the cheap rung that answers, not a second 12-minute
+  session at the wall.  The owner's rule for the storm (2026-09-07 evening): keep querying,
+  keep retrying.  `single_shot_agent_id` / `single_shot_ctx` moved from `scene_assets` to
   `tracks.common` with it (they were never scene-specific).
 
 ## Rejected / deferred

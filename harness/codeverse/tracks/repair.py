@@ -212,6 +212,11 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
         outcome.build, outcome.lint = build, lint
         ctx.events.emit("build.done", round=round_index, ok=build.ok, lint_errors=len(lint.errors), attempt=attempt,
                         error=build.error_message[:200], duration_ms=build.duration_ms)
+        if res.transient and not outcome.ok:
+            # the repair session died in a 503 storm (D68): whatever it wrote is built above;
+            # another session would spend its whole window at the same wall
+            ctx.events.emit("repair.storm", round=round_index, attempt=attempt, notes=res.notes[:200])
+            break
     outcome.repaired = outcome.ok and attempt > 0
     return outcome
 

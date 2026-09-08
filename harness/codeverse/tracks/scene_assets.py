@@ -325,7 +325,29 @@ def _ladder(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language, 
         res = _generate_asset(ctx, asset, rel, language=language, attempt=0, files=files, timeout_s=timeout_s)
         notes = res.notes
         strategy = "escalated" if chk is not None else "agent"
-        chk = check(ctx) if res.ok else chk
+        # a session that died in the storm mid-work (D68) left partial files: build and check
+        # them, but with the CHEAP context — the check's own one build repair then goes
+        # through the single-shot path, not another agent session at the wall
+        chk = check(sub if res.transient and sub is not None else ctx) if res.ok else chk
+        if res.transient and sub is not None and chk is not None and not chk.ok:
+            # the session died in a 503 storm mid-work (D68): its partial files failed the
+            # check, and another 12 minutes at the wall would too — the cheap rung answers.
+            ctx.events.emit("asset.storm_repair", asset=asset.name, errors=chk.errors[:3])
+            try:
+                res2 = _generate_asset(sub, asset, rel, language=language, attempt=2, files=files,
+                                       feedback=repair_feedback(chk, rel))
+            except Exception as e:  # noqa: BLE001 — same rule as the ladder's own single-shots
+                from codeverse.orchestrator import BudgetExceeded
+
+                if isinstance(e, BudgetExceeded):
+                    raise
+                log.warning("storm repair of %s failed: %s", asset.name, e)
+                return strategy, chk, notes
+            if res2.ok:
+                chk2 = check(sub)
+                if chk2.ok:
+                    return "escalated+repair", chk2, res2.notes
+                chk = chk2
     return strategy, chk, notes
 
 
