@@ -89,11 +89,13 @@ linear 0.02 to 0.05 moves the frame from 0.08 to 0.20. Small increases pay near 
   overcast, and never a black background.
 
 Working numbers for a scene lit from the SKY (day, overcast, dusk), straight from the
-gate's fix hint: DirectionalLight **2-4**, HemisphereLight **0.5-1.0**,
-`emissiveIntensity` **2-6** with a PointLight **0.5-2** per practical, and keep mean
-luminance **>= 0.15** so you are not sitting on the threshold. If the frame is blown
-instead: key <= 3, hemisphere <= 1.0, sky below 0.9 white, `emissiveIntensity` <= 4 on
-large surfaces.
+gate's fix hint: the starter's `sunRig({ mood, intensity, fill, sunColor, fillSky, fillGround })`
+— pick the mood (`day | golden | night | overcast`; a set sun is the night rig), raise
+`intensity` / `fill` (the rig clamps requests below its floors UP, so under-lighting is not
+reachable through it), never a second DirectionalLight on top — plus `emissiveIntensity`
+**2-6** with a PointLight **0.5-2** per practical, and keep mean luminance **>= 0.15** so
+you are not sitting on the threshold. If the frame is blown instead: `intensity` at the
+floor, `fill` <= 1.2, sky below 0.9 white, `emissiveIntensity` <= 4 on large surfaces.
 
 For a scene lit from its PRACTICALS the target is contrast, not average — but it is a
 BAND, not a floor you can fall through. Aim at `lum_std` **>= 0.12** with mean luminance

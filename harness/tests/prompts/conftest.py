@@ -17,6 +17,9 @@ import pytest
 from codeverse.config import get_settings
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "codeverse" / "prompts"
+#: the scene starter's harness-owned library (D51): a scene workspace always has it at
+#: `src/lib/`, so a snippet may import from it exactly as an agent's file would
+STARTER_LIB = Path(__file__).resolve().parents[2] / "codeverse" / "languages" / "scene_threejs" / "starter" / "src" / "lib"
 RUNTIME_JS = Path(__file__).resolve().parents[2] / "runtime_js"
 HELPERS = Path(__file__).resolve().parent / "helpers"
 
@@ -72,6 +75,9 @@ def run_node_module(tmp_path: Path, code: str, timeout: int = 120) -> str:
     link = tmp_path / "node_modules"
     if not link.exists():
         link.symlink_to(RUNTIME_JS / "node_modules")
+    for lib in (tmp_path / "lib", tmp_path / "src" / "lib"):      # `./lib/...` from run.mjs and from src/*.js
+        if not lib.exists():   # a COPY: a symlinked lib resolves its bare `three` from the starter dir, which has none
+            shutil.copytree(STARTER_LIB, lib)
     mod = tmp_path / "run.mjs"
     mod.write_text(code)
     proc = subprocess.run(
@@ -110,5 +116,6 @@ def js_prelude(extra: str = "") -> str:
         "import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';\n"
         "import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';\n"
         "import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';\n"
-        "import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';\n" + extra
+        "import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';\n"
+        "import { sunRig } from './lib/environment.js';\n" + extra      # the rig the starter's env.js builds
     )

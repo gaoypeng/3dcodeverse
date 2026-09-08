@@ -1027,6 +1027,14 @@ written) that were accepted because the code works that way and the tests pin it
   keep it.  `sunRig`'s 'SunDisc' at 3.6 km (no word boundary for `SKY_NAME_RE`) blew the
   content bbox to 2.5 km and put the overview rig kilometres up (`overview_top` ground
   0.0008); `backdrop.mjs` now calls anything small and > 1.5 km from the origin sky.
+  Follow-through (2026-09-07 evening): every prompt that taught lighting still taught bare
+  lights — the cookbook's time-of-day recipe built its own DirectionalLight + HemisphereLight
+  + shadow camera, the contract's minimal `env.js` did too, `system.md` said "DirectionalLight
+  2–4 as key", the lighting skill quoted the old gate hint — so the loop-9 lighthouse stacked
+  a "TwilightKey" on the night rig and the loop-8 boat passed `fillSky`/`fillGround` the rig
+  ignored.  All of them now hand the row's colours to `sunRig` (which gained the two colour
+  overrides; the env bake's ground half follows), the recipe's intensity columns are gone
+  (they sat below the rig's floors), and both snippets are run for real under node.
 
 * **D66 A procedural module is judged on the hero's rig, and the plan's largest one keeps
   its verdict (2026-09-07).**  `scene_assets` had judged threejs assets through

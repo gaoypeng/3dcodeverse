@@ -67,6 +67,7 @@ animated object has a stable `.name`; ShaderMaterials `mat.name = 'Water'`.
 `src/env.js`
 ```js
 import * as THREE from 'three';
+import { sunRig } from './lib/environment.js';
 export const BOUNDS = { min: [-40, 0, -40], max: [40, 25, 40] };
 export function heightAt(x, z) {                 // gentle rolling ground, deterministic
   return 0.6 * Math.sin(x * 0.12) * Math.cos(z * 0.09) + 0.2 * Math.sin((x + z) * 0.31);
@@ -74,12 +75,12 @@ export function heightAt(x, z) {                 // gentle rolling ground, deter
 export function buildEnv(THREE, scene) {
   scene.background = new THREE.Color(0x9fc4e8);
   scene.fog = new THREE.Fog(0x9fc4e8, 40, 140);
-  scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x6b5a3a, 0.6));
-  const sun = new THREE.DirectionalLight(0xfff1d6, 2.8);
-  sun.position.set(30, 40, 20); sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 150 });
-  scene.add(sun, sun.target);
+  // ONE rig: key + hemisphere fill + the environment map metals read from + disc + shadows
+  // fitted to BOUNDS; tint through sunColor / fillSky / fillGround, never a second sun
+  const rig = sunRig({ mood: 'day', azimuth: 35, elevation: 48, bounds: 45 });
+  scene.add(rig.sun, rig.sun.target, rig.fill);
+  if (rig.sunDisc) scene.add(rig.sunDisc);
+  scene.environment = rig.envTex;
   const geo = new THREE.PlaneGeometry(80, 80, 80, 80); geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) pos.setY(i, heightAt(pos.getX(i), pos.getZ(i)));

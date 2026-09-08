@@ -319,74 +319,78 @@ function addPracticals(THREE, scene, spots) {          // ≤ 12; none cast shad
 console.log('practicals', addPracticals(THREE, new THREE.Scene(), [[4, 1.8, 2], [-3, 2.1, 5]]).length);
 ```
 
-Rules of thumb: sun/moon + hemisphere together ≥ 2.5 at dusk (≥ 1.5 at night with ≥ 6
-practicals); hemisphere sky/ground colours carry the mood — turning the key down is NOT how
-you make dusk, tinting it is; ground albedo ≥ 0.25; no black `scene.background` (the sky
-gradient's horizon band is the brightest thing in the frame).
+Rules of thumb: the starter's `env.js` lights the scene with ONE `sunRig({...})` from
+`lib/environment.js` — key, hemisphere fill, the environment map metals read from, the disc
+and fitted shadows — and clamps `intensity` / `fill` UP to per-mood floors (day and golden
+sun ≥ 4.5 with fill ≥ 1.0–1.2, overcast 2.0 / 1.6, the night moon 2.2 / 0.8); turning the key
+down is NOT how you make dusk, tinting it is (`sunColor`, `fillSky`, `fillGround`, `zenith`,
+`horizon`, and a set sun — `elevation` < 0 — is the night rig); ground albedo ≥ 0.25; no
+black `scene.background` (the sky gradient's horizon band is the brightest thing in the frame).
 
 **Exposure self-check (after each build):** `scene_views` → the frame table
 (`camera_checks` in metrics.json) for every authored camera: `mean_lum` ≥ 0.15, `dark_frac`
 ≤ 0.25, `blown_frac` ≤ 0.10, `content_frac` ≥ 0.25 on the establishing shot.  Below that,
-raise HemisphereLight by +0.3 and the key by +0.8 and re-render.  Black shade is the most
-common cause: at sun elevation < 25° keep the hemisphere ≥ 1.0.
+raise `fill` by +0.3 and `intensity` by +0.8 in the `sunRig({...})` call and re-render —
+never a second DirectionalLight beside the rig (measured 2026-09-07: a blue-hour lighthouse
+stacked a "TwilightKey" on the night rig and still read 0.13).  Black shade is the most
+common cause: at sun elevation < 25° keep `fill` ≥ 1.0.
 
 ## Atmosphere: time-of-day triads with numbers
 
-Pick the row, use the numbers, then only tune exposure.  `hemi` = HemisphereLight
-(sky colour / ground colour / intensity), `sun` = DirectionalLight (colour / intensity /
-elevation°).  Fog colour is always the sky's **horizon** colour — never white, never grey
+Pick the row, hand its colours to the rig, then only tune exposure.  `sun` = the rig's key
+(`sunColor`, `elevation`; `intensity` is the mood's floor or higher), `hemi` = the rig's fill
+(`fillSky` / `fillGround`; `fill` ≥ the floor).  Bare-light intensities measured without the
+rig's environment map sit below its floors — the colours, elevations and fog are what a row
+gives you.  Fog colour is always the sky's **horizon** colour — never white, never grey
 unless the brief says overcast.
 
-| time of day | sky zenith | sky horizon = fog | sun colour | sun int | sun elev | hemi sky / ground | hemi int | fog near/far (100 m scene) |
-|---|---|---|---|---|---|---|---|---|
-| dawn | 0x2f4a72 | 0xe8a06a | 0xffb073 | 2.2 | 8° | 0x7d94c4 / 0x4a3a2c | 0.75 | 25 / 150 |
-| morning | 0x3d76c2 | 0xbcd6ea | 0xfff1d0 | 3.0 | 35° | 0xbfd6f0 / 0x5e5442 | 0.60 | 45 / 190 |
-| noon | 0x2f6fd0 | 0xcfe2f2 | 0xfffaf0 | 3.4 | 70° | 0xcfe2f2 / 0x6b6152 | 0.55 | 60 / 220 |
-| golden hour | 0x3b5f96 | 0xf0a860 | 0xffc27a | 2.8 | 12° | 0x86a8d8 / 0x5c4630 | 0.85 | 35 / 170 |
-| overcast | 0x8e9aa6 | 0xc3cad1 | 0xd8dee4 | 1.4 | 45° | 0xc3cad1 / 0x6f6a62 | 1.10 | 30 / 160 |
-| dusk | 0x33285c | 0xd9703a | 0xffa060 | 2.4 | 6° | 0x7a5aa0 / 0x3a2e22 | 0.80 | 30 / 140 |
-| night (moon) | 0x0d1430 | 0x22305a | 0xa8c0ff | 1.2 | 40° | 0x36406e / 0x1a1c24 | 0.55 | 25 / 120 |
+| time of day | rig mood | sky zenith | sky horizon = fog | sun colour | sun elev | fill sky / ground | fog near/far (100 m scene) |
+|---|---|---|---|---|---|---|---|
+| dawn | golden | 0x2f4a72 | 0xe8a06a | 0xffb073 | 8° | 0x7d94c4 / 0x4a3a2c | 25 / 150 |
+| morning | day | 0x3d76c2 | 0xbcd6ea | 0xfff1d0 | 35° | 0xbfd6f0 / 0x5e5442 | 45 / 190 |
+| noon | day | 0x2f6fd0 | 0xcfe2f2 | 0xfffaf0 | 70° | 0xcfe2f2 / 0x6b6152 | 60 / 220 |
+| golden hour | golden | 0x3b5f96 | 0xf0a860 | 0xffc27a | 12° | 0x86a8d8 / 0x5c4630 | 35 / 170 |
+| overcast | overcast | 0x8e9aa6 | 0xc3cad1 | 0xd8dee4 | 45° | 0xc3cad1 / 0x6f6a62 | 30 / 160 |
+| dusk | golden | 0x33285c | 0xd9703a | 0xffa060 | 6° | 0x7a5aa0 / 0x3a2e22 | 30 / 140 |
+| night (moon) | night | 0x0d1430 | 0x22305a | 0xa8c0ff | 40° | 0x36406e / 0x1a1c24 | 25 / 120 |
 
 **Colour temperature contrast is the whole trick**: the key light is warm, the fill is the
 *opposite* hue (cool blue sky bounce).  A scene lit warm-on-warm — orange sun with an
 orange hemisphere — comes out as the monochrome-orange soup the rooftop run was marked
-down for.  Keep `hemi.color` at least 60° of hue away from the sun colour.
+down for.  Keep `fillSky` at least 60° of hue away from `sunColor`.
 
 ```js
+import { sunRig } from './lib/environment.js';
 const TIME_OF_DAY = {
-  dawn:        { zenith: 0x2f4a72, horizon: 0xe8a06a, sun: 0xffb073, sunI: 2.2, elev: 8,  hemiSky: 0x7d94c4, hemiGround: 0x4a3a2c, hemiI: 0.75, fog: [25, 150] },
-  morning:     { zenith: 0x3d76c2, horizon: 0xbcd6ea, sun: 0xfff1d0, sunI: 3.0, elev: 35, hemiSky: 0xbfd6f0, hemiGround: 0x5e5442, hemiI: 0.60, fog: [45, 190] },
-  noon:        { zenith: 0x2f6fd0, horizon: 0xcfe2f2, sun: 0xfffaf0, sunI: 3.4, elev: 70, hemiSky: 0xcfe2f2, hemiGround: 0x6b6152, hemiI: 0.55, fog: [60, 220] },
-  goldenHour:  { zenith: 0x3b5f96, horizon: 0xf0a860, sun: 0xffc27a, sunI: 2.8, elev: 12, hemiSky: 0x86a8d8, hemiGround: 0x5c4630, hemiI: 0.85, fog: [35, 170] },
-  overcast:    { zenith: 0x8e9aa6, horizon: 0xc3cad1, sun: 0xd8dee4, sunI: 1.4, elev: 45, hemiSky: 0xc3cad1, hemiGround: 0x6f6a62, hemiI: 1.10, fog: [30, 160] },
-  dusk:        { zenith: 0x33285c, horizon: 0xd9703a, sun: 0xffa060, sunI: 2.4, elev: 6,  hemiSky: 0x7a5aa0, hemiGround: 0x3a2e22, hemiI: 0.80, fog: [30, 140] },
-  night:       { zenith: 0x0d1430, horizon: 0x22305a, sun: 0xa8c0ff, sunI: 1.2, elev: 40, hemiSky: 0x36406e, hemiGround: 0x1a1c24, hemiI: 0.55, fog: [25, 120] },
+  dawn:        { mood: 'golden',   zenith: 0x2f4a72, horizon: 0xe8a06a, sun: 0xffb073, elev: 8,  fillSky: 0x7d94c4, fillGround: 0x4a3a2c, fog: [25, 150] },
+  morning:     { mood: 'day',      zenith: 0x3d76c2, horizon: 0xbcd6ea, sun: 0xfff1d0, elev: 35, fillSky: 0xbfd6f0, fillGround: 0x5e5442, fog: [45, 190] },
+  noon:        { mood: 'day',      zenith: 0x2f6fd0, horizon: 0xcfe2f2, sun: 0xfffaf0, elev: 70, fillSky: 0xcfe2f2, fillGround: 0x6b6152, fog: [60, 220] },
+  goldenHour:  { mood: 'golden',   zenith: 0x3b5f96, horizon: 0xf0a860, sun: 0xffc27a, elev: 12, fillSky: 0x86a8d8, fillGround: 0x5c4630, fog: [35, 170] },
+  overcast:    { mood: 'overcast', zenith: 0x8e9aa6, horizon: 0xc3cad1, sun: 0xd8dee4, elev: 45, fillSky: 0xc3cad1, fillGround: 0x6f6a62, fog: [30, 160] },
+  dusk:        { mood: 'golden',   zenith: 0x33285c, horizon: 0xd9703a, sun: 0xffa060, elev: 6,  fillSky: 0x7a5aa0, fillGround: 0x3a2e22, fog: [30, 140] },
+  night:       { mood: 'night',    zenith: 0x0d1430, horizon: 0x22305a, sun: 0xa8c0ff, elev: 40, fillSky: 0x36406e, fillGround: 0x1a1c24, fog: [25, 120] },
 };
 
 function applyTimeOfDay(THREE, scene, key, opts = {}) {
   const T = TIME_OF_DAY[key] || TIME_OF_DAY.morning;
-  const az = (opts.azimuthDeg ?? 135) * Math.PI / 180, el = (opts.elevationDeg ?? T.elev) * Math.PI / 180;
-  const R = opts.sunDistance ?? 120, span = opts.shadowSpan ?? 60;
   // the table's fog is calibrated for a 100 m scene: scale it by the bounds diagonal or
   // a 30 m garden disappears into soup (and its horizon ring never hazes).
   const fs = opts.fogScale ?? Math.min(2.5, Math.max(0.3, (opts.boundsDiagonal ?? 100) / 100));
   scene.fog = new THREE.Fog(T.horizon, T.fog[0] * fs, T.fog[1] * fs);
   scene.background = new THREE.Color(T.horizon);
-  const hemi = new THREE.HemisphereLight(T.hemiSky, T.hemiGround, T.hemiI);
-  const sun = new THREE.DirectionalLight(T.sun, T.sunI);
-  sun.position.set(Math.cos(el) * Math.sin(az) * R, Math.sin(el) * R, Math.cos(el) * Math.cos(az) * R);
-  sun.castShadow = true;
-  // shadow texel = 2*span / mapSize.  Keep it ≤ 0.05 m or the edges look like stairs.
-  const mapSize = span <= 30 ? 2048 : span <= 60 ? 3072 : 4096;
-  sun.shadow.mapSize.set(mapSize, mapSize);
-  sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
-  Object.assign(sun.shadow.camera, { left: -span, right: span, top: span, bottom: -span, near: 1, far: R * 2.2 });
-  sun.shadow.camera.updateProjectionMatrix?.();
-  scene.add(hemi, sun, sun.target);
-  return { sun, hemi, palette: T, fogFar: scene.fog.far, shadowTexelM: (2 * span) / mapSize };
+  // ONE rig: key, hemisphere fill, environment map, disc, and shadows whose frustum and map
+  // are fitted to `bounds` (texel ≤ 0.05 m) — never a second DirectionalLight beside it
+  const bounds = opts.bounds ?? 60;
+  const rig = sunRig({ mood: T.mood, azimuth: opts.azimuthDeg ?? 135, elevation: opts.elevationDeg ?? T.elev,
+    sunColor: T.sun, fillSky: T.fillSky, fillGround: T.fillGround, zenith: T.zenith, horizon: T.horizon,
+    bounds, fill: opts.fill, intensity: opts.intensity });
+  scene.add(rig.sun, rig.sun.target, rig.fill);
+  if (rig.sunDisc) scene.add(rig.sunDisc);
+  scene.environment = rig.envTex;
+  return { rig, palette: T, fogFar: scene.fog.far, shadowTexelM: (2 * bounds) / rig.sun.shadow.mapSize.x };
 }
 const todScene = new THREE.Scene();
-const tod = applyTimeOfDay(THREE, todScene, 'goldenHour', { azimuthDeg: 250, shadowSpan: 26, boundsDiagonal: 45 });
+const tod = applyTimeOfDay(THREE, todScene, 'goldenHour', { azimuthDeg: 250, bounds: 26, boundsDiagonal: 45 });
 console.log('golden hour shadow texel (m)', tod.shadowTexelM.toFixed(3), 'fog far', tod.fogFar.toFixed(1), 'ring radius', (tod.fogFar * 0.6).toFixed(1));
 ```
 
