@@ -94,7 +94,7 @@ def test_a_real_build_failure_is_still_repaired(monkeypatch):
 
     def fake_generate(ws, **kw):
         seen.append(1)
-        return SimpleNamespace(ok=True, files_changed=[], usage=Usage(), notes="", storm=False)
+        return SimpleNamespace(ok=True, files_changed=[], usage=Usage(), notes="", storm=False, transient=False)
 
     monkeypatch.setattr(C, "generate", fake_generate)
     monkeypatch.setattr(R, "make_repair_task", lambda *a, **k: SimpleNamespace(label="t"))
@@ -109,6 +109,30 @@ def test_a_real_build_failure_is_still_repaired(monkeypatch):
     monkeypatch.setattr(R, "build_once", fake_build_once)
     out = R.build_with_repair(_ctx(), round_index=0, label="r00")
     assert out.ok is True and len(seen) == 1, "a real error still gets one repair"
+
+
+def test_a_repair_session_that_died_in_the_storm_ends_the_loop(monkeypatch):
+    """D68: a repair session that timed out in a 503 streak (partial or no files) is built once
+    and the loop stops — the next attempt would spend its whole window at the same wall."""
+    seen: list[int] = []
+
+    from codeverse.contracts.common import Usage
+
+    def fake_generate(ws, **kw):
+        seen.append(1)
+        return SimpleNamespace(ok=False, files_changed=[], usage=Usage(), notes="exit=timeout", storm=False, transient=True)
+
+    monkeypatch.setattr(C, "generate", fake_generate)
+    monkeypatch.setattr(R, "make_repair_task", lambda *a, **k: SimpleNamespace(label="t"))
+    calls = {"n": 0}
+
+    def fake_build_once(ctx):
+        calls["n"] += 1
+        return _build(ok=False, msg="TypeError: x is not a function"), GateReport(gate="lint", passed=True, findings=[])
+
+    monkeypatch.setattr(R, "build_once", fake_build_once)
+    out = R.build_with_repair(_ctx(), round_index=0, label="r00", max_attempts=3)
+    assert out.ok is False and len(seen) == 1 and calls["n"] == 2, "one storm-dead repair, one rebuild, then stop"
 
 
 def test_a_harness_failure_is_rebuilt_even_with_no_repair_budget(monkeypatch, no_generate):
