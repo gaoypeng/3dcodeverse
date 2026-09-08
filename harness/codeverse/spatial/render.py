@@ -26,12 +26,12 @@ from codeverse.conventions import OBJECT_VIEWS, ViewPreset
 from codeverse.proc import sha256_file
 from codeverse.spatial._render_common import build_sheet, out_directory, view_specs
 from codeverse.spatial.node import (
-    BROWSER_LOST_MARKERS,
     OWN_BROWSER_ENV,
     NodeError,
     browser_was_lost,
     run_node,
     runtime_js_dir,
+    transient_failure,
 )
 
 BACKGROUNDS = ("studio", "white", "transparent")
@@ -183,15 +183,13 @@ def render_glb(
 
 
 #: render failures that are the box, not the model: a retry is worth one more timeout.
-#: The browser-loss half is shared with the scene drivers, which had no retry at all
-#: until 2026-09-05 and lost four baseline cells to a marker missing from this tuple.
-TRANSIENT_MARKERS = ("waiting failed", "timed out", "timeout", "produced no result", *BROWSER_LOST_MARKERS)
+#: The vocabulary lives in `spatial/node.py` next to the browser-loss half, shared with
+#: the scene drivers since 2026-09-07 (they used to retry only a browser loss).
 RETRY_PAUSE_S = 3.0
 
 
 def _transient(e: Exception) -> bool:
-    text = str(e).lower()
-    return any(m in text for m in TRANSIENT_MARKERS)
+    return transient_failure(e)
 
 
 def _run_render(

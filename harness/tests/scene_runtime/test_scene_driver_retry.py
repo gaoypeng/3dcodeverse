@@ -93,3 +93,16 @@ def test_a_driver_that_answered_is_not_retried_for_a_failing_verdict(monkeypatch
                                                                   "error": "TypeError: x is not a function"}})])
     r = run_scene_script("probe_scene.mjs", ["--ws", "x"], timeout_s=10)
     assert r.summary["boot"]["stage"] == "createScene" and len(envs) == 1
+
+
+def test_a_transient_host_failure_is_retried_on_the_same_browser(monkeypatch):
+    """`node.TRANSIENT_MARKERS` is one vocabulary for both render paths (2026-09-07): a host
+    that timed out waiting for the page under contention is the box, not the scene, and it
+    keeps the shared browser — only a browser LOSS takes an owned one."""
+    envs = _record(monkeypatch, [
+        _result(2, {"ok": False, "error": "host failed: Waiting failed: 60000ms exceeded"}),
+        _result(0, {"ok": True, "n_views": 8}),
+    ])
+    r = run_scene_script("render_scene.mjs", ["--ws", "x"], timeout_s=10)
+    assert r.summary["n_views"] == 8 and len(envs) == 2
+    assert envs[1].get("CV3D_BROWSER_REUSE") is None, "a timeout is not a browser loss"

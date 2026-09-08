@@ -45,11 +45,22 @@ export function build(ctx) {
 DRIVER_JS = """
 import * as THREE from 'three';
 import { createScene } from './src/scene.js';
-const loaders = { gltf: { loadAsync: async () => ({ scene: new THREE.Group() }) } };
-const { scene } = await createScene({ renderer: null, loaders });
+const loaders = { gltf: { loadAsync: async () => {
+  // a Blender export whose one keyframed part became a clip: a 2 s swing on 'Lid'
+  const root = new THREE.Group(); const lid = new THREE.Group(); lid.name = 'Lid'; root.add(lid);
+  const track = new THREE.NumberKeyframeTrack('Lid.rotation[x]', [0, 1, 2], [-0.35, 0.35, -0.35]);
+  return { scene: root, animations: [new THREE.AnimationClip('Swing', 2, [track])] };
+} } };
+const { scene, update } = await createScene({ renderer: null, loaders });
+const lids = []; scene.traverse((o) => { if (o.name === 'Lid') lids.push(o); });
+update(0, 0); const at0 = lids.map((l) => +l.rotation.x.toFixed(3));
+update(1.0, 0.016); const at1 = lids.map((l) => +l.rotation.x.toFixed(3));
+update(0, 0); const again0 = lids.map((l) => +l.rotation.x.toFixed(3));
 console.log(JSON.stringify({
   zoneSees: scene.children.map((c) => c.userData.sofaName),
   cloneNames: scene.children.flatMap((c) => c.children.map((k) => k.name)),
+  clipsOnClone: scene.children.flatMap((c) => c.children.map((k) => (k.animations || []).length)),
+  at0, at1, again0,
 }));
 """
 
@@ -72,6 +83,14 @@ def test_the_zone_sees_the_asset_under_its_planned_name(loaded):
     assert loaded["zoneSees"] == ["LoungeSofa"], "a glTF root is called 'Scene' until someone names it"
 
 
+def test_the_clone_plays_its_blender_clip_by_absolute_time(loaded):
+    """A keyframed Blender part arrives as a clip on the preloaded root, `.clone()` keeps it,
+    and the assembled scene plays it from `update(t)` with no zone code — the same t gives
+    the same pose (the harness samples t = 0 and 1.5 s)."""
+    assert loaded["clipsOnClone"] == [1]
+    assert loaded["at0"] == [-0.35] and loaded["at1"] == [0.35] and loaded["again0"] == loaded["at0"]
+
+
 def test_the_clone_the_zone_places_carries_the_name_too(loaded):
     """`.clone()` copies the name, so the object actually standing in the zone — the
     one `scene_placement` matches against the plan — carries it as well."""
@@ -81,3 +100,22 @@ def test_the_clone_the_zone_places_carries_the_name_too(loaded):
 def test_a_plan_without_glb_assets_emits_no_loader():
     src = render_scene_js(["z"], [], [], env_ok=False)
     assert "assetFiles" not in src and "loadAsync" not in src
+
+
+def test_a_procedural_asset_is_rendered_on_the_hero_rig(tmp_ws):
+    """`render_asset` is the hook `scene_assets` judges a threejs asset through: the module is
+    exported by the object track's exporter and rendered on the quick rig a hero's GLB gets.
+    Nothing defined it until 2026-09-07, so 0 of 860 recorded procedural assets were judged."""
+    from codeverse.languages.scene_threejs import SceneThreeJsRuntime
+
+    (tmp_ws.src / "assets").mkdir(parents=True, exist_ok=True)
+    (tmp_ws.src / "assets" / "crate.js").write_text(
+        "import * as THREE from 'three';\n"
+        "export function buildCrate(THREE, opts = {}) {\n"
+        "  const g = new THREE.Group(); g.name = 'Crate';\n"
+        "  const box = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.3), new THREE.MeshStandardMaterial({ color: 0x886644 }));\n"
+        "  box.position.y = 0.2; box.name = 'Body'; g.add(box); return g;\n}\n")
+    out = tmp_ws.artifacts / "renders" / "assets" / "crate"
+    rs = SceneThreeJsRuntime().render_asset(tmp_ws, "Crate", out)
+    assert rs.contact_sheet and (out / "sheet.png").is_file() and len(rs.views) >= 4
+    assert (tmp_ws.artifacts / "asset_export" / "crate" / "object.glb").is_file()

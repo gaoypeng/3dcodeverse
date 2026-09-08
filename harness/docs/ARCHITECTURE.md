@@ -421,7 +421,7 @@ in-loop option with `n_samples ≥ 2` for decisions.
 
 ```
 plan (structured output, one re-ask) → skeleton (buildable placeholder) → materialise workspace
-[scene only] assets (parallel; blender_glb assets get a sub-workspace + asset_v1 judge + one fix pass; a degraded asset verdict leaves
+[scene only] assets (parallel; both kinds climb one ladder — single-shot → check → one repair → agent; blender_glb heroes get a sub-workspace with the static planner's parts + asset_v1 judge + one re-judged fix pass, undone when worse; a degraded asset verdict leaves
             score None / judged False, emits asset.judge_degraded and skips the fix pass)
              → env → zones (parallel) → assemble (deterministic scene.js)
 round 0 "baseline": generate → build_with_repair → measure → gates → render → post-render gates → judge

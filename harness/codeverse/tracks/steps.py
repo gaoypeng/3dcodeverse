@@ -37,8 +37,8 @@ from codeverse.orchestrator import BudgetExceeded, usage_delta
 from codeverse.proc import fan_out
 from codeverse.spatial.render import RenderError
 from codeverse.tracks import skills_hook
-from codeverse.tracks.common import RunContext
-from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
+from codeverse.tracks.common import RunContext, generate_for
+from codeverse.tracks.generation import GenerationResult, GenerationTask
 from codeverse.tracks.repair import RepairOutcome, build_with_repair
 from codeverse.workspace import Workspace
 
@@ -149,9 +149,7 @@ def _run_phase(ctx: RunContext, tasks: Sequence[GenerationTask]) -> list[Generat
     """One parallel batch of generation tasks (the pre-phase behaviour, unchanged)."""
 
     def _one(task: GenerationTask) -> GenerationResult:
-        return generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model,
-                        settings=ctx.settings, budget=ctx.budget, events=ctx.events,
-                        max_turns=ctx.policy.agent_max_turns, wrapup_turns=ctx.policy.agent_wrapup_turns)
+        return generate_for(ctx, task)
 
     # fan_out also for ONE task: a crashing generator (503 storm, parse error) becomes a failed
     # result → RoundFailed (refine rounds treat that as a plateau) instead of killing the run.

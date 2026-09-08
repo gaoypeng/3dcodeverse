@@ -407,6 +407,8 @@ const RIGS = {
  *   sun direction in degrees (per-mood defaults; golden sits low);
  *   `sunColor`/`intensity` sun overrides; `fill` hemisphere intensity,
  *   clamped UP to the mood's readability floor (night floor 0.55);
+ *   `fillSky`/`fillGround` hex overrides of the hemisphere's colours (the
+ *   baked environment's ground half follows `fillGround`);
  *   `zenith`/`horizon` hex overrides matching `worldShell()`'s (used by
  *   the overcast/gradient bake and the below-horizon half);
  *   `radius` sky radius the disc sits inside (default 4000, matching
@@ -496,8 +498,13 @@ export function sunRig(opts = {}) {
   // The darkest tenth of a frame is not shade the fill reaches — it is
   // albedo the libraries have already multiplied toward zero at contact
   // points, and no light colour rescues a black albedo.
+  // Colours are the mood's unless the scene tints them: the cookbook's
+  // time-of-day rows carry a cool sky over a warm ground for every hour,
+  // and the env bake's ground half below follows the same override.
+  const fillSky = opts.fillSky === undefined ? rig.fillSky : opts.fillSky;
+  const fillGround = opts.fillGround === undefined ? rig.fillGround : opts.fillGround;
   const fill = new THREE.HemisphereLight(
-      rig.fillSky, rig.fillGround,
+      fillSky, fillGround,
       Math.max(rig.fillFloor,
                opts.fill === undefined ? rig.fill : opts.fill));
   fill.name = 'SunRigFill';
@@ -509,7 +516,7 @@ export function sunRig(opts = {}) {
   const w = 256;
   const h = 128;
   const data = new Uint16Array(w * h * 4);
-  const groundC = new THREE.Color(rig.fillGround);
+  const groundC = new THREE.Color(fillGround);
   const glowC = new THREE.Color(rig.discColor);
   const px = new THREE.Vector3();
   const pc = new THREE.Color();

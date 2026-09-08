@@ -33,6 +33,10 @@ if mode in ("fail_once", "fail_once_503", "fail_always", "fail_twice_429"):
         sys.exit(1)
 if mode == "hang":
     time.sleep(60)
+if mode == "storm":        # what gemini-cli 0.53 prints, 8-17 times per session, in a 503 storm
+    for i in range(4):
+        print(f"Attempt {i + 1} failed with status 503. Retrying with backoff... _ApiError: UNAVAILABLE", file=sys.stderr)
+    time.sleep(60)
 served = "gemini-9-pro" if mode == "substitute" else model
 os.makedirs("src", exist_ok=True)
 open("src/hello.txt", "w").write(prompt[:20])
@@ -193,6 +197,19 @@ def test_timeout_is_reported(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypat
     monkeypatch.setattr("codeverse.agents.cli_common.IDLE_GRACE_S", 1.0)
     res = agent.run(_job(tmp_ws, timeout_s=1))
     assert not res.ok and res.exit_reason == "timeout" and res.duration_s < 30
+    assert res.transient is False        # a plain hang is not a storm
+
+
+def test_a_timeout_after_a_503_streak_is_marked_transient(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
+    """Measured 2026-09-07: 23 of 24 gemini-cli sessions of an evening ended timeout / 0 turns
+    / $0 after 8-17 consecutive 503s inside the CLI's own retry loop.  The wall still ends the
+    session (the CLI never gives up first), but the result says WHY, so a track can fall back
+    to the single-shot path instead of shipping the skeleton (tracks.common.generate_for)."""
+    monkeypatch.setenv("FAKE_MODE", "storm")
+    monkeypatch.setattr("codeverse.agents.cli_common.IDLE_GRACE_S", 1.0)
+    res = agent.run(_job(tmp_ws, timeout_s=1))
+    assert not res.ok and res.exit_reason == "timeout" and res.transient is True
+    assert any("4 x 503" in e for e in res.errors), res.errors
 
 
 def test_unavailable_when_no_keys(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):

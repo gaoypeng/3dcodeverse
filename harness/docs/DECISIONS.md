@@ -980,7 +980,113 @@ written) that were accepted because the code works that way and the tests pin it
   is exactly why validating on it was not enough.  The measurement stands and is worth
   redoing with a discriminator that asks the right question (how far the eye is from the
   CONTAINING mesh's own surface, not from anything at all); the rule does not ship on this
-  evidence.
+  evidence.  (Done 2026-09-07 with that discriminator — D67.)
+
+* **D63 A scene hero climbs the same ladder as a module, and its GLB is checked like one
+  (2026-09-07).**  Measured over the 18 `blender_glb` heroes in the recorded batteries
+  (2026-08-25 → 09-05): 15 of 19 first agent sessions were killed at the 420 s asset clip
+  and booked at $0 (a killed gemini-cli reports no usage); 12 of 18 GLBs were ONE joined
+  mesh with vertex-painted colour, because `asset_plan()` gave the sub-run a one-part plan
+  and the Blender contract demands one object per plan part; every fix prompt read "Style
+  of the whole scene: (none)" because the sub-spec's prompt IS the asset sheet; nothing
+  measured the GLB (a module gets sink / tri-budget / size findings and one repair); repair
+  sessions took the 1 800 s agent default (a 25-minute scene could spend 70 minutes on one
+  hero); the fix pass was never re-judged.  Live on 6768aae the same day, 3 of 4 heroes in
+  an asset A/B and 3 of 4 in a scene A/B produced nothing before the clip.  Decision: ONE
+  ladder for both asset kinds (`scene_assets._ladder`: single-shot → deterministic check →
+  one feedback repair → agent session), the static-object planner's part list for the hero
+  (one call; the sheet is the fallback), `_soft_findings` from one measurement of the GLB,
+  `build_with_repair(timeout_s=)` clipping every repair to the asset window, a re-judged
+  fix that is UNDONE when it judges worse (loop 1's BronzeCenser went 0.526 → 0.43 and
+  shipped that way), the scene brief and Blender's tool cards in the hero prompt, a 20 mm
+  ground self-check for a hero (the module's own sink rule; the scene seats every clone).
+  Measured after: 15 of 15 heroes built across eight scenes against 1 of 4 the same
+  morning; like-for-like re-judge (n=3) of four recorded hero descriptions 0.501 vs 0.358
+  for the same props as modules; `asset_v1` passes on 9 of 13 judged (0.70–0.88) against
+  2 of 18 recorded.  Whole-scene verdicts still swing 0.0–0.75 on one prompt for zone,
+  camera and judge reasons and do not measure this.
+
+* **D64 A keyframed Blender part reaches the scene as a clip, and the assembled scene
+  plays it (2026-09-07).**  The wrapper exports animations (an object nobody keyframed
+  exports exactly as before), the preload keeps `gltf.animations` on the root — which
+  `.clone()` copies — and the assembled `scene.js` drives one mixer per clone by ABSOLUTE
+  time from `update(t)`, so t = 0 / 1.5 s are deterministic frames.  The first attempt gave
+  the zone a `clipPlayer` helper and a sentence; the windmill zone placed the clone and
+  played nothing, so the harness took the job and the helper was deleted.  Measured: the
+  windmill's `MillCapDetail` frames a quarter turn apart (19.3 % of the frame changed; the
+  judge: "the windmill sails animate correctly"), the lighthouse lens sweeping its beam
+  (61 %).  A zone de-phases a copy with `clone.userData.clipOffset`.
+
+* **D65 The starter `env.js` lights through `sunRig` and assigns its environment map; a
+  small thing kilometres away is backdrop (2026-09-07).**  0 of 127 recorded `env.js` and
+  0 of 4 written that morning set `scene.environment`, although the effects catalog asks
+  for it; every recorded hero carried Blender metalness 0.7–0.9 into such a scene.  On the
+  example scene a metalness-0.9 sphere's region reads 0.24 (black with one highlight)
+  without the map and 0.55 (metal, reflecting the sky) with `sunRig`'s.  The starter now
+  uses the rig (13 lines of its own sun + hemisphere deleted) and the env prompt says to
+  keep it.  `sunRig`'s 'SunDisc' at 3.6 km (no word boundary for `SKY_NAME_RE`) blew the
+  content bbox to 2.5 km and put the overview rig kilometres up (`overview_top` ground
+  0.0008); `backdrop.mjs` now calls anything small and > 1.5 km from the origin sky.
+  Follow-through (2026-09-07 evening): every prompt that taught lighting still taught bare
+  lights — the cookbook's time-of-day recipe built its own DirectionalLight + HemisphereLight
+  + shadow camera, the contract's minimal `env.js` did too, `system.md` said "DirectionalLight
+  2–4 as key", the lighting skill quoted the old gate hint — so the loop-9 lighthouse stacked
+  a "TwilightKey" on the night rig and the loop-8 boat passed `fillSky`/`fillGround` the rig
+  ignored.  All of them now hand the row's colours to `sunRig` (which gained the two colour
+  overrides; the env bake's ground half follows), the recipe's intensity columns are gone
+  (they sat below the rig's floors), and both snippets are run for real under node.
+
+* **D66 A procedural module is judged on the hero's rig, and the plan's largest one keeps
+  its verdict (2026-09-07).**  `scene_assets` had judged threejs assets through
+  `runtime.render_asset` since the stage was written and nothing defined it: 0 of 860
+  recorded modules were judged while every hero was, so no paired verdict existed.
+  `SceneThreeJsRuntime.render_asset` exports the module with the object track's
+  `export_glb.mjs` and renders the same quick sheet.  With it live the 5 % share rule alone
+  still judged nothing (measured over two scenes: 1e-5 .. 2e-3 of the scene volume), so
+  the plan's largest module of at least 1 m³ is judged whatever its share — one extra
+  verdict per scene at most; a bollard is not a hero, a boat is.
+
+* **D67 Two placement-side false positives that cost whole rounds, measured on loop 9 and
+  fixed at the source (2026-09-07).**  (1) *Scale of a wrapper.*  A zone wraps a scatter in
+  one group and the census row is the wrapper: the lighthouse's `PathAndFence/PicketFences`
+  (twelve 2.2 m panels along a path) measured 14.73 m against the plan's 2.4 m panel, a
+  "6.1x" ERROR the judge repeated ("towering over the camera" — the frame shows a knee-high
+  fence) and the repair obeyed by shrinking the whole run to dots; `GorseBushClusters` (8.6x)
+  and `CoastalRockOutcrops` (9.1x) the same.  Rows now carry `families` — per named family
+  below the row with >= 2 members, the median largest extent of ONE member — and the scale
+  check measures the family the plan's key names (`AssetRow.instance_size`), falling back to
+  the row's box when the row is not such a wrapper.  Re-probed on the recorded round-0
+  workspace: four scale ERRORs → none; the instances the plan sized are 0.6 m gorse (plan
+  1.5), 2.16 m fence panels (2.4), 4.9 m rocks (3.8).  (2) *"Inside" is the mesh's volume.*
+  The windmill's `MillDetail` camera was `camera_in_geometry` for three rounds with
+  `nearest_hit_m` 4.9: the 22 m lattice sails own a 22 x 22 m world box that is nearly all
+  air, and the box term alone said inside.  This is the discriminator D62 asked for and
+  declined to guess at: `eyeInsideMesh` decides by ray parity over the mesh's own triangles
+  (six skewed rays, majority; both faces, so the FrontSide `BarCounter` of
+  `test_a_lens_inside_geometry_retreats_until_clear` still counts and the buried-camera
+  repair keeps working), the box stays the pre-filter.  Re-rendered on the recorded round-1
+  workspace: `MillDetail` inside [] / nearest 12.0 m.  Also: the dark-frame hint now speaks
+  the rig's vocabulary (`sunRig({ mood, intensity, fill })`) instead of telling the agent to
+  add a second DirectionalLight on top of the rig the starter builds (D65) — the loop-9
+  lighthouse did exactly that.
+
+* **D68 A session that died in a 503 storm is retried through the single-shot path
+  (2026-09-07).**  Loops 10–12 ran in an evening-long Gemini 503 storm: 23 of 24 gemini-cli
+  sessions (env, zones, escalated heroes, refines) ended `timeout / 0 turns / $0` after
+  8–17 consecutive "Attempt N failed with status 503" inside the CLI's own retry loop —
+  gemini-cli never gives up before the harness's wall — while every single-shot call in the
+  same minutes got through (hedged across the 22 keys) and `codex:gpt-6-astra` sessions
+  completed.  The stages that lost their session shipped the skeleton env and empty zones
+  and judged 0.00–0.14 (clockmaker: "the hero LongcaseClock is completely missing").  The
+  session result now says why it died (`AgentResult.transient`: timed out, nothing produced,
+  a transient streak in stderr), the generation result carries `storm`, and the ONE call
+  every stage makes — `tracks.common.generate_for(ctx, task)`, which replaced seven identical
+  eleven-argument `generate(...)` sites — retries a storm-dead task through
+  `single_shot_ctx`, the same degradation the soft budget already used.  The owner's rule for
+  the storm (2026-09-07 evening): keep querying, keep retrying.  Not a second agent session:
+  that is another 12 minutes at the wall while the storm lasts; the cheap path is the retry
+  that answers.  `single_shot_agent_id` / `single_shot_ctx` moved from `scene_assets` to
+  `tracks.common` with it (they were never scene-specific).
 
 ## Rejected / deferred
 
@@ -992,7 +1098,7 @@ written) that were accepted because the code works that way and the tests pin it
 * Registering `single-shot` as a CodingAgent kind (rejected: it has no tools/session).
 * A free-form `dict` judge schema (rejected: flash skips criteria).
 * Storing URDF meshes Y-up and converting on load (rejected: breaks foreign loaders).
-* Per-asset judging for threejs scene assets (deferred: needs a `render_asset` hook).
+* Per-asset judging for threejs scene assets — done 2026-09-07 (D66: `render_asset` on the scene runtime).
 * Proposed and not yet done (owner-level files): `ToolCallPart.extra` for provider
   state; `n_samples` in Settings.  (Done since first written: `Workspace._git`
   lock + index.lock retry; the `languages/**` package-data globs.)

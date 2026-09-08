@@ -54,10 +54,41 @@ export function frameStats(canvas) {
   };
 }
 
+// six skewed directions, not the axes: a ray straight up from a round camera position hits the
+// centre line of an axis-aligned ceiling, i.e. the diagonal both triangles share, twice
+const PARITY_DIRS = [[1, 0.37, 0.23], [-1, 0.29, -0.41], [0.31, 1, 0.19], [-0.27, -1, 0.35], [0.23, 0.41, 1], [-0.39, 0.17, -1]];
+
+/**
+ * Is `eye` inside the mesh's own volume?  Ray parity in six directions over the
+ * geometry's triangles (both faces — a back-face culled room interior still counts,
+ * which is what the Raycaster could not do), majority of the six.  A room with an
+ * open door or no ceiling still reads inside; a lattice, a star, a thin ring or a
+ * hollow arch the lens merely stands near does not.
+ */
+export function eyeInsideMesh(o, eye, THREE) {
+  const g = o.geometry, pos = g.attributes.position, idx = g.index;
+  if (!pos) return false;
+  const local = eye.clone().applyMatrix4(new THREE.Matrix4().copy(o.matrixWorld).invert());
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), hit = new THREE.Vector3();
+  const n = idx ? idx.count : pos.count;
+  const vertex = (i) => (idx ? idx.getX(i) : i);
+  let odd = 0;
+  for (const d of PARITY_DIRS) {
+    const ray = new THREE.Ray(local, new THREE.Vector3(...d).normalize());
+    let hits = 0;
+    for (let i = 0; i + 2 < n; i += 3) {
+      a.fromBufferAttribute(pos, vertex(i)); b.fromBufferAttribute(pos, vertex(i + 1)); c.fromBufferAttribute(pos, vertex(i + 2));
+      if (ray.intersectTriangle(a, b, c, false, hit)) hits += 1;
+    }
+    if (hits % 2 === 1) odd += 1;
+  }
+  return odd >= 4;
+}
+
 /**
  * Near-geometry test: centre + 3x3 grid rays from the camera; nearest hit
- * distance, plus meshes whose world bbox contains the eye (closed rooms,
- * back-face culled interiors).
+ * distance, plus meshes whose own volume contains the eye (closed rooms,
+ * back-face culled interiors — `eyeInsideMesh`).
  */
 export function nearGeometry(scene, camera, THREE, limitM = 0.3) {
   const rc = new THREE.Raycaster();
@@ -93,7 +124,11 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3) {
     box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
     const s = box.getSize(new THREE.Vector3());
     if (Math.max(s.x, s.y, s.z) > 60 || Math.min(s.x, s.y, s.z) < 0.05) continue; // ground/sky/flat decals
-    if (box.containsPoint(eye)) inside.push(o.name || o.parent?.name || o.type);
+    // The bbox is the cheap pre-filter; the verdict is the mesh's own volume.  A windmill's
+    // 22 m lattice sails own a 22 x 22 m bbox that is nearly all air: measured 2026-09-07
+    // (loop 9), a detail camera 4.9 m from the nearest surface was "inside ['Sails_1']" for
+    // three rounds, the repair moved it twice for nothing and the judge marked it critical.
+    if (box.containsPoint(eye) && eyeInsideMesh(o, eye, THREE)) inside.push(o.name || o.parent?.name || o.type);
   }
   const center = new THREE.Vector3();
   camera.getWorldDirection(center);

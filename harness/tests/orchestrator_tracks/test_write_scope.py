@@ -225,6 +225,7 @@ def test_scene_constructors_enforce_their_file_sets(tmp_path, settings, monkeypa
     assert track._refine_task(ctx, group, last, 1, parallel=False).edit_only is False
 
     # threejs asset tasks share the scene workspace → scoped; blender heroes own a sub-workspace
+    import codeverse.tracks.common as common
     import codeverse.tracks.scene_assets as scene_assets
 
     captured: dict[str, GenerationTask] = {}
@@ -233,7 +234,7 @@ def test_scene_constructors_enforce_their_file_sets(tmp_path, settings, monkeypa
         captured["task"] = kw["task"]
         return GenerationResult(ok=True, label=kw["task"].label)
 
-    monkeypatch.setattr(scene_assets, "generate", fake_generate)
+    monkeypatch.setattr(common, "generate", fake_generate)   # the one seam: tracks.common.generate_for
     assert plan.assets, "plan_example(SCENE) is expected to plan assets"
     asset = plan.assets[0]
     scene_assets._generate_asset(ctx, asset, "src/assets/koi.js", language=Language.SCENE_THREEJS, attempt=0)

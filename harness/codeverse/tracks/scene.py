@@ -46,8 +46,8 @@ from codeverse.spatial.frame_motion import motion_text_for
 from codeverse.spatial.render_scene import JUDGE_MAX_VIEWS, perf_detail
 from codeverse.texturing.plan import texture_pack_prompt
 from codeverse.tracks import skills_hook
-from codeverse.tracks.common import RunContext, ServiceUnavailable
-from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
+from codeverse.tracks.common import RunContext, ServiceUnavailable, generate_for, single_shot_ctx
+from codeverse.tracks.generation import GenerationResult, GenerationTask
 from codeverse.tracks.lifecycle import BaseTrack
 from codeverse.tracks.prompting import (
     SCENE_FILES,
@@ -63,9 +63,9 @@ from codeverse.tracks.scene_assets import (
     MAX_ASSETS,
     AssetResult,
     asset_api_summary,
+    read_dedupe_note,
     run_asset_stage,
     select_assets,
-    single_shot_ctx,
 )
 from codeverse.tracks.zone_layout import layout_block, layout_zones
 from codeverse.workspace import Workspace
@@ -114,7 +114,8 @@ class ScenePipeline:
         try:
             from codeverse.spatial.scene_placement import placement_gate_safe
 
-            placement = placement_gate_safe(build.census, plan=ctx.plan, layouts=ctx.extra.get("layouts"))
+            placement = placement_gate_safe(build.census, plan=ctx.plan, layouts=ctx.extra.get("layouts"),
+                                            unavailable=[n for n, r in (ctx.extra.get("assets") or {}).items() if not getattr(r, "ok", True)])
         except Exception as e:  # noqa: BLE001
             log.warning("scene placement gate unavailable: %s", e)
             placement = GateReport(gate="scene_placement", passed=True, findings=[GateFinding(
@@ -246,9 +247,12 @@ class SceneTrack(BaseTrack):
         ctx.extra["layouts"] = staged["layouts"] or {}
         assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v
                   for k, v in (staged["assets"] or {}).items()}
-        # the merge map is a pure function of the plan, so a RESUMED run (cached asset
-        # stage) still tells the zones which builder+variant to call
-        _, alias = select_assets(list(plan.assets), MAX_ASSETS)
+        # the merge map the STAGE used (its cap depends on the soft budget at the time: a
+        # degraded run folded more), read back so a resumed run and the zones agree; the
+        # plan-only recomputation is the fallback for a workspace without the note
+        alias = read_dedupe_note(ctx.ws)
+        if alias is None:
+            _, alias = select_assets(list(plan.assets), MAX_ASSETS)
         ctx.extra["assets"] = assets
         ctx.extra["asset_alias"] = alias
         ctx.extra["asset_api"] = asset_api_summary(plan, assets, alias)
@@ -341,8 +345,7 @@ class SceneTrack(BaseTrack):
                               temperature=0.5, timeout_s=ctx.budget.timeout_s(ENV_TIMEOUT_S, floor_s=120),
                               images=reference_images(ctx))
         task = self._deliver_skills(gen, "env", [task])[0]
-        res = generate(ctx.ws, agent_id=gen.agent_id, task=task, agent=gen.agent, model=gen.model, settings=ctx.settings,
-                       budget=ctx.budget, events=ctx.events)
+        res = generate_for(gen, task)
         self._record_skills(gen, "env")
         ctx.ws.commit("env")
         return {"ok": res.ok, "files": [c.path for c in res.files_changed], "notes": res.notes}
@@ -362,8 +365,7 @@ class SceneTrack(BaseTrack):
 
         def _one(batch: list[ZonePlan]) -> GenerationResult:
             task = skills_hook.with_inlined_skill(zone_gen, [self._zone_task(zone_gen, batch)])[0]
-            return generate(ctx.ws, agent_id=zone_gen.agent_id, task=task, agent=zone_gen.agent, model=zone_gen.model, settings=ctx.settings,
-                            budget=ctx.budget, events=ctx.events)
+            return generate_for(zone_gen, task)
 
         results = fan_out(batches, _one, max_workers=ctx.settings.limits.max_parallel_agents, label="zones",
                           item_name=lambda b: "+".join(z.name for z in b))
@@ -435,8 +437,7 @@ class SceneTrack(BaseTrack):
         task = GenerationTask(label="compose", prompt=prompt, system=self.system_prompt(ctx), files_hint=["src/scene.js"], round=0,
                               kind="compose", temperature=0.4, owns_entry=True, images=reference_images(ctx))
         task = self._deliver_skills(ctx, "compose", [task])[0]
-        res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
-                       budget=ctx.budget, events=ctx.events)
+        res = generate_for(ctx, task)
         self._record_skills(ctx, "compose")
         ctx.ws.commit("compose")
         return {"ok": res.ok, "deterministic": False, "files": [c.path for c in res.files_changed], "notes": res.notes}

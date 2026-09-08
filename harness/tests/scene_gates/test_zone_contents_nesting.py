@@ -70,3 +70,15 @@ def test_a_row_with_no_inner_list_behaves_as_before():
     row = {"name": "Windmill", "zone": "WindmillIsland"}
     assert _missing(contract_findings(_census(row), _plan(["Windmill"]))) == []
     assert _missing(contract_findings(_census(row), _plan(["SkyPine"]))) == ["SkyPine"]
+
+
+def test_an_unavailable_hero_is_not_missing_content():
+    """A hero the asset stage could not build was withheld from the zone ("NOT AVAILABLE —
+    do not reference"); the contract check must not ERROR every round on its absence."""
+    from codeverse.spatial.scene_placement import contract_findings
+
+    plan = {"zones": [{"name": "IncenseTerrace", "contents": ["BronzeCenser", "StoneBench"]}], "assets": []}
+    census = {"placement": {"assets": [{"name": "StoneBench", "zone": "IncenseTerrace", "inner": []}]}}
+    missing = [f for f in contract_findings(census, plan) if f.data.get("kind") == "missing_content"]
+    assert missing and "BronzeCenser" in missing[0].message
+    assert not [f for f in contract_findings(census, plan, unavailable=["BronzeCenser"]) if f.data.get("kind") == "missing_content"]

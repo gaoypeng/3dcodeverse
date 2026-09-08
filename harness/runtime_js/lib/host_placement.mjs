@@ -240,17 +240,44 @@ function collectAssets(scene, indices, volumetrics, contentBox) {
       // and SkyPine were built and named correctly, added to `IslandAssembly`, and three
       // zones were reported as "missing planned contents".
       const inner = [];
+      // Per named FAMILY below this row, the world AABB of each member (a member = one named
+      // descendant, its meshes pooled).  A zone wraps a scatter in one group ('PicketFences' =
+      // twelve 'PicketFence' builder outputs along a path, 'GorseBushClusters' = eight bushes
+      // over 12 m), and the plan sized the INSTANCE: measured 2026-09-07 (loop 9 lighthouse),
+      // the scale check read the wrapper's 14.7 m against the plan's 2.4 m fence, the judge
+      // repeated "6.1x too large", and the repair shrank the whole run to microscopic dots.
+      const members = new Map(); // family -> Map(member object -> [min, max])
       child.traverse((o) => {
         if (!o.visible) return;
-        if (o !== child && o.name && inner.length < MAX_INNER_NAMES && !inner.includes(o.name)) inner.push(o.name);
+        // one slot per FAMILY (Planter_3 / Planter.003 → Planter): the by-name check matches on
+        // the plan's word, and 30 numbered props must not push the hero behind them past the cap
+        const family = o.name ? o.name.replace(/[_.]\d+$/, '') : '';
+        if (o !== child && family && inner.length < MAX_INNER_NAMES && !inner.includes(family)) inner.push(family);
         if (o.isInstancedMesh) instanced += 1;
-        else if (indices.has(o)) meshes.push(indices.get(o));
+        else if (indices.has(o)) {
+          const ci = indices.get(o);
+          meshes.push(ci);
+          for (let m = o; m && m !== child; m = m.parent) {
+            if (!m.name) continue;
+            const fam = m.name.replace(/[_.]\d+$/, '');
+            if (!members.has(fam)) members.set(fam, new Map());
+            const box = members.get(fam).get(m) || [[Infinity, Infinity, Infinity], [-Infinity, -Infinity, -Infinity]];
+            for (let k = 0; k < 3; k++) { box[0][k] = Math.min(box[0][k], ci.min[k]); box[1][k] = Math.max(box[1][k], ci.max[k]); }
+            members.get(fam).set(m, box);
+          }
+        }
         else if (volumetrics.has(o)) volumetric += 1;
       });
       if (!meshes.length && !instanced && !volumetric) continue;
       total += 1;
       if (assets.length >= MAX_ASSETS) continue;
-      const a = { obj: child, name: child.name || `${child.type}_${total}`, zone: zone === child ? '' : (zone.name || zone.type), meshes, instanced, inner, exempt: '' };
+      const families = {};
+      for (const [fam, byMember] of members) {
+        if (byMember.size < 2) continue;
+        const sizes = [...byMember.values()].map(([lo, hi]) => Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2])).sort((x, y) => x - y);
+        families[fam] = { n: sizes.length, size_m: r3(sizes[Math.floor(sizes.length / 2)]) };
+      }
+      const a = { obj: child, name: child.name || `${child.type}_${total}`, zone: zone === child ? '' : (zone.name || zone.type), meshes, instanced, inner, families, exempt: '' };
       if (isFree(zone) || isFree(child)) a.exempt = 'free';
       // instanced first: an asset that is scatter PLUS a haze shell is exempt because its
       // instances cannot be sampled at this budget, which is the more informative reason
@@ -406,8 +433,8 @@ export function placementTable(scene, THREE, opts = {}) {
   let timeCut = false;
   const rows = [];
   for (const a of assets) {
-    const row = { name: a.name, zone: a.zone, meshes: a.meshes.length, instanced: a.instanced, inner: a.inner || [], exempt: a.exempt,
-      bbox: a.min ? boxJson(a.min, a.max) : null };
+    const row = { name: a.name, zone: a.zone, meshes: a.meshes.length, instanced: a.instanced, inner: a.inner || [], families: a.families || {},
+      exempt: a.exempt, bbox: a.min ? boxJson(a.min, a.max) : null };
     if (a.exempt) { rows.push(row); continue; }
     if (Date.now() - t0 > TIME_BUDGET_MS) { row.exempt = 'time_budget'; timeCut = true; rows.push(row); continue; }
     const cols = footColumns(a);

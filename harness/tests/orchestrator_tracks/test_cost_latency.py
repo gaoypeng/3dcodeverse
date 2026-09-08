@@ -8,12 +8,14 @@ import shutil
 import pytest
 
 from codeverse.config import get_settings
+from codeverse.contracts.agent import AgentResult
 from codeverse.contracts.common import Budget, Language, Track
 from codeverse.contracts.plan import AssetPlan, ScenePlan, ZonePlan
 from codeverse.contracts.run import RunStatus
 from codeverse.orchestrator import BudgetExceeded, BudgetGuard, RoundPolicy, RunState
 from codeverse.proc import EventLog
-from codeverse.tracks.common import RunContext
+from codeverse.tracks.common import RunContext, generate_for, single_shot_agent_id, single_shot_ctx
+from codeverse.tracks.generation import GenerationTask
 from codeverse.tracks.planner import plan_example
 from codeverse.tracks.scene import SceneTrack, plan_zone_batches, zone_file
 from codeverse.tracks.scene_assets import (
@@ -22,8 +24,6 @@ from codeverse.tracks.scene_assets import (
     dedupe_assets,
     run_asset_stage,
     select_assets,
-    single_shot_agent_id,
-    single_shot_ctx,
     variant_index,
 )
 from codeverse.workspace import Workspace
@@ -262,6 +262,45 @@ def test_single_shot_ctx_is_none_for_cli_backends(tmp_path, settings):
     assert single_shot_ctx(ctx) is None
     ctx2 = _scene_ctx(tmp_path, settings, services=FakeServices(), agent_id="fake-agent:gemini:x")
     assert single_shot_ctx(ctx2) is None  # FakeServices has no chat model → agent path stays
+
+
+class _StormAgent(FakeAgent):
+    """A CLI session that died at the wall after a 503 streak: nothing written, transient."""
+
+    def run(self, job):
+        self.jobs.append(job)
+        return AgentResult(ok=False, exit_reason="timeout", transient=True,
+                           errors=["killed by watchdog (hard_timeout) after 720s", "11 x 503 inside the CLI's own retry loop before the wall; nothing produced"])
+
+
+def test_a_storm_dead_session_falls_back_to_single_shot(tmp_path, settings):
+    """Loops 10-11 (2026-09-07): 23 of 24 gemini-cli sessions ended timeout / 0 turns / $0 in
+    a 503 storm while every single-shot got through; env and zones shipped the skeleton and
+    judged 0.00-0.14.  The same task goes once more through the hedged single-shot path."""
+    def respond(req):
+        return _envelope("src/env.js", "export function buildEnv() { return {}; }\n")
+
+    services = _ChatServices(FakeChatModel(respond))
+    agent = _StormAgent(lambda j, w: None)
+    ctx = _scene_ctx(tmp_path, settings, services=services, agent=agent, agent_id="fake-agent:gemini:x")
+    task = GenerationTask(label="env", prompt="write `src/env.js`", files_hint=["src/env.js"], round=0, kind="env")
+    res = generate_for(ctx, task)
+    assert res.ok and [c.path for c in res.files_changed] == ["src/env.js"]
+    assert len(agent.jobs) == 1 and services.chat_ids == [ctx.spec.backends.planner]   # the planner backend, always an API model
+    assert "503 storm" in res.notes and "single-shot" in res.notes
+    kinds = [e["event"] for e in _events(ctx)]
+    assert "generate.storm_fallback" in kinds
+
+
+def test_a_plain_failed_session_does_not_fall_back(tmp_path, settings):
+    """An agent that ran and produced nothing (not a storm) keeps its own verdict: the
+    fallback is for the transport being down, not for the task being hard."""
+    services = _ChatServices(FakeChatModel(lambda req: _envelope("src/env.js", "x")))
+    agent = FakeAgent(lambda j, w: None)
+    ctx = _scene_ctx(tmp_path, settings, services=services, agent=agent, agent_id="fake-agent:gemini:x")
+    task = GenerationTask(label="env", prompt="write `src/env.js`", files_hint=["src/env.js"], round=0, kind="env")
+    res = generate_for(ctx, task)
+    assert not res.ok and not res.storm and services.chat_ids == []
 
 
 # ----------------------------------------------------------------------------- salvage

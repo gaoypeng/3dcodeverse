@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 from codeverse.contracts.artifacts import BuildResult, GateReport
+from codeverse.tracks import common as C
 from codeverse.tracks import repair as R
 
 
@@ -46,7 +47,7 @@ def no_generate(monkeypatch):
         calls.append("generate")
         raise AssertionError("the agent must not be asked to repair a harness failure")
 
-    monkeypatch.setattr(R, "generate", boom)
+    monkeypatch.setattr(C, "generate", boom)
     return calls
 
 
@@ -93,9 +94,9 @@ def test_a_real_build_failure_is_still_repaired(monkeypatch):
 
     def fake_generate(ws, **kw):
         seen.append(1)
-        return SimpleNamespace(ok=True, files_changed=[], usage=Usage(), notes="")
+        return SimpleNamespace(ok=True, files_changed=[], usage=Usage(), notes="", storm=False)
 
-    monkeypatch.setattr(R, "generate", fake_generate)
+    monkeypatch.setattr(C, "generate", fake_generate)
     monkeypatch.setattr(R, "make_repair_task", lambda *a, **k: SimpleNamespace(label="t"))
     seq = [(_build(ok=False, msg="TypeError: x is not a function"), GateReport(gate="lint", passed=True, findings=[])),
            (_build(ok=True), GateReport(gate="lint", passed=True, findings=[]))]

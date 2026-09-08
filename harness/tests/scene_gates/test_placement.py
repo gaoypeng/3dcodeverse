@@ -208,6 +208,33 @@ def test_contract_checks_fire_on_atmosphere_contents_scale_and_bounds():
     assert scale.severity == Severity.ERROR and "5.0x" in scale.message
 
 
+def test_a_wrapper_of_instances_is_scale_checked_as_one_instance():
+    """Loop 9 lighthouse (2026-09-07): 'PathAndFence/PicketFences' measured 14.73 m against the
+    plan's 2.4 m fence panel — a 6.1x ERROR the judge repeated and the repair obeyed by
+    shrinking the whole run to dots.  The row's `families` carry the instance."""
+    bb = BBox(center=(0, 0, 0), extents=(40, 8, 40))
+    plan = ScenePlan(
+        title="t", summary="s", setting="headland", mood="blue hour", bounds=bb, environment="dusk",
+        zones=[ZonePlan(name="Yard", description="d", bbox=BBox(center=(0, 0, 0), extents=(20, 8, 20)), contents=["PicketFence"])],
+        assets=[AssetPlan(name="PicketFence", kind="threejs", description="d", approx_size_m=(2.4, 1.2, 0.1))],
+        cameras=[CameraPlan(name="overview", position=(1, 1, 1), look_at=(0, 0, 0), fov=50, purpose="p")])
+    run = _row("PicketFences", h=2.24)
+    run["bbox"] = {"min": [0, 0, 0], "max": [7.3, 2.24, 14.73], "size": [7.3, 2.24, 14.73]}
+    census = {"fog": {"type": "Fog", "near": 10, "far": 60}, "background": "#aabbcc", "placement": _table(run)}
+    scale = [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "scale"]
+    assert len(scale) == 1 and scale[0].severity == Severity.ERROR and "6.1x" in scale[0].message
+
+    run["families"] = {"PicketFence": {"n": 12, "size_m": 2.24}, "Picket": {"n": 72, "size_m": 1.2}}
+    rep = placement_gate_safe(census, plan=plan)
+    assert not [f for f in rep.findings if f.data.get("kind") == "scale"], [f.message for f in rep.findings]
+
+    run["families"] = {"PicketFence": {"n": 12, "size_m": 9.6}}      # the instances really are 4x
+    scale = [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "scale"]
+    assert len(scale) == 1 and scale[0].data["instances"] == 12
+    assert scale[0].message.startswith("each of the 12 picket_fence instances in Yard/PicketFences measures 9.60 m")
+    assert scale[0].data["fix_hint"].startswith("scale each picket_fence") if "fix_hint" in scale[0].data else True
+
+
 def test_contract_checks_stay_quiet_on_a_dressed_in_bounds_scene():
     census = {"fog": {"type": "Fog", "near": 10, "far": 60}, "background": "#aabbcc",
               "placement": _table(_row("Lantern_3", h=0.6), _row("Bench", h=0.9),

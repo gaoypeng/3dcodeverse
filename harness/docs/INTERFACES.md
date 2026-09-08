@@ -292,7 +292,7 @@ from codeverse.spatial.scene_placement import check_placement, placement_finding
 check_placement(ws, *, indoor=None, force_probe=False) -> GateReport   # gate "scene_placement"; data.kind ∈ floating | sunken |
     # unsupported | interpenetration | summary | probe_failed; target "Zone/Asset" (routes to src/zones/<zone>.js);
     # messages carry the scene_v1 floating_part cap words; reads artifacts/census.json["placement"] (host_placement.mjs)
-placement_gate_safe(census, *, plan=None) -> GateReport | None       # round gate: None without a table, WARN on failure, never raises
+placement_gate_safe(census, *, plan=None, layouts=None, unavailable=()) -> GateReport | None   # round gate: None without a table, WARN on failure, never raises; `unavailable` = assets the stage could not build (not "missing planned contents")
 from codeverse.spatial.scene_placement import setting_text          # (plan: dict | model) -> the indoor/outdoor setting line
 from codeverse.spatial.silhouette import compare_silhouette
 from codeverse.spatial.sections import judge_slices, SliceManifest, JUDGE_SLICE_PLANES   # (D48)
@@ -465,13 +465,21 @@ GenerationTask.phase: int = 0   # tasks run in parallel WITHIN a phase, phases i
     # part group (`baseline_<parts>`, own files only), phase 1 = ONE `assemble` session that owns the
     # entry file and the placement gates.  Every other caller is phase 0, i.e. unchanged.
 generate(ws, *, agent_id, task, ..., budget=BudgetGuard, max_turns=0, wrapup_turns=6) -> GenerationResult
+    # GenerationResult.storm: every session died on a transient streak (AgentResult.transient) and wrote nothing
+tracks.common.generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult
+    # THE call every stage makes (env, zones, compose, rounds, repairs, asset ladder, judged fix): generate()
+    # with everything ctx knows, and a storm-dead task retried through single_shot_ctx(ctx) (D68)
+tracks.common.single_shot_agent_id(agent_id, chat_model_id='') -> str · single_shot_ctx(ctx) -> RunContext | None
+    # moved from tracks.scene_assets 2026-09-07 (never scene-specific)
     # GenerationResult adds turns / sessions / turn_capped.  A turn cap is applied ONLY if a caller
     # asks: task.max_turns > max_turns > $CV3D_AGENT_MAX_TURNS > settings.limits.agent_max_turns >
     # DEFAULT_AGENT_MAX_TURNS (0 = leave AgentJob.max_turns at the backend's own default — a 28-turn
     # default was measured and rejected, docs/COST.md §17).  A session that hits a cap that IS set is
     # asked for a final build + summary (WRAPUP_PROMPT) instead of being killed.
     # EVERY session (attempt 1, <label>.a2 retry, <label>.wrapup) is charged as it ends.
-from codeverse.tracks.repair import build_with_repair   # RepairOutcome(.ok/.repaired/.max_attempts, attempts, usage)
+from codeverse.tracks.repair import build_with_repair   # RepairOutcome(.ok/.repaired/.max_attempts, attempts, usage); build_with_repair(ctx, *, round_index, label, files_hint=None, max_attempts=None, timeout_s=None) — timeout_s clips every repair session (a scene asset's window)
+# scene assets (tracks/scene_assets.py): build_threejs_asset / build_blender_asset climb ONE ladder (_ladder: single-shot → check → one feedback repair → agent session); a hero's parts come from the static planner (hero_plan); SceneThreeJsRuntime.render_asset(ws, name, out_dir) renders a module on the hero's quick rig; the assembled scene.js plays every GLB clone's clips (clone.userData.clipOffset de-phases a copy)
+# languages/blender.write_blender_skeleton(ws, plan, *, multi_file=True, ground_tol_m=0.002) — the self-check's stands-on-z=0 tolerance (a scene hero passes 0.02)
 from codeverse.tracks.steps import run_round, skip_judge_reason, emit_round_cost, record_aborted_round
 skip_judge_reason(ctx, *, gates, renders) -> str    # "" = judge it.  ONLY states where the verdict is
     # never bought at all: no judge / no renders / budget already exceeded / gate errors with

@@ -34,6 +34,7 @@ from codeverse.spatial.node import (
     browser_was_lost,
     run_node,
     runtime_js_dir,
+    transient_failure,
 )
 from codeverse.workspace import Workspace
 
@@ -86,7 +87,12 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
             raise SceneRenderError(f"{script} could not run: {e}") from e
 
     r = attempt(env_extra)
-    lost_browser = _driver_failed(r) and browser_was_lost(r.summary.get("error", ""))
+    err = str(r.summary.get("error", "")) if r.summary else r.stderr_tail
+    lost_browser = _driver_failed(r) and browser_was_lost(err)
+    # the rest of the transient vocabulary (`node.TRANSIENT_MARKERS`): a host that timed out
+    # waiting for the page under contention ("Waiting failed: 60000ms exceeded") — the object
+    # path retried it, this one did not, and a battery cell lost every render to it
+    transient = not lost_browser and _driver_failed(r) and transient_failure(err)
     # Every scene driver ends with a JSON summary line (`lib/cli.finish` / `fail`), so a run
     # that produced none had its stdout tail dropped — `proc._ABANDONED`, which a loaded box
     # makes routine.  That is transient and worth one more attempt; without it the empty
@@ -94,14 +100,16 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
     # boot" and spend the round's repair budget on a defect that was never there
     # (desert_canyon, bench/out/scene_baseline, 2026-09-05).
     lost_output = not lost_browser and not r.summary
-    if lost_browser or lost_output:
+    if lost_browser or lost_output or transient:
         log.warning(
-            "%s %s; retrying once on an owned browser",
+            "%s %s; retrying once%s",
             script,
-            f"lost its browser ({str(r.summary.get('error'))[:200]})" if lost_browser
-            else f"exited {r.rc} with no summary line (output lost)",
+            f"lost its browser ({err[:200]})" if lost_browser
+            else f"exited {r.rc} with no summary line (output lost)" if lost_output
+            else f"failed transiently ({err[:200]})",
+            "" if transient else " on an owned browser",
         )
-        r = attempt({**env_extra, **OWN_BROWSER_ENV})
+        r = attempt(env_extra if transient else {**env_extra, **OWN_BROWSER_ENV})
     summary = r.summary
     if _driver_failed(r):
         raise SceneRenderError(

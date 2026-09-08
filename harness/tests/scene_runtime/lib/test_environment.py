@@ -116,6 +116,9 @@ for (const b of [8, 25, 60, 150, 400, 1200]) {
                    normalBias: r.sun.shadow.normalBias };
 }
 out.nightFloor = sunRig({ mood: 'night', fill: 0.2 }).fill.intensity;
+const tinted = sunRig({ mood: 'golden', fillSky: 0x7a5aa0, fillGround: 0x3a2e22 });
+out.tinted = { sky: tinted.fill.color.getHex(), ground: tinted.fill.groundColor.getHex(),
+  nadir: sample(tinted, new THREE.Vector3(0, -1, 0)), plainNadir: sample(sunRig({ mood: 'golden' }), new THREE.Vector3(0, -1, 0)) };
 out.discOptional = sunRig({ mood: 'day', disc: false }).sunDisc === null;
 const floors = (o) => { const r = sunRig(o); return { sun: r.sun.intensity, fill: r.fill.intensity }; };
 out.floors = { dayAsked: floors({ mood: 'day', intensity: 2.8, fill: 0.65 }), goldenAsked: floors({ mood: 'golden', intensity: 2.0, fill: 0.3 }),
@@ -175,6 +178,15 @@ def test_the_night_rig_is_dark_but_lit(sun):
     assert sun["nightFloor"] >= 0.55
     zl = 0.2126 * n["zenith"][0] + 0.7152 * n["zenith"][1] + 0.0722 * n["zenith"][2]
     assert zl < 0.03 and n["zenith"][2] > n["zenith"][0], n["zenith"]
+
+
+def test_the_fill_colours_can_be_tinted_and_the_env_ground_half_follows(sun):
+    """The cookbook's time-of-day rows tint the hemisphere (cool sky / warm ground per hour);
+    the boat-workshop run (loop 8, 2026-09-07) passed `fillSky`/`fillGround` and the rig
+    silently ignored them."""
+    t = sun["tinted"]
+    assert t["sky"] == 0x7A5AA0 and t["ground"] == 0x3A2E22, t
+    assert t["nadir"] != t["plainNadir"], "the baked ground bounce follows the override"
 
 
 def test_the_shadow_sun_is_fitted_and_biased(sun):

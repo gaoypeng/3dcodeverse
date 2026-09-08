@@ -58,11 +58,15 @@ The chapters behind these rules are printed in full at the end of this brief
    shallow shelf) — never a hard-edged disc or square laid on top of the ground, which always
    shows its outline from the overview cameras.
 4. **Coloured atmosphere, not monochrome.**  Warm key + cool fill (or the reverse) with >= 60
-   degrees of hue between them; shade must carry sky colour, never black — with the sun below
-   25 degrees elevation keep the hemisphere intensity >= 1.0 or the shadows render pitch black
-   and trip the `unlit_or_blown` defect (cap 0.60).  Add 3-4 haze bands
+   degrees of hue between them (`sunColor` vs `fillSky` on the rig); shade must carry sky
+   colour, never black — with the sun below 25 degrees elevation keep the rig's `fill` >= 1.0
+   or the shadows render pitch black and trip the `unlit_or_blown` defect (cap 0.60).  Add 3-4 haze bands
    (`depthWrite:false`, opacity 0.04-0.10, fog colour) for aerial perspective, and light shafts
    if the brief mentions sun through something.
+4b. **Keep `scene.environment`.**  The skeleton lights the scene with `sunRig()` from
+   `lib/environment.js` and assigns its `envTex` to `scene.environment`; metals and glass read
+   from that map and render near black without it.  Change the mood/azimuth through the rig's
+   options, not by replacing it with bare lights.
 5. **Shadows must not be jagged.**  Shadow texel = `2 x shadowSpan / mapSize` <= 0.05 m: fit the
    shadow camera to the BOUNDS (not the whole ground), then pick mapSize 2048 (span <= 30 m) /
    3072 (<= 60 m) / 4096 (larger).  `bias = -0.0004`, `normalBias = 0.02`.

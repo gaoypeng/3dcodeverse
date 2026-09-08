@@ -49,6 +49,18 @@ def test_classifier_rule_table():
     assert got == [c[4] for c in CASES], list(zip([c[0] for c in CASES], got, strict=True))
 
 
+def test_a_small_thing_kilometres_away_is_sky_whatever_its_name():
+    """`sunRig` parks its 'SunDisc' (no word boundary for SKY_NAME_RE) at 3 600 m: content by
+    name, and it blew the content bbox to 2.5 km — the overview rig then framed the sun."""
+    body = f"""
+import {{ classifyBackdrop }} from '{RUNTIME_JS}/lib/backdrop.mjs';
+const disc = classifyBackdrop({{ name: 'SunDisc' }}, {{ min: {{ x: 2100, y: 2600, z: 1800 }}, max: {{ x: 2148, y: 2648, z: 1848 }} }}, 40);
+const near = classifyBackdrop({{ name: 'SunDisc' }}, {{ min: {{ x: 10, y: 20, z: 10 }}, max: {{ x: 58, y: 68, z: 58 }} }}, 40);
+console.log(JSON.stringify([disc, near]));
+"""
+    assert run_node_json(body) == ["sky", "content"]
+
+
 def test_the_rules_live_in_exactly_one_file():
     hits = []
     for p in sorted((RUNTIME_JS / "lib").rglob("*.mjs")) + sorted((RUNTIME_JS / "lib").rglob("*.js")):

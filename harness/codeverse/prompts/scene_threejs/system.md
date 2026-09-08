@@ -63,8 +63,11 @@ Rules that survive every brief:
 * **Light before colour, and light before detail.** Get the frame into a readable band
   first. Hue, material and geometry work are all invisible on near-black pixels, and every
   hour you spend on them before the exposure is right is an hour the judge cannot see.
-  A starting point that usually reads: `DirectionalLight` 2–4 as key, `HemisphereLight`
-  0.5–1.0 (sky colour over ground colour) as fill, `scene.fog` the same colour as the sky.
+  The starter's `env.js` already builds the light that reads: `sunRig({ mood, azimuth,
+  elevation, … })` from `lib/environment.js` — sun, hemisphere fill, the environment map
+  metals read from, the disc, and per-mood floors it clamps UP to.  Pick the mood, tint
+  through `sunColor` / `fillSky` / `fillGround`, raise `intensity` / `fill`; never a second
+  DirectionalLight on top of it.  `scene.fog` is the sky's horizon colour.
 * **Author a camera.** The harness's orbit rig is a fallback, not your picture; a scene
   judged only on the rig is a scene you did not frame.
 * **Things rest on things.** `check_placement` measures the gap from each asset's feet to

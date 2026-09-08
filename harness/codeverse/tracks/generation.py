@@ -340,6 +340,12 @@ class GenerationResult(BaseModel):
     turn_capped: bool = Field(
         default=False, description="a session hit the turn budget and was wrapped up"
     )
+    storm: bool = Field(
+        default=False,
+        description="every session died on a transient-failure streak (AgentResult.transient) and "
+        "nothing was written — the agent route is down, not the task; tracks fall back to the "
+        "hedged single-shot path (tracks.common.generate_for)",
+    )
 
 
 # ----------------------------------------------------------------------------- strategies
@@ -655,6 +661,7 @@ def run_agent_task(
         turns=acc.turns,
         sessions=acc.sessions,
         turn_capped=acc.wrapped,
+        storm=not changes and bool(res.transient),
     )
 
 
