@@ -214,6 +214,10 @@ def _env_for_plan(plan: ScenePlan) -> str:
     text = re.sub(r"export const GROUND_SIZE = \d+;", f"export const GROUND_SIZE = {ground};", text)
     text = re.sub(r"const FOG_NEAR = \d+, FOG_FAR = \d+;", f"const FOG_NEAR = {fog_near}, FOG_FAR = {fog_far};", text)
     text = re.sub(r"const SKY_RADIUS = \d+;", f"const SKY_RADIUS = {int(max(600, ground * 3))};", text)
+    if plan.interior:
+        c = [round(float(v), 2) for v in plan.bounds.center]
+        e = [round(float(v), 2) for v in ex]
+        text = re.sub(r"export const INTERIOR = null;", f"export const INTERIOR = {{ center: {c}, extents: {e}, openings: [] }};", text)
     header = (
         f"// ENV PLAN: {plan.environment.strip()}\n"
         f"// setting: {plan.setting.strip()}  mood: {plan.mood.strip()}\n"

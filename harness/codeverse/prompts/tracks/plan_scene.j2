@@ -99,7 +99,12 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
      2026-08-25: a brief reading "INSIDE a boatbuilder's workshop, sun raking through a dusty
      window wall" was planned as "Coastal boatyard, clear dusk" and built faithfully as an
      outdoor yard with no walls and no roof — it passed every gate and scored 0.4653.  Write
-     the premise down and the rest of the plan stays anchored to it;
+     the premise down and the rest of the plan stays anchored to it — and when that premise
+     is INSIDE a built space, set `interior: true`: the environment module then builds the
+     enclosure on the bounds' faces (floor, walls, ceiling, with openings where `environment`
+     puts the windows and doors) and the zones dress the inside.  Measured 2026-09-07 on
+     six interior runs: with no owner for walls and roof, every one was judged "not
+     enclosed, a diorama on a flat plane" (0.0–0.3) until a refine round built them;
    - mark everything else `priority: should` — craft goals, counts, specific patterns, exact
      heights, fps and anything needing evidence the judge may not have;
    - never write a `must` whose wording contains a number, a named style, or the word "and"

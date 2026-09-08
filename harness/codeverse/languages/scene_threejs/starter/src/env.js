@@ -3,11 +3,15 @@
 //   export function heightAt(x, z) → ground height (m) so zones can seat objects.
 import * as THREE from 'three';
 import { makeSkyMaterial } from './shaders/sky.js';
-import { sunRig } from './lib/environment.js';
+import { roomShell, sunRig } from './lib/environment.js';
 
 export const SUN_AZIMUTH_DEG = 60;    // where the sun is (0 = +Z front, CCW from above); cameras on the sun side are front-lit
 export const SUN_ELEVATION_DEG = 38;
 export const GROUND_SIZE = 160;       // ground plane extent (m); fog is tuned to it
+// An INTERIOR plan (the skeleton fills this from plan.bounds): the room shell — floor is the
+// ground, walls and ceiling on the bounds' faces.  Cut the plan's windows and doors as
+// `openings` (see lib/environment.js roomShell) and light the inside; never delete it.
+export const INTERIOR = null;         // e.g. { center: [0, 3, 0], extents: [14, 6, 16], openings: [{ face: 'west', center: [8, 2.5], size: [6, 3] }] }
 const FOG_NEAR = 60, FOG_FAR = 260;
 const SKY_RADIUS = 600;
 
@@ -38,6 +42,7 @@ export function buildEnv(ctx) {
   ground.name = 'Ground';
   ground.receiveShadow = true;
   group.add(ground);
+  if (INTERIOR) group.add(roomShell(INTERIOR));   // the enclosure exists before anyone dresses the room
 
   const az = (SUN_AZIMUTH_DEG * Math.PI) / 180, el = (SUN_ELEVATION_DEG * Math.PI) / 180;
 

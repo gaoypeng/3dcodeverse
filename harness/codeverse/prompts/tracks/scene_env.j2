@@ -6,6 +6,16 @@ Bounds: {{ bounds }}
 
 ## Environment plan (realise these numbers)
 {{ environment }}
+{% if interior %}
+## This is an INTERIOR — the enclosure is yours
+The skeleton already builds the room: `export const INTERIOR = { center, extents, openings }` feeds
+`roomShell()` from `lib/environment.js` — floor (the ground), four walls and a ceiling on the bounds'
+faces.  Keep it.  Your job: cut the plan's windows and doors as `openings` (face, centre along the
+wall / up from the floor, size, metres), glaze or frame them, and LIGHT THE INSIDE (the sun rig is
+outside: without openings and practicals a closed room reads black).  Measured 2026-09-07 over six
+interior runs: with no owner for walls and roof, every one was judged "not enclosed, a diorama on
+a flat plane, tool racks floating at a missing wall" (0.0–0.3).
+{% endif %}
 
 ## Contract
 {{ frame_doc }}

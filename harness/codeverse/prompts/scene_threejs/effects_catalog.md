@@ -41,6 +41,7 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 | the land between the content and the horizon | `makeOutskirts({ inner, baseY, heightAt, shellRadius, colors, seed })` — `lib/environment.js`; seam-matched relief, field patchwork and wooded clusters.  A bare oversized ground plane measured as "a diorama on a vast, empty flat plane" |
 | a Blender hero's own keyframed motion (the GLB carries a clip) | nothing to call — the assembled scene plays every clone's clips; `clone.userData.clipOffset = 0.7` de-phases a copy |
 | the sun, the fill and the baked environment | `sunRig({ azimuth, elevation })` — `lib/environment.js`; returns `{ sun, fill, sunDisc, envTex, sunDir }`.  Add the lights, assign `scene.environment = rig.envTex` |
+| an interior's walls, ceiling and window/door openings | `roomShell({ center, extents, openings, thickness, wallColor, ceilingColor })` — `lib/environment.js`; walls outward of the bounds' faces (inner face = bounds face), openings cut as span / sill / lintel panels.  The skeleton's env.js builds it from its INTERIOR constant for an interior plan; six runs measured "not enclosed, a diorama on a flat plane" without one |
 | the sky itself | `makeSky(scene, { rig })` — `lib/sky.js`; the dome IS the backdrop, so `scene.background` stays null |
 | cloud, cirrus | `makeClouds({ preset, sunDir })` · `makeCirrus()` — `lib/clouds.js` |
 | stars, the Milky Way, aurora, heat shimmer | `makeStars` · `makeAurora` · `makeHeatShimmer` — `lib/celestial.js` |

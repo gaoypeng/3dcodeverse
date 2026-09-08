@@ -1094,6 +1094,25 @@ written) that were accepted because the code works that way and the tests pin it
   keep retrying.  `single_shot_agent_id` / `single_shot_ctx` moved from `scene_assets` to
   `tracks.common` with it (they were never scene-specific).
 
+* **D69 An interior scene's enclosure has an owner: the environment, from the plan's bounds
+  (2026-09-07).**  Six interior runs of the day (boat workshop x4, clockmaker x2) were judged
+  "not enclosed — a diorama on a flat plane, tool racks floating at a missing wall" (0.0–0.3)
+  and only a refine round built the walls and roof.  The planner already wrote the premise
+  ("inside an enclosed workshop") and even a zone called `WindowWall`; the env brief's rules
+  were all outdoor (ground, world edge, floor height), the zones dressed their boxes, and
+  nobody was told whose the walls are.  The bare one-file baseline of the same brief built
+  the room first and scored 0.82 under the fixed judge; the harness's own round 0 sat at
+  0.30–0.57 and needed a round (20–30 min) to reach 0.73–0.93.  `ScenePlan.interior` names
+  the case (typed, set by the planner with the premise); `lib/environment.js roomShell()`
+  builds four walls and a ceiling OUTWARD of the bounds' faces (inner face = bounds face, so a
+  zone that stays in bounds is never in a wall) with rectangular openings cut as span / sill /
+  lintel panels; the skeleton's `env.js` carries `INTERIOR = { center, extents, openings: [] }`
+  from the plan so the enclosure exists before any session starts (a storm-dead env session
+  ships a room, not a plane); the env brief claims the openings and the light, the zone brief
+  forbids walls and puts fixtures flush to the bounds.  Not a wrapper that re-centres or
+  grounds anything (L7): harness-owned starter geometry, like `worldShell` (D51), that the
+  agent edits.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven
