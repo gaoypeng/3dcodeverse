@@ -43,3 +43,35 @@ console.log(JSON.stringify({{ cap: MAX_INNER_NAMES, inner: row.inner, hasHero: r
     assert got["hasHero"], got
     assert "Planter" in got["inner"] and "Planter_0" not in got["inner"], got
     assert len(got["inner"]) <= got["cap"]
+
+
+def test_a_wrapper_of_scattered_instances_reports_the_instance_size():
+    """`families`: twelve 2.2 m fence panels along a 15 m path are one row ('PicketFences');
+    the row's bbox is the run, `families.PicketFence` is the panel (loop 9 lighthouse,
+    2026-09-07: the scale check read 14.7 m against the plan's 2.4 m panel)."""
+    body = f"""
+import * as THREE from 'three';
+import {{ sceneCensus }} from '{RUNTIME_JS}/lib/host_census.mjs';
+const solid = new THREE.MeshStandardMaterial();
+const panel = (i) => {{
+  const g = new THREE.Group(); g.name = 'PicketFence';
+  for (let p = 0; p < 6; p++) {{ const m = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.2, 0.03), solid); m.name = 'Picket_' + p; m.position.set(-1.0 + p * 0.4, 0.6, 0); g.add(m); }}
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.06, 0.03), solid); rail.name = 'Rail'; rail.position.set(0, 0.9, 0); g.add(rail);
+  g.position.set(0, 0, i * 1.25); return g;
+}};
+const scene = new THREE.Scene();
+const env = new THREE.Group(); env.name = 'Environment'; scene.add(env);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60, 8, 8), solid); ground.name = 'Ground'; ground.rotation.x = -Math.PI / 2; env.add(ground);
+const zone = new THREE.Group(); zone.name = 'PathAndFence'; scene.add(zone);
+const run = new THREE.Group(); run.name = 'PicketFences';
+for (let i = 0; i < 12; i++) run.add(panel(i));
+zone.add(run);
+scene.updateMatrixWorld(true);
+const row = sceneCensus(scene, THREE, {{ placement: true }}).placement.assets.find((a) => a.name === 'PicketFences');
+console.log(JSON.stringify({{ size: row.bbox.size, families: row.families }}));
+"""
+    got = run_node_json(body)
+    assert got["size"][2] > 13, got                       # the run
+    fam = got["families"]["PicketFence"]
+    assert fam["n"] == 12 and 2.1 < fam["size_m"] < 2.3, got   # the panel
+    assert got["families"]["Picket"]["n"] == 72 and got["families"]["Picket"]["size_m"] < 1.3, got

@@ -87,6 +87,21 @@ class AssetRow(BaseModel):
                     "often wraps its content in one group, and the plan-contents check has to "
                     "see through it",
     )
+    families: dict[str, dict[str, float]] = Field(
+        default_factory=dict,
+        description="per named family below this row with >= 2 members: {n, size_m} — the median "
+                    "largest extent of ONE member, so a wrapper holding twelve fence panels is "
+                    "scale-checked as a fence panel, not as the 15 m run",
+    )
+
+    def instance_size(self, key: str) -> tuple[int, float]:
+        """``(members, median largest extent)`` of the family the plan's ``key`` names inside
+        this row, ``(0, 0.0)`` when the row is not a wrapper of such instances."""
+        best = (0, 0.0)
+        for fam, v in self.families.items():
+            if key in to_snake(fam) and int(v.get("n", 0)) >= 2 and float(v.get("size_m", 0.0)) > 0 and int(v["n"]) > best[0]:
+                best = (int(v["n"]), float(v["size_m"]))
+        return best
 
     @property
     def qualified(self) -> str:
@@ -454,7 +469,12 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         key = next((k for k in sizes if k in rk), "")
         if not key:
             continue
-        measured = max(float(v) for v in r.bbox["size"])
+        # a wrapper of instances is measured as ONE instance: the plan sized the fence panel, the
+        # row is the whole run (host_placement `families`)
+        n, measured = r.instance_size(key)
+        what = f"each of the {n} {key} instances in {r.qualified}" if n else r.qualified
+        if not n:
+            measured = max(float(v) for v in r.bbox["size"])
         f = measured / sizes[key]
         if f > SCALE_ERROR or f < 1 / SCALE_ERROR:
             sev = Severity.ERROR
@@ -462,9 +482,9 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
             sev = Severity.WARN
         else:
             continue
-        out.append(_f(sev, f"{r.qualified} measures {measured:.2f} m but the plan sized {key} at ~{sizes[key]:.2f} m ({f:.1f}x)",
-                      target=r.qualified, kind="scale", factor=round(f, 2), zone=r.zone,
-                      hint=f"scale {r.name} so its largest dimension is ~{sizes[key]:.2f} m as planned"))
+        out.append(_f(sev, f"{what} measures {measured:.2f} m but the plan sized {key} at ~{sizes[key]:.2f} m ({f:.1f}x)",
+                      target=r.qualified, kind="scale", factor=round(f, 2), zone=r.zone, instances=n,
+                      hint=f"scale {'each ' + key if n else r.name} so its largest dimension is ~{sizes[key]:.2f} m as planned"))
     # -- content inside the world bounds
     bounds = _plan_bounds(plan)
     if bounds:

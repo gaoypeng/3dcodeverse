@@ -43,7 +43,7 @@ def test_dark_frame_is_error_on_authored_with_concrete_hint():
     f = rep.findings[0]
     assert f.data["kind"] == "dark_frame" and f.severity == Severity.ERROR and f.target == "Establishing"
     assert "0.07" in f.message and "41%" in f.message
-    assert "DirectionalLight" in f.fix_hint and "HemisphereLight" in f.fix_hint and "NOT black" in f.fix_hint
+    assert "sunRig(" in f.fix_hint and "fill" in f.fix_hint and "NOT black" in f.fix_hint   # the rig env.js builds, not a second sun
     assert f.data["view"] == "Establishing" and f.data["mean_lum"] == 0.07
 
 

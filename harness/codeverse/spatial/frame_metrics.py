@@ -49,7 +49,9 @@ EYE_MAX_ABOVE_GROUND_M = 80.0
 
 #: for a frame that is dark AND flat -- nothing is lit, so adding light is right
 _DARK_HINT = (
-    "raise the key + fill: DirectionalLight intensity 2–4, HemisphereLight 0.5–1.0 (sky colour / ground colour), "
+    "raise the light through the rig env.js already builds — `sunRig({ mood: 'day'|'golden'|'night'|'overcast', "
+    "intensity, fill, … })`: pick the brief's mood (a set sun, elevation < 0, is the night rig), raise `intensity` (key, "
+    "the rig clamps requests below its floor UP) and `fill` (hemisphere, 1.0–2.0) — do not add a second sun on top; "
     "add emissive lights where the brief has them (lantern glow: MeshStandardMaterial emissive + emissiveIntensity 2–6, "
     "a PointLight 0.5–2 per lantern); scene.fog colour must match the sky colour; dusk/night is orange/purple/deep blue, "
     "NOT black — keep mean luminance ≥ 0.15 (check with scene_views: camera_checks.mean_lum)"

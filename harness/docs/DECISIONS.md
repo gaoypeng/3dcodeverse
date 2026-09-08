@@ -980,7 +980,7 @@ written) that were accepted because the code works that way and the tests pin it
   is exactly why validating on it was not enough.  The measurement stands and is worth
   redoing with a discriminator that asks the right question (how far the eye is from the
   CONTAINING mesh's own surface, not from anything at all); the rule does not ship on this
-  evidence.
+  evidence.  (Done 2026-09-07 with that discriminator — D67.)
 
 * **D63 A scene hero climbs the same ladder as a module, and its GLB is checked like one
   (2026-09-07).**  Measured over the 18 `blender_glb` heroes in the recorded batteries
@@ -1037,6 +1037,30 @@ written) that were accepted because the code works that way and the tests pin it
   still judged nothing (measured over two scenes: 1e-5 .. 2e-3 of the scene volume), so
   the plan's largest module of at least 1 m³ is judged whatever its share — one extra
   verdict per scene at most; a bollard is not a hero, a boat is.
+
+* **D67 Two placement-side false positives that cost whole rounds, measured on loop 9 and
+  fixed at the source (2026-09-07).**  (1) *Scale of a wrapper.*  A zone wraps a scatter in
+  one group and the census row is the wrapper: the lighthouse's `PathAndFence/PicketFences`
+  (twelve 2.2 m panels along a path) measured 14.73 m against the plan's 2.4 m panel, a
+  "6.1x" ERROR the judge repeated ("towering over the camera" — the frame shows a knee-high
+  fence) and the repair obeyed by shrinking the whole run to dots; `GorseBushClusters` (8.6x)
+  and `CoastalRockOutcrops` (9.1x) the same.  Rows now carry `families` — per named family
+  below the row with >= 2 members, the median largest extent of ONE member — and the scale
+  check measures the family the plan's key names (`AssetRow.instance_size`), falling back to
+  the row's box when the row is not such a wrapper.  Re-probed on the recorded round-0
+  workspace: four scale ERRORs → none; the instances the plan sized are 0.6 m gorse (plan
+  1.5), 2.16 m fence panels (2.4), 4.9 m rocks (3.8).  (2) *"Inside" is the mesh's volume.*
+  The windmill's `MillDetail` camera was `camera_in_geometry` for three rounds with
+  `nearest_hit_m` 4.9: the 22 m lattice sails own a 22 x 22 m world box that is nearly all
+  air, and the box term alone said inside.  This is the discriminator D62 asked for and
+  declined to guess at: `eyeInsideMesh` decides by ray parity over the mesh's own triangles
+  (six skewed rays, majority; both faces, so the FrontSide `BarCounter` of
+  `test_a_lens_inside_geometry_retreats_until_clear` still counts and the buried-camera
+  repair keeps working), the box stays the pre-filter.  Re-rendered on the recorded round-1
+  workspace: `MillDetail` inside [] / nearest 12.0 m.  Also: the dark-frame hint now speaks
+  the rig's vocabulary (`sunRig({ mood, intensity, fill })`) instead of telling the agent to
+  add a second DirectionalLight on top of the rig the starter builds (D65) — the loop-9
+  lighthouse did exactly that.
 
 ## Rejected / deferred
 

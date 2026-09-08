@@ -101,7 +101,7 @@ def test_dark_variant_raises_dark_frame_errors(starter_ws: Workspace):
     assert not gate.passed
     dark = [f for f in gate.findings if f.data.get("kind") == "dark_frame"]
     assert dark and all(f.severity == "error" for f in dark)
-    assert dark[0].target == "overview" and "HemisphereLight" in dark[0].fix_hint and "NOT black" in dark[0].fix_hint
+    assert dark[0].target == "overview" and "sunRig(" in dark[0].fix_hint and "NOT black" in dark[0].fix_hint
     assert dark[0].data["mean_lum"] < 0.12 or dark[0].data["dark_frac"] > 0.35
 
 
