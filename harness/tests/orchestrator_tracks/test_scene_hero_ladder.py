@@ -235,3 +235,43 @@ def test_the_largest_module_is_judged_and_the_small_ones_are_not(tmp_ws, setting
     assert SA._judge_wanted(ctx, small, ok, judge=True) is False
     events = [json.loads(line) for line in tmp_ws.events_path.read_text().splitlines()]
     assert [e["asset"] for e in events if e["event"] == "asset.judge_skipped"] == [small.name]
+
+
+def test_a_thin_hero_plan_is_asked_again_with_the_sheets_features_as_the_checklist(tmp_ws, settings):
+    """The windmill got a one-part plan twice while every other hero got 7-12 parts: a plan
+    of <= HERO_THIN_PLAN_PARTS parts for a sheet naming more features is re-asked ONCE with
+    those features as must_have (what sizes the planner's part budget)."""
+
+    calls = []
+
+    class ThinUntilTheChecklist(SingleShotServices):
+        """One part for every ask that carries no checklist — the planner's own in-context
+        re-ask and restart included, which is what the windmill did — and the real list once
+        the features are in must_have."""
+
+        def _answer(self, req):
+            if req.response_schema is not None:
+                text = " ".join(p.text for m in req.messages for p in m.parts if getattr(p, "text", ""))
+                # the description names the lid in EVERY ask; only the retry puts it on the checklist
+                calls.append("MUST HAVE: a hinged lid" in text)
+                if "MUST HAVE: a hinged lid" not in text:
+                    ex = dict(plan_example(Track.STATIC_OBJECT))
+                    ex["parts"] = [ex["parts"][0]]              # one part
+                    return ex
+                return plan_example(Track.STATIC_OBJECT)        # the real list
+            return self.model_text
+
+    services = ThinUntilTheChecklist()
+    ctx, hero = _scene(tmp_ws, settings, services=services, agent=FakeAgent(_writer(GOOD_MODEL)))
+    hero = hero.model_copy(update={"description": "a slatted crate with a hinged lid, rope handles, iron corner straps and a chalked label"})
+    assert len(SA.hero_features(hero.description)) > SA.HERO_THIN_PLAN_PARTS
+    res = SA.build_blender_asset(ctx, hero, judge=False)
+    # the planner's own asks (no checklist) came first and stayed thin; the retry's asks carry
+    # the checklist and are the last — the planner may re-ask once more INSIDE that one retry
+    assert res.ok and calls[0] is False and calls[-1] is True, calls
+    events = [json.loads(line) for line in tmp_ws.events_path.read_text().splitlines()]
+    thin = [e for e in events if e["event"] == "asset.plan_thin"]
+    assert len(thin) == 1, [e["event"] for e in events]                     # exactly one retry
+    assert thin[0]["n_parts"] == 1 and "a hinged lid" in thin[0]["features"]
+    plan = json.loads((tmp_ws.root / "_assets" / SA.to_snake(hero.name) / "plan.json").read_text())
+    assert len(plan["parts"]) > 1

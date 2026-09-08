@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import shutil
 import struct
 from collections.abc import Callable
@@ -353,6 +354,8 @@ def _inline(ctx: RunContext, files: list[str]) -> str:
 HERO_MAX_TRIS = 40_000
 HERO_ENTRY = "src/model.py"
 HERO_GROUND_TOL_M = 0.02
+#: a hero plan with this many parts or fewer, for a sheet naming more features, is asked again once
+HERO_THIN_PLAN_PARTS = 2
 
 
 def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
@@ -476,6 +479,16 @@ def hero_plan(sub: RunContext, asset: AssetPlan) -> StaticPlan:
         model = sub.services.chat_model(sub.spec.backends.planner)
         plan = run_planner(sub.spec, sub.spec.backends.planner, StaticPlan, sub.ws, model=model, events=sub.events,
                            budget=sub.budget, runtime=sub.runtime, **track._plan_kwargs(sub.spec))
+        features = hero_features(asset.description)
+        if len(plan.parts) <= HERO_THIN_PLAN_PARTS and len(features) > HERO_THIN_PLAN_PARTS:
+            # a one-part answer for a prop whose sheet names several features (the windmill got
+            # 'BrickBase' alone twice on 2026-09-07 while every other hero got 7-12 parts): ask
+            # ONCE more with the features as the checklist, which is what sizes the planner's
+            # part budget (plan_budget: must_have) and names the parts it must list
+            sub.events.emit("asset.plan_thin", asset=asset.name, n_parts=len(plan.parts), features=features)
+            spec2 = sub.spec.model_copy(update={"constraints": sub.spec.constraints.model_copy(update={"must_have": features})})
+            plan = run_planner(spec2, spec2.backends.planner, StaticPlan, sub.ws, model=model, events=sub.events,
+                               budget=sub.budget, runtime=sub.runtime, **track._plan_kwargs(spec2))
     except Exception as e:  # noqa: BLE001 — PlanningError / outage: the sheet still says what the prop is
         from codeverse.orchestrator import BudgetExceeded
 
@@ -486,6 +499,21 @@ def hero_plan(sub: RunContext, asset: AssetPlan) -> StaticPlan:
         return asset_plan(asset)
     sub.events.emit("asset.planned", asset=asset.name, n_parts=len(plan.parts))
     return plan
+
+
+def hero_features(description: str, limit: int = 8) -> list[str]:
+    """The features an asset sheet names — its clauses of two words or more — as a checklist.
+
+    'an octagonal brick base, a thatched body, a cap with a gallery and four lattice sails'
+    → four items; the planner's part budget is sized from must_have (plan_budget)."""
+    out: list[str] = []
+    for clause in re.split(r"[;,]|\band\b|\bwith\b|\bplus\b", description):
+        words = clause.strip(" .:()").split()
+        if len(words) >= 2 and clause.strip() not in out:
+            out.append(" ".join(words))
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _blender_check(ctx: RunContext, asset: AssetPlan, files: list[str], *, label: str, timeout_s: int) -> AssetCheck:
