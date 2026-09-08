@@ -9,6 +9,10 @@ Scene: {{ spec_prompt }} · Setting: {{ setting }} · Mood: {{ mood }}
   never build walls or a roof here.  Fixtures on a wall sit flush against the inner face of the bounds;
   a window or door is an OPENING env cut, so glazing and door leaves go in the opening, not through the wall.
 {% endif %}- Contents (asset names to place): {{ zone_contents | join(', ') if zone_contents else '(none — build local detail from primitives)' }}
+- Every builder returns its asset AT THE SIZE the asset API states; place it at scale 1 (per-instance jitter
+  within +/-30 %, never a re-size to "fit").  The placement gate measures every placed thing against the
+  plan's size: > 2.5x or < 0.4x is an ERROR the judge repeats (measured 2026-09-08, round 0: a 1.15 m stove
+  placed at 3.60 m, 0.48 m oil lamps at 0.03 m — both cost the round).
 
 {% if layout is defined and layout %}## Zone director's layout (realise EXACTLY these placements; positions are world meters)
 {{ layout }}

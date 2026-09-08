@@ -178,3 +178,16 @@ def test_the_env_and_zone_briefs_hand_the_enclosure_to_env_for_an_interior() -> 
     zone_out = render("tracks/scene_zone.j2", **base, interior=False)
     assert "never build walls or a roof" in zone_in and "flush against the inner face" in zone_in
     assert "never build walls" not in zone_out
+
+
+def test_the_zone_brief_says_builders_are_already_at_size() -> None:
+    """2026-09-08 (loop 14 round 0): a 1.15 m stove placed at 3.60 m and 0.48 m lamps at 0.03 m —
+    the asset API states every size, and nothing told the zone author to place at scale 1."""
+    from codeverse.prompts import render
+
+    base = dict(title="t", spec_prompt="p", setting="s", mood="m", bounds="b", environment="e", frame_doc="", contract="",
+                zones_table="", cameras="", effects="", animation="", asset_api="", textures="", recipes="", constraints_text="",
+                references="", skills="", tool_cards="", zone_name="Z", zone_description="d", zone_bbox="bb", zone_contents=["Stove"],
+                zone_file="src/zones/z.js", neighbours=[], layout="", interior=False)
+    text = render("tracks/scene_zone.j2", **base)
+    assert "place it at scale 1" in text and "> 2.5x or < 0.4x is an ERROR" in text
