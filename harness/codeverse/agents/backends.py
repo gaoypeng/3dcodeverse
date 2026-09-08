@@ -264,6 +264,7 @@ class GeminiCliAgent(_CliAgent):
             return finish_session(
                 s, ok=outcome["ok"], exit_reason=outcome["exit_reason"], text=outcome["text"],
                 usage=usage_total, tool_calls=usage_total.tool_calls, errors=outcome["errors"],
+                transient=bool(outcome["transient"]) and not outcome["ok"],
                 attempts=attempts, rc=proc.rc, killed_reason=proc.killed_reason, session_id=outcome.get("session_id", ""),
             )
         finally:
@@ -283,6 +284,12 @@ class GeminiCliAgent(_CliAgent):
         if proc.timed_out:
             out["exit_reason"] = "timeout"
             errors.append(watchdog_error(proc))
+            # the CLI retries 503s itself, with backoff, and never gives up before our wall:
+            # measured 2026-09-07, 8-17 "Attempt N failed with status 503" per 12-minute
+            # session, nothing produced.  That is a storm, not the task.
+            out["transient"] = not text.strip() and is_transient_failure(proc.stderr)
+            if out["transient"]:
+                errors.append(f"{proc.stderr.count('status 503')} x 503 inside the CLI's own retry loop before the wall; nothing produced")
             return out
         if served and self.model not in served:
             out["exit_reason"] = "model_substituted"
@@ -415,9 +422,11 @@ class ClaudeCodeAgent(_CliAgent):
             text = str((env or {}).get("result") or "")
             turns = int((env or {}).get("num_turns") or 0)
             errors: list[str] = []
+            transient = False
             if proc.timed_out:
                 reason, ok = "timeout", False
                 errors.append(watchdog_error(proc))
+                transient = not text.strip() and is_transient_failure(proc.stderr)
             elif env is None or proc.rc != 0:
                 reason, ok = "error", False
                 errors.append(f"rc={proc.rc}; no result envelope; stderr tail: {tail(proc.stderr, 1500)}")
@@ -432,7 +441,7 @@ class ClaudeCodeAgent(_CliAgent):
                 reason, ok = "completed", True
             return finish_session(
                 s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=max(turns - 1, 0), turns=turns,
-                errors=errors, rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns,
+                errors=errors, transient=transient, rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns,
                 session_id=(env or {}).get("session_id", ""), subtype=(env or {}).get("subtype", ""),
                 model_usage=(env or {}).get("modelUsage", {}),
             )

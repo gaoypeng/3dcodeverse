@@ -465,6 +465,12 @@ GenerationTask.phase: int = 0   # tasks run in parallel WITHIN a phase, phases i
     # part group (`baseline_<parts>`, own files only), phase 1 = ONE `assemble` session that owns the
     # entry file and the placement gates.  Every other caller is phase 0, i.e. unchanged.
 generate(ws, *, agent_id, task, ..., budget=BudgetGuard, max_turns=0, wrapup_turns=6) -> GenerationResult
+    # GenerationResult.storm: every session died on a transient streak (AgentResult.transient) and wrote nothing
+tracks.common.generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult
+    # THE call every stage makes (env, zones, compose, rounds, repairs, asset ladder, judged fix): generate()
+    # with everything ctx knows, and a storm-dead task retried through single_shot_ctx(ctx) (D68)
+tracks.common.single_shot_agent_id(agent_id, chat_model_id='') -> str · single_shot_ctx(ctx) -> RunContext | None
+    # moved from tracks.scene_assets 2026-09-07 (never scene-specific)
     # GenerationResult adds turns / sessions / turn_capped.  A turn cap is applied ONLY if a caller
     # asks: task.max_turns > max_turns > $CV3D_AGENT_MAX_TURNS > settings.limits.agent_max_turns >
     # DEFAULT_AGENT_MAX_TURNS (0 = leave AgentJob.max_turns at the backend's own default — a 28-turn

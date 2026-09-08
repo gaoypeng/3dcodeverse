@@ -284,15 +284,15 @@ def test_phases_run_in_order_and_a_failed_phase_does_not_kill_the_round(tmp_path
         order.append(task.label)
         return GenerationResult(ok=task.label != "b", label=task.label, notes="")
 
-    import codeverse.tracks.steps as steps
-    orig = steps.generate
-    steps.generate = fake_generate
+    import codeverse.tracks.common as common  # the one seam every stage generates through
+    orig = common.generate
+    common.generate = fake_generate
     try:
         tasks = [GenerationTask(label="a", prompt="p", phase=0), GenerationTask(label="b", prompt="p", phase=0),
                  GenerationTask(label="z", prompt="p", phase=1)]
         out = run_generation_tasks(ctx, tasks)
     finally:
-        steps.generate = orig
+        common.generate = orig
     assert order.index("z") == 2                       # phase 1 ran last
     assert [r.label for r in out] == ["a", "b", "z"]   # results keep the caller's order
     assert [r.ok for r in out] == [True, False, True]

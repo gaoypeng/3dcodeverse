@@ -1070,6 +1070,24 @@ written) that were accepted because the code works that way and the tests pin it
   add a second DirectionalLight on top of the rig the starter builds (D65) — the loop-9
   lighthouse did exactly that.
 
+* **D68 A session that died in a 503 storm is retried through the single-shot path
+  (2026-09-07).**  Loops 10–12 ran in an evening-long Gemini 503 storm: 23 of 24 gemini-cli
+  sessions (env, zones, escalated heroes, refines) ended `timeout / 0 turns / $0` after
+  8–17 consecutive "Attempt N failed with status 503" inside the CLI's own retry loop —
+  gemini-cli never gives up before the harness's wall — while every single-shot call in the
+  same minutes got through (hedged across the 22 keys) and `codex:gpt-6-astra` sessions
+  completed.  The stages that lost their session shipped the skeleton env and empty zones
+  and judged 0.00–0.14 (clockmaker: "the hero LongcaseClock is completely missing").  The
+  session result now says why it died (`AgentResult.transient`: timed out, nothing produced,
+  a transient streak in stderr), the generation result carries `storm`, and the ONE call
+  every stage makes — `tracks.common.generate_for(ctx, task)`, which replaced seven identical
+  eleven-argument `generate(...)` sites — retries a storm-dead task through
+  `single_shot_ctx`, the same degradation the soft budget already used.  The owner's rule for
+  the storm (2026-09-07 evening): keep querying, keep retrying.  Not a second agent session:
+  that is another 12 minutes at the wall while the storm lasts; the cheap path is the retry
+  that answers.  `single_shot_agent_id` / `single_shot_ctx` moved from `scene_assets` to
+  `tracks.common` with it (they were never scene-specific).
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

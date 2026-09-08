@@ -84,3 +84,10 @@ class AgentResult(BaseModel):
         "turn.completed events, agy num_turns); 0 for gemini-cli, which exposes no turn count",
     )
     errors: list[str] = Field(default_factory=list)
+    transient: bool = Field(
+        default=False,
+        description="the session died on a transient-failure streak (503 / UNAVAILABLE / 429 in the CLI's "
+        "own retry loop) and produced nothing — a 503 storm, not the task; the cheap single-shot "
+        "path, hedged across keys, may still get through (measured 2026-09-07: 23 of 24 gemini-cli "
+        "sessions in one evening)",
+    )

@@ -15,7 +15,7 @@ from __future__ import annotations
 import importlib
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +30,13 @@ from codeverse.orchestrator import BudgetGuard, RoundPolicy, RunState
 from codeverse.proc import EventLog
 from codeverse.prompts import load_text, prompt_hash
 from codeverse.prompts.catalog import prompt_dir_for
-from codeverse.tracks.generation import is_single_shot
+from codeverse.tracks.generation import (
+    SINGLE_SHOT_PREFIX,
+    GenerationResult,
+    GenerationTask,
+    generate,
+    is_single_shot,
+)
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -192,6 +198,69 @@ class RunContext:
 
     def record_prompt(self, name: str, text: str) -> None:
         self.prompt_hashes[name] = prompt_hash(text)
+
+
+# ----------------------------------------------------------------------------- strategy
+def single_shot_agent_id(agent_id: str, chat_model_id: str = "") -> str:
+    """The single-shot strategy id for this run, or "" when there is no chat model.
+
+    Single-shot is ONE api call that returns the asset file — the cheap path the asset
+    stage tries before escalating to a full agent session.  It needs a chat model, and
+    the coding agent is always a vendor CLI (which exposes none), so the model comes
+    from ``chat_model_id`` — the run's planner backend, which is always an API model.
+    Until 2026-08-28 it was derived from the in-process ``api-agent`` generator id;
+    that backend is gone."""
+    if is_single_shot(agent_id):
+        return agent_id
+    # a SHAPE check only, deliberately not models.registry.parse_model_id: whether the
+    # id resolves is the SERVICES' call (tests run fake providers like "fake:planner"),
+    # and single_shot_ctx already degrades to the agent path when chat_model() raises
+    return SINGLE_SHOT_PREFIX + chat_model_id if ":" in chat_model_id else ""
+
+
+def single_shot_ctx(ctx: RunContext) -> RunContext | None:
+    """A copy of ``ctx`` bound to the single-shot strategy, or None when the
+    generator has no usable chat model (CLI agents, tests with fake services)."""
+    cached = ctx.extra.get("_single_shot_ctx")
+    if cached is not None:
+        return cached or None  # False = known-unavailable
+    sid = single_shot_agent_id(ctx.agent_id, ctx.spec.backends.planner)
+    sub: RunContext | None = None
+    if sid:
+        try:
+            model = ctx.model if is_single_shot(ctx.agent_id) else ctx.services.chat_model(sid[len(SINGLE_SHOT_PREFIX):])
+        except Exception as e:  # noqa: BLE001 — no chat model → keep the agent path
+            log.info("single-shot generation unavailable for %s: %s", ctx.agent_id, e)
+            model = None
+        if model is not None:
+            sub = replace(ctx, agent_id=sid, model=model, agent=None)
+    ctx.extra["_single_shot_ctx"] = sub or False
+    return sub
+
+
+def generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult:
+    """``generate()`` with everything ``ctx`` knows — the one call every stage makes — plus the
+    storm fallback: a session that died on a transient-failure streak and wrote nothing
+    (``GenerationResult.storm``) is retried through the single-shot path, one hedged,
+    key-rotating API call.  Measured 2026-09-07: 23 of 24 gemini-cli sessions of an evening
+    ended ``timeout / 0 turns / $0`` after 8-17 consecutive 503s inside the CLI's own retry
+    loop, while every single-shot in the same minutes got through; the stages that lost
+    their session shipped the skeleton env and empty zones and judged 0.00-0.14."""
+    res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
+                   budget=ctx.budget, events=ctx.events,
+                   max_turns=ctx.policy.agent_max_turns, wrapup_turns=ctx.policy.agent_wrapup_turns)
+    if not res.storm or ctx.single_shot:
+        return res
+    sub = single_shot_ctx(ctx)
+    if sub is None:
+        return res
+    ctx.events.emit("generate.storm_fallback", label=task.label, sessions=res.sessions, notes=res.notes[:300])
+    again = generate(sub.ws, agent_id=sub.agent_id, task=task, agent=sub.agent, model=sub.model, settings=sub.settings,
+                     budget=sub.budget, events=sub.events,
+                     max_turns=sub.policy.agent_max_turns, wrapup_turns=sub.policy.agent_wrapup_turns)
+    again.usage = res.usage + again.usage
+    again.notes = f"agent session died in a 503 storm ({res.notes[:120]}) → single-shot: {again.notes}"
+    return again
 
 
 # ----------------------------------------------------------------------------- prompt helpers

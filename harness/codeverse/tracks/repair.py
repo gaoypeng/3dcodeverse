@@ -20,8 +20,8 @@ from codeverse.contracts.artifacts import BuildResult, GateReport
 from codeverse.contracts.common import Usage
 from codeverse.prompts import render
 from codeverse.tracks import skills_hook
-from codeverse.tracks.common import RunContext
-from codeverse.tracks.generation import GenerationResult, GenerationTask, generate
+from codeverse.tracks.common import RunContext, generate_for
+from codeverse.tracks.generation import GenerationResult, GenerationTask
 from codeverse.tracks.prompting import base_prompt_context, language_system_prompt
 
 log = logging.getLogger(__name__)
@@ -203,9 +203,7 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
         task = make_repair_task(ctx, build, lint, round_index=round_index, attempt=attempt, repeats=repeats,
                                 label=f"{label}_repair{attempt}", files_hint=files_hint, timeout_s=timeout_s)
         ctx.events.emit("repair.attempt", round=round_index, attempt=attempt, repeats=repeats, signature=sig[:200])
-        res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model,
-                       settings=ctx.settings, budget=ctx.budget, events=ctx.events,
-                       max_turns=ctx.policy.agent_max_turns, wrapup_turns=ctx.policy.agent_wrapup_turns)
+        res = generate_for(ctx, task)
         outcome.attempts.append(res)
         outcome.usage = outcome.usage + res.usage
         if not res.ok:

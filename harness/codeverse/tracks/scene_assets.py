@@ -38,8 +38,14 @@ from codeverse.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
 from codeverse.judges.rubrics import is_degraded
 from codeverse.proc import fan_out, write_json_atomic, write_text_atomic
 from codeverse.prompts import render
-from codeverse.tracks.common import RunContext, language_contract, load_prompt_or
-from codeverse.tracks.generation import SINGLE_SHOT_PREFIX, GenerationTask, generate, is_single_shot
+from codeverse.tracks.common import (
+    RunContext,
+    generate_for,
+    language_contract,
+    load_prompt_or,
+    single_shot_ctx,
+)
+from codeverse.tracks.generation import GenerationTask, is_single_shot
 from codeverse.tracks.planner import plan as run_planner
 from codeverse.tracks.prompting import (
     base_prompt_context,
@@ -337,9 +343,7 @@ def _generate_asset(ctx: RunContext, asset: AssetPlan, rel: str, *, language: La
                           # threejs assets share the scene workspace (a stray write would hit
                           # zones/env); blender heroes own their whole sub-workspace
                           edit_only=language is Language.SCENE_THREEJS)
-    return generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
-                    budget=ctx.budget, events=ctx.events,
-                    max_turns=ctx.policy.agent_max_turns, wrapup_turns=ctx.policy.agent_wrapup_turns)
+    return generate_for(ctx, task)
 
 
 def _inline(ctx: RunContext, files: list[str]) -> str:
@@ -663,9 +667,7 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
                           files_hint=files, round=1, kind="asset_fix", temperature=0.4,
                           edit_only=language is Language.SCENE_THREEJS, timeout_s=asset_timeout_s(ctx, 120))
     restore = snapshot() if snapshot is not None else None   # BEFORE the fix rewrites the files
-    res = generate(gen.ws, agent_id=gen.agent_id, task=task, agent=gen.agent, model=gen.model, settings=gen.settings,
-                   budget=gen.budget, events=gen.events,
-                   max_turns=gen.policy.agent_max_turns, wrapup_turns=gen.policy.agent_wrapup_turns)
+    res = generate_for(gen, task)
     if not res.ok:
         return result
     result.fixed = after_fix(gen) if after_fix is not None else True
@@ -769,44 +771,6 @@ def _read(ws: Workspace, rel: str, limit: int = 30_000) -> str:
 # ===================================================================== cheap asset generation
 #: max triangles for ONE asset instance (the scene contract's budget)
 ASSET_MAX_TRIS = 15_000
-
-
-# ----------------------------------------------------------------------------- strategy
-def single_shot_agent_id(agent_id: str, chat_model_id: str = "") -> str:
-    """The single-shot strategy id for this run, or "" when there is no chat model.
-
-    Single-shot is ONE api call that returns the asset file — the cheap path the asset
-    stage tries before escalating to a full agent session.  It needs a chat model, and
-    the coding agent is always a vendor CLI (which exposes none), so the model comes
-    from ``chat_model_id`` — the run's planner backend, which is always an API model.
-    Until 2026-08-28 it was derived from the in-process ``api-agent`` generator id;
-    that backend is gone."""
-    if is_single_shot(agent_id):
-        return agent_id
-    # a SHAPE check only, deliberately not models.registry.parse_model_id: whether the
-    # id resolves is the SERVICES' call (tests run fake providers like "fake:planner"),
-    # and single_shot_ctx already degrades to the agent path when chat_model() raises
-    return SINGLE_SHOT_PREFIX + chat_model_id if ":" in chat_model_id else ""
-
-
-def single_shot_ctx(ctx: RunContext) -> RunContext | None:
-    """A copy of ``ctx`` bound to the single-shot strategy, or None when the
-    generator has no usable chat model (CLI agents, tests with fake services)."""
-    cached = ctx.extra.get("_single_shot_ctx")
-    if cached is not None:
-        return cached or None  # False = known-unavailable
-    sid = single_shot_agent_id(ctx.agent_id, ctx.spec.backends.planner)
-    sub: RunContext | None = None
-    if sid:
-        try:
-            model = ctx.model if is_single_shot(ctx.agent_id) else ctx.services.chat_model(sid[len(SINGLE_SHOT_PREFIX):])
-        except Exception as e:  # noqa: BLE001 — no chat model → keep the agent path
-            log.info("single-shot generation unavailable for %s: %s", ctx.agent_id, e)
-            model = None
-        if model is not None:
-            sub = replace(ctx, agent_id=sid, model=model, agent=None)
-    ctx.extra["_single_shot_ctx"] = sub or False
-    return sub
 
 
 # ----------------------------------------------------------------------------- deterministic check

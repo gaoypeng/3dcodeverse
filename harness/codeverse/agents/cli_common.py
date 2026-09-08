@@ -493,6 +493,7 @@ def finish_session(
     tool_calls: int = 0,
     turns: int = 0,
     errors: list[str] | None = None,
+    transient: bool = False,
     **extra: Any,
 ) -> AgentResult:
     """Commit the agent's work, compute ``files_changed`` via git (attributed to this
@@ -520,7 +521,7 @@ def finish_session(
             ok=ok, exit_reason=exit_reason, text=text, files_changed=files,
             transcript_path=str(s.traj.transcript_path if s.traj.transcript_path.exists() else s.traj.dir),
             usage=usage, duration_s=round(time.monotonic() - s.t0, 3), tool_calls=tool_calls,
-            turns=turns, errors=errors,
+            turns=turns, errors=errors, transient=transient,
         )
         s.traj.write_result(res, kind=s.kind, label=s.label, round=s.round_index, attempt=s.attempt, job_label=s.job.label,
                             head_before=s.head_before, head_after=s.ws.head(), notes=s.notes, **extra)
