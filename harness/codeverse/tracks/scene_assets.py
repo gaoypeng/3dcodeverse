@@ -43,6 +43,7 @@ from codeverse.tracks.planner import plan as run_planner
 from codeverse.tracks.prompting import (
     base_prompt_context,
     constraints_text,
+    current_files,
     expected_files,
     language_system_prompt,
     reference_images,
@@ -327,7 +328,7 @@ def _generate_asset(ctx: RunContext, asset: AssetPlan, rel: str, *, language: La
     label = f"asset_{to_snake(asset.name)}" + ("_retry" if attempt else "")
     prompt = _asset_prompt(ctx, asset, rel, language=language, files=files)
     if feedback:
-        prompt = prompt + "\n\n" + feedback + _current_files_block(ctx.ws, files)
+        prompt = prompt + "\n\n" + feedback + "## Current file(s) (rewrite COMPLETELY)\n" + _inline(ctx, files)
     task = GenerationTask(label=label, prompt=prompt,
                           system=_asset_system(ctx, language),
                           files_hint=files, round=attempt, kind="asset", temperature=0.5, timeout_s=timeout_s,
@@ -340,14 +341,11 @@ def _generate_asset(ctx: RunContext, asset: AssetPlan, rel: str, *, language: La
                     max_turns=ctx.policy.agent_max_turns, wrapup_turns=ctx.policy.agent_wrapup_turns)
 
 
-def _current_files_block(ws: Workspace, files: list[str], limit: int = 24_000) -> str:
-    """The file(s) the ONE feedback repair rewrites, inlined — a hero has parts, not one file."""
-    out = ["## Current file(s) (rewrite COMPLETELY)"]
-    for f in files:
-        body = _read(ws, f, limit)
-        if body:
-            out.append(f"--- {f} ---\n```\n{body}\n```")
-    return "\n".join(out) + "\n"
+def _inline(ctx: RunContext, files: list[str]) -> str:
+    """The file(s) a single-shot rewrite must return, inlined the way every other prompt
+    inlines them (``prompting.current_files``: trimmed to one budget, harness-owned files
+    skipped) — a hero has parts, not one file."""
+    return "".join(f"--- {rel} ---\n```\n{body}\n```\n" for rel, body in current_files(ctx, files, 24_000).items())
 
 
 # ----------------------------------------------------------------------------- blender asset (hero)
@@ -428,8 +426,8 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     sub_ws.commit("asset built")
     rel = asset_file(asset)
     dest = _copy_glb(ctx.ws, Path(chk.glb), rel)
-    result = AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=chk.size_m, strategy=strategy, notes=notes,
-                         clips=glb_clip_count(dest))
+    result = _stamp_glb(AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=chk.size_m, strategy=strategy,
+                                    notes=notes), ctx, dest)
     if _judge_wanted(ctx, asset, chk, judge=judge):
         def _render(out_dir: Path):
             return ctx.services.render_object(dest, out_dir, views=OBJECT_VIEWS_QUICK, width=512, height=512)
@@ -441,8 +439,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
                 return False
             _copy_glb(ctx.ws, Path(oc.build.glb_path), rel)
             sub_ws.commit("asset fix")
-            result.size_m = _measure_size(ctx, dest) or result.size_m
-            result.clips = glb_clip_count(dest)
+            _stamp_glb(result, ctx, dest)
             return True
 
         def _snapshot() -> Callable[[], None]:
@@ -456,8 +453,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
                     if body:
                         (sub_ws.root / f).write_text(body)
                 sub_ws.commit("asset fix reverted (judged worse)")
-                result.size_m = _measure_size(ctx, dest) or result.size_m
-                result.clips = glb_clip_count(dest)
+                _stamp_glb(result, ctx, dest)
 
             return _restore
 
@@ -487,9 +483,7 @@ def hero_plan(sub: RunContext, asset: AssetPlan) -> StaticPlan:
             raise
         log.warning("hero planner failed for %s, using the one-part sheet: %s", asset.name, e)
         sub.events.emit("asset.plan_failed", asset=asset.name, error=f"{type(e).__name__}: {e}"[:300])
-        plan = asset_plan(asset)
-        sub.ws.write_json(sub.ws.plan_path, plan)
-        return plan
+        return asset_plan(asset)
     sub.events.emit("asset.planned", asset=asset.name, n_parts=len(plan.parts))
     return plan
 
@@ -632,7 +626,7 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
         return result
     instructions = [f"- {i.target}: {i.instruction}" for i in verdict.improvement_plan[:4]]
     gen = single_shot_ctx(ctx) or ctx
-    current = "\n\n".join(f"--- {f} ---\n{_read(ctx.ws, f)}" for f in files if _read(ctx.ws, f)) if gen.single_shot else ""
+    current = _inline(gen, files) if gen.single_shot else ""
     prompt = render("tracks/scene_asset.j2", **base_prompt_context(
         gen, asset_name=asset.name, asset_kind=asset.kind, asset_description=asset.description,
         asset_size=asset.approx_size_m, asset_file=files[0], asset_files=files, asset_language=language.value,
@@ -702,6 +696,13 @@ def _asset_prompt(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Lang
         **_scene_context(ctx)))
     ctx.record_prompt("scene_asset", prompt)
     return prompt
+
+
+def _stamp_glb(result: AssetResult, ctx: RunContext, glb: Path) -> AssetResult:
+    """What the shipped GLB says about itself: its measured size and the clips it carries."""
+    result.size_m = _measure_size(ctx, glb) or result.size_m
+    result.clips = glb_clip_count(glb)
+    return result
 
 
 def glb_clip_count(glb: Path) -> int:
