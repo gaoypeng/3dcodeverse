@@ -2,7 +2,8 @@
 
 ``FixedEvaluator.evaluate(ws, spec)``: the cell's runtime lint + build → ``measure_glb``
 → connectivity gate → 14-view ``render_glb`` (articulated: + joint sweep + pose sheet;
-graphics: the frame sheet) → ``judge_for(spec)`` — a ``VlmJudge`` (or ``LikenessJudge``
+graphics: the frame sheet; scene: authored cameras + orbit rig at two times + the
+scene_frames gate) → ``judge_for(spec)`` — a ``VlmJudge`` (or ``LikenessJudge``
 for graphics with reference photos) on ``rubric_for(spec)``, the track's ``TRACK_INFO``
 rubric, the ONE track→rubric mapping of the compare bench.  The judge's acceptance checklist is the brief's
 ``must_have`` list (``acceptance_from_spec``) so harness and one-shot arms are
@@ -143,6 +144,8 @@ class FixedEvaluator:
         out = EvalOutcome(build=build, lint=lint, gates=[lint])
         if build.ok and spec.track is Track.GRAPHICS:
             return self._evaluate_frames(ws, spec, out)
+        if build.ok and spec.track is Track.SCENE:
+            return self._evaluate_scene(ws, spec, out)
         if not build.ok or not build.glb_path:
             return out
         try:
@@ -168,6 +171,23 @@ class FixedEvaluator:
             out.error = f"{type(e).__name__}: {e}"
         return out
 
+
+    def _evaluate_scene(self, ws: Workspace, spec: Spec, out: EvalOutcome) -> EvalOutcome:
+        """Scene: the authored cameras plus the orbit rig at t = 0 and 1.5 s, the scene_frames gate,
+        the scene rubric — the pictures the loop's judge sees, minus the loop's plan (2026-09-07:
+        the compare bench had no scene branch, so a scene cell built, then returned unjudged)."""
+        from codeverse.judges.base import JudgeInput
+        from codeverse.spatial.frame_metrics import frame_gate_from_renders
+        from codeverse.spatial.render_scene import render_scene
+        try:
+            out.renders = render_scene(ws, ws.renders_dir(0), orbit=True, times=(0.0, 1.5), sheet=True)
+            out.gates.append(frame_gate_from_renders(ws.renders_dir(0)))
+            inp = JudgeInput(spec=spec, renders=out.renders, gates=out.gates, acceptance=acceptance_from_spec(spec),
+                             round_index=0)
+            out.judgment = self.judge_for(spec).judge(inp)
+        except Exception as e:  # noqa: BLE001 — recorded per cell, never kills the matrix
+            out.error = f"{type(e).__name__}: {e}"
+        return out
 
     def _evaluate_frames(self, ws: Workspace, spec: Spec, out: EvalOutcome) -> EvalOutcome:
         """Graphics: the judged frames + the gl_frames gate + the frame metrics, as the loop does."""
