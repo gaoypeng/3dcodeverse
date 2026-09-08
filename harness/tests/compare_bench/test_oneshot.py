@@ -13,10 +13,14 @@ if str(REPO) not in sys.path:
 
 from bench._oneshot import (  # noqa: E402
     MODEL_FILE,
+    SCENE_FILE,
+    SHADER_FILE,
     ApiOneShot,
     ClaudeOneShot,
     CodexOneShot,
+    extract_files,
     extract_model_file,
+    files_for,
     get_oneshot_backend,
     minimal_contract,
     oneshot_prompt,
@@ -130,3 +134,51 @@ def test_extract_model_file_from_hallucinated_write_tool_xml():
     text = ('<invoke name="Write">\n<parameter name="file_path">/tmp/x/src/model.py</parameter>\n'
             '<parameter name="content">import bpy\nprint(2)\n</parameter>\n</invoke>\n\nsyntax ok\n')
     assert extract_model_file(text) == "import bpy\nprint(2)\n"
+
+
+# --------------------------------------------------------------------------- scene + graphics (2026-09-07)
+def _scene_spec() -> Spec:
+    return Spec(id="t/harbour", track=Track.SCENE, language=Language.SCENE_THREEJS, prompt="a fishing harbour at dusk",
+                constraints=Constraints(must_have=["at least 3 boats", "lit windows"]))
+
+
+def _glsl_spec() -> Spec:
+    return Spec(id="t/aurora", track=Track.GRAPHICS, language=Language.GLSL_SHADER, prompt="an aurora over snow",
+                constraints=Constraints(must_have=["curtains that move"]))
+
+
+def test_scene_prompt_is_the_createscene_contract_and_nothing_of_the_harness():
+    """The bare baseline for the scene track: ONE src/scene.js against the createScene shape and
+    the import rule — no starter lib, no zones, no cookbook, no assets, no gates table."""
+    p = oneshot_prompt(_scene_spec())
+    assert p.startswith("Build this scene in raw three.js: a fishing harbour at dusk")
+    assert "MUST HAVE: at least 3 boats" in p and SCENE_FILE in p and "createScene" in p
+    assert "three/addons/*" in p and "scene.fog" in p and "lookAt" in p and "```js" in p
+    assert "cookbook" not in p.lower() and "src/lib" not in p and "zones/" not in p and "public/assets" not in p
+    assert minimal_contract(Language.SCENE_THREEJS) in p and p.rstrip().endswith("no partial snippets).")
+
+
+def test_glsl_prompt_is_the_shader_contract_and_nothing_of_the_harness():
+    p = oneshot_prompt(_glsl_spec())
+    assert p.startswith("Write this as a Shadertoy-style fragment shader: an aurora over snow")
+    assert SHADER_FILE in p and "mainImage" in p and "u_time" in p and "#version 330 core" in p and "```glsl" in p
+    assert "recipes.glsl" not in p and "cookbook" not in p.lower() and "buffer_a" not in p
+    assert minimal_contract(Language.GLSL_SHADER) in p
+
+
+def test_single_file_answers_are_extracted_under_their_own_entry():
+    js = "import * as THREE from 'three';\nexport async function createScene({ THREE }) { return {}; }"
+    assert extract_files(f"Here you go:\n```js\n{js}\n```\n", Language.SCENE_THREEJS) == {SCENE_FILE: js + "\n"}
+    glsl = "void mainImage(out vec4 o, in vec2 p) { o = vec4(p / iResolution.xy, 0.5, 1.0); }"
+    assert extract_files(f"```glsl\n{glsl}\n```", Language.GLSL_SHADER) == {SHADER_FILE: glsl + "\n"}
+    assert files_for(Language.SCENE_THREEJS) == [SCENE_FILE] and files_for(Language.GLSL_SHADER) == [SHADER_FILE]
+    with pytest.raises(ValueError, match="no one-shot contract"):
+        files_for(Language.THREEJS)
+
+
+def test_a_hallucinated_write_tool_of_a_scene_module_is_still_read():
+    xml = ('<invoke name="Write"><parameter name="path">src/scene.js</parameter><parameter name="content">\n'
+           "export async function createScene({ THREE }) { return { scene: new THREE.Scene(), cameras: [], update() {} }; }\n"
+           "</parameter></invoke>")
+    got = extract_files(xml, Language.SCENE_THREEJS)[SCENE_FILE]
+    assert got.startswith("export async function createScene")

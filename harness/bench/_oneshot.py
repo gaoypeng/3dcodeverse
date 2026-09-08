@@ -1,10 +1,12 @@
 """One-shot generation backends for ``bench/compare_backends.py``.
 
 A one-shot arm gets ONE raw generation with no harness help: the model sees the
-prompt plus the *minimal* blender contract (file, frame, units, naming, no
-export/camera/lights) and must answer with the complete ``src/model.py``.  No
-tools, no cookbook, no plan, no repair loop — the harness only builds, renders
-and judges whatever comes back.
+prompt plus the *minimal* contract of its language (file, frame, units, naming, no
+export/camera/lights) and must answer with the complete entry file — ``src/model.py``
+(blender), ``src/model.py`` + ``src/robot.urdf`` (articulated), ``src/shader.frag``
+(graphics, 2026-09-07), ``src/scene.js`` (scene, 2026-09-07).  No tools, no cookbook,
+no plan, no repair loop, no starter library — the harness only builds, renders and
+judges whatever comes back.
 
 Backends (``get_oneshot_backend``):
 
@@ -45,7 +47,7 @@ from codeverse.agents.cli_common import is_secret_env, run_with_watchdog, tail
 from codeverse.config import get_settings
 from codeverse.contracts.artifacts import BuildResult, GateReport
 from codeverse.contracts.chat import ChatMessage, ChatRequest
-from codeverse.contracts.common import Language, Usage
+from codeverse.contracts.common import ENTRY_FILE, Language, Usage
 from codeverse.contracts.spec import Spec
 from codeverse.conventions import LANGUAGE_FRAME, frame_doc
 from codeverse.tracks.generation import MultiFileParseError, parse_multifile
@@ -54,6 +56,8 @@ from codeverse.workspace import Workspace
 
 MODEL_FILE = "src/model.py"
 URDF_FILE = "src/robot.urdf"
+SHADER_FILE = ENTRY_FILE[Language.GLSL_SHADER]   # src/shader.frag
+SCENE_FILE = ENTRY_FILE[Language.SCENE_THREEJS]  # src/scene.js
 DEFAULT_TIMEOUT_S = 900.0
 IDLE_GRACE_S = 600.0
 
@@ -131,9 +135,60 @@ _OUTPUT_RULE_URDF = (f"You have NO tools in this session: you cannot write files
                      f"=== FILE: {URDF_FILE} ===\n<xml>\n=== END FILE ===")
 
 
+#: The GLSL (track graphics, language glsl_shader) minimal contract: what the harness prepends
+#: and expects, condensed from codeverse/prompts/glsl_shader/contract.md — no cookbook, no
+#: recipes file, no frame-metric self-check.
+_GLSL_CONTRACT_BODY = """You write ONE file, `{shader_file}`: the BODY of a Shadertoy-style fragment shader (GLSL 330 core).
+The harness prepends these lines itself — do NOT write them (redeclaring any is an error):
+  #version 330 core · uniform float u_time · uniform vec2 u_resolution · uniform vec2 u_mouse (always 0,0)
+  uniform int u_frame · uniform sampler2D u_prev (previous frame, black at frame 0) · uniform sampler2D u_noise
+  (256x256 RGBA white noise) · #define iTime u_time (also iResolution iFrame iMouse iChannel0=u_prev
+  iChannel1=u_noise) · out vec4 fragColor (the ONLY output).
+Entry point: `void mainImage(out vec4 fragColor, in vec2 fragCoord)` (preferred) or `void main()`.
+NOT available: iChannel2/3, iDate, iSampleRate, textures, images, sound, includes, files.
+The harness compiles it with moderngl headless, renders 1280x720 frames at t = 0, 1, 2.5, 4 and 6 s and
+judges them: the shader must compile on GLSL 330 core, animate over t, and stay readable (not black,
+not blown out).  Keep it under ~400 lines and cheap enough for 30 fps at 1280x720."""
+
+_OUTPUT_RULE_GLSL = (f"You have NO tools in this session: you cannot write files, compile or render anything — "
+                     f"the code must appear in your reply.  Reply with the COMPLETE contents of `{SHADER_FILE}` as ONE "
+                     f"```glsl fenced code block and nothing else (no prose before or after, no partial snippets).")
+
+#: The scene (track scene, language scene_threejs) minimal contract: the createScene shape and the
+#: import rule of codeverse/prompts/scene_threejs/contract.md — no starter library, no zones,
+#: no assets, no cookbook, no gates table.
+_SCENE_CONTRACT_BODY = """You write ONE file, `{scene_file}`, an ES module for three.js r182:
+  export async function createScene({{ THREE, renderer, loaders }}) → {{ scene, cameras, update(t, dt) }}
+Imports: only `three` and `three/addons/*` (GLTFLoader, BufferGeometryUtils, Sky, Water, EffectComposer …).
+No other files, packages, CDNs, textures, images, models or network — everything is procedural geometry
+and materials (MeshStandardMaterial / ShaderMaterial).  Y-up, +Z front, metres, real-world scale.
+The return value: `scene` is a THREE.Scene with `scene.fog` set and a background colour or sky dome, lit
+by your own lights; `cameras` is 3–5 PLAIN objects `{{ name, position: [x, y, z], lookAt: [x, y, z], fov }}`
+(PascalCase names; fov 35–60; the first is the establishing shot; never inside or within 0.5 m of
+geometry; eye height about 1.6 m for human views); `update(t, dt)` advances the animation
+deterministically and cheaply (no allocations).
+The harness imports the module in headless Chrome with a WebGLRenderer (shadows on, ACES tone mapping),
+awaits createScene, renders every camera at t = 0 and 1.5 s and judges the frames: readable exposure
+(mean luminance ≥ 0.15, no black or blown frames), things resting on the ground, cameras framing the
+content, visible motion between the two times.  Under 2 M triangles and 200 draw calls (InstancedMesh
+for anything repeated); createScene must resolve in under 15 s."""
+
+_OUTPUT_RULE_SCENE = (f"You have NO tools in this session: you cannot write files, run node or render anything — "
+                      f"the code must appear in your reply.  Reply with the COMPLETE contents of `{SCENE_FILE}` as ONE "
+                      f"```js fenced code block and nothing else (no prose before or after, no partial snippets).")
+
+
+#: the one file a single-file language answers with (URDF answers with two, see files_for)
+_ENTRY = {Language.BLENDER: MODEL_FILE, Language.GLSL_SHADER: SHADER_FILE, Language.SCENE_THREEJS: SCENE_FILE}
+
+
 def files_for(language: Language) -> list[str]:
     """The files a one-shot answer must contain for ``language``."""
-    return [MODEL_FILE, URDF_FILE] if language is Language.URDF_BLENDER else [MODEL_FILE]
+    if language is Language.URDF_BLENDER:
+        return [MODEL_FILE, URDF_FILE]
+    if language not in _ENTRY:
+        raise ValueError(f"no one-shot contract for {language.value}: " + ", ".join(sorted(x.value for x in _ENTRY)))
+    return [_ENTRY[language]]
 
 
 def minimal_contract(language: Language = Language.BLENDER) -> str:
@@ -141,19 +196,25 @@ def minimal_contract(language: Language = Language.BLENDER) -> str:
     if language is Language.URDF_BLENDER:
         return _URDF_CONTRACT_BODY.format(model_file=MODEL_FILE, urdf_file=URDF_FILE,
                                           frame=frame_doc(LANGUAGE_FRAME["urdf_blender"]))
+    if language is Language.GLSL_SHADER:
+        return _GLSL_CONTRACT_BODY.format(shader_file=SHADER_FILE)
+    if language is Language.SCENE_THREEJS:
+        return _SCENE_CONTRACT_BODY.format(scene_file=SCENE_FILE)
     return _CONTRACT_BODY.format(model_file=MODEL_FILE, frame=frame_doc(LANGUAGE_FRAME["blender"]))
 
 
 def output_rule(language: Language = Language.BLENDER) -> str:
-    return _OUTPUT_RULE_URDF if language is Language.URDF_BLENDER else _OUTPUT_RULE
+    return {Language.URDF_BLENDER: _OUTPUT_RULE_URDF, Language.GLSL_SHADER: _OUTPUT_RULE_GLSL,
+            Language.SCENE_THREEJS: _OUTPUT_RULE_SCENE}.get(language, _OUTPUT_RULE)
 
 
 def oneshot_prompt(spec: Spec) -> str:
     """The entire input of a one-shot arm: brief + constraints + minimal contract + output rule."""
     c = spec.constraints
-    urdf = spec.language is Language.URDF_BLENDER
-    lines = [(f"Model this ARTICULATED object as raw bpy link meshes plus a hand-written URDF: {spec.prompt.strip()}"
-              if urdf else f"Model this object in raw bpy: {spec.prompt.strip()}")]
+    lead = {Language.URDF_BLENDER: "Model this ARTICULATED object as raw bpy link meshes plus a hand-written URDF",
+            Language.GLSL_SHADER: "Write this as a Shadertoy-style fragment shader",
+            Language.SCENE_THREEJS: "Build this scene in raw three.js"}.get(spec.language, "Model this object in raw bpy")
+    lines = [f"{lead}: {spec.prompt.strip()}"]
     if c.dimensions_m:
         lines.append("Dimensions (m): " + ", ".join(f"{k}={v:g}" for k, v in c.dimensions_m.items()))
     if c.style:
@@ -168,7 +229,8 @@ def repair_prompt(spec: Spec, previous_code: str | dict[str, str], build: BuildR
     """Error-feedback retry (``oneshot+repair`` arm only): previous file(s) + the build error report."""
     report = format_error_report(build, lint)
     files = {MODEL_FILE: previous_code} if isinstance(previous_code, str) else previous_code
-    prev = "\n\n".join(f"PREVIOUS `{path}`:\n```{'xml' if path.endswith('.urdf') else 'python'}\n{body[:40_000]}\n```"
+    fence = {".urdf": "xml", ".frag": "glsl", ".glsl": "glsl", ".js": "js"}
+    prev = "\n\n".join(f"PREVIOUS `{path}`:\n```{fence.get(Path(path).suffix, 'python')}\n{body[:40_000]}\n```"
                        for path, body in files.items())
     plural = "files" if len(files) > 1 else "file"
     return (oneshot_prompt(spec)
@@ -208,16 +270,30 @@ def _strip_hallucinated_tool_xml(text: str) -> str:
     if not bodies:
         return text
     body = max(bodies, key=len)
-    return body if "import bpy" in body else text
+    return body if any(k in body for k in ("import bpy", "createScene", "mainImage", "void main")) else text
 
 
-def extract_model_file(text: str) -> str:
-    """The python file from a one-shot answer (tolerant: fenced block / bare code / FILE envelope /
-    hallucinated Write-tool XML)."""
-    files = parse_multifile(_strip_hallucinated_tool_xml(text), expected_files=[MODEL_FILE])
-    code = files.get(MODEL_FILE) or next(iter(files.values()), "")
+#: what a bare (unfenced) answer must contain to be read as the file at all
+_BARE_MARKERS = {SCENE_FILE: ("createScene",), SHADER_FILE: ("mainImage", "void main(")}
+
+
+def extract_model_file(text: str, rel: str = MODEL_FILE) -> str:
+    """The one file of a single-file answer (tolerant: fenced block / bare code / FILE envelope /
+    hallucinated Write-tool XML) — ``src/model.py`` by default, the shader or the scene module
+    when ``rel`` says so."""
+    stripped = _strip_hallucinated_tool_xml(text)
+    try:
+        files = parse_multifile(stripped, expected_files=[rel])
+    except MultiFileParseError:
+        # a bare module body with no fence and no envelope (the tool-less CLI answered with
+        # nothing but the code): accepted only when it carries the language's entry point —
+        # prose never does, and the python path keeps parse_multifile's own bare-code rule
+        if "```" in stripped or not any(k in stripped for k in _BARE_MARKERS.get(rel, ())):
+            raise
+        files = {rel: stripped.strip("\n") + "\n"}
+    code = files.get(rel) or next(iter(files.values()), "")
     if not code.strip():
-        raise MultiFileParseError("empty model file in the answer")
+        raise MultiFileParseError(f"empty {rel} in the answer")
     return code if code.endswith("\n") else code + "\n"
 
 
@@ -231,7 +307,7 @@ def extract_files(text: str, language: Language = Language.BLENDER) -> dict[str,
     """
     expected = files_for(language)
     if len(expected) == 1:
-        return {MODEL_FILE: extract_model_file(text)}
+        return {expected[0]: extract_model_file(text, expected[0])}
     files = parse_multifile(text, expected_files=expected)
     missing = [f for f in expected if not (files.get(f) or "").strip()]
     if missing:

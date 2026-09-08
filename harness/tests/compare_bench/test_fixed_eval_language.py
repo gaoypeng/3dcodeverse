@@ -77,3 +77,44 @@ def test_graphics_judge_is_the_track_rubric_with_the_photos():
     assert plain.rubric.name == "shader_v2" and not isinstance(plain, LikenessJudge)
     obj = ev.judge_for(Spec(id="o", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="x"))
     assert obj.rubric.name == "static_object_v1"
+
+
+def test_scene_cells_are_judged_on_their_cameras_and_orbit_frames(monkeypatch, tmp_path):
+    """2026-09-07: the compare bench had no scene branch — a scene cell built (no GLB) and
+    `evaluate` returned before judging.  A scene is judged on render_scene's frames (authored
+    cameras + orbit rig, t = 0 and 1.5 s) with the scene_frames gate on the scene rubric."""
+    from types import SimpleNamespace
+
+    from bench._fixed_eval import FixedEvaluator
+    from codeverse.contracts.artifacts import BuildResult, GateReport, RenderSet, RenderView
+    from codeverse.contracts.common import Track
+    from codeverse.contracts.spec import Constraints, Spec
+    from codeverse.workspace import Workspace
+
+    ws = Workspace(tmp_path / "run").create()
+    png = tmp_path / "f.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    build = BuildResult(ok=True, language="scene_threejs", glb_path=None)
+    ev = FixedEvaluator("fake:judge", n_samples=1)
+    ev._runtimes[Language.SCENE_THREEJS] = SimpleNamespace(lint=lambda ws: GateReport(gate="lint", passed=True), build=lambda ws, timeout_s: build)
+    import bench._fixed_eval as fe
+    import codeverse.spatial.frame_metrics as fm
+    import codeverse.spatial.render_scene as rs
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(rs, "render_scene", lambda ws, out, **kw: (seen.__setitem__("kw", kw),
+                        RenderSet(views=[RenderView(name="Establishing_t0", path=str(png))], renderer="fake"))[1])
+    monkeypatch.setattr(fm, "frame_gate_from_renders", lambda src: GateReport(gate="scene_frames", passed=True))
+
+    class _J:
+        def judge(self, inp):
+            seen["inp"] = inp
+            return SimpleNamespace(overall=0.66, passed=False)
+    monkeypatch.setattr(fe.FixedEvaluator, "judge_for", lambda self, spec: (seen.__setitem__("spec", spec), _J())[1])
+    spec = Spec(id="s", track=Track.SCENE, language=Language.SCENE_THREEJS, prompt="a harbour",
+                constraints=Constraints(must_have=["boats"]))
+    out = ev.evaluate(ws, spec)
+    assert out.error == "", out.error
+    assert out.judgment.overall == 0.66
+    assert seen["kw"]["orbit"] is True and tuple(seen["kw"]["times"]) == (0.0, 1.5)
+    assert [g.gate for g in seen["inp"].gates] == ["lint", "scene_frames"]
+    assert [a.text for a in seen["inp"].acceptance] == ["boats"]

@@ -83,7 +83,7 @@ from bench.run_bench import (  # noqa: E402
 )
 from codeverse.config import get_settings  # noqa: E402
 from codeverse.contracts.artifacts import RenderSet  # noqa: E402
-from codeverse.contracts.common import ENTRY_FILE  # noqa: E402
+from codeverse.contracts.common import ENTRY_FILE, Track  # noqa: E402
 from codeverse.contracts.run import RunRecord  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402
 from codeverse.cost import run_ledger  # noqa: E402
@@ -186,6 +186,11 @@ def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts
                       deps: CompareDeps, res: CellResult) -> None:
     backend = deps.oneshot_backend(arm.target)
     prompt = oneshot_prompt(spec)
+    if spec.track is Track.SCENE:
+        # the answer is ONE src/scene.js; the render host still needs the workspace scaffold
+        # (package.json, the harness-owned lib the example imports).  The example's own
+        # scene.js is overwritten by the answer below — the model never sees any of it.
+        deps.evaluator.runtime(spec.language).skeleton(eval_ws, None)
     max_attempts = 1 + (opts.repair_attempts if arm.kind == "oneshot+repair" else 0)
     for attempt in range(max_attempts):
         gen_dir = cell / "gen" / f"attempt{attempt}"
@@ -265,6 +270,10 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOption
         return
     # the whole src/ tree: agents may split helpers into src/parts/*.py (the build wrapper puts src/ on sys.path)
     shutil.copytree(run_ws.src, eval_ws.src, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    # a scene's Blender heroes live in public/assets/*.glb, preloaded by src/scene.js over http:
+    # without them every hero clone is a 404 and the fixed evaluation judges an empty zone
+    if spec.track is Track.SCENE and (run_ws.root / "public").is_dir():
+        shutil.copytree(run_ws.root / "public", eval_ws.root / "public", dirs_exist_ok=True)
 
 
 def _new_cell(item: BenchPrompt, arm: Arm, out: Path, opts: CompareOptions) -> tuple[Path, CellResult]:
