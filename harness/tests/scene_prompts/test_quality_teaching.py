@@ -158,3 +158,23 @@ def test_cookbook_sections_inlines_whole_chapters_and_clips_safely(tmp_path) -> 
     assert cookbook_sections(ctx, ZONE_RECIPES, max_chars=500).rstrip().endswith("cookbook.md]")
     assert cookbook_sections(SimpleNamespace(cookbook_text=""), ZONE_RECIPES) == ""
     assert cookbook_sections(ctx, ["zzz qqq"]) == ""                  # no match → nothing, never junk
+
+
+def test_the_env_and_zone_briefs_hand_the_enclosure_to_env_for_an_interior() -> None:
+    """2026-09-07: six interior runs were "not enclosed" because no brief said whose the walls
+    are.  The env brief claims them (and the openings, and the light) only when the plan
+    says interior; the zone brief forbids building them and puts fixtures flush to the bounds."""
+    from codeverse.prompts import render
+
+    base = dict(title="t", spec_prompt="p", setting="s", mood="m", bounds="b", environment="e", frame_doc="", contract="",
+                zones_table="", cameras="", effects="", animation="", asset_api="", textures="", recipes="", constraints_text="",
+                references="", skills="", tool_cards="", zone_name="Z", zone_description="d", zone_bbox="bb", zone_contents=[],
+                zone_file="src/zones/z.js", neighbours=[], layout="")
+    env_in = render("tracks/scene_env.j2", **base, interior=True)
+    env_out = render("tracks/scene_env.j2", **base, interior=False)
+    assert "the enclosure is yours" in env_in and "roomShell" in env_in and "openings" in env_in
+    assert "enclosure is yours" not in env_out
+    zone_in = render("tracks/scene_zone.j2", **base, interior=True)
+    zone_out = render("tracks/scene_zone.j2", **base, interior=False)
+    assert "never build walls or a roof" in zone_in and "flush against the inner face" in zone_in
+    assert "never build walls" not in zone_out

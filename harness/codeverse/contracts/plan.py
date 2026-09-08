@@ -612,6 +612,12 @@ class ScenePlan(BaseModel):
     mood: str = ""
     bounds: BBox
     environment: str = Field(description="sky, sun/moon, fog, ground, water — one paragraph")
+    interior: bool = Field(
+        default=False,
+        description="the view is from INSIDE a built space (workshop, room, cabin, hall, shop): the "
+        "environment module owns the enclosure — floor, walls and ceiling on the bounds' faces with "
+        "openings where the windows and doors are — and the zones dress the inside; false outdoors",
+    )
     zones: list[ZonePlan] = Field(min_length=1)
     assets: list[AssetPlan] = Field(default_factory=list)
     effects: list[EffectPlan] = Field(default_factory=list)

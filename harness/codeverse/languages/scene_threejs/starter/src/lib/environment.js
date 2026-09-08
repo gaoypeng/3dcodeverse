@@ -24,6 +24,81 @@ const MOODS = {
 };
 
 /**
+ * The enclosure of an INTERIOR scene, in one call: four walls and a
+ * ceiling on the faces of the plan bounds, with rectangular openings
+ * (windows, doors) cut where the plan puts them — so nothing the zones
+ * place inside the bounds can be in a wall, and the roof exists before
+ * anyone dresses the room.  Measured 2026-09-07 over six interior runs:
+ * with no owner for walls and roof, every one was judged "not enclosed,
+ * a diorama on a flat plane, tool racks floating at a missing wall"
+ * (0.0–0.3) until a refine round built them; a bare one-file scene of
+ * the same brief built the room first and scored 0.82.
+ *
+ * @param {object} opts
+ *   `center` [x, y, z] and `extents` [w, h, d] of the plan bounds (the
+ *   room's inner box: floor at center.y - h/2, ceiling at center.y + h/2);
+ *   `thickness` wall thickness in metres (default 0.3, built OUTWARD so
+ *   the inner face is exactly the bounds face); `openings` list of
+ *   `{ face: 'west'|'east'|'north'|'south', center: [along, up],
+ *   size: [width, height] }` in metres — `along` runs +z (west/east
+ *   faces) or +x (north/south), `up` from the floor; `wallColor`,
+ *   `ceilingColor` hex; `ceiling` false for an open-topped set.
+ * @returns {THREE.Group} named 'RoomShell' — walls 'Wall_<face>' (and
+ *   'Wall_<face>_<n>' panels around an opening), ceiling 'Ceiling'.
+ *   All cast and receive shadows.
+ */
+export function roomShell(opts = {}) {
+  const [cx, cy, cz] = opts.center || [0, 0, 0];
+  const [w, h, d] = opts.extents || [10, 3, 10];
+  const t = opts.thickness || 0.3;
+  const y0 = cy - h / 2;
+  const wallMat = new THREE.MeshStandardMaterial({ color: opts.wallColor === undefined ? 0xb9ad98 : opts.wallColor, roughness: 0.92 });
+  const ceilMat = new THREE.MeshStandardMaterial({ color: opts.ceilingColor === undefined ? 0x8d7f6a : opts.ceilingColor, roughness: 0.95 });
+  const group = new THREE.Group();
+  group.name = 'RoomShell';
+  const slab = (name, sx, sy, sz, x, y, z, mat) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+    m.name = name; m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
+    group.add(m);
+    return m;
+  };
+  // each face: its outward normal axis, the length along the face, and where along/up map
+  const faces = {
+    west:  { x: cx - w / 2 - t / 2, z: cz, len: d, axis: 'x' },
+    east:  { x: cx + w / 2 + t / 2, z: cz, len: d, axis: 'x' },
+    north: { x: cx, z: cz - d / 2 - t / 2, len: w, axis: 'z' },
+    south: { x: cx, z: cz + d / 2 + t / 2, len: w, axis: 'z' },
+  };
+  for (const [face, f] of Object.entries(faces)) {
+    const holes = (opts.openings || []).filter((o) => o.face === face);
+    // 1-D cuts along the face: solid spans between openings, and above/below each opening
+    const along = (v) => (f.axis === 'x' ? [f.x, v] : [v, f.z]);   // -> [x, z] on the face
+    const origin = (f.axis === 'x' ? cz : cx) - f.len / 2;
+    const place = (name, a0, a1, b0, b1) => {
+      if (a1 - a0 < 0.01 || b1 - b0 < 0.01) return;
+      const [x, z] = along(origin + (a0 + a1) / 2);
+      const sx = f.axis === 'x' ? t : a1 - a0, sz = f.axis === 'x' ? a1 - a0 : t;
+      slab(name, sx, b1 - b0, sz, x, y0 + (b0 + b1) / 2, z, wallMat);
+    };
+    if (!holes.length) { place(`Wall_${face}`, 0, f.len, 0, h); continue; }
+    const sorted = holes.map((o) => ({ a0: o.center[0] - o.size[0] / 2, a1: o.center[0] + o.size[0] / 2,
+                                       b0: o.center[1] - o.size[1] / 2, b1: o.center[1] + o.size[1] / 2 }))
+                        .sort((p, q) => p.a0 - q.a0);
+    let cursor = 0, n = 0;
+    for (const o of sorted) {
+      const a0 = Math.max(0, o.a0), a1 = Math.min(f.len, o.a1);
+      place(`Wall_${face}_${n++}`, cursor, a0, 0, h);                       // solid span before the opening
+      place(`Wall_${face}_${n++}`, a0, a1, 0, Math.max(0, o.b0));         // sill below it
+      place(`Wall_${face}_${n++}`, a0, a1, Math.min(h, o.b1), h);         // lintel above it
+      cursor = a1;
+    }
+    place(`Wall_${face}_${n++}`, cursor, f.len, 0, h);
+  }
+  if (opts.ceiling !== false) slab('Ceiling', w + 2 * t, t, d + 2 * t, cx, y0 + h + t / 2, cz, ceilMat);
+  return group;
+}
+
+/**
  * Build the sky dome + horizon ridge + matched fog.
  *
  * @param {object} [opts]

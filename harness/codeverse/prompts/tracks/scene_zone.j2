@@ -5,7 +5,10 @@ Scene: {{ spec_prompt }} · Setting: {{ setting }} · Mood: {{ mood }}
 ## This zone
 - Description (density counts and depth role are binding): {{ zone_description }}
 - Bbox: {{ zone_bbox }} — place EVERYTHING inside it (x/z), on the ground via `heightAt`.
-- Contents (asset names to place): {{ zone_contents | join(', ') if zone_contents else '(none — build local detail from primitives)' }}
+{% if interior %}- INTERIOR: the enclosure (walls, ceiling, roof) is `env.js`'s `roomShell` on the scene bounds' faces —
+  never build walls or a roof here.  Fixtures on a wall sit flush against the inner face of the bounds;
+  a window or door is an OPENING env cut, so glazing and door leaves go in the opening, not through the wall.
+{% endif %}- Contents (asset names to place): {{ zone_contents | join(', ') if zone_contents else '(none — build local detail from primitives)' }}
 
 {% if layout is defined and layout %}## Zone director's layout (realise EXACTLY these placements; positions are world meters)
 {{ layout }}
