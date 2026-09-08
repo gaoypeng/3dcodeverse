@@ -27,31 +27,36 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # this tree's codeverse, not the editable install
 
 from codeverse.flywheel.record import unique_files  # noqa: E402
+from codeverse.proc import read_jsonl_lenient  # noqa: E402
 from codeverse.spatial.node import browser_was_lost  # noqa: E402
 
 #: pipeline stages in the order the scene track runs them
 STAGES = ("plan", "skeleton", "assets", "env", "layouts", "assemble", "generate", "build")
 
 
-def runs(root: Path) -> list[tuple[str, dict, list[dict]]]:
-    """``(prompt id, record, events)`` per scene run under ``root``, once per run."""
+def scene_records(root: Path) -> list[tuple[Path, dict]]:
+    """``(run dir, record)`` for every scene run under ``root``, once per run on disk.
+
+    The walk is ``flywheel.record.unique_files`` (symlinked cells collapsed, the
+    ``_assets`` / ``_cand`` sub-workspaces skipped) — the one walker every scene survey
+    shares (``scene_regate`` re-gates exactly the runs this counts)."""
     out = []
     for rec in unique_files(root, "record.json"):
         try:
             data = json.loads(rec.read_text())
         except (OSError, ValueError):
             continue
-        if (data.get("spec") or {}).get("track") != "scene":
-            continue
-        ev = rec.parent / "events.jsonl"
-        events = []
-        if ev.is_file():
-            for line in ev.read_text().splitlines():
-                try:
-                    events.append(json.loads(line))
-                except ValueError:
-                    continue
-        out.append((str((data.get("spec") or {}).get("id", rec.parent.name)).split("/")[-1], data, events))
+        if (data.get("spec") or {}).get("track") == "scene":
+            out.append((rec.parent, data))
+    return out
+
+
+def runs(root: Path) -> list[tuple[str, dict, list[dict]]]:
+    """``(prompt id, record, events)`` per scene run under ``root``, once per run."""
+    out = []
+    for run, data in scene_records(root):
+        events = read_jsonl_lenient(run / "events.jsonl", dicts_only=True)
+        out.append((str((data.get("spec") or {}).get("id", run.name)).split("/")[-1], data, events))
     # by id, then by path: two runs of one prompt (a battery with reps) share the id, and a
     # bare sorted() would then compare their record dicts and raise.  unique_files yields
     # paths sorted, and the sort is stable, so the key is the id alone.

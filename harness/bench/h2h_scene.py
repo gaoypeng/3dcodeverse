@@ -44,6 +44,7 @@ from bench.run_bench import Battery, BenchPrompt  # noqa: E402
 from codeverse.contracts.artifacts import RenderSet, RenderView  # noqa: E402
 from codeverse.contracts.common import Language, Track  # noqa: E402
 from codeverse.contracts.spec import Spec  # noqa: E402
+from codeverse.proc import read_jsonl_lenient  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 BATTERY = HERE / "prompts" / "h2h_scene_v1.yaml"
@@ -142,11 +143,7 @@ def our_frames(run_dir: Path) -> tuple[list[RenderView], dict[str, Any]] | None:
     flagged = [v for v in stills if v.judge] or stills
     chosen = flagged[:MAX_VIEWS]
     minutes = None
-    for line in (run_dir.parent.parent / "results.jsonl").read_text().splitlines() if (run_dir.parent.parent / "results.jsonl").is_file() else []:
-        try:
-            r = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for r in read_jsonl_lenient(run_dir.parent.parent / "results.jsonl", dicts_only=True):
         if r.get("id") == run_dir.name:
             minutes = float(r.get("minutes") or 0.0)
     if minutes is None and rec.get("started_at") and rec.get("finished_at"):

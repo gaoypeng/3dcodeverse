@@ -29,7 +29,6 @@ is not a loss.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import statistics
 import sys
@@ -38,13 +37,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from codeverse.proc import read_jsonl_lenient  # noqa: E402
+
 #: judge repeatability on the calibration set (docs/PAPER_WRITING.md §2), used only to
 #: state how much of a best-of-k maximum is selection noise
 JUDGE_SIGMA = 0.030
-
-
-def _rows(path: Path) -> list[dict]:
-    return [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
 
 
 def one_shot_samples(root: Path) -> dict[str, list[float]]:
@@ -52,7 +49,7 @@ def one_shot_samples(root: Path) -> dict[str, list[float]]:
     out: dict[str, list[float]] = defaultdict(list)
     for rep in sorted(root.glob("rep*/results.jsonl")):
         seen: dict[str, float] = {}
-        for r in _rows(rep):
+        for r in read_jsonl_lenient(rep, dicts_only=True):
             if r.get("score") is None:
                 continue
             seen[r["prompt_id"]] = float(r["score"])   # last row wins, as paired_compare does
@@ -64,7 +61,7 @@ def one_shot_samples(root: Path) -> dict[str, list[float]]:
 def harness_scores(root: Path, *, arm_prefix: str = "harness:") -> dict[str, float]:
     """``{prompt: score}`` for the recorded harness arm, last row per prompt."""
     out: dict[str, float] = {}
-    for r in _rows(root / "results.jsonl"):
+    for r in read_jsonl_lenient(root / "results.jsonl", dicts_only=True):
         if not str(r.get("arm", "")).startswith(arm_prefix) or r.get("score") is None:
             continue
         out[r["prompt_id"]] = float(r["score"])
@@ -83,7 +80,7 @@ def harness_repeat_spread(root: Path, *, arm_prefix: str = "harness:") -> tuple[
     """
     per: dict[str, list[float]] = {}
     rows = 0
-    for r in _rows(root / "results.jsonl"):
+    for r in read_jsonl_lenient(root / "results.jsonl", dicts_only=True):
         if not str(r.get("arm", "")).startswith(arm_prefix):
             continue
         rows += 1
@@ -98,7 +95,7 @@ def gen_costs(root: Path, arm_prefix: str) -> list[float]:
     `paired_compare` pairs on.  Taken over every appended row instead, resumed and failed
     cells drag the median down and the equal-compute k comes out too small."""
     last: dict[str, float] = {}
-    for r in _rows(root / "results.jsonl"):
+    for r in read_jsonl_lenient(root / "results.jsonl", dicts_only=True):
         if str(r.get("arm", "")).startswith(arm_prefix):
             last[r["prompt_id"]] = float(r.get("gen_cost_usd") or 0.0)
     return [v for v in last.values() if v > 0]

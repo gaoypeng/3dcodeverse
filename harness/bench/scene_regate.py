@@ -31,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # this tree's codeverse
 
+from bench.scene_stats import scene_records  # noqa: E402
 from codeverse.config import get_settings  # noqa: E402
 from codeverse.contracts.artifacts import Severity  # noqa: E402
 from codeverse.spatial.scene_placement import placement_gate_safe  # noqa: E402
@@ -39,22 +40,8 @@ GATE = "scene_placement"
 
 
 def scene_runs(root: Path) -> list[Path]:
-    """Every recorded scene run under ``root``, once, newest layout or old."""
-    out, seen = [], set()
-    for rec in sorted(root.rglob("record.json")):
-        if "_assets" in rec.parts or "_cand" in rec.parts or rec.resolve() in seen:
-            continue
-        try:
-            data = json.loads(rec.read_text())
-        except (OSError, ValueError):
-            continue
-        if (data.get("spec") or {}).get("track") != "scene":
-            continue
-        if not (rec.parent / "src" / "scene.js").is_file():
-            continue
-        seen.add(rec.resolve())
-        out.append(rec.parent)
-    return out
+    """Every recorded scene run under ``root`` that still has a workspace to probe."""
+    return [run for run, _ in scene_records(root) if (run / "src" / "scene.js").is_file()]
 
 
 def recorded_errors(record: dict) -> list[str]:
