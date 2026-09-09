@@ -1192,6 +1192,17 @@ written) that were accepted because the code works that way and the tests pin it
   than none, because the judge repeats it — precision over recall, and every number names the
   surface it was measured against.
 
+* **D73 A refine after a regression builds on the best round, and the plan's cameras are
+  repaired out of a blocked view (2026-09-09).**  Loop 22: 0.66 → 0.61 → 0.47 and 0.60 → 0.32,
+  each refine session handed the round before it while the best sat in git until finalise;
+  and `PylonSlopeVista` stayed cut by a snow bank for three rounds because cameras belong to
+  the plan and no session moved one.  After StopPolicy's `switch` (a regression past the
+  judge's noise) `src/` is restored to the best round and the tasks come from ITS verdict
+  (`round.refine_from_best`); `repairCameraSpec` counts a lens staring at a surface
+  (`near_rays`), a sightline cut before half the distance and a terrain overhead as "not
+  clear" and searches back, up and sideways out of it.  Same rule as D72's: the harness fixes
+  what it can measure, deterministically, before a session is paid to guess.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

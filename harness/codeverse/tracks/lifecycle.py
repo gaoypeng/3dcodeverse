@@ -652,6 +652,8 @@ class BaseTrack:
                     if rejudge_round(ctx, pipeline, last, previous=prev_j):
                         self._promote_best(ctx, rounds, last.index)
                         continue  # decide() re-runs with the recovered score
+                last = self._refine_base(ctx, rounds, decision.strategy)
+                previous = last.judgment
                 tasks, instructions = self.refine_tasks(ctx, last, rounds, strategy=decision.strategy)
                 kind = KIND_FOR_STRATEGY.get(decision.strategy, "refine")
                 if not tasks:
@@ -700,6 +702,29 @@ class BaseTrack:
             # reconcile detects (stale) and repairs by re-ranking; that is the safe side.
             ctx.state.mark_round_done(index, rec.commit)
             self._promote_best(ctx, rounds, index)
+
+    @staticmethod
+    def _refine_base(ctx: RunContext, rounds: list[RoundRecord], strategy: str) -> RoundRecord:
+        """The round the next refine builds on.  The last one — unless it regressed past the
+        judge's noise (StopPolicy's ``switch``) and a better round exists: then ``src/`` is
+        restored to that best round and its record is the base, so the session works from
+        the best code and the best verdict's issues rather than from a worse attempt's.
+        Measured 2026-09-09 (loop 22): 0.66 → 0.61 → 0.47 and 0.60 → 0.32, each refine
+        building on the round before it, the regressions compounding while the best sat in
+        git; the finalise restore then delivered r0 after two paid rounds of drift."""
+        last = rounds[-1]
+        best = ctx.state.best_round
+        if strategy != "switch" or best is None or best >= len(rounds) or best == last.index:
+            return last
+        commit = rounds[best].commit
+        if not commit or not ctx.ws.has_commit(commit):
+            return last
+        if ctx.ws.head() != commit or ctx.ws.changed_files():
+            ctx.ws.restore(commit)
+            ctx.ws.commit(f"restore best round r{best:02d} before refine")
+        ctx.events.emit("round.refine_from_best", round=len(rounds), best=best, regressed=last.index,
+                        best_score=rounds[best].score, last_score=last.score)
+        return rounds[best]
 
     def _promote_best(self, ctx: RunContext, rounds: list[RoundRecord], index: int) -> None:
         """Rank round ``index`` in (pairwise tie-break included), promote the best, save."""

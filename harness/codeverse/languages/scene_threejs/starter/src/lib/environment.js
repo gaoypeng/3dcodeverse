@@ -56,6 +56,10 @@ export function roomShell(opts = {}) {
   const ceilMat = new THREE.MeshStandardMaterial({ color: opts.ceilingColor === undefined ? 0x8d7f6a : opts.ceilingColor, roughness: 0.95 });
   const group = new THREE.Group();
   group.name = 'RoomShell';
+  // The enclosure is not a placed thing: it defines the floor line.  Loop 22's crypt (2026-09-09)
+  // read "RoomShell is floating 39.8 m above the ground" against a terrain the env session had
+  // sunk to -40 m, and the judge repeated it as critical.  Same tag as a bird: not on anything.
+  group.userData.placement = 'free';
   const slab = (name, sx, sy, sz, x, y, z, mat) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
     m.name = name; m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
