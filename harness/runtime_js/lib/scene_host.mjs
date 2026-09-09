@@ -146,11 +146,28 @@ function makeLoaders(manager) {
  * that is why the finding is a WARN and says "no geometry from it", not "not used".
  */
 function glbUsage(scene) {
-  const used = new Set();
-  try { scene.traverse((o) => { if (o.geometry && o.geometry.uuid) used.add(o.geometry.uuid); }); } catch { return []; }
+  const used = new Map();   // geometry uuid -> world boxes of the meshes that draw it
+  try {
+    const box = new THREE.Box3();
+    scene.traverse((o) => {
+      if (!o.geometry || !o.geometry.uuid || !(o.isMesh || o.isInstancedMesh)) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      if (!used.has(o.geometry.uuid)) used.set(o.geometry.uuid, new THREE.Box3());
+      if (o.geometry.boundingBox && !o.geometry.boundingBox.isEmpty()) {
+        box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+        used.get(o.geometry.uuid).union(box);
+      }
+    });
+  } catch { return []; }
   return loadedGlbs.map((g) => {
-    const n = g.geometry_uuids.filter((u) => used.has(u)).length;
-    return { url: g.url, meshes: g.geometry_uuids.length, meshes_in_scene: n, in_scene: n > 0 };
+    const all = new THREE.Box3();
+    let n = 0;
+    for (const u of g.geometry_uuids) { const b = used.get(u); if (b) { n += 1; if (!b.isEmpty()) all.union(b); } }
+    // the largest extent of the GLB as placed: "fills 0.3 % of the frame" reads as "microscopic"
+    // without it (loop 23's lighthouse: a 4.4 m lantern room on a 30 m tower, far from every
+    // camera, judged "scaled far too small" for three rounds)
+    const size = all.isEmpty() ? null : +Math.max(...all.getSize(new THREE.Vector3()).toArray()).toFixed(2);
+    return { url: g.url, meshes: g.geometry_uuids.length, meshes_in_scene: n, in_scene: n > 0, size_m: size };
   });
 }
 
