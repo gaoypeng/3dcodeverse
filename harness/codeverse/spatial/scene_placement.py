@@ -13,7 +13,7 @@ sunken was left to the VLM (defect −0.06).
 Numbers come from ``runtime_js/lib/host_placement.mjs`` (per placed asset: foot-column
 gap to the surface beneath, burial depth, water, contacts; 3-D interpenetration pairs),
 carried in the probe census under ``placement``; this module turns them into
-``GateFinding``\ s whose messages contain the cap words and whose ``fix_hint`` names
+``GateFinding`` rows whose messages contain the cap words and whose ``fix_hint`` names
 the move ("lower X by 0.23 m onto Terrain").  Sunk is judged relative to the asset's
 height and its name words because the harness's own starter scene buries rocks
 20–50 % of their height, digs a pond basin 1.4 m under the terrain and drives jetty
