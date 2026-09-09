@@ -51,7 +51,7 @@ def test_a_hero_in_an_authored_frame_passes(starter_ws: Workspace):
     assert rs.console_errors == []
     m = read_metrics(out)
     rows = {r["url"]: r for r in m["census"]["glb_assets"]}
-    assert rows[URL]["in_scene"] is True
+    assert rows[URL]["in_scene"] is True and abs(rows[URL]["size_m"] - 4.0) < 0.05, rows[URL]
     chk = {c["name"]: c for c in m["camera_checks"]}
     seen = chk["overview"]["glb_frac"][URL]
     assert seen > HERO_MIN_FRAC, chk["overview"]["glb_frac"]                            # the establishing shot sees the cube

@@ -376,10 +376,12 @@ def _hero_findings(checks: list[dict[str, Any]], census: dict[str, Any]) -> list
         base = url.rsplit("/", 1)[-1]
         best = max(seen.values())
         listing = ", ".join(f"{n} {v:.1%}" for n, v in list(seen.items())[:6])
+        size = _num(r, "size_m")
+        placed = f" ({size:.1f} m across as placed)" if size else ""
         if best < HERO_MIN_FRAC:
             out.append(_f(Severity.ERROR, base,
-                          f"{base} is in the scene but fills at most {best:.1%} of any authored frame ({listing}) — "
-                          "no camera sees the hero",
+                          f"{base}{placed} is in the scene but fills at most {best:.1%} of any authored frame ({listing}) — "
+                          "no camera sees the hero: it is far from every shot or something stands between, not small",
                           "aim the camera named for it at the hero's placement with a clear line of sight (a "
                           "camera_target_blocked finding names what cuts it) or move the hero into a shot; a hero the "
                           "frames never show cannot pass its must-have",

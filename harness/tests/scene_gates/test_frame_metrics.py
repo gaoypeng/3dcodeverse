@@ -222,7 +222,7 @@ def test_a_hero_in_the_scene_but_in_no_authored_frame_is_an_error():
     """cmp6's crypt (2026-09-09): the athanor stood behind a pillar in every authored shot and
     the judge called the HERO a grey box — ``glb_frac`` is the mask render per GLB per camera."""
     url = "/assets/athanor.glb"
-    census = {"ground_y": 0.0, "glb_assets": [{"url": url, "meshes": 9, "meshes_in_scene": 9, "in_scene": True}]}
+    census = {"ground_y": 0.0, "glb_assets": [{"url": url, "meshes": 9, "meshes_in_scene": 9, "in_scene": True, "size_m": 2.2}]}
     unseen = frame_findings({"census": census, "camera_checks": [
         _chk("AthanorDetail", glb_frac={url: 0.0}), _chk("StairsPushIn", glb_frac={url: 0.001}),
         _chk("overview_top", "orbit", glb_frac={url: 0.3})]})          # the rig sees it: not an authored shot
@@ -230,6 +230,7 @@ def test_a_hero_in_the_scene_but_in_no_authored_frame_is_an_error():
     assert ("hero_unseen", Severity.ERROR, "athanor.glb") in kinds and not unseen.passed
     msg = next(f.message for f in unseen.findings if f.data["kind"] == "hero_unseen")
     assert "AthanorDetail 0.0%" in msg and "no camera sees the hero" in msg
+    assert "(2.2 m across as placed)" in msg and "not small" in msg      # loop 23: 0.3 % read as "microscopic" without the size
     # seen well in one shot, but the camera NAMED for it barely shows it → WARN on that camera
     small = frame_findings({"census": census, "camera_checks": [
         _chk("AthanorDetail", glb_frac={url: 0.004}), _chk("StairsPushIn", glb_frac={url: 0.12})]})
