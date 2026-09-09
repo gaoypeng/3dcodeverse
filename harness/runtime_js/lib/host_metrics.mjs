@@ -130,6 +130,19 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3) {
     // three rounds, the repair moved it twice for nothing and the judge marked it critical.
     if (box.containsPoint(eye) && eyeInsideMesh(o, eye, THREE)) inside.push(o.name || o.parent?.name || o.type);
   }
+  // The surface under the lens: one ray straight down to the nearest solid mesh.  The
+  // census ground_y is the TOP of every ground mesh scene-wide, so on relief terrain a
+  // camera at eye level over a low patch read "0.06 m above ground — ant's-eye view"
+  // against a 3.1 m snow mound elsewhere (loop 21 ski station, 2026-09-09) and the judge
+  // repeated the false warning as a major issue.  Null when nothing lies beneath (a lens
+  // under the terrain, or off the edge of the ground) — the gate then falls back to ground_y.
+  let groundBelow = null;
+  let groundBelowName = '';
+  try {
+    const down = new THREE.Raycaster(eye.clone(), new THREE.Vector3(0, -1, 0), 0, 500);
+    const h = down.intersectObjects(targets, false)[0];
+    if (h) { groundBelow = +h.distance.toFixed(3); groundBelowName = h.object.name || h.object.parent?.name || h.object.type; }
+  } catch (e) { groundBelow = null; }
   const center = new THREE.Vector3();
   camera.getWorldDirection(center);
   return {
@@ -140,6 +153,8 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3) {
     inside_mesh_bbox: inside.slice(0, 5),
     camera_in_geometry: (Number.isFinite(nearest) && nearest < limitM) || inside.length > 0,
     eye_height_m: +eye.y.toFixed(3),
+    ground_below_m: groundBelow,
+    ground_below_name: groundBelowName,
     look_dir: [center.x, center.y, center.z].map((v) => +v.toFixed(3)),
   };
 }

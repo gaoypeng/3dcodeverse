@@ -264,6 +264,8 @@ select_judge_views(rs, max_n=10) -> RenderSet          # priority: authored@t0, 
 from codeverse.spatial.frame_metrics import frame_gate_from_renders, frame_findings, frame_summary_text, FRAME_GATE
 frame_gate_from_renders(renders) -> GateReport         # gate "scene_frames"; data.kind ∈ dark_frame | blown_frame | flat_frame |
     # camera_in_geometry | camera_underground | camera_low | camera_high | content_small; authored cameras → ERROR, orbit rig → WARN
+    # Δ camera_low / camera_high measure camera_checks.ground_below_m (the ray straight down from the eye, nearGeometry);
+    #   the scene-wide census ground_y is the fallback when nothing lies beneath the lens
 from codeverse.spatial.measure import measure_glb      # link-hierarchy rule: metadata["links"] → each link is its own part
     # Δ Measurement.extra["complexity"] = ComplexityVector.model_dump() (additive, best-effort, never raises)
 from codeverse.spatial.complexity import (ComplexityVector, COMPLEXITY_WEIGHTS, COMPLEXITY_VERSION,

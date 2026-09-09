@@ -51,6 +51,12 @@ const room = new THREE.Mesh(new THREE.BoxGeometry(6, 3, 6), solid);
 room.name = 'CottageShell'; room.position.set(0, 1.5, 0); scene.add(room);
 """
 
+# a 3 m snow mound 40 m from the lens: the census's highest ground surface, not the ground under the eye
+MOUND = """
+const mound = new THREE.Mesh(new THREE.BoxGeometry(10, 3, 10), solid);
+mound.name = 'SnowMound'; mound.position.set(30, 1.5, 30); scene.add(mound);
+"""
+
 
 def _run(body: str, eye: str) -> dict:
     return run_node_json(JS.replace("BODY", body).replace("EYE", eye).replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
@@ -74,3 +80,12 @@ def test_a_lens_inside_a_solid_arm_is_inside():
     got = _run(SAILS, "0, 12, 0")          # the hub itself, inside both arms
     assert "Sails_1" in got["inside_mesh_bbox"], got
     assert got["camera_in_geometry"] is True, got
+
+
+def test_the_ground_under_the_lens_is_the_ray_straight_down_not_the_highest_ground():
+    """Loop 21's ski station (2026-09-09): eye 3.2 m on relief terrain, the highest snow 3.14 m,
+    the gate said "0.06 m above ground — ant's-eye view" and the judge repeated it."""
+    got = _run(MOUND, "0, 1.6, 0")
+    assert abs(got["ground_below_m"] - 1.6) < 1e-3 and got["ground_below_name"] == "Ground", got
+    void = _run(MOUND, "60, 1.6, 60")      # off the 80 x 80 m ground: nothing beneath the lens
+    assert void["ground_below_m"] is None, void

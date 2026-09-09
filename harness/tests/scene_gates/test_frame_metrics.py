@@ -74,6 +74,21 @@ def test_camera_in_geometry_and_near_hit():
     assert "Tower" in rep.findings[0].message and "0.5 m" in rep.findings[0].fix_hint
 
 
+def test_eye_height_is_measured_under_the_lens_when_the_census_has_it():
+    """Relief terrain: a camera at eye level over a low patch is not an ant.  Loop 21's ski
+    station (2026-09-09): eye 3.20 m, the highest snow 3.14 m → "0.06 m above ground —
+    ant's-eye view", repeated by the judge as a major issue on a frame shot from 1.6 m."""
+    rep = frame_findings(_metrics(_chk("Hill", eye_height_m=3.2, ground_below_m=1.62, ground_below_name="SnowTerrain"),
+                                  _chk("Ant", eye_height_m=3.2, ground_below_m=0.06, ground_below_name="SnowTerrain"),
+                                  _chk("Drone", eye_height_m=98.0, ground_below_m=95.0, ground_below_name="Ground"),
+                                  ground_y=3.137))
+    assert [(k, s) for k, s, _ in _kinds(rep)] == [("camera_low", Severity.WARN), ("camera_high", Severity.WARN)]
+    assert "SnowTerrain" in rep.findings[0].message and rep.findings[0].data["view"] == "Ant"
+    # nothing beneath the lens (under the terrain / off the ground's edge) → the scene-wide rule
+    under = frame_findings(_metrics(_chk("Under", eye_height_m=-0.5, ground_below_m=None), ground_y=0.0))
+    assert [k for k, _, _ in _kinds(under)] == ["camera_below_high_ground"]
+
+
 def test_eye_height_sanity_against_ground():
     # a camera below the scene's highest ground surface whose frame renders fine is NOT
     # buried — census ground_y is the TOP of every ground mesh, so a hill or a raised bed
