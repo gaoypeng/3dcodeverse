@@ -24,12 +24,13 @@ import { roomShell } from './lib/environment.js';
 const g = roomShell({ center: [0, 3, 0], extents: [14, 6, 16], thickness: 0.3,
                       openings: [{ face: 'west', center: [8, 2.5], size: [6, 3] }] });
 const names = g.children.map((m) => m.name);
+const placement = g.userData.placement;
 const box = new THREE.Box3().setFromObject(g);
 const west = g.children.filter((m) => m.name.startsWith('Wall_west'));
 // the opening: no west panel covers (x = -7.15, y = 2.5, z = 0) — 8 m along the face from z = -8
 const covered = west.some((m) => new THREE.Box3().setFromObject(m).containsPoint(new THREE.Vector3(-7.15, 2.5, 0)));
 const sill = west.some((m) => new THREE.Box3().setFromObject(m).containsPoint(new THREE.Vector3(-7.15, 0.5, 0)));
-console.log(JSON.stringify({ names, min: box.min.toArray(), max: box.max.toArray(), westPanels: west.length, covered, sill,
+console.log(JSON.stringify({ names, placement, min: box.min.toArray(), max: box.max.toArray(), westPanels: west.length, covered, sill,
   shadows: g.children.every((m) => m.castShadow && m.receiveShadow) }));
 """
 
@@ -42,6 +43,8 @@ def test_the_shell_is_walls_and_ceiling_on_the_bounds_faces_with_openings_cut():
     assert got["min"][0] == pytest.approx(-7.3, abs=1e-6) and got["max"][0] == pytest.approx(7.3, abs=1e-6)
     assert got["min"][1] == pytest.approx(0.0, abs=1e-6) and got["max"][1] == pytest.approx(6.3, abs=1e-6)
     assert got["shadows"]
+    # the enclosure is not a placed thing (loop 22's crypt: "RoomShell floating 39.8 m" over a sunk terrain)
+    assert got["placement"] == "free", got
 
 
 def test_the_skeleton_env_carries_the_shell_only_for_an_interior_plan():

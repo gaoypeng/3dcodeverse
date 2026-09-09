@@ -27,6 +27,7 @@ from codeverse.tracks.generation import (
     run_agent_task,
     turn_capped,
 )
+from codeverse.tracks.lifecycle import BaseTrack
 from codeverse.tracks.static_object import StaticObjectTrack
 from codeverse.workspace import Workspace
 from tests.orchestrator_tracks.conftest import fake_clock, make_spec
@@ -491,3 +492,31 @@ def test_a_run_past_its_hard_ceiling_cannot_start_another_session(tmp_ws):
                        task=GenerationTask(label="baseline", prompt="p", round=0, kind="baseline"),
                        budget=g)
     assert agent.jobs == []  # the treadmill ends BEFORE the agent is invoked
+
+
+# ----------------------------------------------------------------------------- refine from the best round
+def test_a_refine_after_a_regression_restores_the_best_round_and_plans_from_its_verdict(tmp_path):
+    """Loop 22 (2026-09-09): 0.66 → 0.61 → 0.47, each refine building on the round before it while
+    the best sat in git.  After StopPolicy's ``switch`` the working tree is the BEST round again
+    and the tasks come from its verdict; a same-shape refine keeps building on the last round."""
+    from types import SimpleNamespace
+
+    from codeverse.workspace import Workspace
+
+    ws = Workspace(tmp_path / "run").create()
+    (ws.src / "scene.js").write_text("// r0: the good one\n")
+    c0 = ws.commit("r00")
+    (ws.src / "scene.js").write_text("// r1: the regression\n")
+    c1 = ws.commit("r01")
+    rounds = [_round(0, 0.66), _round(1, 0.47)]
+    rounds[0].commit, rounds[1].commit = c0, c1
+    events: list[dict] = []
+    ctx = SimpleNamespace(ws=ws, state=SimpleNamespace(best_round=0), events=SimpleNamespace(emit=lambda name, **kw: events.append({"event": name, **kw})))
+    same = BaseTrack._refine_base(ctx, rounds, "same")
+    assert same is rounds[1] and ws.head() == c1 and not events                      # no regression: the last round
+    base = BaseTrack._refine_base(ctx, rounds, "switch")
+    assert base is rounds[0] and (ws.src / "scene.js").read_text() == "// r0: the good one\n"
+    assert ws.head() != c1 and events[0]["event"] == "round.refine_from_best" and events[0]["best"] == 0 and events[0]["regressed"] == 1
+    # the best IS the last round (nothing regressed past it): nothing to restore
+    ctx.state.best_round = 1
+    assert BaseTrack._refine_base(ctx, rounds, "switch") is rounds[1]

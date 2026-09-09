@@ -229,37 +229,62 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3, lookAt = null) 
  * Pure: no renderer, raycasts only.  `makeCam(spec)` is supplied by the host so
  * near/far/aspect match the real render exactly.
  */
+// [back, up, side] metres along the view axis, world up, and the camera's right; the search
+// takes the first that clears.  Sideways moves are what step out from behind a pillar or a
+// snow bank — a retreat alone only backs into the same line of sight.
 const REPAIR_OFFSETS = [
-  [0, 0], [0, 0.5], [0.5, 0], [0.5, 0.5], [1, 0.5], [1, 1], [2, 1], [2, 2], [3, 2], [4, 2],
+  [0, 0, 0], [0, 0.5, 0], [0.5, 0, 0], [0.5, 0.5, 0], [1, 0.5, 0], [1, 1, 0], [0, 1, 1.5], [0, 1, -1.5],
+  [2, 1, 0], [1, 1.5, 2], [1, 1.5, -2], [2, 2, 0], [2, 2, 2.5], [2, 2, -2.5], [3, 2, 0], [3, 3, 3], [3, 3, -3], [4, 2, 0],
 ];
 const REPAIR_CLEAR_M = 0.5;
 const EYE_ABOVE_GROUND_M = 1.6;
+const REPAIR_BLOCKED_RAYS = 6;          // of the 9 sight rays within BLOCKED_M: the frame is a surface
+const REPAIR_CUT_FRAC = 0.5;            // the line of sight to lookAt cut before this fraction of the distance
+
+/** Is this lens clear: not in geometry, nothing within REPAIR_CLEAR_M, not staring at a surface,
+ *  and its line of sight to the plan's lookAt not cut short? */
+function lensClear(n) {
+  if (n.camera_in_geometry) return false;
+  if (n.nearest_hit_m !== null && n.nearest_hit_m < REPAIR_CLEAR_M) return false;
+  if (n.near_rays >= REPAIR_BLOCKED_RAYS) return false;
+  if (n.target_hit_m !== null && n.target_distance_m && n.target_hit_m < REPAIR_CUT_FRAC * n.target_distance_m) return false;
+  return true;
+}
 
 export function repairCameraSpec(scene, spec, THREE, makeCam) {
   const dir = new THREE.Vector3(
     spec.position[0] - spec.lookAt[0], spec.position[1] - spec.lookAt[1], spec.position[2] - spec.lookAt[2]);
   if (dir.lengthSq() < 1e-9) dir.set(0, 0, 1);
   dir.normalize();
-  let before = null;
+  const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), dir);
+  if (right.lengthSq() < 1e-9) right.set(1, 0, 0);
+  right.normalize();
+  const lookAt = Array.isArray(spec.lookAt) ? spec.lookAt : null;
   // A lens under a ground surface (terrain overhead) is lifted to eye level above it first —
   // no backward retreat clears that, and the plan's camera is nobody else's to move.
+  const before = nearGeometry(scene, makeCam(spec), THREE, undefined, lookAt);
   let lift = 0;
   let underBefore = '';
-  {
-    const n0 = nearGeometry(scene, makeCam(spec), THREE);
-    before = n0;
-    if (n0.ground_above_m !== null) { lift = n0.ground_above_m + EYE_ABOVE_GROUND_M; underBefore = n0.ground_above_name; }
-  }
-  for (const [back, up] of REPAIR_OFFSETS) {
-    const pos = [spec.position[0] + dir.x * back, spec.position[1] + dir.y * back + up + lift, spec.position[2] + dir.z * back];
+  if (before.ground_above_m !== null) { lift = before.ground_above_m + EYE_ABOVE_GROUND_M; underBefore = before.ground_above_name; }
+  // A lens staring at a surface (loop 22's crypt: 9 of 9 rays on a well 0.75 m away, a black
+  // frame for a round) or whose line of sight to its subject is cut (loop 22's ski station: a
+  // snow bank at 44 % of the way, three rounds of "the view is blocked" while no refine session
+  // could move the plan's camera) is searched out of it the same way.
+  const blockedBefore = before.near_rays >= REPAIR_BLOCKED_RAYS;
+  const cutBefore = before.target_hit_m !== null && before.target_distance_m
+                    && before.target_hit_m < REPAIR_CUT_FRAC * before.target_distance_m ? before.target_hit_name : '';
+  for (const [back, up, side] of REPAIR_OFFSETS) {
+    const pos = [spec.position[0] + dir.x * back + right.x * side, spec.position[1] + dir.y * back + up + lift,
+                 spec.position[2] + dir.z * back + right.z * side];
     const candidate = { ...spec, position: pos };
-    const n = lift === 0 && back === 0 && up === 0 ? before : nearGeometry(scene, makeCam(candidate), THREE);
-    const clear = !n.camera_in_geometry && (n.nearest_hit_m === null || n.nearest_hit_m >= REPAIR_CLEAR_M);
-    if (clear) {
-      if (back === 0 && up === 0 && lift === 0) return null;   // the authored camera is fine: no repair
+    const authored = lift === 0 && back === 0 && up === 0 && side === 0;
+    const n = authored ? before : nearGeometry(scene, makeCam(candidate), THREE, undefined, lookAt);
+    if (lensClear(n)) {
+      if (authored) return null;   // the authored camera is fine: no repair
       return { spec: candidate, name: spec.name || '', moved_back_m: back, moved_up_m: +(up + lift).toFixed(3),
-               nearest_before: before.nearest_hit_m, inside_before: before.inside_mesh_bbox,
-               under_before: underBefore, nearest_after: n.nearest_hit_m };
+               moved_side_m: side, nearest_before: before.nearest_hit_m, inside_before: before.inside_mesh_bbox,
+               under_before: underBefore, blocked_before: blockedBefore, cut_before: cutBefore,
+               nearest_after: n.nearest_hit_m };
     }
   }
   return null;   // nothing within the retreat budget clears it: keep the authored shot

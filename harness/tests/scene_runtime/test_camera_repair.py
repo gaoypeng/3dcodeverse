@@ -42,7 +42,15 @@ scene.updateMatrixWorld(true);
 const buried = { name: 'SlipwaySurge', position: [5, 1.6, -40], lookAt: [0, 4.0, -30], fov: 45 };
 const lifted = repairCameraSpec(scene, buried, THREE, makeCam);
 const liftedAfter = lifted ? nearGeometry(scene, makeCam(lifted.spec), THREE) : null;
-console.log(JSON.stringify({ fix, after, noFix, lifted, liftedAfter }));
+// a squat pillar 0.8 m before the lens, the subject 4 m behind it (loop 22's crypt: 9 of 9 rays on a
+// well, a black frame): stepped out of it sideways / up, and the line of sight to lookAt is open after
+const pillar = new THREE.Mesh(new THREE.BoxGeometry(1.2, 3.2, 1.2), mat);
+pillar.name = 'StonePillar_3'; pillar.position.set(20, 1.6, 18.6); scene.add(pillar);
+scene.updateMatrixWorld(true);
+const staring = { name: 'AthanorDetail', position: [20, 1.6, 20], lookAt: [20, 1.2, 16], fov: 45 };
+const stepped = repairCameraSpec(scene, staring, THREE, makeCam);
+const steppedAfter = stepped ? nearGeometry(scene, makeCam(stepped.spec), THREE, undefined, staring.lookAt) : null;
+console.log(JSON.stringify({ fix, after, noFix, lifted, liftedAfter, stepped, steppedAfter }));
 """
 
 
@@ -71,3 +79,11 @@ def test_a_lens_under_a_ground_surface_is_lifted_to_eye_level_above_it(result):
     assert abs(lifted["spec"]["position"][1] - (3.0 + 1.6)) < 1e-6, lifted     # terrain at 3 m + 1.6 m eye
     after = result["liftedAfter"]
     assert after["ground_above_m"] is None and abs(after["ground_below_m"] - 1.6) < 1e-3, after
+
+
+def test_a_lens_staring_at_a_surface_is_stepped_out_of_it_and_its_line_of_sight_opened(result):
+    stepped = result["stepped"]
+    assert stepped is not None and stepped["blocked_before"] is True and stepped["cut_before"] == "StonePillar_3", stepped
+    after = result["steppedAfter"]
+    assert after["near_rays"] < 6 and not after["camera_in_geometry"], after
+    assert after["target_hit_m"] is None or after["target_hit_m"] >= 0.5 * after["target_distance_m"], after

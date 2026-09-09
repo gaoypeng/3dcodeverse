@@ -21,6 +21,7 @@ import { sceneCensus } from './host_census.mjs';
 import { placementTable, settleScene } from './host_placement.mjs';
 import { frameStats, nearGeometry, repairCameraSpec } from './host_metrics.mjs';
 import { frameCoverage, glbCoverage } from './host_coverage.mjs';
+import { classifyBackdrop, nonSolid } from './backdrop.mjs';
 import { installShaderErrorHook } from './host_shader_errors.mjs';
 import { attributeErrors, captured, captureMaterialSources, materialAudit } from './host_compile.mjs';
 import { makeRenderer, rendererString } from './browser/renderer.js';
@@ -378,8 +379,10 @@ function buildCamera(spec) {
       try { fix = repairCameraSpec(state.scene, spec, THREE, buildCameraRaw); } catch (e) { fix = null; }
       state.repairedSpecs.set(key, fix ? fix.spec : null);
       if (fix) state.cameraRepairs.push({ name: fix.name, moved_back_m: fix.moved_back_m, moved_up_m: fix.moved_up_m,
-                                          nearest_before: fix.nearest_before, inside_before: fix.inside_before,
-                                          under_before: fix.under_before || '', nearest_after: fix.nearest_after });
+                                          moved_side_m: fix.moved_side_m || 0, nearest_before: fix.nearest_before,
+                                          inside_before: fix.inside_before, under_before: fix.under_before || '',
+                                          blocked_before: !!fix.blocked_before, cut_before: fix.cut_before || '',
+                                          nearest_after: fix.nearest_after });
     }
     const fixed = state.repairedSpecs.get(key);
     if (fixed) return buildCameraRaw(fixed);
@@ -438,6 +441,27 @@ function renderOnce(cam) {
   try { const gl = state.renderer.getContext(); if (gl && gl.finish) gl.finish(); } catch (e) { /* ignore */ }
 }
 
+/** Visible see-through meshes classified 'sky' (backdrop.mjs) whose whole box lies below `eye`. */
+function skyLayersBelow(eye) {
+  const out = [];
+  const box = new THREE.Box3();
+  state.scene.traverse((o) => {
+    if (!(o.isMesh || o.isInstancedMesh) || !o.visible || !o.geometry || !nonSolid(o)) return;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    if (o.geometry.boundingBox.isEmpty()) return;
+    box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+    if (o.frustumCulled === false && o.geometry.isInstancedBufferGeometry) {
+      // an instanced billboard deck keeps its quad at the origin and offsets it in the shader:
+      // its instance offsets are the only honest extent
+      const off = o.geometry.getAttribute('iOff');
+      if (off) { box.makeEmpty(); for (let i = 0; i < off.count; i++) box.expandByPoint(new THREE.Vector3(off.getX(i), off.getY(i), off.getZ(i))); }
+    }
+    if (box.isEmpty() || box.max.y >= eye.y) return;
+    if (classifyBackdrop(o, box) === 'sky' || /cloud|cumulus|cirrus/i.test(o.name || '')) out.push(o);
+  });
+  return out;
+}
+
 /** Render camera spec at time t; returns {dataUrl, ms}. */
 function renderAt(spec, t) {
   if (!state.booted) throw new Error('host not booted');
@@ -447,10 +471,16 @@ function renderAt(spec, t) {
   const t0 = performance.now();
   const savedFog = state.scene.fog;
   if (spec.noFog) state.scene.fog = null;   // overview rig: structure over atmosphere
+  // …and no see-through sky layer under the lens: a billboard cloud deck seen from above
+  // is a grid of white discs over the sea, and the judge read it as "a polka-dot sea
+  // shader" on two lighthouse runs (2026-09-09).  The authored cameras keep their clouds.
+  const hiddenLayers = spec.noFog ? skyLayersBelow(cam.position) : [];
+  for (const o of hiddenLayers) o.visible = false;
   try {
     renderOnce(cam);
   } finally {
     state.scene.fog = savedFog;
+    for (const o of hiddenLayers) o.visible = true;
   }
   const ms = Math.round(performance.now() - t0);
   // the camera actually used: differs from spec.position when camera repair fired
