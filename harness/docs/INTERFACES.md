@@ -271,6 +271,8 @@ frame_gate_from_renders(renders) -> GateReport         # gate "scene_frames"; da
     #   when the frame agrees: a terrain-scale ground surface straight above the eye, ground_above_m; the camera repair lifts it)
     # Δ hero_unseen (ERROR: a loaded GLB in the scene fills < 0.5 % of every authored frame — camera_checks[].glb_frac, one mask
     #   render per GLB per camera, occlusion included) · hero_small_in_its_camera (WARN: < 2 % in the camera named for it)
+    # Δ scene_placement stamped_ring (WARN): census groups[].stamps — per family of ≥ 8 copies {n, radius_m, radius_cv,
+    #   gap_cv, size_cv}; ≥ 8 same-size copies evenly on a ring at ≥ 0.6 × the plan's half-extent (host_census stampStats)
 from codeverse.spatial.measure import measure_glb      # link-hierarchy rule: metadata["links"] → each link is its own part
     # Δ Measurement.extra["complexity"] = ComplexityVector.model_dump() (additive, best-effort, never raises)
 from codeverse.spatial.complexity import (ComplexityVector, COMPLEXITY_WEIGHTS, COMPLEXITY_VERSION,
