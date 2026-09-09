@@ -149,7 +149,25 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
         out.append(_f(sev, name, rig + f"camera inside / touching geometry: {where}", _NEAR_HINT,
                       kind="camera_in_geometry", view=name, nearest_hit_m=near, inside=inside[:5]))
     eye = _num(chk, "eye_height_m")
-    if authored and eye is not None and ground_y is not None:
+    below = _num(chk, "ground_below_m")
+    if authored and below is not None:
+        # The ray straight down from the eye (``nearGeometry``): the surface this lens
+        # actually stands over.  Scene-wide ``ground_y`` is the top of the HIGHEST ground
+        # mesh, and on relief terrain it called a camera at eye level on a low patch an
+        # "ant's-eye view" (loop 21 ski station: eye 3.20 m, snow mound 3.14 m) — a false
+        # WARN the judge then repeated as a major issue.
+        under = str(chk.get("ground_below_name") or "the surface beneath it")
+        if below < EYE_MIN_ABOVE_GROUND_M:
+            out.append(_f(Severity.WARN, name, f"camera eye only {below:.2f} m above {under} — ant's-eye view",
+                          "human shots: position[1] = heightAt(x, z) + 1.6; establishing: 6–20 m above ground looking down 15–30°",
+                          kind="camera_low", view=name, eye_height_m=eye, ground_below_m=below))
+        elif below > EYE_MAX_ABOVE_GROUND_M:
+            out.append(_f(Severity.WARN, name, f"camera {below:.0f} m above {under} — satellite view, not a shot",
+                          "bring the camera down: establishing 6–20 m above ground at ~1.2 × the content span",
+                          kind="camera_high", view=name, eye_height_m=eye, ground_below_m=below))
+    elif authored and eye is not None and ground_y is not None:
+        # Nothing beneath the lens (under the terrain, off the ground's edge) or an older
+        # census: compare with the scene's highest ground surface.
         above = eye - ground_y
         if above < -0.2:
             # ``ground_y`` is the TOP of every ground-classified mesh in the scene (census),
