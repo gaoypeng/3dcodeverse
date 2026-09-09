@@ -80,7 +80,7 @@ line-length = 100
 target-version = "py313"  # == requires-python: one fixed version (owner, 2026-08-26)
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "SIM"]
+select = ["E", "W", "F", "I", "B", "UP", "SIM"]
 ignore = ["E501"]
 
 [tool.pytest.ini_options]
