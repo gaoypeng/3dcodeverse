@@ -1113,6 +1113,29 @@ written) that were accepted because the code works that way and the tests pin it
   grounds anything (L7): harness-owned starter geometry, like `worldShell` (D51), that the
   agent edits.
 
+* **D70 One author for the whole world — `CV3D_ONE_WORLD_SESSION`, ON by default since its
+  measurement (2026-09-08).**  Under one fixed judge (gemini-3.1-pro-preview, n=2, the brief's
+  must_have list) and one model on both sides (`codex:gpt-6-astra@low`), a bare one-file scene
+  — one author, no plan, no lib, no assets, no tools — scored 0.894 on the clockmaker's
+  workshop and 0.82 on the boat workshop; the harness's round 0 of the same briefs, its zones
+  written by separate sessions of at most two small zones each (`MAX_ZONES_PER_BATCH = 2`,
+  `SMALL_ZONE_CONTENTS = 3`), sat at 0.17 and 0.30–0.57 and needed two refine rounds to reach
+  0.60–0.93.  Over four scene prompts the harness still led on mean (0.54 vs 0.36: the bare
+  model's windmill and lighthouse died on a null merged geometry the build gate would have
+  repaired), but where it lost, it lost on what appears BETWEEN authors: the day's tally over
+  43 judged rounds put floating / scale / interpenetration (28), missing planned content (23)
+  and cameras (21) at the top.  With the switch on, every zone brief goes to ONE session that
+  owns every zone file — the env, the assets and the Blender heroes keep their own stages, the
+  gates and rounds are unchanged — with the session window scaled by the zone count and the
+  batch header saying whose coherence it is.  A boolean, not a batch size: the hypothesis is
+  "one author", and a bench arm sets it after Settings is cached (`env_flag`, as
+  `CV3D_SCENE_TEXTURES` does).  **Measured (loop 17, the same three briefs, in-loop judge):**
+  round 0 clockmaker 0.17 → 0.69, boat 0.51 → 0.58, NYC 0.44 → 0.43; best round 0.75 → 0.82
+  PASS, 0.73 → 0.60, 0.60 → 0.77 PASS — two passes where the fan-out had none, and the
+  interior's round 0 four times higher.  The default is ON; `off` keeps the fan-out as the
+  control until the fixed-judge confirmation (harness-with-switch vs the bare model on the
+  same briefs) is in, after which the two batching constants go.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

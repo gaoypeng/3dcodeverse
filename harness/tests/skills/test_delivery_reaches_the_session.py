@@ -38,6 +38,9 @@ def scene_run(tmp_path, monkeypatch):
     from tests.orchestrator_tracks.test_tracks import _planner, _scene_writer
 
     monkeypatch.setenv("CV3D_SKILLS", "1")
+    # this run PROVES the fan-out is skill-safe (one attach serving two zone sessions), so it
+    # runs the fan-out — the default since D70 (2026-09-08) is one session for every zone
+    monkeypatch.setenv("CV3D_ONE_WORLD_SESSION", "off")
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     plan.assets = [a for a in plan.assets if a.kind == "threejs"]
     for z in plan.zones:

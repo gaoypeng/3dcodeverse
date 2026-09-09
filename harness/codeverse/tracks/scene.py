@@ -26,7 +26,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from codeverse.config import scene_textures_enabled
+from codeverse.config import one_world_session_enabled, scene_textures_enabled
 from codeverse.contracts.artifacts import (
     BuildResult,
     GateFinding,
@@ -353,7 +353,8 @@ class SceneTrack(BaseTrack):
     def _zones_stage(self, ctx: RunContext) -> dict[str, Any]:
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         t0 = time.time()
-        batches = plan_zone_batches(list(plan.zones))
+        # one author for the whole world (config.one_world_session_enabled) or the fan-out
+        batches = [list(plan.zones)] if one_world_session_enabled() else plan_zone_batches(list(plan.zones))
         if any(len(b) > 1 for b in batches):
             ctx.events.emit("zones.batched", batches=[[z.name for z in b] for b in batches])
 
@@ -412,17 +413,23 @@ class SceneTrack(BaseTrack):
         if len(batch) == 1:
             prompt, label = briefs[0], f"zone_{to_snake(names[0])}"
         else:
+            whole = len(batch) == len(plan.zones)
             header = (f"# {len(batch)} zone modules in ONE session — write ALL of: {', '.join(files)}\n\n"
                       f"You own exactly these files and nothing else. {len(batch)} complete zone briefs follow, "
                       "separated by a horizontal rule; implement each one in its own file exactly as its brief says. "
-                      "They are small neighbouring zones, so keep their styling consistent and do not build into each other. "
-                      "The recipes printed in the first brief apply to every zone in this session.\n")
+                      + ("These are EVERY zone of the scene and you are its one author: keep scale, materials and "
+                         "placement coherent across them — nothing floats, nothing interpenetrates a neighbour, every "
+                         "content at the plan's size, and the zones meet at their shared edges as one place. "
+                         if whole else
+                         "They are small neighbouring zones, so keep their styling consistent and do not build into each other. ")
+                      + "The recipes printed in the first brief apply to every zone in this session.\n")
             prompt = header + "\n\n---\n\n".join(briefs)
             label = "zones_" + "_".join(to_snake(n) for n in names)
         # the batch exclusively owns its zone files; env/scene/asset files belong to other sessions
+        # the window grows with the batch: one author writing four zones is four zones of work
         return GenerationTask(label=label, prompt=prompt, system=self.system_prompt(ctx), files_hint=files,
                               round=0, kind="zone", temperature=0.5, edit_only=True,
-                              timeout_s=ctx.budget.timeout_s(ZONE_TIMEOUT_S, floor_s=180))
+                              timeout_s=ctx.budget.timeout_s(ZONE_TIMEOUT_S * max(1, len(batch)), floor_s=180))
 
     def _assemble_stage(self, ctx: RunContext) -> dict[str, Any]:
         try:

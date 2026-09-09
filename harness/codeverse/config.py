@@ -178,6 +178,10 @@ SEED_RECIPES_ENV = "CV3D_SEED_RECIPES"
 #: pack description in both prompts).  OFF by default: it adds an image-model call per
 #: run, and whether it earns that is a measurement nobody has made yet.
 SCENE_TEXTURES_ENV = "CV3D_SCENE_TEXTURES"
+#: ONE session authors every zone of a scene (the whole world, one author) instead of the
+#: two-small-zones-per-session fan-out.  ON by default since the loop-17 measurement (D70);
+#: `off` is the fan-out control.
+ONE_WORLD_SESSION_ENV = "CV3D_ONE_WORLD_SESSION"
 _TRUE_WORDS = frozenset({"1", "on", "true", "yes", "y"})
 _FALSE_WORDS = frozenset({"0", "off", "false", "no", "n"})
 
@@ -226,6 +230,27 @@ def scene_textures_enabled() -> bool:
     defect in the battery.
     """
     return env_flag(SCENE_TEXTURES_ENV, False)
+
+
+def one_world_session_enabled() -> bool:
+    """Do all of a scene's zones go to ONE session?  ``$CV3D_ONE_WORLD_SESSION``, else ON.
+
+    Measured 2026-09-08 under one fixed judge (gemini-3.1-pro-preview, n=2, the brief's
+    must_have list), both sides ``codex:gpt-6-astra@low``: a bare one-file scene — one author,
+    no plan, no lib, no assets — scored 0.894 on the clockmaker's workshop and 0.82 on the boat
+    workshop, while the harness's round 0 of the same briefs, its zones written by separate
+    sessions of at most two small zones each, sat at 0.17 and 0.30–0.57 ("not enclosed",
+    "stove 3.6 m instead of 1.15", "skiff floating 1.2 m above its trestles") and needed two
+    refine rounds to reach 0.60–0.93.  The day's tally over 43 judged rounds put floating /
+    scale / interpenetration (28), missing planned content (23) and cameras (21) at the top —
+    the defects that appear between authors, not within one.  With this on, every zone brief
+    goes to one session that owns every zone file (the env, the assets and the heroes keep
+    their own stages), with a session window scaled to the zone count.  Measured on the
+    same three briefs (loop 17, in-loop judge): round 0 0.17 → 0.69, 0.51 → 0.58, 0.44 →
+    0.43; best round 0.75 → 0.82 PASS, 0.73 → 0.60, 0.60 → 0.77 PASS — so ON by default,
+    and ``off`` is the fan-out control while the fixed-judge confirmation runs.
+    """
+    return env_flag(ONE_WORLD_SESSION_ENV, True)
 
 
 def seed_recipes_enabled() -> bool:
