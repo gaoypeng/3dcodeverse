@@ -311,7 +311,7 @@ RING_MIN_COPIES = 8
 RING_BACKDROP_FRAC = 0.6
 RING_RADIUS_CV_MAX = 0.08
 RING_GAP_CV_MAX = 0.25
-RING_SIZE_CV_MAX = 0.05
+RING_SIZE_CV_MAX = 0.25         # loop 24's ski station: 32 peaks, radius spread 0.8 %, SIZE spread 15 % — still "identical pyramids stamped in a ring" to the judge
 BACKDROP_MIN_HEIGHT_M = 2.0
 
 
@@ -462,7 +462,7 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
                         and rcv <= RING_RADIUS_CV_MAX and gcv <= RING_GAP_CV_MAX and scv <= RING_SIZE_CV_MAX):
                     where = f"{g.get('name', '?')}/{st.get('name', '?')}"
                     out.append(_f(Severity.WARN,
-                                  f"{where}: {n} same-size copies stamped evenly on a {r:.0f} m ring round the world "
+                                  f"{where}: {n} near-identical copies stamped evenly on a {r:.0f} m ring round the world "
                                   f"(radius spread {rcv:.0%}, spacing spread {gcv:.0%}, size spread {scv:.0%}) — a toy backdrop",
                                   target=str(g.get("name", "overall")), kind="stamped_ring", n=n, radius_m=r,
                                   radius_cv=rcv, gap_cv=gcv, size_cv=scv,
