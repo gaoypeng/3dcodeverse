@@ -35,8 +35,11 @@ export function ground(opts = {}) {
   const lat = new Float32Array(N * N);
   for (let i = 0; i < N * N; i++) lat[i] = rand();
   const sample = (x, z) => {
-    const u = (x / scale) % N, v = (z / scale) % N;
-    const uu = u < 0 ? u + N : u, vv = v < 0 ? v + N : v;
+    // wrap into [0, N): `u + N` for a u of -1e-16 rounds to N itself (below one ulp of 32),
+    // and lat[j * N + N] is the next row or undefined — measured 2026-09-08, 15 NaN vertices
+    // in an outskirts ring where the polar grid's x came out as -1.5e-14 (D71)
+    const wrap = (t) => { let w = t % N; if (w < 0) w += N; return w >= N ? w - N : w; };
+    const uu = wrap(x / scale), vv = wrap(z / scale);
     const i0 = Math.floor(uu), j0 = Math.floor(vv);
     const fx = uu - i0, fz = vv - j0;
     const i1 = (i0 + 1) % N, j1 = (j0 + 1) % N;

@@ -42,12 +42,15 @@ def test_build_ok_on_example(starter_ws):
 @pytest.mark.node
 @needs_browser
 def test_build_fails_with_file_line_on_shader_error(starter_ws):
-    p = starter_ws.src / "shaders" / "sky.js"
-    text = p.read_text().replace("float h = clamp(vWorldDir.y, -0.2, 1.0);", "float h = clamp(vWorldDir.y, -0.2, 1.0) + nope;")
+    # the pond's water shader: a file the example scene compiles (the starter's sky comes
+    # from lib/environment.js worldShell since D71, so shaders/sky.js is no longer loaded)
+    p = starter_ws.src / "shaders" / "water.js"
+    text = p.read_text().replace("float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);", "float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0) + nope;")
+    assert "nope" in text
     p.write_text(text)
     res = SceneThreeJsRuntime().build(starter_ws)
     assert not res.ok
-    assert res.error_file == "src/shaders/sky.js" and res.error_line
+    assert res.error_file == "src/shaders/water.js" and res.error_line
     assert "nope" in res.error_message
     assert "shader_preflight: FAILED" in res.stdout_tail
 

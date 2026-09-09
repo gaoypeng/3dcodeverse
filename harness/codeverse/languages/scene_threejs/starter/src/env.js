@@ -1,32 +1,43 @@
 // src/env.js — environment owned by the scene: ground, sky, sun, fog, heightAt.
 //   export function buildEnv(ctx) → { ground, sky, sun, hemi, update(t, dt) }
 //   export function heightAt(x, z) → ground height (m) so zones can seat objects.
+//
+// The outdoor world ships from the harness-owned library (D71, 2026-09-08): a textured,
+// displaced ground that is LEVEL inside the content radius and rolls beyond it, the sky
+// gradient + horizon ridge + matched fog of `worldShell`, the relief / fields / copses of
+// `makeOutskirts` between the content and that ridge, and the sun rig with its baked
+// environment.  Measured over the day's exteriors: with a flat one-colour plane and a bare
+// dome as the default, every env session that under-delivered (or died) shipped "flat
+// untextured ground", "no aerial perspective", "hard world edge" — the three most frequent
+// defects of the tally.  TUNE these (palette, mood, relief, flat areas, the path); do not
+// replace them with a plane.
 import * as THREE from 'three';
-import { makeSkyMaterial } from './shaders/sky.js';
-import { roomShell, sunRig } from './lib/environment.js';
+import { makeOutskirts, roomShell, sunRig, worldShell } from './lib/environment.js';
+import { mulberry32 } from './lib/noise.js';
+import { ground } from './lib/terrain.js';
 
 export const SUN_AZIMUTH_DEG = 60;    // where the sun is (0 = +Z front, CCW from above); cameras on the sun side are front-lit
 export const SUN_ELEVATION_DEG = 38;
-export const GROUND_SIZE = 160;       // ground plane extent (m); fog is tuned to it
+export const MOOD = 'day';            // day | golden | night | overcast — the rig, the shell and the fog agree on it
+export const GROUND_SIZE = 160;       // ground plane extent (m); the outskirts start at its edge
+export const CONTENT_RADIUS = 45;     // the plan bounds' radius (m): level ground inside, rolling beyond; the shadow frustum
 // An INTERIOR plan (the skeleton fills this from plan.bounds): the room shell — floor is the
 // ground, walls and ceiling on the bounds' faces.  Cut the plan's windows and doors as
 // `openings` (see lib/environment.js roomShell) and light the inside; never delete it.
 export const INTERIOR = null;         // e.g. { center: [0, 3, 0], extents: [14, 6, 16], openings: [{ face: 'west', center: [8, 2.5], size: [6, 3] }] }
-const FOG_NEAR = 60, FOG_FAR = 260;
-const SKY_RADIUS = 600;
+const SEED = 7;
 
-/** Gentle rolling meadow; deterministic, cheap (called per placed object). */
+// The ground and its height function are ONE thing (terrain.js): built at module load with a
+// seeded PRNG, so `heightAt` is exactly the field the mesh was displaced with.  Level inside
+// CONTENT_RADIUS (the plan's cameras were written for y ≈ 0), rolling out to the outskirts.
+const GROUND = ground({
+  size: GROUND_SIZE, segments: 128, rand: mulberry32(SEED), relief: 3, scale: 60,
+  flat: (x, z) => 1 - Math.min(1, Math.max(0, (Math.hypot(x, z) - CONTENT_RADIUS) / CONTENT_RADIUS)),
+});
+
+/** Ground height at (x, z) — every placement seats on this. */
 export function heightAt(x, z) {
-  return 0.35 * Math.sin(x * 0.13) * Math.cos(z * 0.11) + 0.18 * Math.sin((x + z) * 0.27);
-}
-
-function groundGeometry(size, segs) {
-  const g = new THREE.PlaneGeometry(size, size, segs, segs);
-  g.rotateX(-Math.PI / 2);                       // PlaneGeometry lies in XY → rotate to XZ
-  const pos = g.attributes.position;
-  for (let i = 0; i < pos.count; i++) pos.setY(i, heightAt(pos.getX(i), pos.getZ(i)));
-  g.computeVertexNormals();
-  return g;
+  return GROUND.height(x, z);
 }
 
 export function buildEnv(ctx) {
@@ -34,43 +45,34 @@ export function buildEnv(ctx) {
   const group = new THREE.Group();
   group.name = 'Environment';
 
-  // --- ground (receives shadows; vertex colour variation = cheap "grass")
-  const ground = new THREE.Mesh(
-    groundGeometry(GROUND_SIZE, 96),
-    new THREE.MeshStandardMaterial({ color: 0x5f8a3c, roughness: 0.95, metalness: 0.0 }),
-  );
-  ground.name = 'Ground';
-  ground.receiveShadow = true;
+  // --- ground (textured, receives shadows) and, for an interior, the enclosure on the bounds
+  const ground = GROUND.mesh;
   group.add(ground);
   if (INTERIOR) group.add(roomShell(INTERIOR));   // the enclosure exists before anyone dresses the room
 
-  const az = (SUN_AZIMUTH_DEG * Math.PI) / 180, el = (SUN_ELEVATION_DEG * Math.PI) / 180;
-
-  // --- sky: big inverted sphere with a gradient ShaderMaterial (custom GLSL, no lighting needed)
-  const skyMat = makeSkyMaterial(THREE);
-  skyMat.uniforms.uSunDir.value.set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(SKY_RADIUS, 32, 16), skyMat);
-  sky.name = 'Sky';
-  sky.frustumCulled = false;
-  group.add(sky);
+  // --- the world beyond: sky gradient + horizon ridge + fog the colour of the horizon, and the
+  // land between the content and that ridge (relief, field patchwork, distant copses)
+  const shell = worldShell({ rand: mulberry32(SEED + 1), mood: MOOD, bounds: CONTENT_RADIUS });
+  group.add(shell.group);
+  if (!INTERIOR) group.add(makeOutskirts({ inner: GROUND_SIZE / 2, shellRadius: shell.radius, heightAt, seed: SEED }));
 
   // --- lights + the baked environment: the library's rig — sun, hemisphere fill, the env map
   // metals read from, the visible disc.  Measured 2026-09-07 on this renderer: a metalness-0.9
   // sphere renders near black under hand-rolled sun + hemi (no scene.environment) and reads as
   // metal with this rig; every recorded Blender hero carried metalness 0.7-0.9 into a scene
   // whose env.js set no environment map (0 of 127).
-  const rig = sunRig({ azimuth: SUN_AZIMUTH_DEG, elevation: SUN_ELEVATION_DEG, bounds: 45 });
+  const rig = sunRig({ mood: MOOD, azimuth: SUN_AZIMUTH_DEG, elevation: SUN_ELEVATION_DEG, bounds: CONTENT_RADIUS });
   const sun = rig.sun, hemi = rig.fill;
   group.add(sun, sun.target, hemi);
   if (rig.sunDisc) group.add(rig.sunDisc);
   scene.environment = rig.envTex;
 
-  // --- fog + background matched to the sky horizon colour
-  scene.fog = new THREE.Fog(0xcfdcec, FOG_NEAR, FOG_FAR);
-  scene.background = new THREE.Color(0xcfdcec);
+  // --- fog + background: the shell's, matched to its horizon colour
+  scene.fog = shell.fog;
+  scene.background = new THREE.Color(shell.fog.color);
   scene.add(group);
 
-  const update = (t) => { skyMat.uniforms.uTime.value = t; };
+  const update = () => {};
   const sunDir = sun.position.clone().normalize();
-  return { ground, sky, sun, sunDir, hemi, group, update };
+  return { ground, sky: shell.group, sun, sunDir, hemi, group, update };
 }
