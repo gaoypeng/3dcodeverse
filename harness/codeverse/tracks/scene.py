@@ -414,12 +414,17 @@ class SceneTrack(BaseTrack):
             prompt, label = briefs[0], f"zone_{to_snake(names[0])}"
         else:
             whole = len(batch) == len(plan.zones)
+            window_min = ctx.budget.timeout_s(ZONE_TIMEOUT_S * len(batch), floor_s=180) // 60
             header = (f"# {len(batch)} zone modules in ONE session — write ALL of: {', '.join(files)}\n\n"
                       f"You own exactly these files and nothing else. {len(batch)} complete zone briefs follow, "
                       "separated by a horizontal rule; implement each one in its own file exactly as its brief says. "
                       + ("These are EVERY zone of the scene and you are its one author: keep scale, materials and "
                          "placement coherent across them — nothing floats, nothing interpenetrates a neighbour, every "
                          "content at the plan's size, and the zones meet at their shared edges as one place. "
+                         f"This session's window is {len(batch)} zones' worth ({window_min} min): build EACH zone to "
+                         "its brief's full density counts and dressing before you finish — one author measured "
+                         "2026-09-08 finished four zones in 5 minutes as a block-out (\"missing stove\", \"shelves "
+                         "missing\", \"primitive tools\") and scored 0.32 where the brief-by-brief fan-out reached 0.60. "
                          if whole else
                          "They are small neighbouring zones, so keep their styling consistent and do not build into each other. ")
                       + "The recipes printed in the first brief apply to every zone in this session.\n")

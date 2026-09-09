@@ -41,4 +41,5 @@ def test_a_whole_world_batch_owns_every_zone_file_and_gets_a_window_per_zone(tmp
     assert whole.files_hint == [zone_file(z) for z in plan.zones] and whole.edit_only
     assert whole.timeout_s == ZONE_TIMEOUT_S * len(plan.zones) and pair.timeout_s == ZONE_TIMEOUT_S * 2
     assert "you are its one author" in whole.prompt and "nothing floats" in whole.prompt
+    assert f"window is {len(plan.zones)} zones' worth ({ZONE_TIMEOUT_S * len(plan.zones) // 60} min)" in whole.prompt
     assert "one author" not in pair.prompt and "small neighbouring zones" in pair.prompt
