@@ -433,8 +433,9 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
             out.append(_f(Severity.WARN, short + " — past it the land is the background colour while the unfogged sky "
                           "stays sharp: a world edge and backdrops floating in the sky",
                           target="env", kind="fog_short", fog=fog, plan_span_m=round(span, 1),
-                          hint=f"fog far >= {FOG_FAR_MIN_SPANS:g} x the plan span (the starter's shell fog is scaled to it: "
-                               "keep `scene.fog = shell.fog`, or lengthen yours) and let the horizon ridge / outskirts close the world"))
+                          hint=f"fog far >= {FOG_FAR_MIN_SPANS * span:.0f} m ({FOG_FAR_MIN_SPANS:g} x the plan span; the starter's "
+                               "shell fog is scaled to it: keep `scene.fog = shell.fog`, or lengthen yours) and let the horizon "
+                               "ridge / outskirts close the world"))
     # -- backdrop ring: outdoor worlds must have geometry past the play area
     bounds = _plan_bounds(plan)
     groups = census.get("groups")

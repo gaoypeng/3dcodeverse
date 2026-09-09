@@ -266,6 +266,9 @@ frame_gate_from_renders(renders) -> GateReport         # gate "scene_frames"; da
     # camera_in_geometry | camera_underground | camera_low | camera_high | content_small; authored cameras → ERROR, orbit rig → WARN
     # Δ camera_low / camera_high measure camera_checks.ground_below_m (the ray straight down from the eye, nearGeometry);
     #   the scene-wide census ground_y is the fallback when nothing lies beneath the lens
+    # Δ camera_blocked (ERROR: ≥ 6 of the 9 sight rays end within near_limit_m 1.5) · camera_target_blocked (WARN: the line of
+    #   sight to the plan's lookAt is cut before half the distance, names the cutter) · camera_under_ground_mesh (WARN, ERROR
+    #   when the frame agrees: a terrain-scale ground surface straight above the eye, ground_above_m; the camera repair lifts it)
 from codeverse.spatial.measure import measure_glb      # link-hierarchy rule: metadata["links"] → each link is its own part
     # Δ Measurement.extra["complexity"] = ComplexityVector.model_dump() (additive, best-effort, never raises)
 from codeverse.spatial.complexity import (ComplexityVector, COMPLEXITY_WEIGHTS, COMPLEXITY_VERSION,

@@ -31,7 +31,7 @@ const cam = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 500);
 cam.position.set(EYE);
 cam.lookAt(0, 8, 0);
 cam.updateMatrixWorld(true);
-console.log(JSON.stringify(nearGeometry(scene, cam, THREE)));
+console.log(JSON.stringify(nearGeometry(scene, cam, THREE, undefined, LOOKAT)));
 """
 
 # four 11 m lattice arms on a hub 12 m up, the sail plane turned 45 deg so the world bbox is a
@@ -57,9 +57,21 @@ const mound = new THREE.Mesh(new THREE.BoxGeometry(10, 3, 10), solid);
 mound.name = 'SnowMound'; mound.position.set(30, 1.5, 30); scene.add(mound);
 """
 
+# a squat 1.2 m stone pillar 0.8 m in front of the lens (cmp6's crypt AthanorDetail)
+PILLAR = """
+const pillar = new THREE.Mesh(new THREE.BoxGeometry(1.2, 3.2, 1.2), solid);
+pillar.name = 'StonePillar_3'; pillar.position.set(0, 1.6, -1.4); scene.add(pillar);
+"""
 
-def _run(body: str, eye: str) -> dict:
-    return run_node_json(JS.replace("BODY", body).replace("EYE", eye).replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+# a 60 m headland terrain 1.4 m ABOVE the lens (cmp6's lighthouse SlipwaySurge)
+HEADLAND = """
+const head = new THREE.Mesh(new THREE.PlaneGeometry(60, 60, 2, 2), solid);
+head.name = 'HeadlandTerrain'; head.rotation.x = -Math.PI / 2; head.position.y = 3.0; scene.add(head);
+"""
+
+
+def _run(body: str, eye: str, look_at: str = "null") -> dict:
+    return run_node_json(JS.replace("BODY", body).replace("EYE", eye).replace("LOOKAT", look_at).replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
 
 
 def test_a_lens_near_lattice_sails_is_not_inside_them():
@@ -89,3 +101,25 @@ def test_the_ground_under_the_lens_is_the_ray_straight_down_not_the_highest_grou
     assert abs(got["ground_below_m"] - 1.6) < 1e-3 and got["ground_below_name"] == "Ground", got
     void = _run(MOUND, "60, 1.6, 60")      # off the 80 x 80 m ground: nothing beneath the lens
     assert void["ground_below_m"] is None, void
+
+
+def test_a_surface_filling_the_lens_counts_its_near_sight_rays():
+    JS_PILLAR = JS.replace("cam.lookAt(0, 8, 0);", "cam.lookAt(0, 1.6, -10);")
+    got = run_node_json(JS_PILLAR.replace("BODY", PILLAR).replace("EYE", "0, 1.6, 0").replace("LOOKAT", "[0, 1.6, -4]")
+                        .replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    assert got["near_rays"] >= 6 and got["near_limit_m"] == 1.5 and got["nearest_hit_name"] == "StonePillar_3", got
+    assert got["camera_in_geometry"] is False, got     # 0.8 m away is not "inside": a different verdict
+    # the line of sight to a subject 4 m away is cut by the pillar at 0.8 m
+    assert abs(got["target_distance_m"] - 4.0) < 1e-3 and abs(got["target_hit_m"] - 0.8) < 1e-3, got
+    assert got["target_hit_name"] == "StonePillar_3", got
+    clear = run_node_json(JS_PILLAR.replace("BODY", "").replace("EYE", "0, 1.6, 0").replace("LOOKAT", "[0, 1.6, -4]")
+                          .replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    assert clear["near_rays"] == 0 and clear["target_hit_m"] is None, clear
+
+
+def test_a_ground_surface_above_the_lens_is_reported():
+    got = _run(HEADLAND, "0, 1.6, 0")
+    assert abs(got["ground_above_m"] - 1.4) < 1e-3 and got["ground_above_name"] == "HeadlandTerrain", got
+    assert abs(got["ground_below_m"] - 1.6) < 1e-3, got
+    open_air = _run(MOUND, "0, 1.6, 0")
+    assert open_air["ground_above_m"] is None, open_air

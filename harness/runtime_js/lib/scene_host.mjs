@@ -379,7 +379,7 @@ function buildCamera(spec) {
       state.repairedSpecs.set(key, fix ? fix.spec : null);
       if (fix) state.cameraRepairs.push({ name: fix.name, moved_back_m: fix.moved_back_m, moved_up_m: fix.moved_up_m,
                                           nearest_before: fix.nearest_before, inside_before: fix.inside_before,
-                                          nearest_after: fix.nearest_after });
+                                          under_before: fix.under_before || '', nearest_after: fix.nearest_after });
     }
     const fixed = state.repairedSpecs.get(key);
     if (fixed) return buildCameraRaw(fixed);
@@ -472,7 +472,7 @@ function cameraRepairs() {
 function cameraChecks(spec) {
   const cam = buildCamera(spec);
   state.scene.updateMatrixWorld(true);
-  const near = nearGeometry(state.scene, cam, THREE);
+  const near = nearGeometry(state.scene, cam, THREE, undefined, Array.isArray(spec.lookAt) ? spec.lookAt : null);
   renderOnce(cam);
   const stats = frameStats(state.canvas);
   let coverage = {};

@@ -74,6 +74,37 @@ def test_camera_in_geometry_and_near_hit():
     assert "Tower" in rep.findings[0].message and "0.5 m" in rep.findings[0].fix_hint
 
 
+def test_a_lens_whose_sight_rays_end_within_reach_is_blocked():
+    """cmp6's crypt (2026-09-09): a squat pillar 0.8 m before AthanorDetail filled the frame and
+    the judge called the hidden hero "a massive untextured grey box" for two rounds."""
+    rep = frame_findings(_metrics(_chk("AthanorDetail", nearest_hit_m=0.8, nearest_hit_name="StonePillar_3", near_rays=7, rays_total=9,
+                                       near_limit_m=1.5),
+                                  _chk("WorkTable", nearest_hit_m=0.9, nearest_hit_name="Bench", near_rays=2, rays_total=9),
+                                  _chk("overview_top", kind="overview", nearest_hit_m=0.8, near_rays=9, rays_total=9)))
+    assert [(k, s, t) for k, s, t in _kinds(rep)] == [("camera_blocked", Severity.ERROR, "AthanorDetail")]
+    assert "StonePillar_3" in rep.findings[0].message and not rep.passed
+    # the measured crypt shape: only 3 of 9 rays end within reach, but the line of sight to the
+    # hero is cut at 0.9 m of 2.8 m — a WARN that names the pillar; a close-up meets its own
+    # subject near the full distance and stays quiet
+    cut = frame_findings(_metrics(_chk("AthanorDetail", nearest_hit_m=0.897, near_rays=3, rays_total=9, target_distance_m=2.8,
+                                       target_hit_m=0.9, target_hit_name="VaultPillarMasonry"),
+                                  _chk("HeroCloseUp", nearest_hit_m=1.1, near_rays=4, rays_total=9, target_distance_m=1.6,
+                                       target_hit_m=1.15, target_hit_name="Athanor")))
+    assert [(k, s, t) for k, s, t in _kinds(cut)] == [("camera_target_blocked", Severity.WARN, "AthanorDetail")]
+    assert "VaultPillarMasonry" in cut.findings[0].message and cut.passed
+
+
+def test_a_lens_under_a_ground_surface_is_named_even_when_its_frame_looks_fine():
+    """cmp6's lighthouse: SlipwaySurge under the headland for three rounds, the frame 'fine'."""
+    rep = frame_findings(_metrics(_chk("SlipwaySurge", eye_height_m=2.0, ground_below_m=2.0, ground_below_name="Sea",
+                                       ground_above_m=1.4, ground_above_name="HeadlandTerrain"), ground_y=4.8))
+    assert [(k, s) for k, s, _ in _kinds(rep)] == [("camera_under_ground_mesh", Severity.WARN)]
+    assert "HeadlandTerrain" in rep.findings[0].message
+    buried = frame_findings(_metrics(_chk("SlipwaySurge", ground_above_m=1.4, ground_above_name="HeadlandTerrain",
+                                          mean_lum=0.03, dark_frac=0.9), ground_y=4.8))
+    assert "camera_underground" in [k for k, _, _ in _kinds(buried)] and not buried.passed
+
+
 def test_eye_height_is_measured_under_the_lens_when_the_census_has_it():
     """Relief terrain: a camera at eye level over a low patch is not an ant.  Loop 21's ski
     station (2026-09-09): eye 3.20 m, the highest snow 3.14 m → "0.06 m above ground —

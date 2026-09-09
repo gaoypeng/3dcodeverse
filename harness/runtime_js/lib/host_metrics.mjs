@@ -3,7 +3,7 @@
  * readback of the render canvas and near-geometry tests for a camera.
  */
 
-import { nonSolid } from './backdrop.mjs';
+import { classifyBackdrop, nonSolid } from './backdrop.mjs';
 
 export const SAMPLE_W = 96;
 export const SAMPLE_H = 54;
@@ -85,12 +85,34 @@ export function eyeInsideMesh(o, eye, THREE) {
   return odd >= 4;
 }
 
+/** A sight ray that ends this close is a surface in the lens, not the shot. */
+export const BLOCKED_M = 1.5;
+
+/** A ground-classified mesh at least this wide is terrain, not a floor a shot may sit under. */
+export const TERRAIN_SPAN_M = 40;
+
+/**
+ * The lowest terrain-scale ground surface straight above `eye`, or null.  Cast DOWN from
+ * 500 m up and take the last hit above the eye: a FrontSide terrain is back faces to a ray
+ * from beneath, and the Raycaster honours material.side.
+ */
+export function groundAbove(eye, groundMeshes, THREE) {
+  if (!groundMeshes.length) return null;
+  try {
+    const top = eye.clone(); top.y += 500;
+    const down = new THREE.Raycaster(top, new THREE.Vector3(0, -1, 0), 0, 500 - 1e-3);
+    const hits = down.intersectObjects(groundMeshes, false);
+    const h = hits.length ? hits[hits.length - 1] : null;
+    return h ? { distance: +(h.point.y - eye.y).toFixed(3), y: h.point.y, name: h.object.name || h.object.parent?.name || h.object.type } : null;
+  } catch (e) { return null; }
+}
+
 /**
  * Near-geometry test: centre + 3x3 grid rays from the camera; nearest hit
  * distance, plus meshes whose own volume contains the eye (closed rooms,
  * back-face culled interiors — `eyeInsideMesh`).
  */
-export function nearGeometry(scene, camera, THREE, limitM = 0.3) {
+export function nearGeometry(scene, camera, THREE, limitM = 0.3, lookAt = null) {
   const rc = new THREE.Raycaster();
   rc.far = 50;
   let nearest = Infinity;
@@ -105,24 +127,28 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3) {
   const pts = [];
   for (let gy = -1; gy <= 1; gy++) for (let gx = -1; gx <= 1; gx++) pts.push([gx * 0.6, gy * 0.6]);
   let hits = 0;
+  let nearRays = 0;
   for (const [x, y] of pts) {
     rc.setFromCamera(new THREE.Vector2(x, y), camera);
     let hit = null;
     try { hit = rc.intersectObjects(targets, false)[0]; } catch (e) { hit = null; }
     if (hit) {
       hits += 1;
+      if (hit.distance < BLOCKED_M) nearRays += 1;
       if (hit.distance < nearest) { nearest = hit.distance; nearestName = hit.object.name || hit.object.parent?.name || hit.object.type; }
     }
   }
   const inside = [];
   const eye = camera.position;
   const box = new THREE.Box3();
+  const groundMeshes = [];
   for (const o of targets) {
     if (o.isInstancedMesh) continue;
     if (!o.geometry) continue;
     if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
     box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
     const s = box.getSize(new THREE.Vector3());
+    if (Math.max(s.x, s.z) >= TERRAIN_SPAN_M && classifyBackdrop(o, box) === 'ground') groundMeshes.push(o);
     if (Math.max(s.x, s.y, s.z) > 60 || Math.min(s.x, s.y, s.z) < 0.05) continue; // ground/sky/flat decals
     // The bbox is the cheap pre-filter; the verdict is the mesh's own volume.  A windmill's
     // 22 m lattice sails own a 22 x 22 m bbox that is nearly all air: measured 2026-09-07
@@ -143,6 +169,27 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3) {
     const h = down.intersectObjects(targets, false)[0];
     if (h) { groundBelow = +h.distance.toFixed(3); groundBelowName = h.object.name || h.object.parent?.name || h.object.type; }
   } catch (e) { groundBelow = null; }
+  // …and a ground surface ABOVE the lens: a camera under the terrain looks up at back faces,
+  // so the frame renders "fine" (the structures float over a void) and nothing said buried —
+  // cmp6's lighthouse (2026-09-09) shot its slipway from under the headland for three rounds
+  // while the judge called it major each time.  Ground-classified meshes only (backdrop.mjs):
+  // a roof or a bridge deck overhead is a shot, a terrain overhead is a bug.
+  const above = groundAbove(eye, groundMeshes, THREE);
+  // The line of sight to the plan's lookAt: what cuts it, and how far along.  cmp6's crypt
+  // (2026-09-09): AthanorDetail's ray to the hero met VaultPillarMasonry at 0.9 m of 2.8 m,
+  // the hero was never in frame, and the judge called IT "a massive untextured grey box".
+  let targetDist = null, targetHit = null, targetHitName = '';
+  if (Array.isArray(lookAt) && lookAt.length === 3) {
+    const to = new THREE.Vector3(lookAt[0], lookAt[1], lookAt[2]).sub(eye);
+    targetDist = +to.length().toFixed(3);
+    if (targetDist > 1e-6) {
+      try {
+        const los = new THREE.Raycaster(eye.clone(), to.clone().normalize(), 0, targetDist);
+        const h = los.intersectObjects(targets, false)[0];
+        if (h) { targetHit = +h.distance.toFixed(3); targetHitName = h.object.name || h.object.parent?.name || h.object.type; }
+      } catch (e) { targetHit = null; }
+    }
+  }
   const center = new THREE.Vector3();
   camera.getWorldDirection(center);
   return {
@@ -155,6 +202,13 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3) {
     eye_height_m: +eye.y.toFixed(3),
     ground_below_m: groundBelow,
     ground_below_name: groundBelowName,
+    ground_above_m: above ? above.distance : null,
+    ground_above_name: above ? above.name : '',
+    near_rays: nearRays,
+    near_limit_m: BLOCKED_M,
+    target_distance_m: targetDist,
+    target_hit_m: targetHit,
+    target_hit_name: targetHitName,
     look_dir: [center.x, center.y, center.z].map((v) => +v.toFixed(3)),
   };
 }
@@ -179,6 +233,7 @@ const REPAIR_OFFSETS = [
   [0, 0], [0, 0.5], [0.5, 0], [0.5, 0.5], [1, 0.5], [1, 1], [2, 1], [2, 2], [3, 2], [4, 2],
 ];
 const REPAIR_CLEAR_M = 0.5;
+const EYE_ABOVE_GROUND_M = 1.6;
 
 export function repairCameraSpec(scene, spec, THREE, makeCam) {
   const dir = new THREE.Vector3(
@@ -186,17 +241,25 @@ export function repairCameraSpec(scene, spec, THREE, makeCam) {
   if (dir.lengthSq() < 1e-9) dir.set(0, 0, 1);
   dir.normalize();
   let before = null;
+  // A lens under a ground surface (terrain overhead) is lifted to eye level above it first —
+  // no backward retreat clears that, and the plan's camera is nobody else's to move.
+  let lift = 0;
+  let underBefore = '';
+  {
+    const n0 = nearGeometry(scene, makeCam(spec), THREE);
+    before = n0;
+    if (n0.ground_above_m !== null) { lift = n0.ground_above_m + EYE_ABOVE_GROUND_M; underBefore = n0.ground_above_name; }
+  }
   for (const [back, up] of REPAIR_OFFSETS) {
-    const pos = [spec.position[0] + dir.x * back, spec.position[1] + dir.y * back + up, spec.position[2] + dir.z * back];
+    const pos = [spec.position[0] + dir.x * back, spec.position[1] + dir.y * back + up + lift, spec.position[2] + dir.z * back];
     const candidate = { ...spec, position: pos };
-    const n = nearGeometry(scene, makeCam(candidate), THREE);
-    if (before === null) before = n;
+    const n = lift === 0 && back === 0 && up === 0 ? before : nearGeometry(scene, makeCam(candidate), THREE);
     const clear = !n.camera_in_geometry && (n.nearest_hit_m === null || n.nearest_hit_m >= REPAIR_CLEAR_M);
     if (clear) {
-      if (back === 0 && up === 0) return null;   // the authored camera is fine: no repair
-      return { spec: candidate, name: spec.name || '', moved_back_m: back, moved_up_m: up,
+      if (back === 0 && up === 0 && lift === 0) return null;   // the authored camera is fine: no repair
+      return { spec: candidate, name: spec.name || '', moved_back_m: back, moved_up_m: +(up + lift).toFixed(3),
                nearest_before: before.nearest_hit_m, inside_before: before.inside_mesh_bbox,
-               nearest_after: n.nearest_hit_m };
+               under_before: underBefore, nearest_after: n.nearest_hit_m };
     }
   }
   return null;   // nothing within the retreat budget clears it: keep the authored shot
