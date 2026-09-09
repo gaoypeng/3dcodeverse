@@ -179,8 +179,8 @@ SEED_RECIPES_ENV = "CV3D_SEED_RECIPES"
 #: run, and whether it earns that is a measurement nobody has made yet.
 SCENE_TEXTURES_ENV = "CV3D_SCENE_TEXTURES"
 #: ONE session authors every zone of a scene (the whole world, one author) instead of the
-#: two-small-zones-per-session fan-out.  OFF: the loop-17 gain did not survive the fixed-judge
-#: confirmation (D70); an A/B knob.
+#: two-small-zones-per-session fan-out.  ON since the fixed-judge confirmation of the session
+#: that is told its window and asked for full density (D70); `off` is the fan-out control.
 ONE_WORLD_SESSION_ENV = "CV3D_ONE_WORLD_SESSION"
 _TRUE_WORDS = frozenset({"1", "on", "true", "yes", "y"})
 _FALSE_WORDS = frozenset({"0", "off", "false", "no", "n"})
@@ -233,7 +233,7 @@ def scene_textures_enabled() -> bool:
 
 
 def one_world_session_enabled() -> bool:
-    """Do all of a scene's zones go to ONE session?  ``$CV3D_ONE_WORLD_SESSION``, else off.
+    """Do all of a scene's zones go to ONE session?  ``$CV3D_ONE_WORLD_SESSION``, else ON.
 
     Measured 2026-09-08 under one fixed judge (gemini-3.1-pro-preview, n=2, the brief's
     must_have list), both sides ``codex:gpt-6-astra@low``: a bare one-file scene — one author,
@@ -247,12 +247,15 @@ def one_world_session_enabled() -> bool:
     goes to one session that owns every zone file (the env, the assets and the heroes keep
     their own stages), with a session window scaled to the zone count.  Measured on the
     same three briefs (loop 17, in-loop judge): round 0 0.17 → 0.69, 0.51 → 0.58, 0.44 →
-    0.43; best round 0.75 → 0.82 PASS, 0.73 → 0.60, 0.60 → 0.77 PASS.  The fixed-judge
-    confirmation (cmp_scene4, both arms astra-low) did NOT reproduce it: harness 0.60 / 0.60 /
-    0.54 vs the bare one-shot 0.81 / 0.83 / 0.60, the single session finishing four zones in
-    five minutes as a block-out.  Off by default; a knob for the next measurement.
+    0.43; best round 0.75 → 0.82 PASS, 0.73 → 0.60, 0.60 → 0.77 PASS.  The first fixed-judge
+    confirmation (cmp_scene4) did NOT reproduce it — 0.60 / 0.60 / 0.54 vs the bare one-shot
+    0.81 / 0.83 / 0.60 — because that session finished four zones in five minutes as a
+    block-out.  With the batch header stating the window and asking for each zone's full
+    density (loop 18: round 0 0.81 / 0.60 / 0.88, two passes), the second confirmation
+    (cmp_scene5, fixed judge) reads harness 0.89 / 0.89 (both PASS at round 0) vs one-shot
+    0.92 / 0.77 on boat / clockmaker.  On by default; ``off`` is the fan-out control.
     """
-    return env_flag(ONE_WORLD_SESSION_ENV, False)
+    return env_flag(ONE_WORLD_SESSION_ENV, True)
 
 
 def seed_recipes_enabled() -> bool:

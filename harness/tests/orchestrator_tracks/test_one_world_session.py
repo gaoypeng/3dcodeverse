@@ -19,11 +19,11 @@ from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import FakeRuntime, FakeServices
 
 
-def test_the_switch_is_read_at_call_time_and_off_by_default(monkeypatch):
+def test_the_switch_is_read_at_call_time_and_on_by_default(monkeypatch):
     monkeypatch.delenv("CV3D_ONE_WORLD_SESSION", raising=False)
-    assert one_world_session_enabled() is False      # D70: the loop-17 gain did not survive the fixed judge
-    monkeypatch.setenv("CV3D_ONE_WORLD_SESSION", "on")
-    assert one_world_session_enabled() is True
+    assert one_world_session_enabled() is True       # D70: confirmed under the fixed judge with the density header
+    monkeypatch.setenv("CV3D_ONE_WORLD_SESSION", "off")
+    assert one_world_session_enabled() is False      # the fan-out control
     monkeypatch.setenv("CV3D_ONE_WORLD_SESSION", "garbage")
     assert one_world_session_enabled() is False      # a typo in a bench command is the control, never a crash
 

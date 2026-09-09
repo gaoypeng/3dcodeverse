@@ -1113,8 +1113,8 @@ written) that were accepted because the code works that way and the tests pin it
   grounds anything (L7): harness-owned starter geometry, like `worldShell` (D51), that the
   agent edits.
 
-* **D70 One author for the whole world — `CV3D_ONE_WORLD_SESSION`, an A/B knob, OFF: its
-  in-loop gain did not survive the fixed judge (2026-09-08).**  Under one fixed judge (gemini-3.1-pro-preview, n=2, the brief's
+* **D70 One author for the whole world — `CV3D_ONE_WORLD_SESSION`, ON by default since the
+  fixed-judge confirmation of the session that is told its window (2026-09-08).**  Under one fixed judge (gemini-3.1-pro-preview, n=2, the brief's
   must_have list) and one model on both sides (`codex:gpt-6-astra@low`), a bare one-file scene
   — one author, no plan, no lib, no assets, no tools — scored 0.894 on the clockmaker's
   workshop and 0.82 on the boat workshop; the harness's round 0 of the same briefs, its zones
@@ -1138,11 +1138,14 @@ written) that were accepted because the code works that way and the tests pin it
   session finished four zones in five minutes as a block-out ("missing stove", "shelves
   missing", "primitive tools", 0.32 at round 0) where loop 17's draw had reached 0.69 — one
   author is coherent but thin, the fan-out dense but incoherent, and n=1 per arm per brief is
-  noise-sized.  The knob stays OFF; the batch header now states the session's window and asks
-  for each zone's full density (measured next as loop 18).  What the whole evening says
-  instead: the bare one-file scene wins round 0 on interiors every time (0.81–0.89), so the
-  harness's next experiment is to CONTAIN it — a whole-scene single-shot draft as round 0,
-  then its gates, heroes and refine rounds on top (the bench's `oneshot+refine` shape).
+  noise-sized.  The batch header then states the session's window and asks for each zone's
+  full density.  **Loop 18 (in-loop):** round 0 clockmaker 0.81 PASS, boat 0.60 → 0.77 PASS,
+  NYC 0.88 PASS; the session spends 10–19 min instead of 5.  **Second confirmation
+  (`cmp_scene5`, fixed judge, both arms astra-low):** harness 0.89 / 0.89, both PASS at round
+  0, vs the bare one-shot 0.92 / 0.77 on boat / clockmaker (the re-drawn one-shots move by
+  about ±0.1 between draws).  The default is ON; `off` keeps the fan-out and its two batching
+  constants as the control.  The bare one-file scene is no longer ahead on interiors; the
+  harness keeps its heroes, gates, library and rounds on top of that.
 
 ## Rejected / deferred
 
