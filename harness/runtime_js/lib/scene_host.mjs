@@ -145,20 +145,49 @@ function makeLoaders(manager) {
  * exactly the case this exists to catch.  A deep `geometry.clone()` would read as unused;
  * that is why the finding is a WARN and says "no geometry from it", not "not used".
  */
+/** geometry uuid -> world box of every mesh drawing it (the GLB bookkeeping's one traversal). */
+function geometryBoxes(scene) {
+  const used = new Map();
+  const box = new THREE.Box3();
+  scene.traverse((o) => {
+    if (!o.geometry || !o.geometry.uuid || !(o.isMesh || o.isInstancedMesh)) return;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    if (!used.has(o.geometry.uuid)) used.set(o.geometry.uuid, new THREE.Box3());
+    if (o.geometry.boundingBox && !o.geometry.boundingBox.isEmpty()) {
+      box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+      used.get(o.geometry.uuid).union(box);
+    }
+  });
+  return used;
+}
+
+/** Words of a GLB's file name that can name a camera for it: `lantern_room.glb` → ['lantern']. */
+const GENERIC_HERO_WORDS = new Set(['room', 'detail', 'hero', 'main', 'view', 'shot', 'camera', 'asset', 'model', 'close', 'closeup', 'wide', 'zone', 'prop']);
+function heroWords(url) {
+  const base = String(url).split('/').pop().replace(/\.glb$/i, '');
+  return base.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/[^A-Za-z0-9]+/)
+    .map((w) => w.toLowerCase()).filter((w) => w.length >= 4 && !GENERIC_HERO_WORDS.has(w));
+}
+
+/** The loaded GLB a camera is named for (a name word of the file in the camera's name), with its
+ *  world box as placed — or null. */
+function heroForCamera(name) {
+  if (!loadedGlbs.length) return null;
+  const lower = String(name || '').toLowerCase();
+  let boxes = null;
+  for (const g of loadedGlbs) {
+    if (!heroWords(g.url).some((w) => lower.includes(w))) continue;
+    if (!boxes) { try { boxes = geometryBoxes(state.scene); } catch (e) { return null; } }
+    const all = new THREE.Box3();
+    for (const u of g.geometry_uuids) { const b = boxes.get(u); if (b && !b.isEmpty()) all.union(b); }
+    if (!all.isEmpty()) return { url: g.url, box: all };
+  }
+  return null;
+}
+
 function glbUsage(scene) {
-  const used = new Map();   // geometry uuid -> world boxes of the meshes that draw it
-  try {
-    const box = new THREE.Box3();
-    scene.traverse((o) => {
-      if (!o.geometry || !o.geometry.uuid || !(o.isMesh || o.isInstancedMesh)) return;
-      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-      if (!used.has(o.geometry.uuid)) used.set(o.geometry.uuid, new THREE.Box3());
-      if (o.geometry.boundingBox && !o.geometry.boundingBox.isEmpty()) {
-        box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
-        used.get(o.geometry.uuid).union(box);
-      }
-    });
-  } catch { return []; }
+  let used;
+  try { used = geometryBoxes(scene); } catch { return []; }
   return loadedGlbs.map((g) => {
     const all = new THREE.Box3();
     let n = 0;
@@ -392,14 +421,30 @@ function buildCamera(spec) {
   if (state.cameraRepair && spec && spec.name && Array.isArray(spec.position) && Array.isArray(spec.lookAt)) {
     const key = spec.name + '|' + spec.position.join(',');
     if (!state.repairedSpecs.has(key)) {
+      // A camera NAMED for a hero whose hero is out of its frame is re-aimed at the hero first:
+      // loop 25's lighthouse (2026-09-09) shot `LanternDetail` at the tower wall for three rounds
+      // while `hero_unseen` said 0.0 % each time and no session moved the plan's camera.  Only
+      // when the hero's centre is outside the frustum — a small or far hero is the author's shot.
+      let base = spec;
+      let aimed = '';
+      try {
+        const hero = heroForCamera(spec.name);
+        if (hero) {
+          const c = hero.box.getCenter(new THREE.Vector3());
+          const cam0 = buildCameraRaw(spec);
+          const inFront = c.clone().applyMatrix4(cam0.matrixWorldInverse).z < 0;
+          const ndc = c.clone().project(cam0);
+          if (!(inFront && Math.abs(ndc.x) <= 1 && Math.abs(ndc.y) <= 1)) { base = { ...spec, lookAt: [c.x, c.y, c.z] }; aimed = hero.url; }
+        }
+      } catch (e) { base = spec; aimed = ''; }
       let fix = null;
-      try { fix = repairCameraSpec(state.scene, spec, THREE, buildCameraRaw); } catch (e) { fix = null; }
-      state.repairedSpecs.set(key, fix ? fix.spec : null);
-      if (fix) state.cameraRepairs.push({ name: fix.name, moved_back_m: fix.moved_back_m, moved_up_m: fix.moved_up_m,
-                                          moved_side_m: fix.moved_side_m || 0, nearest_before: fix.nearest_before,
-                                          inside_before: fix.inside_before, under_before: fix.under_before || '',
-                                          blocked_before: !!fix.blocked_before, cut_before: fix.cut_before || '',
-                                          nearest_after: fix.nearest_after });
+      try { fix = repairCameraSpec(state.scene, base, THREE, buildCameraRaw); } catch (e) { fix = null; }
+      state.repairedSpecs.set(key, fix ? fix.spec : (aimed ? base : null));
+      if (fix || aimed) state.cameraRepairs.push({ name: spec.name, moved_back_m: fix ? fix.moved_back_m : 0, moved_up_m: fix ? fix.moved_up_m : 0,
+                                                   moved_side_m: fix ? fix.moved_side_m || 0 : 0, nearest_before: fix ? fix.nearest_before : null,
+                                                   inside_before: fix ? fix.inside_before : [], under_before: fix ? fix.under_before || '' : '',
+                                                   blocked_before: !!(fix && fix.blocked_before), cut_before: fix ? fix.cut_before || '' : '',
+                                                   aimed_at: aimed, nearest_after: fix ? fix.nearest_after : null });
     }
     const fixed = state.repairedSpecs.get(key);
     if (fixed) return buildCameraRaw(fixed);

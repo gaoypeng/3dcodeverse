@@ -273,7 +273,9 @@ frame_gate_from_renders(renders) -> GateReport         # gate "scene_frames"; da
     #   render per GLB per camera, occlusion included) · hero_small_in_its_camera (WARN: < 2 % in the camera named for it)
     # Δ scene_placement stamped_ring (WARN): census groups[].stamps — per family of ≥ 8 copies {n, radius_m, radius_cv,
     #   gap_cv, size_cv}; ≥ 8 same-size copies evenly on a ring at ≥ 0.6 × the plan's half-extent (host_census stampStats)
-    # Δ census.camera_repair rows carry moved_side_m, blocked_before, cut_before, under_before (D73); the overview rig
+    # Δ census.camera_repair rows carry moved_side_m, blocked_before, cut_before, under_before, aimed_at (D73: a camera named
+    #   for a hero — a name word of its GLB file in the camera name — is re-aimed at the hero's centre when that centre is
+    #   outside its frustum, before the retreat search); the overview rig
     #   (noFog views) hides see-through sky layers whose box lies below the eye; roomShell tags userData.placement='free'
 from codeverse.spatial.measure import measure_glb      # link-hierarchy rule: metadata["links"] → each link is its own part
     # Δ Measurement.extra["complexity"] = ComplexityVector.model_dump() (additive, best-effort, never raises)
