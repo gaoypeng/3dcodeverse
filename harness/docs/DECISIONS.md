@@ -1200,8 +1200,10 @@ written) that were accepted because the code works that way and the tests pin it
   judge's noise) `src/` is restored to the best round and the tasks come from ITS verdict
   (`round.refine_from_best`); `repairCameraSpec` counts a lens staring at a surface
   (`near_rays`), a sightline cut before half the distance and a terrain overhead as "not
-  clear" and searches back, up and sideways out of it.  Same rule as D72's: the harness fixes
-  what it can measure, deterministically, before a session is paid to guess.
+  clear" and searches back, up and sideways out of it; a camera NAMED for a hero whose hero
+  centre is outside its frustum is re-aimed at it first (loop 25's `LanternDetail` shot the
+  tower wall for three rounds while `hero_unseen` read 0.0 %).  Same rule as D72's: the harness
+  fixes what it can measure, deterministically, before a session is paid to guess.
 
 ## Rejected / deferred
 

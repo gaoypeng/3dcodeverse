@@ -36,7 +36,11 @@ ROOM = """
 """
 
 
-def _with_hero(ws: Workspace, *, hidden: bool, roofed: bool = False) -> None:
+# a camera NAMED for the hero, aimed 90 degrees away from it (loop 25's LanternDetail at the tower wall)
+AWAY_CAMERA = "    { name: 'HeroCubeDetail', position: [10, 8, 30], lookAt: [40, 6, 30], fov: 45 },\n"
+
+
+def _with_hero(ws: Workspace, *, hidden: bool, roofed: bool = False, away_camera: bool = False) -> None:
     write_box_glb(ws.public / "assets" / "hero_cube.glb", size=(4.0, 4.0, 4.0))
     scene = ws.src / "scene.js"
     text = scene.read_text()
@@ -46,6 +50,10 @@ def _with_hero(ws: Workspace, *, hidden: bool, roofed: bool = False) -> None:
                         "  hero.name = 'HeroCube'; hero.position.set(10, 6, 14);\n"
                         "  hero.traverse((o) => { if (o.geometry) o.geometry.computeVertexNormals(); });\n"
                         "  scene.add(hero);\n" + (WALL if hidden else "") + (ROOM if roofed else ""), 1)
+    if away_camera:
+        anchor = "    { name: 'windmill', position: [9, heightAt(9, 9) + 1.7, 9], lookAt: [12, 4.5, -2], fov: 50 },\n"
+        assert anchor in text
+        text = text.replace(anchor, anchor + AWAY_CAMERA, 1)
     if roofed:
         text = text.replace("import { buildEnv, heightAt, SUN_AZIMUTH_DEG } from './env.js';",
                             "import { buildEnv, heightAt, SUN_AZIMUTH_DEG } from './env.js';\nimport { roomShell } from './lib/environment.js';", 1)
@@ -104,3 +112,23 @@ def test_the_overview_rig_lifts_the_room_shells_lid_but_an_authored_camera_keeps
     assert chk["overview"]["glb_frac"].get(URL, 0.0) < 0.002, chk["overview"]["glb_frac"]
     names = [g["name"] for g in m["census"]["groups"]]
     assert "RoomShell" in names                                                     # the census counts the shell as built
+
+
+def test_a_camera_named_for_the_hero_is_re_aimed_when_the_hero_is_out_of_its_frame(starter_ws: Workspace):
+    """Loop 25's lighthouse (2026-09-09): `LanternDetail` shot the tower wall for three rounds
+    while `hero_unseen` read 0.0 % each time — cameras belong to the plan and no session moved
+    it.  The host re-aims a hero-named camera at the hero's centre when that centre is outside
+    the frustum, and the repair log says so."""
+    _with_hero(starter_ws, hidden=False, away_camera=True)
+    out = starter_ws.renders_dir(0)
+    rs = render_scene(starter_ws, out, times=(0.0,), width=640, height=360, fps_seconds=0.2)
+    assert rs.console_errors == []
+    m = read_metrics(out)
+    chk = {c["name"]: c for c in m["camera_checks"]}
+    assert chk["HeroCubeDetail"]["glb_frac"].get(URL, 0.0) > 0.01, chk["HeroCubeDetail"]["glb_frac"]
+    aimed = [r for r in m["census"]["camera_repair"] if r.get("aimed_at")]
+    assert aimed and aimed[0]["name"] == "HeroCubeDetail" and aimed[0]["aimed_at"] == URL, m["census"]["camera_repair"]
+    # the other authored cameras are not named for it and keep their shots
+    assert not [r for r in m["census"]["camera_repair"] if r.get("aimed_at") and r["name"] != "HeroCubeDetail"]
+    gate = frame_gate_from_renders(rs)
+    assert not [f for f in gate.findings if f.data["kind"] == "hero_unseen"], [f.message for f in gate.findings]
