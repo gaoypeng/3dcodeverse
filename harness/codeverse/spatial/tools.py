@@ -54,10 +54,9 @@ from codeverse.spatial.probes import check_shaders, probe_scene
 from codeverse.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
 from codeverse.spatial.render_scene import read_metrics, render_scene
 from codeverse.spatial.scene_placement import (
-    infer_indoor,
+    is_interior,
     placement_findings,
     placement_table_text,
-    setting_text,
 )
 from codeverse.spatial.scene_placement import placement_census as _placement_census
 from codeverse.spatial.sections import cross_section as _cross_section
@@ -627,7 +626,7 @@ def check_placement(ctx: ToolContext, args: CheckPlacementArgs) -> Observation:
     indoor = False
     if ctx.workspace.plan_path.is_file():
         try:
-            indoor = infer_indoor(setting_text(load_plan(ctx.workspace.plan_path)))
+            indoor = is_interior(load_plan(ctx.workspace.plan_path))
         except ToolUsageError:
             indoor = False
     table = census.get("placement") or {}
