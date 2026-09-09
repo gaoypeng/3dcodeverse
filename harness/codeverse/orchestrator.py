@@ -444,7 +444,7 @@ def _acceptance_target(item: AcceptanceItem, known: dict[str, str]) -> str:
 
 # ===================================================================== rounds
 StopReason = Literal["pass", "plateau", "budget", "continue", "max_rounds", "judge_unavailable",
-                     "regression", "diminishing_returns"]
+                     "regression", "diminishing_returns", "agent_quota"]
 
 #: what the next round should look like when the loop continues
 Strategy = Literal["same", "switch", "detail"]

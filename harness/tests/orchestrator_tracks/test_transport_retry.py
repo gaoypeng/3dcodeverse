@@ -13,7 +13,7 @@ from codeverse.contracts.common import Language, Usage
 from codeverse.contracts.run import RunStatus
 from codeverse.proc import EventLog
 from codeverse.tracks.static_object import StaticObjectTrack
-from codeverse.tracks.steps import RoundFailed, looks_transport
+from codeverse.tracks.steps import RoundFailed, looks_quota, looks_transport
 from codeverse.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
@@ -43,9 +43,29 @@ VERDICTS = [
 ]
 
 
+QUOTA = [
+    "refine: exit=error; errors=[\"You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to "
+    "purchase more credits or try again at Sep 14th, 2026 6:25 PM.\"]",
+    "generate: RESOURCE_EXHAUSTED: quota exceeded for this project",
+    "refine: insufficient_quota: You exceeded your current quota",
+]
+
+
 @pytest.mark.parametrize("msg", TRANSPORT)
 def test_transport_signatures_match(msg):
     assert looks_transport(msg)
+
+
+@pytest.mark.parametrize("msg", QUOTA)
+def test_quota_signatures_are_quota_not_transport(msg):
+    """cmp8 (2026-09-09): the vendor's usage limit ran out mid-battery and three runs were
+    filed as plateau — a retry meets the same wall, and the code did not stop improving."""
+    assert looks_quota(msg) and not looks_transport(msg)
+
+
+@pytest.mark.parametrize("msg", TRANSPORT + VERDICTS)
+def test_transport_and_verdict_messages_are_not_quota(msg):
+    assert not looks_quota(msg)
 
 
 @pytest.mark.parametrize("msg", VERDICTS)
@@ -90,6 +110,19 @@ class CrashUntilRetried(FakeAgent):
             self.jobs.append(job)
             return AgentResult(ok=False, exit_reason="error", errors=list(CRASH), usage=Usage(cost_usd=0.01))
         return super().run(job)
+
+
+class QuotaAfterBaseline(FakeAgent):
+    """Baseline works; every refine session dies on the vendor's usage limit."""
+
+    def __init__(self):
+        super().__init__(_writer)
+
+    def run(self, job: AgentJob) -> AgentResult:
+        if job.round == 0:
+            return super().run(job)
+        self.jobs.append(job)
+        return AgentResult(ok=False, exit_reason="error", errors=[QUOTA[0]], usage=Usage(cost_usd=0.0))
 
 
 class IdleAfterBaseline(FakeAgent):
@@ -156,3 +189,14 @@ def test_an_idle_agent_is_a_plateau_not_a_retry(tmp_path, chair_plan, settings):
     assert rec.status is RunStatus.PLATEAU
     evs = _events(ws)
     assert "round.transport_retry" not in evs and "round.no_change" in evs
+
+
+def test_a_vendor_usage_limit_stops_the_run_as_agent_quota_not_plateau(tmp_path, chair_plan, settings):
+    agent = QuotaAfterBaseline()
+    ws = Workspace(tmp_path / "runs" / "quota")
+    rec = _track(agent, (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
+    assert rec.status is RunStatus.BUDGET and rec.extra["stop_reason"] == "agent_quota"
+    assert rec.final_score == pytest.approx(0.55)          # the baseline best is still delivered
+    evs = _events(ws)
+    assert "round.agent_quota" in evs and "round.transport_retry" not in evs and "round.no_change" not in evs
+    assert max(j.round for j in agent.jobs) == 1             # the refine round's sessions met the wall; no retry round

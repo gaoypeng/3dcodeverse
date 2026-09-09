@@ -217,6 +217,11 @@ cell is finished with no score (`bench run` will not re-run it: the row exists).
 scoreless cells afterwards — delete the row from `results.jsonl` and the run directory,
 then `bench run --id <prompt>`.
 
+A refine session that dies on the VENDOR's usage limit ("You've hit your usage limit … try again at
+Sep 14th", `RESOURCE_EXHAUSTED`, `insufficient_quota`) stops the run at `agent_quota` with status
+`budget`: the best round ships, and the record says the agent's budget ended, not the code's
+improvement (cmp8, 2026-09-09, filed three such runs as `plateau` before this).
+
 **A cell can also lose its renders to the box rather than to itself.**  When the machine
 runs out of memory Chrome reaps the render tab and the driver reports
 `Attempted to use detached Frame '<id>'`: the scene built, every gate ran, and the judge

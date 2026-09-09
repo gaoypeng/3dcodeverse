@@ -78,6 +78,23 @@ _TRANSPORT_MARKS = (
 )
 
 
+#: the vendor's own usage limit — the agent is gone until it resets, whatever we retry
+_QUOTA_MARKS = (
+    "hit your usage limit", "usage limit", "purchase more credits", "quota exceeded", "insufficient_quota",
+    "insufficient credits", "billing hard limit",
+)
+
+
+def looks_quota(msg: str) -> bool:
+    """True when a ``RoundFailed`` message says the VENDOR's usage limit is spent.
+
+    Not a transport death (a retry meets the same wall) and not an agent verdict (the
+    code did not stop improving): cmp8 (2026-09-09) filed three runs as ``plateau`` on
+    "You've hit your usage limit … try again at Sep 14th"."""
+    low = msg.lower()
+    return any(m in low for m in _QUOTA_MARKS)
+
+
 def looks_transport(msg: str) -> bool:
     """True when a ``RoundFailed`` message carries a transport-death signature.
 

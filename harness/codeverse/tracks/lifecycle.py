@@ -73,6 +73,7 @@ from codeverse.tracks.steps import (
     RoundPipeline,
     failed_acceptance,
     load_round_journal,
+    looks_quota,
     looks_transport,
     rejudge_round,
     run_round,
@@ -144,6 +145,8 @@ _STATUS: dict[str, RunStatus] = {
     # judge outage (degraded/crashed verdicts even after a retry): the code is intact
     # and the best built round is delivered — a stop, not a failure.
     "judge_unavailable": RunStatus.PLATEAU,
+    # the vendor's usage limit, not ours — the best round ships, the status says a budget ended
+    "agent_quota": RunStatus.BUDGET,
 }
 
 
@@ -674,6 +677,16 @@ class BaseTrack:
                                     previous=previous, files_hint=self.round_files_hint(ctx),
                                     extra_notes=self.round_extra_notes(ctx), previous_best=best_score(rounds))
             except RoundFailed as e:
+                if looks_quota(str(e)):
+                    # The vendor's own usage limit: not a transport death (a retry meets the
+                    # same wall) and not a plateau (the code did not stop improving) — the
+                    # agent is gone until the limit resets.  cmp8 (2026-09-09): three runs
+                    # filed "plateau" on "You've hit your usage limit … try again at Sep 14th".
+                    ctx.events.emit("round.agent_quota", round=index, detail=str(e)[:500])
+                    if index == 0:
+                        raise
+                    ctx.events.emit("stop", reason="agent_quota", rounds=len(rounds), best=ctx.state.best_round)
+                    return "agent_quota"
                 if index not in transport_retried and looks_transport(str(e)):
                     # A vendor-CLI crash / 503 storm / dropped socket is not an agent
                     # verdict — the session never really happened.  Re-run the SAME
