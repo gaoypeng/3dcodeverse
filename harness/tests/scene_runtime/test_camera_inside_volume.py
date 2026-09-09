@@ -123,3 +123,7 @@ def test_a_ground_surface_above_the_lens_is_reported():
     assert abs(got["ground_below_m"] - 1.6) < 1e-3, got
     open_air = _run(MOUND, "0, 1.6, 0")
     assert open_air["ground_above_m"] is None, open_air
+    # a 60 m 'Ceiling' is ground-SHAPED to the classifier and still a roof: loop 25's cathedral
+    # (2026-09-09) read "camera 17.8 m under Ceiling" on every interior camera
+    roof = _run(HEADLAND.replace("HeadlandTerrain", "Ceiling"), "0, 1.6, 0")
+    assert roof["ground_above_m"] is None, roof

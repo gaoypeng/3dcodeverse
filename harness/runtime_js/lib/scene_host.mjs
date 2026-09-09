@@ -458,12 +458,26 @@ function renderOnce(cam) {
   try { const gl = state.renderer.getContext(); if (gl && gl.finish) gl.finish(); } catch (e) { /* ignore */ }
 }
 
-/** Visible see-through meshes classified 'sky' (backdrop.mjs) whose whole box lies below `eye`. */
+/**
+ * What a rig view must not draw: visible see-through meshes classified 'sky' whose whole box
+ * lies below `eye` (a cloud deck seen from above), and the harness-injected room shell's
+ * ceiling when the eye is above it — an interior seen by the overview rig was a closed box,
+ * and the pairwise judge called the bakery "a tiny fragment in the overviews" against a
+ * one-shot whose room had no roof (cmp7, 2026-09-09).  Lifting the shell's lid shows the
+ * layout the rig exists to show; an author's own roof stays, and so does every authored camera.
+ */
 function skyLayersBelow(eye) {
   const out = [];
   const box = new THREE.Box3();
   state.scene.traverse((o) => {
-    if (!(o.isMesh || o.isInstancedMesh) || !o.visible || !o.geometry || !nonSolid(o)) return;
+    if (!(o.isMesh || o.isInstancedMesh) || !o.visible || !o.geometry) return;
+    if (o.parent && o.parent.name === 'RoomShell' && /^Ceiling/.test(o.name || '')) {
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+      if (!box.isEmpty() && box.max.y < eye.y) out.push(o);
+      return;
+    }
+    if (!nonSolid(o)) return;
     if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
     if (o.geometry.boundingBox.isEmpty()) return;
     box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
@@ -520,21 +534,29 @@ function cameraChecks(spec) {
   const cam = buildCamera(spec);
   state.scene.updateMatrixWorld(true);
   const near = nearGeometry(state.scene, cam, THREE, undefined, Array.isArray(spec.lookAt) ? spec.lookAt : null);
-  renderOnce(cam);
-  const stats = frameStats(state.canvas);
+  // the instruments see what the rig view draws (a lifted lid, no cloud deck under the eye)
+  const hiddenLayers = spec.noFog ? skyLayersBelow(cam.position) : [];
+  for (const o of hiddenLayers) o.visible = false;
+  let stats = {};
   let coverage = {};
-  try {
-    coverage = frameCoverage(state.renderer, state.scene, cam, state.canvas, THREE, state.contentBox);
-  } catch (e) {
-    state.hostWarnings.push(`coverage failed for ${spec.name}: ${e.message}`);
-  }
   let glbFrac = {};
-  if (loadedGlbs.length) {
+  try {
+    renderOnce(cam);
+    stats = frameStats(state.canvas);
     try {
-      glbFrac = glbCoverage(state.renderer, state.scene, cam, state.canvas, THREE, loadedGlbs);
+      coverage = frameCoverage(state.renderer, state.scene, cam, state.canvas, THREE, state.contentBox);
     } catch (e) {
-      state.hostWarnings.push(`glb coverage failed for ${spec.name}: ${e.message}`);
+      state.hostWarnings.push(`coverage failed for ${spec.name}: ${e.message}`);
     }
+    if (loadedGlbs.length) {
+      try {
+        glbFrac = glbCoverage(state.renderer, state.scene, cam, state.canvas, THREE, loadedGlbs);
+      } catch (e) {
+        state.hostWarnings.push(`glb coverage failed for ${spec.name}: ${e.message}`);
+      }
+    }
+  } finally {
+    for (const o of hiddenLayers) o.visible = true;
   }
   return { name: spec.name, ...near, ...stats, ...coverage, glb_frac: glbFrac };
 }

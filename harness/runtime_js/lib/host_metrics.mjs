@@ -3,7 +3,7 @@
  * readback of the render canvas and near-geometry tests for a camera.
  */
 
-import { classifyBackdrop, nonSolid } from './backdrop.mjs';
+import { GROUND_NAME_RE, classifyBackdrop, nonSolid } from './backdrop.mjs';
 
 export const SAMPLE_W = 96;
 export const SAMPLE_H = 54;
@@ -91,6 +91,11 @@ export const BLOCKED_M = 1.5;
 /** A ground-classified mesh at least this wide is terrain, not a floor a shot may sit under. */
 export const TERRAIN_SPAN_M = 40;
 
+/** Does the name carry a ground word?  CamelCase split first: `HeadlandTerrain` is a terrain. */
+export function groundNamed(name) {
+  return GROUND_NAME_RE.test(String(name || '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' '));
+}
+
 /**
  * The lowest terrain-scale ground surface straight above `eye`, or null.  Cast DOWN from
  * 500 m up and take the last hit above the eye: a FrontSide terrain is back faces to a ray
@@ -148,7 +153,11 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3, lookAt = null) 
     if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
     box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
     const s = box.getSize(new THREE.Vector3());
-    if (Math.max(s.x, s.z) >= TERRAIN_SPAN_M && classifyBackdrop(o, box) === 'ground') groundMeshes.push(o);
+    // terrain overhead must also be NAMED as ground: a 40 m 'Ceiling' is ground-shaped to the
+    // classifier, and loop 25's cathedral read "camera 17.8 m under Ceiling" on every interior
+    // camera (2026-09-09) — a lens under a roof is a shot, a lens under a terrain is a bug
+    if (Math.max(s.x, s.z) >= TERRAIN_SPAN_M && classifyBackdrop(o, box) === 'ground'
+        && groundNamed(o.name || o.parent?.name || '')) groundMeshes.push(o);
     if (Math.max(s.x, s.y, s.z) > 60 || Math.min(s.x, s.y, s.z) < 0.05) continue; // ground/sky/flat decals
     // The bbox is the cheap pre-filter; the verdict is the mesh's own volume.  A windmill's
     // 22 m lattice sails own a 22 x 22 m bbox that is nearly all air: measured 2026-09-07
