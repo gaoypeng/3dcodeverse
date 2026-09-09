@@ -210,10 +210,9 @@ def _env_for_plan(plan: ScenePlan) -> str:
     ex = plan.bounds.extents
     span = max(ex[0], ex[2], 40.0)
     ground = int(max(120, span * 2.5))
-    fog_near, fog_far = int(span * 0.8), int(max(span * 3.0, 200))
     text = re.sub(r"export const GROUND_SIZE = \d+;", f"export const GROUND_SIZE = {ground};", text)
-    text = re.sub(r"const FOG_NEAR = \d+, FOG_FAR = \d+;", f"const FOG_NEAR = {fog_near}, FOG_FAR = {fog_far};", text)
-    text = re.sub(r"const SKY_RADIUS = \d+;", f"const SKY_RADIUS = {int(max(600, ground * 3))};", text)
+    # level ground inside the plan's radius (its cameras were written for y ≈ 0), rolling beyond
+    text = re.sub(r"export const CONTENT_RADIUS = \d+;", f"export const CONTENT_RADIUS = {int(max(20, span / 2))};", text)
     if plan.interior:
         c = [round(float(v), 2) for v in plan.bounds.center]
         e = [round(float(v), 2) for v in ex]

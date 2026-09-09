@@ -45,14 +45,18 @@ So `src/env.js` must export exactly:
 The chapters behind these rules are printed in full at the end of this brief
 (**Recipes**) — copy their numbers and snippets; do not invent your own.
 
-1. **Ground must not be one flat colour.**  One displaced plane, ~1 segment per metre, vertex
-   colours blending 3-4 palette colours by height, slope and noise, plus the path carved by
-   `distToPath` in both height and colour.  A single-colour `MeshStandardMaterial` plane is a
-   scored defect (`flat_ground`).
-2. **No world edge.**  Ground size >= 2.4 x fog far; `scene.fog` colour == the sky's HORIZON
-   colour == `scene.background`; a silhouette ring (24-40 instanced hills / rooftops / mesas /
-   treeline) at radius ~ 0.6 x fog far, height 0.06-0.12 x that radius.  Scale fog to THIS
-   scene, not to a 100 m default.
+1. **Ground must not be one flat colour.**  The skeleton already ships the library's ground
+   (`ground()` from `lib/terrain.js`: textured, displaced, level inside `CONTENT_RADIUS` and
+   rolling beyond, and `heightAt` IS its height function): tune its material, relief, scale and
+   `flat` areas and carve the path in both height and colour — never replace it with a
+   single-colour `MeshStandardMaterial` plane, a scored defect (`flat_ground`).
+2. **No world edge.**  The skeleton already closes the world: `worldShell()` (sky gradient, the
+   horizon's silhouette ring, fog the colour of the horizon — `scene.fog` and `scene.background` are its)
+   and `makeOutskirts()` (relief, fields and copses between the content and the ridge).  Set
+   `MOOD`, the shell's `zenith` / `horizon` and the outskirts' `colors` to the brief; replace
+   the ridge only with something of the brief's own (rooftops, mesas, a treeline) and keep
+   fog == horizon == background, the land reaching past fog far.  Scale fog to THIS scene, not
+   to a 100 m default.
    Two rules decide whether that ring reads as a hazy horizon or as cardboard:
    - Build it from SOLID geometry (cones, boxes, mesas).  Flat `PlaneGeometry` cut-outs are
      instantly readable as cardboard from every oblique and overview camera.

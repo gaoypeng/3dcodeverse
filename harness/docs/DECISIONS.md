@@ -1147,6 +1147,26 @@ written) that were accepted because the code works that way and the tests pin it
   constants as the control.  The bare one-file scene is no longer ahead on interiors; the
   harness keeps its heroes, gates, library and rounds on top of that.
 
+* **D71 The starter's outdoor world ships from the library (2026-09-08).**  The starter's
+  `env.js` was a one-colour plane under a bare shader dome with linear fog: whatever the env
+  session did not build, the scene did not have.  Over the day's exterior runs the three most
+  frequent defects of the tally — "flat untextured ground", "no aerial perspective / hard
+  world edge", pyramid or cone backdrops — were exactly what that default leaves, and the
+  loop-19 exteriors under D70 (observatory 0.53, temple 0.60, windmill 0.34 at round 0) were
+  judged on them while their zones were fine.  The starter now builds its ground from
+  `terrain.ground()` (textured, displaced; LEVEL inside `CONTENT_RADIUS` — the plan's cameras
+  were written for y ≈ 0 — and rolling beyond; `heightAt` IS that function, built once at
+  module load with a seeded PRNG so the mesh and the seat cannot drift), its sky, horizon
+  ridge and fog from `worldShell()`, the middle distance from `makeOutskirts()`, the light
+  from `sunRig()` (D65) and, for an interior, the enclosure from `roomShell()` (D69); `MOOD`
+  keeps the rig, the shell and the fog agreeing.  The skeleton fills `CONTENT_RADIUS` from the
+  plan bounds; the env brief's first two rules now say tune, never replace.  Found on the
+  way: `terrain.ground()` wrapped a coordinate of −1.5e-14 to exactly N and read past the
+  lattice row — 15 NaN vertices in the outskirts ring and a NaN bounding box in the render
+  console; fixed at the source.  Measured next as loop 20 (the four exterior briefs of loop 19
+  on this starter).  Harness-owned starter geometry the agent edits, as `worldShell` and
+  `roomShell` are; nothing here re-centres or grounds an authored object (L7).
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

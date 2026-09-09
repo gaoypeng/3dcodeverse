@@ -34,8 +34,11 @@ def _darken(ws: Workspace) -> None:
     # the env map, which lights metals and glass on its own
     text = text.replace("  scene.environment = rig.envTex;",
                         "  scene.environment = null; sun.intensity = 0.05; hemi.intensity = 0.02; hemi.color.set(0x101018); hemi.groundColor.set(0x000000);")
-    text = text.replace("scene.background = new THREE.Color(0xcfdcec)", "scene.background = new THREE.Color(0x000000)")
-    assert "0.05" in text and "0x000000" in text
+    # the world shell's sky is unlit (D71): black it out too, or half the frame stays bright sky
+    text = text.replace("worldShell({ rand: mulberry32(SEED + 1), mood: MOOD,",
+                        "worldShell({ rand: mulberry32(SEED + 1), mood: 'night', zenith: 0x000000, horizon: 0x000000, ridgeColor: 0x000000,")
+    text = text.replace("scene.background = new THREE.Color(shell.fog.color)", "scene.background = new THREE.Color(0x000000)")
+    assert "0.05" in text and text.count("0x000000") >= 4
     env.write_text(text)
     sky = ws.src / "shaders" / "sky.js"
     if sky.is_file():
