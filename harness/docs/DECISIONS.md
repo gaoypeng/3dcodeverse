@@ -1163,8 +1163,14 @@ written) that were accepted because the code works that way and the tests pin it
   plan bounds; the env brief's first two rules now say tune, never replace.  Found on the
   way: `terrain.ground()` wrapped a coordinate of −1.5e-14 to exactly N and read past the
   lattice row — 15 NaN vertices in the outskirts ring and a NaN bounding box in the render
-  console; fixed at the source.  Measured next as loop 20 (the four exterior briefs of loop 19
-  on this starter).  Harness-owned starter geometry the agent edits, as `worldShell` and
+  console; fixed at the source.  **Measured (loop 20, the four exterior briefs of loop 19,
+  astra-low, in-loop):** round 0 0.55 / 0.60 / 0.49 / 0.42 against 0.53 / 0.60 / 0.60 / 0.34 —
+  no lift when the env session RUNS: every one rewrote env.js, kept `worldShell` and
+  `sunRig` (4 of 4), the outskirts (2 of 4), dropped the library ground (4 of 4) and
+  replaced the shell's exponential fog with its own linear fog (4 of 4), and the verdicts'
+  "no aerial perspective, world edge" are those choices.  What the starter buys is the
+  default: a session that dies (the storm's 14 of 40) or keeps it ships a real world, and
+  the NaN is gone.  Harness-owned starter geometry the agent edits, as `worldShell` and
   `roomShell` are; nothing here re-centres or grounds an authored object (L7).
 
 ## Rejected / deferred
