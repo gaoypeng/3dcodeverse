@@ -305,6 +305,13 @@ DENSITY_MIN_BUDGET = 20
 #: arm while the plan's env contract demands a silhouette ring at ~0.6 x fog-far
 #: (well beyond bounds); 1.25x the half-extent is a deliberately lenient floor.
 BACKDROP_REACH_FACTOR = 1.25
+#: stamped ring (host_census `stamps`): copies, where the ring sits relative to the plan's
+#: half-extent, and how even / alike it must be before it is called stamped
+RING_MIN_COPIES = 8
+RING_BACKDROP_FRAC = 0.6
+RING_RADIUS_CV_MAX = 0.08
+RING_GAP_CV_MAX = 0.25
+RING_SIZE_CV_MAX = 0.05
 BACKDROP_MIN_HEIGHT_M = 2.0
 
 
@@ -436,8 +443,33 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
                           hint=f"fog far >= {FOG_FAR_MIN_SPANS * span:.0f} m ({FOG_FAR_MIN_SPANS:g} x the plan span; the starter's "
                                "shell fog is scaled to it: keep `scene.fog = shell.fog`, or lengthen yours) and let the horizon "
                                "ridge / outskirts close the world"))
-    # -- backdrop ring: outdoor worlds must have geometry past the play area
+    # -- a stamped ring: >= 8 same-size copies evenly on a circle round the world's edge.
+    # Five of six exteriors on 2026-09-09 drew their horizon as "a ring of identical cones
+    # stamped round the perimeter" / "rocks in a perfect circle" and the judge called each a
+    # toy backdrop, twice.  The census measures the ring (host_census `stamps`); a rotunda's
+    # columns or chairs round a table sit INSIDE the content and are not it.
     bounds = _plan_bounds(plan)
+    if bounds and isinstance(census.get("groups"), list):
+        lo, hi = bounds
+        half = max(hi[0] - lo[0], hi[2] - lo[2]) / 2
+        for g in census["groups"]:
+            for st in (g.get("stamps") if isinstance(g, dict) else None) or []:
+                if not isinstance(st, dict):
+                    continue
+                n, r = int(st.get("n") or 0), float(st.get("radius_m") or 0)
+                rcv, gcv, scv = (float(st.get(k) or 0) for k in ("radius_cv", "gap_cv", "size_cv"))
+                if (n >= RING_MIN_COPIES and half > 0 and r >= RING_BACKDROP_FRAC * half
+                        and rcv <= RING_RADIUS_CV_MAX and gcv <= RING_GAP_CV_MAX and scv <= RING_SIZE_CV_MAX):
+                    where = f"{g.get('name', '?')}/{st.get('name', '?')}"
+                    out.append(_f(Severity.WARN,
+                                  f"{where}: {n} same-size copies stamped evenly on a {r:.0f} m ring round the world "
+                                  f"(radius spread {rcv:.0%}, spacing spread {gcv:.0%}, size spread {scv:.0%}) — a toy backdrop",
+                                  target=str(g.get("name", "overall")), kind="stamped_ring", n=n, radius_m=r,
+                                  radius_cv=rcv, gap_cv=gcv, size_cv=scv,
+                                  hint="vary them — at least 3 silhouettes, scale 0.6-1.6x, radius +-25 %, random yaw, "
+                                       "clusters rather than a ring — or drop the ring and let the starter's worldShell "
+                                       "ridge and makeOutskirts hills close the horizon"))
+    # -- backdrop ring: outdoor worlds must have geometry past the play area
     groups = census.get("groups")
     if bounds and isinstance(groups, list) and not is_interior(plan):
         lo, hi = bounds

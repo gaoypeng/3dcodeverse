@@ -323,3 +323,21 @@ def test_no_backdrop_fires_outdoors_and_stays_quiet_with_a_ring_or_indoors():
     rep = placement_gate_safe(near_only, plan=indoor, layouts=None)
     assert not [f for f in rep.findings if f.data.get("kind") == "no_backdrop"]
 
+
+
+def test_a_ring_of_identical_copies_round_the_world_is_warned_but_not_a_rotunda():
+    """2026-09-09, five of six exteriors: "a ring of identical cones stamped round the perimeter"
+    — the census measures the ring (host_census `stamps`); columns round a rotunda sit inside
+    the content and are architecture."""
+    plan = _contract_plan()                                            # 40 m half-extent
+    ring = {"name": "FarPeaks", "n": 16, "radius_m": 36.0, "radius_cv": 0.01, "gap_cv": 0.02, "size_cv": 0.0}
+    census = {"fog": {"type": "Fog", "near": 10, "far": 120}, "background": "#aabbcc",
+              "placement": _table(_row("Lantern", h=0.6), _row("Bench", h=0.9), _row("BenchB", zone="House", h=0.9)),
+              "groups": [{"name": "FarShore", "kind": "content", "stamps": [ring]}]}
+    hits = [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "stamped_ring"]
+    assert len(hits) == 1 and hits[0].severity == Severity.WARN and "FarShore/FarPeaks: 16 same-size copies" in hits[0].message
+    assert "36 m ring" in hits[0].message and "silhouettes" in hits[0].fix_hint
+    census["groups"][0]["stamps"] = [dict(ring, size_cv=0.3, radius_cv=0.2)]              # varied: a real skyline
+    assert not [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "stamped_ring"]
+    census["groups"][0]["stamps"] = [dict(ring, name="Column", n=12, radius_m=4.0)]       # a rotunda: inside the content
+    assert not [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "stamped_ring"]
