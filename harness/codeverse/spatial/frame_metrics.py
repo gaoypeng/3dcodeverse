@@ -45,6 +45,8 @@ CONTENT_MIN_ESTABLISHING = 0.20
 CONTENT_MIN_AUTHORED = 0.10
 CONTENT_MIN_OVERVIEW = 0.05
 EYE_MIN_ABOVE_GROUND_M = 0.3
+TARGET_BLOCKED_FRAC = 0.5      # the line of sight to lookAt is cut before this fraction of the distance
+BLOCKED_RAYS_MIN = 6           # of the 3 x 3 sight rays, within near_limit_m (host BLOCKED_M)
 EYE_MAX_ABOVE_GROUND_M = 80.0
 
 #: for a frame that is dark AND flat -- nothing is lit, so adding light is right
@@ -148,9 +150,47 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
         where = f"inside {inside[:3]}" if inside else f"nearest surface {near:.2f} m ({chk.get('nearest_hit_name', '')})"
         out.append(_f(sev, name, rig + f"camera inside / touching geometry: {where}", _NEAR_HINT,
                       kind="camera_in_geometry", view=name, nearest_hit_m=near, inside=inside[:5]))
+    else:
+        # The shot is a surface: most of the 3 x 3 sight rays end within arm's reach.  cmp6's
+        # crypt (2026-09-09): a squat stone pillar 0.8 m in front of AthanorDetail filled the
+        # frame, the hero behind it was never seen, and the judge called the HERO "a massive
+        # untextured grey box" for two rounds — nothing measured said the lens was blocked.
+        near_rays, rays_total = _num(chk, "near_rays"), _num(chk, "rays_total")
+        if authored and near_rays is not None and rays_total and near_rays >= BLOCKED_RAYS_MIN:
+            limit = _num(chk, "near_limit_m") or 1.5
+            out.append(_f(Severity.ERROR, name,
+                          f"camera blocked: {near_rays:.0f} of {rays_total:.0f} sight rays end within {limit:g} m "
+                          f"(nearest {chk.get('nearest_hit_name', '')} at {near:.2f} m) — the frame is that surface, not the shot",
+                          "move the camera back or aside until its subject is clear, or move the blocking object out of the "
+                          "sightline; render this view and look before re-judging",
+                          kind="camera_blocked", view=name, near_rays=near_rays, nearest_hit_m=near,
+                          nearest_hit_name=chk.get("nearest_hit_name", "")))
+        # …or the line of sight to the plan's lookAt is cut well before it (a pillar between the
+        # lens and its subject; a close-up meets its own subject near the full distance).
+        t_dist, t_hit = _num(chk, "target_distance_m"), _num(chk, "target_hit_m")
+        if authored and t_dist and t_hit is not None and t_hit < TARGET_BLOCKED_FRAC * t_dist:
+            cutter = str(chk.get("target_hit_name") or "geometry")
+            out.append(_f(Severity.WARN, name,
+                          f"line of sight from {name} to its lookAt is cut by {cutter} at {t_hit:.2f} m of {t_dist:.1f} m "
+                          f"({100 * t_hit / t_dist:.0f}% of the way) — the subject may be hidden behind it",
+                          f"look at this view: if {cutter} hides the subject, move the camera aside or the object out of the sightline",
+                          kind="camera_target_blocked", view=name, target_hit_m=t_hit, target_distance_m=t_dist, cutter=cutter))
     eye = _num(chk, "eye_height_m")
     below = _num(chk, "ground_below_m")
-    if authored and below is not None:
+    above_g = _num(chk, "ground_above_m")
+    if authored and above_g is not None:
+        # A ground surface straight above the lens: a camera under the terrain looks up at back
+        # faces, so its frame renders "fine" (structures floating over a void) — cmp6's
+        # lighthouse shot its slipway from under the headland for three rounds.  The camera
+        # repair lifts it when it runs; this is the verdict when it did not.
+        under = str(chk.get("ground_above_name") or "a ground surface")
+        buried = _frame_looks_buried(chk)
+        out.append(_f(Severity.ERROR if buried else Severity.WARN, name,
+                      f"camera is {above_g:.1f} m under {under} — the frame is its underside",
+                      "set position[1] = heightAt(x, z) + 1.6 (eye level) — never below the terrain",
+                      kind="camera_underground" if buried else "camera_under_ground_mesh",
+                      view=name, eye_height_m=eye, ground_above_m=above_g))
+    elif authored and below is not None:
         # The ray straight down from the eye (``nearGeometry``): the surface this lens
         # actually stands over.  Scene-wide ``ground_y`` is the top of the HIGHEST ground
         # mesh, and on relief terrain it called a camera at eye level on a low patch an
