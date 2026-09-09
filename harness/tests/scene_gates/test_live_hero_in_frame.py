@@ -30,7 +30,13 @@ WALL = """
 """
 
 
-def _with_hero(ws: Workspace, *, hidden: bool) -> None:
+ROOM = """
+  const shell = roomShell({ center: [10, 4, 14], extents: [12, 8, 12], thickness: 0.3 });
+  scene.add(shell);
+"""
+
+
+def _with_hero(ws: Workspace, *, hidden: bool, roofed: bool = False) -> None:
     write_box_glb(ws.public / "assets" / "hero_cube.glb", size=(4.0, 4.0, 4.0))
     scene = ws.src / "scene.js"
     text = scene.read_text()
@@ -39,7 +45,11 @@ def _with_hero(ws: Workspace, *, hidden: bool) -> None:
                         "  const hero = (await loaders.gltf.loadAsync('" + URL + "')).scene;\n"
                         "  hero.name = 'HeroCube'; hero.position.set(10, 6, 14);\n"
                         "  hero.traverse((o) => { if (o.geometry) o.geometry.computeVertexNormals(); });\n"
-                        "  scene.add(hero);\n" + (WALL if hidden else ""), 1)
+                        "  scene.add(hero);\n" + (WALL if hidden else "") + (ROOM if roofed else ""), 1)
+    if roofed:
+        text = text.replace("import { buildEnv, heightAt, SUN_AZIMUTH_DEG } from './env.js';",
+                            "import { buildEnv, heightAt, SUN_AZIMUTH_DEG } from './env.js';\nimport { roomShell } from './lib/environment.js';", 1)
+        assert "roomShell(" in text
     assert "hero_cube.glb" in text and ("StoneWall" in text) == hidden
     scene.write_text(text)
 
@@ -76,3 +86,21 @@ def test_a_hero_behind_a_wall_in_every_authored_frame_is_an_error(starter_ws: Wo
     cut = [f for f in gate.findings if f.data["kind"] == "camera_target_blocked" and f.target == "overview"]
     assert cut and "StoneWall" in cut[0].message, [f.message for f in gate.findings]
     assert math.isfinite(cut[0].data["target_hit_m"])
+
+
+def test_the_overview_rig_lifts_the_room_shells_lid_but_an_authored_camera_keeps_it(starter_ws: Workspace):
+    """cmp7's bakery (2026-09-09): the pairwise judge saw the harness interior as "a tiny fragment
+    in the overviews" — a closed box.  The rig hides the harness-injected shell's ceiling when
+    the eye is above it; the authored cameras (and the census) keep the room as built."""
+    _with_hero(starter_ws, hidden=False, roofed=True)
+    out = starter_ws.renders_dir(0)
+    rs = render_scene(starter_ws, out, times=(0.0,), width=640, height=360, fps_seconds=0.2)
+    assert rs.console_errors == []
+    m = read_metrics(out)
+    chk = {c["name"]: c for c in m["camera_checks"]}
+    # the lid is lifted for the rig: a 4 m cube from 100 m up is a few pixels, but it is there
+    assert chk["overview_top"]["glb_frac"].get(URL, 0.0) > 0.0005, chk["overview_top"]["glb_frac"]
+    # the authored overview looks at the room from outside and above: the roof stays, the cube is hidden
+    assert chk["overview"]["glb_frac"].get(URL, 0.0) < 0.002, chk["overview"]["glb_frac"]
+    names = [g["name"] for g in m["census"]["groups"]]
+    assert "RoomShell" in names                                                     # the census counts the shell as built
