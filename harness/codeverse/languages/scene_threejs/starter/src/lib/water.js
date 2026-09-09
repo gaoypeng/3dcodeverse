@@ -307,6 +307,9 @@ function _readScene(scene, uniforms, pinned) {
  * @returns {THREE.Mesh} The Water mesh, rotated flat, named 'Ocean',
  *   with `userData.update(t)` driving the wave phase for `tick`.
  */
+/** Water wider than this gets the broadband (28-direction) wave set. */
+export const BROADBAND_EXTENT_M = 300;
+
 export function makeOcean(width, depth, opts = {}) {
   _oceans++;
   if (_oceans > 1) {
@@ -327,7 +330,12 @@ export function makeOcean(width, depth, opts = {}) {
     textureWidth: rtt,
     textureHeight: rtt,
     waterNormals: opts.waterNormals
-        || makeWaterNormals(256, { broadband: _extent > 1500 }),
+        // 300 m, not 1500: a 380 m and a 440 m storm sea (two lighthouse runs,
+        // 2026-09-09) read as "a checkerboard of white crescents" from every
+        // overview and the establishing shot — the eight-tone set's own period
+        // shows wherever the water is wide enough to be seen at a grazing angle,
+        // and a scene's sea is exactly that.  Pools and ponds keep the lively set.
+        || makeWaterNormals(256, { broadband: _extent > BROADBAND_EXTENT_M }),
     sunDirection: sunDir,
     sunColor: opts.sunColor === undefined ? 0xffffff : opts.sunColor,
     waterColor:

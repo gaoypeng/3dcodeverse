@@ -342,6 +342,11 @@ def test_wide_water_gets_the_broadband_wave_spectrum(probe) -> None:
         "broadband:true returned the same normal map — the option is "
         "not reaching the wave table")
     assert m["poolUsesNarrow"], "a pool paid for the broadband spectrum"
+    # a 380 m storm sea is wide enough to be seen edge-on: two lighthouse runs (2026-09-09)
+    # read the eight-tone set as "a checkerboard of white crescents" — the threshold is 300 m
+    from codeverse.config import get_settings
+    src = (get_settings().runtime_js_dir().parent / "codeverse" / "languages" / "scene_threejs" / "starter" / "src" / "lib" / "water.js").read_text()
+    assert "BROADBAND_EXTENT_M = 300" in src and "_extent > BROADBAND_EXTENT_M" in src
 
 
 def test_update_drives_the_wave_phase_and_sundir_reaches_the_shader(
