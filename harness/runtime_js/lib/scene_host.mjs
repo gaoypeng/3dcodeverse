@@ -20,7 +20,7 @@ import { ablationReport, frameSampler } from './host_ablation.mjs';
 import { sceneCensus } from './host_census.mjs';
 import { placementTable, settleScene } from './host_placement.mjs';
 import { frameStats, nearGeometry, repairCameraSpec } from './host_metrics.mjs';
-import { frameCoverage } from './host_coverage.mjs';
+import { frameCoverage, glbCoverage } from './host_coverage.mjs';
 import { installShaderErrorHook } from './host_shader_errors.mjs';
 import { attributeErrors, captured, captureMaterialSources, materialAudit } from './host_compile.mjs';
 import { makeRenderer, rendererString } from './browser/renderer.js';
@@ -481,7 +481,15 @@ function cameraChecks(spec) {
   } catch (e) {
     state.hostWarnings.push(`coverage failed for ${spec.name}: ${e.message}`);
   }
-  return { name: spec.name, ...near, ...stats, ...coverage };
+  let glbFrac = {};
+  if (loadedGlbs.length) {
+    try {
+      glbFrac = glbCoverage(state.renderer, state.scene, cam, state.canvas, THREE, loadedGlbs);
+    } catch (e) {
+      state.hostWarnings.push(`glb coverage failed for ${spec.name}: ${e.message}`);
+    }
+  }
+  return { name: spec.name, ...near, ...stats, ...coverage, glb_frac: glbFrac };
 }
 
 /** Force-compile every material as seen from spec (or the first camera). */

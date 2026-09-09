@@ -1173,6 +1173,25 @@ written) that were accepted because the code works that way and the tests pin it
   the NaN is gone.  Harness-owned starter geometry the agent edits, as `worldShell` and
   `roomShell` are; nothing here re-centres or grounds an authored object (L7).
 
+* **D72 A camera and a hero are measured where they stand, not scene-wide (2026-09-09).**  Four
+  false or missing verdicts from one day's batteries, each repeated by the judge as a major issue
+  and each costing a refine round: an "ant's-eye view" against the scene's HIGHEST ground (the
+  lens was 1.6 m over a low patch of relief snow); a lens under the terrain whose frame rendered
+  "fine" (a FrontSide terrain is back faces from beneath); a squat pillar 0.9 m before the hero
+  camera, so the judge called the hidden HERO "a massive grey box"; and a hero that was in the
+  scene but in no authored frame, which nothing could say.  `nearGeometry` now measures per lens
+  — the ray straight down (`ground_below_m`), the lowest terrain-scale ground surface straight
+  above (`ground_above_m`, cast down from height so `material.side` cannot hide it), the sight rays
+  ending within 1.5 m (`near_rays`) and the first surface on the eye → lookAt line
+  (`target_hit_m`) — and `glbCoverage` renders each loaded GLB as a white mask against black solids
+  per camera (`glb_frac`).  The gate reads those: `camera_low` / `camera_high` under the lens,
+  `camera_under_ground_mesh` (the repair lifts it to eye level), `camera_blocked` (≥ 6 of 9 near
+  rays), `camera_target_blocked` (cut before half the distance; a close-up meets its own subject
+  near the full distance), `hero_unseen` (< 0.5 % of every authored frame) and
+  `hero_small_in_its_camera`.  The rule behind all of it: a wrong deterministic finding is worse
+  than none, because the judge repeats it — precision over recall, and every number names the
+  surface it was measured against.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

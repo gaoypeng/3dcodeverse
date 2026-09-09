@@ -216,3 +216,25 @@ def test_a_loaded_glb_that_reaches_no_frame_is_flagged():
     assert rep.passed, "a WARN must not fail the gate"
 
 
+
+
+def test_a_hero_in_the_scene_but_in_no_authored_frame_is_an_error():
+    """cmp6's crypt (2026-09-09): the athanor stood behind a pillar in every authored shot and
+    the judge called the HERO a grey box — ``glb_frac`` is the mask render per GLB per camera."""
+    url = "/assets/athanor.glb"
+    census = {"ground_y": 0.0, "glb_assets": [{"url": url, "meshes": 9, "meshes_in_scene": 9, "in_scene": True}]}
+    unseen = frame_findings({"census": census, "camera_checks": [
+        _chk("AthanorDetail", glb_frac={url: 0.0}), _chk("StairsPushIn", glb_frac={url: 0.001}),
+        _chk("overview_top", "orbit", glb_frac={url: 0.3})]})          # the rig sees it: not an authored shot
+    kinds = _kinds(unseen)
+    assert ("hero_unseen", Severity.ERROR, "athanor.glb") in kinds and not unseen.passed
+    msg = next(f.message for f in unseen.findings if f.data["kind"] == "hero_unseen")
+    assert "AthanorDetail 0.0%" in msg and "no camera sees the hero" in msg
+    # seen well in one shot, but the camera NAMED for it barely shows it → WARN on that camera
+    small = frame_findings({"census": census, "camera_checks": [
+        _chk("AthanorDetail", glb_frac={url: 0.004}), _chk("StairsPushIn", glb_frac={url: 0.12})]})
+    assert [(k, s, t) for k, s, t in _kinds(small)] == [("hero_small_in_its_camera", Severity.WARN, "AthanorDetail")]
+    # a well-framed hero, and an older census without glb_frac, say nothing
+    fine = frame_findings({"census": census, "camera_checks": [_chk("AthanorDetail", glb_frac={url: 0.2})]})
+    old = frame_findings({"census": census, "camera_checks": [_chk("AthanorDetail")]})
+    assert fine.passed and old.passed and not [k for k, _, _ in _kinds(fine) + _kinds(old) if k.startswith("hero_")]

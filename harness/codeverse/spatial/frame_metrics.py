@@ -340,6 +340,62 @@ def _glb_findings(census: dict[str, Any]) -> list[GateFinding]:
     return out
 
 
+HERO_MIN_FRAC = 0.005            # of the frame, best authored camera: below it no camera sees the hero
+HERO_DETAIL_MIN_FRAC = 0.02      # of the frame, in the camera NAMED for the hero
+
+
+def _hero_key(url: str) -> str:
+    """``/assets/longcase_clock.glb`` → ``longcaseclock`` (the plan's snake name, joined)."""
+    return "".join(ch for ch in url.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower() if ch.isalnum())
+
+
+def _hero_findings(checks: list[dict[str, Any]], census: dict[str, Any]) -> list[GateFinding]:
+    """A Blender hero that is IN the scene but in no authored frame — or nearly absent from
+    the camera named for it.  ``camera_checks[].glb_frac`` (``glbCoverage``: a mask render
+    per GLB per camera, occlusion included).  cmp6's crypt (2026-09-09): the athanor stood
+    behind a squat pillar in every authored shot, the judge called the HERO "a massive
+    untextured grey box", and two refine rounds rebuilt the wrong thing — "in the scene"
+    (``glb_assets``) was known, "in the frame" was not."""
+    rows = census.get("glb_assets")
+    if not isinstance(rows, list):
+        return []
+    authored = [c for c in checks if _view_kind(c) == "authored"]
+    out: list[GateFinding] = []
+    for r in rows:
+        if not isinstance(r, dict) or not r.get("in_scene"):
+            continue
+        url = str(r.get("url", "?"))
+        seen: dict[str, float] = {}
+        for c in authored:
+            fr = c.get("glb_frac")
+            v = _num(fr, url) if isinstance(fr, dict) else None
+            if v is not None:
+                seen[str(c.get("name", "?"))] = v
+        if not seen:
+            continue     # older census, or no authored camera
+        base = url.rsplit("/", 1)[-1]
+        best = max(seen.values())
+        listing = ", ".join(f"{n} {v:.1%}" for n, v in list(seen.items())[:6])
+        if best < HERO_MIN_FRAC:
+            out.append(_f(Severity.ERROR, base,
+                          f"{base} is in the scene but fills at most {best:.1%} of any authored frame ({listing}) — "
+                          "no camera sees the hero",
+                          "aim the camera named for it at the hero's placement with a clear line of sight (a "
+                          "camera_target_blocked finding names what cuts it) or move the hero into a shot; a hero the "
+                          "frames never show cannot pass its must-have",
+                          kind="hero_unseen", url=url, best_frac=best, per_camera=seen))
+            continue
+        key = _hero_key(url)
+        for cam, v in seen.items():
+            if key and key in "".join(ch for ch in cam.lower() if ch.isalnum()) and v < HERO_DETAIL_MIN_FRAC:
+                out.append(_f(Severity.WARN, cam,
+                              f"{cam} is named for {base} but shows it at {v:.1%} of the frame (its best view is {best:.1%})",
+                              "a detail shot fills 10-40% of the frame with its subject: move the camera closer along "
+                              "the sightline or clear what stands between",
+                              kind="hero_small_in_its_camera", url=url, frac=v, best_frac=best))
+    return out
+
+
 def frame_findings(metrics: dict[str, Any]) -> GateReport:
     """``scene_frames`` gate from a ``metrics.json`` payload (``camera_checks`` + ``census`` + ``motion``)."""
     checks: list[dict[str, Any]] = [c for c in metrics.get("camera_checks") or [] if isinstance(c, dict)]
@@ -360,6 +416,7 @@ def frame_findings(metrics: dict[str, Any]) -> GateReport:
             findings.append(cov)
     findings += _motion_findings(stored_motion(metrics))
     findings += _glb_findings(metrics.get("census") or {})
+    findings += _hero_findings(checks, metrics.get("census") or {})
     if checks and not [f for f in findings if f.severity != Severity.INFO]:
         n = len(checks)
         findings.append(_f(Severity.INFO, "overall", f"{n} camera frame(s) checked: exposure, geometry and coverage within limits", "",
