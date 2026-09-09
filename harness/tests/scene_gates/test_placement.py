@@ -335,8 +335,10 @@ def test_a_ring_of_identical_copies_round_the_world_is_warned_but_not_a_rotunda(
               "placement": _table(_row("Lantern", h=0.6), _row("Bench", h=0.9), _row("BenchB", zone="House", h=0.9)),
               "groups": [{"name": "FarShore", "kind": "content", "stamps": [ring]}]}
     hits = [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "stamped_ring"]
-    assert len(hits) == 1 and hits[0].severity == Severity.WARN and "FarShore/FarPeaks: 16 same-size copies" in hits[0].message
+    assert len(hits) == 1 and hits[0].severity == Severity.WARN and "FarShore/FarPeaks: 16 near-identical copies" in hits[0].message
     assert "36 m ring" in hits[0].message and "silhouettes" in hits[0].fix_hint
+    census["groups"][0]["stamps"] = [dict(ring, size_cv=0.15)]                            # loop 24: a 15 % size jitter is still a stamp
+    assert [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "stamped_ring"]
     census["groups"][0]["stamps"] = [dict(ring, size_cv=0.3, radius_cv=0.2)]              # varied: a real skyline
     assert not [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "stamped_ring"]
     census["groups"][0]["stamps"] = [dict(ring, name="Column", n=12, radius_m=4.0)]       # a rotunda: inside the content
