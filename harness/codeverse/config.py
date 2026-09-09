@@ -179,8 +179,8 @@ SEED_RECIPES_ENV = "CV3D_SEED_RECIPES"
 #: run, and whether it earns that is a measurement nobody has made yet.
 SCENE_TEXTURES_ENV = "CV3D_SCENE_TEXTURES"
 #: ONE session authors every zone of a scene (the whole world, one author) instead of the
-#: two-small-zones-per-session fan-out.  ON by default since the loop-17 measurement (D70);
-#: `off` is the fan-out control.
+#: two-small-zones-per-session fan-out.  OFF: the loop-17 gain did not survive the fixed-judge
+#: confirmation (D70); an A/B knob.
 ONE_WORLD_SESSION_ENV = "CV3D_ONE_WORLD_SESSION"
 _TRUE_WORDS = frozenset({"1", "on", "true", "yes", "y"})
 _FALSE_WORDS = frozenset({"0", "off", "false", "no", "n"})
@@ -233,7 +233,7 @@ def scene_textures_enabled() -> bool:
 
 
 def one_world_session_enabled() -> bool:
-    """Do all of a scene's zones go to ONE session?  ``$CV3D_ONE_WORLD_SESSION``, else ON.
+    """Do all of a scene's zones go to ONE session?  ``$CV3D_ONE_WORLD_SESSION``, else off.
 
     Measured 2026-09-08 under one fixed judge (gemini-3.1-pro-preview, n=2, the brief's
     must_have list), both sides ``codex:gpt-6-astra@low``: a bare one-file scene — one author,
@@ -247,10 +247,12 @@ def one_world_session_enabled() -> bool:
     goes to one session that owns every zone file (the env, the assets and the heroes keep
     their own stages), with a session window scaled to the zone count.  Measured on the
     same three briefs (loop 17, in-loop judge): round 0 0.17 → 0.69, 0.51 → 0.58, 0.44 →
-    0.43; best round 0.75 → 0.82 PASS, 0.73 → 0.60, 0.60 → 0.77 PASS — so ON by default,
-    and ``off`` is the fan-out control while the fixed-judge confirmation runs.
+    0.43; best round 0.75 → 0.82 PASS, 0.73 → 0.60, 0.60 → 0.77 PASS.  The fixed-judge
+    confirmation (cmp_scene4, both arms astra-low) did NOT reproduce it: harness 0.60 / 0.60 /
+    0.54 vs the bare one-shot 0.81 / 0.83 / 0.60, the single session finishing four zones in
+    five minutes as a block-out.  Off by default; a knob for the next measurement.
     """
-    return env_flag(ONE_WORLD_SESSION_ENV, True)
+    return env_flag(ONE_WORLD_SESSION_ENV, False)
 
 
 def seed_recipes_enabled() -> bool:

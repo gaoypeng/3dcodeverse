@@ -1113,8 +1113,8 @@ written) that were accepted because the code works that way and the tests pin it
   grounds anything (L7): harness-owned starter geometry, like `worldShell` (D51), that the
   agent edits.
 
-* **D70 One author for the whole world — `CV3D_ONE_WORLD_SESSION`, ON by default since its
-  measurement (2026-09-08).**  Under one fixed judge (gemini-3.1-pro-preview, n=2, the brief's
+* **D70 One author for the whole world — `CV3D_ONE_WORLD_SESSION`, an A/B knob, OFF: its
+  in-loop gain did not survive the fixed judge (2026-09-08).**  Under one fixed judge (gemini-3.1-pro-preview, n=2, the brief's
   must_have list) and one model on both sides (`codex:gpt-6-astra@low`), a bare one-file scene
   — one author, no plan, no lib, no assets, no tools — scored 0.894 on the clockmaker's
   workshop and 0.82 on the boat workshop; the harness's round 0 of the same briefs, its zones
@@ -1132,9 +1132,17 @@ written) that were accepted because the code works that way and the tests pin it
   `CV3D_SCENE_TEXTURES` does).  **Measured (loop 17, the same three briefs, in-loop judge):**
   round 0 clockmaker 0.17 → 0.69, boat 0.51 → 0.58, NYC 0.44 → 0.43; best round 0.75 → 0.82
   PASS, 0.73 → 0.60, 0.60 → 0.77 PASS — two passes where the fan-out had none, and the
-  interior's round 0 four times higher.  The default is ON; `off` keeps the fan-out as the
-  control until the fixed-judge confirmation (harness-with-switch vs the bare model on the
-  same briefs) is in, after which the two batching constants go.
+  interior's round 0 four times higher.  **The fixed-judge confirmation did not reproduce
+  it** (`cmp_scene4`, both arms astra-low, gemini-3.1-pro-preview n=2): harness with the
+  switch 0.60 / 0.60 / 0.54 against the bare one-shot 0.81 / 0.83 / 0.60; that draw's single
+  session finished four zones in five minutes as a block-out ("missing stove", "shelves
+  missing", "primitive tools", 0.32 at round 0) where loop 17's draw had reached 0.69 — one
+  author is coherent but thin, the fan-out dense but incoherent, and n=1 per arm per brief is
+  noise-sized.  The knob stays OFF; the batch header now states the session's window and asks
+  for each zone's full density (measured next as loop 18).  What the whole evening says
+  instead: the bare one-file scene wins round 0 on interiors every time (0.81–0.89), so the
+  harness's next experiment is to CONTAIN it — a whole-scene single-shot draft as round 0,
+  then its gates, heroes and refine rounds on top (the bench's `oneshot+refine` shape).
 
 ## Rejected / deferred
 
