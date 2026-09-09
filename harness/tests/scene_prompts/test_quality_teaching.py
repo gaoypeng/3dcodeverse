@@ -191,3 +191,5 @@ def test_the_zone_brief_says_builders_are_already_at_size() -> None:
                 zone_file="src/zones/z.js", neighbours=[], layout="", interior=False)
     text = render("tracks/scene_zone.j2", **base)
     assert "place it at scale 1" in text and "> 2.5x or < 0.4x is an ERROR" in text
+    # three runs (codex1, loop 14, loop 18) lost a round to a hero whose flue a zone stretched to the roof
+    assert "never stretch or re-scale a part of a placed clone" in text and "SEPARATE object" in text
