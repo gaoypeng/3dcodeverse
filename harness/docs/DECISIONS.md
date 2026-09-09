@@ -1113,6 +1113,40 @@ written) that were accepted because the code works that way and the tests pin it
   grounds anything (L7): harness-owned starter geometry, like `worldShell` (D51), that the
   agent edits.
 
+* **D70 One author for the whole world — `CV3D_ONE_WORLD_SESSION`, ON by default since the
+  fixed-judge confirmation of the session that is told its window (2026-09-08).**  Under one fixed judge (gemini-3.1-pro-preview, n=2, the brief's
+  must_have list) and one model on both sides (`codex:gpt-6-astra@low`), a bare one-file scene
+  — one author, no plan, no lib, no assets, no tools — scored 0.894 on the clockmaker's
+  workshop and 0.82 on the boat workshop; the harness's round 0 of the same briefs, its zones
+  written by separate sessions of at most two small zones each (`MAX_ZONES_PER_BATCH = 2`,
+  `SMALL_ZONE_CONTENTS = 3`), sat at 0.17 and 0.30–0.57 and needed two refine rounds to reach
+  0.60–0.93.  Over four scene prompts the harness still led on mean (0.54 vs 0.36: the bare
+  model's windmill and lighthouse died on a null merged geometry the build gate would have
+  repaired), but where it lost, it lost on what appears BETWEEN authors: the day's tally over
+  43 judged rounds put floating / scale / interpenetration (28), missing planned content (23)
+  and cameras (21) at the top.  With the switch on, every zone brief goes to ONE session that
+  owns every zone file — the env, the assets and the Blender heroes keep their own stages, the
+  gates and rounds are unchanged — with the session window scaled by the zone count and the
+  batch header saying whose coherence it is.  A boolean, not a batch size: the hypothesis is
+  "one author", and a bench arm sets it after Settings is cached (`env_flag`, as
+  `CV3D_SCENE_TEXTURES` does).  **Measured (loop 17, the same three briefs, in-loop judge):**
+  round 0 clockmaker 0.17 → 0.69, boat 0.51 → 0.58, NYC 0.44 → 0.43; best round 0.75 → 0.82
+  PASS, 0.73 → 0.60, 0.60 → 0.77 PASS — two passes where the fan-out had none, and the
+  interior's round 0 four times higher.  **The fixed-judge confirmation did not reproduce
+  it** (`cmp_scene4`, both arms astra-low, gemini-3.1-pro-preview n=2): harness with the
+  switch 0.60 / 0.60 / 0.54 against the bare one-shot 0.81 / 0.83 / 0.60; that draw's single
+  session finished four zones in five minutes as a block-out ("missing stove", "shelves
+  missing", "primitive tools", 0.32 at round 0) where loop 17's draw had reached 0.69 — one
+  author is coherent but thin, the fan-out dense but incoherent, and n=1 per arm per brief is
+  noise-sized.  The batch header then states the session's window and asks for each zone's
+  full density.  **Loop 18 (in-loop):** round 0 clockmaker 0.81 PASS, boat 0.60 → 0.77 PASS,
+  NYC 0.88 PASS; the session spends 10–19 min instead of 5.  **Second confirmation
+  (`cmp_scene5`, fixed judge, both arms astra-low):** harness 0.89 / 0.89, both PASS at round
+  0, vs the bare one-shot 0.92 / 0.77 on boat / clockmaker (the re-drawn one-shots move by
+  about ±0.1 between draws).  The default is ON; `off` keeps the fan-out and its two batching
+  constants as the control.  The bare one-file scene is no longer ahead on interiors; the
+  harness keeps its heroes, gates, library and rounds on top of that.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven
