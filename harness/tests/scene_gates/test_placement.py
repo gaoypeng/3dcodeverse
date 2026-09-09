@@ -235,6 +235,33 @@ def test_a_wrapper_of_instances_is_scale_checked_as_one_instance():
     assert scale[0].data["fix_hint"].startswith("scale each picket_fence") if "fix_hint" in scale[0].data else True
 
 
+def test_the_typed_interior_flag_wins_over_the_setting_words():
+    """D69's `interior` is the plan's word; the setting-text inference stays for plans
+    written before it existed."""
+    from codeverse.spatial.scene_placement import is_interior
+
+    assert is_interior({"setting": "a mountain meadow at dawn", "interior": True})
+    assert not is_interior({"setting": "a mountain meadow at dawn", "interior": False})
+    assert is_interior({"setting": "a cosy cabin interior at dusk"})          # no flag: the words decide
+    assert is_interior(_contract_plan().model_copy(update={"interior": True}))
+
+
+def test_fog_that_ends_inside_the_plan_is_warned_for_exteriors_only():
+    """Measured 2026-09-08 over eleven exterior runs: fog far >= 2 x the plan span scored
+    >= 0.60, the three at 1.4-1.6 x scored 0.42-0.60 with 'world edge' verdicts."""
+    plan = _contract_plan()                                            # 40 m bounds
+    census = {"fog": {"type": "Fog", "near": 18, "far": 50, "density": None}, "background": "#aabbcc",
+              "placement": _table(_row("Lantern", h=0.6), _row("Bench", h=0.9), _row("BenchB", zone="House", h=0.9))}
+    short = [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "fog_short"]
+    assert len(short) == 1 and short[0].severity == Severity.WARN and "50 m ends inside the plan's 40 m world (1.2x)" in short[0].message
+    census["fog"] = {"type": "Fog", "near": 30, "far": 90, "density": None}                      # 2.25 x: fine
+    assert not [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "fog_short"]
+    census["fog"] = {"type": "FogExp2", "near": None, "far": None, "density": 0.06}             # dissolves within ~17 m
+    assert [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "fog_short"]
+    inside = plan.model_copy(update={"interior": True})                                          # a room has no horizon
+    assert not [f for f in placement_gate_safe(census, plan=inside).findings if f.data.get("kind") == "fog_short"]
+
+
 def test_contract_checks_stay_quiet_on_a_dressed_in_bounds_scene():
     census = {"fog": {"type": "Fog", "near": 10, "far": 60}, "background": "#aabbcc",
               "placement": _table(_row("Lantern_3", h=0.6), _row("Bench", h=0.9),

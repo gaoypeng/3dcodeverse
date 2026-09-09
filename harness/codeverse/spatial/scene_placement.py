@@ -143,8 +143,16 @@ def _words(name: str) -> set[str]:
 
 
 def infer_indoor(text: str) -> bool:
-    """Does the plan's setting / environment text say the scene is indoors?"""
+    """Does the plan's setting / environment text say the scene is indoors?  (The word
+    list is the fallback for a plan written before ``ScenePlan.interior`` existed; the
+    typed flag wins — :func:`is_interior`.)"""
     return bool(_words(text) & INDOOR_WORDS)
+
+
+def is_interior(plan: Any) -> bool:
+    """The plan's typed ``interior`` flag (D69) when it says so, else the setting text."""
+    flag = plan.get("interior") if isinstance(plan, dict) else getattr(plan, "interior", None)
+    return bool(flag) or infer_indoor(setting_text(plan))
 
 
 def _f(sev: Severity, msg: str, *, target: str, hint: str = "", kind: str, **data: Any) -> GateFinding:
@@ -280,6 +288,9 @@ def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool =
 #: every placed asset's name, zone and bbox.  These checks are pure functions of the
 #: census + the plan; their ERRORs route into refine with the zone as the target.
 SCALE_WARN, SCALE_ERROR = 2.5, 4.0
+#: linear fog must reach past the plan's far side (fog far >= this many plan spans); exp fog
+#: must not dissolve it (1/density >= span / this)
+FOG_FAR_MIN_SPANS, FOG_DENSITY_MAX_PER_SPAN = 2.0, 1.5
 BOUNDS_MARGIN_MIN_M = 2.0
 #: a zone whose census instance count is under this fraction of its L2 layout budget is
 #: underdressed.  Measured on scene_final_v1 (n=19): flat_ground 12 / undressed 11 /
@@ -404,10 +415,30 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         out.append(_f(Severity.ERROR, "scene.background is not set (renders on the raw clear colour)",
                       target="env", kind="no_background",
                       hint="in buildEnv set scene.background to the sky colour or sky texture the plan names"))
+    # -- fog that ends inside the world: measured 2026-09-08 over eleven exterior runs, every
+    # one with fog far >= 2 x the plan span scored >= 0.60 and the three at 1.4-1.6 x scored
+    # 0.42-0.60 with "no aerial perspective", "world edge", "backdrop floating in the sky" —
+    # past fog far the land is the background colour while the unfogged sky stays sharp
+    fog = census.get("fog")
+    pb = _plan_bounds(plan)
+    if isinstance(fog, dict) and pb and not is_interior(plan):
+        span = max(pb[1][0] - pb[0][0], pb[1][2] - pb[0][2])
+        far, density = fog.get("far"), fog.get("density")
+        short = ""
+        if isinstance(far, int | float) and span > 0 and far < FOG_FAR_MIN_SPANS * span:
+            short = f"fog far {far:g} m ends inside the plan's {span:g} m world ({far / span:.1f}x)"
+        elif isinstance(density, int | float) and span > 0 and density > FOG_DENSITY_MAX_PER_SPAN / span:
+            short = f"fog density {density:g} dissolves the plan's {span:g} m world within {1 / density:.0f} m"
+        if short:
+            out.append(_f(Severity.WARN, short + " — past it the land is the background colour while the unfogged sky "
+                          "stays sharp: a world edge and backdrops floating in the sky",
+                          target="env", kind="fog_short", fog=fog, plan_span_m=round(span, 1),
+                          hint=f"fog far >= {FOG_FAR_MIN_SPANS:g} x the plan span (the starter's shell fog is scaled to it: "
+                               "keep `scene.fog = shell.fog`, or lengthen yours) and let the horizon ridge / outskirts close the world"))
     # -- backdrop ring: outdoor worlds must have geometry past the play area
     bounds = _plan_bounds(plan)
     groups = census.get("groups")
-    if bounds and isinstance(groups, list) and not infer_indoor(setting_text(plan)):
+    if bounds and isinstance(groups, list) and not is_interior(plan):
         lo, hi = bounds
         cx, cz = (lo[0] + hi[0]) / 2, (lo[2] + hi[2]) / 2
         half = max(hi[0] - lo[0], hi[2] - lo[2]) / 2
@@ -534,7 +565,7 @@ def check_placement(ws: Workspace, *, indoor: bool | None = None, force_probe: b
     t0 = time.time()
     census = placement_census(ws, force_probe=force_probe, timeout_s=timeout_s)
     if indoor is None:
-        indoor = infer_indoor(setting_text(read_json_or_none(ws.plan_path)))
+        indoor = is_interior(read_json_or_none(ws.plan_path))
     return placement_findings(census.get("placement") or {}, indoor=indoor, duration_ms=int((time.time() - t0) * 1000))
 
 
@@ -547,7 +578,7 @@ def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None,
         table = (census or {}).get("placement")
         if not isinstance(table, dict):
             return None
-        report = placement_findings(table, indoor=infer_indoor(setting_text(plan)))
+        report = placement_findings(table, indoor=is_interior(plan))
         extra = _cap_per_kind(contract_findings(census, plan, layouts=layouts, unavailable=unavailable))
         if extra:
             findings = report.findings + extra
