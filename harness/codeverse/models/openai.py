@@ -1,4 +1,4 @@
-"""ChatRequest ⇄ OpenAI Chat Completions dicts (messages, tools, response_format).
+"""ChatRequest ⇄ OpenAI Chat Completions dicts (messages, response_format).
 
 Chat Completions (not Responses) was chosen because every OpenAI-compatible
 endpoint (``OPENAI_BASE_URL``: vLLM, OpenRouter, Ollama, …) speaks it, while
@@ -7,7 +7,6 @@ the Responses API is OpenAI-only.
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
@@ -20,9 +19,6 @@ from codeverse.contracts.chat import (
     ChatResponse,
     ImagePart,
     TextPart,
-    ToolCallPart,
-    ToolResultPart,
-    ToolSpec,
 )
 from codeverse.contracts.common import Usage
 from codeverse.models.base import ModelError
@@ -76,9 +72,7 @@ def _image_block(p: ImagePart) -> dict[str, Any]:
 
 
 def to_messages(messages: list[ChatMessage], system: str) -> list[dict[str, Any]]:
-    """ChatMessages → Chat Completions messages.  Tool results become ``role:
-    tool`` messages; images inside tool results (unsupported there) are sent as
-    a follow-up user message."""
+    """ChatMessages → Chat Completions messages."""
     out: list[dict[str, Any]] = []
     if system:
         out.append({"role": "system", "content": system})
@@ -86,7 +80,6 @@ def to_messages(messages: list[ChatMessage], system: str) -> list[dict[str, Any]
         if msg.role == "assistant":
             out.append(_assistant_message(msg))
             continue
-        trailing_images: list[dict[str, Any]] = []
         content: list[dict[str, Any]] = []
         for p in msg.parts:
             if isinstance(p, TextPart):
@@ -96,29 +89,8 @@ def to_messages(messages: list[ChatMessage], system: str) -> list[dict[str, Any]
                 if p.label:
                     content.append({"type": "text", "text": f"[image: {p.label}]"})
                 content.append(_image_block(p))
-            elif isinstance(p, ToolResultPart):
-                if content:
-                    out.append({"role": "user", "content": content})
-                    content = []
-                out.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": p.call_id,
-                        "content": p.content or "(no output)",
-                    }
-                )
-                for img in p.images:
-                    if img.label:
-                        trailing_images.append(
-                            {"type": "text", "text": f"[image from {p.name}: {img.label}]"}
-                        )
-                    trailing_images.append(_image_block(img))
-            elif isinstance(p, ToolCallPart):
-                raise ModelError("ToolCallPart is only valid in assistant messages")
         if content:
             out.append({"role": "user", "content": content})
-        if trailing_images:
-            out.append({"role": "user", "content": trailing_images})
     if not out or all(m["role"] == "system" for m in out):
         raise ModelError("ChatRequest has no content to send")
     return out
@@ -126,28 +98,7 @@ def to_messages(messages: list[ChatMessage], system: str) -> list[dict[str, Any]
 
 def _assistant_message(msg: ChatMessage) -> dict[str, Any]:
     text = "".join(p.text for p in msg.parts if isinstance(p, TextPart))
-    calls = [
-        {
-            "id": p.id,
-            "type": "function",
-            "function": {"name": p.name, "arguments": json.dumps(p.arguments)},
-        }
-        for p in msg.parts
-        if isinstance(p, ToolCallPart)
-    ]
-    m: dict[str, Any] = {"role": "assistant", "content": text or None}
-    if calls:
-        m["tool_calls"] = calls
-    return m
-
-
-# --------------------------------------------------------------------- tools
-def to_tool(t: ToolSpec) -> dict[str, Any]:
-    params = inline_refs(t.parameters) if t.parameters else {"type": "object", "properties": {}}
-    return {
-        "type": "function",
-        "function": {"name": t.name, "description": t.description, "parameters": params},
-    }
+    return {"role": "assistant", "content": text or None}
 
 
 def response_format(schema: dict[str, Any], *, strict: bool) -> dict[str, Any]:
@@ -170,36 +121,19 @@ def build_kwargs(request: ChatRequest, model: str, *, strict_schema: bool) -> di
         kw["reasoning_effort"] = effort
     else:
         kw["temperature"] = request.temperature
-    if request.tools:
-        kw["tools"] = [to_tool(t) for t in request.tools]
-        kw["tool_choice"] = "auto"
     if request.response_schema is not None:
         kw["response_format"] = response_format(request.response_schema, strict=strict_schema)
     return kw
 
 
 # ------------------------------------------------------------------ response
-def parse_choice(choice: Any) -> tuple[str, list[ToolCallPart], str]:
-    """→ ``(text, tool_calls, finish_reason)``; bad tool-call JSON → ModelError(retryable)."""
+def parse_choice(choice: Any) -> tuple[str, str]:
+    """→ ``(text, finish_reason)``."""
     msg = choice.message
     text = msg.content or ""
     if getattr(msg, "refusal", None):
         raise ModelError(f"OpenAI refusal: {msg.refusal}", retryable=False)
-    calls: list[ToolCallPart] = []
-    for tc in msg.tool_calls or []:
-        fn = getattr(tc, "function", None)
-        if fn is None:
-            continue
-        try:
-            args = json.loads(fn.arguments or "{}")
-        except json.JSONDecodeError as exc:
-            raise ModelError(
-                f"tool call {fn.name} has invalid JSON arguments: {exc}", retryable=True
-            ) from exc
-        if not isinstance(args, dict):
-            args = {"value": args}
-        calls.append(ToolCallPart(id=tc.id, name=fn.name, arguments=args))
-    return text, calls, str(choice.finish_reason or "")
+    return text, str(choice.finish_reason or "")
 
 
 # ===================================================================== openai
@@ -313,10 +247,10 @@ class OpenAIModel:
                 model=self.model, timeout=attempt_timeout_s(deadline, self.timeout_s), **kwargs)
         if not completion.choices:
             raise ModelError("OpenAI returned no choices", retryable=True)
-        text, calls, finish = parse_choice(completion.choices[0])
-        usage = self._usage(completion.usage, sw.ms, len(calls))
+        text, finish = parse_choice(completion.choices[0])
+        usage = self._usage(completion.usage, sw.ms)
         parsed: Any = None
-        if request.response_schema is not None and not calls:
+        if request.response_schema is not None:
             try:
                 parsed = parse_json_lenient(text)
             except JsonParseError as exc:
@@ -324,7 +258,7 @@ class OpenAIModel:
                     f"structured output is not valid JSON (finish_reason={finish}): {exc}",
                     retryable=finish != "length", usage=usage,  # billed like a good reply
                 ) from exc
-        if not text and not calls:
+        if not text:
             raise ModelError(
                 f"OpenAI returned no content (finish_reason={finish})",
                 retryable=finish != "content_filter", usage=usage,
@@ -334,15 +268,11 @@ class OpenAIModel:
             "id": completion.id,
             "model": completion.model,
         }
-        return ChatResponse(
-            text=text, parsed=parsed, tool_calls=calls, finish_reason=finish, usage=usage, raw=raw
-        )
+        return ChatResponse(text=text, parsed=parsed, finish_reason=finish, usage=usage, raw=raw)
 
-    def _usage(self, u: Any, latency_ms: int, n_calls: int) -> Usage:
+    def _usage(self, u: Any, latency_ms: int) -> Usage:
         if u is None:
-            usage = Usage(
-                backend="openai", model=self.model, tool_calls=n_calls, latency_ms=latency_ms
-            )
+            usage = Usage(backend="openai", model=self.model, latency_ms=latency_ms)
         else:
             ptd = getattr(u, "prompt_tokens_details", None)
             ctd = getattr(u, "completion_tokens_details", None)
@@ -357,7 +287,6 @@ class OpenAIModel:
                 output_tokens=max(0, completion - reasoning),
                 cached_tokens=cached,
                 thoughts_tokens=reasoning,
-                tool_calls=n_calls,
                 latency_ms=latency_ms,
             )
         usage.cost_usd = estimate_cost("openai", self.model, usage)

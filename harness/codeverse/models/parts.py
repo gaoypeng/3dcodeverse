@@ -1,13 +1,10 @@
-"""Small helpers shared by the provider backends (images, timing, usage,
-bounded per-call-id cache)."""
+"""Small helpers shared by the provider backends (images, timing, usage)."""
 
 from __future__ import annotations
 
 import base64
 import mimetypes
-import threading
 import time
-from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -62,32 +59,6 @@ class Stopwatch:
 
     def __exit__(self, *exc: object) -> None:
         self.ms = int((time.perf_counter() - self._t0) * 1000)
-
-
-class BoundedCache[T]:
-    """Thread-safe bounded LRU ``str -> T`` map for per-call-id provider state
-    (gemini thought signatures, anthropic thinking blocks).  ``put`` skips falsy
-    values; ``get`` returns ``None`` on a miss — a caller that needs a copy /
-    empty default wraps it: ``list(cache.get(k) or [])``.
-    """
-
-    def __init__(self, capacity: int) -> None:
-        self._d: OrderedDict[str, T] = OrderedDict()
-        self._cap = capacity
-        self._lock = threading.Lock()
-
-    def put(self, key: str, value: T | None) -> None:
-        if not value:
-            return
-        with self._lock:
-            self._d[key] = value
-            self._d.move_to_end(key)
-            while len(self._d) > self._cap:
-                self._d.popitem(last=False)
-
-    def get(self, key: str) -> T | None:
-        with self._lock:
-            return self._d.get(key)
 
 
 def classify_sdk_exception(exc: BaseException, sdk: Any, label: str,

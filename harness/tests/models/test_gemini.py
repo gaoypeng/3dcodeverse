@@ -15,13 +15,10 @@ from codeverse.contracts.chat import (
     ChatRequest,
     ImagePart,
     TextPart,
-    ToolResultPart,
-    ToolSpec,
 )
 from codeverse.contracts.plan import StaticPlan
 from codeverse.models.base import ModelError
 from codeverse.models.gemini import (
-    SIGNATURES,
     GeminiModel,
     build_config,
     classify_exception,
@@ -33,14 +30,6 @@ from codeverse.models.retry import KeyPool
 PNG_1PX = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 )
-
-#: the one tool spec every tool-call test uses.
-MEASURE_TOOL = ToolSpec(
-    name="measure",
-    description="m",
-    parameters={"type": "object", "properties": {"part": {"type": "string"}}},
-)
-
 
 def text_response(
     text: str, *, finish: str = "STOP", thoughts: int = 3
@@ -58,21 +47,6 @@ def text_response(
             candidates_token_count=20,
             thoughts_token_count=thoughts,
             cached_content_token_count=40,
-        ),
-    )
-
-
-def call_response(
-    name: str, args: dict, sig: bytes | None = b"sig-bytes"
-) -> types.GenerateContentResponse:
-    part = types.Part(function_call=types.FunctionCall(name=name, args=args))
-    part.thought_signature = sig
-    return types.GenerateContentResponse(
-        candidates=[
-            types.Candidate(content=types.Content(role="model", parts=[part]), finish_reason="STOP")
-        ],
-        usage_metadata=types.GenerateContentResponseUsageMetadata(
-            prompt_token_count=10, candidates_token_count=5
         ),
     )
 
@@ -266,55 +240,6 @@ def test_thinking_rejected_falls_back_without_thinking_config():
     assert log[0]["config"].thinking_config is None
 
 
-def test_tool_call_roundtrip_and_signature_cache():
-    tool = MEASURE_TOOL
-    m, log, _ = make_model([call_response("measure", {"part": "all"}), text_response("45 cm")])
-    req = ChatRequest(messages=[ChatMessage.user("measure it")], tools=[tool])
-    r = m.generate(req)
-    assert (
-        r.tool_calls
-        and r.tool_calls[0].name == "measure"
-        and r.tool_calls[0].arguments == {"part": "all"}
-    )
-    assert r.usage.tool_calls == 1 and r.text == ""
-    cfg = log[0]["config"]
-    assert cfg.tools[0].function_declarations[0].name == "measure"
-    assert cfg.response_mime_type is None
-    call = r.tool_calls[0]
-    assert SIGNATURES.get(call.id) == b"sig-bytes"
-    msgs = [
-        *req.messages,
-        ChatMessage(role="assistant", parts=[call]),
-        ChatMessage(
-            role="tool",
-            parts=[
-                ToolResultPart(call_id=call.id, name="measure", content=json.dumps({"h": 0.45}))
-            ],
-        ),
-    ]
-    r2 = m.generate(ChatRequest(messages=msgs, tools=[tool]))
-    assert r2.text == "45 cm" and not r2.tool_calls
-    contents = log[1]["contents"]
-    assert [c.role for c in contents] == ["user", "model", "user"]
-    fc_part = contents[1].parts[0]
-    assert fc_part.function_call.name == "measure" and fc_part.thought_signature == b"sig-bytes"
-    fr = contents[2].parts[0].function_response
-    assert fr.name == "measure" and fr.response == {"h": 0.45}
-
-
-def test_tools_plus_schema_warns_and_drops_json_mode():
-    tool = ToolSpec(name="t", description="d", parameters={"type": "object", "properties": {}})
-    m, log, _ = make_model([text_response('{"a": 1}')])
-    r = m.generate(
-        ChatRequest(
-            messages=[ChatMessage.user("x")], tools=[tool], response_schema={"type": "object"}
-        )
-    )
-    assert r.parsed == {"a": 1}
-    assert log[0]["config"].response_mime_type is None
-    assert any("response_schema ignored" in w for w in r.raw["warnings"])
-
-
 def test_images_inline_in_order(tmp_path):
     p = tmp_path / "img.png"
     p.write_bytes(PNG_1PX)
@@ -425,85 +350,6 @@ def test_a_charged_but_invalid_reply_carries_its_usage_on_the_error():
     assert ei.value.usage.cost_usd > 0
 
 
-def _resp_with_calls(parts: list[types.Part]) -> types.GenerateContentResponse:
-    return types.GenerateContentResponse(
-        candidates=[
-            types.Candidate(content=types.Content(role="model", parts=parts), finish_reason="STOP")
-        ],
-        usage_metadata=types.GenerateContentResponseUsageMetadata(
-            prompt_token_count=10, candidates_token_count=5
-        ),
-    )
-
-
-def test_synthetic_call_ids_are_never_echoed_to_the_provider():
-    """Locally synthesized tool ids never travel back to Gemini."""
-    from codeverse.models.gemini import is_synthetic_call_id
-
-    tool = ToolSpec(
-        name="measure", description="m", parameters={"type": "object", "properties": {}}
-    )
-    m, log, _ = make_model([call_response("measure", {"part": "all"}), text_response("ok")])
-    req = ChatRequest(messages=[ChatMessage.user("x")], tools=[tool])
-    r = m.generate(req)
-    call = r.tool_calls[0]
-    assert is_synthetic_call_id(call.id)
-    msgs = [
-        *req.messages,
-        ChatMessage(role="assistant", parts=[call]),
-        ChatMessage(
-            role="tool", parts=[ToolResultPart(call_id=call.id, name="measure", content="{}")]
-        ),
-    ]
-    m.generate(ChatRequest(messages=msgs, tools=[tool]))
-    contents = log[1]["contents"]
-    assert contents[1].parts[0].function_call.id is None, "an invented id must not reach Gemini"
-    assert contents[2].parts[0].function_response.id is None
-
-
-def test_two_parallel_same_name_calls_keep_their_provider_ids():
-    """Parallel same-name calls preserve provider ids and signatures."""
-    from codeverse.models.gemini import is_synthetic_call_id
-
-    parts = []
-    for cid, target in (("id-a", "seat"), ("id-b", "leg")):
-        p = types.Part(
-            function_call=types.FunctionCall(name="measure", args={"part": target}, id=cid)
-        )
-        p.thought_signature = f"sig-{cid}".encode()
-        parts.append(p)
-    tool = MEASURE_TOOL
-    m, log, _ = make_model([_resp_with_calls(parts), text_response("done")])
-    req = ChatRequest(messages=[ChatMessage.user("measure both")], tools=[tool])
-    r = m.generate(req)
-    a, b = r.tool_calls
-    assert (a.id, b.id) == ("id-a", "id-b") and a.name == b.name == "measure"
-    assert not is_synthetic_call_id(a.id), "a provider id must not be mistaken for a minted one"
-    assert SIGNATURES.get("id-a") == b"sig-id-a" and SIGNATURES.get("id-b") == b"sig-id-b"
-    msgs = [
-        *req.messages,
-        ChatMessage(role="assistant", parts=[a, b]),
-        ChatMessage(
-            role="tool",
-            parts=[  # results deliberately out of order: the ids do the pairing
-                ToolResultPart(call_id=b.id, name="measure", content=json.dumps({"part": "leg"})),
-                ToolResultPart(call_id=a.id, name="measure", content=json.dumps({"part": "seat"})),
-            ],
-        ),
-    ]
-    m.generate(ChatRequest(messages=msgs, tools=[tool]))
-    model_parts = log[1]["contents"][1].parts
-    assert [fp.function_call.id for fp in model_parts] == ["id-a", "id-b"]
-    assert [fp.thought_signature for fp in model_parts] == [b"sig-id-a", b"sig-id-b"]
-    responses = log[1]["contents"][2].parts
-    assert [
-        (fp.function_response.id, fp.function_response.response["part"]) for fp in responses
-    ] == [
-        ("id-b", "leg"),
-        ("id-a", "seat"),
-    ]
-
-
 def test_max_output_tokens_eaten_by_thinking_carries_the_thought_tokens():
     """A MAX_TOKENS failure reports the thinking tokens it consumed."""
     resp = types.GenerateContentResponse(
@@ -565,12 +411,10 @@ def test_ipv4_transport_toggle(monkeypatch):
     assert _ipv4_client_args() == {}
 
 
-def test_merge_stream_chunks_carries_tool_calls_and_signatures():
-    """Stream merging preserves ordered tool calls and thought signatures."""
+def test_merge_stream_chunks_concatenates_text_and_keeps_final_usage():
+    """Stream merging concatenates text parts in order; usage comes from the final chunk."""
     from codeverse.models.gemini import _merge_stream_chunks, extract_candidate
 
-    fc = types.Part(function_call=types.FunctionCall(name="measure", args={"part": "Hull"}))
-    fc.thought_signature = b"sig-bytes"
     c1 = types.GenerateContentResponse(
         candidates=[
             types.Candidate(
@@ -581,7 +425,7 @@ def test_merge_stream_chunks_carries_tool_calls_and_signatures():
     c2 = types.GenerateContentResponse(
         candidates=[
             types.Candidate(
-                content=types.Content(role="model", parts=[types.Part.from_text(text="lo"), fc]),
+                content=types.Content(role="model", parts=[types.Part.from_text(text="lo")]),
                 finish_reason="STOP",
             )
         ],
@@ -590,8 +434,6 @@ def test_merge_stream_chunks_carries_tool_calls_and_signatures():
         ),
     )
     merged = _merge_stream_chunks([c1, c2])
-    text, calls, finish = extract_candidate(merged)
+    text, finish = extract_candidate(merged)
     assert text == "hello" and finish == "STOP"
     assert merged.usage_metadata.prompt_token_count == 9
-    assert len(calls) == 1 and calls[0].name == "measure" and calls[0].arguments == {"part": "Hull"}
-    assert SIGNATURES.get(calls[0].id) == b"sig-bytes"

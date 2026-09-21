@@ -62,7 +62,7 @@ resp = m.generate(ChatRequest(messages=[...], system=..., response_schema=..., t
 #   max_wait_s: the longest this ONE call may spend, retries included (None = models.retry.RETRY_DEADLINE_S = 900 s);
 #   GeminiModel clips its retry deadline to it; api_agent 20-120 s per turn, VlmJudge 240 s per sample, planner 300 s
 #   resp.raw["key"] = "…ab12" (the key that answered), resp.raw["attempts"] = round-trips issued (hedged siblings included)
-resp.parsed / resp.text / resp.tool_calls / resp.usage   # Usage always has cost_usd (models.pricing)
+resp.parsed / resp.text / resp.usage   # Usage always has cost_usd (models.pricing)
 from codeverse.models.retry import KeyPool, KeyPoolExhausted
 KeyPool(keys, *, rpm_per_key=900, tpm_per_key=None, cooldown_s=30, dead_cooldown_s=3600)
 pool.acquire(*, tokens_hint=0, exclude=None, timeout_s=120) -> key    # raises immediately when every key is dead/cooling past the deadline
@@ -88,11 +88,9 @@ Rules that callers must know:
   only when *every* key fails the same way.  A 429 while an untried key remains is
   a **free** rotation (does not consume `max_attempts`); only when all keys are
   throttled do 429s count against the budget with backoff.
-* **Δ** Gemini: `tools` + `response_schema` together → schema dropped, text parsed
-  leniently into `.parsed`, warning in `resp.raw["warnings"]`.  Gemini 3.x cannot
-  disable thinking; keep `max_output_tokens ≥ ~1000` even for one-word answers.
+* Gemini 3.x cannot disable thinking; keep `max_output_tokens ≥ ~1000` even for
+  one-word answers.
 * Anthropic 4.6+ models use adaptive thinking + `output_config.effort`.
-  Tool-call ids must be echoed unchanged (they key provider caches).
 * **Δ** `to_openai_strict_schema` never adds `null` to defaulted fields: a property
   is nullable iff the *source* pydantic schema is (`T | None`); non-null defaults
   are surfaced as a `[default: …]` description hint.  Wire contract == pydantic contract.

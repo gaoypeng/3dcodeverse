@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
-from codeverse.contracts.chat import ChatRequest, ImagePart, TextPart, ToolResultPart
+from codeverse.contracts.chat import ChatRequest, ImagePart, TextPart
 
 Outcome = Literal["ok", "429", "5xx", "error", "dead", "skip"]
 
@@ -1087,13 +1087,11 @@ DEFAULT_IMAGE_PX = 1024
 
 def request_parts(request: ChatRequest) -> tuple[list[str], int]:
     """``(text blocks, number of image parts)`` of a request, system prompt and
-    tool schemas included — everything the provider will count as prompt."""
+    response schema included — everything the provider will count as prompt."""
     blocks: list[str] = []
     images = 0
     if request.system:
         blocks.append(request.system)
-    for tool in request.tools or ():
-        blocks.append(f"{tool.name}{tool.description}{tool.parameters}")
     if request.response_schema is not None:
         blocks.append(str(request.response_schema))
     for msg in request.messages:
@@ -1102,11 +1100,6 @@ def request_parts(request: ChatRequest) -> tuple[list[str], int]:
                 blocks.append(part.text)
             elif isinstance(part, ImagePart):
                 images += 1
-            elif isinstance(part, ToolResultPart):
-                blocks.append(part.content)
-                images += len(part.images)
-            else:  # ToolCallPart
-                blocks.append(f"{part.name}{part.arguments}")
     return blocks, images
 
 

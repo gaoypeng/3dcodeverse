@@ -31,9 +31,6 @@ from codeverse.contracts.chat import (
     ChatResponse,
     ImagePart,
     TextPart,
-    ToolCallPart,
-    ToolResultPart,
-    ToolSpec,
 )
 from codeverse.contracts.common import (
     ENTRY_FILE,
@@ -115,9 +112,6 @@ __all__ = [
     "TRACK_INFO",
     "TRACK_LANGUAGES",
     "TextPart",
-    "ToolCallPart",
-    "ToolResultPart",
-    "ToolSpec",
     "Track",
     "TrackInfo",
     "Usage",

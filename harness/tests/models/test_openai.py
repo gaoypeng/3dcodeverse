@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace as NS
 from typing import Any
 
 import httpx
 import pytest
 
-from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart, ToolResultPart, ToolSpec
+from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse.models.base import ModelError
 from codeverse.models.openai import (
     OpenAIModel,
@@ -25,7 +24,6 @@ PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwACh
 def completion(
     content: str | None,
     *,
-    tool_calls=None,
     finish="stop",
     prompt=100,
     comp=30,
@@ -37,7 +35,7 @@ def completion(
         model="gpt-5.6-sol",
         choices=[
             NS(
-                message=NS(content=content, tool_calls=tool_calls, refusal=None),
+                message=NS(content=content, refusal=None),
                 finish_reason=finish,
             )
         ],
@@ -48,10 +46,6 @@ def completion(
             completion_tokens_details=NS(reasoning_tokens=reasoning),
         ),
     )
-
-
-def tc(id_, name, args: dict):
-    return NS(id=id_, type="function", function=NS(name=name, arguments=json.dumps(args)))
 
 
 class FakeClient:
@@ -161,62 +155,6 @@ def test_bad_json_retried():
         ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"})
     )
     assert r.parsed == {"ok": 1} and len(fc.calls) == 2
-
-
-def test_tool_roundtrip_and_images_in_tool_results():
-    tool = ToolSpec(
-        name="measure",
-        description="d",
-        parameters={"type": "object", "properties": {"part": {"type": "string"}}},
-    )
-    bad = NS(id="bad", type="function", function=NS(name="measure", arguments="{not json"))
-    m, fc = make(
-        [
-            completion(None, tool_calls=[bad], finish="tool_calls"),
-            completion(
-                None, tool_calls=[tc("call_1", "measure", {"part": "all"})], finish="tool_calls"
-            ),
-            completion("45 cm"),
-        ]
-    )
-    req = ChatRequest(messages=[ChatMessage.user("measure")], tools=[tool])
-    r = m.generate(req)
-    call = r.tool_calls[0]
-    assert (
-        call.id == "call_1"
-        and call.arguments == {"part": "all"}
-        and r.finish_reason == "tool_calls"
-        and r.text == ""
-    )
-    assert (
-        fc.calls[1]["tools"][0]["function"]["name"] == "measure"
-        and fc.calls[1]["tool_choice"] == "auto"
-    )
-    msgs = [
-        *req.messages,
-        ChatMessage(role="assistant", parts=[call]),
-        ChatMessage(
-            role="tool",
-            parts=[
-                ToolResultPart(
-                    call_id="call_1",
-                    name="measure",
-                    content="0.45",
-                    images=[ImagePart(data_b64=PNG_B64)],
-                )
-            ],
-        ),
-    ]
-    r2 = m.generate(ChatRequest(messages=msgs, tools=[tool]))
-    assert r2.text == "45 cm"
-    sent = fc.calls[2]["messages"]
-    assert (
-        sent[1]["role"] == "assistant"
-        and sent[1]["tool_calls"][0]["function"]["arguments"] == '{"part": "all"}'
-    )
-    assert sent[2] == {"role": "tool", "tool_call_id": "call_1", "content": "0.45"}
-    assert sent[3]["role"] == "user" and sent[3]["content"][0]["type"] == "image_url"
-    assert sent[3]["content"][0]["image_url"]["url"].startswith("data:image/png;base64,")
 
 
 def test_images_data_urls():

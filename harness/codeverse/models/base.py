@@ -23,7 +23,6 @@ class ChatModel(Protocol):
         """Blocking call.  Must:
         * honour ``request.response_schema`` (return ``parsed`` as a dict/list),
         * attach images (``ImagePart``) inline in order,
-        * return tool calls when ``request.tools`` is given and the model calls one,
         * fill ``usage`` including ``cost_usd`` (see ``pricing.py``),
         * raise ``ModelError`` (retryable=True/False) rather than provider exceptions.
         """

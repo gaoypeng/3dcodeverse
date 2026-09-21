@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from codeverse.contracts.chat import (
     ChatMessage,
     ChatRequest,
     ImagePart,
-    TextPart,
-    ToolResultPart,
-    ToolSpec,
 )
 from codeverse.contracts.plan import StaticPlan
 from codeverse.models import get_chat_model
@@ -85,43 +80,3 @@ def test_vision(model, tmp_path):
         )
     )
     assert "red" in r.text.lower()
-
-
-def test_tool_roundtrip(model):
-    tool = ToolSpec(
-        name="measure",
-        description="Measure the bounding box (meters) of the built object; returns extents x,y,z.",
-        parameters={
-            "type": "object",
-            "properties": {"part": {"type": "string", "description": "part name or 'all'"}},
-            "required": ["part"],
-        },
-    )
-    msgs = [
-        ChatMessage.user(
-            "Use the measure tool on the whole object, then report its height in cm. Never guess."
-        )
-    ]
-    r = model.generate(
-        ChatRequest(messages=msgs, tools=[tool], thinking="low", max_output_tokens=2000)
-    )
-    assert r.tool_calls and r.tool_calls[0].name == "measure"
-    call = r.tool_calls[0]
-    parts = ([TextPart(text=r.text)] if r.text else []) + [call]
-    msgs.append(ChatMessage(role="assistant", parts=parts))
-    msgs.append(
-        ChatMessage(
-            role="tool",
-            parts=[
-                ToolResultPart(
-                    call_id=call.id,
-                    name="measure",
-                    content=json.dumps({"extents_m": [0.35, 0.35, 0.45]}),
-                )
-            ],
-        )
-    )
-    r2 = model.generate(
-        ChatRequest(messages=msgs, tools=[tool], thinking="low", max_output_tokens=2000)
-    )
-    assert "45" in r2.text and not r2.tool_calls

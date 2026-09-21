@@ -13,12 +13,8 @@ from codeverse.contracts.chat import (
     ChatMessage,
     ChatRequest,
     ImagePart,
-    ToolCallPart,
-    ToolResultPart,
-    ToolSpec,
 )
 from codeverse.models.anthropic import (
-    THINKING_BLOCKS,
     AnthropicModel,
     build_kwargs,
     classify_exception,
@@ -51,13 +47,6 @@ def text(t: str):
 
 def tool_use(id_: str, name: str, inp: dict):
     return NS(type="tool_use", id=id_, name=name, input=inp)
-
-
-class Thinking:
-    type = "thinking"
-
-    def model_dump(self):
-        return {"type": "thinking", "thinking": "hmm", "signature": "sig"}
 
 
 class FakeClient:
@@ -154,7 +143,7 @@ def test_structured_output_via_forced_submit_tool():
     r = m.generate(
         ChatRequest(messages=[ChatMessage.user("x")], response_schema=schema, thinking="off")
     )
-    assert r.parsed == {"a": 1} and json.loads(r.text) == {"a": 1} and r.tool_calls == []
+    assert r.parsed == {"a": 1} and json.loads(r.text) == {"a": 1}
     kw = fc.calls[0]
     assert kw["tool_choice"] == {"type": "tool", "name": "submit"}
     assert (
@@ -181,55 +170,6 @@ def test_output_config_json_mode():
     )
     assert r.parsed == {"c": 3}
     assert fc.calls[0]["output_config"]["format"]["type"] == "json_schema"
-
-
-def test_tool_roundtrip_with_thinking_blocks_replayed():
-    tool = ToolSpec(
-        name="measure",
-        description="d",
-        parameters={"type": "object", "properties": {"part": {"type": "string"}}},
-    )
-    m, fc = make(
-        [
-            msg([Thinking(), tool_use("tu_9", "measure", {"part": "all"})], stop="tool_use"),
-            msg([text("45 cm")]),
-        ]
-    )
-    req = ChatRequest(messages=[ChatMessage.user("measure")], tools=[tool])
-    r = m.generate(req)
-    call = r.tool_calls[0]
-    assert call.id == "tu_9" and call.arguments == {"part": "all"} and r.finish_reason == "tool_use"
-    assert THINKING_BLOCKS.get("tu_9")
-    msgs = [
-        *req.messages,
-        ChatMessage(role="assistant", parts=[call]),
-        ChatMessage(
-            role="tool",
-            parts=[
-                ToolResultPart(
-                    call_id="tu_9",
-                    name="measure",
-                    content="0.45",
-                    images=[ImagePart(data_b64=PNG_B64)],
-                )
-            ],
-        ),
-    ]
-    r2 = m.generate(ChatRequest(messages=msgs, tools=[tool]))
-    assert r2.text == "45 cm"
-    sent = fc.calls[1]["messages"]
-    assert (
-        sent[1]["role"] == "assistant"
-        and sent[1]["content"][0]["type"] == "thinking"
-        and sent[1]["content"][1]["type"] == "tool_use"
-    )
-    tr = sent[2]["content"][0]
-    assert (
-        tr["type"] == "tool_result"
-        and tr["tool_use_id"] == "tu_9"
-        and tr["content"][1]["type"] == "image"
-    )
-    assert fc.calls[0]["tools"][0]["input_schema"]["properties"]["part"]["type"] == "string"
 
 
 def test_images_base64_and_message_merging():
@@ -292,10 +232,8 @@ def test_missing_key_is_loud(monkeypatch):
     get_settings.cache_clear()
 
 
-def test_tool_call_part_in_user_message_ignored_but_assistant_first_gets_user_prefix():
-    msgs = to_messages(
-        [ChatMessage(role="assistant", parts=[ToolCallPart(id="t", name="n", arguments={})])]
-    )
+def test_assistant_first_gets_user_prefix():
+    msgs = to_messages([ChatMessage.assistant("hi")])
     assert msgs[0]["role"] == "user" and msgs[1]["role"] == "assistant"
 
 

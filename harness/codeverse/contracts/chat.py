@@ -22,27 +22,11 @@ class ImagePart(BaseModel):
     label: str = ""
 
 
-class ToolCallPart(BaseModel):
-    type: Literal["tool_call"] = "tool_call"
-    id: str
-    name: str
-    arguments: dict[str, Any] = Field(default_factory=dict)
-
-
-class ToolResultPart(BaseModel):
-    type: Literal["tool_result"] = "tool_result"
-    call_id: str
-    name: str
-    content: str
-    images: list[ImagePart] = Field(default_factory=list)
-    is_error: bool = False
-
-
-Part = TextPart | ImagePart | ToolCallPart | ToolResultPart
+Part = TextPart | ImagePart
 
 
 class ChatMessage(BaseModel):
-    role: Literal["user", "assistant", "tool"]
+    role: Literal["user", "assistant"]
     parts: list[Part]
 
     @classmethod
@@ -60,17 +44,10 @@ class ChatMessage(BaseModel):
         return "\n".join(p.text for p in self.parts if isinstance(p, TextPart))
 
 
-class ToolSpec(BaseModel):
-    name: str
-    description: str
-    parameters: dict[str, Any] = Field(description="JSON schema of the arguments object")
-
-
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     system: str = ""
     response_schema: dict[str, Any] | None = Field(default=None, description="force JSON matching this schema")
-    tools: list[ToolSpec] | None = None
     temperature: float = 0.7
     #: 65 536 is the declared output limit of every gemini-3.x model the harness uses
     #: (models.get: input 1 048 576 / output 65 536).  It is a CEILING, not a reservation —
@@ -92,7 +69,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     text: str = ""
     parsed: Any = None
-    tool_calls: list[ToolCallPart] = Field(default_factory=list)
     finish_reason: str = ""
     usage: Usage = Field(default_factory=Usage)
     raw: dict[str, Any] = Field(default_factory=dict)

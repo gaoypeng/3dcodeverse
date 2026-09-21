@@ -1,4 +1,4 @@
-"""ChatRequest ⇄ Anthropic Messages API dicts (messages, tools, thinking, parse).
+"""ChatRequest ⇄ Anthropic Messages API dicts (messages, submit tool, thinking, parse).
 
 Model-family rules (Anthropic API, 2026-08):
 * 4.6+ family (opus-5, sonnet-5, fable-5, mythos, opus-4-6/7/8, sonnet-4-6):
@@ -24,14 +24,10 @@ from codeverse.contracts.chat import (
     ChatResponse,
     ImagePart,
     TextPart,
-    ToolCallPart,
-    ToolResultPart,
-    ToolSpec,
 )
 from codeverse.contracts.common import Usage
 from codeverse.models.base import ModelError
 from codeverse.models.parts import (
-    BoundedCache,
     Stopwatch,
     attempt_timeout_s,
     classify_sdk_exception,
@@ -81,12 +77,6 @@ def sampling_allowed(model: str) -> bool:
     return not any(tok in m for tok in _NO_SAMPLING)
 
 
-#: Assistant turns that contain tool calls must be replayed WITH their
-#: thinking blocks on the next request.  ``ToolCallPart`` cannot carry them,
-#: so we remember the blocks under the first tool-call id (bounded LRU).
-THINKING_BLOCKS: BoundedCache[list[dict[str, Any]]] = BoundedCache(2048)
-
-
 # ------------------------------------------------------------------ messages
 def _image_block(p: ImagePart) -> dict[str, Any]:
     data, mime = image_b64(p)
@@ -94,13 +84,11 @@ def _image_block(p: ImagePart) -> dict[str, Any]:
 
 
 def to_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
-    """ChatMessages → Anthropic ``messages``.  ``tool`` role → user turn of
-    ``tool_result`` blocks; consecutive same-role turns are merged."""
+    """ChatMessages → Anthropic ``messages``; consecutive same-role turns are merged."""
     out: list[dict[str, Any]] = []
     for msg in messages:
         role = "assistant" if msg.role == "assistant" else "user"
         blocks: list[dict[str, Any]] = []
-        first_call_id: str | None = None
         for p in msg.parts:
             if isinstance(p, TextPart):
                 if p.text:
@@ -109,31 +97,8 @@ def to_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
                 if p.label:
                     blocks.append({"type": "text", "text": f"[image: {p.label}]"})
                 blocks.append(_image_block(p))
-            elif isinstance(p, ToolCallPart):
-                first_call_id = first_call_id or p.id
-                blocks.append(
-                    {"type": "tool_use", "id": p.id, "name": p.name, "input": dict(p.arguments)}
-                )
-            elif isinstance(p, ToolResultPart):
-                content: list[dict[str, Any]] = [
-                    {"type": "text", "text": p.content or "(no output)"}
-                ]
-                for img in p.images:
-                    if img.label:
-                        content.append({"type": "text", "text": f"[image: {img.label}]"})
-                    content.append(_image_block(img))
-                block: dict[str, Any] = {
-                    "type": "tool_result",
-                    "tool_use_id": p.call_id,
-                    "content": content,
-                }
-                if p.is_error:
-                    block["is_error"] = True
-                blocks.append(block)
         if not blocks:
             continue
-        if role == "assistant" and first_call_id:
-            blocks = list(THINKING_BLOCKS.get(first_call_id) or []) + blocks
         if out and out[-1]["role"] == role:
             out[-1]["content"].extend(blocks)
         else:
@@ -146,13 +111,6 @@ def to_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
 
 
 # --------------------------------------------------------------------- tools
-def to_tool(t: ToolSpec) -> dict[str, Any]:
-    schema = (
-        to_anthropic_schema(t.parameters) if t.parameters else {"type": "object", "properties": {}}
-    )
-    return {"name": t.name, "description": t.description, "input_schema": schema}
-
-
 def submit_tool(schema: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": SUBMIT_TOOL,
@@ -189,7 +147,6 @@ def build_kwargs(request: ChatRequest, model: str, *, json_mode: str = "tool") -
     if sampling_allowed(model) and not thinking_on:
         kw["temperature"] = request.temperature
 
-    tools = [to_tool(t) for t in request.tools] if request.tools else []
     if request.response_schema is not None:
         if json_mode == "output_config":
             kw.setdefault("output_config", {})["format"] = {
@@ -197,8 +154,8 @@ def build_kwargs(request: ChatRequest, model: str, *, json_mode: str = "tool") -
                 "schema": to_anthropic_schema(request.response_schema),
             }
         else:
-            tools.append(submit_tool(request.response_schema))
-            if not request.tools and not thinking_on:
+            kw["tools"] = [submit_tool(request.response_schema)]
+            if not thinking_on:
                 kw["tool_choice"] = {"type": "tool", "name": SUBMIT_TOOL}
             else:
                 # forced tool_choice is incompatible with thinking; nudge instead
@@ -206,38 +163,27 @@ def build_kwargs(request: ChatRequest, model: str, *, json_mode: str = "tool") -
                     (system + "\n\n" if system else "")
                     + f"When you have the final answer, call the `{SUBMIT_TOOL}` tool exactly once with the complete JSON object."
                 )
-    if tools:
-        kw["tools"] = tools
     if system:
         kw["system"] = system
     return kw
 
 
 # ------------------------------------------------------------------ response
-def parse_content(content: list[Any]) -> tuple[str, list[ToolCallPart], Any, list[dict[str, Any]]]:
-    """→ ``(text, tool_calls, submit_input, thinking_blocks)`` from response blocks."""
+def parse_content(content: list[Any]) -> tuple[str, Any]:
+    """→ ``(text, submit_input)`` from response blocks."""
     texts: list[str] = []
-    calls: list[ToolCallPart] = []
     submit: Any = None
-    thinking: list[dict[str, Any]] = []
     for block in content:
         btype = getattr(block, "type", None)
         if btype == "text":
             texts.append(block.text)
-        elif btype == "tool_use":
-            args = (
+        elif btype == "tool_use" and block.name == SUBMIT_TOOL:
+            submit = (
                 block.input
                 if isinstance(block.input, dict)
                 else json.loads(json.dumps(block.input))
             )
-            if block.name == SUBMIT_TOOL:
-                submit = args
-            else:
-                calls.append(ToolCallPart(id=block.id, name=block.name, arguments=dict(args)))
-        elif btype in ("thinking", "redacted_thinking"):
-            dump = block.model_dump() if hasattr(block, "model_dump") else dict(block)
-            thinking.append(dump)
-    return "".join(texts), calls, submit, thinking
+    return "".join(texts), submit
 
 
 # ===================================================================== anthropic
@@ -323,11 +269,9 @@ class AnthropicModel:
             # the client is built once with a fixed timeout; the deadline is per call
             msg = client.messages.create(
                 model=self.model, timeout=attempt_timeout_s(deadline, self.timeout_s), **kwargs)
-        text, calls, submit, thinking_blocks = parse_content(msg.content)
+        text, submit = parse_content(msg.content)
         stop = str(msg.stop_reason or "")
-        if calls and thinking_blocks:
-            THINKING_BLOCKS.put(calls[0].id, thinking_blocks)
-        usage = self._usage(msg.usage, sw.ms, len(calls))
+        usage = self._usage(msg.usage, sw.ms)
         if stop == "refusal":
             raise ModelError(
                 f"Anthropic refused the request: {getattr(msg, 'stop_details', None)}",
@@ -345,7 +289,7 @@ class AnthropicModel:
                 parsed = strip_control_chars(submit)
                 if not text:
                     text = json.dumps(parsed)
-            elif not calls:
+            else:
                 try:
                     parsed = parse_json_lenient(text)
                 except JsonParseError as exc:
@@ -353,15 +297,13 @@ class AnthropicModel:
                         f"structured output missing (stop_reason={stop}): {exc}",
                         retryable=stop != "max_tokens", usage=usage,
                     ) from exc
-        if not text and not calls and parsed is None:
+        if not text and parsed is None:
             raise ModelError(f"Anthropic returned no content (stop_reason={stop})",
                              retryable=True, usage=usage)
         raw: dict[str, Any] = {"stop_reason": stop, "id": msg.id, "model": msg.model}
-        return ChatResponse(
-            text=text, parsed=parsed, tool_calls=calls, finish_reason=stop, usage=usage, raw=raw
-        )
+        return ChatResponse(text=text, parsed=parsed, finish_reason=stop, usage=usage, raw=raw)
 
-    def _usage(self, u: Any, latency_ms: int, n_calls: int) -> Usage:
+    def _usage(self, u: Any, latency_ms: int) -> Usage:
         cache_read = int(getattr(u, "cache_read_input_tokens", 0) or 0)
         cache_write = int(getattr(u, "cache_creation_input_tokens", 0) or 0)
         usage = Usage(
@@ -371,7 +313,6 @@ class AnthropicModel:
             output_tokens=int(u.output_tokens or 0),
             cached_tokens=cache_read,
             thoughts_tokens=0,  # thinking is billed inside output_tokens
-            tool_calls=n_calls,
             latency_ms=latency_ms,
         )
         usage.cost_usd = estimate_cost("anthropic", self.model, usage) + cache_write_surcharge(

@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import io
-import json
 import logging
 import os
 import re
@@ -35,13 +34,10 @@ from codeverse.contracts.chat import (
     ChatResponse,
     ImagePart,
     TextPart,
-    ToolCallPart,
-    ToolResultPart,
-    ToolSpec,
 )
 from codeverse.contracts.common import Usage
 from codeverse.models.base import ModelError
-from codeverse.models.parts import BoundedCache, Stopwatch, image_bytes
+from codeverse.models.parts import Stopwatch, image_bytes
 from codeverse.models.pricing import estimate_cost, per_image_usd
 from codeverse.models.retry import (
     MAX_WAIT_S,
@@ -67,40 +63,9 @@ RETRYABLE_FINISH = {"RECITATION", "MALFORMED_FUNCTION_CALL", "OTHER", "UNEXPECTE
 FATAL_FINISH = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY"}
 
 
-#: Gemini 3 function calls carry an opaque ``thought_signature`` that MUST be
-#: echoed back with the call on the next turn.  ``ToolCallPart`` has no slot for
-#: it, so we remember signatures by our synthetic call id (bounded LRU).
-SIGNATURES: BoundedCache[bytes] = BoundedCache(4096)
-_call_counter = [0]
-_call_lock = threading.Lock()
-
-#: prefix of the ids WE mint when the provider sent none (``extract_candidate``).
-#: A synthetic id exists only to pair ToolCallPart/ToolResultPart locally and is
-#: NEVER echoed back to the provider; a GENUINE provider id is echoed verbatim on
-#: both ``FunctionCall`` and ``FunctionResponse``.
-SYNTHETIC_CALL_ID_PREFIX = "synth-call-"
-
-
-def _next_call_id() -> str:
-    with _call_lock:
-        _call_counter[0] += 1
-        return f"{SYNTHETIC_CALL_ID_PREFIX}{_call_counter[0]:06d}"
-
-
-def is_synthetic_call_id(call_id: str | None) -> bool:
-    """True for ids minted here rather than issued by the provider."""
-    return bool(call_id) and str(call_id).startswith(SYNTHETIC_CALL_ID_PREFIX)
-
-
-def _echo_id(call_id: str | None) -> str | None:
-    """The id to send back to Gemini: the provider's own id verbatim, never a synthetic one."""
-    return None if not call_id or is_synthetic_call_id(call_id) else str(call_id)
-
-
 # ------------------------------------------------------------------ contents
 def to_contents(messages: list[ChatMessage]) -> list[types.Content]:
-    """ChatMessages → Gemini ``Content`` list.  ``tool`` messages become a user
-    turn of ``function_response`` parts (images attached as extra parts)."""
+    """ChatMessages → Gemini ``Content`` list."""
     out: list[types.Content] = []
     for msg in messages:
         role = "model" if msg.role == "assistant" else "user"
@@ -114,23 +79,6 @@ def to_contents(messages: list[ChatMessage]) -> list[types.Content]:
                 if p.label:
                     parts.append(types.Part.from_text(text=f"[image: {p.label}]"))
                 parts.append(types.Part.from_bytes(data=raw, mime_type=mime))
-            elif isinstance(p, ToolCallPart):
-                part = types.Part(
-                    function_call=types.FunctionCall(
-                        name=p.name, args=dict(p.arguments), id=_echo_id(p.id)
-                    )
-                )
-                sig = SIGNATURES.get(p.id)
-                if sig:
-                    part.thought_signature = sig
-                parts.append(part)
-            elif isinstance(p, ToolResultPart):
-                parts.append(_function_response_part(p))
-                for img in p.images:
-                    raw, mime = image_bytes(img)
-                    if img.label:
-                        parts.append(types.Part.from_text(text=f"[image: {img.label}]"))
-                    parts.append(types.Part.from_bytes(data=raw, mime_type=mime))
         if not parts:
             continue
         # merge consecutive same-role turns (Gemini wants strict alternation)
@@ -143,43 +91,14 @@ def to_contents(messages: list[ChatMessage]) -> list[types.Content]:
     return out
 
 
-def _function_response_part(p: ToolResultPart) -> types.Part:
-    payload: dict[str, Any]
-    try:
-        parsed = json.loads(p.content)
-        payload = parsed if isinstance(parsed, dict) else {"result": parsed}
-    except (json.JSONDecodeError, TypeError):
-        payload = {"result": p.content}
-    if p.is_error:
-        payload = {"error": payload.get("result", payload)} if "error" not in payload else payload
-    return types.Part(
-        function_response=types.FunctionResponse(name=p.name, response=payload, id=_echo_id(p.call_id))
-    )
-
-
 # -------------------------------------------------------------------- config
-def to_tools(tools: list[ToolSpec]) -> list[types.Tool]:
-    decls = [
-        types.FunctionDeclaration(
-            name=t.name,
-            description=t.description,
-            parameters=to_gemini_schema(t.parameters) if t.parameters else None,
-        )
-        for t in tools
-    ]
-    return [types.Tool(function_declarations=decls)]
-
-
 def build_config(
     request: ChatRequest,
     *,
     timeout_ms: int,
     use_thinking: bool = True,
-    warnings: list[str] | None = None,
 ) -> types.GenerateContentConfig:
-    """Map a ChatRequest onto ``GenerateContentConfig``.  Function calling and
-    JSON mode are mutually exclusive on Gemini: with tools, the schema is
-    dropped (the text is still parsed leniently) and a warning is recorded."""
+    """Map a ChatRequest onto ``GenerateContentConfig``."""
     cfg: dict[str, Any] = {
         "temperature": request.temperature,
         "max_output_tokens": request.max_output_tokens,
@@ -191,17 +110,7 @@ def build_config(
         cfg["thinking_config"] = types.ThinkingConfig(
             thinking_budget=THINKING_BUDGET[request.thinking], include_thoughts=False
         )
-    if request.tools:
-        cfg["tools"] = to_tools(request.tools)
-        cfg["tool_config"] = types.ToolConfig(
-            function_calling_config=types.FunctionCallingConfig(mode="AUTO")
-        )
-        cfg["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
-        if request.response_schema is not None and warnings is not None:
-            warnings.append(
-                "response_schema ignored: Gemini cannot combine function calling with JSON mode"
-            )
-    elif request.response_schema is not None:
+    if request.response_schema is not None:
         cfg["response_mime_type"] = "application/json"
         cfg["response_schema"] = to_gemini_schema(request.response_schema)
     return types.GenerateContentConfig(**cfg)
@@ -253,29 +162,19 @@ def _guard_candidates(resp: types.GenerateContentResponse, usage: Usage | None, 
 
 def extract_candidate(
     resp: types.GenerateContentResponse, usage: Usage | None = None
-) -> tuple[str, list[ToolCallPart], str]:
-    """→ ``(text, tool_calls, finish_reason)``.  Raises ``ModelError`` on blocked
+) -> tuple[str, str]:
+    """→ ``(text, finish_reason)``.  Raises ``ModelError`` on blocked
     prompts (non-retryable) or empty candidates (retryable); ``usage`` (what the caller
     already parsed off ``resp``) rides on the error, because every one of these
     failures was billed."""
     cand = _guard_candidates(resp, usage, "Gemini")
     finish = str(cand.finish_reason.value if cand.finish_reason else "") or "UNKNOWN"
     texts: list[str] = []
-    calls: list[ToolCallPart] = []
     for part in cand.content.parts if cand.content and cand.content.parts else []:
-        if part.function_call is not None:
-            fc = part.function_call
-            # a genuine provider id is kept verbatim (and echoed back later); a synthetic
-            # one is minted, marked by its prefix, only so the parts pair locally
-            call_id = fc.id or _next_call_id()
-            SIGNATURES.put(call_id, part.thought_signature)
-            calls.append(
-                ToolCallPart(id=call_id, name=fc.name or "", arguments=dict(fc.args or {}))
-            )
-        elif part.text and not part.thought:
+        if part.text and not part.thought:
             texts.append(part.text)
     text = "".join(texts)
-    if not text and not calls:
+    if not text:
         if finish in FATAL_FINISH:
             raise ModelError(
                 f"Gemini produced no content (finish_reason={finish})", retryable=False, usage=usage
@@ -292,7 +191,7 @@ def extract_candidate(
             )
         raise ModelError(f"Gemini produced no content (finish_reason={finish})",
                          retryable=True, usage=usage)
-    return text, calls, finish
+    return text, finish
 
 
 # ===================================================================== gemini
@@ -585,7 +484,7 @@ class GeminiModel:
     def generate(self, request: ChatRequest) -> ChatResponse:
         contents = to_contents(request.messages)
         warnings: list[str] = []
-        state = {"config": self._config(request, warnings)}
+        state = {"config": self._config(request)}
 
         def downgrade_thinking(err: ModelError) -> bool:
             """Free-retry hook: model rejects ThinkingConfig → retry without it, once."""
@@ -594,7 +493,7 @@ class GeminiModel:
             with self._lock:
                 self._thinking_ok = False
             warnings.append(f"{self.model} rejected thinking config; retrying without it: {err}")
-            state["config"] = self._config(request, warnings)
+            state["config"] = self._config(request)
             return True
 
         # the caller's budget clips the retry deadline, never extends it
@@ -639,12 +538,11 @@ class GeminiModel:
             resp.raw["wasted_usage"] = sum(wasted[1:], wasted[0])
         return resp
 
-    def _config(self, request: ChatRequest, warnings: list[str]) -> types.GenerateContentConfig:
+    def _config(self, request: ChatRequest) -> types.GenerateContentConfig:
         return build_config(
             request,
             timeout_ms=int(self.timeout_s * 1000),
             use_thinking=self._thinking_ok,
-            warnings=warnings,
         )
 
     def _attempt_config(
@@ -722,10 +620,9 @@ class GeminiModel:
         usage = parse_usage(resp, self.model)  # BEFORE extract_candidate: its raises carry it
         usage.latency_ms = sw.ms
         usage.cost_usd = estimate_cost("gemini", self.model, usage)
-        text, calls, finish = extract_candidate(resp, usage)
-        usage.tool_calls = len(calls)
+        text, finish = extract_candidate(resp, usage)
         parsed: Any = None
-        if request.response_schema is not None and not calls:
+        if request.response_schema is not None:
             try:
                 parsed = parse_json_lenient(text)
             except JsonParseError as exc:
@@ -742,7 +639,7 @@ class GeminiModel:
                     retryable=True,
                     usage=usage,
                 ) from exc
-        elif finish in RETRYABLE_FINISH and not calls and not text.strip():
+        elif finish in RETRYABLE_FINISH and not text.strip():
             raise ModelError(f"Gemini finish_reason={finish}", retryable=True, usage=usage)
         raw: dict[str, Any] = {
             "finish_reason": finish,
@@ -752,9 +649,7 @@ class GeminiModel:
         }
         if warnings:
             raw["warnings"] = list(warnings)
-        return ChatResponse(
-            text=text, parsed=parsed, tool_calls=calls, finish_reason=finish, usage=usage, raw=raw
-        )
+        return ChatResponse(text=text, parsed=parsed, finish_reason=finish, usage=usage, raw=raw)
 
 
 # ===================================================================== gemini_image
