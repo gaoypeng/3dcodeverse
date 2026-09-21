@@ -1225,6 +1225,30 @@ written) that were accepted because the code works that way and the tests pin it
   buys nothing.  Restore any of them from git history (the commit before this one) if a
   battery needs it — module, test and catalog row together, since
   `test_every_call_the_catalog_advertises_is_a_real_export` pins catalog == `lib_files()`.
+* **D75 The core is what a run needs; what READS finished runs is `codeverse/addons` (2026-09-21).**
+  `codeverse/flywheel` mixed two things: the record every run writes (Law 6) and the tools that
+  turn a tree of finished runs into something else.  The first is now `codeverse/record`
+  (`record.py`, `deliverable.py`, `telemetry.py`, `_git.py` — `record.py`'s whole import closure);
+  the second is `codeverse/addons`: `gallery`, `dataset` (export, pack, pairs, refine, captions,
+  index, sample, quality), `costreport` (audit, report, caching — booking money WHILE a run
+  happens stays in `codeverse/cost`), `calibration.py`, `skill_targets.py`.  The boundary is
+  one-way and tested (`tests/core/test_addons_boundary.py`): outside `codeverse/cli` nothing
+  imports an addon, so `codeverse.cost` and `codeverse.skills` stopped re-exporting `audit_runs`
+  and `check_claims`.  This is a MOVE, which L4 does not count as a simplification — it is
+  recorded as an organisation decision by the owner, and it shipped together with real
+  deletions: `flywheel/code_quality.py` (written into every record, read by nothing), the
+  mesh-voxel dedupe and `flywheel dedupe`, the `flywheel gallery` alias.  An addon has no run-time
+  hook and therefore no switch; if one ever needs to act during a run it gets a `Settings`
+  field like every other switch (no plugin registry — L4).
+* **D76 The short command is `3dcode` (2026-09-21).**  `3dcv` → `3dcode` for the console script,
+  the workspace dir (`.3dcv/` → `.3dcode/`), the MCP server name (tools are `mcp_3dcode_<name>` /
+  `mcp__3dcode__<name>`) and the workspace git author.  Runs recorded earlier stay readable and
+  resumable: `.3dcv` is still harness-owned and gitignored, a legacy `3dcv` server entry is
+  still cleaned from a workspace `.mcp.json`, `bench/session_stats` reads both tool prefixes.
+  NOT renamed: the `CV3D_` settings prefix (it would silently drop every existing config),
+  the `cv3d-*` skill names, the `3dcv_*` LLaMA-Factory dataset names.  The contributor CLI in
+  `toolkits/3dcode_cli` gave up the script name and is `3dcode-data` (its distribution name,
+  package and credentials path are unchanged; `VENDORED.md` records the difference from upstream).
 
 ## Rejected / deferred
 
