@@ -132,7 +132,7 @@ from codeverse.cost.ledger import bound_ledger, process_ledger_path   # (Δ 2026
     #   session's; a generation label yields to the session (best-of-N: kind="candidate" beats
     #   label="baseline"); Stage.OTHER means "the label said nothing" and displaces nothing.
     # labels understood: judge:<rubric>:r<NN>:s<k> · planner · pairwise:… · texture… · caption… (api-agent:<label>:t<turn> in historical ledgers only)
-from codeverse.cost.caching import session_cache, session_key
+from codeverse.addons.costreport.caching import session_cache, session_key
 session_cache(rows) -> [SessionCache]      # per session: cold first call, cached share, saved_usd, cold_usd
 from codeverse.cost.profiles import get_profile, PROFILES   # economy | balanced | quality
 get_settings().apply_profile(name, *, force=False) -> Profile
@@ -371,8 +371,8 @@ from codeverse.judges.rubrics import apply_caps           # (rubric, overall, ga
                                                        #  console_errors=None, views=None, defects_present=None) -> CapResult;
                                                        # cap rules add when="missing_views" and ledger lines "defect:<id>"
 from codeverse.judges.pairwise import PairwiseJudge    # .compare(spec, renders_a, renders_b, *, rubric=…) -> PairwiseResult
-from codeverse.judges.calibration import calibrate, CalibrationTable   # (run_dirs, *, model_id, n_samples=3, out_dir, geometry_mode,
-    # rounds, …) -> rows + pearson/spearman(errors vs score), mean_std, cost; CLI: python -m codeverse.judges.calibration RUN… --n 3
+from codeverse.addons.calibration import calibrate, CalibrationTable   # (run_dirs, *, model_id, n_samples=3, out_dir, geometry_mode,
+    # rounds, …) -> rows + pearson/spearman(errors vs score), mean_std, cost; CLI: python -m codeverse.addons.calibration RUN… --n 3
 from codeverse.judges.vlm_judge import ReferenceJudge  # image-conditioned specs
 ```
 Rubrics: `static_object_v1` (0.72), `articulated_v1` (requires pose views via
@@ -529,14 +529,14 @@ from codeverse.texturing.plan import scene_texture_pack, texture_pack_prompt   #
 
 ## flywheel/ + cli/
 ```python
-from codeverse.flywheel.record import finalize_record, load_record, iter_runs, best_round_index, best_round_record
+from codeverse.record.record import finalize_record, load_record, iter_runs, best_round_index, best_round_record
 from codeverse.addons.gallery.index import hero_view          # (ws, rec) -> (rel, label, n_views): the card image, rebased via ws
-from codeverse.flywheel.record import complexity_block, round_complexity   # objective complexity of what shipped
+from codeverse.record.record import complexity_block, round_complexity   # objective complexity of what shipped
     # finalize_record fills record.extra["complexity"] = the BEST round's vector + plan_parts /
     # parts_per_plan_part / by_round; every rounds_summary row gains "complexity" (the index or None)
 from codeverse.addons.dataset.export import export_samples   # (runs_dir, out_dir, *, min_score=None, only_passed=False,
     # include_unbuilt=False, captions_dir=None, drop_duplicates=False) -> ExportReport{…, n_duplicates, duplicates, tiers}
-from codeverse.flywheel.quality import quality_tier, prompt_hash, find_duplicates   # tiers: A passed & 0 gate errors, B passed,
+from codeverse.addons.dataset.quality import quality_tier, prompt_hash, find_duplicates   # tiers: A passed & 0 gate errors, B passed,
                                                                                     # C best ≥ 0.6, D else; dedupe = (code fingerprint, prompt)
 from codeverse.addons.dataset.pairs import build_pairs       # (runs_dir, out_jsonl, *, min_delta=0.05) -> n
 from codeverse.addons.dataset.refine import build_refine, transitions, RefineTransition, REFINE_KINDS, outcome_of
@@ -546,11 +546,11 @@ from codeverse.addons.dataset.refine import build_refine, transitions, RefineTra
     # one row per round i -> i+1 the harness asked to change; outcome improved|regressed|unchanged|unscored
     # (threshold: pairs.MIN_PREFERENCE_DELTA); dropped rows carry the reason (no_predecessor / no_commit /
     # predecessor_build_failed / predecessor_unjudged / git_read_failed / duplicate_run)
-from codeverse.flywheel._git import read_tree_at, diff_between, changed_files_between, commit_exists, GitReadError
+from codeverse.record._git import read_tree_at, diff_between, changed_files_between, commit_exists, GitReadError
     # read_tree_at(ws, commit, *, paths=None) -> {path: bytes} via ls-tree + cat-file --batch — NEVER
     # `git archive`, which renders content through a planted filter.<name>.smudge and has no --no-filters
     # (tests/flywheel_cli); symlinks (mode 120000) are skipped; `paths` reads only those files
-from codeverse.flywheel.record import unique_files, SUBRUN_DIRS, BATTERY_MARKERS
+from codeverse.record.record import unique_files, SUBRUN_DIRS, BATTERY_MARKERS
     # unique_files(root, name) -> [Path]: every file called `name` under root ONCE per file on disk (follows
     # the run/telemetry/trajectories symlink and collapses it; skips SUBRUN_DIRS = {_cand, _assets}) — the
     # one walker behind bench/session_stats.py, bench/coupling_stats.py and cost.reconstruct.find_runs
@@ -578,7 +578,7 @@ from codeverse.addons.dataset.index import build_index, query, summary   # sqlit
                                                                    # rounds, status, code_fingerprint, prompt_hash, duplicate_of, has_captions
 3dcodeverse make [--profile economy|balanced|quality]|resume|status|show|render|judge|tools|mcp
              |texture {pass,scene-pack,show}|cost {<slug>,show,cache,prices,profiles,estimate}
-             |flywheel {export,pairs,refine,caption,index,dedupe,gallery}|gallery {serve,build}
+             |flywheel {export,pairs,refine,caption,index}|gallery {serve,build}
              |bench {run,report}|doctor    # alias: 3dcode
 ```
 

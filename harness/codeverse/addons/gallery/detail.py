@@ -20,7 +20,7 @@ from codeverse.addons.gallery.theme import esc, footer, page_shell, top_bar
 from codeverse.addons.gallery.urls import UrlMaker
 from codeverse.contracts.common import ENTRY_FILE
 from codeverse.contracts.run import RunRecord
-from codeverse.flywheel.record import best_round_record, effective_judgment
+from codeverse.record.record import best_round_record, effective_judgment
 from codeverse.workspace import Workspace
 
 DETAIL_CSS = CODE_CSS + """
@@ -252,7 +252,7 @@ def _renders_panel(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
 
 
 def _cost_panel(entry: RunEntry, ws: Workspace, rec: RunRecord) -> str:
-    from codeverse.flywheel.telemetry import load_telemetry
+    from codeverse.record.telemetry import load_telemetry
 
     tele = load_telemetry(ws, rec)
     cost = tele.cost if tele is not None else None

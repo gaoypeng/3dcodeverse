@@ -54,7 +54,7 @@ def plan_summary_for(ws: Workspace) -> str:
 
 def previous_judgment(ws: Workspace, rec: RunRecord, index: int) -> Any:
     """The preceding round's verdict (skipping degraded ones), like the round loop."""
-    from codeverse.flywheel.record import effective_judgment
+    from codeverse.record.record import effective_judgment
 
     for i in range(index - 1, -1, -1):
         rnd = load_round(ws, rec, i)

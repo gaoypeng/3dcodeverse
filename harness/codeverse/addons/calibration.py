@@ -10,7 +10,7 @@ negative), and between stored and new overalls.  Optionally renders a clay /
 normals geometry set for the run's best round (``artifacts/object.glb``) so the
 geometry montage is exercised.  Output goes to ``out_dir`` (never into the run).
 
-CLI: ``python -m codeverse.judges.calibration runs/a runs/b --model gemini:gemini-3.7-flash --n 3 --out scratch/``
+CLI: ``python -m codeverse.addons.calibration runs/a runs/b --model gemini:gemini-3.7-flash --n 3 --out scratch/``
 """
 
 from __future__ import annotations

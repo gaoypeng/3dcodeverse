@@ -14,7 +14,7 @@ Three files hold it up:
 
 | file | what it is |
 |---|---|
-| `codeverse/skills/targets.py` | the table — one `Target` row per bundle |
+| `codeverse/addons/skill_targets.py` | the table — one `Target` row per bundle |
 | `bench/skill_targets.py` | the readout — one command, battery **or** A/B |
 | `tests/skills/test_targets.py` | the pins — the rows exist, the gate kinds are still live, the frontmatter agrees, the readout counts what the row says |
 

@@ -28,8 +28,8 @@ from pathlib import Path
 
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.run import DeliverableFile, RoundRecord, RunDeliverable, RunRecord
-from codeverse.flywheel import _git
 from codeverse.proc import sha256_file, write_json_atomic
+from codeverse.record import _git
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -170,7 +170,7 @@ def build_deliverable(ws: Workspace, record: RunRecord, *, clean: bool = True) -
 
     Idempotent: the folder is rebuilt from scratch every time, so a second call
     on an unchanged run produces byte-identical content."""
-    from codeverse.flywheel.record import best_round_record
+    from codeverse.record.record import best_round_record
 
     rnd = best_round_record(record)
     previous = load_deliverable(ws) if ws.deliverable_manifest_path.is_file() else None

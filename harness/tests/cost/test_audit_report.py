@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.cost import audit_runs
-from codeverse.cost.audit import (
+from codeverse.addons.costreport.audit import (
+    audit_runs,
     cached_input_share,
     price_confidence,
     stage_latency,
     uncached_if_no_cache,
 )
-from codeverse.cost.report import console, markdown
+from codeverse.addons.costreport.report import console, markdown
 
 
 def test_audit_of_one_run(fake_run: Path):

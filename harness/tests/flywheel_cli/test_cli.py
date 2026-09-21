@@ -96,11 +96,6 @@ def test_flywheel_commands(runs_dir: Path, tmp_path: Path):
     assert r.exit_code == 0 and "pairs" in r.output
     r = runner.invoke(app, ["flywheel", "index", str(runs_dir), str(tmp_path / "i.sqlite")])
     assert r.exit_code == 0 and "indexed 3 runs" in r.output
-    r = runner.invoke(app, ["flywheel", "dedupe", str(out), "--no-mesh"])
-    assert r.exit_code == 0 and "3 samples" in r.output
-    r = runner.invoke(app, ["flywheel", "gallery", str(runs_dir), str(tmp_path / "g.html"), "--title", "batch 1"])
-    assert r.exit_code == 0 and "gallery of 3 runs" in r.output, r.output
-    assert "batch 1" in (tmp_path / "g.html").read_text()
 
 
 def test_tools_list_handles_an_optional_spatial_install():
@@ -233,10 +228,10 @@ def test_calibration_rubric_map_includes_graphics(tmp_path: Path):
     """Same default as `3dcode judge`: a graphics round with no stored judgment used to be
     re-judged with static_object_v1 because calibration kept its own three-track
     TRACK_RUBRIC instead of reading TRACK_INFO."""
+    from codeverse.addons.calibration import load_run_cases
     from codeverse.contracts.artifacts import RenderSet, RenderView
     from codeverse.contracts.common import Language, Track
     from codeverse.contracts.run import RoundRecord
-    from codeverse.judges.calibration import load_run_cases
 
     run = tmp_path / "shader_run"
     (run / "rounds").mkdir(parents=True)

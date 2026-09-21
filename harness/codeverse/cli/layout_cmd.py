@@ -80,7 +80,7 @@ def _legacy_deliverable_rows(ws: Workspace) -> dict[str, Any]:
 
 
 def print_deliverable(ws: Workspace, record: RunRecord) -> None:
-    from codeverse.flywheel.deliverable import load_deliverable
+    from codeverse.record.deliverable import load_deliverable
 
     _section("DELIVERABLE — what the run produced")
     spec = record.spec
@@ -103,8 +103,8 @@ def print_deliverable(ws: Workspace, record: RunRecord) -> None:
 
 # --------------------------------------------------------------------------- (b) evidence
 def print_evidence(ws: Workspace, record: RunRecord) -> None:
-    from codeverse.flywheel.record import best_round_record, effective_judgment
-    from codeverse.flywheel.sample import gate_error_summary
+    from codeverse.addons.dataset.sample import gate_error_summary
+    from codeverse.record.record import best_round_record, effective_judgment
 
     _section("QUALITY EVIDENCE — why we believe it")
     rnd = best_round_record(record)
@@ -162,7 +162,7 @@ def _roles_table(settings: SettingsSnapshot) -> Table:
 
 
 def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
-    from codeverse.flywheel.telemetry import build_telemetry, load_telemetry
+    from codeverse.record.telemetry import build_telemetry, load_telemetry
 
     _section("COST & SETTINGS — token price and the key step settings")
     tele = load_telemetry(ws, record)
@@ -217,7 +217,7 @@ def show(
     section: Annotated[str, typer.Option("--section", help="all | deliverable | evidence | cost")] = "all",
 ) -> None:
     """Show one run in three separated sections: DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS."""
-    from codeverse.flywheel.record import RecordError, load_record
+    from codeverse.record.record import RecordError, load_record
 
     ws = C.open_workspace(slug, runs_dir)
     try:

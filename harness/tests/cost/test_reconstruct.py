@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from codeverse.addons.costreport.audit import audit_runs
 from codeverse.contracts.common import Usage
-from codeverse.cost import audit_runs, find_runs, reconstruct
+from codeverse.cost import find_runs, reconstruct
 from codeverse.cost.types import Role, Stage
 
 

@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # `python bench/session_stats.py` from the repo root
 
-from codeverse.flywheel.record import unique_files  # noqa: E402
+from codeverse.record.record import unique_files  # noqa: E402
 
 #: gemini-cli names an MCP tool ``mcp_<server>_<tool>``; ours is the ``3dcode`` server
 #: (``3dcv`` in every session recorded before the 2026-09-21 rename).

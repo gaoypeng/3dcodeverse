@@ -14,7 +14,7 @@ from codeverse.addons.dataset.captions import (
 )
 from codeverse.contracts.chat import ChatRequest, ChatResponse, ImagePart
 from codeverse.contracts.common import Usage
-from codeverse.flywheel.record import load_record
+from codeverse.record.record import load_record
 
 GOOD = {
     "detailed": "A four-legged wooden dining chair with a flat square seat and a tall slatted backrest.",

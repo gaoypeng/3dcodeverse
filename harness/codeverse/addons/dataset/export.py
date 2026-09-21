@@ -35,13 +35,13 @@ from typing import Any, NamedTuple
 
 from pydantic import BaseModel, Field
 
+from codeverse.addons.dataset import sample as S
+from codeverse.addons.dataset.quality import DuplicateGroup, code_sha256, mark_duplicates
 from codeverse.contracts.common import ENTRY_FILE, Language
 from codeverse.contracts.run import RunId, RunRecord
-from codeverse.flywheel import sample as S
-from codeverse.flywheel._git import CODE_ROOTS
-from codeverse.flywheel.quality import DuplicateGroup, code_sha256, mark_duplicates
-from codeverse.flywheel.record import FoundRun, best_round_record, iter_runs
 from codeverse.proc import sha256_file
+from codeverse.record._git import CODE_ROOTS
+from codeverse.record.record import FoundRun, best_round_record, iter_runs
 from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)

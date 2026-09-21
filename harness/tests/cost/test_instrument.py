@@ -310,8 +310,8 @@ def test_a_failed_call_records_its_attempts_but_no_key(tmp_path: Path):
 def test_per_key_buckets_and_tries_per_call(tmp_path: Path):
     from types import SimpleNamespace
 
+    from codeverse.addons.costreport.report import BUCKET_HEADERS, bucket_rows, keyed_buckets
     from codeverse.cost.ledger import record_call, summarise
-    from codeverse.cost.report import BUCKET_HEADERS, bucket_rows, keyed_buckets
 
     led = tmp_path / "cost.jsonl"
     rows = [

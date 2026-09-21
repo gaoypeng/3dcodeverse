@@ -14,16 +14,13 @@ from codeverse.addons.dataset.export import export_samples
 from codeverse.addons.dataset.index import build_index, summary
 from codeverse.addons.dataset.pack import pack_samples, verify_locators
 from codeverse.addons.dataset.pairs import build_pairs
-from codeverse.contracts.run import RunRecord
-from codeverse.flywheel import _git
-from codeverse.flywheel.quality import (
-    DedupeItem,
-    MeshFingerprint,
+from codeverse.addons.dataset.quality import (
     code_fingerprint,
-    near_duplicates,
     normalise_code,
 )
-from codeverse.flywheel.record import (
+from codeverse.contracts.run import RunRecord
+from codeverse.record import _git
+from codeverse.record.record import (
     RecordError,
     best_round_index,
     finalize_record,
@@ -120,7 +117,7 @@ def test_a_symlink_is_not_exported_as_a_file_of_its_target(fake_run) -> None:
     as a blob whose content IS the link target, so ``src/link.py -> model.py`` came back
     as a one-line file saying ``model.py`` — and with ``--with-code`` that goes into a
     training sample."""
-    from codeverse.flywheel._git import read_tree_at
+    from codeverse.record._git import read_tree_at
 
     ws, _rec = fake_run
     (ws.src / "model.py").write_text("import bpy\n")
@@ -273,29 +270,6 @@ def test_code_fingerprint_normalises():
     assert normalise_code("// a\nlet x = 1; // t\n") == "letx=1;"
 
 
-def test_near_duplicates_groups():
-    fa = MeshFingerprint(extents_cm=(100, 50, 40), tri_count=1000, tri_bucket=9, voxels=list(range(100)), digest="a")
-    fb = MeshFingerprint(extents_cm=(102, 50, 40), tri_count=1200, tri_bucket=10, voxels=list(range(95)), digest="b")
-    fc = MeshFingerprint(extents_cm=(100, 50, 40), tri_count=1000, tri_bucket=9, voxels=list(range(50, 150)), digest="c")
-    items = [DedupeItem(id="a", code_fp="x", mesh_fp=fa), DedupeItem(id="b", code_fp="y", mesh_fp=fb),
-             DedupeItem(id="c", code_fp="z", mesh_fp=fc), DedupeItem(id="d", code_fp="x")]
-    assert near_duplicates(items) == [["a", "b", "d"]]
-
-
-def test_mesh_fingerprint_real_glb(tmp_path: Path):
-    trimesh = pytest.importorskip("trimesh")
-    from codeverse.flywheel.quality import mesh_fingerprint
-
-    box = trimesh.creation.box(extents=(1.0, 0.5, 0.25))
-    p = tmp_path / "box.glb"
-    box.export(p)
-    fp = mesh_fingerprint(p)
-    assert fp.tri_count == 12 and fp.voxels
-    assert sorted(fp.extents_cm) == [25, 50, 100]
-    assert fp.jaccard(mesh_fingerprint(p)) == 1.0
-    assert fp.jaccard(mesh_fingerprint(p, seed=7)) > 0.9
-
-
 # --------------------------------------------------------------------------- index
 
 
@@ -371,7 +345,7 @@ def _degrade(judgment):
 
 def test_degraded_round_is_not_a_zero_score(tmp_path: Path):
     from codeverse.addons.dataset.pairs import preference_pairs
-    from codeverse.flywheel.record import effective_judgment, effective_score, round_summary
+    from codeverse.record.record import effective_judgment, effective_score, round_summary
     from tests.flywheel_cli.conftest import make_fake_run
 
     ws, rec = make_fake_run(tmp_path / "runs", scores=(0.62, 0.64))
@@ -456,7 +430,7 @@ def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
 def test_battery_layouts_are_discovered_by_flywheel_and_gallery(tmp_path):
     """All three battery layouts resolve runs; eval siblings never become gallery runs."""
     from codeverse.addons.gallery.index import scan_root
-    from codeverse.flywheel.record import find_run_dirs, iter_runs
+    from codeverse.record.record import find_run_dirs, iter_runs
 
     battery = tmp_path / "static_v2_flash"          # run_bench: runs/<id>
     (battery / "runs" / "some_run").mkdir(parents=True)
@@ -486,7 +460,7 @@ def test_battery_layouts_are_discovered_by_flywheel_and_gallery(tmp_path):
 
 
 def test_empty_run_roots_distinguish_a_failed_battery_from_legitimate_empty_input(tmp_path):
-    from codeverse.flywheel.record import iter_runs
+    from codeverse.record.record import iter_runs
 
     battery = tmp_path / "compare_empty"
     (battery / "cells" / "cmp_med_chair").mkdir(parents=True)

@@ -95,10 +95,10 @@ cd /home/yipeng/3dcodeverse/harness
 3dcode cost <slug> · 3dcode cost --runs-dir bench/out/<battery> · 3dcode cost cache <slug>
 3dcode cost prices [--stale] · 3dcode cost profiles · 3dcode cost estimate gemini:gemini-3.1-pro-preview --in 12000
 3dcode flywheel export runs/ dataset/ [--pack --drop-duplicates --captions-dir d/] · 3dcode flywheel pairs runs/ pairs.jsonl
-3dcode flywheel caption <slug> [--out dir] · 3dcode flywheel gallery runs/ gallery.html
+3dcode flywheel caption <slug> [--out dir]   # the gallery is `3dcode gallery build --embed`
 3dcode gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcode gallery build --out gallery.html [--embed]
 3dcode bench run bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview
-python -m codeverse.judges.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
+python -m codeverse.addons.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 python bench/complexity_report.py bench/out --recursive   # score-vs-complexity + $/complexity point (docs/COMPLEXITY.md)
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
 python -m pytest tests -q -m "not live"            # 3 060 tests, ~65 s (real Blender + headless Chrome + CadQuery)

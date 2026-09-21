@@ -234,7 +234,7 @@ def test_every_named_cookbook_section_exists():
 
 
 def test_every_live_constant_named_by_a_skill_has_a_claim():
-    from codeverse.skills.targets import load_claims
+    from codeverse.addons.skill_targets import load_claims
 
     for s in SKILLS:
         pinned = {

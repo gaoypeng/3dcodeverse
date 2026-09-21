@@ -88,9 +88,9 @@ def _resolve(arg: str, runs_dir: Path | None) -> Path:
 
 
 def _report(paths: list[Path], *, md: Path | None, recheck: bool, limit: int, per_run: bool) -> None:
-    from codeverse.cost import audit_runs
-    from codeverse.cost.report import console as text_report
-    from codeverse.cost.report import markdown, runs_table
+    from codeverse.addons.costreport.audit import audit_runs
+    from codeverse.addons.costreport.report import console as text_report
+    from codeverse.addons.costreport.report import markdown, runs_table
 
     audit = audit_runs(paths, recheck=recheck)
     if not audit.runs:
@@ -212,7 +212,7 @@ def cache(
 
     Only a live ledger has per-call ``cached_tokens``; reconstructed runs show
     what their transcripts recorded."""
-    from codeverse.cost.caching import session_cache
+    from codeverse.addons.costreport.caching import session_cache
     from codeverse.cost.ledger import load_ledger
     from codeverse.cost.reconstruct import reconstruct_run
 

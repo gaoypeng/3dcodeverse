@@ -53,13 +53,15 @@ codeverse/
   models/          ChatModel + gemini/anthropic/openai adapters; key-pool retry machine,
                    streaming with stall detection, IPv4-pinned transport, pricing, health
   spatial/         the measurement/render toolbox behind every gate and MCP tool
-  judges/          rubric VLM judge on labelled montages, pairwise/ranking/reference, calibration
+  judges/          rubric VLM judge on labelled montages, pairwise, reference/likeness
   reference.py     reference grounding: synthesis, plausibility gate, proportions, diff
   texturing/       material plan → seamless tiles → world-metre UVs → object_textured.glb
   cost/            append-only ledger, metering, budget guard, profiles, billing
   skills/          typed skill routes + materialisation + read telemetry
-  flywheel/        record, export (tiers/dedupe/parquet), preference/repair pairs, sqlite index
-  gallery/         the runs browser (`3dcode gallery serve`) + one-file embed
+  record/          what every run writes: record.json, deliverable/, telemetry
+  addons/          optional tools that READ finished runs — nothing a run needs:
+                   gallery (the runs browser), dataset (export, tiers, preference/repair pairs,
+                   captions, sqlite index), costreport (`3dcode cost`), calibration, skill_targets
   cli/             the typer CLI · doctor.py  the environment checks behind `3dcode doctor`
 bench/             the evaluation harness around the harness: run_bench, compare_backends
                    (A/B matrix), ab_plan, infra-failure classification

@@ -40,9 +40,9 @@ def list_skills(
     """
     from rich.table import Table
 
+    from codeverse.addons.skill_targets import target_for
     from codeverse.skills import iter_skills
     from codeverse.skills.registry import ROUTED_SKILLS, ROUTES
-    from codeverse.skills.targets import target_for
 
     found = list(iter_skills())
     t = Table(title="3dcode skills")
@@ -85,10 +85,10 @@ def validate(
     strict: Annotated[bool, typer.Option("--strict", help="also fail on a routed skill with no bundle")] = False,
 ) -> None:
     """Check every bundle against the open spec and our budget/evidence rules."""
+    from codeverse.addons.skill_targets import check_claims
     from codeverse.skills import bundle_dirs, validate_bundle
     from codeverse.skills.model import SkillError, parse_skill
     from codeverse.skills.registry import ROUTED_SKILLS
-    from codeverse.skills.targets import check_claims
 
     dirs = bundle_dirs()
     bad = 0

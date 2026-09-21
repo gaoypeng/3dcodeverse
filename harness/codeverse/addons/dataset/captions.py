@@ -24,13 +24,13 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from codeverse.addons.dataset.sample import code_files_for_round
 from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse.contracts.common import ENTRY_FILE, Language, Track
 from codeverse.contracts.run import RunRecord
-from codeverse.flywheel import _git
-from codeverse.flywheel.record import best_round_record
-from codeverse.flywheel.sample import code_files_for_round
 from codeverse.prompts import prompt_hash
+from codeverse.record import _git
+from codeverse.record.record import best_round_record
 from codeverse.workspace import Workspace
 
 MAX_CODE_CHARS = 12_000
@@ -210,7 +210,7 @@ def caption_sample(
         out.mkdir(parents=True, exist_ok=True)
         (out / f"{slug or ws.root.name}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False))
         return caps
-    from codeverse.flywheel.record import package_run
+    from codeverse.record.record import package_run
 
     ws.write_json(ws.root / "captions.json", payload)
     package_run(ws, record)  # captions.json + cost.json + the manifest all go stale otherwise

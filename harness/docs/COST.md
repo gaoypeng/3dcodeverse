@@ -15,7 +15,7 @@ Reproduce:
 3dcode cost prices [--unverified]                          # the price table + provenance
 ```
 
-The audit is `codeverse/cost/audit.py`; it reconstructs a per-call ledger from
+The audit is `codeverse/addons/costreport/audit.py`; it reconstructs a per-call ledger from
 old runs (`codeverse/cost/reconstruct.py`), so it works on every run recorded so
 far — no re-instrumentation needed.  `bench/out/compare_v1_full` (a partial,
 superseded compare battery) is excluded.

@@ -25,7 +25,6 @@ from codeverse import __version__
 from codeverse.config import get_settings
 from codeverse.contracts.common import Usage
 from codeverse.contracts.run import RoundRecord, RunId, RunRecord
-from codeverse.flywheel.code_quality import code_quality_block
 from codeverse.proc import version_line
 from codeverse.workspace import Workspace
 
@@ -71,7 +70,7 @@ def _harness_git_sha(pkg_file: Path | None = None) -> str:
         return ""
     sha = head.stdout.strip()
     # dirty = any tracked file under the package tree (harness/) modified; untracked files ignored
-    pkg_root = here.parents[2] if here.parent.name == "flywheel" else here.parent
+    pkg_root = here.parents[2] if here.parent.name == "record" else here.parent
     status = _git(["status", "--porcelain", "--untracked-files=no", "--", str(pkg_root)], here.parent)
     if status is not None and status.returncode == 0 and status.stdout.strip():
         sha += "-dirty"
@@ -260,8 +259,8 @@ def package_run(ws: Workspace, record: RunRecord) -> None:
 
     Best-effort by contract: a packaging failure is logged and the run still
     gets its ``record.json`` (the old layout is always enough to read a run)."""
-    from codeverse.flywheel.deliverable import build_deliverable
-    from codeverse.flywheel.telemetry import build_telemetry
+    from codeverse.record.deliverable import build_deliverable
+    from codeverse.record.telemetry import build_telemetry
 
     try:
         ws.ensure_layout()
@@ -284,12 +283,6 @@ def finalize_record(ws: Workspace, record: RunRecord, *, package: bool = True) -
     fill_derived(record)
     if package:
         package_run(ws, record)
-    # the delivered CODE's own vector, next to the delivered ARTIFACT's (complexity):
-    # the judge scored the picture, the gates the geometry; this scores what the
-    # flywheel will actually learn from (flywheel/code_quality.py)
-    cq = code_quality_block(ws, record)
-    if cq is not None:
-        record.extra["code_quality"] = cq
     ws.write_json(ws.record_path, record)
     return ws.record_path
 

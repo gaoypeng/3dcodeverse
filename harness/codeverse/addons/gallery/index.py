@@ -15,6 +15,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from codeverse.addons.dataset.quality import quality_tier
+from codeverse.addons.dataset.sample import gate_error_summary, telemetry_digest
 from codeverse.addons.gallery.model import (
     GalleryIndex,
     RootSection,
@@ -24,8 +26,8 @@ from codeverse.addons.gallery.model import (
     humanize_view,
 )
 from codeverse.contracts.run import RunId, RunRecord
-from codeverse.flywheel.quality import quality_tier
-from codeverse.flywheel.record import (
+from codeverse.proc import read_json_or_none
+from codeverse.record.record import (
     RecordError,
     battery_label,
     best_round_index,
@@ -35,8 +37,6 @@ from codeverse.flywheel.record import (
     is_run_dir,
     load_record,
 )
-from codeverse.flywheel.sample import gate_error_summary, telemetry_digest
-from codeverse.proc import read_json_or_none
 from codeverse.workspace import Workspace
 
 #: run roots the CLI defaults to when the user names none
@@ -212,7 +212,7 @@ def _complexity(ws: Workspace, rec: RunRecord) -> tuple[float | None, str, dict[
     complexity block, else the best round's measurement, else the measurement
     file on disk.  A run built before the complexity vector existed has none
     (``bench/complexity_report.py`` recomputes those from the GLB)."""
-    from codeverse.flywheel.record import complexity_block
+    from codeverse.record.record import complexity_block
 
     try:
         block = rec.extra.get("complexity") or complexity_block(rec) or _measurement_complexity(ws)

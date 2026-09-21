@@ -22,7 +22,7 @@ from bench._jsonl import read_jsonl
 from bench.run_bench import BenchItemResult
 from codeverse.addons.gallery import GalleryIndex, RootSection, RunEntry, render_static
 from codeverse.addons.gallery.index import entry_from_record
-from codeverse.flywheel.record import RecordError, load_record
+from codeverse.record.record import RecordError, load_record
 from codeverse.workspace import Workspace
 
 TIER_ORDER = {"easy": 0, "medium": 1, "hard": 2}

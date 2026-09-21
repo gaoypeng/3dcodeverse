@@ -26,8 +26,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from codeverse.flywheel.record import unique_files  # noqa: E402
 from codeverse.languages.urdf import REST_PENETRATION_MAX_M  # noqa: E402
+from codeverse.record.record import unique_files  # noqa: E402
 from codeverse.spatial.connectivity import (  # noqa: E402
     PENETRATION_ERROR_M,
     PENETRATION_WARN_M,

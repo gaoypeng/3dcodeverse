@@ -18,9 +18,9 @@ import pytest
 from codeverse.addons.dataset.export import export_samples, load_captions
 from codeverse.addons.dataset.index import build_index as build_sqlite_index
 from codeverse.addons.dataset.pairs import build_pairs
+from codeverse.addons.dataset.sample import SampleError
 from codeverse.contracts.run import RunId
-from codeverse.flywheel.record import FoundRun, battery_label, iter_runs, run_id_for, unique_files
-from codeverse.flywheel.sample import SampleError
+from codeverse.record.record import FoundRun, battery_label, iter_runs, run_id_for, unique_files
 from tests.flywheel_cli.conftest import make_fake_run
 
 

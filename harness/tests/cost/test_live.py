@@ -54,7 +54,7 @@ def test_a_metered_run_reconciles_with_its_own_record(tmp_path: Path):
 
     from codeverse.cli.main import app
     from codeverse.cost.ledger import load_ledger
-    from codeverse.flywheel.record import load_record
+    from codeverse.record.record import load_record
     from codeverse.workspace import Workspace
 
     runs = tmp_path / "runs"

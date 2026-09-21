@@ -140,22 +140,21 @@ codeverse/
   skills/             registry.py (typed ROUTES + the router that evaluates them),
                       model.py (Skill/Selection + the SKILL.md loader), prompting.py
                       (per-backend delivery policy + the index/mandate text),
-                      targets.py (measured targets + claims), materialize.py,
+                      materialize.py,
                       telemetry.py (the read probe), config.py (call-time switches)
   cost/               types.py (CallCost/Stage/Role) ledger.py (append-only telemetry/cost.jsonl + price provenance)
                       context.py (per-call > ambient attribution) instrument.py (MeteredChatModel /
                       MeteredAgent — one row per ChatModel.generate; one session row only for a backend
                       that does NOT meter itself; run_ledger nests + is context-local so bench --parallel works)
                       profiles.py (economy|balanced|quality; cli._common.resolve_dial is THE resolver)
-                      caching.py (session_cache/session_key — measurement only, docs/COST.md §13)
                       billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
                       so the ledger bills real money and not list price; docs/COST.md §25)
-                      guard.py routing.py reconstruct.py (old runs) audit.py report.py
+                      guard.py routing.py reconstruct.py (old runs)
   judges/             base.py (JudgeInput/Judgment helpers + the pure round-replay pieces `3dcode judge` and
                       calibration share), rubrics.py + rubrics/*.yaml (defect checklists, the wire
                       schema, caps and scoring), prompt_builder.py (image prep, montages, the
                       judge messages), vlm_judge.py (+ the reference/likeness judges),
-                      pairwise.py, calibration.py.  No Judge Protocol: a judge is
+                      pairwise.py.  No Judge Protocol: a judge is
                       duck-typed `.judge(JudgeInput) -> Judgment`
   reference.py        reference GROUNDING — give the pipeline a picture of what it is building:
                       synthesis, THE plausibility gate that makes a synthesized
@@ -197,14 +196,15 @@ codeverse/
                       planner as a re-ask before any code is written),
                       skills_hook.py (the round's view of codeverse/skills: attach before generating,
                       probe reads after — a no-op unless CV3D_SKILLS is on)
-  flywheel/           what every run WRITES: record.py (+ best_round_record), sample.py,
-                      deliverable.py, telemetry.py, quality.py (tiers + dedupe + code/mesh fingerprints),
-                      code_quality.py (the delivered CODE's own vector — magic numbers per 100 LOC,
-                      function length, dead functions, duplication, docstrings → record.extra
-                      ["code_quality"].index, a flywheel filter beside score and complexity)
+  record/             what every run WRITES: record.py (finalize_record, load_record, iter_runs,
+                      best_round_record), deliverable.py, telemetry.py, _git.py (files at a round's commit)
   addons/             optional tools that READ finished runs; outside cli/ nothing imports them
                       (tests/core/test_addons_boundary.py).  dataset/ = export.py, pack.py, pairs.py,
-                      refine.py, captions.py, index.py (`3dcode flywheel …`); gallery/ = below
+                      refine.py, captions.py, index.py, sample.py, quality.py (tiers + code fingerprints +
+                      duplicate groups) — `3dcode flywheel …`; costreport/ = audit.py, report.py,
+                      caching.py (session_cache/session_key — measurement only, docs/COST.md §13) —
+                      `3dcode cost`; calibration.py (judge repeatability over recorded runs);
+                      skill_targets.py (measured targets + claims per skill bundle); gallery/ = below
   addons/gallery/     THE local run gallery (`3dcode gallery serve|build`): cards.py,
                       compare.py (side-by-side arms), index.py (run roots →
                       typed RunEntry, tolerant of half-written records), model.py, page.py (cards +
@@ -563,7 +563,7 @@ in the harness's own words, and what the fix changed.  `toolkits/llamafactory/`
 turns those rows into training files; the harness writes the measurement, not the
 trainer's format.  `flywheel caption` adds
 {detailed, instruction, factory} captions (image-grounded, brand-free, `--out` for
-side-car mode); `flywheel gallery` is an alias of `3dcode gallery build --embed`
+side-car mode); the gallery is `3dcode gallery build --embed`
 (the flywheel package has no renderer of its own).
 
 `codeverse/addons/gallery/` is the **local** answer to the same question: `3dcode gallery

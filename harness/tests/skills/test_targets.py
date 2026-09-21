@@ -9,9 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from codeverse.skills import bundle_dirs, skills_dir
-from codeverse.skills.registry import ROUTED_SKILLS, finding_kind
-from codeverse.skills.targets import (
+from codeverse.addons.skill_targets import (
     BY_SKILL,
     DIRECTIONS,
     METRICS,
@@ -21,6 +19,8 @@ from codeverse.skills.targets import (
     gate_kinds_claimed,
     target_for,
 )
+from codeverse.skills import bundle_dirs, skills_dir
+from codeverse.skills.registry import ROUTED_SKILLS, finding_kind
 
 BUNDLES = bundle_dirs()
 pytestmark = pytest.mark.skipif(not BUNDLES, reason=f"no bundles in {skills_dir()} yet")

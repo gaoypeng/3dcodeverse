@@ -1,7 +1,7 @@
 """Per-skill deterministic readout: what each bundle claims to move, measured.
 
 ``bench/ab_gate_rates.py`` prints the gate numbers of an A/B run; it does not know which
-*skill* owns which number.  This does.  ``codeverse/skills/targets.py`` holds one
+*skill* owns which number.  This does.  ``codeverse/addons/skill_targets.py`` holds one
 falsifiable claim per bundle; this file computes it over a recorded battery or an A/B
 directory, so the same command answers both "what is the baseline" and "did the variant
 move it".
@@ -32,8 +32,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from codeverse.skills.registry import finding_kind  # noqa: E402
-from codeverse.skills.targets import (  # noqa: E402
+from codeverse.addons.skill_targets import (  # noqa: E402
     SRC_ARTIFACT,
     SRC_BUILD,
     SRC_FRAMES,
@@ -42,6 +41,7 @@ from codeverse.skills.targets import (  # noqa: E402
     TARGETS,
     Target,
 )
+from codeverse.skills.registry import finding_kind  # noqa: E402
 
 CACHE_NAME = ".skill_targets_cache.json"
 _FRAME_T = re.compile(r"_t(\d+(?:\.\d+)?)\.png$")

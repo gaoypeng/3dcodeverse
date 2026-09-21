@@ -1,4 +1,4 @@
-"""``3dcode flywheel export | pairs | caption | index | dedupe | gallery``."""
+"""``3dcode flywheel export | pairs | caption | index``."""
 
 from __future__ import annotations
 
@@ -105,8 +105,8 @@ def caption_cmd(
     from codeverse.addons.dataset.captions import CaptionError, caption_sample
     from codeverse.addons.dataset.export import load_captions
     from codeverse.cost.instrument import run_ledger
-    from codeverse.flywheel.record import iter_runs, load_record
     from codeverse.proc import RunLocked, exclusive
+    from codeverse.record.record import iter_runs, load_record
 
     if all_runs:
         targets = [(fr.ws, fr.record, fr.run_id.slug)
@@ -160,56 +160,3 @@ def index_cmd(
                       f"{(r['pass_rate'] or 0):.2f}", f"{(r['baseline_mean'] or 0):.3f}", f"{(r['final_mean'] or 0):.3f}",
                       f"{(r['delta_mean'] or 0):+.3f}", f"${(r['cost_usd'] or 0):.2f}")
         console.print(t)
-
-
-@flywheel_app.command("dedupe")
-def dedupe_cmd(
-    dataset_dir: Annotated[Path, typer.Argument(help="exported dataset folder")],
-    mesh: Annotated[bool, typer.Option("--mesh/--no-mesh", help="also fingerprint renders/object.glb")] = True,
-    threshold: Annotated[float, typer.Option("--threshold")] = 0.9,
-) -> None:
-    """Report near-duplicate sample groups (code fingerprint + mesh voxel Jaccard)."""
-    import json
-
-    from codeverse.flywheel.quality import (
-        DedupeItem,
-        code_fingerprint,
-        mesh_fingerprint,
-        near_duplicates,
-    )
-
-    items = []
-    # exactly track/language/key deep — a src/meta.json in a sample's LLM-written
-    # code tree must not become a phantom sample
-    for meta_path in sorted(dataset_dir.glob("*/*/*/meta.json")):
-        sdir = meta_path.parent
-        meta = json.loads(meta_path.read_text())
-        files = {p.relative_to(sdir).as_posix(): p.read_bytes() for p in (sdir / "src").rglob("*") if p.is_file()}
-        fp = None
-        glb = sdir / "renders" / "object.glb"
-        if mesh and glb.is_file():
-            try:
-                fp = mesh_fingerprint(glb)
-            except Exception as e:  # unreadable glb → code-only
-                warn(f"{meta['key']}: mesh fingerprint failed: {e}")
-        items.append(DedupeItem(id=meta["id"], code_fp=code_fingerprint(files), mesh_fp=fp))
-    groups = near_duplicates(items, mesh_threshold=threshold)
-    console.print(f"{len(items)} samples, {len(groups)} duplicate groups")
-    for g in groups:
-        console.print("  " + "  ==  ".join(g))
-
-
-@flywheel_app.command("gallery")
-def gallery_cmd(
-    runs_dir: Annotated[Path, typer.Argument(help="runs root")],
-    out_html: Annotated[Path, typer.Argument(help="output .html (self-contained)")],
-    title: Annotated[str | None, typer.Option("--title")] = None,
-    thumb_px: Annotated[int, typer.Option("--thumb-px", min=128, help="thumbnail long edge")] = 640,
-    embed: Annotated[bool, typer.Option("--embed/--no-embed", help="inline the contact sheets as data: URIs")] = True,
-) -> None:
-    """Alias of `3dcode gallery build` (kept for scripts): one self-contained HTML page."""
-    from codeverse.addons.gallery.page import build_static
-
-    path, n, _ = build_static([runs_dir], out_html, title=title, embed=embed, thumb_px=thumb_px)
-    ok(f"gallery of {n} runs → {path} ({path.stat().st_size // 1024} KB)")
-    console.print("[dim]`3dcode gallery serve` serves the same page with working links[/dim]")

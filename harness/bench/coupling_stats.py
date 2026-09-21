@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # `python bench/coupling_stats.py` from the repo root
 
-from codeverse.flywheel.record import unique_files  # noqa: E402
+from codeverse.record.record import unique_files  # noqa: E402
 from codeverse.spatial.joints_model import UrdfError, load_urdf  # noqa: E402
 
 

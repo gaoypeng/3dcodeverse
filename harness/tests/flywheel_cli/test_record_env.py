@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.flywheel import record as record_mod
-from codeverse.flywheel.record import _harness_git_sha, environment_versions
+from codeverse.record import record as record_mod
+from codeverse.record.record import _harness_git_sha, environment_versions
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}(-dirty)?$")
 
@@ -34,7 +34,7 @@ def test_harness_git_sha_from_a_tracked_file_and_dirty_marker(tmp_path):
     if shutil.which("git") is None:
         pytest.skip("git not installed")
     repo = tmp_path / "repo"
-    pkg = repo / "harness" / "codeverse" / "flywheel"
+    pkg = repo / "harness" / "codeverse" / "record"
     pkg.mkdir(parents=True)
     mod = pkg / "record.py"
     mod.write_text("# tracked\n")
@@ -68,7 +68,7 @@ def test_harness_git_sha_is_empty_for_an_untracked_copy(tmp_path):
     (repo / "tracked.txt").write_text("x")
     _git("-c", "user.email=t@t", "-c", "user.name=t", "add", "-A", cwd=repo)
     _git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init", cwd=repo)
-    copy = repo / ".venv" / "lib" / "codeverse" / "flywheel" / "record.py"
+    copy = repo / ".venv" / "lib" / "codeverse" / "record" / "record.py"
     copy.parent.mkdir(parents=True)
     copy.write_text("# untracked copy\n")
     assert _harness_git_sha(copy) == ""

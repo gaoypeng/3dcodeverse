@@ -26,8 +26,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # this tree's codeverse, not the editable install
 
-from codeverse.flywheel.record import unique_files  # noqa: E402
 from codeverse.proc import read_jsonl_lenient  # noqa: E402
+from codeverse.record.record import unique_files  # noqa: E402
 from codeverse.spatial.node import browser_was_lost  # noqa: E402
 
 #: pipeline stages in the order the scene track runs them

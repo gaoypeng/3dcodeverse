@@ -152,10 +152,10 @@ cross-backend candidate pairs keyed by prompt hash).
 
 ## 6. Judge calibration
 
-`codeverse.judges.calibration` re-judges recorded rounds without touching the runs:
+`codeverse.addons.calibration` re-judges recorded rounds without touching the runs:
 
 ```bash
-python -m codeverse.judges.calibration <run-dir> [<run-dir> ...] \
+python -m codeverse.addons.calibration <run-dir> [<run-dir> ...] \
     --model gemini:gemini-3.1-pro-preview --n 3 --out out/calib [--geometry clay|normals|none] [--rounds 0,1]
 # run dirs: any recorded run, e.g. bench/out/<battery>/runs/<slug>
 ```

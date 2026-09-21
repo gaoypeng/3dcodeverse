@@ -148,7 +148,7 @@ class Services:
         return fn(ws, plan, cameras="plan" if getattr(plan, "cameras", None) else "derive")
 
     def finalize_record(self, ws: Workspace, record: RunRecord) -> None:
-        _import("codeverse.flywheel.record", "finalize_record")(ws, record)
+        _import("codeverse.record.record", "finalize_record")(ws, record)
 
 
 # ----------------------------------------------------------------------------- context

@@ -79,7 +79,7 @@ def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None
         lines.append(f"[red]error: {record.error}[/red]")
     if ws_root is not None:
         lines.append(f"workspace: {ws_root}")
-        from codeverse.flywheel.record import best_round_record
+        from codeverse.record.record import best_round_record
 
         best = best_round_record(record)
         if best is not None and best.renders is not None and best.renders.contact_sheet:

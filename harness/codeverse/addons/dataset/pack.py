@@ -35,7 +35,7 @@ from codeverse.addons.dataset.export import (
     write_jsonl,
     write_parquet,
 )
-from codeverse.flywheel.quality import mark_duplicates
+from codeverse.addons.dataset.quality import mark_duplicates
 
 MAX_TAR_BYTES = int(2.5 * 1024**3)
 #: per-member allowance for tar headers/padding in the rollover size estimate

@@ -456,7 +456,7 @@ KIND_FOR_STRATEGY: dict[str, str] = {"same": "refine", "switch": REWRITE_KIND, "
 #: σ for a judge that is not in the measured table: the default judge's
 #: (``gemini-3.1-pro-preview``, ``Settings.default_judge``), because that is what
 #: an unnamed judge almost always is.  Calibrate a new judge
-#: (``python -m codeverse.judges.calibration``) and add it to JUDGE_NOISE rather
+#: (``python -m codeverse.addons.calibration``) and add it to JUDGE_NOISE rather
 #: than tuning the multipliers around it.
 DEFAULT_JUDGE_SIGMA = 0.030
 

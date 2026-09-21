@@ -20,7 +20,7 @@ from codeverse.contracts.common import Backends, Language, Track, Usage
 from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse.contracts.spec import Spec
-from codeverse.flywheel.record import complexity_block, fill_derived, round_summary
+from codeverse.record.record import complexity_block, fill_derived, round_summary
 
 REPO = Path(__file__).resolve().parents[2]
 

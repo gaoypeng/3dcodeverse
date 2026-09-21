@@ -30,10 +30,10 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[0].parent))
 
+from codeverse.addons.calibration import _ranks  # noqa: E402 — tie-averaged ranks, one copy
 from codeverse.contracts.run import RunId  # noqa: E402
-from codeverse.flywheel.record import find_run_dirs  # noqa: E402
-from codeverse.judges.calibration import _ranks  # noqa: E402 — tie-averaged ranks, one copy
 from codeverse.proc import read_json_or_none  # noqa: E402
+from codeverse.record.record import find_run_dirs  # noqa: E402
 from codeverse.spatial.complexity import COMPLEXITY_WEIGHTS, ComplexityVector, band_of  # noqa: E402
 
 CRITERIA = (

@@ -33,8 +33,8 @@ def status(
     events: Annotated[int, typer.Option("--events", help="tail N events")] = 8,
 ) -> None:
     """Show spec / run_state / record / recent events of a run."""
-    from codeverse.flywheel.record import RecordError, load_record
     from codeverse.proc import EventLog, holder_of
+    from codeverse.record.record import RecordError, load_record
 
     ws = C.open_workspace(slug, runs_dir)
     spec = C.load_spec(ws)
@@ -195,7 +195,7 @@ def judge(
     gates + acceptance + plan digest + previous verdict + stored clay views); writes
     artifacts/judge/rNN_cli.json."""
     from codeverse.cli import _judge as J
-    from codeverse.flywheel.record import load_record
+    from codeverse.record.record import load_record
 
     ws = C.open_workspace(slug, runs_dir)
     rec = load_record(ws)

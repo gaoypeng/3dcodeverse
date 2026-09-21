@@ -10,15 +10,15 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from codeverse.addons.dataset.quality import prompt_hash, quality_tier
+from codeverse.addons.dataset.sample import gate_error_summary
 from codeverse.contracts.run import RoundRecord, RunId, RunRecord
-from codeverse.flywheel.quality import prompt_hash, quality_tier
-from codeverse.flywheel.record import (
+from codeverse.record.record import (
     best_round_index,
     best_round_record,
     effective_judgment,
     iter_runs,
 )
-from codeverse.flywheel.sample import gate_error_summary
 from codeverse.workspace import Workspace
 
 _SCHEMA = """

@@ -232,7 +232,7 @@ class GalleryApp:
         return Response(content_type=ctype, path=target, headers=headers)
 
     def _detail(self, entry: RunEntry) -> Response:
-        from codeverse.flywheel.record import RecordError, load_record
+        from codeverse.record.record import RecordError, load_record
         from codeverse.workspace import Workspace
 
         ws = Workspace(entry.path)

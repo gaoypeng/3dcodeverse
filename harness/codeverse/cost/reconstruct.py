@@ -38,8 +38,8 @@ from codeverse.contracts.common import Usage
 from codeverse.contracts.run import RunId
 from codeverse.cost.ledger import price_call
 from codeverse.cost.types import CallCost, Role, Stage, role_for_stage, stage_for_label
-from codeverse.flywheel.record import SUBRUN_DIRS
 from codeverse.proc import read_json_or_none, read_jsonl_lenient
+from codeverse.record.record import SUBRUN_DIRS
 
 log = logging.getLogger(__name__)
 

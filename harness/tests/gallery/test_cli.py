@@ -1,4 +1,4 @@
-"""``3dcode gallery build|serve`` and the ``3dcode flywheel gallery`` alias."""
+"""``3dcode gallery build|serve``."""
 
 from __future__ import annotations
 
@@ -45,16 +45,6 @@ def test_build_embed(gallery_tree: dict[str, Path], tmp_path: Path):
 def test_build_rejects_a_missing_root(tmp_path: Path):
     r = runner.invoke(app, ["gallery", "build", str(tmp_path / "nope"), "--out", str(tmp_path / "x.html")])
     assert r.exit_code != 0 and "not a directory" in r.output
-
-
-def test_flywheel_gallery_alias_still_works(gallery_tree: dict[str, Path], tmp_path: Path):
-    out = tmp_path / "alias.html"
-    r = runner.invoke(app, ["flywheel", "gallery", str(gallery_tree["runs"]), str(out), "--title", "batch 1"])
-    assert r.exit_code == 0, r.output
-    assert "gallery of 2 runs" in r.output
-    markup = out.read_text()
-    assert "batch 1" in markup
-    assert "data:image/jpeg;base64," in markup  # the alias keeps the old self-contained behaviour
 
 
 def test_default_roots_from_cwd(gallery_tree: dict[str, Path], monkeypatch: pytest.MonkeyPatch):

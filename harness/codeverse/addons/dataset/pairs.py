@@ -29,11 +29,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from codeverse.addons.dataset.quality import prompt_hash
 from codeverse.contracts.run import RoundRecord, RunRecord
-from codeverse.flywheel import _git
-from codeverse.flywheel.quality import prompt_hash
-from codeverse.flywheel.record import best_round_record, effective_judgment, iter_runs
 from codeverse.proc import read_jsonl_lenient
+from codeverse.record import _git
+from codeverse.record.record import best_round_record, effective_judgment, iter_runs
 from codeverse.workspace import Workspace
 
 __all__ = ["build_pairs", "preference_pairs", "repair_pairs", "in_round_repair_pairs",

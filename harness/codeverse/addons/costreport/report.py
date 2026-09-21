@@ -1,4 +1,4 @@
-"""Render an :class:`~codeverse.cost.audit.Audit` as markdown or a console table.
+"""Render an :class:`~codeverse.addons.costreport.audit.Audit` as markdown or a console table.
 
 Pure formatting: every number comes from the audit, nothing is recomputed here.
 """
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from codeverse.cost.audit import (
+from codeverse.addons.costreport.audit import (
     Audit,
     cached_input_share,
     price_confidence,

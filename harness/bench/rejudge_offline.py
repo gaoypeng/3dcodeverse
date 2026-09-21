@@ -43,10 +43,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from codeverse.addons.calibration import _run_label
 from codeverse.contracts.artifacts import GateReport, Severity
 from codeverse.contracts.plan import AcceptanceItem
 from codeverse.contracts.run import RoundRecord
-from codeverse.judges.calibration import _run_label
 from codeverse.judges.rubrics import (
     SCORING_VERSION,
     JudgeOutput,

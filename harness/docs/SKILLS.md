@@ -146,7 +146,7 @@ record refers to a routing decision by id, so recycling it would silently relabe
 `evidence` is about **provenance** — where the bundle's prose came from. A bundle can be
 `measured` for provenance and have **no measured effect**; five are. Every bundle also
 declares **one deterministic quantity it claims to move**, in its own frontmatter
-(`target_metric`, `target_direction`, `target_baseline`) and in `codeverse/skills/targets.py`.
+(`target_metric`, `target_direction`, `target_baseline`) and in `codeverse/addons/skill_targets.py`.
 `python bench/skill_targets.py bench/out` prints them all — per battery or paired across an
 A/B's two arms — and **`docs/SKILLS_LEDGER.md` is the row-by-row maintenance surface**.
 
@@ -513,7 +513,7 @@ chose to go deeper" (§1).
    format = "{:.0f} mm"
    ```
 4. Add its rows to `ROUTES` in `codeverse/skills/registry.py`, in the same commit.
-5. Add a `Target` row to `codeverse/skills/targets.py` and the matching `target_*` keys to
+5. Add a `Target` row to `codeverse/addons/skill_targets.py` and the matching `target_*` keys to
    the frontmatter — the ONE deterministic quantity the bundle claims to move, its
    direction, and its baseline from `python bench/skill_targets.py bench/out`. If no
    deterministic instrument can see the claim, say so with `measurable=False` and a

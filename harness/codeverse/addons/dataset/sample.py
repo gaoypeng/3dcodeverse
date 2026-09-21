@@ -22,6 +22,12 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse import __version__
+from codeverse.addons.dataset.quality import (
+    QualityTier,
+    code_fingerprint,
+    prompt_hash,
+    quality_tier,
+)
 from codeverse.contracts.common import (
     ENTRY_FILE,
     LANGUAGE_LABEL,
@@ -30,10 +36,9 @@ from codeverse.contracts.common import (
     code_file,
 )
 from codeverse.contracts.run import RoundRecord, RunRecord
-from codeverse.flywheel import _git
-from codeverse.flywheel.deliverable import deliverable_path
-from codeverse.flywheel.quality import QualityTier, code_fingerprint, prompt_hash, quality_tier
-from codeverse.flywheel.record import (
+from codeverse.record import _git
+from codeverse.record.deliverable import deliverable_path
+from codeverse.record.record import (
     effective_judgment,
     round_complexity,
     round_summary,
@@ -347,7 +352,7 @@ def telemetry_digest(ws: Workspace, record: RunRecord) -> dict[str, Any]:
     """The few accounting numbers a dataset consumer wants inline: total, per stage,
     model + thinking level per role, rubric/price hashes.  ``{}`` when a run has no
     telemetry (old layout and nothing computable)."""
-    from codeverse.flywheel.telemetry import load_telemetry
+    from codeverse.record.telemetry import load_telemetry
 
     tele = load_telemetry(ws, record)
     if tele is None:

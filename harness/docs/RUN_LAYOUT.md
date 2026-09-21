@@ -66,7 +66,7 @@ never enter the code snapshot.
 
 ## `deliverable/`
 
-Built by `codeverse.flywheel.deliverable.build_deliverable(ws, record)` from the
+Built by `codeverse.record.deliverable.build_deliverable(ws, record)` from the
 **best round** (`record.best_round`, else the highest judged score):
 
 ```
@@ -100,7 +100,7 @@ the packager produces no diff.
   harness version + git sha; key-pool size; **price-table hash**; resolved
   render and limit settings.  Sampling values are read from the call sites'
   typed defaults (`VlmJudge.__init__`, `planner.plan`, and
-  `flywheel/telemetry.py::_generator_defaults` — a historical shim that
+  `record/telemetry.py::_generator_defaults` — a historical shim that
   configures nothing, kept so old records still read back); a
   value a call site hard-codes per task is left empty with `source` saying so,
   never guessed.  A track may publish real values as
@@ -162,7 +162,7 @@ provenance — use the cost package's own command, `3dcode cost show <runs-dir>`
 * `flywheel export` reads the packaged code snapshot only when git cannot answer
   (`meta.code_source == "deliverable"`), and adds a compact `meta.telemetry`
   digest when the run has one (`{}` otherwise).
-* the gallery (`3dcode gallery build` / `flywheel gallery`) links the packaged
+* the gallery (`3dcode gallery build`) links the packaged
   `deliverable/object.glb` and `cost.json` when they exist and falls back to
   `artifacts/` otherwise; the per-stage cost line appears only for runs that
   carry telemetry.

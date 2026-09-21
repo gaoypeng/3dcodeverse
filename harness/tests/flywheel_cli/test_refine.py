@@ -10,7 +10,7 @@ import pytest
 from codeverse.addons.dataset.pairs import MIN_PREFERENCE_DELTA
 from codeverse.addons.dataset.refine import build_refine, outcome_of, transitions
 from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.flywheel.record import load_record
+from codeverse.record.record import load_record
 from tests.flywheel_cli.conftest import make_fake_run
 
 

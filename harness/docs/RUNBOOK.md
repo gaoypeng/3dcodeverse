@@ -118,7 +118,6 @@ events.
 3dcode gallery serve                       # ./runs + every ./bench/out/*/runs → http://127.0.0.1:8765/
 3dcode gallery serve bench/out/static_v2_flash/runs --port 9000 --reload --no-open
 3dcode gallery build --out gallery.html [--embed]      # one self-contained file (--embed inlines the sheets)
-3dcode flywheel gallery runs/ gallery.html             # alias of `gallery build --embed` (old signature)
 ```
 `serve` indexes the run roots (records only — ~85 runs in ~0.15 s) and serves the run
 **directories** too, so every link works: contact sheet, full-size renders, `record.json`,
@@ -164,9 +163,8 @@ unless you type `--host` yourself; it never serves a path outside the declared r
                                      # INTERFACES has the call signatures.  Training formats live
                                      # in toolkits/llamafactory/, not here.
 3dcode flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
-3dcode flywheel gallery runs/ gallery.html [--title …]        # alias of `3dcode gallery build --embed` (§4)
-3dcode flywheel index runs/ runs_index.sqlite · 3dcode flywheel dedupe dataset/
-python -m codeverse.judges.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
+3dcode flywheel index runs/ runs_index.sqlite
+python -m codeverse.addons.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```
 **Do not run the offline suite while a battery is running.**  The suite is 2 300+ tests on

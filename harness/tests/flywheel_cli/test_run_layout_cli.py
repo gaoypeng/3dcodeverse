@@ -14,9 +14,9 @@ from codeverse.addons.gallery import build_static
 from codeverse.addons.gallery.index import entry_from_record
 from codeverse.cli.main import app
 from codeverse.contracts.run import RunRecord
-from codeverse.flywheel.deliverable import build_deliverable, deliverable_path, load_deliverable
-from codeverse.flywheel.record import load_record, package_run
-from codeverse.flywheel.telemetry import (
+from codeverse.record.deliverable import build_deliverable, deliverable_path, load_deliverable
+from codeverse.record.record import load_record, package_run
+from codeverse.record.telemetry import (
     build_telemetry,
     ledger_rows,
     live_ledger_path,
@@ -127,7 +127,7 @@ def test_telemetry_handles_reconstructed_live_and_unavailable_ledgers(fake_run, 
     assert tele.cost is not None and tele.cost.by_stage[0].stage == "plan"
 
     # A core-only install still emits settings and the record-level total.
-    import codeverse.flywheel.telemetry as T
+    import codeverse.record.telemetry as T
 
     def boom(*_a, **_k):
         raise ImportError("codeverse.cost is not installed")
