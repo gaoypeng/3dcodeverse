@@ -563,9 +563,6 @@ P = TypeVar("P", bound=BaseModel)
 #: different failures and get separate chances (see ``plan_with_usage``).
 MAX_VALIDATION_REASKS = 2  # was 1: compare_art_v2 lost 5 of 14 articulated prompts at this gate (2026-08-25)
 MAX_QUALITY_REASKS = 1
-#: a plan whose boxes / pivots / ranges contradict each other (tracks/plan_checks.py) is
-#: re-asked with the numbers; after this many it ships anyway and the joint sweep decides
-MAX_GEOMETRY_REASKS = 2
 #: a validation failure whose plan is DEGENERATE (joints naming links the plan never lists)
 #: is answered by re-sampling from the original prompt instead of editing the broken answer
 #: in context; at most this many times per plan.  Measured 2026-09-02: 3-4 % of plan calls
@@ -573,18 +570,6 @@ MAX_GEOMETRY_REASKS = 2
 MAX_PLAN_RESTARTS = 1
 #: kill-switch for that restart (default ON, mirrors CV3D_AXIS_REPAIR)
 PLAN_RESTART_ENV = "CV3D_PLAN_RESTART"
-#: ``CV3D_PLAN_GEOMETRY=1`` turns the geometry re-ask ON (registered in
-#: tracks/plan_features.LIVE_SWITCHES).  OFF by default since the 2026-08-28 A/B
-#: (compare_art_v4 pf vs pf0, n = 14): score Δ +0.064 [−0.188, +0.315], wins 6/6/2,
-#: final gate errors 0.00 vs 0.25, round-0 sweep targets 0.54 vs 0.25 — no measurable
-#: gain for 7/14 re-asks; the plan-loop rule (docs/PLAN_LOOP.md) keeps such a change off.
-PLAN_GEOMETRY_ENV = "CV3D_PLAN_GEOMETRY"
-
-
-def geometry_check_enabled() -> bool:
-    from codeverse.config import env_flag  # ONE flag vocabulary (review-3 S4)
-
-    return env_flag(PLAN_GEOMETRY_ENV, False)
 #: Output room for the plan call, sized from the plan budget.  A deep plan is much longer
 #: JSON than a flat one AND Gemini 3.x bills its thinking against the same ceiling, so the
 #: flat 24 000 that served 8 box-parts truncates a 12-part plan with sub-parts —
@@ -861,9 +846,9 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     tokens = plan_tokens(budget, max_output_tokens)
     thinking = "medium"
     wait_scale = 1.0
-    geo_reasked = 0
-    for attempt in range(2 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_GEOMETRY_REASKS
-                          + MAX_PLAN_RESTARTS):
+    # 4 = the first call + truncation retries; it was 2 + the geometry re-ask's 2 (D49, code
+    # removed 2026-09-21) — the total is kept so a default run has the attempts it always had
+    for attempt in range(4 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_PLAN_RESTARTS):
         req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=temperature,
                           thinking=thinking, max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
                           max_wait_s=plan_wait_s(tokens, guard, scale=wait_scale))
@@ -947,22 +932,6 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
                             target_parts=budget.target_parts, complaint=complaint[:400])
             messages = messages + [_echo(raw, resp.text), ChatMessage.user(complaint)]
             continue
-        if geo_reasked < MAX_GEOMETRY_REASKS and getattr(result, "joints", None) and geometry_check_enabled():
-            from codeverse.tracks.plan_checks import plan_geometry_complaint
-
-            try:
-                geo = plan_geometry_complaint(result)
-            except Exception as e:  # noqa: BLE001 — a pre-check must never cost the plan
-                geo = ""
-                log.warning("plan geometry check failed (%s); skipping", e)
-                if events is not None:
-                    events.emit("plan.geometry_error", attempt=attempt, error=str(e)[:300])
-            if geo:
-                geo_reasked += 1
-                if events is not None:
-                    events.emit("plan.geometry", attempt=attempt, reask=geo_reasked, complaint=geo[:600])
-                messages = messages + [_echo(raw, resp.text), ChatMessage.user(geo)]
-                continue
         normalised = list(getattr(result, "normalisations", None) or [])
         if normalised and events is not None:
             events.emit("plan.normalised", attempt=attempt, n=len(normalised), items=normalised[:8])
@@ -1108,9 +1077,9 @@ def normalise_names[P: BaseModel](plan_obj: P) -> P:
     return plan_obj
 
 
-__all__ = ["MAX_GEOMETRY_REASKS", "MAX_PLAN_RESTARTS", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS",
-           "PLAN_GEOMETRY_ENV", "PLAN_RESTART_ENV", "PLAN_TOKENS_MAX", "PlanningError", "add_acceptance_item",
+__all__ = ["MAX_PLAN_RESTARTS", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS",
+           "PLAN_RESTART_ENV", "PLAN_TOKENS_MAX", "PlanningError", "add_acceptance_item",
            "articulation_acceptance", "build_system_prompt", "build_user_prompt", "default_event_stats",
-           "ensure_acceptance", "geometry_check_enabled", "missing_link_names", "normalise_names", "plan",
+           "ensure_acceptance", "missing_link_names", "normalise_names", "plan",
            "degenerate_plan", "plan_example", "plan_tokens", "plan_with_usage", "restart_enabled",
            "restart_note"]

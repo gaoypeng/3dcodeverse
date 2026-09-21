@@ -17,7 +17,7 @@ from codeverse.proc import EventLog
 from codeverse.tracks.common import RunContext, generate_for, single_shot_agent_id, single_shot_ctx
 from codeverse.tracks.generation import GenerationTask
 from codeverse.tracks.planner import plan_example
-from codeverse.tracks.scene import SceneTrack, plan_zone_batches, zone_file
+from codeverse.tracks.scene import SceneTrack
 from codeverse.tracks.scene_assets import (
     asset_api_summary,
     check_threejs_asset,
@@ -99,26 +99,11 @@ def test_dedupe_is_a_no_op_for_unrelated_assets_and_reaches_the_zone_prompt():
     assert "buildSteppingStone(THREE, { variant: 1 })" in api and "merged variant" in api
 
 
-# ----------------------------------------------------------------------------- zone batching
 def _zone(name: str, n: int) -> ZonePlan:
     from codeverse.contracts.plan import BBox
 
     return ZonePlan(name=name, description=name, bbox=BBox(center=(0, 0, 0), extents=(10, 5, 10)),
                     contents=[f"A{i}" for i in range(n)])
-
-
-def test_small_zones_share_a_session_and_big_ones_keep_the_fan_out():
-    zones = [_zone("Small1", 2), _zone("Small2", 1), _zone("Big", 6), _zone("Small3", 3)]
-    batches = plan_zone_batches(zones)
-    assert [[z.name for z in b] for b in batches] == [["Small1", "Small2"], ["Big"], ["Small3"]]
-    # deterministic: the same plan always batches the same way (stage hash stability)
-    assert plan_zone_batches(zones) == batches
-    assert zone_file(zones[0]) == "src/zones/small1.js"
-
-    zones = [_zone(f"Z{i}", i % 5) for i in range(9)]
-    batches = plan_zone_batches(zones)
-    files = [zone_file(z) for b in batches for z in b]
-    assert sorted(files) == sorted({zone_file(z) for z in zones}) and len(files) == 9
 
 
 # ----------------------------------------------------------------------------- single-shot assets

@@ -191,9 +191,6 @@ codeverse/
                       can be A/B'd alone, + pin_plan_blockers() deciding when two arms may share
                       one plan — docs/EVAL.md §8.1),
                       depth.py,
-                      plan_checks.py (plan-time geometry checks on an ArticulatedPlan — attachment,
-                      pivot placement, swept-box collision over the joint range — fed back to the
-                      planner as a re-ask before any code is written),
                       skills_hook.py (the round's view of codeverse/skills: attach before generating,
                       probe reads after — a no-op unless CV3D_SKILLS is on)
   record/             what every run WRITES: record.py (finalize_record, load_record, iter_runs,
@@ -426,7 +423,7 @@ in-loop option with `n_samples ≥ 2` for decisions.
 plan (structured output, one re-ask) → skeleton (buildable placeholder) → materialise workspace
 [scene only] assets (parallel; both kinds climb one ladder — single-shot → check → one repair → agent; blender_glb heroes get a sub-workspace with the static planner's parts + asset_v1 judge + one re-judged fix pass, undone when worse; a degraded asset verdict leaves
             score None / judged False, emits asset.judge_degraded and skips the fix pass)
-             → env → zones (parallel) → assemble (deterministic scene.js)
+             → env → zones (ONE session owns every zone file, D70) → assemble (deterministic scene.js)
 round 0 "baseline": generate → build_with_repair → measure → gates → render → post-render gates → judge
    (object tracks, ≥ 8 plan parts, a language with one file per part, an agent backend: the baseline FANS OUT
     per part — phase 0 = one scoped session per attachment subtree (its parts + the planned boxes of the

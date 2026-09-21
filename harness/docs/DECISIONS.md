@@ -572,6 +572,9 @@ written) that were accepted because the code works that way and the tests pin it
   in 7/14 cells.  No measurable gain — with gemini-cli generation round-0 sweep errors are
   near zero either way — so `CV3D_PLAN_GEOMETRY` ships OFF (=1 enables;
   `plan_features.LIVE_SWITCHES`).
+  **Removed 2026-09-21:** the experiment is closed — `tracks/plan_checks.py`, the re-ask in
+  `tracks/planner.py`, the `CV3D_PLAN_GEOMETRY` switch and their tests are deleted; the
+  numbers above are the record.
 * **D50 Joint-sweep findings reach the fixer aggregated per link pair (2026-08-28).**
   Context: one compare_art_v3 run produced 59 penetration findings for a handful of pairs
   — one per sampled pose — and `build_refine_instructions` de-duplicates by (target, kind)
@@ -1146,6 +1149,10 @@ written) that were accepted because the code works that way and the tests pin it
   about ±0.1 between draws).  The default is ON; `off` keeps the fan-out and its two batching
   constants as the control.  The bare one-file scene is no longer ahead on interiors; the
   harness keeps its heroes, gates, library and rounds on top of that.
+  **Removed 2026-09-21:** the experiment is closed — the fan-out control arm
+  (`plan_zone_batches`, its two batching constants, the small-neighbours batch header) and
+  the `CV3D_ONE_WORLD_SESSION` switch are deleted; one session owning every zone file is the
+  only path, unchanged.
 
 * **D71 The starter's outdoor world ships from the library (2026-09-08).**  The starter's
   `env.js` was a one-colour plane under a bare shader dome with linear fog: whatever the env

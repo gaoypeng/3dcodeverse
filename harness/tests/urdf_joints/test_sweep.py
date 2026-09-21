@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.contracts.artifacts import Severity
+from codeverse.contracts.artifacts import GateFinding, Severity
 from codeverse.spatial.joints import (
     UrdfError,
     load_urdf,
@@ -14,6 +14,7 @@ from codeverse.spatial.joints import (
     sweep_collisions,
     sweep_findings,
 )
+from codeverse.spatial.joints_sweep import MAX_PAIR_FINDINGS, aggregate_findings
 from tests.urdf_joints.conftest import (
     write_carcass_drawer_robot,
     write_mesh_robot,
@@ -172,3 +173,38 @@ def test_joints_argument_narrows_the_render_to_those_joints(monkeypatch, tmp_pat
     assert len(narrowed) == 3, "rest + hinge@lower + hinge@upper, nothing from slide or knob"
     typo = ts._poses_for(_Robot(), ["hinge_typo"])
     assert [lbl for lbl, _ in typo] == ["rest"], "an unknown joint yields a visibly wrong sheet, not the full one"
+
+
+# ------------------------------------------------------------------ sweep aggregation
+def _pen(a, b, depth, pose, sev=Severity.ERROR):
+    return GateFinding(gate="articulation", severity=sev, target=f"{a}|{b}", message=f"{a}/{b} {depth}",
+                       fix_hint="shrink", data={"kind": "penetration", "pose": pose, "depth_m": depth})
+
+
+def test_aggregate_merges_poses_per_pair_and_ranks_by_depth():
+    fs = [_pen("door", "wall", 0.004, {"hinge": 0.5}), _pen("door", "wall", 0.031, {"hinge": 1.5}),
+          _pen("door", "wall", 0.002, {}), _pen("lid", "box", 0.010, {"lid_j": 1.0}),
+          GateFinding(gate="articulation", severity=Severity.ERROR, target="leg", message="floating",
+                      data={"kind": "unattached", "pose": {}, "gap_m": 0.05})]
+    out = aggregate_findings(fs)
+    assert [f.target for f in out] == ["leg", "door|wall", "lid|box"]  # gap 0.05 > 0.031 > 0.010
+    dw = out[1]
+    assert dw.data["n_poses"] == 3 and dw.data["max_depth_m"] == 0.031
+    assert "3 of the sampled poses" in dw.message and "31.0 mm" in dw.message and "hinge=1.50" in dw.message
+    assert "1 at rest" in dw.message
+    assert all(f.severity == Severity.ERROR for f in out)
+
+
+def test_aggregate_caps_errors_and_summarises_the_rest():
+    fs = [_pen(f"p{i}", "base", 0.001 * (i + 1), {"j": 1.0}) for i in range(MAX_PAIR_FINDINGS + 3)]
+    out = aggregate_findings(fs)
+    errors = [f for f in out if f.severity == Severity.ERROR]
+    warns = [f for f in out if f.severity == Severity.WARN]
+    assert len(errors) == MAX_PAIR_FINDINGS and errors[0].target == f"p{MAX_PAIR_FINDINGS + 2}|base"
+    assert len(warns) == 1 and warns[0].data["kind"] == "penetration_summary" and "3 more" in warns[0].message
+
+
+def test_aggregate_keeps_single_and_warn_findings():
+    fs = [_pen("a", "b", 0.001, {}, sev=Severity.WARN)]
+    assert aggregate_findings(fs) == fs
+    assert aggregate_findings([]) == []

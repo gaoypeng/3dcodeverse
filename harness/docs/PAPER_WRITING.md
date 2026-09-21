@@ -150,7 +150,7 @@ They are recorded so nobody re-runs them expecting a different answer.
 
 | lever | battery / method | n pairs | Δ | 2 SE | sign | disposition |
 |---|---|--:|--:|---|---|---|
-| **Plan-time geometry re-ask** (`CV3D_PLAN_GEOMETRY`, D49) | `compare_art_v4` pf vs pf0 | 14 | +0.064 | ±0.25 | 6/6/2 | ships **OFF** |
+| **Plan-time geometry re-ask** (`CV3D_PLAN_GEOMETRY`, D49) | `compare_art_v4` pf vs pf0 | 14 | +0.064 | ±0.25 | 6/6/2 | shipped **OFF**; code removed 2026-09-21 (D49), the numbers stand |
 | **Pro planner** (`gemini-3.1-pro` vs `3.7-flash`) | `compare_art_v4` pp vs pf | 13 | +0.090 | ±0.23 | 9/2/2 | keep flash: 2–10× plan cost, 5/14 cells lost to provider limits |
 | **Deterministic repairs** (`CV3D_ART_REPAIRS`, a bundle since removed; its axis flip lives on as upstream's `CV3D_AXIS_REPAIR`, ON by default) | `ab_repairs`, plan pinned | 12 | −0.039 | ±0.105 | 2/5/5 | the bundle does not ship; the axis flip fired in 1 of 12 cells |
 | **Fewer turns** (`CV3D_FEWER_TURNS`) | `ab_fewer_turns`, plan pinned | 14 | +0.015 | ±0.126 | 6/5/3 | ships **OFF**; −12 % tool calls, $/cell unchanged |
@@ -562,7 +562,7 @@ a test enforces by grepping the tree; a switch nothing reads once produced "keep
 
 | switch | what it does | default | why |
 |---|---|---|---|
-| `CV3D_PLAN_GEOMETRY` | plan-time geometry re-ask (attachment gap, hinge pivot, swept collision) | **off** | +0.064 ±0.25, no measurable gain (§4) |
+| `CV3D_PLAN_GEOMETRY` | plan-time geometry re-ask (attachment gap, hinge pivot, swept collision) | **off** | +0.064 ±0.25, no measurable gain (§4); **removed from the tree 2026-09-21** (D49) |
 | `CV3D_PLAN_RESTART` | re-sample a collapsed plan (one top-level part **and** dangling links) from the original request | **on**, kill switch | 4.7 % → 0.7 % planner mortality, p = 0.0067 (§5.1); narrowed 2026-09-03 and re-measured three-arm: dangling-link deaths 3/140 off vs 0/276, p = 0.038 (exploratory, after three null overall-rate tests — §5.1) |
 | `CV3D_AXIS_REPAIR` (upstream, `tracks/articulated_object.py`) | axis flip on a reversed joint + buried-link check | **on** (upstream default; the A/B ran it against off) | −0.039 ±0.105, fired 1/12 (§4) |
 | `CV3D_LEAN_PROMPT` | drop duplicated contract/tool cards, select cookbook chapters, focus the refine prompt | **off** | +0.030 ±0.076, no cost saving (§4); **removed from the tree 2026-09-03**; last carried on `ziyao/articulated-wave-2` before commit `4cbb28c`. |

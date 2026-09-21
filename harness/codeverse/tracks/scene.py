@@ -26,7 +26,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from codeverse.config import one_world_session_enabled, scene_textures_enabled
+from codeverse.config import scene_textures_enabled
 from codeverse.contracts.artifacts import (
     BuildResult,
     GateFinding,
@@ -75,10 +75,6 @@ log = logging.getLogger(__name__)
 
 SCENE_TIMES: tuple[float, float] = (0.0, 1.5)
 MAX_CONSOLE_ERRORS = 8
-#: a zone placing at most this many assets is small enough to share a session
-SMALL_ZONE_CONTENTS = 3
-#: how many small zones may share one session (file ownership stays disjoint)
-MAX_ZONES_PER_BATCH = 2
 #: cookbook chapters inlined into the env / zone prompts (the sessions never call
 #: read_cookbook on their own — measured on scenes_v1: 0 of 20 sessions did)
 ENV_RECIPES: tuple[str, ...] = (
@@ -351,8 +347,8 @@ class SceneTrack(BaseTrack):
     def _zones_stage(self, ctx: RunContext) -> dict[str, Any]:
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         t0 = time.time()
-        # one author for the whole world (config.one_world_session_enabled) or the fan-out
-        batches = [list(plan.zones)] if one_world_session_enabled() else plan_zone_batches(list(plan.zones))
+        # one author for the whole world (D70; the fan-out control arm was removed 2026-09-21)
+        batches = [list(plan.zones)]
         if any(len(b) > 1 for b in batches):
             ctx.events.emit("zones.batched", batches=[[z.name for z in b] for b in batches])
 
@@ -391,7 +387,7 @@ class SceneTrack(BaseTrack):
         return out
 
     def _zone_task(self, ctx: RunContext, batch: list[ZonePlan]) -> GenerationTask:
-        """One task for one zone, or for a batch of small zones that shares a session.
+        """One task for one zone, or for every zone of the scene in one session (D70).
 
         A batched task exclusively owns every file it lists, so ``files_hint``
         attribution and the refine fan-out stay file-disjoint."""
@@ -411,20 +407,17 @@ class SceneTrack(BaseTrack):
         if len(batch) == 1:
             prompt, label = briefs[0], f"zone_{to_snake(names[0])}"
         else:
-            whole = len(batch) == len(plan.zones)
             window_min = ctx.budget.timeout_s(ZONE_TIMEOUT_S * len(batch), floor_s=180) // 60
             header = (f"# {len(batch)} zone modules in ONE session — write ALL of: {', '.join(files)}\n\n"
                       f"You own exactly these files and nothing else. {len(batch)} complete zone briefs follow, "
                       "separated by a horizontal rule; implement each one in its own file exactly as its brief says. "
-                      + ("These are EVERY zone of the scene and you are its one author: keep scale, materials and "
-                         "placement coherent across them — nothing floats, nothing interpenetrates a neighbour, every "
-                         "content at the plan's size, and the zones meet at their shared edges as one place. "
-                         f"This session's window is {len(batch)} zones' worth ({window_min} min): build EACH zone to "
-                         "its brief's full density counts and dressing before you finish — one author measured "
-                         "2026-09-08 finished four zones in 5 minutes as a block-out (\"missing stove\", \"shelves "
-                         "missing\", \"primitive tools\") and scored 0.32 where the brief-by-brief fan-out reached 0.60. "
-                         if whole else
-                         "They are small neighbouring zones, so keep their styling consistent and do not build into each other. ")
+                      + "These are EVERY zone of the scene and you are its one author: keep scale, materials and "
+                        "placement coherent across them — nothing floats, nothing interpenetrates a neighbour, every "
+                        "content at the plan's size, and the zones meet at their shared edges as one place. "
+                        f"This session's window is {len(batch)} zones' worth ({window_min} min): build EACH zone to "
+                        "its brief's full density counts and dressing before you finish — one author measured "
+                        "2026-09-08 finished four zones in 5 minutes as a block-out (\"missing stove\", \"shelves "
+                        "missing\", \"primitive tools\") and scored 0.32 where the brief-by-brief fan-out reached 0.60. "
                       + "The recipes printed in the first brief apply to every zone in this session.\n")
             prompt = header + "\n\n---\n\n".join(briefs)
             label = "zones_" + "_".join(to_snake(n) for n in names)
@@ -549,31 +542,6 @@ def _touched(path: Any, since: float) -> bool:
         return path.is_file() and path.stat().st_mtime > since
     except OSError:
         return False
-
-
-def plan_zone_batches(zones: list[ZonePlan], *, small_max: int = SMALL_ZONE_CONTENTS,
-                      max_per_batch: int = MAX_ZONES_PER_BATCH) -> list[list[ZonePlan]]:
-    """Group consecutive SMALL zones (≤ ``small_max`` asset placements) into shared
-    sessions; big zones keep a session of their own.
-
-    Plan order is preserved, so a batch is always a pair of neighbours and the
-    batching is deterministic (stage-hash stable across resumes)."""
-    batches: list[list[ZonePlan]] = []
-    pending: list[ZonePlan] = []
-    for z in zones:
-        if len(z.contents) > small_max:
-            if pending:
-                batches.append(pending)
-                pending = []
-            batches.append([z])
-            continue
-        pending.append(z)
-        if len(pending) >= max_per_batch:
-            batches.append(pending)
-            pending = []
-    if pending:
-        batches.append(pending)
-    return batches
 
 
 def census_gate_report(build: BuildResult) -> GateReport | None:

@@ -61,9 +61,6 @@ def pin_plan_blockers(variant_env: dict[str, str]) -> list[str]:
 #: honest by tests/orchestrator_tracks/test_plan_features.py, which greps the tree.
 LIVE_SWITCHES: dict[str, str] = {
     "CV3D_PLAN_BRIEF": "codeverse/tracks/planner.py",  # brief.py merged in, 2026-08-28
-    # plan-time geometry re-ask for articulated plans (tracks/plan_checks.py); plan-side,
-    # so an A/B over it can never --pin-plan.  Off by default (A/B 2026-08-28: no gain).
-    "CV3D_PLAN_GEOMETRY": "codeverse/tracks/planner.py",
     # re-sample a degenerate plan from the original prompt instead of editing it in context
     "CV3D_PLAN_RESTART": "codeverse/tracks/planner.py",
     "CV3D_SCOPED_PARTS": "codeverse/tracks/depth.py",
