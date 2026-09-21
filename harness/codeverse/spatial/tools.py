@@ -365,13 +365,13 @@ class RenderViewsArgs(BaseModel):
     size: int = Field(default=512, ge=128, le=_MAX_SIZE, description="image size in px (square)")
 
 
-def _render(ctx: ToolContext, tool_name: str, *, views: list[str], mode: str, isolate: list[str], explode: float, size: int, sheet: bool = True, note: str = "") -> Observation:
+def _render(ctx: ToolContext, *, views: list[str], mode: str, isolate: list[str], explode: float, size: int, note: str = "") -> Observation:
     # a missing renderer raises ToolUnavailable → ToolDef.call turns it into the
     # "tool <name> unavailable" Observation (one error boundary for every tool)
     glb = glb_path(ctx)
     presets = resolve_views(views)
     check_mode(mode)
-    rs = cached_render_glb(ctx, glb, views=presets, mode=mode, size=size, isolate=isolate or None, explode=explode, sheet=sheet)
+    rs = cached_render_glb(ctx, glb, views=presets, mode=mode, size=size, isolate=isolate or None, explode=explode)
     return render_observation(rs, ctx.workspace.root, note=note)
 
 
@@ -379,7 +379,7 @@ def _render(ctx: ToolContext, tool_name: str, *, views: list[str], mode: str, is
       tracks=_OBJECT_TRACKS, cost_hint="slow")
 def render_views(ctx: ToolContext, args: RenderViewsArgs) -> Observation:
     note = f"{args.mode} render" + (f", isolate={args.isolate}" if args.isolate else "") + (f", explode={args.explode:g}" if args.explode else "")
-    return _render(ctx, "render_views", views=args.views, mode=args.mode, isolate=args.isolate, explode=args.explode, size=args.size, note=note)
+    return _render(ctx, views=args.views, mode=args.mode, isolate=args.isolate, explode=args.explode, size=args.size, note=note)
 
 
 class RenderSheetArgs(BaseModel):
@@ -389,7 +389,7 @@ class RenderSheetArgs(BaseModel):
 @tool("render_sheet", RenderSheetArgs, "One labelled 14-view contact sheet of the built object (all canonical views).",
       tracks=_OBJECT_TRACKS, cost_hint="slow")
 def render_sheet(ctx: ToolContext, args: RenderSheetArgs) -> Observation:
-    obs = _render(ctx, "render_sheet", views=[v.name for v in OBJECT_VIEWS], mode=args.mode, isolate=[], explode=0.0, size=512,
+    obs = _render(ctx, views=[v.name for v in OBJECT_VIEWS], mode=args.mode, isolate=[], explode=0.0, size=512,
                   note=f"{args.mode} 14-view sheet")
     if obs.ok and obs.images:
         obs.images = obs.images[:1]  # the sheet alone is the deliverable here
@@ -413,7 +413,7 @@ def isolate(ctx: ToolContext, args: IsolateArgs) -> Observation:
     if args.part not in names:
         raise ToolUsageError(f"unknown part {args.part!r}; available: {names}", f"isolate(part='{names[0] if names else 'Seat'}')")
     row = m.model_copy(update={"parts": [p for p in m.parts if p.name == args.part]})
-    obs = _render(ctx, "isolate", views=args.views, mode="shaded", isolate=[args.part], explode=0.0, size=512,
+    obs = _render(ctx, views=args.views, mode="shaded", isolate=[args.part], explode=0.0, size=512,
                   note=f"isolated part '{args.part}'")
     if not obs.ok and not obs.images:
         return obs
@@ -660,7 +660,7 @@ def _runtime(ctx: ToolContext):
     return get_runtime(lang)
 
 
-def _run_build(ctx: ToolContext, *, times: list[float], preview: bool, width: int = 0, height: int = 0) -> tuple[Observation | None, BuildResult | None, list[str]]:
+def _run_build(ctx: ToolContext, *, times: list[float], width: int = 0, height: int = 0) -> tuple[Observation | None, BuildResult | None, list[str]]:
     """Lint → build; returns (error observation | None, build, lint warnings).
 
     A missing runtime raises ToolUnavailable — ``ToolDef.call`` reports it.
@@ -670,7 +670,7 @@ def _run_build(ctx: ToolContext, *, times: list[float], preview: bool, width: in
     refused, warns = _lint_gate(ctx, rt, verb="rendering")
     if refused is not None:
         return refused, None, warns
-    kw = {"times": times, "preview": preview}
+    kw = {"times": times, "preview": False}
     if width and height:
         kw.update(width=width, height=height)
     br: BuildResult = rt.build(ws, **kw)
@@ -680,20 +680,15 @@ def _run_build(ctx: ToolContext, *, times: list[float], preview: bool, width: in
     return None, br, warns
 
 
-def _stats_text(ctx: ToolContext) -> tuple[str, dict]:
-    """Frame stats + gate findings as (text, numbers) — shared formatter."""
-    lines, numbers, _ok = gl_metrics_summary(ctx.workspace)
-    return "\n".join(lines), numbers
-
-
 @tool("gl_probe", GlProbeArgs, "Compile the shader / import the program and render ONE frame (default t=1 s): errors with src line numbers, or the frame + its stats. Call after every edit.",
       languages=GRAPHICS_LANGS, cost_hint="slow")
 def gl_probe(ctx: ToolContext, args: GlProbeArgs) -> Observation:
-    err, br, warns = _run_build(ctx, times=[args.t], preview=False)
+    err, br, warns = _run_build(ctx, times=[args.t])
     if err is not None:
         return err
     assert br is not None
-    text, numbers = _stats_text(ctx)
+    stats, numbers, _ok = gl_metrics_summary(ctx.workspace)
+    text = "\n".join(stats)
     frames = sorted(Path(br.extra_paths["frames"]).glob("f*_t*.png")) if br.extra_paths.get("frames") else []
     lines = _gl_gate_verdict(numbers) + [f"PROBE OK ({br.duration_ms} ms, {br.census.get('renderer', 'GL')}) — frame at t={args.t:g}s", text]
     if warns:
@@ -708,11 +703,12 @@ def gl_probe(ctx: ToolContext, args: GlProbeArgs) -> Observation:
 def gl_frames(ctx: ToolContext, args: GlFramesArgs) -> Observation:
     if not args.times or len(args.times) > MAX_FRAMES:
         raise ToolUsageError(f"times must hold 1..{MAX_FRAMES} values", "gl_frames(times=[0, 1, 2.5, 4, 6])")
-    err, br, warns = _run_build(ctx, times=sorted(set(float(t) for t in args.times)), preview=False, width=args.width, height=args.height)
+    err, br, warns = _run_build(ctx, times=sorted(set(float(t) for t in args.times)), width=args.width, height=args.height)
     if err is not None:
         return err
     assert br is not None
-    text, numbers = _stats_text(ctx)
+    stats, numbers, _ok = gl_metrics_summary(ctx.workspace)
+    text = "\n".join(stats)
     out_dir = tool_out_dir(ctx, f"gl_{int(time.time()) % 100000}")
     images: list[str] = []
     sheet = br.extra_paths.get("sheet")

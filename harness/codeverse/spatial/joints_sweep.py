@@ -94,7 +94,6 @@ def sweep_collisions(
     *,
     tol_m: float = 0.002,
     contact_gap_m: float = CONTACT_GAP_M,
-    allow_pairs: tuple[tuple[str, str], ...] = (),
     volumes: bool = True,
     hinge_clearance_m: float = 0.01,
 ) -> SweepReport:
@@ -105,7 +104,6 @@ def sweep_collisions(
     if not names:
         raise UrdfError("sweep_collisions: robot has no link meshes")
     bodies = {n: collide.LinkBody(n, robot.links[n].mesh) for n in names}  # type: ignore[arg-type]
-    allowed = {tuple(sorted(p)) for p in allow_pairs}
     per_pose: list[PoseReport] = []
     islands = {n: len(bodies[n].islands) for n in names}
     # links joined only by fixed joints never move relative to each other: their overlap is
@@ -134,7 +132,7 @@ def sweep_collisions(
                     dist = 0.0
                     if rigid and idx != rigid_pose:
                         pass  # structural overlap, already measured in pose ``rigid_pose``
-                    elif tuple(sorted((a, b))) not in allowed:
+                    else:
                         depth, approx = collide.penetration(ba, bb)
                         if round(depth, 4) > tol_m:  # 0.1 mm: float32 mesh coordinates carry no finer meaning
                             overlaps.append(

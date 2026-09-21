@@ -16,7 +16,7 @@
  */
 
 import path from 'node:path';
-import { armWatchdog, dataUrlToPng, ensureDir, envFlag, fail, finish, parseCli, readJsonArg, safeName, writeJson } from './lib/cli.mjs';
+import { armWatchdog, dataUrlToPng, ensureDir, fail, finish, parseCli, readJsonArg, safeName, writeJson } from './lib/cli.mjs';
 import { createTimeoutMs, errorSummary, openHost } from './lib/host_page.mjs';
 import { fitOrbitCameras, framingBox } from './lib/orbit.mjs';
 
@@ -24,15 +24,14 @@ const args = parseCli({
   'no-settle': { type: 'boolean', default: false },
   'camera-repair': { type: 'boolean', default: false },
   'auto-exposure': { type: 'boolean', default: false },
-  // post chain (GTAO + soft bloom + grade): ON for scene pictures, `--no-post` /
-  // CV3D_POST=0 to render raw.  Object renders never come through here.
+  // post chain (GTAO + soft bloom + grade): ON for scene pictures, `--no-post` (python
+  // emits it for CV3D_POST=0) to render raw.  Object renders never come through here.
   'no-post': { type: 'boolean', default: false },
   'post-options': { default: '' },
   ws: {}, out: {}, cameras: { default: 'authored' }, 'orbit-views': { default: 'none' }, bounds: { default: 'none' },
   times: { default: '0,1.5' }, width: { default: '1024' }, height: { default: '576' },
   gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' }, 'fps-seconds': { default: '2' },
-  'timeout-ms': { default: '240000' }, 'create-timeout-ms': { default: '' }, 'log-depth': { type: 'boolean', default: false },
-  'orbit-fog': { type: 'boolean', default: false },
+  'timeout-ms': { default: '240000' }, 'log-depth': { type: 'boolean', default: false },
 });
 
 function tag(t) {
@@ -60,11 +59,11 @@ async function main() {
   try {
     host = await openHost(args.ws, {
       width, height, gpu: args.gpu, logDepth: args['log-depth'],
-      createSceneTimeoutMs: createTimeoutMs(args['create-timeout-ms'], timeoutMs),
+      createSceneTimeoutMs: createTimeoutMs(timeoutMs),
       settle: !args['no-settle'],
       cameraRepair: !!args['camera-repair'],
       autoExposure: !!args['auto-exposure'],
-      post: args['no-post'] ? false : envFlag('CV3D_POST', true),
+      post: !args['no-post'],
       postOptions: readJsonArg(args['post-options'], 'post-options'),
     });
   } catch (e) {
@@ -90,7 +89,7 @@ async function main() {
       const bounds = args.bounds && args.bounds !== 'none' ? readJsonArg(args.bounds, 'bounds') : null;
       const bbox = framingBox(metrics.census, bounds);   // content only: never the ground plane / sky dome
       metrics.framing_bbox = bbox;
-      cams.push(...fitOrbitCameras(bbox, views, { aspect: width / height, groundY: metrics.census.ground_y, noFog: !args['orbit-fog'] }));
+      cams.push(...fitOrbitCameras(bbox, views, { aspect: width / height, groundY: metrics.census.ground_y }));
     }
     // camera names become filenames: reject path tricks before composing any output path
     for (const c of cams) c.name = safeName(c.name, 'camera name');

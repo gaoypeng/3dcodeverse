@@ -89,12 +89,6 @@ function environmentTexture(renderer) {
   return _envTexture;
 }
 
-/** Test seam: drop the cached PMREM texture (a fresh renderer needs a fresh env). */
-export function resetStudioCache() {
-  if (_envTexture) _envTexture.dispose();
-  _envTexture = null;
-}
-
 function addContactShadow(scene, center, box, radius) {
   const size = box.getSize(new THREE.Vector3());
   const spread = Math.max(size.x, size.z, radius * 0.5) * CONTACT_SPREAD;

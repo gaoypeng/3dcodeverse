@@ -253,7 +253,7 @@ render_glb(glb, out_dir, *, views=None, mode="shaded|wire|normals|silhouette|cla
            timeout_s=None, use_cache=True) -> RenderSet
 from codeverse.spatial.render_scene import render_scene
 render_scene(ws, out_dir, *, cameras=None, orbit=True, times=(0.0, 1.5), width=1024, height=576, sheet=True,
-             bounds=None, sheet_max_views=10) -> RenderSet
+             bounds=None) -> RenderSet
     # Δ bounds default from ws plan.json → orbit rig frustum-fits the CONTENT box (not ground/sky);
     # contact sheet = judge subset only; views.json entries get judge: true|false
 from codeverse.spatial.render_scene import select_judge_views, JUDGE_MAX_VIEWS, read_metrics, plan_bounds
@@ -298,8 +298,8 @@ from codeverse.spatial.contract import check_contract           # frame of fix h
 from codeverse.spatial.measure import measure_glb, world_transform, node_name_findings   # (Δ 2026-08-30) world frames are composed
     # by walking the graph's edge matrices (trimesh's get() dropped a root pivot's rotation); a GLB with duplicate / unnamed nodes
     # lands a finding in Measurement.extra["findings"] — trimesh re-parents renamed nodes and the numbers are approximate
-from codeverse.spatial.scene_placement import check_placement, placement_findings, placement_gate_safe, placement_census, placement_table_text
-check_placement(ws, *, indoor=None, force_probe=False) -> GateReport   # gate "scene_placement"; data.kind ∈ floating | sunken |
+from codeverse.spatial.scene_placement import placement_findings, placement_gate_safe, placement_census, placement_table_text
+placement_findings(table, *, indoor=False) -> GateReport   # gate "scene_placement"; data.kind ∈ floating | sunken |
     # unsupported | interpenetration | summary | probe_failed; target "Zone/Asset" (routes to src/zones/<zone>.js);
     # messages carry the scene_v1 floating_part cap words; reads artifacts/census.json["placement"] (host_placement.mjs)
 placement_gate_safe(census, *, plan=None, layouts=None, unavailable=()) -> GateReport | None   # round gate: None without a table, WARN on failure, never raises; `unavailable` = assets the stage could not build (not "missing planned contents")

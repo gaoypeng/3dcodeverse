@@ -5,9 +5,6 @@ projects the resulting loops onto the two remaining axes and rasterises them
 with PIL — one colour per part, a scale bar, axis labels and a legend.  The
 numbers use shapely (even-odd fill) so a hollow tube reports its hollow ratio.
 
-``slices_sheet`` tiles ``n`` evenly spaced sections along an axis into one grid
-image — the cheap way to inspect interiors along a whole object.
-
 ``judge_slices`` (D48) renders the judge's conditional interior evidence: two
 vertical centre slices with per-part fills, where ONLY connectivity-gate-ERROR
 part pairs get a red hatch, written with a typed :class:`SliceManifest`.
@@ -27,7 +24,7 @@ from pydantic import BaseModel, Field
 
 from codeverse.spatial.measure import GlbLoadError, merged_mesh, solid_parts
 from codeverse.spatial.registry import Observation
-from codeverse.spatial.sheet import contact_sheet, load_font
+from codeverse.spatial.sheet import load_font
 
 _AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
 #: which two axes are drawn (horizontal, vertical) for a slicing axis
@@ -113,7 +110,7 @@ def compute_section(parts: dict[str, trimesh.Trimesh], axis: str, at_m: float) -
     return data
 
 
-def draw_section(data: SectionData, out_png: Path, *, size: int = 512, title: str = "") -> Path:
+def draw_section(data: SectionData, out_png: Path, *, size: int = 512) -> Path:
     """Rasterise ``data`` to a labelled PNG (plane axes, scale bar, legend)."""
     h_ax, v_ax = _PLANE_AXES[data.axis]
     hi, vi = _AXIS_INDEX[h_ax], _AXIS_INDEX[v_ax]
@@ -156,7 +153,7 @@ def draw_section(data: SectionData, out_png: Path, *, size: int = 512, title: st
     if len(legend) > 12:
         d.text((20, y), f"… +{len(legend) - 12} parts", fill=(20, 20, 20), font=small)
     # title + axes
-    ttl = title or f"section {data.axis} = {data.at_m:.3f} m"
+    ttl = f"section {data.axis} = {data.at_m:.3f} m"
     d.text((size - 6 - d.textlength(ttl, font=font), 6), ttl, fill=(0, 0, 0), font=font)
     d.text((size - 16, size / 2 - 8), h_ax, fill=(120, 0, 0), font=font)
     d.text((size / 2 - 4, 20), v_ax, fill=(0, 90, 0), font=font)
@@ -229,37 +226,6 @@ def cross_section(
                "total_area_m2": round(data.total_area_m2, 6), "hollow_ratio": round(data.hollow_ratio, 3),
                "parts_cut": per_part}
     return Observation(ok=True, text=text, numbers=numbers, images=[str(out)])
-
-
-def slices_sheet(glb: Path | str, axis: str, n: int, out_png: Path | str, *, parts: Sequence[str] | None = None, tile: int = 320) -> Observation:
-    """``n`` evenly spaced sections along ``axis`` tiled into one labelled grid
-    (``sheet.contact_sheet``; each tile carries its own title, so no sheet labels)."""
-    axis = axis.lower()
-    if axis not in _AXIS_INDEX:
-        return Observation.error(f"axis must be one of x|y|z, got {axis!r}")
-    n = int(max(1, min(n, 12)))
-    try:
-        sel = _load_parts(glb, parts)
-    except (GlbLoadError, KeyError) as e:
-        return Observation.error(f"slices_sheet: {e}")
-    if not sel:
-        return Observation.error("slices_sheet: no mesh parts in the GLB")
-    out = Path(out_png)
-    numbers: dict[str, object] = {"axis": axis, "n": n, "slices": []}
-    tiles: list[tuple[str, Path]] = []
-    for i in range(n):
-        frac = (i + 0.5) / n
-        at_m = _resolve_at(sel, axis, frac, False)
-        data = compute_section(sel, axis, at_m)
-        tmp = out.with_name(f"{out.stem}_{i}.png")
-        tiles.append((f"{axis}={at_m:.3f}", draw_section(data, tmp, size=tile, title=f"{axis}={at_m:.3f} m ({frac:.2f})")))
-        numbers["slices"].append({"at_m": round(at_m, 4), "n_loops": data.n_loops,  # type: ignore[attr-defined]
-                                  "area_m2": round(data.total_area_m2, 6), "hollow_ratio": round(data.hollow_ratio, 3)})
-    contact_sheet(tiles, out, cols=min(n, 4), tile=tile, label=False)
-    for _, tmp in tiles:
-        tmp.unlink(missing_ok=True)
-    summary = "; ".join(f"{s['at_m']:.3f}m: {s['n_loops']} loops, hollow {s['hollow_ratio']:.0%}" for s in numbers["slices"])  # type: ignore[index]
-    return Observation(ok=True, text=f"{n} sections along {axis}: {summary}", numbers=numbers, images=[str(out)])
 
 
 # ===================================================================== judge slices (D48)

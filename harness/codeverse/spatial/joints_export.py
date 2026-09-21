@@ -11,7 +11,6 @@ Non-root link nodes carry ``extras.joint`` and the scene carries
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -54,7 +53,7 @@ def robot_node_name(robot: Robot) -> str:
     return name
 
 
-def robot_scene(robot: Robot, pose: dict[str, float] | None = None, *, joint_extras_on: bool = True) -> trimesh.Scene:
+def robot_scene(robot: Robot, pose: dict[str, float] | None = None) -> trimesh.Scene:
     """Build the trimesh.Scene (hierarchical, Y-up) for ``robot`` at ``pose``."""
     fk(robot, pose or {})  # validates joint names
     # the RESOLVED pose: a <mimic> follower moves with its driver in the export too, not
@@ -64,10 +63,8 @@ def robot_scene(robot: Robot, pose: dict[str, float] | None = None, *, joint_ext
     scene = trimesh.Scene(base_frame=SCENE_BASE_FRAME)  # never a link name (a link 'world' would close a cycle)
     robot_node = robot_node_name(robot)
     meta = {"links": robot.link_order(), "frame": "y_up_pos_z_front", "pose": dict(pose), "units": "meters"}
-    if joint_extras_on:
-        meta["joints"] = [joint_extras(j) for j in robot.joints.values()]
-    scene.graph.update(frame_to=robot_node, frame_from=scene.graph.base_frame, matrix=ZUP_TO_YUP,
-                       metadata=meta if joint_extras_on else None)
+    meta["joints"] = [joint_extras(j) for j in robot.joints.values()]
+    scene.graph.update(frame_to=robot_node, frame_from=scene.graph.base_frame, matrix=ZUP_TO_YUP, metadata=meta)
     for name in robot.link_order():
         link = robot.links[name]
         j = robot.parent_joint(name)
@@ -75,7 +72,7 @@ def robot_scene(robot: Robot, pose: dict[str, float] | None = None, *, joint_ext
             parent_node, local = robot_node, np.eye(4)
         else:
             parent_node, local = j.parent, j.origin @ j.motion(float(pose.get(j.name, 0.0)))
-        extras = {"joint": joint_extras(j)} if (j is not None and joint_extras_on) else None
+        extras = {"joint": joint_extras(j)} if j is not None else None
         pieces = link.submeshes or ([link.mesh] if link.mesh is not None else [])
         if len(pieces) == 1:
             scene.add_geometry(pieces[0].copy(), node_name=name, geom_name=name, parent_node_name=parent_node,
@@ -89,11 +86,11 @@ def robot_scene(robot: Robot, pose: dict[str, float] | None = None, *, joint_ext
     return scene
 
 
-def urdf_to_glb(robot: Robot, out_glb: Path | str, pose: dict[str, float] | None = None, *, joint_extras: bool = True) -> Path:
+def urdf_to_glb(robot: Robot, out_glb: Path | str, pose: dict[str, float] | None = None) -> Path:
     """Write the canonical hierarchical GLB for ``robot`` at ``pose`` (default rest)."""
     out = Path(out_glb)
     out.parent.mkdir(parents=True, exist_ok=True)
-    scene = robot_scene(robot, pose, joint_extras_on=joint_extras)
+    scene = robot_scene(robot, pose)
     out.write_bytes(scene.export(file_type="glb"))
     return out
 
@@ -107,7 +104,6 @@ def render_poses(
     views: Sequence[ViewPreset] | None = None,
     width: int = 512,
     height: int = 512,
-    sheet_view: str | None = None,
 ) -> list[tuple[str, RenderSet]]:
     """Export one GLB per pose, render ``views`` for each (default: 3 quick views)
     and write ``out_dir/articulation_sheet.png`` (rest / each joint at lower & upper
@@ -123,13 +119,6 @@ def render_poses(
         rs = render_glb(glb, out_dir / f"pose_{safe}", views=views, width=width, height=height, sheet=False)
         results.append((label, rs))
         for v in rs.views:
-            if sheet_view is None or v.name == sheet_view:
-                tiles.append((f"{label} · {v.name}", Path(v.path)))
-    contact_sheet(tiles, out_dir / ARTICULATION_SHEET_NAME, cols=len(views) if sheet_view is None else 4)
+            tiles.append((f"{label} · {v.name}", Path(v.path)))
+    contact_sheet(tiles, out_dir / ARTICULATION_SHEET_NAME, cols=len(views))
     return results
-
-
-if __name__ == "__main__":  # tiny manual CLI: python -m codeverse.spatial.joints_export robot.urdf out.glb
-    from codeverse.spatial.joints_model import load_urdf
-
-    urdf_to_glb(load_urdf(sys.argv[1]), sys.argv[2])

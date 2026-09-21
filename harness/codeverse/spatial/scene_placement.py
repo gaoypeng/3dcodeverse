@@ -24,7 +24,6 @@ posts 0.97 m into the pond bed — a naive "> 0.10 m" rule flagged all of them
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Sequence
 from typing import Any
 
@@ -258,11 +257,11 @@ def _cap_per_kind(findings: list[GateFinding]) -> list[GateFinding]:
     return out
 
 
-def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool = False, duration_ms: int = 0) -> GateReport:
+def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool = False) -> GateReport:
     """The ``scene_placement`` GateReport for one census placement table (pure)."""
     t = table if isinstance(table, PlacementTable) else PlacementTable.model_validate(table or {})
     if t.error:
-        return GateReport(gate=GATE, passed=True, duration_ms=duration_ms, findings=[
+        return GateReport(gate=GATE, passed=True, findings=[
             _f(Severity.WARN, f"placement probe failed: {t.error[:300]}", target="scene", kind="probe_failed",
                hint="harness instrumentation, not your code; the placement check was skipped this round")])
     floating_m = FLOATING_INDOOR_M if indoor else FLOATING_OUTDOOR_M
@@ -278,7 +277,7 @@ def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool =
     findings.insert(0, _f(Severity.INFO, summary, target="scene", kind="summary", counts=counts, checked=t.checked, total=t.total,
                           exempt=t.exempt, truncated=t.truncated))
     passed = not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=duration_ms)
+    return GateReport(gate=GATE, passed=passed, findings=findings)
 
 
 # --------------------------------------------------------------------------- plan-aware checks
@@ -591,15 +590,6 @@ def setting_text(plan: Any) -> str:
     if isinstance(plan, dict):
         return " ".join(str(plan.get(k) or "") for k in ("setting", "environment", "title"))
     return " ".join(str(getattr(plan, k, "") or "") for k in ("setting", "environment", "title"))
-
-
-def check_placement(ws: Workspace, *, indoor: bool | None = None, force_probe: bool = False, timeout_s: float = 60.0) -> GateReport:
-    """Gate ``scene_placement`` for a workspace (census of the last build, or a fresh probe)."""
-    t0 = time.time()
-    census = placement_census(ws, force_probe=force_probe, timeout_s=timeout_s)
-    if indoor is None:
-        indoor = is_interior(read_json_or_none(ws.plan_path))
-    return placement_findings(census.get("placement") or {}, indoor=indoor, duration_ms=int((time.time() - t0) * 1000))
 
 
 def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None,

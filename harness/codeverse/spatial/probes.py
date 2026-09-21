@@ -69,7 +69,7 @@ def _f(gate: str, sev: Severity, msg: str, *, target: str | None = None, hint: s
     return GateFinding(gate=gate, severity=sev, target=target, message=msg, fix_hint=hint, data=data)
 
 
-def probe_scene(ws: Workspace, *, timeout_s: float = 60.0, write_census: bool = True) -> SceneProbeResult:
+def probe_scene(ws: Workspace, *, timeout_s: float = 60.0) -> SceneProbeResult:
     """Import-only probe: module loads, shape valid, cameras valid, update runs, census."""
     t0 = time.time()
     gate = PROBE_GATE
@@ -86,7 +86,7 @@ def probe_scene(ws: Workspace, *, timeout_s: float = 60.0, write_census: bool = 
         return _result(GateReport(gate=gate, passed=False, findings=findings, duration_ms=int((time.time() - t0) * 1000)), census,
                        driver_failure=f"scene probe could not run: {e}"[:800])
     report, census = probe_report(res.summary, duration_ms=int((time.time() - t0) * 1000))
-    if write_census and census:
+    if census:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         (ws.artifacts / "census.json").write_text(json.dumps(census, indent=1))
     return _result(report, census)

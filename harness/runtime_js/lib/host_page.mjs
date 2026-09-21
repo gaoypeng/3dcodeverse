@@ -26,14 +26,11 @@ function clean(s) {
 }
 
 /**
- * createScene() boot timeout for a driver: an explicit --create-timeout-ms
- * wins, else 60% of the driver budget capped at 20 s — always below the
- * watchdog so a hung boot is an agent-attributed scene failure (exit 1 with
- * boot.stage = 'createScene'), never a watchdog kill (exit 3).
+ * createScene() boot timeout for a driver: 60% of the driver budget capped at
+ * 20 s — always below the watchdog so a hung boot is an agent-attributed scene
+ * failure (exit 1 with boot.stage = 'createScene'), never a watchdog kill (exit 3).
  */
-export function createTimeoutMs(flagValue, driverTimeoutMs) {
-  const flag = parseInt(flagValue || '', 10);
-  if (Number.isFinite(flag) && flag > 0) return flag;
+export function createTimeoutMs(driverTimeoutMs) {
   return Math.min(20000, Math.max(1000, Math.round(0.6 * driverTimeoutMs)));
 }
 

@@ -4,7 +4,7 @@
 //   node runtime_js/render_glb.mjs --glb <path> --out <dir> --views '<json [{name,azimuth,elevation}]>'
 //        [--mode shaded|wire|normals|silhouette|clay] [--width 768] [--height 768]
 //        [--isolate Name1,Name2] [--explode 0.3] [--background studio|white|transparent]
-//        [--anim-time t] [--gpu auto|on|off] [--shadow 1|0] [--fill 0.90] [--timeout-s 240]
+//        [--anim-time t] [--gpu auto|on|off] [--shadow 1|0] [--timeout-s 240]
 //
 // Writes <out>/view_<name>.png for every view + <out>/views.json, and prints one JSON
 // line last on stdout: {ok, renderer, gpu, views:[{name,path,camera_position,look_at,fov,...}],
@@ -28,7 +28,7 @@ function config() {
     glb: {}, out: {}, views: {},
     mode: { default: 'shaded' }, width: { default: '768' }, height: { default: '768' },
     isolate: { default: '' }, explode: { default: '0' }, background: { default: 'studio' },
-    'anim-time': {}, gpu: { default: 'auto' }, shadow: { default: '1' }, fill: { default: '0.90' },
+    'anim-time': {}, gpu: { default: 'auto' }, shadow: { default: '1' },
     'timeout-s': { default: '240' },
   });
   if (!values.glb || !values.out || !values.views) throw new Error('--glb, --out and --views are required');
@@ -52,7 +52,6 @@ function config() {
     animTime: values['anim-time'] != null ? Number(values['anim-time']) : null,
     gpu: values.gpu,
     shadow: values.shadow !== '0',
-    fill: Number(values.fill) || 0.90,
     timeoutMs: Number(values['timeout-s']) * 1000,
   };
 }

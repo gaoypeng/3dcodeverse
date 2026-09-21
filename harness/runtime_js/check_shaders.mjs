@@ -24,7 +24,7 @@ import { compileIntoReport, staticShaderReport } from './lib/shader_report.mjs';
 
 const args = parseCli({
   ws: {}, module: {}, out: {}, gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' },
-  'timeout-ms': { default: '90000' }, 'no-compile': { type: 'boolean', default: false },
+  'timeout-ms': { default: '90000' },
 });
 
 async function main() {
@@ -35,16 +35,14 @@ async function main() {
   const { report, files } = staticShaderReport(ws, args.module || null);
   const { errors, warnings } = report;
 
-  if (!args['no-compile']) {
-    let host = null;
-    try {
-      host = await openHost(ws, { width: 256, height: 144, gpu: args.gpu });
-      await compileIntoReport(report, files, host);
-      await host.close();
-    } catch (e) {
-      if (host) await host.close().catch(() => {});
-      return fail(`compile preflight failed: ${e.message}`, { errors, warnings });
-    }
+  let host = null;
+  try {
+    host = await openHost(ws, { width: 256, height: 144, gpu: args.gpu });
+    await compileIntoReport(report, files, host);
+    await host.close();
+  } catch (e) {
+    if (host) await host.close().catch(() => {});
+    return fail(`compile preflight failed: ${e.message}`, { errors, warnings });
   }
   report.ok = errors.length === 0;
   report.duration_ms = Date.now() - t0;

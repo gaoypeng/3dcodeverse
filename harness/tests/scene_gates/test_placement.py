@@ -16,7 +16,6 @@ from codeverse.judges.rubrics import apply_caps, load_rubric
 from codeverse.orchestrator import build_refine_instructions
 from codeverse.spatial.scene_placement import (
     GATE,
-    check_placement,
     infer_indoor,
     placement_findings,
     placement_gate_safe,
@@ -164,15 +163,16 @@ def test_pipeline_gates_append_placement_after_census_and_never_raise():
 
 
 def test_check_placement_reads_the_last_census_and_the_table_text(tmp_path):
+    from codeverse.spatial.registry import ToolContext, get_tool
     from codeverse.workspace import Workspace
 
     ws = Workspace(tmp_path / "run").create()
     ws.artifacts.mkdir(parents=True, exist_ok=True)
     table = _table(_row("Lantern", gap=0.3), _row("Rock", sunk=0.3, into="Terrain", h=1.0))
     (ws.artifacts / "census.json").write_text(json.dumps({"totals": {}, "placement": table}))
-    ws.plan_path.write_text(json.dumps({"setting": "a cabin interior", "environment": "", "title": "x"}))
-    r = check_placement(ws)
-    assert not r.passed and "indoor tolerance 2 cm" in r.findings[0].message
+    ws.plan_path.write_text(_contract_plan().model_copy(update={"setting": "a cabin interior"}).model_dump_json())
+    obs = get_tool("check_placement").call(ToolContext(workspace=ws, language=Language.SCENE_THREEJS.value), {})
+    assert not obs.ok and "indoor tolerance 2 cm" in obs.text
     text = placement_table_text(table)
     assert "Yard/Lantern | +0.300 | Ground | 0.000 | - | - | -" in text and "Yard/Rock | +0.000 | Ground | 0.300 | Terrain" in text
 

@@ -708,18 +708,9 @@ window.__c3v = {
   placement,
   ablation,
   fps,
-  setViewport(w, h) {
-    state.width = w; state.height = h;
-    state.renderer.setSize(w, h, false);
-    if (state.post) state.post.setSize(w, h);
-  },
   post: () => (state.postInfo ? { ...state.postInfo } : null),
   shaderErrors: () => state.shaderErrors.slice(),
-  loadErrors: () => state.loadErrors.slice(),
   updateErrors: () => state.updateErrors.slice(),
   cameras: () => state.cameras.slice(),
-  simTime: () => state.simTime,
-  THREE,
-  get scene() { return state.scene; },
 };
 window.__c3v_ready = true;

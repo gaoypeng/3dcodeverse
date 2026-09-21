@@ -188,14 +188,13 @@ def render_scene(
     fps_seconds: float = 2.0,
     timeout_s: float | None = None,
     bounds: BBox | None = None,
-    sheet_max_views: int = JUDGE_MAX_VIEWS,
 ) -> RenderSet:
     """Render authored (+ orbit) views at ``times``; returns a RenderSet.
 
     ``cameras=None`` uses the cameras authored in ``createScene()``.  ``bounds``
     (default: the workspace plan's bounds) guards the orbit framing against
     scatter that sprawls past the plan.  The contact sheet holds at most
-    ``sheet_max_views`` tiles (the ``select_judge_views`` subset; 0 = all).  A
+    ``JUDGE_MAX_VIEWS`` tiles (the ``select_judge_views`` subset).  A
     scene that fails to boot yields an empty RenderSet whose ``console_errors``
     say why (the build gate normally catches that earlier); a driver failure
     raises ``SceneRenderError``.
@@ -252,7 +251,7 @@ def render_scene(
         out_dir=str(out_dir),
     )
     # stamp the judge subset ONCE (select_judge_views stays a pure function)
-    chosen = select_judge_views(rs, max_n=sheet_max_views or len(views), orbit_names=[v.name for v in orbit_views])
+    chosen = select_judge_views(rs, max_n=JUDGE_MAX_VIEWS, orbit_names=[v.name for v in orbit_views])
     keep = {id(v) for v in chosen.views}  # same objects, so identity is exact
     for v in rs.views:
         v.judge = id(v) in keep

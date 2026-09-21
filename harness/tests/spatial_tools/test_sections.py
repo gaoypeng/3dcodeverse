@@ -6,7 +6,7 @@ import pytest
 import trimesh
 from PIL import Image
 
-from codeverse.spatial.sections import SliceManifest, cross_section, judge_slices, slices_sheet
+from codeverse.spatial.sections import SliceManifest, cross_section, judge_slices
 
 
 def test_cross_section_stool(stool_glb: Path, tmp_path: Path) -> None:
@@ -38,13 +38,6 @@ def test_bad_inputs(stool_glb: Path, tmp_path: Path) -> None:
     o = cross_section(stool_glb, "y", 0.5, tmp_path / "x.png", parts=["Nope"])
     assert not o.ok and "Nope" in o.text and "Seat" in o.text
     assert not cross_section(tmp_path / "missing.glb", "y", 0.5, tmp_path / "x.png").ok
-
-
-def test_slices_sheet(stool_glb: Path, tmp_path: Path) -> None:
-    out = tmp_path / "slices.png"
-    o = slices_sheet(stool_glb, "y", 5, out)
-    assert o.ok and out.is_file() and len(o.numbers["slices"]) == 5
-    assert all(s["n_loops"] == 4 for s in o.numbers["slices"][:4])
 
 
 # ===================================================================== judge slices (D48)

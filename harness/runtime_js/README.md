@@ -65,7 +65,7 @@ export_glb.mjs        node --import lib/resolve_three.mjs export_glb.mjs --ws <w
                       {ok:false,error:{type,message,file,line,frames,part?}}
 render_glb.mjs        --glb --out --views '[{name,azimuth,elevation}]' [--mode shaded|wire|normals|silhouette|clay]
                       [--width --height] [--isolate A,B] [--explode 0.3] [--background studio|white|transparent]
-                      [--anim-time t] [--gpu auto|on|off] [--shadow 0|1] [--fill 0.85]
+                      [--anim-time t] [--gpu auto|on|off] [--shadow 0|1]
                       writes view_<name>.png + views.json; last stdout line = JSON record.  Thin entry:
                       args/JSON protocol from lib/cli.mjs, browser + server from lib/host_env.mjs,
                       browser release from lib/host_page.mjs, everything visual from lib/browser/

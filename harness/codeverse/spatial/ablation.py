@@ -30,13 +30,11 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codeverse.contracts.plan import CameraPlan
 from codeverse.proc import read_json_or_none
 from codeverse.spatial.render_scene import SceneRenderError, run_scene_script
 from codeverse.workspace import Workspace
@@ -60,8 +58,6 @@ class CameraAblation(BaseModel):
 
     camera: str
     changed_frac: float = Field(description="fraction of pixels the custom shaders change")
-    mean_abs: float = 0.0
-    pixels: int = 0
 
 
 class MaterialAblation(BaseModel):
@@ -89,9 +85,6 @@ class AblationReport(BaseModel):
     per_material_measured: bool = False
     per_material_cameras: list[str] = Field(default_factory=list)
     time_s: float = DEFAULT_TIME_S
-    sim_time: float | None = None
-    threshold: int = 8
-    grid: list[int] = Field(default_factory=list, description="[w, h] of the diff readback")
     images: list[str] = Field(default_factory=list, description="authored/ablated PNG pairs (absolute paths)")
     console_errors: list[str] = Field(default_factory=list)
     error: str = ""
@@ -150,23 +143,12 @@ class AblationReport(BaseModel):
         return lines
 
 
-def _cameras_arg(cameras: Sequence[CameraPlan] | None) -> str:
-    if not cameras:
-        return "authored"
-    return json.dumps([{"name": c.name, "position": list(c.position), "lookAt": list(c.look_at), "fov": c.fov}
-                       for c in cameras])
-
-
 def ablate_scene(
     ws: Workspace,
     *,
     out_dir: Path | None = None,
-    cameras: Sequence[CameraPlan] | None = None,
     time_s: float = DEFAULT_TIME_S,
-    width: int = 512,
-    height: int = 288,
     frames: bool = True,
-    max_materials: int = MAX_MATERIALS,
     timeout_s: float = 120.0,
 ) -> AblationReport:
     """Measure how much of the frame the workspace's custom shaders paint.
@@ -182,9 +164,7 @@ def ablate_scene(
     out.mkdir(parents=True, exist_ok=True)
     args = [
         "--ws", str(ws.root), "--out", str(out), "--t", f"{time_s:g}",
-        "--width", str(width), "--height", str(height),
-        "--max-materials", str(max_materials),
-        "--cameras", _cameras_arg(cameras),
+        "--max-materials", str(MAX_MATERIALS),
         "--timeout-ms", str(int(timeout_s * 1000)),
     ]
     if frames:
@@ -201,7 +181,6 @@ def _report(summary: dict[str, Any], out_dir: Path, *, duration_ms: int = 0) -> 
             p = out_dir / str(f.get(key) or "")
             if f.get(key) and p.is_file():
                 images.append(str(p))
-    grid = list(summary.get("grid") or [])
     return AblationReport(
         ok=bool(summary.get("ok")),
         custom_materials=int(summary.get("custom_materials") or 0),
@@ -212,9 +191,6 @@ def _report(summary: dict[str, Any], out_dir: Path, *, duration_ms: int = 0) -> 
         per_material_measured=bool(summary.get("per_material_measured")),
         per_material_cameras=[str(c) for c in summary.get("per_material_cameras") or []],
         time_s=float(summary.get("time_s") or DEFAULT_TIME_S),
-        sim_time=summary.get("sim_time"),
-        threshold=int(summary.get("threshold") or 8),
-        grid=[int(v) for v in grid[:2]],
         images=images,
         console_errors=[str(e)[:400] for e in (summary.get("console_errors") or [])][:10],
         error=str(summary.get("error") or ""),

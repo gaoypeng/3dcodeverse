@@ -151,5 +151,3 @@ export function contactShadowTexture(size = 128, { power = 2.4 } = {}) {
   tex.needsUpdate = true;
   return tex;
 }
-
-export const ENV_CONSTANTS = { DOME_STOPS, SOFTBOXES };

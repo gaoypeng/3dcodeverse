@@ -141,7 +141,7 @@ def render_glb(
         try:
             record = _run_render(glb, out_dir, params, gpu=gpu, timeout_s=timeout_s)
         except RenderError as e:
-            if not _transient(e):
+            if not transient_failure(e):
                 raise
             # compare_art_v4 (2026-08-28): under 12 concurrent cells the browser took 7.5 s to
             # open a page and the viewer's wait expired ("Waiting failed"); the cell lost its
@@ -186,10 +186,6 @@ def render_glb(
 #: The vocabulary lives in `spatial/node.py` next to the browser-loss half, shared with
 #: the scene drivers since 2026-09-07 (they used to retry only a browser loss).
 RETRY_PAUSE_S = 3.0
-
-
-def _transient(e: Exception) -> bool:
-    return transient_failure(e)
 
 
 def _run_render(

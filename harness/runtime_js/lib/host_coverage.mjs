@@ -14,8 +14,6 @@
 import { classifyBackdrop, nonSolid } from './backdrop.mjs';
 import { sampleFrame } from './host_metrics.mjs';
 
-export { classifyBackdrop };   // re-export: this module used to own the classifier
-
 
 function collectDrawables(scene, THREE, contentSpan) {
   const out = [];

@@ -27,7 +27,7 @@ const args = parseCli({
   ws: {}, out: { default: '' }, cameras: { default: 'authored' }, t: { default: '1.5' },
   width: { default: '512' }, height: { default: '288' }, 'max-materials': { default: '8' },
   frames: { type: 'boolean', default: false }, gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' },
-  'timeout-ms': { default: '120000' }, 'create-timeout-ms': { default: '' },
+  'timeout-ms': { default: '120000' },
 });
 
 async function main() {
@@ -44,7 +44,7 @@ async function main() {
   try {
     host = await openHost(args.ws, {
       width, height, gpu: args.gpu,
-      createSceneTimeoutMs: createTimeoutMs(args['create-timeout-ms'], timeoutMs),
+      createSceneTimeoutMs: createTimeoutMs(timeoutMs),
     });
   } catch (e) {
     return fail(`host failed: ${e.message}`);

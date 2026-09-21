@@ -33,11 +33,10 @@ const args = parseCli({
   'auto-exposure': { type: 'boolean', default: false },
   // The probe is a 320x180 GEOMETRY instrument, never a judged picture: it runs raw
   // so its shader report names the scene's own programs and nothing of ours.  The
-  // flags parse (drivers share a switch list) but only `--post` turns the chain on.
+  // flag parses (drivers share a switch list) and changes nothing.
   'no-post': { type: 'boolean', default: false },
-  post: { type: 'boolean', default: false },
   ws: {}, out: {}, gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' }, 'timeout-ms': { default: '60000' },
-  'create-timeout-ms': { default: '' }, 'update-steps': { default: '10' }, scene: { default: 'src/scene.js' },
+  scene: { default: 'src/scene.js' },
   compile: { type: 'boolean', default: false }, 'shaders-out': { default: '' }, 'sun-azimuth': { default: '' },
 });
 
@@ -63,11 +62,11 @@ async function main() {
   try {
     host = await openHost(args.ws, {
       width: 320, height: 180, gpu: args.gpu, sceneRel: args.scene.replace(/^\.?\//, ''),
-      createSceneTimeoutMs: createTimeoutMs(args['create-timeout-ms'], timeoutMs),
+      createSceneTimeoutMs: createTimeoutMs(timeoutMs),
       settle: !args['no-settle'],
       cameraRepair: !!args['camera-repair'],
       autoExposure: !!args['auto-exposure'],
-      post: !!args.post && !args['no-post'],
+      post: false,
     });
   } catch (e) {
     return fail(`host failed: ${e.message}`);
@@ -85,7 +84,6 @@ async function main() {
         result.census.placement = { error: String((e && e.message) || e).slice(0, 400) };
       }
       // exercise update() for a few fixed steps and one tiny render (lazy programs compile)
-      const steps = parseInt(args['update-steps'], 10);
       const upd = await page.evaluate((n) => {
         try {
           const cam = window.__c3v.cameras()[0];
@@ -94,7 +92,7 @@ async function main() {
         } catch (e) {
           return { ok: false, error: String((e && e.stack) || e).slice(0, 800) };
         }
-      }, steps);
+      }, 10);
       result.update_ok = upd.ok;
       result.update_error = upd.error || '';
       result.first_render_ms = upd.ms;

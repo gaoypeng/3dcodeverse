@@ -210,15 +210,14 @@ def test_request_failure_line_filters_phantom_aborts():
         "  responded: requestFailureLine('http://x/assets/a.glb', 'http://x', true, 'net::ERR_FAILED'),\n"
         "  real: requestFailureLine('http://x/assets/a.glb', 'http://x', false, 'net::ERR_CONNECTION_REFUSED'),\n"
         "  offsite: requestFailureLine('http://cdn/other.js', 'http://x', false, 'net::ERR_FAILED'),\n"
-        "  cs_default: createTimeoutMs('', 240000),\n"
-        "  cs_flag: createTimeoutMs('3000', 240000),\n"
-        "  cs_small_budget: createTimeoutMs('', 10000),\n"
+        "  cs_default: createTimeoutMs(240000),\n"
+        "  cs_small_budget: createTimeoutMs(10000),\n"
         "}));\n"
     )
     assert res["phantom"] is None and res["aborted"] is None and res["responded"] is None
     assert res["real"] == "request failed: /assets/a.glb (net::ERR_CONNECTION_REFUSED)"
     assert res["offsite"] is None
-    assert res["cs_default"] == 20000 and res["cs_flag"] == 3000 and res["cs_small_budget"] == 6000
+    assert res["cs_default"] == 20000 and res["cs_small_budget"] == 6000
 
 
 # ---------------------------------------------------------------- env flags (review-3 S4)

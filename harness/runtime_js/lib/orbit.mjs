@@ -154,7 +154,7 @@ export function fitOverviewCamera(bbox, { azimuth = 45, elevation = 30, fov = 50
  * fitOverviewCamera above 20°, fitZoneCamera at eye level.
  * @returns {Array<{name, position, lookAt, fov, kind:'orbit'}>}
  */
-export function fitOrbitCameras(bbox, views, { fov = 50, aspect = 16 / 9, groundY = null, margin = 1.05, noFog = true } = {}) {
+export function fitOrbitCameras(bbox, views, { fov = 50, aspect = 16 / 9, groundY = null, margin = 1.05 } = {}) {
   if (!bbox || !bbox.min || !bbox.max) return [];
   const out = [];
   for (const v of views) {
@@ -162,7 +162,7 @@ export function fitOrbitCameras(bbox, views, { fov = 50, aspect = 16 / 9, ground
     const fit = el <= 20
       ? fitZoneCamera(bbox, { azimuth: v.azimuth, floor: groundY, fov })
       : fitOverviewCamera(bbox, { azimuth: v.azimuth, elevation: el, fov, aspect, groundY, margin });
-    out.push({ name: v.name, ...fit, kind: 'orbit', noFog: !!noFog && el > 20 });
+    out.push({ name: v.name, ...fit, kind: 'orbit', noFog: el > 20 });
   }
   return out;
 }

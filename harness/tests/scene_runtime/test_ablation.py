@@ -310,7 +310,7 @@ def test_summary_names_the_shader_that_is_not_in_the_frame() -> None:
     r = AblationReport(
         ok=True, custom_materials=2, per_material_measured=True,
         max_changed_frac=0.21, content_changed_frac=0.21, per_material_cameras=["front"],
-        cameras=[{"camera": "front", "changed_frac": 0.21, "mean_abs": 0.03, "pixels": 100}],
+        cameras=[{"camera": "front", "changed_frac": 0.21}],
         materials=[{"material": "rain", "kind": "ShaderMaterial", "changed_frac": 0.21, "meshes": 1, "camera": "front"},
                    {"material": "glow", "kind": "onBeforeCompile", "changed_frac": 0.0, "meshes": 2}],
     )
