@@ -117,14 +117,9 @@ DEFAULT_PARTS_PER_SCOPE = 3
 
 def scoped_generation_enabled(default: bool = True) -> bool:
     """``CV3D_SCOPED_PARTS=off|0|false`` turns per-part scoped baselines off (A/B, debugging)."""
-    import os
+    from codeverse.config import env_flag
 
-    raw = os.environ.get("CV3D_SCOPED_PARTS", "").strip().lower()
-    if raw in ("off", "0", "false", "no"):
-        return False
-    if raw in ("on", "1", "true", "yes"):
-        return True
-    return default
+    return env_flag("CV3D_SCOPED_PARTS", default)
 
 
 @dataclass(frozen=True)

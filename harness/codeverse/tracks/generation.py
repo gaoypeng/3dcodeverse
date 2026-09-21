@@ -549,7 +549,6 @@ def run_agent_task(
     settings: Any | None = None,
     budget: Any | None = None,
     events: Any | None = None,
-    retry_silent_bail: bool = True,
     max_turns: int = 0,
     wrapup_turns: int = DEFAULT_WRAPUP_TURNS,
 ) -> GenerationResult:
@@ -620,8 +619,7 @@ def run_agent_task(
         changes = res.files_changed or changes or _attributed_fallback(ws, task, before)
 
     if (
-        retry_silent_bail
-        and not changes
+        not changes
         and not acc.wrapped
         and res.exit_reason not in ("timeout", "budget")
     ):

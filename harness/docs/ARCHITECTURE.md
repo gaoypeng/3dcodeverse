@@ -446,7 +446,7 @@ repeat while StopPolicy says continue (≤ max_rounds refine rounds, plateau_win
              a cap a caller sets (CV3D_AGENT_MAX_TURNS / task; no profile sets one) still buys a wrap-up session
              that lands a final build + summary instead of being killed) → build+repair (error-focused,
              escalates on identical signatures) → gates → … → judge (SKIPPED only where the verdict is never
-             bought at all: no judge/renders, budget already exceeded, or judge_on_gate_errors=False)
+             bought at all: no judge/renders or budget already exceeded)
    BestSelector: highest score, tie → fewer gate errors; |Δ| < pairwise_margin (0.03) → position-swapped
    PairwiseJudge decides (replace only at confidence ≥ 0.6; note persisted in rNN.json)
    every round emits cost.round {stage → $, judge $, agent turns, wasted flag}; a round that raises mid-way

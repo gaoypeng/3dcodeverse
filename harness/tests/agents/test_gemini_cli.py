@@ -192,6 +192,19 @@ def test_pool_exhausted_before_first_attempt_is_a_budget_result(tmp_ws: Workspac
     assert not res.ok and res.exit_reason == "budget" and "exhausted" in res.errors[0]
 
 
+def test_a_raising_invoke_gives_its_pool_slot_back(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
+    """The pool is process-wide: a slot leaked here is gone for every later session."""
+    from codeverse.agents import backends as gc
+
+    def boom(*a, **k):
+        raise OSError("cannot spawn")
+
+    monkeypatch.setattr(gc, "invoke", boom)
+    with pytest.raises(OSError, match="cannot spawn"):
+        agent.run(_job(tmp_ws))
+    assert gc._key_pool(get_settings().gemini_api_keys).stats()["in_flight"] == 0  # noqa: SLF001
+
+
 def test_timeout_is_reported(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     monkeypatch.setenv("FAKE_MODE", "hang")
     monkeypatch.setattr("codeverse.agents.cli_common.IDLE_GRACE_S", 1.0)

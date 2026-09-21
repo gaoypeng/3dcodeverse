@@ -1,4 +1,4 @@
-"""Offline tests for the bpy skeleton generator (multi-file default + single-file variant)."""
+"""Offline tests for the bpy skeleton generator."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import ast
 
 from codeverse.contracts.plan import BBox
 from codeverse.languages.blender import (
-    blender_skeleton_source,
     finish_for,
     instance_centers,
     lint_blender_source,
@@ -15,19 +14,6 @@ from codeverse.languages.blender import (
     part_file_source,
     write_blender_skeleton,
 )
-
-
-def test_single_file_skeleton_parses_lints_and_names_parts(table_plan) -> None:
-    src = blender_skeleton_source(table_plan)
-    ast.parse(src)
-    assert "import codeverse" not in src and "from codeverse" not in src and "from parts" not in src
-    for fn in ("def build_table_top(", "def build_leg(", "def build_shelf(", "def main():", "def _selfcheck("):
-        assert fn in src
-    assert 'add_box("TableTop"' in src and 'add_box(f"Leg_{i}"' in src
-    assert "add_empty" not in src and ".parent" not in src  # instances stay TOP-LEVEL (measured as parts)
-    assert "Z is up, -Y is the FRONT" in src and "[a1]" in src and "LEG_EXTENTS = (0.040, 0.040, 0.560)" in src
-    r = lint_blender_source(src)
-    assert r.passed, [f.message for f in r.findings]
 
 
 def test_part_file_source_is_self_contained(table_plan) -> None:
@@ -66,12 +52,6 @@ def test_write_skeleton_multi_file_and_workspace_lint(tmp_ws, table_plan) -> Non
     rep = lint_workspace(tmp_ws)
     assert rep.passed, [(f.target, f.message) for f in rep.errors]
     assert not [f for f in rep.findings if f.severity.value == "warn"], [f.message for f in rep.findings]
-
-
-def test_write_skeleton_single_file(tmp_ws, table_plan) -> None:
-    paths = write_blender_skeleton(tmp_ws, table_plan, multi_file=False)
-    assert paths == [tmp_ws.src / "model.py"] and paths[0].is_file()
-    assert lint_workspace(tmp_ws).passed
 
 
 def test_instance_centers_symmetry() -> None:

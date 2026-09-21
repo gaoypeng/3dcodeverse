@@ -121,10 +121,6 @@ def test_judge_view_flags_and_path_reconstruction(tmp_path):
     rs = _rs([True, False, True])
     out = pipe.judge_views(ctx, rs)
     assert [v.name for v in out.views] == ["v0", "v2"]
-    # legacy render set (no flags) falls back to select_judge_views (identity here: few views)
-    legacy = _rs([None, None])
-    out2 = pipe.judge_views(ctx, legacy)
-    assert len(out2.views) == 2
 
     rs = _rs([True, False, None])
     sub = judged_subset(rs)

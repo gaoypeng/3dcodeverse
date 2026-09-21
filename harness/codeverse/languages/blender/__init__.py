@@ -223,8 +223,6 @@ def _rules(c: _Collector, source: str, *, target: str, expect_names: bool, expec
             out.append(_f(E, "shade_smooth(use_auto_smooth=...) was removed in 4.1", call.lineno, "use `bpy.ops.object.shade_smooth_by_angle(angle=0.523599)` or `bpy.ops.object.shade_auto_smooth()`"))
         if name.endswith(".calc_normals"):
             out.append(_f(E, "Mesh.calc_normals() was removed in 4.0 (normals are computed automatically)", call.lineno, "delete the call (use me.update() if needed)"))
-        if name == "bpy.ops.wm.redraw_timer":
-            pass
     for target, line in c.attr_stores:
         if target.endswith(".use_auto_smooth") or target.endswith(".auto_smooth_angle"):
             out.append(_f(E, f"`{target}` was removed in Blender 4.1", line, "use bpy.ops.object.shade_smooth_by_angle(angle=...) or mark sharp edges; or just shade_smooth()"))
@@ -581,11 +579,11 @@ def _part_function(p: PartPlan) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _plan_header(plan: StaticPlan, *, multi_file: bool) -> str:
+def _plan_header(plan: StaticPlan) -> str:
     ob = plan.overall_bbox
     parts_doc = "\n".join(
         f"  - {to_pascal(p.name)}{'' if p.instances == 1 else f' x{p.instances}'}: {p.role}; bbox center {_fmt(p.bbox.center)} "
-        f"extents {_fmt(p.bbox.extents)}" + (f"  [{part_file_rel(p.name)}]" if multi_file else "")
+        f"extents {_fmt(p.bbox.extents)}  [{part_file_rel(p.name)}]"
         for p in plan.parts
     )
     accept = "\n".join(f"  - [{a.id}] {a.text}" for a in plan.acceptance) or "  (none listed)"
@@ -593,8 +591,6 @@ def _plan_header(plan: StaticPlan, *, multi_file: bool) -> str:
         f"  * LAYOUT: this file is the ENTRY. Each part lives in src/{PARTS_DIR}/<snake>.py and exports\n"
         f"    build_<snake>() -> bpy.types.Object; main() below imports and calls them in order.\n"
         "    Edit geometry in the part files; keep this file to imports + calls + self-check.\n"
-        if multi_file else
-        "  * LAYOUT: single file (small object). One build_<snake>() per part, called from main().\n"
     )
     return f'''"""{plan.object_name} — Blender (bpy) model.
 
@@ -651,7 +647,7 @@ def model_file_source(plan: StaticPlan, *, ground_tol_m: float = 0.002) -> str:
     imports = "\n".join(f"from {PARTS_DIR}.{to_snake(p.name)} import {build_fn_name(p.name)}" for p in plan.parts)
     calls = "\n".join(f"    {build_fn_name(p.name)}()" for p in plan.parts)
     return (
-        _plan_header(plan, multi_file=True)
+        _plan_header(plan)
         + "import bpy\nfrom mathutils import Vector\n\n"
         + imports + "\n\n"
         + selfcheck_source(ground_tol_m)
@@ -660,20 +656,7 @@ def model_file_source(plan: StaticPlan, *, ground_tol_m: float = 0.002) -> str:
     )
 
 
-def blender_skeleton_source(plan: StaticPlan, *, ground_tol_m: float = 0.002) -> str:
-    """The same model as ONE ``src/model.py`` (small objects may use a single file)."""
-    body = "\n# ----------------------------------------------------------------------------- parts\n"
-    for p in plan.parts:
-        body += _constants(p) + "\n\n" + _part_function(p) + "\n\n"
-    calls = "\n".join(f"    {build_fn_name(p.name)}()" for p in plan.parts)
-    return (
-        _plan_header(plan, multi_file=False) + IMPORTS + HELPERS + body + selfcheck_source(ground_tol_m)
-        + "\ndef main():\n" + calls + "\n    _selfcheck()\n\n\nmain()\n"
-    )
-
-
-def write_blender_skeleton(ws: Workspace, plan: StaticPlan, *, multi_file: bool = True,
-                           ground_tol_m: float = 0.002) -> list[Path]:
+def write_blender_skeleton(ws: Workspace, plan: StaticPlan, *, ground_tol_m: float = 0.002) -> list[Path]:
     """Write the starter files (overwrites) and return the written paths (entry first).
 
     ``ground_tol_m`` is the self-check's "stands on z=0" tolerance: 2 mm for an object
@@ -681,9 +664,6 @@ def write_blender_skeleton(ws: Workspace, plan: StaticPlan, *, multi_file: bool 
     the scene seats anyway (`lib/place.js seat`) and whose module twin is allowed 20 mm."""
     ws.src.mkdir(parents=True, exist_ok=True)
     entry = ws.src / "model.py"
-    if not multi_file:
-        entry.write_text(blender_skeleton_source(plan, ground_tol_m=ground_tol_m))
-        return [entry]
     entry.write_text(model_file_source(plan, ground_tol_m=ground_tol_m))
     written = [entry]
     for p in plan.parts:
@@ -740,9 +720,6 @@ class BlenderRuntime(RuntimeDocs):
         """Workspace-relative file that owns a plan part: ``src/parts/<snake>.py``
         (the tracks call this via ``getattr`` to fan out per-part refinement)."""
         return part_file_rel(part_name)
-
-    def part_file(self, ws: Workspace, part_name: str) -> Path:
-        return ws.root / self.file_for_part(part_name)
 
     def build_command(
         self, ws: Workspace, *, stl: bool = True, blend: bool = False, seed: int = 0,

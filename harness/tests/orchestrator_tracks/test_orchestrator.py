@@ -100,14 +100,12 @@ def test_stage_runner_caches_by_input_hash(tmp_ws):
     assert len(calls) == 1
     assert runner.stage("s1", fn, inputs={"a": 2}) == {"x": 1}
     assert len(calls) == 2
-    runner.stage("s1", fn, inputs={"a": 2}, force=True)
-    assert len(calls) == 3
     kinds = [e["event"] for e in events.read()]
-    assert kinds.count("stage.cached") == 1 and kinds.count("stage.done") == 3
+    assert kinds.count("stage.cached") == 1 and kinds.count("stage.done") == 2
     # resume from disk with a fresh runner + state
     st = RunState.load(tmp_ws)
     r2 = StageRunner(tmp_ws, events, st)
-    assert r2.stage("s1", fn, inputs={"a": 2}) == {"x": 1} and len(calls) == 3
+    assert r2.stage("s1", fn, inputs={"a": 2}) == {"x": 1} and len(calls) == 2
     assert runner.result_path("a:b/c").name == "a_b_c.json"
 
 
@@ -146,11 +144,8 @@ def test_an_unreadable_cached_stage_is_a_miss_not_a_dead_run(tmp_ws):
     assert [e["event"] for e in events.read()].count("stage.cache_invalid") == 2
 
 
-def test_stage_runner_revives_models_and_raises(tmp_ws):
+def test_stage_runner_raises_and_records_nothing(tmp_ws):
     runner = StageRunner(tmp_ws, EventLog(tmp_ws.events_path))
-    r = runner.stage("rounds", lambda: [RoundRecord(index=0, kind="baseline")], inputs="x", list_of=RoundRecord)
-    r2 = runner.stage("rounds", lambda: None, inputs="x", list_of=RoundRecord)
-    assert isinstance(r2[0], RoundRecord) and r2[0].kind == r[0].kind
 
     def boom():
         raise RuntimeError("nope")

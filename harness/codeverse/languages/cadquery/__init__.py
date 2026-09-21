@@ -23,7 +23,7 @@ from codeverse.languages._ast_lint import (
 )
 from codeverse.languages._common import MISSING_ENTRY, compose_build_result
 from codeverse.languages._docs import RuntimeDocs
-from codeverse.languages.blender import finish_for, instance_centers
+from codeverse.languages.blender import _fmt, finish_for, instance_centers
 from codeverse.proc import run_subprocess, scrub_secrets
 from codeverse.workspace import Workspace
 
@@ -220,10 +220,6 @@ def lint_cadquery_file(path: Path, *, target: str = "src/model.py") -> GateRepor
 
 
 # ===================================================================== skeleton
-def _fmt(v: tuple[float, float, float]) -> str:
-    return "(" + ", ".join(f"{x:.3f}" for x in v) + ")"
-
-
 def _part_function(p: PartPlan) -> str:
     pascal, snake = to_pascal(p.name), to_snake(p.name)
     mn, mx = p.bbox.min, p.bbox.max

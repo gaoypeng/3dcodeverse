@@ -131,5 +131,5 @@ def test_run_agent_task_that_wrote_nothing_is_not_ok(tmp_path):
     (ws.root / "events.jsonl").write_text("{}\n")  # harness noise only
     agent = NonReportingAgent({})
     task = GenerationTask(label="asset_stone_lantern", prompt="p", files_hint=["src/assets/stone_lantern.js"])
-    res = run_agent_task(ws, agent=agent, task=task, retry_silent_bail=False)
+    res = run_agent_task(ws, agent=agent, task=task)
     assert not res.ok and res.files_changed == []

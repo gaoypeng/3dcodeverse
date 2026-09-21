@@ -31,7 +31,6 @@ from codeverse.agents.cli_common import (
     Session,
     begin_session,
     deliver_prompt,
-    estimate_cost_safe,
     exists_on_path,
     failed,
     find_json_object,
@@ -49,6 +48,7 @@ from codeverse.agents.materialize import MCP_SERVER_NAME, MCP_TOOL_TIMEOUT_MS, c
 from codeverse.config import get_settings
 from codeverse.contracts.agent import AgentJob, AgentResult
 from codeverse.contracts.common import Usage
+from codeverse.models.pricing import estimate_cost
 from codeverse.models.retry import KeyPool, KeyPoolExhausted
 from codeverse.proc import run_subprocess
 
@@ -128,9 +128,9 @@ def usage_from_stats(stats: dict[str, Any], model: str) -> Usage:
     cost = 0.0
     for name, m in (stats.get("models") or {}).items():
         part = _model_usage((m or {}).get("tokens") or {}, str(name))
-        c = estimate_cost_safe("gemini", str(name), part)
+        c = estimate_cost("gemini", str(name), part)
         if c == 0.0 and name != model and (part.input_tokens or part.output_tokens):
-            c = estimate_cost_safe("gemini", model, part)  # utility model missing from the price table
+            c = estimate_cost("gemini", model, part)  # utility model missing from the price table
         cost += c
         u.input_tokens += part.input_tokens
         u.output_tokens += part.output_tokens
@@ -234,12 +234,16 @@ class GeminiCliAgent(_CliAgent):
             while True:
                 attempts += 1
                 used.add(key)
-                proc = invoke(s, self.build_argv(prompt), self.build_env(s, key), prompt=prompt, attempt=attempts,
-                              soft_timeout_s=next_soft, model=self.model, key_tail=key[-4:])
-                outcome = self._interpret(s, proc)
-                usage_total = usage_total + outcome["usage"]
-                pool.report(key, "429" if outcome["quota"] else ("ok" if outcome["ok"] else "5xx"))
-                pool.release()  # one acquire per attempt: keep the pool's in-flight gauge honest
+                try:
+                    proc = invoke(s, self.build_argv(prompt), self.build_env(s, key), prompt=prompt, attempt=attempts,
+                                  soft_timeout_s=next_soft, model=self.model, key_tail=key[-4:])
+                    outcome = self._interpret(s, proc)
+                    usage_total = usage_total + outcome["usage"]
+                    pool.report(key, "429" if outcome["quota"] else ("ok" if outcome["ok"] else "5xx"))
+                finally:
+                    # one acquire per attempt: keep the pool's in-flight gauge honest — also when
+                    # invoke raises, or one slot of the PROCESS-WIDE pool is gone for good
+                    pool.release()
                 # a per-minute 429 on the single key a CLI process holds clears within the
                 # rotated retry's wait; ab_fewer_turns (2026-08-29) lost 4 of 10 cells to
                 # two 429s in a row, so a quota failure gets one more rotated attempt
@@ -533,7 +537,7 @@ class CodexEvents:
             cached_tokens=self.usage_raw["cached_input_tokens"], tool_calls=self.tool_calls,
             thoughts_tokens=reasoning,
         )
-        u.cost_usd = estimate_cost_safe("openai", model, u)
+        u.cost_usd = estimate_cost("openai", model, u)
         return u
 
 

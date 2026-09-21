@@ -159,15 +159,13 @@ class StageRunner:
         fn: Callable[[], T],
         *,
         inputs: Any = "",
-        force: bool = False,
         model: type[BaseModel] | None = None,
-        list_of: type[BaseModel] | None = None,
     ) -> T:
         """Run ``fn`` unless a cached result for the same ``inputs`` exists."""
         h = hash_inputs(inputs)
         path = self.result_path(name)
         prior = self.state.stages.get(name)
-        if not force and prior is not None and prior.inputs_hash == h and path.is_file():
+        if prior is not None and prior.inputs_hash == h and path.is_file():
             # A cached result that cannot be read back is a cache MISS, not a dead run.
             # ``inputs_hash`` covers the INPUTS only, never the result model's schema, so a
             # contract that gained a field invalidates nothing — and a clobbered file
@@ -177,7 +175,7 @@ class StageRunner:
             # out (there is no flag to drop a cached stage).  Re-run instead and
             # overwrite the file — the same tolerance load_ledger and _read_jsonl apply.
             try:
-                result = _revive(json.loads(path.read_text()), model, list_of)
+                result = _revive(json.loads(path.read_text()), model)
             except (OSError, ValueError) as e:  # ValidationError is a ValueError
                 self.events.emit("stage.cache_invalid", stage=name, inputs_hash=h, path=str(path),
                                  error=f"{type(e).__name__}: {e}")
@@ -208,12 +206,10 @@ class StageRunner:
         return prior is not None and prior.inputs_hash == hash_inputs(inputs) and self.result_path(name).is_file()
 
 
-def _revive(data: dict[str, Any], model: type[BaseModel] | None, list_of: type[BaseModel] | None) -> Any:
+def _revive(data: dict[str, Any], model: type[BaseModel] | None) -> Any:
     result = data.get("result")
     if model is not None and isinstance(result, dict):
         return model.model_validate(result)
-    if list_of is not None and isinstance(result, list):
-        return [list_of.model_validate(r) for r in result]
     return result
 
 
@@ -489,7 +485,6 @@ class RoundPolicy:
     plateau_window: int = 2  # consecutive scored rounds without min_delta gain
     min_delta: float = 0.02
     target: float = 0.8  # rubric pass threshold (overridden from the rubric when known)
-    judge_on_gate_errors: bool = True  # still judge when gates (not build) fail
     max_refine_tasks: int = 6
     max_instructions_per_task: int = 6  # lines handed to ONE generation task (grouped by target)
     parallel_min_tasks: int = 2  # fan out only when >= this many file-disjoint groups
@@ -500,7 +495,6 @@ class RoundPolicy:
     # ---- money stops (docs/COST.md §5); thresholds are multiples of the judge's measured σ
     judge_model: str = ""  # judge backend id → σ via judge_sigma(); "" = the default judge's σ
     regression_sigma: float = 1.0  # a round below (best − this × σ) regressed: change shape or stop
-    regression_allow_switch: bool = True  # False = a regression stops the run outright
     marginal_sigma: float = 1.5  # from marginal_from_round on, the last gain must beat this × σ
     marginal_from_round: int = 3  # first refine round index the marginal-value test applies to
     # ---- agent session shape.  A 28-turn cap was TESTED AND REJECTED: a controlled
@@ -633,8 +627,6 @@ class StopPolicy:
         drop = best_before - score
         detail = (f"r{last.index:02d} scored {score:.3f} vs best {best_before:.3f} "
                   f"({-drop:+.3f}, judge σ {self.policy.sigma:.3f})")
-        if not self.policy.regression_allow_switch:
-            return StopDecision("regression", detail=detail)
         if last.kind == REWRITE_KIND or self._regressions(history) > 1:
             return StopDecision("regression", detail=detail + " — a changed strategy did not recover it")
         return StopDecision("continue", strategy="switch", detail=detail) if switch else None
@@ -653,7 +645,7 @@ class StopPolicy:
         if gain <= need:
             return StopDecision("diminishing_returns",
                                 detail=f"r{nxt:02d} not started: last gain {gain:+.3f} ≤ {need:.3f} "
-                                       f"(1.5 × judge σ {self.policy.sigma:.3f})")
+                                       f"({self.policy.marginal_sigma:g} × judge σ {self.policy.sigma:.3f})")
         if best is not None and best >= self.policy.target:
             return StopDecision("diminishing_returns",
                                 detail=f"r{nxt:02d} not started: best {best:.3f} already at target "

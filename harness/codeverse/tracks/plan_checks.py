@@ -52,10 +52,6 @@ class Box:
         c, e = bbox.center, bbox.extents
         return cls(tuple(c[i] - e[i] / 2 for i in range(3)), tuple(c[i] + e[i] / 2 for i in range(3)))  # type: ignore[arg-type]
 
-    @classmethod
-    def of_points(cls, pts: list[Vec]) -> Box:
-        return cls(tuple(min(p[i] for p in pts) for i in range(3)), tuple(max(p[i] for p in pts) for i in range(3)))  # type: ignore[arg-type]
-
     def corners(self) -> list[Vec]:
         return [(x, y, z) for x in (self.lo[0], self.hi[0]) for y in (self.lo[1], self.hi[1]) for z in (self.lo[2], self.hi[2])]
 

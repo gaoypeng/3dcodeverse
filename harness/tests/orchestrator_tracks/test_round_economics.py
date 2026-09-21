@@ -93,12 +93,6 @@ def test_a_sub_noise_dip_never_burns_the_strategy_switch():
     assert not meaningful_regression(None, 0.60, pol) and not meaningful_regression(0.5, None, pol)
 
 
-def test_regression_can_be_configured_to_stop_outright():
-    sp = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, marginal_from_round=99, regression_allow_switch=False))
-    d = sp.evaluate([_round(0, 0.60), _round(1, 0.52)])
-    assert d.reason == "regression" and d.strategy == "same"
-
-
 def test_a_noisy_judge_widens_the_regression_band():
     flash = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, marginal_from_round=99,
                                    judge_model="gemini:gemini-3.7-flash"))
@@ -131,6 +125,11 @@ def test_the_marginal_round_is_configurable():
     sp = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, marginal_from_round=2,
                                 judge_model="gemini:gemini-3.1-pro-preview"))
     assert sp.evaluate([_round(0, 0.40), _round(1, 0.42)]).reason == "diminishing_returns"
+    # the detail states the multiple that was APPLIED, not the default one
+    wide = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, marginal_sigma=3.0,
+                                  judge_model="gemini:gemini-3.1-pro-preview"))
+    d = wide.evaluate([_round(0, 0.40), _round(1, 0.50), _round(2, 0.57)])
+    assert d.reason == "diminishing_returns" and "3 × judge σ" in d.detail and "1.5 ×" not in d.detail
 
 
 def test_the_stop_order_is_exhausted_regression_then_marginal_then_switch_then_plateau():
@@ -292,23 +291,18 @@ def test_skip_judge_reasons_are_only_states_where_the_verdict_is_never_bought(tm
     from codeverse.tracks.steps import skip_judge_reason
 
     ctx = _ctx(tmp_path, spec, settings)
-    assert skip_judge_reason(ctx, gates=_gates(), renders=_renders()) == ""
-    # a round with gate errors IS judged by default — the gates say what is broken,
-    # the verdict says whether the shape is right, and only the verdict can promote it
-    assert skip_judge_reason(ctx, gates=_gates(3), renders=_renders()) == ""
-    assert skip_judge_reason(ctx, gates=_gates(), renders=None) == "no renders"
-    # the caller can switch that off; then the SAME rule holds in the rejudge path
-    strict = _ctx(tmp_path, spec, settings, policy=RoundPolicy(judge_on_gate_errors=False), name="strict")
-    assert skip_judge_reason(strict, gates=_gates(3), renders=_renders()) == "gate errors"
-    assert skip_judge_reason(strict, gates=_gates(0), renders=_renders()) == ""
+    # gate errors are no reason: the gates say what is broken, the verdict says whether
+    # the shape is right, and only the verdict can promote the round
+    assert skip_judge_reason(ctx, renders=_renders()) == ""
+    assert skip_judge_reason(ctx, renders=None) == "no renders"
     # ... the budget/clock stop: the loop's next budget_ok check ends the run, so this
     # verdict cannot promote anything (audit: 2 verdicts / $0.09 bought past the clock)
     ctx.budget.add(Usage(cost_usd=99.0), stage="refine")
     ctx.budget._active_s = (ctx.budget.budget.max_minutes + 1) * 60   # noqa: SLF001
-    assert skip_judge_reason(ctx, gates=_gates(), renders=_renders()) == "budget already exceeded"
+    assert skip_judge_reason(ctx, renders=_renders()) == "budget already exceeded"
     assert StopPolicy(ctx.policy).evaluate([_round(0, 0.5)], budget_ok=ctx.budget.ok()).reason == "budget"
     ctx.judge = None
-    assert skip_judge_reason(ctx, gates=_gates(), renders=_renders()) == "no judge configured"
+    assert skip_judge_reason(ctx, renders=_renders()) == "no judge configured"
 
 
 def test_a_round_that_changed_no_file_never_reaches_the_judge_question(tmp_path, spec, settings):
@@ -325,18 +319,13 @@ def test_a_round_that_changed_no_file_never_reaches_the_judge_question(tmp_path,
         run_generation_tasks(ctx, [GenerationTask(label="refine", prompt="p", round=1, kind="refine")])
 
 
-def test_a_skipped_verdict_is_not_bought_back_by_the_rejudge_path(tmp_path, spec, settings):
+def test_a_round_with_gate_errors_whose_verdict_was_lost_is_rejudged(tmp_path, spec, settings):
     from codeverse.tracks.steps import rejudge_round
 
-    ctx = _ctx(tmp_path, spec, settings, policy=RoundPolicy(judge_on_gate_errors=False), name="norebuy")
+    ctx = _ctx(tmp_path, spec, settings, name="rebuy")
     rec = RoundRecord(index=1, kind="refine", build=BuildResult(ok=True, language="l"),
                       gates=_gates(2), renders=_renders())
-    assert rejudge_round(ctx, _pipeline(), rec) is False
-    assert ctx.judge.calls == [] and ctx.budget.spent.cost_usd == 0.0
-    # the same round with clean gates (an outage, not a policy skip) IS re-judged
-    rec2 = RoundRecord(index=2, kind="refine", build=BuildResult(ok=True, language="l"),
-                       gates=_gates(0), renders=_renders())
-    assert rejudge_round(ctx, _pipeline(), rec2) is True and len(ctx.judge.calls) == 1
+    assert rejudge_round(ctx, _pipeline(), rec) is True and len(ctx.judge.calls) == 1
 
 
 def test_a_round_that_broke_the_gates_does_not_displace_a_clean_one():

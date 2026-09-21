@@ -55,9 +55,9 @@ BRIEF_MAX_TOKENS = 65_536
 # ----------------------------------------------------------------------------- brief
 def brief_enabled(spec: Spec, *, default: bool = True) -> bool:
     """Whether to expand the brief for this spec (env switch wins; object tracks only)."""
-    raw = (os.environ.get(BRIEF_ENV) or "").strip().lower()
-    on = default if not raw else raw not in ("0", "off", "false", "no")
-    return on and spec.track in BRIEF_TRACKS
+    from codeverse.config import env_flag  # ONE flag vocabulary (review-3 S4)
+
+    return env_flag(BRIEF_ENV, default) and spec.track in BRIEF_TRACKS
 
 
 def brief_cache_dir() -> Path:
@@ -888,7 +888,10 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
         if guard is not None:
             # booked where it is paid: a later attempt that raises cannot erase this dollar
             guard.add(resp.usage, stage="plan")
-        raw = resp.parsed if resp.parsed is not None else _parse_json(resp.text)
+        try:
+            raw = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
+        except ValueError:  # JsonParseError: nothing parsed — the re-ask below says so
+            raw = None
         try:
             if not isinstance(raw, dict):
                 raise ValueError(f"planner returned {type(raw).__name__}, expected a JSON object")
@@ -1014,23 +1017,6 @@ def build_user_prompt(spec: Spec, *, brief: Any | None = None, budget: PlanBudge
                   "give real-world dimensions in meters consistent with what they show."]
     lines += ["", "Return the plan as JSON matching the schema."]
     return "\n".join(lines)
-
-
-def _parse_json(text: str) -> Any:
-    t = (text or "").strip()
-    if t.startswith("```"):
-        t = t.strip("`")
-        t = t[t.find("\n") + 1:] if "\n" in t else t
-    try:
-        return json.loads(t)
-    except json.JSONDecodeError:
-        start, end = t.find("{"), t.rfind("}")
-        if 0 <= start < end:
-            try:
-                return json.loads(t[start:end + 1])
-            except json.JSONDecodeError:
-                return None
-        return None
 
 
 # ----------------------------------------------------------------------------- deterministic acceptance

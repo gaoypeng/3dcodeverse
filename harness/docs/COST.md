@@ -804,7 +804,7 @@ out of tree (no such test ships here):
 | `no file change` | **removed** | unreachable: a generation result is `ok` only when a file changed, so `run_generation_tasks` raises `RoundFailed` (→ the loop's `no_change` plateau) before any judge question is asked |
 | `build not repaired within the repair budget` | **removed** | a broken build never reaches the judge at all (`run_round` judges only when `build.ok`), so it only ever fired on a round that BUILT but still lint-failed — and the loop's `rejudge_round` then bought the same verdict one iteration later.  Measured on the reproduction: 3 rounds "skipped", 2 verdicts re-bought as `judge.retry`, and the last round left **without a score — it was the best of the three (0.7)** and could not be promoted |
 | `budget already exceeded` | **kept** | the loop's next `budget_ok` check ends the run, so the verdict is never bought later.  Guard, not a measured saving: 0 of the 108 recorded rounds bought a verdict after the budget ended, so this branch has saved $0 so far — it is kept because the state is knowable in advance and the run is over either way (§5) |
-| `no judge` / `no renders` / `gate errors` | **kept** | pre-existing; the first two are guards (nothing to buy), the third only fires when a caller sets `judge_on_gate_errors=False` |
+| `no judge` / `no renders` | **kept** | pre-existing guards (nothing to buy).  The third pre-existing reason, `gate errors` behind `judge_on_gate_errors=False`, went 2026-09-21: no caller ever set it |
 
 Two changes were needed to make the kept branches real:
 
@@ -1196,7 +1196,7 @@ The harness had exactly one number and used it for both.
 
 **Measured 2026-08-25**, `tsr_scn_temple_night`, `codex:gpt-5.6-sol`, `--profile
 quality`.  The two Blender hero-asset sessions were priced at OpenAI list rates
-(`agents/codex.py` → `estimate_cost_safe("openai", …)`) and the run crossed the profile's
+(`agents/codex.py` → `estimate_cost("openai", …)`) and the run crossed the profile's
 soft cap 6.8 minutes in:
 
 ```

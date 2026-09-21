@@ -23,7 +23,6 @@ from pydantic import BaseModel
 
 from codeverse.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse.contracts.common import Usage, is_harness_owned
-from codeverse.models.pricing import estimate_cost
 from codeverse.proc import ManagedProcess, append_jsonl_line, read_jsonl_lenient, scrub_secrets
 from codeverse.workspace import Workspace
 
@@ -684,16 +683,6 @@ def find_json_object(stdout: str, accept: Callable[[dict[str, Any]], bool]) -> d
             continue
         return obj if isinstance(obj, dict) and accept(obj) else None
     return None
-
-
-# --------------------------------------------------------------------------- pricing
-def estimate_cost_safe(provider: str, model: str, usage: Usage) -> float:
-    """``estimate_cost`` that never raises: an unknown model prices as 0.0 + a warning."""
-    try:
-        return float(estimate_cost(provider, model, usage))
-    except Exception as e:  # unknown model in the price table must not sink the run
-        log.warning("estimate_cost(%s, %s) failed: %s", provider, model, e)
-        return 0.0
 
 
 def exists_on_path(binary: str) -> bool:

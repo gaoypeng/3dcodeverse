@@ -39,11 +39,12 @@ from codeverse.contracts.common import TRACK_INFO, Track
 from codeverse.contracts.plan import Plan, ScenePlan, ZonePlan
 from codeverse.contracts.run import RoundRecord
 from codeverse.conventions import to_snake
+from codeverse.judges.base import judged_subset
 from codeverse.orchestrator import StageRunner, TaskGroup, compact_instructions
 from codeverse.proc import fan_out
 from codeverse.prompts import render
 from codeverse.spatial.frame_motion import motion_text_for
-from codeverse.spatial.render_scene import JUDGE_MAX_VIEWS, perf_detail
+from codeverse.spatial.render_scene import perf_detail
 from codeverse.texturing.plan import texture_pack_prompt
 from codeverse.tracks import skills_hook
 from codeverse.tracks.common import RunContext, ServiceUnavailable, generate_for, single_shot_ctx
@@ -158,12 +159,9 @@ class ScenePipeline:
         return out
 
     def judge_views(self, ctx: RunContext, renders: RenderSet) -> RenderSet:
-        """The ≤ 10 views the judge sees (authored@t0 first); the full set stays on disk.
-        Prefers the per-view ``judge`` flags stamped at render time; legacy render
-        sets (no flags) fall back to ``select_judge_views``."""
-        if any(v.judge is not None for v in renders.views):
-            return renders.model_copy(update={"views": [v for v in renders.views if v.judge]})
-        return ctx.services.select_judge_views(renders, max_n=JUDGE_MAX_VIEWS)
+        """The ≤ 10 views the judge sees (authored@t0 first); the full set stays on disk:
+        the per-view ``judge`` flags ``render_scene`` stamps on every set it returns."""
+        return judged_subset(renders)  # type: ignore[return-value]
 
     def plan_summary(self, ctx: RunContext) -> str:
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]

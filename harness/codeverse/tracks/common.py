@@ -114,10 +114,6 @@ class Services:
         """``scene_frames`` gate from a scene RenderSet's metrics.json (missing metrics → passing empty report)."""
         return _import("codeverse.spatial.frame_metrics", "frame_gate_from_renders")(renders)
 
-    def select_judge_views(self, renders: RenderSet, max_n: int = 10) -> RenderSet:
-        """The ≤ ``max_n`` scene views a judge should see."""
-        return _import("codeverse.spatial.render_scene", "select_judge_views")(renders, max_n=max_n)
-
     def silhouette(self, render_png: Path | str, reference_png: Path | str) -> dict[str, Any]:
         """Outline IoU of a render vs a reference image (``{iou, reliable, ...}``)."""
         return _import("codeverse.spatial.silhouette", "compare_silhouette")(render_png, reference_png)

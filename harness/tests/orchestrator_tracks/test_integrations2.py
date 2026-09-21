@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from codeverse.contracts.artifacts import RenderSet, RenderView
 from codeverse.contracts.common import Language, Track, Usage
 from codeverse.contracts.plan import ScenePlan
 from codeverse.contracts.run import RunStatus
@@ -16,7 +15,7 @@ from codeverse.tracks import get_track
 from codeverse.tracks.graphics import GraphicsTrack
 from codeverse.tracks.planner import plan_example
 from codeverse.tracks.prompting import file_for_target_factory
-from codeverse.tracks.scene import JUDGE_MAX_VIEWS, ScenePipeline, SceneTrack
+from codeverse.tracks.scene import SceneTrack
 from codeverse.tracks.static_object import StaticObjectTrack, expected_files
 from codeverse.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
@@ -71,19 +70,6 @@ def test_scene_judge_gets_no_geometry_views(tmp_path, settings):
     frames = [g for g in rec.rounds[0].gates if g.gate == "scene_frames"]
     assert len(frames) == 1 and frames[0].passed
     assert services.geometry_renders == []
-
-
-# --------------------------------------------------------------------- (a) judge view selection for scenes
-def test_scene_pipeline_selects_at_most_ten_judge_views():
-    views = [RenderView(name=f"cam{i}", path=f"/tmp/x{i}_{t}.png", time_s=t)
-             for i in range(7) for t in (0.0, 1.5)]
-    rs = RenderSet(views=views, renderer="fake")
-    ctx = SimpleNamespace(services=FakeServices())
-    out = ScenePipeline().judge_views(ctx, rs)
-    assert len(out.views) == 9 <= JUDGE_MAX_VIEWS == 10   # 7 authored at t=0 + the first two at t=1.5
-    # authored views at t=0 all survive
-    kept_t0 = [v.name for v in out.views if v.time_s == 0.0]
-    assert set(kept_t0) >= {f"cam{i}" for i in range(7)}
 
 
 # --------------------------------------------------------------------- (d) connectivity hints in the author's frame

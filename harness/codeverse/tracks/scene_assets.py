@@ -290,9 +290,12 @@ def _ladder(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language, 
     outage = False
     if sub is not None:
         for attempt in range(2):  # first shot + ONE error-feedback repair
+            # after an OUTAGE the model never wrote a file: the second shot is the first shot
+            # again, not a "repair" of the skeleton stub against a 503 it cannot fix
+            feedback = repair_feedback(chk, rel) if chk is not None and not outage else ""
             try:
                 res = _generate_asset(sub, asset, rel, language=language, attempt=attempt, files=files,
-                                      feedback=repair_feedback(chk, rel) if chk is not None else "")
+                                      feedback=feedback)
             except Exception as e:  # noqa: BLE001 — a bad answer escalates; a dead model does not
                 from codeverse.orchestrator import BudgetExceeded
 
@@ -311,7 +314,7 @@ def _ladder(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language, 
             chk = (check(sub) if res.ok
                    else AssetCheck(ok=False, ran=True, fatal=True, errors=[f"no file was written ({res.notes or 'empty answer'})"]))
             if chk.ok:
-                strategy = "single-shot" if attempt == 0 else "single-shot+repair"
+                strategy = "single-shot+repair" if feedback else "single-shot"
                 break
         if not strategy and not outage:
             ctx.events.emit("asset.escalated", asset=asset.name, errors=(chk.errors[:3] if chk else []))

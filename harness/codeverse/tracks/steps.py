@@ -308,7 +308,7 @@ def _run_round(
                         tri_count=rec.measurement.tri_count if rec.measurement else None)
         # a candidate's verdict is the ONLY thing that picks the code r00 starts from, so it is
         # bought even past the ceiling — unlike a refine verdict, which could promote nothing
-        skip = skip_judge_reason(ctx, gates=gates, renders=rec.renders, ignore_budget=kind == "candidate")
+        skip = skip_judge_reason(ctx, renders=rec.renders, ignore_budget=kind == "candidate")
         if skip:
             notes.append(f"judge skipped ({skip})")
             ctx.events.emit("judge.skipped", round=index, reason=skip)
@@ -345,8 +345,7 @@ def _run_round(
 
 
 # ----------------------------------------------------------------------------- cost of a round
-def skip_judge_reason(ctx: RunContext, *, gates: Sequence[GateReport], renders: RenderSet | None,
-                      ignore_budget: bool = False) -> str:
+def skip_judge_reason(ctx: RunContext, *, renders: RenderSet | None, ignore_budget: bool = False) -> str:
     """Why this round must NOT be judged (``""`` = judge it).
 
     Only states in which the verdict is never bought at all — a skip that the
@@ -359,8 +358,6 @@ def skip_judge_reason(ctx: RunContext, *, gates: Sequence[GateReport], renders: 
       $0.09 in the audit were bought past the run's wall clock (docs/COST.md §5).
       ``ignore_budget`` exempts the best-of-N candidates: their verdict picks the
       code r00 starts from, so skipping it wastes the N generations already paid for.
-    * ``gate errors`` — only when the caller set ``judge_on_gate_errors=False``;
-      ``rejudge_round`` honours that too, so the verdict is not re-bought.
 
     A broken build never gets here (``run_round`` judges only when the build is
     ok) and a round in which nothing changed never gets here either
@@ -371,14 +368,7 @@ def skip_judge_reason(ctx: RunContext, *, gates: Sequence[GateReport], renders: 
         return "no renders"
     if not ctx.budget.ok() and not ignore_budget:
         return "budget already exceeded"
-    if judge_blocked_by_gates(ctx, gates):
-        return "gate errors"
     return ""
-
-
-def judge_blocked_by_gates(ctx: RunContext, gates: Sequence[GateReport]) -> bool:
-    """The caller asked not to judge rounds with gate errors, and this round has some."""
-    return bool(not ctx.policy.judge_on_gate_errors and any(g.errors for g in gates))
 
 
 def emit_round_cost(
@@ -526,15 +516,8 @@ def rejudge_round(ctx: RunContext, pipeline: RoundPipeline, rec: RoundRecord, pr
 
     No regeneration, no rebuild: the same commit is judged again.  On success the
     round record is updated in place and re-persisted.  Returns True when the
-    round now has a usable judgment.
-
-    A verdict :func:`skip_judge_reason` deliberately did not buy is NOT bought
-    here — otherwise the skip only moves the same dollar one loop iteration later
-    (the verifier's reproduction: three rounds "skipped", two of them re-judged on
-    the next iteration and the last one left without a score)."""
+    round now has a usable judgment."""
     if ctx.judge is None or rec.build is None or not rec.build.ok or rec.renders is None or not rec.renders.views:
-        return False
-    if judge_blocked_by_gates(ctx, rec.gates):
         return False
     ctx.events.emit("judge.retry", round=rec.index)
     notes: list[str] = [rec.notes] if rec.notes else []
@@ -575,10 +558,8 @@ def failed_acceptance(ctx: RunContext, judgment: Judgment | None) -> list[Accept
     return [items[k] for k, ok in judgment.acceptance_results.items() if not ok and k in items]
 
 
-def sum_usage(rounds: Sequence[RoundRecord], *extra: Usage) -> Usage:
+def sum_usage(rounds: Sequence[RoundRecord]) -> Usage:
     total = Usage()
     for r in rounds:
         total = total + r.usage
-    for u in extra:
-        total = total + u
     return total

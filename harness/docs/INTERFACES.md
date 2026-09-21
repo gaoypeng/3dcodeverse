@@ -31,7 +31,7 @@ from codeverse.contracts import ENTRY_FILE, code_file, LANGUAGE_LABEL   # {Langu
 from codeverse.contracts import RunOptions                     # Spec.options: candidates (int|None, ≥1), texture (bool)
 GateFinding.as_line(with_gate=False, with_severity=False, with_target=False, with_hint=True) -> str
     # "GATE <gate>: [<sev>] <message> [<target>] FIX: <hint>" — flags opt in; no leading "- "
-RenderView.judge: bool | None      # stamped True/False at render time; None = legacy round (fall back to select_judge_views)
+RenderView.judge: bool | None      # stamped True/False at render time; None = legacy round (every stored view is judged)
 RenderSet.out_dir: str             # directory the views (+ views.json/metrics.json) were written to ("" on old rounds)
 from codeverse.config import get_settings, env_flag       # env_flag(env, fallback) -> bool: on/off/1/0/true/false/yes/no;
     # unset/empty -> fallback; garbage -> warning + fallback (Settings value), never a silent switch
@@ -391,10 +391,10 @@ rec = get_track(spec.track, **options).run(spec, ws, resume=False) -> RunRecord 
 TrackPipeline.run(spec, ws, *, resume=False, force=False) -> RunRecord
 from codeverse.orchestrator import RoundPolicy, StopPolicy, StopDecision, BestSelector, judge_sigma, \
     best_score, last_gain, best_index, REWRITE_KIND, build_refine_instructions, compact_instructions
-RoundPolicy(max_rounds=4, plateau_window=2, min_delta=0.02, target=0.8, judge_on_gate_errors=True, max_refine_tasks=6,
+RoundPolicy(max_rounds=4, plateau_window=2, min_delta=0.02, target=0.8, max_refine_tasks=6,
             max_instructions_per_task=6, parallel_min_tasks=2, n_candidates=1, pairwise_margin=0.03,
             pairwise_min_confidence=0.6, judge_samples=1,
-            judge_model="", regression_sigma=1.0, regression_allow_switch=True,   # money stops (docs/COST.md §5)
+            judge_model="", regression_sigma=1.0,                                 # money stops (docs/COST.md §5)
             marginal_sigma=1.5, marginal_from_round=3,                            # r03+ must beat 1.5σ
             agent_max_turns=0, agent_wrapup_turns=6,     # 0 = the backend's own AgentJob.max_turns (claude-code 60
             # +6 wrap-up; gemini-cli/codex/agy no turn cap); a 28-turn cap was A/B'd and rejected (+$0.02, −0.21
@@ -488,12 +488,11 @@ tracks.common.single_shot_agent_id(agent_id, chat_model_id='') -> str · single_
     # EVERY session (attempt 1, <label>.a2 retry, <label>.wrapup) is charged as it ends.
 from codeverse.tracks.repair import build_with_repair   # RepairOutcome(.ok/.repaired/.max_attempts, attempts, usage); build_with_repair(ctx, *, round_index, label, files_hint=None, max_attempts=None, timeout_s=None) — timeout_s clips every repair session (a scene asset's window)
 # scene assets (tracks/scene_assets.py): build_threejs_asset / build_blender_asset climb ONE ladder (_ladder: single-shot → check → one feedback repair → agent session); a hero's parts come from the static planner (hero_plan); SceneThreeJsRuntime.render_asset(ws, name, out_dir) renders a module on the hero's quick rig; the assembled scene.js plays every GLB clone's clips (clone.userData.clipOffset de-phases a copy)
-# languages/blender.write_blender_skeleton(ws, plan, *, multi_file=True, ground_tol_m=0.002) — the self-check's stands-on-z=0 tolerance (a scene hero passes 0.02)
+# languages/blender.write_blender_skeleton(ws, plan, *, ground_tol_m=0.002) — the self-check's stands-on-z=0 tolerance (a scene hero passes 0.02)
 from codeverse.tracks.steps import run_round, skip_judge_reason, emit_round_cost, record_aborted_round
-skip_judge_reason(ctx, *, gates, renders) -> str    # "" = judge it.  ONLY states where the verdict is
-    # never bought at all: no judge / no renders / budget already exceeded / gate errors with
-    # policy.judge_on_gate_errors=False.  rejudge_round honours the last one too, so a policy skip is
-    # never re-bought (docs/COST.md §17 — "no file change" and "build not repaired" were removed)
+skip_judge_reason(ctx, *, renders, ignore_budget=False) -> str    # "" = judge it.  ONLY states where the
+    # verdict is never bought at all: no judge / no renders / budget already exceeded
+    # (docs/COST.md §17 — "no file change" and "build not repaired" were removed)
 run_round(ctx, *, index, kind, tasks, pipeline, ..., previous_best=None, render=None, geometry_views=True) -> RoundRecord
     # render: RenderFn | None swaps the pipeline's render (candidates pass quick_render); geometry_views=False skips
     # the clay/normals views

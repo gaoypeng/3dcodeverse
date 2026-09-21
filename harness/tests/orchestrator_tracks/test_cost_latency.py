@@ -486,6 +486,29 @@ def test_a_model_outage_escalates_the_asset_instead_of_losing_it(tmp_path, setti
     assert failed and "503" in failed[0]["error"]
 
 
+@pytest.mark.node
+def test_the_shot_after_an_outage_is_a_plain_generation_not_a_repair(tmp_path, settings):
+    from codeverse.models.base import ModelError
+
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
+    plan = plan.model_copy(update={"assets": [_asset("Bollard", (0.3, 0.5, 0.3))], "zones": []})
+    prompts: list[str] = []
+
+    def respond(req):
+        prompts.append(req.messages[0].text)
+        if len(prompts) == 1:
+            raise ModelError("Gemini API error 503: high demand", retryable=True, status=503)
+        return _envelope("src/assets/bollard.js", _module("Bollard", 0.3, 0.5, 0.3))
+
+    agent = FakeAgent(lambda job, ws: {"src/nope.js": "// should not run\n"})
+    services = _ChatServices(FakeChatModel(respond, cost=0.02), judge=FakeJudge(scores=(0.9,)))
+    ctx = _scene_ctx(tmp_path, settings, services=services, agent=agent, plan=plan)
+    results = run_asset_stage(ctx)
+    assert results["Bollard"].ok and results["Bollard"].strategy == "single-shot" and not agent.jobs
+    assert len(prompts) == 2 and prompts[1] == prompts[0], "the model wrote nothing: there is nothing to repair"
+    assert "did NOT pass" not in prompts[1] and "rewrite COMPLETELY" not in prompts[1]
+
+
 def test_a_generation_session_never_outlives_the_wall_budget():
     from codeverse.contracts.spec import Budget
     from codeverse.orchestrator import BudgetGuard
