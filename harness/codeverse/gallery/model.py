@@ -238,10 +238,6 @@ class Summary(BaseModel):
     minutes: float = 0.0
     broken: int = 0
 
-    def sums(self) -> bool:
-        """The invariant the strip promises the reader."""
-        return sum(self.breakdown.values()) == self.n
-
 
 def verdict_breakdown(entries: list[RunEntry]) -> dict[str, int]:
     """``{bucket: count}`` over all four buckets (zeros included), summing to ``len(entries)``."""

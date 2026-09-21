@@ -54,11 +54,6 @@ def default_roots(base: Path | str = ".") -> list[Path]:
     return roots
 
 
-def root_label(root: Path) -> str:
-    """Section label: ``runs`` for the plain runs dir, the battery name for a bench out dir."""
-    return battery_label(Path(root))
-
-
 def _rel(ws: Workspace, path: Path | str | None) -> str:
     """``path`` (rebased into this workspace) as a run-relative posix string, or ``""``
     when it is outside the run."""
@@ -320,7 +315,7 @@ def scan_root(root: Path, label: str | None = None) -> RootSection:
     that still repeats within the root gets ``#2``/``#3`` — the same precedent as
     duplicate section labels in :func:`build_index`."""
     root = Path(root)
-    label = label or root_label(root)
+    label = label or battery_label(root)
     found = find_run_dirs(root, predicate=is_run_dir)
     dirs = sorted({*found, *_pending_direct_children(root, set(found))})
     used: dict[str, int] = {}
@@ -341,7 +336,7 @@ def build_index(roots: list[Path] | list[str]) -> GalleryIndex:
     used: dict[str, int] = {}
     for root in roots:
         root = Path(root)
-        base = root_label(root)
+        base = battery_label(root)
         used[base] = used.get(base, 0) + 1
         label = base if used[base] == 1 else f"{base}#{used[base]}"
         sections.append(scan_root(root, label))

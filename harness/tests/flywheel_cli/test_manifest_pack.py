@@ -23,7 +23,6 @@ import pytest
 from codeverse.flywheel.export import (
     MANIFEST_NAME,
     ManifestError,
-    collect_rows,
     export_samples,
     load_manifest,
     write_manifest,
@@ -175,8 +174,6 @@ def test_a_tampered_sample_file_fails_fast_and_names_it(exported_ds: Path):
 def test_planted_src_meta_json_is_not_a_row_and_not_packed(exported_ds: Path):
     sdir = exported_ds / "static_object" / "blender" / "wooden_chair_ab12cd34"
     (sdir / "src" / "meta.json").write_text(json.dumps({"id": "phantom", "key": "phantom"}))
-    rows = collect_rows(exported_ds)  # the recovery/debug rescan is exactly 3 levels deep
-    assert len(rows) == 3 and all(r["id"] != "phantom" for r in rows)
     pack_samples(exported_ds)  # and pack never looks at the directory tree at all
     assert verify_locators(exported_ds) == 3
     assert "wooden_chair_ab12cd34/src/meta.json" not in _tar_member_names(exported_ds)

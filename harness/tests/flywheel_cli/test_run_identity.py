@@ -19,7 +19,7 @@ from codeverse.contracts.run import RunId
 from codeverse.flywheel.export import export_samples, load_captions
 from codeverse.flywheel.index import build_index as build_sqlite_index
 from codeverse.flywheel.pairs import build_pairs
-from codeverse.flywheel.record import FoundRun, battery_label, iter_runs, run_id_for
+from codeverse.flywheel.record import FoundRun, battery_label, iter_runs, run_id_for, unique_files
 from codeverse.flywheel.sample import SampleError
 from tests.flywheel_cli.conftest import make_fake_run
 
@@ -63,6 +63,15 @@ def test_battery_label_and_run_id_for(tmp_path: Path):
     assert battery_label(runs) == "static_v9"
     rid = run_id_for(runs, runs / "stool_a1")
     assert rid.battery == "static_v9" and rid.rel == "stool_a1" and rid.slug == "stool_a1"
+
+
+def test_unique_files_skips_subruns_below_the_root_not_above_it(tmp_path: Path):
+    """A scan rooted INSIDE ``_assets`` used to return [] — the skip read absolute parts."""
+    root = tmp_path / "scene" / "_assets" / "lamp"
+    (root / "_cand" / "c1").mkdir(parents=True)
+    (root / "record.json").write_text("{}")
+    (root / "_cand" / "c1" / "record.json").write_text("{}")
+    assert unique_files(root, "record.json") == [root / "record.json"]
 
 
 # --------------------------------------------------------------------------- shared tree

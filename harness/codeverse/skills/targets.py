@@ -68,14 +68,6 @@ class Target:
     measurable: bool = True
     caveat: str = ""
 
-    @property
-    def frontmatter(self) -> dict[str, str]:
-        """The rows a bundle must carry under ``metadata`` (spec-legal string values)."""
-        return {"target_metric": self.metric,
-                "target_direction": self.direction,
-                "target_unit": self.unit,
-                "target_measurable": "true" if self.measurable else "false"}
-
 
 OBJECT_LANGS = ("blender", "urdf_blender", "cadquery", "threejs")
 
@@ -374,11 +366,6 @@ def check_claims(skill: Skill, root: Path | None = None) -> list[str]:
         elif row["text"] not in skill.body:
             issues.append(f"{where}: {row['text']!r} no longer appears in the body")
     return issues
-
-
-def claim_values(name: str, root: Path | None = None) -> dict[str, str]:
-    """``key -> text`` for one bundle — the rendered string, in that bundle's own units."""
-    return {str(r["key"]): str(r.get("text", "")) for r in load_claims(name, root) if r.get("key")}
 
 
 def claim_bases(name: str, root: Path | None = None) -> dict[str, tuple[str, Any]]:

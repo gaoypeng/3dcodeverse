@@ -210,7 +210,7 @@ class ReferenceDiff(BaseModel):
             lines.append(f"- measured silhouette IoU {self.iou:.3f}"
                          + (f", aspect error {self.aspect_ratio_err:.0%}" if self.aspect_ratio_err is not None else "")
                          + ("" if self.reliable else " (mask unreliable — judge visually)"))
-        for m in sorted(self.mismatches, key=lambda x: _SEVERITY_ORDER.get(x.severity, 3))[:n]:
+        for m in self.top(n):
             lines.append(f"- {m.as_line()}")
         if self.matches:
             lines.append("- already matching: " + "; ".join(self.matches[:4]))

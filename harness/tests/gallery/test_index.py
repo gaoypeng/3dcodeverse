@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codeverse.gallery.index import build_index, default_roots, entry_for_dir, root_label
+from codeverse.flywheel.record import battery_label
+from codeverse.gallery.index import build_index, default_roots, entry_for_dir
 from codeverse.gallery.model import match, sort_entries, summarize
 
 
@@ -82,7 +83,7 @@ def test_filter_and_sort_and_summary(gallery_tree: dict[str, Path]):
 def test_default_roots_and_labels(gallery_tree: dict[str, Path]):
     base = gallery_tree["root"]
     roots = default_roots(base)
-    assert [root_label(r) for r in roots] == ["runs", "static_v9"]
+    assert [battery_label(r) for r in roots] == ["runs", "static_v9"]
     assert default_roots(base / "nope") == []
 
 

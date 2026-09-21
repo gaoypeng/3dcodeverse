@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import pytest
 
@@ -33,7 +34,7 @@ def test_the_four_buckets_are_disjoint_and_sum_to_n(gallery_tree: dict[str, Path
     s = summarize(entries)
     assert s.n == 6
     assert set(s.breakdown) == set(VERDICTS)
-    assert sum(s.breakdown.values()) == s.n and s.sums()
+    assert sum(s.breakdown.values()) == s.n
     # the tree holds 3 passing, 1 failing, and 2 runs with no usable record
     assert s.breakdown == {"passed": 3, "failed": 1, "unjudged": 0, "error": 2}
     # every entry lands in exactly one bucket
@@ -52,7 +53,7 @@ def test_a_run_with_no_record_is_error_not_unjudged(gallery_tree: dict[str, Path
 def test_breakdown_of_an_empty_selection_is_all_zeroes():
     b = verdict_breakdown([])
     assert b == dict.fromkeys(VERDICTS, 0) and sum(b.values()) == 0
-    assert summarize([]).sums()
+    assert summarize([]).n == 0
 
 
 def test_the_page_states_the_breakdown_and_it_adds_up(gallery_tree: dict[str, Path]):
@@ -166,6 +167,17 @@ def test_compare_reports_unknown_keys_and_caps_the_width(gallery_tree: dict[str,
     entries = app.index.entries()
     assert len(render_compare(entries[:MAX_COMPARE], UrlMaker()).split("<td class='head'>")) - 1 \
         == min(MAX_COMPARE, len(entries))
+
+
+def test_query_links_survive_a_duplicate_root_label(gallery_tree: dict[str, Path]):
+    """``build_index`` mints ``runs#2``; an unquoted ``#`` ends the URL in the browser."""
+    app = GalleryApp([gallery_tree["runs"], gallery_tree["runs"]])
+    key = "runs#2/wooden_chair_ab12cd34"
+    compare = app.route("/compare", {"runs": key}).body.decode()
+    href = compare.split("href='/export.csv?", 1)[1].split("'", 1)[0]
+    assert "#" not in href and parse_qs(href) == {"runs": [key]}
+    detail = app.route("/run/runs#2/wooden_chair_ab12cd34").body.decode()
+    assert "href='/?battery=runs%232'" in detail
 
 
 def test_compare_survives_a_run_with_no_record(gallery_tree: dict[str, Path]):

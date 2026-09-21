@@ -38,6 +38,9 @@ def test_harness_git_sha_from_a_tracked_file_and_dirty_marker(tmp_path):
     pkg.mkdir(parents=True)
     mod = pkg / "record.py"
     mod.write_text("# tracked\n")
+    renderer = repo / "harness" / "runtime_js" / "render.cjs"
+    renderer.parent.mkdir()
+    renderer.write_text("// tracked\n")
     _git("init", "-q", cwd=repo)
     _git("-c", "user.email=t@t", "-c", "user.name=t", "add", "-A", cwd=repo)
     _git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init", cwd=repo)
@@ -47,6 +50,11 @@ def test_harness_git_sha_from_a_tracked_file_and_dirty_marker(tmp_path):
     (repo / "harness" / "notes.txt").write_text("scratch")
     assert _harness_git_sha(mod) == head
     mod.write_text("# edited\n")
+    assert _harness_git_sha(mod) == head + "-dirty"
+    # harness/ is the tree, not harness/codeverse: an edited renderer changes what a run measures
+    _git("checkout", "-q", "--", ".", cwd=repo)
+    assert _harness_git_sha(mod) == head
+    renderer.write_text("// edited\n")
     assert _harness_git_sha(mod) == head + "-dirty"
 
 

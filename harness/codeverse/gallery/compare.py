@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import csv
 import io
+from urllib.parse import quote
 
 from codeverse.gallery.cards import fmt, tier_tag, verdict_tag
 from codeverse.gallery.model import VERDICT_META, RunEntry
@@ -137,7 +138,7 @@ def render_compare(entries: list[RunEntry], urls: UrlMaker, *, note: str = "") -
     body = (
         top_bar("3dcv gallery", f"{len(entries)} runs · {tally}",
                 crumbs="<a href='/'>gallery</a> <span class='faint'>/</span> <b>compare</b>",
-                right=f"<a class='btn' href='/export.csv?runs={esc(','.join(e.key for e in entries))}'>"
+                right=f"<a class='btn' href='/export.csv?runs={quote(','.join(e.key for e in entries))}'>"
                       f"export csv</a>")
         + "<main class='wrap'>"
         + (f"<p class='small muted'>{esc(note)}</p>" if note else "")

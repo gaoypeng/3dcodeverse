@@ -71,7 +71,7 @@ def _harness_git_sha(pkg_file: Path | None = None) -> str:
         return ""
     sha = head.stdout.strip()
     # dirty = any tracked file under the package tree (harness/) modified; untracked files ignored
-    pkg_root = here.parents[1] if here.parent.name == "flywheel" else here.parent
+    pkg_root = here.parents[2] if here.parent.name == "flywheel" else here.parent
     status = _git(["status", "--porcelain", "--untracked-files=no", "--", str(pkg_root)], here.parent)
     if status is not None and status.returncode == 0 and status.stdout.strip():
         sha += "-dirty"
@@ -328,8 +328,9 @@ def unique_files(root: Path | str, name: str) -> list[Path]:
     skipped.  The one walker for every survey that counts sessions, records or artefacts —
     each hand-rolled copy of it has at some point counted a file twice."""
     seen: dict[Path, Path] = {}
-    for p in sorted(Path(root).rglob(name, recurse_symlinks=True)):
-        if SUBRUN_DIRS & set(p.parts):
+    root = Path(root)
+    for p in sorted(root.rglob(name, recurse_symlinks=True)):
+        if SUBRUN_DIRS & set(p.relative_to(root).parts):
             continue
         seen.setdefault(p.resolve(), p)
     return sorted(seen.values())

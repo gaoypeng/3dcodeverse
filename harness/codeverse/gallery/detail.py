@@ -10,13 +10,14 @@ bench is still writing shows its latest rounds without a restart.
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote
 
 from codeverse.contracts.common import ENTRY_FILE
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel.record import best_round_record, effective_judgment
 from codeverse.gallery.cards import fmt, gallery_figure, tier_tag, verdict_tag
 from codeverse.gallery.code import CODE_CSS, numbered, read_text, src_files
-from codeverse.gallery.index import _rel, best_sheet, hero_view
+from codeverse.gallery.index import _rel
 from codeverse.gallery.model import RunEntry
 from codeverse.gallery.theme import esc, footer, page_shell, top_bar
 from codeverse.gallery.urls import UrlMaker
@@ -351,17 +352,12 @@ def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord
                   prev: RunEntry | None = None, nxt: RunEntry | None = None) -> str:
     """Full detail page for a run whose record parsed."""
     best = entry.best_round
-    if not entry.sheet:
-        entry = entry.model_copy(update={"sheet": best_sheet(ws, rec)})
-    if not entry.hero:
-        hero, label, n = hero_view(ws, rec)
-        entry = entry.model_copy(update={"hero": hero, "hero_label": label, "n_views": n})
     nav = "".join(f"<a href='#{a}'>{a}</a>" for a in
                   ("rounds", "judge", "complexity", "measurement", "renders", "cost", "code"))
     body = (
         top_bar("3dcv gallery",
                 crumbs=f"<a href='/'>gallery</a> <span class='faint'>/</span> "
-                       f"<a href='/?battery={esc(entry.battery)}'>{esc(entry.battery)}</a> "
+                       f"<a href='/?battery={quote(entry.battery)}'>{esc(entry.battery)}</a> "
                        f"<span class='faint'>/</span> <b>{esc(entry.slug)}</b>",
                 right=_neighbours(urls, prev, nxt) if urls.has_detail else "")
         + "<main class='wrap'>"

@@ -537,8 +537,8 @@ from codeverse.gallery.index import hero_view          # (ws, rec) -> (rel, labe
 from codeverse.flywheel.record import complexity_block, round_complexity   # objective complexity of what shipped
     # finalize_record fills record.extra["complexity"] = the BEST round's vector + plan_parts /
     # parts_per_plan_part / by_round; every rounds_summary row gains "complexity" (the index or None)
-from codeverse.flywheel.export import export_samples   # (runs_dir, out_dir, *, min_score=None, only_passed=False, best_round=True,
-    # overwrite=True, include_unbuilt=False, captions_dir=None, drop_duplicates=False) -> ExportReport{…, n_duplicates, duplicates, tiers}
+from codeverse.flywheel.export import export_samples   # (runs_dir, out_dir, *, min_score=None, only_passed=False,
+    # include_unbuilt=False, captions_dir=None, drop_duplicates=False) -> ExportReport{…, n_duplicates, duplicates, tiers}
 from codeverse.flywheel.quality import quality_tier, prompt_hash, find_duplicates   # tiers: A passed & 0 gate errors, B passed,
                                                                                     # C best ≥ 0.6, D else; dedupe = (code fingerprint, prompt)
 from codeverse.flywheel.pairs import build_pairs       # (runs_dir, out_jsonl, *, min_delta=0.05) -> n

@@ -108,7 +108,7 @@ class ExportedSample(NamedTuple):
 
 
 def export_one(
-    ws: Workspace, record: RunRecord, out_dir: Path, *, overwrite: bool = True,
+    ws: Workspace, record: RunRecord, out_dir: Path, *,
     captions_dir: Path | None = None, run_id: RunId | None = None
 ) -> ExportedSample:
     """Write the sample folder for one run; returns the dir plus a sha256 per file
@@ -123,8 +123,6 @@ def export_one(
     if not files:
         raise S.SampleError("no code files in src/ (nothing to export)")
     if dest.exists():
-        if not overwrite:
-            raise S.SampleError(f"sample dir exists: {dest}")
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
     entry, written = S.write_code_tree(dest, files, record.spec.language)
@@ -154,16 +152,13 @@ def export_samples(
     *,
     min_score: float | None = None,
     only_passed: bool = False,
-    best_round: bool = True,
-    overwrite: bool = True,
     include_unbuilt: bool = False,
     captions_dir: Path | str | None = None,
     drop_duplicates: bool = False,
 ) -> ExportReport:
     """Export every eligible run under ``runs_dir`` into ``out_dir`` and rebuild the index.
 
-    ``best_round`` is the only supported selection (kept as a parameter for
-    API stability); the best round is chosen by ``record.best_round`` or the
+    The best round is chosen by ``record.best_round`` or the
     highest judged score.  Runs whose best round never built are skipped unless
     ``include_unbuilt`` (failed runs are still useful for repair pairs, not as
     dataset samples).  Byte-identical duplicates (same raw ``code_sha256`` + prompt)
@@ -173,8 +168,6 @@ def export_samples(
     MARKED (``near_duplicate_of``) — never dropped: whitespace inside a string
     literal is not a duplicate.
     """
-    if not best_round:
-        raise ValueError("export_samples: only best_round=True is supported")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     rep = ExportReport()
@@ -221,7 +214,7 @@ def export_samples(
             _skip(ws.root, rid, f"score {score} < min_score {min_score}")
             continue
         try:
-            exported = export_one(ws, rec, out, overwrite=overwrite,
+            exported = export_one(ws, rec, out,
                                   captions_dir=Path(captions_dir) if captions_dir else None, run_id=rid)
         except S.SampleError as e:
             _skip(ws.root, rid, str(e))
@@ -256,7 +249,7 @@ def export_samples(
     rep.manifest = str(write_manifest(DatasetGenerationManifest(
         filters=ManifestFilters(min_score=min_score, only_passed=only_passed,
                                 include_unbuilt=include_unbuilt, drop_duplicates=drop_duplicates,
-                                best_round=best_round, captions_dir=str(captions_dir or "")),
+                                captions_dir=str(captions_dir or "")),
         entries=entries, dropped=dropped), out))
     rep.n_indexed = len(rows)
     for r in rows:
@@ -318,20 +311,6 @@ def row_for_sample(sample_dir: Path) -> dict[str, Any]:
         "near_duplicate_of": "",
         "has_captions": bool(caps.get("detailed")),
     }
-
-
-def collect_rows(out_dir: Path) -> list[dict[str, Any]]:
-    """Recovery/debug rescan of a dataset folder — export/pack build their rows from
-    the manifest, never from this.  Exactly three levels deep (track/language/key,
-    the shape ``sample_rel_dir`` has), so an LLM-written ``src/meta.json`` inside a
-    sample's code tree can never inject a phantom row."""
-    rows = []
-    for meta in sorted(out_dir.glob("*/*/*/meta.json")):
-        try:
-            rows.append(row_for_sample(meta.parent))
-        except (OSError, ValueError, KeyError) as e:
-            log.warning("skipping %s: %s", meta.parent, e)
-    return rows
 
 
 def parquet_schema() -> Any:
