@@ -89,8 +89,9 @@ _V = Provenance  # verified rows read straight off a pricing page
 # fmt: off
 PRICES: dict[tuple[str, str], Price] = {
     # ---------------------------------------------------------------- gemini
-    # 3.6 / 3.7 flash: introductory rates valid through 2026-12-31; they double
+    # 3.6 / 3.7 / 3.8 flash: introductory rates valid through 2026-12-31; they double
     # on 2027-01-01 ($1.50 / $7.50 / $0.15).  Update then.  No >200k surcharge.
+    ("gemini", "gemini-3.8-flash"):           Price(0.75, 3.75, 0.075),
     ("gemini", "gemini-3.7-flash"):           Price(0.75, 3.75, 0.075),
     ("gemini", "gemini-3.6-flash"):           Price(0.75, 3.75, 0.075),
     ("gemini", "gemini-3.5-flash"):           Price(1.50, 9.00, 0.15),
@@ -165,6 +166,8 @@ PRICES: dict[tuple[str, str], Price] = {
 #: per price row: where the number came from and when it was last checked.
 #: Every key of :data:`PRICES` must appear here (``tests/cost/test_price_hygiene.py``).
 PROVENANCE: dict[tuple[str, str], Provenance] = {
+    ("gemini", "gemini-3.8-flash"):       _V("gemini", checked="2026-09-21",
+                                              note="intro rate through 2026-12-31, then 1.50/7.50/0.15"),
     ("gemini", "gemini-3.7-flash"):       _V("gemini", note="intro rate through 2026-12-31, then 1.50/7.50/0.15"),
     ("gemini", "gemini-3.6-flash"):       _V("gemini", note="intro rate through 2026-12-31"),
     ("gemini", "gemini-3.5-flash"):       _V("gemini"),
