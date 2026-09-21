@@ -17,8 +17,8 @@ data-flywheel record per run.
 Read `docs/ARCHITECTURE.md` (design, package map, authoring contracts, what a run
 really does, known limits), `docs/INTERFACES.md` (binding cross-package signatures as
 built), `docs/RUNBOOK.md` (how to run / resume / extend), `docs/DECISIONS.md`
-(ADR-style laws + deviations), `docs/EVAL.md` (evaluation protocol + judge
-calibration) and `docs/COMPLEXITY.md` (the objective complexity vector + the
+(ADR-style laws + deviations), `eval/docs/EVAL.md` (evaluation protocol + judge
+calibration) and `eval/docs/COMPLEXITY.md` (the objective complexity vector + the
 score-vs-complexity corpus study) before changing anything.
 
 ## Laws (do not break)
@@ -40,7 +40,7 @@ score-vs-complexity corpus study) before changing anything.
 ## Supported versions (what other people can run this on)
 python **3.13** (one fixed version — owner's decision 2026-08-26; no floor, no matrix) ·
 node **20.6+** · Blender 4.2+ · Linux x86_64.  **There is no CI** (removed 2026-08-26 by the
-owner): run `ruff check codeverse bench tests` and the offline suite locally BEFORE every
+owner): run `ruff check codeverse tests` and the offline suite locally BEFORE every
 push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The version lives in
 `pyproject` `requires-python` + ruff `target-version` + `setup.sh`, and
 `spatial/node.py:NODE_MIN` + `runtime_js/package.json` `engines` for node, pinned together by
@@ -92,17 +92,17 @@ cd /home/yipeng/3dcodeverse/harness
 3dcode resume <slug> · 3dcode status <slug> · 3dcode render <slug> [--mode wire] · 3dcode judge <slug> [--model ... --n 3]
 3dcode texture pass <slug> [--no-judge] · 3dcode texture scene-pack <slug> · 3dcode texture show <slug>
 3dcode tools list · 3dcode tools measure --workspace runs/<slug> · 3dcode mcp --workspace runs/<slug>
-3dcode cost <slug> · 3dcode cost --runs-dir bench/out/<battery> · 3dcode cost cache <slug>
+3dcode cost <slug> · 3dcode cost --runs-dir eval/bench/out/<battery> · 3dcode cost cache <slug>
 3dcode cost prices [--stale] · 3dcode cost profiles · 3dcode cost estimate gemini:gemini-3.1-pro-preview --in 12000
 3dcode flywheel export runs/ dataset/ [--pack --drop-duplicates --captions-dir d/] · 3dcode flywheel pairs runs/ pairs.jsonl
 3dcode flywheel caption <slug> [--out dir]   # the gallery is `3dcode gallery build --embed`
 3dcode gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcode gallery build --out gallery.html [--embed]
-3dcode bench run bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview
+3dcode bench run eval/bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview
 python -m codeverse.addons.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
-python bench/complexity_report.py bench/out --recursive   # score-vs-complexity + $/complexity point (docs/COMPLEXITY.md)
-python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
-python -m pytest tests -q -m "not live"            # 2 938 tests, ~65 s (real Blender + headless Chrome + CadQuery)
-python -m pytest tests -q -m "not live and not blender and not node"   # pure python: 2 390 tests, ~40 s
+python eval/bench/complexity_report.py eval/bench/out --recursive   # score-vs-complexity + $/complexity point (eval/docs/COMPLEXITY.md)
+python eval/bench/compare_backends.py --prompts eval/bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out eval/bench/out/compare_v1
+python -m pytest tests -q -m "not live"            # 2 714 tests, ~65 s (real Blender + headless Chrome + CadQuery)
+python -m pytest tests -q -m "not live and not blender and not node"   # pure python: 2 166 tests, ~40 s   (the 224 bench tests: `cd eval && python -m pytest`)
 # (the counts drift every commit — `--collect-only` is the answer, not a number in this file)
 # both run PARALLEL by default (pytest-xdist, -n auto --dist worksteal, in pyproject addopts).
 # A nested pytest inside a test MUST pass -n0 or it forks another full set of workers.

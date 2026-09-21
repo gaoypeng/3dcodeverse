@@ -576,7 +576,7 @@ things: `renders/` and `judge_images/` (render + montage cache), `textures/` and
 regenerate), `gpu_probe.json`, `browser_*.lock` (the shared
 headless-Chrome endpoint file — do not delete it while renders are running).
 
-**Your data is not in either cache.**  `runs/`, `bench/out/` and any exported
+**Your data is not in either cache.**  `runs/`, `eval/bench/out/` and any exported
 dataset are the flywheel output — delete them deliberately, never as part of a
 cleanup.  On this machine `harness/bench/out/` is read-only reference material
 (the early `e2e_*` reference runs were archived off-repo on 2026-08-29).

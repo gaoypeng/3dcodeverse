@@ -6,8 +6,8 @@ runtime (`runtime_js/`) for everything Three.js / headless Chrome, and moderngl
 for the graphics track.  Reconciled against the code and the live runs on
 2026-08-23 (waves 2–3 + fix batch 1); design history and deviations are in
 `docs/DECISIONS.md`, how-to in `docs/RUNBOOK.md`, evaluation protocol in
-`docs/EVAL.md`, complexity measurement + the score-vs-complexity study in
-`docs/COMPLEXITY.md`, binding signatures in `docs/INTERFACES.md`.
+`eval/docs/EVAL.md`, complexity measurement + the score-vs-complexity study in
+`eval/docs/COMPLEXITY.md`, binding signatures in `docs/INTERFACES.md`.
 
 ## 0. What it is
 
@@ -129,7 +129,7 @@ codeverse/
                       gl_render.py (GlHost), frame_stats.py (gl_frames),
                       sheet.py (montage_2x2, crop_region), measure.py, connectivity.py,
                       contract.py (authoring-frame hints), sections.py, silhouette.py, probes.py,
-                      complexity.py (objective complexity vector -> Measurement.extra, docs/COMPLEXITY.md),
+                      complexity.py (objective complexity vector -> Measurement.extra, eval/docs/COMPLEXITY.md),
                       joints*.py + joints_collide.py (deterministic penetration), registry.py,
                       tools.py (every @tool registration since 2026-08-28, the joint_sweep body included;
                       spatial siblings are plain imports — lazy() guards only codeverse.languages /
@@ -189,7 +189,7 @@ codeverse/
                       (CV3D_PLAN_BRIEF), plan budgets and the worked examples),
                       plan_features.py (CV3D_PLAN_FEATURES: one switch per plan-loop change, so each
                       can be A/B'd alone, + pin_plan_blockers() deciding when two arms may share
-                      one plan — docs/EVAL.md §8.1),
+                      one plan — eval/docs/EVAL.md §8.1),
                       depth.py,
                       skills_hook.py (the round's view of codeverse/skills: attach before generating,
                       probe reads after — a no-op unless CV3D_SKILLS is on)
@@ -226,9 +226,9 @@ codeverse/
                       flywheel_cmd.py, texture_cmd.py, cost_cmd.py (`3dcode cost`), layout_cmd.py, doctor.py
                       (`--skills` checks the library + its discovery wiring),
                       skills_cmd.py (`3dcode skills list|show|validate|report` — the read-rate report)
-bench/                run_bench.py, report.py (renders through codeverse/addons/gallery), compare_backends.py
+eval/bench/                run_bench.py, report.py (renders through codeverse/addons/gallery), compare_backends.py
                       (preflights every model it needs; --wait-for-provider / --no-preflight),
-                      _infra.py (outage vs model failure: infra_failed / budget_exhausted, docs/EVAL.md §7),
+                      _infra.py (outage vs model failure: infra_failed / budget_exhausted, eval/docs/EVAL.md §7),
                       pin_plan.py (seed one plan into both arms so the paired delta stops carrying
                       the planner's spread — permitted only by plan_features.pin_plan_blockers),
                       _compare_report.py (arm table incl. the `dropped` / `over budget` loss columns;
@@ -564,7 +564,7 @@ side-car mode); the gallery is `3dcode gallery build --embed`
 (the flywheel package has no renderer of its own).
 
 `codeverse/addons/gallery/` is the **local** answer to the same question: `3dcode gallery
-serve` indexes `runs/` + every `bench/out/*/runs`, serves the page **and the run
+serve` indexes `runs/` + every `eval/bench/out/*/runs`, serves the page **and the run
 directories** on 127.0.0.1 (so every link opens: sheet, renders, `src/`, `object.glb`
 in an orbit viewer built on the vendored three.js, `record.json`), and re-reads a
 run's record per request so a battery that is still writing shows up live.  A run

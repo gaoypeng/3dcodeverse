@@ -94,8 +94,8 @@ bench_app = typer.Typer(no_args_is_help=True)
 
 @bench_app.command("run")
 def run_cmd(
-    battery: Annotated[Path, typer.Argument(help="bench/prompts/<name>.yaml")],
-    out: Annotated[Path | None, typer.Option("--out", help="default bench/out/<battery name>")] = None,
+    battery: Annotated[Path, typer.Argument(help="eval/bench/prompts/<name>.yaml")],
+    out: Annotated[Path | None, typer.Option("--out", help="default eval/bench/out/<battery name>")] = None,
     generator: Annotated[str | None, typer.Option("--generator")] = None,
     planner: Annotated[str | None, typer.Option("--planner")] = None,
     judge: Annotated[str | None, typer.Option("--judge", help="fixed judge model for the whole battery")] = None,
@@ -121,7 +121,7 @@ def run_cmd(
     opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_minutes=max_minutes,
                                  limit=limit, ids=ids or [], tiers=tiers or [],
                                  redo_status=[x for x in redo_status.split(",") if x], **par)
-    out_dir = out or (C.REPO_ROOT / "bench" / "out" / battery.stem)
+    out_dir = out or (C.EVAL_ROOT / "bench" / "out" / battery.stem)
     console.print(f"battery={battery} out={out_dir} generator={generator or 'default'} judge={judge or 'default'}")
 
     def _on(res) -> None:

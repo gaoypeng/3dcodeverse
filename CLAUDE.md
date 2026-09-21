@@ -5,4 +5,8 @@ The harness lives in **`harness/`** — read `harness/CLAUDE.md` +
 `pip install -e harness`.  Run tests with
 `cd harness && python -m pytest tests -q -m "not live"`.
 
-Other top-level folders are separate components (datasets, web, papers).
+**`eval/`** evaluates things and is never imported by the harness: `eval/bench` evaluates the HARNESS
+(batteries, A/B rigs, reports — `cd eval && python -m pytest`), `eval/llm` evaluates a bare LLM/VLM
+(was `finetune/3dcodeverse_eval`).  Read `eval/README.md` first.
+
+Other top-level folders are separate components (`toolkits/` data tooling, `finetune/` training).

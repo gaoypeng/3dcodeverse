@@ -1,23 +1,23 @@
 # Cost audit — where the money actually goes
 
-Measured on **61 recorded runs** (`runs/e2e_*` ×5, `bench/out/{static_v1_flash,
+Measured on **61 recorded runs** (`runs/e2e_*` ×5, `eval/bench/out/{static_v1_flash,
 articulated_v1_flash,graphics_v1_flash,scenes_v1_flash}` ×46, the 10 cells of
-`bench/out/compare_v1_live2`) on 2026-08-23.  Every number below comes from the
+`eval/bench/out/compare_v1_live2`) on 2026-08-23.  Every number below comes from the
 recorded telemetry, not from an estimate: `record.json`, `events.jsonl` and the
 per-call `usage` rows inside `trajectories/*/transcript.jsonl`.
 
 Reproduce:
 
 ```
-3dcode cost show runs bench/out/static_v1_flash …          # console
-3dcode cost show runs bench/out/* --md docs/cost_report.md # full tables
+3dcode cost show runs eval/bench/out/static_v1_flash …          # console
+3dcode cost show runs eval/bench/out/* --md docs/cost_report.md # full tables
 3dcode cost show runs --recheck                            # re-price with today's table
 3dcode cost prices [--unverified]                          # the price table + provenance
 ```
 
 The audit is `codeverse/addons/costreport/audit.py`; it reconstructs a per-call ledger from
 old runs (`codeverse/cost/reconstruct.py`), so it works on every run recorded so
-far — no re-instrumentation needed.  `bench/out/compare_v1_full` (a partial,
+far — no re-instrumentation needed.  `eval/bench/out/compare_v1_full` (a partial,
 superseded compare battery) is excluded.
 
 > **Re-run 2026-08-23 (wave 3).**  Every figure in Part I below was recomputed
@@ -354,7 +354,7 @@ Savings are estimated **on this data set** (61 runs, $86.30) unless stated.
 | 3 | ~~**Cap agent turns at ~25 and compact old tool results.**  39.3% of the agent bill is turn ≥20; 19 of the 33 sessions that ran ≥50 turns were cut off by their own budget.~~  **Tested, rejected: +$0.02 and −0.21 score** (A/B, n=3 per arm, §17) — the cap is off by default. | est. $8–15, **measured $0** | high (A/B) | `RoundPolicy.agent_max_turns=0`; still settable per caller |
 | 4 | **Fold the off-record spend into the budget** (cut rounds, post-hoc texture passes). | $0 saved, **$1.22 of blindness removed** | high | §6; the ledger (`codeverse.cost.record_call`) makes it automatic |
 | 5 | **Scene track: 73% of scene spend is assets+zones, 0/5 passed.**  Trim the per-zone context (each zone session re-sends the whole scene contract) and judge assets before zones start. | ~$1/run of $2.83 | medium | `tracks/scene*.py` |
-| 6 | **Drop `oneshot:claude-code` from default compare arms** ($1.04/artifact at 0.673 — the worst score per dollar measured). | bench-only | high | `bench/compare_backends.py` arms |
+| 6 | **Drop `oneshot:claude-code` from default compare arms** ($1.04/artifact at 0.673 — the worst score per dollar measured). | bench-only | high | `eval/bench/compare_backends.py` arms |
 | 7 | **Gate the texture pass on the materials criterion** (< 0.7) — 5 passes ran, 2 shipped, $1.10 spent. | ~$0.5 | medium | `texturing/run.py` |
 | 8 | **Keep the pro judge; do not "save" money there** (§8). | avoids a **$45** increase | high | – |
 | 9 | **Price-table corrections** (§7) — accuracy, not savings: the reported bill was 3.1% low overall and 3.7x low on gemini-cli runs. | – | done | `models/pricing.py` |
@@ -466,7 +466,7 @@ generator sessions only and reads both label forms — `baseline_c<k>` (live) an
 
 **Who opens a ledger.**  `3dcode make` / `3dcode resume` (`cli.main._run_track`),
 `3dcode texture pass` (with `create=False`), **and the bench drivers** —
-`bench/run_bench.py` opens one per prompt and `bench/compare_backends.py` one per
+`eval/bench/run_bench.py` opens one per prompt and `eval/bench/compare_backends.py` one per
 cell (plus a nested one for a harness arm's own run, and one for the pairwise
 arena).  The batteries produce most of the runs in this repo, so until wave 3
 most priced rows were going to the per-process fallback log.  `run_ledger` nests by holding
@@ -591,7 +591,7 @@ the default for every profile.**
 
 ### Payload v3 (D47, 2026-08-31): 5 montages for the 14-view rig
 
-The rig A/B (docs/EVAL.md judge-experiments log) re-priced the verdict: the adopted
+The rig A/B (eval/docs/EVAL.md judge-experiments log) re-priced the verdict: the adopted
 payload C (14 views + clay, 5 montages + 2 crops) bills **$0.155/verdict at pro n=3
 (40.9k input tokens)** against the old 8-view payload's $0.146–0.150/30.0–34.0k — a
 +3–6 % price for the only payload change that has survived multiplicity (+0.038
@@ -834,8 +834,8 @@ finding is that **rotation was never the constraint**: the pool was running at 0
 its request quota and 1.6 % (median) of its token quota.
 
 Everything below is measured on this box (24 cores, 22 keys, `gemini-3.7-flash`), from
-the 6 014 live priced calls in `bench/out/**` and three probes; the reusable one is
-`bench/concurrency_probe.py`.
+the 6 014 live priced calls in `eval/bench/out/**` and three probes; the reusable one is
+`eval/bench/concurrency_probe.py`.
 
 ## 18. The baseline: 3 % of the quota, and 17.7 h asleep
 
@@ -901,7 +901,7 @@ shows it is not theoretical.
 
 ## 20. The measured knee — and why one number is not enough
 
-`bench/concurrency_probe.py` runs a fixed workload at several in-flight levels with a
+`eval/bench/concurrency_probe.py` runs a fixed workload at several in-flight levels with a
 fresh `KeyPool` each time, so the `ok / 429 / 5xx` counters are exact deltas.
 
 **Generator-shaped (12 k-token prompt, 128 calls per level):**
@@ -1010,7 +1010,7 @@ time.  A single sustained outage is the case the gate was designed for and is no
 covered by this measurement — that is why the mechanism is kept rather than deleted.
 So `Settings.rate.storm_gate` defaults to **False**.  The mechanism, its counters and
 the probe flag are kept so the experiment is reproducible
-(`CV3D_RATE__STORM_GATE=1`, or `bench/concurrency_probe.py --storm-gate`) — the same
+(`CV3D_RATE__STORM_GATE=1`, or `eval/bench/concurrency_probe.py --storm-gate`) — the same
 treatment §13 gave cache-friendly prompt ordering.
 
 **Caveat on the knee under a storm.**  §20's knee optimises *throughput* — total calls
@@ -1054,7 +1054,7 @@ storm consumed **5.59 h**; with the deadline it consumes **15.1 min**:
 says so, in both the storm branch and ordinary backoff.  A slow call that is *making
 progress* is never cut — the deadline bounds retrying, not the call.  Past it the cell
 is `infra_failed`, which is excluded from every rate and re-runnable with
-`--redo-status infra_failed` (`docs/EVAL.md` §7).
+`--redo-status infra_failed` (`eval/docs/EVAL.md` §7).
 
 **The wall-clock ceiling is only checked when money is spent.**  `BudgetGuard.check()`
 is called from `spend()`/`charge()`, so a run whose calls never *complete* is never
@@ -1130,13 +1130,13 @@ Three consequences:
    read by nothing until 2026-08-24 — three launches that "set" it ran at 64).
    `codeverse.models.health.pool_budget()` reads every sibling's cap from `/proc/<pid>/environ`
    and reports used / headroom; `3dcode doctor`'s `pool sharing` row prints it, and
-   `bench/ab_plan.py` refuses to start only when its own need does not FIT the headroom.
+   `eval/bench/ab_plan.py` refuses to start only when its own need does not FIT the headroom.
    The first version of this rule counted *processes* and made every agent wait for an
    empty machine — which stalled an entire A/B wave behind two batteries that were
    themselves parked.  A budget, not a head-count.
 4. **The accounting only works if every process is visible to it.**  `pool_budget()`
    matches on argv, and until 2026-08-24 it matched only the *script path* spelling
-   (`python bench/ab_plan.py`).  A live eight-prompt A/B launched as
+   (`python eval/bench/ab_plan.py`).  A live eight-prompt A/B launched as
    `python -m bench.ab_plan` — driver plus two 16-in-flight cell children — was therefore
    invisible: the budget read `16/64, headroom 48` on a machine already at 48, and the
    next agent to check it would have launched 32 more and taken the machine to 80.  Both
@@ -1181,7 +1181,7 @@ costs one 2-minute re-probe, starting wrongly costs hours.  This one is a judgem
 call, not a measured optimum, and it is written here so it can be revisited with data.
 
 What did work, in production, on those two lost cells: they were recorded
-`infra_failed` with `score=None` rather than a hard 0.0 (§7 of `docs/EVAL.md`), and the
+`infra_failed` with `score=None` rather than a hard 0.0 (§7 of `eval/docs/EVAL.md`), and the
 retry deadline (§22) stopped each at ~15 min instead of the 56-87 min the same cells
 burned earlier the same morning.
 
@@ -1302,7 +1302,7 @@ defaulted so old rows load); `3dcode cost` adds a per-key table and a
 ## 28. Where the time goes — the 2026-08-26 audit
 
 51 storm-day runs against 52 baseline runs, every stage and every model call, scripts in
-`bench/time_audit/` (read-only over `bench/out`).  The numbers that decide what to build next:
+`eval/bench/time_audit/` (read-only over `eval/bench/out`).  The numbers that decide what to build next:
 
 * A blender object run is **1 811 s** median on a healthy provider and **4 726 s** under the storm;
   build + gates + render together are 3–19 % of a baseline run and 1–4 % of a storm run.  The
@@ -1379,7 +1379,7 @@ come from.
 **verdict** — so every gate that ran and answered FAIL reached the model as a broken call.
 
 **Selector** (every number in this section, unless another one is named): the files
-`bench/out/*/**/run/trajectories/*/stdout.json` **as they stood at 2026-09-02 20:20 UTC**
+`eval/bench/out/*/**/run/trajectories/*/stdout.json` **as they stood at 2026-09-02 20:20 UTC**
 — the corpus is live and grows with every battery, so a later re-run reads larger
 numbers (2026-09-03 00:30: 390 files, 6 154 calls, 60 of 302 rounds) — 386 of them, of
 which **224 are non-empty** — one per gemini-cli session that reported stats; the other 162 are
@@ -1398,7 +1398,7 @@ MCP tool calls, 1 720 (28 %) reported as errors.**
 | `check_connectivity` | 923 | 14 % | — |
 | `isolate` | 35 | 49 % | — (these ARE mostly real usage errors: an unknown part name) |
 
-(The gate column is a second selector: all 239 `run/record.json` under `bench/out/`,
+(The gate column is a second selector: all 239 `run/record.json` under `eval/bench/out/`,
 411 rounds.  An earlier draft of this section quoted 217 sessions / 1 404 sweeps / 63 %
 — that was the same corpus minus the `.attempt1` retry sessions and did not reproduce;
 these numbers do, with the glob above.)
@@ -1480,9 +1480,9 @@ with them.  The 62 % vs 19 % gap between the sweep TOOL's verdict and the round'
 GATE is a separate question — the tool flags any overlap past `tol_m` and any floating
 link, while `sweep_findings` downgrades small rest overlaps and hinge gaps to WARN.
 
-**Measured after the fix** (`bench/out/wave2_lean`, the same battery and config as the
+**Measured after the fix** (`eval/bench/out/wave2_lean`, the same battery and config as the
 `aa_articulated` A/A above, 2026-09-03).  Both columns are printed by
-`python bench/session_stats.py bench/out/aa_articulated bench/out/wave2_lean`, which reads
+`python eval/bench/session_stats.py eval/bench/out/aa_articulated eval/bench/out/wave2_lean`, which reads
 each session's own stats block and each round's recorded `usage`:
 
 | per generator request | before (`aa_articulated`) | after (`wave2_lean`) |
@@ -1497,7 +1497,7 @@ each session's own stats block and each round's recorded `usage`:
 **Correction (2026-09-03), and what it does NOT explain.**  The after column first read
 1.4 % (48 / 3 480), 13 736 uncached tokens and median \$0.967 over "108 sessions / 5 082
 requests".  It was computed by hand, by a method that is not in the tree, and
-`bench/session_stats.py` does not reproduce it: the ratios are 1.87x on MCP calls and on
+`eval/bench/session_stats.py` does not reproduce it: the ratios are 1.87x on MCP calls and on
 requests but only 1.06x on sessions, and no mechanism tested accounts for that shape —
 following the `run/telemetry/trajectories` symlink doubles the file count exactly (2.0x on
 both batteries), counting every tool instead of the MCP ones gives 2 756 not 3 480, and no

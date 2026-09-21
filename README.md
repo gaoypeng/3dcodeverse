@@ -16,7 +16,7 @@ training corpora; and a finetuning study that trains open models on that data.
         └──────────── better generators / judges ◀───────────────────┘
 ```
 
-## [`harness/`](harness/) — the generation & evaluation harness
+## [`harness/`](harness/) — the generation harness
 
 Python dist `3dcodeverse` (import `codeverse`, CLI `3dcodeverse` / `3dcode`).
 LLMs write raw 3D code across four tracks — `static_object` ·
@@ -37,7 +37,17 @@ bash harness/setup.sh        # python deps + node runtime + doctor (Linux, pytho
 ```
 
 Start at [`harness/README.md`](harness/README.md); design and operation live in
-`harness/docs/` (ARCHITECTURE, INSTALL, RUNBOOK, EVAL, DECISIONS, COST).
+`harness/docs/` (ARCHITECTURE, INSTALL, RUNBOOK, DECISIONS, COST).
+
+## [`eval/`](eval/) — evaluating the harness, and evaluating a bare LLM
+
+Two evaluations kept apart from what they evaluate.  [`eval/bench/`](eval/bench/) measures **the
+harness**: prompt batteries run through it and through one-shot / bare-agent arms under one fixed
+judge, paired A/B rigs for harness switches, offline re-judging and reports.  [`eval/llm/`](eval/llm/)
+measures **a bare LLM / VLM** on text → 3D code and image → 3D code (3DCodeBench, held-out dialect
+sets, ten harness batteries): every answer is executed and scored against references.  Protocols and
+every recorded comparison: `eval/docs/` (EVAL, COMPLEXITY, PAPER_WRITING).  Nothing under `harness/`
+imports anything from `eval/`.
 
 ## [`toolkits/`](toolkits/) — raw 3D projects → trainable data
 

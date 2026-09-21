@@ -25,7 +25,7 @@ renders, judges, refines, textures and records every run as data-flywheel materi
   quality tiers + dedupe (+ parquet, tar locators), preference/repair/trajectory
   pairs, captions, sqlite index, HTML gallery.
 * **Looking at results:** `3dcode gallery serve` — a local page over `runs/` +
-  `bench/out/*/runs` with filters, a per-filter summary strip and a detail page per run;
+  `eval/bench/out/*/runs` with filters, a per-filter summary strip and a detail page per run;
   it serves the run directories too, so every link (sheet, renders, `src/`, `object.glb`
   in an orbit viewer, `record.json`) actually opens.  `3dcode gallery build --embed` writes
   the same page as one shareable file.
@@ -63,7 +63,7 @@ codeverse/
                    gallery (the runs browser), dataset (export, tiers, preference/repair pairs,
                    captions, sqlite index), costreport (`3dcode cost`), calibration, skill_targets
   cli/             the typer CLI · doctor.py  the environment checks behind `3dcode doctor`
-bench/             the evaluation harness around the harness: run_bench, compare_backends
+eval/bench/             the evaluation harness around the harness: run_bench, compare_backends
                    (A/B matrix), ab_plan, infra-failure classification
 runtime_js/        node side: three@0.182 + headless-Chrome render/probe hosts
 ```
@@ -97,4 +97,4 @@ multi-pass OpenGL program (gemini-cli) 0.70 → 0.86 pass, $0.74; neon-rain shad
 Docs: `docs/INSTALL.md` (install / prerequisites / doctor troubleshooting) ·
 `docs/ARCHITECTURE.md` (design + what a run does) · `docs/INTERFACES.md`
 (signatures) · `docs/RUNBOOK.md` (operate / extend) · `docs/DECISIONS.md` (ADRs) ·
-`docs/EVAL.md` (evaluation protocol + judge calibration) · `CLAUDE.md` (working rules).
+`eval/docs/EVAL.md` (evaluation protocol + judge calibration) · `CLAUDE.md` (working rules).

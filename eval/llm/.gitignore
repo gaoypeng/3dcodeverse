@@ -1,0 +1,6 @@
+# large / generated assets live under $CV3D_EVAL_DATA, never here
+__pycache__/
+*.pyc
+out/
+# built by `python -m llm.build_prompts` from the (gated) Hub assets — datasets are kept out of git
+data/prompts/*.jsonl

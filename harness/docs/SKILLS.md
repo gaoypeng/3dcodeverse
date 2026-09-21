@@ -147,7 +147,7 @@ record refers to a routing decision by id, so recycling it would silently relabe
 `measured` for provenance and have **no measured effect**; five are. Every bundle also
 declares **one deterministic quantity it claims to move**, in its own frontmatter
 (`target_metric`, `target_direction`, `target_baseline`) and in `codeverse/addons/skill_targets.py`.
-`python bench/skill_targets.py bench/out` prints them all — per battery or paired across an
+`python eval/bench/skill_targets.py eval/bench/out` prints them all — per battery or paired across an
 A/B's two arms — and **`docs/SKILLS_LEDGER.md` is the row-by-row maintenance surface**.
 
 `cadquery-forms` and `threejs-forms` stay `inherited-unverified` and routed off: their
@@ -180,7 +180,7 @@ per track), every gate finding kind the corpus produces, and 2,000 seeded random
 including junk tracks and languages.
 
 `finding_kind()` classifies **wider** than it routes — 113 distinct WARN/ERROR message
-shapes mined from `bench/out`, with a 43-row golden fixture
+shapes mined from `eval/bench/out`, with a 43-row golden fixture
 (`tests/skills/data/gate_findings.json`) asserting no `unknown`. Naming a defect costs
 nothing; routing one is a claim that a skill helps. INFO findings are census, not defects,
 and classify to `None` — routing off "all 7 parts are connected" would attach the
@@ -199,8 +199,8 @@ goes into `record.prompt_hashes` as `skill:<name>`, so "what text decided this r
 answerable. Per session, `telemetry/skills.jsonl` gets one line.
 
 ```
-3dcode skills report bench/out/<battery>          # deep-read rate per skill per backend
-3dcode skills report bench/out/<battery> --json
+3dcode skills report eval/bench/out/<battery>          # deep-read rate per skill per backend
+3dcode skills report eval/bench/out/<battery> --json
 3dcode doctor --skills                            # library + discovery wiring
 ```
 
@@ -300,20 +300,20 @@ Two contradiction checks are worth separating, because they answer different que
 
 ### The rig
 
-`bench/ab_plan.py`, arms differing in exactly one thing — `CV3D_SKILLS=on` on the variant —
+`eval/bench/ab_plan.py`, arms differing in exactly one thing — `CV3D_SKILLS=on` on the variant —
 on `static_objects_v2`, `--rounds 1`, paired, generator `gemini-cli:gemini-3.6-flash`,
 fixed judge `gemini:gemini-3.1-pro-preview` at `n_samples 2`, `--max-in-flight 8` against
 32–48 of pool headroom, `--wait-for-provider`. The eight prompt ids are **the same eight
-`bench/out/plan_loop/C0` used for its A/A**, so the noise floor below was measured on this
+`eval/bench/out/plan_loop/C0` used for its A/A**, so the noise floor below was measured on this
 exact battery, on this rig, on this day.
 
 The switch is generation-side: the planner call happens in the `plan` stage before any
 skill is attached, and `attach_for_round` only touches generation and repair rounds. That
-matters for §8.1 of `docs/EVAL.md` and is the reason the next run of this can pin the plan.
+matters for §8.1 of `eval/docs/EVAL.md` and is the reason the next run of this can pin the plan.
 
 ### The noise floor, measured first
 
-`bench/out/plan_loop/C0`, 2026-08-25, **two identical arms** on these eight prompts:
+`eval/bench/out/plan_loop/C0`, 2026-08-25, **two identical arms** on these eight prompts:
 
 | | |
 |---|---|
@@ -331,7 +331,7 @@ prompts regressed past 0.03 with byte-identical arms. So at n = 8 on this rig th
 not a test of the change; nothing can pass it. That is a fact about the instrument, and it
 is the honest first line of any verdict it produces.
 
-`docs/EVAL.md` §8.1 opened C0's worst pair and found the cause: the two identical arms
+`eval/docs/EVAL.md` §8.1 opened C0's worst pair and found the cause: the two identical arms
 planned 1 part and 10 parts for the same pitcher pump. The dominant variance term is the
 **planner**, not the judge and not the generator.
 
@@ -339,14 +339,14 @@ planned 1 part and 10 parts for the same pitcher pump. The dominant variance ter
 
 Recorded here because it is the more useful half of this section. The first run of this
 A/B was **void**: `ab_plan.spawn_cell` starts each child as a file path, so `sys.path[0]`
-is `bench/`, and `ab_plan` imported `codeverse._compat` *above* its own `sys.path`
+is `eval/bench/`, and `ab_plan` imported `codeverse._compat` *above* its own `sys.path`
 bootstrap — which let the editable install resolve `codeverse` to the **main tree**. Both
 arms ran a harness with no `codeverse/skills` package at all. No error, no warning; the
 variant workspace simply had no `.agents/skills` directory and no `skills.attached` event,
 and the run would have reported "no effect" with a straight face.
 
 The plan-loop wave hit the same thing hours earlier
-(`bench/out/plan_loop/C0/invalid_attempt1_maintree_import`) and worked around it with
+(`eval/bench/out/plan_loop/C0/invalid_attempt1_maintree_import`) and worked around it with
 `PYTHONPATH` in a launch script. It is fixed in the code now — bootstrap first, a guard
 that refuses to start against a foreign `codeverse`, and
 `tests/compare_bench/test_worktree_import.py` — because a workaround protects whoever
@@ -354,7 +354,7 @@ remembers it, not the run.
 
 ### What this A/B actually measured
 
-`bench/out/ab_skills`, **still running when this was written** — re-read `summary.md` for the
+`eval/bench/out/ab_skills`, **still running when this was written** — re-read `summary.md` for the
 current state, and re-run with `--redo-status infra_failed` before quoting it as final.
 Weather was hostile: the Gemini pool sat at 0–4 of 6 keys answering for most of the window,
 so the rig parked on its preflight for two hours and then lost whole pairs to 503 storms
@@ -419,7 +419,7 @@ delivery mechanism for `api-agent` is a pointer nobody follows, and that is fixa
 
 The design planned around this: make the **gate counts** the primary readout, since they
 are deterministic and are what a contact skill actually targets, and put the judged score
-second under a sign test. `bench/ab_gate_rates.py` computes them, paired per prompt.
+second under a sign test. `eval/bench/ab_gate_rates.py` computes them, paired per prompt.
 
 Run it over the SAME A/A — two identical arms — and it says:
 
@@ -441,7 +441,7 @@ So at n = 8 with a free plan, neither readout can separate this switch from noth
 
 ### What to try next, in order
 
-0. **Pin the plan** (`docs/EVAL.md` §8.1). The skills switch is generation-side — the
+0. **Pin the plan** (`eval/docs/EVAL.md` §8.1). The skills switch is generation-side — the
    planner runs in the `plan` stage before anything is attached — so plan-once-write-both is
    valid here, and it removes the dominant variance term from *both* readouts instead of
    averaging it down. It also costs one planner call *less* per pair. This is the single
@@ -515,7 +515,7 @@ chose to go deeper" (§1).
 4. Add its rows to `ROUTES` in `codeverse/skills/registry.py`, in the same commit.
 5. Add a `Target` row to `codeverse/addons/skill_targets.py` and the matching `target_*` keys to
    the frontmatter — the ONE deterministic quantity the bundle claims to move, its
-   direction, and its baseline from `python bench/skill_targets.py bench/out`. If no
+   direction, and its baseline from `python eval/bench/skill_targets.py eval/bench/out`. If no
    deterministic instrument can see the claim, say so with `measurable=False` and a
    `caveat`: that is a finding about the bundle, not a gap to paper over with a judged
    criterion. Then add its row to `docs/SKILLS_LEDGER.md`.
@@ -567,10 +567,10 @@ so; the rest are live.
   pipeline step, so it reaches no `record.json`. `cv3d-threejs-shader-traps` is therefore
   **not instrumented**, which is a stronger statement than "always clean". Merge it into
   `rounds[].gates` before spending anything on that bundle.
-* **`bench/_fixed_eval.FixedEvaluator` is blender-only.** It pins `get_runtime(BLENDER)` and
+* **`eval/bench/_fixed_eval.FixedEvaluator` is blender-only.** It pins `get_runtime(BLENDER)` and
   runs only lint and connectivity — never contract, joint_sweep, scene_frames or gl_frames.
   The *judged* column of any non-blender A/B is meaningless. The primary readout is safe:
-  `bench/skill_targets.py` reads each arm's own harness record.
+  `eval/bench/skill_targets.py` reads each arm's own harness record.
 * **The atime probe is blind in any git workspace, and its control proves it.** The control
   bundle came back "opened" in 27 of 33 sessions; the only 6 sessions where it stayed clean
   were the 6 scene sessions, where nothing was delivered. So the shipped report is honest
@@ -598,7 +598,7 @@ so; the rest are live.
   scene stages deliver skills, this is the obvious comparison.
 * **Corpus percentages are checked for provenance, not recomputed.** A body's "47 graded
   blender runs" is a *slice*; without each claim declaring its query, a tight recomputation
-  compares two different populations. Enforced today: a claim may not exceed what `bench/out`
+  compares two different populations. Enforced today: a claim may not exceed what `eval/bench/out`
   holds, `measured` needs n ≥ 20, every rate names its battery / n / date.
 * **`cadquery` and `threejs` bundles are routed off** until each language reaches 20 graded
   runs. As of this wave: cadquery **4**, threejs **3**.

@@ -1,6 +1,6 @@
 # Run directory layout
 
-One run = one directory (`runs/<slug>/`, `bench/out/<battery>/runs/<slug>/`).
+One run = one directory (`runs/<slug>/`, `eval/bench/out/<battery>/runs/<slug>/`).
 It answers three different questions, and since 2026-08-23 it keeps them in
 three separate buckets:
 

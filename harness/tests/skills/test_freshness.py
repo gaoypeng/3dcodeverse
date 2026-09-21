@@ -87,7 +87,7 @@ def _live_vocabulary() -> set[str]:
     """
     words: set[str] = set()
     for root, exts in ((HARNESS / "codeverse", {".py", ".md", ".j2", ".yaml", ".yml", ".toml"}),
-                       (HARNESS / "bench", {".py", ".yaml", ".yml"}),
+                       (HARNESS.parent / "eval" / "bench", {".py", ".yaml", ".yml"}),   # battery + prompt ids a bundle cites
                        (HARNESS / "runtime_js", {".js", ".mjs", ".glsl", ".json"})):
         if not root.is_dir():
             continue
@@ -98,7 +98,7 @@ def _live_vocabulary() -> set[str]:
                     or p.parent.parent.name.startswith("cv3d-")):
                 continue
             words |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", p.read_text(errors="ignore")))
-    out = HARNESS / "bench" / "out"
+    out = HARNESS.parent / "eval" / "bench" / "out"
     if out.is_dir():
         words |= {d.name for d in out.iterdir() if d.is_dir()}
     return words

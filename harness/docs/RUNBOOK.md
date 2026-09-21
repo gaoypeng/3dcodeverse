@@ -116,7 +116,7 @@ events.
 
 ```bash
 3dcode gallery serve                       # ./runs + every ./bench/out/*/runs → http://127.0.0.1:8765/
-3dcode gallery serve bench/out/static_v2_flash/runs --port 9000 --reload --no-open
+3dcode gallery serve eval/bench/out/static_v2_flash/runs --port 9000 --reload --no-open
 3dcode gallery build --out gallery.html [--embed]      # one self-contained file (--embed inlines the sheets)
 ```
 `serve` indexes the run roots (records only — ~85 runs in ~0.15 s) and serves the run
@@ -225,14 +225,14 @@ runs out of memory Chrome reaps the render tab and the driver reports
 `Attempted to use detached Frame '<id>'`: the scene built, every gate ran, and the judge
 was skipped for want of pixels — three of six cells of `scenes_v1` on 2026-09-05, $6.75 of
 generation already paid for.  The scene drivers now retry once on a browser of their own
-(`spatial/render_scene.run_scene_script`), and `bench/scene_stats.py` reports such rounds
+(`spatial/render_scene.run_scene_script`), and `eval/bench/scene_stats.py` reports such rounds
 in a `lost to the box` column instead of counting them as gate failures.  A battery whose
 report shows that column non-zero has to be re-run for those cells before it is read as a
 statement about the generator.
 
 **A battery launched with `3dcode` from a worktree runs the MAIN checkout's code.**  `3dcode`
 is a console script, so `sys.path[0]` is the venv's `bin`, never the cwd, and `import
-codeverse` finds the editable install.  `--out bench/out/<name>` IS relative to the cwd,
+codeverse` finds the editable install.  `--out eval/bench/out/<name>` IS relative to the cwd,
 so the OUTPUT lands in the worktree while the CODE that produced it is the main tree's —
 an arm that looks like it is testing your branch and is testing `main` (measured
 2026-09-05: the first `scenes_v1` battery, launched from `local/worktrees/integrate`, ran
@@ -267,22 +267,22 @@ call the `texture_pass` / `texture_preview` tools mid-session.
 ## 7. Benchmarks
 
 ```bash
-3dcode bench run bench/prompts/static_objects_v1.yaml --generator single-shot:gemini:gemini-3.7-flash \
-    --judge gemini:gemini-3.1-pro-preview --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out bench/out/x]
-3dcode bench report bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
-python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
-    --arms harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
+3dcode bench run eval/bench/prompts/static_objects_v1.yaml --generator single-shot:gemini:gemini-3.7-flash \
+    --judge gemini:gemini-3.1-pro-preview --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out eval/bench/out/x]
+3dcode bench report eval/bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
+python eval/bench/compare_backends.py --prompts eval/bench/prompts/compare_v1.yaml \
+    --arms harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out eval/bench/out/compare_v1
 ```
 Results stream to `results.jsonl` (resumable).  Batteries: `static_objects_v1` (24),
 `articulated_v1` (12), `scenes_v1` (12), `compare_v1` (8, harness-vs-one-shot).
-Protocol and judge calibration: `docs/EVAL.md`.
+Protocol and judge calibration: `eval/docs/EVAL.md`.
 
 `compare_backends` **preflights every model it needs** (one ~20 s probe each) and
 refuses to start when one is not serving — a dead provider does not fail fast on its
 own, it lets each cell burn its full retry budget first.  `--wait-for-provider 60`
 parks until it recovers instead; `--no-preflight` skips the check.  Cells that a
 provider outage kills anyway are recorded `infra_failed`, excluded from every rate,
-and re-run with `--redo-status infra_failed` (see `docs/EVAL.md` §7).
+and re-run with `--redo-status infra_failed` (see `eval/docs/EVAL.md` §7).
 
 ### 7.v Templates are read at render time — a new required variable breaks live workers like a moved name
 
@@ -358,7 +358,7 @@ model, produced the zero — check `cell.json`'s `error`).
   plan model in `contracts/plan.py`, `.j2` prompts, branch in `tracks/__init__.py`
   (`get_track` forwards `**options` to constructors).  `tracks/graphics.py` is the
   template for a track with its own planner and no GLB.
-* **New bench battery**: `bench/prompts/<name>.yaml` with `name, track, language,
+* **New bench battery**: `eval/bench/prompts/<name>.yaml` with `name, track, language,
   prompts[{id, tier, category, prompt, must_have, dimensions_m}]`.
 
 

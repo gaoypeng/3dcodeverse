@@ -280,7 +280,7 @@ from codeverse.spatial.complexity import (ComplexityVector, COMPLEXITY_WEIGHTS, 
                                           complexity_of_glb, complexity_of_parts, band_of)
 complexity_of_glb(glb) -> ComplexityVector     # part_count, assembly_depth, tri_count, materials, silhouette,
     # feature_density, symmetry_groups, hollowness, + index 0-1 (documented weights) and band
-    # (trivial|simple|moderate|complex|intricate).  Deterministic, no VLM/render.  docs/COMPLEXITY.md
+    # (trivial|simple|moderate|complex|intricate).  Deterministic, no VLM/render.  eval/docs/COMPLEXITY.md
 from codeverse.spatial.connectivity import check_connectivity   # (glb, *, gap_m=…, …, language="", planned_edges=()) — planned_edges: (child, parent | (copies…)); Δ language selects the
 from codeverse.spatial.contract import check_contract           # frame of fix hints; both gates emit hints in the AUTHORING frame
                                                                 # (labelled "blender frame: Z-up, -Y front" etc.), GLB vectors in data
@@ -553,7 +553,7 @@ from codeverse.record._git import read_tree_at, diff_between, changed_files_betw
 from codeverse.record.record import unique_files, SUBRUN_DIRS, BATTERY_MARKERS
     # unique_files(root, name) -> [Path]: every file called `name` under root ONCE per file on disk (follows
     # the run/telemetry/trajectories symlink and collapses it; skips SUBRUN_DIRS = {_cand, _assets}) — the
-    # one walker behind bench/session_stats.py, bench/coupling_stats.py and cost.reconstruct.find_runs
+    # one walker behind eval/bench/session_stats.py, eval/bench/coupling_stats.py and cost.reconstruct.find_runs
     # diff_between(ws, before, after, *, max_bytes=None) -> (text, untruncated size, was_truncated)
     # changed_files_between(ws, before, after) -> [path];  commit_exists(ws, commit) -> bool
     # both under GIT_SAFE_DIFF_FLAGS (--no-ext-diff --no-textconv) on top of workspace.GIT_SAFE_FLAGS
@@ -569,7 +569,7 @@ from codeverse.addons.dataset.captions import caption_sample # Δ (ws, record, m
 from codeverse.addons.gallery import build_index, default_roots, build_static, serve, GalleryApp   # THE local gallery
                                                        # build_index(roots) -> GalleryIndex (sections of RunEntry; never raises per run)
                                                        # build_static(roots, out_html, *, embed=False) -> (path, n, index)
-                                                       # render_static(index, *, embed=…, extra_html="") — bench/report.py's page
+                                                       # render_static(index, *, embed=…, extra_html="") — eval/bench/report.py's page
                                                        # GalleryApp(roots, reload=False).route(path, query) -> Response  (pure, testable)
                                                        # serve(roots, *, host=None, host_explicit=False, port=8765, reload=False)
 from codeverse.addons.gallery.urls import safe_join          # (root, rel) -> Path inside root, else PathError

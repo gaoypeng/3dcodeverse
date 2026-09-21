@@ -1,0 +1,23 @@
+# Tooling config for the evaluation code.  Nothing here is installed: `bench` and `llm` are run
+# from this directory (`cd eval && python bench/<script>.py …`, `cd eval && python -m pytest`).
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["bench/out", "llm"]   # llm/ keeps its own style; bench/out is run data
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["bench", "codeverse", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 600
+addopts = ["-m", "not live", "-n", "auto", "--dist", "worksteal"]
+markers = [
+  "live: needs network + API keys (deselect with -m 'not live')",
+  "blender: needs a Blender binary",
+  "node: needs node + runtime_js deps",
+]

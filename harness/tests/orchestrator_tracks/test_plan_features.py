@@ -18,17 +18,12 @@ HARNESS = Path(__file__).resolve().parents[2]
 def _sources() -> tuple[tuple[str, str], ...]:
     """(relpath, text) for every harness source, read ONCE per session.
 
-    ``bench/out`` is excluded on purpose: it is gitignored battery output (5 781 of the
-    5 978 .py files this used to walk, all LLM-authored ``model.py``).  Reading it cost
-    ~0.65 s per parametrized case × 13, and it was also WRONG — a generated model.py
-    that happens to contain a switch name would satisfy _readers() or fail the
-    dead-switch guard, from a file that is not part of the harness at all.
+    Only ``codeverse`` counts: a switch is live when the HARNESS reads it.  The evaluation
+    scripts (``eval/bench``) set switches for an A/B; they are not what makes one live.
     """
     out = []
-    for d in ("codeverse", "bench"):
-        for p in (HARNESS / d).rglob("*.py"):
-            if p.name == "plan_features.py" or "out" in p.relative_to(HARNESS).parts:
-                continue
+    for p in (HARNESS / "codeverse").rglob("*.py"):
+        if p.name != "plan_features.py":
             out.append((str(p.relative_to(HARNESS)), p.read_text(errors="replace")))
     return tuple(out)
 
@@ -59,37 +54,6 @@ def test_the_plan_features_switch_is_declared_dead():
     assert F.dead_env_keys({F.PLAN_FEATURES_ENV: "all"}) == [F.PLAN_FEATURES_ENV]
     assert F.dead_env_keys({"CV3D_PLAN_BRIEF": "off"}) == []
     assert F.dead_env_keys({F.PLAN_FEATURES_ENV: "all", "CV3D_PLAN_BRIEF": "off"}) == [F.PLAN_FEATURES_ENV]
-
-
-def test_ab_plan_refuses_an_ab_whose_only_switch_is_dead(capsys):
-    """`--variant-env CV3D_PLAN_FEATURES=all` produced a full battery and the verdict
-    'keep, mean delta +0.344' for two byte-identical arms.  It must not start."""
-    import bench.ab_plan as A
-
-    with pytest.raises(SystemExit):
-        A.main(["--prompts", "p.yaml", "--out", "o", "--variant-env", "CV3D_PLAN_FEATURES=all"])
-    err = capsys.readouterr().err
-    assert "nothing reads" in err and "CV3D_PLAN_FEATURES" in err
-
-
-def test_ab_plan_still_accepts_a_live_switch(monkeypatch, capsys):
-    """The guard must not block a real A/B: it fires only when EVERY key is dead.
-
-    Offline — --no-preflight and --allow-siblings keep the provider health check and the
-    docs/COST.md §23 admission check out of it, and run_ab itself is stubbed."""
-    import bench.ab_plan as A
-
-    seen: list[dict[str, str]] = []
-    class _V:
-        decision, reason, caution = "keep", "stubbed", ""
-
-    monkeypatch.setattr(A, "run_ab", lambda battery, out, opts, **kw: (seen.append(opts.variant_env), _V())[1])
-    for argv in (["--variant-env", "CV3D_PLAN_BRIEF=off"],
-                 ["--variant-env", "CV3D_PLAN_FEATURES=all", "--variant-env", "CV3D_PLAN_BRIEF=off"]):
-        A.main(["--prompts", "p.yaml", "--out", "o", "--no-preflight", "--allow-siblings", *argv])
-
-    assert len(seen) == 2, capsys.readouterr()
-    assert "CV3D_PLAN_BRIEF" in seen[0]
 
 
 # --------------------------------------------------------------------- pin-plan safety

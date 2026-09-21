@@ -160,13 +160,17 @@ def lazy(module: str, attr: str | None = None) -> Any:
         raise CliError(f"{module}.{attr} is missing ({e}); the sub-package may be incomplete.", code=2) from e
 
 
+#: the evaluation code lives NEXT TO the harness (``<repo>/eval``), not inside it
+EVAL_ROOT = REPO_ROOT.parent / "eval"
+
+
 def import_bench() -> Any:
-    """``bench`` lives at the repo root (not inside the package); make it importable."""
+    """``bench`` is ``<repo>/eval/bench`` (not part of the package); make it importable."""
     try:
         return importlib.import_module("bench")
     except ImportError:
-        if str(REPO_ROOT) not in sys.path:
-            sys.path.insert(0, str(REPO_ROOT))
+        if str(EVAL_ROOT) not in sys.path:
+            sys.path.insert(0, str(EVAL_ROOT))
         return lazy("bench")
 
 

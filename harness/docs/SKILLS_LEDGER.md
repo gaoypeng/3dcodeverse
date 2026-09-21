@@ -15,23 +15,23 @@ Three files hold it up:
 | file | what it is |
 |---|---|
 | `codeverse/addons/skill_targets.py` | the table — one `Target` row per bundle |
-| `bench/skill_targets.py` | the readout — one command, battery **or** A/B |
+| `eval/bench/skill_targets.py` | the readout — one command, battery **or** A/B |
 | `tests/skills/test_targets.py` | the pins — the rows exist, the gate kinds are still live, the frontmatter agrees, the readout counts what the row says |
 
 ```
-python bench/skill_targets.py bench/out                     # every baseline, whole corpus
-python bench/skill_targets.py bench/out --round first       # where a bundle acts, before repair
-python bench/skill_targets.py bench/out/ab_skills           # control vs variant, paired
-python bench/skill_targets.py bench/out --skill cv3d-part-contact --per-run --json
+python eval/bench/skill_targets.py eval/bench/out                     # every baseline, whole corpus
+python eval/bench/skill_targets.py eval/bench/out --round first       # where a bundle acts, before repair
+python eval/bench/skill_targets.py eval/bench/out/ab_skills           # control vs variant, paired
+python eval/bench/skill_targets.py eval/bench/out --skill cv3d-part-contact --per-run --json
 ```
 
 ---
 
 ## 0a. In flight — the first whole-library pinned A/B (2026-08-26)
 
-`bench/out/fancy_v1/{bl_a,bl_b,cq,tj}`: 16 hard, design-realistic object prompts (blender 10,
+`eval/bench/out/fancy_v1/{bl_a,bl_b,cq,tj}`: 16 hard, design-realistic object prompts (blender 10,
 cadquery 3, threejs 3), `CV3D_SKILLS=1` (the whole library) against OFF, plans pinned, the same
-fixed judge, on all 22 keys.  Read it out with `python bench/skill_targets.py bench/out/fancy_v1/<driver>`
+fixed judge, on all 22 keys.  Read it out with `python eval/bench/skill_targets.py eval/bench/out/fancy_v1/<driver>`
 per driver, or the merged paired table.  What it can and cannot say, stated before the data
 lands: n ≤ 16 pairs against a judged-score floor of 0.202 resolves a ~0.2 mean move, not a
 per-bundle effect (§5); its value is the first paired data on the library *as shipped* and the
@@ -62,7 +62,7 @@ interpenetration (15–18 mm WARNs) plus flat materials.  With the lamp re-aggre
 library helps, and the two large negatives are real defects in the ON runs, not judge noise.
 Skills stay OFF.  Pairs still in flight (carousel_horse, lever_espresso, smock_windmill,
 gate_valve, turbocharger, marimba, jacobs_chuck redo) land in `results.jsonl` per driver;
-merge with `python bench/skill_targets.py` or the paired readout (scratch `fancy_readout.py`
+merge with `python eval/bench/skill_targets.py` or the paired readout (scratch `fancy_readout.py`
 — rows are only paired when both arms are `scored`).
 
 ## 0. What this wave decided (2026-08-25, curate)
@@ -94,12 +94,12 @@ say `measured` because its defect descriptions were derived from our corpus, and
 
 ## 1. Why these are gate numbers and not scores — and why that was not enough
 
-An 8-prompt A/A of `bench/ab_plan.py` put the paired sd of the judged score at **0.202** and
-printed *~408 paired prompts to resolve +0.02* (`docs/EVAL.md` §8). Every row below is read
+An 8-prompt A/A of `eval/bench/ab_plan.py` put the paired sd of the judged score at **0.202** and
+printed *~408 paired prompts to resolve +0.02* (`eval/docs/EVAL.md` §8). Every row below is read
 from a gate report, a `BuildResult`, the exported GLB or the sampled frames — never the judge.
 
 The premise this wave was built on was that **pinning the plan** would collapse the noise,
-because `docs/EVAL.md` §8.1 showed the variance is the planner's. Pinning was built, wired
+because `eval/docs/EVAL.md` §8.1 showed the variance is the planner's. Pinning was built, wired
 and verified in production (one planner call per pair, both arms cache-HIT on the same
 `inputs_hash`). **The premise was half wrong, and that is the wave's most useful finding.**
 
@@ -132,8 +132,8 @@ away most of the signal. 24 pairs is affordable; 449 is not.
 
 ## 2. The ledger
 
-Baselines are recomputed 2026-08-25 from every run under `bench/out` that a gate reported on
-(`python bench/skill_targets.py bench/out`). Both rounds are shown where they differ, because
+Baselines are recomputed 2026-08-25 from every run under `eval/bench/out` that a gate reported on
+(`python eval/bench/skill_targets.py eval/bench/out`). Both rounds are shown where they differ, because
 **several bundles act on the first round and the repair loop hides them by the last.**
 
 Graded runs per language (a run is a sample **iff** it has a round carrying a gate report):
@@ -255,9 +255,9 @@ it lands these four rows stay `mixed`, not `measured`.
   have reported "no effect" for a switch it never tested. **Fixed** (`entry_of(spec)` reads
   `contracts.common.ENTRY_FILE`). This is why no graphics or three.js bundle has ever had a
   readable A/B.
-* **`bench/_fixed_eval.FixedEvaluator` is blender-only.** It pins `get_runtime(BLENDER)` and
+* **`eval/bench/_fixed_eval.FixedEvaluator` is blender-only.** It pins `get_runtime(BLENDER)` and
   runs only lint and connectivity — never contract, joint_sweep, scene_frames or gl_frames.
-  Not fixed; it does not sink the primary readout, because `bench/skill_targets.py` reads
+  Not fixed; it does not sink the primary readout, because `eval/bench/skill_targets.py` reads
   each arm's own harness record. Know that the *judged* column of any non-blender A/B is
   meaningless.
 * **`telemetry.record_exact_read` is wired to `read_file` only** (`agents/api_agent.py`), so

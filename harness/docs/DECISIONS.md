@@ -137,7 +137,7 @@ written) that were accepted because the code works that way and the tests pin it
 * **D25 Flywheel shapes (Δ).**  `caption_sample(ws, record, model_id, *, model=None)`;
   `export_samples` keeps both `code.<ext>` and full `src/**`; parquet adds
   track/language/score/passed/generator columns; tar locators filled by `--pack`;
-  `bench/` lives at repo root; `3dcode tools` is one command, not a sub-app; runs whose best
+  `eval/bench/` lives at repo root; `3dcode tools` is one command, not a sub-app; runs whose best
   round never built are skipped unless `--include-unbuilt`.
 * **D26 Threejs exports strip textures; `userData.tick` cannot survive GLB** — recorded in
   the census (`tick_present`) for the judge/flywheel rather than faked.
@@ -222,7 +222,7 @@ written) that were accepted because the code works that way and the tests pin it
   Context: `ci.yml` listed 7 of 24 directories, so 828 pure-python tests — every
   docs-vs-code drift guard among them — never ran on a PR.  Decision: the local pre-push
   suite is `pytest tests -m "not live"` over every test directory (add `and not blender
-  and not node` for the pure-python subset), after `ruff check codeverse bench tests`;
+  and not node` for the pure-python subset), after `ruff check codeverse tests` (and `cd eval && ruff check . && python -m pytest` for the evaluation code);
   there is no CI — the owner removed the GitHub workflow on 2026-08-26 (6ac06a9), so this
   names a command every push is preceded by, not a job.
 
@@ -357,7 +357,7 @@ written) that were accepted because the code works that way and the tests pin it
   and the gate itself was blind where a thin member's tip is a small share of a large part's
   surface (`PENETRATION_MIN_FRACTION`, a telescope spreader 4 mm into three legs at 0.7–1.0 % of
   600 samples).  Decisions, each measured offline on the stored corpus before it shipped
-  (`bench/rejudge_offline.py`, 419 verdicts, $0):
+  (`eval/bench/rejudge_offline.py`, 419 verdicts, $0):
   (a) **`CapRule.measures`** names the checklist defect a gate rule is the measurement of, and the
   object rubrics' `floating_part` / `penetration_error` watch `connectivity` only.  The veto is
   depth-aware: a penetration WARN measured at `VETO_PENETRATION_DEPTH_M` (8 mm) or deeper is not
@@ -509,7 +509,7 @@ written) that were accepted because the code works that way and the tests pin it
   **Watch item ANSWERED 2026-08-31 — the channel stays, two sentences change.**  The
   battery ran on a REBUILT corpus (the original scratchpad was destroyed by a /tmp
   cleanup, so this is a fresh selection, not a replay): all 223 `static_object` runs
-  under `bench/out` with a GLB + plan re-gated live (92 dirty / 131 clean), then 16
+  under `eval/bench/out` with a GLB + plan re-gated live (92 dirty / 131 clean), then 16
   dirty (12 blender / 4 threejs, 12 batteries, stored 0.052–0.980, 1–37 ERRORs, five
   ≥ 0.88) + 6 clean controls re-rendered on the D47 rig and judged UNPATCHED in three
   arms × n=3 ($11.45, 0 errors).  Payload drift vs the measured shim was not re-run —
@@ -550,7 +550,7 @@ written) that were accepted because the code works that way and the tests pin it
   Separately fundable, NOT D48's: `untextured_flat` was over-applied by BOTH arms on
   shaded models with a uniform sensible colour, which the rubric item's own text
   exempts — funded and FIXED 2026-09-01 (wording A/B on the same 22 cases, see
-  docs/EVAL.md): the item now states the operable test ("differently-angled faces
+  eval/docs/EVAL.md): the item now states the operable test ("differently-angled faces
   render the SAME brightness"; "no texture map is NOT the test") and keeps default
   grey/magenta a defect even when lit.  Both adjudicated-false marks of the
   shaded-uniform class dropped to 0/3, the true default-grey mark held 3/3, and the
@@ -662,7 +662,7 @@ written) that were accepted because the code works that way and the tests pin it
   pro planner, a deterministic repair bundle, `CV3D_FEWER_TURNS`) all measured inside
   ±0.13 on 12-14 paired prompts, which is not evidence that they do nothing.  Decision:
   calibrate, then change the channel.
-  * **The instrument.**  A/A on `articulated_v2` (`bench/ab_plan.py --aa --pin-plan`,
+  * **The instrument.**  A/A on `articulated_v2` (`eval/bench/ab_plan.py --aa --pin-plan`,
     identical arms, generator `gemini-cli:gemini-3.7-flash`, fixed judge
     `gemini:gemini-3.1-pro-preview`, `n_samples=3`, rubric `articulated_v1`, 3 rounds,
     60 min/cell): 12 paired prompts (2 pairs dropped at the pinned plan to provider read
@@ -670,7 +670,7 @@ written) that were accepted because the code works that way and the tests pin it
     **0.225**, SE 0.065, **2 SE ±0.130**, sign 3 up / 8 down, p 0.227, separated from
     noise **NO**; the rig's own n_for_power is ~506 pairs for ±0.02.  Every phase-4/5
     result sat inside that band, and the rig printed "revert" from identical arms.
-  * **The channel that works.**  `bench/plan_stage_bench.py` runs the plan stage
+  * **The channel that works.**  `eval/bench/plan_stage_bench.py` runs the plan stage
     ALONE (≈$0.03 and ≈85 s per call), so a 280-call arm is affordable where a 14-cell
     battery is not.  `CV3D_PLAN_RESTART` (a plan that names links it never lists is
     re-sampled from the original request instead of edited in context) measured on 560
@@ -680,12 +680,12 @@ written) that were accepted because the code works that way and the tests pin it
     The rule this sets: measure the loss event (a run that produced nothing, a retried
     tool call, a pose the mechanism cannot reach), not the judge mean, unless the battery
     is large enough for the judge mean.  The 560 rows live in
-    `bench/data/plan_stage/*.jsonl` with `bench/plan_stage_report.py`: a p-value whose
+    `eval/bench/data/plan_stage/*.jsonl` with `eval/bench/plan_stage_report.py`: a p-value whose
     data is not in the tree is not reproducible (review, 2026-09-03).
   * **The trigger, narrowed and re-measured (2026-09-03).**  Review's point was that the
     trigger fired on any dangling link reference while the measured class is narrower, and
     that a restart spent one of the two validation re-ask slots.  Both changed; three arms
-    in ONE window (700 calls, `bench/data/plan_stage/trigger_{off,wide,narrow}.jsonl`) say:
+    in ONE window (700 calls, `eval/bench/data/plan_stage/trigger_{off,wide,narrow}.jsonl`) say:
     overall loss 2.9 % (off, 4/140) / 2.2 % (old trigger, 6/275) / 1.8 % (narrowed, 5/276,
     the fifth being a harness budget ceiling that the first pass had filed as weather),
     **no pair separating** (Fisher 0.45–0.75) — this window's control loses 2.9 %, not the
@@ -711,7 +711,7 @@ written) that were accepted because the code works that way and the tests pin it
     as errors 26.6 % (482/1 814) → **1.3 %** (25/1 863; the remainder are genuine
     `Observation.error` cases), cache hit 69 % → **90 %**, uncached prompt tokens per
     main-role request 38 521 → **13 480**, generator dollars per round median 1.572 → **0.950**
-    (−40 %).  `bench/session_stats.py` computes both columns from the recorded sessions —
+    (−40 %).  `eval/bench/session_stats.py` computes both columns from the recorded sessions —
     the first, hand-computed after column (1.4 %, 13 736, $0.967 over "108 sessions") is
     NOT reproduced by it and is withdrawn: no tested mechanism explains its shape (1.87x on
     calls and requests against 1.06x on sessions), while the before column reproduces to
@@ -724,7 +724,7 @@ written) that were accepted because the code works that way and the tests pin it
     (docs/COST.md §29).  The switch itself was DELETED in review (2026-09-03, −569 lines):
     an inconclusive lever with no cost saving is not worth a second prompt path through
     three templates, and the measurement above is the record of what it was worth.  To
-    re-run it, restore the branch commit named in docs/PAPER_WRITING.md §9.3.
+    re-run it, restore the branch commit named in eval/docs/PAPER_WRITING.md §9.3.
   * **Reading an agent's repo is a sandbox boundary, and `git archive` is not inside it.**
     Every flywheel read of a workspace already ran under `GIT_SAFE_FLAGS` (three `-c`
     overrides — hooks, fsmonitor, the global attributes file — plus no
@@ -750,7 +750,7 @@ written) that were accepted because the code works that way and the tests pin it
     URDFs), and on those the sampler drives a median of 3 joints per pose against the 6 it
     would have driven before — 1 on the umbrella and the step ladder, 2 on the folding
     workbench, the mechanisms the support was built for.  The pre-mimic batteries contain
-    zero couplings, so nothing else changed shape.  `bench/coupling_stats.py --per-prompt`
+    zero couplings, so nothing else changed shape.  `eval/bench/coupling_stats.py --per-prompt`
     recomputes all of it from the recorded URDFs (both counts are properties of the file).
     The score effect on the three coupled prompts is inside the noise band at n=2 per side,
     as expected; the pose count is the readout that resolves.  What does NOT resolve, and
@@ -774,7 +774,7 @@ written) that were accepted because the code works that way and the tests pin it
   (`sweep_collisions(tol_m=)`, the default every caller takes) and treats a REST overlap as
   an ERROR only above **5 mm** (`sweep_findings(rest_max_m=)`, which
   `urdf.REST_PENETRATION_MAX_M` matches).  So at rest the two share a WARN line and differ
-  2x on ERROR — not 10x, and `bench/penetration_thresholds.py` now imports both numbers
+  2x on ERROR — not 10x, and `eval/bench/penetration_thresholds.py` now imports both numbers
   instead of restating them.
 
   Measured over 374 recorded articulated rounds: the connectivity ERROR has fired **0
@@ -810,7 +810,7 @@ written) that were accepted because the code works that way and the tests pin it
   renders: `driver: Attempted to use detached Frame '<id>'` — Chrome reaping the render
   tab on a box at load 93 with swap full and all eight GPUs at ~100 %.  The judge was
   skipped for want of images, so $6.75 of already-paid generation produced no verdict, and
-  `bench/scene_stats.py` attributed the whole thing to `render_console`.  Three separate
+  `eval/bench/scene_stats.py` attributed the whole thing to `render_console`.  Three separate
   rules came out of it, and they are the general form, not three patches:
   1. **A driver that lost its browser is retried once, on a browser of its own.**  The
      scene funnel (`spatial/render_scene.run_scene_script`) had no retry at all; the object
@@ -937,7 +937,7 @@ written) that were accepted because the code works that way and the tests pin it
 * **D60 A harness failure is never handed to the agent as a repair (2026-09-06).**
   `probes.probe_report` labels a driver that produced no output with
   `harness_failure: True` and the hint "this is a harness/driver failure, not your code",
-  and `build_with_repair` did not read the flag.  Measured on `bench/out/scene_textures`
+  and `build_with_repair` did not read the flag.  Measured on `eval/bench/out/scene_textures`
   (japanese_garden): three repairs against that message rewrote 5, then **14**, then 3
   files — the 14 included `env.js` and every zone — and the fourth build passed on its
   own.  The 14-file rewrite deleted the texture use the arm existed to measure; that cell
@@ -1244,11 +1244,23 @@ written) that were accepted because the code works that way and the tests pin it
   the workspace dir (`.3dcv/` → `.3dcode/`), the MCP server name (tools are `mcp_3dcode_<name>` /
   `mcp__3dcode__<name>`) and the workspace git author.  Runs recorded earlier stay readable and
   resumable: `.3dcv` is still harness-owned and gitignored, a legacy `3dcv` server entry is
-  still cleaned from a workspace `.mcp.json`, `bench/session_stats` reads both tool prefixes.
+  still cleaned from a workspace `.mcp.json`, `eval/bench/session_stats` reads both tool prefixes.
   NOT renamed: the `CV3D_` settings prefix (it would silently drop every existing config),
   the `cv3d-*` skill names, the `3dcv_*` LLaMA-Factory dataset names.  The contributor CLI in
   `toolkits/3dcode_cli` gave up the script name and is `3dcode-data` (its distribution name,
   package and credentials path are unchanged; `VENDORED.md` records the difference from upstream).
+* **D77 Evaluation lives next to the harness, not inside it (2026-09-21).**  `harness/bench` →
+  `eval/bench` (evaluates the HARNESS: batteries, A/B rigs, reports; the python package is still
+  `bench`), `finetune/3dcodeverse_eval` → `eval/llm` (evaluates a bare LLM/VLM; the 2026-09-08
+  rewrite replaces the older tracked copy), the evaluation write-ups (EVAL, COMPLEXITY,
+  PAPER_WRITING) → `eval/docs`, and the 24 test files of the bench scripts → `eval/tests`.  The
+  dependency is one-way and now visible in the tree: `eval/*` imports `codeverse`, nothing under
+  `harness/` imports `bench`, and the harness suite passes without `eval/`.  Mixed test files were
+  split where they straddled the line (`test_targets`, `test_plan_features`, `test_complexity_record`).
+  `3dcode bench run|report` stays as the launcher and finds the package at `<repo>/eval`
+  (`cli/_common.EVAL_ROOT`).  The two evaluations share one set of battery files
+  (`eval/bench/prompts`; `llm` names the ten it can ask one-shot).  Run data — `eval/bench/out`,
+  `eval/llm/data/prompts/*.jsonl` — is not in git.
 
 ## Rejected / deferred
 

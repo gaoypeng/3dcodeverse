@@ -10,7 +10,7 @@ node_modules
 runs/
 harness/runs/
 bench/out/
-harness/bench/out/
+eval/bench/out/
 # node drivers run with cwd=harness/runtime_js/, so a relative --out drops files here
 harness/runtime_js/artifacts/
 harness/logs/
