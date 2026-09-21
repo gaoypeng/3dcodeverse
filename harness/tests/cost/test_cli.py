@@ -1,4 +1,4 @@
-"""``3dcv cost`` and ``bench/cost_report.py``."""
+"""``3dcv cost``."""
 
 from __future__ import annotations
 
@@ -35,15 +35,6 @@ def test_cost_prices_and_estimate():
     assert r.exit_code == 0 and "gemini:gemini-3.7-flash" in r.stdout and "verified" in r.stdout
     r = runner.invoke(app, ["cost", "estimate", "gemini:gemini-3.7-flash", "--in", "100000", "--out", "1000"])
     assert r.exit_code == 0 and "$0.0788" in r.stdout
-
-
-def test_bench_cost_report_entry_point(fake_run: Path, tmp_path: Path):
-    from bench.cost_report import main
-
-    out = tmp_path / "cost.md"
-    assert main([str(fake_run), "--out", str(out), "--quiet"]) == 0
-    assert "# Cost report" in out.read_text()
-    assert main([str(tmp_path / "nothing"), "--quiet"]) == 2
 
 
 # --------------------------------------------------------------------- the live ledger

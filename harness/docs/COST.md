@@ -13,7 +13,6 @@ Reproduce:
 3dcv cost show runs bench/out/* --md docs/cost_report.md # full tables
 3dcv cost show runs --recheck                            # re-price with today's table
 3dcv cost prices [--unverified]                          # the price table + provenance
-python bench/cost_report.py bench/out/<battery>          # writes <battery>/cost_report.md
 ```
 
 The audit is `codeverse/cost/audit.py`; it reconstructs a per-call ledger from
@@ -224,7 +223,7 @@ sessions.  `_base_label()` now strips the attempt suffix before the lookup, and 
 test pins the three worst runs.
 
 Re-running the audit with the fixed code
-(`python bench/cost_report.py`, or the script in the wave-3 scratchpad):
+(`3dcv cost show <paths> --md <out>`, or the script in the wave-3 scratchpad):
 
 | | before the fix | after |
 |---|---|---|
@@ -499,8 +498,8 @@ and with `CV3D_COST_LEDGER=off` it wrote anyway, which is now really off.
 
 **Reading it.**  `cost.reconstruct.reconstruct_run` prefers a live ledger and
 falls back to rebuilding from trajectories / verdicts / events, so
-`3dcv cost`, `bench/cost_report.py` and the run layout's `telemetry/cost.json`
-all pick the live rows up automatically and the 61 recorded runs keep auditing
+`3dcv cost` and the run layout's `telemetry/cost.json`
+both pick the live rows up automatically and the 61 recorded runs keep auditing
 (`RunLedger.source` says `live` or `reconstructed`).
 
 ### Verified on two fresh live runs
@@ -1297,7 +1296,7 @@ for the `"key": "…xxxx"` that `gemini.py:_once` puts in `ChatResponse.raw` and
 (round-trips issued, hedged siblings included; 1 = clean) and `hedged`; `GeminiModel` puts both
 in `raw` and `attempts` on the raised `ModelError`; `cost/instrument.py` copies the key suffix
 (last 4 chars, never more) and `attempts` onto every `CallCost` row (`key`, `attempts`, both
-defaulted so old rows load); `3dcv cost` / `bench/cost_report.py` add a per-key table and a
+defaulted so old rows load); `3dcv cost` adds a per-key table and a
 `tries/call` column (`CostBucket.attempts_per_call`) whenever the ledger carries them.
 
 ## 28. Where the time goes — the 2026-08-26 audit

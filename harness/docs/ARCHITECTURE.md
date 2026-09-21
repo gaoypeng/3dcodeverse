@@ -240,7 +240,7 @@ bench/                run_bench.py, report.py (renders through codeverse/gallery
                       reserved), _ab_report.py,
                       ab_gate_rates.py (the same run's DETERMINISTIC readouts, paired per
                       prompt: penetrating pairs, worst depth, floating parts, contract findings),
-                      _oneshot.py, _fixed_eval.py, cost_report.py,
+                      _oneshot.py, _fixed_eval.py,
                       concurrency_probe.py (in-flight knee sweep), complexity_report.py,
                       prompts/{static_objects_v1 (24), articulated_v1 (12), scenes_v1 (12), compare_v1 (8)}.yaml
 runtime_js/           export_glb.mjs (placement policy, instance baking, selfcheck) render_glb.mjs
