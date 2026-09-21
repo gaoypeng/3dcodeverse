@@ -13,9 +13,9 @@
 * ``server``      ``GalleryApp.route`` + ``serve(...)`` — loopback-only unless --host is typed
 """
 
-from codeverse.gallery.compare import export_csv, render_compare
-from codeverse.gallery.index import build_index, default_roots
-from codeverse.gallery.model import (
+from codeverse.addons.gallery.compare import export_csv, render_compare
+from codeverse.addons.gallery.index import build_index, default_roots
+from codeverse.addons.gallery.model import (
     VERDICTS,
     GalleryIndex,
     RootSection,
@@ -25,8 +25,8 @@ from codeverse.gallery.model import (
     summarize,
     verdict_breakdown,
 )
-from codeverse.gallery.page import build_static, render_static
-from codeverse.gallery.server import (
+from codeverse.addons.gallery.page import build_static, render_static
+from codeverse.addons.gallery.server import (
     DEFAULT_HOST,
     DEFAULT_PORT,
     GalleryApp,

@@ -14,7 +14,7 @@ import mimetypes
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
-from codeverse.gallery.model import RunEntry, RunLink
+from codeverse.addons.gallery.model import RunEntry, RunLink
 
 THUMB_PX = 720
 JPEG_QUALITY = 78

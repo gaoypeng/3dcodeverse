@@ -1,7 +1,7 @@
 """The index page: status rail, filters, per-battery sections, cards + table.
 
 Rendered identically for the local server and the static build — the only
-difference is the :class:`~codeverse.gallery.urls.UrlMaker` it is handed.  The
+difference is the :class:`~codeverse.addons.gallery.urls.UrlMaker` it is handed.  The
 initial filter is applied **server-side** (so ``curl '/?track=graphics'`` and a
 no-JS browser both see the right runs and the right summary) and then re-applied
 client-side on every keystroke without a reload.
@@ -17,9 +17,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codeverse.gallery.cards import TABLE_HEAD, fmt, render_card, render_row
-from codeverse.gallery.index import build_index
-from codeverse.gallery.model import (
+from codeverse.addons.gallery.cards import TABLE_HEAD, fmt, render_card, render_row
+from codeverse.addons.gallery.index import build_index
+from codeverse.addons.gallery.model import (
     FILTER_KEYS,
     VERDICT_META,
     VERDICTS,
@@ -29,8 +29,8 @@ from codeverse.gallery.model import (
     sort_entries,
     summarize,
 )
-from codeverse.gallery.theme import INDEX_CSS, INDEX_JS, esc, footer, page_shell, top_bar
-from codeverse.gallery.urls import THUMB_PX, StaticUrls, UrlMaker
+from codeverse.addons.gallery.theme import INDEX_CSS, INDEX_JS, esc, footer, page_shell, top_bar
+from codeverse.addons.gallery.urls import THUMB_PX, StaticUrls, UrlMaker
 from codeverse.proc import write_text_atomic
 
 

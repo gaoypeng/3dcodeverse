@@ -12,15 +12,15 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import quote
 
+from codeverse.addons.gallery.cards import fmt, gallery_figure, tier_tag, verdict_tag
+from codeverse.addons.gallery.code import CODE_CSS, numbered, read_text, src_files
+from codeverse.addons.gallery.index import _rel
+from codeverse.addons.gallery.model import RunEntry
+from codeverse.addons.gallery.theme import esc, footer, page_shell, top_bar
+from codeverse.addons.gallery.urls import UrlMaker
 from codeverse.contracts.common import ENTRY_FILE
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel.record import best_round_record, effective_judgment
-from codeverse.gallery.cards import fmt, gallery_figure, tier_tag, verdict_tag
-from codeverse.gallery.code import CODE_CSS, numbered, read_text, src_files
-from codeverse.gallery.index import _rel
-from codeverse.gallery.model import RunEntry
-from codeverse.gallery.theme import esc, footer, page_shell, top_bar
-from codeverse.gallery.urls import UrlMaker
 from codeverse.workspace import Workspace
 
 DETAIL_CSS = CODE_CSS + """

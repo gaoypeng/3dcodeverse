@@ -9,9 +9,9 @@ from typing import Annotated
 import typer
 from rich.markup import escape
 
+from codeverse.addons.dataset.pairs import MIN_PREFERENCE_DELTA
 from codeverse.cli import _common as C
 from codeverse.cli._common import console, kv_table, ok, warn
-from codeverse.flywheel.pairs import MIN_PREFERENCE_DELTA
 
 flywheel_app = typer.Typer(no_args_is_help=True)
 
@@ -30,7 +30,7 @@ def export_cmd(
 ) -> None:
     """Export runs → sample folders + dataset_manifest.json + metadata.jsonl/.parquet
     (+ optional plain tars, packed FROM the manifest)."""
-    from codeverse.flywheel.export import export_samples
+    from codeverse.addons.dataset.export import export_samples
 
     if pack:
         # pack_samples rewrites the index and reads it back with pyarrow, so --pack
@@ -58,7 +58,7 @@ def export_cmd(
     for g in rep.duplicates[:20]:
         warn(f"duplicate of {g.canonical}: {', '.join(g.duplicates)}")
     if pack:
-        from codeverse.flywheel.pack import pack_samples, verify_locators
+        from codeverse.addons.dataset.pack import pack_samples, verify_locators
 
         prep = pack_samples(out_dir, tar_prefix=tar_prefix)
         n = verify_locators(out_dir)
@@ -72,7 +72,7 @@ def pairs_cmd(
     min_delta: Annotated[float, typer.Option("--min-delta")] = MIN_PREFERENCE_DELTA,
 ) -> None:
     """Preference / repair (round + in-session) / cross-backend pairs → JSONL."""
-    from codeverse.flywheel.pairs import build_pairs
+    from codeverse.addons.dataset.pairs import build_pairs
 
     n = build_pairs(runs_dir, out_jsonl, min_delta=min_delta)
     ok(f"{n} pairs → {out_jsonl}")
@@ -86,7 +86,7 @@ def refine_cmd(
                                             "format converter needs no access to the runs")] = False,
 ) -> None:
     """Refine rounds as transitions (brief → diff → score delta) → JSONL."""
-    from codeverse.flywheel.refine import build_refine
+    from codeverse.addons.dataset.refine import build_refine
 
     n, drops = build_refine(runs_dir, out_jsonl, with_code=with_code)
     ok(f"{n} transitions → {out_jsonl}" + (f"; not exported: {dict(drops)}" if drops else ""))
@@ -102,9 +102,9 @@ def caption_cmd(
     out: Annotated[Path | None, typer.Option("--out", help="write side-car <out>/<slug>.json instead of touching the run (read-only runs)")] = None,
 ) -> None:
     """Caption run(s): {detailed, instruction, factory} via a chat model."""
+    from codeverse.addons.dataset.captions import CaptionError, caption_sample
+    from codeverse.addons.dataset.export import load_captions
     from codeverse.cost.instrument import run_ledger
-    from codeverse.flywheel.captions import CaptionError, caption_sample
-    from codeverse.flywheel.export import load_captions
     from codeverse.flywheel.record import iter_runs, load_record
     from codeverse.proc import RunLocked, exclusive
 
@@ -145,7 +145,7 @@ def index_cmd(
     show: Annotated[bool, typer.Option("--summary/--no-summary")] = True,
 ) -> None:
     """Build the SQLite index (runs / rounds / usage) and print a summary."""
-    from codeverse.flywheel.index import build_index, summary
+    from codeverse.addons.dataset.index import build_index, summary
 
     n = build_index(runs_dir, out_sqlite)
     ok(f"indexed {n} runs → {out_sqlite}")
@@ -208,7 +208,7 @@ def gallery_cmd(
     embed: Annotated[bool, typer.Option("--embed/--no-embed", help="inline the contact sheets as data: URIs")] = True,
 ) -> None:
     """Alias of `3dcv gallery build` (kept for scripts): one self-contained HTML page."""
-    from codeverse.gallery.page import build_static
+    from codeverse.addons.gallery.page import build_static
 
     path, n, _ = build_static([runs_dir], out_html, title=title, embed=embed, thumb_px=thumb_px)
     ok(f"gallery of {n} runs → {path} ({path.stat().st_size // 1024} KB)")

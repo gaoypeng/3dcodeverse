@@ -9,10 +9,12 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from codeverse.addons.dataset.export import export_samples
+from codeverse.addons.gallery import build_static
+from codeverse.addons.gallery.index import entry_from_record
 from codeverse.cli.main import app
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel.deliverable import build_deliverable, deliverable_path, load_deliverable
-from codeverse.flywheel.export import export_samples
 from codeverse.flywheel.record import load_record, package_run
 from codeverse.flywheel.telemetry import (
     build_telemetry,
@@ -21,8 +23,6 @@ from codeverse.flywheel.telemetry import (
     load_telemetry,
     stage_order,
 )
-from codeverse.gallery import build_static
-from codeverse.gallery.index import entry_from_record
 from codeverse.workspace import LAYOUT_ALIASES, Workspace
 
 from .conftest import make_fake_run

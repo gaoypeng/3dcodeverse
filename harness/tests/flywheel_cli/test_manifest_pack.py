@@ -20,14 +20,14 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.flywheel.export import (
+from codeverse.addons.dataset.export import (
     MANIFEST_NAME,
     ManifestError,
     export_samples,
     load_manifest,
     write_manifest,
 )
-from codeverse.flywheel.pack import PackError, pack_samples, verify_locators
+from codeverse.addons.dataset.pack import PackError, pack_samples, verify_locators
 
 CHAIR_ID = "3dcodeverse/static_object/blender/wooden_chair_ab12cd34"
 
@@ -141,7 +141,7 @@ def test_a_failure_after_the_pack_loop_publishes_nothing(packed_ds: Path, monkey
     write fails.  Publishing the tars alone left the OLD index resolving to the new
     tars' byte offsets — six rows pointing at the wrong bytes, and verify_locators
     happily passing a corrupt dataset."""
-    import codeverse.flywheel.pack as P
+    import codeverse.addons.dataset.pack as P
 
     before = _packed_state(packed_ds)
     monkeypatch.setattr(P, "write_parquet", lambda *a, **k: (_ for _ in ()).throw(OSError("No space left on device")))

@@ -179,7 +179,7 @@ class RunEntry(BaseModel):
 
     @property
     def verdict(self) -> str:
-        """The triage bucket — exactly one of :data:`~codeverse.gallery.model.VERDICTS`.
+        """The triage bucket — exactly one of :data:`~codeverse.addons.gallery.model.VERDICTS`.
 
         The four are disjoint *and* exhaustive on purpose: a status breakdown built
         from them always sums to the number of runs on screen.  A run whose record

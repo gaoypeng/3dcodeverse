@@ -15,10 +15,10 @@ import csv
 import io
 from urllib.parse import quote
 
-from codeverse.gallery.cards import fmt, tier_tag, verdict_tag
-from codeverse.gallery.model import VERDICT_META, RunEntry
-from codeverse.gallery.theme import esc, footer, page_shell, top_bar
-from codeverse.gallery.urls import UrlMaker
+from codeverse.addons.gallery.cards import fmt, tier_tag, verdict_tag
+from codeverse.addons.gallery.model import VERDICT_META, RunEntry
+from codeverse.addons.gallery.theme import esc, footer, page_shell, top_bar
+from codeverse.addons.gallery.urls import UrlMaker
 
 #: how many runs a compare page will lay out before it says "too many"
 MAX_COMPARE = 8

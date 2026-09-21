@@ -1,7 +1,7 @@
 """Build the gallery index from run roots.
 
 ``build_index(roots)`` walks every run directory once, reads ``record.json`` and
-turns it into a :class:`~codeverse.gallery.model.RunEntry` whose every path is
+turns it into a :class:`~codeverse.addons.gallery.model.RunEntry` whose every path is
 **run-relative**.  It is deliberately cheap (no image work, no git): ~80 runs
 index in well under a second, which is what makes ``--reload`` free.
 
@@ -15,6 +15,14 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from codeverse.addons.gallery.model import (
+    GalleryIndex,
+    RootSection,
+    RoundRow,
+    RunEntry,
+    RunLink,
+    humanize_view,
+)
 from codeverse.contracts.run import RunId, RunRecord
 from codeverse.flywheel.quality import quality_tier
 from codeverse.flywheel.record import (
@@ -28,14 +36,6 @@ from codeverse.flywheel.record import (
     load_record,
 )
 from codeverse.flywheel.sample import gate_error_summary, telemetry_digest
-from codeverse.gallery.model import (
-    GalleryIndex,
-    RootSection,
-    RoundRow,
-    RunEntry,
-    RunLink,
-    humanize_view,
-)
 from codeverse.proc import read_json_or_none
 from codeverse.workspace import Workspace
 

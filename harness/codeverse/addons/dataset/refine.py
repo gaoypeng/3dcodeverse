@@ -1,6 +1,6 @@
 """Refine rounds as transitions: what the round was told, what it changed, what it scored.
 
-:mod:`codeverse.flywheel.pairs` exports whole code trees per round and never looks at what
+:mod:`codeverse.addons.dataset.pairs` exports whole code trees per round and never looks at what
 asked for the change, so a refine round arrives as two 30 kB files with no cause.  This
 exports the transition instead — one row per refine round::
 
@@ -27,10 +27,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from codeverse.addons.dataset.pairs import MIN_PREFERENCE_DELTA
 from codeverse.contracts.artifacts import Severity
 from codeverse.contracts.run import RoundRecord, RunRecord
 from codeverse.flywheel._git import GitReadError, changed_files_between, diff_between, read_tree_at
-from codeverse.flywheel.pairs import MIN_PREFERENCE_DELTA
 from codeverse.flywheel.record import (
     BATTERY_MARKERS,
     effective_judgment,

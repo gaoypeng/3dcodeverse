@@ -12,9 +12,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from codeverse.gallery.model import RunEntry
-from codeverse.gallery.theme import esc, footer, page_shell, top_bar
-from codeverse.gallery.urls import UrlMaker, safe_join
+from codeverse.addons.gallery.model import RunEntry
+from codeverse.addons.gallery.theme import esc, footer, page_shell, top_bar
+from codeverse.addons.gallery.urls import UrlMaker, safe_join
 
 MAX_VIEW_BYTES = 512 * 1024
 HIGHLIGHT_SUFFIXES = {".py", ".js", ".mjs", ".cjs", ".frag", ".vert", ".glsl", ".json"}

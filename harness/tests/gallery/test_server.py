@@ -13,14 +13,14 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.gallery.server import (
+from codeverse.addons.gallery.server import (
     DEFAULT_HOST,
     GalleryApp,
     GalleryError,
     make_server,
     resolve_host,
 )
-from codeverse.gallery.urls import PathError, content_type, safe_join
+from codeverse.addons.gallery.urls import PathError, content_type, safe_join
 
 
 @pytest.fixture
@@ -124,7 +124,7 @@ def test_unknown_run_and_unknown_route(app: GalleryApp):
 
 
 def test_vendor_and_viewer(app: GalleryApp):
-    from codeverse.gallery.viewer import viewer_available
+    from codeverse.addons.gallery.viewer import viewer_available
 
     v = app.route("/viewer/runs/wooden_chair_ab12cd34/artifacts/object.glb")
     if viewer_available():

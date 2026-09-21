@@ -7,10 +7,10 @@ import csv
 import io
 from pathlib import Path
 
-from codeverse.gallery.compare import CSV_COLUMNS, csv_safe, export_csv
-from codeverse.gallery.index import build_index
-from codeverse.gallery.server import SANDBOXED_TYPES, GalleryApp
-from codeverse.gallery.urls import content_type
+from codeverse.addons.gallery.compare import CSV_COLUMNS, csv_safe, export_csv
+from codeverse.addons.gallery.index import build_index
+from codeverse.addons.gallery.server import SANDBOXED_TYPES, GalleryApp
+from codeverse.addons.gallery.urls import content_type
 from tests.flywheel_cli.conftest import make_fake_run
 
 

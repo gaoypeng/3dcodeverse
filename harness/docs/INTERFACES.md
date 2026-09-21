@@ -530,16 +530,16 @@ from codeverse.texturing.plan import scene_texture_pack, texture_pack_prompt   #
 ## flywheel/ + cli/
 ```python
 from codeverse.flywheel.record import finalize_record, load_record, iter_runs, best_round_index, best_round_record
-from codeverse.gallery.index import hero_view          # (ws, rec) -> (rel, label, n_views): the card image, rebased via ws
+from codeverse.addons.gallery.index import hero_view          # (ws, rec) -> (rel, label, n_views): the card image, rebased via ws
 from codeverse.flywheel.record import complexity_block, round_complexity   # objective complexity of what shipped
     # finalize_record fills record.extra["complexity"] = the BEST round's vector + plan_parts /
     # parts_per_plan_part / by_round; every rounds_summary row gains "complexity" (the index or None)
-from codeverse.flywheel.export import export_samples   # (runs_dir, out_dir, *, min_score=None, only_passed=False,
+from codeverse.addons.dataset.export import export_samples   # (runs_dir, out_dir, *, min_score=None, only_passed=False,
     # include_unbuilt=False, captions_dir=None, drop_duplicates=False) -> ExportReport{…, n_duplicates, duplicates, tiers}
 from codeverse.flywheel.quality import quality_tier, prompt_hash, find_duplicates   # tiers: A passed & 0 gate errors, B passed,
                                                                                     # C best ≥ 0.6, D else; dedupe = (code fingerprint, prompt)
-from codeverse.flywheel.pairs import build_pairs       # (runs_dir, out_jsonl, *, min_delta=0.05) -> n
-from codeverse.flywheel.refine import build_refine, transitions, RefineTransition, REFINE_KINDS, outcome_of
+from codeverse.addons.dataset.pairs import build_pairs       # (runs_dir, out_jsonl, *, min_delta=0.05) -> n
+from codeverse.addons.dataset.refine import build_refine, transitions, RefineTransition, REFINE_KINDS, outcome_of
     # build_refine(runs_dir, out_jsonl, **kw) -> (rows written, Counter of drop reasons); writes via a .part file
     # transitions(runs_dir, *, threshold=MIN_PREFERENCE_DELTA, max_diff_bytes=200_000, with_code=False,
     #             drops=None) -> Iterator[RefineTransition];  outcome_of(delta, threshold) -> the label
@@ -564,17 +564,17 @@ from codeverse.workspace import GIT_SAFE_FLAGS, GIT_SAFE_DIFF_FLAGS, git_safe_en
     # is still live and why read_tree_at avoids every content-rendering command.  git_safe_env drops
     # the SYSTEM and GLOBAL config (GIT_CONFIG_NOSYSTEM, GIT_CONFIG_GLOBAL=/dev/null) and the
     # inherited environment (HOME, PATH, GIT_TERMINAL_PROMPT)
-from codeverse.flywheel.captions import caption_sample # Δ (ws, record, model_id, *, model=None, out_dir=None) -> Captions;
+from codeverse.addons.dataset.captions import caption_sample # Δ (ws, record, model_id, *, model=None, out_dir=None) -> Captions;
                                                        # out_dir → side-car <out_dir>/<slug>.json, run untouched
-from codeverse.gallery import build_index, default_roots, build_static, serve, GalleryApp   # THE local gallery
+from codeverse.addons.gallery import build_index, default_roots, build_static, serve, GalleryApp   # THE local gallery
                                                        # build_index(roots) -> GalleryIndex (sections of RunEntry; never raises per run)
                                                        # build_static(roots, out_html, *, embed=False) -> (path, n, index)
                                                        # render_static(index, *, embed=…, extra_html="") — bench/report.py's page
                                                        # GalleryApp(roots, reload=False).route(path, query) -> Response  (pure, testable)
                                                        # serve(roots, *, host=None, host_explicit=False, port=8765, reload=False)
-from codeverse.gallery.urls import safe_join          # (root, rel) -> Path inside root, else PathError
-from codeverse.gallery.urls import content_type        # .glb→model/gltf-binary, .py/.js/.frag→text/plain; charset=utf-8
-from codeverse.flywheel.index import build_index, query, summary   # sqlite + parquet: adds quality_tier, gate_errors, cost_usd,
+from codeverse.addons.gallery.urls import safe_join          # (root, rel) -> Path inside root, else PathError
+from codeverse.addons.gallery.urls import content_type        # .glb→model/gltf-binary, .py/.js/.frag→text/plain; charset=utf-8
+from codeverse.addons.dataset.index import build_index, query, summary   # sqlite + parquet: adds quality_tier, gate_errors, cost_usd,
                                                                    # rounds, status, code_fingerprint, prompt_hash, duplicate_of, has_captions
 3dcodeverse make [--profile economy|balanced|quality]|resume|status|show|render|judge|tools|mcp
              |texture {pass,scene-pack,show}|cost {<slug>,show,cache,prices,profiles,estimate}

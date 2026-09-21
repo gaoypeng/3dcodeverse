@@ -6,9 +6,14 @@ import json
 
 import pytest
 
+from codeverse.addons.dataset.captions import (
+    CaptionError,
+    Captions,
+    caption_sample,
+    validate_captions,
+)
 from codeverse.contracts.chat import ChatRequest, ChatResponse, ImagePart
 from codeverse.contracts.common import Usage
-from codeverse.flywheel.captions import CaptionError, Captions, caption_sample, validate_captions
 from codeverse.flywheel.record import load_record
 
 GOOD = {
@@ -120,8 +125,8 @@ GOOD_JS = {
 
 def test_threejs_instruction_naming_threejs_is_valid():
     """The required 'Three.js' phrase must NOT trip the forbidden-API check (both js languages)."""
+    from codeverse.addons.dataset.captions import Captions, validate_captions
     from codeverse.contracts.common import Language
-    from codeverse.flywheel.captions import Captions, validate_captions
 
     c = Captions(**GOOD_JS)
     assert validate_captions(c, Language.THREEJS) == []
@@ -148,8 +153,8 @@ def test_caption_sample_threejs_run(tmp_path):
 
 def test_caption_graphics_and_scene_phrases():
     """Graphics languages have phrases + phrase words (no KeyError, sane rules)."""
+    from codeverse.addons.dataset.captions import Captions, validate_captions
     from codeverse.contracts.common import Language
-    from codeverse.flywheel.captions import Captions, validate_captions
 
     shader = Captions(
         detailed="Neon rain streaks down a dark window while blurred city lights pulse behind the glass.",

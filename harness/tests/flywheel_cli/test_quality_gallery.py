@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from codeverse.addons.dataset.captions import caption_sample
+from codeverse.addons.dataset.export import export_samples, load_captions
 from codeverse.contracts.common import Language
-from codeverse.flywheel.captions import caption_sample
-from codeverse.flywheel.export import export_samples, load_captions
 from codeverse.flywheel.quality import find_duplicates, mark_duplicates, prompt_hash, quality_tier
 from codeverse.flywheel.record import load_record
 from tests.flywheel_cli.conftest import make_fake_run

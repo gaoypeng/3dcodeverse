@@ -197,12 +197,15 @@ codeverse/
                       planner as a re-ask before any code is written),
                       skills_hook.py (the round's view of codeverse/skills: attach before generating,
                       probe reads after — a no-op unless CV3D_SKILLS is on)
-  flywheel/           record.py (+ best_round_record), export.py, pack.py, sample.py, pairs.py,
-                      deliverable.py, telemetry.py, captions.py, quality.py (tiers + dedupe + code/mesh fingerprints), index.py,
+  flywheel/           what every run WRITES: record.py (+ best_round_record), sample.py,
+                      deliverable.py, telemetry.py, quality.py (tiers + dedupe + code/mesh fingerprints),
                       code_quality.py (the delivered CODE's own vector — magic numbers per 100 LOC,
                       function length, dead functions, duplication, docstrings → record.extra
                       ["code_quality"].index, a flywheel filter beside score and complexity)
-  gallery/            THE local run gallery (`3dcv gallery serve|build`): cards.py,
+  addons/             optional tools that READ finished runs; outside cli/ nothing imports them
+                      (tests/core/test_addons_boundary.py).  dataset/ = export.py, pack.py, pairs.py,
+                      refine.py, captions.py, index.py (`3dcv flywheel …`); gallery/ = below
+  addons/gallery/     THE local run gallery (`3dcv gallery serve|build`): cards.py,
                       compare.py (side-by-side arms), index.py (run roots →
                       typed RunEntry, tolerant of half-written records), model.py, page.py (cards +
                       table + filters + per-filter summary), detail.py (/run/<battery>/<slug>),
@@ -226,7 +229,7 @@ codeverse/
                       flywheel_cmd.py, texture_cmd.py, cost_cmd.py (`3dcv cost`), layout_cmd.py, doctor.py
                       (`--skills` checks the library + its discovery wiring),
                       skills_cmd.py (`3dcv skills list|show|validate|report` — the read-rate report)
-bench/                run_bench.py, report.py (renders through codeverse/gallery), compare_backends.py
+bench/                run_bench.py, report.py (renders through codeverse/addons/gallery), compare_backends.py
                       (preflights every model it needs; --wait-for-provider / --no-preflight),
                       _infra.py (outage vs model failure: infra_failed / budget_exhausted, docs/EVAL.md §7),
                       pin_plan.py (seed one plan into both arms so the paired delta stops carrying
@@ -553,7 +556,7 @@ repair pairs (in-session trajectory mining died with the api-agent, 2026-08-28 �
 vendor CLIs log raw stdout, not structured tool turns); `flywheel refine` emits the loop's OWN transitions — one row per (round i → round
 i+1) where the harness asked for a change, carrying what condemned the round, the
 instructions written in response, both code snapshots and whether the score moved
-(the row is `flywheel/refine.RefineTransition`; INTERFACES has the fields and the
+(the row is `addons/dataset/refine.RefineTransition`; INTERFACES has the fields and the
 drop reasons).  That is the supervision the harness produces that a
 one-shot corpus cannot: what a failing artefact looked like, what was wrong with it
 in the harness's own words, and what the fix changed.  `toolkits/llamafactory/`
@@ -563,7 +566,7 @@ trainer's format.  `flywheel caption` adds
 side-car mode); `flywheel gallery` is an alias of `3dcv gallery build --embed`
 (the flywheel package has no renderer of its own).
 
-`codeverse/gallery/` is the **local** answer to the same question: `3dcv gallery
+`codeverse/addons/gallery/` is the **local** answer to the same question: `3dcv gallery
 serve` indexes `runs/` + every `bench/out/*/runs`, serves the page **and the run
 directories** on 127.0.0.1 (so every link opens: sheet, renders, `src/`, `object.glb`
 in an orbit viewer built on the vendored three.js, `record.json`), and re-reads a

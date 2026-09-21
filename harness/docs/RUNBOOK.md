@@ -160,7 +160,7 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 3dcv flywheel pairs runs/ pairs.jsonl [--min-delta 0.05]
 3dcv flywheel refine runs/ refine.jsonl [--with-code]
                                      # one row per round the harness asked to change; the row
-                                     # schema is codeverse/flywheel/refine.RefineTransition and
+                                     # schema is codeverse/addons/dataset/refine.RefineTransition and
                                      # INTERFACES has the call signatures.  Training formats live
                                      # in toolkits/llamafactory/, not here.
 3dcv flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched

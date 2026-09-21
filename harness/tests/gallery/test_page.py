@@ -7,9 +7,9 @@ import re
 from html.parser import HTMLParser
 from pathlib import Path
 
-from codeverse.gallery.index import build_index
-from codeverse.gallery.page import build_static, render_index, render_static
-from codeverse.gallery.urls import StaticUrls, UrlMaker
+from codeverse.addons.gallery.index import build_index
+from codeverse.addons.gallery.page import build_static, render_index, render_static
+from codeverse.addons.gallery.urls import StaticUrls, UrlMaker
 
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
         "source", "track", "wbr"}

@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 
+from codeverse.addons.dataset.export import export_samples
+from codeverse.addons.dataset.index import build_index, summary
+from codeverse.addons.dataset.pack import pack_samples, verify_locators
+from codeverse.addons.dataset.pairs import build_pairs
 from codeverse.contracts.run import RunRecord
 from codeverse.flywheel import _git
-from codeverse.flywheel.export import export_samples
-from codeverse.flywheel.index import build_index, summary
-from codeverse.flywheel.pack import pack_samples, verify_locators
-from codeverse.flywheel.pairs import build_pairs
 from codeverse.flywheel.quality import (
     DedupeItem,
     MeshFingerprint,
@@ -315,7 +315,7 @@ def test_build_index_and_queries(runs_dir: Path, tmp_path: Path):
 # --------------------------------------------------------------------------- finding: repair pairs (pairs.py:115)
 def test_repair_pairs_match_structurally_not_by_kind(tmp_path: Path):
     """Lifecycle labels the fixing round 'refine' — repair pairs must not need kind='repair'."""
-    from codeverse.flywheel.pairs import repair_pairs
+    from codeverse.addons.dataset.pairs import repair_pairs
     from tests.flywheel_cli.conftest import make_fake_run
 
     ws, rec = make_fake_run(tmp_path / "runs", with_repair=True)
@@ -335,7 +335,7 @@ def test_in_round_repair_pairs_from_generated_commit(tmp_path: Path):
     """build_with_repair fixes inside one round: generated commit → final commit."""
     import json as _json
 
-    from codeverse.flywheel.pairs import in_round_repair_pairs
+    from codeverse.addons.dataset.pairs import in_round_repair_pairs
     from tests.flywheel_cli.conftest import make_fake_run
 
     ws, rec = make_fake_run(tmp_path / "runs")
@@ -370,7 +370,7 @@ def _degrade(judgment):
 
 
 def test_degraded_round_is_not_a_zero_score(tmp_path: Path):
-    from codeverse.flywheel.pairs import preference_pairs
+    from codeverse.addons.dataset.pairs import preference_pairs
     from codeverse.flywheel.record import effective_judgment, effective_score, round_summary
     from tests.flywheel_cli.conftest import make_fake_run
 
@@ -455,8 +455,8 @@ def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
 
 def test_battery_layouts_are_discovered_by_flywheel_and_gallery(tmp_path):
     """All three battery layouts resolve runs; eval siblings never become gallery runs."""
+    from codeverse.addons.gallery.index import scan_root
     from codeverse.flywheel.record import find_run_dirs, iter_runs
-    from codeverse.gallery.index import scan_root
 
     battery = tmp_path / "static_v2_flash"          # run_bench: runs/<id>
     (battery / "runs" / "some_run").mkdir(parents=True)
@@ -507,7 +507,7 @@ def test_parquet_keeps_the_complexity_columns_the_exporter_writes(tmp_path):
     """The fixed Arrow schema preserves exported complexity columns."""
     import pyarrow.parquet as pq
 
-    from codeverse.flywheel.export import parquet_schema, write_parquet
+    from codeverse.addons.dataset.export import parquet_schema, write_parquet
 
     row = dict.fromkeys(parquet_schema().names)
     row.update(id="x", key="k", complexity=7.5, complexity_band="high")

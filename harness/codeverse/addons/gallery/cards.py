@@ -14,9 +14,9 @@ Design rules this module exists to hold in one place:
 
 from __future__ import annotations
 
-from codeverse.gallery.model import VERDICT_META, RunEntry, RunLink, humanize_view
-from codeverse.gallery.theme import esc
-from codeverse.gallery.urls import UrlMaker
+from codeverse.addons.gallery.model import VERDICT_META, RunEntry, RunLink, humanize_view
+from codeverse.addons.gallery.theme import esc
+from codeverse.addons.gallery.urls import UrlMaker
 
 #: links promoted next to ``detail`` on the card, best-first — the one artifact
 #: you actually open for that track

@@ -27,15 +27,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from codeverse.gallery import code as code_page
-from codeverse.gallery import viewer as viewer_page
-from codeverse.gallery.compare import MAX_COMPARE, export_csv, parse_keys, render_compare
-from codeverse.gallery.detail import render_broken_detail, render_detail
-from codeverse.gallery.index import build_index
-from codeverse.gallery.model import FILTER_KEYS, RunEntry, match, sort_entries
-from codeverse.gallery.page import render_index
-from codeverse.gallery.theme import esc, footer, page_shell, top_bar
-from codeverse.gallery.urls import PathError, UrlMaker, content_type, safe_join
+from codeverse.addons.gallery import code as code_page
+from codeverse.addons.gallery import viewer as viewer_page
+from codeverse.addons.gallery.compare import MAX_COMPARE, export_csv, parse_keys, render_compare
+from codeverse.addons.gallery.detail import render_broken_detail, render_detail
+from codeverse.addons.gallery.index import build_index
+from codeverse.addons.gallery.model import FILTER_KEYS, RunEntry, match, sort_entries
+from codeverse.addons.gallery.page import render_index
+from codeverse.addons.gallery.theme import esc, footer, page_shell, top_bar
+from codeverse.addons.gallery.urls import PathError, UrlMaker, content_type, safe_join
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -242,7 +242,7 @@ class GalleryApp:
             state = entry.state if entry.state != "ok" else "broken"
             broken = entry.model_copy(update={"state": state, "error": str(e)[:400]})
             return Response.html(render_broken_detail(broken, self.urls))
-        from codeverse.gallery.index import entry_from_record
+        from codeverse.addons.gallery.index import entry_from_record
 
         fresh = entry_from_record(entry.battery, ws, rec, slug=entry.slug)  # newest rounds, even mid-bench
         prev, nxt = self.neighbours(entry)
@@ -270,7 +270,7 @@ class GalleryApp:
             return Response.json({"n": len(rows), "total": len(self.index.entries()),
                                   "runs": [e.model_dump(mode="json") for e in rows]})
         if what == "summary":
-            from codeverse.gallery.model import summarize
+            from codeverse.addons.gallery.model import summarize
 
             return Response.json(summarize(self.selected(query)).model_dump(mode="json"))
         if what == "index":

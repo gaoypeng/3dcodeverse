@@ -155,7 +155,7 @@ RootsArg = Annotated[list[Path] | None, typer.Argument(
 
 def resolve_roots(roots: list[Path] | None) -> list[Path]:
     """Explicit roots (validated) or the defaults; a clear error when there are none."""
-    from codeverse.gallery.index import default_roots
+    from codeverse.addons.gallery.index import default_roots
 
     if roots:
         missing = [r for r in roots if not Path(r).is_dir()]
@@ -186,7 +186,7 @@ def serve_cmd(
     title: Annotated[str, typer.Option("--title")] = "3dcv gallery",
 ) -> None:
     """Serve the gallery (and the run directories) on localhost."""
-    from codeverse.gallery.server import GalleryError, serve
+    from codeverse.addons.gallery.server import GalleryError, serve
 
     root_paths = resolve_roots(roots)
 
@@ -216,7 +216,7 @@ def build_cmd(
     thumb_px: Annotated[int, typer.Option("--thumb-px", min=128, help="embedded thumbnail long edge")] = 720,
 ) -> None:
     """Write the gallery as one self-contained HTML file."""
-    from codeverse.gallery.page import build_static
+    from codeverse.addons.gallery.page import build_static
 
     path, n, index = build_static(resolve_roots(roots), out, title=title, embed=embed, thumb_px=thumb_px)
     broken = sum(1 for e in index.entries() if e.state != "ok")
