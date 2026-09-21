@@ -270,6 +270,22 @@ def test_a_fix_that_judges_worse_is_undone(tmp_ws, settings):
     assert (tmp_ws.public / "assets" / f"{snake}.glb").is_file()
 
 
+def test_a_fix_that_does_not_build_is_undone(tmp_ws, settings):
+    """The restore only ran when the fix JUDGED worse; a fix that broke the build left the broken
+    src in the hero's workspace next to the GLB of the version before it."""
+    judge = FakeJudge(scores=(0.6,))
+    snake = "crate"
+    agent = FakeAgent(lambda job, ws: {"src/model.py": GOOD_MODEL + ("" if job.label == f"asset_{snake}" else FAIL_MARK)   # the fix AND its repair break
+                                       + f"# session {job.label}\n"})
+    ctx, hero = _scene(tmp_ws, settings, services=CardedServices(judge=judge), agent=agent)
+    assert SA.to_snake(hero.name) == snake
+    res = SA.build_blender_asset(ctx, hero, judge=True)
+    assert res.ok and res.judged and not res.fixed and res.score == 0.6
+    model = (tmp_ws.root / "_assets" / snake / "src" / "model.py").read_text()
+    assert FAIL_MARK not in model and f"session asset_{snake}\n" in model, "src is back at the version that built"
+    assert (tmp_ws.public / "assets" / f"{snake}.glb").is_file()
+
+
 def test_the_largest_module_is_judged_and_the_small_ones_are_not(tmp_ws, settings):
     """`render_asset` makes a threejs verdict possible; the share rule alone judged nothing
     (no prop reaches 5 % of a scene's volume), so the plan's largest module keeps its

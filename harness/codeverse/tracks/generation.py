@@ -408,6 +408,7 @@ def generate_files(
     # here would discard it before transcript/parse/write_files.  The ceiling is
     # enforced at the round's phase boundary instead (steps._run_phase).
     _charge(budget, usage, task=task, enforce=False)
+    retry = False
     if _is_truncated(resp):
         # cut off by max_output_tokens: the envelope is unterminated — one retry with a
         # DOUBLED budget beats writing a half-file.  Already at the 65,536 model ceiling
@@ -435,7 +436,7 @@ def generate_files(
     (traj / "prompt.md").write_text(f"# system\n{system}\n\n# user\n{task.prompt}\n")
     (traj / "response.md").write_text(resp.text or "")
     if _is_truncated(resp):
-        if events is not None:
+        if events is not None and retry:   # the RETRY was cut off too; the first cut is already in the log
             events.emit(
                 "generate.truncated",
                 label=task.label,

@@ -59,9 +59,11 @@ def test_generate_files_truncation_policy(tmp_path):
     ws = Workspace(tmp_path / "ceiling").create()
     model = ScriptedModel([(TRUNCATED, "MAX_TOKENS")])
     task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"])
-    res = generate_files(ws, model=model, task=task, events=EventLog(tmp_path / "ceiling.jsonl"))
+    events = EventLog(tmp_path / "ceiling.jsonl")
+    res = generate_files(ws, model=model, task=task, events=events)
     assert not res.ok and res.notes.startswith("truncated")
     assert len(model.requests) == 1
+    assert [e["event"] for e in events.read()].count("generate.truncated") == 1   # one cut, one event
 
 
 # --------------------------------------------------------------------- finding: out-of-root path aborted the whole write

@@ -30,6 +30,23 @@ def test_audit_of_one_run(fake_run: Path):
     assert stage_latency(audit)
 
 
+def test_a_run_that_booked_no_money_still_reports(tmp_path: Path):
+    """Every session killed before it reported usage books $0 (a killed gemini-cli says nothing);
+    the report divided by the run's total and `3dcv cost` died of ZeroDivisionError on it."""
+    ws = tmp_path / "free_run"
+    ws.mkdir()
+    (ws / "record.json").write_text(json.dumps({
+        "spec": {"track": "static_object", "language": "blender", "backends": {"generator": "gemini-cli:gemini-3.7-flash"}},
+        "status": "failed", "rounds": [], "total_usage": {}, "extra": {}}))
+    ledger = ws / "telemetry" / "cost.jsonl"
+    ledger.parent.mkdir()
+    ledger.write_text(json.dumps({"run": ws.name, "round": 0, "stage": "baseline", "role": "generator", "backend": "gemini-cli",
+                                  "provider": "gemini", "model": "gemini-3.7-flash", "cost_usd": 0.0}) + "\n")
+    audit = audit_runs([tmp_path])
+    assert audit.n_runs == 1 and audit.total_usd == 0
+    assert "0%" in console(audit) and "# Cost audit" in markdown(audit)
+
+
 def test_waste_finds_a_regression(fake_run: Path, tmp_path: Path):
     """A refine round that scores below the best is money spent on a worse artifact."""
     import shutil

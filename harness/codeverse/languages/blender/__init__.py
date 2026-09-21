@@ -376,9 +376,8 @@ def _layout_rules(ws: Workspace, parts: list[Path], entry_tree: ast.Module | Non
                                 f"rename to src/{PARTS_DIR}/{to_snake(stem)}.py (the harness maps plan part "
                                 f"'{stem}' → that file) and fix the import in model.py"))
             continue
-        try:
-            tree = ast.parse(p.read_text(), filename=target)
-        except SyntaxError:
+        tree, _ = safe_parse(p.read_text(), target)
+        if tree is None:
             continue  # reported by the per-file lint
         fn = f"build_{stem}"
         if fn not in _exported_functions(tree):
@@ -416,11 +415,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
                                   expect_names=not (is_helper or (is_entry and bool(parts))),
                                   expect_bpy=not is_helper)
         findings.extend(rep.findings)
-    entry_tree: ast.Module | None
-    try:
-        entry_tree = ast.parse(entry.read_text(), filename=ENTRY_REL)
-    except SyntaxError:
-        entry_tree = None
+    entry_tree, _ = safe_parse(entry.read_text(), ENTRY_REL)
     findings.extend(_layout_rules(ws, parts, entry_tree))
     passed = not any(f.severity == Severity.ERROR for f in findings)
     return GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=int((time.monotonic() - t0) * 1000))

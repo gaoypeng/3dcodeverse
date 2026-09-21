@@ -481,7 +481,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
                 for f, body in src.items():
                     if body:
                         (sub_ws.root / f).write_text(body)
-                sub_ws.commit("asset fix reverted (judged worse)")
+                sub_ws.commit("asset fix reverted")
                 _stamp_glb(result, ctx, dest)
 
             return _restore
@@ -694,6 +694,8 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
         return result
     result.fixed = after_fix(gen) if after_fix is not None else True
     if not result.fixed:
+        if restore is not None:
+            restore()   # a fix that does not build is undone too: the asset that was judged stays the asset
         return result
     again = _verdict(1)
     if again is None:

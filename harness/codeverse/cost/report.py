@@ -25,6 +25,12 @@ def _usd(x: float) -> str:
     return f"${x:,.4f}" if abs(x) < 1 else f"${x:,.2f}"
 
 
+def _share(part: float, whole: float) -> float:
+    """``part`` as a percentage of ``whole``; 0 when the whole is 0 (a run that booked no money — every
+    session killed before it reported usage — is still a run to report)."""
+    return 100 * part / whole if whole else 0.0
+
+
 def _tok(n: int) -> str:
     if n >= 1_000_000:
         return f"{n / 1e6:.2f}M"
@@ -83,10 +89,10 @@ def runs_table(audit: Audit, *, limit: int = 20) -> str:
 
 
 def waste_table(audit: Audit) -> str:
-    rows = [[k, n, _usd(usd), f"{100 * usd / audit.total_usd:.1f}%"]
+    rows = [[k, n, _usd(usd), f"{_share(usd, audit.total_usd):.1f}%"]
             for k, (n, usd) in audit.waste_by_kind().items()]
     rows.append(["**total**", sum(n for n, _ in audit.waste_by_kind().values()),
-                 _usd(audit.waste_total()), f"{100 * audit.waste_total() / audit.total_usd:.1f}%"])
+                 _usd(audit.waste_total()), f"{_share(audit.waste_total(), audit.total_usd):.1f}%"])
     return table(("waste", "n", "USD", "share of spend"), rows)
 
 
@@ -96,14 +102,14 @@ def summary_lines(audit: Audit) -> list[str]:
     return [
         f"- runs: **{audit.n_runs}** ({audit.n_passed} passed) — total **{_usd(audit.total_usd)}**, "
         f"{_usd(audit.usd_per_run)} per run, **{_usd(audit.usd_per_passing_artifact)} per passing artifact**",
-        f"- tokens: {_tok(total_in)} input of which **{100 * cached / total_in:.0f}% cached** "
+        f"- tokens: {_tok(total_in)} input of which **{_share(cached, total_in):.0f}% cached** "
         f"({_tok(audit.summary.total.output_tokens)} output, {_tok(audit.summary.total.thoughts_tokens)} thoughts)",
         f"- prompt caching already saves **{_usd(no_cache - audit.total_usd)}** "
-        f"({100 * (1 - audit.total_usd / no_cache):.0f}% of what this traffic would cost uncached); "
+        f"({_share(no_cache - audit.total_usd, no_cache):.0f}% of what this traffic would cost uncached); "
         f"cache reads still cost {_usd(cache_usd)}",
         f"- clock: {audit.wall_s / 3600:.1f} h of run time, {audit.model_s / 3600:.1f} h of it waiting on models",
         f"- calls: {audit.summary.total.n_calls:,} model calls, {audit.calls_per_round():.0f} per round",
-        f"- identified waste: **{_usd(audit.waste_total())}** ({100 * audit.waste_total() / audit.total_usd:.0f}% of spend)",
+        f"- identified waste: **{_usd(audit.waste_total())}** ({_share(audit.waste_total(), audit.total_usd):.0f}% of spend)",
     ]
 
 
@@ -139,11 +145,11 @@ def console(audit: Audit) -> str:
     lines = [line.replace("**", "") for line in summary_lines(audit)]
     lines += ["", "stage:"]
     for b in audit.summary.ranked("stage"):
-        lines.append(f"  {b.key:<12} {_usd(b.cost_usd):>10}  {100 * b.cost_usd / audit.total_usd:5.1f}%  "
+        lines.append(f"  {b.key:<12} {_usd(b.cost_usd):>10}  {_share(b.cost_usd, audit.total_usd):5.1f}%  "
                      f"{b.n_calls:>6,} calls  cached {100 * b.cached_fraction:3.0f}%")
     lines += ["", "role:"]
     for b in audit.summary.ranked("role"):
-        lines.append(f"  {b.key:<12} {_usd(b.cost_usd):>10}  {100 * b.cost_usd / audit.total_usd:5.1f}%")
+        lines.append(f"  {b.key:<12} {_usd(b.cost_usd):>10}  {_share(b.cost_usd, audit.total_usd):5.1f}%")
     if keyed := keyed_buckets(audit):
         lines += ["", "key (last 4 chars):"]
         for b in keyed:

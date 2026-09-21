@@ -74,6 +74,16 @@ def test_lint_workspace_passes_clean_multi_file_layout(tmp_ws) -> None:
     assert {f.target for f in rep.findings} <= {"src/model.py", "src/parts/seat.py", "src/parts/leg.py", "src/parts/_common.py"}
 
 
+def test_lint_workspace_reports_a_source_too_deep_to_parse_instead_of_crashing(tmp_ws) -> None:
+    """The layout rules re-parsed every file with a bare ``ast.parse`` — a literal nested past the
+    parser's stack raised ``MemoryError`` out of the lint and killed the round."""
+    deep = "x = " + "-" * 20_000 + "1\n"
+    _write(tmp_ws, "src/model.py", deep)
+    _write(tmp_ws, "src/parts/seat.py", deep)
+    rep = lint_workspace(tmp_ws)
+    assert not rep.passed and {f.target for f in rep.errors} >= {"src/model.py", "src/parts/seat.py"}
+
+
 def test_lint_workspace_layout_rules(tmp_ws) -> None:
     _write(tmp_ws, "src/model.py", MODEL)
     _write(tmp_ws, "src/parts/seat.py", SEAT.replace("def build_seat", "def build_seat_cushion"))  # wrong export

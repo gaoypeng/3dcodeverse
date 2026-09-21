@@ -410,7 +410,7 @@ function pairs(checked) {
       if (c.frac > OVERLAP_MIN_FRAC) out.push({ a: small.name, b: large.name, zone_a: small.zone, zone_b: large.zone, aabb_overlap: r3(aabb), inside_frac: r3(c.frac), samples: c.sampled });
     }
   }
-  return out.sort((x, y) => y.overlap - x.overlap).slice(0, 40);
+  return out.sort((x, y) => y.aabb_overlap - x.aabb_overlap).slice(0, 40);
 }
 
 /**

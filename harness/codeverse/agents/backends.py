@@ -431,7 +431,7 @@ class ClaudeCodeAgent(_CliAgent):
                 reason, ok = "error", False
                 errors.append(f"rc={proc.rc}; no result envelope; stderr tail: {tail(proc.stderr, 1500)}")
                 if is_transient_failure(proc.stderr, proc.stdout):
-                    reason = "budget" if "rate" in proc.stderr.lower() else "error"
+                    reason = "budget" if is_quota_failure(proc.stderr) else "error"
             elif env.get("is_error") or str(env.get("subtype", "")).startswith("error"):
                 ok = False
                 sub = str(env.get("subtype", ""))

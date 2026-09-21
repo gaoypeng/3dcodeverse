@@ -238,10 +238,11 @@ def lint_workspace(ws: Workspace) -> GateReport:
         elif path.parent == ws.src / "parts":
             expected = "build" + to_pascal(path.stem)
             if expected not in exports:
+                named = sorted(e for e in exports if e != "build")
                 sev = Severity.WARN if any(e != "build" for e in exports) else Severity.ERROR
                 findings.append(GateFinding(gate=GATE, severity=sev, target=rel,
                     message=f"{rel}: expected `export function {expected}(THREE)` (found {sorted(exports) or 'no build export'})",
-                    fix_hint=f"rename the export to {expected} or the file to parts/{to_snake(exports.pop()[5:]) if exports else path.stem}.js"))
+                    fix_hint=f"rename the export to {expected} or the file to parts/{to_snake(named[0][5:]) if named else path.stem}.js"))
 
     part_files = [p for p in sources if p.parent == ws.src / "parts"]
     for p in part_files:

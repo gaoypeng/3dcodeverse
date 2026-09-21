@@ -95,7 +95,7 @@ async function main() {
 /** The report shape a caller can rely on even when the scene never booted. */
 function emptyReport() {
   return { custom_materials: 0, cameras: [], materials: [], max_changed_frac: 0,
-           content_changed_frac: 0, per_material_measured: false, per_material_camera: '' };
+           content_changed_frac: 0, per_material_measured: false, per_material_cameras: [] };
 }
 
 main().catch((e) => fail(e.stack || String(e)));
