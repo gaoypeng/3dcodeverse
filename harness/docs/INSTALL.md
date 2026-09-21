@@ -347,7 +347,7 @@ Resolution order for the Gemini keys (`codeverse/config.py`), first non-empty wi
 settings YAML `gemini_api_keys:` → `GEMINI_API_KEYS` (csv) → `GEMINI_API_KEY` /
 `GOOGLE_API_KEY` → the legacy compatibility file
 `~/.config/astra3d/gemini_keys.env`, from which a line
-`GEMINI_API_KEYS="key1,key2,…"` is read (this is where the 22 keys on this box
+`GEMINI_API_KEYS="key1,key2,…"` is read (this is where the 21 keys on this box
 come from).  Duplicates are removed, order preserved.  Keys are never written
 into run records.
 

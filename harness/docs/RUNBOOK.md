@@ -19,7 +19,7 @@ python -m pytest tests -q -m live                      # OPT-IN: real API calls
 
 ### Keys and settings
 * Gemini keys, in precedence order: `GEMINI_API_KEYS` (comma-separated) → `GEMINI_API_KEY`
-  / `GOOGLE_API_KEY` → legacy `~/.config/astra3d/gemini_keys.env` (22 keys here).
+  / `GOOGLE_API_KEY` → legacy `~/.config/astra3d/gemini_keys.env` (21 keys here).
   All `gemini:*` models share one `KeyPool` (900 rpm/key, 30 s cooldown on 429; dead
   keys benched 1 h and re-probed; 429s rotate to fresh keys for free).
   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CV3D_OPENAI_BASE_URL` for the other
