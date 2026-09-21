@@ -5,11 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.cost import (
-    estimate_call,
-    text_tokens,
-)
-from codeverse.cost.guard import image_tokens
+from codeverse.cost import estimate_call
+from codeverse.cost.guard import image_tokens, text_tokens
 from codeverse.cost.routing import pro_break_even, samples_for_precision
 
 

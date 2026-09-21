@@ -110,24 +110,6 @@ def test_live_pairwise_stool_vs_chair(tmp_path):
     assert res.winner == "a"
 
 
-def test_live_compare_many_ranks_stool_over_crude(tmp_path):
-    from codeverse.judges.pairwise import PairwiseJudge
-
-    renders, _, source = _renders_for_test(tmp_path / "stool")
-    if "stool" not in source:
-        pytest.skip("needs real stool renders")
-    from codeverse.conventions import OBJECT_VIEWS_QUICK
-    from codeverse.spatial.render import render_glb
-
-    clay = render_glb(tmp_path / "stool" / "stool.glb", tmp_path / "clay", views=OBJECT_VIEWS_QUICK, mode="clay", sheet=False)
-    crude = make_renders(tmp_path / "crude")
-    spec = make_spec(prompt="A simple three-legged wooden stool, 45 cm tall, round seat.")
-    rank = PairwiseJudge(MODEL, cache_dir=tmp_path / "cache").compare_many(spec, [crude, renders, clay])
-    print(f"\nLIVE ranking order={rank.order} points={rank.points} errors={rank.errors}\nusage={rank.usage}")
-    assert rank.order[-1] == 0  # the crude drawing ranks last
-    assert len(rank.pairs) == 3
-
-
 def test_live_reference_judge(tmp_path):
     from codeverse.contracts.spec import ReferenceImage
     from codeverse.judges.vlm_judge import ReferenceJudge

@@ -155,7 +155,7 @@ codeverse/
                       calibration share), rubrics.py + rubrics/*.yaml (defect checklists, the wire
                       schema, caps and scoring), prompt_builder.py (image prep, montages, the
                       judge messages), vlm_judge.py (+ the reference/likeness judges),
-                      pairwise.py (compare_many), calibration.py.  No Judge Protocol: a judge is
+                      pairwise.py, calibration.py.  No Judge Protocol: a judge is
                       duck-typed `.judge(JudgeInput) -> Judgment`
   reference.py        reference GROUNDING — give the pipeline a picture of what it is building:
                       synthesis, THE plausibility gate that makes a synthesized
@@ -404,8 +404,8 @@ citation auditable.  Floors,
 deterministic caps from gate findings (`data["kind"]`), console errors, missing
 must-acceptance and
 `missing_views` rules apply on top; degraded verdicts are glitches, not scores.
-`PairwiseJudge` (position-swapped, tie on disagreement) also ranks N candidates via
-`compare_many`; `ReferenceJudge` for image-conditioned specs.
+`PairwiseJudge` (position-swapped, tie on disagreement); `ReferenceJudge` for
+image-conditioned specs.
 Rubrics: `static_object_v1` (0.72), `articulated_v1` (requires pose sheet),
 `scene_v1` (frame-gate caps), `asset_v1`, `reference_v1`, `shader_v1` (0.70).
 

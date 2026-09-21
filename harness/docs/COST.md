@@ -341,7 +341,7 @@ persists.  Concretely, the 112 verdicts in this data set cost $6.48 with the pro
 judge and would cost $24.2 as "cheap" flash at n=8.
 
 `codeverse/cost/routing.py` holds this table in code
-(`default_route(Role.JUDGE)`, `pro_break_even()`, `samples_for_precision()`).
+(`ROUTES`, `pro_break_even()`, `samples_for_precision()`).
 
 ## 9. Ranked optimisation opportunities
 
@@ -442,9 +442,9 @@ out not to pay.
   model — a texture pass, a captioner — looked metered, so its session row was
   dropped and **$1.23 of the reproduction vanished**; and an in-process session
   whose turns ran in a worker thread looked unmetered and was counted **twice**.
-  a backend's own `meters_own_calls` attribute decides it now (every shipped
-  backend is a vendor CLI, so none sets it), and
-  `tests/cost/test_instrument.py` pins both directions.
+  Every shipped backend is a vendor CLI, so the session row is always written now
+  (the `meters_own_calls` opt-out went with the last in-process agent), and
+  `tests/cost/test_instrument.py` pins the dropped-session direction.
 
 **Attribution.**  A call is filed under what *it* says it is, not under what
 surrounds it: `cost.context.attribute()` puts an explicit stage/role first, then a

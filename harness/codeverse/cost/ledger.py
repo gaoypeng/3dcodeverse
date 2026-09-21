@@ -88,12 +88,6 @@ class CostLedger:
             log.warning("cost ledger append failed (%s): %s", self.path, e)
         return row
 
-    def read(self, *, include_attempts: bool = False) -> list[CallCost]:
-        return load_ledger(self.path, include_attempts=include_attempts)
-
-    def summarise(self, **kw: Any) -> Summary:
-        return summarise(self.read(), **kw)
-
 
 _fallback_lock = threading.Lock()
 _fallback: CostLedger | None = None

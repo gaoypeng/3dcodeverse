@@ -5,9 +5,7 @@ orderings run in parallel via ``codeverse.proc``); the winner is declared
 only when both orderings agree, otherwise ``tie``.  Each call sees the brief,
 the rubric's criteria (titles + descriptions) and ONE 2×2 montage per candidate
 (the 4 most informative views — never a big sheet: VLM judges flip with many
-tiles).  ``compare_many`` ranks N candidates by a round-robin of such
-comparisons (best-of-N), fanning the pairs at 4 workers; results accumulate in
-input order either way.
+tiles).
 """
 
 from __future__ import annotations
@@ -68,21 +66,6 @@ class PairwiseResult(BaseModel):
     error: str = ""
 
 
-class RankingResult(BaseModel):
-    """Round-robin ranking of N candidates (``compare_many``)."""
-
-    order: list[int] = Field(description="candidate indices, best first")
-    points: dict[int, float] = Field(description="win = 1, tie = 0.5 per pair")
-    confidence: dict[int, float] = Field(default_factory=dict, description="mean confidence of the pairs a candidate won")
-    pairs: list[dict] = Field(default_factory=list, description="{a, b, winner, confidence, error} per pair")
-    usage: Usage = Field(default_factory=Usage)
-    errors: list[str] = Field(default_factory=list)
-
-    @property
-    def best(self) -> int:
-        return self.order[0]
-
-
 _SYSTEM = """You are a BLIND comparative judge for a 3D-code harness. You see a brief, a rubric and renders of TWO candidates, labelled A and B. Decide which candidate better satisfies the brief, judging ONLY what is visible. Position carries no information: A is not better for being first.
 Compare criterion by criterion (intent, structure, detail, proportions, fit, materials, cleanliness as listed), then decide overall. Prefer the candidate with no major defect over the one with more detail but a floating or broken part. Say 'tie' only when the two are genuinely equivalent. Reply with one JSON object: winner ('A'|'B'|'tie'), confidence 0..1, reasons[], criteria_won[{criterion, winner}]."""
 
@@ -118,9 +101,9 @@ class PairwiseJudge:
     # ------------------------------------------------------------------ API
     def compare(
         self, spec: Spec, renders_a: RenderSet, renders_b: RenderSet, *,
-        rubric: str | Rubric = "static_object_v1", label: str = ""
+        rubric: str | Rubric = "static_object_v1"
     ) -> PairwiseResult:
-        """``label`` (optional) tags the two orderings' requests (``pairwise[:label]:fwd/swap``)
+        """The two orderings' requests are tagged ``pairwise:fwd`` / ``pairwise:swap``
         so logs — and deterministic fakes — can tell concurrent orderings apart."""
         rub = rubric if isinstance(rubric, Rubric) else load_rubric(rubric)
         usage = Usage()
@@ -129,7 +112,7 @@ class PairwiseJudge:
         errors: list[str] = []
         self.model  # noqa: B018 — materialise the lazy chat model once, before the threads race
         results = fan_out(
-            (False, True), lambda swapped: self._ordering(spec, rub, renders_a, renders_b, swapped, label),
+            (False, True), lambda swapped: self._ordering(spec, rub, renders_a, renders_b, swapped),
             max_workers=2, label="pairwise:orderings", item_name=lambda s: f"swapped={s}",
         )
         for res in results:  # ordered accumulation: (fwd, swap)
@@ -148,13 +131,12 @@ class PairwiseJudge:
         return _combine(verdicts, orderings, usage, errors)
 
     def _ordering(
-        self, spec: Spec, rub: Rubric, renders_a: RenderSet, renders_b: RenderSet, swapped: bool, label: str = ""
+        self, spec: Spec, rub: Rubric, renders_a: RenderSet, renders_b: RenderSet, swapped: bool
     ) -> tuple[Usage, tuple[Winner, float, list[str]] | None, dict | None, str]:
         """One A/B ordering → ``(usage, verdict, ordering, error)`` (never raises for
         model/parse failures — the caller aggregates them as errors)."""
         first, second = (renders_b, renders_a) if swapped else (renders_a, renders_b)
-        tag = ":".join(x for x in ("pairwise", label, "swap" if swapped else "fwd") if x)
-        req = self._request(spec, rub, first, second, label=tag)
+        req = self._request(spec, rub, first, second, label="pairwise:swap" if swapped else "pairwise:fwd")
         try:
             resp = self.model.generate(req)
         except ModelError as e:
@@ -172,51 +154,6 @@ class PairwiseJudge:
                     "reasons": reasons,
                     "criteria_won": {c.criterion: _map_winner(c.winner, swapped) for c in reply.criteria_won}}
         return resp.usage, (winner, reply.confidence, reasons), ordering, ""
-
-    def compare_many(
-        self, spec: Spec, candidates: list[RenderSet], *, rubric: str | Rubric = "static_object_v1"
-    ) -> RankingResult:
-        """Rank ``candidates`` by round-robin pairwise comparison (each pair in both orders).
-
-        Points: win = 1, tie = 0.5.  Ties in points are broken by the mean confidence
-        of won pairs, then by the lower index (earlier candidate).  One candidate →
-        trivial ranking without any call.
-        """
-        n = len(candidates)
-        if n == 0:
-            raise ValueError("compare_many needs at least one candidate")
-        points = {i: 0.0 for i in range(n)}
-        conf_won: dict[int, list[float]] = {i: [] for i in range(n)}
-        pairs: list[dict] = []
-        usage = Usage()
-        errors: list[str] = []
-        idx_pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
-        if idx_pairs:
-            self.model  # noqa: B018 — materialise the lazy chat model once, before the threads race
-        results = fan_out(
-            idx_pairs, lambda ij: self.compare(spec, candidates[ij[0]], candidates[ij[1]], rubric=rubric,
-                                               label=f"{ij[0]}v{ij[1]}"),
-            max_workers=4, label="pairwise:pairs", item_name=lambda ij: f"{ij[0]}v{ij[1]}",
-        )
-        for (i, j), res in zip(idx_pairs, results, strict=True):  # ordered accumulation
-            if isinstance(res, Exception):
-                raise res  # compare() reports model/parse failures in-band; anything else is a bug
-            usage = usage + res.usage
-            if res.error:
-                errors.append(f"{i}v{j}: {res.error}")
-            if res.winner == "a":
-                points[i] += 1.0
-                conf_won[i].append(res.confidence)
-            elif res.winner == "b":
-                points[j] += 1.0
-                conf_won[j].append(res.confidence)
-            else:
-                points[i] += 0.5
-                points[j] += 0.5
-            pairs.append({"a": i, "b": j, "winner": res.winner, "confidence": res.confidence, "error": res.error})
-        confidence = {i: (round(statistics.fmean(v), 3) if v else 0.0) for i, v in conf_won.items()}
-        order = sorted(range(n), key=lambda i: (-points[i], -confidence[i], i))
-        return RankingResult(order=order, points=points, confidence=confidence, pairs=pairs, usage=usage, errors=errors)
 
     # ------------------------------------------------------------------ prompt
     def _request(

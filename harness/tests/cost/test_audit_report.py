@@ -21,7 +21,7 @@ def test_audit_of_one_run(fake_run: Path):
     audit = audit_runs([fake_run.parent])
     assert audit.n_runs == 1 and audit.n_passed == 1
     assert audit.usd_per_passing_artifact == pytest.approx(audit.total_usd)
-    assert audit.bucket("track", "static_object").cost_usd == pytest.approx(audit.total_usd)
+    assert audit.summary.dimension("track")["static_object"].cost_usd == pytest.approx(audit.total_usd)
     assert audit.calls_per_round() > 0
     cached, total, usd = cached_input_share(audit)
     assert 0 < cached < total and usd > 0

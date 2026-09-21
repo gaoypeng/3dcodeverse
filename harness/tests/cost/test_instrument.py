@@ -49,7 +49,6 @@ class FakeAgent:
     """A backend whose individual calls already reach the ledger."""
 
     kind = "self-metering"
-    meters_own_calls = True
     model = "gemini:gemini-3.6-flash"
 
     def __init__(self, chat, turns: int = 3):
@@ -73,8 +72,7 @@ class FakeAgent:
 
 
 class CliAgent(FakeAgent):
-    kind = "gemini-cli"
-    meters_own_calls = False   # a vendor CLI bills as ONE session row
+    kind = "gemini-cli"   # a vendor CLI bills as ONE session row
 
     def run(self, job: AgentJob) -> AgentResult:
         self.seen_turns = job.max_turns
@@ -217,37 +215,6 @@ def test_a_cli_session_is_recorded_even_when_a_tool_bills_a_model_inside_it(tmp_
     assert session.backend == "gemini-cli" and session.input_tokens == 50_000
     tool = next(r for r in rows if r.source != "session")
     assert tool.stage is Stage.TEXTURE  # and it is NOT filed under the session's stage
-
-
-def test_an_in_process_session_is_never_counted_twice_even_from_another_thread(tmp_path: Path):
-    """Worker-thread rows from a self-metered agent are not double counted."""
-    from codeverse.proc import fan_out
-
-    class ThreadedAgent(FakeAgent):
-        def run(self, job: AgentJob) -> AgentResult:
-            # fan_out, not a bare Thread: it is the one helper that copies the caller's
-            # context, and since 2026-08-30 nothing else can find the run's ledger from
-            # a worker thread (the process-global fallback leaked between parallel runs)
-            (out,) = fan_out([job], lambda j: FakeAgent.run(self, j), label="agent")
-            assert isinstance(out, AgentResult)
-            return out
-
-    with run_ledger(tmp_path, run="r1"):
-        MeteredAgent(ThreadedAgent(MeteredChatModel(FakeChat()))).run(
-            AgentJob(workspace=str(tmp_path), prompt="p", label="baseline", round=0, kind="baseline"))
-    rows = load_ledger(tmp_path)
-    assert len(rows) == 3 and not any(r.source == "session" for r in rows)
-    assert sum(r.input_tokens for r in rows) == 36_000  # 3 turns, not 3 turns + a session
-
-
-def test_a_backend_may_declare_that_it_meters_itself(tmp_path: Path):
-    from codeverse.cost.instrument import meters_own_calls
-
-    cli = CliAgent(FakeChat())
-    assert meters_own_calls(cli) is False            # a vendor CLI bills as one session
-    assert meters_own_calls(FakeAgent(FakeChat())) is True   # ...unless it declares otherwise
-    cli.meters_own_calls = True  # type: ignore[attr-defined]
-    assert meters_own_calls(cli) is True
 
 
 # ------------------------------------------------------------------- nesting / parallelism

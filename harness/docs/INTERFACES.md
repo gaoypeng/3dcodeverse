@@ -101,12 +101,12 @@ Rules that callers must know:
 
 ## cost/  (ledger · profiles · price provenance)
 ```python
-from codeverse.cost import record_call, load_ledger, summarise, open_run_ledger
+from codeverse.cost import record_call, load_ledger, summarise
 record_call(usage, *, run="", round=None, stage=None, role=None, label="", backend="", model="",
             outcome="ok", latency_ms=None, n_calls=1, source="live", ledger=None, reprice=False) -> CallCost
     # Δ everything left out is resolved from the ambient context + the call label (cost.context);
     # unknown model -> $0 and price_source="unknown" (flagged, never silently dropped); never raises.
-from codeverse.cost.instrument import (run_ledger, metered_chat_model, metered_agent, meters_own_calls,
+from codeverse.cost.instrument import (run_ledger, metered_chat_model, metered_agent,
                                        MeteredAgent, MeteredChatModel, metering_enabled)
 with run_ledger(ws.root, run=slug):        # binds the run, points record_call at <run>/telemetry/cost.jsonl
     ...                                    # (+ a <run>/cost_ledger.jsonl symlink for the run-layout alias)
@@ -117,12 +117,11 @@ with run_ledger(ws.root, run=slug):        # binds the run, points record_call a
     #   outside the CLI/bench still meters; the CLI/bench ledger for the same run dir is the same file.
     # models.get_chat_model returns a MeteredChatModel → ONE row per ChatModel.generate
     # agents.get_coding_agent returns a MeteredAgent (registry wrap, from the first call) → ambient
-    #   round/stage for the session and — iff NOT meters_own_calls(agent), a declaration no shipped
-    #   backend makes — one source='session' row (n_calls, latency, outcome, AgentResult.turns).
+    #   round/stage for the session and one source='session' row (n_calls, latency, outcome,
+    #   AgentResult.turns) — every backend is a vendor CLI whose calls the harness cannot see.
     #   These two are the ONLY ledger writers; BudgetGuard writes no row.
     #   The rule is the BACKEND, never "did a row get written while it ran": a CLI session with one
-    #   in-process tool call used to be dropped entirely, an in-process session whose turns ran in
-    #   another thread used to be counted twice.  A backend may declare `meters_own_calls`.
+    #   in-process tool call used to be dropped entirely.
 from codeverse.cost.context import CallContext, call_context, bound_run, context_from_label, SELF_DESCRIBING
 from codeverse.cost.ledger import bound_ledger, process_ledger_path   # (Δ 2026-08-30) both are context
     #   managers holding a ContextVar token; there is no process-wide default any more — a thread that
@@ -372,7 +371,6 @@ from codeverse.judges.rubrics import apply_caps           # (rubric, overall, ga
                                                        #  console_errors=None, views=None, defects_present=None) -> CapResult;
                                                        # cap rules add when="missing_views" and ledger lines "defect:<id>"
 from codeverse.judges.pairwise import PairwiseJudge    # .compare(spec, renders_a, renders_b, *, rubric=…) -> PairwiseResult
-PairwiseJudge.compare_many(spec, candidates: list[RenderSet], *, rubric) -> RankingResult{order, points, confidence, pairs, usage, .best}
 from codeverse.judges.calibration import calibrate, CalibrationTable   # (run_dirs, *, model_id, n_samples=3, out_dir, geometry_mode,
     # rounds, …) -> rows + pearson/spearman(errors vs score), mean_std, cost; CLI: python -m codeverse.judges.calibration RUN… --n 3
 from codeverse.judges.vlm_judge import ReferenceJudge  # image-conditioned specs

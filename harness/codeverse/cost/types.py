@@ -229,21 +229,12 @@ class CallCost(BaseModel):
     #: and counts; a free one is ``source="attempt"`` and is filtered out
     discarded: bool = False
 
-    @property
-    def total_tokens(self) -> int:
-        return self.input_tokens + self.output_tokens + self.thoughts_tokens
-
-    @property
-    def cached_fraction(self) -> float:
-        return (min(self.cached_tokens, self.input_tokens) / self.input_tokens) if self.input_tokens else 0.0
-
 
 class CostBucket(BaseModel):
     """Aggregate of many :class:`CallCost` rows under one key."""
 
     key: str = ""
     n_calls: int = 0
-    n_rows: int = 0
     input_tokens: int = 0
     cached_tokens: int = 0
     output_tokens: int = 0
@@ -251,13 +242,11 @@ class CostBucket(BaseModel):
     tool_calls: int = 0
     cost_usd: float = 0.0
     latency_ms: int = 0
-    approximate_usd: float = 0.0  # spend priced from an approximate/unknown row
     attempts: int = 0  # round-trips over the rows that recorded them
     n_attempted: int = 0  # calls in those rows
 
     def add(self, row: CallCost) -> None:
         self.n_calls += max(1, row.n_calls)
-        self.n_rows += 1
         if row.attempts:
             self.attempts += row.attempts
             self.n_attempted += max(1, row.n_calls)
@@ -268,8 +257,6 @@ class CostBucket(BaseModel):
         self.tool_calls += row.tool_calls
         self.cost_usd += row.cost_usd
         self.latency_ms += row.latency_ms
-        if row.price_approximate or row.price_source in ("unknown", "provider-reported"):
-            self.approximate_usd += row.cost_usd
 
     @property
     def cached_fraction(self) -> float:
@@ -282,10 +269,6 @@ class CostBucket(BaseModel):
     @property
     def usd_per_1k_tokens(self) -> float:
         return 1000.0 * self.cost_usd / self.total_tokens if self.total_tokens else 0.0
-
-    @property
-    def usd_per_call(self) -> float:
-        return self.cost_usd / self.n_calls if self.n_calls else 0.0
 
     @property
     def attempts_per_call(self) -> float:

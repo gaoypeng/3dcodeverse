@@ -25,7 +25,7 @@ from pathlib import Path
 
 from codeverse.cost.ledger import summarise
 from codeverse.cost.reconstruct import RunLedger, find_runs, reconstruct
-from codeverse.cost.types import CallCost, CostBucket, Role, Stage, Summary
+from codeverse.cost.types import CallCost, Role, Stage, Summary
 
 #: dimensions the audit always aggregates on
 AUDIT_DIMENSIONS = ("run", "track", "language", "stage", "role", "backend", "model", "provider",
@@ -48,11 +48,9 @@ class WasteItem:
 class RoundCost:
     run: str
     index: int
-    kind: str
     usd: float
     score: float | None
     prev_score: float | None
-    gate_errors: int = 0
     promoted: bool = False
 
     @property
@@ -69,7 +67,6 @@ class Audit:
     runs: list[RunLedger] = field(default_factory=list)
     rows: list[CallCost] = field(default_factory=list)
     summary: Summary = field(default_factory=Summary)
-    rounds: list[RoundCost] = field(default_factory=list)
     waste: list[WasteItem] = field(default_factory=list)
 
     # ---------------------------------------------------------------- totals
@@ -107,9 +104,6 @@ class Audit:
     def model_s(self) -> float:
         return sum(r.model_s for r in self.runs)
 
-    def bucket(self, dim: str, key: str) -> CostBucket:
-        return self.summary.dimension(dim).get(key, CostBucket(key=key))
-
     def waste_total(self) -> float:
         return sum(w.usd for w in self.waste)
 
@@ -131,11 +125,8 @@ def _round_costs(led: RunLedger) -> list[RoundCost]:
     best = None
     for idx, score in enumerate(led.round_scores):
         usd = sum(r.cost_usd for r in led.rows if r.round == idx)
-        kind = "baseline" if idx == 0 else "refine"
         promoted = score is not None and (best is None or score > best)
-        rc = RoundCost(run=led.run, index=idx, kind=kind, usd=usd, score=score,
-                       prev_score=best, gate_errors=led.gate_errors[idx] if idx < len(led.gate_errors) else 0,
-                       promoted=promoted)
+        rc = RoundCost(run=led.run, index=idx, usd=usd, score=score, prev_score=best, promoted=promoted)
         if promoted:
             best = score
         out.append(rc)
@@ -214,7 +205,6 @@ def audit_runs(paths: Iterable[str | Path], *, recheck: bool = False) -> Audit:
         rounds = _round_costs(led)
         audit.runs.append(led)
         audit.rows += led.rows
-        audit.rounds += rounds
         audit.waste += _waste(led, rounds)
     audit.summary = summarise(audit.rows, dimensions=AUDIT_DIMENSIONS)
     audit.runs.sort(key=lambda r: -r.ledger_usd)

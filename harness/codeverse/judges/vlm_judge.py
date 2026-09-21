@@ -53,6 +53,8 @@ from codeverse.judges.rubrics import (
 )
 from codeverse.models.base import ChatModel, ModelError
 from codeverse.proc import fan_out
+from codeverse.reference import compare, conflict_note
+from codeverse.spatial.silhouette import best_view_match, compare_silhouette
 
 log = logging.getLogger(__name__)
 
@@ -356,25 +358,8 @@ def iou_to_score(iou: float) -> float:
     return max(0.0, min(1.0, (float(iou) - IOU_LOW) / (IOU_HIGH - IOU_LOW)))
 
 
-def _default_silhouette_fn() -> SilhouetteFn | None:
-    try:
-        from codeverse.spatial.silhouette import compare_silhouette  # type: ignore[attr-defined]
-    except (ImportError, AttributeError):
-        return None
-    return compare_silhouette
-
-
 def _diff_enabled(flag: bool) -> bool:
     return flag and os.environ.get(_ENV_DIFF, "on").strip().lower() not in ("0", "off", "false", "no")
-
-
-def _conflict_note(info: dict[str, Any]) -> str:
-    try:
-        from codeverse.reference import conflict_note
-
-        return conflict_note(info)
-    except ImportError:  # pragma: no cover
-        return ""
 
 
 def _is_synth(note: str) -> bool:
@@ -402,7 +387,7 @@ class ReferenceJudge(VlmJudge):
         **kwargs: Any,
     ):
         super().__init__(rubric, model_id, n_samples, temperature, **kwargs)
-        self.silhouette_fn = silhouette_fn or _default_silhouette_fn()
+        self.silhouette_fn = silhouette_fn or compare_silhouette
         self.front_view_names = front_view_names
         self.best_view = best_view
         self.diff = diff
@@ -425,7 +410,7 @@ class ReferenceJudge(VlmJudge):
                 "It is a shape/part-inventory target only. Where it disagrees with the brief or the stated "
                 "dimensions, the BRIEF is correct and the render must follow the brief.")
         conflict = self.dimension_conflict(inp, refs)
-        note = _conflict_note(conflict)
+        note = conflict_note(conflict)
         if note:
             blocks.append(note)
         measured_ids = [c.id for c in self.rubric.measured_criteria()]
@@ -482,10 +467,6 @@ class ReferenceJudge(VlmJudge):
         """One extra vision call naming concrete mismatches.  ``None`` when disabled;
         never raises (a failed diff simply contributes no text)."""
         if not _diff_enabled(self.diff):
-            return None
-        try:
-            from codeverse.reference import compare
-        except ImportError:  # pragma: no cover - the package is part of the wheel
             return None
         targets = [r.path for r in refs if r.role == "target"] or [r.path for r in refs]
         renders = self.diff_views(list(inp.renders.views))
@@ -545,8 +526,6 @@ class ReferenceJudge(VlmJudge):
         views = list(inp.renders.views)
         if not views:
             return {"error": "render set has no views"}
-        if self.silhouette_fn is None:
-            return {"error": "compare_silhouette unavailable (codeverse.spatial.silhouette not importable)"}
         res, name = self._measure(views, targets[0].path)
         if not isinstance(res, dict) or "iou" not in res:
             return {"error": f"compare_silhouette returned no iou: {res!r}"}
@@ -560,19 +539,14 @@ class ReferenceJudge(VlmJudge):
 
     def _measure(self, views: list[RenderView], reference: str) -> tuple[dict[str, Any], str]:
         """(result, view name).  Best-matching view when enabled and available."""
-        if self.best_view and self.silhouette_fn is _default_silhouette_fn():
-            try:
-                from codeverse.spatial.silhouette import best_view_match
-            except ImportError:  # pragma: no cover
-                best_view_match = None  # type: ignore[assignment]
-            if best_view_match is not None:
-                res = best_view_match(views, reference)
-                if "iou" in res:
-                    return res, str(res.get("view", ""))
+        if self.best_view and self.silhouette_fn is compare_silhouette:
+            res = best_view_match(views, reference)
+            if "iou" in res:
+                return res, str(res.get("view", ""))
         view = self.pick_front_view(views)
         if view is None:  # pragma: no cover - guarded by the caller
             return {}, ""
-        return self.silhouette_fn(view.path, reference), view.name  # type: ignore[misc]
+        return self.silhouette_fn(view.path, reference), view.name
 
 
 def _plan_part_names(inp: JudgeInput) -> list[str]:

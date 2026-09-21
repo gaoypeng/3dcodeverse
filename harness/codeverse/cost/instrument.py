@@ -10,9 +10,9 @@ Two thin proxies do the whole job:
   generation.
 * :class:`MeteredAgent` wraps a :class:`~codeverse.agents.registry.CodingAgent`.
   It sets the ambient attribution (round / stage / label) for the session so
-  the model rows above land in the right bucket and, for backends whose calls we
-  cannot see (every subscription CLI that does not declare ``meters_own_calls``),
-  records one session row from ``AgentResult.usage``.  ``agents.registry
+  the model rows above land in the right bucket and, because every backend is a
+  vendor CLI whose calls we cannot see, records one session row from
+  ``AgentResult.usage``.  ``agents.registry
   .get_coding_agent`` returns the proxy.
 
 Accounting is never allowed to fail a run: every hook is wrapped, and an
@@ -54,21 +54,6 @@ from codeverse.cost.ledger import (
 from codeverse.cost.types import Role, Stage, stage_for_label
 
 log = logging.getLogger(__name__)
-
-def meters_own_calls(agent: Any) -> bool:
-    """True when this backend's individual model calls are already on the ledger.
-
-    Declared by the backend itself (a ``meters_own_calls`` attribute) — a property
-    of the backend, not of what happened to run alongside it.  The old thread-local
-    "did anybody write a row while the session ran?" counter was wrong in both
-    directions (reproduced by ``adversarial.py``): a CLI session during which an
-    in-process tool billed a model (a texture pass, a summariser) looked metered
-    and its whole session row was silently dropped, and a session whose turns ran
-    in another thread was counted twice.  Every shipped backend is a vendor CLI
-    billing as ONE session row, so the default is False; the deleted in-process
-    api-agent (2026-08-28) was the last one whose turns landed on the ledger by
-    themselves."""
-    return bool(getattr(agent, "meters_own_calls", False))
 
 
 class MeteredChatModel:
@@ -218,8 +203,8 @@ class MeteredAgent:
         t0 = time.perf_counter()
         with call_context(round=job.round, stage=stage, role=Role.GENERATOR, label=job.label):
             result = self._inner.run(job)
-        if not meters_own_calls(self._inner):  # an opaque CLI: its session row is the only record
-            self._record_session(job, result, stage, int((time.perf_counter() - t0) * 1000))
+        # an opaque CLI: its session row is the only record
+        self._record_session(job, result, stage, int((time.perf_counter() - t0) * 1000))
         return result
 
     def _record_session(self, job: AgentJob, result: AgentResult, stage: Stage, ms: int) -> None:

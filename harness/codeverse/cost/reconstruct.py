@@ -94,7 +94,6 @@ class RunLedger:
     final_score: float | None = None
     n_rounds: int = 0
     round_scores: list[float | None] = field(default_factory=list)
-    gate_errors: list[int] = field(default_factory=list)
     recorded_usd: float = 0.0
     wall_s: float = 0.0   # time the run was actually working (budget elapsed / stage+round durations)
     span_s: float = 0.0   # first to last event — includes time queued behind other runs
@@ -304,8 +303,6 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
         idx = int(r.get("index") or 0)
         judgment = r.get("judgment") or {}
         led.round_scores.append((judgment or {}).get("overall"))
-        led.gate_errors.append(sum(1 for g in (r.get("gates") or [])
-                                   for f in (g.get("findings") or []) if f.get("severity") == "error"))
         ju = _usage(judgment.get("usage"))
         if ju.input_tokens or ju.cost_usd:
             judged_rounds.add(idx)

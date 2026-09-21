@@ -80,3 +80,34 @@ def test_cli_texture_show_and_help(tmp_path, chair_glb, chair_spec, chair_plan):
     assert res.exit_code == 0 and "scene-pack" in res.output and "pass" in res.output
     res = runner.invoke(app, ["texture", "show", str(tmp_path / "nowhere")])
     assert res.exit_code != 0
+
+
+def test_cli_scene_pack_spend_joins_the_runs_ledger(tmp_path, chair_spec, monkeypatch):
+    """`3dcv texture scene-pack` opened no run_ledger (`pass` did), so its plan + image
+    spend went to the per-process log instead of the run's telemetry/cost.jsonl."""
+    from codeverse.cli.main import app
+    from codeverse.contracts.common import Language, Track, Usage
+    from codeverse.contracts.plan import BBox, CameraPlan, ScenePlan, ZonePlan
+    from codeverse.cost.instrument import run_ledger
+    from codeverse.cost.ledger import load_ledger, record_call
+    from codeverse.texturing.plan import ScenePack
+
+    ws = Workspace(tmp_path / "run").create()
+    ws.write_json(ws.spec_path, chair_spec.model_copy(update={"track": Track.SCENE, "language": Language.SCENE_THREEJS}))
+    bb = BBox(center=(0, 0, 0), extents=(30, 10, 30))
+    ws.write_json(ws.plan_path, ScenePlan(
+        title="Zen Garden", summary="a small Kyoto garden", setting="Kyoto", bounds=bb, environment="raked gravel",
+        zones=[ZonePlan(name="Pond", description="koi pond with stepping stones", bbox=bb)],
+        cameras=[CameraPlan(name="main", position=(10, 3, 10), look_at=(0, 0, 0))]))
+    with run_ledger(ws.root, run=ws.root.name):   # the run kept a ledger while it ran
+        record_call(Usage(model="gemini-3.7-flash", input_tokens=1000), label="planner")
+
+    def fake_pack(plan, out_dir, image_model, model_id, **_):
+        record_call(Usage(model="gemini-3.1-flash-image", input_tokens=200, cost_usd=0.04), label="texture_pack")
+        return ScenePack(out_dir=str(out_dir))
+
+    monkeypatch.setattr("codeverse.texturing.plan.scene_texture_pack", fake_pack)
+    monkeypatch.setattr("codeverse.cli.texture_cmd._image_model", lambda name: FakeImageModel())
+    res = CliRunner().invoke(app, ["texture", "scene-pack", str(ws.root), "--model", ""])
+    assert res.exit_code == 0, res.output
+    assert [r.label for r in load_ledger(ws.root)] == ["planner", "texture_pack"]

@@ -108,7 +108,11 @@ def scene_pack(
     scene_texture_pack = C.lazy("codeverse.texturing.plan", "scene_texture_pack")
     texture_pack_prompt = C.lazy("codeverse.texturing.plan", "texture_pack_prompt")
     model_id = spec.backends.planner if model is None else model
-    with C.mutating(ws, what=f"3dcv texture scene-pack {ws.root.name}", action="texture"):
+    from codeverse.cost.instrument import run_ledger
+
+    # like `pass`: the pack's plan + image spend joins the run's ledger when it has one
+    with (C.mutating(ws, what=f"3dcv texture scene-pack {ws.root.name}", action="texture"),
+          run_ledger(ws.root, run=ws.root.name, create=False)):
         pack = scene_texture_pack(plan, out or ws.public / "textures", _image_model(image_model), model_id, size=size, n_max=n)
     rows = {name: f"{e.file or 'FAILED'}  tile={e.tile_size_m:.2f}m {e.material_family}/{e.role} seam={e.seam_score:.3f}"
             + (f"  {e.error}" if e.error else "") for name, e in pack.entries.items()}

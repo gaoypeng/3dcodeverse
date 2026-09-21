@@ -54,7 +54,7 @@ ROUTES: tuple[Route, ...] = (
           "graphics track: 5/6 passed, median 0.810, $0.099 per run",
           "glsl_shader / opengl_python — one file, compiler feedback, no tool loop needed"),
     # the runtime default since 2026-08-28 (contracts.common.Backends.generator):
-    # default_route() must name what actually runs, not the arm we measured first
+    # the default=True route must name what actually runs, not the arm we measured first
     Route(Role.GENERATOR, "gemini-cli:gemini-3.7-flash", 0.73,
           "compare_v1: 0.827 — statistically the same as the since-deleted api-agent arm at 2x the price",
           "the default; ~2x the 3.6 arm's price for quality measured as the same, so the number to beat",
@@ -82,15 +82,6 @@ ROUTES: tuple[Route, ...] = (
           "captions are post-hoc and cheap; no measured quality difference worth pro",
           "always", default=True),
 )
-
-
-def routes_for(role: Role | str) -> list[Route]:
-    r = Role(role) if not isinstance(role, Role) else role
-    return [x for x in ROUTES if x.role is r]
-
-
-def default_route(role: Role | str) -> Route | None:
-    return next((x for x in routes_for(role) if x.default), None)
 
 
 def samples_for_precision(model: str, target_std: float, *, noise: dict[str, tuple[float, float]] | None = None) -> int:
