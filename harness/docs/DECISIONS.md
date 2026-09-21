@@ -606,7 +606,7 @@ written) that were accepted because the code works that way and the tests pin it
   three.js, and it is in the workspace, in the agent's git history, readable and
   debuggable.
 
-  **What shipped.**  52 modules / 28.8k lines under
+  **What shipped.**  52 modules / 28.8k lines (44 / 24.8k since D74) under
   `codeverse/languages/scene_threejs/starter/src/lib/`, ported module-by-module against
   the reference's own test per module, adapted to OUR renderer contract (their exposure
   1.1 → our 1.0; their log-depth on → ours off, so their logdepth chunks are harmless
@@ -1211,6 +1211,20 @@ written) that were accepted because the code works that way and the tests pin it
   centre is outside its frustum is re-aimed at it first (loop 25's `LanternDetail` shot the
   tower wall for three rounds while `hero_unseen` read 0.0 %).  Same rule as D72's: the harness
   fixes what it can measure, deterministically, before a session is paid to guess.
+
+* **D74 Eight effect modules nobody imported are removed from the library (2026-09-21).**
+  Measured over the 52 recorded scene workspaces that shipped `src/lib/`: generated scene code
+  imported `mirror.js`, `scatter.js`, `season.js` in 0 runs, `creature.js`, `river.js`,
+  `waterfall.js` in 1, `indoor.js`, `lights.js` in 2.  No other lib module, no starter file
+  and no harness python imports any of them, so each went with its
+  `tests/scene_runtime/lib/test_<module>.py` and its `effects_catalog.md` row (~4.1k lines of
+  lib, ~3.7k of tests); the library is 44 modules / 24.8k lines.  `windows.js` (0 runs) was on
+  the same list and STAYS: `test_neon.py` compiles `patchWindowInteriors` under
+  `patchNeonSpill` as its fixture, and `urban.js` / `neon.js` document that composition.
+  A catalog row is a cost every scene session reads; a module no session calls is a row that
+  buys nothing.  Restore any of them from git history (the commit before this one) if a
+  battery needs it — module, test and catalog row together, since
+  `test_every_call_the_catalog_advertises_is_a_real_export` pins catalog == `lib_files()`.
 
 ## Rejected / deferred
 

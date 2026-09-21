@@ -193,7 +193,7 @@ def test_a_facade_has_walls_trim_glazing_and_a_dark_interior(facade):
     """Four named parts, because the complaints name four things.
 
     Unlit, the two glazing batches collapse to whichever ones drew — the
-    part names an agent (and mirror.js's glazeFacade) targets are stable.
+    part names an agent targets are stable.
     """
     m = facade
     for part in ("Walls", "Trim", "Glazing", "Reveals"):
@@ -358,8 +358,8 @@ def test_lit_windows_stay_in_the_bloom_friendly_band(lit_block):
 
 
 def test_lit_windows_are_not_matched_by_the_mirror_sweep(lit_block):
-    """mirror.js `glazeFacade` retargets every `/glaz|pane/i` mesh and
-    documents that lit windows are left glowing. Naming the lit cards
+    """mirror.js `glazeFacade` (removed, D74) retargeted every `/glaz|pane/i`
+    mesh and documented that lit windows are left glowing. Naming the lit cards
     `LitGlazing` (as cottage did) walked them straight into that sweep."""
     m = lit_block
     import re
@@ -692,7 +692,7 @@ def test_a_village_can_afford_a_cottage(cot):
 
 def test_cottage_lit_rooms_are_their_own_meshes(cot):
     """Its lit panes used to be named `LitGlazing`, which walks straight into
-    mirror.js `glazeFacade`'s `/glaz|pane/i` sweep."""
+    a `/glaz|pane/i` sweep (mirror.js `glazeFacade`, removed in D74)."""
     m = cot
     lit = [n for n in m["litNames"] if n.startswith("LitRooms")]
     assert lit, m["litNames"]

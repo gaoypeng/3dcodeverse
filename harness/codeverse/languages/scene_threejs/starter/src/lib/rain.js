@@ -5,7 +5,7 @@
  * no post pass. Delivery frames are STILLS, so every effect must read
  * FROZEN: streaks are drawn long, splash phases are spread across the
  * field so all radii show at once, and puddle ripples displace real
- * geometry. World-space like ./scatter.js — add the returned objects
+ * geometry. World-space — add the returned objects
  * at the scene ROOT and drive them from `tick`: `obj.userData.update(t)`.
  */
 

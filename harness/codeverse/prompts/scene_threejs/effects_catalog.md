@@ -1,6 +1,6 @@
 # The shipped effect library — call these before writing your own
 
-`src/lib/` is in your workspace already: 52 modules, every one of them compiled
+`src/lib/` is in your workspace already: 44 modules, every one of them compiled
 and rendered on THIS renderer.  They carry the depth and fog chunks a
 hand-written shader silently loses, and they are not an outside package — they
 are harness code shipped into the workspace, so importing them is allowed where
@@ -25,15 +25,12 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 | midges, butterflies, fireflies; reeds in water | `makeInsects` · `makeReeds` — `lib/smalllife.js` |
 | birds or fish in motion | `makeFlock({ count, kind, extent, height, path })` — `lib/flock.js` |
 | a sizeable water body | `makeOcean(w, d, { sunDir })` — `lib/water.js`; ONE reflective surface per scene |
-| a river, a stream, a creek | `makeRiver({ points, width, depth, flow, heightAt })` — `lib/river.js`; a WATERCOURSE, which `makeOcean` is not: a sea-sized plane at one level floods relief terrain into islands |
-| falling water | `makeWaterfall({ height, width, throw_, bow, color, foam, mist })` — `lib/waterfall.js` |
 | mist over moving water, spray where it lands | `makeWaterMist` · `makeSpray` — `lib/watermist.js` |
 | a waterline | `patchShoreWet` · `patchShoreFoam` · `patchShallowWater` — `lib/waterside.js` |
 | anything BELOW the water, rain rings, thin ice | `patchUnderwater` · `makeRainRings` · `patchThinIce` — `lib/submerged.js` |
 | the moving net of light under water | `patchCaustics(material, { level, sunDir })` — `lib/caustics.js`; goes on the surface being LIT, not on the water |
 | moss, damp near water, dried mud | `patchMoss` · `patchMoisture` · `patchCrackedMud` — `lib/damp.js` |
 | a polished or wet floor | `makeMirrorFloor(w, d)` — `lib/wetground.js`; spends the same one-RTT budget as `makeOcean` |
-| a mirror, a glazed facade | `makeMirror` · `envMirrorMaterial` — `lib/mirror.js` |
 | rock, cliff, ground | `patchTriplanar` · `patchSlopeSplat` — `lib/terrain_shade.js` |
 | ground and cliff geometry | `ground({ size, heightAt })` · `cliff` — `lib/terrain.js` |
 | placing a camera or a prop by intent | `seat` · `establishingShot` · `faceToward` · `alongPath` · `crowdOn` — `lib/place.js` |
@@ -50,12 +47,9 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 | rain sheets at distance, snowfall, motes | `makeRainVeil` · `makeSnowfall` · `makeMotes` — `lib/veils.js`; weather you see ACROSS the valley, not the drops by the lens |
 | rain, splashes, puddles | `makeRain` · `makeSplashes` · `wetten` · `makePuddle` — `lib/rain.js` |
 | snow or drifted sand lying on things | `patchSnow` · `patchSand` — `lib/accumulation.js`; one deposit rule across the whole scene is what makes weather read |
-| the season, and the hour of the day | `patchSeasonTint` · `dayCycle(rig, { hour })` — `lib/season.js`; `dayCycle` returns a pose to apply, and at night `elevation` goes negative while `keyElevation` is the moon you light from |
 | a building, a cottage, a city block | `block` · `cottage` · `cityFabric` — `lib/building.js` |
 | lit windows at night | `makeNightWindows(mesh)` · `patchWindowInteriors` — `lib/windows.js` |
 | a glazed facade, power lines, a hoarding | `patchCurtainWall` · `makePowerLines` · `makeBillboard` — `lib/urban.js`; the facade spends no second render target |
-| a room that is LIT, smudged glass, a distant crowd | `patchBounceLight` · `patchFingerprints` · `makeCrowdImposters` — `lib/indoor.js`; bounce is what makes an interior read as lit rather than filled with ambient |
-| a glowing panel or sign | `makePanelLight(w, h, color, intensity)` — `lib/lights.js`; `color` takes a LIGHT_CLASSES name — `'sodium'`, `'tungsten'`, `'fluorescent'`, `'led_cool'`… — and the class SPLIT (sodium road, tungsten homes, fluorescent shop) is what makes a night street read; `kelvinColor(k)` for anything else |
 | a neon sign, and the light it throws | `makeNeonTube` · `patchNeonSpill` · `makeLightTrails` — `lib/neon.js`; a sign that does not light its own wall is a decal |
 | readable lettering on a sign | `makeText` (async — await ONCE at module top level, `.clone()` per copy) — `lib/signage.js` |
 | a road, a path, a worn surface | `patchRoadSurface` · `patchSeamBand` · `patchTracks` — `lib/roadway.js` |
@@ -63,8 +57,7 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 | a surface that has stood somewhere | `patchDripStains` · `patchRust` · `patchDust` — `lib/aging.js` |
 | any surface at all | `patchMicroBreakup` · `patchEdgeWear` — `lib/surface_wear.js` |
 | paper, wax, jade, petals; oil film, beetle shell | `patchTranslucency` · `patchIridescence` — `lib/finish.js` |
-| a person, an animal | `figure({ pose })` · `sit` · `walk` · `carry` — `lib/figure.js` · `creature` · `ear` · `tail` · `attach` — `lib/creature.js` |
-| scattering many copies over ground | `scatter({ count, extent, heightAt, make })` — `lib/scatter.js` |
+| a person | `figure({ pose })` · `sit` · `walk` · `carry` — `lib/figure.js` |
 | the same asset hundreds of times, in one draw call | `instanceAsset` · `scatterGrid` — `lib/instancing.js` · `mergeStatic(meshes)` — `lib/merge.js` |
 | a textured standard material without a texture file | `brick` · `granite` · `cobble` · `asphalt` · `weatheredWood` · `brushedSteel` · `fabric` · `foliage` · `soil` · `skin` · `glass` (21 in all) · `tint(mat, variant)` — `lib/materials.js` |
 | noise on the CPU (heightfields the shader must agree with) | `fbm2` · `fbm3` · `mulberry32` · `displaceY` — `lib/noise.js` |

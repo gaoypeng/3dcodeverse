@@ -21,8 +21,8 @@
 import * as THREE from 'three';
 import { patchStandard, composeRoughness } from './shader.js';
 
-// The day rig's sun (azimuth 35, elevation 48), matching water.js and
-// river.js, so a surface that was not told where the sun is agrees.
+// The day rig's sun (azimuth 35, elevation 48), matching water.js,
+// so a surface that was not told where the sun is agrees.
 const _AZ = 35 * Math.PI / 180;
 const _EL = 48 * Math.PI / 180;
 const DAY_SUN = new THREE.Vector3(

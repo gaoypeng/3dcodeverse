@@ -79,7 +79,7 @@ def test_both_skeleton_paths_ship_the_effect_library(tmp_path):
     from codeverse.languages.scene_threejs import lib_files
 
     names = {p.name for p in lib_files()}
-    assert len(names) >= 50 and "grass.js" in names and "shader.js" in names
+    assert len(names) >= 40 and "grass.js" in names and "shader.js" in names
 
     for label, plan in (("example", None), ("plan", make_plan())):
         ws = Workspace(tmp_path / label)
@@ -146,7 +146,7 @@ def test_the_effects_catalog_reaches_the_scene_prompts_and_only_those():
 
 
 def test_every_call_the_catalog_advertises_is_a_real_export():
-    """The catalog is the agent's only index of 52 modules.  One stale name and a
+    """The catalog is the agent's only index of 44 modules.  One stale name and a
     session writes an import that cannot resolve — and the reference catalog this
     was ported from already carried five (`makeFigure`, `makeCreature`, `place`,
     `instanceAll`, `hash` are none of them exports here)."""

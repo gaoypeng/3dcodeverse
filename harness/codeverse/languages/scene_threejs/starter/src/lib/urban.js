@@ -12,9 +12,8 @@
  * billboard without its structure is a floating decal.
  *
  * COST CONTRACT: `patchCurtainWall` spends NO render target. The scene
- * has exactly one (`lib/mirror.js` `makeMirror`, `lib/wetground.js`
- * `makeMirrorFloor` or an ocean), and a facade is never what should
- * spend it — see the patch's own JSDoc for what it does instead.
+ * has exactly one (`lib/wetground.js` `makeMirrorFloor` or an ocean),
+ * and a facade is never what should spend it — see the patch's own JSDoc for what it does instead.
  */
 
 import * as THREE from 'three';
@@ -214,13 +213,12 @@ const CW_BODY = [
  *
  * NO RENDER TARGET, which is the constraint that shapes it. The scene
  * gets ONE whole-scene reflection pass and a facade must never be what
- * spends it: `mirror.js` `makeMirror` re-renders the scene into a
- * Reflector (+48 ms/frame measured, and it enforces a budget of one),
- * and `wetground.js` `makeMirrorFloor` spends that one on the ground.
- * The other two ways out both cost something this does not:
- * `envMirrorMaterial` / `glassFacadeMaterial` need an equirect BAKE and
- * hand three's IBL a roughness-blurred lookup that cannot show the
- * per-panel break-up, and neither shows the room behind the glass. Here
+ * spends it: a Reflector re-renders the scene (+48 ms/frame
+ * measured), and `wetground.js` `makeMirrorFloor` spends that one on
+ * the ground. The other way out costs something this does not: an
+ * envMap material needs an equirect BAKE and hands three's IBL a
+ * roughness-blurred lookup that cannot show the per-panel break-up,
+ * and it does not show the room behind the glass. Here
  * the reflection is an ANALYTIC sky evaluated per fragment from the
  * reflected ray — no target, no texture, no bake. The honest trade: it
  * reflects sky, haze and ground, never the building across the street.

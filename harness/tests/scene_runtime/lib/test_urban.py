@@ -166,7 +166,7 @@ console.log(JSON.stringify({
 
 
 def test_the_facade_spends_no_second_render_target():
-    """The scene has ONE render-target budget and mirror.js or
+    """The scene has ONE render-target budget and an ocean or
     wetground.js has usually already spent it. A curtain wall that
     quietly allocates a second one costs a frame nobody authorised, so
     the fresnel sky has to be computed, not rendered."""
@@ -179,7 +179,7 @@ def test_the_facade_spends_no_second_render_target():
                    "new Reflector", "CubeCamera"):
         assert banned not in code, (
             f"urban.js reaches for {banned}; the scene's one RTT is "
-            "already spent by mirror.js or wetground.js")
+            "already spent by an ocean or wetground.js")
 
 
 def test_every_glow_is_kept_out_of_the_occlusion_pass():

@@ -271,7 +271,7 @@ def test_wind_reaches_an_instanced_mesh_and_a_plain_mesh_alike():
     in at <begin_vertex>, so world space here is hand-built behind a
     USE_INSTANCING guard — and three declares that attribute itself, so a
     second declaration would fail every instanced plant.  The wind direction
-    is carried into the plant's own frame too: scatter.js yaws every instance,
+    is carried into the plant's own frame too: a scatter yaws every instance,
     and an object-space wind would blow a different way for each one."""
     out = _probe("""
 const m = std();

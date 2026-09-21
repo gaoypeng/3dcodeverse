@@ -241,7 +241,7 @@ export function patchWind(material, opts = {}) {
       '  float wP = uTime * uWindSpeed + astraStagger(wO.x + wO.z * 0.37);',
       '  float wS = (sin(wP) + 0.35 * sin(wP * 2.3 + 1.7)) / 1.35;',
       // The wind blows ONE way over the whole scene, so its world
-      // direction is carried into the plant's own frame — scatter.js
+      // direction is carried into the plant's own frame — a scatter
       // gives every instance a different yaw.
       '  vec3 wD = astraFolLocalDir(vec3(uWindDir.x, 0.0, uWindDir.y));',
       '  transformed += wD * (uWindAmp * wB * wB * wS);',
@@ -261,7 +261,7 @@ export function patchWind(material, opts = {}) {
  *
  * @param {THREE.Material} material Trunk material, patched in place.
  *   Height is measured from the object's ORIGIN, so the asset's base
- *   must sit at y = 0 (the same contract `scatter.js` states).
+ *   must sit at y = 0.
  * @param {object} [opts] `band` metres above the contact plane that the
  *   shading fades over (default 0.5); `darken` (default 0.45) how much
  *   darker the very base goes; `litter` (THREE.Color) the fallen-leaf

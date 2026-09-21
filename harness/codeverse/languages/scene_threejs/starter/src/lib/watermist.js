@@ -35,13 +35,6 @@
  * toward the water, so a view from above integrates the profile
  * instead of a single slice of it.
  *
- * `waterfall.js` builds a mist inline (billboards on a fixed rise, one
- * plume, no drift). To use these instead: `makeWaterfall({ mist: 0 })`,
- * then `makeWaterMist({ extent: width * 4, height: 2.5, drift: [0,
- * 0.6], density: 0.6 })` moved to the plunge pool, plus
- * `makeSpray({ origin: [0, 0, throw_], radius: width * 0.55 })` for the
- * droplets the inline mist never had.
- *
  * Both billboard against the WORLD camera axes, so add them at the
  * scene root or under a translated parent — a rotated or scaled parent
  * tilts the cards.

@@ -138,8 +138,8 @@ function revealMat() {
  *   with `userData.forward` and `userData.floors`. Meshes are named
  *   `Walls`, `Trim`, `Glazing`, `Reveals` and — only when `lit` — one
  *   `LitRooms*` per lit class. `LitRooms` deliberately does NOT match
- *   `mirror.js` `glazeFacade`'s `/glaz|pane/` sweep, so mirroring a
- *   facade leaves its lit windows glowing.
+ *   a `/glaz|pane/` sweep, so re-glazing a facade leaves its lit
+ *   windows glowing.
  */
 export function block(opts = {}) {
   const rand = opts.rand || (() => 0.5);

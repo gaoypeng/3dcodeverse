@@ -326,10 +326,10 @@ summary:
 * **scene_threejs**: `src/scene.js` `createScene({THREE, renderer, loaders}) → {scene, cameras, update(t,dt)}`;
   `src/env.js`, `src/zones/*.js`, `src/assets/*.js`, `src/shaders/*.js`; GLBs at
   `public/assets/<name>.glb`.  The harness assembles `scene.js` deterministically.
-  Plus the harness-owned, read-only **effect library** `src/lib/*.js` — 52 modules,
-  28.8k lines, shipped into every workspace by BOTH skeleton paths and listed in
+  Plus the harness-owned, read-only **effect library** `src/lib/*.js` — 44 modules,
+  24.8k lines, shipped into every workspace by BOTH skeleton paths and listed in
   `HARNESS_OWNED_SRC` so agent writes to it are reverted (D51).  The starter tree is
-  therefore 60 `.js` files / 29.3k lines, of which 8 are the example scene.  The
+  therefore 52 `.js` files / 25.2k lines, of which 8 are the example scene.  The
   want → call table the prompts carry is `prompts/scene_threejs/effects_catalog.md`.
 * **glsl_shader**: `src/shader.frag` (+ optional `src/common.glsl`,
   `src/buffer_a.frag` for feedback; the harness-owned, read-only `src/recipes.glsl`

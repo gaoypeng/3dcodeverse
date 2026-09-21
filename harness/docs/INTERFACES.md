@@ -186,7 +186,7 @@ session may read but never write — `contracts.common.HARNESS_OWNED_SRC[languag
 sets it on every job of the run and `agents/cli_common._enforce_scope` reverts a
 post-session write to one and fails that session.  **Δ** an entry ending in `/` is a
 DIRECTORY prefix — `contracts.common.is_harness_owned(rel, owned)` is the predicate, and
-it is what names the 52-module effect library without listing 52 paths).  **Δ legacy lift**: the job keys (`round`, `kind`, `language`,
+it is what names the 44-module effect library without listing 44 paths).  **Δ legacy lift**: the job keys (`round`, `kind`, `language`,
 `track`, `files_hint`, `mcp_command`) passed inside `extra={...}` are lifted into
 the typed fields at validation (extra itself is left untouched), so old constructors
 and serialized jobs keep working; `extra` stays for one-off backend hints.

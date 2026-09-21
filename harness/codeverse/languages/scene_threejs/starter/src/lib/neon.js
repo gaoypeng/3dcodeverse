@@ -16,8 +16,7 @@
  * picks when handed "0 to 1" is the mode that cannot clip.
  *
  * Composes with `windows.js` (the rooms behind the facade this spills
- * onto) and `lights.js` (`makePanelLight` when the sign must light a
- * passer-by — no emissive term can do that).
+ * onto).
  */
 
 import * as THREE from 'three';
