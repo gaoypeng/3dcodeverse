@@ -5,6 +5,9 @@ description: 'Second turn of the graphics loop: the same aurora brief, with/with
   arm, judged in-loop by shader_v2 with the light-phenomena cookbook (aeb49c0) and brief-selected chapters (137541e).'
 prompts:
 - id: aurora_ref_1
+  references:
+  - ../refs/tsr_gfx_aurora_ridge/aurora_green_spiral_sea.png
+  - ../refs/tsr_gfx_aurora_ridge/aurora_purple_green_lake.png
   prompt: 'an aurora over a snowy ridge: layered green and violet curtains with vertical ray structure rippling
     across the sky, a dense star field behind them, a dark mountain-ridge silhouette along the bottom third and
     a frozen lake reflecting the curtains with a soft shimmer
@@ -26,6 +29,9 @@ prompts:
   - ref
   - seed1
 - id: aurora_ref_2
+  references:
+  - ../refs/tsr_gfx_aurora_ridge/aurora_green_spiral_sea.png
+  - ../refs/tsr_gfx_aurora_ridge/aurora_purple_green_lake.png
   prompt: 'an aurora over a snowy ridge: layered green and violet curtains with vertical ray structure rippling
     across the sky, a dense star field behind them, a dark mountain-ridge silhouette along the bottom third and
     a frozen lake reflecting the curtains with a soft shimmer
@@ -47,6 +53,9 @@ prompts:
   - ref
   - seed2
 - id: aurora_ref_3
+  references:
+  - ../refs/tsr_gfx_aurora_ridge/aurora_green_spiral_sea.png
+  - ../refs/tsr_gfx_aurora_ridge/aurora_purple_green_lake.png
   prompt: 'an aurora over a snowy ridge: layered green and violet curtains with vertical ray structure rippling
     across the sky, a dense star field behind them, a dark mountain-ridge silhouette along the bottom third and
     a frozen lake reflecting the curtains with a soft shimmer

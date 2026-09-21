@@ -75,7 +75,8 @@ own target metrics. The results, stated plainly:
   A/B came back `underpowered`, and for several the underpowering is structural rather than
   a matter of n. **So nothing was promoted to `measured`, and nothing ships on.**
 * **One bundle was cut**: `cv3d-form-manifest`, read 2 of 19 times before *and* after its
-  description was rewritten. Text and numbers in `docs/skills-attic/`.
+  description was rewritten. The numbers are in this ledger; the bundle's text is in git history
+  (`docs/skills-attic/`, removed 2026-09-21).
 * **Four bundles were revised by fixing their delivery, not their prose.** The scene track
   never handed its skills to the sessions that do the work. That is now fixed (§3).
 * **`cadquery-forms` and `threejs-forms` stay `inherited-unverified`.** Their languages have
@@ -156,7 +157,7 @@ so every number below carries the snapshot it was read from.
 | **cv3d-cadquery-forms** | inherited-unverified | `build_failure_rate` | down | 0.00, n=4 (all 4 built) | same | **4** | no variance to move | **routed OFF.** Needs 20 graded cadquery runs; has **4**. Read 2/2 when forced on |
 | **cv3d-threejs-forms** | inherited-unverified | `missing_parts` | down | 0.00, n=3 | same | **3** | no variance to move | **routed OFF.** Needs 20 graded threejs runs; has 3. Read 2/2 when forced on |
 
-**Cut this wave:** `cv3d-form-manifest` → `docs/skills-attic/cv3d-form-manifest/`.
+**Cut this wave:** `cv3d-form-manifest` (text in git history; `docs/skills-attic/` was removed 2026-09-21).
 
 ### Read rate — the cheap filter, and the only thing that resolved
 

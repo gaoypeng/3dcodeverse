@@ -20,4 +20,5 @@ note the agent and the judge read.  A prompt may also list `references:` paths i
 
 So "with references" vs "without" is the same battery with the folder present or absent.
 Keep photos you have the right to use; name the file by what it shows.  First folder:
-`tsr_gfx_aurora_ridge/` (two aurora photographs, 2026-08-26).
+`tsr_gfx_aurora_ridge/` (two aurora photographs, 2026-08-26).  A battery whose prompt ids differ from the folder
+name lists the files under `references:` instead of copying the folder (`prompts/refs_v{1,2}_graphics.yaml`).

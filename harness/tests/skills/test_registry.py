@@ -53,7 +53,7 @@ def test_finding_kinds_accepts_reports_findings_and_strings():
 
 # --------------------------------------------------------------------------- the table
 #: Retired ids remain reserved because run records refer to routing decisions by id.
-RETIRED_RULES = {"R5": "cv3d-form-manifest, cut 2026-08-25 (read 2/19); docs/skills-attic/"}
+RETIRED_RULES = {"R5": "cv3d-form-manifest, cut 2026-08-25 (read 2/19); docs/SKILLS_LEDGER.md"}
 
 
 def test_rule_ids_are_unique_and_the_design_numbers_are_all_present():
