@@ -1,4 +1,4 @@
-"""R2 (S3-compatible) object storage — thin boto3 wrapper used by `3dcode`.
+"""R2 (S3-compatible) object storage — thin boto3 wrapper used by `3dcode-data`.
 
 Contributors upload straight from their own machine to the staging bucket; the admin
 side pulls/lists/deletes the same way. Keys are ``<source>/<project>/<relpath>``.

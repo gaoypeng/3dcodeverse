@@ -12,8 +12,8 @@ multi-dialect, license-clean corpus for training & evaluating 3D-from-code gener
 
 **This repo (`3dcode`)** is the CLI toolkit contributors run **on their own machine** to
 validate, fingerprint (dedup), executability-check, render, and upload (code → 3D) *projects*.
-Data flows: `3dcode push` → private R2 staging + a validation report → a maintainer reviews in
-a web Inbox → approve → `3dcode ingest` pulls it into the canonical store. Everything that can
+Data flows: `3dcode-data push` → private R2 staging + a validation report → a maintainer reviews in
+a web Inbox → approve → `3dcode-data ingest` pulls it into the canonical store. Everything that can
 run locally runs locally — nothing routes heavy compute/bandwidth through a central server.
 
 ## The data model (memorize this)
@@ -43,11 +43,11 @@ your eyes open — never author blind:
 
 1. Write **self-contained** code for the target dialect (no project-local imports; e.g. a
    Blender script must NOT `import infinigen` — inline what it needs).
-2. `3dcode exec ./dir` → it must run **error-free AND produce a non-empty mesh**. Fix until green.
+2. `3dcode-data exec ./dir` → it must run **error-free AND produce a non-empty mesh**. Fix until green.
    (Blender Python is checked in Blender 5.0 **and** 5.1 — make it work in both.)
-3. `3dcode render ./dir` → look at the render. Iterate until the shape/material is right.
-4. `3dcode check ./dir` → if it's a near-duplicate of the corpus, drop or justify it.
-5. `3dcode push ./dir --source <name>` → uploads + registers for review.
+3. `3dcode-data render ./dir` → look at the render. Iterate until the shape/material is right.
+4. `3dcode-data check ./dir` → if it's a near-duplicate of the corpus, drop or justify it.
+5. `3dcode-data push ./dir --source <name>` → uploads + registers for review.
 
 **Quality bar:** runs + builds geometry; grounded by a reference image and/or prompt; not a
 near-duplicate; not absurdly long (anomaly-flagged); permissive `license`/`provenance` in meta.
@@ -56,7 +56,7 @@ near-duplicate; not absurdly long (anomaly-flagged); permissive `license`/`prove
 
 ```
 threedcode/
-  cli.py          # the `3dcode` entry (Typer)
+  cli.py          # the `3dcode-data` entry (Typer)
   config.py storage.py(R2) schema.py hashing.py registry.py
   dialects/       # per-dialect adapters: blender_python, cadquery_dialect, build123d_dialect,
                   #   openscad_dialect, freecad_dialect (CadQuery & build123d = separate venvs)

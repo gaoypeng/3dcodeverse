@@ -11,7 +11,7 @@ contributor's project ──▶ curation ──▶ 3DCodeVerse on the Hub ──
 
 | folder | stage | what it does |
 |---|---|---|
-| [`3dcode_cli/`](3dcode_cli/) | contributor → corpus | the installable `3dcode` CLI: validate, fingerprint/dedupe, execute, render and push a project to the staging bucket. Per-dialect modules for Blender-Python, CadQuery, build123d, FreeCAD and OpenSCAD |
+| [`3dcode_cli/`](3dcode_cli/) | contributor → corpus | the installable `3dcode-data` CLI: validate, fingerprint/dedupe, execute, render and push a project to the staging bucket. Per-dialect modules for Blender-Python, CadQuery, build123d, FreeCAD and OpenSCAD |
 | [`curation/`](curation/) | raw → corpus | per-source curation: convert a source's native format to runnable projects, execute/render them, compute ground-truth meshes, dedupe, pack to tar+parquet, upload to the Hub |
 | [`llamafactory/`](llamafactory/) | corpus → training data | turn every corpus subdirectory into a LLaMA-Factory dataset, verify it with the real compilers/runtimes, flatten multi-file samples, build multimodal (render + instruction) variants, and sample training mixes |
 

@@ -1,8 +1,8 @@
-"""`3dcode` CLI — contributor-side commands to validate and upload (code -> 3D) projects.
+"""`3dcode-data` CLI — contributor-side commands to validate and upload (code -> 3D) projects.
 
-    3dcode config set --endpoint ... --access-key-id ... --secret-access-key ...
-    3dcode validate ./data
-    3dcode push ./data --source yourname
+    3dcode-data config set --endpoint ... --access-key-id ... --secret-access-key ...
+    3dcode-data validate ./data
+    3dcode-data push ./data --source yourname
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ app.add_typer(config_app, name="config")
 @app.command()
 def version():
     """Print the toolkit version."""
-    typer.echo(f"3dcode {__version__}")
+    typer.echo(f"3dcode-data {__version__}")
 
 
 @config_app.command("set")
@@ -37,11 +37,11 @@ def config_set(
     source: str = typer.Option(None, help="default source folder for your uploads"),
     api: str = typer.Option(None, help="registry API base (default 3dcodebench.com)"),
     contrib_token: str = typer.Option(None, help="shared contributor token for the registry"),
-    blender_5_0: str = typer.Option(None, help="local Blender 5.0 binary (for 3dcode exec)"),
+    blender_5_0: str = typer.Option(None, help="local Blender 5.0 binary (for 3dcode-data exec)"),
     blender_5_1: str = typer.Option(None, help="local Blender 5.1 binary"),
     openscad: str = typer.Option(None, help="local OpenSCAD binary/AppImage (.scad)"),
     freecadcmd: str = typer.Option(None, help="local freecadcmd binary (FreeCAD)"),
-    core_dir: str = typer.Option(None, help="admin canonical store dir (for 3dcode ingest)"),
+    core_dir: str = typer.Option(None, help="admin canonical store dir (for 3dcode-data ingest)"),
 ):
     """Write R2 settings to ~/.config/3dcode/config.toml (chmod 600)."""
     path = save_config({
@@ -160,7 +160,7 @@ def exec_run(path: Path = typer.Argument(..., exists=True),
              write: bool = typer.Option(True, help="write the result into each meta.json")):
     """Run each project's code in its dialect runtime(s); record pass/fail in meta.json.
 
-    Runs LOCALLY in your own runtimes (configure Blender via `3dcode config set
+    Runs LOCALLY in your own runtimes (configure Blender via `3dcode-data config set
     --blender-5-0 ... --blender-5-1 ...`); nothing is uploaded. Pass = error-free AND a non-empty mesh.
     """
     from .dialects import run_dialect
@@ -270,7 +270,7 @@ def render(path: Path = typer.Argument(..., exists=True),
     """Render each project's code LOCALLY into renders/ (white clay or textured) — no upload.
 
     Runs the code in your local Blender (config --blender-5-0) and writes view_00..03.png +
-    thumb.png. Then `3dcode push` picks up the renders (modality + phash dedup + Inbox preview).
+    thumb.png. Then `3dcode-data push` picks up the renders (modality + phash dedup + Inbox preview).
     """
     from .dialects import render_dialect
     cfg = load_config()
@@ -309,7 +309,7 @@ def grid(path: Path = typer.Argument(..., exists=True),
         typer.secho("grid needs Pillow — install 3dcode[dedup]", fg="red", err=True)
         raise typer.Exit(1)
     if n == 0:
-        typer.secho("no thumbnails found — run `3dcode render` first?", fg="yellow")
+        typer.secho("no thumbnails found — run `3dcode-data render` first?", fg="yellow")
     else:
         typer.secho(f"grid: {n} thumbnails → {dest}", fg="green")
 

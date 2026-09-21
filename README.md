@@ -41,7 +41,7 @@ Start at [`harness/README.md`](harness/README.md); design and operation live in
 
 ## [`toolkits/`](toolkits/) — raw 3D projects → trainable data
 
-Everything that operates on data rather than models: the installable `3dcode`
+Everything that operates on data rather than models: the installable `3dcode-data`
 contributor CLI (validate / dedupe / execute / render / push, with per-dialect
 modules for Blender-Python, CadQuery, build123d, FreeCAD, OpenSCAD), per-source
 curation pipelines (convert → execute → render → ground truth → dedupe →

@@ -20,10 +20,10 @@ dependencies = [
 dedup = ["trimesh>=4.0", "imagehash>=4.3", "Pillow>=10.0", "numpy>=1.24"]
 cadquery = ["cadquery>=2.5"]
 build123d = ["build123d>=0.5"]
-# OpenSCAD + FreeCAD are system binaries (not pip) — set their paths via `3dcode config set`.
+# OpenSCAD + FreeCAD are system binaries (not pip) — set their paths via `3dcode-data config set`.
 
 [project.scripts]
-"3dcode" = "threedcode.cli:app"
+"3dcode-data" = "threedcode.cli:app"
 
 [tool.setuptools.packages.find]
 include = ["threedcode*"]

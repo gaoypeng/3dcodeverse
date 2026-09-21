@@ -43,11 +43,11 @@ class Config:
     source: str = ""
     api: str = "https://www.3dcodebench.com"   # registry + dedup-index endpoints
     contrib_token: str = ""                     # shared contributor token for those endpoints
-    blender_5_0: str = ""                        # local Blender 5.0 binary, for `3dcode exec`
+    blender_5_0: str = ""                        # local Blender 5.0 binary, for `3dcode-data exec`
     blender_5_1: str = ""                        # local Blender 5.1 binary
     openscad: str = ""                           # local OpenSCAD binary/AppImage (.scad exec/render)
     freecadcmd: str = ""                         # local freecadcmd binary (FreeCAD exec/render)
-    core_dir: str = "/lab/yipeng/infinigen/3dcodeverse"   # admin-side canonical store (for `3dcode ingest`)
+    core_dir: str = "/lab/yipeng/infinigen/3dcodeverse"   # admin-side canonical store (for `3dcode-data ingest`)
 
     def require_r2(self) -> None:
         missing = [k for k in ("endpoint", "bucket", "access_key_id", "secret_access_key")
@@ -55,7 +55,7 @@ class Config:
         if missing:
             raise SystemExit(
                 f"R2 not configured (missing {', '.join(missing)}). "
-                f"Run `3dcode config set ...` or set the R2_* env vars."
+                f"Run `3dcode-data config set ...` or set the R2_* env vars."
             )
 
 
