@@ -21,7 +21,7 @@ npm dependencies themselves bottom out at node 18, and `node:util.parseArgs`
 older *async* loader hooks (`lib/resolve_three_async.mjs`, a separate loader
 thread) instead of the in-thread `module.registerHooks`; the resolutions are
 identical.  The python side refuses to spawn an older node with an actionable
-message (`codeverse.spatial.node.NODE_MIN`, mirrored by `3dcv doctor`'s `node`
+message (`codeverse.spatial.node.NODE_MIN`, mirrored by `3dcode doctor`'s `node`
 row), and `tests/core/test_portability.py` pins the two declarations together.
 The floor is exercised, not assumed: the 93 `node`-marked tests all pass on node
 20.19.5 (`CV3D_BINARIES__NODE=/path/to/node20 pytest tests -m "node and not live and not blender"`).

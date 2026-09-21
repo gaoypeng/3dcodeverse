@@ -47,7 +47,7 @@ def test_the_cli_discovers_and_opens_a_materialised_skill(tmp_path: Path, kind: 
     ws = tmp_path / "ws"
     (ws / "src").mkdir(parents=True)
     for name in ("AGENTS.md", "GEMINI.md", "CLAUDE.md"):
-        (ws / name).write_text("# 3dcv workspace\n\nRead this file before acting.\n")
+        (ws / name).write_text("# 3dcode workspace\n\nRead this file before acting.\n")
 
     lib = tmp_path / "library"
     write_bundle(lib, "cv3d-live-probe",

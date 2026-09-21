@@ -136,7 +136,7 @@ def test_no_profile_flag_leaves_the_defaults_alone(tmp_path: Path):
     r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--slug", "pot"])
     assert r.exit_code == 0, r.output
     spec = json.loads((runs / "pot" / "spec.json").read_text())
-    # the resolved dial is recorded whichever way it was named, so `3dcv resume`
+    # the resolved dial is recorded whichever way it was named, so `3dcode resume`
     # reproduces it; with no flag and no env that dial is the default, balanced
     assert spec["options"]["profile"] == "balanced" and spec["options"]["texture"] is False
     assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_minutes"] > 0
@@ -160,14 +160,14 @@ def test_judge_samples_reach_the_round_policy_only_when_a_profile_asks(tmp_path:
 
 # --------------------------------------------------------------- flag == env var
 def _dial_from_flag(name: str):
-    """The dial `3dcv make --profile <name>` resolves to."""
+    """The dial `3dcode make --profile <name>` resolves to."""
     from codeverse.cli import _common as C
 
     return C.resolve_dial(Settings(), name)
 
 
 def _dial_from_env(name: str, monkeypatch):
-    """The dial `CV3D_PROFILE=<name> 3dcv make` resolves to (the real settings path)."""
+    """The dial `CV3D_PROFILE=<name> 3dcode make` resolves to (the real settings path)."""
     from codeverse.cli import _common as C
 
     monkeypatch.setenv("CV3D_PROFILE", name)

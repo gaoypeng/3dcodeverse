@@ -330,7 +330,7 @@ def test_ledger_ground_line_and_single_part_and_grouped_warnings():
 
 
 def test_gates_section_without_a_ledger_is_byte_identical_to_the_pre_ledger_text():
-    """A recorded round has no ledger finding: ``3dcv judge <old-slug>`` must build the exact text
+    """A recorded round has no ledger finding: ``3dcode judge <old-slug>`` must build the exact text
     the stored verdict saw.  Expected strings were captured from ``gates_section`` at 4ddde32,
     before the ledger path existed (scratch capture_baseline.py, 2026-08-30)."""
     from codeverse.judges.prompt_builder import gates_section

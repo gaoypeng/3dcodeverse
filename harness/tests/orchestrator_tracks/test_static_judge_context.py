@@ -57,7 +57,7 @@ def test_planned_joins_drop_what_the_mesh_does_not_have():
 
 
 def test_judge_context_stays_empty_because_the_block_lives_in_gates_section(tmp_path, chair_plan):
-    """The block is rendered from the stored GateReport, so ``3dcv judge <slug>`` on a recorded
+    """The block is rendered from the stored GateReport, so ``3dcode judge <slug>`` on a recorded
     round gets it too; a judge_context copy would be a second source of the same facts."""
     from codeverse.contracts.artifacts import BuildResult
     from codeverse.workspace import Workspace

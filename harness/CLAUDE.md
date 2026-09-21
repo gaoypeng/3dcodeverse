@@ -1,6 +1,6 @@
 # 3dcodeverse — standing context
 
-Backend harness (python package `codeverse`, CLI `3dcodeverse` / short alias `3dcv`,
+Backend harness (python package `codeverse`, CLI `3dcodeverse` / short alias `3dcode`,
 repo path `/home/yipeng/3dcodeverse/harness`) for LLM-written **raw** 3D code:
 Blender bpy · CadQuery · Three.js · URDF · GLSL / OpenGL, across four tracks
 (`static_object`, `articulated_object`, `scene`, `graphics`), with pluggable
@@ -79,7 +79,7 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
 
 ## Commands
 ```
-pip install -e /home/yipeng/3dcodeverse/harness   # once (entry points: 3dcodeverse, 3dcv)
+pip install -e /home/yipeng/3dcodeverse/harness   # once (entry points: 3dcodeverse, 3dcode)
 cd /home/yipeng/3dcodeverse/harness
 3dcodeverse doctor [--live] [--no-gpu] [--json]
 3dcodeverse make "a mid-century wooden dining chair" --track static_object --language blender
@@ -89,15 +89,15 @@ cd /home/yipeng/3dcodeverse/harness
 3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-minutes 60
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
 3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --texture --no-run
-3dcv resume <slug> · 3dcv status <slug> · 3dcv render <slug> [--mode wire] · 3dcv judge <slug> [--model ... --n 3]
-3dcv texture pass <slug> [--no-judge] · 3dcv texture scene-pack <slug> · 3dcv texture show <slug>
-3dcv tools list · 3dcv tools measure --workspace runs/<slug> · 3dcv mcp --workspace runs/<slug>
-3dcv cost <slug> · 3dcv cost --runs-dir bench/out/<battery> · 3dcv cost cache <slug>
-3dcv cost prices [--stale] · 3dcv cost profiles · 3dcv cost estimate gemini:gemini-3.1-pro-preview --in 12000
-3dcv flywheel export runs/ dataset/ [--pack --drop-duplicates --captions-dir d/] · 3dcv flywheel pairs runs/ pairs.jsonl
-3dcv flywheel caption <slug> [--out dir] · 3dcv flywheel gallery runs/ gallery.html
-3dcv gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcv gallery build --out gallery.html [--embed]
-3dcv bench run bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview
+3dcode resume <slug> · 3dcode status <slug> · 3dcode render <slug> [--mode wire] · 3dcode judge <slug> [--model ... --n 3]
+3dcode texture pass <slug> [--no-judge] · 3dcode texture scene-pack <slug> · 3dcode texture show <slug>
+3dcode tools list · 3dcode tools measure --workspace runs/<slug> · 3dcode mcp --workspace runs/<slug>
+3dcode cost <slug> · 3dcode cost --runs-dir bench/out/<battery> · 3dcode cost cache <slug>
+3dcode cost prices [--stale] · 3dcode cost profiles · 3dcode cost estimate gemini:gemini-3.1-pro-preview --in 12000
+3dcode flywheel export runs/ dataset/ [--pack --drop-duplicates --captions-dir d/] · 3dcode flywheel pairs runs/ pairs.jsonl
+3dcode flywheel caption <slug> [--out dir] · 3dcode flywheel gallery runs/ gallery.html
+3dcode gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcode gallery build --out gallery.html [--embed]
+3dcode bench run bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview
 python -m codeverse.judges.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 python bench/complexity_report.py bench/out --recursive   # score-vs-complexity + $/complexity point (docs/COMPLEXITY.md)
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1

@@ -253,7 +253,7 @@ def run_ledger(workspace: str | Path, *, run: str = "", create: bool = True) -> 
     Binds the run name and points :func:`~codeverse.cost.ledger.record_call` at the
     run's ledger for the duration of the block.
 
-    ``create=False`` is for work done *after* a run finished (``3dcv judge``,
+    ``create=False`` is for work done *after* a run finished (``3dcode judge``,
     a post-hoc texture pass): it appends only when the run already keeps a
     ledger, because a ledger holding nothing but the re-judge would be read as
     the whole run's cost and hide everything the run really spent.  Without one

@@ -550,7 +550,7 @@ class EventLog:
 
         ``emit`` appends one buffered ``write``, so a SIGKILL / OOM kill / reboot
         leaves a partial trailing line — and a killed run is exactly when someone
-        types ``3dcv status``.  A truncated last line must never lose the rest of
+        types ``3dcode status``.  A truncated last line must never lose the rest of
         the file (same contract as ``cost.ledger.load_ledger``)."""
         return read_jsonl_lenient(self.path, log=log)
 
@@ -569,9 +569,9 @@ def _held_message(run_root: Path | str, held: dict, *, action: str) -> str:
     name = Path(run_root).name
     return (
         f"refusing to {action} run {name}: it is being run right now by pid {held.get('pid', '?')} "
-        f"(started {started}: {held.get('what') or '3dcv'}).  Two processes on one run "
-        f"corrupt each other's state.  Look at it with `3dcv status {name}`, or stop that "
-        f"ONE process with `kill {held.get('pid', '?')}` — never `pkill -f 3dcv`, which kills every "
+        f"(started {started}: {held.get('what') or '3dcode'}).  Two processes on one run "
+        f"corrupt each other's state.  Look at it with `3dcode status {name}`, or stop that "
+        f"ONE process with `kill {held.get('pid', '?')}` — never `pkill -f 3dcode`, which kills every "
         f"other run on this machine too."
     )
 
@@ -608,7 +608,7 @@ def holder_of(run_root: Path | str) -> dict | None:
 
     ``None`` when nobody does, including after a SIGKILL: the kernel dropped the flock but
     the record is still in the file, so a probe (shared, non-blocking, released at once)
-    tells the difference and ``3dcv status`` never names a pid that is already gone."""
+    tells the difference and ``3dcode status`` never names a pid that is already gone."""
     try:
         fd = os.open(flock_path(run_root), os.O_RDONLY)
     except OSError:

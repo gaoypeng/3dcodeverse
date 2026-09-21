@@ -125,7 +125,7 @@ def render_viewer(entry: RunEntry, urls: UrlMaker, rel: str) -> str:
                                          "three/addons/": "/vendor/three/examples/jsm/"}})
     src = urls.file(entry, rel)
     body = (
-        top_bar("3dcv gallery", entry.slug,
+        top_bar("3dcode gallery", entry.slug,
                 crumbs=f"<a href='/'>gallery</a> <span class='faint'>/</span> "
                        f"<a href='{esc(urls.detail(entry))}'>{esc(entry.slug)}</a> "
                        f"<span class='faint'>/</span> <b>{esc(rel)}</b>",

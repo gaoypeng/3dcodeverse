@@ -118,7 +118,7 @@ def render_dir(entry: RunEntry, urls: UrlMaker, rel: str) -> str:
             rows.append(f"<li><a href='{esc(href)}'>{esc(child.name)}</a>"
                         f"<a class='sz' href='{esc(urls.file(entry, child_rel))}'>{size:,} B · raw</a></li>")
     listing = "".join(rows) or "<li class='faint'>empty</li>"
-    body = (top_bar("3dcv gallery", entry.slug, crumbs=_crumbs(entry, urls, rel))
+    body = (top_bar("3dcode gallery", entry.slug, crumbs=_crumbs(entry, urls, rel))
             + f"<main class='wrap'><div class='panel'><h2>{esc(rel or '.')}</h2>"
               f"<ul class='filelist'>{listing}</ul></div></main>"
             + footer(entry.path))
@@ -133,7 +133,7 @@ def render_file(entry: RunEntry, urls: UrlMaker, rel: str) -> str:
     if not target.is_file():
         raise FileNotFoundError(f"not a file: {rel}")
     if not is_text(target):
-        body = (top_bar("3dcv gallery", entry.slug, crumbs=_crumbs(entry, urls, rel))
+        body = (top_bar("3dcode gallery", entry.slug, crumbs=_crumbs(entry, urls, rel))
                 + f"<main class='wrap'><div class='panel'><h2>{esc(rel)}</h2>"
                   f"<p class='muted small'>binary file — "
                   f"<a href='{esc(urls.file(entry, rel))}'>open the raw bytes</a></p></div></main>"
@@ -143,7 +143,7 @@ def render_file(entry: RunEntry, urls: UrlMaker, rel: str) -> str:
     head = (f"<h2>{esc(rel)}</h2><p class='small muted'>{len(text.splitlines())} lines · "
             f"<a href='{esc(urls.file(entry, rel))}'>raw</a>"
             + (f" · <span class='pill-warn'>{esc(note)}</span>" if note else "") + "</p>")
-    body = (top_bar("3dcv gallery", entry.slug, crumbs=_crumbs(entry, urls, rel))
+    body = (top_bar("3dcode gallery", entry.slug, crumbs=_crumbs(entry, urls, rel))
             + f"<main class='wrap'><div class='panel'>{head}{numbered(text, suffix=target.suffix)}</div></main>"
             + footer(str(target)))
     return page_shell(f"{rel} — {entry.slug}", body, extra_css=CODE_CSS)

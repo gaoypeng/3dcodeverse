@@ -157,7 +157,7 @@ console.log(JSON.stringify({ vs: count(m.vertexShader), fs: count(m.fragmentShad
 def test_a_custom_shader_recedes_into_the_scene_fog():
     """Every scene here sets scene.fog; three delivers fog ONLY through the
     chunks and their uniforms.  Opting out (`fog: false`) leaves nothing
-    behind and writes the marker OUR static audit reads (`3dcv: no-fog`)."""
+    behind and writes the marker OUR static audit reads (`3dcode: no-fog`)."""
     out = _measure("""
 import { makeShaderMaterial } from './lib/shader.js';
 const m = makeShaderMaterial({ fragmentMain: '  gl_FragColor = vec4(0.5, 0.6, 0.7, 1.0);' });
@@ -177,7 +177,7 @@ console.log(JSON.stringify({ vs: m.vertexShader, fs: m.fragmentShader, fogFlag: 
     assert body.index("gl_FragColor") < body.index("fog_fragment")
     assert "fog_pars_vertex" not in out["offVs"] and "fog_fragment" not in out["offFs"]
     assert not out["offFlag"] and not out["offUniform"]
-    assert "3dcv: no-fog" in out["offFs"], "the opt-out marker our audit reads"
+    assert "3dcode: no-fog" in out["offFs"], "the opt-out marker our audit reads"
 
 
 def test_a_custom_shader_ends_the_way_three_ends_its_own():

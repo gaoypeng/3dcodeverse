@@ -32,7 +32,7 @@ def test_audit_of_one_run(fake_run: Path):
 
 def test_a_run_that_booked_no_money_still_reports(tmp_path: Path):
     """Every session killed before it reported usage books $0 (a killed gemini-cli says nothing);
-    the report divided by the run's total and `3dcv cost` died of ZeroDivisionError on it."""
+    the report divided by the run's total and `3dcode cost` died of ZeroDivisionError on it."""
     ws = tmp_path / "free_run"
     ws.mkdir()
     (ws / "record.json").write_text(json.dumps({

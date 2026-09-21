@@ -90,7 +90,7 @@ through alpha instead — `gl_FragColor.a *= 1.0 - smoothstep(fogNear, fogFar, v
 the light gets brighter with distance.
 
 Deliberate exception: a sky dome, or any material that genuinely must not fog. The static audit
-opts out on the whole file if it contains `fog: false`, the comment marker `3dcv: no-fog`, or
+opts out on the whole file if it contains `fog: false`, the comment marker `3dcode: no-fog`, or
 the word `sky`; the runtime audit exempts sky-named and backside-no-depth-write materials.
 Use the marker, do not fight the warning.
 

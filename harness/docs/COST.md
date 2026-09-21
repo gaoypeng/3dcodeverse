@@ -9,10 +9,10 @@ per-call `usage` rows inside `trajectories/*/transcript.jsonl`.
 Reproduce:
 
 ```
-3dcv cost show runs bench/out/static_v1_flash …          # console
-3dcv cost show runs bench/out/* --md docs/cost_report.md # full tables
-3dcv cost show runs --recheck                            # re-price with today's table
-3dcv cost prices [--unverified]                          # the price table + provenance
+3dcode cost show runs bench/out/static_v1_flash …          # console
+3dcode cost show runs bench/out/* --md docs/cost_report.md # full tables
+3dcode cost show runs --recheck                            # re-price with today's table
+3dcode cost prices [--unverified]                          # the price table + provenance
 ```
 
 The audit is `codeverse/cost/audit.py`; it reconstructs a per-call ledger from
@@ -223,7 +223,7 @@ sessions.  `_base_label()` now strips the attempt suffix before the lookup, and 
 test pins the three worst runs.
 
 Re-running the audit with the fixed code
-(`3dcv cost show <paths> --md <out>`, or the script in the wave-3 scratchpad):
+(`3dcode cost show <paths> --md <out>`, or the script in the wave-3 scratchpad):
 
 | | before the fix | after |
 |---|---|---|
@@ -261,7 +261,7 @@ the scratchpad; anyone who can reproduce 25/$4.37 should say which run set it us
 the live ledger (§12) writes one row per call at the time of the call, the
 `BudgetGuard` charges the planner, aborted rounds, retried sessions and the
 texture pass through the same door, and a post-hoc pass joins the run's ledger
-(`3dcv texture pass` opens it with `create=False`).  A run recorded from now on
+(`3dcode texture pass` opens it with `create=False`).  A run recorded from now on
 cannot have an off-record dollar; the reconstruction path exists for the 61 runs
 recorded before it.
 
@@ -269,7 +269,7 @@ recorded before it.
 
 `models/pricing.py` now carries a `PROVENANCE` row per price — source URL,
 `checked` date and a status of `verified` / `inferred` / `unverified` — exposed
-as `price_provenance(provider, model)` and printed by `3dcv cost prices`.  Every
+as `price_provenance(provider, model)` and printed by `3dcode cost prices`.  Every
 row was reconciled against the providers' live pricing pages.  **Corrections
 made:**
 
@@ -284,7 +284,7 @@ made:**
 | added | – | `claude-haiku-3-5`, `claude-mythos-5` | were unknown ⇒ silently $0 |
 | added 2026-08-24 | – | `openai:gpt-5.6-terra` **2.00 / 12.00 / 0.20**, `openai:gpt-5.6-luna` **0.20 / 1.20 / 0.02** | the other two codex tiers were unknown ⇒ silently $0 (luna was cut 80% on 2026-07-30) |
 | verified (no change) | – | every other gemini / anthropic / openai row | now flagged `verified` rather than "approximate" |
-| still `inferred` / `unverified` | – | `claude-haiku-4`, `o1-mini`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.2-codex`, `gemini-2.5-flash-image` | not listed on the pricing pages; `3dcv cost prices --unverified` lists them |
+| still `inferred` / `unverified` | – | `claude-haiku-4`, `o1-mini`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.2-codex`, `gemini-2.5-flash-image` | not listed on the pricing pages; `3dcode cost prices --unverified` lists them |
 
 Per-image prices live in the price table only (`Price.image_usd`,
 `IMAGE_USD_BY_SIZE`, `per_image_usd()`); the duplicate table in the image model is
@@ -299,7 +299,7 @@ see the hand-off notes):
    $0.68; its own `stdout.json` stats say 14.19M prompt tokens (13.47M cached) +
    128.8k output ⇒ **$2.09**.  The session was recorded before
    `Usage.input_tokens` became `tokens.prompt`; the raw envelope is still on
-   disk, so `3dcv cost show --recheck` rebuilds the true number.  Across the
+   disk, so `3dcode cost show --recheck` rebuilds the true number.  Across the
    three gemini-cli runs the correction is **+$3.43**.
 2. **claude-code attributes the cost to the wrong model.**  The envelope's
    `modelUsage` shows `claude-fable-5` did the work ($1.165) and
@@ -406,7 +406,7 @@ Two helpers exist for the callers:
 * Wall clock per run is the sum of the stage/round clocks (the event span
   includes hours a bench run spent queued behind other runs).  `budget.elapsed_min`
   is cumulative ACTIVE minutes: the budget snapshot carries `active_s` across
-  `3dcv resume`, so prior sessions' minutes still count against `max_minutes`
+  `3dcode resume`, so prior sessions' minutes still count against `max_minutes`
   and downtime between sessions never does.
 * "Regression" waste is an upper bound: a round that scored worse still produced
   the diff that informed the next refine task.
@@ -464,8 +464,8 @@ round live on the `CallCost` row, never on the guard — `BudgetGuard.charge/add
 generator sessions only and reads both label forms — `baseline_c<k>` (live) and
 `c<k>:baseline` (reconstructed).
 
-**Who opens a ledger.**  `3dcv make` / `3dcv resume` (`cli.main._run_track`),
-`3dcv texture pass` (with `create=False`), **and the bench drivers** —
+**Who opens a ledger.**  `3dcode make` / `3dcode resume` (`cli.main._run_track`),
+`3dcode texture pass` (with `create=False`), **and the bench drivers** —
 `bench/run_bench.py` opens one per prompt and `bench/compare_backends.py` one per
 cell (plus a nested one for a harness arm's own run, and one for the pairwise
 arena).  The batteries produce most of the runs in this repo, so until wave 3
@@ -485,7 +485,7 @@ pricing failure logs and keeps the recorded dollar.
 **Where it lands.**  `<run>/telemetry/cost.jsonl` (the run-layout telemetry
 bucket), with `<run>/cost_ledger.jsonl` left as a relative symlink so
 `flywheel.telemetry.live_ledger_path` and the `telemetry/usage.jsonl` alias keep
-working — one physical copy.  A call made with no run context (a `3dcv judge`
+working — one physical copy.  A call made with no run context (a `3dcode judge`
 outside a run, a bench script, a notebook) goes to a per-process log under
 `<cache_dir>/cost/`; `CV3D_COST_LEDGER=off` disables writing entirely.
 
@@ -493,12 +493,12 @@ outside a run, a bench script, a notebook) goes to a per-process log under
 `MeteredChatModel` are the one writer of `telemetry/cost.jsonl`, and `BaseTrack.run`
 opens the run ledger itself.  The guard's own aggregate writer and its
 `per_call_metering()` sentinel were deleted 2026-08-29: every production entry point
-(`3dcv make`, the bench drivers) opened `run_ledger` first, so it never wrote there —
+(`3dcode make`, the bench drivers) opened `run_ledger` first, so it never wrote there —
 and with `CV3D_COST_LEDGER=off` it wrote anyway, which is now really off.
 
 **Reading it.**  `cost.reconstruct.reconstruct_run` prefers a live ledger and
 falls back to rebuilding from trajectories / verdicts / events, so
-`3dcv cost` and the run layout's `telemetry/cost.json`
+`3dcode cost` and the run layout's `telemetry/cost.json`
 both pick the live rows up automatically and the 61 recorded runs keep auditing
 (`RunLedger.source` says `live` or `reconstructed`).
 
@@ -515,9 +515,9 @@ first-class set of rows, and a model error mid-session is recorded as an
 `outcome="error"` row at $0 instead of vanishing.
 
 ```
-3dcv cost <slug>              # one run: stage/role/model + a reconciliation block
-3dcv cost --runs-dir <root>   # a battery, aggregated
-3dcv cost cache <slug>        # per session: cold first call, cached share, saved $ / cold $
+3dcode cost <slug>              # one run: stage/role/model + a reconciliation block
+3dcode cost --runs-dir <root>   # a battery, aggregated
+3dcode cost cache <slug>        # per session: cold first call, cached share, saved $ / cold $
 ```
 
 ## 13. Cache-friendly prompt ordering — measured, and REVERTED
@@ -558,7 +558,7 @@ i.e. by buying the cache block with more tokens than it returns.
 | **total, already first in every request** | **6,570** |
 
 6.6k is still under the floor, and it is already at position 0 — there is no
-reordering left to do there.  `3dcv cost cache <slug>` still reports
+reordering left to do there.  `3dcode cost cache <slug>` still reports
 what a run's sessions actually cached.  The rule that measurement encodes: measure the prefix
 against the floor *before* reordering a prompt family, and never pad to reach it.
 
@@ -641,7 +641,7 @@ verdicts*, not how big each one is.
 
 ## 15. Profiles — one name for the whole dial
 
-`Settings.profile` + `3dcv make --profile economy|balanced|quality` set model per
+`Settings.profile` + `3dcode make --profile economy|balanced|quality` set model per
 role, judge samples, refine rounds, best-of-N width, the texture pass and the
 budget ceilings together (`codeverse/cost/profiles.py`).
 
@@ -656,7 +656,7 @@ profile, so `CV3D_PROFILE=quality` silently ran best-of-1 with no texture pass.
 `tests/cost/test_profiles.py` asserts every field of the dial from both entry
 points, per profile.  An explicit CLI flag still beats both, and
 `Spec.options.profile` now records the resolved name **whichever way it was
-given**, so `3dcv resume` reproduces it.
+given**, so `3dcode resume` reproduces it.
 
 | | economy | balanced | quality |
 |---|---|---|---|
@@ -698,7 +698,7 @@ any run.  That is why the quality run below shows a ledger 9.5 % above its recor
 the pass ran twice, once from inside a round-2 agent session.
 `codeverse.texturing.run.texture_requested(spec)` is now the single owner;
 `tracks.lifecycle.finalise` and the tool both ask it, and the tool refuses with a
-usage error (costing $0) in a run whose spec says no.  `3dcv texture pass <slug>`
+usage error (costing $0) in a run whose spec says no.  `3dcode texture pass <slug>`
 is an explicit user instruction and is unaffected.
 
 ### One live run per profile, same prompt
@@ -745,7 +745,7 @@ payload and all three runs' prompt sizes differ slightly from what ships today.
 
 ## 16. Price maintenance
 
-`3dcv cost prices` prints the table with provenance and now **flags** every row it
+`3dcode cost prices` prints the table with provenance and now **flags** every row it
 cannot stand behind: `stale>90d` (checked date older than the window),
 `approximate` (the `Price.approximate` flag) and the non-`verified` statuses
 (`inferred` / `unverified`).  `--stale` shows only flagged rows, `--days N` moves
@@ -1029,7 +1029,7 @@ storm-hit item to the back of the queue was **not** built: at the gate-off setti
 whole 128-call level costs 6 – 35 storm attempts and **zero failures**, which does not
 justify a scheduler rewrite in `fan_out`.
 
-`3dcv doctor --live` prints the pool's live picture — keys, in-flight and peak in-flight,
+`3dcode doctor --live` prints the pool's live picture — keys, in-flight and peak in-flight,
 RPM/TPM headroom used, 429/5xx/dead counts this process — plus one row per storm gate
 with its storm count, 503 count, probe count and parked seconds.
 
@@ -1069,10 +1069,10 @@ plumbing through several layers and deserves its own measured change.
 ## 23. The key pool is per-PROCESS, so N batteries multiply the quota by N
 
 > **Count processes with `pool_budget()`, never with a hand-rolled `pgrep`.**  A gate like
-> `pgrep -af 'bin/3dcv make' | grep -c 'codex:'` **counts itself**: the pattern text is in
+> `pgrep -af 'bin/3dcode make' | grep -c 'codex:'` **counts itself**: the pattern text is in
 > the checking shell's own command line, so it sees phantom runs.  Measured 2026-08-25 on an
-> idle box — zero `3dcv` processes running, the naive gate returned **3**, and even the
-> bracket trick `pgrep -f '[b]in/3dcv make'` returned **2**, because the wrapper shell's
+> idle box — zero `3dcode` processes running, the naive gate returned **3**, and even the
+> bracket trick `pgrep -f '[b]in/3dcode make'` returned **2**, because the wrapper shell's
 > argv also carries the string.  Used in `while [ $(gate) -ge 3 ]; do sleep 60; done` that
 > blocks forever on nothing.  `codeverse.models.health.sibling_processes()` reads `/proc`
 > and excludes its own pid; `pool_budget()` wraps it with the in-flight arithmetic:
@@ -1089,8 +1089,8 @@ _pools: dict[tuple[str, ...], KeyPool] = {}      # codeverse/models/gemini.py �
 def shared_pool(...):  """One KeyPool per distinct (key list, quota) so limiters are process-wide."""
 ```
 
-Process-wide is not machine-wide.  Every `3dcv bench run`, every `compare_backends.py`
-and every `3dcv make` is its own OS process with its own pool, each believing it owns the
+Process-wide is not machine-wide.  Every `3dcode bench run`, every `compare_backends.py`
+and every `3dcode make` is its own OS process with its own pool, each believing it owns the
 whole 22-key quota and each allowing its own 64 in-flight.  On 2026-08-24 six batteries
 from different waves ran at once: **~384 concurrent calls against a quota sized for 64**.
 
@@ -1129,7 +1129,7 @@ Three consequences:
    `CV3D_MAX_IN_FLIGHT=<n>` (`CV3D_RATE__MAX_IN_FLIGHT` is the same knob; the flat name was
    read by nothing until 2026-08-24 — three launches that "set" it ran at 64).
    `codeverse.models.health.pool_budget()` reads every sibling's cap from `/proc/<pid>/environ`
-   and reports used / headroom; `3dcv doctor`'s `pool sharing` row prints it, and
+   and reports used / headroom; `3dcode doctor`'s `pool sharing` row prints it, and
    `bench/ab_plan.py` refuses to start only when its own need does not FIT the headroom.
    The first version of this rule counted *processes* and made every agent wait for an
    empty machine — which stalled an entire A/B wave behind two batteries that were
@@ -1296,7 +1296,7 @@ for the `"key": "…xxxx"` that `gemini.py:_once` puts in `ChatResponse.raw` and
 (round-trips issued, hedged siblings included; 1 = clean) and `hedged`; `GeminiModel` puts both
 in `raw` and `attempts` on the raised `ModelError`; `cost/instrument.py` copies the key suffix
 (last 4 chars, never more) and `attempts` onto every `CallCost` row (`key`, `attempts`, both
-defaulted so old rows load); `3dcv cost` adds a per-key table and a
+defaulted so old rows load); `3dcode cost` adds a per-key table and a
 `tries/call` column (`CostBucket.attempts_per_call`) whenever the ledger carries them.
 
 ## 28. Where the time goes — the 2026-08-26 audit
@@ -1386,7 +1386,7 @@ which **224 are non-empty** — one per gemini-cli session that reported stats; 
 zero-byte (the CLI died or was killed before printing its JSON) and every one of the
 386 belongs to a gemini-cli arm.  `run/telemetry/trajectories` is a symlink to the same directory:
 count it once (a glob that follows it doubles every number).  Per file, sum
-`stats.tools.byName["mcp_3dcv_<tool>"]`'s `count` and `fail`; `fail` is gemini-cli's
+`stats.tools.byName["mcp_3dcode_<tool>"]`'s `count` and `fail`; `fail` is gemini-cli's
 own tally of results that arrived with `is_error`.  Over those 224 sessions: **6 127
 MCP tool calls, 1 720 (28 %) reported as errors.**
 
@@ -1464,9 +1464,9 @@ the only ceiling on the error path.
 
 ### Exit codes DID change for one command
 
-`3dcv tools <name>` exits 1 on `not obs.ok` — the rule is unchanged, but `scene_probe`'s
+`3dcode tools <name>` exits 1 on `not obs.ok` — the rule is unchanged, but `scene_probe`'s
 `ok` changed meaning (it used to mean "the probe tool ran", the workaround for this bug),
-so **`3dcv tools scene_probe` on a failing scene gate now exits 1 where it exited 0**.
+so **`3dcode tools scene_probe` on a failing scene gate now exits 1 where it exited 0**.
 Kept deliberately: every other gate tool already exited 1 on a FAIL, and the exit code
 speaks to the human or script at the terminal, not to the model — the MCP boundary is the
 one place where calling a verdict an error costs money.  The CLI panel prints three states

@@ -32,7 +32,7 @@ def app(gallery_tree: dict[str, Path]) -> GalleryApp:
 def test_index_and_api_routes(app: GalleryApp):
     r = app.route("/")
     assert r.status == 200 and r.content_type.startswith("text/html")
-    assert b"3dcv gallery" in r.body
+    assert b"3dcode gallery" in r.body
     assert app.route("/index.html").status == 200
     assert app.route("/healthz").body == b"ok"
     api = json.loads(app.route("/api/runs", {"lang": "threejs"}).body)

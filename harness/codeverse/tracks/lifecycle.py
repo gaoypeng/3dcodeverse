@@ -430,7 +430,7 @@ class BaseTrack:
                     f"{len(journal)} recorded round(s) were built from (plan-input fingerprint "
                     f"{stored} != {fp}: prompt/track/language/constraints/references/planner/seed). "
                     f"Resuming would record those rounds against the new spec. Fork a new run "
-                    f"(`3dcv make`), or resume with --force to archive the old rounds under "
+                    f"(`3dcode make`), or resume with --force to archive the old rounds under "
                     f"rounds/pre_force/ and re-plan. Raising budget caps alone never trips this."
                 )
             events.emit("resume.spec_changed", old_fingerprint=stored, new_fingerprint=fp,

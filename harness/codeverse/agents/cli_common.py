@@ -1,7 +1,7 @@
 """Trajectory folder helper: prompt.md, transcript.jsonl, stdout/stderr, result.json.
 
 Every CodingAgent backend writes its session here
-(``ws.trajectory_dir(label, round)``) so the flywheel and ``3dcv status`` can
+(``ws.trajectory_dir(label, round)``) so the flywheel and ``3dcode status`` can
 read one uniform layout regardless of backend.
 """
 
@@ -285,7 +285,7 @@ def default_mcp_command(ws: Workspace, *, language: str = "", track: str = "", r
 
 
 def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
-    """The 3dcv MCP command for this job, from the TYPED job: ``job.mcp_command`` > default.
+    """The 3dcode MCP command for this job, from the TYPED job: ``job.mcp_command`` > default.
 
     It deliberately does NOT read the workspace's ``.mcp.json``.  That file lives where
     the agent works and every CLI backend runs unsandboxed inside it, so an agent that
@@ -300,7 +300,8 @@ def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
 
 # --------------------------------------------------------------------------- session
 #: paths the harness owns; never attributed to an agent session even when git sees them change
-HARNESS_OWNED_DIRS = ("artifacts", "trajectories", "stages", "rounds", "_cand", "_assets", ".3dcv", ".gemini", ".claude", ".git")
+#: (`.3dcv` = `.3dcode` in a workspace made before the 2026-09-21 rename, still resumable)
+HARNESS_OWNED_DIRS = ("artifacts", "trajectories", "stages", "rounds", "_cand", "_assets", ".3dcode", ".3dcv", ".gemini", ".claude", ".git")
 HARNESS_OWNED_FILES = frozenset({"events.jsonl", "run_state.json", "record.json", "AGENTS.md", "GEMINI.md", "CLAUDE.md",
                                  ".mcp.json", ".geminiignore", ".aiexclude", ".gitignore"})
 #: gitignored control files git cannot revert (downstream trusts both blindly):

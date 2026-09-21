@@ -334,7 +334,7 @@ td.track,td.lang{max-width:140px;overflow:hidden;text-overflow:ellipsis}
 
 #: sets the stored theme before first paint so a manual choice never flashes
 THEME_BOOT_JS = """
-(function(){try{var t=localStorage.getItem('3dcv-gallery-theme');
+(function(){try{var t=localStorage.getItem('3dcode-gallery-theme');
 if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
 """
 
@@ -345,7 +345,7 @@ return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
 function paint(){b.textContent=cur()==='dark'?'\\u25D1 dark':'\\u25D0 light';}
 b.addEventListener('click',function(){var n=cur()==='dark'?'light':'dark';
 document.documentElement.setAttribute('data-theme',n);
-try{localStorage.setItem('3dcv-gallery-theme',n);}catch(e){}paint();});paint();})();
+try{localStorage.setItem('3dcode-gallery-theme',n);}catch(e){}paint();});paint();})();
 """
 
 #: inline favicon so a browser never issues a /favicon.ico request the server would 404

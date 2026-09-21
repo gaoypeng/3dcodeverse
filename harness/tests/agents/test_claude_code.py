@@ -81,16 +81,16 @@ def test_argv_includes_mcp_when_materialized(tmp_ws: Workspace):
     # never the workspace .mcp.json the agent can rewrite between rounds
     cfg = Path(argv[argv.index("--mcp-config") + 1])
     assert cfg.name == "mcp.json" and cfg.parent == s.traj.dir
-    server = json.loads(cfg.read_text())["mcpServers"]["3dcv"]
+    server = json.loads(cfg.read_text())["mcpServers"]["3dcode"]
     assert server["command"] == "python" and "--workspace" in server["args"]  # the TYPED job command, verbatim
     (tmp_ws.root / ".mcp.json").write_text(json.dumps(
-        {"mcpServers": {"3dcv": {"command": "/tmp/evil", "args": []}}}))
+        {"mcpServers": {"3dcode": {"command": "/tmp/evil", "args": []}}}))
     argv2 = a.build_argv(s, "p")   # a tampered workspace file changes nothing
     assert json.loads(Path(argv2[argv2.index("--mcp-config") + 1]).read_text(
-    ))["mcpServers"]["3dcv"]["command"].endswith("python")
+    ))["mcpServers"]["3dcode"]["command"].endswith("python")
     assert "--strict-mcp-config" in argv and argv[argv.index("--max-turns") + 1] == "7"
     assert argv[argv.index("--append-system-prompt") + 1] == "S" and argv[argv.index("--model") + 1] == "sonnet"
-    assert "mcp__c3v__*" in argv[argv.index("--allowedTools") + 1]
+    assert "mcp__3dcode__*" in argv[argv.index("--allowedTools") + 1]
     s2 = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "claude-code")
     assert "--mcp-config" not in a.build_argv(s2, "p")
 

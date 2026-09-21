@@ -98,7 +98,7 @@ def test_spec_options_do_not_change_the_plan_stage_hash():
 def test_records_written_before_the_2026_08_30_field_retirements_still_load():
     """RenderSet.turntable (360 records carry the key, none non-null), SkillRead.
     first_seen_turn (an api-agent leftover) and AgentJob.images (dead once image staging
-    moved to .3dcv/images/) were deleted.  Every model here ignores unknown keys, so the
+    moved to .3dcode/images/) were deleted.  Every model here ignores unknown keys, so the
     stored runs on disk must keep re-reading — that is the whole licence for the delete."""
     from codeverse.contracts.agent import AgentJob
     from codeverse.contracts.run import RoundRecord, SkillRead

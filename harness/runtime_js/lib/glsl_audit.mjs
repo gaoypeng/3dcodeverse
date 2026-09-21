@@ -95,7 +95,7 @@ export function auditFile(file, source, { sceneUsesFog = false } = {}) {
     }
   }
   // Full ShaderMaterial fragment without fog chunks while the scene uses fog
-  const fogOptOut = /fog\s*:\s*false|3dcv:\s*no-fog|\bsky\b/i.test(source);
+  const fogOptOut = /fog\s*:\s*false|3dcode:\s*no-fog|\bsky\b/i.test(source);
   if (sceneUsesFog && /ShaderMaterial/.test(source) && !isRaw && !fogOptOut) {
     for (const s of strings) {
       if (/void\s+main/.test(s.text) && /gl_FragColor|fragColor/.test(s.text) && !/fog_fragment|USE_FOG|fogColor/.test(s.text)) {

@@ -98,7 +98,7 @@ not mean that.** Two independent causes, both reproduced:
 So a fourth signal was added: `materialize.write_control` puts one **never-routed,
 never-indexed** bundle beside the real ones. Nothing should ever open it. When it comes
 back opened, `SkillsUsage.control_read` is set, `probe_trustworthy` is false and
-the session's deep-read rate is **`None`** — not 100%, not 0. `3dcv skills report` excludes those
+the session's deep-read rate is **`None`** — not 100%, not 0. `3dcode skills report` excludes those
 sessions from the rate and prints how many it dropped.
 
 This is the difference between a metric and a number that would have read 100% forever.
@@ -199,9 +199,9 @@ goes into `record.prompt_hashes` as `skill:<name>`, so "what text decided this r
 answerable. Per session, `telemetry/skills.jsonl` gets one line.
 
 ```
-3dcv skills report bench/out/<battery>          # deep-read rate per skill per backend
-3dcv skills report bench/out/<battery> --json
-3dcv doctor --skills                            # library + discovery wiring
+3dcode skills report bench/out/<battery>          # deep-read rate per skill per backend
+3dcode skills report bench/out/<battery> --json
+3dcode doctor --skills                            # library + discovery wiring
 ```
 
 Targets: ≥ 60% deep-read for CLI backends (the api-agent's 80% target died with it, 2026-08-28), counted only over sessions
@@ -471,7 +471,7 @@ All four discover the library natively, with no injection from us. Two things th
 that had only been argued statically:
 
 * `Skill` was **absent** from `ALLOWED_TOOLS` in `agents/claude_code.py`, so claude-code
-  would have denied its own skill tool. Added; `3dcv doctor --skills` now checks it.
+  would have denied its own skill tool. Added; `3dcode doctor --skills` now checks it.
 * gemini-cli's `activate_skill` consent prompt does not block us under
   `--approval-mode yolo`. This was the one claim that could not be verified statically.
 
@@ -519,7 +519,7 @@ chose to go deeper" (§1).
    deterministic instrument can see the claim, say so with `measurable=False` and a
    `caveat`: that is a finding about the bundle, not a gap to paper over with a judged
    criterion. Then add its row to `docs/SKILLS_LEDGER.md`.
-6. `3dcv skills validate --strict` and `pytest tests/skills`.
+6. `3dcode skills validate --strict` and `pytest tests/skills`.
 
 Body rules: ≤ 350 lines and ≤ 2,500 tokens; no code fence over 20 lines; never restate a
 frame, unit or naming rule (`conventions.py` owns those); every corpus percentage carries
@@ -582,7 +582,7 @@ so; the rest are live.
   claim rested on the atime probe and should not be repeated.
 * **`codex` can drop a round from the denominator.** It emitted `skills.attached` with no
   `skills.read` and no `skills.jsonl` row, so an attached round can silently vanish from
-  `3dcv skills report`.
+  `3dcode skills report`.
 * **Read rate confounds with routed-set size.** Every 1-skill session (glsl, opengl) read its
   bundle 4/4 while 5-skill object sessions averaged ~55%. Any wording A/B must hold the
   routed set size fixed or it measures the cap, not the copy.

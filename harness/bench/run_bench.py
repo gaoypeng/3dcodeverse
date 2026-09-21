@@ -11,9 +11,9 @@ Every prompt becomes a ``Spec`` with the battery's track/language, a FIXED judge
 model (methodology: paired runs share the judge), and the generator under test.
 
 Each prompt runs inside its own ``codeverse.cost.run_ledger``, exactly like a
-``3dcv make``: the batteries are where most runs come from, so without it the
+``3dcode make``: the batteries are where most runs come from, so without it the
 priced per-call rows of a whole battery went to the per-process fallback log and
-``3dcv cost --runs-dir <out>/runs`` had to reconstruct them from trajectories.
+``3dcode cost --runs-dir <out>/runs`` had to reconstruct them from trajectories.
 The binding is context-local, so ``--parallel N`` keeps N ledgers apart.
 """
 

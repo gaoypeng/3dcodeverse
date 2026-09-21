@@ -111,7 +111,7 @@ export function makeWaterNormals(size = 256, opts = {}) {
 // The regraded tail of the addon's fragment shader, spliced in over the
 // range `vec2 distortion = ...` .. `gl_FragColor = ...` (see `_regrade`).
 const _TAIL = /* glsl */`
-	// ---- 3dcv regrade ------------------------------------------------
+	// ---- 3dcode regrade ------------------------------------------------
 	// The addon scales its screen-space reflection offset by 1/distance
 	// with no ceiling, so water 3 m from the eye samples the mirror ONE
 	// FULL FRAME away (0.33 * distortionScale) and prints slivers of sky
@@ -199,7 +199,7 @@ function _regrade(material) {
   if (a < 0 || b < 0 || b < a) {
     console.warn(
         'makeOcean: this three build\'s Water shader does not carry the '
-        + 'anchors the 3dcv regrade splices over — shipping the addon '
+        + 'anchors the 3dcode regrade splices over — shipping the addon '
         + 'look unchanged (pale, no Fresnel).');
     return false;
   }

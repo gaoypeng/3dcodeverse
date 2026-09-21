@@ -38,7 +38,7 @@ def ws(tmp_path: Path) -> Path:
     root = tmp_path / "ws"
     root.mkdir()
     for name in BODY_FILES:
-        (root / name).write_text("# 3dcv workspace\n\n## Hard rules\n\n1. …\n")
+        (root / name).write_text("# 3dcode workspace\n\n## Hard rules\n\n1. …\n")
     return root
 
 
@@ -180,7 +180,7 @@ def test_the_index_is_written_into_every_body_file_and_is_replaceable(ws, librar
     for name in BODY_FILES:
         body = (ws / name).read_text()
         assert MARK_BEGIN in body and MARK_END in body and "cv3d-part-contact" in body
-        assert body.startswith("# 3dcv workspace")
+        assert body.startswith("# 3dcode workspace")
     write_index(ws, index_block([library["cv3d-bbox-contract"]], "api-agent"))
     body = (ws / "AGENTS.md").read_text()
     assert body.count(MARK_BEGIN) == 1 and "cv3d-part-contact" not in body and "cv3d-bbox-contract" in body

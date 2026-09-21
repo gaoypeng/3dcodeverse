@@ -5,7 +5,7 @@ per-call rows live in ``trajectories/*/transcript.jsonl``, session totals in
 ``result.json``, judge verdicts in ``record.rounds[].judgment.usage``, and the
 plan / texture / pairwise costs only in ``events.jsonl``.  This module stitches
 those into :class:`~codeverse.cost.types.CallCost` rows so the audit and
-``3dcv cost`` work on runs recorded *before* the ledger existed.
+``3dcode cost`` work on runs recorded *before* the ledger existed.
 
 Nothing here validates against the pydantic ``RunRecord``: old records must keep
 loading even when the schema moves on, so everything is read as raw JSON.
@@ -359,7 +359,7 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
     elapsed_min = float(((extra.get("budget") or {}).get("elapsed_min")) or 0.0)
     # events are emitted from run creation, so the span of a queued bench run counts
     # hours it spent waiting for a worker slot; the stage/round clocks are the honest
-    # ones (the budget's own elapsed restarts on ``3dcv resume``).
+    # ones (the budget's own elapsed restarts on ``3dcode resume``).
     led.wall_s = max(active_s, elapsed_min * 60.0) or led.span_s
     led.model_s = model_s
 

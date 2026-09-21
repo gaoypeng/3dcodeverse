@@ -120,7 +120,7 @@ def default_ledger() -> CostLedger | None:
     """The ledger :func:`record_call` writes to when no ``ledger=`` is given:
     whatever :func:`bound_ledger` bound here, else ``$CV3D_COST_LEDGER``, else the
     per-process fallback log (:func:`process_ledger_path`) so a call made outside
-    any run — ``3dcv judge``, a bench script, a notebook — is still accounted for.
+    any run — ``3dcode judge``, a bench script, a notebook — is still accounted for.
     ``CV3D_COST_LEDGER=off`` turns writing off entirely."""
     global _fallback, _fallback_read
     led = _default_var.get()

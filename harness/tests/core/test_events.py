@@ -1,5 +1,5 @@
 """EventLog durability: a run killed mid-write leaves a partial trailing line,
-and `3dcv status` is the first thing anyone types on a run that died (CP-3 / RS-6)."""
+and `3dcode status` is the first thing anyone types on a run that died (CP-3 / RS-6)."""
 
 from __future__ import annotations
 

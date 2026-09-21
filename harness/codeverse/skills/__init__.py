@@ -1,9 +1,9 @@
-"""The 3dcv skill library: task-scoped rule sheets, routed automatically, read-measured.
+"""The 3dcode skill library: task-scoped rule sheets, routed automatically, read-measured.
 
 A *skill* is not a renamed cookbook chapter — the two sit on opposite sides of the split
 in ``prompts/catalog.py``.  The cookbook is PROMPT material: the reference manual of
 copyable code, resolved through that catalog, inlined into the generate templates and
-materialised at ``.3dcv/cookbook.md`` for the agent to re-read (the ``read_cookbook`` MCP
+materialised at ``.3dcode/cookbook.md`` for the agent to re-read (the ``read_cookbook`` MCP
 tool that once served it a chapter at a time was deleted — 0 calls in 16 zone sessions).
 A skill is AGENT-READ material the harness only materialises: <=350 lines of rules and
 numbers for one recurring failure class, attached to a session only when the track /
@@ -79,7 +79,7 @@ def iter_skills(root: Path | None = None, *, strict: bool = False) -> Iterator[S
     """Every valid bundle.  A broken one is logged and skipped unless ``strict``.
 
     Skipping is the right default in a run: one malformed bundle must cost that skill,
-    not the battery.  ``3dcv skills validate`` and the test suite pass ``strict=True``.
+    not the battery.  ``3dcode skills validate`` and the test suite pass ``strict=True``.
     """
     for d in bundle_dirs(root):
         try:

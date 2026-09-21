@@ -19,7 +19,7 @@ def _session(run: Path, label: str, *, tools: dict[str, tuple[int, int]], prompt
     (d / "stdout.json").write_text(json.dumps({"stats": {
         "models": {"gemini-3.7-flash": {"tokens": {"prompt": prompt, "cached": cached},
                                         "api": {"totalRequests": requests}}},
-        "tools": {"byName": {f"mcp_3dcv_{name}": {"count": c, "fail": f}
+        "tools": {"byName": {f"mcp_3dcode_{name}": {"count": c, "fail": f}
                              for name, (c, f) in tools.items()} | {"read_file": {"count": 9, "fail": 9}}},
     }}))
 

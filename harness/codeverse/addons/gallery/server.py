@@ -1,4 +1,4 @@
-"""The local gallery server: ``3dcv gallery serve``.
+"""The local gallery server: ``3dcode gallery serve``.
 
 Stdlib only (``http.server`` + a thread pool), loopback by default, read-only by
 construction — there is no route that writes anything.  Routing is split in two
@@ -95,9 +95,9 @@ class Response:
 
 
 def _error_page(status: int, title: str, detail: str) -> Response:
-    body = (top_bar("3dcv gallery", "", crumbs="<a href='/'>gallery</a>")
+    body = (top_bar("3dcode gallery", "", crumbs="<a href='/'>gallery</a>")
             + f"<main class='wrap'><div class='panel'><h2>{status} — {esc(title)}</h2>"
-              f"<p class='muted'>{esc(detail)}</p></div></main>" + footer("3dcv gallery"))
+              f"<p class='muted'>{esc(detail)}</p></div></main>" + footer("3dcode gallery"))
     return Response.html(page_shell(f"{status} {title}", body), status=status)
 
 
@@ -105,7 +105,7 @@ class GalleryApp:
     """Index + routing.  One instance per server; safe to share across threads."""
 
     def __init__(self, roots: list[Path] | list[str], *, reload: bool = False,
-                 title: str = "3dcv gallery", runtime_js: Path | str | None = None) -> None:
+                 title: str = "3dcode gallery", runtime_js: Path | str | None = None) -> None:
         self.roots = [Path(r).resolve() for r in roots]
         self.reload = reload
         self.title = title
@@ -285,7 +285,7 @@ def _js_type(path: Path) -> str:
 
 # --------------------------------------------------------------------------- http plumbing
 class _Handler(BaseHTTPRequestHandler):
-    server_version = "3dcv-gallery"
+    server_version = "3dcode-gallery"
     protocol_version = "HTTP/1.1"
     app: GalleryApp
     quiet: bool = True
@@ -360,7 +360,7 @@ def make_server(app: GalleryApp, host: str = DEFAULT_HOST, port: int = DEFAULT_P
 
 def serve(roots: list[Path] | list[str], *, host: str | None = None, host_explicit: bool = False,
           port: int = DEFAULT_PORT, reload: bool = False, open_browser: bool = False,
-          title: str = "3dcv gallery", on_start: Any = None) -> None:
+          title: str = "3dcode gallery", on_start: Any = None) -> None:
     """Build the index and serve it until Ctrl-C."""
     bind = resolve_host(host, explicit=host_explicit)
     app = GalleryApp(roots, reload=reload, title=title)

@@ -3,7 +3,7 @@
 Every ``Usage`` is priced here (providers never return USD).  Each row carries a
 :class:`Provenance` entry — where the number came from and when it was last
 checked — so a cost report can say *which* price row produced a dollar and
-whether it was verified or merely inferred (``3dcv cost prices``).
+whether it was verified or merely inferred (``3dcode cost prices``).
 
 Only the standard (short-context) tier is modelled, **except** the documented
 >200k-prompt tiers of the Gemini pro models, which ``estimate_cost`` applies
@@ -287,7 +287,7 @@ def lookup_price(provider: str, model: str) -> Price | None:
 
 @dataclass(frozen=True)
 class PriceRow:
-    """A resolved price plus its audit trail — what ``3dcv cost prices`` prints."""
+    """A resolved price plus its audit trail — what ``3dcode cost prices`` prints."""
 
     provider: str
     model: str

@@ -1,4 +1,4 @@
-"""``3dcv status`` / ``3dcv render`` / ``3dcv judge`` — inspect one existing run.
+"""``3dcode status`` / ``3dcode render`` / ``3dcode judge`` — inspect one existing run.
 
 Owns the three read-mostly commands on a finished (or in-flight) workspace: the
 ``status`` summary (spec / run_state / record / candidates / recent events), the
@@ -46,8 +46,8 @@ def status(
         "judge": spec.backends.judge,
         "prompt": spec.prompt,
     }
-    if (held := holder_of(ws.root)) is not None:  # kill THAT pid, never `pkill -f 3dcv`
-        rows["RUNNING NOW"] = f"pid {held.get('pid', '?')} ({held.get('what') or '3dcv'})"
+    if (held := holder_of(ws.root)) is not None:  # kill THAT pid, never `pkill -f 3dcode`
+        rows["RUNNING NOW"] = f"pid {held.get('pid', '?')} ({held.get('what') or '3dcode'})"
     if ws.state_path.is_file():
         try:
             state = json.loads(ws.state_path.read_text())
@@ -79,7 +79,7 @@ def status(
             )
         )
     console.print(
-        f"[dim]`3dcv show {ws.root.name}` for the DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS view[/dim]"
+        f"[dim]`3dcode show {ws.root.name}` for the DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS view[/dim]"
     )
     evs = EventLog(ws.events_path).read()
     if evs:
@@ -149,7 +149,7 @@ def render(
     idx = _render_round_or_refuse(ws, round_index)
     out_dir = out or ws.renders_dir(idx) / ("cli" if mode == "shaded" else f"cli_{mode}")
     # writes into the run (a graphics render even rebuilds it): one writer per run dir
-    with C.mutating(ws, what=f"3dcv render {ws.root.name}", action="render"):
+    with C.mutating(ws, what=f"3dcode render {ws.root.name}", action="render"):
         if spec.track is Track.GRAPHICS:
             _render_graphics(ws, spec, out_dir)
             return
@@ -214,7 +214,7 @@ def judge(
     from codeverse.cost.instrument import run_ledger
 
     # writes artifacts/judge/rNN_cli.json into the run: one writer per run dir
-    with C.mutating(ws, what=f"3dcv judge {ws.root.name}", action="judge"):
+    with C.mutating(ws, what=f"3dcode judge {ws.root.name}", action="judge"):
         try:
             # a re-judge joins the run's ledger when it has one; otherwise the per-process
             # log (a ledger holding only this verdict would be read as the whole run's cost)
@@ -285,14 +285,14 @@ def _render_round_or_refuse(ws, round_index: int | None) -> int:
     """Which round this render is labelled as — refusing when the label would lie.
 
     ``render`` renders the WORKING TREE, which sits at the last round the run wrote.
-    ``--round`` only chose the output folder, so `3dcv render X --round 3` wrote
+    ``--round`` only chose the output folder, so `3dcode render X --round 3` wrote
     r03-labelled images of round 4's code, and with no flag at all a run whose best round
     was not its last silently published its worst one.
 
     Measured 2026-08-25 on tsr_scn_neon_alley: judge by round 0.338 / 0.375 / 0.529 /
     0.632 / 0.000 — round 4 rendered completely blank, all eight tiles empty.  The harness
     correctly kept r3 and the deliverable is correct, but the tree was left at r4, so a
-    plain `3dcv render` re-rendered eight blank frames and was very nearly shipped.
+    plain `3dcode render` re-rendered eight blank frames and was very nearly shipped.
 
     So: no flag renders the tree only when the tree IS the best round; otherwise this
     refuses and points at ``deliverable/``, which already holds the best round's code,
@@ -308,7 +308,7 @@ def _render_round_or_refuse(ws, round_index: int | None) -> int:
                 f"cannot render round {round_index}: `render` renders the working tree, which is at "
                 f"round {tree}, and --round only labels the output folder.  The best round's code, "
                 f"renders and manifest are already packaged in {ws.deliverable} — read "
-                f"{ws.deliverable / 'sheet.png'}, or `3dcv resume {ws.root.name}` to keep iterating.",
+                f"{ws.deliverable / 'sheet.png'}, or `3dcode resume {ws.root.name}` to keep iterating.",
                 code=2)
         return round_index
     if best is not None and best != tree:

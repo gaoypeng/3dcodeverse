@@ -54,7 +54,7 @@ class RoundPipeline(Protocol):
     def plan_summary(self, ctx: RunContext) -> str: ...
     def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
         """Track-specific judge context.  Deliberately ``RunContext``-free so
-        ``3dcv judge`` can rebuild the in-run context from stored artifacts."""
+        ``3dcode judge`` can rebuild the in-run context from stored artifacts."""
         ...
 
 

@@ -241,7 +241,7 @@ def test_a_retried_cell_pairs_on_the_attempt_that_reached_a_gate(tmp_path):
     assert rows["cv3d-part-contact"]["n"] == 1
 
 
-def test_3dcv_skills_list_shows_every_bundles_claim():
+def test_3dcode_skills_list_shows_every_bundles_claim():
     """The ledger has to be visible from the CLI, or it is a document nobody opens."""
     from typer.testing import CliRunner
 

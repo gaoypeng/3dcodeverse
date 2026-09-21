@@ -21,7 +21,7 @@ choose can leak into the index):
   (``duplicate_of:<id>`` for de-duplicated rows).  ``pack.py`` consumes ONLY this.
 
 Captions come from ``record.extra["captions"]``, else ``<ws>/captions.json``,
-else ``<captions_dir>/<slug>.json`` (side-car written by ``3dcv flywheel caption --out``).
+else ``<captions_dir>/<slug>.json`` (side-car written by ``3dcode flywheel caption --out``).
 """
 
 from __future__ import annotations
@@ -454,7 +454,7 @@ def load_manifest(out_dir: Path | str) -> DatasetGenerationManifest:
     path = Path(out_dir) / MANIFEST_NAME
     if not path.is_file():
         raise ManifestError(
-            f"{path} not found — run export first (3dcv flywheel export writes it): "
+            f"{path} not found — run export first (3dcode flywheel export writes it): "
             f"pack no longer rescans directories")
     try:
         return DatasetGenerationManifest.model_validate_json(path.read_text())

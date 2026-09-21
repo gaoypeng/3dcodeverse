@@ -50,7 +50,7 @@ LAYOUT_ALIASES: tuple[tuple[str, str], ...] = (
 #: harness-owned paths that never belong in the code snapshot
 _GITIGNORE_LINES = (
     "# harness-owned run state is never part of the code snapshot",
-    "artifacts/", "trajectories/", "stages/", "rounds/", "_assets/", "_cand/", ".3dcv/", ".gemini/", ".claude/",
+    "artifacts/", "trajectories/", "stages/", "rounds/", "_assets/", "_cand/", ".3dcode/", ".3dcv/", ".gemini/", ".claude/",
     "deliverable/", "telemetry/", "evidence", "captions.json",
     "events.jsonl", "run_state.json", "record.json", "*.log", "node_modules/", "*.tmp", "__pycache__/",
 )
@@ -105,7 +105,7 @@ class WorkspaceGitError(subprocess.CalledProcessError):
     the bare line "Command '['git', 'add', '-A']' returned non-zero exit status 128"
     while git's own "fatal: Unable to create ... index.lock: File exists" sat unread in
     e.stderr.  The 4-try/1.2 s retry loop above is built for a LIVE holder and can never
-    clear a stale lock, so every subsequent ``3dcv resume <slug>`` repeated the same
+    clear a stale lock, so every subsequent ``3dcode resume <slug>`` repeated the same
     opaque failure with no clue and no named remedy.
     """
 
@@ -139,7 +139,7 @@ class Workspace:
         The records store ABSOLUTE host paths (29 per run: rounds[].renders[].path,
         contact_sheet, build.glb_path, build.extra_paths, census exports, and
         run_state.stages[].result_path), so archiving, moving or rsyncing a run silently
-        broke every consumer that trusted them — `3dcv show` printed a contact sheet at
+        broke every consumer that trusted them — `3dcode show` printed a contact sheet at
         the old location that did not exist, while the real one sat under the new root.
         object.glb kept working because it is recomputed from the workspace, which made
         the breakage partial and therefore silent.
@@ -327,8 +327,8 @@ class Workspace:
             for attempt in range(4):
                 proc = subprocess.run(
                     ["git", *GIT_SAFE_FLAGS, *args], cwd=self.root, text=True, capture_output=True, check=False,
-                    env=git_safe_env(GIT_AUTHOR_NAME="3dcv", GIT_AUTHOR_EMAIL="3dcv@local",
-                                     GIT_COMMITTER_NAME="3dcv", GIT_COMMITTER_EMAIL="3dcv@local"),
+                    env=git_safe_env(GIT_AUTHOR_NAME="3dcode", GIT_AUTHOR_EMAIL="3dcode@local",
+                                     GIT_COMMITTER_NAME="3dcode", GIT_COMMITTER_EMAIL="3dcode@local"),
                 )
                 if proc.returncode == 0 or "index.lock" not in (proc.stderr or ""):
                     break

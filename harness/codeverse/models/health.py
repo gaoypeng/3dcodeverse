@@ -142,7 +142,7 @@ def _bare_model(model_id: str, timeout_s: float):
 #: 64 knee — the exact over-launch ``docs/COST.md`` §23 exists to prevent.
 _MODULES = ("codeverse.cli.main", "bench.ab_plan", "bench.compare_backends", "bench.run_bench")
 _SCRIPTS = ("compare_backends.py", "run_bench.py", "ab_plan.py")
-_ENTRY_POINTS = ("3dcv", "3dcodeverse")
+_ENTRY_POINTS = ("3dcode", "3dcodeverse")
 
 
 def _program_slots(args: list[str]) -> list[str]:
@@ -151,10 +151,10 @@ def _program_slots(args: list[str]) -> list[str]:
     Only argv[0] and, behind a python interpreter, the script slot after it.  Both bounds
     matter and each was a real bug:
 
-    * Too narrow (argv[0] only) is how ``3dcv`` went uncounted from the start.  A console
-      script installed by pip is a shebang file, so the kernel rewrites ``3dcv make …``
-      into ``<python> /…/bin/3dcv make …`` and the entry point lands at argv[1] — argv[0]
-      is the interpreter.  Measured 2026-08-25: 21 live ``3dcv make`` processes, and
+    * Too narrow (argv[0] only) is how ``3dcode`` went uncounted from the start.  A console
+      script installed by pip is a shebang file, so the kernel rewrites ``3dcode make …``
+      into ``<python> /…/bin/3dcode make …`` and the entry point lands at argv[1] — argv[0]
+      is the interpreter.  Measured 2026-08-25: 21 live ``3dcode make`` processes, and
       :func:`pool_budget` reported "0 siblings, headroom 64".  Every lane then sized
       ``CV3D_MAX_IN_FLIGHT`` off a number that was structurally always 64, which is the
       over-launch ``docs/COST.md`` §23 exists to prevent.

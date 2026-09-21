@@ -1,4 +1,4 @@
-"""``3dcv judge`` implementation: re-judge a round with the SAME inputs the
+"""``3dcode judge`` implementation: re-judge a round with the SAME inputs the
 in-run judge saw.
 
 The round's renders / measurement / gates come from ``rounds/rNN.json``
@@ -108,7 +108,7 @@ def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> Any:
 
 def stored_glb_path(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> str | None:
     """The round's canonical GLB (object tracks), rebased to THIS workspace — what lets
-    ``3dcv judge`` reproduce the D48 conditional slice payload from the stored gates."""
+    ``3dcode judge`` reproduce the D48 conditional slice payload from the stored gates."""
     if rec.spec.track.value not in SLICE_TRACKS or rnd.build is None or not rnd.build.glb_path:
         return None
     p = ws.rebase(rnd.build.glb_path)

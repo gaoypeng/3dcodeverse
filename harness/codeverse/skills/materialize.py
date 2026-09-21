@@ -56,8 +56,8 @@ log = logging.getLogger(__name__)
 SKILL_ROOTS = (AGENTS_SKILL_ROOT, CLAUDE_SKILL_ROOT)
 #: the AGENTS.md/GEMINI.md/CLAUDE.md body files a workspace already has
 BODY_FILES = ("AGENTS.md", "GEMINI.md", "CLAUDE.md")
-MARK_BEGIN = "<!-- 3dcv:skills -->"
-MARK_END = "<!-- /3dcv:skills -->"
+MARK_BEGIN = "<!-- 3dcode:skills -->"
+MARK_END = "<!-- /3dcode:skills -->"
 
 #: the never-routed bundle whose atime falsifies the probe.  Named so it sorts away from
 #: the real ones, and worded so an agent that does read it has been told it is a control.

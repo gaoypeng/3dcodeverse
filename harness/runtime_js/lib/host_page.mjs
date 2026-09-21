@@ -14,7 +14,7 @@ const CONTROL_RE = new RegExp('[\\u0000-\\u001f]+', 'g');
 
 function hostHtml() {
   return [
-    '<!doctype html><html><head><meta charset="utf-8"><title>3dcv scene host</title>',
+    '<!doctype html><html><head><meta charset="utf-8"><title>3dcode scene host</title>',
     importMapHtml(),
     '<style>html,body{margin:0;background:#000;overflow:hidden}</style></head><body>',
     `<script type="module" src="${runtimeMount()}lib/scene_host.mjs"></script></body></html>`,

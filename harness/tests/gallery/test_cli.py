@@ -1,4 +1,4 @@
-"""``3dcv gallery build|serve`` and the ``3dcv flywheel gallery`` alias."""
+"""``3dcode gallery build|serve`` and the ``3dcode flywheel gallery`` alias."""
 
 from __future__ import annotations
 

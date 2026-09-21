@@ -51,7 +51,7 @@ symlink.  Which side is physical was not a matter of taste:
 * **`deliverable/`, `telemetry/settings.json` and `telemetry/cost.json` are real
   files.**  They are *derived*: rebuilt from the run's own git history,
   artifacts, trajectories and events every time the run is finalised, and on
-  the fly by `3dcv show` / the exporters for a run that predates them — old
+  the fly by `3dcode show` / the exporters for a run that predates them — old
   runs are read as-is, never rewritten.  `deliverable/` is self-contained so it can be zipped and handed to
   someone (the flywheel exporter only falls back to it when git cannot answer).
   `telemetry/usage.jsonl` is the one file that can be either: a real
@@ -138,23 +138,23 @@ still validates and every consumer keeps working.
 ## Reading a run
 
 ```
-3dcv show <slug>                 # DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS
-3dcv show <slug> --section cost  # just the token price + key step settings
-3dcv status <slug>               # unchanged (+ a pointer to `3dcv show`)
+3dcode show <slug>                 # DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS
+3dcode show <slug> --section cost  # just the token price + key step settings
+3dcode status <slug>               # unchanged (+ a pointer to `3dcode show`)
 ```
 
-`3dcv show` works on both layouts: when a run has no `telemetry/` yet the cost
+`3dcode show` works on both layouts: when a run has no `telemetry/` yet the cost
 and settings block is computed on the fly (read-only) from the trajectories,
 judge verdicts and events already on disk.
 
 For the money itself across many runs — waste, $ per passing artifact, price
-provenance — use the cost package's own command, `3dcv cost show <runs-dir>`.
-`3dcv show` is the single-run view; both read the same ledger rows.
+provenance — use the cost package's own command, `3dcode cost show <runs-dir>`.
+`3dcode show` is the single-run view; both read the same ledger rows.
 
 ## Back-compatibility contract
 
-* Old runs load unchanged — `load_record`, `3dcv status`, `3dcv judge`,
-  `3dcv render`, `flywheel export/pairs/gallery/index` all work with no
+* Old runs load unchanged — `load_record`, `3dcode status`, `3dcode judge`,
+  `3dcode render`, `flywheel export/pairs/gallery/index` all work with no
   `deliverable/` or `telemetry/` present.
 * Consumers resolve artifacts through
   `flywheel.deliverable.deliverable_path(ws, name)`: `deliverable/<name>` first,
@@ -162,7 +162,7 @@ provenance — use the cost package's own command, `3dcv cost show <runs-dir>`.
 * `flywheel export` reads the packaged code snapshot only when git cannot answer
   (`meta.code_source == "deliverable"`), and adds a compact `meta.telemetry`
   digest when the run has one (`{}` otherwise).
-* the gallery (`3dcv gallery build` / `flywheel gallery`) links the packaged
+* the gallery (`3dcode gallery build` / `flywheel gallery`) links the packaged
   `deliverable/object.glb` and `cost.json` when they exist and falls back to
   `artifacts/` otherwise; the per-stage cost line appears only for runs that
   carry telemetry.

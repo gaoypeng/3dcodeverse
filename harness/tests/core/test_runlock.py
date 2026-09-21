@@ -132,14 +132,14 @@ def test_a_failed_record_write_leaks_nothing(tmp_path: Path, monkeypatch):
 
 
 def test_holder_of_names_the_holder_and_is_empty_otherwise(tmp_path: Path):
-    """`3dcv status` prints this so a human can kill THAT pid, never `pkill -f 3dcv`."""
+    """`3dcode status` prints this so a human can kill THAT pid, never `pkill -f 3dcode`."""
     run_root = tmp_path / "runs" / "slug"
     run_root.mkdir(parents=True)
     assert holder_of(run_root) is None
-    with exclusive(run_root, what="3dcv make slug"):
+    with exclusive(run_root, what="3dcode make slug"):
         held = holder_of(run_root)
         assert held is not None and held["pid"] == os.getpid()
-        assert held["what"] == "3dcv make slug"
+        assert held["what"] == "3dcode make slug"
     assert holder_of(run_root) is None, "the record is truncated on release, never left to lie"
 
 
@@ -172,7 +172,7 @@ def test_force_refuses_to_wipe_a_run_another_holder_is_using(tmp_path: Path):
                 break
             time.sleep(0.02)
         assert ready.read_text() == "held"
-        with pytest.raises(CliError) as ei, mutating(run_root, what="3dcv make held_run"):
+        with pytest.raises(CliError) as ei, mutating(run_root, what="3dcode make held_run"):
             pytest.fail("the mutation boundary must not be entered")
         assert ei.value.exit_code == 2
         assert (run_root / "spec.json").exists(), "the live holder's workspace must survive"

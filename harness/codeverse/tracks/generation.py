@@ -57,7 +57,7 @@ log = logging.getLogger(__name__)
 #  to hold a re-export shim; this module was its one importer)
 ALLOWED_ROOTS: tuple[str, ...] = ("src/", "public/")
 #: where an out-of-workspace task image is copied so a vendor CLI can read it (D9, like the cookbook)
-IMAGES_DIR = ".3dcv/images"
+IMAGES_DIR = ".3dcode/images"
 
 SINGLE_SHOT_FORMAT = """OUTPUT FORMAT (exactly this, nothing else around it):
 For EVERY file you create or fully rewrite, emit one block:
@@ -736,7 +736,7 @@ def _images_block(images: list[ImagePart], ws: Workspace) -> str:
     which no backend read, so the contact sheet the judge scored reached no CLI session
     (that field is gone since 2026-08-30 — this block IS the delivery).
 
-    Every image is copied into ``.3dcv/images/`` first, exactly as the cookbook is (D9),
+    Every image is copied into ``.3dcode/images/`` first, exactly as the cookbook is (D9),
     and listed workspace-relative: a CLI reads only INSIDE its workspace (``--image
     ref.png`` stores the host's absolute path), and the judged contact sheet sits under
     ``artifacts/renders/``, which ``.geminiignore`` hides from gemini-cli's read_file."""

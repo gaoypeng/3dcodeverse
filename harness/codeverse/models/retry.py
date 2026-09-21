@@ -31,7 +31,7 @@ The pool:
   that elapses — a dead key must never keep failing its share of calls.
   ``report(..., tokens=actual, reserved=hint)`` reconciles the reservation with
   the provider's real prompt-token count (refund or top-up).
-* ``stats()`` exposes counters for logs / ``3dcv doctor --live``: per-key health
+* ``stats()`` exposes counters for logs / ``3dcode doctor --live``: per-key health
   and cooldown, pool RPM/TPM capacity and headroom, in-flight and peak in-flight.
 
 Thread-safe; ``clock`` / ``sleep`` are injectable for deterministic tests.
@@ -570,7 +570,7 @@ def storm_gate(name: str) -> StormGate:
 
 
 def all_gates() -> list[StormGate]:
-    """Every gate this process has created (for ``3dcv doctor --live``)."""
+    """Every gate this process has created (for ``3dcode doctor --live``)."""
     with _gates_lock:
         return list(_gates.values())
 

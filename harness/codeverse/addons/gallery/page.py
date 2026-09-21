@@ -145,7 +145,7 @@ def _section(label: str, path: str, entries: list[RunEntry], hidden: set[str], u
     )
 
 
-def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcv gallery",
+def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcode gallery",
                  flt: dict[str, str] | None = None, sort: str = "score", view: str = "cards",
                  note: str = "", extra_html: str = "") -> str:
     """The whole index page as one HTML document.  ``extra_html`` (already
@@ -165,7 +165,7 @@ def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcv gall
     right = (f"<button class='btn' id='view-btn' type='button' aria-pressed='{'true' if view == 'table' else 'false'}'>"
              f"{'▤ table' if view == 'table' else '▦ cards'}</button>")
     body = (
-        top_bar("3dcv gallery", f"{len(all_entries)} runs · {len(index.sections)} roots", right=right)
+        top_bar("3dcode gallery", f"{len(all_entries)} runs · {len(index.sections)} roots", right=right)
         + "<main class='wrap'>"
         + (f"<p class='small muted'>{esc(note)}</p>" if note else "")
         + _summary_strip(selected, len(all_entries))
@@ -182,13 +182,13 @@ def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcv gall
 
 
 # ===================================================================== static_site
-def render_static(index: GalleryIndex, *, title: str = "3dcv gallery", embed: bool = False,
+def render_static(index: GalleryIndex, *, title: str = "3dcode gallery", embed: bool = False,
                   thumb_px: int = THUMB_PX, sort: str = "score", view: str = "cards",
                   extra_html: str = "") -> str:
     """The complete HTML document for ``index`` (no server involved)."""
     note = ("images are inlined; the links open the original run directories on this machine"
             if embed else "images and links point at the run directories with file:// — "
-                          "use `3dcv gallery serve` for a page that works anywhere")
+                          "use `3dcode gallery serve` for a page that works anywhere")
     return render_index(index, StaticUrls(embed=embed, thumb_px=thumb_px),
                         title=title, sort=sort, view=view, note=note, extra_html=extra_html)
 
@@ -197,7 +197,7 @@ def build_static(roots: list[Path] | list[str], out_html: Path | str, *, title: 
                  embed: bool = False, thumb_px: int = THUMB_PX) -> tuple[Path, int, GalleryIndex]:
     """Scan ``roots`` and write one self-contained page; ``(path, n_runs, index)``."""
     index = build_index(roots)
-    label = title or ("3dcv gallery — " + ", ".join(s.label for s in index.sections[:4])
+    label = title or ("3dcode gallery — " + ", ".join(s.label for s in index.sections[:4])
                       + ("…" if len(index.sections) > 4 else ""))
     html = render_static(index, title=label, embed=embed, thumb_px=thumb_px)
     return write_text_atomic(Path(out_html), html), len(index.entries()), index

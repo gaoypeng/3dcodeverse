@@ -18,7 +18,7 @@ runner = CliRunner()
 
 @pytest.fixture
 def made_run(tmp_path: Path):
-    """`3dcv make --no-run` into a fresh runs dir → ``(runs_dir, run_dir)``."""
+    """`3dcode make --no-run` into a fresh runs dir → ``(runs_dir, run_dir)``."""
     def make(*extra: str) -> tuple[Path, Path]:
         runs = tmp_path / "runs"
         r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", *extra])
@@ -51,7 +51,7 @@ def test_help_and_version():
     r = runner.invoke(app, ["--help"])
     assert r.exit_code == 0 and "flywheel" in r.output and "doctor" in r.output
     r = runner.invoke(app, ["--version"])
-    assert r.exit_code == 0 and "3dcv" in r.output
+    assert r.exit_code == 0 and "3dcode" in r.output
 
 
 def test_make_no_run_creates_valid_workspace(tmp_path: Path):
@@ -137,7 +137,7 @@ def test_doctor_json(monkeypatch):
     ]
 
 
-# --------------------------------------------------------------------------- finding: `3dcv judge` inputs (main.py:204)
+# --------------------------------------------------------------------------- finding: `3dcode judge` inputs (main.py:204)
 class _FakeVlm:
     captured: dict = {}
 
@@ -230,7 +230,7 @@ def test_judge_rubric_map_includes_graphics():
 
 
 def test_calibration_rubric_map_includes_graphics(tmp_path: Path):
-    """Same default as `3dcv judge`: a graphics round with no stored judgment used to be
+    """Same default as `3dcode judge`: a graphics round with no stored judgment used to be
     re-judged with static_object_v1 because calibration kept its own three-track
     TRACK_RUBRIC instead of reading TRACK_INFO."""
     from codeverse.contracts.artifacts import RenderSet, RenderView

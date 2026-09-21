@@ -235,7 +235,7 @@ def validate_bundle(bundle: Path) -> list[str]:
     """Every problem with one bundle directory, as human lines (empty == clean).
 
     Structural problems come back as one line; budget/evidence/layout problems are
-    listed together so `3dcv skills validate` fixes a bundle in one round trip.
+    listed together so `3dcode skills validate` fixes a bundle in one round trip.
     """
     bundle = Path(bundle)
     try:

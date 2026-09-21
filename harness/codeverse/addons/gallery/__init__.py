@@ -1,4 +1,4 @@
-"""The local run gallery: ``3dcv gallery serve`` (localhost) and ``3dcv gallery build`` (one file).
+"""The local run gallery: ``3dcode gallery serve`` (localhost) and ``3dcode gallery build`` (one file).
 
 * ``index``       ``build_index(roots)`` · ``default_roots()`` — record.json → typed entries
 * ``model``       ``RunEntry`` / ``RootSection`` / ``GalleryIndex`` / ``summarize`` / ``match``,

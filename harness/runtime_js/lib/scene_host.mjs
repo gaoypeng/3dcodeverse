@@ -83,7 +83,7 @@ function makeHostRenderer(width, height, opts) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
-  canvas.id = '3dcv-canvas';
+  canvas.id = '3dcode-canvas';
   document.body.appendChild(canvas);
   return { renderer: makeRenderer(canvas, width, height, { logDepth: !!opts.logDepth }), canvas };
 }

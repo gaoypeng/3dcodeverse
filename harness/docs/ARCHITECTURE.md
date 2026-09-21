@@ -1,6 +1,6 @@
 # 3dcodeverse harness — architecture
 
-Package `codeverse`, CLI `3dcodeverse` (short alias `3dcv`), repo location
+Package `codeverse`, CLI `3dcodeverse` (short alias `3dcode`), repo location
 `/home/yipeng/3dcodeverse/harness`.  Backend only.  Python 3.13 (one fixed version), a small Node
 runtime (`runtime_js/`) for everything Three.js / headless Chrome, and moderngl
 for the graphics track.  Reconciled against the code and the live runs on
@@ -79,7 +79,7 @@ codeverse/
                       (+ SkillsUsage/SkillRead: what was attached, what was read), chat,
                       agent (typed AgentJob)
   workspace.py        run-dir layout + git snapshots
-  doctor.py           the environment checks behind `3dcv doctor` (deps, Blender,
+  doctor.py           the environment checks behind `3dcode doctor` (deps, Blender,
                       node, GPU probe, keys, pool admission, vendor CLIs, MCP, skills)
   proc.py             stdlib-only subprocess + atomic-JSON primitives (ManagedProcess owns every
                       child's lifecycle: group kill on ANY exception, bounded pumps, stdin writer;
@@ -91,7 +91,7 @@ codeverse/
                       eight times because this module had not grown it).  Also home, since
                       2026-08-28, to the JSONL event log (EventLog), the run lock (ONE writer per
                       run dir: an fcntl.flock at <runs>/.locks/<slug>.lock whose record NAMES the
-                      holder, printed by `3dcv status`) and the bounded parallel fan-out
+                      holder, printed by `3dcode status`) and the bounded parallel fan-out
                       (fan_out); sha256_file and version_line live here too — still a leaf:
                       imports nothing from codeverse
   models/             ChatModel (base.py), parts.py; gemini.py (the whole Gemini stack:
@@ -133,7 +133,7 @@ codeverse/
                       joints*.py + joints_collide.py (deterministic penetration), registry.py,
                       tools.py (every @tool registration since 2026-08-28, the joint_sweep body included;
                       spatial siblings are plain imports — lazy() guards only codeverse.languages /
-                      codeverse.texturing and tool_common's node renderer), mcp_server.py (MCP name: 3dcv).
+                      codeverse.texturing and tool_common's node renderer), mcp_server.py (MCP name: 3dcode).
                       Render modes are contracts.artifacts.RENDER_MODES (shaded wire normals silhouette
                       clay — no 'depth'); build error_type spellings are languages/_common.MISSING_ENTRY
                       ("MissingEntryFile") and BUILD_TIMEOUT ("BuildTimeout") for every runtime
@@ -151,7 +151,7 @@ codeverse/
                       billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
                       so the ledger bills real money and not list price; docs/COST.md §25)
                       guard.py routing.py reconstruct.py (old runs) audit.py report.py
-  judges/             base.py (JudgeInput/Judgment helpers + the pure round-replay pieces `3dcv judge` and
+  judges/             base.py (JudgeInput/Judgment helpers + the pure round-replay pieces `3dcode judge` and
                       calibration share), rubrics.py + rubrics/*.yaml (defect checklists, the wire
                       schema, caps and scoring), prompt_builder.py (image prep, montages, the
                       judge messages), vlm_judge.py (+ the reference/likeness judges),
@@ -204,8 +204,8 @@ codeverse/
                       ["code_quality"].index, a flywheel filter beside score and complexity)
   addons/             optional tools that READ finished runs; outside cli/ nothing imports them
                       (tests/core/test_addons_boundary.py).  dataset/ = export.py, pack.py, pairs.py,
-                      refine.py, captions.py, index.py (`3dcv flywheel …`); gallery/ = below
-  addons/gallery/     THE local run gallery (`3dcv gallery serve|build`): cards.py,
+                      refine.py, captions.py, index.py (`3dcode flywheel …`); gallery/ = below
+  addons/gallery/     THE local run gallery (`3dcode gallery serve|build`): cards.py,
                       compare.py (side-by-side arms), index.py (run roots →
                       typed RunEntry, tolerant of half-written records), model.py, page.py (cards +
                       table + filters + per-filter summary), detail.py (/run/<battery>/<slug>),
@@ -226,9 +226,9 @@ codeverse/
                       live constants).  A file that tries to be both is the bug this prevents.
   cli/                main.py (app wiring, make/resume/mcp + the tools/bench/gallery
                       commands), inspect_cmd.py (status/render/judge on one existing run),
-                      flywheel_cmd.py, texture_cmd.py, cost_cmd.py (`3dcv cost`), layout_cmd.py, doctor.py
+                      flywheel_cmd.py, texture_cmd.py, cost_cmd.py (`3dcode cost`), layout_cmd.py, doctor.py
                       (`--skills` checks the library + its discovery wiring),
-                      skills_cmd.py (`3dcv skills list|show|validate|report` — the read-rate report)
+                      skills_cmd.py (`3dcode skills list|show|validate|report` — the read-rate report)
 bench/                run_bench.py, report.py (renders through codeverse/addons/gallery), compare_backends.py
                       (preflights every model it needs; --wait-for-provider / --no-preflight),
                       _infra.py (outage vs model failure: infra_failed / budget_exhausted, docs/EVAL.md §7),
@@ -284,11 +284,11 @@ runs/<slug>/
                   texturing: object_textured.glb textures/{<id>.png, texture_plan.json, texturing.json, gate/}
     renders/rNN/  view_<name>.png sheet.png views.json (judge flags) (+ poses/ articulated; <cam>_t<t>.png metrics.json scenes)
     gates/rNN/    lint_<lang>.json connectivity.json contract.json joint_sweep.json motion_direction.json … (+ *_tool.json)
-    judge/rNN.json (+ rNN_cli.json from `3dcv judge`)
+    judge/rNN.json (+ rNN_cli.json from `3dcode judge`)
     tool_renders/rNN_<hash>/
   trajectories/<label>_rNN/  prompt.md transcript.jsonl stdout.json stderr.log result.json
                              (a retried label lands in <label>.a2_rNN — first attempt preserved)
-  AGENTS.md GEMINI.md CLAUDE.md .gemini/settings.json .3dcv/cookbook.md .geminiignore .aiexclude
+  AGENTS.md GEMINI.md CLAUDE.md .gemini/settings.json .3dcode/cookbook.md .geminiignore .aiexclude
 ```
 
 ## 4. Per-language authoring contracts (raw code; the harness owns export)
@@ -350,7 +350,7 @@ summary:
 
 `@tool(name, ArgsModel, description, *, tracks=(), languages=(), cost_hint)` registers
 `fn(ctx, args) -> Observation` → (a) direct call from tracks, (b) the stdio MCP
-server (name `3dcv`) for the vendor CLIs, (c) a native tool schema for any embedder
+server (name `3dcode`) for the vendor CLIs, (c) a native tool schema for any embedder
 (`ToolDef.schema()`), (d) a prompt card.  The 19 tools: `build`, `measure`,
 `render_views`, `render_sheet`, `isolate`, `cross_section`, `check_connectivity`,
 `check_contract`, `check_placement`, `compare_silhouette`, `compare_reference`,
@@ -388,7 +388,7 @@ WARN prose (1 254 such sentences on 241 stored rounds → 0), a MEASURED STRUCTU
 (parts / contacts / floating / deepest overlap, the plan's PLANNED JOINS as contact or
 OPEN with the gap, the lowest point above the floor) and a CONNECTIVITY PASSED paragraph
 that also forbids the interpenetration checklist claim.  It is rendered from the stored
-`GateReport`, so `3dcv judge <slug>` and calibration see exactly what the in-run judge
+`GateReport`, so `3dcode judge <slug>` and calibration see exactly what the in-run judge
 saw, and a round recorded before the ledger existed renders byte-identical to before
 (`ObjectPipeline.judge_context` stays empty on purpose — one source).  On an
 object-track round whose connectivity gate carries an ERROR, the payload
@@ -538,13 +538,13 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
 * Budget checks run between steps: a refine round that finishes its judge and then
   trips the budget is not promoted to best — give scenes `--max-minutes 60`.
 * Gemini flash 503 storms happen; dead keys and 429s rotate freely now, but a
-  sustained outage can still fail a round (`3dcv resume` re-uses cached stages).
+  sustained outage can still fail a round (`3dcode resume` re-uses cached stages).
 * A few single-file wrappers were once over the old ~400-line guideline; the rule
   is now a 2 000-line cap (3 000 absolute).
 
 ## 11. Flywheel
 
-`record.json` per run + git history; `3dcv flywheel export` writes sample folders
+`record.json` per run + git history; `3dcode flywheel export` writes sample folders
 (`<out>/<track>/<language>/<slug>/{code.<ext>, src/**, robot.urdf, meta.json,
 captions.json, renders/}`) with **quality tiers** (A passed & 0 gate errors, B
 passed, C best ≥ 0.6, D else), acceptance checklists, gate summaries and
@@ -563,10 +563,10 @@ in the harness's own words, and what the fix changed.  `toolkits/llamafactory/`
 turns those rows into training files; the harness writes the measurement, not the
 trainer's format.  `flywheel caption` adds
 {detailed, instruction, factory} captions (image-grounded, brand-free, `--out` for
-side-car mode); `flywheel gallery` is an alias of `3dcv gallery build --embed`
+side-car mode); `flywheel gallery` is an alias of `3dcode gallery build --embed`
 (the flywheel package has no renderer of its own).
 
-`codeverse/addons/gallery/` is the **local** answer to the same question: `3dcv gallery
+`codeverse/addons/gallery/` is the **local** answer to the same question: `3dcode gallery
 serve` indexes `runs/` + every `bench/out/*/runs`, serves the page **and the run
 directories** on 127.0.0.1 (so every link opens: sheet, renders, `src/`, `object.glb`
 in an orbit viewer built on the vendored three.js, `record.json`), and re-reads a
@@ -574,4 +574,4 @@ run's record per request so a battery that is still writing shows up live.  A ru
 with no record yet is a *pending* card, a half-written one a *broken* card.  Two
 gates keep it safe: a URL can only name a `(battery, slug)` the scanner found under
 a declared root, and `paths.safe_join` refuses anything that escapes that run
-directory.  `3dcv gallery build [--embed]` writes the same page as one file.
+directory.  `3dcode gallery build [--embed]` writes the same page as one file.

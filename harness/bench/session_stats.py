@@ -26,8 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # `python bench
 
 from codeverse.flywheel.record import unique_files  # noqa: E402
 
-#: gemini-cli names an MCP tool ``mcp_<server>_<tool>``; ours is the ``3dcv`` server.
-MCP_PREFIX = "mcp_3dcv_"
+#: gemini-cli names an MCP tool ``mcp_<server>_<tool>``; ours is the ``3dcode`` server
+#: (``3dcv`` in every session recorded before the 2026-09-21 rename).
+MCP_PREFIXES = ("mcp_3dcode_", "mcp_3dcv_")
 
 
 def _stdouts(root: Path) -> list[Path]:
@@ -59,10 +60,11 @@ def tool_rates(sessions: list[Path]) -> tuple[Counter, Counter]:
         except (OSError, ValueError):
             continue
         for name, row in ((stats.get("tools") or {}).get("byName") or {}).items():
-            if not name.startswith(MCP_PREFIX):
+            prefix = next((p for p in MCP_PREFIXES if name.startswith(p)), None)
+            if prefix is None:
                 continue
-            calls[name[len(MCP_PREFIX):]] += int(row.get("count") or 0)
-            failed[name[len(MCP_PREFIX):]] += int(row.get("fail") or 0)
+            calls[name[len(prefix):]] += int(row.get("count") or 0)
+            failed[name[len(prefix):]] += int(row.get("fail") or 0)
     return calls, failed
 
 

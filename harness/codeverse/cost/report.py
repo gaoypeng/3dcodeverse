@@ -141,7 +141,7 @@ def markdown(audit: Audit, *, title: str = "Cost audit") -> str:
 
 
 def console(audit: Audit) -> str:
-    """Compact plain-text version for ``3dcv cost``."""
+    """Compact plain-text version for ``3dcode cost``."""
     lines = [line.replace("**", "") for line in summary_lines(audit)]
     lines += ["", "stage:"]
     for b in audit.summary.ranked("stage"):

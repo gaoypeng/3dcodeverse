@@ -173,7 +173,7 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
         if rec.renders is None or not rec.renders.views:
             continue
         rubric = rec.judgment.rubric if rec.judgment else TRACK_INFO[spec.track].rubric
-        # the same views, at the same paths, that the in-run judge and `3dcv judge` see
+        # the same views, at the same paths, that the in-run judge and `3dcode judge` see
         inp = JudgeInput(
             spec=spec, renders=judged_subset(resolve_paths(ws, rec.renders)), measurement=rec.measurement, gates=rec.gates,
             acceptance=[AcceptanceItem.model_validate(a) for a in acceptance], plan_summary=digest,

@@ -113,7 +113,7 @@ def test_an_unreadable_cached_stage_is_a_miss_not_a_dead_run(tmp_ws):
     """RS-2: inputs_hash covers the INPUTS, never the result model's schema.  A cached
     result that no longer validates (the contract gained a field) or no longer parses
     (a clobbered file) used to escape as ValidationError / JSONDecodeError, which
-    BaseTrack.run turns into a FAILED run — so every later `3dcv resume` died the same
+    BaseTrack.run turns into a FAILED run — so every later `3dcode resume` died the same
     way.  Both must re-run the stage and overwrite the file."""
 
     class PlanV1(BaseModel):

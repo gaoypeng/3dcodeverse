@@ -1,4 +1,4 @@
-"""deliverable/ + telemetry/ packaging, `3dcv show`, and export / gallery on BOTH
+"""deliverable/ + telemetry/ packaging, `3dcode show`, and export / gallery on BOTH
 layouts (old runs must keep working)."""
 
 from __future__ import annotations
@@ -186,7 +186,7 @@ def test_show_sections_and_status_share_the_packaged_run(fake_run):
     r = runner.invoke(app, ["status", ws.root.name, "--runs-dir", str(ws.root.parent)])
     assert r.exit_code == 0, r.output
     assert "rounds" in r.output and "passed" in r.output
-    assert f"3dcv show {ws.root.name}" in r.output
+    assert f"3dcode show {ws.root.name}" in r.output
 
 
 def test_show_works_on_an_old_layout_run(tmp_path: Path):

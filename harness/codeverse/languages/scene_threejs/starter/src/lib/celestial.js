@@ -468,7 +468,7 @@ function starMaterial(radius, gain, twinkle, bright) {
             '  if (a < 0.004) discard;',
             '  gl_FragColor = vec4(vTint, clamp(a, 0.0, 1.0));',
         ].join('\n'),
-        // 3dcv: no-fog — a star is at infinity, and FogExp2 at the
+        // 3dcode: no-fog — a star is at infinity, and FogExp2 at the
         // night density erases anything past ~400 m. worldShell's own
         // dome opts out the same way.
         fog: false,
@@ -554,7 +554,7 @@ function milkyWayMesh(radius, pole, bright) {
             '  if (a < 0.003) discard;',
             '  gl_FragColor = vec4(c, clamp(a, 0.0, 1.0));',
         ].join('\n'),
-        // 3dcv: no-fog — see StarField.
+        // 3dcode: no-fog — see StarField.
         fog: false,
         side: THREE.BackSide,
         blending: bright ? THREE.NormalBlending : THREE.AdditiveBlending,
@@ -813,7 +813,7 @@ function auroraMaterial(color, activity, swing, bright) {
             '  c *= mix(vec3(1.14, 0.98, 0.76), vec3(0.76, 1.0, 1.20), hj);',
             '  gl_FragColor = vec4(c, clamp(a, 0.0, 1.0));',
         ].join('\n'),
-        // 3dcv: no-fog — the curtain hangs a kilometre out, past
+        // 3dcode: no-fog — the curtain hangs a kilometre out, past
         // every scene fog density this engine sets.
         fog: false,
         side: THREE.DoubleSide,

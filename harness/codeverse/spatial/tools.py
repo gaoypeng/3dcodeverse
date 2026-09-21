@@ -758,7 +758,7 @@ def texture_pass_tool(ctx: ToolContext, args: TexturePassArgs) -> Observation:
         raise ToolUsageError(
             "this run did not ask for texturing (spec.options.texture is false), so the "
             "texture pass is off; finish the geometry instead",
-            "3dcv make ... --texture   # or `3dcv texture pass <slug>` after the run")
+            "3dcode make ... --texture   # or `3dcode texture pass <slug>` after the run")
     texture_pass = lazy("codeverse.texturing.run", "texture_pass")
     services = ctx.extra.get("texture_services")  # the ONE injection point (TextureServices)
     # update_record=False: during an agent session the control files have ONE owner

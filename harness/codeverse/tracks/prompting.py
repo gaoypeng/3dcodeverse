@@ -172,7 +172,7 @@ def cookbook_sections(ctx: RunContext, names: Sequence[str], *, max_chars: int =
     text = "\n\n".join(out)
     if len(text) > max_chars:
         text = (
-            text[:max_chars].rstrip() + "\n\n…[clipped — the whole cookbook is at .3dcv/cookbook.md]"
+            text[:max_chars].rstrip() + "\n\n…[clipped — the whole cookbook is at .3dcode/cookbook.md]"
         )
     return text
 

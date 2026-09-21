@@ -1,4 +1,4 @@
-"""``3dcv flywheel export | pairs | caption | index | dedupe | gallery``."""
+"""``3dcode flywheel export | pairs | caption | index | dedupe | gallery``."""
 
 from __future__ import annotations
 
@@ -122,9 +122,9 @@ def caption_cmd(
         # PER RUN: captioning rewrites record.json (--out writes a side-car instead and
         # touches nothing), and a locked run is skipped with a warning — one live run must
         # not abort a --all batch of hundreds
-        lock = nullcontext() if out else exclusive(ws.root, what=f"3dcv flywheel caption {ws.root.name}")
+        lock = nullcontext() if out else exclusive(ws.root, what=f"3dcode flywheel caption {ws.root.name}")
         try:
-            # the priced captioner call joins the run's ledger (as `3dcv judge` does)
+            # the priced captioner call joins the run's ledger (as `3dcode judge` does)
             with lock, run_ledger(ws.root, run=ws.root.name, create=False):
                 caps = caption_sample(ws, rec, model, out_dir=out, slug=slug)
         except (CaptionError, RunLocked) as e:
@@ -207,9 +207,9 @@ def gallery_cmd(
     thumb_px: Annotated[int, typer.Option("--thumb-px", min=128, help="thumbnail long edge")] = 640,
     embed: Annotated[bool, typer.Option("--embed/--no-embed", help="inline the contact sheets as data: URIs")] = True,
 ) -> None:
-    """Alias of `3dcv gallery build` (kept for scripts): one self-contained HTML page."""
+    """Alias of `3dcode gallery build` (kept for scripts): one self-contained HTML page."""
     from codeverse.addons.gallery.page import build_static
 
     path, n, _ = build_static([runs_dir], out_html, title=title, embed=embed, thumb_px=thumb_px)
     ok(f"gallery of {n} runs → {path} ({path.stat().st_size // 1024} KB)")
-    console.print("[dim]`3dcv gallery serve` serves the same page with working links[/dim]")
+    console.print("[dim]`3dcode gallery serve` serves the same page with working links[/dim]")

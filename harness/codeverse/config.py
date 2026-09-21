@@ -129,7 +129,7 @@ class Rate(BaseModel):
     max_in_flight: int = Field(
         default=64,
         ge=0,  # NEGATIVE is not "unlimited" here: 0 is.  Without this bound -5 survived config,
-               # was reported as FITTING the pool budget by `3dcv doctor`, poisoned the shared
+               # was reported as FITTING the pool budget by `3dcode doctor`, poisoned the shared
                # in-flight accounting, and finally died as a bare ValueError from
                # threading.BoundedSemaphore inside KeyPool -- at the first model call, long
                # after the workspace and spec.json were written.
@@ -370,7 +370,7 @@ class Settings(BaseSettings):
 
         A field the user stated themselves (config file / ``CV3D_*`` env) is left
         alone unless ``force`` — so a profile is a *default* dial, while
-        ``3dcv make --profile X`` (which forces) is an instruction.  The CLI's own
+        ``3dcode make --profile X`` (which forces) is an instruction.  The CLI's own
         flags are applied after this and always win."""
         from codeverse.cost.profiles import get_profile
 
@@ -388,7 +388,7 @@ class Settings(BaseSettings):
             ``judge`` sub-model as set when any ``CV3D_JUDGE__*`` is present — so testing
             it here let one stated field suppress the profile's every other dial:
             ``CV3D_PROFILE=quality CV3D_JUDGE__MAX_PX=800`` judged at n=1 instead of n=3,
-            silently, while `3dcv make` printed "judge sigma 0.017 at n=3".  The sub-model
+            silently, while `3dcode make` printed "judge sigma 0.017 at n=3".  The sub-model
             has its own ``model_fields_set``, which is the per-field answer.  The values a
             profile writes are DEFAULTS, not statements, so the field-set is restored
             afterwards and re-applying a profile stays idempotent.
@@ -503,7 +503,7 @@ def get_settings() -> Settings:
     seen: set[str] = set()
     s.gemini_api_keys = [k for k in s.gemini_api_keys if not (k in seen or seen.add(k))]
     # the dial named in config.yaml / CV3D_PROFILE, applied as a *default*: a value the
-    # user stated themselves survives it.  `3dcv make --profile X` forces the same dial
+    # user stated themselves survives it.  `3dcode make --profile X` forces the same dial
     # (codeverse.cli._common.resolve_dial is the one resolver both paths go through).
     s.apply_profile(s.profile)
     return s

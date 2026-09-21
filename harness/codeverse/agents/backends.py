@@ -5,7 +5,7 @@ argv: ``gemini -p <prompt> -m <model> --approval-mode yolo --skip-trust --output
 * env hardening: host secrets stripped, one pool key as ``GEMINI_API_KEY``,
   ``GEMINI_CLI_SYSTEM_SETTINGS_PATH`` (per session, in the trajectory dir) forcing
   api-key auth + dynamic model configuration (otherwise an unknown model is *silently*
-  substituted), the 3dcv MCP server and ``mcp.allowed``, Node heap cap, no self-relaunch.
+  substituted), the 3dcode MCP server and ``mcp.allowed``, Node heap cap, no self-relaunch.
 * JSON envelope ``{session_id, response, stats:{models:{<m>:{tokens:{prompt,
   input, candidates, cached, thoughts}}}, tools:{totalCalls}}}`` → Usage (+ cost
   via pricing).  ``tokens.prompt`` is the TOTAL prompt size and ``tokens.input``
@@ -56,7 +56,7 @@ log = logging.getLogger(__name__)
 
 SYSTEM_SETTINGS = {
     # folderTrust must be OFF: with it on, gemini-cli silently disables the workspace
-    # .gemini/settings.json mcpServers (even with --skip-trust) → no 3dcv tools.
+    # .gemini/settings.json mcpServers (even with --skip-trust) → no 3dcode tools.
     "security": {"auth": {"selectedType": "gemini-api-key"}, "folderTrust": {"enabled": False}},
     "experimental": {"dynamicModelConfiguration": True},
     "general": {"topicUpdateNarration": False},
@@ -92,7 +92,7 @@ def write_system_settings(path: Path | None = None, *, mcp_command: list[str] | 
     """Write the gemini-cli system-settings json (api-key auth + dynamic models) and return its path.
 
     gemini-cli applies this file LAST and ``mcp.allowed`` REPLACES rather than merges, so the
-    3dcv server and the allow-list belong here, not in the agent-writable
+    3dcode server and the allow-list belong here, not in the agent-writable
     ``ws/.gemini/settings.json``: a server the agent planted there is Blocked."""
     path = path or (get_settings().cache_dir / "gemini_cli_settings.json")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -323,7 +323,7 @@ def _compose_prompt(job: AgentJob) -> str:
 #: start and then DENIED on activation, which reads in the transcript as the model
 #: ignoring them.  It only ever opens files already inside the workspace.
 ALLOWED_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "Skill",
-                 "Bash(node:*)", "Bash(python:*)", "Bash(python3:*)", "Bash(ls:*)", "mcp__c3v__*")
+                 "Bash(node:*)", "Bash(python:*)", "Bash(python3:*)", "Bash(ls:*)", f"mcp__{MCP_SERVER_NAME}__*")
 
 
 def parse_claude_json(stdout: str) -> dict[str, Any] | None:

@@ -122,7 +122,7 @@ def test_mcp_command_resolution(tmp_ws: Workspace):
                           mcp_command=default_mcp_command(tmp_ws, language="cadquery"))
     assert mcp_command_for(tmp_ws, job2) == ["python", "-m", "x"]  # still the typed job
     (tmp_ws.root / ".mcp.json").write_text(json.dumps(
-        {"mcpServers": {"3dcv": {"command": "/tmp/evil", "args": ["--pwn"]}}}))
+        {"mcpServers": {"3dcode": {"command": "/tmp/evil", "args": ["--pwn"]}}}))
     assert mcp_command_for(tmp_ws, job2) == ["python", "-m", "x"]
     assert "/tmp/evil" not in mcp_command_for(tmp_ws, job)
 

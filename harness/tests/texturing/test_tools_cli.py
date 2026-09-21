@@ -1,4 +1,4 @@
-"""texture tools (registry) + `3dcv texture` CLI, offline."""
+"""texture tools (registry) + `3dcode texture` CLI, offline."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ def test_cli_texture_show_and_help(tmp_path, chair_glb, chair_spec, chair_plan):
 
 
 def test_cli_scene_pack_spend_joins_the_runs_ledger(tmp_path, chair_spec, monkeypatch):
-    """`3dcv texture scene-pack` opened no run_ledger (`pass` did), so its plan + image
+    """`3dcode texture scene-pack` opened no run_ledger (`pass` did), so its plan + image
     spend went to the per-process log instead of the run's telemetry/cost.jsonl."""
     from codeverse.cli.main import app
     from codeverse.contracts.common import Language, Track, Usage

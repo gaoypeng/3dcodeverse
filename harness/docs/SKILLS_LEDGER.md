@@ -161,7 +161,7 @@ so every number below carries the snapshot it was read from.
 ### Read rate — the cheap filter, and the only thing that resolved
 
 Ground truth is api-agent's `read_skill` tool calls, extracted from trajectories. The atime
-probe behind `3dcv skills report` **cannot** measure this and its own control says so: the
+probe behind `3dcode skills report` **cannot** measure this and its own control says so: the
 control bundle came back "opened" in 27 of 33 sessions.
 
 | bundle | opened / listed (pooled) | 95% CI |

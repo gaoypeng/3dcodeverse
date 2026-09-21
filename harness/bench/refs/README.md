@@ -7,7 +7,7 @@ bench/refs/<prompt_id>/<what_it_shows>.png|jpg|jpeg|webp
 ```
 
 `bench/run_bench.py::discover_references` attaches every image in the folder to the prompt's
-`Spec.references` for every bench driver (`3dcv bench run`, `bench/compare_backends.py`,
+`Spec.references` for every bench driver (`3dcode bench run`, `bench/compare_backends.py`,
 `bench/ab_plan.py`), in sorted filename order, with the file stem (underscores → spaces) as the
 note the agent and the judge read.  A prompt may also list `references:` paths in its yaml.
 

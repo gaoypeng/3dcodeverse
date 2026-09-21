@@ -1,6 +1,6 @@
 """Cost/quality profiles — one name that sets the whole dial coherently.
 
-``3dcv make --profile economy|balanced|quality`` picks a :class:`Profile`; it
+``3dcode make --profile economy|balanced|quality`` picks a :class:`Profile`; it
 resolves the model per role, the judge sample count, the number of refine
 rounds, the best-of-N width, the judge payload, the texture pass and the budget
 ceilings in one consistent move.  Mixing knobs by hand is how a run ends up
@@ -67,7 +67,7 @@ class Profile:
                                      # judge's own noise in both directions (docs/COST.md §14)
     #: budget ceilings a run of this shape should not need to exceed
     max_minutes: float = 60.0
-    #: measured expectation (docs/COST.md) — reported by ``3dcv cost profiles``
+    #: measured expectation (docs/COST.md) — reported by ``3dcode cost profiles``
     expected_usd: float = 0.0
     expected_score: str = ""
     note: str = ""
@@ -158,7 +158,7 @@ def get_profile(name: str | None) -> Profile:
 
 
 def profile_table() -> list[tuple[str, str, str, str, str, str, str]]:
-    """Rows for ``3dcv cost profiles``: name, generator, judge, shape, montage, $, note."""
+    """Rows for ``3dcode cost profiles``: name, generator, judge, shape, montage, $, note."""
     rows = []
     for name in PROFILE_NAMES:
         p = PROFILES[name]

@@ -31,7 +31,7 @@ ALLOWED_BINARIES = {
     "git", "python", "python3", "pip", "pip3", "pytest", "conda", "uv", "node", "npm", "npx", "nvm",
     "sudo", "apt-get", "apt", "brew", "dnf", "pacman",
     # this project
-    "3dcv", "3dcodeverse", "setup.sh", "blender", "gemini", "claude", "codex", "agy",
+    "3dcode", "3dcodeverse", "setup.sh", "blender", "gemini", "claude", "codex", "agy",
 }
 
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")

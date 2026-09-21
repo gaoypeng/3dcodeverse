@@ -135,7 +135,7 @@ def _measure(glb: Path) -> Measurement | None:
 #: has no GLB deliverable (languages/scene_threejs/runtime.py: "BuildResult.glb_path stays
 #: None") and neither graphics language produces one at all, so ``texture_pass`` on those
 #: tracks can only ever raise FileNotFoundError.  Scenes have their own command,
-#: ``3dcv texture scene-pack``.
+#: ``3dcode texture scene-pack``.
 TEXTURE_TRACKS = (Track.STATIC_OBJECT, Track.ARTICULATED_OBJECT)
 
 
@@ -150,7 +150,7 @@ def texture_requested(spec: Spec) -> bool:
     ``Spec.options.texture`` is the switch; the legacy ``texture`` tag is still
     honoured because recorded specs carry it.  Nothing else may turn texturing
     on — an agent calling the ``texture_pass`` tool in a run that did not ask for
-    it is refused, and ``3dcv texture pass <slug>`` is an explicit user
+    it is refused, and ``3dcode texture pass <slug>`` is an explicit user
     instruction that does not go through here at all.
 
     The track scope belongs here too, for the same "one owner" reason: without it

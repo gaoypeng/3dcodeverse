@@ -355,7 +355,7 @@ def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord
     nav = "".join(f"<a href='#{a}'>{a}</a>" for a in
                   ("rounds", "judge", "complexity", "measurement", "renders", "cost", "code"))
     body = (
-        top_bar("3dcv gallery",
+        top_bar("3dcode gallery",
                 crumbs=f"<a href='/'>gallery</a> <span class='faint'>/</span> "
                        f"<a href='/?battery={quote(entry.battery)}'>{esc(entry.battery)}</a> "
                        f"<span class='faint'>/</span> <b>{esc(entry.slug)}</b>",
@@ -374,18 +374,18 @@ def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord
         + "</main>"
         + footer(f"{entry.path} · record.json re-read on every request")
     )
-    return page_shell(f"{entry.slug} — 3dcv gallery", body, extra_css=DETAIL_CSS,
+    return page_shell(f"{entry.slug} — 3dcode gallery", body, extra_css=DETAIL_CSS,
                       scripts=NEIGHBOUR_JS)
 
 
 def render_broken_detail(entry: RunEntry, urls: UrlMaker) -> str:
     """Detail page for a run with no usable record — still links every file."""
     links = " · ".join(f"<a href='{esc(urls.link(entry, link))}'>{esc(link.label)}</a>" for link in entry.links)
-    body = (top_bar("3dcv gallery", entry.battery,
+    body = (top_bar("3dcode gallery", entry.battery,
                     crumbs=f"<a href='/'>gallery</a> <span class='faint'>/</span> <b>{esc(entry.slug)}</b>")
             + "<main class='wrap'>"
             + _panel(entry.slug, f"<div class='err'>{esc(entry.state)}: {esc(entry.error)}</div>"
                                  f"<p style='margin-top:var(--s-3)'>{esc(entry.prompt)}</p>"
                                  f"<div class='linkrow'>{links}</div>")
             + "</main>" + footer(entry.path))
-    return page_shell(f"{entry.slug} — 3dcv gallery", body, extra_css=DETAIL_CSS)
+    return page_shell(f"{entry.slug} — 3dcode gallery", body, extra_css=DETAIL_CSS)

@@ -26,7 +26,7 @@ def test_writes_three_bodies_same_content(tmp_ws: Workspace):
     assert "ONLY under `src/` and `public/`" in body
     assert "never import from `codeverse`" in body.lower() or "Never import from `codeverse`" in body
     assert CONTRACT.splitlines()[0] in body
-    assert "Spatial tools (3dcv)" in body
+    assert "Spatial tools (3dcode)" in body
 
 
 def test_bodies_document_only_this_tracks_tools(tmp_ws: Workspace):
@@ -53,14 +53,14 @@ def test_bodies_document_only_this_tracks_tools(tmp_ws: Workspace):
 
 def test_no_mcp_server_is_written_into_the_workspace(tmp_ws: Workspace):
     """Only the ``context`` block goes into the agent-writable ws/.gemini/settings.json;
-    3dcv reaches each CLI through a harness-owned per-session file (audit 2026-08-27)."""
+    3dcode reaches each CLI through a harness-owned per-session file (audit 2026-08-27)."""
     gs = tmp_ws.root / ".gemini" / "settings.json"
     gs.parent.mkdir(parents=True)
-    gs.write_text(json.dumps({"mcpServers": {"3dcv": {"command": "/tmp/evil"}}, "ui": {"theme": "dark"}}))
+    gs.write_text(json.dumps({"mcpServers": {"3dcode": {"command": "/tmp/evil"}}, "ui": {"theme": "dark"}}))
     _mat(tmp_ws)
     data = json.loads(gs.read_text())
     assert data["ui"]["theme"] == "dark"
-    assert "3dcv" not in data["mcpServers"], "an agent-planted 3dcv impostor must be dropped"
+    assert "3dcode" not in data["mcpServers"], "an agent-planted 3dcode impostor must be dropped"
     assert not (tmp_ws.root / ".mcp.json").exists(), "claude-code writes its own per-session mcp.json"
     assert data["context"]["fileFiltering"]["respectGitIgnore"] is False  # .gitignore hides artifacts/ + trajectories/
 
@@ -89,7 +89,7 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
         assert "artifacts/" not in lines and "trajectories/" not in lines
         for readable in ("artifacts/census.json", "artifacts/build_last.json", "artifacts/measurement.json",
                          "artifacts/gates/r00/contract_tool.json", "artifacts/tool_renders/r00_ab/sheet.png",
-                         "trajectories/baseline_r00/task_prompt.md", "src/model.py", ".3dcv/cookbook.md"):
+                         "trajectories/baseline_r00/task_prompt.md", "src/model.py", ".3dcode/cookbook.md"):
             assert not ignored(readable, lines), readable
         for hidden in ("artifacts/renders/r00/sheet.png", "trajectories/baseline_r00/stdout.json",
                        "trajectories/baseline_r00/stderr.log", "node_modules/three/x.js", ".git/HEAD"):
@@ -99,7 +99,7 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
 def test_spatial_disabled_drops_server_and_documents_absence(tmp_ws: Workspace):
     _mat(tmp_ws)
     _mat(tmp_ws, spatial=False)
-    assert "3dcv" not in json.loads((tmp_ws.root / ".gemini" / "settings.json").read_text()).get("mcpServers", {})
+    assert "3dcode" not in json.loads((tmp_ws.root / ".gemini" / "settings.json").read_text()).get("mcpServers", {})
     assert "No spatial tools are available" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
@@ -128,19 +128,19 @@ def test_missing_cookbook_warns_where_someone_can_see_it(tmp_ws: Workspace, capl
 
 def test_kind_specific_tool_hint(tmp_ws: Workspace):
     _mat(tmp_ws, kind="claude-code")
-    assert "mcp__c3v__" in (tmp_ws.root / "CLAUDE.md").read_text()
+    assert "mcp__3dcode__" in (tmp_ws.root / "CLAUDE.md").read_text()
     _mat(tmp_ws, kind="agy")
     assert "codeverse.cli.main tools" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
 def test_codex_overrides_are_valid_toml_fragments():
     ov = codex_mcp_overrides(["python", "-m", "x", "--workspace", "/a b/c"])
-    assert ov[0] == "-c" and ov[1] == 'mcp_servers.3dcv.command="python"'
-    assert ov[3] == 'mcp_servers.3dcv.args=["-m", "x", "--workspace", "/a b/c"]'
+    assert ov[0] == "-c" and ov[1] == 'mcp_servers.3dcode.command="python"'
+    assert ov[3] == 'mcp_servers.3dcode.args=["-m", "x", "--workspace", "/a b/c"]'
     assert ov[::2] == ["-c"] * (len(ov) // 2)
     keys = {kv.split("=", 1)[0]: kv.split("=", 1)[1] for kv in ov[1::2]}
-    # codex exec cannot answer the per-tool approval elicitation: without this every 3dcv call is cancelled
-    assert keys["mcp_servers.3dcv.default_tools_approval_mode"] == '"approve"'
+    # codex exec cannot answer the per-tool approval elicitation: without this every 3dcode call is cancelled
+    assert keys["mcp_servers.3dcode.default_tools_approval_mode"] == '"approve"'
 
 
 def test_default_mcp_command_is_the_backends_interpreter(tmp_ws: Workspace):

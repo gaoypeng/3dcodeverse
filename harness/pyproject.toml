@@ -42,8 +42,8 @@ cad = ["cadquery>=2.4"]                                   # language `cadquery`
 urdf = ["yourdfpy>=0.0.56", "scipy>=1.11"]                # track `articulated_object` (urdf_blender)
 graphics = ["moderngl>=5.8"]                              # track `graphics` (glsl_shader / opengl_python)
 mesh = ["shapely>=2.0", "networkx>=3.2", "manifold3d>=2.3", "matplotlib>=3.8"]  # cross_section area, mesh split, joint-sweep booleans, judge slices (D48)
-mcp = ["mcp>=1.0"]                                        # `3dcv mcp` spatial-tool server for the agentic CLIs
-flywheel = ["pyarrow>=15"]                                # `3dcv flywheel export --pack` (parquet)
+mcp = ["mcp>=1.0"]                                        # `3dcode mcp` spatial-tool server for the agentic CLIs
+flywheel = ["pyarrow>=15"]                                # `3dcode flywheel export --pack` (parquet)
 all = ["3dcodeverse[cad,urdf,graphics,mesh,mcp,flywheel]"]
 dev = ["pytest>=8", "pytest-timeout>=2.3", "pytest-xdist>=3.6", "ruff>=0.5", "pyarrow>=15",
        # the Agent Skills reference validator (CLI: `agentskills`).  Pure python,
@@ -53,7 +53,7 @@ dev = ["pytest>=8", "pytest-timeout>=2.3", "pytest-xdist>=3.6", "ruff>=0.5", "py
        "skills-ref>=0.1.1"]
 
 [project.scripts]
-3dcv = "codeverse.cli.main:app"
+3dcode = "codeverse.cli.main:app"
 3dcodeverse = "codeverse.cli.main:app"
 
 [tool.setuptools.packages.find]

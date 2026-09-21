@@ -171,7 +171,7 @@ class StageRunner:
             # contract that gained a field invalidates nothing — and a clobbered file
             # invalidates nothing either.  Both used to escape as ValidationError /
             # JSONDecodeError through BaseTrack.run, which marks the run FAILED and
-            # re-raises, so every later `3dcv resume <slug>` died the same way with no way
+            # re-raises, so every later `3dcode resume <slug>` died the same way with no way
             # out (there is no flag to drop a cached stage).  Re-run instead and
             # overwrite the file — the same tolerance load_ledger and _read_jsonl apply.
             try:

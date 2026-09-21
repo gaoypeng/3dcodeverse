@@ -1,13 +1,13 @@
-"""``3dcv cost`` — what the runs cost and where the money went.
+"""``3dcode cost`` — what the runs cost and where the money went.
 
-    3dcv cost <slug>                      # one run, from its own ledger
-    3dcv cost --runs-dir bench/out/x      # a whole battery, aggregated
-    3dcv cost runs/ bench/out/*           # any mix of run dirs / trees
-    3dcv cost show runs/ --md report.md   # the same, explicit + full markdown
-    3dcv cost runs/ --recheck             # re-price with today's table (drift vs what was billed)
-    3dcv cost prices [--stale] [--unverified]
-    3dcv cost profiles                    # the economy / balanced / quality dial
-    3dcv cost estimate gemini:… --in 12000 --out 800
+    3dcode cost <slug>                      # one run, from its own ledger
+    3dcode cost --runs-dir bench/out/x      # a whole battery, aggregated
+    3dcode cost runs/ bench/out/*           # any mix of run dirs / trees
+    3dcode cost show runs/ --md report.md   # the same, explicit + full markdown
+    3dcode cost runs/ --recheck             # re-price with today's table (drift vs what was billed)
+    3dcode cost prices [--stale] [--unverified]
+    3dcode cost profiles                    # the economy / balanced / quality dial
+    3dcode cost estimate gemini:… --in 12000 --out 800
 
 A run that wrote a live ledger (``telemetry/cost.jsonl``) is read from it — one
 priced row per real model call.  Older runs are reconstructed from their
@@ -30,7 +30,7 @@ from codeverse.cli._common import console, ok, warn
 STALE_AFTER_DAYS = 90
 
 class _CostGroup(TyperGroup):
-    """``3dcv cost <slug|path> ...`` — a first argument that is not a subcommand
+    """``3dcode cost <slug|path> ...`` — a first argument that is not a subcommand
     is forwarded to ``show`` instead of failing with "No such command"."""
 
     def resolve_command(self, ctx: click.Context, args: list[str]):  # type: ignore[override]
@@ -54,7 +54,7 @@ def cost(
 ) -> None:
     """Cost breakdown: per stage, per role, per model, waste, $ per passing artifact.
 
-    ``3dcv cost <slug>`` reports one run from its own ledger; ``--runs-dir <dir>``
+    ``3dcode cost <slug>`` reports one run from its own ledger; ``--runs-dir <dir>``
     aggregates every run under a root (a bench battery)."""
     if ctx.invoked_subcommand is not None:
         return
@@ -73,7 +73,7 @@ def show(
     per_run: Annotated[bool, typer.Option("--per-run/--no-per-run")] = True,
     runs_dir: Annotated[Path | None, typer.Option("--runs-dir", help="runs root a bare slug is resolved against")] = None,
 ) -> None:
-    """Cost breakdown for runs named by slug or path (``3dcv cost <slug>`` lands here)."""
+    """Cost breakdown for runs named by slug or path (``3dcode cost <slug>`` lands here)."""
     _report([_resolve(str(p), runs_dir) for p in paths], md=md, recheck=recheck, limit=limit, per_run=per_run)
 
 
@@ -254,7 +254,7 @@ def profiles() -> None:
         console.print("  ".join(c.ljust(w) for c, w in zip(r[:6], widths, strict=True)) + "  " + r[6],
                       soft_wrap=True)
     console.print(f"\n[dim]active profile: {get_settings().profile}  ·  "
-                  f"`3dcv make ... --profile quality` to switch one run[/dim]")
+                  f"`3dcode make ... --profile quality` to switch one run[/dim]")
 
 
 # --------------------------------------------------------------------------- estimate

@@ -120,7 +120,7 @@ def print_observation(obs: Any, *, as_json: bool) -> None:
 
 def doctor_table(rows: list[tuple[str, str, str]]) -> Table:
     """rows: (check, status OK|WARN|FAIL, detail)."""
-    t = Table(title="3dcv doctor")
+    t = Table(title="3dcode doctor")
     t.add_column("check", style="bold")
     t.add_column("status")
     t.add_column("detail")
@@ -150,7 +150,7 @@ def lazy(module: str, attr: str | None = None) -> Any:
     except ImportError as e:
         raise CliError(
             f"{module} is not available ({e}). This command needs that sub-package; "
-            f"run `3dcv doctor` to see what is installed.", code=2
+            f"run `3dcode doctor` to see what is installed.", code=2
         ) from e
     if attr is None:
         return mod
@@ -278,7 +278,7 @@ def resolve_dial(
     max_minutes: float | None = None,
     texture: bool = False,
 ) -> ResolvedDial:
-    """The single resolver for the cost dial — used by ``3dcv make`` and by the tests.
+    """The single resolver for the cost dial — used by ``3dcode make`` and by the tests.
 
     ``--profile X`` (``profile_flag``) *forces* the dial over anything the user
     stated in ``config.yaml`` / ``CV3D_*``; ``CV3D_PROFILE=X`` set the same dial

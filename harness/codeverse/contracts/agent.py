@@ -30,7 +30,7 @@ class AgentJob(BaseModel):
     #: turn flag and run unbounded except by ``timeout_s`` and the run's wall clock
     max_turns: int = 60
     spatial_tools: bool = Field(
-        default=True, description="expose the 3dcv MCP spatial tools to the agent"
+        default=True, description="expose the 3dcode MCP spatial tools to the agent"
     )
     write_roots: list[str] = Field(
         default_factory=lambda: ["src", "public"], description="dirs the agent may edit"
@@ -66,7 +66,7 @@ class AgentJob(BaseModel):
         "post-session: a write to one is reverted and the session failed",
     )
     mcp_command: list[str] | None = Field(
-        default=None, description="override for the 3dcv MCP server command"
+        default=None, description="override for the 3dcode MCP server command"
     )
 
 

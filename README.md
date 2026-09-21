@@ -18,7 +18,7 @@ training corpora; and a finetuning study that trains open models on that data.
 
 ## [`harness/`](harness/) — the generation & evaluation harness
 
-Python dist `3dcodeverse` (import `codeverse`, CLI `3dcodeverse` / `3dcv`).
+Python dist `3dcodeverse` (import `codeverse`, CLI `3dcodeverse` / `3dcode`).
 LLMs write raw 3D code across four tracks — `static_object` ·
 `articulated_object` · `scene` · `graphics` — in seven languages; the harness
 owns everything around the code: typed plans, deterministic gates
@@ -32,8 +32,8 @@ Gemini / Anthropic / OpenAI models.
 
 ```bash
 bash harness/setup.sh        # python deps + node runtime + doctor (Linux, python 3.13, node 20.6+)
-3dcv make "a mid-century wooden dining chair" --track static_object --language blender
-3dcv gallery serve                   # browse every run in the browser
+3dcode make "a mid-century wooden dining chair" --track static_object --language blender
+3dcode gallery serve                   # browse every run in the browser
 ```
 
 Start at [`harness/README.md`](harness/README.md); design and operation live in

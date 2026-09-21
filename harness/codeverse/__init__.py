@@ -23,7 +23,7 @@ Package map (each sub-package has its own docstring):
 - ``tracks``        static_object / articulated_object / scene / graphics pipelines.
 - ``orchestrator``  stage runner, round loop, budget, candidate selection.
 - ``flywheel``      run records → dataset samples / preference pairs.
-- ``cli``           ``3dcv`` command line.
+- ``cli``           ``3dcode`` command line.
 """
 
 __version__ = "0.1.0"

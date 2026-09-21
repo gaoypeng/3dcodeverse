@@ -2,7 +2,7 @@
 
 ``build_report(out_dir)`` reads ``results.jsonl`` (or results.json), aggregates
 mean/median/pass-rate/cost per tier and category, writes ``report.md`` and
-``report.html`` — the same self-contained page as ``3dcv gallery build --embed``
+``report.html`` — the same self-contained page as ``3dcode gallery build --embed``
 (``codeverse.addons.gallery``), one section per tier, with the stats tables under the
 summary strip.
 """

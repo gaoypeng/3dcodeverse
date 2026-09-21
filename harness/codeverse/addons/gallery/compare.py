@@ -91,9 +91,9 @@ def render_compare(entries: list[RunEntry], urls: UrlMaker, *, note: str = "") -
     if not entries:
         inner = ("<div class='panel'><h2>nothing to compare</h2><p class='muted'>Tick two or more "
                  "runs on the index and press <b>compare</b>.</p></div>")
-        body = (top_bar("3dcv gallery", crumbs="<a href='/'>gallery</a> <span class='faint'>/</span> "
-                        "<b>compare</b>") + f"<main class='wrap'>{inner}</main>" + footer("3dcv gallery"))
-        return page_shell("compare — 3dcv gallery", body, extra_css=COMPARE_CSS)
+        body = (top_bar("3dcode gallery", crumbs="<a href='/'>gallery</a> <span class='faint'>/</span> "
+                        "<b>compare</b>") + f"<main class='wrap'>{inner}</main>" + footer("3dcode gallery"))
+        return page_shell("compare — 3dcode gallery", body, extra_css=COMPARE_CSS)
 
     def shot(e: RunEntry) -> str:
         image = e.card_image
@@ -136,7 +136,7 @@ def render_compare(entries: list[RunEntry], urls: UrlMaker, *, note: str = "") -
     counts = {k: sum(1 for e in entries if e.verdict == k) for k, _ in VERDICT_META.items()}
     tally = " · ".join(f"{v} {k}" for k, v in counts.items() if v)
     body = (
-        top_bar("3dcv gallery", f"{len(entries)} runs · {tally}",
+        top_bar("3dcode gallery", f"{len(entries)} runs · {tally}",
                 crumbs="<a href='/'>gallery</a> <span class='faint'>/</span> <b>compare</b>",
                 right=f"<a class='btn' href='/export.csv?runs={quote(','.join(e.key for e in entries))}'>"
                       f"export csv</a>")
@@ -147,8 +147,8 @@ def render_compare(entries: list[RunEntry], urls: UrlMaker, *, note: str = "") -
             + f"<div class='cmpwrap cmp'><table class='cmp'><tbody>{rows}</tbody></table></div>"
         + "<p class='small faint' style='margin-top:var(--s-3)'>read-only view — the gallery never "
           "starts, resumes or deletes a run.</p>"
-        + "</main>" + footer("compare · 3dcv gallery"))
-    return page_shell("compare — 3dcv gallery", body, extra_css=COMPARE_CSS)
+        + "</main>" + footer("compare · 3dcode gallery"))
+    return page_shell("compare — 3dcode gallery", body, extra_css=COMPARE_CSS)
 
 
 #: a leading one of these makes a spreadsheet treat the cell as a formula (CSV injection)

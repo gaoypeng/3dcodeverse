@@ -10,7 +10,7 @@ renders, judges, refines, textures and records every run as data-flywheel materi
 * **Backends:** Gemini / Anthropic / OpenAI chat models; coding agents `gemini-cli`,
   `claude-code`, `codex`, `agy` (Antigravity) — always a vendor's CLI — and
   `single-shot` generation on any chat model.
-* **Spatial tools** (direct, or over the MCP server `3dcv` for the agentic CLIs):
+* **Spatial tools** (direct, or over the MCP server `3dcode` for the agentic CLIs):
   build, measure, render_views/sheet, isolate, cross_section,
   check_connectivity, check_contract, compare_silhouette, joint_sweep, shader_probe,
   scene_probe, scene_views, gl_probe, gl_frames, texture_pass, texture_preview.
@@ -24,10 +24,10 @@ renders, judges, refines, textures and records every run as data-flywheel materi
 * **Flywheel:** git-versioned `src/` per round, `record.json`, sample export with
   quality tiers + dedupe (+ parquet, tar locators), preference/repair/trajectory
   pairs, captions, sqlite index, HTML gallery.
-* **Looking at results:** `3dcv gallery serve` — a local page over `runs/` +
+* **Looking at results:** `3dcode gallery serve` — a local page over `runs/` +
   `bench/out/*/runs` with filters, a per-filter summary strip and a detail page per run;
   it serves the run directories too, so every link (sheet, renders, `src/`, `object.glb`
-  in an orbit viewer, `record.json`) actually opens.  `3dcv gallery build --embed` writes
+  in an orbit viewer, `record.json`) actually opens.  `3dcode gallery build --embed` writes
   the same page as one shareable file.
 
 ## Architecture
@@ -59,8 +59,8 @@ codeverse/
   cost/            append-only ledger, metering, budget guard, profiles, billing
   skills/          typed skill routes + materialisation + read telemetry
   flywheel/        record, export (tiers/dedupe/parquet), preference/repair pairs, sqlite index
-  gallery/         the runs browser (`3dcv gallery serve`) + one-file embed
-  cli/             the typer CLI · doctor.py  the environment checks behind `3dcv doctor`
+  gallery/         the runs browser (`3dcode gallery serve`) + one-file embed
+  cli/             the typer CLI · doctor.py  the environment checks behind `3dcode doctor`
 bench/             the evaluation harness around the harness: run_bench, compare_backends
                    (A/B matrix), ab_plan, infra-failure classification
 runtime_js/        node side: three@0.182 + headless-Chrome render/probe hosts
@@ -75,14 +75,14 @@ Design laws, the full package map and what each stage does: `docs/ARCHITECTURE.m
 ```bash
 bash setup.sh     # install everything + run doctor (idempotent; see docs/INSTALL.md)
 # ...or by hand:
-pip install -e '.[all,dev]'    # entry points: 3dcodeverse, 3dcv
+pip install -e '.[all,dev]'    # entry points: 3dcodeverse, 3dcode
 (cd runtime_js && npm ci)      # three@0.182 + puppeteer 24 (chrome → ~/.cache/puppeteer)
-3dcv doctor
-3dcv make "a mid-century wooden dining chair" --track static_object --language blender
-3dcv make "a kitchen cabinet with one door and a drawer" --track articulated_object --language urdf_blender
-3dcv make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs
-3dcv make "neon cyberpunk rain on a window" --track graphics --language glsl_shader
-3dcv gallery serve             # browse every run at http://127.0.0.1:8765/ (docs/RUNBOOK.md §4)
+3dcode doctor
+3dcode make "a mid-century wooden dining chair" --track static_object --language blender
+3dcode make "a kitchen cabinet with one door and a drawer" --track articulated_object --language urdf_blender
+3dcode make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs
+3dcode make "neon cyberpunk rain on a window" --track graphics --language glsl_shader
+3dcode gallery serve             # browse every run at http://127.0.0.1:8765/ (docs/RUNBOOK.md §4)
 python -m pytest tests -q -m "not live"
 ```
 

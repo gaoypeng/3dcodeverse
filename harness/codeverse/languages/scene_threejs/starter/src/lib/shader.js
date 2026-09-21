@@ -332,9 +332,9 @@ export function makeShaderMaterial(opts = {}) {
             // The checker's own advice is "pass fog:false to opt
             // out", and it reads a source marker — so passing the
             // option has to write one, or the advice does nothing.
-            // `3dcv: no-fog` is the marker THIS harness's GLSL audit
+            // `3dcode: no-fog` is the marker THIS harness's GLSL audit
             // (runtime_js/lib/glsl_audit.mjs) accepts.
-            fog ? '' : '// 3dcv: no-fog',
+            fog ? '' : '// 3dcode: no-fog',
             '#include <common>', LOG_PARS_F, fog ? FOG_PARS_F : '',
             shared, util_, fragmentHead,
             'void main() {',
@@ -354,8 +354,8 @@ export function makeShaderMaterial(opts = {}) {
     if (!vs.includes(LOG_V)) vs = intoMainEnd(vs, LOG_V);
     // Raw sources opt out the same way: the trap does not care who
     // wrote the shader, and neither does the checker.
-    if (!fog && !/(3dcv|astra3d): no-fog/.test(fs)) {
-        fs = '// 3dcv: no-fog\n' + fs;
+    if (!fog && !/(3dcode|astra3d): no-fog/.test(fs)) {
+        fs = '// 3dcode: no-fog\n' + fs;
     }
     if (!fs.includes(LOG_PARS_F)) fs = '#include <common>\n' + LOG_PARS_F + '\n' + fs;
     if (!fs.includes(LOG_F)) fs = intoMainTop(fs, LOG_F);

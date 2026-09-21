@@ -63,9 +63,9 @@ def test_sibling_detection_matches_arguments_not_the_repo_path():
     harness_commands = (
         ["python", "-m", "codeverse.cli.main", "bench", "run"],
         ["python", "bench/compare_backends.py", "--arms", "x"],
-        ["/home/u/.local/bin/3dcv", "doctor"],
+        ["/home/u/.local/bin/3dcode", "doctor"],
         ["/usr/bin/python3", "/x/y/run_bench.py"],
-        ["/home/u/miniconda3/bin/python3.13", "/home/u/miniconda3/bin/3dcv", "make"],
+        ["/home/u/miniconda3/bin/python3.13", "/home/u/miniconda3/bin/3dcode", "make"],
         ["/usr/bin/python3", "/usr/local/bin/3dcodeverse", "doctor"],
         ["python", "-m", "bench.ab_plan", "--prompts", "x"],
         ["python", "-m", "bench.compare_backends", "--arms", "x"],
@@ -77,8 +77,8 @@ def test_sibling_detection_matches_arguments_not_the_repo_path():
         ["python", "-m", "pytest", "tests/"],
         [],
         ["ls", "-la", "/home/u/3dcodeverse"],
-        ["tar", "czf", "b.tgz", "/home/u/.local/bin/3dcv"],
-        ["python", "-c", "print(1)", "/home/u/.local/bin/3dcv"],
+        ["tar", "czf", "b.tgz", "/home/u/.local/bin/3dcode"],
+        ["python", "-c", "print(1)", "/home/u/.local/bin/3dcode"],
     )
     assert all(map(_is_harness_argv, harness_commands))
     assert not any(map(_is_harness_argv, other_commands))

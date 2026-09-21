@@ -307,7 +307,7 @@ class SceneTrack(BaseTrack):
         """Close the stage's telemetry row so the denominator counts sessions, not stages.
 
         Without this a scene run reports ``skills.attached`` three times and ``skills.read``
-        never, which reads in ``3dcv skills report`` as "listed, unread" — the same false
+        never, which reads in ``3dcode skills report`` as "listed, unread" — the same false
         signal the delivery gap itself produced."""
         skills_hook.record_usage(gen, index=0, kind=stage_kind)
 

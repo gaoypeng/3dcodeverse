@@ -168,7 +168,7 @@ class ObjectPipeline:
         """Nothing beyond ``gates_section``.  The measured-structure block the judge reads
         (contacts, planned joins, floor gaps, the weld line) is rendered by
         ``judges.prompt_builder.gates_section`` from the connectivity report's contact
-        ledger — the report is stored in ``rounds/rNN.json``, so ``3dcv judge <slug>``,
+        ledger — the report is stored in ``rounds/rNN.json``, so ``3dcode judge <slug>``,
         calibration and every other reader of the round record get the same block as the
         in-run judge without this method restating it (2026-08-30)."""
         return ""

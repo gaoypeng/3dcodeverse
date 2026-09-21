@@ -3,7 +3,7 @@
 Ported 2026-09-01 from the scene_multifile_graphics reference
 (tests/test_celestial_lib.py).  Their renderer-contract assertions are
 dropped and their fog marker is retargeted — our `makeShaderMaterial` writes
-`3dcv: no-fog`, the token runtime_js/lib/glsl_audit.mjs reads, and the old
+`3dcode: no-fog`, the token runtime_js/lib/glsl_audit.mjs reads, and the old
 `astra3d:` spelling is still accepted on read.  Their physical claims (the
 magnitude distribution, the foot-bright curtain, a shimmer that displaces
 rather than paints, one seed one sky) are kept as they stood.
@@ -288,7 +288,7 @@ def test_the_sky_declares_its_own_fog_opt_out():
     """The firmament sits outside the weather.  Our GLSL audit reads a
     source marker, and the option that writes it is the one its own warning
     tells you to pass — so passing it has to produce the marker, or the
-    advice does nothing.  `3dcv:` is this harness's spelling; the
+    advice does nothing.  `3dcode:` is this harness's spelling; the
     reference's `astra3d:` is still accepted on read."""
     out = measure("""
 import { makeStars, makeAurora } from './lib/celestial.js';
@@ -299,7 +299,7 @@ for (const g of [makeStars({ count: 50, seed: 1 }),
     for (const m of [].concat(o.material || [])) {
       if (m && m.fragmentShader) {
         marks.push([m.name, m.fog === false,
-                    /(3dcv|astra3d):\\s*no-fog/.test(m.fragmentShader)]);
+                    /(3dcode|astra3d):\\s*no-fog/.test(m.fragmentShader)]);
       }
     }
   });

@@ -63,7 +63,7 @@ def test_caption_sample_stores_and_writes(fake_run):
 
 
 def test_caption_cmd_writes_the_captioner_row_into_the_run_ledger(fake_run, monkeypatch):
-    """`3dcv flywheel caption` joins the run's ledger the way `3dcv judge` does —
+    """`3dcode flywheel caption` joins the run's ledger the way `3dcode judge` does —
     the captioner's priced call used to go to the per-process log instead."""
     from typer.testing import CliRunner
 

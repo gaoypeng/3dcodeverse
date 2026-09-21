@@ -10,7 +10,7 @@ different for that to be worth doing.
 
 Nothing in this directory is loaded. `codeverse.skills.all_skills()` reads
 `codeverse/skills/*/SKILL.md` only, so an attic bundle costs no index line and no tokens.
-`3dcv skills validate` does not see it either — an attic bundle is a document, not a
+`3dcode skills validate` does not see it either — an attic bundle is a document, not a
 maintained artefact, and it is allowed to go stale.
 
 | bundle | cut | why | what would bring it back |

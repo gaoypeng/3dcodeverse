@@ -166,7 +166,7 @@ def test_a_copied_run_reads_its_own_files_while_the_original_still_exists(tmp_pa
 
 
 def test_show_prints_the_sheet_that_exists_after_a_move(tmp_path):
-    """The user-visible half: `3dcv show` must not print a path that is not there."""
+    """The user-visible half: `3dcode show` must not print a path that is not there."""
     from codeverse.cli._common import print_record_summary
     from codeverse.workspace import Workspace
 
@@ -241,4 +241,4 @@ def test_show_itself_prints_the_relocated_sheet_not_the_stored_one(tmp_path):
     a, b, _sheet, rec = _moved_run(tmp_path)
     out = _captured(lambda: print_evidence(Workspace(b), rec))
     assert str(b / "artifacts" / "renders" / "r01" / "sheet.png") in out
-    assert str(a) not in out, "`3dcv show` must not print a path under the old root"
+    assert str(a) not in out, "`3dcode show` must not print a path under the old root"

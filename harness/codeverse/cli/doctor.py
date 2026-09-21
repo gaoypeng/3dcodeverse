@@ -1,4 +1,4 @@
-"""``3dcv doctor`` — the typer shim over :mod:`codeverse.doctor`."""
+"""``3dcode doctor`` — the typer shim over :mod:`codeverse.doctor`."""
 
 from __future__ import annotations
 

@@ -3,15 +3,15 @@
 Everything here was exercised on this machine (WSL2, RTX 5090, Blender 5.0.1,
 node 24, gemini-cli 0.53, claude 2.1, codex 0.147+, agy 1.1) on 2026-08-23.  Paths
 are relative to `/home/yipeng/3dcodeverse/harness` unless absolute.  The CLI is
-`3dcodeverse` with short alias `3dcv` (used below).
+`3dcodeverse` with short alias `3dcode` (used below).
 
 ## 1. Install and check
 
 ```bash
-pip install -e /home/yipeng/3dcodeverse/harness      # once; entry points 3dcodeverse and 3dcv
+pip install -e /home/yipeng/3dcodeverse/harness      # once; entry points 3dcodeverse and 3dcode
 cd /home/yipeng/3dcodeverse/harness/runtime_js && npm install   # three@0.182, puppeteer (chrome cached)
-3dcv doctor            # python deps (incl. python-fcl, moderngl), blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, mcp
-3dcv doctor --live     # + one tiny Gemini call ("pong", ~$0.00001)
+3dcode doctor            # python deps (incl. python-fcl, moderngl), blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, mcp
+3dcode doctor --live     # + one tiny Gemini call ("pong", ~$0.00001)
 python -m pytest tests -q                              # offline suite; live tests are opt-in (blender/node/GL run when the binaries exist)
 python -m pytest tests -q -m "not live and not blender and not node"   # pure-python subset
 python -m pytest tests -q -m live                      # OPT-IN: real API calls
@@ -43,18 +43,18 @@ python -m pytest tests -q -m live                      # OPT-IN: real API calls
 
 ```bash
 # static object — Blender (default language, multi-file src/model.py + src/parts/*.py)
-3dcv make "a mid-century wooden dining chair" --track static_object --language blender
-3dcv make "a brass desk lamp" --track static_object --language cadquery
-3dcv make "a classic park bench" --track static_object --language threejs --generator gemini-cli:gemini-3.7-flash
+3dcode make "a mid-century wooden dining chair" --track static_object --language blender
+3dcode make "a brass desk lamp" --track static_object --language cadquery
+3dcode make "a classic park bench" --track static_object --language threejs --generator gemini-cli:gemini-3.7-flash
 # articulated object — bpy links + URDF
-3dcv make "a bedside cabinet with one hinged door and one drawer" --track articulated_object --language urdf_blender
+3dcode make "a bedside cabinet with one hinged door and one drawer" --track articulated_object --language urdf_blender
 # scene — multi-file three.js + GLSL (+ optional bpy GLB assets chosen by the planner)
-3dcv make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs --rounds 2 --max-minutes 60
+3dcode make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs --rounds 2 --max-minutes 60
 # graphics — animated shader / raw OpenGL program
-3dcv make "neon cyberpunk rain on a window with bokeh city lights" --track graphics --language glsl_shader
-3dcv make "instanced pastel cubes with bloom" --track graphics --language opengl_python
+3dcode make "neon cyberpunk rain on a window with bokeh city lights" --track graphics --language glsl_shader
+3dcode make "instanced pastel cubes with bloom" --track graphics --language opengl_python
 ```
-Useful flags (`3dcv make --help`): `--generator`, `--planner`, `--judge`, `--captioner`
+Useful flags (`3dcode make --help`): `--generator`, `--planner`, `--judge`, `--captioner`
 (backend ids, §3), `--image <png>` (repeatable; reference images → `ReferenceJudge` +
 silhouette gate + IoU refine tasks), `--rounds N` (refine rounds after the baseline),
 `--candidates N` (best-of-N baseline: N parallel candidates in `<ws>/_cand/`,
@@ -77,8 +77,8 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 | `gemini-cli:gemini-3.7-flash` (default) | `gemini -p … --approval-mode yolo --skip-trust --output-format json`; every spatial tool over MCP | cheapest agentic path; transcripts feed repair-pair mining; see gotchas below |
 | `single-shot:gemini:gemini-3.7-flash` | one structured-output call → multi-file envelope, no tools | fastest/cheapest; baseline for "raw model" deltas |
 | `claude-code:<model>` | `claude -p … --dangerously-skip-permissions --mcp-config trajectories/<label>_rNN/mcp.json --strict-mcp-config …` | local subscription — test lightly |
-| `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high … -c mcp_servers.3dcv.…` | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id, `""` to defer to `~/.codex/config.toml`) |
-| `agy:<model>` | `agy --print … --add-dir ws` | no per-workspace MCP: tools via `3dcv tools <name> --json … --workspace .`; no served-model or cost reporting |
+| `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high … -c mcp_servers.3dcode.…` | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id, `""` to defer to `~/.codex/config.toml`) |
+| `agy:<model>` | `agy --print … --add-dir ws` | no per-workspace MCP: tools via `3dcode tools <name> --json … --workspace .`; no served-model or cost reporting |
 | `gemini:* / anthropic:* / openai:*` | ChatModel for planner / judge / captioner / single-shot | Anthropic/OpenAI untested live here |
 
 ### gemini-cli gotchas (handled by `agents/backends.py`; do not undo)
@@ -94,10 +94,10 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
   prefer a different key (never raise KeyPoolExhausted out of a session).
 * Cost accounting: `tokens.prompt` (total, incl. cached) is the input count; each
   served model priced at its own rate.
-* Cookbook copied to `ws/.3dcv/cookbook.md` (gemini-cli cannot read outside the ws).
+* Cookbook copied to `ws/.3dcode/cookbook.md` (gemini-cli cannot read outside the ws).
 * MCP server argv is `[sys.executable, -m, codeverse.spatial.mcp_server, --workspace, ws]`;
-  server name `3dcv` → tools appear as `mcp_3dcv_<name>` (gemini) / `mcp__3dcv__<name>`
-  (claude).  `3dcv mcp --workspace runs/<slug>` execs the same server;
+  server name `3dcode` → tools appear as `mcp_3dcode_<name>` (gemini) / `mcp__3dcode__<name>`
+  (claude).  `3dcode mcp --workspace runs/<slug>` execs the same server;
   `python -m codeverse.spatial.mcp_server --workspace ws --list` prints the tools.
 
 ## 4. Where outputs land
@@ -109,16 +109,16 @@ artifacts in `artifacts/` (`object.glb`, `robot.urdf` + `meshes/`, scene
 `artifacts/renders/rNN/`, gate JSON in `artifacts/gates/rNN/`, verdicts in
 `artifacts/judge/rNN.json`, transcripts in `trajectories/<label>_rNN/` (retries in
 `<label>.a2_rNN`), events in `events.jsonl`, the flywheel record in `record.json`.
-`3dcv status <slug>` prints the rounds table (best round starred), cost and the last
+`3dcode status <slug>` prints the rounds table (best round starred), cost and the last
 events.
 
 ### Looking at results locally
 
 ```bash
-3dcv gallery serve                       # ./runs + every ./bench/out/*/runs → http://127.0.0.1:8765/
-3dcv gallery serve bench/out/static_v2_flash/runs --port 9000 --reload --no-open
-3dcv gallery build --out gallery.html [--embed]      # one self-contained file (--embed inlines the sheets)
-3dcv flywheel gallery runs/ gallery.html             # alias of `gallery build --embed` (old signature)
+3dcode gallery serve                       # ./runs + every ./bench/out/*/runs → http://127.0.0.1:8765/
+3dcode gallery serve bench/out/static_v2_flash/runs --port 9000 --reload --no-open
+3dcode gallery build --out gallery.html [--embed]      # one self-contained file (--embed inlines the sheets)
+3dcode flywheel gallery runs/ gallery.html             # alias of `gallery build --embed` (old signature)
 ```
 `serve` indexes the run roots (records only — ~85 runs in ~0.15 s) and serves the run
 **directories** too, so every link works: contact sheet, full-size renders, `record.json`,
@@ -143,29 +143,29 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 ## 5. Resume, re-render, re-judge, texture, export
 
 ```bash
-3dcv resume <slug> [--candidates N]     # continues from run_state + stages/*.json (input-hash cached).  The budget
+3dcode resume <slug> [--candidates N]     # continues from run_state + stages/*.json (input-hash cached).  The budget
                                         # SNAPSHOT is restored: money/calls/active-minutes already spent still count,
                                         # so a raised --max-minutes grants only the difference (downtime never counts)
-3dcv render <slug> [--round N] [--mode shaded|wire|normals|clay|silhouette] [--out dir]
-3dcv judge <slug> [--round N] [--rubric static_object_v1] [--model gemini:gemini-3.1-pro-preview] [--n 3]
+3dcode render <slug> [--round N] [--mode shaded|wire|normals|clay|silhouette] [--out dir]
+3dcode judge <slug> [--round N] [--rubric static_object_v1] [--model gemini:gemini-3.1-pro-preview] [--n 3]
                                         # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json
-3dcv texture pass <slug> [--no-judge] [--model …] [--judge-model …] [--image-model …] [--size 1024]
-3dcv texture scene-pack <slug> [--n 10] · 3dcv texture show <slug>
-3dcv tools list [--cards] · 3dcv tools measure --workspace runs/<slug> · 3dcv tools gl_frames --workspace … --json '{"times":[0,1,2.5]}'
+3dcode texture pass <slug> [--no-judge] [--model …] [--judge-model …] [--image-model …] [--size 1024]
+3dcode texture scene-pack <slug> [--n 10] · 3dcode texture show <slug>
+3dcode tools list [--cards] · 3dcode tools measure --workspace runs/<slug> · 3dcode tools gl_frames --workspace … --json '{"times":[0,1,2.5]}'
                                         # panel says ok | FAIL (the verdict) | error (the tool could not run);
                                         # exit 1 on either non-ok state — `scene_probe` included since 2026-09-02
                                         # (COST.md §30), where a failing scene gate used to exit 0
-3dcv flywheel export runs/ dataset/ [--min-score 0.7] [--only-passed] [--pack] [--include-unbuilt]
+3dcode flywheel export runs/ dataset/ [--min-score 0.7] [--only-passed] [--pack] [--include-unbuilt]
                                      [--captions-dir caps/] [--drop-duplicates]
-3dcv flywheel pairs runs/ pairs.jsonl [--min-delta 0.05]
-3dcv flywheel refine runs/ refine.jsonl [--with-code]
+3dcode flywheel pairs runs/ pairs.jsonl [--min-delta 0.05]
+3dcode flywheel refine runs/ refine.jsonl [--with-code]
                                      # one row per round the harness asked to change; the row
                                      # schema is codeverse/addons/dataset/refine.RefineTransition and
                                      # INTERFACES has the call signatures.  Training formats live
                                      # in toolkits/llamafactory/, not here.
-3dcv flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
-3dcv flywheel gallery runs/ gallery.html [--title …]        # alias of `3dcv gallery build --embed` (§4)
-3dcv flywheel index runs/ runs_index.sqlite · 3dcv flywheel dedupe dataset/
+3dcode flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
+3dcode flywheel gallery runs/ gallery.html [--title …]        # alias of `3dcode gallery build --embed` (§4)
+3dcode flywheel index runs/ runs_index.sqlite · 3dcode flywheel dedupe dataset/
 python -m codeverse.judges.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```
@@ -232,7 +232,7 @@ in a `lost to the box` column instead of counting them as gate failures.  A batt
 report shows that column non-zero has to be re-run for those cells before it is read as a
 statement about the generator.
 
-**A battery launched with `3dcv` from a worktree runs the MAIN checkout's code.**  `3dcv`
+**A battery launched with `3dcode` from a worktree runs the MAIN checkout's code.**  `3dcode`
 is a console script, so `sys.path[0]` is the venv's `bin`, never the cwd, and `import
 codeverse` finds the editable install.  `--out bench/out/<name>` IS relative to the cwd,
 so the OUTPUT lands in the worktree while the CODE that produced it is the main tree's —
@@ -252,26 +252,26 @@ directory from a worktree that has it (the `package.json` is the same file).  Th
 says `no verdict in any of N round(s)` when this happens.
 
 A run that crashed outside its own handling leaves `record.json` with `status=failed`;
-`3dcv resume` retries from the last completed stage/round (cached plan/skeleton/scene
+`3dcode resume` retries from the last completed stage/round (cached plan/skeleton/scene
 stages are reused — this also recovers from Gemini 503 storms).  Ctrl-C is safe.
 
 ## 6. Texture pass
 
-`3dcv texture pass <slug>` (or `--texture` on `make`): one VLM material plan →
+`3dcode texture pass <slug>` (or `--texture` on `make`): one VLM material plan →
 tileable texture images (gemini-3.1-flash-image, ~$0.07/tile, cached by prompt) →
 world-metre UVs → `artifacts/object_textured.glb` → seam gate + before/after judge
 gate (ships only when the score does not drop and the materials criterion improves).
-`record.extra["texturing"]` holds shipped/delta/cost; `3dcv texture show <slug>`
-prints it.  Scenes: `3dcv texture scene-pack <slug>` writes 6–12 named tiles +
+`record.extra["texturing"]` holds shipped/delta/cost; `3dcode texture show <slug>`
+prints it.  Scenes: `3dcode texture scene-pack <slug>` writes 6–12 named tiles +
 manifest under `public/textures/` for zone prompts.  Object tracks' agents can also
 call the `texture_pass` / `texture_preview` tools mid-session.
 
 ## 7. Benchmarks
 
 ```bash
-3dcv bench run bench/prompts/static_objects_v1.yaml --generator single-shot:gemini:gemini-3.7-flash \
+3dcode bench run bench/prompts/static_objects_v1.yaml --generator single-shot:gemini:gemini-3.7-flash \
     --judge gemini:gemini-3.1-pro-preview --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out bench/out/x]
-3dcv bench report bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
+3dcode bench report bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
     --arms harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1
 ```
@@ -316,7 +316,7 @@ original driver was still working the same battery resumed a prompt the first dr
 flight, re-ran its last round in the same workspace and rewrote `rounds/r02.json` (0.600 →
 0.944 for the same sheet: judge/acceptance variance, not a new picture) and appended a second
 `results.jsonl` row.  `run_battery` decides what to run from `results.jsonl`, and a prompt with no
-row yet is fair game to both.  Rule: never start a second `3dcv bench run` on an out dir with a
+row yet is fair game to both.  Rule: never start a second `3dcode bench run` on an out dir with a
 live driver; wait for the driver to exit (exact pid, `kill -0`), then redo once with
 `--redo-status infra_failed,error,budget --max-minutes 120`.  `bench run` grew `--max-minutes`
 the same day so the storm budget no longer needs `ab_plan`.
@@ -349,7 +349,7 @@ model, produced the zero — check `cell.json`'s `error`).
   `criteria[{id, weight, floor, title, description, anchors, kind}]`,
   `caps[{id, cap, when: gate|acceptance|console|missing_views, gate, severity, kinds}]`,
   `defects[{id, text, penalty, cap}]`.  Tracks pick rubrics in `tracks/*.py`;
-  `3dcv judge` maps track → rubric in `cli/_judge.py::rubric_for`.
+  `3dcode judge` maps track → rubric in `cli/_judge.py::rubric_for`.
 * **New backend**: ChatModel → `models/<provider>.py` + registry + prices;
   CodingAgent → `agents/backends.py` using `cli_common` + registry + `materialize.py`.
 * **New track**: subclass `tracks/lifecycle.py::BaseTrack` (hooks: `make_pipeline`,
@@ -366,7 +366,7 @@ model, produced the zero — check `cell.json`'s `error`).
 
 ## Landing source changes while a wave is running
 
-Workers (`3dcv make`, `ab_plan.py cell`) are long-lived python processes that import
+Workers (`3dcode make`, `ab_plan.py cell`) are long-lived python processes that import
 `codeverse/` **lazily**: a module already in `sys.modules` stays as it was at spawn time, a
 module first touched later comes from the tree as it is *then*.  Two measured failures on
 2026-08-26:
@@ -389,4 +389,4 @@ Rules:
    stale too).
 4. Count harness processes with `codeverse.models.health.pool_budget()`, never `pgrep | grep`
    (it counts its own shell — measured: 3 phantoms on an idle box); kill by PID, never by
-   pattern (13 unrelated runs died to one `pkill -f "3dcv make"`).
+   pattern (13 unrelated runs died to one `pkill -f "3dcode make"`).

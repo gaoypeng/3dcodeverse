@@ -4,7 +4,7 @@ Every `js` snippet runs as-is in node (the harness test suite concatenates them 
 `THREE` and the named addons in scope).  Y-up, +Z front, meters.  GLSL lives in
 `glsl_cookbook.md` — use its `makeShaderMaterial` for every custom shader.
 The harness inlines the relevant chapters into your prompts; the full file is at
-`.3dcv/cookbook.md` in your workspace.
+`.3dcode/cookbook.md` in your workspace.
 
 **The chapters that decide the score.**  Scenes on this track lose most of their points to
 five repeatable defects, one chapter each:

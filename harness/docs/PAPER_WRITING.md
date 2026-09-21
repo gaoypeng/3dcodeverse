@@ -15,7 +15,7 @@ that owns it — §5.2 was exactly that until 2026-09-03 (review) and is now a p
 A/B with an A/A mode), `bench/compare_backends.py` (harness vs one-shot),
 `bench/paired_compare.py` (paired statistics), `bench/plan_stage_bench.py` +
 `bench/plan_stage_report.py` (the loss-event channel, data in `bench/data/plan_stage/`),
-`3dcv flywheel refine` (the transition corpus) and `toolkits/llamafactory/` (its training
+`3dcode flywheel refine` (the transition corpus) and `toolkits/llamafactory/` (its training
 format).
 
 ## 0. The system, in one paragraph
@@ -404,7 +404,7 @@ that moved the bill.
 
 ## 7. The corpus the loop produces
 
-`3dcv flywheel refine` exports every refine round as the transition it was: the previous
+`3dcode flywheel refine` exports every refine round as the transition it was: the previous
 round's judge issues and improvement plan, the gate ERROR findings with their fix hints, the
 instruction lines `build_refine_instructions` compiled for the round (the task list, not the
 per-group prompt text rendered from it), the unified `src/` diff between the two
@@ -504,7 +504,7 @@ data the repo does not carry; they are marked in the caveat column.
 | base64 amplification | 261 k tokens vs 516 for one 275 kB sheet | measured on a recorded blob + vendor bundle | arithmetic + matching recorded prompt jumps; **no repo script** |
 | token growth in turns | input(t) = 12 364 + 1 822·t; total ∝ n^1.60; dollars ∝ n^1.19–1.34 | 1 063 in-process sessions, 30 401 turns | **no repo script** — the in-process agent, since gemini-cli emits no per-turn usage |
 | coupled mechanisms declared | 8 of 14 prompts; driven joints per pose 6 → 3 (1–2 on the one-input mechanisms) | `bench/coupling_stats.py bench/out/wave2_lean --per-prompt` | recomputed from the recorded URDFs |
-| refine corpus | 254 transitions, 112 SFT samples (2026-09-03) | `3dcv flywheel refine`, `toolkits/llamafactory/build_refine_sft.py` over `bench/out` | corpus grows with every battery |
+| refine corpus | 254 transitions, 112 SFT samples (2026-09-03) | `3dcode flywheel refine`, `toolkits/llamafactory/build_refine_sft.py` over `bench/out` | corpus grows with every battery |
 
 ## 9.2 Open questions
 
@@ -594,7 +594,7 @@ python bench/plan_stage_bench.py --tree . --label restart_on --reps 20 \
     --out bench/data/plan_stage/restart_on.jsonl --env CV3D_PLAN_RESTART=1
 python bench/plan_stage_report.py bench/data/plan_stage/*.jsonl
 # the corpus the loop produces
-3dcv flywheel refine bench/out refine.jsonl --with-code
+3dcode flywheel refine bench/out refine.jsonl --with-code
 python ../toolkits/llamafactory/build_refine_sft.py refine.jsonl --out refine_sft.jsonl  # repo root, not harness/
 ```
 

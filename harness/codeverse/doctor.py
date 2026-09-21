@@ -1,4 +1,4 @@
-"""Environment checks behind ``3dcv doctor`` — python deps, Blender, node/three/
+"""Environment checks behind ``3dcode doctor`` — python deps, Blender, node/three/
 puppeteer, the GPU probe, keys, the pool admission numbers, the vendor CLIs, MCP
 and the skill library wiring.  Moved out of ``cli/`` 2026-08-28: only the typer
 shim is a CLI concern (tests/install imports these checks as documentation facts).

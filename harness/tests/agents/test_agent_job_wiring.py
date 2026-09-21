@@ -43,12 +43,12 @@ def test_images_reach_the_agent_as_paths_in_the_prompt(tmp_ws: Workspace, tmp_pa
     run_agent_task(tmp_ws, agent=agent, task=task)
     (job,) = agent.jobs
     assert job.prompt.startswith("fix the horn") and "## Images for this task" in job.prompt
-    assert "`.3dcv/images/00_contact_sheet.png`" in job.prompt
-    assert (tmp_ws.root / ".3dcv/images/00_contact_sheet.png").read_bytes() == b"png"
+    assert "`.3dcode/images/00_contact_sheet.png`" in job.prompt
+    assert (tmp_ws.root / ".3dcode/images/00_contact_sheet.png").read_bytes() == b"png"
     # an unreadable source is still named, never silently dropped
     assert "reference (target): `/refs/photo.jpg`" in job.prompt
     # and only the readable one is staged: the named-but-uncopied path stays a host path
-    assert sorted(p.name for p in (tmp_ws.root / ".3dcv/images").iterdir()) == ["00_contact_sheet.png"]
+    assert sorted(p.name for p in (tmp_ws.root / ".3dcode/images").iterdir()) == ["00_contact_sheet.png"]
     run_agent_task(tmp_ws, agent=agent, task=task.model_copy(update={"images": [], "label": "r2"}))
     assert "Images for this task" not in agent.jobs[1].prompt
 

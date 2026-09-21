@@ -57,7 +57,7 @@ def test_a_built_wheel_actually_contains_the_bundles(tmp_path: Path):
             refs = [n for n in names if n.startswith(f"codeverse/skills/{name}/references/")]
             assert refs, f"{name}: references/ must ship too — it is the depth probe"
         if not made_probe:
-            # every claims file too: `3dcv skills validate` runs against an installed wheel
+            # every claims file too: `3dcode skills validate` runs against an installed wheel
             claims = sorted((HARNESS / "codeverse" / "skills" / "_claims").glob("*.toml"))
             for c in claims:
                 assert f"codeverse/skills/_claims/{c.name}" in names, f"{c.name} missing from the wheel"

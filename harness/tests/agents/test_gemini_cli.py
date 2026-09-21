@@ -98,7 +98,7 @@ def test_success_path(tmp_ws: Workspace, agent: GeminiCliAgent):
 def test_agent_planted_mcp_server_never_reaches_the_cli(tmp_ws: Workspace, agent: GeminiCliAgent):
     """``ws/.gemini/settings.json`` is agent-writable and gemini-cli merged its mcpServers,
     so an agent could choose what the NEXT round's CLI launched (`gemini mcp list` in a
-    poisoned workspace tried to start it).  3dcv + ``mcp.allowed`` now live in the
+    poisoned workspace tried to start it).  3dcode + ``mcp.allowed`` now live in the
     per-session system settings, which is applied LAST and whose ``mcp.allowed``
     REPLACES rather than merges (audit 2026-08-27)."""
     from codeverse.agents.cli_common import begin_session, default_mcp_command, release_session
@@ -120,7 +120,7 @@ def test_agent_planted_mcp_server_never_reaches_the_cli(tmp_ws: Workspace, agent
     path = Path(env["GEMINI_CLI_SYSTEM_SETTINGS_PATH"])
     settings = json.loads(path.read_text())
     assert path.parent == s.traj.dir, "per session, in the harness-owned trajectory dir"
-    assert list(settings["mcpServers"]) == ["3dcv"] and settings["mcp"]["allowed"] == ["3dcv"]
+    assert list(settings["mcpServers"]) == ["3dcode"] and settings["mcp"]["allowed"] == ["3dcode"]
     assert "evil" not in json.dumps(settings)
     assert settings["security"]["folderTrust"]["enabled"] is False
 

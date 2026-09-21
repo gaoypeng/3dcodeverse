@@ -101,7 +101,7 @@ def _control_state(root: Path) -> tuple[bool, bool]:
 
 
 def append_usage(ws_root: Path, usage: SkillsUsage, **context: Any) -> Path | None:
-    """One JSON line per (run, round, session) — the file ``3dcv skills report`` reads."""
+    """One JSON line per (run, round, session) — the file ``3dcode skills report`` reads."""
     try:
         d = Path(ws_root) / TELEMETRY_DIR
         d.mkdir(parents=True, exist_ok=True)

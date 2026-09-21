@@ -3,7 +3,7 @@
 Every snippet runs as-is (the harness test suite executes them in order with plain
 `python3`).  Z-up, −Y front, meters, PascalCase part names, `result = cq.Assembly`.
 The harness inlines the relevant chapters into your prompts; the full file is at
-`.3dcv/cookbook.md` in your workspace.
+`.3dcode/cookbook.md` in your workspace.
 
 ## Skeleton
 

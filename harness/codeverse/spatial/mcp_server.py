@@ -50,7 +50,7 @@ MAX_TEXT_CHARS = 6000
 MAX_IMAGE_BYTES = 400_000
 #: long sides tried, in order, when the first image does not fit the byte bound
 IMAGE_FALLBACK_SIDES = (768, 512, 384)
-SERVER_NAME = "3dcv"
+SERVER_NAME = "3dcode"
 
 
 def build_context(workspace: Path, *, track: str = "", language: str = "", round_index: int = 0) -> ToolContext:

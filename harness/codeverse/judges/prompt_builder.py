@@ -554,7 +554,7 @@ def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: i
     13 of 24 flags flipped).  So the WARNs become one measured line and a MEASURED STRUCTURE
     block (contacts, planned joins contact/open, floor gaps) the judge can cite instead.
     Without a ledger (older rounds) the text is the pre-ledger text byte for byte, which is
-    what keeps ``3dcv judge <old-slug>`` comparable with the verdict it stored."""
+    what keeps ``3dcode judge <old-slug>`` comparable with the verdict it stored."""
     if not gates:
         return "GATE FINDINGS: (no gates run)"
     status = ", ".join(f"{g.gate}={'pass' if g.passed else 'FAIL'}" for g in gates)

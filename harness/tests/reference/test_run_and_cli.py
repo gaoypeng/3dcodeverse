@@ -1,4 +1,4 @@
-"""``ground_spec`` on a real workspace, and the ``3dcv make --reference`` wiring."""
+"""``ground_spec`` on a real workspace, and the ``3dcode make --reference`` wiring."""
 
 from __future__ import annotations
 

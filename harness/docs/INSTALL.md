@@ -98,7 +98,7 @@ cd 3dcodeverse
 ```
 
 Layout: the harness is the `harness/` subdirectory (python dist `3dcodeverse`,
-import package `codeverse`, CLIs `3dcodeverse` and `3dcv`).  See the repo
+import package `codeverse`, CLIs `3dcodeverse` and `3dcode`).  See the repo
 `README.md` for the other top-level components.
 
 Use a virtualenv (or a conda env — this box installs into a conda base env).  It is
@@ -121,7 +121,7 @@ pip install -e 'harness[all,dev]' # everything (what setup.sh does)
 ```
 
 `-e` (editable) is the intended mode: the harness is developed in place and the
-console scripts (`3dcodeverse`, `3dcv`) point back at the checkout.
+console scripts (`3dcodeverse`, `3dcode`) point back at the checkout.
 
 Core dependencies (always installed): pydantic + pydantic-settings (contracts,
 settings), typer + rich (CLI), jinja2 (prompt templates), pyyaml, numpy, trimesh
@@ -134,8 +134,8 @@ openai.
 | `urdf` | yourdfpy, scipy | the `articulated_object` track: URDF parse/validate + joint math |
 | `graphics` | moderngl | the `graphics` track (`glsl_shader`, `opengl_python`) — headless GL rendering in `spatial/gl_render.py` |
 | `mesh` | shapely, networkx, manifold3d, matplotlib | `cross_section` filled-area/hollow ratio (shapely), mesh split / connectivity (networkx), joint-sweep boolean intersections (`trimesh.boolean(engine="manifold")`), judge cross-section slices on gate-ERROR rounds (`judge_slices`, D48; without the extra the judge logs a warning and sends the pre-D48 payload) |
-| `mcp` | mcp | `3dcv mcp` / `codeverse.spatial.mcp_server`, i.e. spatial tools for the `gemini-cli`, `claude-code` and `codex` backends |
-| `flywheel` | pyarrow | `3dcv flywheel export --pack` (parquet shards). A plain `flywheel export` needs nothing: without pyarrow it writes `metadata.jsonl` and skips `metadata.parquet` with a warning. |
+| `mcp` | mcp | `3dcode mcp` / `codeverse.spatial.mcp_server`, i.e. spatial tools for the `gemini-cli`, `claude-code` and `codex` backends |
+| `flywheel` | pyarrow | `3dcode flywheel export --pack` (parquet shards). A plain `flywheel export` needs nothing: without pyarrow it writes `metadata.jsonl` and skips `metadata.parquet` with a warning. |
 | `all` | all of the above | — |
 | `dev` | pytest, pytest-timeout, ruff | the test suite and the linter |
 
@@ -383,15 +383,15 @@ you; the ones worth knowing:
   id is *silently substituted* and the run is flagged
   `exit_reason=model_substituted` — and `security.folderTrust.enabled = false`,
   without which the workspace MCP servers are silently ignored even with
-  `--skip-trust`, so the agent loses every spatial tool.  It also carries the `3dcv`
-  MCP server itself plus `mcp.allowed = ["3dcv"]`: this file is merged LAST and
+  `--skip-trust`, so the agent loses every spatial tool.  It also carries the `3dcode`
+  MCP server itself plus `mcp.allowed = ["3dcode"]`: this file is merged LAST and
   `mcp.allowed` replaces, so a server the agent plants in the workspace's own
   `.gemini/settings.json` is Blocked.  A pre-existing OAuth
   login of your own is overridden, not consumed.
 * **codex** — MCP tools need `default_tools_approval_mode="approve"`, which the
   harness passes on the command line.
 * **agy** — no per-workspace MCP; spatial tools are reached through
-  `3dcv tools <name> --json … --workspace .` instead.
+  `3dcode tools <name> --json … --workspace .` instead.
 
 The spatial MCP server itself is the `mcp` extra (§4); check it with
 `python -m codeverse.spatial.mcp_server --workspace <ws> --list`.
@@ -445,7 +445,7 @@ cd harness && 3dcodeverse doctor        # add --live for one tiny Gemini call, -
 Real output on this box (exit code 0; any FAIL row makes it exit 1):
 
 ```
-                                  3dcv doctor
+                                  3dcode doctor
 ┏━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ check         ┃ status ┃ detail                                              ┃
 ┡━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
@@ -518,16 +518,16 @@ directory so you do not mix it into real data:
 
 ```bash
 cd harness
-3dcv make "a slow rotating neon hex grid" \
+3dcode make "a slow rotating neon hex grid" \
     --track graphics --language glsl_shader \
     --generator single-shot:gemini:gemini-3.7-flash \
     --rounds 0 --max-minutes 20 \
     --runs-dir /tmp/cv3d_smoke
-3dcv status <slug> --runs-dir /tmp/cv3d_smoke
+3dcode status <slug> --runs-dir /tmp/cv3d_smoke
 ```
 
 If node and Blender are installed, the equivalent object-track smoke is
-`3dcv make "a simple wooden stool" --track static_object --language blender
+`3dcode make "a simple wooden stool" --track static_object --language blender
 --generator single-shot:gemini:gemini-3.7-flash --rounds 0` (~$0.1, a few
 minutes).
 
@@ -545,7 +545,7 @@ artifacts/judge/rNN.json  the VLM verdict and the computed score
 trajectories/             per-call transcripts
 ```
 
-`3dcv status <slug>` prints the rounds table, cost and last events; the full
+`3dcode status <slug>` prints the rounds table, cost and last events; the full
 operating guide is `docs/RUNBOOK.md`.
 
 > **`capacity storm N/10 … waiting Ns`** means the Gemini endpoint is busy, not
@@ -553,7 +553,7 @@ operating guide is `docs/RUNBOOK.md`.
 > total) and rotates keys.  While the bench batteries on this box were saturating
 > `gemini-3.7-flash`, a smoke with `--max-minutes 8` gave up in the planner with
 > `status=budget … elapsed 11.2 min exceeds max_minutes 8.0` after spending
-> $0.0091 — hence the roomier `--max-minutes 20` above.  `3dcv resume <slug>
+> $0.0091 — hence the roomier `--max-minutes 20` above.  `3dcode resume <slug>
 > --runs-dir …` continues from the last completed stage.  To prove the key path
 > alone, `3dcodeverse doctor --live` is the one-call version
 > (`gemini live call OK 'pong' cost=$0.00001`).
@@ -563,7 +563,7 @@ operating guide is `docs/RUNBOOK.md`.
 ## 11. Uninstall / cleanup
 
 ```bash
-pip uninstall 3dcodeverse                     # removes the editable install + 3dcodeverse/3dcv
+pip uninstall 3dcodeverse                     # removes the editable install + 3dcodeverse/3dcode
 rm -rf harness/runtime_js/node_modules        # ~97 MB, re-creatable with `npm ci`
 rm -rf ~/.cache/puppeteer                     # ~636 MB of downloaded Chrome builds
 rm -rf ~/.cache/codeverse                     # harness cache (619 MB here) — see below

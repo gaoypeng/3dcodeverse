@@ -326,7 +326,7 @@ def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
 
 # ===================================================================== assemble
 PROBE_REL = "src/_c3v_assemble_probe.js"
-_PREFIX = "[3dcv-assemble]"
+_PREFIX = "[3dcode-assemble]"
 _SUN_RE = re.compile(r"export\s+const\s+SUN_AZIMUTH_DEG\s*=\s*(-?\d+(?:\.\d+)?)")
 
 

@@ -67,9 +67,9 @@ def test_argv_with_mcp_overrides(tmp_ws: Workspace):
     assert argv[:3] == ["codex", "exec", "--json"] and argv[argv.index("-C") + 1] == str(tmp_ws.root)
     assert argv[argv.index("--sandbox") + 1] == "workspace-write" and "--skip-git-repo-check" in argv
     joined = " ".join(argv)
-    assert 'mcp_servers.3dcv.command="' in joined and "mcp_servers.3dcv.args=[" in joined and argv[-1] == "p"
+    assert 'mcp_servers.3dcode.command="' in joined and "mcp_servers.3dcode.args=[" in joined and argv[-1] == "p"
     # codex exec has nobody to answer the per-tool approval elicitation → every MCP call would be cancelled
-    assert 'mcp_servers.3dcv.default_tools_approval_mode="approve"' in argv
+    assert 'mcp_servers.3dcode.default_tools_approval_mode="approve"' in argv
     assert argv[argv.index("--model") + 1] == "gpt-5.6-sol"
     s2 = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "codex")
     assert "mcp_servers" not in " ".join(a.build_argv(s2, None)) and a.build_argv(s2, None)[-1] == "-"
@@ -113,7 +113,7 @@ def test_long_prompt_goes_via_stdin(tmp_ws: Workspace, fake_bin, monkeypatch):
 
 @pytest.mark.live
 def test_live_codex_mcp_tool_call_is_not_cancelled(tmp_ws: Workspace):
-    """Regression: without default_tools_approval_mode=approve codex auto-cancels every 3dcv MCP call."""
+    """Regression: without default_tools_approval_mode=approve codex auto-cancels every 3dcode MCP call."""
     if not shutil.which("codex"):
         pytest.skip("codex not installed")
     import trimesh
@@ -125,7 +125,7 @@ def test_live_codex_mcp_tool_call_is_not_cancelled(tmp_ws: Workspace):
     materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="threejs/cookbook.md", spatial_tools=True,
                          mcp_command=default_mcp_command(tmp_ws, language="threejs"))
     a = CodexAgent("")
-    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="Call the 3dcv MCP tool `measure` exactly once, then reply with the "
+    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="Call the 3dcode MCP tool `measure` exactly once, then reply with the "
                          "measured part count and DONE. Do not edit files.", timeout_s=300, label="mcpt",
                          spatial_tools=True, language="threejs"))
     assert res.ok, res.errors

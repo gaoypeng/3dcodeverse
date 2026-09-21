@@ -49,7 +49,7 @@ A "fragment-looking" string is one containing any of `gl_FragColor`, `gl_FragCoo
 `csm_FragColor`, `pc_fragColor`, `fragColor`, `output_fragment`, `discard` **and** no
 `gl_Position`.
 
-The `no_fog` opt-out is file-wide: `fog: false`, the comment marker `3dcv: no-fog`, or the word
+The `no_fog` opt-out is file-wide: `fog: false`, the comment marker `3dcode: no-fog`, or the word
 `sky` anywhere in the file suppresses it. Prefer the explicit marker — the accidental `sky`
 match will also silence a shader you did want fogged.
 

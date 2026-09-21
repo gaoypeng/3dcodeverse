@@ -1,4 +1,4 @@
-"""``3dcv`` — the 3dcodeverse command line.
+"""``3dcode`` — the 3dcodeverse command line.
 
 Thin by design: every command builds typed inputs and calls into the harness
 packages lazily (``cli/_common.lazy``), so the CLI imports and prints help
@@ -170,7 +170,7 @@ def resolve_roots(roots: list[Path] | None) -> list[Path]:
         if fallback.is_dir():
             return [fallback]
         raise C.CliError(f"no run roots found under {Path.cwd()} (looked for runs/ and bench/out/*/runs); "
-                         f"pass one explicitly: `3dcv gallery serve path/to/runs`")
+                         f"pass one explicitly: `3dcode gallery serve path/to/runs`")
     return found
 
 
@@ -183,7 +183,7 @@ def serve_cmd(
     open_browser: Annotated[bool, typer.Option("--open/--no-open", help="open the page in a browser")] = True,
     reload: Annotated[bool, typer.Option("--reload", help="re-scan the roots on every page load "
                                                           "(cheap: records only, images stay lazy)")] = False,
-    title: Annotated[str, typer.Option("--title")] = "3dcv gallery",
+    title: Annotated[str, typer.Option("--title")] = "3dcode gallery",
 ) -> None:
     """Serve the gallery (and the run directories) on localhost."""
     from codeverse.addons.gallery.server import GalleryError, serve
@@ -224,11 +224,11 @@ def build_cmd(
         warn(f"{broken} run(s) have no usable record.json (shown as broken cards)")
     ok(f"gallery of {n} runs → {path} ({path.stat().st_size // 1024} KB)")
     if not embed:
-        console.print("[dim]file:// links; `--embed` inlines the images, `3dcv gallery serve` makes them clickable[/dim]")
+        console.print("[dim]file:// links; `--embed` inlines the images, `3dcode gallery serve` makes them clickable[/dim]")
 
 
 app = typer.Typer(
-    name="3dcv",
+    name="3dcode",
     help="3dcodeverse: LLMs write raw 3D code; the harness builds, judges, refines, records.",
     pretty_exceptions_enable=False,
 )
@@ -251,7 +251,7 @@ app.add_typer(
 )
 app.command(
     "tools",
-    help="List spatial tools or run one: `3dcv tools list` | `3dcv tools <name> --json '{...}' --workspace ws`.",
+    help="List spatial tools or run one: `3dcode tools list` | `3dcode tools <name> --json '{...}' --workspace ws`.",
 )(tools)
 
 @app.callback(invoke_without_command=True)
@@ -266,7 +266,7 @@ def _root(
         with contextlib.suppress(Exception):
             faulthandler.register(signal.SIGUSR1, file=sys.__stderr__, all_threads=True)
     if version:
-        console.print(f"3dcv {__version__}")
+        console.print(f"3dcode {__version__}")
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
@@ -274,7 +274,7 @@ def _root(
     # Build the settings HERE so a bad configuration value is one typed error instead of a
     # raw traceback out of whichever command happened to touch get_settings() first: the app
     # runs with pretty_exceptions_enable=False, and `CV3D_PROFILE=bogus` used to dump a
-    # Python stack from every command — including `3dcv doctor`, the one you would run to
+    # Python stack from every command — including `3dcode doctor`, the one you would run to
     # find out what is wrong with your configuration.
     try:
         get_settings()
@@ -401,15 +401,15 @@ def make(
     )
     rounds, max_minutes = dial.rounds, dial.max_minutes
     candidates, texture = dial.candidates, dial.texture
-    # A run must not record and display a pass it cannot run.  `3dcv texture pass` already
-    # refuses non-object tracks; `3dcv make` accepted --texture (and --profile quality,
+    # A run must not record and display a pass it cannot run.  `3dcode texture pass` already
+    # refuses non-object tracks; `3dcode make` accepted --texture (and --profile quality,
     # which forces it) on scene/graphics, froze it on the spec, printed "texture True",
     # and then emitted a spurious texture.failed at finalise because there is no GLB.
     from codeverse.texturing.run import texture_supported
 
     if texture and not texture_supported(track):
         if texture_arg:  # the user asked for it explicitly: say no, and say where to go
-            hint = " — use `3dcv texture scene-pack`" if track is Track.SCENE else ""
+            hint = " — use `3dcode texture scene-pack`" if track is Track.SCENE else ""
             raise C.CliError(
                 f"--texture is for object tracks; {track.value} runs have no GLB to texture{hint}"
             )
@@ -434,7 +434,7 @@ def make(
             ),
             budget=Budget(max_rounds=rounds, max_minutes=max_minutes),
             # options.profile records the dial this run resolved to, whichever way it was
-            # named (flag, CV3D_PROFILE, config.yaml), so `3dcv resume` re-applies it
+            # named (flag, CV3D_PROFILE, config.yaml), so `3dcode resume` re-applies it
             backends=backends,
             options=RunOptions(candidates=candidates, texture=texture, profile=dial.profile),
             seed=seed,
@@ -444,8 +444,8 @@ def make(
         raise C.CliError(f"invalid run spec: {e}") from e
     # THE run mutex, taken BEFORE the workspace is created (or --force wipes one) and
     # held through the paid reference call and the run itself: everything below mutates
-    # this run directory, and two 3dcv on one slug corrupt each other (runlock.py).
-    with C.mutating(C.runs_root(runs_dir) / run_slug, what=f"3dcv make {run_slug}", action="create"):
+    # this run directory, and two 3dcode on one slug corrupt each other (runlock.py).
+    with C.mutating(C.runs_root(runs_dir) / run_slug, what=f"3dcode make {run_slug}", action="create"):
         ws = C.create_workspace(C.runs_root(runs_dir) / run_slug, force=force)
         ws.write_json(ws.spec_path, spec)
         ws.commit("spec")
@@ -479,7 +479,7 @@ def make(
                 )
             spec = _ground_in_reference(spec, ws, n_views=reference_views)
         if no_run:
-            ok(f"spec written: {ws.spec_path} (not run; `3dcv resume {run_slug}` to start)")
+            ok(f"spec written: {ws.spec_path} (not run; `3dcode resume {run_slug}` to start)")
             return
         _run_track(spec, ws, resume=False, candidates=candidates)
 
@@ -529,7 +529,7 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, f
             record = get_track(spec.track, **options).run(spec, ws, resume=resume, force=force)
     except KeyboardInterrupt:
         raise C.CliError(
-            f"interrupted; resume with `3dcv resume {ws.root.name}`", code=130
+            f"interrupted; resume with `3dcode resume {ws.root.name}`", code=130
         ) from None
     except Exception as e:  # the track failed outside its own error handling
         from codeverse.tracks.lifecycle import SpecChanged
@@ -551,7 +551,7 @@ def _finished_reason(ws, raised: dict) -> str:
     """Why this run must not be re-entered, or "" when resuming it is meaningful.
 
     A run that reached a terminal state has nothing to resume, and re-entering it is
-    destructive, not idempotent: `3dcv resume` on a run that ended stop_reason='pass'
+    destructive, not idempotent: `3dcode resume` on a run that ended stop_reason='pass'
     re-ran the plan stage as a real billed model call and rewrote run_state.status from
     'passed' back to 'planning', leaving a finished run stuck mid-pipeline while still
     holding its best_score.  A BUDGET stop is the documented exception — raising a cap is
@@ -614,7 +614,7 @@ def resume(
     money and overwrites its final state."""
     ws = C.open_workspace(slug, runs_dir)
     # the run mutex, before the spec is rewritten (a budget raise is a mutation)
-    with C.mutating(ws, what=f"3dcv resume {ws.root.name}"):
+    with C.mutating(ws, what=f"3dcode resume {ws.root.name}"):
         spec = C.load_spec(ws)
         if (
             spec.options.profile
@@ -631,7 +631,7 @@ def resume(
         if not force and (why := _finished_reason(ws, raised)):
             raise C.CliError(
                 f"run {ws.root.name} already finished ({why}); nothing to resume.  "
-                f"`3dcv status {ws.root.name}` to look at it, or --force to re-enter it "
+                f"`3dcode status {ws.root.name}` to look at it, or --force to re-enter it "
                 f"(that re-plans, re-scores and overwrites the final state)."
             )
         if raised:

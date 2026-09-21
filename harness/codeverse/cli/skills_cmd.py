@@ -1,4 +1,4 @@
-"""``3dcv skills`` — look at the library, validate it, and read the read-rate.
+"""``3dcode skills`` — look at the library, validate it, and read the read-rate.
 
 ``report`` is the command that matters.  The whole system exists because a tool that
 exists is not a tool that gets used (``read_cookbook``: 0 of 16 zone sessions), so the
@@ -45,7 +45,7 @@ def list_skills(
     from codeverse.skills.targets import target_for
 
     found = list(iter_skills())
-    t = Table(title="3dcv skills")
+    t = Table(title="3dcode skills")
     for col in ("name", "evidence", "verified", "lines", "~tokens", "refs", "target", "dir",
                 *(["routes"] if routes else [])):
         t.add_column(col)

@@ -2,7 +2,7 @@
 
 One shared body is written to ``AGENTS.md`` (codex / generic), ``GEMINI.md``
 (gemini-cli) and ``CLAUDE.md`` (claude-code): task-agnostic rules, how to call
-the ``3dcv`` spatial tools, where the cookbook is, and the language contract.
+the ``3dcode`` spatial tools, where the cookbook is, and the language contract.
 MCP wiring:
 
 * gemini-cli → the per-session system settings (``agents/backends.write_system_settings``);
@@ -17,7 +17,7 @@ on the round's kind and the previous round's gate findings (``codeverse/skills``
 into the three body files this module writes, so there is exactly one shared head and no
 new one (docs/COST.md §13 measured and reverted a second head at +2,925 tokens/call).
 Nothing here needs to change for the CLIs to see them: codex's per-tool approval override
-below is scoped to ``mcp_servers.3dcv.*`` and cannot reach its skills loader, and
+below is scoped to ``mcp_servers.3dcode.*`` and cannot reach its skills loader, and
 gemini-cli's ``activate_skill`` consent is already covered by ``--approval-mode yolo``.
 claude-code needed one change — ``Skill`` in its ``--allowedTools``
 (``agents/backends.ALLOWED_TOOLS``).
@@ -41,8 +41,8 @@ from codeverse.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-CV3D_DIR = ".3dcv"  # harness-owned read-only docs inside the workspace
-MCP_SERVER_NAME = "3dcv"
+CV3D_DIR = ".3dcode"  # harness-owned read-only docs inside the workspace
+MCP_SERVER_NAME = "3dcode"
 MCP_TOOL_TIMEOUT_MS = 600_000
 #: ``.geminiignore`` / ``.aiexclude`` — gemini-cli's read_file/glob REFUSE ignored paths, so the
 #: agent-facing artefacts must stay readable: ``artifacts/*.json`` (the build tool advertises
@@ -54,7 +54,7 @@ IGNORE_LINES = (
     "stages/", "rounds/", "_cand/", "_assets/",
     ".git/", "node_modules/", "__pycache__/", ".gemini/tmp/",
 )
-#: gemini-cli also honours the workspace ``.gitignore`` (``artifacts/``, ``trajectories/``, ``.3dcv/``
+#: gemini-cli also honours the workspace ``.gitignore`` (``artifacts/``, ``trajectories/``, ``.3dcode/``
 #: are git-ignored run state) unless told otherwise — the per-workspace settings turn that off so
 #: ``IGNORE_LINES`` is the single source of truth for what the agent may read.
 GEMINI_CONTEXT_SETTINGS = {"fileFiltering": {"respectGitIgnore": False, "respectGeminiIgnore": True}}
@@ -86,7 +86,8 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], 
     look = [n for n in ("render_views", "render_sheet", "scene_views", "gl_frames") if n in names]
     prove = [n for n in ("measure", "check_contract", "scene_probe", "gl_probe") if n in names]
     if agent_kind == "claude-code":
-        how = "Tools are exposed by the MCP server `3dcv`; their names appear as `mcp__c3v__<name>` (e.g. `mcp__c3v__build`)."
+        how = (f"Tools are exposed by the MCP server `{MCP_SERVER_NAME}`; their names appear as "
+               f"`mcp__{MCP_SERVER_NAME}__<name>` (e.g. `mcp__{MCP_SERVER_NAME}__build`).")
     elif agent_kind == "agy":
         how = (
             "This session has no MCP server. Call a tool from the shell instead:\n"
@@ -107,7 +108,7 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], 
         + " Never finish on a failing build."
     )
     return (
-        "## Spatial tools (3dcv)\n\n"
+        "## Spatial tools (3dcode)\n\n"
         f"{how}\n\n"
         f"{workflow}\n\n"
         f"{cards}\n"
@@ -117,11 +118,11 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], 
 def _body(agent_kind: str, contract_md: str, cookbook_note: str, spatial_tools: bool, mcp_command: list[str],
           ws: Workspace | None = None) -> str:
     return (
-        "# 3dcv workspace — rules for the coding agent\n\n"
+        "# 3dcode workspace — rules for the coding agent\n\n"
         "You are working inside a harness-managed workspace. Read this whole file before acting.\n\n"
         "## Hard rules\n\n"
         "1. You may create or edit files ONLY under `src/` and `public/`. Never modify `artifacts/`, "
-        "`trajectories/`, `.git/`, `.gemini/`, `.3dcv/`, or this file — they are harness-owned.\n"
+        "`trajectories/`, `.git/`, `.gemini/`, `.3dcode/`, or this file — they are harness-owned.\n"
         "2. Write RAW code in the language named by the contract below. Never import from `codeverse` or "
         "any helper SDK (harness-owned modules the contract ships INSIDE your src/ are the one "
         "exception — call them, never rewrite them); do not install packages; do not use the network; do not write "
@@ -162,8 +163,9 @@ def _drop_server(path: Path) -> None:
     except json.JSONDecodeError:
         return
     servers = data.get("mcpServers")
-    if isinstance(servers, dict) and MCP_SERVER_NAME in servers:
-        servers.pop(MCP_SERVER_NAME)
+    if isinstance(servers, dict) and servers.keys() & {MCP_SERVER_NAME, "3dcv"}:   # "3dcv": the name before 2026-09-21
+        servers.pop(MCP_SERVER_NAME, None)
+        servers.pop("3dcv", None)
         path.write_text(json.dumps(data, indent=2) + "\n")
 
 
@@ -172,12 +174,12 @@ def _toml_str_list(items: list[str]) -> str:
 
 
 #: codex ≥ 0.14x asks for per-tool approval before running an MCP tool; ``codex exec`` has
-#: nobody to answer, so without this every 3dcv call is auto-cancelled ("requires approval").
+#: nobody to answer, so without this every 3dcode call is auto-cancelled ("requires approval").
 CODEX_MCP_APPROVAL_MODE = "approve"
 
 
 def codex_mcp_overrides(mcp_command: list[str]) -> list[str]:
-    """``-c`` pairs that register the 3dcv MCP server for one ``codex exec`` call."""
+    """``-c`` pairs that register the 3dcode MCP server for one ``codex exec`` call."""
     return [
         "-c", f"mcp_servers.{MCP_SERVER_NAME}.command={json.dumps(mcp_command[0])}",
         "-c", f"mcp_servers.{MCP_SERVER_NAME}.args={_toml_str_list(mcp_command[1:])}",
@@ -221,7 +223,7 @@ def materialize_workspace(
     it is a log line now, where someone reading the run can see it (2026-08-30)."""
     mcp_command = list(mcp_command) if mcp_command else default_mcp_command(ws)
 
-    # cookbook: copy into the harness-owned .3dcv/ dir so every CLI can read it in-workspace
+    # cookbook: copy into the harness-owned .3dcode/ dir so every CLI can read it in-workspace
     src = _resolve_cookbook(ws, cookbook_rel)
     if src is not None:
         dest = ws.root / CV3D_DIR / "cookbook.md"
@@ -240,7 +242,7 @@ def materialize_workspace(
     for name in ("AGENTS.md", "GEMINI.md", "CLAUDE.md"):
         (ws.root / name).write_text(body)
 
-    # No MCP server is written into the workspace: every CLI gets 3dcv from a harness-owned
+    # No MCP server is written into the workspace: every CLI gets 3dcode from a harness-owned
     # per-session file, so an agent-planted server cannot reach the next round (audit 2026-08-27).
     gemini_settings = ws.root / ".gemini" / "settings.json"
     _merge_json(gemini_settings, {"context": dict(GEMINI_CONTEXT_SETTINGS)})

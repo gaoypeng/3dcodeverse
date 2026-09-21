@@ -1,4 +1,4 @@
-"""`3dcv tools <name>`: the three-state panel and the exit code behind it."""
+"""`3dcode tools <name>`: the three-state panel and the exit code behind it."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _panel_title(obs: Observation) -> str:
 
 def test_print_observation_shows_three_states() -> None:
     """ok / FAIL / error, the same split the MCP server reports as ``is_error``: a human
-    reading `3dcv tools check_connectivity` must be able to tell a gate that answered FAIL
+    reading `3dcode tools check_connectivity` must be able to tell a gate that answered FAIL
     from a tool that could not run, and the panel title is where they look."""
     assert "ok" in _panel_title(Observation(ok=True, text="fine"))
     assert "FAIL" in _panel_title(Observation(ok=False, text="connectivity: FAIL — 1 error(s)"))
@@ -31,7 +31,7 @@ def test_print_observation_shows_three_states() -> None:
 
 
 def test_cli_exit_code_follows_the_verdict_not_the_failure(stool_ctx: ToolContext) -> None:
-    """`3dcv tools` exits 1 on ``not ok`` — a FAIL verdict included.  Deliberate, and it
+    """`3dcode tools` exits 1 on ``not ok`` — a FAIL verdict included.  Deliberate, and it
     DID change one command: `scene_probe` used ``ok`` for "the probe tool ran", so a failing
     scene gate now exits 1 where it exited 0 (docs/COST.md §30).  Every other gate tool
     already exited 1 on a FAIL; the exit code speaks to the human or script at the terminal,

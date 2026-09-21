@@ -1,8 +1,8 @@
-"""``3dcv texture`` — text-to-image texturing commands.
+"""``3dcode texture`` — text-to-image texturing commands.
 
-    3dcv texture pass <slug> [--no-judge] [--model gemini:gemini-3.7-flash] [--image-model gemini-3.1-flash-image]
-    3dcv texture scene-pack <slug> [--n 8] [--model ...]
-    3dcv texture show <slug>
+    3dcode texture pass <slug> [--no-judge] [--model gemini:gemini-3.7-flash] [--image-model gemini-3.1-flash-image]
+    3dcode texture scene-pack <slug> [--n 8] [--model ...]
+    3dcode texture show <slug>
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def pass_(
     ws = C.open_workspace(slug, runs_dir)
     spec = C.load_spec(ws)
     if spec.track not in (Track.STATIC_OBJECT, Track.ARTICULATED_OBJECT):
-        raise C.CliError(f"texture pass is for object tracks; {spec.track.value} runs use `3dcv texture scene-pack`")
+        raise C.CliError(f"texture pass is for object tracks; {spec.track.value} runs use `3dcode texture scene-pack`")
     load_plan = C.lazy("codeverse.spatial.tool_common", "load_plan")
     plan = load_plan(ws.plan_path)
     texture_pass = C.lazy("codeverse.texturing.run", "texture_pass")
@@ -48,7 +48,7 @@ def pass_(
 
     # a post-hoc pass joins the run's ledger when it has one, else the per-process log;
     # it rewrites the run's artifacts, so it holds the run mutex (one writer per run dir)
-    with (C.mutating(ws, what=f"3dcv texture pass {ws.root.name}", action="texture"),
+    with (C.mutating(ws, what=f"3dcode texture pass {ws.root.name}", action="texture"),
           run_ledger(ws.root, run=ws.root.name, create=False)):
         rep = texture_pass(ws, spec, plan, model_id=model or spec.backends.planner,
                            image_model=_image_model(image_model), judge=judge,
@@ -111,7 +111,7 @@ def scene_pack(
     from codeverse.cost.instrument import run_ledger
 
     # like `pass`: the pack's plan + image spend joins the run's ledger when it has one
-    with (C.mutating(ws, what=f"3dcv texture scene-pack {ws.root.name}", action="texture"),
+    with (C.mutating(ws, what=f"3dcode texture scene-pack {ws.root.name}", action="texture"),
           run_ledger(ws.root, run=ws.root.name, create=False)):
         pack = scene_texture_pack(plan, out or ws.public / "textures", _image_model(image_model), model_id, size=size, n_max=n)
     rows = {name: f"{e.file or 'FAILED'}  tile={e.tile_size_m:.2f}m {e.material_family}/{e.role} seam={e.seam_score:.3f}"

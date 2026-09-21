@@ -1,4 +1,4 @@
-"""Run records → a dataset: what ``3dcv flywheel …`` does AFTER the runs exist.
+"""Run records → a dataset: what ``3dcode flywheel …`` does AFTER the runs exist.
 
 * ``export``    ``export_samples(runs_dir, out_dir, min_score=..)`` → ``ExportReport``
 * ``pack``      ``pack_samples(out_dir)`` (plain tars + byte-range locators, optional)

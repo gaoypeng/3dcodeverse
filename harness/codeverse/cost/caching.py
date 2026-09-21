@@ -11,7 +11,7 @@ experiment was measured and reverted (docs/COST.md §13: every prompt family her
 sits below the provider's minimum cacheable prefix, so reordering bought nothing),
 and the code sat with no production caller until it was deleted on 2026-08-28.
 
-``3dcv cost cache <slug>`` is the reader.
+``3dcode cost cache <slug>`` is the reader.
 """
 
 from __future__ import annotations

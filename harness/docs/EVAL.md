@@ -2,7 +2,7 @@
 
 How we decide whether the harness (plan → generate → gate → render → judge →
 refine) beats raw generation, and whether one backend beats another, without
-fooling ourselves.  Tools: `3dcv bench`, `bench/compare_backends.py`,
+fooling ourselves.  Tools: `3dcode bench`, `bench/compare_backends.py`,
 `codeverse.judges.{vlm_judge, pairwise, calibration, metrics}`.
 
 ## 1. Principles
@@ -50,16 +50,16 @@ becomes acceptance items (planner-appended in the loop, fixed-judge checklist in
 comparisons); `dimensions_m` becomes `Spec.constraints.dimensions_m` and a
 deterministic contract check.
 
-## 3. Harness battery runs (`3dcv bench run`)
+## 3. Harness battery runs (`3dcode bench run`)
 
 ```bash
-3dcv bench run bench/prompts/static_objects_v1.yaml \
+3dcode bench run bench/prompts/static_objects_v1.yaml \
     --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview \
     --rounds 2 --parallel 4 --out bench/out/static_v1_apiagent
-3dcv bench run bench/prompts/static_objects_v1.yaml --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
-3dcv bench report bench/out/static_v1_apiagent
+3dcode bench run bench/prompts/static_objects_v1.yaml --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
+3dcode bench report bench/out/static_v1_apiagent
 ```
-Each item = one full `3dcv make` run (its own workspace under `--out`); `results.jsonl`
+Each item = one full `3dcode make` run (its own workspace under `--out`); `results.jsonl`
 rows carry `score_baseline`, `score_final`, `passed`, `rounds`, `cost_usd`, `minutes`,
 `status`, `generator`, `judge`.  `report.md/html` tabulates per tier and category:
 mean baseline → final (the harness delta), pass rate, cost, time.  Keep `--judge` fixed
@@ -179,7 +179,7 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
 "images beat gate text for visible facts" in the prompt fixed pro hallucinating
 "nothing moves" from contract-gate text.
 
-* Variance on your own runs: `3dcv judge <slug> --n k` and read `score_std`.
+* Variance on your own runs: `3dcode judge <slug> --n k` and read `score_std`.
 * Sanity anchors: a skeleton placeholder should score ≈ 0.3–0.5; a deliberately wrong
   object should trip the `intent_fidelity` floor / `wrong_object` defect; a floating
   part should cap via `connectivity` findings with `data["kind"]="floating"`.

@@ -331,7 +331,7 @@ def test_the_ab_viewer_refuses_to_call_a_winner_it_cannot_support():
     assert head.startswith("Inconclusive") and "1 of 1" in why
 
 def test_the_default_generator_and_the_cost_router_name_the_same_model():
-    """`3dcv cost` prints the default=True GENERATOR route as "the default"; if it disagrees with
+    """`3dcode cost` prints the default=True GENERATOR route as "the default"; if it disagrees with
     Backends.generator the report is describing a model no run uses."""
     from codeverse.contracts.common import Backends
     from codeverse.cost.routing import ROUTES

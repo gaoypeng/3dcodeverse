@@ -138,19 +138,19 @@ from codeverse.cost.profiles import get_profile, PROFILES   # economy | balanced
 get_settings().apply_profile(name, *, force=False) -> Profile
     # sets default_{generator,planner,judge,captioner}, default_candidates, Settings.judge
     # (max_px/montages/detail_crops/samples) and limits.agent_max_turns; a value the user stated in
-    # config.yaml / CV3D_* survives unless force (3dcv make --profile forces).
-from codeverse.cli._common import resolve_dial, ResolvedDial   # THE resolver, one per `3dcv make`
+    # config.yaml / CV3D_* survives unless force (3dcode make --profile forces).
+from codeverse.cli._common import resolve_dial, ResolvedDial   # THE resolver, one per `3dcode make`
 resolve_dial(settings, profile_flag=None, *, rounds=None, candidates=None,
              max_minutes=None, texture=False) -> ResolvedDial
     # profile/generator/planner/judge/captioner, judge_samples/judge_max_px/judge_montages/
     # judge_detail_crops, agent_max_turns, rounds, candidates, texture, max_minutes.
     # `--profile X` and `CV3D_PROFILE=X` resolve to the SAME dial (they used to disagree on
     # candidates + texture); an explicit flag beats both.  Spec.options.profile always records the
-    # resolved name so `3dcv resume` re-applies it.
+    # resolved name so `3dcode resume` re-applies it.
 from codeverse.models.pricing import price_provenance    # (provider, model) -> PriceRow(price, match, status, checked)
 ```
-`3dcv cost <slug|path>…` · `3dcv cost --runs-dir <root>` · `3dcv cost cache <slug>` ·
-`3dcv cost prices [--stale] [--days N] [--unverified]` · `3dcv cost profiles` · `3dcv cost estimate`.
+`3dcode cost <slug|path>…` · `3dcode cost --runs-dir <root>` · `3dcode cost cache <slug>` ·
+`3dcode cost prices [--stale] [--days N] [--unverified]` · `3dcode cost profiles` · `3dcode cost estimate`.
 A run with a live ledger is read from it (`RunLedger.source == "live"`); older runs are
 reconstructed, so all 61 recorded runs keep auditing.
 
@@ -161,14 +161,14 @@ from codeverse.agents.materialize import materialize_workspace, codex_mcp_overri
 materialize_workspace(ws, *, agent_kind, contract_md, cookbook_rel, spatial_tools, mcp_command=None) -> None
 # mcp_command defaults to cli_common.default_mcp_command(ws) = [sys.executable, -m codeverse.spatial.mcp_server --workspace …]
 # (None/[] = the default — no ValueError); tracks/common.Services.materialize takes no mcp_command
-# writes AGENTS.md + GEMINI.md + CLAUDE.md (same body), ws/.3dcv/cookbook.md (Δ copied in: gemini-cli cannot read
+# writes AGENTS.md + GEMINI.md + CLAUDE.md (same body), ws/.3dcode/cookbook.md (Δ copied in: gemini-cli cannot read
 # outside the workspace), .geminiignore/.aiexclude, and MCP wiring:
-#   gemini-cli → ws/.gemini/settings.json only gets context.fileFiltering.respectGitIgnore=false; the 3dcv server
+#   gemini-cli → ws/.gemini/settings.json only gets context.fileFiltering.respectGitIgnore=false; the 3dcode server
 #     and mcp.allowed live in the per-session system settings (Δ that file is agent-writable — audit 2026-08-27)
 #   claude-code → trajectories/<label>_rNN/mcp.json      codex → codex_mcp_overrides(mcp_command) built PER SESSION:
-#     -c mcp_servers.3dcv.command=… -c mcp_servers.3dcv.args=[…] -c mcp_servers.3dcv.default_tools_approval_mode="approve"
+#     -c mcp_servers.3dcode.command=… -c mcp_servers.3dcode.args=[…] -c mcp_servers.3dcode.default_tools_approval_mode="approve"
 #     (Δ without the approval mode every MCP tool call is elicited and auto-cancelled)
-#   agy → no per-workspace MCP; body documents `3dcv tools <name> --json … --workspace .` as the fallback
+#   agy → no per-workspace MCP; body documents `3dcode tools <name> --json … --workspace .` as the fallback
 res = agent.run(AgentJob(workspace=..., prompt=..., label="baseline", timeout_s=1800, max_turns=60,
                          spatial_tools=True, write_roots=["src","public"]))   # typed kwargs only: no extra=, no model=
 res.ok, res.exit_reason  # completed | timeout | error | budget | model_substituted
@@ -197,7 +197,7 @@ records `attempt` + `job_label`.  Each run makes two git commits (`pre:`/`agent:
 gemini-cli specifics: system settings file via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`
 (written per session into the trajectory dir: api-key auth, `dynamicModelConfiguration=true`
 else silent model substitution → `exit_reason="model_substituted"`, `folderTrust.enabled=false`
-else workspace MCP silently dropped, plus `mcpServers.3dcv` + `mcp.allowed=["3dcv"]` — **Δ** it is
+else workspace MCP silently dropped, plus `mcpServers.3dcode` + `mcp.allowed=["3dcode"]` — **Δ** it is
 applied LAST and `mcp.allowed` replaces, so an agent-planted server in ws/.gemini/settings.json is Blocked).  **Δ** `Usage.input_tokens` = `tokens.prompt` (TOTAL prompt incl.
 cached; `tokens.input` is the uncached count) and each served model is priced at its
 own rate.  KeyPoolExhausted never escapes `run()` (→ `exit_reason=budget`); retries
@@ -238,7 +238,7 @@ export; the build warns and the contract/connectivity gates report it.
 (`runtime_js/package.json` `engines.node` mirrors it).  `run_node` calls
 `require_node_version()` before spawning, so an old node raises `NodeError` with the fix
 in the message instead of failing obscurely; `parse_node_version` / `node_version_error`
-are the pure helpers `3dcv doctor` reuses for its `node` row.
+are the pure helpers `3dcode doctor` reuses for its `node` row.
 
 ## spatial/
 
@@ -331,7 +331,7 @@ from codeverse.spatial.mcp_server import observation_content, max_images_for, MA
 import codeverse.spatial.tools   # registers: build, measure, render_views, render_sheet, isolate, cross_section,
     # check_connectivity, check_contract, compare_silhouette, joint_sweep [articulated], shader_probe, scene_probe,
     # scene_views + check_placement [scene], gl_probe + gl_frames [graphics], texture_pass + texture_preview [object tracks]
-python -m codeverse.spatial.mcp_server --workspace <ws> [--track X] [--language Y] [--round N] [--list]   # MCP name: 3dcv
+python -m codeverse.spatial.mcp_server --workspace <ws> [--track X] [--language Y] [--round N] [--list]   # MCP name: 3dcode
 ```
 
 ## judges/
@@ -349,7 +349,7 @@ VlmJudge.slice_payload(inp) -> (list[(label, png_path)], provenance_elicitation:
     # connectivity gate has ≥1 ERROR; renders judge_slices into the judge cache (keyed by glb identity + error pairs)
 from codeverse.judges.base import JudgeInput   # (spec, renders, measurement=None, gates=[], acceptance=[], plan_summary="",
                                                #  round_index=0, previous=None, extra_context="", geometry_views=None,
-                                               #  glb_path=None (D48: the round's canonical GLB; object tracks + 3dcv judge fill it))
+                                               #  glb_path=None (D48: the round's canonical GLB; object tracks + 3dcode judge fill it))
 from codeverse.judges.prompt_builder import plan_montages, render_montage, Montage    # ≤5 2×2 montages (shaded/geometry/poses) + ≤2 detail
     # crops @≤1024px replace the sheet + the 14-view rig (D47); clay/normals views (RenderView.mode) auto-route to the GEOMETRY montage
 from codeverse.judges.prompt_builder import build_judge_messages, connectivity_error_pairs, PROVENANCE_ELICITATION
@@ -579,7 +579,7 @@ from codeverse.addons.dataset.index import build_index, query, summary   # sqlit
 3dcodeverse make [--profile economy|balanced|quality]|resume|status|show|render|judge|tools|mcp
              |texture {pass,scene-pack,show}|cost {<slug>,show,cache,prices,profiles,estimate}
              |flywheel {export,pairs,refine,caption,index,dedupe,gallery}|gallery {serve,build}
-             |bench {run,report}|doctor    # alias: 3dcv
+             |bench {run,report}|doctor    # alias: 3dcode
 ```
 
 ## Events and records

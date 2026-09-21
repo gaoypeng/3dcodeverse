@@ -368,7 +368,7 @@ def find_run_dirs(root: Path | str, *, predicate: Callable[[Path], bool] = is_ru
                   max_depth: int = RUN_SEARCH_DEPTH) -> list[Path]:
     """Run directories under ``root``, sorted.
 
-    Direct children win when there are any — that is the ``3dcv`` runs root and the
+    Direct children win when there are any — that is the ``3dcode`` runs root and the
     run_bench ``runs/`` layout, and it keeps the common case a single ``iterdir()``.
     Only when there are none do we descend, which is what makes a compare_backends or
     ab_plan BATTERY directory work: those hold their runs four and five levels down, so

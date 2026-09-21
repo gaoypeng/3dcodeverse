@@ -180,7 +180,7 @@ def test_a_dirty_round_with_a_floating_only_error_still_elicits(tmp_path, cache_
     assert labels(req)[-2:] == [SLICE_LABELS["front_back"], SLICE_LABELS["left_right"]]
 
 
-# --------------------------------------------------------------------- (d) 3dcv judge replay
+# --------------------------------------------------------------------- (d) 3dcode judge replay
 def test_replay_reproduces_the_conditional_payload_from_stored_gates_and_glb(tmp_ws: Workspace, tmp_path, cache_dir):
     from codeverse.cli._judge import build_judge_input
 

@@ -34,7 +34,7 @@ written) that were accepted because the code works that way and the tests pin it
   repair prompts are error-focused (file:line, traceback tail, lint hints,
   keyword-matched cookbook section) and escalate temperature/thinking (single-shot)
   or add a "same error again" notice (agents) on identical error signatures.
-* **D3 `RoundPolicy.max_rounds` counts refine rounds after the baseline.**  `3dcv make
+* **D3 `RoundPolicy.max_rounds` counts refine rounds after the baseline.**  `3dcode make
   --rounds 2` = baseline + up to 2 refine rounds.  The rubric's `pass_threshold`
   overrides `RoundPolicy.target` when no explicit policy is injected.
 * **D4 Parallel refine only when it is safe.**  Fan out only when at least
@@ -47,7 +47,7 @@ written) that were accepted because the code works that way and the tests pin it
 * **D6 Finalise restores the best commit and rebuilds.**  Artifacts always match the
   delivered code; export copies `artifacts/object.glb` trusting that.
 * **D7 Stage cache by input hash.**  `StageRunner` stores `stages/<name>.json` keyed by a
-  hash of the inputs, so `3dcv resume` re-runs only what changed; the budget guard is
+  hash of the inputs, so `3dcode resume` re-runs only what changed; the budget guard is
   restored from `run_state.extra.budget_snapshot` (`BudgetSnapshot`: spent usage, billed
   USD, call count, per-STAGE buckets, cumulative ACTIVE seconds — grace is
   deliberately NOT persisted; the per-ROUND bucket went 2026-08-30, nothing read it and
@@ -61,7 +61,7 @@ written) that were accepted because the code works that way and the tests pin it
   candidate count lives in `spec.options.candidates`, the candidate table in
   `rounds/candidates.json` (which `record.extra.candidates` is read from).
 * **D8 Events carry `event`, not `kind` (Δ).**  `EventLog.emit(event, **data)` so payloads
-  may include `kind=` (round kind).  `3dcv status` and tests follow.
+  may include `kind=` (round kind).  `3dcode status` and tests follow.
 * **D9 `materialize_workspace` returns `None` (Δ 2026-08-30).**  It used to return a
   `Materialized` model carrying the body files, the ignore files, the cookbook path, the MCP
   command and a `warnings` list — and every production caller discarded it
@@ -70,7 +70,7 @@ written) that were accepted because the code works that way and the tests pin it
   `codeverse.agents.materialize`, where a run log shows it; the model is gone.
   The codex `-c` overrides are NOT on it (`codex_overrides` was deleted
   2026-08-29): the codex backend builds `codex_mcp_overrides(mcp_command)` per session.
-  The cookbook is copied to `ws/.3dcv/cookbook.md` (gemini-cli cannot read outside the
+  The cookbook is copied to `ws/.3dcode/cookbook.md` (gemini-cli cannot read outside the
   workspace); the MCP argv defaults to `cli_common.default_mcp_command(ws)`, i.e.
   `sys.executable`, for every backend (the track-side bare-`python` literals are gone).
 * **D10 gemini-cli needs a system-settings file (Δ).**  api-key auth +
@@ -127,7 +127,7 @@ written) that were accepted because the code works that way and the tests pin it
 * **D22 Judge defaults (updated wave 3).**  `Settings.default_judge =
   gemini:gemini-3.1-pro-preview`; tracks construct `VlmJudge(rubric, model_id,
   n_samples=1)` (`RoundPolicy.judge_samples`).  Flash is the cheap in-loop option —
-  use `n_samples ≥ 2` for decisions or re-judge with `3dcv judge --n 3`.
+  use `n_samples ≥ 2` for decisions or re-judge with `3dcode judge --n 3`.
 * **D23 Gemini specifics (Δ).**  tools + response_schema are mutually exclusive (schema
   dropped with a warning); Gemini 3.x cannot disable thinking; provider opaque state
   (thought signatures / Anthropic thinking blocks) is cached in-process by tool-call id
@@ -137,7 +137,7 @@ written) that were accepted because the code works that way and the tests pin it
 * **D25 Flywheel shapes (Δ).**  `caption_sample(ws, record, model_id, *, model=None)`;
   `export_samples` keeps both `code.<ext>` and full `src/**`; parquet adds
   track/language/score/passed/generator columns; tar locators filled by `--pack`;
-  `bench/` lives at repo root; `3dcv tools` is one command, not a sub-app; runs whose best
+  `bench/` lives at repo root; `3dcode tools` is one command, not a sub-app; runs whose best
   round never built are skipped unless `--include-unbuilt`.
 * **D26 Threejs exports strip textures; `userData.tick` cannot survive GLB** — recorded in
   the census (`tick_present`) for the judge/flywheel rather than faked.
@@ -163,7 +163,7 @@ written) that were accepted because the code works that way and the tests pin it
   `JudgeInput.geometry_views` routes clay/normals views to a geometry-only montage.
 * **D31 Textures are a derived asset pack, never the deliverable.**  The texture
   pass (material plan → tileable tiles → world-metre UVs → `object_textured.glb`)
-  runs after finalise or standalone (`3dcv texture pass`); it never edits `src/` or
+  runs after finalise or standalone (`3dcode texture pass`); it never edits `src/` or
   `object.glb`, ships only when the before/after judge gate agrees (Δoverall ≥
   −0.01 AND materials criterion improved), and is recorded in
   `record.extra["texturing"]`.  Scenes get a named tile pack under
@@ -277,7 +277,7 @@ written) that were accepted because the code works that way and the tests pin it
   value warns and reads as OFF, so a typo in a bench command is a control run, never a
   silent arm (and never the variant, which a fallback of `True` would have handed it); (d) one MCP command (`default_mcp_command`, `sys.executable`),
   one JSON-envelope finder, one union-find, one sha256, one `ask_structured`, one
-  `RENDER_MODES`; the retired mechanisms (`3dcv migrate-runs`, turntables + ffmpeg, the
+  `RENDER_MODES`; the retired mechanisms (`3dcode migrate-runs`, turntables + ffmpeg, the
   `CV3D_SYSPROMPT=v0` arm, `shader_presence` / counterfactual renders, the in-process
   turn-cap backstop, the concurrent-session registry) are gone with their docs.
 
@@ -310,7 +310,7 @@ written) that were accepted because the code works that way and the tests pin it
   run paid for.  **The guarantee is forward-only** — 0 of the 1 466 `rounds/rNN.json` on disk carry
   the field, so for every existing run `replay_best_round` degenerates to the pre-2026-08-30
   `BestSelector().pick`, which is why nothing on disk changed behaviour.  Of the 30 recorded dirs
-  whose stored best disagrees with a plain re-rank, exactly one is re-enterable by `3dcv resume`
+  whose stored best disagrees with a plain re-rank, exactly one is re-enterable by `3dcode resume`
   (20 are `plateau`, refused without `--force`; 9 name generator kinds deleted 2026-08-28).
   KNOWN DIVERGENCE, unresolved: on the re-judge path `_promote_best` runs TWICE for one index
   (`lifecycle._round_loop`) — once with `judgment=None`, which lets `choose_best_round`'s
@@ -406,7 +406,7 @@ written) that were accepted because the code works that way and the tests pin it
   (0 of 14 recorded threejs GLBs differ).
   (h) **The judge reads the ledger, not WARN prose**: `gates_section` renders one measured
   overlap line, a MEASURED STRUCTURE block with the plan's joins as contact / OPEN, and the
-  lowest point above the floor — from the stored `GateReport`, so `3dcv judge` and calibration
+  lowest point above the floor — from the stored `GateReport`, so `3dcode judge` and calibration
   see what the in-run judge saw, and a pre-ledger round renders byte-identical (1 254
   "interpenetrate by ≈d mm" sentences on 241 stored rounds → 0; 171 rounds carry an OPEN
   planned join).  It rides on the v1 `judge_prompt_hash` — per-run text is not hashed — so its
@@ -734,7 +734,7 @@ written) that were accepted because the code works that way and the tests pin it
     unlike textconv there is no flag that turns it off.  It reads through `ls-tree -r -z`
     + `cat-file --batch` now: same bytes, no filter path.  Pinned by a test that plants a
     smudge filter and fails on the old implementation (`tests/flywheel_cli`).
-  * **The refine transitions are the corpus this harness is for.**  `3dcv flywheel refine`
+  * **The refine transitions are the corpus this harness is for.**  `3dcode flywheel refine`
     emits one row per round the loop asked to change: the gate findings and judge
     complaint that condemned round i, the instructions the harness wrote, both code
     snapshots, and whether the score moved.  A one-shot corpus cannot contain that pair;
@@ -903,7 +903,7 @@ written) that were accepted because the code works that way and the tests pin it
   `texturing.plan.scene_texture_pack` writes a tileable pack and `texture_pack_prompt`
   renders the list plus the loading idiom — its docstring says "Prompt snippet for
   zone/env generation" — and NOTHING in `tracks/scene.py` called either.  The pack was
-  reachable only through `3dcv texture scene-pack`, whose output `cli/texture_cmd.py`
+  reachable only through `3dcode texture scene-pack`, whose output `cli/texture_cmd.py`
   prints for a human to paste, and `Spec.options.texture` does nothing on this track.
   Decision: a `textures` stage runs before env and zones (they can only name files that
   exist when their prompts are built) and `_ctx` — the one place both prompts get their
