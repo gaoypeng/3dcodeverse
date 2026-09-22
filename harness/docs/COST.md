@@ -1571,7 +1571,10 @@ they are ONE step), `zones`, `assemble`, best-of-N `candidates` — run-level, o
 that ran included) — and per round `generate` (one per phase: a phase's sessions run side by
 side), `build` (+ repair), `gates`, `render`, `judge` (+ a re-judge), on `RoundRecord.steps`.
 **`RunRecord.minutes`** = Σ (wall − lost) / 60 over all of them: THE number, the one every reader
-reports (`addons/select` per round, the gallery, `3dcode cost`, eval/bench).
+reports (`addons/select` per round, the gallery, `3dcode cost`, `3dcode show`, the dataset index,
+eval/bench).  Work after the run — a pick's texture pass or pairwise verdict, captions — is not a step
+of it (its money joins the ledger; its time is the pick's).  Harness glue between steps (git
+commits, skill bundles, writing records) is not a step either.
 
 **What is lost.**  `cost/tally.py`: a step opens a `Tally`; the meters book into every open one.
 An agent session books its `AgentResult.provider_wait_s` (the CLI's own 503 / 429 retries, read
