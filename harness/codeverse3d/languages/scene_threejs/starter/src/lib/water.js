@@ -8,9 +8,9 @@
  *
  * The addon's fragment shader is REGRADED here (see `_regrade`): its
  * stock look is a 30%-reflective milk with a flat +0.1 veil, which on
- * our pipeline (ACES, exposure 1.0, no post chain) renders a pool as
- * pale plastic — measured 2026-09-01, a still pool read mean_lum 0.73
- * at BOTH a steep and a grazing view, i.e. no Fresnel at all.
+ * our pipeline (ACES, exposure 1.0) renders a pool as pale plastic —
+ * measured 2026-09-01, a still pool read mean_lum 0.73 at BOTH a steep
+ * and a grazing view, i.e. no Fresnel at all.
  */
 
 import * as THREE from 'three';
@@ -293,7 +293,7 @@ function _readScene(scene, uniforms, pinned) {
  *   `waterColor` hex (default 0x0e3f5c);
  *   `sunColor` hex (default 0xffffff);
  *   `distortionScale` reflection wobble (default 2.8);
- *   `rttSize` reflection render-target px (default 256);
+ *   `rttSize` reflection render-target px (default 512);
  *   `size` wave-pattern density uniform (default: scaled to the plane);
  *   `waterNormals` texture override (default `makeWaterNormals(256)`);
  *   `fog` fold scene fog into the shader (default true);

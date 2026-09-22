@@ -30,10 +30,11 @@
  * Tracks that must run somewhere else on the same material take
  * `offset` (metres across) rather than a second centreline.
  *
- * Gloss is per MATERIAL, not per pixel — `<color_fragment>` runs before
- * `<roughnessmap_fragment>` — so each patch composes ONE factor through
- * `composeRoughness`: polished ruts and a damp gutter drop it, grit and
- * loose aggregate raise it.
+ * Gloss is per MATERIAL, not per pixel — all three write only at
+ * `<color_fragment>`, before `<roughnessmap_fragment>`, and none uses
+ * `patchStandard`'s `roughnessBody` — so each patch composes ONE factor
+ * through `composeRoughness`: polished ruts and a damp gutter drop it,
+ * grit and loose aggregate raise it.
  */
 
 import * as THREE from 'three';

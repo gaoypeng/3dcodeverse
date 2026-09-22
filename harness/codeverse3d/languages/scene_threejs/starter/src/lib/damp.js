@@ -22,8 +22,9 @@
  * (measured: a splat over a triplanar did exactly that). Every one here
  * multiplies or mixes with what it is handed.
  *
- * Gloss is per MATERIAL, not per pixel — `<color_fragment>` runs before
- * `<roughnessmap_fragment>` — so each composes ONE factor through
+ * Gloss is per MATERIAL, not per pixel — all three write only at
+ * `<color_fragment>`, before `<roughnessmap_fragment>`, and none uses
+ * `patchStandard`'s `roughnessBody` — so each composes ONE factor through
  * `composeRoughness`, and they pull BOTH ways: moss and dried mud are
  * matte, damp ground and a water-filled crack are glossy.
  */
@@ -222,7 +223,7 @@ const siltDamp = (base) =>
  * It MIXES over the albedo it is handed (and shades the material just
  * outside its edge, the only thickness a patch that cannot displace
  * geometry has), so a triplanar, a splat or a stain underneath survives
- * everywhere the moss is thin. Gloss is per MATERIAL, not per pixel:
+ * everywhere the moss is thin. Gloss here is per MATERIAL, not per pixel:
  * moss is the mattest thing on any rock, so its factor goes UP.
  *
  * @param {THREE.Material} material A built-in material, patched in
@@ -394,9 +395,9 @@ export function patchMoss(material, opts = {}) {
  *
  * It MULTIPLIES the albedo it is handed and deepens its colour, so a
  * triplanar, a splat or a wear pattern underneath comes through the
- * apron rather than being replaced by it. Gloss is per MATERIAL, not
- * per pixel, so the factor goes DOWN — the opposite direction from moss
- * on the same chain.
+ * apron rather than being replaced by it. Gloss here is per MATERIAL,
+ * not per pixel, so the factor goes DOWN — the opposite direction from
+ * moss on the same chain.
  *
  * @param {THREE.Material} material A built-in material, patched in
  *   place — a shared material damps every mesh wearing it.

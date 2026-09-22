@@ -33,7 +33,8 @@ import * as THREE from 'three';
 
 import { mulberry32 } from './noise.js';
 import {
-    instancedQuad, makeShaderMaterial, readVec3, tickShaders, keepOutOfDepthPasses,
+    instancedQuad, keepOutOfDepthPasses, makeShaderMaterial, readVec3,
+    tickShaders,
 } from './shader.js';
 
 const _TAU = Math.PI * 2;

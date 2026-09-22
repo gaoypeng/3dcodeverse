@@ -41,10 +41,10 @@ const BASE = worldBase('waterside:base', 'wsP', 'wsN');
  * sky-family colour a `<color_fragment>` patch can reach), which is
  * what separates wet sand from sand in shadow.
  *
- * `gloss` lands on the MATERIAL, not per pixel: `patchStandard`'s only
- * fragment hook runs after `<color_fragment>` and therefore BEFORE
- * `<roughnessmap_fragment>` declares `roughnessFactor`, so per-pixel
- * roughness is out of reach. It therefore defaults to a LIGHT touch:
+ * `gloss` lands on the MATERIAL, not per pixel: this patch writes only
+ * at `<color_fragment>`, BEFORE `<roughnessmap_fragment>` declares
+ * `roughnessFactor`, and does not use `patchStandard`'s `roughnessBody`.
+ * It therefore defaults to a LIGHT touch:
  * a shore ground is mostly dry, and the reference default of 0.45 took
  * `MAT.soil()` from roughness 0.95 to 0.43 over the whole beach —
  * measured on this renderer (ACES, exposure 1.0, baked environment) it

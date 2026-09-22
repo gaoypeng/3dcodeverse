@@ -18,9 +18,11 @@
  * `patchDripStains(m, { from })` is the one way to pin the source to an
  * exact sill.
  *
- * Gloss is per MATERIAL, not per pixel — `<color_fragment>` runs before
- * `<roughnessmap_fragment>` — so each patch composes one roughening
- * factor through `composeRoughness`: dirt, rust and dust are all matte.
+ * Gloss is per MATERIAL, not per pixel — all three write only at
+ * `<color_fragment>`, before `<roughnessmap_fragment>`, and none uses
+ * `patchStandard`'s `roughnessBody` — so each patch composes one
+ * roughening factor through `composeRoughness`: dirt, rust and dust are
+ * all matte.
  *
  * COLOUR: no effect here is one tone. Weather is a mixture — the dirt
  * that ran down is not the salt it leached out of the wall, the pit in

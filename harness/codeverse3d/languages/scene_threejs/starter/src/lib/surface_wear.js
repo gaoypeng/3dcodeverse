@@ -11,10 +11,11 @@
  * neither needs a UV; and both CHAIN with each other and with
  * `terrain_shade` / `waterside` on one material.
  *
- * Gloss is the one thing neither can do per pixel: the only fragment
- * hook runs after `<color_fragment>`, which is BEFORE
- * `<roughnessmap_fragment>`, so both retune `material.roughness`
- * instead and compose their factors through `composeRoughness`.
+ * Gloss is the one thing neither does per pixel: both write only at
+ * `<color_fragment>`, which is BEFORE `<roughnessmap_fragment>`, and
+ * neither uses `patchStandard`'s `roughnessBody`, so both retune
+ * `material.roughness` instead and compose their factors through
+ * `composeRoughness`.
  *
  * PORT NOTES (2026-09-01, measured on our host — no post chain, ACES in
  * the fragment tail, a bright baked environment as the specular source):

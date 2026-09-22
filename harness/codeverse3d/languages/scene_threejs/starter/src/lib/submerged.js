@@ -573,9 +573,10 @@ const ICE_BODY = [
  * A geometry with no uv has no border, and frosts everywhere — give
  * the sheet a PlaneGeometry's uv or pass `frost: 0`.
  *
- * Gloss goes through `composeRoughness`, the only route to it: the one
- * fragment hook runs before `<roughnessmap_fragment>`, so roughness is
- * a material value, and frostier ice is duller.
+ * Gloss goes through `composeRoughness`: this patch writes only at
+ * `<color_fragment>`, before `<roughnessmap_fragment>`, and does not use
+ * `patchStandard`'s `roughnessBody`, so roughness is a material value,
+ * and frostier ice is duller.
  *
  * @param {THREE.Material} material A built-in material, patched in
  *   place.

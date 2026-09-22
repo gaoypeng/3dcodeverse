@@ -198,9 +198,9 @@ function _paintVariance(geo, size, amount) {
  *   (default 1) scales the baked paint mottle / wall shading, 0 drops
  *   the vertex colours entirely (a `material` you pass in reads them
  *   only if it sets `vertexColors`); `emissive` + `emissiveIntensity`
- *   (default 1.6 when emissive is set — there is NO bloom pass in this
- *   pipeline, so 1.5-4 is the whole usable range and 20 is a white
- *   blob) make a neon / backlit sign; `light` the practical an
+ *   (default 1.6 when emissive is set — the post chain's bloom only
+ *   adds a soft halo, so 1.5-4 is the whole usable range and 20 is a
+ *   white blob) make a neon / backlit sign; `light` the practical an
  *   emissive sign throws on its own board — `false` to drop it (do
  *   that for a facade carrying dozens of signs: this is one real
  *   PointLight per line), a number to set its candela directly.  The

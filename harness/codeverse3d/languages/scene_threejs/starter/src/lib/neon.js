@@ -46,15 +46,14 @@ const FLICK_GLSL = [
 ].join('\n');
 
 // HOW WHITE THE MIDDLE OF THE GLASS GOES, and it is not very white.
-// This renderer tone maps in the FRAGMENT TAIL with no post chain, so
-// additive layers sum in DISPLAY space: the near and far walls of a
-// double-sided shell plus the halo twice stack four deep on the middle
-// of a tube, and every channel a colour carries is multiplied by that
-// stack. Whitening the colour BEFORE it threw the gas away — measured,
-// a cyan sign rendered as a white strip light with a cyan edge. A tube
-// IS meant to clip, toward its OWN hue, which the stack does by itself
-// once the colour stays saturated. So: a fifth of the way to white dead
-// centre, gone two thirds out — a hot line in coloured glass.
+// Additive layers SUM: the near and far walls of a double-sided shell
+// plus the halo twice stack four deep on the middle of a tube, and
+// every channel a colour carries is multiplied by that stack. Whitening
+// the colour BEFORE it threw the gas away — measured, a cyan sign
+// rendered as a white strip light with a cyan edge. A tube IS meant to
+// clip, toward its OWN hue, which the stack does by itself once the
+// colour stays saturated. So: a fifth of the way to white dead centre,
+// gone two thirds out — a hot line in coloured glass.
 const FILAMENT_GLSL = [
     'float astraNeonFilament(float face, float hot) {',
     '  return pow(face, 14.0) * hot * 0.22;',
@@ -764,8 +763,9 @@ export function makeLightTrails(opts = {}) {
     const gain = hazy ? 0.55 : 1.15;
     const half = width * 3;
     // 0.5, not 0.7, on the head-lights: a lamp that whitens hard has
-    // no colour temperature left to vary, and with no bloom pass here
-    // the white it clips to is the last thing the frame records.
+    // no colour temperature left to vary, and the white it clips to is
+    // the last thing the frame records — the post chain's bloom only
+    // haloes it.
     g.add(laneMesh(fr, -lane, half, lift, trailMaterial(
         'NeonTrailWarm', toColor(opts.warm, 0xffeec8), 1, count, rate,
         gain, 0.5, 0.60, key, hazy, 0.40), 'TrailsWarm'));

@@ -15,10 +15,12 @@
  *   1b. every scene here sets `scene.fog`, and fog reaches a shader ONLY
  *      through its chunks — without them the effect keeps full contrast
  *      while the world around it recedes, which is the sticker look;
- *   1c. this renderer has NO post chain: tone mapping (ACES, exposure
- *      1.0) and the sRGB encode happen in the fragment tail, so a shader
- *      without three's two closing chunks renders dark and untonemapped
- *      next to every built-in — they are appended for you;
+ *   1c. scene renders go through a post chain whose OutputPass does the
+ *      tone mapping (ACES, exposure 1.0) and the sRGB encode, but a pass
+ *      drawn straight to the canvas (`post: false`, the raw coverage
+ *      passes) does both in the fragment tail, so there a shader without
+ *      three's two closing chunks renders dark and untonemapped next to
+ *      every built-in — they are appended for you;
  *   2. an `#include` sharing a line with anything else fails to compile;
  *   3. GLSL 3.00 syntax in a material three compiles as GLSL ES 1.00.
  *
@@ -290,10 +292,10 @@ const FOG_PARS_F = '#include <fog_pars_fragment>';
 const FOG_F = '#include <fog_fragment>';
 // What three appends to the end of every one of its OWN fragment
 // shaders. Both resolve per render target: identity into the
-// linear buffer a post chain reads, tone map + sRGB straight to
-// the canvas. This harness renders straight to the canvas (ACES,
-// exposure 1.0, no post chain today), so without them a custom
-// shader is dark and untonemapped next to every built-in.
+// linear buffer the post chain reads (scene renders; its OutputPass
+// tone-maps), tone map + sRGB straight to the canvas (`post: false`
+// and the raw passes: ACES, exposure 1.0) — where, without them, a
+// custom shader is dark and untonemapped next to every built-in.
 const OUT_F = [
     '  #include <tonemapping_fragment>',
     '  #include <colorspace_fragment>',
@@ -577,7 +579,10 @@ export function makeShaderMaterial(opts = {}) {
  *   (uTime added, driven by `tickShaders`); `vertexHead`/`fragmentHead`
  *   code before main; `vertexBody` runs after `<begin_vertex>` (edit
  *   `transformed`); `fragmentBody` runs after `<color_fragment>` (edit
- *   `diffuseColor`); `util` include GLSL_UTIL.
+ *   `diffuseColor`); `roughnessBody` / `metalnessBody` / `outputBody`
+ *   run after `<roughnessmap_fragment>` / `<metalnessmap_fragment>` /
+ *   `<opaque_fragment>` (per-pixel `roughnessFactor`, `metalnessFactor`,
+ *   the lit `gl_FragColor`); `util` include GLSL_UTIL.
  * @returns {THREE.Material} The same material.
  */
 /**

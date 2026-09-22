@@ -20,9 +20,10 @@
  * away from them. So a layer sells its depth by what it COVERS (steep
  * faces lose it, concave lees keep it), by a torn edge instead of a
  * ruled one, and by the shade it drops on the material just outside
- * that edge. Gloss is per MATERIAL, not per pixel, so each patch
- * composes ONE factor through `composeRoughness`, weighted by how much
- * of the surface it took over.
+ * that edge. Gloss here is per MATERIAL, not per pixel (neither patch
+ * uses `patchStandard`'s `roughnessBody`), so each patch composes ONE
+ * factor through `composeRoughness`, weighted by how much of the
+ * surface it took over.
  */
 
 import * as THREE from 'three';

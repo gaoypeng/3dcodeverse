@@ -380,9 +380,10 @@ def test_the_regrade_replaces_the_addon_tail(probe) -> None:
 
 
 def test_the_regrade_keeps_our_pipelines_fragment_tail(probe) -> None:
-    """We have no post chain: ACES and the sRGB encode happen in the
-    fragment tail, so a splice that dropped three's two closing chunks
-    would render the water dark next to every built-in material."""
+    """Off the post chain (`post: false`, the raw passes) ACES and the sRGB
+    encode happen in the fragment tail, so a splice that dropped three's
+    two closing chunks would render the water dark there, next to every
+    built-in material."""
     assert probe["keepsToneMap"], "tonemapping/colorspace chunks lost"
 
 

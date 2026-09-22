@@ -8,8 +8,8 @@
  * `terrain_shade` and `waterside` on one material.
  *
  * Both lift `totalEmissiveRadiance` rather than the albedo, which is the
- * one decision that separates them from a pale repaint. The only
- * fragment hook is `<color_fragment>`, so a patch may either tint ALBEDO
+ * one decision that separates them from a pale repaint. At
+ * `<color_fragment>`, where both run, a patch may either tint ALBEDO
  * — capped at the light already landing on the surface — or ADD light,
  * the choice `windows.js` documents for a lit room. A lantern at dusk
  * and an oil sheen on a shaded cobble are both brighter than their own
@@ -349,13 +349,14 @@ const IRID_BODY = [
  * dim HemisphereLight — `sunRig` always does — or the film has nothing
  * to split and stays invisible.
  *
- * METALNESS is the limit. Per-pixel metalness is unreachable (there is
- * no `composeMetalness` — `<color_fragment>` is the only hook), so this
- * cannot do what a real coating does to metal, which is to tint how the
- * METAL reflects. Above about 0.6 metalness the material has no diffuse
- * left and the film reads as a flat wash over a reflection that has not
- * changed. For a beetle's back or anodised steel, drop metalness to
- * 0.2-0.4 and let the film carry the colour.
+ * METALNESS is the limit. This patch never touches metalness (it runs at
+ * `<color_fragment>` and does not use `patchStandard`'s
+ * `metalnessBody`), so it cannot do what a real coating does to metal,
+ * which is to tint how the METAL reflects. Above about 0.6 metalness
+ * the material has no diffuse left and the film reads as a flat wash
+ * over a reflection that has not changed. For a beetle's back or
+ * anodised steel, drop metalness to 0.2-0.4 and let the film carry the
+ * colour.
  *
  * @param {THREE.Material} material A lit built-in material (it needs
  *   `totalEmissiveRadiance`), patched in place — a shared material

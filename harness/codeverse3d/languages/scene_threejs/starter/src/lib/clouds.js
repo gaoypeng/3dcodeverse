@@ -6,14 +6,15 @@ import { mulberry32, fbm2 } from './noise.js';
 import { makeShaderMaterial, keepOutOfDepthPasses } from './shader.js';
 
 // Cumulus/cirrus mood presets, graded for THIS renderer: ACES filmic at
-// exposure 1.0, sRGB out, NO post chain (no bloom to rescue a dim top,
-// no grade to pull a tint back). A lit cumulus top is the brightest
-// diffuse thing in a daylight frame, so `sunColor` is a near-WHITE with
-// a warm bias — the old 0xffc890 sun tint was graded against a bloom+
-// grade chain and lands as tan smoke here (measured: cloud region
-// (224,233,236) against a (232,239,242) sky, 3% contrast). `shadeColor`
-// is the sky-lit underside, never neutral grey: it is where the blue
-// comes from.
+// exposure 1.0, sRGB out, and nothing after that rescues a dim top or
+// pulls a tint back (the post chain's bloom takes only EMISSION, which a
+// cloud has none of, and its grade is identity unless the scene asks).
+// A lit cumulus top is the brightest diffuse thing in a daylight frame,
+// so `sunColor` is a near-WHITE with a warm bias — the old 0xffc890 sun
+// tint was graded against a bloom+grade chain and lands as tan smoke
+// here (measured: cloud region (224,233,236) against a (232,239,242)
+// sky, 3% contrast). `shadeColor` is the sky-lit underside, never
+// neutral grey: it is where the blue comes from.
 const PRESETS = {
   day: { sunColor: 0xfff4e6, shadeColor: 0x7e94b8, litGain: 1.55 },
   golden: { sunColor: 0xffd0a0, shadeColor: 0x7c82ac, litGain: 1.70 },

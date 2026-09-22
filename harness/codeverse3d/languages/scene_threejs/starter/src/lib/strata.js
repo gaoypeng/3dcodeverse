@@ -374,10 +374,11 @@ export function patchRockStrata(material, opts = {}) {
  * weaker than the last, so a run continues below where it started and
  * tapers out, which is flow rather than stripes.
  *
- * Roughness is per MATERIAL, not per pixel (`<color_fragment>` runs
- * before `<roughnessmap_fragment>`), so the wash takes a small polish
- * off the whole surface through `composeRoughness` — a face with water
- * tracks is a face that gets wet.
+ * Roughness is per MATERIAL here, not per pixel (the patch writes only
+ * at `<color_fragment>`, before `<roughnessmap_fragment>`, and does not
+ * use `patchStandard`'s `roughnessBody`), so the wash takes a small
+ * polish off the whole surface through `composeRoughness` — a face with
+ * water tracks is a face that gets wet.
  *
  * @param {THREE.Material} material A built-in material, patched in
  *   place — a shared material streaks every mesh wearing it.
